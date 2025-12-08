@@ -235,7 +235,7 @@ function Header({ onSettingsClick }: { onSettingsClick: () => void }) {
               가이드
             </Button>
             <Button variant="ghost" className="text-slate-700 hover:text-slate-900">
-              테스트
+              공지사항
             </Button>
           </nav>
 
@@ -604,19 +604,6 @@ export default function HomePage() {
     })
   }, [])
 
-  // 페이지 로드 시 팝업 표시 (클라이언트 사이드에서만 실행)
-  useEffect(() => {
-    // 클라이언트 사이드에서만 실행
-    if (typeof window === "undefined") return
-    
-    // 페이지가 완전히 로드된 후 실행
-    const timer = setTimeout(() => {
-      console.log("팝업 표시 시도")
-      alert("안녕하세요 윙스입니다")
-    }, 1000)
-    
-    return () => clearTimeout(timer)
-  }, [])
 
   // API 키 저장
   const handleSave = () => {
