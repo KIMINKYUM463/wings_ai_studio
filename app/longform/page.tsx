@@ -5980,6 +5980,13 @@ export default function LongformContentPage() {
                         </>
                       )}
                     </Button>
+                    <Button
+                      onClick={handleLoadTestData}
+                      className="h-12 bg-gray-500 hover:bg-gray-600 text-white rounded-lg font-semibold"
+                      size="lg"
+                    >
+                      테스트 데이터 로드
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
