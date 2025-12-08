@@ -601,6 +601,11 @@ export default function HomePage() {
     })
   }, [])
 
+  // 페이지 로드 시 팝업 표시
+  useEffect(() => {
+    alert("안녕하세요")
+  }, [])
+
   // API 키 저장
   const handleSave = () => {
     localStorage.setItem("openai_api_key", apiKeys.openai)
