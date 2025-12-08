@@ -612,7 +612,7 @@ export default function HomePage() {
     // 페이지가 완전히 로드된 후 실행
     const timer = setTimeout(() => {
       console.log("팝업 표시 시도")
-      alert("안녕하세요")
+      alert("안녕하세요 윙스입니다")
     }, 1000)
     
     return () => clearTimeout(timer)
