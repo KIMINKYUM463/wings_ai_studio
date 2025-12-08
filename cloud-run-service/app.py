@@ -85,24 +85,13 @@ def render_video():
             try:
                 if audio_gcs_url:
                     # Cloud Storage에서 다운로드
-                    print(f"[Render] Downloading audio from Cloud Storage: {audio_gcs_url}")
-                    audio_response = requests.get(audio_gcs_url, timeout=300, headers={
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                    })
+                    print(f"[Render] Downloading audio from Cloud Storage...")
+                    audio_response = requests.get(audio_gcs_url, timeout=300)
                     audio_response.raise_for_status()
                     audio_data = audio_response.content
                     print(f"[Render] Audio downloaded from GCS: {len(audio_data) / 1024 / 1024:.2f} MB")
-                    print(f"[Render] Audio Content-Type: {audio_response.headers.get('Content-Type', 'unknown')}")
-                    
-                    # 오디오 데이터 검증
-                    if len(audio_data) == 0:
-                        raise Exception("다운로드된 오디오 데이터가 비어있습니다.")
-                    if len(audio_data) < 100:
-                        raise Exception(f"오디오 데이터가 너무 작습니다: {len(audio_data)} bytes")
                 else:
                     # base64 디코딩
-                    if not audio_base64:
-                        raise Exception("audio_base64 또는 audio_gcs_url이 필요합니다.")
                     audio_data = base64.b64decode(audio_base64)
                     print(f"[Render] Audio decoded from base64: {len(audio_data) / 1024 / 1024:.2f} MB")
                 
@@ -111,15 +100,7 @@ def render_video():
                 audio_path = f"{temp_dir}/audio.wav"
                 with open(audio_path, 'wb') as f:
                     f.write(audio_data)
-                print(f"[Render] Audio saved to {audio_path}: {len(audio_data) / 1024 / 1024:.2f} MB")
-                
-                # 파일이 제대로 저장되었는지 확인
-                if not os.path.exists(audio_path):
-                    raise Exception(f"오디오 파일 저장 실패: {audio_path}")
-                saved_size = os.path.getsize(audio_path)
-                if saved_size != len(audio_data):
-                    raise Exception(f"오디오 파일 크기 불일치: 저장된 크기 {saved_size} != 원본 크기 {len(audio_data)}")
-                print(f"[Render] Audio file verified: {saved_size} bytes")
+                print(f"[Render] Audio saved: {len(audio_data) / 1024 / 1024:.2f} MB")
                 
                 # 실제 오디오 길이 측정 (ffprobe 사용)
                 try:
@@ -512,31 +493,6 @@ def render_video():
                 audio_file_size = os.path.getsize(audio_path)
                 print(f"[Render] Audio file size: {audio_file_size / 1024 / 1024:.2f} MB")
                 
-                # 오디오 파일 검증 (ffprobe로 확인)
-                try:
-                    probe_cmd = [
-                        'ffprobe',
-                        '-v', 'error',
-                        '-show_entries', 'stream=codec_name,codec_type,sample_rate,channels',
-                        '-of', 'json',
-                        audio_path
-                    ]
-                    probe_result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=10)
-                    if probe_result.returncode == 0:
-                        import json
-                        probe_data = json.loads(probe_result.stdout)
-                        audio_streams = [s for s in probe_data.get('streams', []) if s.get('codec_type') == 'audio']
-                        if len(audio_streams) > 0:
-                            audio_info = audio_streams[0]
-                            print(f"[Render] Audio stream info: codec={audio_info.get('codec_name')}, sample_rate={audio_info.get('sample_rate')}, channels={audio_info.get('channels')}")
-                        else:
-                            print(f"[Render] Warning: No audio stream found in file")
-                    else:
-                        print(f"[Render] Warning: Could not probe audio file: {probe_result.stderr}")
-                except Exception as probe_error:
-                    print(f"[Render] Warning: Audio probe failed: {str(probe_error)}")
-                
-                print(f"[Render] FFmpeg command: concat video + audio")
                 ffmpeg_cmd = [
                     'ffmpeg',
                     '-y',
@@ -625,30 +581,6 @@ def render_video():
                     raise Exception(f"오디오 파일이 존재하지 않습니다: {audio_path}")
                 audio_file_size = os.path.getsize(audio_path)
                 print(f"[Render] Audio file size: {audio_file_size / 1024 / 1024:.2f} MB")
-                
-                # 오디오 파일 검증 (ffprobe로 확인)
-                try:
-                    probe_cmd = [
-                        'ffprobe',
-                        '-v', 'error',
-                        '-show_entries', 'stream=codec_name,codec_type,sample_rate,channels',
-                        '-of', 'json',
-                        audio_path
-                    ]
-                    probe_result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=10)
-                    if probe_result.returncode == 0:
-                        import json
-                        probe_data = json.loads(probe_result.stdout)
-                        audio_streams = [s for s in probe_data.get('streams', []) if s.get('codec_type') == 'audio']
-                        if len(audio_streams) > 0:
-                            audio_info = audio_streams[0]
-                            print(f"[Render] Audio stream info: codec={audio_info.get('codec_name')}, sample_rate={audio_info.get('sample_rate')}, channels={audio_info.get('channels')}")
-                        else:
-                            print(f"[Render] Warning: No audio stream found in file")
-                    else:
-                        print(f"[Render] Warning: Could not probe audio file: {probe_result.stderr}")
-                except Exception as probe_error:
-                    print(f"[Render] Warning: Audio probe failed: {str(probe_error)}")
                 
                 if is_shorts:
                     # 쇼츠 모드: 배경 + 이미지 오버레이
@@ -743,32 +675,6 @@ def render_video():
                 raise Exception(f"FFmpeg rendering failed: {full_error[:2000]}")
             
             print(f"[Render] FFmpeg rendering completed")
-            
-            # 출력 파일의 오디오 스트림 확인
-            try:
-                probe_cmd = [
-                    'ffprobe',
-                    '-v', 'error',
-                    '-show_entries', 'stream=codec_name,codec_type,sample_rate,channels',
-                    '-of', 'json',
-                    output_path
-                ]
-                probe_result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=10)
-                if probe_result.returncode == 0:
-                    import json
-                    probe_data = json.loads(probe_result.stdout)
-                    video_streams = [s for s in probe_data.get('streams', []) if s.get('codec_type') == 'video']
-                    audio_streams = [s for s in probe_data.get('streams', []) if s.get('codec_type') == 'audio']
-                    print(f"[Render] Output file streams: {len(video_streams)} video, {len(audio_streams)} audio")
-                    if len(audio_streams) > 0:
-                        audio_info = audio_streams[0]
-                        print(f"[Render] Output audio stream: codec={audio_info.get('codec_name')}, sample_rate={audio_info.get('sample_rate')}, channels={audio_info.get('channels')}")
-                    else:
-                        print(f"[Render] ERROR: No audio stream in output file!")
-                else:
-                    print(f"[Render] Warning: Could not probe output file: {probe_result.stderr}")
-            except Exception as probe_error:
-                print(f"[Render] Warning: Output file probe failed: {str(probe_error)}")
             
             # 6. 렌더링된 영상 읽기
             if not os.path.exists(output_path):
