@@ -44,6 +44,9 @@ import {
   Play,
   Search,
   Lock,
+  Eye,
+  EyeOff,
+  Copy,
 } from "lucide-react"
 import { useRouter } from "next/navigation"
 
@@ -590,6 +593,12 @@ export default function HomePage() {
     replicate: "",
   })
   const [saved, setSaved] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [showKeys, setShowKeys] = useState({
+    openai: false,
+    elevenlabs: false,
+    replicate: false,
+  })
 
   // 로컬스토리지에서 API 키 불러오기
   useEffect(() => {
@@ -690,14 +699,39 @@ export default function HomePage() {
               <Label htmlFor="openai-key" className="text-sm font-medium">
                 OpenAI API Key
               </Label>
-              <Input
-                id="openai-key"
-                type="password"
-                placeholder="sk-..."
-                value={apiKeys.openai}
-                onChange={(e) => setApiKeys({ ...apiKeys, openai: e.target.value })}
-                className="font-mono text-sm"
-              />
+              <div className="flex items-center gap-2">
+                <Input
+                  id="openai-key"
+                  type={showKeys.openai ? "text" : "password"}
+                  placeholder="sk-..."
+                  value={apiKeys.openai}
+                  onChange={(e) => setApiKeys({ ...apiKeys, openai: e.target.value })}
+                  className="font-mono text-sm"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowKeys({ ...showKeys, openai: !showKeys.openai })}
+                  className="shrink-0"
+                >
+                  {showKeys.openai ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    navigator.clipboard.writeText(apiKeys.openai)
+                    setCopied(true)
+                    setTimeout(() => setCopied(false), 2000)
+                  }}
+                  disabled={!apiKeys.openai}
+                  className="shrink-0"
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </div>
               <p className="text-xs text-muted-foreground">GPT 모델 사용에 필요합니다</p>
             </div>
 
@@ -706,14 +740,39 @@ export default function HomePage() {
               <Label htmlFor="elevenlabs-key" className="text-sm font-medium">
                 ElevenLabs API Key
               </Label>
-              <Input
-                id="elevenlabs-key"
-                type="password"
-                placeholder="입력하세요"
-                value={apiKeys.elevenlabs}
-                onChange={(e) => setApiKeys({ ...apiKeys, elevenlabs: e.target.value })}
-                className="font-mono text-sm"
-              />
+              <div className="flex items-center gap-2">
+                <Input
+                  id="elevenlabs-key"
+                  type={showKeys.elevenlabs ? "text" : "password"}
+                  placeholder="입력하세요"
+                  value={apiKeys.elevenlabs}
+                  onChange={(e) => setApiKeys({ ...apiKeys, elevenlabs: e.target.value })}
+                  className="font-mono text-sm"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowKeys({ ...showKeys, elevenlabs: !showKeys.elevenlabs })}
+                  className="shrink-0"
+                >
+                  {showKeys.elevenlabs ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    navigator.clipboard.writeText(apiKeys.elevenlabs)
+                    setCopied(true)
+                    setTimeout(() => setCopied(false), 2000)
+                  }}
+                  disabled={!apiKeys.elevenlabs}
+                  className="shrink-0"
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </div>
               <p className="text-xs text-muted-foreground">고품질 음성 합성에 사용됩니다</p>
             </div>
 
@@ -722,14 +781,39 @@ export default function HomePage() {
               <Label htmlFor="replicate-key" className="text-sm font-medium">
                 Replicate API Key
               </Label>
-              <Input
-                id="replicate-key"
-                type="password"
-                placeholder="r8_..."
-                value={apiKeys.replicate}
-                onChange={(e) => setApiKeys({ ...apiKeys, replicate: e.target.value })}
-                className="font-mono text-sm"
-              />
+              <div className="flex items-center gap-2">
+                <Input
+                  id="replicate-key"
+                  type={showKeys.replicate ? "text" : "password"}
+                  placeholder="r8_..."
+                  value={apiKeys.replicate}
+                  onChange={(e) => setApiKeys({ ...apiKeys, replicate: e.target.value })}
+                  className="font-mono text-sm"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowKeys({ ...showKeys, replicate: !showKeys.replicate })}
+                  className="shrink-0"
+                >
+                  {showKeys.replicate ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    navigator.clipboard.writeText(apiKeys.replicate)
+                    setCopied(true)
+                    setTimeout(() => setCopied(false), 2000)
+                  }}
+                  disabled={!apiKeys.replicate}
+                  className="shrink-0"
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </div>
               <p className="text-xs text-muted-foreground">AI 모델 실행에 사용됩니다</p>
             </div>
           </div>
@@ -739,6 +823,12 @@ export default function HomePage() {
                 <>
                   <CheckCircle2 className="w-4 h-4" />
                   <span>저장되었습니다</span>
+                </>
+              )}
+              {copied && (
+                <>
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>복사되었습니다</span>
                 </>
               )}
             </div>
