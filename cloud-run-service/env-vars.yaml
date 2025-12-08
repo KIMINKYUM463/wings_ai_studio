@@ -1,0 +1,10 @@
+env:
+  - name: GOOGLE_CLOUD_PROJECT_ID
+    value: test-ai-450613
+  - name: GOOGLE_CLOUD_STORAGE_BUCKET
+    value: video-renderer-storage
+
+
+
+
+
