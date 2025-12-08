@@ -234,6 +234,9 @@ function Header({ onSettingsClick }: { onSettingsClick: () => void }) {
             <Button variant="ghost" className="text-slate-700 hover:text-slate-900">
               가이드
             </Button>
+            <Button variant="ghost" className="text-slate-700 hover:text-slate-900">
+              테스트
+            </Button>
           </nav>
 
           {/* 우측 아이콘들 */}
@@ -601,9 +604,13 @@ export default function HomePage() {
     })
   }, [])
 
-  // 페이지 로드 시 팝업 표시
+  // 페이지 로드 시 팝업 표시 (클라이언트 사이드에서만 실행)
   useEffect(() => {
-    alert("안녕하세요")
+    if (typeof window !== "undefined") {
+      setTimeout(() => {
+        alert("안녕하세요")
+      }, 500)
+    }
   }, [])
 
   // API 키 저장
