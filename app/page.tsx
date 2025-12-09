@@ -468,7 +468,7 @@ function FeatureCard({
 }: {
   service: (typeof videoProductionServices)[0] | (typeof analysisToolsServices)[0] | (typeof otherToolsServices)[0]
   index: number
-  onServiceClick: (service: typeof service) => void
+  onServiceClick: (service: (typeof videoProductionServices)[0] | (typeof analysisToolsServices)[0] | (typeof otherToolsServices)[0]) => void
 }) {
   const Icon = service.icon
   const isLocked = 'locked' in service && service.locked
@@ -599,6 +599,30 @@ export default function HomePage() {
     elevenlabs: false,
     replicate: false,
   })
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [password, setPassword] = useState("")
+  const [passwordError, setPasswordError] = useState("")
+
+  // 비밀번호 확인
+  useEffect(() => {
+    // 세션 스토리지에서 인증 상태 확인
+    const authStatus = sessionStorage.getItem("authenticated")
+    if (authStatus === "true") {
+      setIsAuthenticated(true)
+    }
+  }, [])
+
+  const handlePasswordSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (password === "7777") {
+      setIsAuthenticated(true)
+      sessionStorage.setItem("authenticated", "true")
+      setPasswordError("")
+    } else {
+      setPasswordError("비밀번호가 올바르지 않습니다.")
+      setPassword("")
+    }
+  }
 
   // 로컬스토리지에서 API 키 불러오기
   useEffect(() => {
@@ -631,6 +655,50 @@ export default function HomePage() {
     } else {
       router.push(service.url)
     }
+  }
+
+  // 비밀번호 입력 다이얼로그
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 flex items-center justify-center">
+        <Dialog open={true} onOpenChange={() => {}}>
+          <DialogContent className="sm:max-w-[400px]">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Lock className="w-5 h-5" />
+                비밀번호 입력
+              </DialogTitle>
+              <DialogDescription>
+                이 페이지에 접근하려면 비밀번호를 입력해주세요.
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={handlePasswordSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="password">비밀번호</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value)
+                    setPasswordError("")
+                  }}
+                  placeholder="비밀번호를 입력하세요"
+                  className="h-12"
+                  autoFocus
+                />
+                {passwordError && (
+                  <p className="text-sm text-red-500">{passwordError}</p>
+                )}
+              </div>
+              <Button type="submit" className="w-full h-12">
+                확인
+              </Button>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </div>
+    )
   }
 
   return (
