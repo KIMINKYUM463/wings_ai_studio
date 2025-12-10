@@ -41,7 +41,7 @@ export default function WingsAIStudioPage() {
       <header className="fixed top-0 left-0 right-0 z-50 border-b border-[oklch(0.28_0_0)] bg-[oklch(0.13_0_0)]/80 backdrop-blur-sm">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
           {/* Logo */}
-          <Link href="/WingsAIStudio" className="flex items-center gap-2">
+          <Link href="/main" className="flex items-center gap-2">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[oklch(0.98_0_0)]">
               <span className="text-xl font-bold text-[oklch(0.13_0_0)]">W</span>
             </div>
@@ -65,10 +65,10 @@ export default function WingsAIStudioPage() {
 
           {/* Auth Buttons */}
           <div className="flex items-center gap-3">
-            <Link href="/WingsAIStudio/login" className="hidden sm:inline-flex px-4 py-2 text-sm rounded-md hover:bg-[oklch(0.18_0_0)] transition-colors">
+            <Link href="/main/login" className="hidden sm:inline-flex px-4 py-2 text-sm rounded-md hover:bg-[oklch(0.18_0_0)] transition-colors">
               로그인
             </Link>
-            <Link href="/WingsAIStudio/signup" className="inline-flex px-4 py-2 text-sm rounded-md bg-[oklch(0.98_0_0)] text-[oklch(0.13_0_0)] hover:opacity-90 transition-opacity">
+            <Link href="/main/signup" className="inline-flex px-4 py-2 text-sm rounded-md bg-[oklch(0.98_0_0)] text-[oklch(0.13_0_0)] hover:opacity-90 transition-opacity">
               시작하기
             </Link>
           </div>
@@ -87,7 +87,7 @@ export default function WingsAIStudioPage() {
             유튜브 스크립트, 블로그 글, 이커머스 상품 설명까지. AI가 당신의 부업을 도와드립니다.
           </p>
           <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
-            <Link href="/WingsAIStudio/signup" className="inline-flex items-center gap-2 px-6 py-3 text-sm font-medium rounded-md bg-[oklch(0.98_0_0)] text-[oklch(0.13_0_0)] hover:opacity-90 transition-opacity">
+            <Link href="/main/signup" className="inline-flex items-center gap-2 px-6 py-3 text-sm font-medium rounded-md bg-[oklch(0.98_0_0)] text-[oklch(0.13_0_0)] hover:opacity-90 transition-opacity">
               무료로 시작하기
               <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
