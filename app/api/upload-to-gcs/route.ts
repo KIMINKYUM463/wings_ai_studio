@@ -65,6 +65,21 @@ function getStorageClient() {
 
 export async function POST(request: NextRequest) {
   try {
+    // 요청 본문 크기 확인 (Vercel 제한: 4.5MB)
+    const requestBody = await request.text()
+    const requestSizeMB = requestBody.length / 1024 / 1024
+    
+    if (requestSizeMB > 4.5) {
+      console.error(`[Upload] 요청 크기가 너무 큽니다: ${requestSizeMB.toFixed(2)}MB (Vercel 제한: 4.5MB)`)
+      return NextResponse.json(
+        { 
+          error: `요청 크기가 너무 큽니다 (${requestSizeMB.toFixed(2)}MB). Vercel의 요청 크기 제한(4.5MB)을 초과합니다. 파일을 더 작게 나누거나 다른 방법을 사용해주세요.`,
+          requestSizeMB: requestSizeMB.toFixed(2)
+        },
+        { status: 413 }
+      )
+    }
+    
     // 디버깅: 환경 변수 확인 (상세)
     console.log("[Upload] 환경 변수 확인:")
     console.log("[Upload] GOOGLE_CLOUD_PROJECT_ID:", process.env.GOOGLE_CLOUD_PROJECT_ID || "undefined")
@@ -72,7 +87,7 @@ export async function POST(request: NextRequest) {
     console.log("[Upload] GOOGLE_APPLICATION_CREDENTIALS:", process.env.GOOGLE_APPLICATION_CREDENTIALS || "undefined")
     console.log("[Upload] 모든 환경 변수 키:", Object.keys(process.env).filter(key => key.includes("GOOGLE")))
     
-    const { fileBase64, fileName, contentType } = await request.json()
+    const { fileBase64, fileName, contentType } = JSON.parse(requestBody)
 
     if (!fileBase64 || !fileName) {
       return NextResponse.json(
