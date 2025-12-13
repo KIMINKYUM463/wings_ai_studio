@@ -1,10 +1,14 @@
-'use client'
+"use client"
 
-import { useEffect } from 'react'
+import { useEffect } from "react"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
 
-export default function HomePage() {
+export default function WingsAIStudioPage() {
+  const router = useRouter()
+
   useEffect(() => {
-    // Admin page trigger - double right click
+    // 더블 우클릭으로 admin 페이지 접근
     let rightClickCount = 0
     let rightClickTimer: NodeJS.Timeout | null = null
 
@@ -19,145 +23,114 @@ export default function HomePage() {
       } else if (rightClickCount === 2) {
         if (rightClickTimer) clearTimeout(rightClickTimer)
         rightClickCount = 0
-        window.location.href = '/admin'
+        router.push("/admin")
       }
     }
 
-    document.addEventListener('contextmenu', handleContextMenu)
+    document.addEventListener("contextmenu", handleContextMenu)
+
     return () => {
-      document.removeEventListener('contextmenu', handleContextMenu)
+      document.removeEventListener("contextmenu", handleContextMenu)
       if (rightClickTimer) clearTimeout(rightClickTimer)
     }
-  }, [])
+  }, [router])
 
   return (
-    <>
-      <style dangerouslySetInnerHTML={{
-        __html: `
-          :root {
-            --background: oklch(0.13 0 0);
-            --foreground: oklch(0.98 0 0);
-            --card: oklch(0.18 0 0);
-            --muted-foreground: oklch(0.65 0 0);
-            --border: oklch(0.28 0 0);
-            --primary: oklch(0.98 0 0);
-            --primary-foreground: oklch(0.13 0 0);
-          }
-          
-          body {
-            background-color: oklch(0.13 0 0) !important;
-            color: oklch(0.98 0 0) !important;
-            font-family: system-ui, -apple-system, sans-serif !important;
-          }
-          
-          .bg-background { background-color: var(--background); }
-          .bg-card { background-color: var(--card); }
-          .bg-primary { background-color: var(--primary); }
-          .text-foreground { color: var(--foreground); }
-          .text-muted-foreground { color: var(--muted-foreground); }
-          .text-primary-foreground { color: var(--primary-foreground); }
-          .border-border { border-color: var(--border); }
-          
-          .backdrop-blur-sm {
-            backdrop-filter: blur(8px);
-          }
-        `
-      }} />
-      <script src="https://cdn.tailwindcss.com"></script>
-      
+    <div className="min-h-screen bg-[oklch(0.13_0_0)] text-[oklch(0.98_0_0)] font-sans">
       {/* Header */}
-      <header className="fixed top-0 left-0 right-0 z-50 border-b border-border bg-background/80 backdrop-blur-sm">
+      <header className="fixed top-0 left-0 right-0 z-50 border-b border-[oklch(0.28_0_0)] bg-[oklch(0.13_0_0)]/80 backdrop-blur-sm">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
           {/* Logo */}
-          <a href="/" className="flex items-center gap-2">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary">
-              <span className="text-xl font-bold text-primary-foreground">B</span>
+          <Link href="/WingsAIStudio" className="flex items-center gap-2">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[oklch(0.98_0_0)]">
+              <span className="text-xl font-bold text-[oklch(0.13_0_0)]">W</span>
             </div>
             <span className="text-lg font-semibold">
-              부스텍<span className="text-primary">AI</span>
+              Wings<span className="text-[oklch(0.98_0_0)]">AI</span>Studio
             </span>
-          </a>
+          </Link>
+
           {/* Navigation */}
           <nav className="hidden items-center gap-8 md:flex">
-            <a href="#categories" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+            <a href="#categories" className="text-sm text-[oklch(0.65_0_0)] hover:text-[oklch(0.98_0_0)] transition-colors">
               카테고리
             </a>
-            <a href="#pricing" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+            <a href="#pricing" className="text-sm text-[oklch(0.65_0_0)] hover:text-[oklch(0.98_0_0)] transition-colors">
               요금제
             </a>
-            <a href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+            <a href="#" className="text-sm text-[oklch(0.65_0_0)] hover:text-[oklch(0.98_0_0)] transition-colors">
               문서
             </a>
           </nav>
+
           {/* Auth Buttons */}
           <div className="flex items-center gap-3">
-            <a href="/login" className="hidden sm:inline-flex px-4 py-2 text-sm rounded-md hover:bg-card transition-colors">
+            <Link href="/WingsAIStudio/login" className="hidden sm:inline-flex px-4 py-2 text-sm rounded-md hover:bg-[oklch(0.18_0_0)] transition-colors">
               로그인
-            </a>
-            <a href="/signup" className="inline-flex px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-opacity">
+            </Link>
+            <Link href="/WingsAIStudio/signup" className="inline-flex px-4 py-2 text-sm rounded-md bg-[oklch(0.98_0_0)] text-[oklch(0.13_0_0)] hover:opacity-90 transition-opacity">
               시작하기
-            </a>
+            </Link>
           </div>
         </div>
       </header>
+
       <main>
         {/* Hero Section */}
         <section className="flex min-h-[70vh] flex-col items-center justify-center px-6 pt-24 text-center">
-          <p className="mb-4 text-sm font-medium text-muted-foreground">부스텍AI로 시작하는 부업</p>
+          <p className="mb-4 text-sm font-medium text-[oklch(0.65_0_0)]">WingsAIStudio로 시작하는 부업</p>
           <h1 className="max-w-4xl text-4xl font-bold tracking-tight md:text-6xl lg:text-7xl">
             콘텐츠 생성을 위한<br />
             가장 빠른 플랫폼
           </h1>
-          <p className="mt-6 max-w-2xl text-lg text-muted-foreground">
+          <p className="mt-6 max-w-2xl text-lg text-[oklch(0.65_0_0)]">
             유튜브 스크립트, 블로그 글, 이커머스 상품 설명까지. AI가 당신의 부업을 도와드립니다.
           </p>
           <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
-            <a href="/signup" className="inline-flex items-center gap-2 px-6 py-3 text-sm font-medium rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-opacity">
+            <Link href="/WingsAIStudio/signup" className="inline-flex items-center gap-2 px-6 py-3 text-sm font-medium rounded-md bg-[oklch(0.98_0_0)] text-[oklch(0.13_0_0)] hover:opacity-90 transition-opacity">
               무료로 시작하기
               <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
               </svg>
-            </a>
-            <a href="#pricing" className="px-6 py-3 text-sm font-medium rounded-md border border-border hover:bg-card transition-colors">
+            </Link>
+            <a href="#pricing" className="px-6 py-3 text-sm font-medium rounded-md border border-[oklch(0.28_0_0)] hover:bg-[oklch(0.18_0_0)] transition-colors">
               요금제 보기
             </a>
           </div>
         </section>
+
         {/* Category Section */}
         <section id="categories" className="mx-auto max-w-7xl px-6 py-24">
           <div className="mb-12 text-center">
             <h2 className="text-3xl font-bold tracking-tight md:text-4xl">프로그램 목록</h2>
-            <p className="mt-4 text-muted-foreground">수강생에게 제공되는 프로그램을 확인하세요</p>
+            <p className="mt-4 text-[oklch(0.65_0_0)]">수강생에게 제공되는 프로그램을 확인하세요</p>
           </div>
-          <div className="min-h-[400px] rounded-2xl border-2 border-dashed border-border bg-card/50 p-12">
-            <div className="flex h-full flex-col items-center justify-center gap-6">
-              <p className="text-center text-muted-foreground">강사별 프로그램이 여기에 표시됩니다</p>
-              <a href="/WingsAIStudio" className="inline-flex items-center gap-2 px-6 py-3 text-sm font-medium rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-opacity">
-                WingsAIStudio 바로가기
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
-                </svg>
-              </a>
+
+          <div className="min-h-[400px] rounded-2xl border-2 border-dashed border-[oklch(0.28_0_0)] bg-[oklch(0.18_0_0)]/50 p-12">
+            <div className="flex h-full items-center justify-center">
+              <p className="text-center text-[oklch(0.65_0_0)]">강사별 프로그램이 여기에 표시됩니다</p>
             </div>
           </div>
         </section>
+
         {/* Pricing Section */}
         <section id="pricing" className="mx-auto max-w-7xl px-6 py-24">
           <div className="mb-12 text-center">
             <h2 className="text-3xl font-bold tracking-tight md:text-4xl">요금제</h2>
-            <p className="mt-4 text-muted-foreground">필요에 맞는 플랜을 선택하세요</p>
+            <p className="mt-4 text-[oklch(0.65_0_0)]">필요에 맞는 플랜을 선택하세요</p>
           </div>
+
           <div className="mx-auto grid max-w-3xl gap-6 md:grid-cols-2">
             {/* Free Plan */}
-            <div className="relative flex flex-col rounded-2xl border border-border bg-card p-8">
-              <span className="absolute -top-3 left-6 rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground">
+            <div className="relative flex flex-col rounded-2xl border border-[oklch(0.28_0_0)] bg-[oklch(0.18_0_0)] p-8">
+              <span className="absolute -top-3 left-6 rounded-full bg-[oklch(0.98_0_0)] px-3 py-1 text-xs font-medium text-[oklch(0.13_0_0)]">
                 수강생 전용
               </span>
               <h3 className="text-lg font-semibold">Free</h3>
-              <p className="mt-2 text-sm text-muted-foreground">수강생 전용 무료 플랜</p>
+              <p className="mt-2 text-sm text-[oklch(0.65_0_0)]">수강생 전용 무료 플랜</p>
               <div className="mt-6">
                 <span className="text-4xl font-bold">₩0</span>
-                <span className="text-sm text-muted-foreground">/월</span>
+                <span className="text-sm text-[oklch(0.65_0_0)]">/월</span>
               </div>
               <ul className="mt-8 flex-1 space-y-3">
                 <li className="flex items-center gap-3 text-sm">
@@ -179,12 +152,13 @@ export default function HomePage() {
                   커뮤니티 지원
                 </li>
               </ul>
-              <button className="mt-8 w-full px-4 py-2 text-sm font-medium rounded-md border border-border hover:bg-card transition-colors">
+              <button className="mt-8 w-full px-4 py-2 text-sm font-medium rounded-md border border-[oklch(0.28_0_0)] hover:bg-[oklch(0.18_0_0)] transition-colors">
                 수강생 인증하기
               </button>
             </div>
+
             {/* Pro Plan */}
-            <div className="relative flex flex-col rounded-2xl border border-foreground bg-foreground text-background p-8">
+            <div className="relative flex flex-col rounded-2xl border border-[oklch(0.98_0_0)] bg-[oklch(0.98_0_0)] text-[oklch(0.13_0_0)] p-8">
               <h3 className="text-lg font-semibold">Pro</h3>
               <p className="mt-2 text-sm opacity-70">모든 기능을 무제한으로</p>
               <div className="mt-6">
@@ -223,35 +197,37 @@ export default function HomePage() {
                   새로운 기능 우선 제공
                 </li>
               </ul>
-              <button className="mt-8 w-full px-4 py-2 text-sm font-medium rounded-md bg-background text-foreground hover:opacity-90 transition-opacity">
+              <button className="mt-8 w-full px-4 py-2 text-sm font-medium rounded-md bg-[oklch(0.13_0_0)] text-[oklch(0.98_0_0)] hover:opacity-90 transition-opacity">
                 Pro 시작하기
               </button>
             </div>
           </div>
         </section>
       </main>
+
       {/* Footer */}
-      <footer className="border-t border-border">
+      <footer className="border-t border-[oklch(0.28_0_0)]">
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 px-6 py-8 md:flex-row">
           <div className="flex items-center gap-3">
             {/* Logo */}
             <div className="flex items-center gap-2">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary">
-                <span className="text-xl font-bold text-primary-foreground">B</span>
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[oklch(0.98_0_0)]">
+                <span className="text-xl font-bold text-[oklch(0.13_0_0)]">W</span>
               </div>
               <span className="text-lg font-semibold">
-                부스텍<span className="text-primary">AI</span>
+                Wings<span className="text-[oklch(0.98_0_0)]">AI</span>Studio
               </span>
             </div>
-            <span className="text-sm text-muted-foreground">© 2025</span>
+            <span className="text-sm text-[oklch(0.65_0_0)]">© 2025</span>
           </div>
           <nav className="flex gap-6">
-            <a href="#" className="text-sm text-muted-foreground hover:text-foreground">이용약관</a>
-            <a href="#" className="text-sm text-muted-foreground hover:text-foreground">개인정보처리방침</a>
-            <a href="#" className="text-sm text-muted-foreground hover:text-foreground">문의</a>
+            <a href="#" className="text-sm text-[oklch(0.65_0_0)] hover:text-[oklch(0.98_0_0)]">이용약관</a>
+            <a href="#" className="text-sm text-[oklch(0.65_0_0)] hover:text-[oklch(0.98_0_0)]">개인정보처리방침</a>
+            <a href="#" className="text-sm text-[oklch(0.65_0_0)] hover:text-[oklch(0.98_0_0)]">문의</a>
           </nav>
         </div>
       </footer>
-    </>
+    </div>
   )
 }
+

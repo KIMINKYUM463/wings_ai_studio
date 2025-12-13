@@ -73,113 +73,13 @@ export async function splitScriptIntoScenes(script: string): Promise<string[]> {
   return finalSections
 }
 
-/**
- * 제품 특징 분석 함수
- * 제품명과 설명을 분석하여 적절한 배경, 각도, 조명 등을 결정
- */
-async function analyzeProductFeatures(
-  productName: string,
-  productDescription: string,
-  apiKey?: string
-): Promise<{
-  productType: string // 제품 유형 (예: 주방용품, 건강용품, 전자제품 등)
-  usageContext: string // 사용 맥락 (예: 주방, 거실, 야외 등)
-  suitableBackgrounds: string[] // 적합한 배경 (3개)
-  suitableAngles: string[] // 적합한 각도 (3개)
-  suitableLighting: string[] // 적합한 조명 (3개)
-  keyFeatures: string[] // 주요 특징
-}> {
-  const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
-
-  if (!GPT_API_KEY) {
-    throw new Error("GPT API 키가 설정되지 않았습니다.")
-  }
-
-  try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${GPT_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content: `당신은 제품 분석 전문가입니다. 제품명과 설명을 분석하여 이미지 생성에 필요한 정보를 제공해주세요.
-
-출력 형식은 반드시 JSON 형식으로 해주세요:
-{
-  "productType": "제품 유형 (예: 주방용품, 건강용품, 전자제품, 생활용품 등)",
-  "usageContext": "주요 사용 맥락 (예: 주방, 거실, 침실, 야외, 사무실 등)",
-  "suitableBackgrounds": ["배경1", "배경2", "배경3"],
-  "suitableAngles": ["각도1", "각도2", "각도3"],
-  "suitableLighting": ["조명1", "조명2", "조명3"],
-  "keyFeatures": ["특징1", "특징2", "특징3"]
-}
-
-배경은 제품의 사용 맥락에 맞는 구체적인 배경을 제시해주세요.
-각도는 제품을 보여주기에 적합한 카메라 각도를 제시해주세요.
-조명은 제품의 특성에 맞는 조명 스타일을 제시해주세요.`,
-          },
-          {
-            role: "user",
-            content: `제품명: ${productName}
-${productDescription ? `제품 설명: ${productDescription}` : ""}
-
-위 제품을 분석하여 이미지 생성에 필요한 정보를 JSON 형식으로 제공해주세요.`,
-          },
-        ],
-        max_tokens: 1000,
-        temperature: 0.7,
-        response_format: { type: "json_object" },
-      }),
-    })
-
-    if (!response.ok) {
-      throw new Error(`API 호출 실패: ${response.status}`)
-    }
-
-    const data = await response.json()
-    const content = data.choices?.[0]?.message?.content
-
-    if (!content) {
-      throw new Error("제품 분석 결과를 받을 수 없습니다.")
-    }
-
-    const analysis = JSON.parse(content)
-    return {
-      productType: analysis.productType || "일반 제품",
-      usageContext: analysis.usageContext || "일반 공간",
-      suitableBackgrounds: analysis.suitableBackgrounds || ["밝고 깔끔한 실내 배경"],
-      suitableAngles: analysis.suitableAngles || ["정면 각도"],
-      suitableLighting: analysis.suitableLighting || ["자연광"],
-      keyFeatures: analysis.keyFeatures || [],
-    }
-  } catch (error) {
-    console.error("[Shopping] 제품 분석 실패:", error)
-    // 분석 실패 시 기본값 반환
-    return {
-      productType: "일반 제품",
-      usageContext: "일반 공간",
-      suitableBackgrounds: ["밝고 깔끔한 실내 배경", "현대적인 주방이나 거실 배경", "야외나 밝은 실외 배경"],
-      suitableAngles: ["위에서 본 각도", "정면 각도", "측면 각도"],
-      suitableLighting: ["부드러운 자연광", "따뜻한 실내 조명", "자연스러운 햇빛"],
-      keyFeatures: [],
-    }
-  }
-}
-
 // 나노바나나를 사용한 이미지 생성 (제품 이미지 참고)
 export async function generateImageWithNanobanana(
   sceneScript: string,
   productName: string,
   productImageBase64: string | undefined,
   replicateApiKey?: string,
-  sceneIndex?: number, // 섹션 인덱스 (0, 1, 2) - 배경 스타일 결정용
-  productDescription?: string, // 제품 설명 (선택사항)
-  apiKey?: string // GPT API 키 (제품 분석용)
+  sceneIndex?: number // 섹션 인덱스 (0, 1, 2) - 배경 스타일 결정용
 ): Promise<string> {
   const REPLICATE_API_TOKEN = replicateApiKey || process.env.REPLICATE_API_TOKEN
 
@@ -188,109 +88,60 @@ export async function generateImageWithNanobanana(
   }
 
   try {
-    // 제품 특징 분석 (제품 설명이 있으면 분석 수행)
-    let productAnalysis = null
-    if (productDescription && apiKey) {
-      try {
-        productAnalysis = await analyzeProductFeatures(productName, productDescription, apiKey)
-        console.log("[Shopping] 제품 분석 완료:", productAnalysis)
-      } catch (error) {
-        console.warn("[Shopping] 제품 분석 실패, 기본 설정 사용:", error)
-      }
-    }
-
     // 이미지 생성 프롬프트 생성
     // 중요: 텍스트나 글씨가 전혀 없는 순수한 시각적 연출샷만 생성
     // 실제 제품을 사용하는 느낌의 사진이어야 함
     // 각 섹션마다 다른 배경이 나와야 함
     
-    // 제품 분석 결과가 있으면 사용, 없으면 기본 설정 사용
-    const currentSceneIndex = sceneIndex !== undefined ? sceneIndex : 0
-    
-    let config
-    if (productAnalysis) {
-      // 분석 결과를 기반으로 설정 생성
-      const backgrounds = productAnalysis.suitableBackgrounds
-      const angles = productAnalysis.suitableAngles
-      const lightings = productAnalysis.suitableLighting
-      
-      const cameraShots = ["wide shot", "medium shot", "close-up shot"]
-      const compositions = [
-        "중앙 배치, 대칭적 구도, 미니멀한 구성",
-        "우측 또는 좌측 배치, 비대칭적 구도, 자연스러운 배치",
-        "대각선 구도, 역동적인 배치, 시선을 끄는 구성"
-      ]
-      
-      config = {
-        background: backgrounds[currentSceneIndex] || backgrounds[0] || "밝고 깔끔한 실내 배경",
-        angle: angles[currentSceneIndex] || angles[0] || "제품을 정면에서 본 각도",
-        camera: cameraShots[currentSceneIndex] || cameraShots[0] || "medium shot",
-        lighting: lightings[currentSceneIndex] || lightings[0] || "부드러운 자연광",
-        composition: compositions[currentSceneIndex] || compositions[0],
-        usageContext: productAnalysis.usageContext,
-        productType: productAnalysis.productType
+    // 섹션 인덱스에 따라 완전히 다른 배경 스타일, 제품 각도, 카메라 앵글, 구도 적용
+    const sceneConfigs = [
+      {
+        background: "밝고 깔끔한 실내 배경, 흰색 벽, 자연광이 들어오는 창문, 미니멀한 인테리어, 깨끗한 공간",
+        angle: "제품을 위에서 본 각도, top view, bird's eye view, 제품의 상단면이 명확하게 보이는 각도, 공중에서 내려다보는 시점",
+        camera: "wide shot, 전체적인 구도, 제품과 배경이 모두 보이는 넓은 화면",
+        lighting: "부드러운 자연광, 창문에서 들어오는 햇빛, 밝고 깨끗한 조명",
+        composition: "중앙 배치, 대칭적 구도, 미니멀한 구성"
+      },
+      {
+        background: "현대적인 주방이나 거실 배경, 나무 테이블, 따뜻한 조명, 세련된 인테리어, 아늑한 분위기, 생활감 있는 공간",
+        angle: "제품을 정면에서 본 각도, front view, 제품의 정면이 명확하게 보이는 각도, 눈높이 시점",
+        camera: "medium shot, 제품에 집중된 구도, 배경이 살짝 보이는 중간 거리",
+        lighting: "따뜻한 실내 조명, 테이블 램프, 부드러운 그림자",
+        composition: "우측 또는 좌측 배치, 비대칭적 구도, 자연스러운 배치"
+      },
+      {
+        background: "야외나 밝은 실외 배경, 파란 하늘, 자연스러운 햇빛, 깔끔한 환경, 신선한 느낌, 공원이나 테라스",
+        angle: "제품을 측면에서 본 각도, side view, 45도 각도, 제품의 측면과 정면이 모두 보이는 각도, 약간 위에서 내려다보는 시점",
+        camera: "close-up shot, 제품에 매우 집중된 구도, 배경이 흐릿하게 보이는 근접 촬영",
+        lighting: "자연스러운 햇빛, 밝은 낮, 선명한 그림자",
+        composition: "대각선 구도, 역동적인 배치, 시선을 끄는 구성"
       }
-    } else {
-      // 기본 설정 (분석 결과가 없을 때)
-      const sceneConfigs = [
-        {
-          background: "밝고 깔끔한 실내 배경, 흰색 벽, 자연광이 들어오는 창문, 미니멀한 인테리어, 깨끗한 공간",
-          angle: "제품을 위에서 본 각도, top view, bird's eye view, 제품의 상단면이 명확하게 보이는 각도, 공중에서 내려다보는 시점",
-          camera: "wide shot, 전체적인 구도, 제품과 배경이 모두 보이는 넓은 화면",
-          lighting: "부드러운 자연광, 창문에서 들어오는 햇빛, 밝고 깨끗한 조명",
-          composition: "중앙 배치, 대칭적 구도, 미니멀한 구성"
-        },
-        {
-          background: "현대적인 주방이나 거실 배경, 나무 테이블, 따뜻한 조명, 세련된 인테리어, 아늑한 분위기, 생활감 있는 공간",
-          angle: "제품을 정면에서 본 각도, front view, 제품의 정면이 명확하게 보이는 각도, 눈높이 시점",
-          camera: "medium shot, 제품에 집중된 구도, 배경이 살짝 보이는 중간 거리",
-          lighting: "따뜻한 실내 조명, 테이블 램프, 부드러운 그림자",
-          composition: "우측 또는 좌측 배치, 비대칭적 구도, 자연스러운 배치"
-        },
-        {
-          background: "야외나 밝은 실외 배경, 파란 하늘, 자연스러운 햇빛, 깔끔한 환경, 신선한 느낌, 공원이나 테라스",
-          angle: "제품을 측면에서 본 각도, side view, 45도 각도, 제품의 측면과 정면이 모두 보이는 각도, 약간 위에서 내려다보는 시점",
-          camera: "close-up shot, 제품에 매우 집중된 구도, 배경이 흐릿하게 보이는 근접 촬영",
-          lighting: "자연스러운 햇빛, 밝은 낮, 선명한 그림자",
-          composition: "대각선 구도, 역동적인 배치, 시선을 끄는 구성"
-        }
-      ]
-      config = sceneConfigs[currentSceneIndex] || sceneConfigs[0]
-    }
+    ]
+    
+    const currentSceneIndex = sceneIndex !== undefined ? sceneIndex : 0
+    const config = sceneConfigs[currentSceneIndex] || sceneConfigs[0]
     
     // 각 장면마다 완전히 다른 프롬프트 구조로 생성
     // 제품 전체가 명확하게 보이고, 손으로 사용하는 장면
-    const productContext = productAnalysis 
-      ? `제품 유형: ${productAnalysis.productType}, 사용 맥락: ${productAnalysis.usageContext}. `
-      : ""
-    
-    const keyFeaturesText = productAnalysis && productAnalysis.keyFeatures.length > 0
-      ? `제품 주요 특징: ${productAnalysis.keyFeatures.join(", ")}. `
-      : ""
-    
-    let imagePrompt = `${productName} 제품 사용 장면 사진. ${productContext}${keyFeaturesText}
+    let imagePrompt = `${productName} 제품 사용 장면 사진.
 
 핵심 요소 (반드시 포함):
 - 제품 전체가 화면에 완전히 보여야 함 (full product visible, entire product in frame)
-- 사람의 손과 몸이 제품을 자연스럽게 들거나 실제로 사용하는 모습 (natural hands and body holding or naturally using the product, realistic usage, person's body visible)
+- 사람의 손이 제품을 들거나 사용하는 모습 (hands holding or using the product)
 - 제품의 모든 디테일과 형태가 명확하게 보임
-- 배경은 제품의 사용 맥락에 맞는 자연스러운 환경
-- 제품 사용이 어색하지 않고 일상적이고 자연스러운 장면 (natural, everyday usage scene, not awkward)
 
 스타일:
 - ${config.angle}
 - ${config.camera}
 - ${config.lighting}
 - ${config.composition}
-- 배경: ${config.background}${productAnalysis ? ` (${productAnalysis.usageContext}에 적합한 배경)` : ""}
-- 자연스러운 제품 사용 장면, 일상적인 느낌, 어색하지 않은 구도 (natural product usage, everyday feel, not awkward composition)
+- ${config.background}
 
 금지 사항:
 - 사람 얼굴 없음 (no face, no head visible)
 - 텍스트나 글씨 없음 (no text, no letters)
-- 어색한 포즈나 부자연스러운 사용 장면 (no awkward poses, no unnatural usage)
 
-품질: 고품질, 전문적인 제품 촬영, 매력적인 구도, 자연스러운 제품 사용, 9:16 세로 비율, vertical composition.`
+품질: 고품질, 전문적인 제품 촬영, 매력적인 구도, 9:16 세로 비율, vertical composition.`
     
     if (productImageBase64) {
       imagePrompt = `${imagePrompt}
@@ -790,17 +641,23 @@ export async function generateImage(
 // 썸네일 후킹 문구 생성
 export async function generateThumbnailHookingText(
   productName: string,
-  apiKey?: string,
-  productDescription?: string
+  apiKey?: string
 ): Promise<{ line1: string; line2: string }> {
   const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
 
   if (!GPT_API_KEY) {
-    // API 키가 없으면 제품명 기반 기본 문구 반환
-    return {
-      line1: productName.substring(0, 10) || "제품명",
-      line2: "핵심 특징"
-    }
+    // API 키가 없으면 자극적인 기본 문구 중 랜덤 선택
+    const defaultHooks = [
+      { line1: "99%가 모르는", line2: "충격 가격" },
+      { line1: "3초만에 완판", line2: "이유 공개" },
+      { line1: "500만명이 찾는", line2: "꿀템 정체" },
+      { line1: "품절 임박", line2: "마지막 기회" },
+      { line1: "1위 제품의", line2: "숨겨진 비밀" },
+      { line1: "10배 더 싸게", line2: "사는 방법" },
+      { line1: "역대급 할인", line2: "지금 아니면" },
+      { line1: "충격 실화", line2: "이 가격 맞아?" }
+    ]
+    return defaultHooks[Math.floor(Math.random() * defaultHooks.length)]
   }
 
   try {
@@ -815,24 +672,30 @@ export async function generateThumbnailHookingText(
         messages: [
           {
             role: "system",
-            content: `당신은 유튜브 쇼츠 썸네일 문구 작성 전문가입니다.
+            content: `당신은 유튜브 쇼츠 썸네일 후킹 문구 작성 전문가입니다.
 
-중요: 제품명과 설명을 분석하여 제품의 핵심 이름과 특징을 두 줄로 작성해주세요.
+중요: 제품명을 분석하여 해당 제품의 핵심 특징/효과/장점을 파악하고, 그에 맞는 맞춤형 후킹 문구를 작성하세요.
+
+제품 분석 방법:
+- 청소기 -> 청소 효율, 흡입력, 편리함
+- 화장품/세럼 -> 피부 효과, 동안, 탄력
+- 건강식품 -> 건강 효과, 에너지, 다이어트
+- 주방용품 -> 요리 시간 단축, 맛, 편리함
+- 전자기기 -> 성능, 가성비, 혁신
 
 핵심 규칙:
-1. 첫 번째 줄: 제품의 핵심 이름 또는 핵심 특징 (5~10자)
-2. 두 번째 줄: 제품의 주요 특징, 효과, 또는 장점 (5~10자)
-3. 제품과 직접 연관된 문구여야 함
-4. 숫자 포함 가능하지만 필수는 아님
-5. 간결하고 명확하게 작성
+1. 반드시 숫자를 포함 (99%, 3초, 1위, 500만, 10배, 50% 등)
+2. 첫 번째 줄: 제품 특징 + 숫자 + 충격 (5~10자)
+3. 두 번째 줄: 제품 효과/결과 + 긴박감 (5~10자)
+4. 제품과 직접 연관된 문구여야 함!
 
 제품별 예시:
-- 무선청소기: "무선청소기" / "강력한 흡입력"
-- 비타민C세럼: "비타민C세럼" / "피부 탄력 개선"
-- 에어프라이어: "에어프라이어" / "3분 요리 완성"
-- 다이어트 식품: "다이어트 식품" / "2주 -5kg 효과"
-- 무선이어폰: "무선이어폰" / "프리미엄 사운드"
-- 마사지기: "안마기" / "만성피로 해소"
+- 무선청소기: "99%가 모르는" / "청소 꿀팁"
+- 비타민C세럼: "피부과 의사도 놀란" / "동안 비결"  
+- 에어프라이어: "3분 요리의" / "충격 비밀"
+- 다이어트 식품: "2주만에 -5kg" / "실화입니다"
+- 무선이어폰: "애플도 인정한" / "갓성비 정체"
+- 마사지기: "만성피로 3일만에" / "해결 비법"
 
 JSON 형식으로만 응답:
 {"line1": "첫번째줄", "line2": "두번째줄"}`
@@ -840,12 +703,9 @@ JSON 형식으로만 응답:
           {
             role: "user",
             content: `제품명: ${productName}
-${productDescription ? `제품 설명: ${productDescription}` : ""}
 
-위 제품 정보를 분석하여 썸네일용 문구 2줄을 작성해주세요.
-- 첫 번째 줄: 제품의 핵심 이름 또는 핵심 특징
-- 두 번째 줄: 제품의 주요 특징, 효과, 또는 장점
-제품의 실제 특징을 반영한 간결하고 명확한 문구여야 합니다.`
+위 제품의 핵심 특징과 장점을 분석하고, 이 제품에 딱 맞는 자극적인 후킹 문구 2줄을 작성해주세요.
+반드시 숫자를 포함하고, 제품과 직접 연관된 문구여야 합니다!`
           }
         ],
         max_tokens: 100,
@@ -867,15 +727,15 @@ ${productDescription ? `제품 설명: ${productDescription}` : ""}
     // JSON 파싱
     const parsed = JSON.parse(content)
     return {
-      line1: parsed.line1 || productName.substring(0, 10) || "제품명",
-      line2: parsed.line2 || "핵심 특징" || "주요 효과"
+      line1: parsed.line1 || "이거 안 쓰면",
+      line2: parsed.line2 || "손해봅니다"
     }
   } catch (error) {
     console.error("[Shopping] 후킹 문구 생성 실패:", error)
-    // 실패 시 기본 문구 반환 (제품명 기반)
+    // 실패 시 기본 문구 반환
     return {
-      line1: productName.substring(0, 10) || "제품명",
-      line2: "핵심 특징"
+      line1: "이거 안 쓰면",
+      line2: "손해봅니다"
     }
   }
 }
@@ -884,10 +744,7 @@ ${productDescription ? `제품 설명: ${productDescription}` : ""}
 export async function generateShortsThumbnail(
   productName: string,
   replicateApiKey?: string,
-  productImageBase64?: string,
-  productDescription?: string,
-  apiKey?: string,
-  videoImageUrl?: string // 영상 이미지 URL (배경 참조용)
+  productImageBase64?: string
 ): Promise<string> {
   const REPLICATE_API_TOKEN = replicateApiKey || process.env.REPLICATE_API_TOKEN
 
@@ -898,84 +755,24 @@ export async function generateShortsThumbnail(
   try {
     console.log("[Shopping] 쇼츠 썸네일 생성 시작")
     
-    // 제품 특징 분석 (제품 설명이 있으면 분석 수행)
-    let productAnalysis = null
-    let backgroundStyle = "깔끔하고 임팩트 있는 배경"
-    let colorScheme = "밝고 눈에 띄는 색상"
-    
-    if (productDescription && apiKey) {
-      try {
-        productAnalysis = await analyzeProductFeatures(productName, productDescription, apiKey)
-        console.log("[Shopping] 썸네일용 제품 분석 완료:", productAnalysis)
-        
-        // 제품 유형과 사용 맥락에 맞는 배경 스타일 결정
-        if (productAnalysis.usageContext) {
-          const contextBackgrounds: Record<string, string> = {
-            "주방": "현대적인 주방 배경, 깔끔한 주방 인테리어, 자연스러운 주방 조명",
-            "거실": "아늑한 거실 배경, 따뜻한 인테리어, 부드러운 조명",
-            "침실": "편안한 침실 배경, 부드러운 색감, 조용한 분위기",
-            "야외": "자연스러운 야외 배경, 밝은 자연광, 신선한 느낌",
-            "사무실": "전문적인 사무실 배경, 깔끔한 공간, 밝은 조명",
-            "욕실": "깔끔한 욕실 배경, 밝고 청결한 느낌",
-          }
-          backgroundStyle = contextBackgrounds[productAnalysis.usageContext] || backgroundStyle
-        }
-        
-        // 제품 유형에 맞는 색상 스키마 결정
-        if (productAnalysis.productType) {
-          const typeColors: Record<string, string> = {
-            "주방용품": "따뜻한 주방 색상 (크림색, 베이지, 연한 갈색)",
-            "건강용품": "깔끔하고 신선한 색상 (연한 파란색, 민트색, 흰색)",
-            "전자제품": "모던하고 세련된 색상 (회색, 검정, 은색)",
-            "생활용품": "편안하고 따뜻한 색상 (베이지, 크림, 연한 핑크)",
-            "뷰티용품": "우아하고 세련된 색상 (로즈골드, 화이트, 연한 핑크)",
-          }
-          colorScheme = typeColors[productAnalysis.productType] || colorScheme
-        }
-      } catch (error) {
-        console.warn("[Shopping] 썸네일용 제품 분석 실패, 기본 설정 사용:", error)
-      }
-    }
-    
-    // 썸네일 프롬프트: 제품 특징에 맞는 유튜브 쇼츠 썸네일
-    const productContext = productAnalysis 
-      ? `제품 유형: ${productAnalysis.productType}, 사용 맥락: ${productAnalysis.usageContext}. `
-      : ""
-    
-    // 영상 이미지가 있으면 동일한 배경 스타일 사용
-    const backgroundNote = videoImageUrl 
-      ? "영상 이미지와 동일한 배경 스타일과 색상을 사용하여 썸네일을 생성해주세요. "
-      : ""
-    
-    const thumbnailPrompt = `${productName} 쇼츠 영상으로 만드는데 유튜브 쇼츠 썸네일 만들어줘. ${productContext}${backgroundNote}
+    // 썸네일 프롬프트: 자극적인 유튜브 쇼츠 썸네일
+    const thumbnailPrompt = `${productName} 쇼츠 영상으로 만드는데 유튜브 쇼츠 썸네일 만들어줘. 문구는 자극적으로 써줘. 클릭할수있게끔. 
     
 유튜브 쇼츠 썸네일 스타일:
 - 제품이 크게 중앙에 배치
-${videoImageUrl ? "- 영상 이미지와 동일한 배경 스타일과 색상 유지" : `- 배경 색상: ${colorScheme} (제품과 조화롭고 자연스러운 색상)`}
-${videoImageUrl ? "" : `- 배경 스타일: ${backgroundStyle}`}
-- 자연스럽고 깔끔한 느낌의 연출
-- 제품을 명확하게 보여주는 구도
+- 밝고 눈에 띄는 색상 (노란색, 빨간색 강조)
+- 자극적인 느낌의 연출
+- 클릭을 유도하는 구도
+- 깔끔하고 임팩트 있는 배경
 - 고품질, 전문적인 쇼핑 썸네일
 - 9:16 세로 비율 (쇼츠용)
 - 텍스트 없음, 글씨 없음 (텍스트는 별도로 추가)
-- 사람 얼굴 없음, no face
-- 사람의 손과 몸은 나와도 됨 (hands and body visible, natural usage)
-${videoImageUrl ? "- 영상 이미지의 배경과 동일한 환경과 분위기" : "- 제품의 특징과 사용 맥락에 맞는 자연스러운 배경"}
+- 사람 얼굴 없음, no face`
 
-금지 사항:
-- 폭발, 화염, 연기, 폭죽 등 자극적인 요소 없음 (no explosions, flames, smoke, fireworks, or dramatic effects)
-- 무난하고 평범한 배경만 사용 (only calm and ordinary backgrounds)
-- 배경은 단순하고 깔끔하게 유지 (background should be simple and clean)`
-
-    // 참조 이미지 결정: 영상 이미지가 있으면 우선 사용, 없으면 제품 이미지 사용
+    // 제품 이미지를 공개 URL로 변환
     let imageInput: string[] | undefined = undefined
     
-    if (videoImageUrl) {
-      // 영상 이미지 URL을 참조 이미지로 사용
-      imageInput = [videoImageUrl]
-      console.log("[Shopping] 영상 이미지를 참조하여 썸네일 생성")
-    } else if (productImageBase64) {
-      // 제품 이미지를 참조 이미지로 사용
+    if (productImageBase64) {
       if (productImageBase64.startsWith("data:image/")) {
         imageInput = [productImageBase64]
       } else {
@@ -1081,9 +878,7 @@ export async function generateImagesWith3Scenes(
   script: string,
   productName: string,
   replicateApiKey?: string,
-  productImageBase64?: string,
-  productDescription?: string,
-  apiKey?: string
+  productImageBase64?: string
 ): Promise<string[]> {
   const REPLICATE_API_TOKEN = replicateApiKey || process.env.REPLICATE_API_TOKEN
 
@@ -1108,15 +903,13 @@ export async function generateImagesWith3Scenes(
     for (let i = 0; i < scenesToProcess.length; i++) {
       console.log(`[Shopping] 장면 ${i + 1}/${maxScenes} 이미지 생성 중...`)
       
-      // 이미지 생성 (나노바나나) - 섹션 인덱스 전달하여 각기 다른 배경 적용, 제품 설명 전달
+      // 이미지 생성 (나노바나나) - 섹션 인덱스 전달하여 각기 다른 배경 적용
       const imageUrl = await generateImageWithNanobanana(
         scenesToProcess[i],
         productName,
         productImageBase64,
         REPLICATE_API_TOKEN,
-        i, // 섹션 인덱스 (0, 1, 2) 전달
-        productDescription,
-        apiKey
+        i // 섹션 인덱스 (0, 1, 2) 전달
       )
       console.log(`[Shopping] 장면 ${i + 1} 이미지 생성 완료:`, imageUrl)
       
@@ -1291,13 +1084,11 @@ export async function generateVideoWithSora2(
   }
 }
 
-// bytedance/seedance-1-lite 모델로 영상 생성
+// bytedance/seedance-1-pro-fast 모델로 영상 생성
 export async function generateVideoWithSeedance(
   imageUrl: string,
   productName: string,
-  replicateApiKey?: string,
-  productDescription?: string,
-  apiKey?: string
+  replicateApiKey?: string
 ): Promise<string> {
   const REPLICATE_API_TOKEN = replicateApiKey || process.env.REPLICATE_API_TOKEN
 
@@ -1306,65 +1097,22 @@ export async function generateVideoWithSeedance(
   }
 
   try {
-    console.log(`[Shopping] bytedance/seedance-1-lite 모델로 영상 생성 시작:`, imageUrl)
+    console.log(`[Shopping] bytedance/seedance-1-pro-fast 모델로 영상 생성 시작:`, imageUrl)
     console.log(`[Shopping] 제품명:`, productName)
-    
-    // 제품 특징 분석 (제품 설명이 있으면 분석 수행)
-    let productAnalysis = null
-    let backgroundStyle = "깔끔하고 자연스러운 배경"
-    let usageContext = "일상적인 환경"
-    
-    if (productDescription && apiKey) {
-      try {
-        productAnalysis = await analyzeProductFeatures(productName, productDescription, apiKey)
-        console.log("[Shopping] 영상용 제품 분석 완료:", productAnalysis)
-        
-        // 제품 유형과 사용 맥락에 맞는 배경 스타일 결정
-        if (productAnalysis.usageContext) {
-          const contextBackgrounds: Record<string, string> = {
-            "주방": "현대적인 주방 배경, 깔끔한 주방 인테리어, 자연스러운 주방 조명",
-            "거실": "아늑한 거실 배경, 따뜻한 인테리어, 부드러운 조명",
-            "침실": "편안한 침실 배경, 부드러운 색감, 조용한 분위기",
-            "야외": "자연스러운 야외 배경, 밝은 자연광, 신선한 느낌",
-            "사무실": "전문적인 사무실 배경, 깔끔한 공간, 밝은 조명",
-            "욕실": "깔끔한 욕실 배경, 밝고 청결한 느낌",
-            "실내": "깔끔한 실내 배경, 현대적인 인테리어, 자연스러운 조명",
-          }
-          backgroundStyle = contextBackgrounds[productAnalysis.usageContext] || backgroundStyle
-          usageContext = productAnalysis.usageContext
-        }
-      } catch (error) {
-        console.warn("[Shopping] 영상용 제품 분석 실패, 기본 설정 사용:", error)
-      }
-    }
     
     // 프롬프트 생성: 제품명 + 4초 간격으로 3장면
     // 1장면: 사용법 (제품을 손으로 사용하는 모습)
     // 2장면: 1장면의 제품을 확대해서 보여줌 (디테일샷)
     // 3장면: 아예 다른 배경에서 보여줌
     // 사람 얼굴만 안 보이면 됨, 손이나 몸 일부는 OK, 제품은 일관성있게
-    const productContext = productAnalysis 
-      ? `제품 유형: ${productAnalysis.productType}, 사용 맥락: ${usageContext}. `
-      : ""
-    
-    // 실내/실외 구분
-    const isIndoor = usageContext === "주방" || usageContext === "거실" || usageContext === "침실" || usageContext === "사무실" || usageContext === "욕실" || usageContext === "실내"
-    const locationType = isIndoor ? "실내" : (usageContext === "야외" ? "실외" : "실내")
-    const locationConstraint = isIndoor 
-      ? "모든 장면은 반드시 실내 배경이어야 하며, 실외로 바뀌면 안됨. 실내 배경만 사용, all scenes must be indoor only, never change to outdoor"
-      : "모든 장면은 반드시 실외 배경이어야 하며, 실내로 바뀌면 안됨. 실외 배경만 사용, all scenes must be outdoor only, never change to indoor"
-    
-    const prompt = `${productName} 제품 홍보 영상. ${productContext}4초 간격으로 3장면으로 구성: 
-첫 장면(0-4초)은 제품 사용법을 보여줌 - 손으로 제품을 사용하는 모습, ${usageContext}에 적합한 ${locationType} 배경,
-두번째 장면(4-8초)은 제품을 확대해서 디테일하게 보여줌 - 클로즈업 샷, ${backgroundStyle} (${locationType} 배경 유지),
-세번째 장면(8-12초)은 ${usageContext}의 다른 각도에서 제품을 보여줌 - 새로운 구도이지만 반드시 ${locationType} 배경을 유지하고 ${usageContext}에 맞는 배경만 사용.
-${locationConstraint}
+    const prompt = `${productName} 제품 홍보 영상. 4초 간격으로 3장면으로 구성: 
+첫 장면(0-4초)은 제품 사용법을 보여줌 - 손으로 제품을 사용하는 모습, 
+두번째 장면(4-8초)은 제품을 확대해서 디테일하게 보여줌 - 클로즈업 샷, 
+세번째 장면(8-12초)은 완전히 다른 배경에서 제품을 보여줌 - 새로운 환경.
 사람 얼굴은 절대 보이면 안됨, no face, no head visible.
-한 사람만 나와야 함 - 한 사람의 손과 몸만 보여야 하고, 두 사람이 나오면 안됨, only one person visible, only one person's hands and body should be shown, no two people, single person only.
 손이나 몸 일부는 보여도 됨, hands and body parts are okay.
 제품은 일관성있게 유지, same product throughout.
-제품은 거의 보존된 상태로 유지되어야 함 - 제품의 형태, 색상, 디자인이 변형되지 않고 그대로 유지, product must remain preserved and unchanged in shape, color, and design throughout the video.
-각 장면의 배경은 ${usageContext}에 적합하고 제품과 어울리는 자연스러운 ${locationType} 배경이어야 하며, ${locationType} 배경을 계속 유지해야 함, all backgrounds must be suitable for ${usageContext} and harmonize with the product, and must consistently maintain ${locationType} setting throughout all scenes.`
+각 장면마다 구도와 배경은 다르게, different composition and background for each scene.`
     
     console.log(`[Shopping] 프롬프트:`, prompt)
     
@@ -1383,10 +1131,10 @@ ${locationConstraint}
       console.warn(`[Shopping] 이미지 URL 확인 중 오류 (계속 진행):`, checkError)
     }
     
-    // Replicate API 경로: bytedance/seedance-1-lite 모델 사용
-    const apiUrl = "https://api.replicate.com/v1/models/bytedance/seedance-1-lite/predictions"
+    // Replicate API 경로: bytedance/seedance-1-pro-fast 모델 사용
+    const apiUrl = "https://api.replicate.com/v1/models/bytedance/seedance-1-pro-fast/predictions"
     
-    // seedance-1-lite 모델 입력
+    // seedance-1-pro-fast 모델 입력
     const modelInput = {
       image: validImageUrl, // 이미지 URL
       prompt: prompt, // 프롬프트

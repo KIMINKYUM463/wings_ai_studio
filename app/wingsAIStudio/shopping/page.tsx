@@ -410,8 +410,7 @@ export default function ShoppingPage() {
 
       // 이미지 1개 생성
       setGenerationProgress({ current: 1, total: 1 })
-      const apiKey = getApiKey()
-      const imageUrl = await generateImage(productName, replicateApiKey, imageBase64, productDescription, apiKey)
+      const imageUrl = await generateImage(productName, replicateApiKey, imageBase64)
       
       setImageUrls([imageUrl])
       setActiveStep("render") // 이미지 확인 단계로 이동
@@ -448,9 +447,8 @@ export default function ShoppingPage() {
     setError("")
 
     try {
-      // 영상 생성 (bytedance/seedance-1-lite)
-      const apiKey = getApiKey()
-      const generatedVideoUrl = await generateVideoWithSeedance(imageUrls[0], productName, replicateApiKey, productDescription, apiKey)
+      // 영상 생성 (bytedance/seedance-1-pro-fast)
+      const generatedVideoUrl = await generateVideoWithSeedance(imageUrls[0], productName, replicateApiKey)
       
       setVideoUrl(generatedVideoUrl)
       setActiveStep("preview")
@@ -547,12 +545,11 @@ export default function ShoppingPage() {
       }
 
       // 1. 후킹 문구 생성
-      const hookingText = await generateThumbnailHookingText(productName, gptApiKey, productDescription)
+      const hookingText = await generateThumbnailHookingText(productName, gptApiKey)
       setThumbnailHookingText(hookingText)
 
-      // 2. 썸네일 배경 이미지 생성 (영상 이미지가 있으면 참조)
-      const videoImageForThumbnail = imageUrls.length > 0 ? imageUrls[0] : undefined
-      const thumbnail = await generateShortsThumbnail(productName, replicateApiKey, imageBase64, productDescription, gptApiKey, videoImageForThumbnail)
+      // 2. 썸네일 배경 이미지 생성
+      const thumbnail = await generateShortsThumbnail(productName, replicateApiKey, imageBase64)
       setThumbnailUrl(thumbnail)
 
       // 3. 캔버스에 이미지 + 텍스트 그리기
@@ -2042,7 +2039,7 @@ export default function ShoppingPage() {
         {/* 헤더 */}
         <div className="mb-6 md:mb-8">
           <div className="flex items-center justify-between mb-4">
-            <Link href="/">
+            <Link href="/WingsAIStudio">
               <Button variant="ghost" size="sm">
                 <Home className="w-4 h-4 mr-2" />
                 홈으로

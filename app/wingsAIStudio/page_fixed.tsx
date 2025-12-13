@@ -47,9 +47,6 @@ import {
   Eye,
   EyeOff,
   Copy,
-  Youtube,
-  Link2,
-  Unlink,
 } from "lucide-react"
 import { useRouter } from "next/navigation"
 
@@ -115,17 +112,16 @@ const analysisToolsServices = [
   },
 ]
 
-// 수강생들 필요한 기능 서비스
+// 기타 기능 서비스
 const otherToolsServices = [
   {
     id: "niche-analyzer",
     title: "틈새주제 분석기",
     icon: Search,
     description: "검색량이 적은 틈새 주제를 AI가 분석해드립니다",
-    url: "#",
+    url: "/WingsAIStudio/niche-analyzer",
     gradient: "from-cyan-500 via-blue-500 to-indigo-500",
     hoverGradient: "from-cyan-600 via-blue-600 to-indigo-600",
-    locked: true,
   },
   {
     id: "keyword-optimizer",
@@ -595,8 +591,6 @@ export default function HomePage() {
     openai: "",
     elevenlabs: "",
     replicate: "",
-    youtubeClientId: "",
-    youtubeClientSecret: "",
   })
   const [saved, setSaved] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -604,115 +598,27 @@ export default function HomePage() {
     openai: false,
     elevenlabs: false,
     replicate: false,
-    youtubeClientId: false,
-    youtubeClientSecret: false,
   })
-  const [youtubeConnected, setYoutubeConnected] = useState(false)
-  const [checkingYoutube, setCheckingYoutube] = useState(false)
 
   // 로컬스토리지에서 API 키 불러오기
   useEffect(() => {
     const storedOpenAI = localStorage.getItem("openai_api_key") || ""
     const storedElevenLabs = localStorage.getItem("elevenlabs_api_key") || ""
     const storedReplicate = localStorage.getItem("replicate_api_key") || ""
-    const storedYoutubeClientId = localStorage.getItem("youtube_client_id") || ""
-    const storedYoutubeClientSecret = localStorage.getItem("youtube_client_secret") || ""
 
     setApiKeys({
       openai: storedOpenAI,
       elevenlabs: storedElevenLabs,
       replicate: storedReplicate,
-      youtubeClientId: storedYoutubeClientId,
-      youtubeClientSecret: storedYoutubeClientSecret,
     })
-
-    // YouTube 연결 상태 확인
-    checkYoutubeConnection()
   }, [])
 
-  // YouTube 연결 상태 확인 (로컬스토리지에서)
-  const checkYoutubeConnection = async () => {
-    setCheckingYoutube(true)
-    try {
-      // 로컬스토리지에서 토큰 확인
-      const tokensStr = localStorage.getItem("youtube_tokens")
-      if (tokensStr) {
-        try {
-          const tokens = JSON.parse(tokensStr)
-          const expiresAt = new Date(tokens.expires_at)
-          const now = new Date()
-          const isExpired = expiresAt < now
-          setYoutubeConnected(!isExpired && !!tokens.access_token)
-        } catch (e) {
-          setYoutubeConnected(false)
-        }
-      } else {
-        setYoutubeConnected(false)
-      }
-    } catch (error) {
-      console.error("YouTube 연결 상태 확인 실패:", error)
-      setYoutubeConnected(false)
-    } finally {
-      setCheckingYoutube(false)
-    }
-  }
 
-  // URL 파라미터에서 토큰 받아서 로컬스토리지에 저장
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search)
-    if (urlParams.get("youtube_connected") === "true") {
-      const accessToken = urlParams.get("access_token")
-      const refreshToken = urlParams.get("refresh_token")
-      const expiresAt = urlParams.get("expires_at")
-      
-      if (accessToken && refreshToken && expiresAt) {
-        const tokens = {
-          access_token: accessToken,
-          refresh_token: refreshToken,
-          expires_at: expiresAt,
-        }
-        localStorage.setItem("youtube_tokens", JSON.stringify(tokens))
-        setYoutubeConnected(true)
-        
-        // URL 정리
-        window.history.replaceState({}, "", window.location.pathname)
-      }
-    }
-  }, [])
-
-  // YouTube 연결 시작
-  const handleYoutubeConnect = () => {
-    if (!apiKeys.youtubeClientId || !apiKeys.youtubeClientSecret) {
-      alert("YouTube Client ID와 Secret을 먼저 입력하고 저장해주세요.")
-      return
-    }
-    // 로컬스토리지에서 직접 읽어서 쿼리 파라미터로 전달
-    const clientId = apiKeys.youtubeClientId
-    const clientSecret = apiKeys.youtubeClientSecret
-    window.location.href = `/api/youtube/auth?clientId=${encodeURIComponent(clientId)}&clientSecret=${encodeURIComponent(clientSecret)}`
-  }
-
-  // YouTube 연결 해제 (로컬스토리지에서 삭제)
-  const handleYoutubeDisconnect = async () => {
-    try {
-      localStorage.removeItem("youtube_tokens")
-      setYoutubeConnected(false)
-      alert("YouTube 연결이 해제되었습니다.")
-    } catch (error) {
-      console.error("YouTube 연결 해제 실패:", error)
-      alert("연결 해제 중 오류가 발생했습니다.")
-    }
-  }
-
-
-  // API 키 저장 (모두 로컬스토리지에 저장)
+  // API 키 저장
   const handleSave = () => {
     localStorage.setItem("openai_api_key", apiKeys.openai)
     localStorage.setItem("elevenlabs_api_key", apiKeys.elevenlabs)
     localStorage.setItem("replicate_api_key", apiKeys.replicate)
-    localStorage.setItem("youtube_client_id", apiKeys.youtubeClientId)
-    localStorage.setItem("youtube_client_secret", apiKeys.youtubeClientSecret)
-    
     setSaved(true)
     setTimeout(() => {
       setSaved(false)
@@ -763,10 +669,10 @@ export default function HomePage() {
               onServiceClick={handleServiceClick}
             />
 
-            {/* 수강생들 필요한 기능 섹션 */}
+            {/* 기타 기능 섹션 */}
             <FeatureSection
-              title="수강생들 필요한 기능"
-              subtitle="수강생들이 필요한 기능을 요청해주시면 아래 개발해드립니다"
+              title="기타 기능"
+              subtitle="채널 운영에 도움되는 다양한 도구"
               services={otherToolsServices}
               onServiceClick={handleServiceClick}
               columns={5}
@@ -909,130 +815,6 @@ export default function HomePage() {
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">AI 모델 실행에 사용됩니다</p>
-            </div>
-
-            {/* 구분선 */}
-            <div className="border-t border-slate-200 my-4" />
-
-            {/* 구분선 */}
-            <div className="border-t border-slate-200 my-4" />
-
-            {/* YouTube 설정 섹션 */}
-            <div className="space-y-4">
-              <Label className="text-sm font-medium flex items-center gap-2">
-                <Youtube className="w-4 h-4 text-red-500" />
-                YouTube 설정
-              </Label>
-              
-              {/* YouTube Client ID */}
-              <div className="space-y-2">
-                <Label htmlFor="youtube-client-id" className="text-sm font-medium">
-                  YouTube Client ID
-                </Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="youtube-client-id"
-                    type={showKeys.youtubeClientId ? "text" : "password"}
-                    placeholder="Google Cloud Console에서 발급받은 Client ID"
-                    value={apiKeys.youtubeClientId}
-                    onChange={(e) => setApiKeys({ ...apiKeys, youtubeClientId: e.target.value })}
-                    className="font-mono text-sm"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    onClick={() => setShowKeys({ ...showKeys, youtubeClientId: !showKeys.youtubeClientId })}
-                    className="shrink-0"
-                  >
-                    {showKeys.youtubeClientId ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Google Cloud Console에서 OAuth 2.0 클라이언트 ID를 발급받아 입력하세요.
-                </p>
-              </div>
-
-              {/* YouTube Client Secret */}
-              <div className="space-y-2">
-                <Label htmlFor="youtube-client-secret" className="text-sm font-medium">
-                  YouTube Client Secret
-                </Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="youtube-client-secret"
-                    type={showKeys.youtubeClientSecret ? "text" : "password"}
-                    placeholder="Google Cloud Console에서 발급받은 Client Secret"
-                    value={apiKeys.youtubeClientSecret}
-                    onChange={(e) => setApiKeys({ ...apiKeys, youtubeClientSecret: e.target.value })}
-                    className="font-mono text-sm"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    onClick={() => setShowKeys({ ...showKeys, youtubeClientSecret: !showKeys.youtubeClientSecret })}
-                    className="shrink-0"
-                  >
-                    {showKeys.youtubeClientSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Google Cloud Console에서 OAuth 2.0 클라이언트 Secret을 발급받아 입력하세요.
-                </p>
-              </div>
-
-              {/* YouTube 연결 상태 */}
-              <div className="flex items-center justify-between p-3 rounded-lg border border-slate-200 bg-slate-50">
-                <div className="flex items-center gap-2">
-                  {checkingYoutube ? (
-                    <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
-                  ) : youtubeConnected ? (
-                    <CheckCircle2 className="w-4 h-4 text-green-500" />
-                  ) : (
-                    <Unlink className="w-4 h-4 text-slate-400" />
-                  )}
-                  <span className="text-sm text-slate-700">
-                    {checkingYoutube
-                      ? "확인 중..."
-                      : youtubeConnected
-                      ? "YouTube에 연결됨"
-                      : "YouTube에 연결되지 않음"}
-                  </span>
-                </div>
-                {youtubeConnected ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleYoutubeDisconnect}
-                    className="text-xs"
-                    disabled={!apiKeys.youtubeClientId || !apiKeys.youtubeClientSecret}
-                  >
-                    <Unlink className="w-3 h-3 mr-1" />
-                    연결 해제
-                  </Button>
-                ) : (
-                  <Button
-                    type="button"
-                    variant="default"
-                    size="sm"
-                    onClick={handleYoutubeConnect}
-                    className="text-xs bg-red-500 hover:bg-red-600"
-                    disabled={!apiKeys.youtubeClientId || !apiKeys.youtubeClientSecret}
-                  >
-                    <Link2 className="w-3 h-3 mr-1" />
-                    연결하기
-                  </Button>
-                )}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {!apiKeys.youtubeClientId || !apiKeys.youtubeClientSecret
-                  ? "Client ID와 Secret을 먼저 입력하고 저장한 후 연결할 수 있습니다."
-                  : youtubeConnected
-                  ? "자동화 모드에서 생성된 영상을 자동으로 업로드할 수 있습니다."
-                  : "YouTube 계정을 연결하면 자동화 모드에서 생성된 영상을 자동으로 업로드할 수 있습니다."}
-              </p>
             </div>
           </div>
           <div className="flex items-center justify-between">

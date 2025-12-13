@@ -50,3 +50,4 @@ git push -u origin main
 3. GitHub 저장소 선택
 4. 환경 변수 설정 후 배포
 
+
