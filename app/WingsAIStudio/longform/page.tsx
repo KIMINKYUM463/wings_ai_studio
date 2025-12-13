@@ -4846,30 +4846,70 @@ export default function LongformContentPage() {
       let audioGcsUrl: string | null = null
       
       if (useCloudStorage) {
-        console.log("[v0] 오디오가 큽니다. Cloud Storage에 업로드합니다...")
+        console.log("[v0] 오디오가 큽니다. Cloud Storage에 직접 업로드합니다...")
         
         try {
-          // Cloud Storage에 업로드
-          const uploadResponse = await fetch("/api/upload-to-gcs", {
+          // 1. Signed URL 요청 (작은 요청만 서버로 전송)
+          const signedUrlResponse = await fetch("/api/upload-to-gcs/signed-url", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              fileBase64: audioBase64,
               fileName: `audio_${Date.now()}.wav`,
               contentType: "audio/wav",
             }),
           })
           
-          if (!uploadResponse.ok) {
-            const errorData = await uploadResponse.json()
-            throw new Error(errorData.error || "Cloud Storage 업로드 실패")
+          if (!signedUrlResponse.ok) {
+            const errorData = await signedUrlResponse.json()
+            throw new Error(errorData.error || "Signed URL 생성 실패")
           }
           
-          const uploadResult = await uploadResponse.json()
-          audioGcsUrl = uploadResult.url
-          console.log("[v0] Cloud Storage 업로드 완료:", audioGcsUrl)
+          const { signedUrl, publicUrl } = await signedUrlResponse.json()
+          console.log("[v0] Signed URL 생성 완료, 직접 업로드 시작...")
+          
+          // 2. base64를 Blob으로 변환
+          const binaryString = atob(audioBase64)
+          const bytes = new Uint8Array(binaryString.length)
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i)
+          }
+          const audioBlob = new Blob([bytes], { type: "audio/wav" })
+          
+          // 3. Signed URL을 사용하여 클라이언트에서 직접 Cloud Storage에 업로드
+          const uploadResponse = await fetch(signedUrl, {
+            method: "PUT",
+            headers: {
+              "Content-Type": "audio/wav",
+            },
+            body: audioBlob,
+          })
+          
+          if (!uploadResponse.ok) {
+            const errorText = await uploadResponse.text()
+            throw new Error(`Cloud Storage 직접 업로드 실패 (${uploadResponse.status}): ${errorText.substring(0, 200)}`)
+          }
+          
+          // 4. 파일을 공개로 설정 (별도 API 호출)
+          // 공개 URL 사용을 위해 파일을 공개로 설정
+          try {
+            await fetch(`/api/upload-to-gcs/make-public`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                fileName: publicUrl.split("/").pop() || "",
+              }),
+            })
+          } catch (makePublicError) {
+            console.warn("[v0] 파일 공개 설정 실패 (무시하고 계속 진행):", makePublicError)
+            // 공개 설정 실패해도 계속 진행 (signed URL로 접근 가능)
+          }
+          
+          audioGcsUrl = publicUrl
+          console.log("[v0] Cloud Storage 직접 업로드 완료:", audioGcsUrl)
           
           // Cloud Storage 업로드 성공 시 base64는 null로 설정 (전송하지 않음)
           audioBase64 = ""
@@ -4880,8 +4920,7 @@ export default function LongformContentPage() {
           alert(
             `Cloud Storage 업로드에 실패했습니다.\n\n` +
             `오류: ${errorMessage}\n\n` +
-            `오디오 파일이 너무 커서 Vercel 요청 크기 제한(4.5MB)을 초과할 수 있습니다. ` +
-            `오디오 길이를 줄이거나 Cloud Storage 설정을 확인해주세요.`
+            `Cloud Storage 설정을 확인해주세요.`
           )
           setIsExporting(false)
           return
