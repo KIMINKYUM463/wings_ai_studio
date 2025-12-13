@@ -20,6 +20,7 @@ import { Storage } from "@google-cloud/storage"
 // Cloud Storage 클라이언트 초기화
 function getStorageClient() {
   try {
+    // 환경 변수에서 서비스 계정 정보 가져오기
     const projectId = process.env.GOOGLE_CLOUD_PROJECT_ID
     const bucketName = process.env.GOOGLE_CLOUD_STORAGE_BUCKET
 
@@ -35,15 +36,27 @@ function getStorageClient() {
       const keyPath = process.env.GOOGLE_APPLICATION_CREDENTIALS
       if (fs.existsSync(keyPath)) {
         credentials = JSON.parse(fs.readFileSync(keyPath, "utf8"))
+      } else {
+        throw new Error(`Credentials 파일이 존재하지 않습니다: ${keyPath}`)
       }
     } else if (process.env.GOOGLE_SERVICE_ACCOUNT_KEY) {
       // 배포 환경: 환경 변수에서 직접 읽기
-      credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY)
+      try {
+        credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY)
+      } catch (parseError) {
+        throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY가 유효한 JSON 형식이 아닙니다.")
+      }
+    } else {
+      throw new Error("Google Cloud 인증 정보가 설정되지 않았습니다. GOOGLE_APPLICATION_CREDENTIALS (로컬) 또는 GOOGLE_SERVICE_ACCOUNT_KEY (배포) 환경 변수를 설정해주세요.")
+    }
+
+    if (!credentials) {
+      throw new Error("Google Cloud 인증 정보를 로드할 수 없습니다.")
     }
 
     const storage = new Storage({
       projectId,
-      ...(credentials && { credentials }),
+      credentials,
     })
 
     return { storage, bucketName }

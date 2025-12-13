@@ -23,10 +23,18 @@ import { Storage } from "@google-cloud/storage"
 // Cloud Storage 클라이언트 초기화
 function getStorageClient() {
   try {
+    // 환경 변수에서 서비스 계정 정보 가져오기
     const projectId = process.env.GOOGLE_CLOUD_PROJECT_ID
     const bucketName = process.env.GOOGLE_CLOUD_STORAGE_BUCKET
 
+    console.log("[SignedURL] getStorageClient 호출:")
+    console.log("[SignedURL] projectId:", projectId)
+    console.log("[SignedURL] bucketName:", bucketName)
+
     if (!projectId || !bucketName) {
+      console.error("[SignedURL] 환경 변수 누락:")
+      console.error("[SignedURL] projectId:", projectId)
+      console.error("[SignedURL] bucketName:", bucketName)
       throw new Error("GOOGLE_CLOUD_PROJECT_ID 또는 GOOGLE_CLOUD_STORAGE_BUCKET이 설정되지 않았습니다.")
     }
 
@@ -36,17 +44,34 @@ function getStorageClient() {
       // 로컬 개발: 파일 경로 사용
       const fs = require("fs")
       const keyPath = process.env.GOOGLE_APPLICATION_CREDENTIALS
+      console.log("[SignedURL] GOOGLE_APPLICATION_CREDENTIALS 경로:", keyPath)
       if (fs.existsSync(keyPath)) {
         credentials = JSON.parse(fs.readFileSync(keyPath, "utf8"))
+        console.log("[SignedURL] 파일에서 credentials 로드 성공")
+      } else {
+        console.error("[SignedURL] credentials 파일이 존재하지 않습니다:", keyPath)
       }
     } else if (process.env.GOOGLE_SERVICE_ACCOUNT_KEY) {
       // 배포 환경: 환경 변수에서 직접 읽기
-      credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY)
+      try {
+        credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY)
+        console.log("[SignedURL] 환경 변수에서 credentials 로드 성공")
+      } catch (parseError) {
+        console.error("[SignedURL] GOOGLE_SERVICE_ACCOUNT_KEY JSON 파싱 실패:", parseError)
+        throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY가 유효한 JSON 형식이 아닙니다.")
+      }
+    } else {
+      console.error("[SignedURL] 인증 정보가 없습니다. GOOGLE_APPLICATION_CREDENTIALS 또는 GOOGLE_SERVICE_ACCOUNT_KEY가 필요합니다.")
+      throw new Error("Google Cloud 인증 정보가 설정되지 않았습니다. GOOGLE_APPLICATION_CREDENTIALS (로컬) 또는 GOOGLE_SERVICE_ACCOUNT_KEY (배포) 환경 변수를 설정해주세요.")
+    }
+
+    if (!credentials) {
+      throw new Error("Google Cloud 인증 정보를 로드할 수 없습니다.")
     }
 
     const storage = new Storage({
       projectId,
-      ...(credentials && { credentials }),
+      credentials,
     })
 
     return { storage, bucketName }
