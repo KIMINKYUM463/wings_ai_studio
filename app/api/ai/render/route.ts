@@ -29,6 +29,21 @@ import { type NextRequest, NextResponse } from "next/server"
  */
 export async function POST(request: NextRequest) {
   try {
+    // 요청 크기 확인 (Vercel 제한: 4.5MB)
+    const contentLength = request.headers.get("content-length")
+    if (contentLength) {
+      const sizeMB = parseInt(contentLength) / 1024 / 1024
+      if (sizeMB > 4.5) {
+        return NextResponse.json(
+          { 
+            error: "요청 크기가 너무 큽니다. Cloud Storage를 사용하여 오디오를 업로드해주세요.",
+            details: `요청 크기: ${sizeMB.toFixed(2)}MB, Vercel 제한: 4.5MB`
+          },
+          { status: 413 }
+        )
+      }
+    }
+
     const {
       audioBase64,
       audioGcsUrl,

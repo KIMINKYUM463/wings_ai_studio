@@ -4838,9 +4838,11 @@ export default function LongformContentPage() {
       
       // 압축 로직 제거 - 원본 그대로 사용
       
-      // Cloud Storage 사용 여부 결정 (20MB 이상이면 Cloud Storage 사용 - 안전 마진 확보)
+      // Cloud Storage 사용 여부 결정
+      // Vercel의 요청 크기 제한(4.5MB)을 고려하여 base64 크기가 3MB 이상이면 Cloud Storage 사용
       // base64 인코딩으로 인해 실제 크기가 더 커질 수 있으므로 여유있게 설정
-      const useCloudStorage = audioBase64.length > 20 * 1024 * 1024
+      // 개발 환경과 배포 환경 모두에서 안전하게 작동하도록 낮은 임계값 사용
+      const useCloudStorage = audioBase64.length > 3 * 1024 * 1024 // 3MB 이상이면 Cloud Storage 사용
       let audioGcsUrl: string | null = null
       
       if (useCloudStorage) {
@@ -4873,8 +4875,16 @@ export default function LongformContentPage() {
           audioBase64 = ""
         } catch (uploadError) {
           console.error("[v0] Cloud Storage 업로드 실패:", uploadError)
-          // 업로드 실패 시 경고만 표시하고 계속 진행 (base64로 전송 시도)
-          alert(`Cloud Storage 업로드에 실패했습니다. base64로 전송을 시도합니다. 오류: ${uploadError instanceof Error ? uploadError.message : "알 수 없는 오류"}`)
+          // 업로드 실패 시 오류 표시하고 중단
+          const errorMessage = uploadError instanceof Error ? uploadError.message : "알 수 없는 오류"
+          alert(
+            `Cloud Storage 업로드에 실패했습니다.\n\n` +
+            `오류: ${errorMessage}\n\n` +
+            `오디오 파일이 너무 커서 Vercel 요청 크기 제한(4.5MB)을 초과할 수 있습니다. ` +
+            `오디오 길이를 줄이거나 Cloud Storage 설정을 확인해주세요.`
+          )
+          setIsExporting(false)
+          return
         }
       }
       
@@ -4882,11 +4892,12 @@ export default function LongformContentPage() {
       // 압축 로직 제거 - 원본 그대로 사용
       // Cloud Run에서 오디오 품질을 보장하므로 클라이언트에서는 압축하지 않음
       
-      // 크기 확인 (32MB 제한) - Cloud Storage를 사용하지 않는 경우에만
-      if (!audioGcsUrl && audioBase64.length > 30 * 1024 * 1024) {
+      // 크기 확인 (Vercel 제한: 4.5MB) - Cloud Storage를 사용하지 않는 경우에만
+      // base64 인코딩으로 인해 실제 크기가 더 커지므로 3MB로 제한
+      if (!audioGcsUrl && audioBase64.length > 3 * 1024 * 1024) {
         alert(
           `오디오 파일이 너무 큽니다 (base64: ${base64SizeMB.toFixed(2)}MB). ` +
-          `Cloud Run 요청 크기 제한(32MB)을 초과합니다. ` +
+          `Vercel 요청 크기 제한(4.5MB)을 초과할 수 있습니다. ` +
           `Cloud Storage 업로드를 다시 시도하거나 오디오 길이를 줄여주세요.`
         )
         setIsExporting(false)
@@ -4991,11 +5002,54 @@ export default function LongformContentPage() {
       })
 
       if (!renderResponse.ok) {
-        const errorData = await renderResponse.json()
-        throw new Error(errorData.error || "Cloud Run 렌더링 실패")
+        // 413 오류 (요청 크기 초과) 처리
+        if (renderResponse.status === 413) {
+          throw new Error(
+            "요청 크기가 너무 큽니다. Cloud Storage 업로드를 다시 시도하거나 오디오 길이를 줄여주세요. " +
+            "(Vercel 요청 크기 제한: 4.5MB)"
+          )
+        }
+        
+        // 응답이 JSON인지 확인
+        const contentType = renderResponse.headers.get("content-type") || ""
+        let errorData
+        if (contentType.includes("application/json")) {
+          try {
+            errorData = await renderResponse.json()
+          } catch (e) {
+            // JSON 파싱 실패 시 텍스트로 읽기
+            const errorText = await renderResponse.text()
+            throw new Error(`Cloud Run 렌더링 실패 (${renderResponse.status}): ${errorText.substring(0, 200)}`)
+          }
+        } else {
+          // HTML 응답인 경우 (413 오류 페이지 등)
+          const errorText = await renderResponse.text()
+          if (renderResponse.status === 413) {
+            throw new Error(
+              "요청 크기가 너무 큽니다. Cloud Storage 업로드를 다시 시도하거나 오디오 길이를 줄여주세요. " +
+              "(Vercel 요청 크기 제한: 4.5MB)"
+            )
+          }
+          throw new Error(`Cloud Run 렌더링 실패 (${renderResponse.status}): ${errorText.substring(0, 200)}`)
+        }
+        
+        throw new Error(errorData?.error || `Cloud Run 렌더링 실패 (${renderResponse.status})`)
       }
 
-      const renderResult = await renderResponse.json()
+      // 응답이 JSON인지 확인
+      const contentType = renderResponse.headers.get("content-type") || ""
+      let renderResult
+      if (contentType.includes("application/json")) {
+        try {
+          renderResult = await renderResponse.json()
+        } catch (e) {
+          const errorText = await renderResponse.text()
+          throw new Error(`응답 파싱 실패: ${errorText.substring(0, 200)}`)
+        }
+      } else {
+        const errorText = await renderResponse.text()
+        throw new Error(`예상하지 못한 응답 형식: ${errorText.substring(0, 200)}`)
+      }
 
       if (!renderResult.success) {
         throw new Error("렌더링 결과를 받을 수 없습니다.")
