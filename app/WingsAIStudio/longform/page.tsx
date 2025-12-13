@@ -1169,7 +1169,8 @@ export default function LongformContentPage() {
             const base64SizeMB = audioBase64.length / 1024 / 1024
             console.log("[자동화] 오디오 base64 변환 완료, 크기:", Math.round(base64SizeMB * 1024), "KB", `(${base64SizeMB.toFixed(2)}MB)`)
             
-            const useCloudStorage = audioBase64.length > 20 * 1024 * 1024
+            // Cloud Storage 사용 여부 결정 (4MB 이상이면 Cloud Storage 사용 - Vercel 요청 크기 제한 4.5MB 대비 안전 마진 확보)
+            const useCloudStorage = audioBase64.length > 4 * 1024 * 1024
             let audioGcsUrl: string | null = null
             
             if (useCloudStorage) {
@@ -4838,9 +4839,9 @@ export default function LongformContentPage() {
       
       // 압축 로직 제거 - 원본 그대로 사용
       
-      // Cloud Storage 사용 여부 결정 (20MB 이상이면 Cloud Storage 사용 - 안전 마진 확보)
-      // base64 인코딩으로 인해 실제 크기가 더 커질 수 있으므로 여유있게 설정
-      const useCloudStorage = audioBase64.length > 20 * 1024 * 1024
+      // Cloud Storage 사용 여부 결정 (4MB 이상이면 Cloud Storage 사용 - Vercel 요청 크기 제한 4.5MB 대비 안전 마진 확보)
+      // base64 인코딩으로 인해 실제 크기가 더 커질 수 있으므로 Vercel 제한보다 낮게 설정
+      const useCloudStorage = audioBase64.length > 4 * 1024 * 1024
       let audioGcsUrl: string | null = null
       
       if (useCloudStorage) {

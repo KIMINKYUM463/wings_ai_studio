@@ -29,6 +29,21 @@ import { type NextRequest, NextResponse } from "next/server"
  */
 export async function POST(request: NextRequest) {
   try {
+    // 요청 본문 크기 확인 (Vercel 제한: 4.5MB)
+    const requestBody = await request.text()
+    const requestSizeMB = requestBody.length / 1024 / 1024
+    
+    if (requestSizeMB > 4.5) {
+      console.error(`[v0] 요청 크기가 너무 큽니다: ${requestSizeMB.toFixed(2)}MB (Vercel 제한: 4.5MB)`)
+      return NextResponse.json(
+        { 
+          error: `요청 크기가 너무 큽니다 (${requestSizeMB.toFixed(2)}MB). Vercel의 요청 크기 제한(4.5MB)을 초과합니다. Cloud Storage를 사용해주세요.`,
+          requestSizeMB: requestSizeMB.toFixed(2)
+        },
+        { status: 413 }
+      )
+    }
+    
     const {
       audioBase64,
       audioGcsUrl,
@@ -37,7 +52,7 @@ export async function POST(request: NextRequest) {
       autoImages,
       duration,
       config = { width: 1920, height: 1080, fps: 30 },
-    } = await request.json()
+    } = JSON.parse(requestBody)
 
     if ((!audioBase64 && !audioGcsUrl) || !subtitles || !characterImage) {
       return NextResponse.json(
