@@ -4814,44 +4814,41 @@ export default function LongformContentPage() {
     try {
       console.log("[v0] Cloud Run 렌더링 시작 (빠른다운로드)")
 
-      // 1. 오디오를 base64로 변환 (원본 그대로 전송, 압축 없음)
-      // 압축은 Cloud Run에서 FFmpeg로 처리하여 오디오 품질 보장
+      // 1. 오디오 크기 확인 (base64 변환 전에 체크)
       const audioResponse = await fetch(videoData.audioUrl)
       const audioBlob = await audioResponse.blob()
       
-      console.log("[v0] 원본 오디오 크기:", Math.round(audioBlob.size / 1024), "KB", "타입:", audioBlob.type)
-      console.log("[v0] 클라이언트에서는 압축하지 않고 원본 그대로 전송합니다.")
+      const originalSizeMB = audioBlob.size / 1024 / 1024
+      console.log("[v0] 원본 오디오 크기:", Math.round(audioBlob.size / 1024), "KB", `(${originalSizeMB.toFixed(2)}MB)`, "타입:", audioBlob.type)
       
-      // 원본 오디오를 그대로 사용 (압축하지 않음)
-      console.log("[v0] 원본 오디오를 그대로 사용 (압축하지 않음)")
+      // base64 변환 시 약 33% 증가하므로, 원본이 2.5MB 이상이면 base64 변환 후 3.3MB 이상이 됨
+      // Vercel 제한(3.5MB)을 고려하여 원본 2.5MB 이상이면 Cloud Storage 필수 사용
+      const mustUseCloudStorage = originalSizeMB > 2.5
       
-      let audioBase64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onloadend = () => {
-          const base64String = reader.result as string
-          const base64 = base64String.split(",")[1]
-          resolve(base64)
-        }
-        reader.onerror = reject
-        reader.readAsDataURL(audioBlob) // 원본 그대로 사용
-      })
-
-      let base64SizeMB = audioBase64.length / 1024 / 1024
-      console.log("[v0] 오디오 base64 변환 완료, 크기:", Math.round(base64SizeMB * 1024), "KB", `(${base64SizeMB.toFixed(2)}MB)`)
-      
-      // 압축 로직 제거 - 원본 그대로 사용
-      
-      // Cloud Storage 사용 여부 결정 (2.5MB 이상이면 Cloud Storage 사용)
-      // base64 인코딩으로 인해 실제 크기가 약 33% 증가하므로, 2.5MB 오디오도 base64로 변환하면 약 3.3MB가 됨
-      // Vercel 실제 제한(약 4MB)을 고려하여 안전 마진을 두고 2.5MB 기준으로 설정
-      const useCloudStorage = audioBase64.length > 2.5 * 1024 * 1024
+      // 변수 선언 (스코프 문제 해결)
       let audioGcsUrl: string | null = null
+      let audioBase64: string = ""
       
-      if (useCloudStorage) {
+      if (mustUseCloudStorage) {
         console.log("[v0] 오디오가 큽니다. Cloud Storage에 업로드합니다...")
         
+        // base64 변환 (Cloud Storage 업로드용)
+        audioBase64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onloadend = () => {
+            const base64String = reader.result as string
+            const base64 = base64String.split(",")[1]
+            resolve(base64)
+          }
+          reader.onerror = reject
+          reader.readAsDataURL(audioBlob)
+        })
+        
+        const base64SizeMB = audioBase64.length / 1024 / 1024
+        console.log("[v0] base64 변환 완료, 크기:", Math.round(base64SizeMB * 1024), "KB", `(${base64SizeMB.toFixed(2)}MB)`)
+        
+        // Cloud Storage 업로드 시도
         try {
-          // Cloud Storage에 업로드
           const uploadResponse = await fetch("/api/upload-to-gcs", {
             method: "POST",
             headers: {
@@ -4865,6 +4862,17 @@ export default function LongformContentPage() {
           })
           
           if (!uploadResponse.ok) {
+            // 413 오류인 경우 명확한 메시지
+            if (uploadResponse.status === 413) {
+              const errorText = await uploadResponse.text()
+              let errorData
+              try {
+                errorData = JSON.parse(errorText)
+              } catch {
+                errorData = { error: "요청 크기가 너무 큽니다." }
+              }
+              throw new Error(`오디오 파일이 너무 큽니다 (${base64SizeMB.toFixed(2)}MB). Vercel의 요청 크기 제한을 초과합니다. 오디오 길이를 줄이거나 더 작은 파일로 나누어주세요.`)
+            }
             const errorData = await uploadResponse.json()
             throw new Error(errorData.error || "Cloud Storage 업로드 실패")
           }
@@ -4873,28 +4881,31 @@ export default function LongformContentPage() {
           audioGcsUrl = uploadResult.url
           console.log("[v0] Cloud Storage 업로드 완료:", audioGcsUrl)
           
-          // Cloud Storage 업로드 성공 시 base64는 null로 설정 (전송하지 않음)
+          // Cloud Storage 업로드 성공 시 base64는 빈 문자열로 설정 (전송하지 않음)
           audioBase64 = ""
         } catch (uploadError) {
           console.error("[v0] Cloud Storage 업로드 실패:", uploadError)
-          // 업로드 실패 시 경고만 표시하고 계속 진행 (base64로 전송 시도)
-          alert(`Cloud Storage 업로드에 실패했습니다. base64로 전송을 시도합니다. 오류: ${uploadError instanceof Error ? uploadError.message : "알 수 없는 오류"}`)
+          const errorMessage = uploadError instanceof Error ? uploadError.message : "알 수 없는 오류"
+          alert(`Cloud Storage 업로드에 실패했습니다.\n\n${errorMessage}\n\n오디오 길이를 줄이거나 더 작은 파일로 나누어주세요.`)
+          setIsExporting(false)
+          return
         }
-      }
-      
-      // base64 인코딩 후 크기 확인 (약 33% 증가, Cloud Run 제한 32MB)
-      // 압축 로직 제거 - 원본 그대로 사용
-      // Cloud Run에서 오디오 품질을 보장하므로 클라이언트에서는 압축하지 않음
-      
-      // 크기 확인 (32MB 제한) - Cloud Storage를 사용하지 않는 경우에만
-      if (!audioGcsUrl && audioBase64.length > 30 * 1024 * 1024) {
-        alert(
-          `오디오 파일이 너무 큽니다 (base64: ${base64SizeMB.toFixed(2)}MB). ` +
-          `Cloud Run 요청 크기 제한(32MB)을 초과합니다. ` +
-          `Cloud Storage 업로드를 다시 시도하거나 오디오 길이를 줄여주세요.`
-        )
-        setIsExporting(false)
-        return
+      } else {
+        // 작은 오디오는 base64로 직접 전송
+        console.log("[v0] 오디오가 작습니다. base64로 직접 전송합니다.")
+        audioBase64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onloadend = () => {
+            const base64String = reader.result as string
+            const base64 = base64String.split(",")[1]
+            resolve(base64)
+          }
+          reader.onerror = reject
+          reader.readAsDataURL(audioBlob)
+        })
+        
+        const base64SizeMB = audioBase64.length / 1024 / 1024
+        console.log("[v0] base64 변환 완료, 크기:", Math.round(base64SizeMB * 1024), "KB", `(${base64SizeMB.toFixed(2)}MB)`)
       }
 
       // 2. 이미지 매핑 - videoData에 저장된 autoImages 사용 (없으면 재계산)
