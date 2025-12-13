@@ -1169,10 +1169,10 @@ export default function LongformContentPage() {
             const base64SizeMB = audioBase64.length / 1024 / 1024
             console.log("[자동화] 오디오 base64 변환 완료, 크기:", Math.round(base64SizeMB * 1024), "KB", `(${base64SizeMB.toFixed(2)}MB)`)
             
-            // Cloud Storage 사용 여부 결정 (3MB 이상이면 Cloud Storage 사용)
-            // base64 인코딩으로 인해 실제 크기가 약 33% 증가하므로, 3MB 오디오도 base64로 변환하면 약 4MB가 됨
-            // Vercel 요청 크기 제한(4.5MB)을 고려하여 3MB 기준으로 설정
-            const useCloudStorage = audioBase64.length > 3 * 1024 * 1024
+            // Cloud Storage 사용 여부 결정 (2.5MB 이상이면 Cloud Storage 사용)
+            // base64 인코딩으로 인해 실제 크기가 약 33% 증가하므로, 2.5MB 오디오도 base64로 변환하면 약 3.3MB가 됨
+            // Vercel 실제 제한(약 4MB)을 고려하여 안전 마진을 두고 2.5MB 기준으로 설정
+            const useCloudStorage = audioBase64.length > 2.5 * 1024 * 1024
             let audioGcsUrl: string | null = null
             
             if (useCloudStorage) {
@@ -4841,10 +4841,10 @@ export default function LongformContentPage() {
       
       // 압축 로직 제거 - 원본 그대로 사용
       
-      // Cloud Storage 사용 여부 결정 (3MB 이상이면 Cloud Storage 사용)
-      // base64 인코딩으로 인해 실제 크기가 약 33% 증가하므로, 3MB 오디오도 base64로 변환하면 약 4MB가 됨
-      // Vercel 요청 크기 제한(4.5MB)을 고려하여 3MB 기준으로 설정
-      const useCloudStorage = audioBase64.length > 3 * 1024 * 1024
+      // Cloud Storage 사용 여부 결정 (2.5MB 이상이면 Cloud Storage 사용)
+      // base64 인코딩으로 인해 실제 크기가 약 33% 증가하므로, 2.5MB 오디오도 base64로 변환하면 약 3.3MB가 됨
+      // Vercel 실제 제한(약 4MB)을 고려하여 안전 마진을 두고 2.5MB 기준으로 설정
+      const useCloudStorage = audioBase64.length > 2.5 * 1024 * 1024
       let audioGcsUrl: string | null = null
       
       if (useCloudStorage) {

@@ -29,16 +29,20 @@ import { type NextRequest, NextResponse } from "next/server"
  */
 export async function POST(request: NextRequest) {
   try {
-    // 요청 본문 크기 확인 (Vercel 제한: 4.5MB)
+    // 요청 본문 크기 확인 (Vercel 실제 제한: 약 4MB, 안전 마진 고려하여 3.5MB로 설정)
     const requestBody = await request.text()
     const requestSizeMB = requestBody.length / 1024 / 1024
     
-    if (requestSizeMB > 4.5) {
-      console.error(`[v0] 요청 크기가 너무 큽니다: ${requestSizeMB.toFixed(2)}MB (Vercel 제한: 4.5MB)`)
+    console.log(`[v0] 요청 크기: ${requestSizeMB.toFixed(2)}MB`)
+    
+    // Vercel의 실제 제한은 4.5MB이지만, 안전 마진을 고려하여 3.5MB로 설정
+    if (requestSizeMB > 3.5) {
+      console.error(`[v0] 요청 크기가 너무 큽니다: ${requestSizeMB.toFixed(2)}MB (Vercel 안전 제한: 3.5MB)`)
       return NextResponse.json(
         { 
-          error: `요청 크기가 너무 큽니다 (${requestSizeMB.toFixed(2)}MB). Vercel의 요청 크기 제한(4.5MB)을 초과합니다. Cloud Storage를 사용해주세요.`,
-          requestSizeMB: requestSizeMB.toFixed(2)
+          error: `요청 크기가 너무 큽니다 (${requestSizeMB.toFixed(2)}MB). Vercel의 요청 크기 제한을 초과합니다. Cloud Storage를 사용해주세요.`,
+          requestSizeMB: requestSizeMB.toFixed(2),
+          suggestion: "오디오가 자동으로 Cloud Storage에 업로드되어야 합니다. 오디오 길이를 확인해주세요."
         },
         { status: 413 }
       )

@@ -51,10 +51,21 @@ function getStorageClient() {
       credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY)
     }
 
-    const storage = new Storage({
+    // Vercel 환경에서는 credentials가 없어도 자동 인증을 시도할 수 있음
+    // 하지만 명시적으로 설정하는 것이 더 안전함
+    const storageOptions: any = {
       projectId,
-      ...(credentials && { credentials }),
-    })
+    }
+    
+    if (credentials) {
+      storageOptions.credentials = credentials
+    } else {
+      // Vercel 환경에서 자동 인증을 시도 (Application Default Credentials)
+      console.log("[Upload] 서비스 계정 키가 없습니다. Application Default Credentials를 사용합니다.")
+      console.log("[Upload] Vercel 환경 변수 GOOGLE_SERVICE_ACCOUNT_KEY가 설정되어 있는지 확인하세요.")
+    }
+
+    const storage = new Storage(storageOptions)
 
     return { storage, bucketName }
   } catch (error) {
@@ -65,16 +76,20 @@ function getStorageClient() {
 
 export async function POST(request: NextRequest) {
   try {
-    // 요청 본문 크기 확인 (Vercel 제한: 4.5MB)
+    // 요청 본문 크기 확인 (Vercel 실제 제한: 약 4MB, 안전 마진 고려하여 3.5MB로 설정)
     const requestBody = await request.text()
     const requestSizeMB = requestBody.length / 1024 / 1024
     
-    if (requestSizeMB > 4.5) {
-      console.error(`[Upload] 요청 크기가 너무 큽니다: ${requestSizeMB.toFixed(2)}MB (Vercel 제한: 4.5MB)`)
+    console.log(`[Upload] 요청 크기: ${requestSizeMB.toFixed(2)}MB`)
+    
+    // Vercel의 실제 제한은 4.5MB이지만, 안전 마진을 고려하여 3.5MB로 설정
+    if (requestSizeMB > 3.5) {
+      console.error(`[Upload] 요청 크기가 너무 큽니다: ${requestSizeMB.toFixed(2)}MB (Vercel 안전 제한: 3.5MB)`)
       return NextResponse.json(
         { 
-          error: `요청 크기가 너무 큽니다 (${requestSizeMB.toFixed(2)}MB). Vercel의 요청 크기 제한(4.5MB)을 초과합니다. 파일을 더 작게 나누거나 다른 방법을 사용해주세요.`,
-          requestSizeMB: requestSizeMB.toFixed(2)
+          error: `요청 크기가 너무 큽니다 (${requestSizeMB.toFixed(2)}MB). Vercel의 요청 크기 제한을 초과합니다. 오디오를 더 작게 나누거나 다른 방법을 사용해주세요.`,
+          requestSizeMB: requestSizeMB.toFixed(2),
+          suggestion: "오디오 길이를 줄이거나 더 작은 파일로 나누어주세요."
         },
         { status: 413 }
       )
