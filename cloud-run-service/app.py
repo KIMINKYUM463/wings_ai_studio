@@ -34,14 +34,6 @@ def render_video():
         character_image = data.get('characterImage')
         auto_images = data.get('autoImages', [])  # 여러 이미지 배열
         duration = data.get('duration', 0)
-        title = data.get('title', '')  # 쇼츠 제목
-        config = data.get('config', {})
-        
-        # 비디오 해상도 설정 (기본값: 16:9)
-        video_width = config.get('width', 1920)
-        video_height = config.get('height', 1080)
-        fps = config.get('fps', 30)
-        is_shorts = config.get('isShorts', False)  # 쇼츠 모드 여부
         
         if not audio_base64 and not audio_gcs_url:
             return jsonify({
@@ -102,7 +94,11 @@ def render_video():
                     f.write(audio_data)
                 print(f"[Render] Audio saved: {len(audio_data) / 1024 / 1024:.2f} MB")
                 
-                # 실제 오디오 길이 측정 (ffprobe 사용)
+                # 실제 오디오 정보 측정 (ffprobe 사용) - 길이, 코덱, 비트레이트, 샘플레이트, 채널 수
+                audio_codec = None
+                audio_bitrate = None
+                audio_sample_rate = None
+                audio_channels = None
                 try:
                     import json
                     probe_cmd = [
@@ -110,6 +106,7 @@ def render_video():
                         '-v', 'quiet',
                         '-print_format', 'json',
                         '-show_format',
+                        '-show_streams',
                         audio_path
                     ]
                     probe_result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=30)
@@ -117,6 +114,21 @@ def render_video():
                         probe_data = json.loads(probe_result.stdout)
                         actual_audio_duration = float(probe_data.get('format', {}).get('duration', 0))
                         print(f"[Render] Actual audio duration: {actual_audio_duration:.3f}s (requested: {duration}s)")
+                        
+                        # 오디오 스트림 정보 추출
+                        audio_streams = [s for s in probe_data.get('streams', []) if s.get('codec_type') == 'audio']
+                        if audio_streams:
+                            audio_stream = audio_streams[0]
+                            audio_codec = audio_stream.get('codec_name', '')
+                            audio_sample_rate = audio_stream.get('sample_rate', '')
+                            audio_channels = audio_stream.get('channels', '')
+                            
+                            # 비트레이트 추출 (format 또는 stream에서)
+                            audio_bitrate = probe_data.get('format', {}).get('bit_rate', '')
+                            if not audio_bitrate and audio_stream.get('bit_rate'):
+                                audio_bitrate = audio_stream.get('bit_rate')
+                            
+                            print(f"[Render] Original audio info - codec: {audio_codec}, bitrate: {audio_bitrate}, sample_rate: {audio_sample_rate}, channels: {audio_channels}")
                         
                         # 실제 오디오 길이와 요청된 duration이 다르면 자막 타이밍 조정
                         if actual_audio_duration > 0 and duration > 0:
@@ -256,15 +268,11 @@ def render_video():
                     # 텍스트 이스케이프 (특수문자 처리)
                     text_escaped = text.replace('\\', '\\\\').replace(':', '\\:').replace("'", "\\'").replace('[', '\\[').replace(']', '\\]')
                     
-                    # 위치 설정 (쇼츠 모드와 일반 모드 구분)
-                    if is_shorts:
-                        # 쇼츠 모드: 아래쪽 자막 영역 (하단에서 150px 위)
-                        x_pixel = "(w-text_w)/2"  # 중앙 정렬
-                        y_pixel = "h-th-150"  # 하단에서 텍스트 높이 + 150px 위
-                    else:
-                        # 일반 모드: 중앙 하단
-                        x_pixel = "(w-text_w)/2"  # 중앙 정렬
-                        y_pixel = "h-th-100"  # 하단에서 텍스트 높이 + 100px 위
+                    # 미리보기와 동일한 위치: 중앙 하단
+                    # canvas.width / 2 = 중앙, canvas.height - totalHeight - 100 = 하단에서 100px 위
+                    x_pixel = "(w-text_w)/2"  # 중앙 정렬
+                    # 하단에서 100px 위 (미리보기와 동일)
+                    y_pixel = "h-th-100"  # 하단에서 텍스트 높이 + 100px 위
                     
                     # 한글 폰트 파일 경로 찾기 (Bold 우선)
                     import glob
@@ -365,104 +373,29 @@ def render_video():
                                 segment_subtitle_filters.append(adjusted_sub_filter)
                     
                     # 세그먼트 필터
-                    if is_shorts:
-                        # 쇼츠 모드: 위 제목, 가운데 1:1 이미지, 아래 자막
-                        image_size = int(min(video_width * 0.7, video_height * 0.5))
-                        image_scale = f'scale={image_size}:{image_size}:force_original_aspect_ratio=increase,crop={image_size}:{image_size}'
-                        image_y = (video_height - image_size) // 2
-                        
-                        # 필터 체인 구성
-                        filter_parts = []
-                        # 1. 이미지 리사이즈 및 크롭
-                        filter_parts.append(f'[0:v]{image_scale}[img]')
-                        # 2. 검은 배경 생성
-                        filter_parts.append(f'color=c=black:s={video_width}x{video_height}:d={segment_duration}[bg]')
-                        # 3. 이미지를 배경 위에 오버레이 (가운데)
-                        filter_parts.append(f'[bg][img]overlay=(W-w)/2:{image_y}[v1]')
-                        
-                        # 4. 제목 추가 (위쪽 고정)
-                        if title:
-                            title_escaped = title.replace('\\', '\\\\').replace(':', '\\:').replace("'", "\\'").replace('[', '\\[').replace(']', '\\]')
-                            # 폰트 파일 찾기
-                            import glob
-                            font_path = None
-                            for path in ["/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc", "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"]:
-                                if os.path.exists(path):
-                                    font_path = path
-                                    break
-                            if not font_path:
-                                for pattern in ["/usr/share/fonts/**/NotoSansCJK*Bold*.ttc", "/usr/share/fonts/**/NotoSansCJK*.ttc"]:
-                                    found = glob.glob(pattern, recursive=True)
-                                    if found:
-                                        font_path = found[0]
-                                        break
-                            
-                            font_param = f"fontfile={font_path}:" if font_path else ""
-                            filter_parts.append(f"[v1]drawtext={font_param}text='{title_escaped}':x=(w-text_w)/2:y=50:fontsize=48:fontcolor=yellow:box=1:boxcolor=black@0.8:boxborderw=5[v2]")
-                        else:
-                            filter_parts.append("[v1]null[v2]")
-                        
-                        # 5. 자막 추가
-                        if segment_subtitle_filters:
-                            current_label = "[v2]"
-                            for i, sub_filter in enumerate(segment_subtitle_filters):
-                                if i == len(segment_subtitle_filters) - 1:
-                                    # 마지막 자막
-                                    filter_parts.append(f"{current_label}{sub_filter}[v]")
-                                else:
-                                    # 중간 자막
-                                    next_label = f"[v_sub{i}]"
-                                    filter_parts.append(f"{current_label}{sub_filter}{next_label}")
-                                    current_label = next_label
-                        else:
-                            filter_parts.append("[v2]null[v]")
-                        
-                        vf_segment = ",".join(filter_parts)
-                        
-                        segment_cmd = [
-                            'ffmpeg',
-                            '-y',
-                            '-loop', '1',
-                            '-framerate', str(fps),
-                            '-i', img_file,
-                            '-f', 'lavfi',
-                            '-i', f'color=c=black:s={video_width}x{video_height}:d={segment_duration}',
-                            '-c:v', 'libx264',
-                            '-preset', 'veryfast',
-                            '-crf', '23',
-                            '-tune', 'stillimage',
-                            '-pix_fmt', 'yuv420p',
-                            '-t', str(segment_duration),
-                            '-filter_complex', vf_segment,
-                            '-map', '[v]',
-                            '-threads', '0',
-                            segment_output
-                        ]
+                    base_filter = 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2'
+                    if segment_subtitle_filters:
+                        vf_segment = base_filter + ',' + ','.join(segment_subtitle_filters)
                     else:
-                        # 일반 모드
-                        base_filter = f'scale={video_width}:{video_height}:force_original_aspect_ratio=decrease,pad={video_width}:{video_height}:(ow-iw)/2:(oh-ih)/2'
-                        if segment_subtitle_filters:
-                            vf_segment = base_filter + ',' + ','.join(segment_subtitle_filters)
-                        else:
-                            vf_segment = base_filter
-                        
-                        segment_cmd = [
-                            'ffmpeg',
-                            '-y',
-                            '-loop', '1',
-                            '-framerate', str(fps),
-                            '-i', img_file,
-                            '-c:v', 'libx264',
-                            '-s', f'{video_width}x{video_height}',
-                            '-preset', 'veryfast',
-                            '-crf', '23',
-                            '-tune', 'stillimage',
-                            '-pix_fmt', 'yuv420p',
-                            '-t', str(segment_duration),
-                            '-vf', vf_segment,
-                            '-threads', '0',
-                            segment_output
-                        ]
+                        vf_segment = base_filter
+                    
+                    # 각 세그먼트 렌더링 (속도 최적화)
+                    segment_cmd = [
+                        'ffmpeg',
+                        '-y',
+                        '-loop', '1',
+                        '-framerate', '1',
+                        '-i', img_file,
+                        '-c:v', 'libx264',
+                        '-preset', 'veryfast',  # 인코딩 속도 최적화
+                        '-crf', '23',  # 품질과 속도 균형
+                        '-tune', 'stillimage',
+                        '-pix_fmt', 'yuv420p',
+                        '-t', str(segment_duration),
+                        '-vf', vf_segment,
+                        '-threads', '0',  # 모든 CPU 코어 사용
+                        segment_output
+                    ]
                     
                     result_seg = subprocess.run(segment_cmd, capture_output=True, text=True, timeout=300)
                     if result_seg.returncode != 0:
@@ -486,12 +419,46 @@ def render_video():
                 
                 print(f"[Render] Concat list created with {len(segment_files)} segments")
                 
-                # 오디오와 함께 concat (Cloud Run에서 오디오 압축 처리)
+                # 오디오와 함께 concat (원본 오디오 품질 유지)
                 # 오디오 파일 존재 및 크기 확인
                 if not os.path.exists(audio_path):
                     raise Exception(f"오디오 파일이 존재하지 않습니다: {audio_path}")
                 audio_file_size = os.path.getsize(audio_path)
                 print(f"[Render] Audio file size: {audio_file_size / 1024 / 1024:.2f} MB")
+                
+                # 오디오 코덱 설정: 원본이 AAC 또는 MP3이고 MP4 컨테이너와 호환되면 copy, 아니면 최고 품질 재인코딩
+                audio_codec_param = []
+                if audio_codec and audio_codec.lower() in ['aac', 'mp3']:
+                    # 원본 코덱이 MP4와 호환되면 copy 모드 사용 (재인코딩 없이 원본 그대로)
+                    audio_codec_param = ['-c:a', 'copy']
+                    print(f"[Render] Using audio copy mode (original codec: {audio_codec})")
+                else:
+                    # 재인코딩이 필요한 경우 최고 품질 설정 (원본 품질 유지)
+                    # 원본 비트레이트가 있으면 그대로 사용, 없으면 256k 이상 사용
+                    target_bitrate = '256k'
+                    if audio_bitrate:
+                        try:
+                            bitrate_int = int(audio_bitrate)
+                            # 비트레이트가 bps 단위이므로 kbps로 변환
+                            bitrate_kbps = bitrate_int // 1000
+                            # 최소 256k, 제한 없음 (원본 품질 유지)
+                            target_bitrate = f"{max(256, bitrate_kbps)}k"
+                            print(f"[Render] Using original bitrate: {target_bitrate}")
+                        except:
+                            pass
+                    
+                    target_sample_rate = audio_sample_rate if audio_sample_rate else '44100'
+                    target_channels = audio_channels if audio_channels else '2'
+                    
+                    # 고품질 AAC 인코딩 설정 (원본 품질 최대한 보존)
+                    audio_codec_param = [
+                        '-c:a', 'aac',
+                        '-b:a', target_bitrate,
+                        '-ar', str(target_sample_rate),
+                        '-ac', str(target_channels),
+                        '-aac_coder', 'twoloop'  # 고품질 AAC 인코더
+                    ]
+                    print(f"[Render] Using high-quality audio re-encoding: codec=aac, bitrate={target_bitrate}, sample_rate={target_sample_rate}, channels={target_channels}")
                 
                 ffmpeg_cmd = [
                     'ffmpeg',
@@ -501,10 +468,7 @@ def render_video():
                     '-i', concat_list_path,
                     '-i', audio_path,
                     '-c:v', 'copy',  # 비디오는 재인코딩 없이 복사 (속도 향상)
-                    '-c:a', 'aac',
-                    '-b:a', '128k',  # 오디오 비트레이트
-                    '-ar', '44100',  # 샘플레이트
-                    '-ac', '2',  # 스테레오 (모노인 경우 자동 변환)
+                ] + audio_codec_param + [
                     '-map', '0:v:0',  # 비디오 스트림 명시적으로 매핑
                     '-map', '1:a:0',  # 오디오 스트림 명시적으로 매핑
                     '-shortest',  # 비디오와 오디오 중 짧은 것에 맞춤
@@ -519,62 +483,15 @@ def render_video():
                     ffmpeg_cmd.insert(-1, str(duration))
                 
             else:
-                # 단일 이미지
+                # 단일 이미지 (기존 로직)
                 img_path = image_segments[0][0] if image_segments else img_path
                 
-                if is_shorts:
-                    # 쇼츠 모드: 위 제목, 가운데 1:1 이미지, 아래 자막
-                    image_size = int(min(video_width * 0.7, video_height * 0.5))
-                    image_scale = f'scale={image_size}:{image_size}:force_original_aspect_ratio=increase,crop={image_size}:{image_size}'
-                    image_y = (video_height - image_size) // 2
-                    
-                    filters = []
-                    filters.append(f'[0:v]{image_scale}[img]')
-                    filters.append(f'color=c=black:s={video_width}x{video_height}[bg]')
-                    filters.append(f'[bg][img]overlay=(W-w)/2:{image_y}[v1]')
-                    
-                    # 제목 추가
-                    if title:
-                        title_escaped = title.replace('\\', '\\\\').replace(':', '\\:').replace("'", "\\'")
-                        import glob
-                        font_path = None
-                        for path in ["/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc", "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"]:
-                            if os.path.exists(path):
-                                font_path = path
-                                break
-                        if not font_path:
-                            for pattern in ["/usr/share/fonts/**/NotoSansCJK*Bold*.ttc"]:
-                                found = glob.glob(pattern, recursive=True)
-                                if found:
-                                    font_path = found[0]
-                                    break
-                        font_param = f"fontfile={font_path}:" if font_path else ""
-                        filters.append(f"[v1]drawtext={font_param}text='{title_escaped}':x=(w-text_w)/2:y=50:fontsize=48:fontcolor=yellow:box=1:boxcolor=black@0.8:boxborderw=5[v2]")
-                    else:
-                        filters.append("[v1]null[v2]")
-                    
-                    # 자막 추가
-                    if subtitle_filters:
-                        current_label = "[v2]"
-                        for i, sub_filter in enumerate(subtitle_filters):
-                            if i == len(subtitle_filters) - 1:
-                                # 마지막 자막
-                                filters.append(f"{current_label}{sub_filter}[v]")
-                            else:
-                                # 중간 자막
-                                next_label = f"[v_sub{i}]"
-                                filters.append(f"{current_label}{sub_filter}{next_label}")
-                                current_label = next_label
-                        vf_complex = ",".join(filters)
-                    else:
-                        vf_complex = ",".join(filters).replace("[v2]", "[v]")
+                base_filters = 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2'
+                
+                if subtitle_filters:
+                    vf_complex = base_filters + ',' + ','.join(subtitle_filters)
                 else:
-                    # 일반 모드
-                    base_filters = f'scale={video_width}:{video_height}:force_original_aspect_ratio=decrease,pad={video_width}:{video_height}:(ow-iw)/2:(oh-ih)/2'
-                    if subtitle_filters:
-                        vf_complex = base_filters + ',' + ','.join(subtitle_filters)
-                    else:
-                        vf_complex = base_filters
+                    vf_complex = base_filters
                 
                 # 오디오 파일 존재 및 크기 확인
                 if not os.path.exists(audio_path):
@@ -582,73 +499,67 @@ def render_video():
                 audio_file_size = os.path.getsize(audio_path)
                 print(f"[Render] Audio file size: {audio_file_size / 1024 / 1024:.2f} MB")
                 
-                if is_shorts:
-                    # 쇼츠 모드: 배경 + 이미지 오버레이
-                    ffmpeg_cmd = [
-                        'ffmpeg',
-                        '-y',
-                        '-loop', '1',
-                        '-framerate', str(fps),
-                        '-i', img_path,
-                        '-f', 'lavfi',
-                        '-i', f'color=c=black:s={video_width}x{video_height}',
-                        '-i', audio_path,
-                        '-c:v', 'libx264',
-                        '-preset', 'veryfast',
-                        '-crf', '23',
-                        '-tune', 'stillimage',
-                        '-c:a', 'aac',
-                        '-b:a', '128k',
-                        '-ar', '44100',
-                        '-ac', '2',
-                        '-pix_fmt', 'yuv420p',
-                        '-shortest',
-                        '-threads', '0',
-                    ]
-                    
-                    if duration and duration > 0:
-                        ffmpeg_cmd.extend(['-t', str(duration)])
-                    
-                    ffmpeg_cmd.extend([
-                        '-filter_complex', vf_complex,
-                        '-map', '[v]',
-                        '-map', '2:a:0',
-                        '-movflags', '+faststart',
-                        output_path
-                    ])
+                # 오디오 코덱 설정: 원본이 AAC 또는 MP3이고 MP4 컨테이너와 호환되면 copy, 아니면 최고 품질 재인코딩
+                audio_codec_param = []
+                if audio_codec and audio_codec.lower() in ['aac', 'mp3']:
+                    # 원본 코덱이 MP4와 호환되면 copy 모드 사용 (재인코딩 없이 원본 그대로)
+                    audio_codec_param = ['-c:a', 'copy']
+                    print(f"[Render] Using audio copy mode (original codec: {audio_codec})")
                 else:
-                    # 일반 모드
-                    ffmpeg_cmd = [
-                        'ffmpeg',
-                        '-y',
-                        '-loop', '1',
-                        '-framerate', '1',
-                        '-i', img_path,
-                        '-i', audio_path,
-                        '-c:v', 'libx264',
-                        '-preset', 'veryfast',
-                        '-crf', '23',
-                        '-tune', 'stillimage',
+                    # 재인코딩이 필요한 경우 최고 품질 설정 (원본 품질 유지)
+                    # 원본 비트레이트가 있으면 그대로 사용, 없으면 256k 이상 사용
+                    target_bitrate = '256k'
+                    if audio_bitrate:
+                        try:
+                            bitrate_int = int(audio_bitrate)
+                            # 비트레이트가 bps 단위이므로 kbps로 변환
+                            bitrate_kbps = bitrate_int // 1000
+                            # 최소 256k, 제한 없음 (원본 품질 유지)
+                            target_bitrate = f"{max(256, bitrate_kbps)}k"
+                            print(f"[Render] Using original bitrate: {target_bitrate}")
+                        except:
+                            pass
+                    
+                    target_sample_rate = audio_sample_rate if audio_sample_rate else '44100'
+                    target_channels = audio_channels if audio_channels else '2'
+                    
+                    # 고품질 AAC 인코딩 설정 (원본 품질 최대한 보존)
+                    audio_codec_param = [
                         '-c:a', 'aac',
-                        '-b:a', '128k',
-                        '-ar', '44100',
-                        '-ac', '2',
-                        '-map', '0:v:0',
-                        '-map', '1:a:0',
-                        '-pix_fmt', 'yuv420p',
-                        '-shortest',
-                        '-threads', '0',
+                        '-b:a', target_bitrate,
+                        '-ar', str(target_sample_rate),
+                        '-ac', str(target_channels),
+                        '-aac_coder', 'twoloop'  # 고품질 AAC 인코더
                     ]
-                    
-                    if duration and duration > 0:
-                        ffmpeg_cmd.extend(['-t', str(duration)])
-                    
-                    ffmpeg_cmd.extend([
-                        '-movflags', '+faststart',
-                        '-vf', vf_complex,
-                        '-s', f'{video_width}x{video_height}',
-                        output_path
-                    ])
+                    print(f"[Render] Using high-quality audio re-encoding: codec=aac, bitrate={target_bitrate}, sample_rate={target_sample_rate}, channels={target_channels}")
+                
+                ffmpeg_cmd = [
+                    'ffmpeg',
+                    '-y',
+                    '-loop', '1',
+                    '-framerate', '1',
+                    '-i', img_path,
+                    '-i', audio_path,
+                    '-c:v', 'libx264',
+                    '-preset', 'veryfast',  # 인코딩 속도 최적화
+                    '-crf', '23',  # 품질과 속도 균형
+                    '-tune', 'stillimage',
+                ] + audio_codec_param + [
+                    '-map', '0:v:0',  # 비디오 스트림 명시적으로 매핑
+                    '-map', '1:a:0',  # 오디오 스트림 명시적으로 매핑
+                    '-pix_fmt', 'yuv420p',
+                    '-shortest',  # 비디오와 오디오 중 짧은 것에 맞춤
+                    '-threads', '0',  # 모든 CPU 코어 사용
+                ]
+                
+                if duration and duration > 0:
+                    ffmpeg_cmd.extend(['-t', str(duration)])
+                
+                ffmpeg_cmd.extend([
+                    '-movflags', '+faststart',
+                    '-vf', vf_complex,
+                    output_path
+                ])
             
             print(f"[Render] FFmpeg command: {' '.join(ffmpeg_cmd)}")
             
