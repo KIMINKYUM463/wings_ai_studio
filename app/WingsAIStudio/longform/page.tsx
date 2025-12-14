@@ -384,6 +384,7 @@ export default function LongformContentPage() {
   const [shortsVideoUrl, setShortsVideoUrl] = useState<string>("") // 쇼츠 영상 URL
   const [isRenderingShorts, setIsRenderingShorts] = useState(false) // 쇼츠 영상 렌더링 중
   const shortsCanvasRef = useRef<HTMLCanvasElement>(null) // 쇼츠 캔버스 ref
+  const thumbnailPreviewRef = useRef<HTMLDivElement>(null) // 썸네일 미리보기 ref
   const shortsVideoRef = useRef<HTMLVideoElement>(null) // 쇼츠 비디오 ref
   const shortsAnimationFrameRef = useRef<number | null>(null) // 쇼츠 애니메이션 프레임 ref
   const shortsPreviewAudio = useRef<HTMLAudioElement | null>(null) // 쇼츠 미리보기 오디오 ref
@@ -545,9 +546,9 @@ export default function LongformContentPage() {
     | "urban_legend"
     | "serial_crime"
     | "unsolved_case"
-    | "reserve_army"
-    | "elementary_school"
-  >("health")
+      | "reserve_army"
+      | "elementary_school"
+    >("health")
   
   // 기본 주제/틈새 주제 토글 상태
   const [showBasicCategories, setShowBasicCategories] = useState(false)
@@ -6015,121 +6016,50 @@ export default function LongformContentPage() {
   */
 
   const handleSaveThumbnailImage = async () => {
-    if (!generatedImage) {
-      alert("인물 이미지가 없습니다.")
+    if (!thumbnailPreviewRef.current) {
+      alert("썸네일 미리보기를 찾을 수 없습니다.")
       return
     }
 
     try {
-      const canvas = document.createElement("canvas")
-      canvas.width = 1280
-      canvas.height = 720
-      const ctx = canvas.getContext("2d")!
-
-      ctx.imageSmoothingEnabled = false
-
-      // 검은 배경
-      ctx.fillStyle = "black"
-      ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-      // 인물 이미지 로드
-      const img = new Image()
-      img.crossOrigin = "anonymous"
-      await new Promise((resolve, reject) => {
-        img.onload = resolve
-        img.onerror = reject
-        img.src = generatedImage
+      // html2canvas-pro를 사용하여 실제 미리보기 div를 캡처 (oklch 색상 지원)
+      const html2canvas = (await import("html2canvas-pro")).default
+      
+      const element = thumbnailPreviewRef.current
+      
+      // 원본 요소를 직접 사용 (html2canvas-pro가 oklch를 지원하므로 원본 사용 가능)
+      // 이미지가 로드될 때까지 기다리기
+      // 이미지가 로드될 때까지 기다리기
+      const images = element.querySelectorAll('img')
+      const imagePromises = Array.from(images).map((img) => {
+        if (img.complete && img.naturalWidth > 0) {
+          return Promise.resolve()
+        }
+        return new Promise<void>((resolve) => {
+          const timeout = setTimeout(() => resolve(), 5000) // 5초 타임아웃
+          img.onload = () => {
+            clearTimeout(timeout)
+            resolve()
+          }
+          img.onerror = () => {
+            clearTimeout(timeout)
+            resolve() // 에러가 나도 계속 진행
+          }
+        })
       })
-
-      const containerWidth = canvas.width * 0.5
-      const containerHeight = canvas.height
-
-      const imgRatio = img.width / img.height
-      const containerRatio = containerWidth / containerHeight
-
-      let drawWidth, drawHeight, drawX, drawY
-
-      if (imgRatio > containerRatio) {
-        // 이미지가 더 넓음 - 높이를 맞추고 너비를 잘라냄
-        drawHeight = containerHeight
-        drawWidth = drawHeight * imgRatio
-        drawY = 0
-        drawX = -(drawWidth - containerWidth) / 2
-      } else {
-        // 이미지가 더 높음 - 너비를 맞추고 높이를 잘라냄
-        drawWidth = containerWidth
-        drawHeight = drawWidth / imgRatio
-        drawX = 0
-        drawY = -(drawHeight - containerHeight) / 2
-      }
-
-      const containerX = (canvas.width * doctorImagePosition.x) / 100 - containerWidth / 2
-      const containerY = (canvas.height * doctorImagePosition.y) / 100
-
-      ctx.save()
-      ctx.beginPath()
-      ctx.rect(containerX, containerY, containerWidth, containerHeight)
-      ctx.clip()
-
-      // 이미지 그리기 (object-cover 효과)
-      ctx.drawImage(img, containerX + drawX, containerY + drawY, drawWidth, drawHeight)
-
-      ctx.restore()
-
-      const gradient = ctx.createLinearGradient(containerX, 0, containerX + containerWidth, 0)
-
-      // Tailwind 클래스를 Canvas gradient로 정확히 변환
-      if (gradientMask.direction.includes("from-transparent")) {
-        // 우→좌 (from-transparent to-black)
-        gradient.addColorStop(0, "rgba(0, 0, 0, 0)")
-        gradient.addColorStop(0.5, `rgba(0, 0, 0, ${gradientMask.opacity * 0.5})`)
-        gradient.addColorStop(1, `rgba(0, 0, 0, ${gradientMask.opacity})`)
-      } else if (gradientMask.direction.includes("from-black")) {
-        // 좌→우 (from-black to-transparent) - 기본값
-        gradient.addColorStop(0, `rgba(0, 0, 0, ${gradientMask.opacity})`)
-        gradient.addColorStop(0.5, `rgba(0, 0, 0, ${gradientMask.opacity * 0.5})`)
-        gradient.addColorStop(1, "rgba(0, 0, 0, 0)")
-      }
-
-      ctx.fillStyle = gradient
-      ctx.fillRect(containerX, containerY, containerWidth, containerHeight)
-
-      thumbnailText.forEach((text, index) => {
-        const style = textStyles[index]
-        const position = textPositions[index]
-
-        ctx.fillStyle = style.color
-        ctx.font = `${style.fontWeight} ${style.fontSize}px Arial Black, Arial, sans-serif`
-        ctx.textAlign = "left"
-        ctx.textBaseline = "top"
-
-        // 텍스트 그림자 (미리보기 크기의 2배)
-        if (style.textShadow && style.textShadow !== "none") {
-          const shadowMatch = style.textShadow.match(/(\d+)px\s+(\d+)px\s+(\d+)px\s+(.+)/)
-          if (shadowMatch) {
-            ctx.shadowOffsetX = Number.parseInt(shadowMatch[1]) * 2
-            ctx.shadowOffsetY = Number.parseInt(shadowMatch[2]) * 2
-            ctx.shadowBlur = Number.parseInt(shadowMatch[3]) * 2
-            ctx.shadowColor = shadowMatch[4]
-          }
-        }
-
-        // 텍스트 외곽선 (미리보기 크기의 2배)
-        if (style.stroke && style.stroke !== "none") {
-          const strokeMatch = style.stroke.match(/([\d.]+)px\s+(.+)/)
-          if (strokeMatch) {
-            ctx.strokeStyle = strokeMatch[2]
-            ctx.lineWidth = Number.parseFloat(strokeMatch[1]) * 2
-            ctx.strokeText(text, (canvas.width * position.x) / 100, (canvas.height * position.y) / 100)
-          }
-        }
-
-        ctx.fillText(text, (canvas.width * position.x) / 100, (canvas.height * position.y) / 100)
-
-        // 그림자 초기화
-        ctx.shadowOffsetX = 0
-        ctx.shadowOffsetY = 0
-        ctx.shadowBlur = 0
+      
+      await Promise.all(imagePromises)
+      
+      // html2canvas-pro는 oklch를 지원하므로 복잡한 변환 로직 불필요
+      // 실제 미리보기 크기 그대로 유지 (640x360)
+      const canvas = await html2canvas(element, {
+        width: element.offsetWidth || 640,
+        height: element.offsetHeight || 360,
+        scale: 1, // 실제 크기 그대로 저장
+        backgroundColor: "#000000",
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
       })
 
       // Canvas를 이미지로 변환하여 다운로드
@@ -6140,8 +6070,12 @@ export default function LongformContentPage() {
             const a = document.createElement("a")
             a.href = url
             a.download = `thumbnail-${Date.now()}.jpg`
+            document.body.appendChild(a)
             a.click()
+            document.body.removeChild(a)
             URL.revokeObjectURL(url)
+          } else {
+            alert("이미지 저장에 실패했습니다.")
           }
         },
         "image/jpeg",
@@ -6149,7 +6083,7 @@ export default function LongformContentPage() {
       )
     } catch (error) {
       console.error("썸네일 저장 오류:", error)
-      alert("썸네일 저장에 실패했습니다.")
+      alert(`썸네일 저장에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
     }
   }
 
@@ -11171,6 +11105,7 @@ export default function LongformContentPage() {
                       </Button>
                     </div>
                     <div
+                      ref={thumbnailPreviewRef}
                       className="thumbnail-container relative mx-auto"
                       style={{
                         width: "640px",

@@ -461,10 +461,30 @@ export async function generateTopics(
     society: "사회 트렌드, 최신 이슈와 관련된 롱폼 비디오 주제",
     space: "우주, 천문학과 관련된 롱폼 비디오 주제",
     fortune: "사주, 운세와 관련된 롱폼 비디오 주제",
+    reserve_army: "예비군 이야기, 예비군 경험과 관련된 롱폼 비디오 주제",
+    elementary_school: "국민학교 시절, 추억과 관련된 롱폼 비디오 주제",
   }
 
   try {
-    const categoryPrompt = categoryPrompts[category] || categoryPrompts.health
+    // category가 없거나 빈 문자열인 경우 체크
+    if (!category || category.trim() === "") {
+      throw new Error("카테고리가 지정되지 않았습니다.")
+    }
+
+    // 디버깅: category 값 확인
+    console.log("[generateTopics] category:", category)
+    
+    const categoryPrompt = categoryPrompts[category]
+    
+    // categoryPrompt가 없으면 오류
+    if (!categoryPrompt) {
+      console.error("[generateTopics] categoryPrompt not found for category:", category)
+      console.error("[generateTopics] available categories:", Object.keys(categoryPrompts))
+      throw new Error(`지원하지 않는 카테고리입니다: ${category}`)
+    }
+
+    console.log("[generateTopics] categoryPrompt:", categoryPrompt)
+
     const keywordsText = keywords ? `\n키워드: ${keywords}` : ""
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -478,11 +498,11 @@ export async function generateTopics(
         messages: [
           {
             role: "system",
-            content: "당신은 롱폼 비디오 콘텐츠 전문가입니다. 주어진 카테고리를 바탕으로 5-15분 길이의 롱폼 비디오에 적합한 주제 10개를 생성해주세요.",
+            content: "당신은 롱폼 비디오 콘텐츠 전문가입니다. 사용자가 제공하는 카테고리 설명을 바탕으로 해당 카테고리에 맞는 주제 15개를 반드시 생성해주세요. 주제만 생성하고, 사과 메시지나 설명은 절대 포함하지 마세요. 각 주제는 번호를 붙여서 작성해주세요 (예: 1. 주제명).",
           },
           {
             role: "user",
-            content: `카테고리: ${categoryPrompt}${keywordsText}\n\n위 카테고리를 바탕으로 롱폼 비디오에 적합한 주제 10개를 생성해주세요. 각 주제는 한 줄로 간결하게 작성해주세요.`,
+            content: `다음 카테고리에 해당하는 롱폼 비디오 주제 15개를 생성해주세요:\n\n카테고리 설명: ${categoryPrompt}${keywordsText}\n\n요구사항:\n- 주제 15개를 반드시 생성해주세요\n- 각 주제는 한 줄로 간결하게 작성\n- 번호 형식: 1. 주제명\n- 사과 메시지나 설명 없이 주제만 작성\n\n주제 목록:`,
           },
         ],
         max_tokens: 1000,
@@ -501,21 +521,45 @@ export async function generateTopics(
       throw new Error("API 응답에서 내용을 찾을 수 없습니다.")
     }
 
+    // GPT가 오류 메시지를 반환한 경우 체크
+    if (content.includes("카테고리가 정의되지 않았") || 
+        content.includes("카테고리가 지정되지 않았") ||
+        content.includes("죄송하지만") ||
+        content.includes("카테고리를 제공해")) {
+      console.error("[generateTopics] GPT API가 오류 메시지를 반환했습니다:", content)
+      console.error("[generateTopics] category:", category)
+      console.error("[generateTopics] categoryPrompt:", categoryPrompt)
+      throw new Error(`주제 생성에 실패했습니다. 카테고리: ${category}, 프롬프트: ${categoryPrompt}`)
+    }
+
+    console.log("[generateTopics] GPT API 응답:", content.substring(0, 200))
+
     const lines = content.split("\n").filter((line: string) => line.trim())
     const topics: string[] = []
     
     for (const line of lines) {
-      const match = line.match(/^\d+\.\s*(.+)$/)
+      // 다양한 번호 형식 지원: "1.", "1)", "1. ", "- 1." 등
+      const match = line.match(/^[\d\-]+[\.\)]\s*(.+)$/) || line.match(/^[\-\*]\s*(.+)$/)
       if (match && match[1]) {
         const topic = match[1].trim()
-        if (topic && topic.length > 0) {
+        // 오류 메시지가 아닌 실제 주제인지 확인
+        if (topic && 
+            topic.length > 0 && 
+            !topic.includes("카테고리가") && 
+            !topic.includes("죄송하지만") &&
+            !topic.includes("제공해")) {
           topics.push(topic)
         }
       }
-      if (topics.length >= 10) break
+      if (topics.length >= 15) break
     }
 
-    return topics.length > 0 ? topics : ["건강한 생활 습관", "역사의 숨겨진 이야기", "인생의 지혜"]
+    if (topics.length === 0) {
+      console.error("[generateTopics] 주제를 파싱할 수 없습니다. 원본 응답:", content)
+      throw new Error(`주제를 생성할 수 없습니다. GPT API 응답: ${content.substring(0, 200)}`)
+    }
+
+    return topics
   } catch (error) {
     console.error("주제 생성 실패:", error)
     throw error

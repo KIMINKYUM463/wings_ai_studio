@@ -61,26 +61,49 @@ export default function HomePage() {
   useEffect(() => {
     const loadPrograms = async () => {
       try {
-        const response = await fetch('/api/user/programs')
-        if (response.ok) {
-          const data = await response.json()
-          setPrograms(data.programs || [])
-          setHasInstructor(data.hasInstructor ?? null)
+        // youmaker는 항상 포함 (로그인 여부와 관계없이)
+        const youmakerProgram: Program = {
+          id: 'youmaker',
+          program_name: 'YouMaker',
+          program_path: '/youmaker',
+          program_description: '유튜브 분석 도구 - 떡상 영상 분석부터 썸네일 생성까지',
+        }
+
+        if (isLoggedIn) {
+          const response = await fetch('/api/user/programs')
+          if (response.ok) {
+            const data = await response.json()
+            const instructorPrograms = data.programs || []
+            // youmaker가 이미 포함되어 있지 않은 경우에만 추가
+            const hasYoumaker = instructorPrograms.some((p: Program) => p.id === 'youmaker' || p.program_path === '/youmaker')
+            setPrograms(hasYoumaker ? instructorPrograms : [youmakerProgram, ...instructorPrograms])
+            setHasInstructor(data.hasInstructor ?? null)
+          } else {
+            // API 호출 실패 시에도 youmaker는 표시
+            setPrograms([youmakerProgram])
+            setHasInstructor(null)
+          }
+        } else {
+          // 로그인하지 않은 경우에도 youmaker는 표시
+          setPrograms([youmakerProgram])
+          setHasInstructor(null)
         }
       } catch (error) {
         console.error('프로그램 목록 로드 실패:', error)
+        // 오류 발생 시에도 youmaker는 표시
+        setPrograms([{
+          id: 'youmaker',
+          program_name: 'YouMaker',
+          program_path: '/youmaker',
+          program_description: '유튜브 분석 도구 - 떡상 영상 분석부터 썸네일 생성까지',
+        }])
         setHasInstructor(null)
       } finally {
         setProgramsLoading(false)
       }
     }
 
-    if (isLoggedIn) {
-      loadPrograms()
-    } else {
-      setProgramsLoading(false)
-      setHasInstructor(null)
-    }
+    loadPrograms()
   }, [isLoggedIn])
 
   // 카카오 로그인 시작
@@ -225,9 +248,6 @@ export default function HomePage() {
                   </svg>
                   카카오 로그인
                 </button>
-                <a href="/signup" className="inline-flex px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-opacity">
-                  시작하기
-                </a>
               </>
             )}
           </div>
@@ -274,14 +294,6 @@ export default function HomePage() {
                     ? '강사가 지정되지 않았거나 사용 가능한 프로그램이 없습니다.' 
                     : '로그인 후 강사별 프로그램을 확인할 수 있습니다.'}
                 </p>
-                {!isLoggedIn && (
-                  <button
-                    onClick={handleKakaoLogin}
-                    className="inline-flex items-center gap-2 px-6 py-3 text-sm font-medium rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
-                  >
-                    카카오 로그인
-                  </button>
-                )}
               </div>
             ) : (
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
