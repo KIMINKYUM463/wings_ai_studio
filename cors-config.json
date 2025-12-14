@@ -1,12 +1,8 @@
 [
   {
-    "origin": ["*"],
-    "method": ["GET", "HEAD"],
-    "responseHeader": ["Content-Type", "Content-Length", "Content-Range"],
+    "origin": ["https://wingsaistudio.com", "https://www.wingsaistudio.com", "http://localhost:3000"],
+    "method": ["GET", "PUT", "POST", "HEAD", "DELETE"],
+    "responseHeader": ["Content-Type", "Content-Length", "Access-Control-Allow-Origin"],
     "maxAgeSeconds": 3600
   }
 ]
-
-
-
-

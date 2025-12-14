@@ -222,6 +222,8 @@ export default function LongformContentPage() {
   const [isCrawlingNews, setIsCrawlingNews] = useState(false)
   const [customTopic, setCustomTopic] = useState("")
   const [isCustomTopicSelected, setIsCustomTopicSelected] = useState(false)
+  const [isDirectInputSelected, setIsDirectInputSelected] = useState(false) // 직접입력 선택 여부
+  const [benchmarkScript, setBenchmarkScript] = useState("") // 벤치마킹 대본
   const [script, setScript] = useState("")
   const [scriptLines, setScriptLines] = useState<Array<{ id: number; text: string }>>([])
   const [selectedLineIds, setSelectedLineIds] = useState<Set<number>>(new Set())
@@ -3097,9 +3099,15 @@ export default function LongformContentPage() {
   }
 
   const handleScriptPlanGeneration = async () => {
-    if (!selectedTopic && !customTopic) {
+    // 직접입력 모드에서는 주제 체크를 건너뜀 (벤치마킹 대본 기반으로 생성)
+    if (!isDirectInputSelected && !selectedTopic && !customTopic) {
       alert("주제를 선택하거나 입력해주세요.")
       return
+    }
+    
+    // 직접입력 모드에서 벤치마킹 대본이 있으면 referenceScript에 설정
+    if (isDirectInputSelected && benchmarkScript.trim()) {
+      setReferenceScript(benchmarkScript)
     }
 
     setIsGenerating(true)
@@ -6297,18 +6305,29 @@ export default function LongformContentPage() {
                           { id: "unsolved_case", name: "미제사건", icon: "🔍", gradient: "from-amber-500 to-yellow-600", available: true },
                           { id: "reserve_army", name: "예비군이야기", icon: "🪖", gradient: "from-green-600 to-emerald-700", available: true },
                           { id: "elementary_school", name: "국민학교", icon: "🏫", gradient: "from-orange-400 to-amber-500", available: true },
-                        ].map((category) => (
+                          { id: "direct_input", name: "직접입력", icon: "✍️", gradient: "from-purple-500 to-pink-500", available: true, isDirectInput: true },
+                        ].map((category: any) => (
                           <div
                             key={category.id}
                             className={`group relative overflow-hidden rounded-lg cursor-pointer transition-all duration-200 ${
-                              selectedCategory === category.id
+                              (category.isDirectInput && isDirectInputSelected) || (!category.isDirectInput && selectedCategory === category.id)
                                 ? "bg-red-50 border border-red-300 text-red-700 scale-105"
                                 : "bg-gray-50 hover:bg-gray-100 hover:scale-105 hover:shadow-xs"
                             } ${!category.available ? "opacity-50 cursor-not-allowed" : ""}`}
                             onClick={() => {
                               if (category.available) {
-                                setSelectedCategory(category.id as any)
-                                setKeywords("") // 카테고리 변경 시 키워드 초기화
+                                if (category.isDirectInput) {
+                                  // 직접입력 선택
+                                  setIsDirectInputSelected(true)
+                                  setSelectedCategory("health" as any) // 기본 카테고리로 설정
+                                  setKeywords("") // 키워드 초기화
+                                } else {
+                                  // 일반 카테고리 선택
+                                  setIsDirectInputSelected(false)
+                                  setBenchmarkScript("") // 벤치마킹 대본 초기화
+                                  setSelectedCategory(category.id as any)
+                                  setKeywords("") // 카테고리 변경 시 키워드 초기화
+                                }
                               }
                             }}
                           >
@@ -6329,22 +6348,43 @@ export default function LongformContentPage() {
                 <CardHeader className="pb-4 border-b border-gray-100">
                   <CardTitle className="text-lg font-semibold text-slate-900">주제 생성</CardTitle>
                   <p className="text-sm text-gray-500 mt-2">
-                    키워드를 입력하지 않으면 선택한 카테고리 기준으로 주제를 생성합니다.
+                    {isDirectInputSelected 
+                      ? "벤치마킹 대본을 입력하면 해당 대본을 기반으로 대본 기획이 생성됩니다."
+                      : "키워드를 입력하지 않으면 선택한 카테고리 기준으로 주제를 생성합니다."}
                   </p>
                 </CardHeader>
                 <CardContent className="pt-6 space-y-6">
-                  <div className="space-y-2">
-                    <Label htmlFor="keywords" className="text-sm font-medium text-gray-700">
-                      키워드 입력 (선택 사항)
-                    </Label>
-                <Input
-                      id="keywords"
-                      placeholder="키워드를 입력하면 해당 키워드 중심으로 주제를 생성합니다"
-                  value={keywords}
-                  onChange={(e) => setKeywords(e.target.value)}
-                      className="h-12 border-gray-300 focus:ring-red-500 focus:border-red-500 rounded-lg"
-                    />
-                  </div>
+                  {/* 직접입력 선택 시 벤치마킹 대본 입력 필드 표시 */}
+                  {isDirectInputSelected ? (
+                    <div className="space-y-2">
+                      <Label htmlFor="benchmark-script" className="text-sm font-medium text-gray-700">
+                        벤치마킹 대본 입력
+                      </Label>
+                      <p className="text-xs text-gray-500 mb-3">
+                        참고할 대본을 입력하세요. 이 대본을 기반으로 대본 기획이 생성됩니다.
+                      </p>
+                      <Textarea
+                        id="benchmark-script"
+                        value={benchmarkScript}
+                        onChange={(e) => setBenchmarkScript(e.target.value)}
+                        placeholder="벤치마킹 대본을 입력하세요..."
+                        className="min-h-[200px] resize-y border-gray-300 focus:ring-red-500 focus:border-red-500 rounded-lg"
+                      />
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <Label htmlFor="keywords" className="text-sm font-medium text-gray-700">
+                        키워드 입력 (선택 사항)
+                      </Label>
+                      <Input
+                        id="keywords"
+                        placeholder="키워드를 입력하면 해당 키워드 중심으로 주제를 생성합니다"
+                        value={keywords}
+                        onChange={(e) => setKeywords(e.target.value)}
+                        className="h-12 border-gray-300 focus:ring-red-500 focus:border-red-500 rounded-lg"
+                      />
+                    </div>
+                  )}
 
                   {/* 테스트용 이미지 업로드 */}
                   <div className="space-y-2">
@@ -6388,24 +6428,88 @@ export default function LongformContentPage() {
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
-                    <Button
-                      onClick={handleTopicGeneration}
-                      disabled={isGenerating}
-                      className="h-12 bg-red-500 hover:bg-red-600 text-white rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                      size="lg"
-                    >
-                      {isGenerating ? (
-                        <>
-                          <Sparkles className="w-5 h-5 mr-2 animate-spin" />
-                          AI가 주제를 생성하고 있습니다...
-                        </>
-                      ) : (
-                        <>
-                          <Target className="w-5 h-5 mr-2" />
-                          주제 15개 생성하기
-                        </>
-                      )}
-                    </Button>
+                    {isDirectInputSelected ? (
+                      <Button
+                        onClick={async () => {
+                          if (!benchmarkScript.trim()) {
+                            alert("벤치마킹 대본을 입력해주세요.")
+                            return
+                          }
+                          
+                          // 벤치마킹 대본을 referenceScript에 설정
+                          setReferenceScript(benchmarkScript)
+                          
+                          // 벤치마킹 대본에서 주제 추출 (간단하게 첫 50자 또는 기본값 사용)
+                          const extractedTopic = benchmarkScript.substring(0, 50).trim() || "벤치마킹 대본 기반 주제"
+                          setSelectedTopic(extractedTopic)
+                          setIsCustomTopicSelected(false)
+                          
+                          // 대본 기획 단계로 이동
+                          setActiveStep("planning")
+                          
+                          // 대본 기획 생성 시작
+                          setIsGenerating(true)
+                          try {
+                            const plan = await generateScriptPlan(
+                              extractedTopic,
+                              selectedCategory,
+                              undefined,
+                              getApiKey(),
+                              undefined,
+                              benchmarkScript
+                            )
+                            setScriptPlan(plan)
+                            setScriptDraft("") // 기획안이 새로 생성되면 초안 초기화
+                            setCompletedSteps((prev) => {
+                              const newSteps = [...prev]
+                              if (!newSteps.includes("topic")) newSteps.push("topic")
+                              if (!newSteps.includes("planning")) newSteps.push("planning")
+                              return newSteps
+                            })
+                          } catch (error) {
+                            console.error("대본 기획 생성 실패:", error)
+                            const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다."
+                            alert(`대본 기획 생성에 실패했습니다: ${errorMessage}`)
+                          } finally {
+                            setIsGenerating(false)
+                          }
+                        }}
+                        disabled={isGenerating || !benchmarkScript.trim()}
+                        className="h-12 bg-red-500 hover:bg-red-600 text-white rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                        size="lg"
+                      >
+                        {isGenerating ? (
+                          <>
+                            <Sparkles className="w-5 h-5 mr-2 animate-spin" />
+                            AI가 대본 기획을 생성하고 있습니다...
+                          </>
+                        ) : (
+                          <>
+                            <FileText className="w-5 h-5 mr-2" />
+                            대본 기획 생성하기
+                          </>
+                        )}
+                      </Button>
+                    ) : (
+                      <Button
+                        onClick={handleTopicGeneration}
+                        disabled={isGenerating}
+                        className="h-12 bg-red-500 hover:bg-red-600 text-white rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                        size="lg"
+                      >
+                        {isGenerating ? (
+                          <>
+                            <Sparkles className="w-5 h-5 mr-2 animate-spin" />
+                            AI가 주제를 생성하고 있습니다...
+                          </>
+                        ) : (
+                          <>
+                            <Target className="w-5 h-5 mr-2" />
+                            주제 15개 생성하기
+                          </>
+                        )}
+                      </Button>
+                    )}
                     <Button
                       onClick={handleLoadTestData}
                       className="h-12 bg-gray-500 hover:bg-gray-600 text-white rounded-lg font-semibold"
@@ -6440,13 +6544,22 @@ export default function LongformContentPage() {
                       onClick={() => {
                         setSelectedTopic(topic)
                         setIsCustomTopicSelected(false)
-                          setCompletedSteps((prev) => {
-                            if (!prev.includes("topic")) {
-                              return [...prev, "topic"]
-                            }
-                            return prev
-                          })
-                        }}
+                        setIsDirectInputSelected(false) // 직접입력 모드 해제
+                        setCompletedSteps((prev) => {
+                          if (!prev.includes("topic")) {
+                            return [...prev, "topic"]
+                          }
+                          return prev
+                        })
+                        // 벤치마킹 대본이 있으면 referenceScript에 설정하고 다음 단계로
+                        if (isDirectInputSelected && benchmarkScript.trim()) {
+                          setReferenceScript(benchmarkScript)
+                          // 주제 선택 후 자동으로 대본 기획 단계로 이동
+                          setTimeout(() => {
+                            setActiveStep("planning")
+                          }, 500)
+                        }
+                      }}
                       >
                         <div className="p-4">
                           <div className="flex items-center gap-4">
@@ -6522,22 +6635,24 @@ export default function LongformContentPage() {
                       </div>
                     </div>
                     
-                    {/* 레퍼런스 대본 입력 */}
-                    <div className="mt-6 pt-6 border-t border-gray-200">
-                      <Label htmlFor="reference-script" className="text-sm font-medium text-gray-700 mb-2 block">
-                        레퍼런스 대본 (선택사항)
-                      </Label>
-                      <p className="text-xs text-gray-500 mb-3">
-                        참고할 대본이 있다면 입력해주세요. 이 대본을 기반으로 새로운 관점의 대본을 생성합니다.
-                      </p>
-                      <Textarea
-                        id="reference-script"
-                        value={referenceScript}
-                        onChange={(e) => setReferenceScript(e.target.value)}
-                        placeholder="레퍼런스 대본을 입력하세요..."
-                        className="min-h-[120px] resize-y"
-                      />
-                    </div>
+                    {/* 레퍼런스 대본 입력 (직접입력이 아닐 때만 표시) */}
+                    {!isDirectInputSelected && (
+                      <div className="mt-6 pt-6 border-t border-gray-200">
+                        <Label htmlFor="reference-script" className="text-sm font-medium text-gray-700 mb-2 block">
+                          레퍼런스 대본 (선택사항)
+                        </Label>
+                        <p className="text-xs text-gray-500 mb-3">
+                          참고할 대본이 있다면 입력해주세요. 이 대본을 기반으로 새로운 관점의 대본을 생성합니다.
+                        </p>
+                        <Textarea
+                          id="reference-script"
+                          value={referenceScript}
+                          onChange={(e) => setReferenceScript(e.target.value)}
+                          placeholder="레퍼런스 대본을 입력하세요..."
+                          className="min-h-[120px] resize-y"
+                        />
+                      </div>
+                    )}
                       </div>
                     </CardContent>
                   </Card>

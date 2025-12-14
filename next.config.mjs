@@ -13,6 +13,9 @@ const nextConfig = {
     // Cloud Storage 환경 변수 (next.config.mjs에서 직접 설정)
     GOOGLE_CLOUD_PROJECT_ID: 'test-ai-450613',
     GOOGLE_CLOUD_STORAGE_BUCKET: 'video-renderer-storage',
+    // 카카오 로그인 환경 변수 (마이수파코드 앱)
+    KAKAO_REST_API_KEY: '29e0cf48de7d7a8fecec3d729db037d6',
+    KAKAO_CLIENT_SECRET: 'JHpR3y0b1QQoxS0MaomVcGFfXzHfdMEi',
   },
 }
 

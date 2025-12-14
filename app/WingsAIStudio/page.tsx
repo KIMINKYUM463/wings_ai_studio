@@ -235,10 +235,11 @@ function Header({ onSettingsClick }: { onSettingsClick: () => void }) {
 
           {/* 메뉴 */}
           <nav className="hidden md:flex items-center gap-6">
-            <Button variant="ghost" className="text-slate-700 hover:text-slate-900">
-              요금제
-            </Button>
-            <Button variant="ghost" className="text-slate-700 hover:text-slate-900">
+            <Button 
+              variant="ghost" 
+              className="text-slate-700 hover:text-slate-900"
+              onClick={() => window.open('https://loud-cowl-c24.notion.site/WingsAIStudio-2c9565477d598027b595e528e18a974a', '_blank')}
+            >
               가이드
             </Button>
             <Button variant="ghost" className="text-slate-700 hover:text-slate-900">
@@ -269,10 +270,6 @@ function Header({ onSettingsClick }: { onSettingsClick: () => void }) {
               <DropdownMenuContent align="end" className="w-48">
                 <DropdownMenuLabel>계정 설정</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem>
-                  <CreditCard className="w-4 h-4 mr-2" />
-                  요금제 관리
-                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -609,26 +606,63 @@ export default function HomePage() {
   })
   const [youtubeConnected, setYoutubeConnected] = useState(false)
   const [checkingYoutube, setCheckingYoutube] = useState(false)
+  const [isLoggedIn, setIsLoggedIn] = useState(false)
+  const [isCheckingLogin, setIsCheckingLogin] = useState(true)
+
+  // 로그인 상태 확인
+  useEffect(() => {
+    const checkLoginStatus = async () => {
+      try {
+        const response = await fetch('/api/kakao/user')
+        if (response.ok) {
+          const data = await response.json()
+          if (data.loggedIn) {
+            setIsLoggedIn(true)
+          } else {
+            // 로그인하지 않은 경우 메인 페이지로 리다이렉트
+            router.push('/?redirect=/WingsAIStudio')
+            return
+          }
+        } else {
+          // 로그인하지 않은 경우 메인 페이지로 리다이렉트
+          router.push('/?redirect=/WingsAIStudio')
+          return
+        }
+      } catch (error) {
+        console.error('로그인 상태 확인 실패:', error)
+        // 오류 발생 시에도 메인 페이지로 리다이렉트
+        router.push('/?redirect=/WingsAIStudio')
+        return
+      } finally {
+        setIsCheckingLogin(false)
+      }
+    }
+
+    checkLoginStatus()
+  }, [router])
 
   // 로컬스토리지에서 API 키 불러오기
   useEffect(() => {
-    const storedOpenAI = localStorage.getItem("openai_api_key") || ""
-    const storedElevenLabs = localStorage.getItem("elevenlabs_api_key") || ""
-    const storedReplicate = localStorage.getItem("replicate_api_key") || ""
-    const storedYoutubeClientId = localStorage.getItem("youtube_client_id") || ""
-    const storedYoutubeClientSecret = localStorage.getItem("youtube_client_secret") || ""
+    // 로그인 확인 후에만 실행
+    if (!isCheckingLogin && isLoggedIn) {
+      const storedOpenAI = localStorage.getItem("openai_api_key") || ""
+      const storedElevenLabs = localStorage.getItem("elevenlabs_api_key") || ""
+      const storedReplicate = localStorage.getItem("replicate_api_key") || ""
+      const storedYoutubeClientId = localStorage.getItem("youtube_client_id") || ""
+      const storedYoutubeClientSecret = localStorage.getItem("youtube_client_secret") || ""
 
-    setApiKeys({
-      openai: storedOpenAI,
-      elevenlabs: storedElevenLabs,
-      replicate: storedReplicate,
-      youtubeClientId: storedYoutubeClientId,
-      youtubeClientSecret: storedYoutubeClientSecret,
-    })
+      setApiKeys({
+        openai: storedOpenAI,
+        elevenlabs: storedElevenLabs,
+        replicate: storedReplicate,
+        youtubeClientId: storedYoutubeClientId,
+        youtubeClientSecret: storedYoutubeClientSecret,
+      })
 
-    // YouTube 연결 상태 확인
-    checkYoutubeConnection()
-  }, [])
+      // YouTube 연결 상태 확인
+      checkYoutubeConnection()
+    }
+  }, [isCheckingLogin, isLoggedIn])
 
   // YouTube 연결 상태 확인 (로컬스토리지에서)
   const checkYoutubeConnection = async () => {
@@ -725,6 +759,23 @@ export default function HomePage() {
     } else {
       router.push(service.url)
     }
+  }
+
+  // 로그인 확인 중이면 로딩 화면 표시
+  if (isCheckingLogin) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+          <p className="text-slate-600">로그인 확인 중...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // 로그인하지 않은 경우 아무것도 렌더링하지 않음 (이미 리다이렉트됨)
+  if (!isLoggedIn) {
+    return null
   }
 
   return (

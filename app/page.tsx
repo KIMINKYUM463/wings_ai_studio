@@ -1,8 +1,110 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+
+interface Program {
+  id: string
+  program_name: string
+  program_path: string
+  program_description: string | null
+}
 
 export default function HomePage() {
+  const router = useRouter()
+  const [isLoggedIn, setIsLoggedIn] = useState(false)
+  const [user, setUser] = useState<any>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [programs, setPrograms] = useState<Program[]>([])
+  const [programsLoading, setProgramsLoading] = useState(true)
+  const [hasInstructor, setHasInstructor] = useState<boolean | null>(null)
+
+  // 로그인 상태 확인
+  useEffect(() => {
+    const checkLoginStatus = async () => {
+      try {
+        const response = await fetch('/api/kakao/user')
+        if (response.ok) {
+          const data = await response.json()
+          if (data.loggedIn) {
+            setIsLoggedIn(true)
+            setUser(data.user)
+          }
+        }
+      } catch (error) {
+        console.error('로그인 상태 확인 실패:', error)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    checkLoginStatus()
+
+    // URL 파라미터에서 로그인 성공/실패 메시지 확인
+    const urlParams = new URLSearchParams(window.location.search)
+    const kakaoLogin = urlParams.get('kakao_login')
+    const kakaoError = urlParams.get('kakao_error')
+
+    if (kakaoLogin === 'success') {
+      checkLoginStatus()
+      // URL에서 파라미터 제거
+      window.history.replaceState({}, '', '/')
+    }
+
+    if (kakaoError) {
+      alert(`카카오 로그인 오류: ${kakaoError}`)
+      window.history.replaceState({}, '', '/')
+    }
+  }, [])
+
+  // 강사별 프로그램 목록 로드
+  useEffect(() => {
+    const loadPrograms = async () => {
+      try {
+        const response = await fetch('/api/user/programs')
+        if (response.ok) {
+          const data = await response.json()
+          setPrograms(data.programs || [])
+          setHasInstructor(data.hasInstructor ?? null)
+        }
+      } catch (error) {
+        console.error('프로그램 목록 로드 실패:', error)
+        setHasInstructor(null)
+      } finally {
+        setProgramsLoading(false)
+      }
+    }
+
+    if (isLoggedIn) {
+      loadPrograms()
+    } else {
+      setProgramsLoading(false)
+      setHasInstructor(null)
+    }
+  }, [isLoggedIn])
+
+  // 카카오 로그인 시작
+  const handleKakaoLogin = () => {
+    window.location.href = '/api/kakao/auth'
+  }
+
+  // 로그아웃
+  const handleLogout = async () => {
+    try {
+      const response = await fetch('/api/kakao/logout', {
+        method: 'POST',
+      })
+      if (response.ok) {
+        setIsLoggedIn(false)
+        setUser(null)
+        router.refresh()
+      }
+    } catch (error) {
+      console.error('로그아웃 실패:', error)
+      alert('로그아웃에 실패했습니다.')
+    }
+  }
+
   useEffect(() => {
     // Admin page trigger - double right click
     let rightClickCount = 0
@@ -91,12 +193,43 @@ export default function HomePage() {
           </nav>
           {/* Auth Buttons */}
           <div className="flex items-center gap-3">
-            <a href="/login" className="hidden sm:inline-flex px-4 py-2 text-sm rounded-md hover:bg-card transition-colors">
-              로그인
-            </a>
-            <a href="/signup" className="inline-flex px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-opacity">
-              시작하기
-            </a>
+            {isLoading ? (
+              <div className="px-4 py-2 text-sm text-muted-foreground">로딩 중...</div>
+            ) : isLoggedIn ? (
+              <>
+                <div className="flex items-center gap-3 px-4 py-2 text-sm">
+                  {(user?.profileImage || user?.thumbnailImage) && (
+                    <img 
+                      src={user?.profileImage || user?.thumbnailImage} 
+                      alt={user.nickname || '프로필'} 
+                      className="w-10 h-10 rounded-full border-2 border-border"
+                    />
+                  )}
+                  <span className="text-foreground font-medium">{user?.nickname || '사용자'}</span>
+                </div>
+                <button 
+                  onClick={handleLogout}
+                  className="px-4 py-2 text-sm rounded-md hover:bg-card transition-colors"
+                >
+                  로그아웃
+                </button>
+              </>
+            ) : (
+              <>
+                <button 
+                  onClick={handleKakaoLogin}
+                  className="hidden sm:inline-flex items-center gap-2 px-4 py-2 text-sm rounded-md bg-[#FEE500] text-[#000000] hover:opacity-90 transition-opacity font-medium"
+                >
+                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                    <path d="M9 0C4.03 0 0 3.58 0 8c0 2.88 1.89 5.32 4.5 6.27L3.18 18l4.05-2.22c1.08.3 2.22.46 3.4.46 4.97 0 9-3.58 9-8s-4.03-8-9-8z" fill="currentColor"/>
+                  </svg>
+                  카카오 로그인
+                </button>
+                <a href="/signup" className="inline-flex px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-opacity">
+                  시작하기
+                </a>
+              </>
+            )}
           </div>
         </div>
       </header>
@@ -130,15 +263,52 @@ export default function HomePage() {
             <p className="mt-4 text-muted-foreground">수강생에게 제공되는 프로그램을 확인하세요</p>
           </div>
           <div className="min-h-[400px] rounded-2xl border-2 border-dashed border-border bg-card/50 p-12">
-            <div className="flex h-full flex-col items-center justify-center gap-6">
-              <p className="text-center text-muted-foreground">강사별 프로그램이 여기에 표시됩니다</p>
-              <a href="/WingsAIStudio" className="inline-flex items-center gap-2 px-6 py-3 text-sm font-medium rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-opacity">
-                WingsAIStudio 바로가기
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
-                </svg>
-              </a>
-            </div>
+            {programsLoading ? (
+              <div className="flex h-full flex-col items-center justify-center gap-6">
+                <p className="text-center text-muted-foreground">프로그램 목록을 불러오는 중...</p>
+              </div>
+            ) : programs.length === 0 ? (
+              <div className="flex h-full flex-col items-center justify-center gap-6">
+                <p className="text-center text-muted-foreground">
+                  {isLoggedIn 
+                    ? '강사가 지정되지 않았거나 사용 가능한 프로그램이 없습니다.' 
+                    : '로그인 후 강사별 프로그램을 확인할 수 있습니다.'}
+                </p>
+                {!isLoggedIn && (
+                  <button
+                    onClick={handleKakaoLogin}
+                    className="inline-flex items-center gap-2 px-6 py-3 text-sm font-medium rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+                  >
+                    카카오 로그인
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {programs.map((program) => (
+                  <a
+                    key={program.id}
+                    href={program.program_path}
+                    className="group flex flex-col rounded-lg border border-border bg-card p-6 hover:border-primary transition-colors"
+                  >
+                    <h3 className="text-lg font-semibold mb-2 group-hover:text-primary transition-colors">
+                      {program.program_name}
+                    </h3>
+                    {program.program_description && (
+                      <p className="text-sm text-muted-foreground mb-4 flex-1">
+                        {program.program_description}
+                      </p>
+                    )}
+                    <div className="flex items-center gap-2 text-sm text-primary">
+                      <span>바로가기</span>
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+                      </svg>
+                    </div>
+                  </a>
+                ))}
+              </div>
+            )}
           </div>
         </section>
         {/* Pricing Section */}
