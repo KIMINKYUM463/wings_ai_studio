@@ -5,14 +5,11 @@ import { NextRequest, NextResponse } from "next/server"
  * POST /api/youmaker/get-video-transcript
  * 
  * Python의 youtube-transcript-api와 유사한 방식으로 YouTube의 자막을 직접 가져옵니다.
- * YouTube의 watch 페이지에서 자막 정보를 추출하고, 자막 URL을 통해 자막 데이터를 가져옵니다.
+ * 참고: https://dss99911.github.io/miscellanea/2025/01/08/youtube-transcript.html
  * 
- * 참고 문서:
- * - Python youtube-transcript-api: https://github.com/jdepoix/youtube-transcript-api
- * - YouTube Data API v3 자막 가이드: https://developers.google.com/youtube/v3/guides/implementation/captions?hl=ko
- * 
- * 참고: YouTube Data API v3의 captions.list와 captions.download를 사용하려면 OAuth 2.0 인증이 필요합니다.
- * 현재 구현은 OAuth 없이도 작동하는 방식입니다.
+ * Python 라이브러리 방식:
+ * - list_transcripts: 사용 가능한 자막 목록 가져오기
+ * - fetch: 선택한 자막의 실제 데이터 가져오기
  */
 export async function POST(request: NextRequest) {
   try {
@@ -36,8 +33,11 @@ export async function POST(request: NextRequest) {
       const watchPageResponse = await fetch(watchPageUrl, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
           'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Connection': 'keep-alive',
+          'Upgrade-Insecure-Requests': '1',
         },
       })
 
@@ -49,29 +49,58 @@ export async function POST(request: NextRequest) {
       console.log(`[Transcript] watch 페이지 HTML 길이: ${watchPageHtml.length}자`)
 
       // 2단계: HTML에서 자막 트랙 정보 추출
-      // YouTube는 자막 정보를 ytInitialPlayerResponse에 포함시킵니다
-      const ytInitialPlayerResponseMatch = watchPageHtml.match(/var ytInitialPlayerResponse = ({.+?});/s)
+      // Python 라이브러리는 여러 방법으로 ytInitialPlayerResponse를 찾습니다
+      // 방법 1: var ytInitialPlayerResponse = {...}
+      let playerResponse: any = null
       
-      if (!ytInitialPlayerResponseMatch) {
-        throw new Error("YouTube 페이지에서 자막 정보를 찾을 수 없습니다.")
+      // 정규식 패턴 개선: 더 넓은 범위로 매칭
+      const patterns = [
+        /var ytInitialPlayerResponse = ({.+?});/s,
+        /ytInitialPlayerResponse\s*=\s*({.+?});/s,
+        /"playerResponse":({.+?})/s,
+      ]
+
+      for (const pattern of patterns) {
+        const match = watchPageHtml.match(pattern)
+        if (match) {
+          try {
+            playerResponse = JSON.parse(match[1])
+            console.log(`[Transcript] ytInitialPlayerResponse 찾기 성공 (패턴: ${pattern})`)
+            break
+          } catch (e) {
+            console.log(`[Transcript] JSON 파싱 실패, 다음 패턴 시도`)
+            continue
+          }
+        }
       }
 
-      let playerResponse: any
-      try {
-        playerResponse = JSON.parse(ytInitialPlayerResponseMatch[1])
-      } catch (parseError) {
-        throw new Error("YouTube 응답을 파싱할 수 없습니다.")
+      // 방법 2: window["ytInitialPlayerResponse"] 형태도 시도
+      if (!playerResponse) {
+        const windowMatch = watchPageHtml.match(/window\["ytInitialPlayerResponse"\]\s*=\s*({.+?});/s)
+        if (windowMatch) {
+          try {
+            playerResponse = JSON.parse(windowMatch[1])
+            console.log(`[Transcript] window["ytInitialPlayerResponse"] 찾기 성공`)
+          } catch (e) {
+            console.log(`[Transcript] window 형태 JSON 파싱 실패`)
+          }
+        }
+      }
+
+      if (!playerResponse) {
+        throw new Error("YouTube 페이지에서 자막 정보를 찾을 수 없습니다.")
       }
 
       // Python의 list_transcripts와 유사하게 사용 가능한 자막 목록 가져오기
       const captionTracks = playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks || []
-      const audioTracks = playerResponse?.captions?.playerCaptionsTracklistRenderer?.audioTracks || []
       
       console.log(`[Transcript] 사용 가능한 자막 트랙: ${captionTracks.length}개`)
       
-      // 사용 가능한 자막 목록 로깅 (Python의 list_transcripts와 유사)
+      // 사용 가능한 자막 목록 로깅
       captionTracks.forEach((track: any, index: number) => {
-        console.log(`  [${index}] 언어: ${track.name?.simpleText || track.languageCode}, 코드: ${track.languageCode}, 종류: ${track.kind || 'manual'}`)
+        const name = track.name?.simpleText || track.name?.runs?.[0]?.text || track.languageCode
+        const kind = track.kind || 'manual'
+        console.log(`  [${index}] 언어: ${name}, 코드: ${track.languageCode}, 종류: ${kind}, URL 존재: ${!!track.baseUrl}`)
       })
 
       if (captionTracks.length === 0) {
@@ -123,25 +152,31 @@ export async function POST(request: NextRequest) {
         })
       }
 
-      console.log(`[Transcript] 선택된 자막: ${selectedTrack.languageCode} (${selectedTrack.name?.simpleText || 'N/A'})`)
+      console.log(`[Transcript] 선택된 자막: ${selectedTrack.languageCode} (${selectedTrack.name?.simpleText || selectedTrack.name?.runs?.[0]?.text || 'N/A'})`)
 
       // 4단계: 자막 URL에서 자막 데이터 가져오기
-      // Python의 youtube_transcript_api와 동일하게 baseUrl 사용
+      // Python 라이브러리는 baseUrl을 그대로 사용하거나 fmt 파라미터를 추가합니다
       let transcriptUrl = selectedTrack.baseUrl
       
-      // baseUrl에 fmt 파라미터 추가 (Python 라이브러리와 동일)
-      if (!transcriptUrl.includes('fmt=')) {
-        transcriptUrl += (transcriptUrl.includes('?') ? '&' : '?') + 'fmt=json3'
+      // baseUrl에 이미 fmt 파라미터가 있는지 확인
+      const urlObj = new URL(transcriptUrl)
+      if (!urlObj.searchParams.has('fmt')) {
+        // fmt 파라미터가 없으면 추가 (Python 라이브러리는 기본적으로 srv3 또는 json3 사용)
+        urlObj.searchParams.set('fmt', 'json3')
+        transcriptUrl = urlObj.toString()
       }
       
-      console.log(`[Transcript] 자막 URL: ${transcriptUrl.substring(0, 150)}...`)
+      console.log(`[Transcript] 자막 URL: ${transcriptUrl.substring(0, 200)}...`)
 
+      // Python 라이브러리처럼 자막 URL을 직접 호출
+      // Referer와 User-Agent를 watch 페이지와 동일하게 설정
       const transcriptResponse = await fetch(transcriptUrl, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'application/json,text/xml,application/xml,application/xhtml+xml,text/html;q=0.9,*/*;q=0.8',
+          'Accept': '*/*',
           'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
           'Referer': watchPageUrl,
+          'Origin': 'https://www.youtube.com',
         },
       })
 
@@ -149,6 +184,30 @@ export async function POST(request: NextRequest) {
         const errorText = await transcriptResponse.text().catch(() => '')
         console.error(`[Transcript] 자막 fetch 실패: ${transcriptResponse.status} ${transcriptResponse.statusText}`)
         console.error(`[Transcript] 에러 응답: ${errorText.substring(0, 500)}`)
+        
+        // fmt=json3이 실패하면 fmt=srv3 또는 fmt=xml3 시도
+        if (urlObj.searchParams.get('fmt') === 'json3') {
+          console.log(`[Transcript] json3 실패, srv3 형식으로 재시도`)
+          urlObj.searchParams.set('fmt', 'srv3')
+          const retryUrl = urlObj.toString()
+          
+          const retryResponse = await fetch(retryUrl, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Accept': '*/*',
+              'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+              'Referer': watchPageUrl,
+              'Origin': 'https://www.youtube.com',
+            },
+          })
+          
+          if (retryResponse.ok) {
+            const retryContent = await retryResponse.text()
+            console.log(`[Transcript] srv3 형식으로 자막 가져오기 성공: ${retryContent.length}자`)
+            return parseTranscript(retryContent, 'srv3', selectedTrack.languageCode)
+          }
+        }
+        
         throw new Error(`자막 데이터를 가져올 수 없습니다: ${transcriptResponse.status}`)
       }
 
@@ -165,89 +224,10 @@ export async function POST(request: NextRequest) {
         })
       }
 
-      // 5단계: Python의 youtube_transcript_api처럼 자막 데이터 파싱
-      // JSON 형식 또는 XML 형식 모두 처리
-      let transcriptText = ""
+      // 5단계: 자막 데이터 파싱
+      const fmt = urlObj.searchParams.get('fmt') || 'json3'
+      return parseTranscript(transcriptContent, fmt, selectedTrack.languageCode)
       
-      try {
-        // JSON 형식 시도 (fmt=json3)
-        const jsonData = JSON.parse(transcriptContent)
-        if (jsonData.events) {
-          // Python 라이브러리와 동일하게 events 배열에서 텍스트 추출
-          transcriptText = jsonData.events
-            .map((event: any) => {
-              if (event.segs) {
-                return event.segs
-                  .map((seg: any) => seg.utf8 || seg.text || '')
-                  .join('')
-              }
-              return ''
-            })
-            .filter((text: string) => text && text.trim().length > 0)
-            .join(" ")
-            .replace(/\s+/g, " ")
-            .trim()
-          
-          console.log(`[Transcript] JSON 형식으로 자막 추출 완료: ${transcriptText.length}자`)
-        }
-      } catch (jsonError) {
-        // JSON 파싱 실패 시 XML 형식으로 처리
-        console.log(`[Transcript] JSON 파싱 실패, XML 형식으로 시도`)
-        
-        // XML 파싱하여 텍스트 추출
-        const textMatches = transcriptContent.match(/<text[^>]*>([^<]+)<\/text>/g)
-        
-        if (textMatches && textMatches.length > 0) {
-          transcriptText = textMatches
-            .map((match: string) => {
-              // <text> 태그 제거하고 텍스트만 추출
-              const textContent = match.replace(/<[^>]+>/g, "")
-              // HTML 엔티티 디코딩
-              return textContent
-                .replace(/&quot;/g, '"')
-                .replace(/&amp;/g, "&")
-                .replace(/&lt;/g, "<")
-                .replace(/&gt;/g, ">")
-                .replace(/&#39;/g, "'")
-                .replace(/&nbsp;/g, " ")
-                .replace(/&apos;/g, "'")
-                .replace(/&#x27;/g, "'")
-                .replace(/&#x2F;/g, "/")
-            })
-            .filter((text: string) => text && text.trim().length > 0)
-            .join(" ")
-            .replace(/\s+/g, " ")
-            .trim()
-          
-          console.log(`[Transcript] XML 형식으로 자막 추출 완료: ${transcriptText.length}자`)
-        } else {
-          return NextResponse.json({
-            success: true,
-            transcript: "",
-            hasCaptions: false,
-            message: "자막 텍스트를 추출할 수 없습니다.",
-          })
-        }
-      }
-
-      console.log(`[Transcript] 자막 추출 완료: ${transcriptText.length}자`)
-
-      if (transcriptText.length === 0) {
-        return NextResponse.json({
-          success: true,
-          transcript: "",
-          hasCaptions: false,
-          message: "자막 텍스트가 비어있습니다.",
-        })
-      }
-
-      return NextResponse.json({
-        success: true,
-        transcript: transcriptText,
-        hasCaptions: true,
-        message: "자막을 성공적으로 가져왔습니다.",
-        language: selectedTrack.languageCode,
-      })
     } catch (transcriptError) {
       console.error("[Get Video Transcript] 자막 가져오기 실패:", transcriptError)
       
@@ -274,4 +254,125 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
+}
+
+/**
+ * 자막 데이터를 파싱하여 텍스트로 변환합니다.
+ * Python 라이브러리의 fetch 메서드와 동일한 방식으로 처리합니다.
+ */
+function parseTranscript(content: string, fmt: string, languageCode: string): NextResponse {
+  let transcriptText = ""
+  
+  try {
+    if (fmt === 'json3' || fmt === 'srv3') {
+      // JSON 형식 파싱
+      const jsonData = JSON.parse(content)
+      
+      if (jsonData.events) {
+        // Python 라이브러리와 동일하게 events 배열에서 텍스트 추출
+        transcriptText = jsonData.events
+          .filter((event: any) => event.segs && event.segs.length > 0)
+          .map((event: any) => {
+            return event.segs
+              .map((seg: any) => {
+                // utf8 필드가 있으면 사용, 없으면 text 필드 사용
+                return seg.utf8 || seg.text || ''
+              })
+              .join('')
+          })
+          .filter((text: string) => text && text.trim().length > 0)
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim()
+        
+        console.log(`[Transcript] JSON 형식(${fmt})으로 자막 추출 완료: ${transcriptText.length}자`)
+      } else if (jsonData.actions) {
+        // srv3 형식은 actions 배열을 사용할 수 있음
+        transcriptText = jsonData.actions
+          .filter((action: any) => action.updateEngagementPanelAction?.content?.transcriptRenderer?.body?.transcriptBodyRenderer?.cueGroups)
+          .flatMap((action: any) => {
+            const cueGroups = action.updateEngagementPanelAction?.content?.transcriptRenderer?.body?.transcriptBodyRenderer?.cueGroups || []
+            return cueGroups.flatMap((group: any) => {
+              const cues = group.transcriptCueGroupRenderer?.cues || []
+              return cues.map((cue: any) => {
+                const runs = cue.transcriptCueRenderer?.cue?.simpleText || 
+                           cue.transcriptCueRenderer?.cue?.runs?.map((r: any) => r.text).join('') || ''
+                return runs
+              })
+            })
+          })
+          .filter((text: string) => text && text.trim().length > 0)
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim()
+        
+        console.log(`[Transcript] JSON actions 형식(${fmt})으로 자막 추출 완료: ${transcriptText.length}자`)
+      }
+    } else {
+      // XML 형식 파싱
+      console.log(`[Transcript] XML 형식(${fmt})으로 파싱 시도`)
+      
+      // XML 파싱하여 텍스트 추출
+      const textMatches = content.match(/<text[^>]*>([^<]+)<\/text>/g)
+      
+      if (textMatches && textMatches.length > 0) {
+        transcriptText = textMatches
+          .map((match: string) => {
+            // <text> 태그 제거하고 텍스트만 추출
+            const textContent = match.replace(/<[^>]+>/g, "")
+            // HTML 엔티티 디코딩
+            return decodeHtmlEntities(textContent)
+          })
+          .filter((text: string) => text && text.trim().length > 0)
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim()
+        
+        console.log(`[Transcript] XML 형식으로 자막 추출 완료: ${transcriptText.length}자`)
+      }
+    }
+
+    if (transcriptText.length === 0) {
+      return NextResponse.json({
+        success: true,
+        transcript: "",
+        hasCaptions: false,
+        message: "자막 텍스트를 추출할 수 없습니다.",
+      })
+    }
+
+    return NextResponse.json({
+      success: true,
+      transcript: transcriptText,
+      hasCaptions: true,
+      message: "자막을 성공적으로 가져왔습니다.",
+      language: languageCode,
+    })
+  } catch (parseError) {
+    console.error(`[Transcript] 파싱 오류 (${fmt}):`, parseError)
+    return NextResponse.json({
+      success: true,
+      transcript: "",
+      hasCaptions: false,
+      message: `자막 파싱에 실패했습니다: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
+    })
+  }
+}
+
+/**
+ * HTML 엔티티를 디코딩합니다.
+ */
+function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&apos;/g, "'")
+    .replace(/&#x27;/g, "'")
+    .replace(/&#x2F;/g, "/")
+    .replace(/&#(\d+);/g, (match, dec) => String.fromCharCode(parseInt(dec, 10)))
+    .replace(/&#x([0-9A-Fa-f]+);/g, (match, hex) => String.fromCharCode(parseInt(hex, 16)))
 }
