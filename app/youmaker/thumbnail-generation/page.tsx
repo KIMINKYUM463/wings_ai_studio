@@ -12,9 +12,6 @@ function ThumbnailGenerationContent() {
   const searchParams = useSearchParams()
   const videoId = searchParams.get("videoId")
   const videoTitle = searchParams.get("title")
-  const adaptedScript = searchParams.get("adaptedScript")
-  const titlesParam = searchParams.get("titles")
-  const thumbnailTextsParam = searchParams.get("thumbnailTexts")
   
   const [isLoading, setIsLoading] = useState(false)
   const [thumbnailGeneration, setThumbnailGeneration] = useState<{
@@ -25,50 +22,146 @@ function ThumbnailGenerationContent() {
       style: string
     }>
   } | null>(null)
-
-  const titles = titlesParam ? JSON.parse(decodeURIComponent(titlesParam)) : null
-  const thumbnailTexts = thumbnailTextsParam ? JSON.parse(decodeURIComponent(thumbnailTextsParam)) : null
+  
+  // 로컬 스토리지에서 각색 데이터 가져오기 (HTTP 431 오류 방지)
+  const [titles, setTitles] = useState<any>(null)
+  const [thumbnailTexts, setThumbnailTexts] = useState<any>(null)
+  const [adaptedScript, setAdaptedScript] = useState<string | null>(null)
 
   useEffect(() => {
-    if (videoId && titles && thumbnailTexts) {
-      loadThumbnailGeneration()
+    // 로컬 스토리지에서 각색 데이터 로드
+    try {
+      const adaptationDataStr = localStorage.getItem("youmaker_script_adaptation_data")
+      if (adaptationDataStr) {
+        const adaptationData = JSON.parse(adaptationDataStr)
+        setAdaptedScript(adaptationData.adaptedScript || null)
+        setTitles(adaptationData.titles || null)
+        setThumbnailTexts(adaptationData.thumbnailTexts || null)
+      }
+    } catch (error) {
+      console.error("로컬 스토리지에서 각색 데이터 로드 실패:", error)
     }
-  }, [videoId, titles, thumbnailTexts])
+  }, [])
+
+  // useEffect 제거 - 버튼 클릭 시에만 생성하도록 변경
 
   const loadThumbnailGeneration = async () => {
     setIsLoading(true)
     try {
-      // TODO: API 호출로 실제 썸네일 생성
-      // 각색된 대본과 생성된 제목, 썸네일 문구를 기반으로 썸네일 생성
-      await new Promise((resolve) => setTimeout(resolve, 2000)) // 로딩 시뮬레이션
+      // 로컬 스토리지에서 API 키 가져오기
+      const geminiApiKey = localStorage.getItem("youmaker_gemini_api_key") || ""
+      const replicateApiKey = localStorage.getItem("youmaker_replicate_api_key") || "" // fallback용 (선택사항)
 
-      const mockThumbnailGeneration = {
-        generatedThumbnails: [
-          {
-            id: "thumb-1",
-            imageUrl: "https://via.placeholder.com/1280x720?text=Thumbnail+1",
-            prompt: thumbnailTexts?.emotional?.[0] || "충격적인 이미지",
-            style: "Emotional",
-          },
-          {
-            id: "thumb-2",
-            imageUrl: "https://via.placeholder.com/1280x720?text=Thumbnail+2",
-            prompt: thumbnailTexts?.informational?.[0] || "수익 3배 증가",
-            style: "Informational",
-          },
-          {
-            id: "thumb-3",
-            imageUrl: "https://via.placeholder.com/1280x720?text=Thumbnail+3",
-            prompt: thumbnailTexts?.visual?.[0] || "강렬한 색상",
-            style: "Visual",
-          },
-        ],
+      if (!geminiApiKey) {
+        alert("Gemini API Key를 설정해주세요. 설정 페이지에서 API 키를 입력하고 저장해주세요.")
+        setIsLoading(false)
+        return
       }
 
-      setThumbnailGeneration(mockThumbnailGeneration)
+      // 각 썸네일 문구별로 썸네일 생성
+      const generatedThumbnails = []
+
+      // Emotional 스타일 썸네일 생성 (최대 3개)
+      if (thumbnailTexts?.emotional && thumbnailTexts.emotional.length > 0) {
+        for (let i = 0; i < Math.min(3, thumbnailTexts.emotional.length); i++) {
+          try {
+            const response = await fetch("/api/youmaker/generate-thumbnail", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                title: titles?.fresh?.[0] || videoTitle || "",
+                thumbnailText: thumbnailTexts.emotional[i],
+                geminiApiKey,
+                replicateApiKey, // fallback용
+              }),
+            })
+
+            const data = await response.json()
+
+            if (data.success && data.imageUrl) {
+              generatedThumbnails.push({
+                id: `emotional-${i}`,
+                imageUrl: data.imageUrl,
+                prompt: data.prompt || thumbnailTexts.emotional[i],
+                style: "Emotional",
+              })
+            }
+          } catch (error) {
+            console.error(`Emotional 썸네일 ${i + 1} 생성 실패:`, error)
+          }
+        }
+      }
+
+      // Informational 스타일 썸네일 생성 (최대 2개)
+      if (thumbnailTexts?.informational && thumbnailTexts.informational.length > 0) {
+        for (let i = 0; i < Math.min(2, thumbnailTexts.informational.length); i++) {
+          try {
+            const response = await fetch("/api/youmaker/generate-thumbnail", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                title: titles?.stable?.[0] || videoTitle || "",
+                thumbnailText: thumbnailTexts.informational[i],
+                geminiApiKey,
+                replicateApiKey, // fallback용
+              }),
+            })
+
+            const data = await response.json()
+
+            if (data.success && data.imageUrl) {
+              generatedThumbnails.push({
+                id: `informational-${i}`,
+                imageUrl: data.imageUrl,
+                prompt: data.prompt || thumbnailTexts.informational[i],
+                style: "Informational",
+              })
+            }
+          } catch (error) {
+            console.error(`Informational 썸네일 ${i + 1} 생성 실패:`, error)
+          }
+        }
+      }
+
+      // Visual 스타일 썸네일 생성 (최대 1개)
+      if (thumbnailTexts?.visual && thumbnailTexts.visual.length > 0) {
+        try {
+          const response = await fetch("/api/youmaker/generate-thumbnail", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              title: titles?.fresh?.[0] || videoTitle || "",
+              thumbnailText: thumbnailTexts.visual[0],
+              geminiApiKey,
+              replicateApiKey, // fallback용
+            }),
+          })
+
+          const data = await response.json()
+
+          if (data.success && data.imageUrl) {
+            generatedThumbnails.push({
+              id: "visual-0",
+              imageUrl: data.imageUrl,
+              prompt: data.prompt || thumbnailTexts.visual[0],
+              style: "Visual",
+            })
+          }
+        } catch (error) {
+          console.error("Visual 썸네일 생성 실패:", error)
+        }
+      }
+
+      if (generatedThumbnails.length === 0) {
+        throw new Error("썸네일 생성에 실패했습니다.")
+      }
+
+      setThumbnailGeneration({
+        generatedThumbnails,
+      })
     } catch (error) {
       console.error("썸네일 생성 실패:", error)
-      alert("썸네일 생성에 실패했습니다.")
+      alert(error instanceof Error ? error.message : "썸네일 생성에 실패했습니다.")
     } finally {
       setIsLoading(false)
     }
@@ -133,12 +226,39 @@ function ThumbnailGenerationContent() {
             </Card>
           )}
 
+          {/* 썸네일 생성 버튼 */}
+          {!thumbnailGeneration && !isLoading && (
+            <Card className="border-0 shadow-lg">
+              <CardContent className="py-8 text-center">
+                <p className="text-slate-600 mb-4">썸네일을 생성하려면 아래 버튼을 클릭하세요.</p>
+                <Button
+                  onClick={loadThumbnailGeneration}
+                  disabled={isLoading}
+                  size="lg"
+                  className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600"
+                >
+                  {isLoading ? (
+                    <>
+                      <Sparkles className="w-4 h-4 mr-2 animate-spin" />
+                      생성 중...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4 mr-2" />
+                      썸네일 생성하기
+                    </>
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
           {isLoading && (
             <Card className="border-0 shadow-lg">
               <CardContent className="py-12 text-center">
                 <Sparkles className="w-8 h-8 mx-auto mb-4 animate-spin text-orange-500" />
                 <p className="text-slate-600">썸네일을 생성하고 있습니다...</p>
-                <p className="text-sm text-slate-500 mt-2">잠시만 기다려주세요.</p>
+                <p className="text-sm text-slate-500 mt-2">잠시만 기다려주세요. (각 썸네일당 약 10-30초 소요)</p>
               </CardContent>
             </Card>
           )}

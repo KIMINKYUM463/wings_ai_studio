@@ -10,6 +10,13 @@ import { ImageIcon, ArrowRight, Sparkles } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 
 interface ScriptAdaptation {
+  cleanedScript: string
+  summary: {
+    title: string
+    coreMessage: string
+    structure: string[]
+    summaryPoints: string[]
+  }
   adaptedScript: string
   titles: {
     fresh: string[]
@@ -79,40 +86,46 @@ function ScriptBenchmarkingContent() {
 
     setIsLoading(true)
     try {
-      // TODO: API 호출로 실제 대본 각색 수행
-      // 임시 데이터
-      await new Promise((resolve) => setTimeout(resolve, 2000)) // 로딩 시뮬레이션
+      // 로컬 스토리지에서 API 키 가져오기
+      const geminiApiKey = localStorage.getItem("youmaker_gemini_api_key") || ""
 
-      const mockScriptAdaptation: ScriptAdaptation = {
-        adaptedScript: `[각색된 대본]\n\n${scriptInput}\n\n위 대본을 기반으로 AI가 각색한 새로운 대본입니다. 원본의 핵심 메시지는 유지하면서 더욱 매력적이고 몰입감 있는 구성으로 재구성되었습니다.`,
-        titles: {
-          fresh: [
-            "이걸 아직도 모른다고?",
-            "충격적인 진실",
-            "이것 때문에 실패했다",
-            "99%가 모르는 비밀",
-            "이제서야 알았다",
-          ],
-          stable: [
-            "월 100만 원 더 버는 법 TOP 3",
-            "초보자를 위한 완벽 가이드",
-            "5분만에 배우는 핵심 노하우",
-            "실전 활용법 완벽 정리",
-            "단계별 상세 가이드",
-          ],
-        },
-        thumbnailTexts: {
-          emotional: ["충격", "결국 터졌다", "믿을 수 없어", "눈물", "감동"],
-          informational: ["수익 3배 증가", "5분 완성", "100% 성공", "확실한 방법", "검증됨"],
-          visual: ["이미지만으로 충분히 전달", "강렬한 색상", "대비 효과", "시각적 임팩트"],
-        },
+      if (!geminiApiKey) {
+        alert("Gemini API Key를 설정해주세요. 설정 페이지에서 API 키를 입력하고 저장해주세요.")
+        setIsLoading(false)
+        return
       }
 
-      setScriptAdaptation(mockScriptAdaptation)
-      setShowResults(true)
+      // API 호출로 실제 대본 각색 수행
+      const response = await fetch("/api/youmaker/adapt-script", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          script: scriptInput,
+          geminiApiKey,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "대본 각색에 실패했습니다.")
+      }
+
+      if (data.success) {
+        setScriptAdaptation({
+          cleanedScript: data.cleanedScript,
+          summary: data.summary,
+          adaptedScript: data.adaptedScript,
+          titles: data.titles,
+          thumbnailTexts: data.thumbnailTexts,
+        })
+        setShowResults(true)
+      } else {
+        throw new Error(data.error || "대본 각색에 실패했습니다.")
+      }
     } catch (error) {
       console.error("대본 각색 실패:", error)
-      alert("대본 각색에 실패했습니다.")
+      alert(error instanceof Error ? error.message : "대본 각색에 실패했습니다.")
     } finally {
       setIsLoading(false)
     }
@@ -120,13 +133,18 @@ function ScriptBenchmarkingContent() {
 
   const handleNextStep = () => {
     if (scriptAdaptation) {
-      // 각색된 대본과 제목, 썸네일 문구를 쿼리 파라미터로 전달
+      // 각색된 대본과 제목, 썸네일 문구를 로컬 스토리지에 저장 (HTTP 431 오류 방지)
+      const adaptationData = {
+        adaptedScript: scriptAdaptation.adaptedScript,
+        titles: scriptAdaptation.titles,
+        thumbnailTexts: scriptAdaptation.thumbnailTexts,
+      }
+      localStorage.setItem("youmaker_script_adaptation_data", JSON.stringify(adaptationData))
+      
+      // 쿼리 파라미터는 최소한의 정보만 전달
       const params = new URLSearchParams({
         videoId: videoId || "",
         title: videoTitle || "",
-        adaptedScript: encodeURIComponent(scriptAdaptation.adaptedScript),
-        titles: encodeURIComponent(JSON.stringify(scriptAdaptation.titles)),
-        thumbnailTexts: encodeURIComponent(JSON.stringify(scriptAdaptation.thumbnailTexts)),
       })
       router.push(`/youmaker/thumbnail-generation?${params.toString()}`)
     }
@@ -167,33 +185,15 @@ function ScriptBenchmarkingContent() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <Label htmlFor="script" className="text-base font-semibold">
-                        벤치마킹할 대본을 입력하세요
-                      </Label>
-                      <Button
-                        onClick={handleLoadTranscript}
-                        disabled={isLoadingTranscript || !videoId}
-                        variant="outline"
-                        size="sm"
-                        className="text-sm"
-                      >
-                        {isLoadingTranscript ? (
-                          <>
-                            <Sparkles className="w-3 h-3 mr-1 animate-spin" />
-                            가져오는 중...
-                          </>
-                        ) : (
-                          "영상 대본 자동 가져오기"
-                        )}
-                      </Button>
-                    </div>
+                    <Label htmlFor="script" className="text-base font-semibold">
+                      벤치마킹할 대본을 입력하세요
+                    </Label>
                     <p className="text-sm text-slate-600 mt-1 mb-4">
-                      분석한 영상의 대본을 입력하거나, 참고할 대본을 입력해주세요. AI가 이를 기반으로 각색하고 제목, 썸네일 문구를 생성합니다. 또는 '영상 대본 자동 가져오기' 버튼을 클릭하여 선택한 영상의 대본을 자동으로 가져올 수 있습니다.
+                      참고할 벤치마킹 대본을 직접 입력해주세요. AI가 이를 기반으로 각색하고 제목, 썸네일 문구를 생성합니다.
                     </p>
                     <Textarea
                       id="script"
-                      placeholder="대본을 입력하세요... 또는 '영상 대본 자동 가져오기' 버튼을 클릭하여 선택한 영상의 대본을 자동으로 가져올 수 있습니다."
+                      placeholder="벤치마킹할 대본을 입력하세요..."
                       value={scriptInput}
                       onChange={(e) => setScriptInput(e.target.value)}
                       className="min-h-[300px] text-base"
@@ -237,14 +237,85 @@ function ScriptBenchmarkingContent() {
               {/* 각색 결과 섹션 */}
               {scriptAdaptation && (
                 <>
-                  {/* Step 2: 각색된 대본 */}
+                  {/* Step 1: 원본 대본 정리 및 교정 */}
+                  <Card className="border-0 shadow-lg">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-3 text-xl">
+                        <span className="w-10 h-10 rounded-full bg-gradient-to-r from-orange-500 to-red-500 text-white flex items-center justify-center text-lg font-bold shadow-lg">
+                          1
+                        </span>
+                        원본 대본 정리 및 교정
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="bg-slate-50 rounded-lg p-6 border border-slate-200">
+                        <pre className="whitespace-pre-wrap text-slate-900 text-base leading-relaxed">
+                          {scriptAdaptation.cleanedScript}
+                        </pre>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Step 2: 핵심 내용 요약 */}
                   <Card className="border-0 shadow-lg">
                     <CardHeader>
                       <CardTitle className="flex items-center gap-3 text-xl">
                         <span className="w-10 h-10 rounded-full bg-gradient-to-r from-orange-500 to-red-500 text-white flex items-center justify-center text-lg font-bold shadow-lg">
                           2
                         </span>
-                        각색된 대본
+                        핵심 내용 요약
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div>
+                        <Label className="text-sm font-semibold text-slate-600 mb-2 block">핵심 제목</Label>
+                        <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                          <p className="text-slate-900 font-semibold">{scriptAdaptation.summary.title}</p>
+                        </div>
+                      </div>
+                      <div>
+                        <Label className="text-sm font-semibold text-slate-600 mb-2 block">핵심 메시지</Label>
+                        <div className="p-4 bg-green-50 rounded-lg border border-green-200">
+                          <p className="text-slate-900">{scriptAdaptation.summary.coreMessage}</p>
+                        </div>
+                      </div>
+                      <div>
+                        <Label className="text-sm font-semibold text-slate-600 mb-2 block">논리적 구조</Label>
+                        <div className="space-y-2">
+                          {scriptAdaptation.summary.structure.map((point, index) => (
+                            <div
+                              key={index}
+                              className="p-3 bg-purple-50 rounded-lg border border-purple-200"
+                            >
+                              <p className="text-slate-900">{index + 1}. {point}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <Label className="text-sm font-semibold text-slate-600 mb-2 block">요약 포인트</Label>
+                        <div className="space-y-2">
+                          {scriptAdaptation.summary.summaryPoints.map((point, index) => (
+                            <div
+                              key={index}
+                              className="p-3 bg-amber-50 rounded-lg border border-amber-200"
+                            >
+                              <p className="text-slate-900">{index + 1}. {point}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Step 3: 새로운 대본 재창조 */}
+                  <Card className="border-0 shadow-lg">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-3 text-xl">
+                        <span className="w-10 h-10 rounded-full bg-gradient-to-r from-orange-500 to-red-500 text-white flex items-center justify-center text-lg font-bold shadow-lg">
+                          3
+                        </span>
+                        새로운 대본 재창조
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
@@ -256,19 +327,19 @@ function ScriptBenchmarkingContent() {
                     </CardContent>
                   </Card>
 
-                  {/* Step 3: 제목 생성 */}
+                  {/* Step 4: 제목 생성 */}
                   <Card className="border-0 shadow-lg">
                     <CardHeader>
                       <CardTitle className="flex items-center gap-3 text-xl">
                         <span className="w-10 h-10 rounded-full bg-gradient-to-r from-orange-500 to-red-500 text-white flex items-center justify-center text-lg font-bold shadow-lg">
-                          3
+                          4
                         </span>
-                        제목 생성
+                        클릭 유도형 제목 생성
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
                       <div>
-                        <Label className="text-sm font-semibold text-slate-600">Fresh (호기심/도발)</Label>
+                        <Label className="text-sm font-semibold text-slate-600">호기심 자극형 (5개)</Label>
                         <div className="mt-2 space-y-2">
                           {scriptAdaptation.titles.fresh.map((title, index) => (
                             <div
@@ -281,7 +352,7 @@ function ScriptBenchmarkingContent() {
                         </div>
                       </div>
                       <div>
-                        <Label className="text-sm font-semibold text-slate-600">Stable (정보/이득)</Label>
+                        <Label className="text-sm font-semibold text-slate-600">이득 제시형 (5개)</Label>
                         <div className="mt-2 space-y-2">
                           {scriptAdaptation.titles.stable.map((title, index) => (
                             <div
@@ -296,14 +367,14 @@ function ScriptBenchmarkingContent() {
                     </CardContent>
                   </Card>
 
-                  {/* Step 4: 썸네일 문구 생성 */}
+                  {/* Step 5: 썸네일 문구 제작 */}
                   <Card className="border-0 shadow-lg">
                     <CardHeader>
                       <CardTitle className="flex items-center gap-3 text-xl">
                         <span className="w-10 h-10 rounded-full bg-gradient-to-r from-orange-500 to-red-500 text-white flex items-center justify-center text-lg font-bold shadow-lg">
-                          4
+                          5
                         </span>
-                        썸네일 문구 생성
+                        썸네일 문구 제작
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">

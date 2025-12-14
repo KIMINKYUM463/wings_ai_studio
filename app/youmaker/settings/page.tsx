@@ -12,8 +12,10 @@ export default function SettingsPage() {
   const router = useRouter()
   const [youtubeApiKey, setYoutubeApiKey] = useState("")
   const [geminiApiKey, setGeminiApiKey] = useState("")
+  const [replicateApiKey, setReplicateApiKey] = useState("")
   const [showYoutubeKey, setShowYoutubeKey] = useState(false)
   const [showGeminiKey, setShowGeminiKey] = useState(false)
+  const [showReplicateKey, setShowReplicateKey] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
 
@@ -21,8 +23,10 @@ export default function SettingsPage() {
   useEffect(() => {
     const savedYoutubeKey = localStorage.getItem("youmaker_youtube_api_key") || ""
     const savedGeminiKey = localStorage.getItem("youmaker_gemini_api_key") || ""
+    const savedReplicateKey = localStorage.getItem("youmaker_replicate_api_key") || ""
     setYoutubeApiKey(savedYoutubeKey)
     setGeminiApiKey(savedGeminiKey)
+    setReplicateApiKey(savedReplicateKey)
   }, [])
 
   // API 키 저장
@@ -34,6 +38,7 @@ export default function SettingsPage() {
       // 로컬 스토리지에 저장
       localStorage.setItem("youmaker_youtube_api_key", youtubeApiKey)
       localStorage.setItem("youmaker_gemini_api_key", geminiApiKey)
+      localStorage.setItem("youmaker_replicate_api_key", replicateApiKey)
 
       // TODO: 필요시 서버에 저장하는 API 호출 추가
       // await fetch("/api/youmaker/settings", {
