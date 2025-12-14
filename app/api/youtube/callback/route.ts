@@ -2,6 +2,8 @@ import { NextResponse } from "next/server"
 import { google } from "googleapis"
 import { createClient } from "@supabase/supabase-js"
 
+export const dynamic = 'force-dynamic'
+
 // Supabase 클라이언트 생성 (환경 변수 확인)
 function getSupabaseClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL

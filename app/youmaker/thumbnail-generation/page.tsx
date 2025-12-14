@@ -1,13 +1,13 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, Suspense } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { CheckCircle2, Sparkles } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 
-export default function ThumbnailGenerationPage() {
+function ThumbnailGenerationContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const videoId = searchParams.get("videoId")
@@ -196,5 +196,17 @@ export default function ThumbnailGenerationPage() {
         </div>
       </main>
     </div>
+  )
+}
+
+export default function ThumbnailGenerationPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50 flex items-center justify-center">
+        <p className="text-slate-600">로딩 중...</p>
+      </div>
+    }>
+      <ThumbnailGenerationContent />
+    </Suspense>
   )
 }

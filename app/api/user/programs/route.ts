@@ -2,6 +2,8 @@ import { type NextRequest, NextResponse } from "next/server"
 import { cookies } from "next/headers"
 import { createClient } from "@supabase/supabase-js"
 
+export const dynamic = 'force-dynamic'
+
 /**
  * 현재 로그인한 사용자의 강사별 프로그램 목록 조회 API
  * 

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
+export const dynamic = 'force-dynamic'
+
 /**
  * YouTube Data API를 사용하여 한국 지역의 인기 동영상 50개를 가져옵니다.
  * GET /api/youmaker/trending-videos

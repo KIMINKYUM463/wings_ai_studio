@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, Suspense } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
@@ -22,7 +22,7 @@ interface ScriptAdaptation {
   }
 }
 
-export default function ScriptBenchmarkingPage() {
+function ScriptBenchmarkingContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const videoId = searchParams.get("videoId")
@@ -379,5 +379,17 @@ export default function ScriptBenchmarkingPage() {
         </div>
       </main>
     </div>
+  )
+}
+
+export default function ScriptBenchmarkingPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50 flex items-center justify-center">
+        <p className="text-slate-600">로딩 중...</p>
+      </div>
+    }>
+      <ScriptBenchmarkingContent />
+    </Suspense>
   )
 }

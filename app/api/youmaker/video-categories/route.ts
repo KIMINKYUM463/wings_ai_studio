@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getVideoCategories } from "@/lib/youtube-api"
 
+export const dynamic = 'force-dynamic'
+
 /**
  * YouTube Data API를 사용하여 한국 지역의 동영상 카테고리 목록을 가져옵니다.
  * GET /api/youmaker/video-categories

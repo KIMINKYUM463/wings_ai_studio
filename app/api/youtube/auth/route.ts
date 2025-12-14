@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
 import { google } from "googleapis"
 
+export const dynamic = 'force-dynamic'
+
 /**
  * YouTube OAuth 인증 시작 API
  * GET /api/youtube/auth

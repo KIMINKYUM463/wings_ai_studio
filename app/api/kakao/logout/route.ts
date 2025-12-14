@@ -1,6 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { cookies } from "next/headers"
 
+export const dynamic = 'force-dynamic'
+
 /**
  * 카카오 로그아웃 API
  * 
