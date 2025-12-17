@@ -49,14 +49,15 @@ export async function POST(request: NextRequest) {
       audioGcsUrl,
       subtitles,
       characterImage,
+      characterImageGcsUrl,
       autoImages,
       duration,
       config = { width: 1920, height: 1080, fps: 30 },
     } = await request.json()
 
-    if ((!audioBase64 && !audioGcsUrl) || !subtitles || !characterImage) {
+    if ((!audioBase64 && !audioGcsUrl) || !subtitles || (!characterImage && !characterImageGcsUrl)) {
       return NextResponse.json(
-        { error: "audioBase64 또는 audioGcsUrl, subtitles, characterImage가 필요합니다." },
+        { error: "audioBase64 또는 audioGcsUrl, subtitles, characterImage 또는 characterImageGcsUrl이 필요합니다." },
         { status: 400 }
       )
     }
@@ -86,7 +87,7 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         ...(audioGcsUrl ? { audioGcsUrl } : { audioBase64 }),
         subtitles,
-        characterImage,
+        ...(characterImageGcsUrl ? { characterImageGcsUrl } : { characterImage }),
         autoImages: autoImages || [],
         duration,
         config,

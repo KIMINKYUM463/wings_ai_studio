@@ -592,8 +592,10 @@ export default function HomePage() {
     openai: "",
     elevenlabs: "",
     replicate: "",
+    gemini: "",
     youtubeClientId: "",
     youtubeClientSecret: "",
+    youtubeDataApiKey: "",
   })
   const [saved, setSaved] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -601,8 +603,10 @@ export default function HomePage() {
     openai: false,
     elevenlabs: false,
     replicate: false,
+    gemini: false,
     youtubeClientId: false,
     youtubeClientSecret: false,
+    youtubeDataApiKey: false,
   })
   const [youtubeConnected, setYoutubeConnected] = useState(false)
   const [checkingYoutube, setCheckingYoutube] = useState(false)
@@ -648,15 +652,19 @@ export default function HomePage() {
       const storedOpenAI = localStorage.getItem("openai_api_key") || ""
       const storedElevenLabs = localStorage.getItem("elevenlabs_api_key") || ""
       const storedReplicate = localStorage.getItem("replicate_api_key") || ""
+      const storedGemini = localStorage.getItem("gemini_api_key") || ""
       const storedYoutubeClientId = localStorage.getItem("youtube_client_id") || ""
       const storedYoutubeClientSecret = localStorage.getItem("youtube_client_secret") || ""
+      const storedYoutubeDataApiKey = localStorage.getItem("wings_youtube_data_api_key") || ""
 
       setApiKeys({
         openai: storedOpenAI,
         elevenlabs: storedElevenLabs,
         replicate: storedReplicate,
+        gemini: storedGemini,
         youtubeClientId: storedYoutubeClientId,
         youtubeClientSecret: storedYoutubeClientSecret,
+        youtubeDataApiKey: storedYoutubeDataApiKey,
       })
 
       // YouTube 연결 상태 확인
@@ -744,8 +752,10 @@ export default function HomePage() {
     localStorage.setItem("openai_api_key", apiKeys.openai)
     localStorage.setItem("elevenlabs_api_key", apiKeys.elevenlabs)
     localStorage.setItem("replicate_api_key", apiKeys.replicate)
+    localStorage.setItem("gemini_api_key", apiKeys.gemini)
     localStorage.setItem("youtube_client_id", apiKeys.youtubeClientId)
     localStorage.setItem("youtube_client_secret", apiKeys.youtubeClientSecret)
+    localStorage.setItem("wings_youtube_data_api_key", apiKeys.youtubeDataApiKey)
     
     setSaved(true)
     setTimeout(() => {
@@ -962,6 +972,47 @@ export default function HomePage() {
               <p className="text-xs text-muted-foreground">AI 모델 실행에 사용됩니다</p>
             </div>
 
+            {/* Gemini API Key */}
+            <div className="space-y-2">
+              <Label htmlFor="gemini-key" className="text-sm font-medium">
+                Gemini API Key
+              </Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="gemini-key"
+                  type={showKeys.gemini ? "text" : "password"}
+                  placeholder="입력하세요"
+                  value={apiKeys.gemini}
+                  onChange={(e) => setApiKeys({ ...apiKeys, gemini: e.target.value })}
+                  className="font-mono text-sm"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowKeys({ ...showKeys, gemini: !showKeys.gemini })}
+                  className="shrink-0"
+                >
+                  {showKeys.gemini ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    navigator.clipboard.writeText(apiKeys.gemini)
+                    setCopied(true)
+                    setTimeout(() => setCopied(false), 2000)
+                  }}
+                  disabled={!apiKeys.gemini}
+                  className="shrink-0"
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">대본 기획 및 생성에 사용됩니다</p>
+            </div>
+
             {/* 구분선 */}
             <div className="border-t border-slate-200 my-4" />
 
@@ -1030,6 +1081,49 @@ export default function HomePage() {
                 </div>
                 <p className="text-xs text-muted-foreground">
                   Google Cloud Console에서 OAuth 2.0 클라이언트 Secret을 발급받아 입력하세요.
+                </p>
+              </div>
+
+              {/* YouTube Data API Key */}
+              <div className="space-y-2">
+                <Label htmlFor="youtube-data-api-key" className="text-sm font-medium">
+                  YouTube Data API Key
+                </Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="youtube-data-api-key"
+                    type={showKeys.youtubeDataApiKey ? "text" : "password"}
+                    placeholder="Google Cloud Console에서 발급받은 API Key"
+                    value={apiKeys.youtubeDataApiKey}
+                    onChange={(e) => setApiKeys({ ...apiKeys, youtubeDataApiKey: e.target.value })}
+                    className="font-mono text-sm"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setShowKeys({ ...showKeys, youtubeDataApiKey: !showKeys.youtubeDataApiKey })}
+                    className="shrink-0"
+                  >
+                    {showKeys.youtubeDataApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => {
+                      navigator.clipboard.writeText(apiKeys.youtubeDataApiKey)
+                      setCopied(true)
+                      setTimeout(() => setCopied(false), 2000)
+                    }}
+                    disabled={!apiKeys.youtubeDataApiKey}
+                    className="shrink-0"
+                  >
+                    <Copy className="w-4 h-4" />
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  유튜브 분석, 유튜브 실시간 분석, 롱폼의 '일주일간 인기 주제' 기능에 사용됩니다.
                 </p>
               </div>
 

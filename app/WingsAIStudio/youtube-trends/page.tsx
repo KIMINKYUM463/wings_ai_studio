@@ -28,9 +28,20 @@ export default function YouTubeTrendsPage() {
   const [youtubeApiKey, setYoutubeApiKey] = useState("")
   const [showKey, setShowKey] = useState(false)
 
-  // localStorage에서 API 키 불러오기
+  // localStorage에서 API 키 불러오기 (통일된 키 이름 사용)
   useEffect(() => {
-    const savedKey = localStorage.getItem("youtube_api_key")
+    // 먼저 새로운 키 이름으로 확인
+    let savedKey = localStorage.getItem("wings_youtube_data_api_key")
+    
+    // 기존 키 이름으로 저장된 값이 있으면 마이그레이션
+    if (!savedKey) {
+      const oldKey = localStorage.getItem("youtube_api_key")
+      if (oldKey) {
+        localStorage.setItem("wings_youtube_data_api_key", oldKey)
+        savedKey = oldKey
+      }
+    }
+    
     if (savedKey) {
       setYoutubeApiKey(savedKey)
     }
@@ -38,7 +49,7 @@ export default function YouTubeTrendsPage() {
 
   const handleSaveApiKey = () => {
     if (youtubeApiKey.trim()) {
-      localStorage.setItem("youtube_api_key", youtubeApiKey.trim())
+      localStorage.setItem("wings_youtube_data_api_key", youtubeApiKey.trim())
       alert("YouTube API 키가 저장되었습니다.")
       setShowApiKeyInput(false)
     }
@@ -46,12 +57,18 @@ export default function YouTubeTrendsPage() {
 
   const getApiKey = () => {
     if (typeof window === "undefined") return undefined
-    return localStorage.getItem("youtube_api_key") || undefined
+    return localStorage.getItem("wings_youtube_data_api_key") || undefined
   }
 
   const analyzeTrend = async () => {
     if (!keyword.trim()) {
       setError("키워드를 입력해주세요")
+      return
+    }
+
+    const apiKey = getApiKey()
+    if (!apiKey) {
+      setError("YouTube Data API Key를 설정해주세요. 설정 페이지에서 API 키를 입력하고 저장해주세요.")
       return
     }
 
@@ -63,7 +80,7 @@ export default function YouTubeTrendsPage() {
       const response = await fetch("/api/youtube-trends", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keyword: keyword.trim() }),
+        body: JSON.stringify({ keyword: keyword.trim(), apiKey: apiKey }),
       })
 
       if (!response.ok) {

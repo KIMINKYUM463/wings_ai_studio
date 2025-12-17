@@ -119,7 +119,7 @@ function ScriptBenchmarkingContent() {
           titles: data.titles,
           thumbnailTexts: data.thumbnailTexts,
         })
-        setShowResults(true)
+      setShowResults(true)
       } else {
         throw new Error(data.error || "대본 각색에 실패했습니다.")
       }
@@ -185,9 +185,9 @@ function ScriptBenchmarkingContent() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div>
-                    <Label htmlFor="script" className="text-base font-semibold">
-                      벤치마킹할 대본을 입력하세요
-                    </Label>
+                      <Label htmlFor="script" className="text-base font-semibold">
+                        벤치마킹할 대본을 입력하세요
+                      </Label>
                     <p className="text-sm text-slate-600 mt-1 mb-4">
                       참고할 벤치마킹 대본을 직접 입력해주세요. AI가 이를 기반으로 각색하고 제목, 썸네일 문구를 생성합니다.
                     </p>

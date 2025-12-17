@@ -1,12 +1,14 @@
 """
 Cloud Run 영상 렌더링 서비스
-간단한 버전 - 먼저 동작 확인용
+FFmpeg-python을 사용한 안정적인 렌더링
 """
 
 from flask import Flask, request, jsonify
 import os
 import sys
 import datetime
+import ffmpeg
+import subprocess
 
 app = Flask(__name__)
 # Cloud Run의 요청 크기 제한은 32MB이지만, Flask 앱 레벨에서도 제한 설정
@@ -31,7 +33,8 @@ def render_video():
         audio_base64 = data.get('audioBase64')
         audio_gcs_url = data.get('audioGcsUrl')  # Cloud Storage URL
         subtitles = data.get('subtitles', [])
-        character_image = data.get('characterImage')
+        character_image = data.get('characterImage')  # base64 이미지
+        character_image_gcs_url = data.get('characterImageGcsUrl')  # Cloud Storage URL 이미지
         auto_images = data.get('autoImages', [])  # 여러 이미지 배열
         duration = data.get('duration', 0)
         
@@ -41,6 +44,12 @@ def render_video():
                 "error": "audioBase64 또는 audioGcsUrl이 필요합니다."
             }), 400
         
+        if not character_image and not character_image_gcs_url:
+            return jsonify({
+                "success": False,
+                "error": "characterImage 또는 characterImageGcsUrl이 필요합니다."
+            }), 400
+        
         print(f"[Render] Request received - duration: {duration}s, subtitles: {len(subtitles)}, autoImages: {len(auto_images)}")
         if audio_gcs_url:
             print(f"[Render] Using Cloud Storage URL: {audio_gcs_url}")
@@ -48,6 +57,13 @@ def render_video():
             print(f"[Render] Using base64 audio (size: {len(audio_base64) / 1024:.2f} KB)")
         else:
             print(f"[Render] No audio data provided")
+        
+        if character_image_gcs_url:
+            print(f"[Render] Using characterImage Cloud Storage URL: {character_image_gcs_url}")
+        elif character_image:
+            print(f"[Render] Using base64 characterImage (size: {len(character_image) / 1024:.2f} KB)")
+        else:
+            print(f"[Render] No characterImage data provided")
         
         # 실제 영상 렌더링 로직 구현
         import subprocess
@@ -150,49 +166,70 @@ def render_video():
             
             # 2. 이미지 처리 (여러 이미지 지원)
             def download_image(img_url, output_path):
-                """이미지를 다운로드하여 저장하는 헬퍼 함수"""
+                """이미지를 다운로드하여 저장하는 헬퍼 함수 (WebP는 PNG로 변환)"""
+                from PIL import Image
+                import io
+                
                 if img_url.startswith("data:"):
                     # data URL 처리
                     if "," in img_url:
                         header, b64data = img_url.split(",", 1)
-                        if "image/png" in header:
-                            img_ext = "png"
-                        elif "image/jpeg" in header or "image/jpg" in header:
-                            img_ext = "jpg"
-                        elif "image/webp" in header:
-                            img_ext = "webp"
-                        else:
-                            img_ext = "png"
+                        img_data = base64.b64decode(b64data)
                     else:
-                        b64data = img_url
-                        img_ext = "png"
-                    
-                    img_data = base64.b64decode(b64data)
-                    full_path = f"{output_path}.{img_ext}"
-                    with open(full_path, 'wb') as f:
-                        f.write(img_data)
-                    return full_path
+                        img_data = base64.b64decode(img_url)
                 else:
                     # HTTP/HTTPS URL 처리
                     img_response = requests.get(img_url, timeout=30)
                     img_response.raise_for_status()
+                    img_data = img_response.content
+                
+                # 이미지를 PIL로 열어서 PNG로 변환
+                try:
+                    img = Image.open(io.BytesIO(img_data))
+                    # RGB 모드로 변환 (RGBA인 경우)
+                    if img.mode in ('RGBA', 'LA', 'P'):
+                        # 투명도가 있는 경우 흰색 배경에 합성
+                        rgb_img = Image.new('RGB', img.size, (255, 255, 255))
+                        if img.mode == 'P':
+                            img = img.convert('RGBA')
+                        rgb_img.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
+                        img = rgb_img
+                    elif img.mode != 'RGB':
+                        img = img.convert('RGB')
                     
-                    img_ext = 'jpg'
-                    if img_url.lower().endswith('.png'):
-                        img_ext = 'png'
+                    # PNG로 저장
+                    full_path = f"{output_path}.png"
+                    img.save(full_path, 'PNG', optimize=True)
+                    print(f"[Render] Image converted to PNG: {full_path} (original format: {img.format if hasattr(img, 'format') else 'unknown'})")
+                    return full_path
+                except Exception as e:
+                    print(f"[Render] Image conversion error: {str(e)}, trying to save as-is")
+                    # 변환 실패 시 원본 그대로 저장 (확장자 추측)
+                    img_ext = 'png'
+                    if img_url.lower().endswith('.jpg') or img_url.lower().endswith('.jpeg'):
+                        img_ext = 'jpg'
                     elif img_url.lower().endswith('.webp'):
                         img_ext = 'webp'
                     
                     full_path = f"{output_path}.{img_ext}"
                     with open(full_path, 'wb') as f:
-                        f.write(img_response.content)
+                        f.write(img_data)
                     return full_path
             
-            # 기본 배경 이미지 (character_image)
+            # 기본 배경 이미지 (character_image 또는 character_image_gcs_url)
             try:
-                print(f"[Render] Processing background image: {character_image[:50]}...")
-                img_path = download_image(character_image, f"{temp_dir}/background")
-                print(f"[Render] Background image saved: {img_path}")
+                if character_image_gcs_url:
+                    # Cloud Storage URL에서 다운로드
+                    print(f"[Render] Processing background image from Cloud Storage: {character_image_gcs_url}")
+                    img_path = download_image(character_image_gcs_url, f"{temp_dir}/background")
+                    print(f"[Render] Background image downloaded from GCS: {img_path}")
+                elif character_image:
+                    # base64 이미지 처리
+                    print(f"[Render] Processing background image: {character_image[:50]}...")
+                    img_path = download_image(character_image, f"{temp_dir}/background")
+                    print(f"[Render] Background image saved: {img_path}")
+                else:
+                    raise Exception("characterImage 또는 characterImageGcsUrl이 필요합니다.")
             except Exception as e:
                 print(f"[Render] Background image processing error: {str(e)}")
                 raise Exception(f"Background image processing failed: {str(e)}")
@@ -224,8 +261,8 @@ def render_video():
             
             # 3. FFmpeg 확인
             try:
-                ffmpeg_check = subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True, timeout=5)
-                if ffmpeg_check.returncode != 0:
+                result = subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True, timeout=5)
+                if result.returncode != 0:
                     raise Exception("FFmpeg가 설치되지 않았습니다")
                 print(f"[Render] FFmpeg 확인 완료")
             except Exception as e:
@@ -242,350 +279,319 @@ def render_video():
             audio_size = os.path.getsize(audio_path)
             print(f"[Render] Files check - Image: {img_size} bytes, Audio: {audio_size} bytes")
             
-            # 5. 자막 필터 생성 (미리보기와 동일하게)
-            subtitle_filters = []
-            if subtitles and len(subtitles) > 0:
-                print(f"[Render] Processing {len(subtitles)} subtitles...")
-                # 각 자막에 대해 drawtext 필터 생성
-                for idx, sub in enumerate(subtitles):
-                    # 자막 데이터 형식: {id, text, start, end} (미리보기와 동일)
-                    text = sub.get('text', '')
-                    # 클라이언트에서 계산한 정확한 타이밍을 그대로 사용 (조정하지 않음)
-                    start_time = float(sub.get('start', sub.get('startTime', 0)))
-                    end_time = float(sub.get('end', sub.get('endTime', start_time + 2)))
-                    
-                    # 미리보기 스타일과 동일하게 설정
-                    # fontSize: 60, font: bold, color: white, 배경: rgba(0, 0, 0, 0.75)
-                    # 위치: 중앙 하단 (canvas.width / 2, canvas.height - totalHeight - 100)
-                    # padding: 40, lineHeight: 80
-                    font_size = 60  # 미리보기와 동일
-                    color = 'white'  # 미리보기와 동일
-                    
-                    if not text or not text.strip():
-                        continue
-                    
-                    # FFmpeg drawtext 필터
-                    # 텍스트 이스케이프 (특수문자 처리)
-                    text_escaped = text.replace('\\', '\\\\').replace(':', '\\:').replace("'", "\\'").replace('[', '\\[').replace(']', '\\]')
-                    
-                    # 미리보기와 동일한 위치: 중앙 하단
-                    # canvas.width / 2 = 중앙, canvas.height - totalHeight - 100 = 하단에서 100px 위
-                    x_pixel = "(w-text_w)/2"  # 중앙 정렬
-                    # 하단에서 100px 위 (미리보기와 동일)
-                    y_pixel = "h-th-100"  # 하단에서 텍스트 높이 + 100px 위
-                    
-                    # 한글 폰트 파일 경로 찾기 (Bold 우선)
-                    import glob
-                    font_path = None
-                    # 가능한 폰트 경로들 (Bold 우선)
-                    possible_font_paths = [
-                        "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
-                        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
-                        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-                        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-                    ]
-                    
-                    # 폰트 파일 찾기
-                    for path in possible_font_paths:
-                        if os.path.exists(path):
-                            font_path = path
-                            break
-                    
-                    # 폰트를 찾지 못한 경우 glob으로 검색 (Bold 우선)
-                    if not font_path:
-                        for pattern in [
-                            "/usr/share/fonts/**/NotoSansCJK*Bold*.ttc",
-                            "/usr/share/fonts/**/NotoSansCJK*Bold*.ttf",
-                            "/usr/share/fonts/**/NotoSansCJK*.ttc",
-                            "/usr/share/fonts/**/NotoSansCJK*.ttf",
-                            "/usr/share/fonts/**/*CJK*.ttc",
-                            "/usr/share/fonts/**/*CJK*.ttf",
-                        ]:
-                            found = glob.glob(pattern, recursive=True)
-                            if found:
-                                font_path = found[0]
-                                break
-                    
-                    print(f"[Render] Font path: {font_path if font_path else 'Not found, using default'}")
-                    
-                    # drawtext 필터 생성 (미리보기와 동일한 스타일)
-                    # 미리보기: fontSize=60, bold, white, 배경 rgba(0,0,0,0.75), 중앙 하단
-                    # 한글 지원을 위해 폰트 파일 지정
-                    drawtext_params = [
-                        f"text='{text_escaped}'",
-                        f"x={x_pixel}",
-                        f"y={y_pixel}",
-                        f"fontsize={font_size}",
-                        f"fontcolor={color}",
-                        f"enable='between(t,{start_time},{end_time})'",
-                        f"box=1:boxcolor=black@0.75:boxborderw=10",  # rgba(0,0,0,0.75)와 동일
-                        f"text_align=center"
-                    ]
-                    
-                    # 폰트 파일이 있으면 추가 (Bold 폰트 우선)
-                    if font_path:
-                        drawtext_params.insert(1, f"fontfile={font_path}")
-                    
-                    drawtext_filter = "drawtext=" + ":".join(drawtext_params)
-                    subtitle_filters.append(drawtext_filter)
-                    print(f"[Render] Subtitle {idx+1}: '{text[:30]}...' ({start_time}s - {end_time}s)")
+            # 5. 한글 폰트 파일 경로 찾기 (MoviePy TextClip용)
+            import glob
+            font_path = None
+            # 가능한 폰트 경로들 (Bold 우선)
+            possible_font_paths = [
+                "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+                "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+                "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+                "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            ]
             
-            # 6. FFmpeg로 영상 렌더링 (여러 이미지 전환 지원)
+            # 폰트 파일 찾기
+            for path in possible_font_paths:
+                if os.path.exists(path):
+                    font_path = path
+                    break
+            
+            # 폰트를 찾지 못한 경우 glob으로 검색 (Bold 우선)
+            if not font_path:
+                for pattern in [
+                    "/usr/share/fonts/**/NotoSansCJK*Bold*.ttc",
+                    "/usr/share/fonts/**/NotoSansCJK*Bold*.ttf",
+                    "/usr/share/fonts/**/NotoSansCJK*.ttc",
+                    "/usr/share/fonts/**/NotoSansCJK*.ttf",
+                    "/usr/share/fonts/**/*CJK*.ttc",
+                    "/usr/share/fonts/**/*CJK*.ttf",
+                ]:
+                    found = glob.glob(pattern, recursive=True)
+                    if found:
+                        font_path = found[0]
+                        break
+            
+            print(f"[Render] Font path: {font_path if font_path else 'Not found, using default'}")
+            
+            # 6. FFmpeg-python으로 영상 렌더링 (여러 이미지 전환 지원)
             output_path = f"{temp_dir}/output.mp4"
             
-            print(f"[Render] FFmpeg rendering started...")
+            print(f"[Render] FFmpeg-python rendering started...")
             print(f"[Render] Image segments: {len(image_segments)}")
             print(f"[Render] Audio path: {audio_path}")
             print(f"[Render] Output path: {output_path}")
-            print(f"[Render] Subtitles: {len(subtitle_filters)} filters")
+            print(f"[Render] Subtitles: {len(subtitles) if subtitles else 0} subtitles")
             
-            # 여러 이미지가 있는 경우 concat 필터 사용
-            if len(image_segments) > 1:
-                print(f"[Render] Using concat filter for {len(image_segments)} images...")
-                
-                # 각 이미지 세그먼트를 별도 파일로 렌더링
-                segment_files = []
-                for idx, (img_file, start_time, end_time) in enumerate(image_segments):
-                    segment_duration = end_time - start_time
-                    if segment_duration <= 0:
-                        continue
+            try:
+                # 여러 이미지가 있는 경우 각 세그먼트를 별도로 렌더링 후 concat
+                if len(image_segments) > 1:
+                    print(f"[Render] Processing {len(image_segments)} image segments...")
                     
-                    segment_output = f"{temp_dir}/segment_{idx}.mp4"
+                    segment_files = []
+                    for idx, (img_file, seg_start_time, seg_end_time) in enumerate(image_segments):
+                        segment_duration = seg_end_time - seg_start_time
+                        if segment_duration <= 0:
+                            continue
+                        
+                        segment_output = f"{temp_dir}/segment_{idx}.mp4"
+                        print(f"[Render] Processing segment {idx}: {img_file} ({segment_duration:.2f}s)")
+                        
+                        # 이 세그먼트에 해당하는 자막 필터 생성 (같은 시간대 자막을 한 줄로 합침)
+                        segment_subtitle_filters = []
+                        if subtitles:
+                            # 시간대별로 자막 그룹화
+                            subtitle_groups = {}
+                            for sub in subtitles:
+                                sub_start = float(sub.get('start', sub.get('startTime', 0)))
+                                sub_end = float(sub.get('end', sub.get('endTime', sub_start + 2)))
+                                
+                                # 자막이 이 세그먼트 시간 범위와 겹치면 포함
+                                # 단, 자막이 세그먼트 시작 시간 이전에 시작하면 제외 (이전 장면의 자막 제외)
+                                if not (sub_end < seg_start_time or sub_start > seg_end_time):
+                                    # 자막이 세그먼트 시작 시간 이전에 시작하면 제외
+                                    if sub_start < seg_start_time:
+                                        continue
+                                    
+                                    adjusted_start = max(0, sub_start - seg_start_time)
+                                    adjusted_end = min(segment_duration, sub_end - seg_start_time)
+                                    
+                                    # adjusted_start가 0보다 작거나 같아야 함 (세그먼트 내에서 시작)
+                                    if adjusted_start < 0:
+                                        continue
+                                    
+                                    text = sub.get('text', '').strip()
+                                    if not text:
+                                        continue
+                                    
+                                    # 같은 시작 시간의 자막들을 그룹화
+                                    key = f"{adjusted_start:.2f}"
+                                    if key not in subtitle_groups:
+                                        subtitle_groups[key] = {
+                                            'texts': [],
+                                            'start': adjusted_start,
+                                            'end': adjusted_end
+                                        }
+                                    subtitle_groups[key]['texts'].append(text)
+                                    subtitle_groups[key]['end'] = max(subtitle_groups[key]['end'], adjusted_end)
+                            
+                            # 그룹화된 자막을 한 줄로 합쳐서 필터 생성
+                            for key, group in subtitle_groups.items():
+                                # 여러 자막을 공백으로 합쳐서 한 줄로 표시 (줄바꿈 문자 제거)
+                                combined_text = ' '.join(group['texts']).replace('\n', ' ').replace('\r', ' ').strip()
+                                
+                                # 텍스트 이스케이프 (FFmpeg drawtext용)
+                                text_escaped = combined_text.replace('\\', '\\\\').replace(':', '\\:').replace("'", "\\'").replace('[', '\\[').replace(']', '\\]')
+                                
+                                # drawtext 필터 파라미터 저장
+                                segment_subtitle_filters.append({
+                                    'text': text_escaped,
+                                    'start': group['start'],
+                                    'end': group['end']
+                                })
+                        
+                        # FFmpeg-python으로 세그먼트 렌더링
+                        input_video = ffmpeg.input(img_file, loop=1, framerate=1, t=segment_duration)
+                        
+                        # 기본 필터: 이미지 크기 조정
+                        stream = input_video.video.filter('scale', 1920, 1080, force_original_aspect_ratio='decrease')
+                        stream = stream.filter('pad', 1920, 1080, '(ow-iw)/2', '(oh-ih)/2', color='black')
+                        
+                        # 자막 필터 추가 (한 줄, 큰 글씨)
+                        for sub_info in segment_subtitle_filters:
+                            # 텍스트를 한 줄로 강제 (줄바꿈 제거) - 이미 이스케이프된 텍스트에서 줄바꿈만 제거
+                            text_for_display = sub_info['text'].replace('\n', ' ').replace('\r', ' ').replace('  ', ' ').strip()
+                            
+                            drawtext_params = {
+                                'text': text_for_display,
+                                'fontsize': 80,  # 크기 증가 (60 -> 80)
+                                'fontcolor': 'white',
+                                'x': '(w-text_w)/2',
+                                'y': 'h-th-100',
+                                'box': 1,
+                                'boxcolor': 'black@0.75',
+                                'boxborderw': 10,
+                                'enable': f'between(t,{sub_info["start"]},{sub_info["end"]})',
+                                'fix_bounds': 1  # 텍스트 경계 고정
+                            }
+                            if font_path:
+                                drawtext_params['fontfile'] = font_path
+                                print(f"[Render] 자막 폰트 사용: {font_path}")
+                            else:
+                                # 폰트가 없으면 에러 발생 (네모박스 X 문제 방지)
+                                raise Exception("한글 폰트 파일을 찾을 수 없습니다. NotoSansCJK 폰트가 필요합니다.")
+                            
+                            try:
+                                stream = stream.filter('drawtext', **drawtext_params)
+                            except Exception as e:
+                                print(f"[Render] 자막 필터 적용 오류: {str(e)}")
+                                print(f"[Render] 자막 텍스트: {text_for_display[:50]}...")
+                                raise
+                        
+                        # 출력 설정
+                        output = ffmpeg.output(
+                            stream,
+                            segment_output,
+                            vcodec='libx264',
+                            preset='veryfast',
+                            crf=23,
+                            tune='stillimage',
+                            pix_fmt='yuv420p'
+                        )
+                        
+                        ffmpeg.run(output, overwrite_output=True, quiet=True)
+                        
+                        if os.path.exists(segment_output) and os.path.getsize(segment_output) > 0:
+                            segment_files.append(segment_output)
+                            print(f"[Render] Segment {idx} rendered: {segment_duration:.2f}s")
                     
-                    # 각 세그먼트의 자막 필터 (해당 시간대의 자막만)
-                    # 자막 시간을 세그먼트 시작 시간 기준으로 조정
-                    segment_subtitle_filters = []
-                    for sub_filter in subtitle_filters:
-                        # 자막 필터에서 시간 범위 추출
-                        # enable='between(t,start,end)' 형식에서 start, end 추출
-                        import re
-                        time_match = re.search(r"between\(t,([\d.]+),([\d.]+)\)", sub_filter)
-                        if time_match:
-                            sub_start = float(time_match.group(1))
-                            sub_end = float(time_match.group(2))
-                            # 자막이 이 세그먼트 시간 범위와 겹치면 포함
-                            if not (sub_end < start_time or sub_start > end_time):
-                                # 세그먼트 시작 시간 기준으로 자막 시간 조정
-                                adjusted_sub_filter = sub_filter.replace(
-                                    f"between(t,{sub_start},{sub_end})",
-                                    f"between(t,{max(0, sub_start - start_time)},{min(segment_duration, sub_end - start_time)})"
-                                )
-                                segment_subtitle_filters.append(adjusted_sub_filter)
+                    if len(segment_files) == 0:
+                        raise Exception("No valid segments created")
                     
-                    # 세그먼트 필터
-                    base_filter = 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2'
-                    if segment_subtitle_filters:
-                        vf_segment = base_filter + ',' + ','.join(segment_subtitle_filters)
+                    # 세그먼트 파일 목록 생성 (concat용)
+                    concat_list_path = f"{temp_dir}/concat_list.txt"
+                    with open(concat_list_path, 'w') as f:
+                        for seg_file in segment_files:
+                            f.write(f"file '{seg_file}'\n")
+                    
+                    # 오디오와 함께 concat (subprocess 사용 - FFmpeg-python의 concat이 복잡함)
+                    audio_codec_param = []
+                    if audio_codec and audio_codec.lower() in ['aac', 'mp3']:
+                        audio_codec_param = ['-c:a', 'copy']
                     else:
-                        vf_segment = base_filter
+                        audio_codec_param = ['-c:a', 'aac', '-b:a', '256k']
                     
-                    # 각 세그먼트 렌더링 (속도 최적화)
-                    segment_cmd = [
+                    concat_cmd = [
                         'ffmpeg',
                         '-y',
-                        '-loop', '1',
-                        '-framerate', '1',
-                        '-i', img_file,
-                        '-c:v', 'libx264',
-                        '-preset', 'veryfast',  # 인코딩 속도 최적화
-                        '-crf', '23',  # 품질과 속도 균형
-                        '-tune', 'stillimage',
-                        '-pix_fmt', 'yuv420p',
-                        '-t', str(segment_duration),
-                        '-vf', vf_segment,
-                        '-threads', '0',  # 모든 CPU 코어 사용
-                        segment_output
+                        '-f', 'concat',
+                        '-safe', '0',
+                        '-i', concat_list_path,
+                        '-i', audio_path,
+                        '-c:v', 'copy',
+                    ] + audio_codec_param + [
+                        '-map', '0:v:0',
+                        '-map', '1:a:0',
+                        '-shortest',
+                        '-movflags', '+faststart',
+                        output_path
                     ]
                     
-                    result_seg = subprocess.run(segment_cmd, capture_output=True, text=True, timeout=300)
-                    if result_seg.returncode != 0:
-                        print(f"[Render] Segment {idx} rendering failed: {result_seg.stderr}")
-                        raise Exception(f"Segment {idx} rendering failed: {result_seg.stderr[:500]}")
+                    if duration and duration > 0:
+                        concat_cmd.insert(-1, '-t')
+                        concat_cmd.insert(-1, str(duration))
                     
-                    if os.path.exists(segment_output) and os.path.getsize(segment_output) > 0:
-                        segment_files.append(segment_output)
-                        print(f"[Render] Segment {idx} rendered: {segment_duration}s ({os.path.getsize(segment_output) / 1024:.1f} KB)")
-                    else:
-                        print(f"[Render] Warning: Segment {idx} file not created or empty")
-                
-                if len(segment_files) == 0:
-                    raise Exception("No valid segments created")
-                
-                # 세그먼트 파일 목록 생성 (concat용)
-                concat_list_path = f"{temp_dir}/concat_list.txt"
-                with open(concat_list_path, 'w') as f:
-                    for seg_file in segment_files:
-                        f.write(f"file '{seg_file}'\n")
-                
-                print(f"[Render] Concat list created with {len(segment_files)} segments")
-                
-                # 오디오와 함께 concat (원본 오디오 품질 유지)
-                # 오디오 파일 존재 및 크기 확인
-                if not os.path.exists(audio_path):
-                    raise Exception(f"오디오 파일이 존재하지 않습니다: {audio_path}")
-                audio_file_size = os.path.getsize(audio_path)
-                print(f"[Render] Audio file size: {audio_file_size / 1024 / 1024:.2f} MB")
-                
-                # 오디오 코덱 설정: 원본이 AAC 또는 MP3이고 MP4 컨테이너와 호환되면 copy, 아니면 최고 품질 재인코딩
-                audio_codec_param = []
-                if audio_codec and audio_codec.lower() in ['aac', 'mp3']:
-                    # 원본 코덱이 MP4와 호환되면 copy 모드 사용 (재인코딩 없이 원본 그대로)
-                    audio_codec_param = ['-c:a', 'copy']
-                    print(f"[Render] Using audio copy mode (original codec: {audio_codec})")
+                    result = subprocess.run(concat_cmd, capture_output=True, text=True, timeout=900)
+                    if result.returncode != 0:
+                        raise Exception(f"Concat failed: {result.stderr}")
+                    
                 else:
-                    # 재인코딩이 필요한 경우 최고 품질 설정 (원본 품질 유지)
-                    # 원본 비트레이트가 있으면 그대로 사용, 없으면 256k 이상 사용
-                    target_bitrate = '256k'
-                    if audio_bitrate:
+                    # 단일 이미지
+                    img_path = image_segments[0][0] if image_segments else img_path
+                    print(f"[Render] Processing single image: {img_path}")
+                    
+                    # 자막 필터 생성 (같은 시간대 자막을 한 줄로 합침)
+                    subtitle_filters = []
+                    if subtitles:
+                        # 시간대별로 자막 그룹화
+                        subtitle_groups = {}
+                        for sub in subtitles:
+                            text = sub.get('text', '').strip()
+                            start_time = float(sub.get('start', sub.get('startTime', 0)))
+                            end_time = float(sub.get('end', sub.get('endTime', start_time + 2)))
+                            
+                            if not text:
+                                continue
+                            
+                            # 같은 시작 시간의 자막들을 그룹화
+                            key = f"{start_time:.2f}"
+                            if key not in subtitle_groups:
+                                subtitle_groups[key] = {
+                                    'texts': [],
+                                    'start': start_time,
+                                    'end': end_time
+                                }
+                            subtitle_groups[key]['texts'].append(text)
+                            subtitle_groups[key]['end'] = max(subtitle_groups[key]['end'], end_time)
+                        
+                        # 그룹화된 자막을 한 줄로 합쳐서 필터 생성
+                        for key, group in subtitle_groups.items():
+                            # 여러 자막을 공백으로 합쳐서 한 줄로 표시 (줄바꿈 문자 제거)
+                            combined_text = ' '.join(group['texts']).replace('\n', ' ').replace('\r', ' ').strip()
+                            
+                            text_escaped = combined_text.replace('\\', '\\\\').replace(':', '\\:').replace("'", "\\'").replace('[', '\\[').replace(']', '\\]')
+                            
+                            subtitle_filters.append({
+                                'text': text_escaped,
+                                'start': group['start'],
+                                'end': group['end']
+                            })
+                    
+                    # FFmpeg-python으로 렌더링
+                    input_video = ffmpeg.input(img_path, loop=1, framerate=1)
+                    input_audio = ffmpeg.input(audio_path)
+                    
+                    # 기본 필터
+                    stream = input_video.video.filter('scale', 1920, 1080, force_original_aspect_ratio='decrease')
+                    stream = stream.filter('pad', 1920, 1080, '(ow-iw)/2', '(oh-ih)/2', color='black')
+                    
+                    # 자막 필터 추가 (한 줄, 큰 글씨)
+                    for sub_info in subtitle_filters:
+                        # 텍스트를 한 줄로 강제 (줄바꿈 제거) - 이미 이스케이프된 텍스트에서 줄바꿈만 제거
+                        text_for_display = sub_info['text'].replace('\n', ' ').replace('\r', ' ').replace('  ', ' ').strip()
+                        
+                        drawtext_params = {
+                            'text': text_for_display,
+                            'fontsize': 80,  # 크기 증가 (60 -> 80)
+                            'fontcolor': 'white',
+                            'x': '(w-text_w)/2',
+                            'y': 'h-th-100',
+                            'box': 1,
+                            'boxcolor': 'black@0.75',
+                            'boxborderw': 10,
+                            'enable': f'between(t,{sub_info["start"]},{sub_info["end"]})',
+                            'fix_bounds': 1  # 텍스트 경계 고정
+                        }
+                        if font_path:
+                            drawtext_params['fontfile'] = font_path
+                            print(f"[Render] 자막 폰트 사용: {font_path}")
+                        else:
+                            # 폰트가 없으면 에러 발생 (네모박스 X 문제 방지)
+                            raise Exception("한글 폰트 파일을 찾을 수 없습니다. NotoSansCJK 폰트가 필요합니다.")
+                        
                         try:
-                            bitrate_int = int(audio_bitrate)
-                            # 비트레이트가 bps 단위이므로 kbps로 변환
-                            bitrate_kbps = bitrate_int // 1000
-                            # 최소 256k, 제한 없음 (원본 품질 유지)
-                            target_bitrate = f"{max(256, bitrate_kbps)}k"
-                            print(f"[Render] Using original bitrate: {target_bitrate}")
-                        except:
-                            pass
+                            stream = stream.filter('drawtext', **drawtext_params)
+                        except Exception as e:
+                            print(f"[Render] 자막 필터 적용 오류: {str(e)}")
+                            print(f"[Render] 자막 텍스트: {sub_info['text'][:50]}...")
+                            raise
                     
-                    target_sample_rate = audio_sample_rate if audio_sample_rate else '44100'
-                    target_channels = audio_channels if audio_channels else '2'
+                    # 출력 설정
+                    audio_codec_str = 'aac' if audio_codec and audio_codec.lower() not in ['aac', 'mp3'] else 'copy'
+                    output = ffmpeg.output(
+                        stream,
+                        input_audio,
+                        output_path,
+                        vcodec='libx264',
+                        preset='veryfast',
+                        crf=23,
+                        tune='stillimage',
+                        pix_fmt='yuv420p',
+                        acodec=audio_codec_str,
+                        shortest=None,
+                        movflags='+faststart'
+                    )
                     
-                    # 고품질 AAC 인코딩 설정 (원본 품질 최대한 보존)
-                    audio_codec_param = [
-                        '-c:a', 'aac',
-                        '-b:a', target_bitrate,
-                        '-ar', str(target_sample_rate),
-                        '-ac', str(target_channels),
-                        '-aac_coder', 'twoloop'  # 고품질 AAC 인코더
-                    ]
-                    print(f"[Render] Using high-quality audio re-encoding: codec=aac, bitrate={target_bitrate}, sample_rate={target_sample_rate}, channels={target_channels}")
-                
-                ffmpeg_cmd = [
-                    'ffmpeg',
-                    '-y',
-                    '-f', 'concat',
-                    '-safe', '0',
-                    '-i', concat_list_path,
-                    '-i', audio_path,
-                    '-c:v', 'copy',  # 비디오는 재인코딩 없이 복사 (속도 향상)
-                ] + audio_codec_param + [
-                    '-map', '0:v:0',  # 비디오 스트림 명시적으로 매핑
-                    '-map', '1:a:0',  # 오디오 스트림 명시적으로 매핑
-                    '-shortest',  # 비디오와 오디오 중 짧은 것에 맞춤
-                    '-movflags', '+faststart',
-                    '-threads', '0',  # 모든 CPU 코어 사용
-                    output_path
-                ]
-                
-                if duration and duration > 0:
-                    # duration이 지정되면 오디오 길이 확인
-                    ffmpeg_cmd.insert(-1, '-t')
-                    ffmpeg_cmd.insert(-1, str(duration))
-                
-            else:
-                # 단일 이미지 (기존 로직)
-                img_path = image_segments[0][0] if image_segments else img_path
-                
-                base_filters = 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2'
-                
-                if subtitle_filters:
-                    vf_complex = base_filters + ',' + ','.join(subtitle_filters)
-                else:
-                    vf_complex = base_filters
-                
-                # 오디오 파일 존재 및 크기 확인
-                if not os.path.exists(audio_path):
-                    raise Exception(f"오디오 파일이 존재하지 않습니다: {audio_path}")
-                audio_file_size = os.path.getsize(audio_path)
-                print(f"[Render] Audio file size: {audio_file_size / 1024 / 1024:.2f} MB")
-                
-                # 오디오 코덱 설정: 원본이 AAC 또는 MP3이고 MP4 컨테이너와 호환되면 copy, 아니면 최고 품질 재인코딩
-                audio_codec_param = []
-                if audio_codec and audio_codec.lower() in ['aac', 'mp3']:
-                    # 원본 코덱이 MP4와 호환되면 copy 모드 사용 (재인코딩 없이 원본 그대로)
-                    audio_codec_param = ['-c:a', 'copy']
-                    print(f"[Render] Using audio copy mode (original codec: {audio_codec})")
-                else:
-                    # 재인코딩이 필요한 경우 최고 품질 설정 (원본 품질 유지)
-                    # 원본 비트레이트가 있으면 그대로 사용, 없으면 256k 이상 사용
-                    target_bitrate = '256k'
-                    if audio_bitrate:
-                        try:
-                            bitrate_int = int(audio_bitrate)
-                            # 비트레이트가 bps 단위이므로 kbps로 변환
-                            bitrate_kbps = bitrate_int // 1000
-                            # 최소 256k, 제한 없음 (원본 품질 유지)
-                            target_bitrate = f"{max(256, bitrate_kbps)}k"
-                            print(f"[Render] Using original bitrate: {target_bitrate}")
-                        except:
-                            pass
+                    if duration and duration > 0:
+                        output = ffmpeg.output(output, t=duration)
                     
-                    target_sample_rate = audio_sample_rate if audio_sample_rate else '44100'
-                    target_channels = audio_channels if audio_channels else '2'
-                    
-                    # 고품질 AAC 인코딩 설정 (원본 품질 최대한 보존)
-                    audio_codec_param = [
-                        '-c:a', 'aac',
-                        '-b:a', target_bitrate,
-                        '-ar', str(target_sample_rate),
-                        '-ac', str(target_channels),
-                        '-aac_coder', 'twoloop'  # 고품질 AAC 인코더
-                    ]
-                    print(f"[Render] Using high-quality audio re-encoding: codec=aac, bitrate={target_bitrate}, sample_rate={target_sample_rate}, channels={target_channels}")
+                    ffmpeg.run(output, overwrite_output=True, quiet=True)
                 
-                ffmpeg_cmd = [
-                    'ffmpeg',
-                    '-y',
-                    '-loop', '1',
-                    '-framerate', '1',
-                    '-i', img_path,
-                    '-i', audio_path,
-                    '-c:v', 'libx264',
-                    '-preset', 'veryfast',  # 인코딩 속도 최적화
-                    '-crf', '23',  # 품질과 속도 균형
-                    '-tune', 'stillimage',
-                ] + audio_codec_param + [
-                    '-map', '0:v:0',  # 비디오 스트림 명시적으로 매핑
-                    '-map', '1:a:0',  # 오디오 스트림 명시적으로 매핑
-                    '-pix_fmt', 'yuv420p',
-                    '-shortest',  # 비디오와 오디오 중 짧은 것에 맞춤
-                    '-threads', '0',  # 모든 CPU 코어 사용
-                ]
+                print(f"[Render] FFmpeg-python rendering completed")
                 
-                if duration and duration > 0:
-                    ffmpeg_cmd.extend(['-t', str(duration)])
-                
-                ffmpeg_cmd.extend([
-                    '-movflags', '+faststart',
-                    '-vf', vf_complex,
-                    output_path
-                ])
-            
-            print(f"[Render] FFmpeg command: {' '.join(ffmpeg_cmd)}")
-            
-            result = subprocess.run(
-                ffmpeg_cmd, 
-                capture_output=True, 
-                text=True,
-                timeout=900  # 15 minute timeout (for long videos)
-            )
-            
-            # FFmpeg 출력 로깅
-            if result.stdout:
-                print(f"[Render] FFmpeg stdout: {result.stdout[:500]}")
-            if result.stderr:
-                print(f"[Render] FFmpeg stderr: {result.stderr[:1000]}")
-            
-            if result.returncode != 0:
-                error_msg = result.stderr or result.stdout or "Unknown error"
-                print(f"[Render] FFmpeg error (code: {result.returncode})")
-                print(f"[Render] FFmpeg stderr: {result.stderr}")
-                print(f"[Render] FFmpeg stdout: {result.stdout}")
-                # 전체 오류 메시지 반환 (최대 2000자)
-                full_error = f"FFmpeg stderr: {result.stderr}\nFFmpeg stdout: {result.stdout}"
-                raise Exception(f"FFmpeg rendering failed: {full_error[:2000]}")
-            
-            print(f"[Render] FFmpeg rendering completed")
+            except Exception as e:
+                error_trace = traceback.format_exc()
+                print(f"[Render] FFmpeg-python rendering error: {error_trace}")
+                raise Exception(f"FFmpeg-python rendering failed: {str(e)}")
             
             # 6. 렌더링된 영상 읽기
             if not os.path.exists(output_path):

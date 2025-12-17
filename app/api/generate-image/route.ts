@@ -1,9 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { generateImagePrompt, generateImageWithReplicate } from "@/app/longform/actions"
+import { generateImagePrompt, generateImageWithReplicate } from "@/app/WingsAIStudio/longform/actions"
 
 export async function POST(request: NextRequest) {
   try {
-    const { scriptText, openaiApiKey, replicateApiKey, category, historyStyle, customPrompt } = await request.json()
+    const { scriptText, openaiApiKey, replicateApiKey, category, historyStyle, customPrompt, commonStylePrompt, topic } = await request.json()
 
     if (!scriptText) {
       return NextResponse.json({ error: "scriptText가 필요합니다." }, { status: 400 })
@@ -17,13 +17,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Replicate API 키가 필요합니다." }, { status: 400 })
     }
 
-    console.log("[v0] 이미지 생성 API 호출 시작, 카테고리:", category || "health", "역사 스타일:", historyStyle || "없음")
+    console.log("[v0] 이미지 생성 API 호출 시작, 카테고리:", category || "health", "역사 스타일:", historyStyle || "없음", "공통 스타일:", commonStylePrompt ? "있음" : "없음")
 
-    // 1. 프롬프트 생성 (카테고리 및 역사 스타일 포함)
+    // 1. 프롬프트 생성 (카테고리, 역사 스타일, 공통 스타일 포함)
     // customPrompt가 있으면 직접 사용, 없으면 생성
     let prompt = customPrompt
     if (!prompt) {
-      prompt = await generateImagePrompt(scriptText, openaiApiKey, category || "health", historyStyle)
+      prompt = await generateImagePrompt(scriptText, openaiApiKey, category || "health", historyStyle, commonStylePrompt, topic)
+    } else if (commonStylePrompt) {
+      // customPrompt가 있어도 공통 스타일이 있으면 추가
+      prompt = `${prompt}, ${commonStylePrompt}`
     }
     // 16:9 비율 강제 추가
     if (!prompt.includes("16:9") && !prompt.includes("aspect ratio")) {

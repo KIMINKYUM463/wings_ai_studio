@@ -3,19 +3,26 @@ import { type NextRequest, NextResponse } from "next/server"
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const channelId = searchParams.get("channelId")
+  const apiKey = searchParams.get("apiKey")
 
   if (!channelId) {
     return NextResponse.json({ error: "Channel ID is required" }, { status: 400 })
   }
 
   try {
-    // 기본 API 키 사용 (환경변수 > 기본값)
-    const DEFAULT_YOUTUBE_API_KEY = "AIzaSyA_hdd4NMhZtyxwxhI7s_QDsd2n2yAHWKM"
-    const apiKey = process.env.YOUTUBE_API_KEY || DEFAULT_YOUTUBE_API_KEY
+    // API 키는 클라이언트에서 필수로 전달되어야 함 (하드코딩 제거)
+    const youtubeApiKey = apiKey || process.env.YOUTUBE_API_KEY
+    
+    if (!youtubeApiKey) {
+      return NextResponse.json(
+        { error: "YouTube Data API Key가 필요합니다. 설정 페이지에서 API 키를 입력해주세요." },
+        { status: 400 }
+      )
+    }
 
     // 채널 기본 정보 가져오기
     const channelResponse = await fetch(
-      `https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&id=${channelId}&key=${apiKey}`,
+      `https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&id=${channelId}&key=${youtubeApiKey}`,
     )
     const channelData = await channelResponse.json()
 
@@ -28,7 +35,7 @@ export async function GET(request: NextRequest) {
     // 유사 채널 검색 (채널의 주요 키워드로 검색)
     const searchQuery = channel.snippet.title.split(" ")[0] // 첫 번째 단어로 검색
     const similarChannelsResponse = await fetch(
-      `https://www.googleapis.com/youtube/v3/search?part=snippet&type=channel&q=${encodeURIComponent(searchQuery)}&maxResults=10&key=${apiKey}`,
+      `https://www.googleapis.com/youtube/v3/search?part=snippet&type=channel&q=${encodeURIComponent(searchQuery)}&maxResults=10&key=${youtubeApiKey}`,
     )
     const similarChannelsData = await similarChannelsResponse.json()
 
@@ -42,7 +49,7 @@ export async function GET(request: NextRequest) {
     let similarChannels = []
     if (similarChannelIds) {
       const similarChannelsDetailsResponse = await fetch(
-        `https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&id=${similarChannelIds}&key=${apiKey}`,
+        `https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&id=${similarChannelIds}&key=${youtubeApiKey}`,
       )
       const similarChannelsDetails = await similarChannelsDetailsResponse.json()
 

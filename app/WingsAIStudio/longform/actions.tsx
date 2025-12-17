@@ -307,20 +307,24 @@ export async function generateTopics(
     // 공통 프롬프트
     const commonPrompt = `너는 유튜브 롱폼 콘텐츠 기획 전문가다.
 
-선택된 카테고리를 기반으로 사람들이 시청하고 싶어 하는 흥미로운 영상 주제를 만든다.
+선택된 카테고리를 기반으로 사람들이 시청하고 싶어 하는 흥미로운 "영상 주제(콘셉트)"를 만든다.
+
+※ 제목은 생성하지 않는다. (주제만 출력)
 
 조건:
-1) 제목은 시청자 시선을 끌 수 있도록 직관적이고 강렬하게 작성한다.
-2) 40~70대 시니어도 이해하기 쉬운 표현을 사용한다.
-3) 실제 유튜브에서 높은 조회수 가능성이 있는 주제만 작성한다.
-4) 너무 전문적이거나 어려운 표현을 사용하지 않는다.
-5) 선택된 카테고리 맞는 주제만 출력한다.
-6) 벤치마킹 URL이 있을 경우 해당 유튜브 스타일을 참고해 확장된 주제를 생성한다.
-7) 기본 키워드가 있을 경우 그 키워드를 중심으로 연관 주제를 확장한다.
+1) 40~70대 시니어도 이해하기 쉬운 표현을 사용한다.
+2) 실제 유튜브에서 높은 조회수 가능성이 있는 주제만 작성한다.
+3) 너무 전문적이거나 어려운 표현은 사용하지 않는다.
+4) 선택된 카테고리와 직접적으로 연관된 주제만 출력한다.
+5) 벤치마킹 URL이 있을 경우, 해당 유튜브의 전개 방식/감정선/클릭 포인트를 참고해 "확장된 주제"를 생성한다.
+6) 기본 키워드가 있을 경우 그 키워드를 중심으로 연관 주제를 확장한다.
+7) 정보 나열형(백과사전형) 주제는 제외하고, '왜 → 어떻게 → 결과'가 떠오르는 이야기형/사건형/인물형 주제를 우선한다.
+8) 각 주제는 롱폼(10~20분)으로 확장 가능해야 하며, 갈등·반전·교훈·미스터리·충격 요소 중 최소 1개가 포함되도록 설계한다.
 
 출력 형식:
-- 주제만 리스트 형태로 출력한다.
-- 불릿포인트 형식으로 15개 추천한다.`
+- 주제만 리스트 형태로 출력한다. (제목 금지)
+- 불릿포인트 형식으로 15개 추천한다.
+- 각 주제는 1줄로 간결하게 작성한다.`
 
     // 카테고리별 프롬프트
     const categoryPrompts: Record<Category, string> = {
@@ -606,12 +610,29 @@ export async function generateTrendingTopics(
       space: ["우주", "천문학", "우주 탐사", "별", "행성", "블랙홀"],
       self_improvement: ["자기계발", "성장", "목표", "습관", "동기부여"],
       economy: ["경제", "재테크", "노후", "연금", "부동산", "투자"],
+      war: ["전쟁", "6.25 전쟁", "베트남 전쟁", "전쟁 이야기", "전투", "군사"],
+      affair: ["불륜", "배신", "연애", "인간관계", "사랑", "이별"],
+      ancient: ["고려시대", "고대", "고대 문명", "고대 역사", "고려", "고대시대"],
+      biology: ["생물", "동물", "식물", "자연", "생태계", "생명"],
+      greek_roman_mythology: ["그리스 신화", "로마 신화", "올림포스", "제우스", "헤라클레스", "신화"],
+      death: ["죽음", "인생", "삶의 의미", "마지막", "후회"],
+      ai: ["인공지능", "AI", "로봇", "기계", "자동화"],
+      alien: ["외계인", "UFO", "우주", "외계 생명체"],
+      palmistry: ["손금", "손금 풀이", "운명", "점술"],
+      physiognomy: ["관상", "얼굴", "성격", "운명"],
+      fortune_telling: ["사주", "운세", "점술", "예언"],
+      urban_legend: ["도시전설", "괴담", "전설", "이야기"],
+      serial_crime: ["연쇄살인", "범죄", "사건", "미제사건"],
+      unsolved_case: ["미제사건", "미해결", "의문사건", "수사"],
+      reserve_army: ["예비군", "군대", "훈련", "국방"],
+      elementary_school: ["국민학교", "초등학교", "옛날 학교", "학교 추억", "어린 시절", "추억"],
     }
 
-    const youtubeApiKey = process.env.YOUTUBE_API_KEY || "AIzaSyDZHiuuxcEflmtu2mIZIVkKb9Jdthofh68"
+    // API 키는 파라미터로 전달받거나 환경변수에서 가져옴 (하드코딩 제거)
+    const youtubeApiKey = apiKey || process.env.YOUTUBE_API_KEY
 
     if (!youtubeApiKey) {
-      console.error("YouTube API 키가 설정되지 않았습니다")
+      console.error("YouTube API 키가 설정되지 않았습니다. 설정 페이지에서 YouTube Data API Key를 입력해주세요.")
       return []
     }
 
@@ -805,122 +826,251 @@ export async function generateScriptPlan(
   topic: string,
   category: Category = "health",
   benchmarkScript?: string,
-  apiKey?: string
+  apiKey?: string,
+  isStoryMode: boolean = false // 스토리 형태 모드 (기본값: false = 교훈형)
 ) {
-  // 전달받은 API 키 우선 사용, 없으면 환경 변수
-  const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
+  // Gemini API 키 사용
+  const GEMINI_API_KEY = apiKey || process.env.GEMINI_API_KEY
 
-  if (!GPT_API_KEY) {
-    throw new Error("GPT API 키가 설정되지 않았습니다. 설정에서 API 키를 입력해주세요.")
+  if (!GEMINI_API_KEY) {
+    throw new Error("Gemini API 키가 설정되지 않았습니다. 설정에서 API 키를 입력해주세요.")
   }
 
   try {
-    const systemPrompt = `당신은 유튜브 기획 전문가입니다. 50~70대 시니어층을 위한 유튜브 대본을 기획합니다.
+    const systemPrompt = `당신은 '지식 스토리텔링 전문 기획자'입니다.
 
-당신의 역할:
-- 창의적이고 독창적인 대본 개요 작성
-- 저작권을 절대 위반하지 않음
-- 공신력 있는 데이터와 사실을 활용
-- 시청자의 공감을 불러일으키는 구성
+당신의 임무는 사용자가 이미 선택한 [주제]를 바탕으로,
+본격적인 대본 작성을 위한 '대본 기획안(스토리 설계도)'을 만드는 것입니다.
 
-작성 원칙:
-1. 시,분,초 같은 시간 정보는 포함하지 않고 전체적인 흐름만 작성
-2. 기존 영상과 차별화된 새로운 전개 방식 창작
-3. 저작권 위반 요소 절대 금지 (구성, 스토리텔링, 문장, 표현 복사 금지)
-4. 공신력 있는 데이터와 연구 결과 인용
-5. 공감을 불러일으키는 익숙한 사례와 예시 포함`
+이 단계에서는 완성된 대본을 쓰지 않습니다.
+대신, 이후 단계에서 대본 생성 AI가 흔들리지 않도록
+이야기의 구조, 감정 흐름, 핵심 포인트를 명확히 설계해야 합니다.
 
-    const userPrompt = `*(1) 주제, 개요작성
+────────────────────────
+[채널 및 콘텐츠 정체성]
+────────────────────────
+- 채널 성격: 역사·사회·경제·미스터리·전쟁사 기반의 지식 스토리텔링
+- 타깃: 한국인 성인 시청자
+- 톤: 친근하지만 가볍지 않음, 이야기꾼의 구어체, 몰입감 최우선
+- 목표: 정보 전달이 아니라 '끝까지 보게 만드는 흐름' 설계
 
-${benchmarkScript ? `위 글은 타인의 유튜브 대본이야.
+────────────────────────
+[기획 핵심 원칙]
+────────────────────────
+1) 이탈 방지 최우선
+- 초반 30초 안에 반드시 '강력한 궁금증'을 유발해야 함
+- 중간중간 "이 다음을 보지 않으면 안 될 이유"를 설계
 
-혹시나 성적으로 노골적인 표현과 유튜브 정책을 위반하는 부분이 있다면 제거해줘
+2) 사실 기반 + 신뢰도 최우선 (중요)
+- 허구의 주인공/가상 인물/드라마적 운명 교차/로맨스/과장된 배신극을 절대 사용하지 마십시오.
+- 역사·외교·전쟁 주제는 "실존 국가/실존 인물(필요 시)/결정 구조/외교 흐름/기록에 근거한 사건" 중심으로 기획하십시오.
+- 확실하지 않은 정보는 단정하지 말고, "~로 알려져 있다/기록에 따르면/해석이 갈린다"처럼 표현하십시오.
 
-나는 이걸 기반으로 유튜브 대본을 작성할거고 그 전에 이 주제에 대해 새로운 전개방식을 창작해줘
+3) 장면화 가능성 고려
+- 이후 이 기획안은 '장면 단위 이미지 생성'으로 확장됨
+- 추상적인 설명만 나열하지 말고, 장면·상황·사람이 떠오르도록 구성
 
-그래서 이제부터 너는 유튜브 기획자고 본격적으로 대본을 작성하기 전에 아래 내용들을 충족시키는 새로운 유튜브 대본 개요를 작성해줘
+4) 과도한 정보 나열 금지
+- 사실은 이야기 속에 녹여서 배치
+- "설명"보다 "상황 → 의미" 구조를 우선
 
-참고 대본:
-${benchmarkScript}
+────────────────────────
+[콘텐츠 구조 선택]
+────────────────────────
+아래 3가지 중, 주제에 가장 적합한 구조를 **하나만 선택**하여 기획하시오.
 
-` : ""}#1.시청 대상타겟 (Main Target)
+● Type A. 단일 서사 심층형
+- 하나의 사건, 인물, 역사적 이야기
+- 기승전결 + 감정 곡선 중심
 
-나는 50~70대 시니어들을 대상으로 유튜브 채널을 운영하는 사람이야.
+● Type B. 컴필레이션 / 목록형
+- 하나의 대주제 아래 3~5개의 사례
+- 각 사례는 '미니 스토리' 구조
 
-따라서 해당 연령대 분들에게 필요한 내용으로 기획해야한다.
+● Type C. 다각도 탐구형
+- 하나의 대상을 여러 관점으로 분해
+- 논리적 흐름 + 점층적 몰입
 
-#2. 세부목표 (Goal)
+선택한 타입을 명확히 밝히고 기획을 진행할 것.
 
-같은 주제로 이번 프로젝트를 통해 색다른 관점과 표현으로 새로운 개요 작성(저작권 침해 목적이 아니다.)
+────────────────────────
+[기획 산출물 형식]
+────────────────────────
+아래 형식을 반드시 지켜서 출력하십시오.
 
-일반적인 정보나 팁을 새로운 방식으로 재구성해서 사람들의 관심을 얻는다.
+1) 선택한 콘텐츠 타입
+- Type A / B / C 중 하나
 
-주제와 관련되어 공개된 사실이나 공신력 있는 데이터를 인용하며 활용하여 내용을 더욱 흥미롭게 만든다.
+2) 전체 이야기 한 줄 요약
+- 이 영상이 "결국 어떤 이야기를 하려는지"를 한 문장으로
 
-사람들의 공감을 불러 일으키는 익숙한 사례와 예시를 넣어 "나에게도 일어날 수 있는/나 혹은 주변 지인에게 필요한 것"이라는 느낌을 줘야한다.
+3) 오프닝 기획
+- 초반 훅의 핵심 질문 또는 충격 포인트
+- 시청자가 왜 이 영상을 계속 봐야 하는지
 
-#3. 주의할 점 (Warning)
+4) 본론 구성 설계
+- 파트별 흐름을 번호로 정리
+- 각 파트마다:
+  · 다루는 핵심 내용
+  · 감정 방향 (불안 / 긴장 / 충격 / 공감 / 희망 등)
+  · 장면화 가능한 포인트 (사람, 상황, 공간, 상징 오브젝트)
 
-저작권으로 인정되는 것들을 *절대로* 위배하지 않는다.
+5) 클라이맥스 / 핵심 메시지
+- 이야기의 정점
+- 시청자의 감정이 가장 크게 움직여야 하는 지점
 
-원본의 독특한 구성이나 스토리텔링 방식을 그대로 베끼지 않기
+6) 아웃트로 설계
+- 오늘 이야기가 '지금 우리에게 왜 중요한지'
+- 여운을 남기는 마무리 방향
+- 다음 영상으로 자연스럽게 이어지는 문장(기획 관점)
 
-특정 문장이나 표현을 직접 복사하지 않기
+────────────────────────
+[출력 제한]
+────────────────────────
+- 아직 '대본 문장'을 쓰지 마십시오.
+- 실제 내레이션 문장, 대사, TTS용 문구는 절대 포함하지 마십시오.
+- 설명은 기획자의 시점에서 서술하십시오.
+- 제작자 노트, 체크리스트, 파트 구분, 글자수 등은 절대 포함하지 마십시오.
+- 오직 기획안만 출력하십시오. 추가 설명이나 메타 정보는 포함하지 마십시오.
 
-영상의 창작적 요소(예: 독특한 비유, 캐릭터, 등장 인물 등)를 가져오지 않기
+────────────────────────
+[프롬프트 실행]
+────────────────────────
+아래 [주제]를 바탕으로 위 모든 조건을 충족하는
+'대본 기획안'을 작성하십시오.
 
-#4. 커스터마이징 (Customizing)
+⚠️ 중요: 출력은 반드시 기획안만 포함해야 합니다.
+- 제작자 노트, 체크리스트, 파트 구분, 글자수, 메타 정보는 절대 포함하지 마십시오.
+- 대본 문장, 내레이션, 대사는 절대 포함하지 마십시오.
+- 오직 1)~6) 기획 산출물 형식만 출력하십시오.`
 
-영상 기획시 시,분,초에 해당하는 내용은 필요하지 않고 전체적인 흐름만 나타나게 해줘
+    const userPrompt = `[주제]: ${topic}`
 
-기존 영상과 달리 새로 창작해서 추가된 차별화된 포인트를 요약해줘
+    console.log("[v0] 대본 기획 API 호출 시작 (Gemini)")
 
-주제: ${topic}
-카테고리: ${categoryDescriptions[category]}
+    // 재시도 로직 (최대 3번, exponential backoff)
+    let lastError: Error | null = null
+    const maxRetries = 3
+    const baseDelay = 1000 // 1초
 
-위 주제와 카테고리를 기반으로 50~70대 시니어층을 위한 새로운 유튜브 대본 개요를 작성해주세요.`
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        if (attempt > 0) {
+          const delay = baseDelay * Math.pow(2, attempt - 1) // 1초, 2초, 4초
+          console.log(`[v0] 재시도 ${attempt}/${maxRetries - 1} - ${delay}ms 후 재시도...`)
+          await new Promise((resolve) => setTimeout(resolve, delay))
+        }
 
-    console.log("[v0] 대본 기획 API 호출 시작")
-
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${GPT_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [
+        // Gemini API 호출
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
           {
-            role: "system",
-            content: systemPrompt,
-          },
-          {
-            role: "user",
-            content: userPrompt,
-          },
-        ],
-        max_tokens: 3000,
-        temperature: 0.8,
-      }),
-    })
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              contents: [
+                {
+                  parts: [
+                    {
+                      text: `${systemPrompt}\n\n${userPrompt}`,
+                    },
+                  ],
+                },
+              ],
+              generationConfig: {
+                temperature: 0.7,
+                topK: 40,
+                topP: 0.95,
+                maxOutputTokens: 8000,
+              },
+            }),
+          }
+        )
 
-    console.log("[v0] API 응답 상태:", response.status)
+        console.log("[v0] API 응답 상태:", response.status)
 
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.log("[v0] API 오류 응답:", errorText)
-      throw new Error(`API 호출 실패: ${response.status} - ${errorText}`)
+        if (!response.ok) {
+          const errorText = await response.text()
+          console.log("[v0] API 오류 응답:", errorText)
+          
+          // 503 에러이고 재시도 가능한 경우
+          if (response.status === 503 && attempt < maxRetries - 1) {
+            try {
+              const errorData = JSON.parse(errorText)
+              if (errorData.error?.message?.includes("overloaded") || errorData.error?.status === "UNAVAILABLE") {
+                lastError = new Error(`Gemini API 서버가 과부하 상태입니다. 재시도 중... (${attempt + 1}/${maxRetries})`)
+                continue // 재시도
+              }
+            } catch (parseError) {
+              // JSON 파싱 실패 시에도 503이면 재시도
+              lastError = new Error(`Gemini API 서버가 과부하 상태입니다. 재시도 중... (${attempt + 1}/${maxRetries})`)
+              continue
+            }
+          }
+          
+          throw new Error(`Gemini API 호출 실패: ${response.status} - ${errorText}`)
+        }
+
+        // 성공한 경우 루프 탈출
+        const data = await response.json()
+        const candidate = data.candidates?.[0]
+        
+        if (!candidate) {
+          throw new Error("대본 기획 생성에 실패했습니다. 응답 후보가 없습니다.")
+        }
+
+        const content = candidate.content?.parts?.[0]?.text
+        const finishReason = candidate.finishReason
+
+        if (!content) {
+          throw new Error("대본 기획 생성에 실패했습니다. 응답 내용이 없습니다.")
+        }
+
+        // 응답이 토큰 제한으로 잘렸는지 확인
+        if (finishReason === "MAX_TOKENS") {
+          console.warn("[v0] ⚠️ 대본 기획 응답이 토큰 제한으로 잘렸을 수 있습니다.")
+        }
+
+        console.log("[v0] 대본 기획 생성 완료, 길이:", content.length, "finishReason:", finishReason)
+        return content
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error))
+        
+        // 마지막 시도가 아니고 503 에러인 경우에만 재시도
+        if (attempt < maxRetries - 1 && lastError.message.includes("503")) {
+          continue
+        }
+        
+        // 재시도 불가능한 경우 에러 throw
+        throw lastError
+      }
     }
 
+    // 모든 재시도 실패
+    throw lastError || new Error("대본 기획 생성에 실패했습니다.")
+
     const data = await response.json()
-    const content = data.choices?.[0]?.message?.content
+    const candidate = data.candidates?.[0]
+    
+    if (!candidate) {
+      throw new Error("대본 기획 생성에 실패했습니다. 응답 후보가 없습니다.")
+    }
+
+    const content = candidate.content?.parts?.[0]?.text
+    const finishReason = candidate.finishReason
 
     if (!content) {
       throw new Error("대본 기획 생성에 실패했습니다. 응답 내용이 없습니다.")
     }
 
-    console.log("[v0] 대본 기획 생성 완료, 길이:", content.length)
+    // 응답이 토큰 제한으로 잘렸는지 확인
+    if (finishReason === "MAX_TOKENS") {
+      console.warn("[v0] ⚠️ 대본 기획 응답이 토큰 제한으로 잘렸을 수 있습니다.")
+    }
+
+    console.log("[v0] 대본 기획 생성 완료, 길이:", content.length, "finishReason:", finishReason)
     return content
   } catch (error) {
     console.error("대본 기획 생성 실패:", error)
@@ -3175,23 +3325,23 @@ export async function convertImageToVideo(
   }
 
   try {
-    console.log("[Video] Stable Video Diffusion 시작:", imageUrl)
+    console.log("[Video] wan-video/wan-2.2-i2v-fast 시작:", imageUrl)
 
-    // minimax/hailuo-2.3-fast 모델 사용 (이미지-투-비디오)
+    // wan-video/wan-2.2-i2v-fast 모델 사용 (이미지-투-비디오)
     // Replicate API 형식: /v1/models/{owner}/{model}/predictions
-    console.log("[Video] Hailuo 2.3 Fast 모델 사용, 이미지 URL:", imageUrl)
+    console.log("[Video] wan-2.2-i2v-fast 모델 사용, 이미지 URL:", imageUrl)
     
-    const response = await fetch("https://api.replicate.com/v1/models/minimax/hailuo-2.3-fast/predictions", {
+    const response = await fetch("https://api.replicate.com/v1/models/wan-video/wan-2.2-i2v-fast/predictions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${REPLICATE_API_TOKEN}`,
         "Content-Type": "application/json",
+        Prefer: "wait",
       },
       body: JSON.stringify({
         input: {
-          first_frame_image: imageUrl, // 이미지 URL (공개 접근 가능해야 함) - 필수
-          prompt: "smooth motion, cinematic video, natural movement", // 프롬프트 - 필수
-          duration: 6, // 비디오 길이 (초) - 6 또는 10만 가능
+          image: imageUrl, // 이미지 URL (공개 접근 가능해야 함) - 필수
+          prompt: "cinematic slow motion, smooth camera movement, gentle zoom in effect", // 프롬프트 - 필수
         },
       }),
     })
@@ -3233,8 +3383,18 @@ export async function convertImageToVideo(
         const statusData = await statusResponse.json()
 
         if (statusData.status === "succeeded" && statusData.output) {
-          const videoUrl = Array.isArray(statusData.output) ? statusData.output[0] : statusData.output
-          console.log("[Video] Stable Video Diffusion 완료:", videoUrl)
+          // wan-2.2-i2v-fast는 output이 URL 문자열 또는 객체일 수 있음
+          let videoUrl: string
+          if (typeof statusData.output === "string") {
+            videoUrl = statusData.output
+          } else if (statusData.output.url) {
+            videoUrl = statusData.output.url
+          } else if (Array.isArray(statusData.output) && statusData.output.length > 0) {
+            videoUrl = typeof statusData.output[0] === "string" ? statusData.output[0] : statusData.output[0].url || String(statusData.output[0])
+          } else {
+            videoUrl = String(statusData.output)
+          }
+          console.log("[Video] wan-2.2-i2v-fast 완료:", videoUrl)
           return videoUrl
         } else if (statusData.status === "failed") {
           throw new Error(`비디오 생성 실패: ${statusData.error || "알 수 없는 오류"}`)
@@ -3245,22 +3405,81 @@ export async function convertImageToVideo(
 
       throw new Error("비디오 생성 시간 초과")
     } else if (data.status === "succeeded" && data.output) {
-      const videoUrl = Array.isArray(data.output) ? data.output[0] : data.output
-      console.log("[Video] Stable Video Diffusion 완료 (즉시):", videoUrl)
+      // wan-2.2-i2v-fast는 output이 URL 문자열 또는 객체일 수 있음
+      let videoUrl: string
+      if (typeof data.output === "string") {
+        videoUrl = data.output
+      } else if (data.output.url) {
+        videoUrl = data.output.url
+      } else if (Array.isArray(data.output) && data.output.length > 0) {
+        videoUrl = typeof data.output[0] === "string" ? data.output[0] : data.output[0].url || String(data.output[0])
+      } else {
+        videoUrl = String(data.output)
+      }
+      console.log("[Video] wan-2.2-i2v-fast 완료 (즉시):", videoUrl)
       return videoUrl
     } else {
       throw new Error(`비디오 생성 실패: ${data.error || "알 수 없는 오류"}`)
     }
   } catch (error) {
-    console.error("[Video] Stable Video Diffusion 실패:", error)
+    console.error("[Video] wan-2.2-i2v-fast 실패:", error)
     throw error
   }
+}
+
+/**
+ * 스틱맨 프롬프트 강화 함수
+ * prunaai/hidream-l1-fast 모델용 프롬프트 생성
+ * 샘플 형식: "stickman character A detective looking at evidence, a vibrant 2D cartoon, ..."
+ */
+function enforceStickmanPrompt(prompt: string, sceneDescription?: string): string {
+  // 1. 장면 정보 추출 (프롬프트에서 장면 관련 부분 찾기)
+  let scenePart = ""
+  if (sceneDescription && sceneDescription.trim()) {
+    // 장면 설명이 제공되면 사용
+    scenePart = sceneDescription.trim()
+  } else {
+    // 프롬프트에서 장면 관련 부분 추출 시도 (예: "A detective looking at evidence" 같은 패턴)
+    const sceneMatch = prompt.match(/(?:a|an|the)\s+[^,]+(?:looking|standing|sitting|walking|doing|working|holding|examining|investigating|analyzing)/i)
+    if (sceneMatch) {
+      scenePart = sceneMatch[0].trim()
+    }
+  }
+
+  // 2. stickman character로 시작하는 프롬프트 구성
+  let finalPrompt = ""
+  if (scenePart) {
+    // 장면 정보가 있으면: "stickman character [장면], [원본 프롬프트]"
+    finalPrompt = `stickman character ${scenePart}, ${prompt}`.replace(/,\s*,/g, ",").trim()
+  } else if (!prompt.toLowerCase().includes("stickman")) {
+    // stickman이 없으면 추가
+    finalPrompt = `stickman character ${prompt}`
+  } else {
+    finalPrompt = prompt
+  }
+
+  // 3. base (기본 캐릭터 묘사) - 샘플 형식과 동일
+  const base = "a vibrant 2D cartoon, fully rendered illustration featuring a stickman with a white circular face, simple black outline, dot eyes, curved mouth, thin black limbs, expressive pose"
+
+  // 4. style_phrase (스타일 묘사) - 샘플 형식과 동일
+  const stylePhrase = "Consistent stick-figure illustration style, clean bold lines, solid colors, explainer video aesthetic, simplified background"
+
+  // 5. extra (추가 요소) - 샘플 형식과 동일
+  const extra = "colorful detailed drawing, rich environment, dynamic lighting, no realistic human anatomy, no blank background"
+
+  // 6. 스틱맨 강화 규칙 추가
+  const stickmanRules = "EVERY person is a stickman, no exceptions. Bride is a stickman. Groom is a stickman. All guests and guards are stickmen. stickman style rules: white circular face, dot eyes, curved mouth only, no hair, no ears, no nose, no blush, no eyelashes, black thin outline body, ultra-thin limbs, uniform stroke width, no body volume, mitten hands, no fingers. 2D vector cartoon, flat cel shading, thick bold outlines, solid color fills, crisp edges, minimal texture. wide shot / medium-wide shot, full bodies visible, at least 8–15 stickman people visible, palace hall background, wedding ceremony handshake scene, background crowd also stickmen, consistent stickman design for every character"
+
+  // 7. 모든 요소 결합 (샘플 형식과 동일한 순서)
+  return `${finalPrompt}, ${base}, ${stylePhrase}, ${extra}, ${stickmanRules}`
 }
 
 export async function generateImageWithReplicate(
   prompt: string,
   replicateApiKey?: string,
-  aspectRatio: "16:9" | "9:16" | "1:1" = "16:9"
+  aspectRatio: "16:9" | "9:16" | "1:1" = "16:9",
+  imageStyle?: string,
+  sceneDescription?: string
 ): Promise<string> {
   try {
     const REPLICATE_API_TOKEN = replicateApiKey || process.env.REPLICATE_API_TOKEN
@@ -3269,24 +3488,74 @@ export async function generateImageWithReplicate(
       throw new Error("Replicate API 키가 설정되지 않았습니다. 설정에서 API 키를 입력해주세요.")
     }
 
-    console.log("[v0] Replicate 이미지 생성 시작, 모델: black-forest-labs/flux-schnell")
-    console.log("[v0] Aspect Ratio:", aspectRatio)
-    console.log("[v0] Prompt:", prompt.substring(0, 100) + "...")
+    // 이미지 스타일에 따라 모델 선택
+    let model = "black-forest-labs/flux-schnell"
+    if (imageStyle === "stickman-animation" || imageStyle === "animation2" || imageStyle === "animation3") {
+      model = "prunaai/hidream-l1-fast"
+    } else if (imageStyle === "realistic" || imageStyle === "realistic2") {
+      model = "google/imagen-4-fast"
+    }
 
-    // Replicate flux-schnell 모델의 aspect_ratio 지원 값 확인
-    // 일반적으로 "1:1", "16:9", "9:16", "21:9" 등을 지원
-    const requestBody = {
-      input: {
-        prompt: prompt,
-        aspect_ratio: aspectRatio, // "1:1", "16:9", "9:16" 중 하나
-        output_format: "webp",
-        output_quality: 90,
-      },
+    // 프롬프트 그대로 사용 (이미지 프롬프트 생성에서 완성된 프롬프트 사용)
+    let finalPrompt = prompt
+    console.log(`[v0] 프롬프트 사용: ${finalPrompt.substring(0, 100)}...`)
+
+    console.log(`[v0] Replicate 이미지 생성 시작, 모델: ${model}`)
+    console.log("[v0] Aspect Ratio:", aspectRatio)
+    console.log("[v0] Prompt:", finalPrompt.substring(0, 100) + "...")
+
+    // 모델별 입력 형식 설정
+    let requestBody: any = {}
+    if (model === "prunaai/hidream-l1-fast") {
+      // hidream-l1-fast 모델용 입력 형식
+      let negativePrompt = "realistic human, detailed human skin, photograph, 3d render, blank white background, line-art only, text, watermark"
+      
+      if (imageStyle === "stickman-animation") {
+        // 스틱맨 애니메이션 전용 negative prompt
+        negativePrompt = "realistic human, detailed human skin, photograph, 3d render, blank white background, line-art only, text, watermark, non-stickman, mixed style, detailed cartoon human, prince, princess, disney, pixar, anime, chibi, kawaii, big head, human body, human skin, realistic, 3d render, semi-realistic, detailed face, eyelashes, blush, nose, lips, hair, ears, detailed clothing folds, portrait, close-up, single character focus, bokeh, depth of field, watercolor, painterly, airbrush, soft shading, extra hands, multiple hands, three hands, four hands, extra arms, multiple arms, three arms, four arms, extra limbs, deformed hands, malformed hands, wrong number of fingers, too many fingers, missing hands, missing arms, anatomical errors, body part errors"
+      } else if (imageStyle === "animation2") {
+        negativePrompt = "realistic human, detailed human skin, photograph, 3d render, blank white background, line-art only, text, watermark, stickman"
+      } else if (imageStyle === "animation3") {
+        negativePrompt = "anime style, Studio Ghibli look, manga big eyes, cute aesthetic, purely sleek digital painting look"
+      }
+      
+      requestBody = {
+        input: {
+          prompt: finalPrompt,
+          width: 1360,
+          height: 768,
+          resolution: "1360 × 768 (Landscape)",
+          negative_prompt: negativePrompt,
+          num_inference_steps: 16,
+          image_format: "png",
+        },
+      }
+    } else if (model === "google/imagen-4-fast") {
+      // imagen-4-fast 모델용 입력 형식 (16:9 비율)
+      requestBody = {
+        input: {
+          prompt: finalPrompt,
+          aspect_ratio: "16:9",
+          num_inference_steps: 4,
+          output_format: "png",
+        },
+      }
+    } else {
+      // flux-schnell 모델용 입력 형식 (1360x768로 통일)
+      requestBody = {
+        input: {
+          prompt: finalPrompt,
+          width: 1360,
+          height: 768,
+          output_format: "png",
+          output_quality: 90,
+        },
+      }
     }
     
     console.log("[v0] Replicate API 요청 body:", JSON.stringify(requestBody, null, 2))
 
-    const response = await fetch("https://api.replicate.com/v1/models/black-forest-labs/flux-schnell/predictions", {
+    const response = await fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${REPLICATE_API_TOKEN}`,

@@ -22,7 +22,7 @@ function ThumbnailGenerationContent() {
       style: string
     }>
   } | null>(null)
-  
+
   // 로컬 스토리지에서 각색 데이터 가져오기 (HTTP 431 오류 방지)
   const [titles, setTitles] = useState<any>(null)
   const [thumbnailTexts, setThumbnailTexts] = useState<any>(null)
@@ -37,7 +37,7 @@ function ThumbnailGenerationContent() {
         setAdaptedScript(adaptationData.adaptedScript || null)
         setTitles(adaptationData.titles || null)
         setThumbnailTexts(adaptationData.thumbnailTexts || null)
-      }
+    }
     } catch (error) {
       console.error("로컬 스토리지에서 각색 데이터 로드 실패:", error)
     }
@@ -83,7 +83,7 @@ function ThumbnailGenerationContent() {
                 id: `emotional-${i}`,
                 imageUrl: data.imageUrl,
                 prompt: data.prompt || thumbnailTexts.emotional[i],
-                style: "Emotional",
+            style: "Emotional",
               })
             }
           } catch (error) {
@@ -114,7 +114,7 @@ function ThumbnailGenerationContent() {
                 id: `informational-${i}`,
                 imageUrl: data.imageUrl,
                 prompt: data.prompt || thumbnailTexts.informational[i],
-                style: "Informational",
+            style: "Informational",
               })
             }
           } catch (error) {
@@ -144,7 +144,7 @@ function ThumbnailGenerationContent() {
               id: "visual-0",
               imageUrl: data.imageUrl,
               prompt: data.prompt || thumbnailTexts.visual[0],
-              style: "Visual",
+            style: "Visual",
             })
           }
         } catch (error) {
@@ -231,12 +231,12 @@ function ThumbnailGenerationContent() {
             <Card className="border-0 shadow-lg">
               <CardContent className="py-8 text-center">
                 <p className="text-slate-600 mb-4">썸네일을 생성하려면 아래 버튼을 클릭하세요.</p>
-                <Button
+                  <Button
                   onClick={loadThumbnailGeneration}
                   disabled={isLoading}
-                  size="lg"
-                  className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600"
-                >
+                    size="lg"
+                    className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600"
+                  >
                   {isLoading ? (
                     <>
                       <Sparkles className="w-4 h-4 mr-2 animate-spin" />
@@ -246,9 +246,9 @@ function ThumbnailGenerationContent() {
                     <>
                       <Sparkles className="w-4 h-4 mr-2" />
                       썸네일 생성하기
-                    </>
-                  )}
-                </Button>
+            </>
+          )}
+          </Button>
               </CardContent>
             </Card>
           )}

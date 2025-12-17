@@ -10,9 +10,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Query parameter is required" }, { status: 400 })
   }
 
-  // 기본 API 키 사용 (클라이언트 전달 > 환경변수 > 기본값)
-  const DEFAULT_YOUTUBE_API_KEY = "AIzaSyA_hdd4NMhZtyxwxhI7s_QDsd2n2yAHWKM"
-  const YOUTUBE_API_KEY = clientApiKey || process.env.YOUTUBE_API_KEY || DEFAULT_YOUTUBE_API_KEY
+  // API 키는 클라이언트에서 필수로 전달되어야 함 (하드코딩 제거)
+  const YOUTUBE_API_KEY = clientApiKey || process.env.YOUTUBE_API_KEY
+  
+  if (!YOUTUBE_API_KEY) {
+    return NextResponse.json(
+      { error: "YouTube Data API Key가 필요합니다. 설정 페이지에서 API 키를 입력해주세요." },
+      { status: 400 }
+    )
+  }
 
   try {
     const selectedMonthsAgo = new Date()

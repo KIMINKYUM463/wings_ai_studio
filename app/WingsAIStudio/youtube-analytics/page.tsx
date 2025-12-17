@@ -106,9 +106,20 @@ export default function YouTubeAnalyticsPage() {
   const [youtubeApiKey, setYoutubeApiKey] = useState("")
   const [showKey, setShowKey] = useState(false)
 
-  // localStorage에서 API 키 불러오기
+  // localStorage에서 API 키 불러오기 (통일된 키 이름 사용)
   useEffect(() => {
-    const savedKey = localStorage.getItem("youtube_api_key")
+    // 먼저 새로운 키 이름으로 확인
+    let savedKey = localStorage.getItem("wings_youtube_data_api_key")
+    
+    // 기존 키 이름으로 저장된 값이 있으면 마이그레이션
+    if (!savedKey) {
+      const oldKey = localStorage.getItem("youtube_api_key")
+      if (oldKey) {
+        localStorage.setItem("wings_youtube_data_api_key", oldKey)
+        savedKey = oldKey
+      }
+    }
+    
     if (savedKey) {
       setYoutubeApiKey(savedKey)
     }
@@ -116,7 +127,7 @@ export default function YouTubeAnalyticsPage() {
 
   const handleSaveApiKey = () => {
     if (youtubeApiKey.trim()) {
-      localStorage.setItem("youtube_api_key", youtubeApiKey.trim())
+      localStorage.setItem("wings_youtube_data_api_key", youtubeApiKey.trim())
       alert("YouTube API 키가 저장되었습니다.")
       setShowApiKeyInput(false)
     }
@@ -124,10 +135,16 @@ export default function YouTubeAnalyticsPage() {
 
   const getApiKey = () => {
     if (typeof window === "undefined") return undefined
-    return localStorage.getItem("youtube_api_key") || undefined
+    return localStorage.getItem("wings_youtube_data_api_key") || undefined
   }
 
   const handleChannelClick = async (channelTitle: string, channelId: string, profileUrl: string) => {
+    const apiKey = getApiKey()
+    if (!apiKey) {
+      alert("YouTube Data API Key를 설정해주세요. 설정 페이지에서 API 키를 입력하고 저장해주세요.")
+      return
+    }
+    
     // mock 데이터 생성 함수
     const createMockData = (): ChannelAnalysisData => ({
         channelTitle,
@@ -152,7 +169,7 @@ export default function YouTubeAnalyticsPage() {
     })
     
     try {
-      const response = await fetch(`/api/youtube-channel-analysis?channelId=${channelId}`)
+      const response = await fetch(`/api/youtube-channel-analysis?channelId=${channelId}&apiKey=${encodeURIComponent(apiKey)}`)
       const channelData = await response.json()
 
       // API 응답에 error가 있거나 필수 데이터가 없으면 mock 데이터 사용
@@ -251,9 +268,15 @@ export default function YouTubeAnalyticsPage() {
   const searchVideos = async () => {
     if (!searchQuery.trim()) return
 
+    const apiKey = getApiKey()
+    if (!apiKey) {
+      alert("YouTube Data API Key를 설정해주세요. 설정 페이지에서 API 키를 입력하고 저장해주세요.")
+      return
+    }
+
     setIsSearching(true)
     try {
-      const response = await fetch(`/api/youtube-search?q=${encodeURIComponent(searchQuery)}&months=${selectedPeriod}`)
+      const response = await fetch(`/api/youtube-search?q=${encodeURIComponent(searchQuery)}&months=${selectedPeriod}&apiKey=${encodeURIComponent(apiKey)}`)
       const data = await response.json()
       
       if (data.error) {

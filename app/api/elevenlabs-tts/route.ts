@@ -34,10 +34,11 @@ export async function POST(request: NextRequest) {
     console.log("[v0] TTS API에 전달할 텍스트 길이:", ttsText.length, "자")
     console.log("[v0] TTS API에 전달할 텍스트 전체:", ttsText)
 
-    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+    // /with-timestamps 엔드포인트 사용하여 alignment 데이터 받아오기
+    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/with-timestamps`, {
       method: "POST",
       headers: {
-        Accept: "audio/mpeg",
+        Accept: "application/json",
         "Content-Type": "application/json",
         "xi-api-key": apiKey,
       },
@@ -83,25 +84,39 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const audioBuffer = await response.arrayBuffer()
-    const audioBase64 = Buffer.from(audioBuffer).toString("base64")
-
-    console.log("[v0] ElevenLabs TTS 생성 완료, 크기:", audioBuffer.byteLength, "bytes")
-    console.log("[v0] 오디오 Base64 길이:", audioBase64.length, "문자")
+    const data = await response.json()
     
-    // 오디오가 너무 짧으면 문제가 있을 수 있음 (최소 1KB 이상이어야 함)
-    if (audioBuffer.byteLength < 1024) {
-      console.warn("[v0] 경고: 생성된 오디오가 매우 짧습니다 (", audioBuffer.byteLength, "bytes). 텍스트가 제대로 처리되지 않았을 수 있습니다.")
-      console.warn("[v0] 원본 텍스트 길이:", ttsText.length, "자")
-      console.warn("[v0] 원본 텍스트 내용:", ttsText)
+    // /with-timestamps 응답 구조: { audio_base64, alignment }
+    const audioBase64 = data.audio_base64 || data.audioBase64
+    const alignment = data.alignment || null
+    
+    if (!audioBase64) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "오디오 데이터가 응답에 없습니다.",
+        },
+        { status: 500 }
+      )
+    }
+
+    console.log("[v0] ElevenLabs TTS 생성 완료, 오디오 크기:", audioBase64.length, "문자 (base64)")
+    
+    if (alignment) {
+      console.log("[v0] Alignment 데이터 수신:", {
+        characters: alignment.characters?.length || 0,
+        hasStartTimes: !!alignment.character_start_times_seconds,
+        hasEndTimes: !!alignment.character_end_times_seconds,
+      })
     } else {
-      console.log("[v0] 오디오 생성 성공 - 대본 전체가 포함되었는지 확인 필요")
+      console.warn("[v0] 경고: Alignment 데이터가 없습니다. Fallback 방식 사용됩니다.")
     }
 
     return NextResponse.json({
       success: true,
       audioBase64,
       audioUrl: `data:audio/mpeg;base64,${audioBase64}`,
+      alignment: alignment, // alignment 데이터 전달
     })
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)

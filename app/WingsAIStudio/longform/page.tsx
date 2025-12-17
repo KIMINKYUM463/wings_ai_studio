@@ -84,6 +84,99 @@ import { generateShortsHookingTitle } from "../shorts/actions"
 
 // <-- FFmpeg imports 제거 -->
 
+// 이미지를 분석하여 스타일 프롬프트를 생성하는 함수 (Gemini API 사용)
+const analyzeImageForStyle = async (base64Image: string, imageType: "character" | "background", geminiApiKey: string): Promise<string> => {
+  // base64 이미지에서 data URL prefix 제거 (Gemini API는 순수 base64만 필요)
+  const base64Data = base64Image.includes(",") ? base64Image.split(",")[1] : base64Image
+  
+  const systemInstruction = imageType === "character" 
+    ? `You are an expert image style analyzer specializing in character design. Analyze the uploaded character image in extreme detail and create a comprehensive English prompt that describes the character's visual style, appearance, and design elements. The prompt should be detailed enough to recreate similar characters in image generation.
+
+Focus on:
+- Character design style (cartoon, realistic, anime, etc.)
+- Facial features and expressions
+- Body proportions and pose
+- Clothing and accessories
+- Color palette and shading style
+- Art style and rendering technique
+- Any unique visual characteristics
+
+Output only the English prompt, no explanations or additional text.`
+    : `You are an expert image style analyzer specializing in background and environment design. Analyze the uploaded background image in extreme detail and create a comprehensive English prompt that describes the background's visual style, atmosphere, and design elements. The prompt should be detailed enough to recreate similar backgrounds in image generation.
+
+Focus on:
+- Environment type and setting
+- Color palette and mood
+- Lighting and atmosphere
+- Art style and rendering technique
+- Composition and perspective
+- Textures and details
+- Any unique visual characteristics
+
+Output only the English prompt, no explanations or additional text.`
+
+  const userPrompt = imageType === "character"
+    ? "Analyze this character image in extreme detail and create a comprehensive English prompt describing the character's visual style and design."
+    : "Analyze this background image in extreme detail and create a comprehensive English prompt describing the background's visual style and atmosphere."
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              {
+                text: `${systemInstruction}\n\n${userPrompt}`,
+              },
+              {
+                inline_data: {
+                  mime_type: "image/jpeg",
+                  data: base64Data,
+                },
+              },
+            ],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.7,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 1000,
+        },
+      }),
+    }
+  )
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    throw new Error(`Gemini API 호출 실패: ${response.status} - ${errorText}`)
+  }
+
+  const data = await response.json()
+  const prompt = data.candidates?.[0]?.content?.parts?.[0]?.text
+
+  if (!prompt) {
+    throw new Error("프롬프트 생성에 실패했습니다.")
+  }
+
+  const trimmedPrompt = prompt.trim()
+  
+  // Gemini 안전 필터 응답 확인
+  if (trimmedPrompt.toLowerCase().includes("i'm sorry") || 
+      trimmedPrompt.toLowerCase().includes("can't help") ||
+      trimmedPrompt.toLowerCase().includes("cannot help") ||
+      trimmedPrompt.toLowerCase().includes("unable to")) {
+    throw new Error("이미지 분석에 실패했습니다. 다른 이미지를 시도해주세요.")
+  }
+
+  return trimmedPrompt
+}
+
 const AIGeneratingAnimation = ({ type }: { type: string }) => {
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center">
@@ -122,7 +215,7 @@ const AIGeneratingAnimation = ({ type }: { type: string }) => {
         </div>
 
         <h3 className="text-xl font-bold mb-2 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-          AI가 {type === "장면을 분해하고" ? "장면을 분해하고 있습니다" : type === "맞춤 주제" ? `${type}를 생성하고 있습니다` : `${type}을 생성하고 있습니다`}
+          AI가 {type === "장면을 분해하고" ? "장면을 분해하고 있습니다" : type === "영상 미리보기" ? "편집을 하고있습니다" : type === "맞춤 주제" ? `${type}를 생성하고 있습니다` : `${type}을 생성하고 있습니다`}
         </h3>
         <p className="text-gray-600 mb-4">고급 AI 모델이 최적의 결과를 만들어내고 있어요</p>
 
@@ -240,10 +333,11 @@ export default function LongformContentPage() {
   const [script, setScript] = useState("")
   const [decomposedScenes, setDecomposedScenes] = useState("") // 장면 분해 결과
   const [scriptLines, setScriptLines] = useState<Array<{ id: number; text: string }>>([])
-  const [sceneImagePrompts, setSceneImagePrompts] = useState<Array<{ sceneNumber: number; images: Array<{ imageNumber: number; prompt: string; sceneText: string; imageUrl?: string }> }>>([]) // Scene별 이미지 프롬프트
+  const [sceneImagePrompts, setSceneImagePrompts] = useState<Array<{ sceneNumber: number; images: Array<{ imageNumber: number; prompt: string; sceneText: string; visualInstruction?: string; imageUrl?: string }> }>>([]) // Scene별 이미지 프롬프트
   const [isGeneratingScenePrompts, setIsGeneratingScenePrompts] = useState(false) // Scene 프롬프트 생성 중
   const [isGeneratingSceneImages, setIsGeneratingSceneImages] = useState(false) // Scene 이미지 생성 중
   const [sceneImageGenerationProgress, setSceneImageGenerationProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 }) // Scene 이미지 생성 진행도
+  const [generatingImageIds, setGeneratingImageIds] = useState<Set<string>>(new Set()) // 개별 이미지 생성 중인 ID들 (형식: "sceneNumber-imageNumber")
   const [selectedLineIds, setSelectedLineIds] = useState<Set<number>>(new Set())
   const [scriptDuration, setScriptDuration] = useState<number>(20) // 대본 시간 (분)
   const [generatedImages, setGeneratedImages] = useState<Array<{ lineId: number; imageUrl: string; prompt: string }>>([])
@@ -252,7 +346,7 @@ export default function LongformContentPage() {
   const [selectedVoiceId, setSelectedVoiceId] = useState<string>("jB1Cifc2UQbq1gR3wnb0") // 기본: Rachel
   const [previewingVoiceId, setPreviewingVoiceId] = useState<string | null>(null)
   const [previewAudioUrl, setPreviewAudioUrl] = useState<string | null>(null)
-  const [generatedAudios, setGeneratedAudios] = useState<Array<{ lineId: number; audioUrl: string; audioBase64: string }>>([])
+  const [generatedAudios, setGeneratedAudios] = useState<Array<{ lineId: number; audioUrl: string; audioBase64: string; alignment?: any }>>([])
   const [isGeneratingTTS, setIsGeneratingTTS] = useState(false)
   const [generatingTTSForLine, setGeneratingTTSForLine] = useState<Set<number>>(new Set()) // 개별 문장 TTS 생성 중인 문장 ID 추적
   const [ttsGenerationProgress, setTtsGenerationProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 })
@@ -414,11 +508,23 @@ export default function LongformContentPage() {
   
   // 이미지 스타일 선택
   const [imageStyle, setImageStyle] = useState<string>("stickman-animation")
+  const [hoveredStyle, setHoveredStyle] = useState<string | null>(null)
+  
+  // 샘플 이미지 URL 매핑 (ImgBB 직접 이미지 링크)
+  // ImgBB 페이지 URL: https://ibb.co/{hash} -> 직접 이미지 URL: https://i.ibb.co/{hash}/{filename}.{ext}
+  const styleSampleImages: Record<string, string> = {
+    "animation2": "https://i.ibb.co/cSzvWRYJ/image.jpg",
+    "animation3": "https://i.ibb.co/9m9XZX8B/image.jpg",
+    "realistic": "https://i.ibb.co/sd4GV7WY/image.jpg",
+    "realistic2": "https://i.ibb.co/0Rwj4wBW/image.jpg",
+    "stickman-animation": "https://i.ibb.co/LXYjHLVz/image.jpg",
+  }
   
   // 커스텀 이미지 스타일 생성 상태
   const [customStyleCharacterImage, setCustomStyleCharacterImage] = useState<string | null>(null) // 캐릭터 사진
   const [customStyleBackgroundImage, setCustomStyleBackgroundImage] = useState<string | null>(null) // 배경 풍경
-  const [customStyleResult, setCustomStyleResult] = useState<string | null>(null) // 생성된 커스텀 스타일
+  const [customStyleResult, setCustomStyleResult] = useState<string | null>(null) // 생성된 커스텀 스타일 (이미지 URL)
+  const [customStylePrompt, setCustomStylePrompt] = useState<string | null>(null) // 생성된 커스텀 스타일 프롬프트
   const [isGeneratingCustomStyle, setIsGeneratingCustomStyle] = useState(false) // 커스텀 스타일 생성 중
   
   // 이미지 커스텀 생성 상태
@@ -4275,7 +4381,7 @@ export default function LongformContentPage() {
     line: { id: number; text: string },
     selectedVoiceId: string,
     maxRetries: number = 5
-  ): Promise<{ audioUrl: string; audioBase64: string }> => {
+  ): Promise<{ audioUrl: string; audioBase64: string; alignment?: any }> => {
     let lastError: Error | null = null
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -4346,10 +4452,11 @@ export default function LongformContentPage() {
           throw new Error("TTS 응답에 오디오 데이터가 없습니다.")
         }
         
-        // 성공 시 반환
+        // 성공 시 반환 (ElevenLabs인 경우 alignment 포함)
         return {
           audioUrl: data.audioUrl,
           audioBase64: data.audioBase64,
+          alignment: data.alignment, // ElevenLabs alignment 데이터
         }
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error))
@@ -4654,6 +4761,7 @@ export default function LongformContentPage() {
               lineId: line.id,
               audioUrl: data.audioUrl,
               audioBase64: data.audioBase64,
+              alignment: data.alignment, // ElevenLabs alignment 데이터 저장
             },
           ])
           successCount++
@@ -5115,93 +5223,376 @@ export default function LongformContentPage() {
         // 2. 자막 생성 (씬별)
         const subtitles: Array<{ id: number; start: number; end: number; text: string }> = []
         
-        const splitIntoSubtitleLines = (text: string, audioBuffer?: AudioBuffer, totalDuration: number = 0): Array<{ text: string; startTime: number; endTime: number }> => {
-          const words = text.split(" ").filter(w => w.trim().length > 0)
-          if (words.length === 0) return [{ text, startTime: 0, endTime: totalDuration }]
-          
-          const result: Array<{ text: string; startTime: number; endTime: number }> = []
-          let silenceThreshold = 0.01
-          let wordStartTimes: number[] = []
-          
-          if (audioBuffer && totalDuration > 0) {
-            const totalChars = words.reduce((sum, w) => sum + w.length, 0)
-            let currentTime = 0
+        // Gemini API로 의미 단위 세그먼트 생성
+        const generateSemanticSegments = async (text: string, geminiApiKey: string): Promise<string[]> => {
+          try {
+            const response = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  contents: [
+                    {
+                      parts: [
+                        {
+                          text: `다음 텍스트를 의미 단위로 분할해주세요. 각 의미 단위는 자연스러운 구문으로 나누어주세요. 각 구문을 한 줄씩 출력해주세요.\n\n텍스트: ${text}`,
+                        },
+                      ],
+                    },
+                  ],
+                  generationConfig: {
+                    temperature: 0.3,
+                    maxOutputTokens: 1000,
+                  },
+                }),
+              }
+            )
+
+            if (!response.ok) {
+              console.warn("[v0] Gemini API 호출 실패, 기본 분할 사용")
+              return text.split(/[.!?。！？]\s*/).filter((s: string) => s.trim().length > 0)
+            }
+
+            const data = await response.json()
+            const content = data.candidates?.[0]?.content?.parts?.[0]?.text || ""
             
-            for (const word of words) {
-              const wordRatio = word.length / totalChars
-              const wordDuration = wordRatio * totalDuration
-              wordStartTimes.push(currentTime)
-              currentTime += wordDuration
+            if (content.trim()) {
+              const segments = content.split("\n").filter((s: string) => s.trim().length > 0)
+              return segments.length > 0 ? segments : [text]
             }
-          } else {
-            const timePerWord = totalDuration / words.length
-            for (let i = 0; i < words.length; i++) {
-              wordStartTimes.push(i * timePerWord)
-            }
+            
+            return text.split(/[.!?。！？]\s*/).filter((s: string) => s.trim().length > 0)
+          } catch (error) {
+            console.warn("[v0] 의미 단위 세그먼트 생성 실패, 기본 분할 사용:", error)
+            return text.split(/[.!?。！？]\s*/).filter(s => s.trim().length > 0)
           }
+        }
+
+        // Alignment와 세그먼트를 매칭하여 정확한 자막 타이밍 계산
+        const alignmentToPhrases = (
+          alignment: any,
+          semanticSegments: string[],
+          maxChars: number = 20
+        ): Array<{ text: string; startTime: number; endTime: number }> => {
+          if (!alignment || !alignment.characters || !alignment.character_start_times_seconds || !alignment.character_end_times_seconds) {
+            return []
+          }
+
+          const characters = alignment.characters
+          const startTimes = alignment.character_start_times_seconds
+          const endTimes = alignment.character_end_times_seconds
+
+          if (characters.length !== startTimes.length || characters.length !== endTimes.length) {
+            console.warn("[v0] Alignment 데이터 불일치")
+            return []
+          }
+
+          // 전체 텍스트 재구성
+          const fullText = characters.join("")
           
-          let currentLine: string[] = []
-          let lineStartTime = 0
-          const maxChars = 20 // 공백 포함 20자까지
-          
-          for (let i = 0; i < words.length; i++) {
-            const word = words[i]
-            const testLine = currentLine.length > 0 ? currentLine.join(" ") + " " + word : word
-            
-            if (testLine.length > maxChars && currentLine.length >= 1) {
+          // 각 세그먼트의 시작/종료 문자 인덱스 찾기
+          const phrases: Array<{ text: string; startTime: number; endTime: number }> = []
+          let currentCharIndex = 0
+
+          for (const segment of semanticSegments) {
+            const segmentText = segment.trim()
+            if (!segmentText) continue
+
+            // 세그먼트의 시작 문자 인덱스 찾기
+            const segmentStartIndex = fullText.indexOf(segmentText, currentCharIndex)
+            if (segmentStartIndex === -1) {
+              // 정확히 찾지 못하면 현재 위치에서 시작
+              const segmentEndIndex = Math.min(currentCharIndex + segmentText.length, characters.length)
+              const segmentStartTime = startTimes[Math.min(currentCharIndex, startTimes.length - 1)] || 0
+              const segmentEndTime = endTimes[Math.min(segmentEndIndex - 1, endTimes.length - 1)] || 0
+              
+              phrases.push({
+                text: segmentText,
+                startTime: segmentStartTime,
+                endTime: segmentEndTime,
+              })
+              currentCharIndex = segmentEndIndex
+              continue
+            }
+
+            const segmentEndIndex = segmentStartIndex + segmentText.length
+            const segmentStartTime = startTimes[Math.min(segmentStartIndex, startTimes.length - 1)] || 0
+            const segmentEndTime = endTimes[Math.min(segmentEndIndex - 1, endTimes.length - 1)] || 0
+
+            // 세그먼트가 너무 길면 자막 라인으로 분할 (최대 20자)
+            if (segmentText.length > maxChars) {
+              const words = segmentText.split(" ")
+              let currentLine: string[] = []
+              let lineStartCharIndex = segmentStartIndex
+              
+              for (const word of words) {
+                const testLine = currentLine.length > 0 ? currentLine.join(" ") + " " + word : word
+                
+                if (testLine.length > maxChars && currentLine.length >= 1) {
+                  // 현재 라인 완료
+                  const lineEndCharIndex = lineStartCharIndex + currentLine.join(" ").length
+                  const lineStartTime = startTimes[Math.min(lineStartCharIndex, startTimes.length - 1)] || segmentStartTime
+                  const lineEndTime = endTimes[Math.min(lineEndCharIndex - 1, endTimes.length - 1)] || segmentEndTime
+                  
+                  phrases.push({
+                    text: currentLine.join(" "),
+                    startTime: lineStartTime,
+                    endTime: lineEndTime,
+                  })
+                  
+                  // 새 라인 시작
+                  currentLine = [word]
+                  lineStartCharIndex = lineEndCharIndex
+                } else {
+                  currentLine.push(word)
+                }
+              }
+              
+              // 마지막 라인 처리
               if (currentLine.length > 0) {
-                const lineEndTime = i < wordStartTimes.length ? wordStartTimes[i] : totalDuration
-                result.push({
+                const lineEndCharIndex = segmentEndIndex
+                const lineStartTime = startTimes[Math.min(lineStartCharIndex, startTimes.length - 1)] || segmentStartTime
+                const lineEndTime = endTimes[Math.min(lineEndCharIndex - 1, endTimes.length - 1)] || segmentEndTime
+                
+                phrases.push({
                   text: currentLine.join(" "),
                   startTime: lineStartTime,
                   endTime: lineEndTime,
                 })
               }
-              currentLine = [word]
-              lineStartTime = wordStartTimes[i] || (i * (totalDuration / words.length))
             } else {
-              currentLine.push(word)
+              phrases.push({
+                text: segmentText,
+                startTime: segmentStartTime,
+                endTime: segmentEndTime,
+              })
+            }
+
+            currentCharIndex = segmentEndIndex
+          }
+
+          return phrases
+        }
+
+        // 정확한 자막 타이밍 계산 함수 (ElevenLabs alignment 데이터 우선 사용)
+        const splitIntoSubtitleLines = async (
+          text: string,
+          audioBuffer: AudioBuffer | undefined,
+          totalDuration: number,
+          alignment?: any,
+          geminiApiKey?: string
+        ): Promise<Array<{ text: string; startTime: number; endTime: number }>> => {
+          // ElevenLabs alignment 데이터가 있으면 사용
+          if (alignment && geminiApiKey) {
+            try {
+              // 의미 단위 세그먼트 생성
+              const semanticSegments = await generateSemanticSegments(text, geminiApiKey)
+              
+              // Alignment와 세그먼트 매칭
+              const phrases = alignmentToPhrases(alignment, semanticSegments, 20)
+              
+              if (phrases.length > 0) {
+                console.log(`[v0] Alignment 기반 자막 생성: ${phrases.length}개 구간`)
+                return phrases
+              }
+            } catch (error) {
+              console.warn("[v0] Alignment 기반 자막 생성 실패, Fallback 사용:", error)
             }
           }
           
-          if (currentLine.length > 0) {
-            result.push({
-              text: currentLine.join(" "),
-              startTime: lineStartTime,
-              endTime: totalDuration,
-            })
+          // Fallback: 기존 방식 사용
+          const words = text.split(" ").filter(w => w.trim().length > 0)
+          if (words.length === 0) return [{ text, startTime: 0, endTime: totalDuration }]
+          
+          const result: Array<{ text: string; startTime: number; endTime: number }> = []
+          
+          // 오디오 버퍼가 있으면 실제 샘플 데이터를 사용하여 정확한 타이밍 계산
+          if (audioBuffer && totalDuration > 0) {
+            const sampleRate = audioBuffer.sampleRate
+            const channelData = audioBuffer.getChannelData(0) // 첫 번째 채널 사용
+            const totalSamples = channelData.length
+            
+            // 실제 오디오 길이 (샘플 수 / 샘플레이트) - 가장 정확함
+            const actualDuration = totalSamples / sampleRate
+            
+            // 각 단어의 문자 수 비율로 시간 분배
+            const totalChars = words.reduce((sum, w) => sum + w.length, 0)
+            let currentTime = 0
+            
+            const wordTimes: Array<{ start: number; end: number }> = []
+            
+            for (const word of words) {
+              const wordRatio = word.length / totalChars
+              const wordDuration = wordRatio * actualDuration
+              wordTimes.push({
+                start: currentTime,
+                end: currentTime + wordDuration
+              })
+              currentTime += wordDuration
+            }
+            
+            // 마지막 단어의 끝 시간을 실제 오디오 길이로 조정
+            if (wordTimes.length > 0) {
+              wordTimes[wordTimes.length - 1].end = actualDuration
+            }
+            
+            // 단어들을 자막 라인으로 그룹화 (최대 20자)
+            let currentLine: string[] = []
+            let lineStartTime = 0
+            const maxChars = 20
+            
+            for (let i = 0; i < words.length; i++) {
+              const word = words[i]
+              const testLine = currentLine.length > 0 ? currentLine.join(" ") + " " + word : word
+              
+              if (testLine.length > maxChars && currentLine.length >= 1) {
+                // 현재 라인 완료
+                if (currentLine.length > 0) {
+                  const lineEndTime = i > 0 ? wordTimes[i - 1].end : wordTimes[i].start
+                  result.push({
+                    text: currentLine.join(" "),
+                    startTime: lineStartTime,
+                    endTime: lineEndTime,
+                  })
+                }
+                // 새 라인 시작
+                currentLine = [word]
+                lineStartTime = wordTimes[i].start
+              } else {
+                currentLine.push(word)
+              }
+            }
+            
+            // 마지막 라인 처리
+            if (currentLine.length > 0) {
+              const lastWordIndex = words.length - 1
+              result.push({
+                text: currentLine.join(" "),
+                startTime: lineStartTime,
+                endTime: wordTimes[lastWordIndex].end,
+              })
+            }
+          } else {
+            // 오디오 버퍼가 없는 경우 균등 분배
+            const timePerWord = totalDuration / words.length
+            let currentLine: string[] = []
+            let lineStartTime = 0
+            const maxChars = 20
+            
+            for (let i = 0; i < words.length; i++) {
+              const word = words[i]
+              const testLine = currentLine.length > 0 ? currentLine.join(" ") + " " + word : word
+              
+              if (testLine.length > maxChars && currentLine.length >= 1) {
+                if (currentLine.length > 0) {
+                  result.push({
+                    text: currentLine.join(" "),
+                    startTime: lineStartTime,
+                    endTime: i * timePerWord,
+                  })
+                }
+                currentLine = [word]
+                lineStartTime = i * timePerWord
+              } else {
+                currentLine.push(word)
+              }
+            }
+            
+            if (currentLine.length > 0) {
+              result.push({
+                text: currentLine.join(" "),
+                startTime: lineStartTime,
+                endTime: totalDuration,
+              })
+            }
           }
           
           return result.length > 0 ? result : [{ text, startTime: 0, endTime: totalDuration }]
         }
         
-        let subtitleTime = 0
-        let subtitleId = 1
+        // 씬별로 자막 생성 (각 오디오의 실제 길이를 정확히 측정하여 사용)
+        const actualAudioDurations: Array<{ lineId: number; actualDuration: number }> = []
         
-        // 씬별로 자막 생성
+        // 먼저 각 오디오의 실제 길이를 정확히 측정
         for (const [sceneNum, lines] of sceneAudioMapping.entries()) {
           for (const line of lines) {
             const audioData = audioDurations.find((d) => d.lineId === line.lineId)
-            const audioDuration = audioData?.duration || 0
-            const audioBuffer = audioData?.audioBuffer
+            if (audioData && audioData.audioBuffer) {
+              // AudioBuffer의 실제 duration 사용 (가장 정확함)
+              const actualDuration = audioData.audioBuffer.duration
+              actualAudioDurations.push({
+                lineId: line.lineId,
+                actualDuration: actualDuration
+              })
+              console.log(`[v0] 씬 ${sceneNum} 오디오 ${line.lineId} 실제 길이: ${actualDuration.toFixed(6)}초 (계산된 길이: ${audioData.duration.toFixed(6)}초)`)
+            }
+          }
+        }
+        
+        // 각 오디오 세그먼트의 실제 시작 시간을 정확히 계산
+        const segmentStartTimes: Map<number, number> = new Map() // lineId -> 시작 시간
+        let currentSegmentStartTime = 0
+        
+        // 먼저 각 세그먼트의 시작 시간을 계산
+        for (const [sceneNum, lines] of sceneAudioMapping.entries()) {
+          for (const line of lines) {
+            const actualDurationData = actualAudioDurations.find((d) => d.lineId === line.lineId)
+            const audioData = audioDurations.find((d) => d.lineId === line.lineId)
+            const audioDuration = actualDurationData?.actualDuration || audioData?.duration || 0
             
             if (audioDuration > 0) {
-              const subtitleLines = splitIntoSubtitleLines(line.text, audioBuffer, audioDuration)
+              segmentStartTimes.set(line.lineId, currentSegmentStartTime)
+              currentSegmentStartTime += audioDuration
+              console.log(`[v0] 씬 ${sceneNum} 오디오 ${line.lineId} 시작 시간: ${segmentStartTimes.get(line.lineId)!.toFixed(6)}초, 길이: ${audioDuration.toFixed(6)}초`)
+            }
+          }
+        }
+        
+        let subtitleId = 1
+        
+        // 씬별로 자막 생성 (각 세그먼트의 실제 시작 시간 사용)
+        for (const [sceneNum, lines] of sceneAudioMapping.entries()) {
+          for (const line of lines) {
+            const audioData = audioDurations.find((d) => d.lineId === line.lineId)
+            const actualDurationData = actualAudioDurations.find((d) => d.lineId === line.lineId)
+            
+            // 실제 길이를 우선 사용, 없으면 계산된 길이 사용
+            const audioDuration = actualDurationData?.actualDuration || audioData?.duration || 0
+            const audioBuffer = audioData?.audioBuffer
+            const segmentStartTime = segmentStartTimes.get(line.lineId) || 0
+            
+            if (audioDuration > 0) {
+              // ElevenLabs alignment 데이터 가져오기
+              const audio = generatedAudios.find((a) => a.lineId === line.lineId)
+              const alignment = audio?.alignment
+              const geminiApiKey = getGeminiApiKey()
+              
+              const subtitleLines = await splitIntoSubtitleLines(
+                line.text,
+                audioBuffer,
+                audioDuration,
+                alignment,
+                geminiApiKey
+              )
               
               for (let j = 0; j < subtitleLines.length; j++) {
                 const subtitleLine = subtitleLines[j]
-                const start = subtitleTime + subtitleLine.startTime
-                const end = subtitleTime + subtitleLine.endTime
+                // 각 세그먼트의 실제 시작 시간 + 상대 시간
+                const start = segmentStartTime + subtitleLine.startTime
+                const end = segmentStartTime + subtitleLine.endTime
                 
                 subtitles.push({
                   id: subtitleId++,
-                  start: Number.parseFloat(start.toFixed(3)),
-                  end: Number.parseFloat(end.toFixed(3)),
+                  start: Number.parseFloat(start.toFixed(6)), // 더 정밀한 타이밍 (마이크로초 단위)
+                  end: Number.parseFloat(end.toFixed(6)),
                   text: subtitleLine.text,
                 })
+                
+                console.log(`[v0] 자막 ${subtitleId - 1}: "${subtitleLine.text.substring(0, 20)}..." (${start.toFixed(6)}s - ${end.toFixed(6)}s, 세그먼트 시작: ${segmentStartTime.toFixed(6)}s)`)
               }
-              
-              subtitleTime += audioDuration
             }
           }
         }
@@ -5216,9 +5607,7 @@ export default function LongformContentPage() {
           motion?: string
         }> = []
         
-        let imageTime = 0
-        
-        // 씬별로 이미지 매핑 (각 장면의 TTS와 정확히 매칭)
+        // 씬별로 이미지 매핑 (정확한 세그먼트 정보 사용)
         for (const parsedScene of parsedScenes) {
           const sceneData = sceneImagePrompts.find(s => s.sceneNumber === parsedScene.sceneNumber)
           if (!sceneData) continue
@@ -5227,7 +5616,10 @@ export default function LongformContentPage() {
           
           // 각 장면의 TTS와 이미지를 정확히 매칭
           for (const line of sceneLines) {
-            const audioDuration = audioDurations.find(d => d.lineId === line.lineId)?.duration || 0
+            const actualDurationData = actualAudioDurations.find((d) => d.lineId === line.lineId)
+            const audioData = audioDurations.find(d => d.lineId === line.lineId)
+            const audioDuration = actualDurationData?.actualDuration || audioData?.duration || 0
+            const imageStartTime = segmentStartTimes.get(line.lineId) || 0
             
             if (audioDuration > 0) {
               // 해당 장면의 이미지 찾기 (imageNumber로 매칭)
@@ -5237,16 +5629,14 @@ export default function LongformContentPage() {
                 autoImages.push({
                   id: `scene_${parsedScene.sceneNumber}_image_${line.imageNumber}`,
                   url: image.imageUrl,
-                  startTime: imageTime,
-                  endTime: imageTime + audioDuration,
+                  startTime: imageStartTime, // 정확한 세그먼트 시작 시간
+                  endTime: imageStartTime + audioDuration, // 정확한 세그먼트 시작 시간 + 실제 길이
                   keyword: line.text.substring(0, 30),
                   motion: "static",
                 })
                 
-                console.log(`[v0] 씬 ${parsedScene.sceneNumber} 장면 ${line.imageNumber} 매핑: 이미지=${image.imageUrl.substring(0, 50)}..., TTS 길이=${audioDuration.toFixed(3)}초`)
+                console.log(`[v0] 씬 ${parsedScene.sceneNumber} 장면 ${line.imageNumber} 매핑: 이미지=${image.imageUrl.substring(0, 50)}..., 시작=${imageStartTime.toFixed(6)}초, 길이=${audioDuration.toFixed(6)}초`)
               }
-              
-              imageTime += audioDuration
             }
           }
         }
@@ -5262,19 +5652,32 @@ export default function LongformContentPage() {
         // 5. 모든 오디오를 순차적으로 합치기
         const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
         const audioBuffers: AudioBuffer[] = []
+        const actualSegmentDurations: number[] = [] // 각 세그먼트의 실제 길이 저장
         
-        // 씬별로 오디오 수집
+        // 씬별로 오디오 수집 (이미 로드된 audioBuffer 우선 사용)
         for (const [sceneNum, lines] of sceneAudioMapping.entries()) {
           for (const line of lines) {
-            const audio = generatedAudios.find((a) => a.lineId === line.lineId)
-            if (audio) {
-              try {
-                const audioResponse = await fetch(audio.audioUrl)
-                const audioArrayBuffer = await audioResponse.arrayBuffer()
-                const audioBuffer = await audioContext.decodeAudioData(audioArrayBuffer)
-                audioBuffers.push(audioBuffer)
-              } catch (error) {
-                console.error(`오디오 디코딩 실패 (씬 ${sceneNum}, 줄 ${line.lineId}):`, error)
+            const audioData = audioDurations.find((d) => d.lineId === line.lineId)
+            
+            if (audioData && audioData.audioBuffer) {
+              // 이미 로드된 audioBuffer 사용 (정확한 길이 보장)
+              audioBuffers.push(audioData.audioBuffer)
+              actualSegmentDurations.push(audioData.audioBuffer.duration)
+              console.log(`[v0] 씬 ${sceneNum} 오디오 ${line.lineId} 버퍼 사용: ${audioData.audioBuffer.duration.toFixed(6)}초`)
+            } else {
+              // audioBuffer가 없으면 새로 로드
+              const audio = generatedAudios.find((a) => a.lineId === line.lineId)
+              if (audio) {
+                try {
+                  const audioResponse = await fetch(audio.audioUrl)
+                  const audioArrayBuffer = await audioResponse.arrayBuffer()
+                  const audioBuffer = await audioContext.decodeAudioData(audioArrayBuffer)
+                  audioBuffers.push(audioBuffer)
+                  actualSegmentDurations.push(audioBuffer.duration)
+                  console.log(`[v0] 씬 ${sceneNum} 오디오 ${line.lineId} 새로 로드: ${audioBuffer.duration.toFixed(6)}초`)
+                } catch (error) {
+                  console.error(`오디오 디코딩 실패 (씬 ${sceneNum}, 줄 ${line.lineId}):`, error)
+                }
               }
             }
           }
@@ -5302,26 +5705,33 @@ export default function LongformContentPage() {
         }
         
         const actualMergedDuration = mergedBuffer.duration
-        console.log(`[v0] 계산된 총 길이: ${calculatedTotalDuration.toFixed(3)}초, 실제 병합된 오디오 길이: ${actualMergedDuration.toFixed(3)}초`)
+        const calculatedFromActualSegments = actualSegmentDurations.reduce((sum, d) => sum + d, 0)
         
-        const durationRatio = actualMergedDuration > 0 && calculatedTotalDuration > 0 
-          ? actualMergedDuration / calculatedTotalDuration 
+        console.log(`[v0] 계산된 총 길이: ${calculatedTotalDuration.toFixed(6)}초`)
+        console.log(`[v0] 실제 세그먼트 길이 합: ${calculatedFromActualSegments.toFixed(6)}초`)
+        console.log(`[v0] 실제 병합된 오디오 길이: ${actualMergedDuration.toFixed(6)}초`)
+        
+        // 실제 세그먼트 길이 합을 기준으로 조정 (더 정확함)
+        const durationRatio = actualMergedDuration > 0 && calculatedFromActualSegments > 0 
+          ? actualMergedDuration / calculatedFromActualSegments 
           : 1.0
         
-        console.log(`[v0] Duration ratio: ${durationRatio.toFixed(4)}`)
+        console.log(`[v0] Duration ratio: ${durationRatio.toFixed(6)}`)
         
-        if (durationRatio !== 1.0) {
-          console.log(`[v0] 자막 타이밍 조정 중... (ratio: ${durationRatio.toFixed(4)})`)
+        if (Math.abs(durationRatio - 1.0) > 0.001) {
+          console.log(`[v0] 자막 타이밍 조정 중... (ratio: ${durationRatio.toFixed(6)})`)
           for (let i = 0; i < subtitles.length; i++) {
-            subtitles[i].start = Number.parseFloat((subtitles[i].start * durationRatio).toFixed(3))
-            subtitles[i].end = Number.parseFloat((subtitles[i].end * durationRatio).toFixed(3))
+            subtitles[i].start = Number.parseFloat((subtitles[i].start * durationRatio).toFixed(6))
+            subtitles[i].end = Number.parseFloat((subtitles[i].end * durationRatio).toFixed(6))
           }
           
           for (let i = 0; i < autoImages.length; i++) {
-            autoImages[i].startTime = Number.parseFloat((autoImages[i].startTime * durationRatio).toFixed(3))
-            autoImages[i].endTime = Number.parseFloat((autoImages[i].endTime * durationRatio).toFixed(3))
+            autoImages[i].startTime = Number.parseFloat((autoImages[i].startTime * durationRatio).toFixed(6))
+            autoImages[i].endTime = Number.parseFloat((autoImages[i].endTime * durationRatio).toFixed(6))
           }
           console.log(`[v0] 자막 및 이미지 타이밍 조정 완료`)
+        } else {
+          console.log(`[v0] 타이밍 조정 불필요 (ratio: ${durationRatio.toFixed(6)})`)
         }
         
         const totalDuration = actualMergedDuration
@@ -9300,72 +9710,136 @@ export default function LongformContentPage() {
             </div>
 
             {/* 이미지 스타일 선택 및 생성 - 좌우 배치 */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-              {/* 이미지 스타일 선택 */}
-              <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white">
-                <CardHeader className="pb-4 border-b border-gray-100">
-                  <CardTitle className="text-lg font-semibold text-slate-900">이미지 스타일 선택</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Button
-                      variant={imageStyle === "stickman-animation" ? "default" : "outline"}
-                      onClick={() => setImageStyle("stickman-animation")}
-                      className="flex-1"
-                    >
-                      스틱맨 애니메이션
-                    </Button>
-                    <Button
-                      variant={imageStyle === "flat-2d-illustration" ? "default" : "outline"}
-                      onClick={() => setImageStyle("flat-2d-illustration")}
-                      className="flex-1"
-                    >
-                      플랫 2D 일러스트
-                    </Button>
-                    <Button
-                      variant={imageStyle === "semi-realistic-animation" ? "default" : "outline"}
-                      onClick={() => setImageStyle("semi-realistic-animation")}
-                      className="flex-1"
-                    >
-                      세미 리얼리스틱 애니메이션
-                    </Button>
-                    <Button
-                      variant={imageStyle === "cinematic-realistic" ? "default" : "outline"}
-                      onClick={() => setImageStyle("cinematic-realistic")}
-                      className="flex-1"
-                    >
-                      시네마틱 리얼리스틱
-                    </Button>
-                    <Button
-                      variant={imageStyle === "documentary-photo" ? "default" : "outline"}
-                      onClick={() => setImageStyle("documentary-photo")}
-                      className="flex-1"
-                    >
-                      다큐멘터리 사진 스타일
-                    </Button>
-                    <Button
-                      variant={imageStyle === "vintage-illustration" ? "default" : "outline"}
-                      onClick={() => setImageStyle("vintage-illustration")}
-                      className="flex-1"
-                    >
-                      빈티지 일러스트
-                    </Button>
-                    <Button
-                      variant={imageStyle === "dark-fantasy-concept" ? "default" : "outline"}
-                      onClick={() => setImageStyle("dark-fantasy-concept")}
-                      className="flex-1"
-                    >
-                      다크 판타지 컨셉 아트
-                    </Button>
+            <div className="flex flex-col lg:flex-row items-start gap-6 mb-6">
+            {/* 이미지 스타일 선택 */}
+              <div className={`flex-1 relative ${(customStyleCharacterImage !== null || customStyleBackgroundImage !== null) ? 'opacity-50' : ''}`}>
+                <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white">
+              <CardHeader className="pb-4 border-b border-gray-100">
+                <CardTitle className="text-lg font-semibold text-slate-900">이미지 스타일 선택</CardTitle>
+              </CardHeader>
+              <CardContent>
+                    <div className="grid grid-cols-2 gap-3">
+                  <Button
+                    variant={imageStyle === "stickman-animation" ? "default" : "outline"}
+                    onClick={() => setImageStyle("stickman-animation")}
+                        onMouseEnter={() => setHoveredStyle("stickman-animation")}
+                        onMouseLeave={() => setHoveredStyle(null)}
+                    className="flex-1"
+                    disabled={customStyleCharacterImage !== null || customStyleBackgroundImage !== null}
+                  >
+                    스틱맨 애니메이션
+                  </Button>
+                  <Button
+                        variant={imageStyle === "realistic" ? "default" : "outline"}
+                        onClick={() => setImageStyle("realistic")}
+                        onMouseEnter={() => setHoveredStyle("realistic")}
+                        onMouseLeave={() => setHoveredStyle(null)}
+                    className="flex-1"
+                    disabled={customStyleCharacterImage !== null || customStyleBackgroundImage !== null}
+                  >
+                        실사화
+                  </Button>
+                  <Button
+                        variant={imageStyle === "realistic2" ? "default" : "outline"}
+                        onClick={() => setImageStyle("realistic2")}
+                        onMouseEnter={() => setHoveredStyle("realistic2")}
+                        onMouseLeave={() => setHoveredStyle(null)}
+                    className="flex-1"
+                    disabled={customStyleCharacterImage !== null || customStyleBackgroundImage !== null}
+                  >
+                        실사화2
+                  </Button>
+                  <Button
+                        variant={imageStyle === "animation2" ? "default" : "outline"}
+                        onClick={() => setImageStyle("animation2")}
+                        onMouseEnter={() => setHoveredStyle("animation2")}
+                        onMouseLeave={() => setHoveredStyle(null)}
+                    className="flex-1"
+                    disabled={customStyleCharacterImage !== null || customStyleBackgroundImage !== null}
+                  >
+                        애니메이션2
+                  </Button>
+                  <Button
+                        variant={imageStyle === "animation3" ? "default" : "outline"}
+                        onClick={() => setImageStyle("animation3")}
+                        onMouseEnter={() => setHoveredStyle("animation3")}
+                        onMouseLeave={() => setHoveredStyle(null)}
+                    className="flex-1"
+                    disabled={customStyleCharacterImage !== null || customStyleBackgroundImage !== null}
+                  >
+                        유럽풍 그래픽 노블
+                  </Button>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-3">
+                      선택한 스타일이 모든 이미지에 일관되게 적용됩니다.
+                    </p>
+                  </CardContent>
+                </Card>
+                
+                {/* 호버 시 샘플 이미지 팝업 - 카드 좌측에 표시 */}
+                {hoveredStyle && (
+                  <div 
+                    className="absolute z-[100] right-full mr-4 top-0 w-96 bg-white border-2 border-gray-300 rounded-lg shadow-2xl overflow-hidden"
+                    style={{ pointerEvents: 'none' }}
+                  >
+                    <div className="p-2 bg-gray-50 border-b border-gray-200">
+                      <p className="text-sm font-semibold text-gray-700 text-center">
+                        {hoveredStyle === "stickman-animation" ? "스틱맨 애니메이션" :
+                         hoveredStyle === "realistic" ? "실사화" :
+                         hoveredStyle === "realistic2" ? "실사화2" :
+                         hoveredStyle === "animation2" ? "애니메이션2" :
+                         hoveredStyle === "animation3" ? "유럽풍 그래픽 노블" : ""} 샘플
+                      </p>
+                    </div>
+                    {styleSampleImages[hoveredStyle] ? (
+                      <img
+                        src={styleSampleImages[hoveredStyle]}
+                        alt={`${hoveredStyle} 샘플`}
+                        className="w-full h-auto"
+                        crossOrigin="anonymous"
+                        onError={(e) => {
+                          // ImgBB 직접 이미지 URL이 실패할 경우 다른 확장자 시도
+                          const target = e.target as HTMLImageElement
+                          const styleName = hoveredStyle
+                          if (!styleName || !styleSampleImages[styleName]) return
+                          
+                          const baseUrl = styleSampleImages[styleName]
+                          const extensions = ['png', 'jpeg', 'webp']
+                          const triedExtensions = target.dataset.triedExtensions?.split(',') || []
+                          const currentExt = baseUrl.split('.').pop()?.split('?')[0] || 'jpg'
+                          
+                          if (!triedExtensions.includes(currentExt)) {
+                            triedExtensions.push(currentExt)
+                          }
+                          target.dataset.triedExtensions = triedExtensions.join(',')
+                          
+                          // 다른 확장자 시도
+                          const nextExt = extensions.find(ext => !triedExtensions.includes(ext))
+                          if (nextExt) {
+                            target.src = baseUrl.replace(/\.(jpg|jpeg|png|webp)$/i, `.${nextExt}`)
+                          }
+                        }}
+                      />
+                    ) : (
+                      <div className="w-full h-64 bg-gray-100 flex items-center justify-center">
+                        <p className="text-sm text-gray-400">샘플 이미지를 불러올 수 없습니다</p>
+                      </div>
+                    )}
                   </div>
-                  <p className="text-xs text-gray-500 mt-3">
-                    선택한 스타일이 모든 이미지에 일관되게 적용됩니다.
-                  </p>
-                </CardContent>
-              </Card>
+                )}
+              </div>
+
+              {/* OR 구분선 */}
+              <div className="flex items-center justify-center w-full lg:w-auto my-4 lg:my-0">
+                <div className="flex items-center gap-2 w-full lg:w-auto">
+                  <div className="flex-1 lg:flex-none h-px bg-gray-300"></div>
+                  <span className="text-sm font-medium text-gray-500 px-2">OR</span>
+                  <div className="flex-1 lg:flex-none h-px bg-gray-300"></div>
+                </div>
+              </div>
 
               {/* 이미지 스타일 생성 */}
-            <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white mb-6">
+            <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white flex-1">
               <CardHeader className="pb-4 border-b border-gray-100">
                 <CardTitle className="text-lg font-semibold text-slate-900">이미지 스타일 생성</CardTitle>
               </CardHeader>
@@ -9415,7 +9889,7 @@ export default function LongformContentPage() {
                             alt="캐릭터 사진" 
                             className="w-full h-48 object-cover rounded-lg"
                           />
-                          <Button
+                  <Button
                             variant="outline"
                             size="sm"
                             onClick={(e) => {
@@ -9428,7 +9902,7 @@ export default function LongformContentPage() {
                             className="w-full"
                           >
                             제거
-                          </Button>
+                  </Button>
                         </div>
                       ) : (
                         <div className="space-y-2">
@@ -9501,7 +9975,7 @@ export default function LongformContentPage() {
                             alt="배경 풍경" 
                             className="w-full h-48 object-cover rounded-lg"
                           />
-                          <Button
+                  <Button
                             variant="outline"
                             size="sm"
                             onClick={(e) => {
@@ -9514,8 +9988,8 @@ export default function LongformContentPage() {
                             className="w-full"
                           >
                             제거
-                          </Button>
-                        </div>
+                  </Button>
+                </div>
                       ) : (
                         <div className="space-y-2">
                           <Upload className="w-8 h-8 mx-auto text-gray-400" />
@@ -9551,44 +10025,96 @@ export default function LongformContentPage() {
                 {/* 스타일 생성 버튼 */}
                 <Button
                   onClick={async () => {
-                    if (!customStyleCharacterImage || !customStyleBackgroundImage) {
-                      alert("캐릭터 사진과 배경 풍경을 모두 업로드해주세요.")
+                    if (!customStyleCharacterImage && !customStyleBackgroundImage) {
+                      alert("캐릭터 사진 또는 배경 풍경을 최소 하나 이상 업로드해주세요.")
                       return
                     }
 
                     setIsGeneratingCustomStyle(true)
                     try {
-                      // TODO: 커스텀 스타일 생성 API 호출
-                      // 예: Replicate의 이미지 합성 모델 사용
-                      const replicateApiKey = typeof window !== "undefined" ? localStorage.getItem("replicate_api_key") || undefined : undefined
+                      const geminiApiKey = typeof window !== "undefined" ? localStorage.getItem("gemini_api_key") || undefined : undefined
                       
-                      if (!replicateApiKey) {
-                        alert("Replicate API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+                      if (!geminiApiKey) {
+                        alert("Gemini API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
                         setIsGeneratingCustomStyle(false)
                         return
                       }
 
-                      // 임시로 두 이미지를 합성하는 로직 (실제 구현 필요)
-                      // 여기서는 예시로 첫 번째 이미지를 결과로 사용
-                      // 실제로는 Replicate API나 다른 이미지 합성 서비스를 사용해야 함
                       console.log("[Custom Style] 스타일 생성 시작")
-                      console.log("[Custom Style] 캐릭터 이미지:", customStyleCharacterImage)
-                      console.log("[Custom Style] 배경 이미지:", customStyleBackgroundImage)
                       
-                      // TODO: 실제 이미지 합성 API 호출
-                      // const result = await generateCustomStyle(customStyleCharacterImage, customStyleBackgroundImage, replicateApiKey)
-                      // setCustomStyleResult(result)
+                      // 이미지를 base64로 변환하는 함수
+                      const imageToBase64 = async (imageUrl: string): Promise<string> => {
+                        if (imageUrl.startsWith("data:")) {
+                          return imageUrl
+                        }
+                        const response = await fetch(imageUrl)
+                        const blob = await response.blob()
+                        return new Promise((resolve, reject) => {
+                          const reader = new FileReader()
+                          reader.onloadend = () => resolve(reader.result as string)
+                          reader.onerror = reject
+                          reader.readAsDataURL(blob)
+                        })
+                      }
+
+                      // 각 이미지를 분석하여 프롬프트 생성
+                      const prompts: string[] = []
+                      const errors: string[] = []
                       
-                      // 임시 메시지
-                      alert("커스텀 스타일 생성 기능은 현재 개발 중입니다. 곧 제공될 예정입니다.")
+                      if (customStyleCharacterImage) {
+                        try {
+                          const base64Image = await imageToBase64(customStyleCharacterImage)
+                          const characterPrompt = await analyzeImageForStyle(base64Image, "character", geminiApiKey)
+                          if (characterPrompt && !characterPrompt.toLowerCase().includes("i'm sorry") && !characterPrompt.toLowerCase().includes("can't help")) {
+                            prompts.push(characterPrompt)
+                          } else {
+                            errors.push("캐릭터 이미지 분석 실패: 실제 사람이 포함된 이미지는 분석할 수 없습니다.")
+                          }
+                        } catch (error) {
+                          console.error("[Custom Style] 캐릭터 이미지 분석 실패:", error)
+                          errors.push(`캐릭터 이미지 분석 실패: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+                        }
+                      }
+                      
+                      if (customStyleBackgroundImage) {
+                        try {
+                          const base64Image = await imageToBase64(customStyleBackgroundImage)
+                          const backgroundPrompt = await analyzeImageForStyle(base64Image, "background", geminiApiKey)
+                          if (backgroundPrompt && !backgroundPrompt.toLowerCase().includes("i'm sorry") && !backgroundPrompt.toLowerCase().includes("can't help")) {
+                            prompts.push(backgroundPrompt)
+                          } else {
+                            errors.push("배경 이미지 분석 실패: 이미지를 분석할 수 없습니다.")
+                          }
+                        } catch (error) {
+                          console.error("[Custom Style] 배경 이미지 분석 실패:", error)
+                          errors.push(`배경 이미지 분석 실패: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+                        }
+                      }
+                      
+                      // 프롬프트가 하나라도 생성되었는지 확인
+                      if (prompts.length === 0) {
+                        throw new Error(`모든 이미지 분석에 실패했습니다.\n${errors.join("\n")}`)
+                      }
+                      
+                      // 프롬프트 결합
+                      const combinedPrompt = prompts.join(", ")
+                      setCustomStylePrompt(combinedPrompt)
+                      setImageStyle("custom-style")
+                      
+                      // 경고 메시지 표시 (일부 실패한 경우)
+                      if (errors.length > 0) {
+                        alert(`일부 이미지 분석에 실패했지만, 성공한 이미지의 프롬프트를 생성했습니다.\n\n${errors.join("\n")}`)
+                      }
+                      
+                      console.log("[Custom Style] 생성된 프롬프트:", combinedPrompt)
                     } catch (error) {
                       console.error("[Custom Style] 스타일 생성 실패:", error)
-                      alert("스타일 생성에 실패했습니다. 다시 시도해주세요.")
+                      alert(`스타일 생성에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
                     } finally {
                       setIsGeneratingCustomStyle(false)
                     }
                   }}
-                  disabled={!customStyleCharacterImage || !customStyleBackgroundImage || isGeneratingCustomStyle}
+                  disabled={(!customStyleCharacterImage && !customStyleBackgroundImage) || isGeneratingCustomStyle}
                   className="w-full"
                   size="lg"
                 >
@@ -9605,46 +10131,60 @@ export default function LongformContentPage() {
                   )}
                 </Button>
 
-                {/* 생성된 스타일 미리보기 */}
-                {customStyleResult && (
-                  <div className="space-y-2">
-                    <Label className="text-sm font-medium">생성된 커스텀 스타일</Label>
-                    <div className="border border-gray-200 rounded-lg p-4">
-                      <img 
-                        src={customStyleResult} 
-                        alt="커스텀 스타일" 
-                        className="w-full h-64 object-cover rounded-lg"
-                      />
-                      <div className="mt-3 flex gap-2">
+              </CardContent>
+              </Card>
+              
+              {/* 생성된 커스텀 스타일 프롬프트 표시 - 오른쪽에 배치 */}
+              {customStylePrompt && (
+                <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white flex-1">
+                  <CardHeader className="pb-4 border-b border-gray-100">
+                    <CardTitle className="text-lg font-semibold text-slate-900">생성된 커스텀 스타일</CardTitle>
+                  </CardHeader>
+                  <CardContent className="pt-6">
+                    <div className="space-y-4">
+                      <div>
+                        <Label className="text-sm font-medium mb-2 block">영어 프롬프트</Label>
+                        <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                          <p className="text-sm font-mono text-gray-800 whitespace-pre-wrap break-words">
+                            {customStylePrompt}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
                         <Button
-                          variant="outline"
+                          variant="default"
                           size="sm"
                           onClick={() => {
-                            setImageStyle("custom-style")
-                            alert("커스텀 스타일이 선택되었습니다.")
+                            navigator.clipboard.writeText(customStylePrompt)
+                            alert("프롬프트가 복사되었습니다.")
                           }}
                           className="flex-1"
                         >
-                          이 스타일 사용하기
+                          <Copy className="w-4 h-4 mr-2" />
+                          프롬프트 복사
                         </Button>
                         <Button
                           variant="outline"
                           size="sm"
                           onClick={() => {
-                            if (customStyleResult.startsWith("blob:")) {
-                              URL.revokeObjectURL(customStyleResult)
-                            }
-                            setCustomStyleResult(null)
+                            setCustomStylePrompt(null)
+                            setCustomStyleCharacterImage(null)
+                            setCustomStyleBackgroundImage(null)
+                            setImageStyle("stickman-animation") // 기본값으로 리셋
                           }}
                         >
                           제거
                         </Button>
                       </div>
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                        <p className="text-xs text-blue-800">
+                          💡 이 커스텀 스타일 프롬프트가 이미지 생성 시 자동으로 적용됩니다.
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
+              )}
             </div>
 
             {scriptLines.length === 0 ? (
@@ -9677,7 +10217,8 @@ export default function LongformContentPage() {
                         setIsGeneratingScenePrompts(true)
                         try {
                           console.log("[이미지 프롬프트 생성] decomposedScenes 확인:", decomposedScenes.substring(0, 500))
-                          const prompts = await generateSceneImagePrompts(decomposedScenes, imageStyle, openaiApiKey)
+                          console.log("[이미지 프롬프트 생성] customStylePrompt:", customStylePrompt)
+                          const prompts = await generateSceneImagePrompts(decomposedScenes, imageStyle, openaiApiKey, customStylePrompt || undefined)
                           console.log("[이미지 프롬프트 생성] 생성된 프롬프트 개수:", prompts.length)
                           setSceneImagePrompts(prompts)
                         } catch (error) {
@@ -9904,7 +10445,7 @@ export default function LongformContentPage() {
                                         </Button>
                                       </div>
                                       <div className="text-xs text-gray-500 mb-2 italic">
-                                        원본: {image.sceneText.substring(0, 100)}{image.sceneText.length > 100 ? "..." : ""}
+                                        {image.visualInstruction || image.sceneText.substring(0, 100)}{(!image.visualInstruction && image.sceneText.length > 100) ? "..." : ""}
                                       </div>
                                       <div className="flex gap-3">
                                         <div className="flex-1 text-sm font-mono bg-gray-50 p-2 rounded border">
@@ -9915,12 +10456,18 @@ export default function LongformContentPage() {
                                             size="sm"
                                             variant="default"
                                             className="bg-green-500 hover:bg-green-600 text-white"
+                                            disabled={generatingImageIds.has(`${scene.sceneNumber}-${image.imageNumber}`)}
                                             onClick={async () => {
                                               const replicateApiKey = getApiKey("replicate_api_key")
                                               if (!replicateApiKey) {
                                                 alert("Replicate API 키를 설정해주세요.")
                                                 return
                                               }
+                                              
+                                              const imageId = `${scene.sceneNumber}-${image.imageNumber}`
+                                              
+                                              // 로딩 시작
+                                              setGeneratingImageIds((prev) => new Set(prev).add(imageId))
                                               
                                               try {
                                                 console.log(`[Scene Image] 개별 이미지 생성 시작: Scene ${scene.sceneNumber}, Image ${image.imageNumber}`)
@@ -9961,11 +10508,27 @@ export default function LongformContentPage() {
                                               } catch (error) {
                                                 console.error(`[Scene Image] 개별 이미지 생성 실패:`, error)
                                                 alert(`이미지 생성에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+                                              } finally {
+                                                // 로딩 종료
+                                                setGeneratingImageIds((prev) => {
+                                                  const newSet = new Set(prev)
+                                                  newSet.delete(imageId)
+                                                  return newSet
+                                                })
                                               }
                                             }}
                                           >
-                                            <ImageIcon className="w-4 h-4 mr-1" />
-                                            {image.imageUrl ? "이미지 재생성" : "이미지 생성"}
+                                            {generatingImageIds.has(`${scene.sceneNumber}-${image.imageNumber}`) ? (
+                                              <>
+                                                <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                                                생성 중...
+                                              </>
+                                            ) : (
+                                              <>
+                                                <ImageIcon className="w-4 h-4 mr-1" />
+                                                {image.imageUrl ? "이미지 재생성" : "이미지 생성"}
+                                              </>
+                                            )}
                                           </Button>
                                           {image.imageUrl ? (
                                             <div className="w-80 aspect-video rounded border overflow-hidden relative group">
@@ -11855,13 +12418,14 @@ export default function LongformContentPage() {
                   disabled={
                     activeStep !== "render" || 
                     isExporting || 
+                    isGeneratingVideo ||
                     scriptLines.length === 0 || 
                     (!sceneImagePrompts.some(s => s.images.some(img => img.imageUrl)) && generatedImages.length === 0) || 
                     generatedAudios.length === 0
                   }
                   className="w-full bg-red-600 hover:bg-red-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isExporting ? (
+                  {isExporting || isGeneratingVideo ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       미리보기 생성 중... ({generatingVideoProgress}%)
@@ -11874,7 +12438,12 @@ export default function LongformContentPage() {
                   )}
                 </Button>
 
-                {videoData && !isExporting && (
+                {/* 영상 미리보기 생성 중 애니메이션 */}
+                {isGeneratingVideo && (
+                  <AIGeneratingAnimation type="영상 미리보기" />
+                )}
+
+                {videoData && !isExporting && !isGeneratingVideo && (
                   <div className="flex gap-2 mt-2">
                   <Button
                       onClick={handleFastDownload}
@@ -11899,6 +12468,9 @@ export default function LongformContentPage() {
                   </div>
                 )}
                 
+                {isExporting && (
+                  <AIGeneratingAnimation type="영상 미리보기" />
+                )}
                 {videoData && isExporting && (
                   <Button
                     className="w-full mt-2"
@@ -13933,21 +14505,6 @@ export default function LongformContentPage() {
         </main>
       </div>
 
-      {isExporting && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <Card className="w-96">
-            <CardHeader>
-              <CardTitle>영상 내보내기</CardTitle>
-              {/* <CardDescription>{exportStatus}</CardDescription> */}
-            </CardHeader>
-            <CardContent>
-              {/* <Progress value={exportProgress} className="w-full" /> */}
-              {/* <p className="text-sm text-muted-foreground mt-2 text-center">{exportProgress}%</p> */}
-              <p className="text-center text-muted-foreground">영상 생성 중...</p>
-            </CardContent>
-          </Card>
-        </div>
-      )}
 
       {/* 푸터 - 저작권 문구 */}
       <footer className="border-t border-slate-200/50 bg-white/80 backdrop-blur-sm mt-8">

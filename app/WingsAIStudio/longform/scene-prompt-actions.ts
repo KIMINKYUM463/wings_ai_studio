@@ -7,8 +7,9 @@
 export async function generateSceneImagePrompts(
   decomposedScenes: string,
   imageStyle: string,
-  openaiApiKey: string
-): Promise<Array<{ sceneNumber: number; images: Array<{ imageNumber: number; prompt: string; sceneText: string; imageUrl?: string }> }>> {
+  openaiApiKey: string,
+  customStylePrompt?: string
+): Promise<Array<{ sceneNumber: number; images: Array<{ imageNumber: number; prompt: string; sceneText: string; visualInstruction?: string; imageUrl?: string }> }>> {
   if (!openaiApiKey) {
     throw new Error("OpenAI API 키가 필요합니다.")
   }
@@ -111,10 +112,13 @@ export async function generateSceneImagePrompts(
 - 각 씬 안에서 장면 수만큼 이미지 프롬프트 생성
 - 설명, 해설, 말투 금지
 - 시각화 지시문과 이미지 스타일을 융합(모두 영어로 나와야됨)해 이미지 생성을 하기위한 영어 프롬프트 추출.
-- 각 장면마다 "장면 N: [영어 프롬프트]" 형식으로 한 줄씩 출력
+- 각 장면마다 다음 형식으로 출력:
+  "장면 N: [시각화 지시문(한국어)]\n[영어 프롬프트]"
 - 예시:
-장면 1: A detective looking at evidence, a vibrant 2D cartoon...
-장면 2: The detective finds a clue, a vibrant 2D cartoon...`
+장면 1: 탐정이 증거를 살펴보는 모습, 사무실 배경, 진지한 표정
+A detective looking at evidence, a vibrant 2D cartoon...
+장면 2: 탐정이 단서를 발견하는 장면, 책상 위 문서들, 놀란 표정
+The detective finds a clue, a vibrant 2D cartoon...`
 
       const styleName = getImageStyleName(imageStyle)
       
@@ -157,6 +161,65 @@ STEP 3에서 영어 프롬프트를 생성할 때, 다음 형식을 사용하세
 최종 프롬프트는:
 "The same stickman character (a detective) looking at evidence, a vibrant 2D cartoon, fully rendered illustration featuring a stickman with a white circular face, simple black outline, dot eyes, curved mouth, thin black limbs, exactly two arms, exactly two hands (mitten hands with no fingers), expressive pose, correct anatomy, natural pose, Consistent stick-figure illustration style, clean bold lines, solid colors, explainer video aesthetic, simplified background, colorful detailed drawing, rich environment, dynamic lighting, no realistic human anatomy, no blank background, anatomically correct stickman, proper body proportions"
 `
+      } else if (imageStyle === "realistic" || imageStyle === "realistic2") {
+        styleInfo = `스타일: ${styleName}
+모델: google/imagen-4-fast
+해상도: 16:9
+Inference Steps: 4
+
+BASE_PROMPT:
+A hyperrealistic, photorealistic masterpiece, 8K, ultra-detailed, sharp focus, cinematic lighting, shot on a professional DSLR camera with a 50mm lens
+
+NEGATIVE_PROMPT:
+painting, drawing, illustration, cartoon, anime, 3d, cgi, render, sketch, watercolor, text, watermark, signature, blurry, out of focus
+
+${imageStyle === "realistic2" ? "차이점: 스타일 키워드 중복 방지 로직 포함" : ""}
+
+[실사화 프롬프트 템플릿]
+STEP 3에서 영어 프롬프트를 생성할 때, BASE_PROMPT를 반드시 포함하고, 사용자 프롬프트와 결합하세요.
+예시: "{사용자 프롬프트}, A hyperrealistic, photorealistic masterpiece, 8K, ultra-detailed, sharp focus, cinematic lighting, shot on a professional DSLR camera with a 50mm lens"
+`
+      } else if (imageStyle === "animation2") {
+        styleInfo = `스타일: ${styleName}
+모델: prunaai/hidream-l1-fast
+해상도: 16:9
+Inference Steps: 16
+
+BASE_PROMPT:
+Flat 2D vector illustration, minimal vector art, stylized cartoon character, thick bold black outlines, unshaded, flat solid colors, cel-shaded, simple line art, comic book inking style, completely flat, no shadows, no gradients, no depth
+
+추가 구성:
+- Character Details: The character is in an expressive, dynamic pose appropriate for the scene. The character can be wearing stylized cartoon clothing, costumes, or accessories that fit the theme of the environment. Any clothing must match the simple, bold-line cartoon aesthetic, avoiding overly complex or realistic textures.
+- Environment & Lighting: The background is a rich, detailed, and colorful stylized cartoon environment (e.g., a bustling futuristic market, a pirate ship deck, a magical forest) filled with relevant objects. The entire frame is filled, with NO blank or simple background regions. The scene features dynamic, dramatic lighting with strong highlights and shadows that enhance the 2D cartoon feel.
+- Constraints: Base Character Consistency: Maintain consistent character design throughout. No Realistic Anatomy: Do not add realistic human features, muscles, or photorealistic clothing textures. Stick to the simple cartoon style.
+
+NEGATIVE_PROMPT:
+realistic human, detailed human skin, photograph, 3d render, blank white background, line-art only, text, watermark, stickman
+
+[애니메이션2 프롬프트 템플릿]
+STEP 3에서 영어 프롬프트를 생성할 때, BASE_PROMPT와 추가 구성을 반드시 포함하고, 사용자 프롬프트와 결합하세요.
+중요: 스틱맨(stickman)이 나오면 안 됩니다. 일반적인 스타일화된 카툰 캐릭터를 사용하세요.
+`
+      } else if (imageStyle === "animation3") {
+        styleInfo = `스타일: ${styleName}
+모델: prunaai/hidream-l1-fast
+해상도: 16:9
+Inference Steps: 16
+
+BASE_PROMPT:
+European graphic novel style, bande dessinée aesthetic, highly detailed traditional illustration, hand-drawn ink lines with cross-hatching shadows, sophisticated and muted color palette, atmospheric, cinematic frame
+
+추가 구성:
+- Character Details: Character rendered with realistic proportions and expressive, mature features. Deep shadows on the face to create mystery (chiaroscuro effect). Clothing folds are detailed with heavy ink work. Serious and grounded character design, NOT cartoony or anime-like.
+- Environment: Background is intricate and heavily detailed with ink lines and watercolor washes. Dramatic, moody lighting with strong contrast between light and dark. Rich textures on furniture, walls, and objects. Feels historical and mysterious.
+- Constraints: NO anime style, NO Studio Ghibli look, NO manga big eyes, NO cute aesthetic. Avoid purely sleek digital painting look. Must feel like traditional media.
+
+NEGATIVE_PROMPT:
+anime style, Studio Ghibli look, manga big eyes, cute aesthetic, purely sleek digital painting look
+
+[유럽풍 그래픽 노블 프롬프트 템플릿]
+STEP 3에서 영어 프롬프트를 생성할 때, BASE_PROMPT와 추가 구성을 반드시 포함하고, 사용자 프롬프트와 결합하세요.
+`
       } else {
         styleInfo = `스타일: ${styleName}
 모델: black-forest-labs/flux-pro`
@@ -192,15 +255,25 @@ STEP 3에서 영어 프롬프트를 생성할 때, 다음 형식을 사용하세
         }
       }
 
+      // 커스텀 스타일 프롬프트가 있으면 추가
+      const customStyleInfo = customStylePrompt 
+        ? `\n\n**중요: 커스텀 스타일 프롬프트**\n다음 커스텀 스타일 프롬프트를 반드시 각 장면의 영어 프롬프트에 포함하세요:\n${customStylePrompt}\n\n각 장면의 프롬프트는 장면 내용과 이 커스텀 스타일 프롬프트를 결합하여 생성하세요.`
+        : ""
+
       const userPrompt = `Scene ${sceneNum}에는 ${sceneImages.length}개의 장면이 있습니다.
 
-${styleInfo}${templateInfo}${characterContext}
+${styleInfo}${templateInfo}${characterContext}${customStyleInfo}
 
 각 장면의 한국어 텍스트:
 ${sceneImages.map((img, idx) => `장면 ${img.imageNumber}:\n${img.text}`).join("\n\n")}
 
-위 규칙에 따라 각 장면마다 "장면 N: [영어 프롬프트]" 형식으로 출력하세요.
-장면 번호는 ${sceneImages.map(img => img.imageNumber).join(", ")}입니다.`
+위 규칙에 따라 각 장면마다 다음 형식으로 출력하세요:
+"장면 N: [시각화 지시문(한국어)]\n[영어 프롬프트]"
+
+시각화 지시문은 그림이나 사진을 설명하는 한국어 문장으로 작성하세요.
+${customStylePrompt ? "각 장면의 영어 프롬프트에는 반드시 위의 커스텀 스타일 프롬프트를 포함하세요." : ""}
+장면 번호는 ${sceneImages.map(img => img.imageNumber).join(", ")}입니다.
+${imageStyle === "realistic" || imageStyle === "realistic2" ? "Inference Steps는 4입니다." : imageStyle === "animation2" || imageStyle === "animation3" || imageStyle === "stickman-animation" ? "Inference Steps는 16입니다." : ""}`
 
       const response = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
@@ -240,25 +313,40 @@ ${sceneImages.map((img, idx) => `장면 ${img.imageNumber}:\n${img.text}`).join(
       console.log(`[Scene ${sceneNum}] API 응답 내용:`, content.substring(0, 500))
 
       // 텍스트에서 각 장면의 프롬프트 추출
-      const sceneImageResults: Array<{ imageNumber: number; prompt: string; sceneText: string }> = []
+      const sceneImageResults: Array<{ imageNumber: number; prompt: string; sceneText: string; visualInstruction?: string }> = []
       
-      // "장면 N: [프롬프트]" 패턴으로 파싱
-      const promptRegex = /장면\s+(\d+):\s*([\s\S]+?)(?=\n장면\s+\d+:|$)/g
-      const prompts: Map<number, string> = new Map()
+      // "장면 N: [시각화 지시문(한국어)]\n[영어 프롬프트]" 패턴으로 파싱
+      const promptRegex = /장면\s+(\d+):\s*([^\n]+)\n([\s\S]+?)(?=\n장면\s+\d+:|$)/g
+      const prompts: Map<number, { visualInstruction: string; prompt: string }> = new Map()
       
       let match
       while ((match = promptRegex.exec(content)) !== null) {
         const imageNum = parseInt(match[1])
-        const prompt = match[2].trim()
+        const visualInstruction = match[2].trim()
+        const prompt = match[3].trim()
         if (prompt) {
-          prompts.set(imageNum, prompt)
+          prompts.set(imageNum, { visualInstruction, prompt })
+        }
+      }
+      
+      // 새로운 형식으로 파싱되지 않은 경우 기존 형식으로 시도
+      if (prompts.size === 0) {
+        const fallbackRegex = /장면\s+(\d+):\s*([\s\S]+?)(?=\n장면\s+\d+:|$)/g
+        let fallbackMatch
+        while ((fallbackMatch = fallbackRegex.exec(content)) !== null) {
+          const imageNum = parseInt(fallbackMatch[1])
+          const prompt = fallbackMatch[2].trim()
+          if (prompt) {
+            prompts.set(imageNum, { visualInstruction: "", prompt })
+          }
         }
       }
       
       // 스틱맨 애니메이션의 경우 첫 번째 Scene에서 캐릭터 설명 추출
       if (imageStyle === "stickman-animation" && sceneNum === 1 && prompts.size > 0) {
         // 첫 번째 장면의 프롬프트에서 캐릭터 설명 추출 시도
-        const firstPrompt = Array.from(prompts.values())[0]
+        const firstPromptData = Array.from(prompts.values())[0]
+        const firstPrompt = firstPromptData?.prompt || ""
         // 프롬프트에서 캐릭터 역할이나 특징을 추출 (예: "a detective", "the main stickman character" 등)
         const characterMatch = firstPrompt.match(/(?:the same stickman character|the main stickman character|the protagonist stickman|a stickman character)\s*\(([^)]+)\)/i)
         if (characterMatch) {
@@ -278,7 +366,9 @@ ${sceneImages.map((img, idx) => `장면 ${img.imageNumber}:\n${img.text}`).join(
       
       // 각 장면에 대해 프롬프트 매칭
       sceneImages.forEach((img) => {
-        let prompt = prompts.get(img.imageNumber) || img.text
+        const promptData = prompts.get(img.imageNumber)
+        let prompt = promptData?.prompt || img.text
+        const visualInstruction = promptData?.visualInstruction || ""
         
         // 스틱맨 애니메이션이고 첫 번째 Scene이 아닌 경우, 캐릭터 일관성 보장
         if (imageStyle === "stickman-animation" && sceneNum > 1 && stickmanCharacterDescription) {
@@ -290,13 +380,20 @@ ${sceneImages.map((img, idx) => `장면 ${img.imageNumber}:\n${img.text}`).join(
             prompt = `The same stickman character from Scene 1 (${stickmanCharacterDescription}), ${prompt}`
           }
         }
+        
+        // 커스텀 스타일 프롬프트가 있으면 추가 (이미 LLM이 포함했을 수도 있지만, 확실히 하기 위해 추가)
+        if (customStylePrompt && !prompt.toLowerCase().includes(customStylePrompt.toLowerCase().substring(0, 50))) {
+          prompt = `${prompt}, ${customStylePrompt}`
+        }
 
         console.log(`[Scene ${sceneNum}] Image ${img.imageNumber} 프롬프트:`, prompt.substring(0, 100))
+        console.log(`[Scene ${sceneNum}] Image ${img.imageNumber} 시각화 지시문:`, visualInstruction)
 
         sceneImageResults.push({
           imageNumber: img.imageNumber,
           prompt: prompt,
           sceneText: img.text,
+          visualInstruction: visualInstruction || undefined,
         })
       })
 
@@ -319,14 +416,10 @@ ${sceneImages.map((img, idx) => `장면 ${img.imageNumber}:\n${img.text}`).join(
 function getImageStyleName(style: string): string {
   const styleMap: Record<string, string> = {
     "stickman-animation": "스틱맨 애니메이션",
-    "flat-2d-illustration": "플랫 2D 일러스트",
-    "semi-realistic-animation": "세미 리얼리스틱 애니메이션",
-    "cinematic-realistic": "시네마틱 리얼리스틱",
-    "documentary-photo": "다큐멘터리 사진 스타일",
-    "vintage-illustration": "빈티지 일러스트",
-    "dark-fantasy-concept": "다크 판타지 컨셉 아트",
-    "animation": "애니메이션",
-    "realistic": "실사",
+    "realistic": "실사화",
+    "realistic2": "실사화2",
+    "animation2": "애니메이션2",
+    "animation3": "유럽풍 그래픽 노블",
   }
   return styleMap[style] || style
 }
