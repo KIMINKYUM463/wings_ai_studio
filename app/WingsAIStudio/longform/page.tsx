@@ -50,6 +50,8 @@ import {
   Settings,
   Youtube,
   Calendar,
+  Search,
+  RefreshCw,
 } from "lucide-react"
 import Link from "next/link"
 import {
@@ -70,8 +72,10 @@ import {
   generateImageWithReplicate, // Replicate 이미지 생성 함수 import 추가
   generateAIThumbnail, // AI 썸네일 생성 함수 import 추가
   summarizeScriptForShorts, // 쇼츠 대본 요약 함수 import 추가
+  // generateCommonStylePrompt, // 공통 스타일 프롬프트 생성 함수 import 추가 (임시 주석 처리)
 } from "./actions"
-import { generateRefinedScript } from "./refined-script-actions"
+import { generateRefinedScript, decomposeScriptIntoScenes } from "./refined-script-actions"
+import { generateSceneImagePrompts } from "./scene-prompt-actions"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
@@ -118,7 +122,7 @@ const AIGeneratingAnimation = ({ type }: { type: string }) => {
         </div>
 
         <h3 className="text-xl font-bold mb-2 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-          AI가 {type}{type === "맞춤 주제" ? "를" : "을"} 생성하고 있습니다
+          AI가 {type === "장면을 분해하고" ? "장면을 분해하고 있습니다" : type === "맞춤 주제" ? `${type}를 생성하고 있습니다` : `${type}을 생성하고 있습니다`}
         </h3>
         <p className="text-gray-600 mb-4">고급 AI 모델이 최적의 결과를 만들어내고 있어요</p>
 
@@ -143,7 +147,7 @@ const AIGeneratingAnimation = ({ type }: { type: string }) => {
 
 const sidebarItems = [
   { id: "topic", title: "주제 추천", icon: Lightbulb, description: "60대 시니어층 맞춤 주제 추천" },
-  { id: "planning", title: "대본 기획 및 초안", icon: FileText, description: "선택한 주제 기반 대본 구조 설계" },
+  { id: "planning", title: "대본 기획", icon: FileText, description: "선택한 주제 기반 대본 구조 설계" },
   { id: "script", title: "대본 생성", icon: Wand2, description: "20분 분량의 대본 자동 생성" },
   { id: "image", title: "이미지 생성", icon: User, description: "한국 인물 생성" },
   { id: "video", title: "TTS 생성", icon: Volume2, description: "텍스트를 음성으로 변환" },
@@ -212,6 +216,12 @@ export default function LongformContentPage() {
     }
     return localStorage.getItem("openai_api_key") || undefined
   }
+  
+  // Gemini API 키 가져오기 헬퍼 함수
+  const getGeminiApiKey = () => {
+    if (typeof window === "undefined") return undefined
+    return localStorage.getItem("gemini_api_key") || undefined
+  }
   const [keywords, setKeywords] = useState("")
   const [selectedTopic, setSelectedTopic] = useState("")
   const [generatedTopics, setGeneratedTopics] = useState<string[]>([])
@@ -224,8 +234,16 @@ export default function LongformContentPage() {
   const [isCustomTopicSelected, setIsCustomTopicSelected] = useState(false)
   const [isDirectInputSelected, setIsDirectInputSelected] = useState(false) // 직접입력 선택 여부
   const [benchmarkScript, setBenchmarkScript] = useState("") // 벤치마킹 대본
+  const [isDirectScriptInput, setIsDirectScriptInput] = useState(false) // 대본 직접 넣기 모드
+  const [directScript, setDirectScript] = useState("") // 직접 입력한 대본
+  const [isStoryMode, setIsStoryMode] = useState(false) // 스토리 형태 모드 (false = 교훈형, true = 스토리형)
   const [script, setScript] = useState("")
+  const [decomposedScenes, setDecomposedScenes] = useState("") // 장면 분해 결과
   const [scriptLines, setScriptLines] = useState<Array<{ id: number; text: string }>>([])
+  const [sceneImagePrompts, setSceneImagePrompts] = useState<Array<{ sceneNumber: number; images: Array<{ imageNumber: number; prompt: string; sceneText: string; imageUrl?: string }> }>>([]) // Scene별 이미지 프롬프트
+  const [isGeneratingScenePrompts, setIsGeneratingScenePrompts] = useState(false) // Scene 프롬프트 생성 중
+  const [isGeneratingSceneImages, setIsGeneratingSceneImages] = useState(false) // Scene 이미지 생성 중
+  const [sceneImageGenerationProgress, setSceneImageGenerationProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 }) // Scene 이미지 생성 진행도
   const [selectedLineIds, setSelectedLineIds] = useState<Set<number>>(new Set())
   const [scriptDuration, setScriptDuration] = useState<number>(20) // 대본 시간 (분)
   const [generatedImages, setGeneratedImages] = useState<Array<{ lineId: number; imageUrl: string; prompt: string }>>([])
@@ -251,12 +269,12 @@ export default function LongformContentPage() {
     uploadTags: string[]
   } | null>(null)
   const [isGenerating, setIsGenerating] = useState(false)
+  const [isDecomposingScenes, setIsDecomposingScenes] = useState(false) // 장면 분해 중 상태
   const [isScanning, setIsScanning] = useState(false)
   const [completedSteps, setCompletedSteps] = useState<string[]>([])
   const [improvementRequest, setImprovementRequest] = useState("")
   const [analysisResult, setAnalysisResult] = useState("")
   const [showDirectScriptInput, setShowDirectScriptInput] = useState(false)
-  const [directScript, setDirectScript] = useState("")
   const [selectedDoctorType, setSelectedDoctorType] = useState<"clinic" | "podcast" | "custom">("clinic")
   const [customDescription, setCustomDescription] = useState("")
   const [doctorKoreanDescription, setDoctorKoreanDescription] = useState("")
@@ -394,8 +412,14 @@ export default function LongformContentPage() {
   const [testImageUrl, setTestImageUrl] = useState<string | null>(null) // 테스트용 이미지 URL
   const previewContainerRef = useRef<HTMLDivElement | null>(null)
   
-  // 역사 카테고리 스타일 선택 (애니메이션/실사)
-  const [historyStyle, setHistoryStyle] = useState<"animation" | "realistic">("animation")
+  // 이미지 스타일 선택
+  const [imageStyle, setImageStyle] = useState<string>("stickman-animation")
+  
+  // 커스텀 이미지 스타일 생성 상태
+  const [customStyleCharacterImage, setCustomStyleCharacterImage] = useState<string | null>(null) // 캐릭터 사진
+  const [customStyleBackgroundImage, setCustomStyleBackgroundImage] = useState<string | null>(null) // 배경 풍경
+  const [customStyleResult, setCustomStyleResult] = useState<string | null>(null) // 생성된 커스텀 스타일
+  const [isGeneratingCustomStyle, setIsGeneratingCustomStyle] = useState(false) // 커스텀 스타일 생성 중
   
   // 이미지 커스텀 생성 상태
   const [customImageDialogOpen, setCustomImageDialogOpen] = useState<number | null>(null)
@@ -405,6 +429,8 @@ export default function LongformContentPage() {
   const [selectedImagesForVideo, setSelectedImagesForVideo] = useState<Set<number>>(new Set()) // 영상으로 변환할 이미지 선택
   const [isConvertingToVideo, setIsConvertingToVideo] = useState(false) // 영상 변환 중 상태
   const [convertedVideos, setConvertedVideos] = useState<Map<number, string>>(new Map()) // 변환된 영상 URL 저장
+  const [convertedSceneVideos, setConvertedSceneVideos] = useState<Map<string, string>>(new Map()) // Scene 이미지 변환된 영상 URL 저장 (key: "sceneNumber-imageNumber")
+  const [isConvertingSceneVideo, setIsConvertingSceneVideo] = useState<Set<string>>(new Set()) // Scene 이미지 영상 변환 중 상태 (key: "sceneNumber-imageNumber")
   
   // 효과음 및 배경음악 설정
   type AudioTrack = {
@@ -552,9 +578,36 @@ export default function LongformContentPage() {
   
   // 기본 주제/틈새 주제 토글 상태
   const [showBasicCategories, setShowBasicCategories] = useState(false)
+  // 틈새 주제 검색어
+  const [nicheCategorySearch, setNicheCategorySearch] = useState("")
 
   const isStepActive = (stepId: string) => activeStep === stepId
   const isStepCompleted = (stepId: string) => completedSteps.includes(stepId)
+
+  // 영상 생성 버튼 활성화 상태 디버깅
+  useEffect(() => {
+    const hasSceneImages = sceneImagePrompts.length > 0 && sceneImagePrompts.some(s => 
+      s.images && s.images.some(img => img.imageUrl)
+    )
+    const hasRegularImages = generatedImages.length > 0
+    const hasImages = hasSceneImages || hasRegularImages
+    const hasAudios = generatedAudios.length > 0
+    
+    console.log("[영상 생성 버튼] 상태 변경 감지:", {
+      activeStep,
+      hasSceneImages,
+      hasRegularImages,
+      hasImages,
+      hasAudios,
+      generatedAudiosLength: generatedAudios.length,
+      sceneImagePromptsLength: sceneImagePrompts.length,
+      sceneImagePromptsDetails: sceneImagePrompts.map(s => ({
+        sceneNumber: s.sceneNumber,
+        images: s.images?.map(img => ({ imageNumber: img.imageNumber, hasUrl: !!img.imageUrl })) || [],
+      })),
+      canActivate: hasImages && hasAudios,
+    })
+  }, [activeStep, sceneImagePrompts, generatedImages, generatedAudios])
 
   useEffect(() => {
     const savedApiKey = localStorage.getItem("user_tts_api_key")
@@ -572,28 +625,34 @@ export default function LongformContentPage() {
     
     setIsLoadingTrending(true)
     try {
-      const apiKey = getApiKey()
-      const topics = await generateTrendingTopics(selectedCategory, apiKey)
-      // string[]을 { title: string; videoId: string }[] 형식으로 변환
-      // topics가 문자열 배열인지 확인하고 안전하게 처리
-      const formattedTopics = topics.map((item, idx) => {
-        // item이 문자열인 경우
+      const youtubeDataApiKey = getApiKey("wings_youtube_data_api_key")
+      // 실제 인기 주제 불러오기
+      const trending = await generateTrendingTopics(selectedCategory, youtubeDataApiKey)
+      // 호환성 유지: item이 객체거나 문자열일 수 있으므로 변환
+      const normalizedTrending = trending.map((item: any) => {
+        if (typeof item === 'object' && item !== null && 'title' in item && 'videoId' in item) {
+          return { title: item.title, videoId: item.videoId }
+        }
+        // 문자열인 경우 (이전 버전 호환성)
         if (typeof item === 'string') {
-          return { title: item, videoId: `topic_${Date.now()}_${idx}_${Math.random()}` }
+          console.warn("generateTrendingTopics가 문자열 배열을 반환했습니다. videoId가 없습니다.")
+          return { title: item, videoId: "" }
         }
-        // item이 객체인 경우 (이미 title 속성이 있을 수 있음)
-        if (typeof item === 'object' && item !== null) {
-          const title = (item as any).title || String(item)
-          return { title, videoId: `topic_${Date.now()}_${idx}_${Math.random()}` }
-        }
-        // 그 외의 경우 문자열로 변환
-        return { title: String(item), videoId: `topic_${Date.now()}_${idx}_${Math.random()}` }
-      })
-      setTrendingTopics(formattedTopics)
-    } catch (error) {
-      console.error("인기 주제 로드 실패:", error)
-      setTrendingTopics([])
-      alert("인기 주제를 불러오는데 실패했습니다.")
+        // 그 외는 무시
+        // generateTrendingTopics가 문자열, 객체, 혹은 예외 값(null/undefined 등)을 반환할 수 있으니
+        // 타입 가드를 명확히 해서 title, videoId가 정상적인 것만 필터링함
+        }).filter(
+          (item: any): item is { title: string; videoId: string } =>
+            item &&
+            typeof item === "object" &&
+            typeof item.title === "string" &&
+            typeof item.videoId === "string"
+        );
+        setTrendingTopics(normalizedTrending);
+      } catch (error) {
+        console.error("인기 주제 로드 실패:", error);
+        setTrendingTopics([]);
+        alert("인기 주제를 불러오는데 실패했습니다.");
     } finally {
       setIsLoadingTrending(false)
     }
@@ -651,7 +710,12 @@ export default function LongformContentPage() {
       })
       // 자동화 중에는 activeStep을 변경하지 않음 (주제 추천 화면 유지)
       
-      const planResult = await generateScriptPlan(selectedTopic, selectedCategory, keywords || undefined, apiKey, autoDurationMinutes, referenceScript || undefined)
+      const geminiApiKey = getGeminiApiKey()
+      if (!geminiApiKey) {
+        alert("Gemini API 키를 설정해주세요. 설정 페이지에서 API 키를 입력하고 저장해주세요.")
+        return
+      }
+      const planResult = await generateScriptPlan(selectedTopic, selectedCategory, undefined, geminiApiKey, autoDurationMinutes, referenceScript || undefined) // 자동화 모드는 기본 교훈형
       setScriptPlan(planResult)
       setCompletedSteps((prev) => [...new Set([...prev, "planning"])])
       await new Promise(resolve => setTimeout(resolve, 1000))
@@ -666,7 +730,7 @@ export default function LongformContentPage() {
       })
       // activeStep은 planning으로 유지 (별도의 draft UI가 없음)
       
-      const draftResult = await generateScriptDraft(planResult, selectedTopic, apiKey, selectedCategory)
+      const draftResult = await generateScriptDraft(planResult, selectedTopic, apiKey, selectedCategory, isStoryMode)
       setScriptDraft(draftResult)
       setCompletedSteps((prev) => [...new Set([...prev, "draft"])])
       await new Promise(resolve => setTimeout(resolve, 1000))
@@ -689,7 +753,8 @@ export default function LongformContentPage() {
         apiKey,
         autoDurationMinutes,
         targetChars,
-        selectedCategory
+        selectedCategory,
+        isStoryMode
       )
       setScript(scriptResult)
       
@@ -735,7 +800,7 @@ export default function LongformContentPage() {
             const prompt = await generateImagePrompt(line.text, apiKey, selectedCategory)
             console.log(`[자동화] 이미지 프롬프트 생성 완료: ${prompt.substring(0, 50)}...`)
             
-            const imageUrl = await generateImageWithReplicate(prompt, replicateApiKey, "16:9")
+            const imageUrl = await generateImageWithReplicate(prompt, replicateApiKey, "16:9", imageStyle)
             console.log(`[자동화] 이미지 생성 완료: ${imageUrl.substring(0, 50)}...`)
             
             localImageResults.push({ lineId: line.id, imageUrl, prompt })
@@ -939,10 +1004,10 @@ export default function LongformContentPage() {
               }
             }
             
-            // 단어들을 묶어서 자막 라인 생성 (공백 포함 최대 25자)
+            // 단어들을 묶어서 자막 라인 생성 (공백 포함 최대 20자)
             let currentLine: string[] = []
             let lineStartTime = 0
-            const maxChars = 25 // 공백 포함 25자까지
+            const maxChars = 20 // 공백 포함 20자까지
             
             for (let i = 0; i < words.length; i++) {
               const word = words[i]
@@ -3119,7 +3184,20 @@ export default function LongformContentPage() {
     try {
       console.log("[v0] 대본 기획 생성 시작, 주제:", selectedTopic || customTopic)
       const topic = isCustomTopicSelected ? customTopic : selectedTopic
-      const plan = await generateScriptPlan(topic, selectedCategory, undefined, getApiKey(), undefined, referenceScript || undefined)
+      const geminiApiKey = getGeminiApiKey()
+      if (!geminiApiKey) {
+        alert("Gemini API 키를 설정해주세요. 설정 페이지에서 API 키를 입력하고 저장해주세요.")
+        setIsGenerating(false)
+        return
+      }
+      const plan = await generateScriptPlan(
+        topic,
+        selectedCategory || "health",
+        keywords || undefined,
+        geminiApiKey,
+        scriptDuration,
+        referenceScript || undefined
+      )
       console.log("[v0] 대본 기획 생성 완료")
       setScriptPlan(plan)
       setScriptDraft("") // 기획안이 새로 생성되면 초안 초기화
@@ -3157,7 +3235,7 @@ export default function LongformContentPage() {
     try {
       console.log("[v0] 대본 초안 생성 시작")
       const topic = isCustomTopicSelected ? customTopic : selectedTopic
-      const draft = await generateScriptDraft(scriptPlan, topic || "", getApiKey(), selectedCategory)
+      const draft = await generateScriptDraft(scriptPlan, topic || "", getApiKey(), selectedCategory, isStoryMode)
       console.log("[v0] 대본 초안 생성 완료")
       setScriptDraft(draft)
       // 대본 초안 생성 후 자동으로 대본 생성 단계로 이동
@@ -3167,8 +3245,8 @@ export default function LongformContentPage() {
       if (isAutoMode) {
         console.log("[v0] 자동화 모드: 대본 재구성 시작")
         setTimeout(() => {
-          // 기본 대본 생성 호출
-          handleBasicScriptGeneration()
+          // 정교한 대본 생성 호출
+          handleRefinedScriptGeneration()
         }, 1000)
       }
     } catch (error) {
@@ -3223,106 +3301,274 @@ export default function LongformContentPage() {
   }
 
   // 대본을 적절한 길이의 문장 그룹으로 나누는 함수
-  const splitScriptIntoLines = (scriptText: string): Array<{ id: number; text: string }> => {
-    // 문장 부호로 먼저 나누기
-    const sentences = scriptText
-      .split(/[.!?。！？]\s*/)
-      .map((s: string) => s.trim())
-      .filter((s: string) => s.length > 0)
+  // 새로운 장면 분해 형식을 파싱하여 scriptLines로 변환하는 함수
+  const parseSceneBlocks = (sceneText: string): Array<{ id: number; text: string }> => {
+    if (!sceneText || sceneText.trim().length === 0) {
+      return []
+    }
+
+    const lines: Array<{ id: number; text: string }> = []
+    let currentId = 1
+
+    // 씬 블록을 찾기 위한 정규식
+    // 형식: 씬 {number}\n[장면 1]\n(텍스트)\n[장면 2]\n(텍스트)...
+    // 플래그 's'는 ES2018 이상이 필요하므로 제거하여 호환성 높임
+    const sceneRegex = /씬\s+(\d+)\s*\n\[장면\s+(\d+)\]\s*\n([^[]+?)(?=\[장면\s+\d+\]|씬\s+\d+|$)/g
+
+    let match
+    while ((match = sceneRegex.exec(sceneText)) !== null) {
+      const sceneNum = match[1]
+      const shotNum = match[2]
+      const shotText = match[3].trim()
+
+      if (shotText) {
+        lines.push({
+          id: currentId++,
+          text: shotText,
+        })
+      }
+    }
+
+    // 정규식으로 매칭되지 않은 경우, 간단한 파싱 시도
+    if (lines.length === 0) {
+      // [장면 N] 형식으로 직접 파싱
+      const shotRegex = /\[장면\s+\d+\]\s*\n([^\[]+?)(?=\[장면\s+\d+\]|씬\s+\d+|$)/g
+      let shotMatch
+      while ((shotMatch = shotRegex.exec(sceneText)) !== null) {
+        const shotText = shotMatch[1].trim()
+        if (shotText) {
+          lines.push({
+            id: currentId++,
+            text: shotText,
+          })
+        }
+      }
+    }
+
+    return lines
+  }
+
+  const splitScriptIntoLines = (scriptText: string, isRefined: boolean = false): Array<{ id: number; text: string }> => {
+    if (!scriptText || scriptText.trim().length === 0) {
+      return []
+    }
+
+    // 정교한 대본의 경우: 의미/장면 단위로 나뉘어 있으므로 줄바꿈을 기준으로 처리
+    if (isRefined) {
+      // 빈 줄(줄바꿈 2개 이상) 또는 단일 줄바꿈을 기준으로 의미 단위 분리
+      const meaningUnits = scriptText.split(/\n\s*\n/).filter(unit => unit.trim().length > 0)
+      
+      const groupedLines: Array<{ id: number; text: string }> = []
+      const TARGET_LINE_LENGTH = 60 // 목표 길이 (10~15초 분량)
+      const MIN_LINE_LENGTH = 35 // 최소 길이
+      const MAX_LINE_LENGTH = 90 // 최대 길이
+      
+      for (const unit of meaningUnits) {
+        const trimmedUnit = unit.trim().replace(/\n/g, " ") // 단일 줄바꿈은 공백으로 변환
+        const unitLength = trimmedUnit.length
+        
+        // 의미 단위가 이미 적절한 길이면 그대로 사용
+        if (unitLength >= MIN_LINE_LENGTH && unitLength <= MAX_LINE_LENGTH) {
+          groupedLines.push({
+            id: groupedLines.length + 1,
+            text: trimmedUnit,
+          })
+        }
+        // 의미 단위가 너무 짧으면 다음 단위와 합치거나 그대로 사용
+        else if (unitLength < MIN_LINE_LENGTH) {
+          if (groupedLines.length > 0) {
+            // 이전 그룹에 합치기
+            const lastIndex = groupedLines.length - 1
+            const combined = groupedLines[lastIndex].text + " " + trimmedUnit
+            if (combined.length <= MAX_LINE_LENGTH) {
+              groupedLines[lastIndex] = {
+                ...groupedLines[lastIndex],
+                text: combined,
+              }
+            } else {
+              // 합치면 너무 길면 별도로 추가
+              groupedLines.push({
+                id: groupedLines.length + 1,
+                text: trimmedUnit,
+              })
+            }
+          } else {
+            // 첫 번째 그룹이면 그대로 추가
+            groupedLines.push({
+              id: groupedLines.length + 1,
+              text: trimmedUnit,
+            })
+          }
+        }
+        // 의미 단위가 너무 길면 문장 단위로 나누기
+        else {
+          // 문장 부호로 나누기
+          const sentences = trimmedUnit.split(/([.!?。！？]\s*)/).filter(s => s.trim().length > 0)
+          let currentGroup = ""
+          
+          for (let i = 0; i < sentences.length; i++) {
+            const sentence = sentences[i].trim()
+            if (!sentence) continue
+            
+            const potentialLength = currentGroup ? (currentGroup + " " + sentence).length : sentence.length
+            
+            if (potentialLength > MAX_LINE_LENGTH && currentGroup) {
+              groupedLines.push({
+                id: groupedLines.length + 1,
+                text: currentGroup,
+              })
+              currentGroup = sentence
+            } else if (potentialLength >= TARGET_LINE_LENGTH && potentialLength <= MAX_LINE_LENGTH) {
+              const finalText = currentGroup ? currentGroup + " " + sentence : sentence
+              groupedLines.push({
+                id: groupedLines.length + 1,
+                text: finalText,
+              })
+              currentGroup = ""
+            } else {
+              currentGroup = currentGroup ? currentGroup + " " + sentence : sentence
+            }
+          }
+          
+          if (currentGroup) {
+            if (groupedLines.length > 0 && currentGroup.length < MIN_LINE_LENGTH) {
+              const lastIndex = groupedLines.length - 1
+              groupedLines[lastIndex] = {
+                ...groupedLines[lastIndex],
+                text: groupedLines[lastIndex].text + " " + currentGroup,
+              }
+            } else {
+              groupedLines.push({
+                id: groupedLines.length + 1,
+                text: currentGroup,
+              })
+            }
+          }
+        }
+      }
+      
+      return groupedLines.map((l, index) => {
+        let text = l.text.trim()
+        if (text.length > 0 && !/[.!?。！？]$/.test(text)) {
+          text = text + "."
+        }
+        return { ...l, id: index + 1, text }
+      })
+    }
+
+    // 기본 대본의 경우: 기존 로직 사용 (문장 부호 기준 + 길이 기반 그룹화)
+    // 문장 부호를 보존하면서 문장 단위로 나누기
+    const sentences: string[] = []
+    const sentenceEndRegex = /([.!?。！？])\s*/g
+    let lastIndex = 0
+    let match
     
+    while ((match = sentenceEndRegex.exec(scriptText)) !== null) {
+      const sentence = scriptText.substring(lastIndex, match.index + match[0].length).trim()
+      if (sentence.length > 0) {
+        sentences.push(sentence)
+      }
+      lastIndex = sentenceEndRegex.lastIndex
+    }
+    
+    // 마지막 부분 처리
+    if (lastIndex < scriptText.length) {
+      const lastSentence = scriptText.substring(lastIndex).trim()
+      if (lastSentence.length > 0) {
+        sentences.push(lastSentence)
+      }
+    }
+
+    if (sentences.length === 0) {
+      return []
+    }
+
     const groupedLines: Array<{ id: number; text: string }> = []
+    // TTS 속도: 분당 약 200-250자 기준
+    // 10초 = 약 33~42자, 15초 = 약 50~63자
+    const TARGET_LINE_LENGTH = 60 // 목표 길이 (10~15초 분량, 약 50~60자)
+    const MIN_LINE_LENGTH = 35 // 최소 길이 (약 10초 분량)
+    const MAX_LINE_LENGTH = 90 // 최대 길이 (약 15초 분량)
+    
     let currentGroup: string[] = []
-    let lineId = 1
-    const MAX_LINE_LENGTH = 200 // 한 문장 그룹의 최대 길이 (자)
-    const MIN_LINE_LENGTH = 30 // 한 문장 그룹의 최소 길이 (자)
-    const MAX_SINGLE_SENTENCE_LENGTH = 150 // 한 문장의 최대 길이 (자)
+    let currentLength = 0
     
     for (let i = 0; i < sentences.length; i++) {
       const sentence = sentences[i]
-      const currentGroupText = currentGroup.join(" ")
-      const potentialGroupText = currentGroupText ? currentGroupText + " " + sentence : sentence
+      const sentenceLength = sentence.length
+      const potentialLength = currentLength + (currentLength > 0 ? 1 : 0) + sentenceLength // 공백 포함
       
-      // 한 문장이 너무 길면 쉼표나 연결어를 기준으로 더 나누기
-      if (sentence.length > MAX_SINGLE_SENTENCE_LENGTH) {
-        // 먼저 현재 그룹이 있으면 저장
-        if (currentGroup.length > 0) {
+      // 현재 그룹이 비어있으면 추가
+      if (currentGroup.length === 0) {
+        currentGroup.push(sentence)
+        currentLength = sentenceLength
+        // 한 문장이 이미 최대 길이를 넘으면 바로 저장
+        if (sentenceLength > MAX_LINE_LENGTH) {
           groupedLines.push({
-            id: lineId++,
-            text: currentGroup.join(" "),
+            id: groupedLines.length + 1,
+            text: sentence,
           })
           currentGroup = []
+          currentLength = 0
         }
-        
-        // 긴 문장을 쉼표나 연결어를 기준으로 나누기
-        const subParts = sentence.split(/([,，]\s*|그리고|또한|그런데|하지만|그러나|그래서|따라서|그러므로|그러면|그런)/)
-        let subGroup: string[] = []
-        
-        for (const part of subParts) {
-          const trimmedPart = part.trim()
-          if (!trimmedPart) continue
-          
-          const subGroupText = subGroup.join(" ")
-          const potentialSubGroupText = subGroupText ? subGroupText + " " + trimmedPart : trimmedPart
-          
-          // 하위 그룹이 최대 길이를 넘으면 저장하고 새로 시작
-          if (potentialSubGroupText.length > MAX_LINE_LENGTH && subGroup.length > 0) {
-            groupedLines.push({
-              id: lineId++,
-              text: subGroup.join(" "),
-            })
-            subGroup = [trimmedPart]
-          } else {
-            subGroup.push(trimmedPart)
-          }
-        }
-        
-        // 남은 하위 그룹 처리
-        if (subGroup.length > 0) {
-          const subGroupText = subGroup.join(" ")
-          // 최소 길이를 만족하면 별도 그룹으로, 아니면 다음 문장과 합치기
-          if (subGroupText.length >= MIN_LINE_LENGTH) {
-            groupedLines.push({
-              id: lineId++,
-              text: subGroupText,
-            })
-          } else {
-            currentGroup = [...subGroup]
-          }
-        }
-      } 
-      // 현재 그룹에 추가했을 때 최대 길이를 넘으면 저장하고 새로 시작
-      else if (potentialGroupText.length > MAX_LINE_LENGTH && currentGroup.length > 0) {
-        groupedLines.push({
-          id: lineId++,
-          text: currentGroup.join(" "),
-        })
-        currentGroup = [sentence]
+        continue
       }
-      // 2개 문장이 모이고 최소 길이를 만족하면 묶기
-      else if (currentGroup.length >= 2 && potentialGroupText.length >= MIN_LINE_LENGTH) {
+      
+      // 현재 그룹에 추가했을 때 최대 길이를 넘으면 현재 그룹 저장하고 새로 시작
+      if (potentialLength > MAX_LINE_LENGTH) {
+        if (currentGroup.length > 0) {
+          const groupText = currentGroup.join(" ")
+          groupedLines.push({
+            id: groupedLines.length + 1,
+            text: groupText,
+          })
+        }
+        currentGroup = [sentence]
+        currentLength = sentenceLength
+        // 한 문장이 이미 최대 길이를 넘으면 바로 저장
+        if (sentenceLength > MAX_LINE_LENGTH) {
+          groupedLines.push({
+            id: groupedLines.length + 1,
+            text: sentence,
+          })
+          currentGroup = []
+          currentLength = 0
+        }
+        continue
+      }
+      
+      // 목표 길이에 도달하면 (목표 길이 이상이고 최대 길이 미만) 그룹 저장
+      if (potentialLength >= TARGET_LINE_LENGTH && potentialLength <= MAX_LINE_LENGTH) {
+        currentGroup.push(sentence)
+        const groupText = currentGroup.join(" ")
         groupedLines.push({
-          id: lineId++,
-          text: potentialGroupText,
+          id: groupedLines.length + 1,
+          text: groupText,
         })
         currentGroup = []
+        currentLength = 0
+        continue
       }
-      // 그 외에는 현재 그룹에 추가
-      else {
+      
+      // 목표 길이보다 작으면 계속 추가
+      if (potentialLength < TARGET_LINE_LENGTH) {
         currentGroup.push(sentence)
+        currentLength = potentialLength
+        continue
       }
     }
     
     // 남은 문장들 처리
     if (currentGroup.length > 0) {
       const remainingText = currentGroup.join(" ")
-      // 최소 길이를 만족하면 저장, 아니면 이전 그룹에 합치기
+      // 최소 길이를 만족하거나 마지막 그룹이면 저장
       if (remainingText.length >= MIN_LINE_LENGTH || groupedLines.length === 0) {
         groupedLines.push({
-          id: lineId++,
+          id: groupedLines.length + 1,
           text: remainingText,
         })
       } else if (groupedLines.length > 0) {
-        // 마지막 그룹에 합치기
+        // 최소 길이 미만이면 마지막 그룹에 합치기
         const lastIndex = groupedLines.length - 1
         groupedLines[lastIndex] = {
           ...groupedLines[lastIndex],
@@ -3343,8 +3589,8 @@ export default function LongformContentPage() {
   }
 
   const handleBasicScriptGeneration = async () => {
-    if (!scriptDraft) {
-      alert("대본 초안을 먼저 생성해주세요.")
+    if (!scriptPlan) {
+      alert("대본 기획안을 먼저 생성해주세요.")
       return
     }
 
@@ -3354,7 +3600,7 @@ export default function LongformContentPage() {
       const topic = isCustomTopicSelected ? customTopic : selectedTopic
       // 선택한 시간에 맞춰 대본 길이 계산 (1초당 6.9자)
       const targetChars = Math.floor(scriptDuration * 60 * 6.9)
-      const fullScript = await generateFinalScript(scriptDraft, topic || "", getApiKey(), scriptDuration, targetChars, selectedCategory)
+      const fullScript = await generateFinalScript(scriptPlan, topic || "", getApiKey(), scriptDuration, targetChars, selectedCategory, isStoryMode)
       setScript(fullScript)
       
       // 대본을 문장 단위로 분리하고 적절한 길이로 묶기
@@ -3373,8 +3619,8 @@ export default function LongformContentPage() {
   }
 
   const handleRefinedScriptGeneration = async () => {
-    if (!scriptDraft) {
-      alert("대본 초안을 먼저 생성해주세요.")
+    if (!scriptPlan) {
+      alert("대본 기획안을 먼저 생성해주세요.")
       return
     }
 
@@ -3384,11 +3630,16 @@ export default function LongformContentPage() {
       const topic = isCustomTopicSelected ? customTopic : selectedTopic
       // 선택한 시간에 맞춰 대본 길이 계산 (1초당 6.9자)
       const targetChars = Math.floor(scriptDuration * 60 * 6.9)
-      const fullScript = await generateRefinedScript(scriptDraft, topic || "", scriptDuration, targetChars)
+      const geminiApiKey = getGeminiApiKey()
+      if (!geminiApiKey) {
+        alert("Gemini API 키를 설정해주세요. 설정 페이지에서 API 키를 입력하고 저장해주세요.")
+        return
+      }
+      const fullScript = await generateRefinedScript(scriptPlan, topic || "", scriptDuration, targetChars, isStoryMode, geminiApiKey)
       setScript(fullScript)
       
-      // 대본을 문장 단위로 분리하고 적절한 길이로 묶기
-      const groupedLines = splitScriptIntoLines(fullScript)
+      // 정교한 대본은 의미/장면 기반으로 나누기
+      const groupedLines = splitScriptIntoLines(fullScript, true)
       
       setScriptLines(groupedLines)
       setCompletedSteps((prev) => [...prev, "script"])
@@ -3450,9 +3701,9 @@ export default function LongformContentPage() {
       let englishPrompt = await generateCustomPrompt(customImagePrompt, openaiApiKey)
       
       // 카테고리별 프롬프트 추가 (16:9 비율 강제)
-      if (selectedCategory === "history" && historyStyle) {
-        // 역사 카테고리는 generateImagePrompt 사용
-        englishPrompt = await generateImagePrompt(customImagePrompt, openaiApiKey, "history", historyStyle)
+      // 모든 카테고리에서 스타일 적용
+      if (imageStyle) {
+        englishPrompt = await generateImagePrompt(customImagePrompt, openaiApiKey, selectedCategory || "health", imageStyle)
       } else {
         // 다른 카테고리는 기본 프롬프트에 16:9 강제 추가
         if (!englishPrompt.toLowerCase().includes("16:9") && !englishPrompt.toLowerCase().includes("aspect ratio")) {
@@ -3473,7 +3724,7 @@ export default function LongformContentPage() {
           openaiApiKey,
           replicateApiKey,
           category: selectedCategory || "health",
-          historyStyle: selectedCategory === "history" ? historyStyle : undefined,
+          historyStyle: imageStyle,
           customPrompt: englishPrompt, // 직접 프롬프트 전달
         }),
       })
@@ -3544,6 +3795,48 @@ export default function LongformContentPage() {
     }
   }
 
+  // Scene 이미지 업로드 핸들러
+  const handleSceneImageUpload = async (sceneNumber: number, imageNumber: number, file: File) => {
+    try {
+      // 16:9 비율로 이미지 리사이즈
+      const resizedImage = await resizeImageTo16_9(file)
+      
+      // Base64로 변환
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        const base64 = reader.result as string
+        const imageUrl = base64
+
+        // 업로드된 이미지 업데이트
+        setSceneImagePrompts((prev) => {
+          return prev.map((scene) => {
+            if (scene.sceneNumber === sceneNumber) {
+              return {
+                ...scene,
+                images: scene.images.map((img) => {
+                  if (img.imageNumber === imageNumber) {
+                    return {
+                      ...img,
+                      imageUrl: imageUrl,
+                    }
+                  }
+                  return img
+                }),
+              }
+            }
+            return scene
+          })
+        })
+
+        alert("이미지가 업로드되었습니다!")
+      }
+      reader.readAsDataURL(resizedImage)
+    } catch (error) {
+      console.error(`[Scene] 이미지 업로드 실패 (Scene ${sceneNumber}, Image ${imageNumber}):`, error)
+      alert(`이미지 업로드에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+    }
+  }
+
   // 이미지를 16:9 비율로 리사이즈하는 함수
   const resizeImageTo16_9 = (file: File): Promise<File> => {
     return new Promise((resolve, reject) => {
@@ -3594,6 +3887,52 @@ export default function LongformContentPage() {
       img.onerror = () => reject(new Error("이미지 로드에 실패했습니다."))
       img.src = URL.createObjectURL(file)
     })
+  }
+
+  // Scene 이미지를 영상으로 변환하는 핸들러
+  const handleConvertSceneImageToVideo = async (sceneNumber: number, imageNumber: number, imageUrl: string) => {
+    const videoKey = `${sceneNumber}-${imageNumber}`
+    
+    if (isConvertingSceneVideo.has(videoKey)) {
+      return
+    }
+
+    setIsConvertingSceneVideo((prev) => new Set(prev).add(videoKey))
+    
+    const replicateApiKey = typeof window !== "undefined" ? localStorage.getItem("replicate_api_key") || undefined : undefined
+
+    if (!replicateApiKey) {
+      alert("Replicate API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+      setIsConvertingSceneVideo((prev) => {
+        const newSet = new Set(prev)
+        newSet.delete(videoKey)
+        return newSet
+      })
+      return
+    }
+
+    try {
+      const { convertImageToVideo } = await import("./actions")
+      const videoUrl = await convertImageToVideo(imageUrl, replicateApiKey)
+      
+      if (videoUrl) {
+        setConvertedSceneVideos((prev) => {
+          const newMap = new Map(prev)
+          newMap.set(videoKey, videoUrl)
+          return newMap
+        })
+        console.log(`[Scene Video] 이미지-투-비디오 변환 완료 (Scene ${sceneNumber}, Image ${imageNumber}):`, videoUrl)
+      }
+    } catch (error) {
+      console.error(`[Scene Video] 이미지-투-비디오 변환 실패 (Scene ${sceneNumber}, Image ${imageNumber}):`, error)
+      alert(`영상 변환에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+    } finally {
+      setIsConvertingSceneVideo((prev) => {
+        const newSet = new Set(prev)
+        newSet.delete(videoKey)
+        return newSet
+      })
+    }
   }
 
   // 선택한 이미지를 영상으로 변환하는 핸들러
@@ -3696,8 +4035,29 @@ export default function LongformContentPage() {
     setGeneratedImages([])
 
     let successCount = 0
+    let commonStylePrompt: string | undefined = undefined
 
     try {
+      // 1. 전체 대본의 공통 스타일 프롬프트 생성 (첫 번째 이미지 생성 전)
+      const topic = isCustomTopicSelected ? customTopic : selectedTopic
+      if (topic) {
+        try {
+          // commonStylePrompt = await generateCommonStylePrompt(
+          //   topic,
+          //   selectedCategory || "health",
+          //   openaiApiKey,
+          //   imageStyle
+          // )
+          // 임시로 주석 처리 (import 에러 해결 후 활성화)
+          commonStylePrompt = undefined
+          // console.log("[v0] 공통 스타일 프롬프트 생성 완료:", commonStylePrompt)
+        } catch (error) {
+          console.warn("[v0] 공통 스타일 프롬프트 생성 실패, 계속 진행:", error)
+          // 공통 스타일 생성 실패해도 계속 진행
+        }
+      }
+
+      // 2. 각 문장에 대해 이미지 생성
       for (let i = 0; i < scriptLines.length; i++) {
         const line = scriptLines[i]
         setImageGenerationProgress({ current: i + 1, total: scriptLines.length })
@@ -3715,7 +4075,9 @@ export default function LongformContentPage() {
               openaiApiKey,
               replicateApiKey,
               category: selectedCategory || "health",
-              historyStyle: selectedCategory === "history" ? historyStyle : undefined,
+              historyStyle: imageStyle, // 모든 카테고리에서 스타일 적용
+              commonStylePrompt, // 공통 스타일 프롬프트 전달
+              topic: isCustomTopicSelected ? customTopic : selectedTopic, // 주제 전달 (시대적 배경 파악용)
             }),
           })
 
@@ -4094,6 +4456,178 @@ export default function LongformContentPage() {
       setAutoModeStep("TTS 생성 중...")
       setAutoModeProgress({ current: "5/7", total: 7 })
     }
+    
+    // 씬별 처리 여부 확인
+    const useSceneBasedTTS = decomposedScenes && decomposedScenes.trim().length > 0
+    
+    if (useSceneBasedTTS) {
+      console.log("[TTS] 씬별 TTS 생성 모드 사용")
+      
+      // 씬별로 파싱
+      const sceneBlocks = decomposedScenes.split(/(?=씬\s+\d+)/).filter(block => block.trim().length > 0)
+      const parsedScenes: Array<{
+        sceneNumber: number
+        scenes: Array<{ imageNumber: number; text: string }>
+      }> = []
+      
+      for (const sceneBlock of sceneBlocks) {
+        const sceneNumMatch = sceneBlock.match(/씬\s+(\d+)/)
+        if (!sceneNumMatch) continue
+        
+        const sceneNum = parseInt(sceneNumMatch[1])
+        const sceneImages: Array<{ imageNumber: number; text: string }> = []
+        
+        const imageRegex = /\[장면\s+(\d+)\]\s*\n([\s\S]*?)(?=\[장면\s+\d+\]|씬\s+\d+|$)/g
+        let imageMatch
+        
+        while ((imageMatch = imageRegex.exec(sceneBlock)) !== null) {
+          const imageNum = parseInt(imageMatch[1])
+          const imageText = imageMatch[2].trim()
+          
+          if (imageText) {
+            sceneImages.push({
+              imageNumber: imageNum,
+              text: imageText,
+            })
+          }
+        }
+        
+        if (sceneImages.length > 0) {
+          parsedScenes.push({
+            sceneNumber: sceneNum,
+            scenes: sceneImages,
+          })
+        }
+      }
+      
+      console.log(`[TTS] 파싱된 씬 수: ${parsedScenes.length}`)
+      parsedScenes.forEach(scene => {
+        console.log(`[TTS] 씬 ${scene.sceneNumber}: ${scene.scenes.length}개의 장면 발견`)
+        scene.scenes.forEach(img => {
+          console.log(`[TTS]   - 장면 ${img.imageNumber}: "${img.text.substring(0, 50)}..."`)
+        })
+      })
+      
+      // 각 장면의 텍스트를 그대로 하나의 TTS로 생성 (문장 분리 없이)
+      const sceneTextsForTTS: Array<{ sceneNumber: number; imageNumber: number; text: string; lineId: number }> = []
+      let lineIdCounter = 1
+      
+      for (const parsedScene of parsedScenes) {
+        for (const scene of parsedScene.scenes) {
+          // 각 장면의 텍스트를 그대로 사용 (문장 분리 없이)
+          const text = scene.text.trim()
+          
+          if (text.length > 0) {
+            sceneTextsForTTS.push({
+              sceneNumber: parsedScene.sceneNumber,
+              imageNumber: scene.imageNumber,
+              text: text,
+              lineId: lineIdCounter++,
+            })
+            
+            console.log(`[TTS] 씬 ${parsedScene.sceneNumber} 장면 ${scene.imageNumber} 추가: "${text.substring(0, 50)}..."`)
+          }
+        }
+      }
+      
+      console.log(`[TTS] 총 ${sceneTextsForTTS.length}개의 장면에 대해 TTS 생성`)
+      
+      setTtsGenerationProgress({ current: 0, total: sceneTextsForTTS.length })
+      setGeneratedAudios([])
+      
+      let successCount = 0
+      let currentProgress = 0
+      
+      try {
+        // 각 장면별로 TTS 생성
+        console.log(`[TTS] TTS 생성 시작: 총 ${sceneTextsForTTS.length}개 문장`)
+        console.log(`[TTS] 장면별 분포:`, sceneTextsForTTS.reduce((acc, item) => {
+          const key = `씬${item.sceneNumber}-장면${item.imageNumber}`
+          acc[key] = (acc[key] || 0) + 1
+          return acc
+        }, {} as Record<string, number>))
+        
+        for (let i = 0; i < sceneTextsForTTS.length; i++) {
+          const sceneText = sceneTextsForTTS[i]
+          currentProgress++
+          setTtsGenerationProgress({ current: currentProgress, total: sceneTextsForTTS.length })
+          
+          try {
+            console.log(`[TTS] [${i + 1}/${sceneTextsForTTS.length}] 씬 ${sceneText.sceneNumber} 장면 ${sceneText.imageNumber} TTS 생성 시작: "${sceneText.text.substring(0, 50)}..."`)
+            
+            const data = await generateTTSWithRetry({ id: sceneText.lineId, text: sceneText.text }, selectedVoiceId)
+            
+            console.log(`[TTS] [${i + 1}/${sceneTextsForTTS.length}] 씬 ${sceneText.sceneNumber} 장면 ${sceneText.imageNumber} TTS 생성 완료`)
+            
+            setGeneratedAudios((prev) => {
+              const newAudios = [
+                ...prev,
+                {
+                  lineId: sceneText.lineId,
+                  audioUrl: data.audioUrl,
+                  audioBase64: data.audioBase64,
+                },
+              ]
+              console.log(`[TTS] 현재 생성된 TTS 개수: ${newAudios.length}`)
+              return newAudios
+            })
+            successCount++
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error)
+            console.error(`[TTS] [${i + 1}/${sceneTextsForTTS.length}] 씬 ${sceneText.sceneNumber} 장면 ${sceneText.imageNumber} TTS 생성 실패:`, errorMessage)
+          }
+        }
+        
+        console.log("[TTS] 모든 장면별 TTS 생성 완료, 성공:", successCount, "개 / 전체:", sceneTextsForTTS.length, "개")
+        
+        if (successCount > 0) {
+          console.log("[TTS] TTS 생성 완료 - 사이드바 완료 표시 업데이트")
+          setCompletedSteps((prev) => {
+            if (!prev.includes("video")) {
+              console.log("[TTS] 'video' 단계를 완료 목록에 추가")
+              return [...prev, "video"]
+            }
+            console.log("[TTS] 'video' 단계는 이미 완료 목록에 있음")
+            return prev
+          })
+          
+          if (!isAutoMode) {
+            if (successCount < sceneTextsForTTS.length) {
+              alert(`${successCount}개의 TTS가 생성되었습니다. (${sceneTextsForTTS.length - successCount}개 실패)\n\n실패한 항목은 브라우저 콘솔을 확인해주세요.`)
+            } else {
+              alert(`${successCount}개의 TTS가 모두 생성되었습니다!`)
+            }
+          }
+          
+          if (isAutoMode) {
+            console.log("[TTS] 자동화 모드: 영상 생성 시작")
+            setTimeout(() => handleRenderVideo(), 2000)
+          }
+        } else {
+          const errorMessage = "TTS 생성에 실패했습니다.\n\n가능한 원인:\n1. ElevenLabs API 키가 올바르지 않습니다\n2. API 키의 사용량이 초과되었습니다\n3. 네트워크 연결 문제\n\n브라우저 콘솔(F12)에서 자세한 오류를 확인해주세요."
+          alert(errorMessage)
+          if (isAutoMode) {
+            setIsAutoMode(false)
+            setAutoModeStep("")
+          }
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        console.error("TTS 생성 실패:", errorMessage, error)
+        alert(`TTS 생성 중 오류가 발생했습니다:\n\n${errorMessage}\n\n브라우저 콘솔(F12)에서 자세한 오류를 확인해주세요.`)
+        if (isAutoMode) {
+          setIsAutoMode(false)
+          setAutoModeStep("")
+        }
+      } finally {
+        setIsGeneratingTTS(false)
+        setTtsGenerationProgress({ current: 0, total: 0 })
+      }
+      
+      return
+    }
+    
+    // 기존 로직 (씬별 TTS가 아닌 경우)
     setTtsGenerationProgress({ current: 0, total: scriptLines.length })
     // 기존 오디오 초기화
     setGeneratedAudios([])
@@ -4437,8 +4971,18 @@ export default function LongformContentPage() {
 
   // 영상 미리보기 생성 핸들러 (클라이언트 사이드에서 오디오 합치고 자막 생성)
   const handleRenderVideo = async () => {
-    if (scriptLines.length === 0 || generatedImages.length === 0 || generatedAudios.length === 0) {
-      alert("이미지, TTS, 대본이 모두 준비되어야 합니다.")
+    if (scriptLines.length === 0 || generatedAudios.length === 0) {
+      alert("TTS와 대본이 모두 준비되어야 합니다.")
+      return
+    }
+
+    // 씬별 이미지가 있는지 확인 (sceneImagePrompts)
+    const hasSceneImages = sceneImagePrompts.length > 0 && sceneImagePrompts.some(scene => 
+      scene.images.some(img => img.imageUrl)
+    )
+    
+    if (!hasSceneImages && generatedImages.length === 0) {
+      alert("이미지가 필요합니다. 씬별 이미지 또는 일반 이미지를 생성해주세요.")
       return
     }
 
@@ -4447,6 +4991,405 @@ export default function LongformContentPage() {
 
     try {
       console.log("[v0] 영상 렌더링 시작")
+      
+      // 씬별 처리 여부 확인
+      const useSceneBasedRendering = decomposedScenes && decomposedScenes.trim().length > 0 && hasSceneImages
+      
+      if (useSceneBasedRendering) {
+        console.log("[v0] 씬별 렌더링 모드 사용")
+        
+        // 씬별로 파싱
+        const sceneBlocks = decomposedScenes.split(/(?=씬\s+\d+)/).filter(block => block.trim().length > 0)
+        const parsedScenes: Array<{
+          sceneNumber: number
+          scenes: Array<{ imageNumber: number; text: string }>
+        }> = []
+        
+        for (const sceneBlock of sceneBlocks) {
+          const sceneNumMatch = sceneBlock.match(/씬\s+(\d+)/)
+          if (!sceneNumMatch) continue
+          
+          const sceneNum = parseInt(sceneNumMatch[1])
+          const sceneImages: Array<{ imageNumber: number; text: string }> = []
+          
+          // Scene 블록 내에서 모든 [장면 N] 패턴 찾기
+          const imageRegex = /\[장면\s+(\d+)\]\s*\n([\s\S]*?)(?=\[장면\s+\d+\]|씬\s+\d+|$)/g
+          let imageMatch
+          
+          while ((imageMatch = imageRegex.exec(sceneBlock)) !== null) {
+            const imageNum = parseInt(imageMatch[1])
+            const imageText = imageMatch[2].trim()
+            
+            if (imageText) {
+              sceneImages.push({
+                imageNumber: imageNum,
+                text: imageText,
+              })
+            }
+          }
+          
+          if (sceneImages.length > 0) {
+            parsedScenes.push({
+              sceneNumber: sceneNum,
+              scenes: sceneImages,
+            })
+          }
+        }
+        
+        console.log(`[v0] 파싱된 씬 수: ${parsedScenes.length}`)
+        
+        // 씬별로 오디오와 이미지 매핑 (각 장면의 텍스트에 맞는 TTS 사용)
+        const sceneAudioMapping: Map<number, Array<{ lineId: number; text: string; imageNumber: number }>> = new Map()
+        let globalLineId = 1
+        
+        for (const parsedScene of parsedScenes) {
+          const sceneData = sceneImagePrompts.find(s => s.sceneNumber === parsedScene.sceneNumber)
+          if (!sceneData) continue
+          
+          // 각 장면의 텍스트에 맞는 TTS 매핑 (장면 분해 결과의 텍스트를 직접 사용)
+          const sceneLines: Array<{ lineId: number; text: string; imageNumber: number }> = []
+          
+          for (const scene of parsedScene.scenes) {
+            // 각 장면의 텍스트에 해당하는 lineId 찾기 (TTS 생성 시 사용된 lineId와 일치)
+            // TTS 생성 시 lineIdCounter로 생성했으므로, 같은 순서로 매칭
+            const lineId = globalLineId++
+            
+            sceneLines.push({
+              lineId: lineId,
+              text: scene.text,
+              imageNumber: scene.imageNumber,
+            })
+            
+            console.log(`[v0] 씬 ${parsedScene.sceneNumber} 장면 ${scene.imageNumber} 매핑: lineId=${lineId}, 텍스트="${scene.text.substring(0, 30)}..."`)
+          }
+          
+          sceneAudioMapping.set(parsedScene.sceneNumber, sceneLines)
+        }
+        
+        // 1. 각 TTS 오디오의 정확한 길이 측정 (씬별)
+        const audioDurations: Array<{ lineId: number; duration: number; audioBuffer?: AudioBuffer }> = []
+        const audioContextForAnalysis = new (window.AudioContext || (window as any).webkitAudioContext)()
+        
+        // 모든 씬의 오디오 길이 측정
+        for (const [sceneNum, lines] of sceneAudioMapping.entries()) {
+          for (const line of lines) {
+            const audio = generatedAudios.find((a) => a.lineId === line.lineId)
+            if (audio) {
+              try {
+                const audioResponse = await fetch(audio.audioUrl)
+                const audioArrayBuffer = await audioResponse.arrayBuffer()
+                const audioBuffer = await audioContextForAnalysis.decodeAudioData(audioArrayBuffer)
+                const preciseDuration = audioBuffer.duration
+                
+                audioDurations.push({
+                  lineId: line.lineId,
+                  duration: preciseDuration,
+                  audioBuffer: audioBuffer,
+                })
+                
+                console.log(`[v0] 씬 ${sceneNum} 오디오 ${line.lineId} 길이: ${preciseDuration.toFixed(3)}초`)
+              } catch (error) {
+                console.error(`오디오 로드 실패 (씬 ${sceneNum}, 줄 ${line.lineId}):`, error)
+                const audioElement = new Audio(audio.audioUrl)
+                await new Promise((resolve) => {
+                  audioElement.addEventListener("loadedmetadata", () => {
+                    audioDurations.push({
+                      lineId: line.lineId,
+                      duration: audioElement.duration,
+                    })
+                    resolve(null)
+                  })
+                  audioElement.addEventListener("error", () => {
+                    audioDurations.push({
+                      lineId: line.lineId,
+                      duration: 0,
+                    })
+                    resolve(null)
+                  })
+                })
+              }
+            }
+          }
+        }
+        
+        // 2. 자막 생성 (씬별)
+        const subtitles: Array<{ id: number; start: number; end: number; text: string }> = []
+        
+        const splitIntoSubtitleLines = (text: string, audioBuffer?: AudioBuffer, totalDuration: number = 0): Array<{ text: string; startTime: number; endTime: number }> => {
+          const words = text.split(" ").filter(w => w.trim().length > 0)
+          if (words.length === 0) return [{ text, startTime: 0, endTime: totalDuration }]
+          
+          const result: Array<{ text: string; startTime: number; endTime: number }> = []
+          let silenceThreshold = 0.01
+          let wordStartTimes: number[] = []
+          
+          if (audioBuffer && totalDuration > 0) {
+            const totalChars = words.reduce((sum, w) => sum + w.length, 0)
+            let currentTime = 0
+            
+            for (const word of words) {
+              const wordRatio = word.length / totalChars
+              const wordDuration = wordRatio * totalDuration
+              wordStartTimes.push(currentTime)
+              currentTime += wordDuration
+            }
+          } else {
+            const timePerWord = totalDuration / words.length
+            for (let i = 0; i < words.length; i++) {
+              wordStartTimes.push(i * timePerWord)
+            }
+          }
+          
+          let currentLine: string[] = []
+          let lineStartTime = 0
+          const maxChars = 20 // 공백 포함 20자까지
+          
+          for (let i = 0; i < words.length; i++) {
+            const word = words[i]
+            const testLine = currentLine.length > 0 ? currentLine.join(" ") + " " + word : word
+            
+            if (testLine.length > maxChars && currentLine.length >= 1) {
+              if (currentLine.length > 0) {
+                const lineEndTime = i < wordStartTimes.length ? wordStartTimes[i] : totalDuration
+                result.push({
+                  text: currentLine.join(" "),
+                  startTime: lineStartTime,
+                  endTime: lineEndTime,
+                })
+              }
+              currentLine = [word]
+              lineStartTime = wordStartTimes[i] || (i * (totalDuration / words.length))
+            } else {
+              currentLine.push(word)
+            }
+          }
+          
+          if (currentLine.length > 0) {
+            result.push({
+              text: currentLine.join(" "),
+              startTime: lineStartTime,
+              endTime: totalDuration,
+            })
+          }
+          
+          return result.length > 0 ? result : [{ text, startTime: 0, endTime: totalDuration }]
+        }
+        
+        let subtitleTime = 0
+        let subtitleId = 1
+        
+        // 씬별로 자막 생성
+        for (const [sceneNum, lines] of sceneAudioMapping.entries()) {
+          for (const line of lines) {
+            const audioData = audioDurations.find((d) => d.lineId === line.lineId)
+            const audioDuration = audioData?.duration || 0
+            const audioBuffer = audioData?.audioBuffer
+            
+            if (audioDuration > 0) {
+              const subtitleLines = splitIntoSubtitleLines(line.text, audioBuffer, audioDuration)
+              
+              for (let j = 0; j < subtitleLines.length; j++) {
+                const subtitleLine = subtitleLines[j]
+                const start = subtitleTime + subtitleLine.startTime
+                const end = subtitleTime + subtitleLine.endTime
+                
+                subtitles.push({
+                  id: subtitleId++,
+                  start: Number.parseFloat(start.toFixed(3)),
+                  end: Number.parseFloat(end.toFixed(3)),
+                  text: subtitleLine.text,
+                })
+              }
+              
+              subtitleTime += audioDuration
+            }
+          }
+        }
+        
+        // 3. 이미지 매핑 (씬별)
+        const autoImages: Array<{
+          id: string
+          url: string
+          startTime: number
+          endTime: number
+          keyword: string
+          motion?: string
+        }> = []
+        
+        let imageTime = 0
+        
+        // 씬별로 이미지 매핑 (각 장면의 TTS와 정확히 매칭)
+        for (const parsedScene of parsedScenes) {
+          const sceneData = sceneImagePrompts.find(s => s.sceneNumber === parsedScene.sceneNumber)
+          if (!sceneData) continue
+          
+          const sceneLines = sceneAudioMapping.get(parsedScene.sceneNumber) || []
+          
+          // 각 장면의 TTS와 이미지를 정확히 매칭
+          for (const line of sceneLines) {
+            const audioDuration = audioDurations.find(d => d.lineId === line.lineId)?.duration || 0
+            
+            if (audioDuration > 0) {
+              // 해당 장면의 이미지 찾기 (imageNumber로 매칭)
+              const image = sceneData.images.find(img => img.imageNumber === line.imageNumber && img.imageUrl)
+              
+              if (image && image.imageUrl) {
+                autoImages.push({
+                  id: `scene_${parsedScene.sceneNumber}_image_${line.imageNumber}`,
+                  url: image.imageUrl,
+                  startTime: imageTime,
+                  endTime: imageTime + audioDuration,
+                  keyword: line.text.substring(0, 30),
+                  motion: "static",
+                })
+                
+                console.log(`[v0] 씬 ${parsedScene.sceneNumber} 장면 ${line.imageNumber} 매핑: 이미지=${image.imageUrl.substring(0, 50)}..., TTS 길이=${audioDuration.toFixed(3)}초`)
+              }
+              
+              imageTime += audioDuration
+            }
+          }
+        }
+        
+        // 4. 모든 TTS 오디오를 하나로 합치기
+        const calculatedTotalDuration = audioDurations.reduce((sum, d) => sum + d.duration, 0)
+        
+        const firstImage = autoImages[0]
+        if (!firstImage) {
+          throw new Error("이미지가 없습니다.")
+        }
+        
+        // 5. 모든 오디오를 순차적으로 합치기
+        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+        const audioBuffers: AudioBuffer[] = []
+        
+        // 씬별로 오디오 수집
+        for (const [sceneNum, lines] of sceneAudioMapping.entries()) {
+          for (const line of lines) {
+            const audio = generatedAudios.find((a) => a.lineId === line.lineId)
+            if (audio) {
+              try {
+                const audioResponse = await fetch(audio.audioUrl)
+                const audioArrayBuffer = await audioResponse.arrayBuffer()
+                const audioBuffer = await audioContext.decodeAudioData(audioArrayBuffer)
+                audioBuffers.push(audioBuffer)
+              } catch (error) {
+                console.error(`오디오 디코딩 실패 (씬 ${sceneNum}, 줄 ${line.lineId}):`, error)
+              }
+            }
+          }
+        }
+        
+        if (audioBuffers.length === 0) {
+          throw new Error("합칠 수 있는 오디오가 없습니다.")
+        }
+        
+        // 모든 오디오 버퍼를 하나로 합치기
+        const totalLength = audioBuffers.reduce((sum, buffer) => sum + buffer.length, 0)
+        const numberOfChannels = audioBuffers[0].numberOfChannels
+        const sampleRate = audioBuffers[0].sampleRate
+        
+        const mergedBuffer = audioContext.createBuffer(numberOfChannels, totalLength, sampleRate)
+        
+        let offset = 0
+        for (const buffer of audioBuffers) {
+          for (let channel = 0; channel < numberOfChannels; channel++) {
+            const mergedData = mergedBuffer.getChannelData(channel)
+            const bufferData = buffer.getChannelData(channel)
+            mergedData.set(bufferData, offset)
+          }
+          offset += buffer.length
+        }
+        
+        const actualMergedDuration = mergedBuffer.duration
+        console.log(`[v0] 계산된 총 길이: ${calculatedTotalDuration.toFixed(3)}초, 실제 병합된 오디오 길이: ${actualMergedDuration.toFixed(3)}초`)
+        
+        const durationRatio = actualMergedDuration > 0 && calculatedTotalDuration > 0 
+          ? actualMergedDuration / calculatedTotalDuration 
+          : 1.0
+        
+        console.log(`[v0] Duration ratio: ${durationRatio.toFixed(4)}`)
+        
+        if (durationRatio !== 1.0) {
+          console.log(`[v0] 자막 타이밍 조정 중... (ratio: ${durationRatio.toFixed(4)})`)
+          for (let i = 0; i < subtitles.length; i++) {
+            subtitles[i].start = Number.parseFloat((subtitles[i].start * durationRatio).toFixed(3))
+            subtitles[i].end = Number.parseFloat((subtitles[i].end * durationRatio).toFixed(3))
+          }
+          
+          for (let i = 0; i < autoImages.length; i++) {
+            autoImages[i].startTime = Number.parseFloat((autoImages[i].startTime * durationRatio).toFixed(3))
+            autoImages[i].endTime = Number.parseFloat((autoImages[i].endTime * durationRatio).toFixed(3))
+          }
+          console.log(`[v0] 자막 및 이미지 타이밍 조정 완료`)
+        }
+        
+        const totalDuration = actualMergedDuration
+        
+        console.log("[v0] 미리보기용 오디오 생성 (원본 품질 유지)")
+        
+        const wav = audioBufferToWav(mergedBuffer)
+        const uint8Array = new Uint8Array(wav)
+        
+        let binaryString = ""
+        const chunkSize = 8192
+        for (let i = 0; i < uint8Array.length; i += chunkSize) {
+          const chunk = uint8Array.slice(i, i + chunkSize)
+          binaryString += String.fromCharCode.apply(null, Array.from(chunk))
+        }
+        const audioBase64 = btoa(binaryString)
+        
+        console.log("[v0] 미리보기 생성 시작")
+        console.log("[v0] 자막 수:", subtitles.length)
+        console.log("[v0] 이미지 수:", autoImages.length)
+        console.log("[v0] 총 영상 길이:", totalDuration, "초")
+        
+        const audioBlob = new Blob([wav], { type: "audio/wav" })
+        const audioUrl = URL.createObjectURL(audioBlob)
+        
+        console.log("[v0] 오디오 Blob URL 생성 완료:", audioUrl)
+        
+        setVideoData({
+          audioUrl,
+          subtitles,
+          duration: totalDuration,
+          autoImages: autoImages.map((img) => ({
+            id: img.id,
+            url: img.url,
+            startTime: img.startTime,
+            endTime: img.endTime,
+            keyword: img.keyword,
+            motion: (img.motion || "static") as "zoom-in" | "zoom-out" | "pan-left" | "pan-right" | "static",
+          })),
+        })
+        
+        setAutoImages(autoImages.map((img) => ({
+          id: img.id,
+          url: img.url,
+          startTime: img.startTime,
+          endTime: img.endTime,
+          keyword: img.keyword,
+          motion: (img.motion || "static") as "zoom-in" | "zoom-out" | "pan-left" | "pan-right" | "static",
+        })))
+        
+        console.log("[v0] 미리보기 데이터 생성 완료 (씬별 렌더링)")
+        setIsGeneratingVideo(false)
+        setGeneratingVideoProgress(100)
+        
+        if (isAutoMode) {
+          setAutoModeStep("빠른다운로드 중...")
+          setAutoModeProgress({ current: "7/7", total: 7 })
+          console.log("[v0] 자동화 모드: 빠른다운로드 시작")
+          setTimeout(() => handleFastDownload(), 2000)
+        } else {
+          alert("영상 미리보기가 준비되었습니다!")
+        }
+        
+        return
+      }
+      
+      // 기존 로직 (씬별 렌더링이 아닌 경우)
+      console.log("[v0] 일반 렌더링 모드 사용")
 
       // 1. 각 TTS 오디오의 정확한 길이 측정 (AudioBuffer 사용)
       const audioDurations: Array<{ lineId: number; duration: number; audioBuffer?: AudioBuffer }> = []
@@ -4528,16 +5471,16 @@ export default function LongformContentPage() {
           }
         }
         
-        // 단어들을 묶어서 자막 라인 생성 (공백 포함 최대 25자)
+        // 단어들을 묶어서 자막 라인 생성 (공백 포함 최대 20자)
         let currentLine: string[] = []
         let lineStartTime = 0
-        const maxChars = 25 // 공백 포함 25자까지
+        const maxChars = 20 // 공백 포함 20자까지
         
         for (let i = 0; i < words.length; i++) {
           const word = words[i]
           const testLine = currentLine.length > 0 ? currentLine.join(" ") + " " + word : word
           
-          // 25자를 초과하면 줄 분리 (25자까지는 나오도록)
+          // 20자를 초과하면 줄 분리 (20자까지는 나오도록)
           if (testLine.length > maxChars && currentLine.length >= 1) {
             if (currentLine.length > 0) {
               const lineEndTime = i < wordStartTimes.length ? wordStartTimes[i] : totalDuration
@@ -4808,10 +5751,92 @@ export default function LongformContentPage() {
     }
   }
 
+  // 이미지를 1920x1080으로 리사이즈하는 헬퍼 함수
+  const resizeImageTo1920x1080 = async (imageUrl: string): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image()
+      img.crossOrigin = "anonymous"
+      img.onload = () => {
+        try {
+          const canvas = document.createElement("canvas")
+          canvas.width = 1920
+          canvas.height = 1080
+          const ctx = canvas.getContext("2d")
+          if (!ctx) {
+            reject(new Error("Canvas context를 생성할 수 없습니다."))
+            return
+          }
+
+          // 이미지를 1920x1080에 맞게 중앙 크롭
+          const targetWidth = 1920
+          const targetHeight = 1080
+          const targetRatio = targetWidth / targetHeight
+          const imgRatio = img.width / img.height
+
+          let sourceX = 0
+          let sourceY = 0
+          let sourceWidth = img.width
+          let sourceHeight = img.height
+
+          if (imgRatio > targetRatio) {
+            // 이미지가 더 넓은 경우: 높이 기준으로 크롭 (좌우 잘림)
+            sourceHeight = img.height
+            sourceWidth = img.height * targetRatio
+            sourceX = (img.width - sourceWidth) / 2
+            sourceY = 0
+          } else {
+            // 이미지가 더 높은 경우: 너비 기준으로 크롭 (상하 잘림)
+            sourceWidth = img.width
+            sourceHeight = img.width / targetRatio
+            sourceX = 0
+            sourceY = (img.height - sourceHeight) / 2
+          }
+
+          // 이미지를 1920x1080에 딱 맞게 그리기
+          ctx.drawImage(
+            img,
+            sourceX, sourceY, sourceWidth, sourceHeight,
+            0, 0, targetWidth, targetHeight
+          )
+
+          // base64로 변환
+          const base64 = canvas.toDataURL("image/png")
+          resolve(base64)
+        } catch (error) {
+          reject(error)
+        }
+      }
+      img.onerror = () => reject(new Error("이미지 로드 실패"))
+      img.src = imageUrl
+    })
+  }
+
   // 빠른다운로드: Cloud Run 사용
   const handleFastDownload = async () => {
-    if (!videoData || scriptLines.length === 0 || generatedImages.length === 0 || generatedAudios.length === 0) {
-      alert("영상 데이터가 없습니다. 먼저 미리보기를 생성해주세요.")
+    // 씬별 이미지가 있는지 확인
+    const hasSceneImages = sceneImagePrompts.length > 0 && sceneImagePrompts.some(scene => 
+      scene.images.some(img => img.imageUrl)
+    )
+    const hasImages = hasSceneImages || generatedImages.length > 0
+    
+    // 디버깅 정보
+    console.log("[빠른다운로드] videoData 확인:", {
+      hasVideoData: !!videoData,
+      videoDataKeys: videoData ? Object.keys(videoData) : [],
+      scriptLinesCount: scriptLines.length,
+      hasImages,
+      hasSceneImages,
+      generatedImagesCount: generatedImages.length,
+      generatedAudiosCount: generatedAudios.length,
+    })
+    
+    if (!videoData) {
+      alert("영상 데이터가 없습니다. 먼저 '영상 생성' 버튼을 클릭하여 미리보기를 생성해주세요.")
+      return
+    }
+    
+    if (scriptLines.length === 0 || !hasImages || generatedAudios.length === 0) {
+      alert("필수 데이터가 부족합니다. 대본, 이미지, TTS가 모두 준비되어야 합니다.")
       return
     }
 
@@ -5018,12 +6043,227 @@ export default function LongformContentPage() {
       }
 
       // 첫 번째 이미지를 기본 배경으로 사용
-      const firstImage = generatedImages[0]
-      if (!firstImage) {
-        throw new Error("이미지가 없습니다.")
+      // 우선순위: autoImagesForRender > 씬별 이미지 > generatedImages
+      let firstImage: { imageUrl: string } | null = null
+      
+      if (autoImagesForRender.length > 0) {
+        // autoImagesForRender에서 첫 번째 이미지 사용
+        firstImage = { imageUrl: autoImagesForRender[0].url }
+        console.log("[v0] autoImagesForRender에서 첫 번째 이미지 사용:", firstImage.imageUrl)
+      } else if (sceneImagePrompts.length > 0) {
+        // 씬별 이미지에서 첫 번째 이미지 찾기
+        for (const scene of sceneImagePrompts) {
+          const sceneImage = scene.images.find(img => img.imageUrl)
+          if (sceneImage && sceneImage.imageUrl) {
+            firstImage = { imageUrl: sceneImage.imageUrl as string }
+            console.log("[v0] 씬별 이미지에서 첫 번째 이미지 사용:", firstImage.imageUrl)
+            break
+          }
+        }
+      } else if (generatedImages.length > 0) {
+        // generatedImages에서 첫 번째 이미지 사용
+        firstImage = generatedImages[0]
+        console.log("[v0] generatedImages에서 첫 번째 이미지 사용:", firstImage.imageUrl)
+      }
+      
+      if (!firstImage || !firstImage.imageUrl) {
+        console.error("[v0] 이미지 없음 - 상태 확인:", {
+          autoImagesForRenderCount: autoImagesForRender.length,
+          sceneImagePromptsCount: sceneImagePrompts.length,
+          generatedImagesCount: generatedImages.length,
+          hasSceneImages: sceneImagePrompts.some(s => s.images.some(img => img.imageUrl)),
+        })
+        throw new Error("이미지가 없습니다. 이미지를 생성해주세요.")
       }
 
-      // 3. Cloud Run 렌더링 API 호출
+      // 3. 이미지를 1920x1080으로 리사이즈
+      console.log("[v0] 이미지 리사이즈 시작 (1920x1080)...")
+      
+      // characterImage 리사이즈
+      const resizedCharacterImageBase64 = await resizeImageTo1920x1080(firstImage!.imageUrl)
+      console.log("[v0] characterImage 리사이즈 완료")
+      
+      // autoImages 리사이즈
+      const resizedAutoImagesBase64 = await Promise.all(
+        autoImagesForRender.map(async (img) => {
+          const resizedUrl = await resizeImageTo1920x1080(img.url)
+          return {
+            ...img,
+            url: resizedUrl, // base64로 변환된 이미지
+          }
+        })
+      )
+      console.log("[v0] autoImages 리사이즈 완료:", resizedAutoImagesBase64.length, "개")
+
+      // 4. 이미지를 Cloud Storage에 업로드 (크기가 큰 경우)
+      // base64 크기 계산 (대략적으로, 실제로는 더 클 수 있음)
+      const characterImageSize = resizedCharacterImageBase64.length
+      const totalAutoImagesSize = resizedAutoImagesBase64.reduce((sum, img) => sum + img.url.length, 0)
+      const totalImagesSize = characterImageSize + totalAutoImagesSize
+      
+      console.log("[v0] 이미지 크기:", {
+        characterImage: `${Math.round(characterImageSize / 1024)} KB`,
+        autoImages: `${Math.round(totalAutoImagesSize / 1024)} KB`,
+        total: `${Math.round(totalImagesSize / 1024)} KB`,
+      })
+
+      // 이미지도 Cloud Storage에 업로드 (1MB 이상이면 업로드)
+      let characterImageGcsUrl: string | null = null
+      let autoImagesGcsUrls: Array<{ id: string; url: string; startTime: number; endTime: number; keyword: string; motion?: string }> = []
+      
+      const shouldUploadImagesToGcs = totalImagesSize > 1024 * 1024 // 1MB 이상
+      
+      if (shouldUploadImagesToGcs) {
+        console.log("[v0] 이미지가 큽니다. Cloud Storage에 업로드합니다...")
+        
+        try {
+          // characterImage 업로드 (재시도 로직 포함)
+          const charImageBase64 = resizedCharacterImageBase64.includes(",") 
+            ? resizedCharacterImageBase64.split(",")[1] 
+            : resizedCharacterImageBase64
+          
+          // base64를 Blob으로 변환
+          const binaryString = atob(charImageBase64)
+          const charBytes = new Uint8Array(binaryString.length)
+          for (let i = 0; i < binaryString.length; i++) {
+            charBytes[i] = binaryString.charCodeAt(i)
+          }
+          const charImageBlob = new Blob([charBytes], { type: "image/png" })
+          
+          // characterImage 업로드 재시도 (최대 3회)
+          let charUploadSuccess = false
+          for (let retry = 0; retry < 3; retry++) {
+            try {
+              const charSignedUrlResponse = await fetch("/api/upload-to-gcs/signed-url", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  fileName: `character_image_${Date.now()}_${retry}.png`,
+                  contentType: "image/png",
+                }),
+              })
+              
+              if (!charSignedUrlResponse.ok) {
+                throw new Error(`Signed URL 생성 실패: ${charSignedUrlResponse.status}`)
+              }
+              
+              const { signedUrl, publicUrl } = await charSignedUrlResponse.json()
+              const uploadResponse = await fetch(signedUrl, {
+                method: "PUT",
+                headers: { "Content-Type": "image/png" },
+                body: charImageBlob,
+              })
+              
+              if (uploadResponse.ok) {
+                characterImageGcsUrl = publicUrl
+                console.log("[v0] characterImage Cloud Storage 업로드 완료:", characterImageGcsUrl)
+                charUploadSuccess = true
+                break
+              } else {
+                throw new Error(`업로드 실패: ${uploadResponse.status}`)
+              }
+            } catch (error) {
+              console.warn(`[v0] characterImage 업로드 시도 ${retry + 1}/3 실패:`, error)
+              if (retry < 2) {
+                await new Promise(resolve => setTimeout(resolve, 1000 * (retry + 1))) // 1초, 2초 대기
+              } else {
+                throw new Error(`characterImage 업로드 실패 (3회 시도): ${error instanceof Error ? error.message : String(error)}`)
+              }
+            }
+          }
+          
+          if (!charUploadSuccess) {
+            throw new Error("characterImage 업로드에 실패했습니다.")
+          }
+          
+          // autoImages 업로드 (재시도 로직 포함)
+          autoImagesGcsUrls = await Promise.all(
+            resizedAutoImagesBase64.map(async (img, index) => {
+              const imgBase64 = img.url.includes(",") 
+                ? img.url.split(",")[1] 
+                : img.url
+              
+              // base64를 Blob으로 변환
+              const binaryString = atob(imgBase64)
+              const imgBytes = new Uint8Array(binaryString.length)
+              for (let i = 0; i < binaryString.length; i++) {
+                imgBytes[i] = binaryString.charCodeAt(i)
+              }
+              const imgBlob = new Blob([imgBytes], { type: "image/png" })
+              
+              // autoImage 업로드 재시도 (최대 3회)
+              for (let retry = 0; retry < 3; retry++) {
+                try {
+                  const signedUrlResponse = await fetch("/api/upload-to-gcs/signed-url", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      fileName: `auto_image_${Date.now()}_${index}_${retry}_${img.id}.png`,
+                      contentType: "image/png",
+                    }),
+                  })
+                  
+                  if (!signedUrlResponse.ok) {
+                    throw new Error(`Signed URL 생성 실패: ${signedUrlResponse.status}`)
+                  }
+                  
+                  const { signedUrl, publicUrl } = await signedUrlResponse.json()
+                  const uploadResponse = await fetch(signedUrl, {
+                    method: "PUT",
+                    headers: { "Content-Type": "image/png" },
+                    body: imgBlob,
+                  })
+                  
+                  if (uploadResponse.ok) {
+                    return {
+                      ...img,
+                      url: publicUrl,
+                    }
+                  } else {
+                    throw new Error(`업로드 실패: ${uploadResponse.status}`)
+                  }
+                } catch (error) {
+                  console.warn(`[v0] autoImage ${img.id} 업로드 시도 ${retry + 1}/3 실패:`, error)
+                  if (retry < 2) {
+                    await new Promise(resolve => setTimeout(resolve, 1000 * (retry + 1))) // 1초, 2초 대기
+                  } else {
+                    throw new Error(`autoImage ${img.id} 업로드 실패 (3회 시도): ${error instanceof Error ? error.message : String(error)}`)
+                  }
+                }
+              }
+              
+              // 여기 도달하면 안 됨 (위에서 throw됨)
+              throw new Error(`autoImage ${img.id} 업로드 실패`)
+            })
+          )
+          
+          console.log("[v0] autoImages Cloud Storage 업로드 완료:", autoImagesGcsUrls.length, "개")
+        } catch (imageUploadError) {
+          console.error("[v0] 이미지 Cloud Storage 업로드 실패:", imageUploadError)
+          const errorMessage = imageUploadError instanceof Error ? imageUploadError.message : String(imageUploadError)
+          alert(`이미지 업로드에 실패했습니다: ${errorMessage}\n\n다시 시도해주세요.`)
+          setIsExporting(false)
+          return
+        }
+      }
+
+      // 5. 이미지 URL 검증 및 로깅
+      const finalCharacterImage = characterImageGcsUrl || resizedCharacterImageBase64
+      if (!finalCharacterImage) {
+        throw new Error("characterImage가 없습니다. 이미지 리사이즈에 실패했을 수 있습니다.")
+      }
+      
+      console.log("[v0] 렌더링 요청 준비:", {
+        characterImage: characterImageGcsUrl ? "Cloud Storage" : "base64",
+        characterImageSize: finalCharacterImage.length,
+        autoImagesCount: autoImagesGcsUrls.length || resizedAutoImagesBase64.length,
+        duration: videoData.duration,
+        subtitlesCount: videoData.subtitles.length,
+        audioGcsUrl: audioGcsUrl ? "있음" : "없음",
+        audioBase64Length: audioBase64 ? audioBase64.length : 0,
+      })
+
+      // 6. Cloud Run 렌더링 API 호출
       const renderResponse = await fetch("/api/ai/render", {
         method: "POST",
         headers: {
@@ -5031,15 +6271,20 @@ export default function LongformContentPage() {
         },
         body: JSON.stringify({
           // Cloud Storage URL이 있으면 사용, 없으면 base64 사용
-          ...(audioGcsUrl ? { audioGcsUrl } : { audioBase64 }),
+          ...(audioGcsUrl ? { audioGcsUrl: audioGcsUrl } : { audioBase64: audioBase64 }),
           subtitles: videoData.subtitles.map((s) => ({
             id: s.id,
             start: s.start,
             end: s.end,
             text: s.text,
           })),
-          characterImage: firstImage.imageUrl,
-          autoImages: autoImagesForRender,
+          // 이미지: characterImage는 항상 전송 (안전장치)
+          // characterImageGcsUrl이 있으면 함께 전송 (서버에서 선택)
+          characterImage: resizedCharacterImageBase64,
+          ...(characterImageGcsUrl ? { characterImageGcsUrl: characterImageGcsUrl } : {}),
+          autoImages: (autoImagesGcsUrls.length > 0 && autoImagesGcsUrls.some(img => !img.url.startsWith("data:"))) 
+            ? autoImagesGcsUrls 
+            : resizedAutoImagesBase64,
           duration: videoData.duration,
           config: {
             width: 1920,
@@ -5060,28 +6305,139 @@ export default function LongformContentPage() {
         
         // 응답이 JSON인지 확인
         const contentType = renderResponse.headers.get("content-type") || ""
-        let errorData
+        let errorData: any = null
         if (contentType.includes("application/json")) {
           try {
             errorData = await renderResponse.json()
+            console.error("[v0] Cloud Run 렌더링 오류 응답:", JSON.stringify(errorData, null, 2))
           } catch (e) {
             // JSON 파싱 실패 시 텍스트로 읽기
             const errorText = await renderResponse.text()
-            throw new Error(`Cloud Run 렌더링 실패 (${renderResponse.status}): ${errorText.substring(0, 200)}`)
+            console.error("[v0] Cloud Run 렌더링 오류 (텍스트):", errorText)
+            throw new Error(`Cloud Run 렌더링 실패 (${renderResponse.status}): ${errorText.substring(0, 500)}`)
           }
         } else {
           // HTML 응답인 경우 (413 오류 페이지 등)
           const errorText = await renderResponse.text()
+          console.error("[v0] Cloud Run 렌더링 오류 (HTML):", errorText.substring(0, 500))
           if (renderResponse.status === 413) {
             throw new Error(
               "요청 크기가 너무 큽니다. Cloud Storage 업로드를 다시 시도하거나 오디오 길이를 줄여주세요. " +
               "(Vercel 요청 크기 제한: 4.5MB)"
             )
           }
-          throw new Error(`Cloud Run 렌더링 실패 (${renderResponse.status}): ${errorText.substring(0, 200)}`)
+          throw new Error(`Cloud Run 렌더링 실패 (${renderResponse.status}): ${errorText.substring(0, 500)}`)
         }
         
-        throw new Error(errorData?.error || `Cloud Run 렌더링 실패 (${renderResponse.status})`)
+        // 오류 메시지 구성
+        let errorMessage = "렌더링 실패"
+        let fullErrorDetails = ""
+        
+        if (errorData) {
+          // details 필드가 있으면 전체 내용 저장 (콘솔용)
+          if (errorData.details) {
+            fullErrorDetails = errorData.details
+            console.error("[v0] Cloud Run 렌더링 오류 상세 정보 (전체):", fullErrorDetails)
+          }
+          
+          if (errorData.error) {
+            errorMessage = errorData.error
+            
+            // FFmpeg 오류인지 확인
+            const isFFmpegError = errorData.error.includes("ffmpeg") || 
+                                 errorData.error.includes("Segment") ||
+                                 (errorData.details && errorData.details.includes("ffmpeg"))
+            
+            if (isFFmpegError) {
+              errorMessage = "FFmpeg 렌더링 오류가 발생했습니다.\n\n"
+              errorMessage += "가능한 원인:\n"
+              errorMessage += "1. 이미지 파일 형식 문제\n"
+              errorMessage += "2. 오디오 파일 문제\n"
+              errorMessage += "3. 서버 측 FFmpeg 설정 문제\n\n"
+              errorMessage += "해결 방법:\n"
+              errorMessage += "- 다른 이미지로 다시 시도해보세요\n"
+              errorMessage += "- 오디오 파일을 확인해주세요\n"
+              errorMessage += "- 브라우저 콘솔(F12)에서 전체 오류 내용을 확인하세요"
+            }
+            
+            // details가 있으면 사용자에게도 일부 표시 (더 긴 내용)
+            if (errorData.details) {
+              // FFmpeg 버전 정보는 제외하고 실제 오류 내용만 추출
+              let detailsText = errorData.details
+              
+              // Traceback과 Exception 정보 추출
+              const tracebackStart = detailsText.indexOf("Traceback")
+              const exceptionStart = detailsText.indexOf("Exception:")
+              
+              if (exceptionStart > 0) {
+                // Exception 이후의 내용 추출
+                let exceptionText = detailsText.substring(exceptionStart)
+                
+                // "Segment X rendering failed:" 이후의 실제 FFmpeg 오류 찾기
+                const segmentFailedIndex = exceptionText.indexOf("Segment") 
+                if (segmentFailedIndex >= 0) {
+                  const afterSegment = exceptionText.substring(segmentFailedIndex)
+                  // "ffmpeg version" 이후의 실제 오류 찾기
+                  const ffmpegVersionIndex = afterSegment.indexOf("ffmpeg version")
+                  if (ffmpegVersionIndex >= 0) {
+                    // FFmpeg 버전 정보 이후의 실제 오류 메시지 찾기
+                    // 보통 버전 정보 다음에 실제 오류가 나오지만, 500자 제한으로 잘림
+                    // 그래서 최소한 Exception 메시지는 보여주기
+                    detailsText = exceptionText
+                  } else {
+                    detailsText = exceptionText
+                  }
+                } else {
+                  detailsText = exceptionText
+                }
+              } else if (tracebackStart >= 0) {
+                // Traceback만 있는 경우
+                detailsText = detailsText.substring(tracebackStart)
+              }
+              
+              // FFmpeg 버전 정보 제거 시도
+              const versionInfoPattern = /ffmpeg version[\s\S]*?configuration:[\s\S]*?(?=Exception:|Error:|$)/i
+              detailsText = detailsText.replace(versionInfoPattern, "")
+              
+              const detailsPreview = detailsText.length > 1500 
+                ? detailsText.substring(0, 1500) + "\n... (전체 내용은 콘솔에서 확인하세요)"
+                : detailsText
+              
+              if (!isFFmpegError) {
+                errorMessage += `\n\n상세 정보:\n${detailsPreview}`
+              } else {
+                // FFmpeg 오류인 경우에도 실제 오류 내용이 있으면 표시
+                if (detailsText.trim().length > 0 && !detailsText.includes("ffmpeg version")) {
+                  errorMessage += `\n\n서버 오류 상세:\n${detailsPreview}`
+                }
+              }
+            }
+          } else if (errorData.message) {
+            errorMessage = errorData.message
+            if (errorData.details) {
+              const detailsPreview = errorData.details.length > 2000 
+                ? errorData.details.substring(0, 2000) + "\n... (전체 내용은 콘솔에서 확인하세요)"
+                : errorData.details
+              errorMessage += `\n\n상세 정보:\n${detailsPreview}`
+            }
+          } else {
+            errorMessage = JSON.stringify(errorData).substring(0, 1000)
+          }
+        }
+        
+        console.error("[v0] Cloud Run 렌더링 실패:", {
+          status: renderResponse.status,
+          errorData,
+          errorMessage,
+          fullErrorDetails: fullErrorDetails || "없음",
+        })
+        
+        // 사용자에게 표시할 메시지 (더 명확하게)
+        const userMessage = errorMessage.length > 3000 
+          ? errorMessage.substring(0, 3000) + "\n\n... (전체 오류 내용은 브라우저 콘솔(F12)에서 확인하세요)"
+          : errorMessage
+        
+        throw new Error(`렌더링 실패: ${userMessage}`)
       }
 
       // 응답이 JSON인지 확인
@@ -5100,7 +6456,60 @@ export default function LongformContentPage() {
       }
 
       if (!renderResult.success) {
-        throw new Error("렌더링 결과를 받을 수 없습니다.")
+        // renderResult에 오류 정보가 있으면 사용
+        let errorMsg = renderResult.error || renderResult.message || "렌더링 결과를 받을 수 없습니다."
+        let errorDetails = ""
+        
+        // FFmpeg 오류인지 확인
+        const isFFmpegError = errorMsg.includes("ffmpeg") || 
+                             errorMsg.includes("Segment") ||
+                             (renderResult.details && renderResult.details.includes("ffmpeg"))
+        
+        if (isFFmpegError) {
+          errorMsg = "⚠️ FFmpeg 렌더링 오류가 발생했습니다\n\n"
+          errorMsg += "오류 내용: Segment 0 (첫 번째 세그먼트) 렌더링 실패\n\n"
+          errorMsg += "🔍 가능한 원인:\n"
+          errorMsg += "1. 이미지 파일 형식, 크기, 또는 손상 문제\n"
+          errorMsg += "2. 오디오 파일 형식 또는 손상 문제\n"
+          errorMsg += "3. 서버 측 FFmpeg 설정 또는 리소스 부족\n"
+          errorMsg += "4. 이미지 URL 접근 불가 (CORS 또는 권한 문제)\n\n"
+          errorMsg += "💡 해결 방법:\n"
+          errorMsg += "1. 다른 이미지로 다시 시도해보세요\n"
+          errorMsg += "2. 이미지가 공개적으로 접근 가능한지 확인하세요\n"
+          errorMsg += "3. 오디오 파일을 다시 생성해보세요\n"
+          errorMsg += "4. 브라우저 콘솔(F12)에서 전체 오류 내용을 확인하세요\n"
+          errorMsg += "5. '보통다운로드'를 시도해보세요 (MediaRecorder 사용)"
+        }
+        
+        if (renderResult.details) {
+          // FFmpeg 버전 정보는 제외하고 실제 오류 내용만 추출
+          let detailsText = renderResult.details
+          // FFmpeg 버전 정보 제거 (실제 오류 내용 찾기)
+          const versionInfoEnd = detailsText.indexOf("configuration:")
+          if (versionInfoEnd > 0) {
+            const afterVersion = detailsText.substring(versionInfoEnd)
+            const errorStart = Math.max(
+              afterVersion.indexOf("Exception:"),
+              afterVersion.indexOf("Error:")
+            )
+            if (errorStart > 0) {
+              detailsText = afterVersion.substring(errorStart)
+            }
+          }
+          
+          errorDetails = detailsText.length > 1500 
+            ? `\n\n상세 정보:\n${detailsText.substring(0, 1500)}\n... (전체 내용은 콘솔에서 확인하세요)`
+            : `\n\n상세 정보:\n${detailsText}`
+        }
+        
+        console.error("[v0] 렌더링 실패 응답:", {
+          renderResult,
+          isFFmpegError,
+          errorMsg,
+          errorDetails,
+        })
+        
+        throw new Error(`${errorMsg}${errorDetails}`)
       }
 
       console.log("[v0] Cloud Run 렌더링 완료")
@@ -5206,7 +6615,22 @@ export default function LongformContentPage() {
       setIsExporting(false)
     } catch (error) {
       console.error("[v0] 영상 렌더링 오류:", error)
-      alert(`영상 렌더링 중 오류가 발생했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+      
+      // 오류 메시지 구성
+      let errorMessage = "알 수 없는 오류"
+      if (error instanceof Error) {
+        errorMessage = error.message
+        
+        // 오류 메시지가 너무 길면 일부만 표시하고 콘솔 안내
+        if (errorMessage.length > 2000) {
+          const shortMessage = errorMessage.substring(0, 2000) + "\n\n... (전체 오류 내용은 브라우저 콘솔(F12)에서 확인하세요)"
+          alert(`영상 렌더링 중 오류가 발생했습니다:\n\n${shortMessage}`)
+        } else {
+          alert(`영상 렌더링 중 오류가 발생했습니다:\n\n${errorMessage}`)
+        }
+      } else {
+        alert(`영상 렌더링 중 오류가 발생했습니다: ${errorMessage}`)
+      }
       if (isAutoMode) {
         setIsAutoMode(false)
         setAutoModeStep("")
@@ -5412,8 +6836,30 @@ export default function LongformContentPage() {
 
   // 보통다운로드: MediaRecorder 사용 (클라이언트 사이드)
   const handleNormalDownload = async () => {
-    if (!videoData || scriptLines.length === 0 || generatedImages.length === 0 || generatedAudios.length === 0) {
-      alert("영상 데이터가 없습니다. 먼저 미리보기를 생성해주세요.")
+    // 씬별 이미지가 있는지 확인
+    const hasSceneImages = sceneImagePrompts.length > 0 && sceneImagePrompts.some(scene => 
+      scene.images.some(img => img.imageUrl)
+    )
+    const hasImages = hasSceneImages || generatedImages.length > 0
+    
+    // 디버깅 정보
+    console.log("[보통다운로드] videoData 확인:", {
+      hasVideoData: !!videoData,
+      videoDataKeys: videoData ? Object.keys(videoData) : [],
+      scriptLinesCount: scriptLines.length,
+      hasImages,
+      hasSceneImages,
+      generatedImagesCount: generatedImages.length,
+      generatedAudiosCount: generatedAudios.length,
+    })
+    
+    if (!videoData) {
+      alert("영상 데이터가 없습니다. 먼저 '영상 생성' 버튼을 클릭하여 미리보기를 생성해주세요.")
+      return
+    }
+    
+    if (scriptLines.length === 0 || !hasImages || generatedAudios.length === 0) {
+      alert("필수 데이터가 부족합니다. 대본, 이미지, TTS가 모두 준비되어야 합니다.")
       return
     }
 
@@ -5607,11 +7053,25 @@ export default function LongformContentPage() {
           placeholderImg.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" // 1x1 투명 이미지
           images.push(placeholderImg)
         } else {
-          // 비디오가 없으면 이미지 로드
+          // 비디오가 없으면 이미지 로드 및 1920x1080으로 리사이즈
           const img = new Image()
           img.crossOrigin = "anonymous"
           await new Promise<void>((resolve, reject) => {
-            img.onload = () => resolve()
+            img.onload = async () => {
+              try {
+                // 이미지를 1920x1080으로 리사이즈
+                const resizedBase64 = await resizeImageTo1920x1080(imgData.url)
+                img.src = resizedBase64 // 리사이즈된 이미지로 교체
+                await new Promise<void>((resolve2) => {
+                  img.onload = () => resolve2()
+                  img.onerror = reject
+                })
+                resolve()
+              } catch (error) {
+                console.warn("[보통다운로드] 이미지 리사이즈 실패, 원본 사용:", error)
+                resolve() // 리사이즈 실패해도 원본 이미지 사용
+              }
+            }
             img.onerror = reject
             img.src = imgData.url
           })
@@ -5707,34 +7167,39 @@ export default function LongformContentPage() {
             if (imgIndex < images.length) {
               const img = images[imgIndex]
               
-              // 줌인 효과 제거 - 이미지를 그대로 그리기
+              // 이미지를 1920x1080에 딱 맞게 조정 (잘려도 됨)
+              const targetWidth = 1920
+              const targetHeight = 1080
+              const targetRatio = targetWidth / targetHeight
+              const imgRatio = img.width / img.height
+              
               let sourceX = 0
               let sourceY = 0
               let sourceWidth = img.width
               let sourceHeight = img.height
               
-              // 16:9 이미지를 1920x1080 캔버스에 맞게 중앙 크롭
-              if (img.width / img.height > 1920 / 1080) {
-                // 이미지가 더 넓은 경우: 높이 기준으로 크롭
+              // 이미지를 1920x1080 비율에 맞게 중앙 크롭
+              if (imgRatio > targetRatio) {
+                // 이미지가 더 넓은 경우: 높이 기준으로 크롭 (좌우 잘림)
                 sourceHeight = img.height
-                sourceWidth = img.height * (1920 / 1080)
+                sourceWidth = img.height * targetRatio
                 sourceX = (img.width - sourceWidth) / 2
                 sourceY = 0
               } else {
-                // 이미지가 더 높은 경우: 너비 기준으로 크롭
+                // 이미지가 더 높은 경우: 너비 기준으로 크롭 (상하 잘림)
                 sourceWidth = img.width
-                sourceHeight = img.width * (1080 / 1920)
+                sourceHeight = img.width / targetRatio
                 sourceX = 0
                 sourceY = (img.height - sourceHeight) / 2
               }
               
               // 현재 이미지/비디오 그리기 (전환 효과 없음)
               if (!hasVideo) {
-                // 현재 이미지 그리기 (줌인 효과 없음)
+                // 현재 이미지를 1920x1080에 딱 맞게 그리기
                 ctx.drawImage(
                   img,
                   sourceX, sourceY, sourceWidth, sourceHeight, // 소스: 크롭할 영역
-                  0, 0, canvas.width, canvas.height // 대상: 캔버스 전체
+                  0, 0, targetWidth, targetHeight // 대상: 1920x1080 전체
                 )
               }
               
@@ -5765,20 +7230,45 @@ export default function LongformContentPage() {
         )
 
         if (currentSubtitles.length > 0) {
-          // 자막 그리기
-          ctx.fillStyle = "rgba(0, 0, 0, 0.7)"
-          ctx.fillRect(0, canvas.height - 200, canvas.width, 200)
+          // 자막 그리기 (한 줄, 큰 글씨) - 줄바꿈 강제 제거
+          let subtitleText = currentSubtitles.map((s) => s.text).join(" ")
+          // 모든 줄바꿈 문자 제거 (한 줄로 강제)
+          subtitleText = subtitleText.replace(/\n/g, " ").replace(/\r/g, " ").replace(/\s+/g, " ").trim()
+          
+          // 자막 배경
+          ctx.fillStyle = "rgba(0, 0, 0, 0.75)"
+          ctx.fillRect(0, canvas.height - 180, canvas.width, 180)
 
+          // 자막 텍스트 (한 줄로 표시, 크기 조정)
           ctx.fillStyle = "white"
-          ctx.font = "bold 48px Arial"
           ctx.textAlign = "center"
           ctx.textBaseline = "middle"
           
-          const subtitleText = currentSubtitles.map((s) => s.text).join(" ")
-          const lines = subtitleText.match(/.{1,40}/g) || [subtitleText]
-          lines.forEach((line, index) => {
-            ctx.fillText(line, canvas.width / 2, canvas.height - 150 + index * 60)
-          })
+          // 폰트 크기를 동적으로 조정하여 한 줄에 맞추기
+          let fontSize = 80  // 크기 증가
+          ctx.font = `bold ${fontSize}px "Noto Sans KR", "Malgun Gothic", "Apple SD Gothic Neo", Arial, sans-serif`
+          
+          // 텍스트가 화면 너비를 초과하면 폰트 크기 줄이기
+          const maxWidth = canvas.width - 120 // 좌우 여백 60px씩
+          let textWidth = ctx.measureText(subtitleText).width
+          
+          while (textWidth > maxWidth && fontSize > 45) {
+            fontSize -= 2
+            ctx.font = `bold ${fontSize}px "Noto Sans KR", "Malgun Gothic", "Apple SD Gothic Neo", Arial, sans-serif`
+            textWidth = ctx.measureText(subtitleText).width
+          }
+          
+          // 텍스트가 여전히 길면 말줄임표 추가 (한 줄 유지)
+          let displayText = subtitleText
+          if (textWidth > maxWidth) {
+            while (ctx.measureText(displayText + "...").width > maxWidth && displayText.length > 0) {
+              displayText = displayText.slice(0, -1)
+            }
+            displayText += "..."
+          }
+          
+          // 한 줄로만 표시 (절대 두 줄로 나누지 않음)
+          ctx.fillText(displayText, canvas.width / 2, canvas.height - 90)
         }
 
         const totalDuration = introVideo ? videoData.duration + 10 : videoData.duration
@@ -6179,7 +7669,7 @@ export default function LongformContentPage() {
                         {[
                           { id: "wisdom", name: "지혜(명언)", icon: "💡", gradient: "from-yellow-400 to-orange-500", available: true },
                           { id: "religion", name: "종교", icon: "✝️", gradient: "from-purple-400 to-indigo-500", available: true },
-                          { id: "health", name: "건강", icon: "🏥", gradient: "from-green-400 to-emerald-500", available: true },
+                          { id: "health", name: "건강", icon: "🏥", gradient: "from-green-400 to-emerald-500", available: false },
                           { id: "domestic_story", name: "국내 사연", icon: "🇰🇷", gradient: "from-rose-400 to-red-500", available: true },
                           { id: "international_story", name: "해외 감동사연", icon: "🌍", gradient: "from-teal-400 to-blue-500", available: true },
                 ].map((category) => (
@@ -6210,7 +7700,19 @@ export default function LongformContentPage() {
                   {/* 틈새 주제 */}
                   {!showBasicCategories && (
             <div>
-                      <h3 className="text-sm font-semibold text-gray-700 mb-3">틈새 주제</h3>
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-sm font-semibold text-gray-700">틈새 주제</h3>
+                        <div className="relative w-48">
+                          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                          <Input
+                            type="text"
+                            placeholder="카테고리 검색..."
+                            value={nicheCategorySearch}
+                            onChange={(e) => setNicheCategorySearch(e.target.value)}
+                            className="pl-9 pr-3 py-1.5 text-sm border-gray-300 focus:ring-red-500 focus:border-red-500"
+                          />
+                        </div>
+                      </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[400px] overflow-y-auto pr-2">
                         {[
                           { id: "romance_of_three_kingdoms", name: "삼국지", icon: "⚔️", gradient: "from-orange-500 to-red-500", available: true },
@@ -6240,7 +7742,12 @@ export default function LongformContentPage() {
                           { id: "reserve_army", name: "예비군이야기", icon: "🪖", gradient: "from-green-600 to-emerald-700", available: true },
                           { id: "elementary_school", name: "국민학교", icon: "🏫", gradient: "from-orange-400 to-amber-500", available: true },
                           { id: "direct_input", name: "직접입력", icon: "✍️", gradient: "from-purple-500 to-pink-500", available: true, isDirectInput: true },
-                        ].map((category: any) => (
+                        ]
+                          .filter((category) => {
+                            if (!nicheCategorySearch.trim()) return true
+                            return category.name.toLowerCase().includes(nicheCategorySearch.toLowerCase())
+                          })
+                          .map((category: any) => (
                           <div
                             key={category.id}
                             className={`group relative overflow-hidden rounded-lg cursor-pointer transition-all duration-200 ${
@@ -6282,14 +7789,104 @@ export default function LongformContentPage() {
                 <CardHeader className="pb-4 border-b border-gray-100">
                   <CardTitle className="text-lg font-semibold text-slate-900">주제 생성</CardTitle>
                   <p className="text-sm text-gray-500 mt-2">
-                    {isDirectInputSelected 
+                    {isDirectScriptInput
+                      ? "외부에서 생성한 대본을 붙여넣으면 대본 기획 및 초안 단계를 생략하고 바로 대본 생성 단계로 이동합니다."
+                      : isDirectInputSelected 
                       ? "벤치마킹 대본을 입력하면 해당 대본을 기반으로 대본 기획이 생성됩니다."
                       : "키워드를 입력하지 않으면 선택한 카테고리 기준으로 주제를 생성합니다."}
                   </p>
                 </CardHeader>
                 <CardContent className="pt-6 space-y-6">
-                  {/* 직접입력 선택 시 벤치마킹 대본 입력 필드 표시 */}
-                  {isDirectInputSelected ? (
+                  {/* 대본 직접 넣기 버튼 */}
+                  {!isDirectScriptInput && !isDirectInputSelected && (
+                    <div className="flex items-center gap-3 pb-4 border-b border-gray-100">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          setIsDirectScriptInput(true)
+                          setIsDirectInputSelected(false)
+                          setKeywords("")
+                        }}
+                        className="flex-1 border-purple-300 text-purple-700 hover:bg-purple-50 hover:border-purple-400"
+                      >
+                        <FileText className="w-4 h-4 mr-2" />
+                        대본 직접 넣기
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* 대본 직접 넣기 모드 */}
+                  {isDirectScriptInput ? (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="direct-script" className="text-sm font-medium text-gray-700">
+                          대본 직접 입력
+                        </Label>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setIsDirectScriptInput(false)
+                            setDirectScript("")
+                          }}
+                          className="text-xs text-gray-500 hover:text-gray-700"
+                        >
+                          취소
+                        </Button>
+                      </div>
+                      <p className="text-xs text-gray-500 mb-3">
+                        외부 AI 툴로 생성한 완성된 대본을 붙여넣으세요. 대본 기획 및 초안 단계를 생략하고 바로 사용할 수 있습니다.
+                      </p>
+                      <Textarea
+                        id="direct-script"
+                        value={directScript}
+                        onChange={(e) => setDirectScript(e.target.value)}
+                        placeholder="완성된 대본을 붙여넣으세요..."
+                        className="min-h-[300px] resize-y border-gray-300 focus:ring-purple-500 focus:border-purple-500 rounded-lg"
+                      />
+                      <Button
+                        onClick={() => {
+                          if (!directScript.trim()) {
+                            alert("대본을 입력해주세요.")
+                            return
+                          }
+                          
+                          // 대본을 바로 script state에 설정
+                          setScript(directScript)
+                          
+                          // 대본을 줄 단위로 분리하여 scriptLines 설정
+                          const lines = directScript
+                            .split("\n")
+                            .filter((line) => line.trim())
+                            .map((line, index) => ({
+                              id: index + 1,
+                              text: line.trim(),
+                            }))
+                          setScriptLines(lines)
+                          
+                          // 대본 기획 및 초안 단계를 완료 처리
+                          setCompletedSteps((prev) => {
+                            const newSteps = [...prev]
+                            if (!newSteps.includes("topic")) newSteps.push("topic")
+                            if (!newSteps.includes("planning")) newSteps.push("planning")
+                            if (!newSteps.includes("draft")) newSteps.push("draft")
+                            return newSteps
+                          })
+                          
+                          // 대본 생성 단계로 바로 이동
+                          setActiveStep("script")
+                          
+                          alert("대본이 설정되었습니다. 대본 생성 단계로 이동합니다.")
+                        }}
+                        disabled={!directScript.trim()}
+                        className="w-full bg-purple-600 hover:bg-purple-700 text-white"
+                      >
+                        대본 적용하고 다음 단계로
+                      </Button>
+                    </div>
+                  ) : isDirectInputSelected ? (
                     <div className="space-y-2">
                       <Label htmlFor="benchmark-script" className="text-sm font-medium text-gray-700">
                         벤치마킹 대본 입력
@@ -6320,48 +7917,7 @@ export default function LongformContentPage() {
                     </div>
                   )}
 
-                  {/* 테스트용 이미지 업로드 */}
-                  <div className="space-y-2">
-                    <Label htmlFor="testImage" className="text-sm font-medium text-gray-700">
-                      테스트용 이미지 업로드 (선택 사항)
-                    </Label>
-                    <div className="flex items-center gap-3">
-                      <Input
-                        id="testImage"
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0]
-                          if (file) {
-                            setTestImageFile(file)
-                            const url = URL.createObjectURL(file)
-                            setTestImageUrl(url)
-                          }
-                        }}
-                        className="h-12 border-gray-300 focus:ring-blue-500 focus:border-blue-500 rounded-lg"
-                      />
-                      {testImageUrl && (
-                        <div className="flex items-center gap-2">
-                          <img src={testImageUrl} alt="테스트 이미지" className="w-12 h-12 object-cover rounded" />
-                          <Button
-                            onClick={() => {
-                              setTestImageFile(null)
-                              setTestImageUrl(null)
-                            }}
-                            variant="ghost"
-                            size="sm"
-                          >
-                            <X className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                    <p className="text-xs text-gray-500">
-                      테스트 데이터 로드 시 이 이미지가 사용됩니다.
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3">
                     {isDirectInputSelected ? (
                       <Button
                         onClick={async () => {
@@ -6384,13 +7940,19 @@ export default function LongformContentPage() {
                           // 대본 기획 생성 시작
                           setIsGenerating(true)
                           try {
+                            const geminiApiKey = getGeminiApiKey()
+                            if (!geminiApiKey) {
+                              alert("Gemini API 키를 설정해주세요. 설정 페이지에서 API 키를 입력하고 저장해주세요.")
+                              setIsGenerating(false)
+                              return
+                            }
                             const plan = await generateScriptPlan(
                               extractedTopic,
-                              selectedCategory,
-                              undefined,
-                              getApiKey(),
-                              undefined,
-                              benchmarkScript
+                              selectedCategory || "health",
+                              keywords || undefined,
+                              geminiApiKey,
+                              scriptDuration,
+                              benchmarkScript || undefined
                             )
                             setScriptPlan(plan)
                             setScriptDraft("") // 기획안이 새로 생성되면 초안 초기화
@@ -6444,14 +8006,6 @@ export default function LongformContentPage() {
                         )}
                       </Button>
                     )}
-                    <Button
-                      onClick={handleLoadTestData}
-                      className="h-12 bg-gray-500 hover:bg-gray-600 text-white rounded-lg font-semibold"
-                      size="lg"
-                    >
-                      <FileText className="w-5 h-5 mr-2" />
-                      테스트 데이터 로드
-                    </Button>
                   </div>
                 </CardContent>
               </Card>
@@ -6485,14 +8039,13 @@ export default function LongformContentPage() {
                           }
                           return prev
                         })
-                        // 벤치마킹 대본이 있으면 referenceScript에 설정하고 다음 단계로
-                        if (isDirectInputSelected && benchmarkScript.trim()) {
+                        
+                        // 벤치마킹 대본이 있으면 referenceScript에 설정
+                        if (benchmarkScript.trim()) {
                           setReferenceScript(benchmarkScript)
-                          // 주제 선택 후 자동으로 대본 기획 단계로 이동
-                          setTimeout(() => {
-                            setActiveStep("planning")
-                          }, 500)
                         }
+                        
+                        // 주제 선택 후 모드 선택 UI가 표시됨 (planning 단계로 자동 이동하지 않음)
                       }}
                       >
                         <div className="p-4">
@@ -6779,33 +8332,31 @@ export default function LongformContentPage() {
                   </CardHeader>
                   <CardContent className="pt-6">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* 자동화 모드 */}
+                      {/* 자동화 모드 (비활성화) */}
                       <div
-                        className={`p-6 rounded-xl border-2 cursor-pointer transition-all duration-300 hover:shadow-lg ${
-                          workflowMode === "auto"
-                            ? "border-red-500 bg-red-50 shadow-md"
-                            : "border-gray-200 bg-white hover:border-red-300"
-                        }`}
-                        onClick={() => handleModeSelection("auto")}
+                        className="p-6 rounded-xl border-2 border-gray-200 bg-gray-50 cursor-not-allowed opacity-60 relative"
                       >
                         <div className="flex items-center gap-3 mb-3">
-                          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-red-500 to-orange-500 flex items-center justify-center">
+                          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-gray-400 to-gray-500 flex items-center justify-center">
                             <Zap className="w-6 h-6 text-white" />
                           </div>
                           <div>
-                            <h3 className="font-bold text-lg text-gray-900">🚀 자동화 모드</h3>
-                            <p className="text-xs text-gray-500">원클릭으로 모든 작업 완료</p>
+                            <h3 className="font-bold text-lg text-gray-600">🚀 자동화 모드</h3>
+                            <p className="text-xs text-gray-400">원클릭으로 모든 작업 완료</p>
                           </div>
                         </div>
-                        <p className="text-sm text-gray-600 mb-4">
+                        <p className="text-sm text-gray-500 mb-4">
                           대본 기획부터 썸네일 생성까지 모든 과정을 AI가 자동으로 처리합니다.
                         </p>
-                        <ul className="text-xs text-gray-500 space-y-1">
+                        <ul className="text-xs text-gray-400 space-y-1">
                           <li>✓ 대본 기획 → 초안 → 완성</li>
                           <li>✓ AI 이미지 자동 생성</li>
                           <li>✓ TTS 음성 자동 생성</li>
                           <li>✓ 제목/설명/썸네일 자동 생성</li>
                         </ul>
+                        <div className="absolute top-4 right-4 bg-orange-500 text-white px-3 py-1 rounded-full text-xs font-bold">
+                          12월 28일 오픈예정
+                        </div>
                       </div>
 
                       {/* 수동 모드 */}
@@ -6891,10 +8442,10 @@ export default function LongformContentPage() {
                                 { id: "google-tts-neural2-c", name: "Google TTS (남성)", note: "ko-KR-Neural2-C", provider: "google" },
                                 { id: "ttsmaker-여성1", name: "TTSMaker 여성1", note: "ID: 503", provider: "ttsmaker" },
                                 { id: "ttsmaker-여성2", name: "TTSMaker 여성2", note: "ID: 509", provider: "ttsmaker" },
-                                { id: "ttsmaker-여성6", name: "TTSMaker 여성6", note: "ID: 5802", provider: "ttsmaker" },
+                                { id: "ttsmaker-여성6", name: "TTSMaker 여성3", note: "ID: 5802", provider: "ttsmaker" },
                                 { id: "ttsmaker-남성1", name: "TTSMaker 남성1", note: "ID: 5501", provider: "ttsmaker" },
-                                { id: "ttsmaker-남성4", name: "TTSMaker 남성4", note: "ID: 5888", provider: "ttsmaker" },
-                                { id: "ttsmaker-남성5", name: "TTSMaker 남성5", note: "ID: 5888 (음높이 -10%)", provider: "ttsmaker" },
+                                { id: "ttsmaker-남성4", name: "TTSMaker 남성2", note: "ID: 5888", provider: "ttsmaker" },
+                                { id: "ttsmaker-남성5", name: "TTSMaker 남성3", note: "ID: 5888 (음높이 -10%)", provider: "ttsmaker" },
                               ].map((voice) => (
                                 <div
                                   key={voice.id}
@@ -6917,7 +8468,6 @@ export default function LongformContentPage() {
                                     </div>
                                     <div className="flex-1" onClick={() => setSelectedVoiceId(voice.id)}>
                                       <p className="text-sm font-medium">{voice.name}</p>
-                                      {voice.note && <p className="text-xs text-muted-foreground">{voice.note}</p>}
                                     </div>
                                   </div>
                                   <Button
@@ -7289,7 +8839,7 @@ export default function LongformContentPage() {
           <div className="space-y-6">
             {/* 제목 & 설명 */}
             <div className="space-y-2 mb-6">
-              <h1 className="text-2xl md:text-3xl font-semibold text-slate-900">대본 기획 및 초안</h1>
+              <h1 className="text-2xl md:text-3xl font-semibold text-slate-900">대본 기획</h1>
               <p className="text-sm md:text-base text-gray-500">선택한 주제 기반 대본 구조 설계</p>
             </div>
 
@@ -7390,20 +8940,36 @@ export default function LongformContentPage() {
                   <CardTitle className="text-lg font-semibold text-slate-900">대본 기획 생성</CardTitle>
                 </CardHeader>
                 <CardContent className="pt-6 space-y-4">
-                  {/* 대본 기획 생성 버튼에 애니메이션 추가 */}
-                  <Button onClick={handleScriptPlanGeneration} disabled={isGenerating || isScanning} className="w-full h-12 bg-red-500 hover:bg-red-600 text-white rounded-lg font-semibold">
-                    {isGenerating && !isScanning ? (
-                      <>
-                        <Sparkles className="w-4 h-4 mr-2 animate-spin" />
-                        AI가 대본 기획을 생성하고 있습니다...
-                      </>
-                    ) : (
-                      <>
-                        <FileText className="w-4 h-4 mr-2" />
-                        대본 기획하기
-                      </>
-                    )}
-                  </Button>
+                  {/* 대본 기획 생성/재생성 버튼 */}
+                  {!scriptPlan ? (
+                    <Button onClick={handleScriptPlanGeneration} disabled={isGenerating || isScanning} className="w-full h-12 bg-red-500 hover:bg-red-600 text-white rounded-lg font-semibold">
+                      {isGenerating && !isScanning ? (
+                        <>
+                          <Sparkles className="w-4 h-4 mr-2 animate-spin" />
+                          AI가 대본 기획을 생성하고 있습니다...
+                        </>
+                      ) : (
+                        <>
+                          <FileText className="w-4 h-4 mr-2" />
+                          대본 기획하기
+                        </>
+                      )}
+                    </Button>
+                  ) : (
+                    <Button onClick={handleScriptPlanGeneration} disabled={isGenerating || isScanning} variant="outline" className="w-full">
+                      {isGenerating && !isScanning ? (
+                        <>
+                          <Sparkles className="w-4 h-4 mr-2 animate-spin" />
+                          재생성 중...
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="w-4 h-4 mr-2" />
+                          대본 기획 재생성
+                        </>
+                      )}
+                    </Button>
+                  )}
 
                   {scriptPlan && (
                     <div className="space-y-4">
@@ -7413,9 +8979,6 @@ export default function LongformContentPage() {
                           <Button variant="outline" size="sm" onClick={() => copyToClipboard(scriptPlan)}>
                             <Copy className="w-4 h-4 mr-2" />
                             복사
-                          </Button>
-                          <Button variant="outline" size="sm" onClick={() => setActiveStep("script")}>
-                            대본 생성으로 이동
                           </Button>
                         </div>
                       </div>
@@ -7443,245 +9006,8 @@ export default function LongformContentPage() {
                             )}
                           </div>
 
-                          <div className="flex justify-between items-center text-xs text-muted-foreground">
-                            <span>글자 수: {scriptPlan.length.toLocaleString()}자</span>
-                          </div>
-
-                          <div className="border-t pt-4 space-y-3">
-                            <h4 className="font-medium text-sm">AI 개선 요청</h4>
-                            <div className="flex gap-2">
-                              <Input
-                                placeholder="예: 더 친근한 톤으로 바꿔줘, 의학적 근거를 더 추가해줘"
-                                value={improvementRequest}
-                                onChange={(e) => setImprovementRequest(e.target.value)}
-                                className="flex-1"
-                              />
-                              <Button
-                                onClick={handleScriptImprovement}
-                                disabled={!improvementRequest.trim() || isGenerating}
-                                size="sm"
-                              >
-                                {isGenerating ? (
-                                  <Sparkles className="w-4 h-4 animate-spin" />
-                                ) : (
-                                  <>
-                                    <Wand2 className="w-4 h-4 mr-2" />
-                                    개선하기
-                                  </>
-                                )}
-                              </Button>
-                            </div>
-
-                            {/* 대본 초안 생성 버튼 */}
-                            <div className="border-t pt-4 mt-4">
-                              <Button
-                                onClick={handleScriptDraftGeneration}
-                                disabled={isGenerating || !scriptPlan}
-                                className="w-full"
-                                variant="default"
-                              >
-                                {isGenerating ? (
-                                  <>
-                                    <Sparkles className="w-4 h-4 mr-2 animate-spin" />
-                                    AI가 대본 초안을 생성하고 있습니다...
-                                  </>
-                                ) : (
-                                  <>
-                                    <FileText className="w-4 h-4 mr-2" />
-                                    대본 초안 생성하기
-                                  </>
-                                )}
-                              </Button>
-                            </div>
-
-                            <div className="flex flex-wrap gap-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setImprovementRequest("더 친근하고 따뜻한 톤으로 바꿔줘")}
-                              >
-                                친근한 톤
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setImprovementRequest("의학적 근거와 통계를 더 추가해줘")}
-                              >
-                                의학적 근거 강화
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setImprovementRequest("실제 환자 사례를 더 구체적으로 만들어줘")}
-                              >
-                                사례 구체화
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setImprovementRequest("시청자의 관심을 더 끌 수 있는 훅을 만들어줘")}
-                              >
-                                훅 강화
-                              </Button>
-                            </div>
-                          </div>
-
-                          <div className="border-t pt-4 space-y-3">
-                            <div className="flex items-center justify-between">
-                              <h4 className="font-medium text-sm">대본 품질 분석</h4>
-                              <Button
-                                onClick={handleScriptAnalysis}
-                                disabled={isGenerating}
-                                variant="outline"
-                                size="sm"
-                              >
-                                {isGenerating ? (
-                                  <Sparkles className="w-4 h-4 animate-spin" />
-                                ) : (
-                                  <>
-                                    <Target className="w-4 h-4 mr-2" />
-                                    분석하기
-                                  </>
-                                )}
-                              </Button>
-                            </div>
-
-                            {analysisResult && (
-                              <div className="space-y-6">
-                                <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200">
-                                  <CardContent className="p-6">
-                                    <div className="flex items-center gap-2 mb-4">
-                                      <BarChart3 className="w-5 h-5 text-blue-600" />
-                                      <h4 className="font-semibold text-blue-900">품질 점수 분석</h4>
-                                    </div>
-
-                                    {(() => {
-                                      const { qualityScores, improvementAreas, expectedMetrics } =
-                                        parseAnalysisForCharts(analysisResult)
-                                      return (
-                                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                          {/* 품질 점수 레이더 차트 */}
-                                          <div className="bg-white rounded-lg p-4 shadow-sm">
-                                            <h5 className="font-medium mb-3 text-gray-800">품질 점수 분석</h5>
-                                            <div className="space-y-3">
-                                              {qualityScores.map((item, index) => (
-                                                <div key={index} className="space-y-1">
-                                                  <div className="flex justify-between text-sm">
-                                                    <span className="text-gray-600">{item.category}</span>
-                                                    <span className="font-medium text-blue-600">{item.score}/100</span>
-                                                  </div>
-                                                  <div className="w-full bg-gray-200 rounded-full h-2">
-                                                    <div
-                                                      className="bg-gradient-to-r from-blue-500 to-indigo-600 h-2 rounded-full transition-all duration-1000 ease-out"
-                                                      style={{ width: `${item.score}%` }}
-                                                    />
-                                                  </div>
-                                                </div>
-                                              ))}
-                                            </div>
-                                          </div>
-
-                                          {/* 개선 우선순위 차트 */}
-                                          <div className="bg-white rounded-lg p-4 shadow-sm">
-                                            <h5 className="font-medium mb-3 text-gray-800">개선 우선순위</h5>
-                                            <div className="space-y-3">
-                                              {improvementAreas.map((item, index) => (
-                                                <div key={index} className="flex items-center gap-3">
-                                                  <div className="w-16 text-sm text-gray-600">{item.area}</div>
-                                                  <div className="flex-1 bg-gray-200 rounded-full h-2">
-                                                    <div
-                                                      className="bg-gradient-to-r from-orange-400 to-red-500 h-2 rounded-full transition-all duration-1000 ease-out"
-                                                      style={{ width: `${item.priority}%` }}
-                                                    />
-                                                  </div>
-                                                  <div className="w-8 text-sm font-medium text-orange-600">
-                                                    {item.priority}
-                                                  </div>
-                                                </div>
-                                              ))}
-                                            </div>
-                                          </div>
-
-                                          {/* 예상 성과 지표 */}
-                                          <div className="bg-white rounded-lg p-4 shadow-sm lg:col-span-2">
-                                            <h5 className="font-medium mb-3 text-gray-800">예상 성과 지표</h5>
-                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                              {expectedMetrics.map((metric, index) => (
-                                                <div
-                                                  key={index}
-                                                  className="text-center p-3 bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg border border-green-200"
-                                                >
-                                                  <div className="text-2xl font-bold text-green-600 mb-1">
-                                                    {metric.value.toLocaleString()}
-                                                  </div>
-                                                  <div className="text-xs text-green-700 mb-1">{metric.unit}</div>
-                                                  <div className="text-xs text-gray-600">{metric.metric}</div>
-                                                </div>
-                                              ))}
-                                            </div>
-                                          </div>
-
-                                          {/* AI 분석 텍스트 요약 */}
-                                          <div className="bg-white rounded-lg p-4 shadow-sm lg:col-span-2">
-                                            <h5 className="font-medium mb-3 text-gray-800 flex items-center gap-2">
-                                              <Sparkles className="w-4 h-4 text-purple-500" />
-                                              AI 분석 요약
-                                            </h5>
-                                            <div className="text-sm text-gray-700 leading-relaxed bg-gray-50 p-3 rounded-lg">
-                                              {analysisResult}
-                                            </div>
-                                          </div>
-                                        </div>
-                                      )
-                                    })()}
-                                  </CardContent>
-                                </Card>
-                              </div>
-                            )}
-                          </div>
                         </CardContent>
                       </Card>
-
-                      {/* 대본 초안 표시 */}
-                      {scriptDraft && (
-                        <Card className="mt-4">
-                          <CardHeader>
-                            <CardTitle className="text-lg flex items-center gap-2">
-                              <FileText className="w-5 h-5" />
-                              대본 초안
-                            </CardTitle>
-                          </CardHeader>
-                          <CardContent className="space-y-4">
-                            <div className="relative">
-                              <Textarea
-                                value={scriptDraft}
-                                onChange={(e) => setScriptDraft(e.target.value)}
-                                className="min-h-[500px] font-mono text-sm"
-                                placeholder="대본 초안이 여기에 표시됩니다..."
-                              />
-                            </div>
-                            <div className="flex justify-between items-center text-xs text-muted-foreground">
-                              <span>글자 수: {scriptDraft.length.toLocaleString()}자</span>
-                            </div>
-                            <div className="flex gap-2">
-                              <Button variant="outline" size="sm" onClick={() => copyToClipboard(scriptDraft)}>
-                                <Copy className="w-4 h-4 mr-2" />
-                                복사
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                  setScript(scriptDraft)
-                                  setActiveStep("script")
-                                }}
-                              >
-                                대본 생성으로 이동
-                              </Button>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      )}
                     </div>
                   )}
                 </CardContent>
@@ -7728,56 +9054,15 @@ export default function LongformContentPage() {
               </Card>
             )}
 
-            {scriptDraft ? (
-              <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white">
-                <CardHeader className="pb-4 border-b border-gray-100">
-                  <CardTitle className="text-lg font-semibold text-slate-900">대본 초안</CardTitle>
-                </CardHeader>
-                <CardContent className="pt-6">
-                  <div className="bg-gray-50 p-4 rounded-lg max-h-60 overflow-y-auto mb-4">
-                    <div className="whitespace-pre-wrap text-sm text-gray-700">{scriptDraft.substring(0, 500)}...</div>
-                  </div>
-                  <div className="flex justify-between items-center mb-4 text-xs text-gray-500">
-                    <span>초안 글자 수: {scriptDraft.length.toLocaleString()}자</span>
-                    <Button variant="outline" size="sm" onClick={() => setActiveStep("planning")} className="border-gray-300">
-                      초안 수정하기
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ) : scriptPlan ? (
-              <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white">
-                <CardHeader className="pb-4 border-b border-gray-100">
-                  <CardTitle className="text-lg font-semibold text-slate-900">대본 기획안</CardTitle>
-                </CardHeader>
-                <CardContent className="pt-6">
-                  <div className="bg-gray-50 p-4 rounded-lg max-h-60 overflow-y-auto">
-                    <div className="whitespace-pre-wrap text-sm text-gray-700">{scriptPlan}</div>
-                  </div>
-                  <div className="flex justify-between items-center mt-4 text-xs text-gray-500">
-                    <span>기획안 글자 수: {scriptPlan.length.toLocaleString()}자</span>
-                    <Button variant="outline" size="sm" onClick={() => setActiveStep("planning")} className="border-gray-300">
-                      기획안 수정하기
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ) : null}
 
-            {scriptDraft && (
+            {scriptPlan && (
               <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white">
                 <CardHeader className="pb-4 border-b border-gray-100">
                   <CardTitle className="text-lg font-semibold text-slate-900">최종 대본 생성</CardTitle>
-                  <p className="text-sm text-gray-500 mt-2">
-                    위의 대본 초안을 바탕으로 AIPASOA 포맷으로 재구성하여 최종 대본을 생성합니다.
-                  </p>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <p className="text-sm text-muted-foreground">
-                    위의 대본 초안을 바탕으로 AIPASOA 포맷으로 재구성하여 최종 대본을 생성합니다.
-                  </p>
-                  <p className="text-xs text-red-600">
-                    ※ 대본 초안이 먼저 작성되어 있어야 합니다.
+                  <p className="text-xs text-gray-600">
+                    ※ 대본 기획안을 바탕으로 최종 대본을 생성합니다.
                   </p>
                   
                   {/* 대본 시간 선택 드롭다운 */}
@@ -7793,79 +9078,39 @@ export default function LongformContentPage() {
                         <SelectValue placeholder="대본 시간을 선택하세요" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="5">5분 (약 {Math.floor(5 * 60 * 6.9).toLocaleString()}자, 약 5k 토큰)</SelectItem>
-                        <SelectItem value="10">10분 (약 {Math.floor(10 * 60 * 6.9).toLocaleString()}자, 약 9.5k 토큰)</SelectItem>
-                        <SelectItem value="20">20분 (약 {Math.floor(20 * 60 * 6.9).toLocaleString()}자, 약 19k 토큰)</SelectItem>
-                        <SelectItem value="25">25분 (약 {Math.floor(25 * 60 * 6.9).toLocaleString()}자, 약 24k 토큰)</SelectItem>
-                        <SelectItem value="30">30분 (약 {Math.floor(30 * 60 * 6.9).toLocaleString()}자, 약 28.5k 토큰)</SelectItem>
-                        <SelectItem value="35">35분 (약 {Math.floor(35 * 60 * 6.9).toLocaleString()}자, 약 33k 토큰)</SelectItem>
-                        <SelectItem value="40">40분 (약 {Math.floor(40 * 60 * 6.9).toLocaleString()}자, 약 38k 토큰)</SelectItem>
+                        <SelectItem value="5">5분 (최소 {Math.floor(5 * 60 * 6.9).toLocaleString()}자)</SelectItem>
+                        <SelectItem value="10">10분 (최소 {Math.floor(10 * 60 * 6.9).toLocaleString()}자)</SelectItem>
+                        <SelectItem value="20">20분 (최소 {Math.floor(20 * 60 * 6.9).toLocaleString()}자)</SelectItem>
+                        <SelectItem value="25">25분 (최소 {Math.floor(25 * 60 * 6.9).toLocaleString()}자)</SelectItem>
+                        <SelectItem value="30">30분 (최소 {Math.floor(30 * 60 * 6.9).toLocaleString()}자)</SelectItem>
+                        <SelectItem value="35">35분 (최소 {Math.floor(35 * 60 * 6.9).toLocaleString()}자)</SelectItem>
+                        <SelectItem value="40">40분 (최소 {Math.floor(40 * 60 * 6.9).toLocaleString()}자)</SelectItem>
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-gray-500">
-                      선택한 시간에 맞춰 대본이 생성됩니다.
-                      {(() => {
-                        const requiredTokens = Math.ceil(Math.floor(scriptDuration * 60 * 6.9) * 2.3 * 1.1)
-                        const maxPossibleChars = Math.floor(100000 / 2.3 / 1.1)
-                        const maxPossibleMinutes = Math.floor(maxPossibleChars / 6.9 / 60)
-                        if (requiredTokens > 100000) {
-                          return (
-                            <span className="block mt-1 text-amber-600 font-medium">
-                              ⚠️ {scriptDuration}분은 약 {requiredTokens.toLocaleString()} 토큰이 필요하지만, 
-                              o4-mini의 max_tokens 제한(100,000)에 걸립니다. 
-                              최대 가능한 대본 길이는 약 {maxPossibleChars.toLocaleString()}자 (약 {maxPossibleMinutes}분)입니다. 
-                              대본이 완전히 생성되지 않을 수 있습니다.
-                            </span>
-                          )
-                        }
-                        return null
-                      })()}
+                      대략적인 시간이고 TTS속도에 따라 시간이 줄거나 늘어날 수 있음
                     </p>
                   </div>
                   
-                  {/* 대본 생성 버튼 두 개로 분리 */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <Button 
-                      onClick={handleBasicScriptGeneration} 
-                      disabled={isGenerating} 
-                      className="w-full bg-blue-600 hover:bg-blue-700 text-white" 
-                      size="lg"
-                    >
-                      {isGenerating ? (
-                        <>
-                          <Sparkles className="w-4 h-4 mr-2 animate-spin" />
-                          생성 중...
-                        </>
-                      ) : (
-                        <>
-                          <Wand2 className="w-4 h-4 mr-2" />
-                          기본 대본
-                        </>
-                      )}
-                    </Button>
-                    <Button 
-                      onClick={handleRefinedScriptGeneration} 
-                      disabled={isGenerating} 
-                      className="w-full bg-purple-600 hover:bg-purple-700 text-white" 
-                      size="lg"
-                    >
-                      {isGenerating ? (
-                        <>
-                          <Sparkles className="w-4 h-4 mr-2 animate-spin" />
-                          생성 중...
-                        </>
-                      ) : (
-                        <>
-                          <Wand2 className="w-4 h-4 mr-2" />
-                          정교한 대본
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-2">
-                    <span className="font-medium">기본 대본:</span> GPT-4o-mini 사용, 빠른 생성<br/>
-                    <span className="font-medium">정교한 대본:</span> Anthropic Opus 4.5 사용, 높은 완성도
-                  </p>
+                  {/* 대본 생성 버튼 */}
+                  <Button 
+                    onClick={handleRefinedScriptGeneration} 
+                    disabled={isGenerating} 
+                    className="w-full bg-red-500 hover:bg-red-600 text-white" 
+                    size="lg"
+                  >
+                    {isGenerating ? (
+                      <>
+                        <Sparkles className="w-4 h-4 mr-2 animate-spin" />
+                        대본 생성 중...
+                      </>
+                    ) : (
+                      <>
+                        <Wand2 className="w-4 h-4 mr-2" />
+                        정교한 대본 생성하기
+                      </>
+                    )}
+                  </Button>
 
                   <div className="grid grid-cols-1 gap-2">
                     <Button onClick={() => setShowDirectScriptInput(true)} variant="outline" className="w-full" size="lg">
@@ -7926,186 +9171,6 @@ export default function LongformContentPage() {
               </Card>
             )}
 
-            {scriptLines.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg">생성된 문장 리스트</CardTitle>
-                    <div className="flex gap-2">
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        onClick={() => {
-                          if (script) {
-                            copyToClipboard(script)
-                            alert("최종 대본이 복사되었습니다.")
-                          }
-                        }}
-                        className="bg-blue-600 hover:bg-blue-700 text-white"
-                      >
-                        <Copy className="w-4 h-4 mr-2" />
-                        최종 대본 복사
-                      </Button>
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        onClick={() => {
-                          const textToCopy = scriptLines.map((line) => `${line.id}. ${line.text}`).join("\n")
-                          copyToClipboard(textToCopy)
-                          alert("문장 리스트가 복사되었습니다.")
-                        }}
-                        className="bg-red-600 hover:bg-red-700 text-white"
-                      >
-                        <Copy className="w-4 h-4 mr-2" />
-                        문장 리스트 복사
-                      </Button>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="border rounded-lg overflow-hidden">
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead className="bg-gray-50 border-b">
-                          <tr>
-                            <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 w-12">
-                              <Checkbox
-                                checked={selectedLineIds.size === scriptLines.length && scriptLines.length > 0}
-                                onCheckedChange={(checked) => {
-                                  if (checked) {
-                                    setSelectedLineIds(new Set(scriptLines.map((l) => l.id)))
-                                  } else {
-                                    setSelectedLineIds(new Set())
-                                  }
-                                }}
-                              />
-                            </th>
-                            <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 w-20">번호</th>
-                            <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">문장</th>
-                            <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 w-32">TTS</th>
-                          </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                          {scriptLines.map((line) => (
-                            <tr key={line.id} className="hover:bg-gray-50 transition-colors">
-                              <td className="px-4 py-3 align-top pt-4">
-                                <Checkbox
-                                  checked={selectedLineIds.has(line.id)}
-                                  onCheckedChange={(checked) => {
-                                    const newSelected = new Set(selectedLineIds)
-                                    if (checked) {
-                                      newSelected.add(line.id)
-                                    } else {
-                                      newSelected.delete(line.id)
-                                    }
-                                    setSelectedLineIds(newSelected)
-                                  }}
-                                />
-                              </td>
-                              <td className="px-4 py-3 text-sm font-medium text-gray-900 align-top pt-4">{line.id}</td>
-                              <td className="px-4 py-3">
-                                <Textarea
-                                  value={line.text}
-                                  onChange={(e) => {
-                                    setScriptLines((prev) =>
-                                      prev.map((l) => (l.id === line.id ? { ...l, text: e.target.value } : l))
-                                    )
-                                  }}
-                                  className="min-h-[60px] text-sm font-mono resize-y"
-                                  placeholder="문장을 입력하세요..."
-                                />
-                              </td>
-                              <td className="px-4 py-3 align-top pt-4">
-                                {generatedAudios.find((audio) => audio.lineId === line.id) ? (
-                                  <div className="flex flex-col gap-2">
-                                    <audio 
-                                      controls 
-                                      className="w-full h-8" 
-                                      src={generatedAudios.find((audio) => audio.lineId === line.id)?.audioUrl} 
-                                    />
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={() => handleGenerateTTSForSingleLine(line.id)}
-                                      disabled={generatingTTSForLine.has(line.id)}
-                                    >
-                                      {generatingTTSForLine.has(line.id) ? (
-                                        <>
-                                          <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                                          생성 중...
-                                        </>
-                                      ) : (
-                                        <>
-                                          <Volume2 className="w-3 h-3 mr-1" />
-                                          다시 생성
-                                        </>
-                                      )}
-                                    </Button>
-                                  </div>
-                                ) : (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => handleGenerateTTSForSingleLine(line.id)}
-                                    disabled={generatingTTSForLine.has(line.id)}
-                                  >
-                                    {generatingTTSForLine.has(line.id) ? (
-                                      <>
-                                        <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                                        생성 중...
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Volume2 className="w-3 h-3 mr-1" />
-                                        TTS 생성
-                                      </>
-                                    )}
-                                  </Button>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                  <div className="mt-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="text-xs text-muted-foreground">
-                        총 {scriptLines.length}개의 문장 그룹이 생성되었습니다. 각 그룹은 1~2개의 문장으로 구성됩니다.
-                        {scriptLines.length > 0 && (
-                          <span className="ml-2">
-                            (예상 영상 길이: 약 {Math.floor(scriptLines.reduce((sum, l) => sum + l.text.length, 0) / 6.9 / 60)}분 {Math.floor((scriptLines.reduce((sum, l) => sum + l.text.length, 0) / 6.9) % 60)}초)
-                          </span>
-                        )}
-                      </div>
-                      {selectedLineIds.size > 0 && (
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={() => {
-                            if (confirm(`선택한 ${selectedLineIds.size}개의 문장을 삭제하시겠습니까?`)) {
-                              // 삭제 및 ID 재정렬을 한 번에 처리
-                              setScriptLines((prev) => {
-                                const filtered = prev.filter((l) => !selectedLineIds.has(l.id))
-                                return filtered.map((l, index) => ({ ...l, id: index + 1 }))
-                              })
-                              setSelectedLineIds(new Set())
-                              alert("선택한 문장이 삭제되었습니다.")
-                            }
-                          }}
-                        >
-                          선택한 {selectedLineIds.size}개 삭제
-                        </Button>
-                      )}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      💡 각 문장을 직접 수정할 수 있습니다. 체크박스로 선택하여 삭제할 수도 있습니다. 수정 후 이미지 생성이나 TTS 생성을 진행하세요.
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
 
             {script && (
               <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white mb-6">
@@ -8116,24 +9181,6 @@ export default function LongformContentPage() {
               <div className="flex items-center justify-between mb-4">
                     <label className="text-sm font-medium">대본 전체 내용 (수정 가능)</label>
                 <div className="flex gap-2">
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        onClick={() => {
-                          // 수정된 대본을 다시 문장 리스트로 변환
-                          const groupedLines = splitScriptIntoLines(script)
-                          
-                          // ID 재정렬
-                          const renumberedLines = groupedLines.map((l, index) => ({ ...l, id: index + 1 }))
-                          setScriptLines(renumberedLines)
-                          setSelectedLineIds(new Set()) // 선택 초기화
-                          alert(`대본이 ${renumberedLines.length}개의 문장 그룹으로 변환되었습니다.`)
-                        }}
-                        disabled={!script.trim()}
-                      >
-                        <FileText className="w-4 h-4 mr-2" />
-                        문장 리스트로 변환
-                  </Button>
                   <Button variant="outline" size="sm" onClick={() => copyToClipboard(script)}>
                     <Copy className="w-4 h-4 mr-2" />
                     복사
@@ -8141,18 +9188,105 @@ export default function LongformContentPage() {
                 </div>
               </div>
               <Textarea
-                    placeholder="대본이 여기에 생성됩니다. 수정 후 '문장 리스트로 변환' 버튼을 클릭하세요..."
+                    placeholder="대본이 여기에 생성됩니다. 수정 후 '장면 분해' 버튼을 클릭하세요..."
                 value={script}
                 onChange={(e) => setScript(e.target.value)}
                 className="min-h-[400px] font-mono text-sm"
               />
-                  <div className="mt-2 text-xs text-muted-foreground">
-                    💡 대본을 수정한 후 "문장 리스트로 변환" 버튼을 클릭하면 수정된 내용이 반영됩니다.
+                  <div className="mt-2 flex justify-between items-center text-xs text-muted-foreground">
+                    <span>💡 대본을 수정한 후 "장면 분해" 버튼을 클릭하면 수정된 내용이 반영됩니다.</span>
+                    {script && <span>글자 수: {script.length.toLocaleString()}자</span>}
             </div>
+                </CardContent>
+                {/* 장면 분해 버튼 - 카드 테두리 밑 */}
+                <div className="px-6 pb-6 pt-4 border-t border-gray-100">
+                  <Button
+                    variant="default"
+                    size="lg"
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                    onClick={async () => {
+                      if (!script || script.trim().length === 0) {
+                        alert("대본이 없습니다.")
+                        return
+                      }
+                      setIsDecomposingScenes(true)
+                      try {
+                        const geminiApiKey = getGeminiApiKey()
+                        if (!geminiApiKey) {
+                          alert("Gemini API 키를 설정해주세요. 설정 페이지에서 API 키를 입력하고 저장해주세요.")
+                          setIsDecomposingScenes(false)
+                          return
+                        }
+                        const decomposedResult = await decomposeScriptIntoScenes(script, geminiApiKey)
+                        // 장면 분해 결과를 저장
+                        setDecomposedScenes(decomposedResult)
+                        // 장면 분해 결과를 scriptLines에 넣기
+                        const scenes = parseSceneBlocks(decomposedResult)
+                        setScriptLines(scenes)
+                        
+                        // 대본 생성 단계 완료 표시
+                        setCompletedSteps((prev) => [...new Set([...prev, "script"])])
+                        
+                        alert(`대본이 ${scenes.length}개의 장면으로 분해되었습니다.`)
+                      } catch (error) {
+                        console.error("장면 분해 실패:", error)
+                        const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다."
+                        alert(`장면 분해에 실패했습니다: ${errorMessage}`)
+                      } finally {
+                        setIsDecomposingScenes(false)
+                      }
+                    }}
+                    disabled={isDecomposingScenes || !script.trim()}
+                  >
+                    {isDecomposingScenes ? (
+                      <>
+                        <Sparkles className="w-4 h-4 mr-2 animate-spin" />
+                        장면 분해 중...
+                      </>
+                    ) : (
+                      <>
+                        <Scissors className="w-4 h-4 mr-2" />
+                        장면 분해
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </Card>
+            )}
+
+            {decomposedScenes && (
+              <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white mb-6">
+                <CardHeader className="pb-4 border-b border-gray-100">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg font-semibold text-slate-900">장면 분해 결과</CardTitle>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => {
+                        copyToClipboard(decomposedScenes)
+                        alert("장면 분해 결과가 복사되었습니다.")
+                      }}
+                    >
+                      <Copy className="w-4 h-4 mr-2" />
+                      복사
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-6">
+                  <div className="bg-gray-50 p-4 rounded-lg max-h-96 overflow-y-auto">
+                    <div className="whitespace-pre-wrap text-sm text-gray-700 font-mono">
+                      {decomposedScenes}
+                    </div>
+                  </div>
+                  <div className="mt-4 text-xs text-gray-500">
+                    총 {scriptLines.length}개의 장면이 생성되었습니다.
+                  </div>
                 </CardContent>
               </Card>
             )}
-            {isGenerating && activeStep === "script" && <AIGeneratingAnimation type="완전한 대본" />}
+
+            {isGenerating && activeStep === "script" && !isDecomposingScenes && <AIGeneratingAnimation type="완전한 대본" />}
+            {isDecomposingScenes && activeStep === "script" && <AIGeneratingAnimation type="장면을 분해하고" />}
           </div>
         )
 
@@ -8165,37 +9299,353 @@ export default function LongformContentPage() {
               <p className="text-sm md:text-base text-gray-500">문장별 이미지 생성</p>
             </div>
 
-            {/* 역사 카테고리 스타일 선택 */}
-            {selectedCategory === "history" && (
-              <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white mb-6">
+            {/* 이미지 스타일 선택 및 생성 - 좌우 배치 */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+              {/* 이미지 스타일 선택 */}
+              <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white">
                 <CardHeader className="pb-4 border-b border-gray-100">
                   <CardTitle className="text-lg font-semibold text-slate-900">이미지 스타일 선택</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="flex gap-3">
-                <Button
-                      variant={historyStyle === "animation" ? "default" : "outline"}
-                      onClick={() => setHistoryStyle("animation")}
-                      className="flex-1"
-                    >
-                      애니메이션
-                </Button>
+                  <div className="grid grid-cols-2 gap-3">
                     <Button
-                      variant={historyStyle === "realistic" ? "default" : "outline"}
-                      onClick={() => setHistoryStyle("realistic")}
+                      variant={imageStyle === "stickman-animation" ? "default" : "outline"}
+                      onClick={() => setImageStyle("stickman-animation")}
                       className="flex-1"
                     >
-                      실사
+                      스틱맨 애니메이션
                     </Button>
-              </div>
-                  <p className="text-xs text-gray-500 mt-2">
-                    {historyStyle === "animation" 
-                      ? "고품질 2D 애니메이션 영화 스타일로 역사적 장면을 표현합니다. 모든 이미지가 동일한 시대와 문화권을 유지하며, 실사 스타일은 절대 사용하지 않습니다." 
-                      : "실사 스타일로 역사적 장면을 사실적으로 표현합니다. 모든 이미지가 동일한 시대와 문화권을 유지합니다."}
+                    <Button
+                      variant={imageStyle === "flat-2d-illustration" ? "default" : "outline"}
+                      onClick={() => setImageStyle("flat-2d-illustration")}
+                      className="flex-1"
+                    >
+                      플랫 2D 일러스트
+                    </Button>
+                    <Button
+                      variant={imageStyle === "semi-realistic-animation" ? "default" : "outline"}
+                      onClick={() => setImageStyle("semi-realistic-animation")}
+                      className="flex-1"
+                    >
+                      세미 리얼리스틱 애니메이션
+                    </Button>
+                    <Button
+                      variant={imageStyle === "cinematic-realistic" ? "default" : "outline"}
+                      onClick={() => setImageStyle("cinematic-realistic")}
+                      className="flex-1"
+                    >
+                      시네마틱 리얼리스틱
+                    </Button>
+                    <Button
+                      variant={imageStyle === "documentary-photo" ? "default" : "outline"}
+                      onClick={() => setImageStyle("documentary-photo")}
+                      className="flex-1"
+                    >
+                      다큐멘터리 사진 스타일
+                    </Button>
+                    <Button
+                      variant={imageStyle === "vintage-illustration" ? "default" : "outline"}
+                      onClick={() => setImageStyle("vintage-illustration")}
+                      className="flex-1"
+                    >
+                      빈티지 일러스트
+                    </Button>
+                    <Button
+                      variant={imageStyle === "dark-fantasy-concept" ? "default" : "outline"}
+                      onClick={() => setImageStyle("dark-fantasy-concept")}
+                      className="flex-1"
+                    >
+                      다크 판타지 컨셉 아트
+                    </Button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-3">
+                    선택한 스타일이 모든 이미지에 일관되게 적용됩니다.
                   </p>
                 </CardContent>
               </Card>
-            )}
+
+              {/* 이미지 스타일 생성 */}
+            <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white mb-6">
+              <CardHeader className="pb-4 border-b border-gray-100">
+                <CardTitle className="text-lg font-semibold text-slate-900">이미지 스타일 생성</CardTitle>
+              </CardHeader>
+              <CardContent className="pt-6 space-y-4">
+                <p className="text-sm text-gray-600">
+                  원하는 캐릭터 사진과 배경 풍경을 업로드하여 커스텀 스타일을 생성할 수 있습니다.
+                </p>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* 캐릭터 사진 업로드 */}
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">캐릭터 사진</Label>
+                    <div 
+                      className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-blue-400 transition-colors cursor-pointer relative"
+                      onDragOver={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        e.currentTarget.classList.add("border-blue-500", "bg-blue-50")
+                      }}
+                      onDragLeave={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        e.currentTarget.classList.remove("border-blue-500", "bg-blue-50")
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        e.currentTarget.classList.remove("border-blue-500", "bg-blue-50")
+                        const file = e.dataTransfer.files?.[0]
+                        if (file && file.type.startsWith("image/")) {
+                          const url = URL.createObjectURL(file)
+                          setCustomStyleCharacterImage(url)
+                        } else {
+                          alert("이미지 파일만 업로드 가능합니다.")
+                        }
+                      }}
+                      onClick={() => {
+                        if (!customStyleCharacterImage) {
+                          document.getElementById("character-image-upload")?.click()
+                        }
+                      }}
+                    >
+                      {customStyleCharacterImage ? (
+                        <div className="space-y-2">
+                          <img 
+                            src={customStyleCharacterImage} 
+                            alt="캐릭터 사진" 
+                            className="w-full h-48 object-cover rounded-lg"
+                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (customStyleCharacterImage.startsWith("blob:")) {
+                                URL.revokeObjectURL(customStyleCharacterImage)
+                              }
+                              setCustomStyleCharacterImage(null)
+                            }}
+                            className="w-full"
+                          >
+                            제거
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <Upload className="w-8 h-8 mx-auto text-gray-400" />
+                          <p className="text-sm text-gray-600">
+                            클릭하거나 드래그하여 업로드
+                          </p>
+                          <p className="text-xs text-gray-400">
+                            JPG, PNG, WEBP 지원
+                          </p>
+                          <Input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0]
+                              if (file) {
+                                if (!file.type.startsWith("image/")) {
+                                  alert("이미지 파일만 업로드 가능합니다.")
+                                  return
+                                }
+                                const url = URL.createObjectURL(file)
+                                setCustomStyleCharacterImage(url)
+                              }
+                            }}
+                            className="hidden"
+                            id="character-image-upload"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 배경 풍경 업로드 */}
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">배경 풍경</Label>
+                    <div 
+                      className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-blue-400 transition-colors cursor-pointer relative"
+                      onDragOver={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        e.currentTarget.classList.add("border-blue-500", "bg-blue-50")
+                      }}
+                      onDragLeave={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        e.currentTarget.classList.remove("border-blue-500", "bg-blue-50")
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        e.currentTarget.classList.remove("border-blue-500", "bg-blue-50")
+                        const file = e.dataTransfer.files?.[0]
+                        if (file && file.type.startsWith("image/")) {
+                          const url = URL.createObjectURL(file)
+                          setCustomStyleBackgroundImage(url)
+                        } else {
+                          alert("이미지 파일만 업로드 가능합니다.")
+                        }
+                      }}
+                      onClick={() => {
+                        if (!customStyleBackgroundImage) {
+                          document.getElementById("background-image-upload")?.click()
+                        }
+                      }}
+                    >
+                      {customStyleBackgroundImage ? (
+                        <div className="space-y-2">
+                          <img 
+                            src={customStyleBackgroundImage} 
+                            alt="배경 풍경" 
+                            className="w-full h-48 object-cover rounded-lg"
+                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (customStyleBackgroundImage.startsWith("blob:")) {
+                                URL.revokeObjectURL(customStyleBackgroundImage)
+                              }
+                              setCustomStyleBackgroundImage(null)
+                            }}
+                            className="w-full"
+                          >
+                            제거
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <Upload className="w-8 h-8 mx-auto text-gray-400" />
+                          <p className="text-sm text-gray-600">
+                            클릭하거나 드래그하여 업로드
+                          </p>
+                          <p className="text-xs text-gray-400">
+                            JPG, PNG, WEBP 지원
+                          </p>
+                          <Input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0]
+                              if (file) {
+                                if (!file.type.startsWith("image/")) {
+                                  alert("이미지 파일만 업로드 가능합니다.")
+                                  return
+                                }
+                                const url = URL.createObjectURL(file)
+                                setCustomStyleBackgroundImage(url)
+                              }
+                            }}
+                            className="hidden"
+                            id="background-image-upload"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 스타일 생성 버튼 */}
+                <Button
+                  onClick={async () => {
+                    if (!customStyleCharacterImage || !customStyleBackgroundImage) {
+                      alert("캐릭터 사진과 배경 풍경을 모두 업로드해주세요.")
+                      return
+                    }
+
+                    setIsGeneratingCustomStyle(true)
+                    try {
+                      // TODO: 커스텀 스타일 생성 API 호출
+                      // 예: Replicate의 이미지 합성 모델 사용
+                      const replicateApiKey = typeof window !== "undefined" ? localStorage.getItem("replicate_api_key") || undefined : undefined
+                      
+                      if (!replicateApiKey) {
+                        alert("Replicate API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+                        setIsGeneratingCustomStyle(false)
+                        return
+                      }
+
+                      // 임시로 두 이미지를 합성하는 로직 (실제 구현 필요)
+                      // 여기서는 예시로 첫 번째 이미지를 결과로 사용
+                      // 실제로는 Replicate API나 다른 이미지 합성 서비스를 사용해야 함
+                      console.log("[Custom Style] 스타일 생성 시작")
+                      console.log("[Custom Style] 캐릭터 이미지:", customStyleCharacterImage)
+                      console.log("[Custom Style] 배경 이미지:", customStyleBackgroundImage)
+                      
+                      // TODO: 실제 이미지 합성 API 호출
+                      // const result = await generateCustomStyle(customStyleCharacterImage, customStyleBackgroundImage, replicateApiKey)
+                      // setCustomStyleResult(result)
+                      
+                      // 임시 메시지
+                      alert("커스텀 스타일 생성 기능은 현재 개발 중입니다. 곧 제공될 예정입니다.")
+                    } catch (error) {
+                      console.error("[Custom Style] 스타일 생성 실패:", error)
+                      alert("스타일 생성에 실패했습니다. 다시 시도해주세요.")
+                    } finally {
+                      setIsGeneratingCustomStyle(false)
+                    }
+                  }}
+                  disabled={!customStyleCharacterImage || !customStyleBackgroundImage || isGeneratingCustomStyle}
+                  className="w-full"
+                  size="lg"
+                >
+                  {isGeneratingCustomStyle ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      스타일 생성 중...
+                    </>
+                  ) : (
+                    <>
+                      <Wand2 className="w-4 h-4 mr-2" />
+                      커스텀 스타일 생성
+                    </>
+                  )}
+                </Button>
+
+                {/* 생성된 스타일 미리보기 */}
+                {customStyleResult && (
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">생성된 커스텀 스타일</Label>
+                    <div className="border border-gray-200 rounded-lg p-4">
+                      <img 
+                        src={customStyleResult} 
+                        alt="커스텀 스타일" 
+                        className="w-full h-64 object-cover rounded-lg"
+                      />
+                      <div className="mt-3 flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setImageStyle("custom-style")
+                            alert("커스텀 스타일이 선택되었습니다.")
+                          }}
+                          className="flex-1"
+                        >
+                          이 스타일 사용하기
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            if (customStyleResult.startsWith("blob:")) {
+                              URL.revokeObjectURL(customStyleResult)
+                            }
+                            setCustomStyleResult(null)
+                          }}
+                        >
+                          제거
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+              </Card>
+            </div>
 
             {scriptLines.length === 0 ? (
               <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white">
@@ -8211,26 +9661,173 @@ export default function LongformContentPage() {
                 <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white">
                   <CardHeader className="pb-4 border-b border-gray-100">
                     <CardTitle className="text-lg font-semibold text-slate-900">생성된 문장 리스트</CardTitle>
-                    <p className="text-sm text-gray-500 mt-2">
-                      각 문장 그룹에 맞는 이미지를 자동으로 생성합니다.
-                    </p>
                   </CardHeader>
                   <CardContent className="pt-6 space-y-4">
                 <Button
-                      onClick={handleGenerateImagesForLines}
-                      disabled={isGeneratingImages || scriptLines.length === 0}
+                      onClick={async () => {
+                        if (!decomposedScenes || decomposedScenes.trim().length === 0) {
+                          alert("먼저 장면 분해를 완료해주세요.")
+                          return
+                        }
+                        const openaiApiKey = getApiKey("openai_api_key")
+                        if (!openaiApiKey) {
+                          alert("OpenAI API 키를 설정해주세요.")
+                          return
+                        }
+                        setIsGeneratingScenePrompts(true)
+                        try {
+                          console.log("[이미지 프롬프트 생성] decomposedScenes 확인:", decomposedScenes.substring(0, 500))
+                          const prompts = await generateSceneImagePrompts(decomposedScenes, imageStyle, openaiApiKey)
+                          console.log("[이미지 프롬프트 생성] 생성된 프롬프트 개수:", prompts.length)
+                          setSceneImagePrompts(prompts)
+                        } catch (error) {
+                          console.error("이미지 프롬프트 생성 실패:", error)
+                          alert(`이미지 프롬프트 생성에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+                        } finally {
+                          setIsGeneratingScenePrompts(false)
+                        }
+                      }}
+                      disabled={isGeneratingScenePrompts || !decomposedScenes || decomposedScenes.trim().length === 0}
+                      className="w-full h-12 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-semibold"
+                      size="lg"
+                    >
+                      {isGeneratingScenePrompts ? (
+                        <>
+                          <Sparkles className="w-4 h-4 mr-2 animate-spin" />
+                          1. 이미지 프롬프트 생성 중...
+                        </>
+                      ) : (
+                        <>
+                          <Wand2 className="w-4 h-4 mr-2" />
+                          1. 이미지 프롬프트 생성
+                        </>
+                      )}
+                </Button>
+                <Button
+                      onClick={async () => {
+                        if (sceneImagePrompts.length === 0) {
+                          alert("먼저 이미지 프롬프트를 생성해주세요.")
+                          return
+                        }
+                        const replicateApiKey = getApiKey("replicate_api_key")
+                        if (!replicateApiKey) {
+                          alert("Replicate API 키를 설정해주세요.")
+                          return
+                        }
+                        
+                        setIsGeneratingSceneImages(true)
+                        const totalImages = sceneImagePrompts.reduce((sum, scene) => sum + scene.images.length, 0)
+                        setSceneImageGenerationProgress({ current: 0, total: totalImages })
+                        
+                        try {
+                          let currentIndex = 0
+                          const updatedPrompts = [...sceneImagePrompts]
+                          let hasGeneratedImages = false
+                          
+                          for (const scene of updatedPrompts) {
+                            for (const image of scene.images) {
+                              currentIndex++
+                              setSceneImageGenerationProgress({ current: currentIndex, total: totalImages })
+                              
+                              try {
+                                console.log(`[Scene Image] 이미지 생성 중... (${currentIndex}/${totalImages}): Scene ${scene.sceneNumber}, Image ${image.imageNumber}`)
+                                // 스틱맨 스타일일 때 장면 정보(sceneText)를 전달
+                                const imageUrl = await generateImageWithReplicate(
+                                  image.prompt, 
+                                  replicateApiKey, 
+                                  "16:9", 
+                                  imageStyle,
+                                  image.sceneText // 장면 정보 전달
+                                )
+                                console.log(`[Scene Image] 이미지 생성 완료:`, imageUrl)
+                                
+                                // 해당 이미지에 imageUrl 추가
+                                const sceneIndex = updatedPrompts.findIndex(s => s.sceneNumber === scene.sceneNumber)
+                                if (sceneIndex !== -1) {
+                                  const imageIndex = updatedPrompts[sceneIndex].images.findIndex(img => img.imageNumber === image.imageNumber)
+                                  if (imageIndex !== -1) {
+                                    updatedPrompts[sceneIndex].images[imageIndex].imageUrl = imageUrl
+                                    setSceneImagePrompts([...updatedPrompts])
+                                    hasGeneratedImages = true
+                                  }
+                                }
+                              } catch (error) {
+                                console.error(`[Scene Image] 이미지 생성 실패 (Scene ${scene.sceneNumber}, Image ${image.imageNumber}):`, error)
+                                // 실패해도 계속 진행
+                              }
+                              
+                              // API 제한 방지를 위한 딜레이
+                              await new Promise(resolve => setTimeout(resolve, 300))
+                            }
+                          }
+                          
+                          // 이미지 생성 완료 상태 업데이트
+                          if (hasGeneratedImages) {
+                            console.log("[Scene Image] 이미지 생성 완료 - 사이드바 완료 표시 업데이트")
+                            setCompletedSteps((prev) => {
+                              if (!prev.includes("image")) {
+                                console.log("[Scene Image] 'image' 단계를 완료 목록에 추가")
+                                return [...prev, "image"]
+                              }
+                              return prev
+                            })
+                          }
+                        } catch (error) {
+                          console.error("장면 이미지 생성 실패:", error)
+                          alert(`이미지 생성에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+                        } finally {
+                          setIsGeneratingSceneImages(false)
+                          setSceneImageGenerationProgress({ current: 0, total: 0 })
+                          
+                          // 최종적으로 sceneImagePrompts 상태를 확인하여 완료 표시
+                          setTimeout(() => {
+                            setSceneImagePrompts((currentPrompts) => {
+                              const hasAnyImage = currentPrompts.some(scene => 
+                                scene.images.some(img => img.imageUrl)
+                              )
+                              if (hasAnyImage) {
+                                console.log("[Scene Image] 최종 확인 - 이미지가 있으므로 완료 표시")
+                                setCompletedSteps((prev) => {
+                                  if (!prev.includes("image")) {
+                                    return [...prev, "image"]
+                                  }
+                                  return prev
+                                })
+                              }
+                              return currentPrompts
+                            })
+                          }, 500)
+                          
+                          // 최종적으로 sceneImagePrompts 상태를 확인하여 완료 표시
+                          setTimeout(() => {
+                            const hasAnyImage = sceneImagePrompts.some(scene => 
+                              scene.images.some(img => img.imageUrl)
+                            )
+                            if (hasAnyImage) {
+                              console.log("[Scene Image] 최종 확인 - 이미지가 있으므로 완료 표시")
+                              setCompletedSteps((prev) => {
+                                if (!prev.includes("image")) {
+                                  return [...prev, "image"]
+                                }
+                                return prev
+                              })
+                            }
+                          }, 500)
+                        }
+                      }}
+                      disabled={isGeneratingSceneImages || sceneImagePrompts.length === 0}
                       className="w-full h-12 bg-red-500 hover:bg-red-600 text-white rounded-lg font-semibold"
                       size="lg"
                     >
-                      {isGeneratingImages ? (
+                      {isGeneratingSceneImages ? (
                         <>
                           <Sparkles className="w-4 h-4 mr-2 animate-spin" />
-                          이미지 생성 중... ({imageGenerationProgress.current}/{imageGenerationProgress.total})
+                          2. 이미지 생성 중... ({sceneImageGenerationProgress.current}/{sceneImageGenerationProgress.total})
                         </>
                       ) : (
                         <>
                           <ImageIcon className="w-4 h-4 mr-2" />
-                          모든 문장에 이미지 생성하기
+                          2. 모든 장면 이미지 생성하기
                         </>
                       )}
                 </Button>
@@ -8257,6 +9854,214 @@ export default function LongformContentPage() {
                   </Button>
                 )}
 
+                    {/* Scene별 이미지 프롬프트 트리 구조 표시 */}
+                    {sceneImagePrompts.length > 0 && (
+                      <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white mt-6">
+                        <CardHeader className="pb-4 border-b border-gray-100">
+                          <div className="flex items-center justify-between">
+                            <CardTitle className="text-lg font-semibold text-slate-900">생성된 이미지 프롬프트 (트리 구조)</CardTitle>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                const textToCopy = sceneImagePrompts.map(scene => 
+                                  `Scene ${scene.sceneNumber}\n${scene.images.map(img => `  Image ${img.imageNumber}:\n    ${img.prompt}`).join("\n")}`
+                                ).join("\n\n")
+                                copyToClipboard(textToCopy)
+                                alert("이미지 프롬프트가 복사되었습니다.")
+                              }}
+                            >
+                              <Copy className="w-4 h-4 mr-2" />
+                              전체 복사
+                            </Button>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="pt-6">
+                          <div className="space-y-6">
+                            {sceneImagePrompts.map((scene) => (
+                              <div key={scene.sceneNumber} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                                <div className="font-semibold text-lg mb-3 text-blue-600">
+                                  Scene {scene.sceneNumber}
+                                </div>
+                                <div className="space-y-3 ml-4">
+                                  {scene.images.map((image) => (
+                                    <div key={image.imageNumber} className="border-l-2 border-blue-300 pl-4 py-2 bg-white rounded">
+                                      <div className="flex items-center justify-between mb-1">
+                                        <div className="font-medium text-sm text-gray-600">
+                                          Image {image.imageNumber}:
+                                        </div>
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => {
+                                            copyToClipboard(image.prompt)
+                                            alert(`Image ${image.imageNumber} 프롬프트가 복사되었습니다.`)
+                                          }}
+                                          className="h-7 px-2"
+                                        >
+                                          <Copy className="w-3 h-3 mr-1" />
+                                          복사
+                                        </Button>
+                                      </div>
+                                      <div className="text-xs text-gray-500 mb-2 italic">
+                                        원본: {image.sceneText.substring(0, 100)}{image.sceneText.length > 100 ? "..." : ""}
+                                      </div>
+                                      <div className="flex gap-3">
+                                        <div className="flex-1 text-sm font-mono bg-gray-50 p-2 rounded border">
+                                          {image.prompt}
+                                        </div>
+                                        <div className="flex flex-col gap-2">
+                                          <Button
+                                            size="sm"
+                                            variant="default"
+                                            className="bg-green-500 hover:bg-green-600 text-white"
+                                            onClick={async () => {
+                                              const replicateApiKey = getApiKey("replicate_api_key")
+                                              if (!replicateApiKey) {
+                                                alert("Replicate API 키를 설정해주세요.")
+                                                return
+                                              }
+                                              
+                                              try {
+                                                console.log(`[Scene Image] 개별 이미지 생성 시작: Scene ${scene.sceneNumber}, Image ${image.imageNumber}`)
+                                                const imageUrl = await generateImageWithReplicate(
+                                                  image.prompt,
+                                                  replicateApiKey,
+                                                  "16:9",
+                                                  imageStyle,
+                                                  image.sceneText
+                                                )
+                                                console.log(`[Scene Image] 개별 이미지 생성 완료:`, imageUrl)
+                                                
+                                                // 해당 이미지에 imageUrl 추가
+                                                setSceneImagePrompts((prev) => {
+                                                  return prev.map((s) => {
+                                                    if (s.sceneNumber === scene.sceneNumber) {
+                                                      return {
+                                                        ...s,
+                                                        images: s.images.map((img) => {
+                                                          if (img.imageNumber === image.imageNumber) {
+                                                            return { ...img, imageUrl }
+                                                          }
+                                                          return img
+                                                        }),
+                                                      }
+                                                    }
+                                                    return s
+                                                  })
+                                                })
+                                                
+                                                // 완료 표시 업데이트
+                                                setCompletedSteps((prev) => {
+                                                  if (!prev.includes("image")) {
+                                                    return [...prev, "image"]
+                                                  }
+                                                  return prev
+                                                })
+                                              } catch (error) {
+                                                console.error(`[Scene Image] 개별 이미지 생성 실패:`, error)
+                                                alert(`이미지 생성에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+                                              }
+                                            }}
+                                          >
+                                            <ImageIcon className="w-4 h-4 mr-1" />
+                                            {image.imageUrl ? "이미지 재생성" : "이미지 생성"}
+                                          </Button>
+                                          {image.imageUrl ? (
+                                            <div className="w-80 aspect-video rounded border overflow-hidden relative group">
+                                              {convertedSceneVideos.has(`${scene.sceneNumber}-${image.imageNumber}`) ? (
+                                                <video
+                                                  src={convertedSceneVideos.get(`${scene.sceneNumber}-${image.imageNumber}`)}
+                                                  controls
+                                                  className="w-full h-full object-cover"
+                                                />
+                                              ) : (
+                                                <img
+                                                  src={image.imageUrl}
+                                                  alt={`Scene ${scene.sceneNumber} Image ${image.imageNumber}`}
+                                                  className="w-full h-full object-cover"
+                                                />
+                                              )}
+                                              <label className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 cursor-pointer">
+                                                <input
+                                                  type="file"
+                                                  accept="image/*"
+                                                  className="hidden"
+                                                  onChange={(e) => {
+                                                    const file = e.target.files?.[0]
+                                                    if (file) {
+                                                      handleSceneImageUpload(scene.sceneNumber, image.imageNumber, file)
+                                                    }
+                                                  }}
+                                                />
+                                                <Button
+                                                  size="sm"
+                                                  variant="outline"
+                                                  className="bg-white hover:bg-gray-100"
+                                                  asChild
+                                                >
+                                                  <span>
+                                                    <Upload className="w-4 h-4 mr-1" />
+                                                    교체
+                                                  </span>
+                                                </Button>
+                                                {!convertedSceneVideos.has(`${scene.sceneNumber}-${image.imageNumber}`) && (
+                                                  <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="bg-white hover:bg-gray-100"
+                                                    onClick={(e) => {
+                                                      e.stopPropagation()
+                                                      handleConvertSceneImageToVideo(scene.sceneNumber, image.imageNumber, image.imageUrl!)
+                                                    }}
+                                                    disabled={isConvertingSceneVideo.has(`${scene.sceneNumber}-${image.imageNumber}`)}
+                                                  >
+                                                    {isConvertingSceneVideo.has(`${scene.sceneNumber}-${image.imageNumber}`) ? (
+                                                      <>
+                                                        <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                                                        변환 중...
+                                                      </>
+                                                    ) : (
+                                                      <>
+                                                        <Video className="w-4 h-4 mr-1" />
+                                                        영상 변환
+                                                      </>
+                                                    )}
+                                                  </Button>
+                                                )}
+                                              </label>
+                                            </div>
+                                          ) : (
+                                            <label className="w-80 aspect-video rounded border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-gray-400 transition-colors">
+                                              <input
+                                                type="file"
+                                                accept="image/*"
+                                                className="hidden"
+                                                onChange={(e) => {
+                                                  const file = e.target.files?.[0]
+                                                  if (file) {
+                                                    handleSceneImageUpload(scene.sceneNumber, image.imageNumber, file)
+                                                  }
+                                                }}
+                                              />
+                                              <div className="text-center">
+                                                <Upload className="w-6 h-6 mx-auto mb-2 text-gray-400" />
+                                                <p className="text-xs text-gray-500">이미지 업로드</p>
+                                              </div>
+                                            </label>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+
                     {imageGenerationProgress.total > 0 && (
                       <div className="w-full bg-gray-200 rounded-full h-2.5">
                         <div
@@ -8269,263 +10074,6 @@ export default function LongformContentPage() {
                     )}
                   </CardContent>
                 </Card>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {scriptLines.map((line) => {
-                    const generatedImage = generatedImages.find((img) => img.lineId === line.id)
-                    return (
-                      <Card 
-                        key={line.id}
-                        onMouseEnter={() => setHoveredImageId(line.id)}
-                        onMouseLeave={() => setHoveredImageId(null)}
-                        className={`relative border border-gray-200 rounded-2xl shadow-sm bg-white ${selectedImagesForVideo.has(line.id) ? "ring-2 ring-blue-500" : ""}`}
-                      >
-                        <CardHeader className="pb-3 border-b border-gray-100">
-                          <div className="flex items-center justify-between">
-                            <CardTitle className="text-sm font-semibold text-slate-900">문장 {line.id}</CardTitle>
-                            {generatedImage && (
-                              <input
-                                type="checkbox"
-                                checked={selectedImagesForVideo.has(line.id)}
-                                onChange={(e) => {
-                                  const newSelected = new Set(selectedImagesForVideo)
-                                  if (e.target.checked) {
-                                    newSelected.add(line.id)
-                                  } else {
-                                    newSelected.delete(line.id)
-                                  }
-                                  setSelectedImagesForVideo(newSelected)
-                                }}
-                                className="w-4 h-4"
-                              />
-                        )}
-                      </div>
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                          <p className="text-xs text-muted-foreground line-clamp-3">{line.text}</p>
-                          <div className="relative aspect-video w-full">
-                            {generatedImage ? (
-                              <div className="space-y-2">
-                                <div className="relative aspect-video w-full">
-                                  {convertedVideos.has(line.id) ? (
-                                    <video
-                                      src={convertedVideos.get(line.id)}
-                                      controls
-                                      className="w-full h-full object-cover rounded-lg border aspect-video"
-                                    />
-                                  ) : (
-                                    <img
-                                      src={generatedImage.imageUrl}
-                                      alt={`문장 ${line.id} 이미지`}
-                                      className="w-full h-full object-cover rounded-lg border aspect-video"
-                                    />
-                                  )}
-                                  {/* Hover 시 버튼 표시 */}
-                                  {hoveredImageId === line.id && (
-                                    <div className="absolute inset-0 bg-black/50 rounded-lg flex items-center justify-center gap-2">
-                                      <Dialog open={customImageDialogOpen === line.id} onOpenChange={(open) => {
-                                        if (!open) {
-                                          setCustomImageDialogOpen(null)
-                                          setCustomImagePrompt("")
-                                        } else {
-                                          setCustomImageDialogOpen(line.id)
-                                        }
-                                      }}>
-                                        <DialogTrigger asChild>
-                                          <Button
-                                            size="sm"
-                                            className="bg-blue-600 hover:bg-blue-700"
-                                            onClick={(e) => {
-                                              e.stopPropagation()
-                                              setCustomImageDialogOpen(line.id)
-                                            }}
-                                          >
-                                            <Sparkles className="w-4 h-4 mr-1" />
-                                            AI생성
-                                          </Button>
-                                        </DialogTrigger>
-                                        <DialogContent>
-                                          <DialogHeader>
-                                            <DialogTitle>커스텀 이미지 생성</DialogTitle>
-                                            <DialogDescription>
-                                              원하는 이미지 내용을 한글로 입력하세요. 영어 프롬프트로 자동 변환되어 이미지가 생성됩니다.
-                                            </DialogDescription>
-                                          </DialogHeader>
-                                          <div className="space-y-4">
-                                            <Textarea
-                                              placeholder="예: 조선시대 궁중에서 왕이 신하들과 회의하는 장면"
-                                              value={customImagePrompt}
-                                              onChange={(e) => setCustomImagePrompt(e.target.value)}
-                                              className="min-h-[100px]"
-                                            />
-                                            <div className="flex gap-2">
-                                              <Button
-                                                onClick={() => handleGenerateCustomImage(line.id)}
-                                                disabled={isGeneratingCustomImage || !customImagePrompt.trim()}
-                                                className="flex-1"
-                                              >
-                                                {isGeneratingCustomImage ? (
-                                                  <>
-                                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                                    생성 중...
-                                                  </>
-                                                ) : (
-                                                  <>
-                                                    <Sparkles className="w-4 h-4 mr-2" />
-                                                    이미지 생성
-                                                  </>
-                                                )}
-                                              </Button>
-                                              <Button
-                                                variant="outline"
-                                                onClick={() => {
-                                                  setCustomImageDialogOpen(null)
-                                                  setCustomImagePrompt("")
-                                                }}
-                                              >
-                                                취소
-                                              </Button>
-                      </div>
-                      </div>
-                                        </DialogContent>
-                                      </Dialog>
-                                      <label>
-                                        <input
-                                          type="file"
-                                          accept="image/*"
-                                          className="hidden"
-                                          onChange={(e) => {
-                                            const file = e.target.files?.[0]
-                                            if (file) {
-                                              handleImageUpload(line.id, file)
-                                            }
-                                          }}
-                                        />
-                                        <Button
-                                          size="sm"
-                                          variant="outline"
-                                          className="bg-white hover:bg-gray-100"
-                                          asChild
-                                        >
-                                          <span>
-                                            <Upload className="w-4 h-4 mr-1" />
-                                            업로드
-                                          </span>
-                                        </Button>
-                                      </label>
-                    </div>
-                                  )}
-                  </div>
-                                <div className="text-xs text-muted-foreground">
-                                  <p className="font-medium mb-1">생성된 프롬프트:</p>
-                                  <p className="line-clamp-2">{generatedImage.prompt}</p>
-                </div>
-                              </div>
-                            ) : (
-                              <div className="w-full h-full bg-gray-100 rounded-lg border-2 border-dashed border-gray-300 flex items-center justify-center relative aspect-video">
-                                {hoveredImageId === line.id ? (
-                                  <div className="flex flex-col items-center justify-center gap-2">
-                                    <Dialog open={customImageDialogOpen === line.id} onOpenChange={(open) => {
-                                      if (!open) {
-                                        setCustomImageDialogOpen(null)
-                                        setCustomImagePrompt("")
-                                      } else {
-                                        setCustomImageDialogOpen(line.id)
-                                      }
-                                    }}>
-                                      <DialogTrigger asChild>
-                                        <Button
-                                          size="sm"
-                                          className="bg-blue-600 hover:bg-blue-700"
-                                          onClick={(e) => {
-                                            e.stopPropagation()
-                                            setCustomImageDialogOpen(line.id)
-                                          }}
-                                        >
-                                          <Sparkles className="w-4 h-4 mr-1" />
-                                          AI생성
-                                        </Button>
-                                      </DialogTrigger>
-                                      <DialogContent>
-                                        <DialogHeader>
-                                          <DialogTitle>커스텀 이미지 생성</DialogTitle>
-                                          <DialogDescription>
-                                            원하는 이미지 내용을 한글로 입력하세요. 영어 프롬프트로 자동 변환되어 이미지가 생성됩니다.
-                                          </DialogDescription>
-                                        </DialogHeader>
-                                        <div className="space-y-4">
-                    <Textarea
-                                            placeholder="예: 조선시대 궁중에서 왕이 신하들과 회의하는 장면"
-                                            value={customImagePrompt}
-                                            onChange={(e) => setCustomImagePrompt(e.target.value)}
-                                            className="min-h-[100px]"
-                                          />
-                                          <div className="flex gap-2">
-                                            <Button
-                                              onClick={() => handleGenerateCustomImage(line.id)}
-                                              disabled={isGeneratingCustomImage || !customImagePrompt.trim()}
-                                              className="flex-1"
-                                            >
-                                              {isGeneratingCustomImage ? (
-                                                <>
-                                                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                                  생성 중...
-                  </>
-                ) : (
-                  <>
-                                                  <Sparkles className="w-4 h-4 mr-2" />
-                                                  이미지 생성
-                  </>
-                )}
-              </Button>
-                                            <Button
-                                              variant="outline"
-                                              onClick={() => {
-                                                setCustomImageDialogOpen(null)
-                                                setCustomImagePrompt("")
-                                              }}
-                                            >
-                                              취소
-                                            </Button>
-            </div>
-                                        </div>
-                                      </DialogContent>
-                                    </Dialog>
-                                    <label>
-                                      <input
-                                        type="file"
-                                        accept="image/*"
-                                        className="hidden"
-                                        onChange={(e) => {
-                                          const file = e.target.files?.[0]
-                                          if (file) {
-                                            handleImageUpload(line.id, file)
-                                          }
-                                        }}
-                                      />
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        asChild
-                                      >
-                                        <span>
-                                          <Upload className="w-4 h-4 mr-1" />
-                                          업로드
-                                        </span>
-                                      </Button>
-                                    </label>
-                                  </div>
-                                ) : (
-                                  <p className="text-xs text-muted-foreground">이미지 미생성</p>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        </CardContent>
-                      </Card>
-                    )
-                  })}
-              </div>
                   </>
                 )}
 
@@ -8619,10 +10167,10 @@ export default function LongformContentPage() {
                           { id: "google-tts-neural2-c", name: "Google TTS (남성)", note: "ko-KR-Neural2-C", provider: "google" },
                           { id: "ttsmaker-여성1", name: "TTSMaker 여성1", note: "ID: 503", provider: "ttsmaker" },
                           { id: "ttsmaker-여성2", name: "TTSMaker 여성2", note: "ID: 509", provider: "ttsmaker" },
-                          { id: "ttsmaker-여성6", name: "TTSMaker 여성6", note: "ID: 5802", provider: "ttsmaker" },
+                          { id: "ttsmaker-여성6", name: "TTSMaker 여성3", note: "ID: 5802", provider: "ttsmaker" },
                           { id: "ttsmaker-남성1", name: "TTSMaker 남성1", note: "ID: 5501", provider: "ttsmaker" },
-                          { id: "ttsmaker-남성4", name: "TTSMaker 남성4", note: "ID: 5888", provider: "ttsmaker" },
-                          { id: "ttsmaker-남성5", name: "TTSMaker 남성5", note: "ID: 5888 (음높이 -10%)", provider: "ttsmaker" },
+                          { id: "ttsmaker-남성4", name: "TTSMaker 남성2", note: "ID: 5888", provider: "ttsmaker" },
+                          { id: "ttsmaker-남성5", name: "TTSMaker 남성3", note: "ID: 5888 (음높이 -10%)", provider: "ttsmaker" },
                         ].map((voice) => (
                           <div
                             key={voice.id}
@@ -8645,7 +10193,6 @@ export default function LongformContentPage() {
                               </div>
                               <div className="flex-1" onClick={() => setSelectedVoiceId(voice.id)}>
                                 <p className="text-sm font-medium">{voice.name}</p>
-                                {voice.note && <p className="text-xs text-muted-foreground">{voice.note}</p>}
                               </div>
                             </div>
                           <Button
@@ -8708,80 +10255,121 @@ export default function LongformContentPage() {
                     </Card>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {scriptLines.map((line) => {
-                    const generatedAudio = generatedAudios.find((audio) => audio.lineId === line.id)
-                    return (
-                      <Card key={line.id}>
-                        <CardHeader>
-                          <CardTitle className="text-sm">문장 {line.id}</CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                          <p className="text-xs text-muted-foreground line-clamp-3">{line.text}</p>
-                          {generatedAudio ? (
-                            <div className="space-y-2">
-                              <audio controls className="w-full" src={generatedAudio.audioUrl} />
-                              <div className="flex gap-2">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="flex-1"
-                                  onClick={() => {
-                                    const link = document.createElement("a")
-                                    link.href = generatedAudio.audioUrl
-                                    link.download = `tts_line_${line.id}.mp3`
-                                    link.click()
-                                  }}
-                                >
-                                  <Download className="w-4 h-4 mr-2" />
-                                  다운로드
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="flex-1"
-                                  onClick={() => handleGenerateTTSForSingleLine(line.id)}
-                                  disabled={generatingTTSForLine.has(line.id)}
-                                >
-                                  {generatingTTSForLine.has(line.id) ? (
-                                    <>
-                                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                      생성 중...
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Volume2 className="w-4 h-4 mr-2" />
-                                      다시 생성
-                                    </>
-                                  )}
-                                </Button>
+                  {(() => {
+                    // 장면 분해 결과가 있으면 그것을 사용, 없으면 scriptLines 사용
+                    let displayLines: Array<{ id: number; text: string; sceneNumber?: number; imageNumber?: number }> = []
+                    
+                    if (decomposedScenes && decomposedScenes.trim().length > 0) {
+                      // 장면 분해 결과 파싱
+                      const sceneBlocks = decomposedScenes.split(/(?=씬\s+\d+)/).filter(block => block.trim().length > 0)
+                      let globalLineId = 1
+                      
+                      for (const sceneBlock of sceneBlocks) {
+                        const sceneNumMatch = sceneBlock.match(/씬\s+(\d+)/)
+                        if (!sceneNumMatch) continue
+                        
+                        const sceneNum = parseInt(sceneNumMatch[1])
+                        const imageRegex = /\[장면\s+(\d+)\]\s*\n([\s\S]*?)(?=\[장면\s+\d+\]|씬\s+\d+|$)/g
+                        let imageMatch
+                        
+                        while ((imageMatch = imageRegex.exec(sceneBlock)) !== null) {
+                          const imageNum = parseInt(imageMatch[1])
+                          const imageText = imageMatch[2].trim()
+                          
+                          if (imageText) {
+                            displayLines.push({
+                              id: globalLineId++,
+                              text: imageText,
+                              sceneNumber: sceneNum,
+                              imageNumber: imageNum,
+                            })
+                          }
+                        }
+                      }
+                    } else {
+                      // 기존 scriptLines 사용
+                      displayLines = scriptLines.map(line => ({ id: line.id, text: line.text }))
+                    }
+                    
+                    return displayLines.map((line) => {
+                      const generatedAudio = generatedAudios.find((audio) => audio.lineId === line.id)
+                      const title = line.sceneNumber && line.imageNumber 
+                        ? `씬 ${line.sceneNumber} - 장면 ${line.imageNumber}`
+                        : `문장 ${line.id}`
+                      
+                      return (
+                        <Card key={line.id}>
+                          <CardHeader>
+                            <CardTitle className="text-sm">{title}</CardTitle>
+                          </CardHeader>
+                          <CardContent className="space-y-3">
+                            <p className="text-xs text-muted-foreground line-clamp-3">{line.text}</p>
+                            {generatedAudio ? (
+                              <div className="space-y-2">
+                                <audio controls className="w-full" src={generatedAudio.audioUrl} />
+                                <div className="flex gap-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="flex-1"
+                                    onClick={() => {
+                                      const link = document.createElement("a")
+                                      link.href = generatedAudio.audioUrl
+                                      link.download = `tts_line_${line.id}.mp3`
+                                      link.click()
+                                    }}
+                                  >
+                                    <Download className="w-4 h-4 mr-2" />
+                                    다운로드
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="flex-1"
+                                    onClick={() => handleGenerateTTSForSingleLine(line.id)}
+                                    disabled={generatingTTSForLine.has(line.id)}
+                                  >
+                                    {generatingTTSForLine.has(line.id) ? (
+                                      <>
+                                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                        생성 중...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Volume2 className="w-4 h-4 mr-2" />
+                                        다시 생성
+                                      </>
+                                    )}
+                                  </Button>
+                                </div>
                               </div>
-                            </div>
-                          ) : (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="w-full"
-                              onClick={() => handleGenerateTTSForSingleLine(line.id)}
-                              disabled={generatingTTSForLine.has(line.id)}
-                            >
-                              {generatingTTSForLine.has(line.id) ? (
-                                <>
-                                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                  생성 중...
-                                </>
-                              ) : (
-                                <>
-                                  <Volume2 className="w-4 h-4 mr-2" />
-                                  TTS 생성
-                                </>
-                              )}
-                            </Button>
-                          )}
-              </CardContent>
-            </Card>
-                    )
-                  })}
-                  </div>
+                            ) : (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="w-full"
+                                onClick={() => handleGenerateTTSForSingleLine(line.id)}
+                                disabled={generatingTTSForLine.has(line.id)}
+                              >
+                                {generatingTTSForLine.has(line.id) ? (
+                                  <>
+                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                    생성 중...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Volume2 className="w-4 h-4 mr-2" />
+                                    TTS 생성
+                                  </>
+                                )}
+                              </Button>
+                            )}
+                          </CardContent>
+                        </Card>
+                      )
+                    })
+                  })()}
+                </div>
               </>
             )}
           </div>
@@ -8799,7 +10387,7 @@ export default function LongformContentPage() {
               <CardContent className="pt-6">
                 <div
                   ref={previewContainerRef}
-                  className="aspect-video bg-muted rounded-lg relative overflow-hidden mb-4"
+                  className="aspect-video bg-muted rounded-lg relative overflow-hidden mb-4 w-full"
                   style={{ height: "500px" }}
                   onMouseMove={(e) => {
                     // 드래그 중일 때는 위치만 변경 (크기는 절대 변경하지 않음)
@@ -9562,11 +11150,12 @@ export default function LongformContentPage() {
                 </div>
 
                 {videoData && (
-                  <div className="mt-4 space-y-4">
+                  <div className="mt-4 space-y-4 w-full">
                     <div className="flex items-center gap-4 mb-2">
                       <Button
                         variant="outline"
                         size="sm"
+                        disabled={!videoData || !videoData.audioUrl}
                         onClick={() => {
                           const audioElement = audioRef
                           if (audioElement) {
@@ -9581,14 +11170,17 @@ export default function LongformContentPage() {
                         {!audioRef || audioRef.paused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
                       </Button>
 
-                      <div className="flex items-center gap-4 flex-1">
+                      <div className="flex items-center gap-2">
                         <Volume2 className="h-4 w-4 text-muted-foreground" />
                         <input
                           type="range"
                           min="0"
                           max="100"
-                          defaultValue="100"
-                          className="flex-1 h-2"
+                          value={audioRef ? Math.round(audioRef.volume * 100) : 100}
+                          className="volume-slider w-24 h-2 rounded-full appearance-none cursor-pointer bg-slate-300 dark:bg-slate-600"
+                          style={{
+                            background: `linear-gradient(to right, hsl(var(--primary)) 0%, hsl(var(--primary)) ${audioRef ? (audioRef.volume * 100) : 100}%, rgb(203 213 225) ${audioRef ? (audioRef.volume * 100) : 100}%, rgb(203 213 225) 100%)`
+                          }}
                           onChange={(e) => {
                             if (audioRef) {
                               audioRef.volume = Number.parseInt(e.target.value) / 100
@@ -9596,8 +11188,32 @@ export default function LongformContentPage() {
                           }}
                         />
                       </div>
+                      <style dangerouslySetInnerHTML={{__html: `
+                        .volume-slider::-webkit-slider-thumb {
+                          -webkit-appearance: none;
+                          appearance: none;
+                          width: 16px;
+                          height: 16px;
+                          border-radius: 50%;
+                          background: rgb(100 116 139) !important;
+                          cursor: pointer;
+                          border: 2px solid white;
+                          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+                        }
+                        .volume-slider::-moz-range-thumb {
+                          width: 16px;
+                          height: 16px;
+                          border-radius: 50%;
+                          background: rgb(100 116 139) !important;
+                          cursor: pointer;
+                          border: 2px solid white;
+                          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+                        }
+                      `}} />
 
-                      <div className="text-sm text-muted-foreground">
+                      <div className="flex-1" /> {/* 공간 채우기 */}
+
+                      <div className="text-sm text-muted-foreground whitespace-nowrap">
                         {Math.floor(currentTime / 60)}분 {Math.floor(currentTime % 60)}초 / {Math.floor(videoData.duration / 60)}분 {Math.floor(videoData.duration % 60)}초
                       </div>
                     </div>
@@ -9687,9 +11303,9 @@ export default function LongformContentPage() {
                       }}
                     />
 
-                    {/* 메인 타임라인 바 - 클릭 가능 */}
+                    {/* 메인 타임라인 바 - 클릭 가능 (고급스러운 디자인) */}
                     <div
-                      className="relative h-12 bg-muted rounded-lg overflow-hidden cursor-pointer border border-border"
+                      className="relative h-14 w-full bg-gradient-to-b from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-900 rounded-xl overflow-hidden cursor-pointer border-2 border-slate-300 dark:border-slate-700 shadow-lg hover:shadow-xl transition-all duration-200"
                       onClick={(e) => {
                         const audioElement = audioRef
                         if (!audioElement) return
@@ -9702,12 +11318,18 @@ export default function LongformContentPage() {
                         setCurrentTime(newTime)
                       }}
                     >
+                      {/* 진행 바 배경 (그라데이션) */}
+                      <div 
+                        className="absolute top-0 left-0 h-full bg-gradient-to-r from-blue-500/30 via-purple-500/30 to-pink-500/30 transition-all duration-300"
+                        style={{ width: `${(currentTime / videoData.duration) * 100}%` }}
+                      />
+                      
                       {/* 자막 트랙 */}
-                      <div className="absolute top-0 left-0 right-0 h-6 bg-blue-500/20">
+                      <div className="absolute top-0 left-0 right-0 h-6 bg-blue-500/20 backdrop-blur-sm">
                         {videoData.subtitles.map((subtitle) => (
                           <div
                             key={subtitle.id}
-                            className="absolute h-full bg-blue-500/60 border-l border-r border-blue-600 hover:bg-blue-500/80 transition-colors"
+                            className="absolute h-full bg-gradient-to-r from-blue-500/70 to-blue-600/70 border-l border-r border-blue-400/50 hover:from-blue-500/90 hover:to-blue-600/90 transition-all duration-200 shadow-sm"
                             style={{
                               left: `${(subtitle.start / videoData.duration) * 100}%`,
                               width: `${((subtitle.end - subtitle.start) / videoData.duration) * 100}%`,
@@ -9718,28 +11340,28 @@ export default function LongformContentPage() {
                       </div>
 
                       {/* 이미지 트랙 */}
-                      <div className="absolute bottom-0 left-0 right-0 h-6 bg-green-500/20">
+                      <div className="absolute bottom-0 left-0 right-0 h-6 bg-green-500/20 backdrop-blur-sm">
                         {autoImages.map((img) => (
                           <div
                             key={img.id}
-                            className="absolute h-full bg-green-500/60 border-l border-r border-green-600 hover:bg-green-500/80 transition-colors flex items-center justify-center"
+                            className="absolute h-full bg-gradient-to-r from-green-500/70 to-emerald-600/70 border-l border-r border-green-400/50 hover:from-green-500/90 hover:to-emerald-600/90 transition-all duration-200 shadow-sm flex items-center justify-center"
                             style={{
                               left: `${(img.startTime / videoData.duration) * 100}%`,
                               width: `${((img.endTime - img.startTime) / videoData.duration) * 100}%`,
                             }}
                             title={`${img.keyword} (${Math.floor(img.startTime / 60)}분 ${Math.floor(img.startTime % 60)}초 - ${Math.floor(img.endTime / 60)}분 ${Math.floor(img.endTime % 60)}초)`}
                           >
-                            <ImageIcon className="h-3 w-3 text-white" />
+                            <ImageIcon className="h-3 w-3 text-white drop-shadow-sm" />
                           </div>
                         ))}
                       </div>
 
-                      {/* 재생 헤드 */}
+                      {/* 재생 헤드 (고급스러운 디자인) */}
                       <div
-                        className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-10 pointer-events-none"
+                        className="absolute top-0 bottom-0 w-1 bg-gradient-to-b from-red-400 via-red-500 to-red-600 z-20 pointer-events-none shadow-lg"
                         style={{ left: `${(currentTime / videoData.duration) * 100}%` }}
                       >
-                        <div className="absolute -top-1 -left-1.5 w-3 h-3 bg-red-500 rounded-full" />
+                        <div className="absolute -top-2 -left-2.5 w-5 h-5 bg-gradient-to-br from-red-400 to-red-600 rounded-full shadow-lg border-2 border-white dark:border-slate-800 ring-2 ring-red-200 dark:ring-red-900" />
                       </div>
                     </div>
 
@@ -9995,44 +11617,10 @@ export default function LongformContentPage() {
 
                 {/* 영상 효과 설정 */}
                 <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white mb-4">
-                  <CardHeader className="pb-4 border-b border-gray-100">
+                  <CardHeader className="pb-3 border-b border-gray-100">
                     <CardTitle className="text-lg font-semibold text-slate-900">영상 효과 설정</CardTitle>
                   </CardHeader>
-                  <CardContent className="pt-6 space-y-4">
-                    {/* 앞부분 10초 동영상 */}
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">앞부분 10초 동영상 (선택사항)</label>
-                      <div className="flex items-center gap-2">
-                        <Input
-                          type="file"
-                          accept="video/*"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0]
-                            if (file) {
-                              const url = URL.createObjectURL(file)
-                              setIntroVideo(url)
-                            }
-                          }}
-                          className="flex-1"
-                        />
-                        {introVideo && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              URL.revokeObjectURL(introVideo)
-                              setIntroVideo(null)
-                            }}
-                          >
-                            제거
-                          </Button>
-                        )}
-                      </div>
-                      {introVideo && (
-                        <video src={introVideo} controls className="w-full rounded-lg" style={{ maxHeight: "200px" }} />
-                      )}
-                    </div>
-
+                  <CardContent className="pt-4 space-y-4">
                     {/* 효과음 및 배경음악 */}
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
@@ -10258,29 +11846,22 @@ export default function LongformContentPage() {
                       )}
                     </div>
 
-                    {/* 줌인 효과 */}
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        id="enableZoom"
-                        checked={enableZoom}
-                        onChange={(e) => setEnableZoom(e.target.checked)}
-                        className="w-4 h-4"
-                      />
-                      <label htmlFor="enableZoom" className="text-sm font-medium cursor-pointer">
-                        줌인 효과 활성화 (랜덤 좌→우 또는 우→좌)
-                      </label>
-                    </div>
                   </CardContent>
                 </Card>
 
                 {/* 영상 미리보기 생성 버튼 */}
                 <Button
                   onClick={handleRenderVideo}
-                  disabled={isGeneratingVideo || scriptLines.length === 0 || generatedImages.length === 0 || generatedAudios.length === 0}
+                  disabled={
+                    activeStep !== "render" || 
+                    isExporting || 
+                    scriptLines.length === 0 || 
+                    (!sceneImagePrompts.some(s => s.images.some(img => img.imageUrl)) && generatedImages.length === 0) || 
+                    generatedAudios.length === 0
+                  }
                   className="w-full bg-red-600 hover:bg-red-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isGeneratingVideo ? (
+                  {isExporting ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       미리보기 생성 중... ({generatingVideoProgress}%)
@@ -10304,7 +11885,6 @@ export default function LongformContentPage() {
                     >
                       <Zap className="w-4 h-4 mr-2" />
                       빠른다운로드
-                      <span className="ml-2 text-xs opacity-80">(Cloud Run)</span>
                     </Button>
                     <Button
                       onClick={handleNormalDownload}
@@ -10315,7 +11895,6 @@ export default function LongformContentPage() {
                     >
                         <Download className="w-4 h-4 mr-2" />
                       보통다운로드
-                      <span className="ml-2 text-xs opacity-80">(MediaRecorder)</span>
                     </Button>
                   </div>
                 )}
@@ -10332,29 +11911,18 @@ export default function LongformContentPage() {
                   </Button>
                 )}
 
-                {videoData && (
-                  <Button
-                    className="w-full mt-2 bg-transparent"
-                    size="lg"
-                    variant="outline"
-                    onClick={handleSaveThumbnailImage}
-                  >
-                    <ImageIcon className="w-4 h-4 mr-2" />
-                    썸네일 저장
-                  </Button>
-                )}
               </CardContent>
             </Card>
 
             {/* 스크립트 입력 */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">스크립트</CardTitle>
+            <Card className="border border-slate-200 dark:border-slate-800 bg-gradient-to-br from-slate-50 to-white dark:from-slate-900 dark:to-slate-800 shadow-sm">
+              <CardHeader className="bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
+                <CardTitle className="text-lg font-semibold text-slate-900 dark:text-slate-100">스크립트</CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="pt-6">
                 <Textarea
                   placeholder="대본을 입력하거나 이전 단계에서 생성된 대본이 자동으로 표시됩니다..."
-                  className="min-h-[200px] font-mono text-sm"
+                  className="min-h-[200px] font-mono text-sm bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 focus:border-blue-500 dark:focus:border-blue-400"
                   value={script}
                   onChange={(e) => setScript(e.target.value)}
                 />
@@ -10367,20 +11935,20 @@ export default function LongformContentPage() {
 
             {/* 자막 미리보기 */}
             {videoData?.subtitles && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">자막 미리보기</CardTitle>
+              <Card className="border border-slate-200 dark:border-slate-800 bg-gradient-to-br from-slate-50 to-white dark:from-slate-900 dark:to-slate-800 shadow-sm">
+                <CardHeader className="bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
+                  <CardTitle className="text-lg font-semibold text-slate-900 dark:text-slate-100">자막 미리보기</CardTitle>
                 </CardHeader>
-                <CardContent>
-                  <div className="max-h-60 overflow-y-auto space-y-2">
+                <CardContent className="pt-6">
+                  <div className="max-h-60 overflow-y-auto space-y-2 bg-slate-50/50 dark:bg-slate-900/50 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
                     {videoData.subtitles.slice(0, 10).map((subtitle) => (
-                      <div key={subtitle.id} className="flex gap-3 text-sm">
-                        <span className="text-muted-foreground min-w-[60px]">{Math.floor(subtitle.start)}s</span>
-                        <span>{subtitle.text}</span>
+                      <div key={subtitle.id} className="flex gap-3 text-sm p-2 rounded-md hover:bg-white dark:hover:bg-slate-800 transition-colors">
+                        <span className="text-muted-foreground min-w-[60px] font-medium">{Math.floor(subtitle.start)}s</span>
+                        <span className="text-slate-700 dark:text-slate-300">{subtitle.text}</span>
                       </div>
                     ))}
                     {videoData.subtitles.length > 10 && (
-                      <p className="text-sm text-muted-foreground">... 외 {videoData.subtitles.length - 10}개 자막</p>
+                      <p className="text-sm text-muted-foreground pt-2 border-t border-slate-200 dark:border-slate-700 mt-2">... 외 {videoData.subtitles.length - 10}개 자막</p>
                     )}
                   </div>
                 </CardContent>
@@ -10394,35 +11962,7 @@ export default function LongformContentPage() {
           <div className="space-y-6">
             <h2 className="text-3xl font-bold mb-6">영상 렌더링</h2>
 
-            {scriptLines.length === 0 || generatedImages.length === 0 || generatedAudios.length === 0 ? (
-              <Card>
-                <CardContent className="p-8 text-center">
-                  <p className="text-muted-foreground mb-4">
-                    {scriptLines.length === 0 && "대본을 먼저 생성해주세요"}
-                    {scriptLines.length > 0 && generatedImages.length === 0 && "이미지를 먼저 생성해주세요"}
-                    {scriptLines.length > 0 && generatedImages.length > 0 && generatedAudios.length === 0 && "TTS를 먼저 생성해주세요"}
-                  </p>
-                  <div className="flex gap-2 justify-center">
-                    {scriptLines.length === 0 && (
-                      <Button onClick={() => setActiveStep("script")} variant="outline">
-                        대본 생성하러 가기
-                      </Button>
-                    )}
-                    {scriptLines.length > 0 && generatedImages.length === 0 && (
-                      <Button onClick={() => setActiveStep("image")} variant="outline">
-                        이미지 생성하러 가기
-                      </Button>
-                    )}
-                    {scriptLines.length > 0 && generatedImages.length > 0 && generatedAudios.length === 0 && (
-                      <Button onClick={() => setActiveStep("video")} variant="outline">
-                        TTS 생성하러 가기
-                      </Button>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            ) : (
-              <>
+            <>
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-lg">영상 렌더링 준비</CardTitle>
@@ -10463,13 +12003,48 @@ export default function LongformContentPage() {
                   <p>generatedAudios: {generatedAudios.length}개</p>
                   <p>isExporting: {isExporting ? "true" : "false"}</p>
                   <p className="mt-2 font-semibold">
-                    버튼 활성화 조건: {scriptLines.length > 0 && generatedImages.length > 0 && generatedAudios.length > 0 && !isExporting ? "✅ 활성화 가능" : "❌ 비활성화"}
+                    버튼 활성화 조건: {(() => {
+                      const hasSceneImages = sceneImagePrompts.some(s => s.images.some(img => img.imageUrl))
+                      const hasRegularImages = generatedImages.length > 0
+                      const hasImages = hasSceneImages || hasRegularImages
+                      const hasDecomposedScenes = decomposedScenes && decomposedScenes.trim().length > 0
+                      const hasScriptContent = scriptLines.length > 0 || hasDecomposedScenes
+                      const canActivate = hasScriptContent && hasImages && generatedAudios.length > 0 && !isExporting
+                      return canActivate ? "✅ 활성화 가능" : "❌ 비활성화"
+                    })()}
+                  </p>
+                  <p className="text-xs mt-1 text-gray-600">
+                    씬 이미지: {sceneImagePrompts.some(s => s.images.some(img => img.imageUrl)) ? "✅ 있음" : "❌ 없음"} | 
+                    일반 이미지: {generatedImages.length}개 | 
+                    TTS: {generatedAudios.length}개 | 
+                    대본: {scriptLines.length > 0 ? `${scriptLines.length}줄` : decomposedScenes && decomposedScenes.trim().length > 0 ? "장면분해됨" : "❌ 없음"}
+                  </p>
+                  <p className="text-xs mt-1 text-gray-600">
+                    이미지 생성 완료: {completedSteps.includes("image") ? "✅" : "❌"} | 
+                    TTS 생성 완료: {completedSteps.includes("video") ? "✅" : "❌"}
+                  </p>
+                  <p className="text-xs mt-1 text-red-600">
+                    {(() => {
+                      const imageCompleted = completedSteps.includes("image")
+                      const ttsCompleted = completedSteps.includes("video")
+                      const issues = []
+                      if (isExporting) issues.push("렌더링 중")
+                      if (!imageCompleted) issues.push("이미지 생성 미완료")
+                      if (!ttsCompleted) issues.push("TTS 생성 미완료")
+                      return issues.length > 0 ? `비활성화 이유: ${issues.join(", ")}` : "✅ 모든 조건 충족"
+                    })()}
                   </p>
                 </div>
 
                     <Button
                       onClick={handleRenderVideo}
-                      disabled={isExporting || scriptLines.length === 0 || generatedImages.length === 0 || generatedAudios.length === 0}
+                      disabled={
+                        activeStep !== "render" || 
+                        isExporting || 
+                        scriptLines.length === 0 || 
+                        (!sceneImagePrompts.some(s => s.images.some(img => img.imageUrl)) && generatedImages.length === 0) || 
+                        generatedAudios.length === 0
+                      }
                       className="w-full bg-red-600 hover:bg-red-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                       size="lg"
                     >
@@ -10487,8 +12062,7 @@ export default function LongformContentPage() {
                     </Button>
                   </CardContent>
                 </Card>
-              </>
-            )}
+            </>
           </div>
         )
 
