@@ -428,10 +428,8 @@ ${sceneText}`
           console.log(`[장면 분해] 씬 ${sceneNumber} 요청 본문 크기: ${JSON.stringify(requestBody).length}자`)
           console.log(`[장면 분해] 씬 ${sceneNumber} fetch 시작...`)
           
-          // 모델 선택: 
-          // - gemini-3-flash-preview: 최신 모델, 빠르고 효율적
-          // - gemini-1.5-pro: 더 큰 컨텍스트와 안정적인 처리 (Pro 모드)
-          const modelName = useProModel ? "gemini-1.5-pro" : "gemini-3-flash-preview"
+          // 모델 선택: gemini-3-flash-preview 사용 (모든 경우)
+          const modelName = "gemini-3-flash-preview"
           console.log(`[장면 분해] 씬 ${sceneNumber} 사용 모델: ${modelName}`)
           
           const startTime = Date.now()
