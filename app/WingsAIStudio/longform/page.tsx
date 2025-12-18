@@ -10145,15 +10145,7 @@ export default function LongformContentPage() {
                           return
                         }
                         console.log("[장면 분해 버튼] API 키 확인 완료, decomposeScriptIntoScenes 호출 시작")
-                        // 긴 대본(3000자 이상)이면 Pro 모델 사용
-                        const useProModel = script.length > 3000
-                        if (useProModel) {
-                          console.log("[장면 분해 버튼] 긴 대본 감지 - Pro 모델 사용")
-                        }
-                        const decomposedResult = await decomposeScriptIntoScenes(script, geminiApiKey, useProModel)
-                        if (!decomposedResult) {
-                          throw new Error("장면 분해 결과가 없습니다.")
-                        }
+                        const decomposedResult = await decomposeScriptIntoScenes(script, geminiApiKey)
                         console.log("[장면 분해 버튼] decomposeScriptIntoScenes 완료, 결과 길이:", decomposedResult.length)
                         // 장면 분해 결과를 저장
                         setDecomposedScenes(decomposedResult)
