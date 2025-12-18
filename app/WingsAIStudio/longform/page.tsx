@@ -52,6 +52,7 @@ import {
   Calendar,
   Search,
   RefreshCw,
+  Plus,
 } from "lucide-react"
 import Link from "next/link"
 import {
@@ -72,6 +73,7 @@ import {
   generateImageWithReplicate, // Replicate 이미지 생성 함수 import 추가
   generateAIThumbnail, // AI 썸네일 생성 함수 import 추가
   summarizeScriptForShorts, // 쇼츠 대본 요약 함수 import 추가
+  generateHookingVideoPrompt, // 후킹 영상 프롬프트 생성 함수 import 추가
   // generateCommonStylePrompt, // 공통 스타일 프롬프트 생성 함수 import 추가 (임시 주석 처리)
 } from "./actions"
 import { generateRefinedScript, decomposeScriptIntoScenes } from "./refined-script-actions"
@@ -85,7 +87,7 @@ import { generateShortsHookingTitle } from "../shorts/actions"
 // <-- FFmpeg imports 제거 -->
 
 // 이미지를 분석하여 스타일 프롬프트를 생성하는 함수 (Gemini API 사용)
-const analyzeImageForStyle = async (base64Image: string, imageType: "character" | "background", geminiApiKey: string): Promise<string> => {
+const analyzeImageForStyle = async (base64Image: string, imageType: "character" | "background" | "art-style", geminiApiKey: string): Promise<string> => {
   // base64 이미지에서 data URL prefix 제거 (Gemini API는 순수 base64만 필요)
   const base64Data = base64Image.includes(",") ? base64Image.split(",")[1] : base64Image
   
@@ -102,6 +104,25 @@ Focus on:
 - Any unique visual characteristics
 
 Output only the English prompt, no explanations or additional text.`
+    : imageType === "art-style"
+    ? `You are an expert image style analyzer specializing in art style and visual aesthetics. Analyze the uploaded image in extreme detail and extract ONLY the art style, visual style, rendering technique, and artistic characteristics. Focus exclusively on the artistic style elements that can be applied to other images, NOT the specific content, characters, or objects in the image.
+
+Focus ONLY on:
+- Art style (cartoon, realistic, anime, watercolor, oil painting, digital art, etc.)
+- Rendering technique (cel-shading, soft shading, flat colors, etc.)
+- Color palette and color treatment
+- Line art style (thick lines, thin lines, no lines, etc.)
+- Visual texture and surface treatment
+- Lighting style and mood
+- Overall artistic aesthetic and visual approach
+
+DO NOT describe:
+- Specific characters, objects, or content
+- Scene composition or layout
+- Background details
+- Narrative elements
+
+Output only the English art style prompt, no explanations or additional text.`
     : `You are an expert image style analyzer specializing in background and environment design. Analyze the uploaded background image in extreme detail and create a comprehensive English prompt that describes the background's visual style, atmosphere, and design elements. The prompt should be detailed enough to recreate similar backgrounds in image generation.
 
 Focus on:
@@ -117,6 +138,8 @@ Output only the English prompt, no explanations or additional text.`
 
   const userPrompt = imageType === "character"
     ? "Analyze this character image in extreme detail and create a comprehensive English prompt describing the character's visual style and design."
+    : imageType === "art-style"
+    ? "Analyze this image and extract ONLY the art style, visual style, and rendering technique. Describe the artistic style elements that can be applied to other images, focusing on style characteristics rather than specific content."
     : "Analyze this background image in extreme detail and create a comprehensive English prompt describing the background's visual style and atmosphere."
 
   const response = await fetch(
@@ -248,6 +271,7 @@ const sidebarItems = [
   { id: "title", title: "제목/설명 생성", icon: Type, description: "최적화된 유튜브 제목 자동 생성" },
   { id: "thumbnail", title: "썸네일 생성기", icon: ImageIcon, description: "클릭률 높은 썸네일 디자인 생성" },
   { id: "shorts", title: "쇼츠 생성기", icon: Scissors, description: "롱폼 대본을 쇼츠 영상으로 변환" },
+  { id: "hooking-video", title: "후킹 영상 프롬프트", icon: Plus, description: "소라2용 30초 후킹 영상 프롬프트 생성", isSpecial: true },
 ]
 
 const parseAnalysisForCharts = (analysis: string) => {
@@ -397,6 +421,7 @@ export default function LongformContentPage() {
   
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false)
   const [currentSubtitle, setCurrentSubtitle] = useState("")
+  const [showSubtitles, setShowSubtitles] = useState(true) // 자막 표시 여부 (기본값: true)
   const [currentTime, setCurrentTime] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [audioRef, setAudioRef] = useState<HTMLAudioElement | null>(null)
@@ -413,6 +438,7 @@ export default function LongformContentPage() {
   const [aiThumbnailUrl, setAiThumbnailUrl] = useState<string | null>(null) // AI 생성 썸네일 URL
   const [isGeneratingAIThumbnail, setIsGeneratingAIThumbnail] = useState(false) // AI 썸네일 생성 중 상태
   const [selectedThumbnailTemplate, setSelectedThumbnailTemplate] = useState<string | null>(null) // 선택된 썸네일 템플릿
+  const [thumbnailCustomText, setThumbnailCustomText] = useState<string>("") // 썸네일 커스텀 문구
   const [thumbnailBackgroundImage, setThumbnailBackgroundImage] = useState<string | null>(null) // 썸네일 배경 이미지
   const [thumbnailOverlayImage, setThumbnailOverlayImage] = useState<string | null>(null) // 썸네일 오버레이 이미지 (선택 가능한 이미지)
   const [overlayImageSize, setOverlayImageSize] = useState({ width: 50, height: 50 }) // 오버레이 이미지 크기 (%)
@@ -490,6 +516,8 @@ export default function LongformContentPage() {
   const [isSummarizingScript, setIsSummarizingScript] = useState(false) // 대본 요약 중
   const [shortsScriptLines, setShortsScriptLines] = useState<Array<{ id: number; text: string; startTime: number; endTime: number }>>([]) // 쇼츠 대본 라인
   const [shortsHookingTitle, setShortsHookingTitle] = useState<{ line1: string; line2: string } | null>(null) // 쇼츠 제목
+  const [hookingVideoPrompt, setHookingVideoPrompt] = useState<string>("") // 후킹 영상 프롬프트
+  const [isGeneratingHookingPrompt, setIsGeneratingHookingPrompt] = useState(false) // 후킹 영상 프롬프트 생성 중
   const [isGeneratingShortsTitle, setIsGeneratingShortsTitle] = useState(false) // 쇼츠 제목 생성 중
   const [shortsTtsAudioUrl, setShortsTtsAudioUrl] = useState<string>("") // 쇼츠 TTS 오디오 URL
   const [isGeneratingShortsTts, setIsGeneratingShortsTts] = useState(false) // 쇼츠 TTS 생성 중
@@ -523,6 +551,7 @@ export default function LongformContentPage() {
   // 커스텀 이미지 스타일 생성 상태
   const [customStyleCharacterImage, setCustomStyleCharacterImage] = useState<string | null>(null) // 캐릭터 사진
   const [customStyleBackgroundImage, setCustomStyleBackgroundImage] = useState<string | null>(null) // 배경 풍경
+  const [customStyleBackgroundText, setCustomStyleBackgroundText] = useState<string>("") // 배경 풍경 텍스트 (이미 스타일 프롬프트를 가지고 있는 경우)
   const [customStyleResult, setCustomStyleResult] = useState<string | null>(null) // 생성된 커스텀 스타일 (이미지 URL)
   const [customStylePrompt, setCustomStylePrompt] = useState<string | null>(null) // 생성된 커스텀 스타일 프롬프트
   const [isGeneratingCustomStyle, setIsGeneratingCustomStyle] = useState(false) // 커스텀 스타일 생성 중
@@ -1644,7 +1673,7 @@ export default function LongformContentPage() {
         
         try {
           console.log(`[자동화] AI 썸네일 생성 시작 - 주제: ${selectedTopic}`)
-          const thumbnailUrl = await generateAIThumbnail(selectedTopic, replicateApiKey)
+          const thumbnailUrl = await generateAIThumbnail(selectedTopic, replicateApiKey, imageStyle, thumbnailCustomText.trim() || undefined)
           setAiThumbnailUrl(thumbnailUrl)
           setCompletedSteps((prev) => [...new Set([...prev, "thumbnail"])])
           console.log(`[자동화] AI 썸네일 생성 완료: ${thumbnailUrl.substring(0, 50)}...`)
@@ -2558,8 +2587,8 @@ export default function LongformContentPage() {
 
     setIsGeneratingAIThumbnail(true)
     try {
-      console.log("[v0] AI 썸네일 생성 시작, 주제:", selectedTopic)
-      const imageUrl = await generateAIThumbnail(selectedTopic, replicateApiKey)
+      console.log("[v0] AI 썸네일 생성 시작, 주제:", selectedTopic, "이미지 스타일:", imageStyle, "커스텀 문구:", thumbnailCustomText)
+      const imageUrl = await generateAIThumbnail(selectedTopic, replicateApiKey, imageStyle, thumbnailCustomText.trim() || undefined)
       setAiThumbnailUrl(imageUrl)
       setCompletedSteps((prev) => [...prev.filter((step) => step !== "thumbnail"), "thumbnail"])
       console.log("[v0] AI 썸네일 생성 완료:", imageUrl)
@@ -2579,8 +2608,15 @@ export default function LongformContentPage() {
       return
     }
 
-    if (generatedImages.length === 0) {
-      alert("먼저 이미지를 생성해주세요.")
+    // 씬별 이미지와 일반 이미지 모두 확인
+    const hasSceneImages = sceneImagePrompts.length > 0 && sceneImagePrompts.some(scene => 
+      scene.images && scene.images.some(img => img.imageUrl)
+    )
+    const hasRegularImages = generatedImages.length > 0
+    const hasImages = hasSceneImages || hasRegularImages
+    
+    if (!hasImages) {
+      alert("먼저 이미지를 생성해주세요. (장면별 이미지 또는 일반 이미지)")
       return
     }
 
@@ -2906,7 +2942,14 @@ export default function LongformContentPage() {
 
   // 쇼츠 영상 렌더링 함수
   const handleRenderShortsVideo = async () => {
-    if (generatedImages.length === 0 || !shortsTtsAudioUrl || !shortsCanvasRef.current) {
+    // 씬별 이미지와 일반 이미지 모두 확인
+    const hasSceneImages = sceneImagePrompts.length > 0 && sceneImagePrompts.some(scene => 
+      scene.images && scene.images.some(img => img.imageUrl)
+    )
+    const hasRegularImages = generatedImages.length > 0
+    const hasImages = hasSceneImages || hasRegularImages
+    
+    if (!hasImages || !shortsTtsAudioUrl || !shortsCanvasRef.current) {
       alert("이미지와 TTS가 모두 준비되어야 합니다.")
       return
     }
@@ -2964,8 +3007,38 @@ export default function LongformContentPage() {
         alert("쇼츠 영상 렌더링이 완료되었습니다!")
       }
 
-      // 이미지 미리 로드
+      // 이미지 미리 로드 - sceneImagePrompts와 generatedImages 모두 포함
       const images: HTMLImageElement[] = []
+      const imageLineIdMap: Map<number, number> = new Map() // lineId -> imageIndex 매핑
+      
+      // 먼저 sceneImagePrompts의 이미지를 추가
+      let imageIndex = 0
+      for (const scene of sceneImagePrompts) {
+        for (const imgData of scene.images || []) {
+          if (imgData.imageUrl) {
+            // sceneImagePrompts의 이미지는 shortsScriptLines의 lineId와 매칭
+            // sceneNumber와 imageNumber를 기반으로 lineId 찾기
+            const matchingLine = shortsScriptLines.find(line => 
+              (line as any).sceneNumber === scene.sceneNumber && 
+              (line as any).imageNumber === imgData.imageNumber
+            )
+            if (matchingLine) {
+              const img = new Image()
+              img.crossOrigin = "anonymous"
+              await new Promise<void>((resolve, reject) => {
+                img.onload = () => resolve()
+                img.onerror = reject
+                img.src = imgData.imageUrl!
+              })
+              images.push(img)
+              imageLineIdMap.set(matchingLine.id, imageIndex)
+              imageIndex++
+            }
+          }
+        }
+      }
+      
+      // 그 다음 generatedImages 추가
       for (const imgData of generatedImages) {
         const img = new Image()
         img.crossOrigin = "anonymous"
@@ -2975,6 +3048,8 @@ export default function LongformContentPage() {
           img.src = imgData.imageUrl
         })
         images.push(img)
+        imageLineIdMap.set(imgData.lineId, imageIndex)
+        imageIndex++
       }
 
       // 렌더링 시작
@@ -3077,14 +3152,16 @@ export default function LongformContentPage() {
         ) || shortsScriptLines[shortsScriptLines.length - 1]
 
         if (currentLine) {
-          let imageIndex = generatedImages.findIndex((img) => img.lineId === currentLine.id)
+          // imageLineIdMap에서 먼저 찾기 (sceneImagePrompts와 generatedImages 모두 포함)
+          let imageIndex = imageLineIdMap.get(currentLine.id) ?? -1
 
+          // 찾지 못한 경우 이전 라인에서 이미지 찾기
           if (imageIndex < 0) {
             const currentLineIndex = shortsScriptLines.findIndex((line) => line.id === currentLine.id)
             for (let i = currentLineIndex; i >= 0; i--) {
               const prevLine = shortsScriptLines[i]
-              const prevImageIndex = generatedImages.findIndex((img) => img.lineId === prevLine.id)
-              if (prevImageIndex >= 0) {
+              const prevImageIndex = imageLineIdMap.get(prevLine.id)
+              if (prevImageIndex !== undefined && prevImageIndex >= 0) {
                 imageIndex = prevImageIndex
                 break
               }
@@ -7105,12 +7182,17 @@ export default function LongformContentPage() {
       const finalRequestBody = {
         // Cloud Storage URL이 있으면 사용, 없으면 base64 사용
         ...audioField,
-        subtitles: videoData.subtitles.map((s) => ({
-          id: s.id,
-          start: s.start,
-          end: s.end,
-          text: s.text,
-        })),
+        // 자막 표시 여부에 따라 자막 포함/제외
+        ...(showSubtitles ? {
+          subtitles: videoData.subtitles.map((s) => ({
+            id: s.id,
+            start: s.start,
+            end: s.end,
+            text: s.text,
+          })),
+        } : {
+          subtitles: [], // 자막 빼기 선택 시 빈 배열
+        }),
         // 이미지: Cloud Storage URL이 있으면 base64 전송하지 않음
         // 영상인 경우 URL만 전송
         ...characterImageField,
@@ -8179,7 +8261,8 @@ export default function LongformContentPage() {
           (s) => adjustedTimeForSubtitles >= s.start && adjustedTimeForSubtitles <= s.end
         )
 
-        if (currentSubtitles.length > 0) {
+        // 자막 표시 여부 확인
+        if (showSubtitles && currentSubtitles.length > 0) {
           // 자막 그리기 (한 줄, 큰 글씨) - 줄바꿈 강제 제거
           let subtitleText = currentSubtitles.map((s) => s.text).join(" ")
           // 모든 줄바꿈 문자 제거 (한 줄로 강제)
@@ -8219,6 +8302,9 @@ export default function LongformContentPage() {
           
           // 한 줄로만 표시 (절대 두 줄로 나누지 않음)
           ctx.fillText(displayText, canvas.width / 2, canvas.height - 90)
+          setCurrentSubtitle(displayText)
+        } else {
+          setCurrentSubtitle("")
         }
 
         const totalDuration = introVideo ? videoData.duration + 10 : videoData.duration
@@ -10400,7 +10486,7 @@ export default function LongformContentPage() {
               </CardHeader>
               <CardContent className="pt-6 space-y-4">
                 <p className="text-sm text-gray-600">
-                  원하는 캐릭터 사진과 배경 풍경을 업로드하여 커스텀 스타일을 생성할 수 있습니다.
+                  원하는 캐릭터 사진과 그림체를 업로드하여 커스텀 스타일을 생성할 수 있습니다.
                 </p>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -10490,9 +10576,9 @@ export default function LongformContentPage() {
                     </div>
                   </div>
 
-                  {/* 배경 풍경 업로드 */}
+                  {/* 그림체 업로드 */}
                   <div className="space-y-2">
-                    <Label className="text-sm font-medium">배경 풍경</Label>
+                    <Label className="text-sm font-medium">그림체</Label>
                     <div 
                       className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-blue-400 transition-colors cursor-pointer relative"
                       onDragOver={(e) => {
@@ -10527,7 +10613,7 @@ export default function LongformContentPage() {
                         <div className="space-y-2">
                           <img 
                             src={customStyleBackgroundImage} 
-                            alt="배경 풍경" 
+                            alt="그림체" 
                             className="w-full h-48 object-cover rounded-lg"
                           />
                   <Button
@@ -10574,14 +10660,27 @@ export default function LongformContentPage() {
                         </div>
                       )}
                     </div>
+                    {/* 그림체 텍스트 입력 (이미지가 없을 때만 표시) */}
+                    {!customStyleBackgroundImage && (
+                      <div className="space-y-2">
+                        <Label className="text-sm font-medium text-gray-600">또는 그림체 프롬프트 직접 입력</Label>
+                        <Textarea
+                          value={customStyleBackgroundText}
+                          onChange={(e) => setCustomStyleBackgroundText(e.target.value)}
+                          placeholder="이미 가지고 있는 그림체 스타일 프롬프트를 입력하세요..."
+                          className="min-h-[192px] resize-none border-2 border-dashed border-gray-300 rounded-lg p-4 text-sm overflow-y-auto"
+                          style={{ height: "192px" }} // 그림체 이미지 업로드 영역과 동일한 높이 (h-48 = 192px)
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 {/* 스타일 생성 버튼 */}
                 <Button
                   onClick={async () => {
-                    if (!customStyleCharacterImage && !customStyleBackgroundImage) {
-                      alert("캐릭터 사진 또는 배경 풍경을 최소 하나 이상 업로드해주세요.")
+                    if (!customStyleCharacterImage && !customStyleBackgroundImage && !customStyleBackgroundText.trim()) {
+                      alert("캐릭터 사진, 그림체 이미지, 또는 그림체 텍스트 중 최소 하나 이상 입력해주세요.")
                       return
                     }
 
@@ -10634,16 +10733,22 @@ export default function LongformContentPage() {
                       if (customStyleBackgroundImage) {
                         try {
                           const base64Image = await imageToBase64(customStyleBackgroundImage)
-                          const backgroundPrompt = await analyzeImageForStyle(base64Image, "background", geminiApiKey)
-                          if (backgroundPrompt && !backgroundPrompt.toLowerCase().includes("i'm sorry") && !backgroundPrompt.toLowerCase().includes("can't help")) {
-                            prompts.push(backgroundPrompt)
+                          // 그림체 스타일만 추출 (art-style 타입 사용)
+                          const artStylePrompt = await analyzeImageForStyle(base64Image, "art-style", geminiApiKey)
+                          if (artStylePrompt && !artStylePrompt.toLowerCase().includes("i'm sorry") && !artStylePrompt.toLowerCase().includes("can't help")) {
+                            prompts.push(artStylePrompt)
+                            console.log("[Custom Style] 그림체 스타일 추출 완료:", artStylePrompt)
                           } else {
-                            errors.push("배경 이미지 분석 실패: 이미지를 분석할 수 없습니다.")
+                            errors.push("그림체 이미지 분석 실패: 이미지를 분석할 수 없습니다.")
                           }
                         } catch (error) {
-                          console.error("[Custom Style] 배경 이미지 분석 실패:", error)
-                          errors.push(`배경 이미지 분석 실패: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+                          console.error("[Custom Style] 그림체 이미지 분석 실패:", error)
+                          errors.push(`그림체 이미지 분석 실패: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
                         }
+                      } else if (customStyleBackgroundText.trim()) {
+                        // 그림체 이미지가 없고 텍스트가 입력된 경우, 텍스트를 직접 프롬프트로 사용
+                        prompts.push(customStyleBackgroundText.trim())
+                        console.log("[Custom Style] 그림체 텍스트 사용:", customStyleBackgroundText.trim())
                       }
                       
                       // 프롬프트가 하나라도 생성되었는지 확인
@@ -10669,7 +10774,7 @@ export default function LongformContentPage() {
                       setIsGeneratingCustomStyle(false)
                     }
                   }}
-                  disabled={(!customStyleCharacterImage && !customStyleBackgroundImage) || isGeneratingCustomStyle}
+                  disabled={(!customStyleCharacterImage && !customStyleBackgroundImage && !customStyleBackgroundText.trim()) || isGeneratingCustomStyle}
                   className="w-full"
                   size="lg"
                 >
@@ -10773,7 +10878,7 @@ export default function LongformContentPage() {
                         try {
                           console.log("[이미지 프롬프트 생성] decomposedScenes 확인:", decomposedScenes.substring(0, 500))
                           console.log("[이미지 프롬프트 생성] customStylePrompt:", customStylePrompt)
-                          const prompts = await generateSceneImagePrompts(decomposedScenes, imageStyle, openaiApiKey, customStylePrompt || undefined)
+                          const prompts = await generateSceneImagePrompts(decomposedScenes, imageStyle, openaiApiKey, customStylePrompt || undefined, selectedTopic || undefined, script || undefined)
                           console.log("[이미지 프롬프트 생성] 생성된 프롬프트 개수:", prompts.length)
                           setSceneImagePrompts(prompts)
                         } catch (error) {
@@ -12764,229 +12869,34 @@ export default function LongformContentPage() {
                     <CardTitle className="text-lg font-semibold text-slate-900">영상 효과 설정</CardTitle>
                   </CardHeader>
                   <CardContent className="pt-4 space-y-4">
-                    {/* 효과음 및 배경음악 */}
+                    {/* 자막 표시 설정 */}
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
-                        <label className="text-sm font-medium">효과음 및 배경음악</label>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            const input = document.createElement("input")
-                            input.type = "file"
-                            input.accept = "audio/*"
-                            input.onchange = (e) => {
-                              const file = (e.target as HTMLInputElement).files?.[0]
-                              if (file) {
-                                const url = URL.createObjectURL(file)
-                                const newTrack: AudioTrack = {
-                                  id: `audio_${Date.now()}`,
-                                  type: "sound_effect",
-                                  file,
-                                  url,
-                                  startTime: 0,
-                                  endTime: 10,
-                                  volume: 0.5,
-                                }
-                                setAudioTracks((prev) => [...prev, newTrack])
-                              }
-                            }
-                            input.click()
-                          }}
-                        >
-                          <Upload className="w-4 h-4 mr-2" />
-                          오디오 추가
-                        </Button>
+                        <label className="text-sm font-medium">자막 표시</label>
+                        <div className="flex gap-2">
+                          <Button
+                            variant={showSubtitles ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => setShowSubtitles(true)}
+                            className={showSubtitles ? "bg-blue-600 hover:bg-blue-700 text-white" : ""}
+                          >
+                            자막 넣기
+                          </Button>
+                          <Button
+                            variant={!showSubtitles ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => setShowSubtitles(false)}
+                            className={!showSubtitles ? "bg-gray-600 hover:bg-gray-700 text-white" : ""}
+                          >
+                            자막 빼기
+                          </Button>
+                        </div>
                       </div>
-                      
-                      {audioTracks.length > 0 && (
-                        <div className="space-y-3">
-                          {audioTracks.map((track) => (
-                            <Card key={track.id} className="p-3">
-                              <div className="space-y-3">
-                                <div className="flex items-center justify-between">
-                                  <div className="flex items-center gap-2">
-                                    <Select
-                                      value={track.type}
-                                      onValueChange={(value: "sound_effect" | "background_music") => {
-                                        setAudioTracks((prev) =>
-                                          prev.map((t) => (t.id === track.id ? { ...t, type: value } : t))
-                                        )
-                                      }}
-                                    >
-                                      <SelectTrigger className="w-32">
-                                        <SelectValue />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        <SelectItem value="sound_effect">효과음</SelectItem>
-                                        <SelectItem value="background_music">배경음악</SelectItem>
-                                      </SelectContent>
-                                    </Select>
-                                    <span className="text-xs text-muted-foreground truncate max-w-[200px]">
-                                      {track.file.name}
-                                    </span>
-                                  </div>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => {
-                                      URL.revokeObjectURL(track.url)
-                                      setAudioTracks((prev) => prev.filter((t) => t.id !== track.id))
-                                    }}
-                                  >
-                                    삭제
-                                  </Button>
-                                </div>
-                                
-                                <div className="grid grid-cols-2 gap-3">
-                                  <div className="space-y-1">
-                                    <label className="text-xs text-muted-foreground">시작 시간 (초)</label>
-                                    <Input
-                                      type="number"
-                                      step="0.1"
-                                      min="0"
-                                      value={track.startTime}
-                                      onChange={(e) => {
-                                        const value = parseFloat(e.target.value) || 0
-                                        setAudioTracks((prev) =>
-                                          prev.map((t) =>
-                                            t.id === track.id ? { ...t, startTime: value, endTime: Math.max(t.endTime, value + 0.1) } : t
-                                          )
-                                        )
-                                      }}
-                                      className="h-8"
-                                    />
-                                  </div>
-                                  <div className="space-y-1">
-                                    <label className="text-xs text-muted-foreground">끝 시간 (초)</label>
-                                    <Input
-                                      type="number"
-                                      step="0.1"
-                                      min={track.startTime + 0.1}
-                                      value={track.endTime}
-                                      onChange={(e) => {
-                                        const value = parseFloat(e.target.value) || track.startTime + 0.1
-                                        setAudioTracks((prev) =>
-                                          prev.map((t) => (t.id === track.id ? { ...t, endTime: Math.max(value, t.startTime + 0.1) } : t))
-                                        )
-                                      }}
-                                      className="h-8"
-                                    />
-                                  </div>
-                                </div>
-                                
-                                <div className="space-y-1">
-                                  <div className="flex items-center justify-between">
-                                    <label className="text-xs text-muted-foreground">볼륨</label>
-                                    <span className="text-xs text-muted-foreground">{Math.round(track.volume * 100)}%</span>
-                                  </div>
-                                  <input
-                                    type="range"
-                                    min="0"
-                                    max="1"
-                                    step="0.01"
-                                    value={track.volume}
-                                    onChange={(e) => {
-                                      const value = parseFloat(e.target.value)
-                                      setAudioTracks((prev) =>
-                                        prev.map((t) => (t.id === track.id ? { ...t, volume: value } : t))
-                                      )
-                                    }}
-                  className="w-full"
-                                  />
-                                </div>
-                                
-                                <audio src={track.url} controls className="w-full h-8" />
-                              </div>
-                            </Card>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* 로고 추가 */}
-                    <div className="space-y-4">
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">로고 추가 (선택사항)</label>
-                        <div className="flex items-center gap-2">
-                          <Input
-                            type="file"
-                            accept="image/*"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0]
-                              if (file) {
-                                const reader = new FileReader()
-                                reader.onload = (e) => {
-                                  setLogoImage(e.target?.result as string)
-                                  // 기본 위치: 우측 상단
-                                  setLogoPositionX(95)
-                                  setLogoPositionY(5)
-                                  setIsLogoSelected(true) // 로고 추가 시 자동 선택
-                                }
-                                reader.readAsDataURL(file)
-                              }
-                            }}
-                            className="flex-1"
-                          />
-                          {logoImage && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setLogoImage(null)
-                              }}
-                            >
-                              제거
-                            </Button>
-                          )}
-                        </div>
-                        {logoImage && (
-                          <img src={logoImage} alt="로고" className="w-32 h-32 object-contain rounded-lg border" />
-                        )}
-                      </div>
-
-                      {/* 로고 크기 조절 */}
-                      {logoImage && (
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium">로고 크기: {logoSize}px</label>
-                          <input
-                            type="range"
-                            min="50"
-                            max="300"
-                            value={logoSize}
-                            onChange={(e) => setLogoSize(Number.parseInt(e.target.value))}
-                            className="w-full"
-                          />
-                        </div>
-                      )}
-
-                      {/* 로고 위치 조절 */}
-                      {logoImage && (
-                        <div className="space-y-3">
-                          <div className="space-y-2">
-                            <label className="text-sm font-medium">로고 X 위치 (좌→우): {logoPositionX}%</label>
-                            <input
-                              type="range"
-                              min="0"
-                              max="100"
-                              value={logoPositionX}
-                              onChange={(e) => setLogoPositionX(Number.parseInt(e.target.value))}
-                              className="w-full"
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <label className="text-sm font-medium">로고 Y 위치 (상→하): {logoPositionY}%</label>
-                            <input
-                              type="range"
-                              min="0"
-                              max="100"
-                              value={logoPositionY}
-                              onChange={(e) => setLogoPositionY(Number.parseInt(e.target.value))}
-                              className="w-full"
-                            />
-                          </div>
-                        </div>
-                      )}
+                      <p className="text-xs text-muted-foreground">
+                        {showSubtitles 
+                          ? "영상에 자막이 표시됩니다." 
+                          : "영상에 자막이 표시되지 않으며, TTS 음성만 포함됩니다."}
+                      </p>
                     </div>
 
                   </CardContent>
@@ -14481,6 +14391,23 @@ export default function LongformContentPage() {
                     </p>
                   </div>
 
+                  {/* 썸네일 커스텀 문구 입력 */}
+                  <div className="mb-6 space-y-2">
+                    <Label htmlFor="thumbnail-custom-text" className="text-sm font-medium">
+                      썸네일 문구 (선택사항)
+                    </Label>
+                    <Textarea
+                      id="thumbnail-custom-text"
+                      value={thumbnailCustomText}
+                      onChange={(e) => setThumbnailCustomText(e.target.value)}
+                      placeholder="썸네일에 포함하고 싶은 문구를 입력하세요. 예: '충격적인 진실', '꼭 알아야 할 사실' 등"
+                      className="min-h-[100px] resize-none"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      입력한 문구가 썸네일 생성 프롬프트에 포함됩니다.
+                    </p>
+                  </div>
+
                   <Button
                     onClick={handleAIGenerateThumbnail}
                     disabled={!selectedTopic || isGeneratingAIThumbnail}
@@ -14547,9 +14474,25 @@ export default function LongformContentPage() {
                     {!script && <p className="text-xs text-red-600 mt-1">⚠️ 필요</p>}
                   </div>
                   <div className="p-4 bg-green-50 rounded-lg">
-                    <p className="text-2xl font-bold text-green-600">{generatedImages.length}</p>
-                    <p className="text-sm text-muted-foreground">이미지</p>
-                    {generatedImages.length === 0 && <p className="text-xs text-red-600 mt-1">⚠️ 필요</p>}
+                    {(() => {
+                      // 씬별 이미지와 일반 이미지 모두 확인
+                      const hasSceneImages = sceneImagePrompts.length > 0 && sceneImagePrompts.some(scene => 
+                        scene.images && scene.images.some(img => img.imageUrl)
+                      )
+                      const hasRegularImages = generatedImages.length > 0
+                      const totalImageCount = generatedImages.length + (hasSceneImages ? sceneImagePrompts.reduce((sum, scene) => 
+                        sum + (scene.images?.filter(img => img.imageUrl).length || 0), 0
+                      ) : 0)
+                      const hasImages = hasSceneImages || hasRegularImages
+                      
+                      return (
+                        <>
+                          <p className="text-2xl font-bold text-green-600">{totalImageCount}</p>
+                          <p className="text-sm text-muted-foreground">이미지</p>
+                          {!hasImages && <p className="text-xs text-red-600 mt-1">⚠️ 필요</p>}
+                        </>
+                      )
+                    })()}
                   </div>
                 </div>
               </CardContent>
@@ -14588,7 +14531,13 @@ export default function LongformContentPage() {
               <CardContent className="space-y-4">
                 <Button
                   onClick={handleSummarizeScriptForShorts}
-                  disabled={!script || generatedImages.length === 0 || isSummarizingScript}
+                  disabled={(() => {
+                    const hasSceneImages = sceneImagePrompts.length > 0 && sceneImagePrompts.some(scene => 
+                      scene.images && scene.images.some(img => img.imageUrl)
+                    )
+                    const hasRegularImages = generatedImages.length > 0
+                    return !script || (!hasSceneImages && !hasRegularImages) || isSummarizingScript
+                  })()}
                   className="w-full"
                 >
                   {isSummarizingScript ? (
@@ -14957,6 +14906,132 @@ export default function LongformContentPage() {
           </div>
         )
 
+      case "hooking-video":
+        return (
+          <div className="space-y-6">
+            <div className="space-y-2 mb-6">
+              <h1 className="text-2xl md:text-3xl font-semibold text-slate-900">후킹 영상 프롬프트</h1>
+              <p className="text-sm md:text-base text-gray-500">소라2용 30초 후킹 영상 프롬프트를 생성합니다</p>
+            </div>
+
+            <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white">
+              <CardHeader className="pb-4 border-b border-gray-100">
+                <CardTitle className="text-lg font-semibold text-slate-900">후킹 영상 프롬프트 생성</CardTitle>
+              </CardHeader>
+              <CardContent className="pt-6 space-y-6">
+                {/* 대본 확인 */}
+                {!script || !script.trim() ? (
+                  <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <div className="flex items-center gap-2 text-yellow-800">
+                      <X className="w-5 h-5" />
+                      <p className="font-medium">대본이 필요합니다</p>
+                    </div>
+                    <p className="text-sm text-yellow-700 mt-2">
+                      먼저 "대본 생성" 단계에서 대본을 생성해주세요. 생성된 대본을 기반으로 후킹 영상 프롬프트가 만들어집니다.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium">사용할 대본</Label>
+                      <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                        <p className="text-sm text-gray-600 mb-2">
+                          "대본 생성" 단계에서 생성된 대본이 자동으로 사용됩니다.
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          대본 길이: {script.length}자
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-3">
+                      <Button
+                        onClick={async () => {
+                          if (!script || !script.trim()) {
+                            alert("대본이 필요합니다. 먼저 '대본 생성' 단계에서 대본을 생성해주세요.")
+                            return
+                          }
+
+                          if (!selectedTopic || !selectedTopic.trim()) {
+                            alert("주제가 필요합니다. 먼저 '주제 추천' 단계에서 주제를 선택해주세요.")
+                            return
+                          }
+
+                          const geminiApiKey = getGeminiApiKey()
+                          if (!geminiApiKey) {
+                            alert("Gemini API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+                            return
+                          }
+
+                          setIsGeneratingHookingPrompt(true)
+                          try {
+                            const prompt = await generateHookingVideoPrompt(
+                              selectedTopic,
+                              script,
+                              geminiApiKey
+                            )
+                            setHookingVideoPrompt(prompt)
+                            setCompletedSteps((prev) => [...new Set([...prev, "hooking-video"])])
+                          } catch (error) {
+                            console.error("후킹 영상 프롬프트 생성 실패:", error)
+                            alert(
+                              `후킹 영상 프롬프트 생성에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`
+                            )
+                          } finally {
+                            setIsGeneratingHookingPrompt(false)
+                          }
+                        }}
+                        disabled={isGeneratingHookingPrompt || !script || !script.trim() || !selectedTopic || !selectedTopic.trim()}
+                        className="flex-1"
+                      >
+                        {isGeneratingHookingPrompt ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            생성 중...
+                          </>
+                        ) : (
+                          <>
+                            <Wand2 className="w-4 h-4 mr-2" />
+                            프롬프트 생성
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </>
+                )}
+
+                {hookingVideoPrompt && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm font-medium">생성된 프롬프트</Label>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          navigator.clipboard.writeText(hookingVideoPrompt)
+                          alert("프롬프트가 클립보드에 복사되었습니다.")
+                        }}
+                      >
+                        <Copy className="w-4 h-4 mr-2" />
+                        복사
+                      </Button>
+                    </div>
+                    <Textarea
+                      value={hookingVideoPrompt}
+                      onChange={(e) => setHookingVideoPrompt(e.target.value)}
+                      className="min-h-[300px] resize-none font-mono text-sm"
+                      placeholder="생성된 프롬프트가 여기에 표시됩니다..."
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      생성된 프롬프트를 수정할 수 있습니다. 소라2에 직접 사용하세요.
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )
+
       default:
         return (
           <div className="text-center py-12">
@@ -15058,6 +15133,14 @@ export default function LongformContentPage() {
                         <div className="w-6 h-6 rounded-full flex items-center justify-center bg-green-500 text-white flex-shrink-0">
                           <Check className="w-4 h-4" />
                     </div>
+                      ) : item.isSpecial ? (
+                        <div
+                          className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${
+                            itemIsActive ? "bg-red-500 text-white" : "bg-gray-200 text-gray-600"
+                          }`}
+                        >
+                          <Icon className="w-4 h-4" />
+                      </div>
                       ) : (
                         <div
                           className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0 ${

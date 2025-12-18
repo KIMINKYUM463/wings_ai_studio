@@ -61,42 +61,26 @@ export default function HomePage() {
   useEffect(() => {
     const loadPrograms = async () => {
       try {
-        // youmaker는 항상 포함 (로그인 여부와 관계없이)
-        const youmakerProgram: Program = {
-          id: 'youmaker',
-          program_name: 'YouMaker',
-          program_path: '/youmaker',
-          program_description: '유튜브 분석 도구 - 떡상 영상 분석부터 썸네일 생성까지',
-        }
-
         if (isLoggedIn) {
           const response = await fetch('/api/user/programs')
           if (response.ok) {
             const data = await response.json()
             const instructorPrograms = data.programs || []
-            // youmaker가 이미 포함되어 있지 않은 경우에만 추가
-            const hasYoumaker = instructorPrograms.some((p: Program) => p.id === 'youmaker' || p.program_path === '/youmaker')
-            setPrograms(hasYoumaker ? instructorPrograms : [youmakerProgram, ...instructorPrograms])
+            // youmaker 제외 (필터링)
+            const filteredPrograms = instructorPrograms.filter((p: Program) => p.id !== 'youmaker' && p.program_path !== '/youmaker')
+            setPrograms(filteredPrograms)
             setHasInstructor(data.hasInstructor ?? null)
           } else {
-            // API 호출 실패 시에도 youmaker는 표시
-            setPrograms([youmakerProgram])
+            setPrograms([])
             setHasInstructor(null)
           }
         } else {
-          // 로그인하지 않은 경우에도 youmaker는 표시
-          setPrograms([youmakerProgram])
+          setPrograms([])
           setHasInstructor(null)
         }
       } catch (error) {
         console.error('프로그램 목록 로드 실패:', error)
-        // 오류 발생 시에도 youmaker는 표시
-        setPrograms([{
-          id: 'youmaker',
-          program_name: 'YouMaker',
-          program_path: '/youmaker',
-          program_description: '유튜브 분석 도구 - 떡상 영상 분석부터 썸네일 생성까지',
-        }])
+        setPrograms([])
         setHasInstructor(null)
       } finally {
         setProgramsLoading(false)

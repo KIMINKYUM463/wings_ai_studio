@@ -1,9 +1,9 @@
 "use server"
 
 /**
- * 정교한 대본 생성 함수 (Gemini 2.0 Flash 사용)
+ * 정교한 대본 생성 함수 (Gemini 2.5 Pro 사용)
  * 초안을 바탕으로 매우 정교하고 완성도 높은 최종 대본을 생성합니다.
- * Gemini API를 사용하여 gemini-3-flash-preview 모델로 생성합니다.
+ * Gemini API를 사용하여 gemini-2.5-pro 모델로 생성합니다.
  */
 export async function generateRefinedScript(
   scriptPlan: string,
@@ -29,16 +29,24 @@ export async function generateRefinedScript(
       const minLength = targetChars - Math.floor(targetChars * 0.1)
       const maxLength = targetChars + Math.floor(targetChars * 0.1)
       lengthRulePrompt = `────────────────────────
-[1) 분량 규칙: 대본 시간 선택에서 정한 글자수 (최우선 중요)]
+[1) 분량 규칙: 대본 시간 선택에서 정한 글자수 (최우선 중요 - 절대 준수 필수)]
 ────────────────────────
-- 공백 포함 **정확히 ${charsText} 정도**로 작성하십시오. (목표: ${targetChars}자)
+⚠️⚠️⚠️ 절대적 필수 조건: 공백 포함 **반드시 ${targetChars}자 이상** 작성하십시오. ⚠️⚠️⚠️
+
+- 목표 글자수: **${targetChars}자** (절대 이보다 적게 쓰지 마세요)
+- 최소 글자수: **${minLength}자** (이보다 적으면 실패입니다)
+- 최대 글자수: **${maxLength}자** (이를 초과하지 마세요)
 - 허용 범위: ${minLength}자 ~ ${maxLength}자 (목표 ±10%)
-- ⚠️ 절대로 목표 글자수(${targetChars}자)를 크게 초과하지 마십시오. 최대 ${maxLength}자를 넘지 마세요.
-- ⚠️ 목표 글자수에 맞추기 위해 기획안의 각 파트를 적절히 확장하되, 불필요하게 길게 쓰지 마십시오.
-- 분량을 맞추기 위해 같은 말을 반복하지 마십시오.
-- 기획안의 각 파트를 충분한 서사/예시/상황 묘사로 확장하되, 목표 글자수(${targetChars}자)를 초과하지 않도록 주의하십시오.
-- 각 파트마다 '짧은 미니 장면' 2~3개를 포함하십시오.
-- 대본을 완성한 후, 글자수를 확인하여 목표 글자수(${targetChars}자)에 맞는지 검토하십시오.`
+
+⚠️ 중요: 목표 글자수(${targetChars}자)에 도달하지 못하면 대본이 사용 불가능합니다.
+⚠️ 중요: 각 문장을 충분히 길게 작성하고, 예시와 설명을 풍부하게 추가하세요.
+⚠️ 중요: 기획안의 각 파트를 최소 2~3배로 확장하여 충분한 분량을 확보하세요.
+⚠️ 중요: 같은 내용을 다른 표현으로 반복하여 분량을 채우는 것도 허용됩니다.
+
+- 각 파트마다 '상세한 미니 장면' 3~5개를 포함하십시오.
+- 각 장면은 최소 100자 이상으로 상세히 묘사하십시오.
+- 예시, 비유, 배경 설명, 인물 심리 등을 풍부하게 추가하십시오.
+- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 ${minLength}자 이상인지 검증하십시오.`
     } else {
       lengthRulePrompt = `────────────────────────
 [1) 분량 규칙: 대본 시간 선택에서 정한 글자 이상]
@@ -98,7 +106,7 @@ ${lengthRulePrompt}
 
     // Gemini API 호출
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${GEMINI_API_KEY}`,
       {
         method: "POST",
         headers: {
@@ -118,7 +126,7 @@ ${lengthRulePrompt}
             temperature: 1,
             topK: 40,
             topP: 0.95,
-            maxOutputTokens: 20000,
+            maxOutputTokens: 32000, // 글자수 보장을 위해 토큰 수 증가
           },
         }),
       }
@@ -163,7 +171,7 @@ ${lengthRulePrompt}
 
     // 목표 글자수 확인 및 조정
     if (targetChars) {
-      const currentLength = content.length
+      let currentLength = content.length
       const maxLength = targetChars + Math.floor(targetChars * 0.1) // 목표 + 10%
       const minLength = targetChars - Math.floor(targetChars * 0.1) // 목표 - 10%
 
@@ -188,9 +196,87 @@ ${lengthRulePrompt}
         }
       }
 
-      // 너무 짧으면 경고 (재생성은 하지 않고 경고만)
+      // 너무 짧으면 재생성 시도
       if (currentLength < minLength) {
         console.warn(`[v0] ⚠️ 대본이 목표 글자수(${targetChars}자)보다 부족합니다. (현재: ${currentLength}자)`)
+        console.warn(`[v0] ⚠️ 최소 글자수(${minLength}자)에 도달하지 못했습니다. 재생성을 시도합니다.`)
+        
+        // 재생성 시도 (최대 2회)
+        for (let retry = 0; retry < 2; retry++) {
+          try {
+            console.log(`[v0] 대본 재생성 시도 ${retry + 1}/2 (목표: ${targetChars}자 이상)`)
+            
+            // 더 강력한 프롬프트로 재생성
+            const retryPrompt = `${userPrompt}\n\n⚠️⚠️⚠️ 중요: 이전 생성 결과가 ${currentLength}자로 목표 글자수(${targetChars}자)에 도달하지 못했습니다. 반드시 ${targetChars}자 이상으로 작성하세요. 각 문장을 더 길게, 예시와 설명을 더 풍부하게 추가하세요. ⚠️⚠️⚠️`
+            
+            const retryResponse = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${GEMINI_API_KEY}`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  contents: [
+                    {
+                      parts: [
+                        {
+                          text: retryPrompt,
+                        },
+                      ],
+                    },
+                  ],
+                  generationConfig: {
+                    temperature: 1.2, // 더 창의적으로
+                    topK: 40,
+                    topP: 0.95,
+                    maxOutputTokens: 32000,
+                  },
+                }),
+              }
+            )
+            
+            if (!retryResponse.ok) {
+              const errorText = await retryResponse.text()
+              console.error(`[v0] 재생성 API 호출 실패: ${retryResponse.status} - ${errorText}`)
+              break
+            }
+            
+            const retryData = await retryResponse.json()
+            let retryContent = retryData.candidates?.[0]?.content?.parts?.[0]?.text
+            
+            if (!retryContent) {
+              console.error(`[v0] 재생성 결과가 비어있습니다.`)
+              break
+            }
+            
+            retryContent = retryContent.trim()
+            const retryLength = retryContent.length
+            
+            console.log(`[v0] 재생성 결과: ${retryLength}자 (목표: ${targetChars}자, 최소: ${minLength}자)`)
+            
+            // 재생성 결과가 더 좋으면 사용
+            if (retryLength >= minLength || retryLength > currentLength) {
+              content = retryContent
+              currentLength = retryLength
+              console.log(`[v0] ✅ 재생성 성공: ${currentLength}자 (목표 달성: ${currentLength >= minLength ? "예" : "아니오"})`)
+              if (currentLength >= minLength) {
+                break // 목표 달성했으면 중단
+              }
+            } else {
+              console.warn(`[v0] 재생성 결과가 이전보다 나아지지 않았습니다. (${retryLength}자 < ${currentLength}자)`)
+            }
+          } catch (retryError) {
+            console.error(`[v0] 재생성 중 오류 발생:`, retryError)
+            break
+          }
+        }
+        
+        // 최종 검증
+        if (currentLength < minLength) {
+          console.error(`[v0] ❌ 최종 대본이 최소 글자수(${minLength}자)에 도달하지 못했습니다. (현재: ${currentLength}자)`)
+          console.error(`[v0] ❌ 목표 글자수: ${targetChars}자, 현재: ${currentLength}자, 부족: ${minLength - currentLength}자`)
+        }
       }
     }
 

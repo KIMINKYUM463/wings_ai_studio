@@ -2515,17 +2515,38 @@ export async function summarizeScriptForShorts(
 
 export async function generateAIThumbnail(
   topic: string,
-  replicateApiKey: string
+  replicateApiKey: string,
+  imageStyle?: string,
+  customText?: string
 ): Promise<string> {
   if (!replicateApiKey) {
     throw new Error("Replicate API 키가 필요합니다.")
   }
 
   try {
-    console.log(`[Longform] AI 썸네일 생성 시작, 주제: ${topic}`)
+    console.log(`[Longform] AI 썸네일 생성 시작, 주제: ${topic}, 이미지 스타일: ${imageStyle || "기본"}`)
+
+    // 이미지 스타일에 맞는 스타일 프롬프트 생성
+    let stylePrompt = ""
+    if (imageStyle === "stickman-animation") {
+      stylePrompt = "stickman animation style, 2D vector cartoon, white circular face, simple black outline, dot eyes, curved mouth, thin black limbs, vibrant colors, flat cel shading, thick bold outlines, solid color fills"
+    } else if (imageStyle === "realistic" || imageStyle === "realistic2") {
+      stylePrompt = "hyperrealistic, photorealistic masterpiece, 8K, ultra-detailed, sharp focus, cinematic lighting, shot on a professional DSLR camera with a 50mm lens"
+    } else if (imageStyle === "animation2") {
+      stylePrompt = "flat 2D vector illustration, minimal vector art, stylized cartoon character, thick bold black outlines, unshaded, flat solid colors, cel-shaded, simple line art, comic book inking style, completely flat, no shadows, no gradients, no depth"
+    } else if (imageStyle === "animation3") {
+      stylePrompt = "European graphic novel style, bande dessinée aesthetic, highly detailed traditional illustration, hand-drawn ink lines with cross-hatching shadows, sophisticated and muted color palette, atmospheric, cinematic frame"
+    }
 
     // 유튜브 썸네일용 프롬프트 생성
-    const prompt = `YouTube thumbnail for video about: ${topic}. High quality, eye-catching, professional thumbnail design. Bright colors, clear text area, engaging composition. 16:9 aspect ratio.`
+    let basePrompt = `YouTube thumbnail for video about: ${topic}. High quality, eye-catching, professional thumbnail design. Bright colors, clear text area, engaging composition. 16:9 aspect ratio.`
+    
+    // 커스텀 문구가 있으면 프롬프트에 추가
+    if (customText && customText.trim()) {
+      basePrompt = `${basePrompt} Include text or visual elements related to: "${customText.trim()}".`
+    }
+    
+    const prompt = stylePrompt ? `${basePrompt} ${stylePrompt}` : basePrompt
 
     const response = await fetch("https://api.replicate.com/v1/models/google/nano-banana-pro/predictions", {
       method: "POST",
@@ -2708,6 +2729,111 @@ export async function convertImageToVideo(
     throw new Error("영상 변환 시간 초과")
   } catch (error) {
     console.error("[Longform] 영상 변환 실패:", error)
+    throw error
+  }
+}
+
+/**
+ * 후킹 영상 프롬프트 생성 함수 (소라2용 30초 후킹 영상)
+ * Gemini API를 사용하여 30초 후킹 영상 프롬프트를 생성합니다.
+ * 
+ * @param topic - 영상 주제
+ * @param script - 대본 내용 (선택사항)
+ * @param geminiApiKey - Gemini API 키
+ * @returns 후킹 영상 프롬프트
+ */
+export async function generateHookingVideoPrompt(
+  topic: string,
+  script?: string,
+  geminiApiKey?: string
+): Promise<string> {
+  const GEMINI_API_KEY = geminiApiKey || process.env.GEMINI_API_KEY
+
+  if (!GEMINI_API_KEY) {
+    throw new Error("Gemini API 키가 필요합니다.")
+  }
+
+  try {
+    const systemInstruction = `You are an expert video prompt engineer specializing in creating 30-second hooking video prompts for Sora 2 (text-to-video AI model).
+
+Your task is to create a detailed, cinematic video prompt that:
+1. Captures attention in the first 3 seconds with a strong visual hook
+2. Maintains engagement throughout the 30-second duration
+3. Is optimized for Sora 2's text-to-video generation capabilities
+4. Includes specific visual details, camera movements, lighting, and composition
+5. Creates a compelling narrative arc within 30 seconds
+
+The prompt should be:
+- Written in English
+- Highly detailed with visual descriptions
+- Include camera movements (zoom, pan, dolly, etc.)
+- Specify lighting and atmosphere
+- Describe composition and framing
+- Include any relevant visual effects or transitions
+- Be optimized for 30-second video generation
+
+Output only the video prompt, no explanations or additional text.`
+
+    const userPrompt = script
+      ? `Topic: ${topic}
+
+Script content:
+${script}
+
+Create a detailed 30-second hooking video prompt for Sora 2 based on the above topic and script. The prompt should create a visually compelling video that hooks viewers from the first 3 seconds.`
+      : `Topic: ${topic}
+
+Create a detailed 30-second hooking video prompt for Sora 2 based on the above topic. The prompt should create a visually compelling video that hooks viewers from the first 3 seconds.`
+
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  text: `${systemInstruction}\n\n${userPrompt}`,
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.9,
+            topK: 40,
+            topP: 0.95,
+            maxOutputTokens: 1024,
+          },
+        }),
+      }
+    )
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      console.error("[Hooking Video] Gemini API 오류:", response.status, errorData)
+      throw new Error(`API 호출 실패: ${response.status}`)
+    }
+
+    const data = await response.json()
+
+    if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
+      throw new Error("API 응답 형식이 올바르지 않습니다.")
+    }
+
+    const prompt = data.candidates[0].content.parts[0].text.trim()
+
+    if (!prompt) {
+      throw new Error("생성된 프롬프트가 비어있습니다.")
+    }
+
+    console.log("[Hooking Video] 프롬프트 생성 완료")
+    return prompt
+  } catch (error) {
+    console.error("[Hooking Video] 프롬프트 생성 실패:", error)
     throw error
   }
 }

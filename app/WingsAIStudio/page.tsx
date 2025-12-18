@@ -82,6 +82,7 @@ const videoProductionServices = [
     url: "/WingsAIStudio/shopping",
     gradient: "from-orange-500 via-amber-500 to-yellow-500",
     hoverGradient: "from-orange-600 via-amber-600 to-yellow-600",
+    locked: true, // 잠금 처리
   },
 ]
 

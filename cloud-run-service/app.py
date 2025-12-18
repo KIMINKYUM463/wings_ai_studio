@@ -30,11 +30,22 @@ app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 32MB
 def render_video():
     # OPTIONS 요청 처리 (CORS preflight)
     if request.method == 'OPTIONS':
+        origin = request.headers.get('Origin', '')
+        allowed_origins = ['https://wingsaistudio.com', 'http://localhost:3000']
+        
+        # Vercel 프리뷰 URL도 허용
+        if origin.endswith('.vercel.app'):
+            allowed_origins.append(origin)
+        
         response = jsonify({})
-        response.headers.add('Access-Control-Allow-Origin', '*')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-        response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
-        return response
+        if origin in allowed_origins:
+            response.headers.add('Access-Control-Allow-Origin', origin)
+        else:
+            response.headers.add('Access-Control-Allow-Origin', 'https://wingsaistudio.com')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
+        response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        response.headers.add('Access-Control-Max-Age', '3600')
+        return response, 200
     """
     영상 렌더링 엔드포인트
     현재는 테스트용으로 간단한 응답만 반환
