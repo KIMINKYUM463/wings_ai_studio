@@ -4,6 +4,7 @@ FFmpeg-python을 사용한 안정적인 렌더링
 """
 
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import os
 import sys
 import datetime
@@ -11,10 +12,20 @@ import ffmpeg
 import subprocess
 
 app = Flask(__name__)
+# CORS 설정 - 모든 origin 허용 (프로덕션에서는 특정 도메인만 허용하도록 변경 권장)
+CORS(app, resources={
+    r"/*": {
+        "origins": ["https://wingsaistudio.com", "http://localhost:3000"],
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"],
+        "max_age": 3600
+    }
+})
+
 # Cloud Run의 요청 크기 제한은 32MB이지만, Flask 앱 레벨에서도 제한 설정
 app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 32MB
 
-@app.route('/render', methods=['POST'])
+@app.route('/render', methods=['POST', 'OPTIONS'])
 def render_video():
     """
     영상 렌더링 엔드포인트
