@@ -15,10 +15,11 @@ app = Flask(__name__)
 # CORS 설정 - 모든 origin 허용 (프로덕션에서는 특정 도메인만 허용하도록 변경 권장)
 CORS(app, resources={
     r"/*": {
-        "origins": ["https://wingsaistudio.com", "http://localhost:3000"],
+        "origins": ["https://wingsaistudio.com", "http://localhost:3000", "https://*.vercel.app"],
         "methods": ["GET", "POST", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization"],
-        "max_age": 3600
+        "max_age": 3600,
+        "supports_credentials": False
     }
 })
 
@@ -27,6 +28,13 @@ app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 32MB
 
 @app.route('/render', methods=['POST', 'OPTIONS'])
 def render_video():
+    # OPTIONS 요청 처리 (CORS preflight)
+    if request.method == 'OPTIONS':
+        response = jsonify({})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+        response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
+        return response
     """
     영상 렌더링 엔드포인트
     현재는 테스트용으로 간단한 응답만 반환
