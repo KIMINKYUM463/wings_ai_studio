@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 
-// 긴 렌더링 작업을 위해 타임아웃 설정 (최대 50분)
-export const maxDuration = 3000 // 50분 (초 단위)
+// 긴 렌더링 작업을 위해 타임아웃 설정 (Vercel Pro 플랜 최대값: 800초)
+export const maxDuration = 800 // 800초 (약 13분) - Vercel Pro 플랜 최대값
 export const runtime = 'nodejs' // Node.js 런타임 사용
 
 /**
@@ -80,9 +80,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Cloud Run 서비스에 렌더링 요청 전송
-    // 긴 렌더링 작업을 위해 타임아웃을 50분(3000초)으로 설정
+    // 긴 렌더링 작업을 위해 타임아웃을 800초(약 13분)로 설정 (Vercel Pro 플랜 최대값)
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 50 * 60 * 1000) // 50분
+    const timeoutId = setTimeout(() => controller.abort(), 800 * 1000) // 800초
     
     let renderResponse
     try {
@@ -121,10 +121,10 @@ export async function POST(request: NextRequest) {
           const { Agent } = undici
           fetchOptions.dispatcher = new Agent({
             connectTimeout: 60000, // 60초
-            headersTimeout: 50 * 60 * 1000, // 50분 (기본값은 약 5분)
-            bodyTimeout: 50 * 60 * 1000, // 50분
+            headersTimeout: 800 * 1000, // 800초 (약 13분) - Vercel Pro 플랜 최대값
+            bodyTimeout: 800 * 1000, // 800초
           })
-          console.log("[v0] 커스텀 dispatcher로 타임아웃 설정: 50분")
+          console.log("[v0] 커스텀 dispatcher로 타임아웃 설정: 800초")
         } catch (undiciError: any) {
           // undici를 사용할 수 없는 경우, 기본 fetch 사용
           console.warn("[v0] undici Agent를 사용할 수 없습니다. 기본 fetch 사용 (타임아웃: 약 5분):", undiciError.message || undiciError)
@@ -141,11 +141,11 @@ export async function POST(request: NextRequest) {
       
       // 타임아웃 오류 처리
       if (fetchError.name === 'AbortError' || fetchError.code === 'UND_ERR_HEADERS_TIMEOUT') {
-        console.error("[v0] Cloud Run 렌더링 타임아웃 (50분 초과)")
+        console.error("[v0] Cloud Run 렌더링 타임아웃 (800초 초과)")
         return NextResponse.json(
           { 
             error: "렌더링 시간이 너무 오래 걸립니다. 영상 길이를 줄이거나 잠시 후 다시 시도해주세요.",
-            details: "타임아웃: 50분"
+            details: "타임아웃: 800초 (약 13분)"
           },
           { status: 504 }
         )
