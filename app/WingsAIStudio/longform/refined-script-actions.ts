@@ -207,7 +207,8 @@ ${lengthRulePrompt}
  */
 export async function decomposeScriptIntoScenes(
   script: string,
-  apiKey?: string
+  apiKey?: string,
+  useProModel: boolean = false // Pro 모델 사용 여부 (기본값: false = Flash 사용)
 ): Promise<string> {
   console.log("[장면 분해] 시작")
   console.log(`[장면 분해] 대본 길이: ${script.length}자`)
@@ -427,9 +428,13 @@ ${sceneText}`
           console.log(`[장면 분해] 씬 ${sceneNumber} 요청 본문 크기: ${JSON.stringify(requestBody).length}자`)
           console.log(`[장면 분해] 씬 ${sceneNumber} fetch 시작...`)
           
+          // 모델 선택: Pro 모델이 더 큰 요청을 처리할 수 있음
+          const modelName = useProModel ? "gemini-2.0-pro-exp" : "gemini-2.5-flash"
+          console.log(`[장면 분해] 씬 ${sceneNumber} 사용 모델: ${modelName}`)
+          
           const startTime = Date.now()
           response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${GEMINI_API_KEY}`,
             {
               method: "POST",
               headers: {
