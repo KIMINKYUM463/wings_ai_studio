@@ -281,67 +281,97 @@ export async function decomposeScriptIntoScenes(
 
 (해당 시)`
 
-    // 대본을 의미 단위(씬)로 나누기 (빈 줄 기준 또는 자연스러운 구분)
-    console.log("[장면 분해] 대본을 씬 단위로 분할 중...")
-    let scenes = script.split(/\n\s*\n/).filter(s => s.trim().length > 0)
-    console.log(`[장면 분해] 빈 줄 기준 분할 결과: ${scenes.length}개 씬`)
+    // 대본을 배치 단위로 나누기 (각 배치를 독립적으로 처리)
+    const BATCH_SIZE = 2000 // 배치당 최대 길이 (씬 분할 전)
+    console.log(`[장면 분해] 대본을 배치 단위로 분할 시작 (배치 크기: ${BATCH_SIZE}자)`)
     
-    if (scenes.length === 0) {
-      // 빈 줄이 없으면 전체를 하나의 씬으로 처리
-      console.log("[장면 분해] 빈 줄이 없어 전체를 하나의 씬으로 처리")
-      scenes = [script]
+    // 먼저 대본을 배치로 나누기
+    const batches: string[] = []
+    if (script.length <= BATCH_SIZE) {
+      batches.push(script)
+      console.log(`[장면 분해] 배치 분할 불필요 (전체 길이: ${script.length}자)`)
+    } else {
+      // 문장 단위로 배치 나누기
+      const sentences = script.split(/([.!?。！？]\s*)/).filter(s => s.trim().length > 0)
+      let currentBatch = ""
+      let batchCount = 0
+      
+      for (let i = 0; i < sentences.length; i++) {
+        const sentence = sentences[i]
+        if (currentBatch.length + sentence.length <= BATCH_SIZE) {
+          currentBatch += sentence
+        } else {
+          if (currentBatch.trim().length > 0) {
+            batches.push(currentBatch.trim())
+            batchCount++
+            console.log(`[장면 분해] 배치 ${batchCount} 생성 (${currentBatch.trim().length}자)`)
+          }
+          currentBatch = sentence
+        }
+      }
+      
+      if (currentBatch.trim().length > 0) {
+        batches.push(currentBatch.trim())
+        batchCount++
+        console.log(`[장면 분해] 배치 ${batchCount} 생성 (${currentBatch.trim().length}자)`)
+      }
+      console.log(`[장면 분해] 총 ${batches.length}개 배치로 분할됨`)
     }
     
-    // 긴 씬을 여러 씬으로 분할 (각 씬이 1500자 이상이면 분할) - 더 작게 분할하여 타임아웃 방지
-    const MAX_SCENE_LENGTH = 1500 // 씬당 최대 길이
-    console.log(`[장면 분해] 긴 씬 분할 시작 (최대 길이: ${MAX_SCENE_LENGTH}자)`)
-    const splitScenes: string[] = []
+    // 각 배치를 순차적으로 처리
+    const allBatchResults: string[] = []
     
-    for (let idx = 0; idx < scenes.length; idx++) {
-      const scene = scenes[idx]
-      console.log(`[장면 분해] 씬 ${idx + 1} 검사 중 (길이: ${scene.length}자)`)
+    for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
+      const batch = batches[batchIdx]
+      console.log(`[장면 분해] 배치 ${batchIdx + 1}/${batches.length} 처리 시작 (길이: ${batch.length}자)`)
       
-      if (scene.length <= MAX_SCENE_LENGTH) {
-        splitScenes.push(scene)
-        console.log(`[장면 분해] 씬 ${idx + 1} 분할 불필요 (${scene.length}자)`)
-      } else {
-        console.log(`[장면 분해] 씬 ${idx + 1} 분할 필요 (${scene.length}자 > ${MAX_SCENE_LENGTH}자)`)
-        // 긴 씬을 문장 단위로 분할
-        const sentences = scene.split(/([.!?。！？]\s*)/).filter(s => s.trim().length > 0)
-        console.log(`[장면 분해] 씬 ${idx + 1} 문장 수: ${sentences.length}개`)
-        let currentChunk = ""
-        let chunkCount = 0
-        
-        for (let i = 0; i < sentences.length; i++) {
-          const sentence = sentences[i]
-          if (currentChunk.length + sentence.length <= MAX_SCENE_LENGTH) {
-            currentChunk += sentence
-          } else {
-            if (currentChunk.trim().length > 0) {
-              splitScenes.push(currentChunk.trim())
-              chunkCount++
-              console.log(`[장면 분해] 씬 ${idx + 1} -> 청크 ${chunkCount} 생성 (${currentChunk.trim().length}자)`)
+      // 각 배치를 씬 단위로 나누기 (빈 줄 기준)
+      let scenes = batch.split(/\n\s*\n/).filter(s => s.trim().length > 0)
+      console.log(`[장면 분해] 배치 ${batchIdx + 1} 빈 줄 기준 분할: ${scenes.length}개 씬`)
+      
+      if (scenes.length === 0) {
+        scenes = [batch]
+        console.log(`[장면 분해] 배치 ${batchIdx + 1} 빈 줄 없음, 전체를 하나의 씬으로 처리`)
+      }
+      
+      // 긴 씬을 여러 씬으로 분할 (각 씬이 1500자 이상이면 분할)
+      const MAX_SCENE_LENGTH = 1500
+      const splitScenes: string[] = []
+      
+      for (let idx = 0; idx < scenes.length; idx++) {
+        const scene = scenes[idx]
+        if (scene.length <= MAX_SCENE_LENGTH) {
+          splitScenes.push(scene)
+        } else {
+          // 긴 씬을 문장 단위로 분할
+          const sceneSentences = scene.split(/([.!?。！？]\s*)/).filter(s => s.trim().length > 0)
+          let currentChunk = ""
+          
+          for (let i = 0; i < sceneSentences.length; i++) {
+            const sentence = sceneSentences[i]
+            if (currentChunk.length + sentence.length <= MAX_SCENE_LENGTH) {
+              currentChunk += sentence
+            } else {
+              if (currentChunk.trim().length > 0) {
+                splitScenes.push(currentChunk.trim())
+              }
+              currentChunk = sentence
             }
-            currentChunk = sentence
+          }
+          
+          if (currentChunk.trim().length > 0) {
+            splitScenes.push(currentChunk.trim())
           }
         }
-        
-        if (currentChunk.trim().length > 0) {
-          splitScenes.push(currentChunk.trim())
-          chunkCount++
-          console.log(`[장면 분해] 씬 ${idx + 1} -> 청크 ${chunkCount} 생성 (${currentChunk.trim().length}자)`)
-        }
-        console.log(`[장면 분해] 씬 ${idx + 1} 분할 완료: ${chunkCount}개 청크로 분할됨`)
       }
-    }
-    
-    scenes = splitScenes
-    console.log(`[장면 분해] 최종 분할 완료: 총 ${scenes.length}개의 씬으로 분할됨 (최대 길이: ${MAX_SCENE_LENGTH}자)`)
+      
+      scenes = splitScenes
+      console.log(`[장면 분해] 배치 ${batchIdx + 1} 최종 씬 수: ${scenes.length}개`)
 
-    const allResults: string[] = []
+      const batchResults: string[] = []
 
-    // 각 씬을 순차적으로 처리 (모든 씬이 성공해야 함)
-    for (let i = 0; i < scenes.length; i++) {
+      // 각 씬을 순차적으로 처리 (모든 씬이 성공해야 함)
+      for (let i = 0; i < scenes.length; i++) {
       const sceneText = scenes[i].trim()
       const sceneNumber = i + 1
 
@@ -466,8 +496,8 @@ ${sceneText}`
             throw new Error(`씬 ${sceneNumber} 장면 분해 결과 형식이 올바르지 않습니다.`)
           }
 
-          allResults.push(trimmedContent)
-          console.log(`[장면 분해] 씬 ${sceneNumber} 처리 완료 (총 ${allResults.length}개 씬 완료)`)
+          batchResults.push(trimmedContent)
+          console.log(`[장면 분해] 배치 ${batchIdx + 1} 씬 ${sceneNumber} 처리 완료 (배치 내 ${batchResults.length}개 씬 완료)`)
           break // 성공하면 루프 종료
           
         } catch (fetchError: any) {
@@ -495,16 +525,24 @@ ${sceneText}`
       
       // 모든 재시도 실패 시 즉시 에러 발생 (부분 성공 불가)
       if (!response) {
-        console.error(`[장면 분해] 씬 ${sceneNumber} 최종 실패:`, lastError)
-        throw new Error(`씬 ${sceneNumber} 장면 분해 실패: ${lastError?.message || "API 호출 실패"}`)
+        console.error(`[장면 분해] 배치 ${batchIdx + 1} 씬 ${sceneNumber} 최종 실패:`, lastError)
+        throw new Error(`배치 ${batchIdx + 1} 씬 ${sceneNumber} 장면 분해 실패: ${lastError?.message || "API 호출 실패"}`)
+      }
+      }
+      
+      // 배치 결과 합치기
+      if (batchResults.length > 0) {
+        const batchResult = batchResults.join("\n\n")
+        allBatchResults.push(batchResult)
+        console.log(`[장면 분해] 배치 ${batchIdx + 1} 완료: ${batchResults.length}개 씬 처리 성공`)
       }
     }
 
-    // 모든 씬의 결과를 합쳐서 반환
-    console.log(`[장면 분해] 모든 씬 처리 완료, 결과 합치기 시작...`)
-    const finalResult = allResults.join("\n\n")
+    // 모든 배치의 결과를 합쳐서 반환
+    console.log(`[장면 분해] 모든 배치 처리 완료, 결과 합치기 시작...`)
+    const finalResult = allBatchResults.join("\n\n")
     console.log(`[장면 분해] 최종 결과 길이: ${finalResult.length}자`)
-    console.log(`[장면 분해] 완료: ${allResults.length}/${scenes.length}개 씬 처리 성공`)
+    console.log(`[장면 분해] 완료: ${allBatchResults.length}개 배치 처리 성공`)
     console.log(`[장면 분해] 최종 결과 미리보기:`, finalResult.substring(0, 500))
     
     return finalResult

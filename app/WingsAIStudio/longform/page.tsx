@@ -10146,6 +10146,9 @@ export default function LongformContentPage() {
                         }
                         console.log("[장면 분해 버튼] API 키 확인 완료, decomposeScriptIntoScenes 호출 시작")
                         const decomposedResult = await decomposeScriptIntoScenes(script, geminiApiKey)
+                        if (!decomposedResult) {
+                          throw new Error("장면 분해 결과가 없습니다.")
+                        }
                         console.log("[장면 분해 버튼] decomposeScriptIntoScenes 완료, 결과 길이:", decomposedResult.length)
                         // 장면 분해 결과를 저장
                         setDecomposedScenes(decomposedResult)
