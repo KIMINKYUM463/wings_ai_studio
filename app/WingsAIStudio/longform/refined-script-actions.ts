@@ -3,7 +3,7 @@
 /**
  * 정교한 대본 생성 함수 (Gemini 2.0 Flash 사용)
  * 초안을 바탕으로 매우 정교하고 완성도 높은 최종 대본을 생성합니다.
- * Gemini API를 사용하여 gemini-2.5-flash 모델로 생성합니다.
+ * Gemini API를 사용하여 gemini-3-flash-preview 모델로 생성합니다.
  */
 export async function generateRefinedScript(
   scriptPlan: string,
@@ -98,7 +98,7 @@ ${lengthRulePrompt}
 
     // Gemini API 호출
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${GEMINI_API_KEY}`,
       {
         method: "POST",
         headers: {
