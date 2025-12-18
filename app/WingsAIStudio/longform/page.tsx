@@ -8026,8 +8026,27 @@ export default function LongformContentPage() {
       let previousImageIndex = -1
 
       const startTime = Date.now()
+      let audioStartTime = 0 // 오디오 실제 재생 시작 시간
+      let isAudioStarted = false
+      
+      // 오디오 재생 시작 시간 추적
+      audio.addEventListener('play', () => {
+        if (!isAudioStarted) {
+          audioStartTime = Date.now()
+          isAudioStarted = true
+        }
+      })
+      
       const renderFrame = () => {
-        const currentTime = (Date.now() - startTime) / 1000
+        // 오디오의 실제 재생 시간 사용 (정확한 동기화)
+        let currentTime: number
+        if (isAudioStarted && !audio.paused) {
+          // 오디오가 재생 중이면 오디오의 currentTime 사용
+          currentTime = audio.currentTime + (introVideo ? 10 : 0)
+        } else {
+          // 오디오가 아직 시작되지 않았거나 일시정지 상태면 Date.now() 사용
+          currentTime = (Date.now() - startTime) / 1000
+        }
         
         ctx.clearRect(0, 0, canvas.width, canvas.height)
 
@@ -8146,8 +8165,16 @@ export default function LongformContentPage() {
           ctx.drawImage(logoImg, logoX, logoY, logoWidth, logoHeight)
         }
 
-        // 현재 시간에 맞는 자막 찾기
-        const adjustedTimeForSubtitles = introVideo ? currentTime - 10 : currentTime
+        // 현재 시간에 맞는 자막 찾기 (오디오 currentTime 기반으로 정확한 동기화)
+        let adjustedTimeForSubtitles: number
+        if (isAudioStarted && !audio.paused) {
+          // 오디오가 재생 중이면 오디오의 currentTime 직접 사용 (가장 정확)
+          adjustedTimeForSubtitles = audio.currentTime
+        } else {
+          // 오디오가 아직 시작되지 않았거나 일시정지 상태면 계산된 시간 사용
+          adjustedTimeForSubtitles = introVideo ? currentTime - 10 : currentTime
+        }
+        
         const currentSubtitles = videoData.subtitles.filter(
           (s) => adjustedTimeForSubtitles >= s.start && adjustedTimeForSubtitles <= s.end
         )
