@@ -282,8 +282,8 @@ export async function decomposeScriptIntoScenes(
       scenes = [script]
     }
     
-    // 긴 씬을 여러 씬으로 분할 (각 씬이 2000자 이상이면 분할)
-    const MAX_SCENE_LENGTH = 2000 // 씬당 최대 길이
+    // 긴 씬을 여러 씬으로 분할 (각 씬이 1500자 이상이면 분할) - 더 작게 분할하여 타임아웃 방지
+    const MAX_SCENE_LENGTH = 1500 // 씬당 최대 길이
     const splitScenes: string[] = []
     
     for (const scene of scenes) {
@@ -316,11 +316,18 @@ export async function decomposeScriptIntoScenes(
     console.log(`[장면 분해] 총 ${scenes.length}개의 씬으로 분할됨 (최대 길이: ${MAX_SCENE_LENGTH}자)`)
 
     const allResults: string[] = []
+    const errors: string[] = []
 
-    // 각 씬을 순차적으로 처리
+    // 각 씬을 순차적으로 처리 (부분 성공 허용)
     for (let i = 0; i < scenes.length; i++) {
       const sceneText = scenes[i].trim()
       const sceneNumber = i + 1
+
+      // 씬이 너무 짧으면 건너뛰기
+      if (sceneText.length < 10) {
+        console.warn(`[장면 분해] 씬 ${sceneNumber}이 너무 짧아 건너뜁니다.`)
+        continue
+      }
 
       const userPrompt = `다음은 씬 대본입니다. 길이에 맞게 장면을 최소 1개~최대 3개로 분해해 주세요.
 
@@ -336,11 +343,14 @@ ${sceneText}`
       let response: Response | undefined
       let lastError: Error | undefined
       const maxRetries = 3
+      let success = false
       
       for (let retry = 0; retry < maxRetries; retry++) {
         try {
           const controller = new AbortController()
-          const timeoutId = setTimeout(() => controller.abort(), 1800000) // 1800초(30분) 타임아웃 - 매우 긴 대본 처리용
+          const timeoutId = setTimeout(() => controller.abort(), 300000) // 300초(5분) 타임아웃 - 씬당 타임아웃
+          
+          console.log(`[장면 분해] 씬 ${sceneNumber} 처리 중... (${i + 1}/${scenes.length})`)
           
           response = await fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
@@ -371,7 +381,45 @@ ${sceneText}`
           )
           
           clearTimeout(timeoutId)
+          
+          if (!response.ok) {
+            const errorText = await response.text()
+            throw new Error(`Gemini API 호출 실패: ${response.status} - ${errorText}`)
+          }
+
+          const data = await response.json()
+          
+          // 응답 검증
+          const candidate = data.candidates?.[0]
+          if (!candidate) {
+            throw new Error(`씬 ${sceneNumber} 장면 분해에 실패했습니다: 응답 후보가 없습니다.`)
+          }
+
+          // finishReason 확인 (응답이 잘렸는지 확인)
+          const finishReason = candidate.finishReason
+          if (finishReason === "MAX_TOKENS") {
+            console.warn(`[장면 분해] 씬 ${sceneNumber} 응답이 토큰 제한으로 잘렸습니다.`)
+          }
+
+          const content = candidate.content?.parts?.[0]?.text
+
+          if (!content || content.trim().length === 0) {
+            throw new Error(`씬 ${sceneNumber} 장면 분해에 실패했습니다: 내용이 없습니다.`)
+          }
+
+          // 내용이 잘렸는지 확인 (마지막 문장이 완전한지)
+          const trimmedContent = content.trim()
+          
+          // 최소한 "씬 N" 또는 "[장면 1]" 같은 패턴이 있는지 확인
+          if (!trimmedContent.match(/씬\s+\d+|\[장면\s+\d+\]/)) {
+            throw new Error(`씬 ${sceneNumber} 장면 분해 결과 형식이 올바르지 않습니다.`)
+          }
+
+          allResults.push(trimmedContent)
+          success = true
+          console.log(`[장면 분해] 씬 ${sceneNumber} 처리 완료`)
           break // 성공하면 루프 종료
+          
         } catch (fetchError: any) {
           lastError = fetchError
           if (fetchError.name === 'AbortError') {
@@ -382,54 +430,35 @@ ${sceneText}`
           
           if (retry < maxRetries - 1) {
             // 재시도 전 대기
-            await new Promise(resolve => setTimeout(resolve, 1000 * (retry + 1)))
+            await new Promise(resolve => setTimeout(resolve, 2000 * (retry + 1)))
           }
         }
       }
       
-      if (!response) {
-        throw new Error(`씬 ${sceneNumber} 장면 분해 실패: ${lastError?.message || "API 호출 실패"}`)
+      if (!success) {
+        const errorMsg = `씬 ${sceneNumber} 장면 분해 실패: ${lastError?.message || "API 호출 실패"}`
+        errors.push(errorMsg)
+        console.error(`[장면 분해] ${errorMsg}`)
+        // 부분 성공을 위해 계속 진행 (에러만 기록)
       }
+    }
 
-      if (!response.ok) {
-        const errorText = await response.text()
-        throw new Error(`Gemini API 호출 실패: ${response.status} - ${errorText}`)
-      }
+    // 결과 검증
+    if (allResults.length === 0) {
+      const errorSummary = errors.length > 0 ? `\n\n오류:\n${errors.join('\n')}` : ''
+      throw new Error(`모든 씬의 장면 분해에 실패했습니다.${errorSummary}`)
+    }
 
-      const data = await response.json()
-      
-      // 응답 검증
-      const candidate = data.candidates?.[0]
-      if (!candidate) {
-        throw new Error(`씬 ${sceneNumber} 장면 분해에 실패했습니다: 응답 후보가 없습니다.`)
-      }
-
-      // finishReason 확인 (응답이 잘렸는지 확인)
-      const finishReason = candidate.finishReason
-      if (finishReason === "MAX_TOKENS") {
-        console.warn(`[장면 분해] 씬 ${sceneNumber} 응답이 토큰 제한으로 잘렸습니다. maxOutputTokens를 늘려야 할 수 있습니다.`)
-      }
-
-      const content = candidate.content?.parts?.[0]?.text
-
-      if (!content) {
-        throw new Error(`씬 ${sceneNumber} 장면 분해에 실패했습니다: 내용이 없습니다.`)
-      }
-
-      // 내용이 잘렸는지 확인 (마지막 문장이 완전한지)
-      const trimmedContent = content.trim()
-      const lastChar = trimmedContent[trimmedContent.length - 1]
-      const isComplete = lastChar === "." || lastChar === "!" || lastChar === "?" || lastChar === "]" || trimmedContent.endsWith("장면 3]")
-      
-      if (!isComplete && finishReason === "MAX_TOKENS") {
-        console.warn(`[장면 분해] 씬 ${sceneNumber} 응답이 불완전할 수 있습니다. 마지막 문자: "${lastChar}"`)
-      }
-
-      allResults.push(trimmedContent)
+    // 일부 씬이 실패했어도 성공한 씬의 결과는 반환
+    if (errors.length > 0) {
+      console.warn(`[장면 분해] 일부 씬 처리 실패 (${errors.length}개):`, errors)
     }
 
     // 모든 씬의 결과를 합쳐서 반환
-    return allResults.join("\n\n")
+    const finalResult = allResults.join("\n\n")
+    console.log(`[장면 분해] 완료: ${allResults.length}/${scenes.length}개 씬 처리 성공`)
+    
+    return finalResult
   } catch (error) {
     console.error("장면 분해 실패:", error)
     throw error
