@@ -1026,8 +1026,8 @@ export default function HomePage() {
                 YouTube 설정
               </Label>
               
-              {/* YouTube Client ID */}
-              <div className="space-y-2">
+              {/* YouTube Client ID - 숨김 */}
+              {/* <div className="space-y-2">
                 <Label htmlFor="youtube-client-id" className="text-sm font-medium">
                   YouTube Client ID
                 </Label>
@@ -1053,10 +1053,10 @@ export default function HomePage() {
                 <p className="text-xs text-muted-foreground">
                   Google Cloud Console에서 OAuth 2.0 클라이언트 ID를 발급받아 입력하세요.
                 </p>
-              </div>
+              </div> */}
 
-              {/* YouTube Client Secret */}
-              <div className="space-y-2">
+              {/* YouTube Client Secret - 숨김 */}
+              {/* <div className="space-y-2">
                 <Label htmlFor="youtube-client-secret" className="text-sm font-medium">
                   YouTube Client Secret
                 </Label>
@@ -1082,7 +1082,7 @@ export default function HomePage() {
                 <p className="text-xs text-muted-foreground">
                   Google Cloud Console에서 OAuth 2.0 클라이언트 Secret을 발급받아 입력하세요.
                 </p>
-              </div>
+              </div> */}
 
               {/* YouTube Data API Key */}
               <div className="space-y-2">
