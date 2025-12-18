@@ -10127,23 +10127,32 @@ export default function LongformContentPage() {
                     size="lg"
                     className="w-full bg-blue-600 hover:bg-blue-700 text-white"
                     onClick={async () => {
+                      console.log("[장면 분해 버튼] 클릭됨")
                       if (!script || script.trim().length === 0) {
+                        console.warn("[장면 분해 버튼] 대본이 없음")
                         alert("대본이 없습니다.")
                         return
                       }
+                      console.log(`[장면 분해 버튼] 대본 길이: ${script.length}자`)
                       setIsDecomposingScenes(true)
                       try {
+                        console.log("[장면 분해 버튼] Gemini API 키 확인 중...")
                         const geminiApiKey = getGeminiApiKey()
                         if (!geminiApiKey) {
+                          console.error("[장면 분해 버튼] Gemini API 키 없음")
                           alert("Gemini API 키를 설정해주세요. 설정 페이지에서 API 키를 입력하고 저장해주세요.")
                           setIsDecomposingScenes(false)
                           return
                         }
+                        console.log("[장면 분해 버튼] API 키 확인 완료, decomposeScriptIntoScenes 호출 시작")
                         const decomposedResult = await decomposeScriptIntoScenes(script, geminiApiKey)
+                        console.log("[장면 분해 버튼] decomposeScriptIntoScenes 완료, 결과 길이:", decomposedResult.length)
                         // 장면 분해 결과를 저장
                         setDecomposedScenes(decomposedResult)
                         // 장면 분해 결과를 scriptLines에 넣기
+                        console.log("[장면 분해 버튼] parseSceneBlocks 호출 중...")
                         const scenes = parseSceneBlocks(decomposedResult)
+                        console.log(`[장면 분해 버튼] parseSceneBlocks 완료: ${scenes.length}개 장면`)
                         setScriptLines(scenes)
                         
                         // 대본 생성 단계 완료 표시
@@ -10151,10 +10160,16 @@ export default function LongformContentPage() {
                         
                         alert(`대본이 ${scenes.length}개의 장면으로 분해되었습니다.`)
                       } catch (error) {
-                        console.error("장면 분해 실패:", error)
+                        console.error("[장면 분해 버튼] 에러 발생:", error)
+                        console.error("[장면 분해 버튼] 에러 상세:", {
+                          name: error instanceof Error ? error.name : "Unknown",
+                          message: error instanceof Error ? error.message : String(error),
+                          stack: error instanceof Error ? error.stack : undefined,
+                        })
                         const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다."
                         alert(`장면 분해에 실패했습니다: ${errorMessage}`)
                       } finally {
+                        console.log("[장면 분해 버튼] finally 블록 실행")
                         setIsDecomposingScenes(false)
                       }
                     }}
