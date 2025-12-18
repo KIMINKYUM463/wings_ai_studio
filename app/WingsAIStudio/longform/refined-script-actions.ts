@@ -448,8 +448,16 @@ ${sceneText}`
           
           if (!response.ok) {
             const errorText = await response.text()
-            console.error(`[장면 분해] 씬 ${sceneNumber} 응답 오류:`, errorText)
-            throw new Error(`Gemini API 호출 실패: ${response.status} - ${errorText}`)
+            console.error(`[장면 분해] 씬 ${sceneNumber} 응답 오류:`, {
+              status: response.status,
+              statusText: response.statusText,
+              errorText: errorText.substring(0, 500),
+            })
+            // 504 에러인 경우 특별 처리
+            if (response.status === 504) {
+              throw new Error(`Gemini API Gateway Timeout (504): 요청 시간이 초과되었습니다.`)
+            }
+            throw new Error(`Gemini API 호출 실패: ${response.status} - ${errorText.substring(0, 200)}`)
           }
 
           console.log(`[장면 분해] 씬 ${sceneNumber} JSON 파싱 시작...`)
@@ -526,7 +534,12 @@ ${sceneText}`
       // 모든 재시도 실패 시 즉시 에러 발생 (부분 성공 불가)
       if (!response) {
         console.error(`[장면 분해] 배치 ${batchIdx + 1} 씬 ${sceneNumber} 최종 실패:`, lastError)
-        throw new Error(`배치 ${batchIdx + 1} 씬 ${sceneNumber} 장면 분해 실패: ${lastError?.message || "API 호출 실패"}`)
+        const errorMessage = lastError?.message || "API 호출 실패"
+        // 504 에러인 경우 특별 처리
+        if (errorMessage.includes("504") || errorMessage.includes("Gateway Timeout") || lastError?.name === "AbortError") {
+          throw new Error(`배치 ${batchIdx + 1} 씬 ${sceneNumber} 장면 분해 타임아웃: 요청 시간이 초과되었습니다. 대본을 더 작게 나누거나 다시 시도해주세요.`)
+        }
+        throw new Error(`배치 ${batchIdx + 1} 씬 ${sceneNumber} 장면 분해 실패: ${errorMessage}`)
       }
       }
       
@@ -535,7 +548,15 @@ ${sceneText}`
         const batchResult = batchResults.join("\n\n")
         allBatchResults.push(batchResult)
         console.log(`[장면 분해] 배치 ${batchIdx + 1} 완료: ${batchResults.length}개 씬 처리 성공`)
+      } else {
+        console.warn(`[장면 분해] 배치 ${batchIdx + 1} 결과가 없습니다.`)
       }
+    }
+    
+    // 최종 결과 검증
+    if (allBatchResults.length === 0) {
+      console.error("[장면 분해] 모든 배치 처리 실패 - 결과가 없습니다.")
+      throw new Error("장면 분해에 실패했습니다: 모든 배치 처리 중 오류가 발생했습니다.")
     }
 
     // 모든 배치의 결과를 합쳐서 반환
