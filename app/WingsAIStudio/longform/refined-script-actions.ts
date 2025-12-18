@@ -429,7 +429,8 @@ ${sceneText}`
           console.log(`[장면 분해] 씬 ${sceneNumber} fetch 시작...`)
           
           // 모델 선택: Pro 모델이 더 큰 요청을 처리할 수 있음
-          const modelName = useProModel ? "gemini-2.0-pro-exp" : "gemini-2.5-flash"
+          // gemini-1.5-pro는 더 큰 컨텍스트와 안정적인 처리를 제공
+          const modelName = useProModel ? "gemini-1.5-pro" : "gemini-2.5-flash"
           console.log(`[장면 분해] 씬 ${sceneNumber} 사용 모델: ${modelName}`)
           
           const startTime = Date.now()
