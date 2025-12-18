@@ -7149,14 +7149,15 @@ export default function LongformContentPage() {
       })
       console.log("[v0] 최종 요청 본문 (일부):", JSON.stringify(finalRequestBody).substring(0, 500))
       
-      // 50분 이상의 긴 렌더링을 위해 Cloud Run을 직접 호출 (Vercel API 라우트 우회)
-      // Vercel API 라우트는 최대 800초(약 13분) 제한이 있으므로, 긴 작업은 직접 호출
+      // 긴 렌더링을 위해 Cloud Run을 직접 호출 (Vercel API 라우트 우회)
+      // Vercel API 라우트는 최대 800초(약 13분) 제한이 있지만, 실제로는 10분 이상부터 불안정할 수 있음
       // 클라이언트 사이드에서 직접 호출 (타임아웃 제한 없음)
       const CLOUD_RUN_URL = "https://my-project-350911437561.asia-northeast1.run.app"
       const estimatedDurationMinutes = finalRequestBody.duration / 60
       
-      // 13분 이상이면 Cloud Run 직접 호출, 그 이하는 Vercel API 라우트 사용
-      const useDirectCloudRun = estimatedDurationMinutes > 13
+      // 10분 이상이면 Cloud Run 직접 호출, 그 이하는 Vercel API 라우트 사용
+      // 10분 기준으로 낮춰서 타임아웃 방지
+      const useDirectCloudRun = estimatedDurationMinutes >= 10
       
       let renderResponse
       if (useDirectCloudRun) {
