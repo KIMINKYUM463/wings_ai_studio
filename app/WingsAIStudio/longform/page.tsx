@@ -9358,9 +9358,9 @@ export default function LongformContentPage() {
                             <Label className="text-sm font-medium text-gray-700">목소리 선택</Label>
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 max-h-[300px] overflow-y-auto p-2 border border-gray-200 rounded-lg">
                               {[
-                                { id: "jB1Cifc2UQbq1gR3wnb0", name: "Rachel", note: "기본(Default)", provider: "elevenlabs" },
-                                { id: "8jHHF8rMqMlg8if2mOUe", name: "Voice 2", note: "사용자 선택형", provider: "elevenlabs" },
-                                { id: "uyVNoMrnUku1dZyVEXwD", name: "Voice 3", note: "", provider: "elevenlabs" },
+                                // { id: "jB1Cifc2UQbq1gR3wnb0", name: "Rachel", note: "기본(Default)", provider: "elevenlabs" }, // 숨김
+                                // { id: "8jHHF8rMqMlg8if2mOUe", name: "Voice 2", note: "사용자 선택형", provider: "elevenlabs" }, // 숨김
+                                // { id: "uyVNoMrnUku1dZyVEXwD", name: "Voice 3", note: "", provider: "elevenlabs" }, // 숨김
                                 { id: "google-tts-neural2-a", name: "Google TTS (여성)", note: "ko-KR-Neural2-A", provider: "google" },
                                 { id: "google-tts-neural2-c", name: "Google TTS (남성)", note: "ko-KR-Neural2-C", provider: "google" },
                                 { id: "ttsmaker-여성1", name: "TTSMaker 여성1", note: "ID: 503", provider: "ttsmaker" },
@@ -11255,9 +11255,9 @@ export default function LongformContentPage() {
                     <div className="space-y-2">
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         {[
-                          { id: "jB1Cifc2UQbq1gR3wnb0", name: "Rachel", note: "기본(Default)", provider: "elevenlabs" },
-                          { id: "8jHHF8rMqMlg8if2mOUe", name: "Voice 2", note: "사용자 선택형", provider: "elevenlabs" },
-                          { id: "uyVNoMrnUku1dZyVEXwD", name: "Voice 3", note: "", provider: "elevenlabs" },
+                          // { id: "jB1Cifc2UQbq1gR3wnb0", name: "Rachel", note: "기본(Default)", provider: "elevenlabs" }, // 숨김
+                          // { id: "8jHHF8rMqMlg8if2mOUe", name: "Voice 2", note: "사용자 선택형", provider: "elevenlabs" }, // 숨김
+                          // { id: "uyVNoMrnUku1dZyVEXwD", name: "Voice 3", note: "", provider: "elevenlabs" }, // 숨김
                           { id: "google-tts-neural2-a", name: "Google TTS (여성)", note: "ko-KR-Neural2-A", provider: "google" },
                           { id: "google-tts-neural2-c", name: "Google TTS (남성)", note: "ko-KR-Neural2-C", provider: "google" },
                           { id: "ttsmaker-여성1", name: "TTSMaker 여성1", note: "ID: 503", provider: "ttsmaker" },
