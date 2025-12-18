@@ -35,6 +35,7 @@ def render_video():
         subtitles = data.get('subtitles', [])
         character_image = data.get('characterImage')  # base64 이미지
         character_image_gcs_url = data.get('characterImageGcsUrl')  # Cloud Storage URL 이미지
+        character_image_url = data.get('characterImageUrl')  # 영상 URL
         auto_images = data.get('autoImages', [])  # 여러 이미지 배열
         duration = data.get('duration', 0)
         
@@ -44,10 +45,10 @@ def render_video():
                 "error": "audioBase64 또는 audioGcsUrl이 필요합니다."
             }), 400
         
-        if not character_image and not character_image_gcs_url:
+        if not character_image and not character_image_gcs_url and not character_image_url:
             return jsonify({
                 "success": False,
-                "error": "characterImage 또는 characterImageGcsUrl이 필요합니다."
+                "error": "characterImage, characterImageGcsUrl 또는 characterImageUrl이 필요합니다."
             }), 400
         
         print(f"[Render] Request received - duration: {duration}s, subtitles: {len(subtitles)}, autoImages: {len(auto_images)}")
@@ -216,44 +217,91 @@ def render_video():
                         f.write(img_data)
                     return full_path
             
-            # 기본 배경 이미지 (character_image 또는 character_image_gcs_url)
+            # 기본 배경 이미지 (character_image, character_image_gcs_url 또는 character_image_url)
             try:
                 if character_image_gcs_url:
                     # Cloud Storage URL에서 다운로드
                     print(f"[Render] Processing background image from Cloud Storage: {character_image_gcs_url}")
                     img_path = download_image(character_image_gcs_url, f"{temp_dir}/background")
                     print(f"[Render] Background image downloaded from GCS: {img_path}")
+                elif character_image_url:
+                    # 영상 URL인 경우 다운로드
+                    print(f"[Render] Processing background video from URL: {character_image_url[:50]}...")
+                    video_response = requests.get(character_image_url, timeout=300, headers={
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                        'Accept': '*/*',
+                    }, stream=True)
+                    video_response.raise_for_status()
+                    video_file_path = f"{temp_dir}/background_video.mp4"
+                    with open(video_file_path, 'wb') as f:
+                        for chunk in video_response.iter_content(chunk_size=8192):
+                            if chunk:
+                                f.write(chunk)
+                    img_path = video_file_path
+                    print(f"[Render] Background video downloaded: {img_path}")
                 elif character_image:
                     # base64 이미지 처리
                     print(f"[Render] Processing background image: {character_image[:50]}...")
                     img_path = download_image(character_image, f"{temp_dir}/background")
                     print(f"[Render] Background image saved: {img_path}")
                 else:
-                    raise Exception("characterImage 또는 characterImageGcsUrl이 필요합니다.")
+                    raise Exception("characterImage, characterImageGcsUrl 또는 characterImageUrl이 필요합니다.")
             except Exception as e:
                 print(f"[Render] Background image processing error: {str(e)}")
                 raise Exception(f"Background image processing failed: {str(e)}")
             
-            # autoImages 처리 (여러 이미지 다운로드)
-            image_segments = []  # [(image_path, start_time, end_time), ...]
+            # autoImages 처리 (여러 이미지/비디오 다운로드)
+            image_segments = []  # [(image_path, start_time, end_time, is_video), ...]
             
             if auto_images and len(auto_images) > 0:
-                print(f"[Render] Processing {len(auto_images)} auto images...")
+                print(f"[Render] Processing {len(auto_images)} auto images/videos...")
                 for idx, auto_img in enumerate(auto_images):
                     try:
                         img_url = auto_img.get('url', '')
                         start_time = float(auto_img.get('startTime', 0))
                         end_time = float(auto_img.get('endTime', start_time + 1))
+                        is_video = auto_img.get('isVideo', False)
                         
                         if img_url:
-                            img_file_path = download_image(img_url, f"{temp_dir}/image_{idx}")
-                            image_segments.append((img_file_path, start_time, end_time))
-                            print(f"[Render] Auto image {idx+1} saved: {img_file_path} ({start_time}s - {end_time}s)")
+                            if is_video:
+                                # 영상 URL인 경우 다운로드
+                                print(f"[Render] Downloading video {idx+1} from URL: {img_url[:50]}...")
+                                try:
+                                    # CORS 및 인증 문제를 피하기 위해 헤더 추가
+                                    headers = {
+                                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                                        'Accept': '*/*',
+                                    }
+                                    video_response = requests.get(img_url, timeout=300, headers=headers, stream=True)
+                                    video_response.raise_for_status()
+                                    
+                                    # 스트림으로 다운로드하여 메모리 효율성 향상
+                                    video_file_path = f"{temp_dir}/video_{idx}.mp4"
+                                    with open(video_file_path, 'wb') as f:
+                                        for chunk in video_response.iter_content(chunk_size=8192):
+                                            if chunk:
+                                                f.write(chunk)
+                                    
+                                    # 파일이 제대로 다운로드되었는지 확인
+                                    if not os.path.exists(video_file_path) or os.path.getsize(video_file_path) == 0:
+                                        raise Exception(f"Video file is empty or not downloaded: {video_file_path}")
+                                    
+                                    print(f"[Render] Video {idx+1} downloaded: {video_file_path} ({os.path.getsize(video_file_path) / 1024 / 1024:.2f} MB, {start_time}s - {end_time}s)")
+                                    image_segments.append((video_file_path, start_time, end_time, True))
+                                except Exception as video_error:
+                                    print(f"[Render] Video download error: {str(video_error)}")
+                                    # 영상 다운로드 실패 시 오류를 발생시켜 사용자에게 알림
+                                    raise Exception(f"영상 다운로드 실패 (인덱스 {idx+1}): {str(video_error)}")
+                            else:
+                                # 이미지 URL인 경우 기존 로직 사용
+                                img_file_path = download_image(img_url, f"{temp_dir}/image_{idx}")
+                                image_segments.append((img_file_path, start_time, end_time, False))
+                                print(f"[Render] Auto image {idx+1} saved: {img_file_path} ({start_time}s - {end_time}s)")
                     except Exception as e:
-                        print(f"[Render] Auto image {idx+1} processing error: {str(e)}")
+                        print(f"[Render] Auto image/video {idx+1} processing error: {str(e)}")
                         # 오류가 나도 계속 진행
                 
-                print(f"[Render] Total {len(image_segments)} image segments prepared")
+                print(f"[Render] Total {len(image_segments)} image/video segments prepared")
             else:
                 # autoImages가 없으면 기본 이미지만 사용
                 image_segments = [(img_path, 0, duration if duration > 0 else 999)]
@@ -327,44 +375,71 @@ def render_video():
                 if len(image_segments) > 1:
                     print(f"[Render] Processing {len(image_segments)} image segments...")
                     
+                    # 실제 오디오 길이에 맞춰 마지막 세그먼트의 end_time 조정
+                    if actual_audio_duration > 0:
+                        # 마지막 세그먼트의 end_time을 actual_audio_duration으로 조정
+                        last_segment = image_segments[-1]
+                        if last_segment[2] < actual_audio_duration:
+                            image_segments[-1] = (last_segment[0], last_segment[1], actual_audio_duration)
+                            print(f"[Render] 마지막 세그먼트 end_time 조정: {last_segment[2]:.2f}s -> {actual_audio_duration:.2f}s")
+                    
                     segment_files = []
-                    for idx, (img_file, seg_start_time, seg_end_time) in enumerate(image_segments):
+                    for idx, segment_data in enumerate(image_segments):
+                        # segment_data는 (img_file, seg_start_time, seg_end_time, is_video) 또는 (img_file, seg_start_time, seg_end_time)
+                        if len(segment_data) == 4:
+                            img_file, seg_start_time, seg_end_time, is_video = segment_data
+                        else:
+                            img_file, seg_start_time, seg_end_time = segment_data
+                            is_video = False
+                        
                         segment_duration = seg_end_time - seg_start_time
                         if segment_duration <= 0:
                             continue
                         
                         segment_output = f"{temp_dir}/segment_{idx}.mp4"
-                        print(f"[Render] Processing segment {idx}: {img_file} ({segment_duration:.2f}s)")
+                        print(f"[Render] Processing segment {idx}: {img_file} ({segment_duration:.2f}s, is_video={is_video})")
                         
                         # 이 세그먼트에 해당하는 자막 필터 생성 (같은 시간대 자막을 한 줄로 합침)
                         segment_subtitle_filters = []
                         if subtitles:
                             # 시간대별로 자막 그룹화
                             subtitle_groups = {}
+                            first_subtitle_start = None  # 이 세그먼트의 첫 자막 시작 시간
+                            
                             for sub in subtitles:
+                                # 클라이언트에서 이미 조정된 자막 타이밍을 그대로 사용 (duration_ratio 적용하지 않음)
                                 sub_start = float(sub.get('start', sub.get('startTime', 0)))
                                 sub_end = float(sub.get('end', sub.get('endTime', sub_start + 2)))
                                 
                                 # 자막이 이 세그먼트 시간 범위와 겹치면 포함
-                                # 단, 자막이 세그먼트 시작 시간 이전에 시작하면 제외 (이전 장면의 자막 제외)
                                 if not (sub_end < seg_start_time or sub_start > seg_end_time):
-                                    # 자막이 세그먼트 시작 시간 이전에 시작하면 제외
-                                    if sub_start < seg_start_time:
-                                        continue
-                                    
-                                    adjusted_start = max(0, sub_start - seg_start_time)
+                                    # 세그먼트 시작 시간 기준으로 조정 (상대 시간으로 변환)
+                                    adjusted_start = sub_start - seg_start_time
                                     adjusted_end = min(segment_duration, sub_end - seg_start_time)
                                     
-                                    # adjusted_start가 0보다 작거나 같아야 함 (세그먼트 내에서 시작)
+                                    # adjusted_start가 음수면 0으로 조정 (세그먼트 시작 이전에 시작한 자막도 포함)
+                                    # 단, 세그먼트 시작 시간보다 0.5초 이상 이전에 시작하면 제외 (이전 장면의 자막 제외)
+                                    if adjusted_start < -0.5:
+                                        continue
+                                    
+                                    # adjusted_start를 0 이상으로 조정
                                     if adjusted_start < 0:
+                                        adjusted_start = 0
+                                    
+                                    # adjusted_end가 0보다 크고 adjusted_start가 segment_duration보다 작아야 함
+                                    if adjusted_end <= 0 or adjusted_start >= segment_duration:
                                         continue
                                     
                                     text = sub.get('text', '').strip()
                                     if not text:
                                         continue
                                     
-                                    # 같은 시작 시간의 자막들을 그룹화
-                                    key = f"{adjusted_start:.2f}"
+                                    # 첫 자막 시작 시간 기록 (가장 작은 adjusted_start)
+                                    if first_subtitle_start is None or adjusted_start < first_subtitle_start:
+                                        first_subtitle_start = adjusted_start
+                                    
+                                    # 같은 시작 시간의 자막들을 그룹화 (소수점 3자리까지 반올림하여 그룹화)
+                                    key = f"{adjusted_start:.3f}"
                                     if key not in subtitle_groups:
                                         subtitle_groups[key] = {
                                             'texts': [],
@@ -373,6 +448,29 @@ def render_video():
                                         }
                                     subtitle_groups[key]['texts'].append(text)
                                     subtitle_groups[key]['end'] = max(subtitle_groups[key]['end'], adjusted_end)
+                            
+                            # 첫 자막이 있으면, 모든 자막 타이밍을 첫 자막 시작 시간(0)에 맞추도록 오프셋 조정
+                            if first_subtitle_start is not None and first_subtitle_start > 0:
+                                offset = first_subtitle_start  # 첫 자막을 0으로 맞추기 위한 오프셋
+                                print(f"[Render] Segment {idx}: 첫 자막 오프셋 조정 {first_subtitle_start:.3f}s -> 0s (오프셋: {offset:.3f}s)")
+                                
+                                # 모든 자막 타이밍에서 오프셋을 빼서 첫 자막이 0에 오도록 조정
+                                adjusted_groups = {}
+                                for key, group in subtitle_groups.items():
+                                    new_start = max(0, group['start'] - offset)  # 음수가 되지 않도록
+                                    new_end = max(new_start + 0.1, group['end'] - offset)  # 최소 0.1초 길이 유지
+                                    
+                                    # 세그먼트 길이를 초과하지 않도록
+                                    if new_start < segment_duration:
+                                        new_end = min(new_end, segment_duration)
+                                        new_key = f"{new_start:.3f}"
+                                        adjusted_groups[new_key] = {
+                                            'texts': group['texts'],
+                                            'start': new_start,
+                                            'end': new_end
+                                        }
+                                
+                                subtitle_groups = adjusted_groups
                             
                             # 그룹화된 자막을 한 줄로 합쳐서 필터 생성
                             for key, group in subtitle_groups.items():
@@ -390,11 +488,19 @@ def render_video():
                                 })
                         
                         # FFmpeg-python으로 세그먼트 렌더링
-                        input_video = ffmpeg.input(img_file, loop=1, framerate=1, t=segment_duration)
-                        
-                        # 기본 필터: 이미지 크기 조정
-                        stream = input_video.video.filter('scale', 1920, 1080, force_original_aspect_ratio='decrease')
-                        stream = stream.filter('pad', 1920, 1080, '(ow-iw)/2', '(oh-ih)/2', color='black')
+                        if is_video:
+                            # 영상인 경우 영상 파일을 입력으로 사용 (반복 재생)
+                            # stream_loop=-1: 무한 반복, t=segment_duration: 세그먼트 길이만큼만 재생
+                            input_video = ffmpeg.input(img_file, stream_loop=-1, t=segment_duration)
+                            # 영상 크기 조정
+                            stream = input_video.video.filter('scale', 1920, 1080, force_original_aspect_ratio='decrease')
+                            stream = stream.filter('pad', 1920, 1080, '(ow-iw)/2', '(oh-ih)/2', color='black')
+                        else:
+                            # 이미지인 경우 기존 로직 사용
+                            input_video = ffmpeg.input(img_file, loop=1, framerate=1, t=segment_duration)
+                            # 기본 필터: 이미지 크기 조정
+                            stream = input_video.video.filter('scale', 1920, 1080, force_original_aspect_ratio='decrease')
+                            stream = stream.filter('pad', 1920, 1080, '(ow-iw)/2', '(oh-ih)/2', color='black')
                         
                         # 자막 필터 추가 (한 줄, 큰 글씨)
                         for sub_info in segment_subtitle_filters:
@@ -427,15 +533,35 @@ def render_video():
                                 print(f"[Render] 자막 텍스트: {text_for_display[:50]}...")
                                 raise
                         
-                        # 출력 설정
+                        # 이 세그먼트에 해당하는 오디오 부분 추출
+                        segment_audio_output = f"{temp_dir}/segment_audio_{idx}.wav"
+                        audio_extract_cmd = [
+                            'ffmpeg',
+                            '-y',
+                            '-i', audio_path,
+                            '-ss', str(seg_start_time),  # 세그먼트 시작 시간
+                            '-t', str(segment_duration),  # 세그먼트 길이
+                            '-acodec', 'pcm_s16le',  # WAV 포맷
+                            segment_audio_output
+                        ]
+                        subprocess.run(audio_extract_cmd, capture_output=True, text=True, check=True)
+                        
+                        # 비디오와 오디오를 함께 렌더링 (정확한 동기화)
+                        input_audio_segment = ffmpeg.input(segment_audio_output)
+                        
+                        # 출력 설정 (비디오 + 오디오)
                         output = ffmpeg.output(
                             stream,
+                            input_audio_segment,
                             segment_output,
                             vcodec='libx264',
+                            acodec='aac',
+                            audio_bitrate='256k',
                             preset='veryfast',
                             crf=23,
                             tune='stillimage',
-                            pix_fmt='yuv420p'
+                            pix_fmt='yuv420p',
+                            shortest=None  # 오디오 길이에 맞춤
                         )
                         
                         ffmpeg.run(output, overwrite_output=True, quiet=True)
@@ -453,34 +579,28 @@ def render_video():
                         for seg_file in segment_files:
                             f.write(f"file '{seg_file}'\n")
                     
-                    # 오디오와 함께 concat (subprocess 사용 - FFmpeg-python의 concat이 복잡함)
-                    audio_codec_param = []
-                    if audio_codec and audio_codec.lower() in ['aac', 'mp3']:
-                        audio_codec_param = ['-c:a', 'copy']
-                    else:
-                        audio_codec_param = ['-c:a', 'aac', '-b:a', '256k']
-                    
+                    # 각 세그먼트에 오디오가 이미 포함되어 있으므로 concat만 수행
+                    # 오디오는 각 세그먼트에 이미 포함되어 있어서 정확한 동기화 보장
                     concat_cmd = [
                         'ffmpeg',
                         '-y',
                         '-f', 'concat',
                         '-safe', '0',
                         '-i', concat_list_path,
-                        '-i', audio_path,
-                        '-c:v', 'copy',
-                    ] + audio_codec_param + [
-                        '-map', '0:v:0',
-                        '-map', '1:a:0',
-                        '-shortest',
+                        '-c', 'copy',  # 비디오와 오디오 모두 copy (재인코딩 없음, 정확한 동기화)
                         '-movflags', '+faststart',
                         output_path
                     ]
                     
+                    # 각 세그먼트에 오디오가 이미 포함되어 있으므로 duration 옵션 불필요
+                    # 각 세그먼트가 정확한 길이를 가지고 있어서 concat 시 자동으로 맞춰짐
+                    print(f"[Render] Concat {len(segment_files)} segments with embedded audio")
                     if duration and duration > 0:
                         concat_cmd.insert(-1, '-t')
                         concat_cmd.insert(-1, str(duration))
+                        print(f"[Render] Using requested duration: {duration:.3f}s")
                     
-                    result = subprocess.run(concat_cmd, capture_output=True, text=True, timeout=900)
+                    result = subprocess.run(concat_cmd, capture_output=True, text=True, timeout=3000)  # 50분
                     if result.returncode != 0:
                         raise Exception(f"Concat failed: {result.stderr}")
                     
@@ -496,14 +616,15 @@ def render_video():
                         subtitle_groups = {}
                         for sub in subtitles:
                             text = sub.get('text', '').strip()
-                            start_time = float(sub.get('start', sub.get('startTime', 0)))
-                            end_time = float(sub.get('end', sub.get('endTime', start_time + 2)))
-                            
                             if not text:
                                 continue
                             
-                            # 같은 시작 시간의 자막들을 그룹화
-                            key = f"{start_time:.2f}"
+                            # 클라이언트에서 이미 조정된 자막 타이밍을 그대로 사용 (duration_ratio 적용하지 않음)
+                            start_time = float(sub.get('start', sub.get('startTime', 0)))
+                            end_time = float(sub.get('end', sub.get('endTime', start_time + 2)))
+                            
+                            # 같은 시작 시간의 자막들을 그룹화 (소수점 3자리까지 반올림하여 그룹화)
+                            key = f"{start_time:.3f}"
                             if key not in subtitle_groups:
                                 subtitle_groups[key] = {
                                     'texts': [],
@@ -527,7 +648,14 @@ def render_video():
                             })
                     
                     # FFmpeg-python으로 렌더링
-                    input_video = ffmpeg.input(img_path, loop=1, framerate=1)
+                    # img_path가 영상 파일인지 확인 (확장자로 판단)
+                    is_background_video = img_path.endswith('.mp4') or img_path.endswith('.mov') or img_path.endswith('.avi') or 'background_video' in img_path
+                    if is_background_video:
+                        # 영상인 경우 반복 재생
+                        input_video = ffmpeg.input(img_path, stream_loop=-1, t=actual_audio_duration)
+                    else:
+                        # 이미지인 경우 반복 재생
+                        input_video = ffmpeg.input(img_path, loop=1, framerate=1)
                     input_audio = ffmpeg.input(audio_path)
                     
                     # 기본 필터
@@ -567,6 +695,10 @@ def render_video():
                     
                     # 출력 설정
                     audio_codec_str = 'aac' if audio_codec and audio_codec.lower() not in ['aac', 'mp3'] else 'copy'
+                    
+                    # 실제 오디오 길이를 사용하여 영상 길이 결정
+                    video_duration = actual_audio_duration if actual_audio_duration > 0 else (duration if duration > 0 else None)
+                    
                     output = ffmpeg.output(
                         stream,
                         input_audio,
@@ -577,12 +709,12 @@ def render_video():
                         tune='stillimage',
                         pix_fmt='yuv420p',
                         acodec=audio_codec_str,
-                        shortest=None,
                         movflags='+faststart'
                     )
                     
-                    if duration and duration > 0:
-                        output = ffmpeg.output(output, t=duration)
+                    if video_duration and video_duration > 0:
+                        output = ffmpeg.output(output, t=video_duration)
+                        print(f"[Render] Using video duration: {video_duration:.3f}s (actual_audio: {actual_audio_duration:.3f}s, requested: {duration:.3f}s)")
                     
                     ffmpeg.run(output, overwrite_output=True, quiet=True)
                 
