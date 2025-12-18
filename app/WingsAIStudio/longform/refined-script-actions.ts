@@ -316,9 +316,8 @@ export async function decomposeScriptIntoScenes(
     console.log(`[장면 분해] 총 ${scenes.length}개의 씬으로 분할됨 (최대 길이: ${MAX_SCENE_LENGTH}자)`)
 
     const allResults: string[] = []
-    const errors: string[] = []
 
-    // 각 씬을 순차적으로 처리 (부분 성공 허용)
+    // 각 씬을 순차적으로 처리 (모든 씬이 성공해야 함)
     for (let i = 0; i < scenes.length; i++) {
       const sceneText = scenes[i].trim()
       const sceneNumber = i + 1
@@ -343,7 +342,6 @@ ${sceneText}`
       let response: Response | undefined
       let lastError: Error | undefined
       const maxRetries = 3
-      let success = false
       
       for (let retry = 0; retry < maxRetries; retry++) {
         try {
@@ -416,7 +414,6 @@ ${sceneText}`
           }
 
           allResults.push(trimmedContent)
-          success = true
           console.log(`[장면 분해] 씬 ${sceneNumber} 처리 완료`)
           break // 성공하면 루프 종료
           
@@ -435,23 +432,10 @@ ${sceneText}`
         }
       }
       
-      if (!success) {
-        const errorMsg = `씬 ${sceneNumber} 장면 분해 실패: ${lastError?.message || "API 호출 실패"}`
-        errors.push(errorMsg)
-        console.error(`[장면 분해] ${errorMsg}`)
-        // 부분 성공을 위해 계속 진행 (에러만 기록)
+      // 모든 재시도 실패 시 즉시 에러 발생 (부분 성공 불가)
+      if (!response) {
+        throw new Error(`씬 ${sceneNumber} 장면 분해 실패: ${lastError?.message || "API 호출 실패"}`)
       }
-    }
-
-    // 결과 검증
-    if (allResults.length === 0) {
-      const errorSummary = errors.length > 0 ? `\n\n오류:\n${errors.join('\n')}` : ''
-      throw new Error(`모든 씬의 장면 분해에 실패했습니다.${errorSummary}`)
-    }
-
-    // 일부 씬이 실패했어도 성공한 씬의 결과는 반환
-    if (errors.length > 0) {
-      console.warn(`[장면 분해] 일부 씬 처리 실패 (${errors.length}개):`, errors)
     }
 
     // 모든 씬의 결과를 합쳐서 반환
