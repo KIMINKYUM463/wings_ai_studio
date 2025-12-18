@@ -340,7 +340,7 @@ ${sceneText}`
       for (let retry = 0; retry < maxRetries; retry++) {
         try {
           const controller = new AbortController()
-          const timeoutId = setTimeout(() => controller.abort(), 600000) // 600초(10분) 타임아웃 - 긴 대본 처리용
+          const timeoutId = setTimeout(() => controller.abort(), 1800000) // 1800초(30분) 타임아웃 - 매우 긴 대본 처리용
           
           response = await fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
