@@ -275,12 +275,45 @@ export async function decomposeScriptIntoScenes(
 (해당 시)`
 
     // 대본을 의미 단위(씬)로 나누기 (빈 줄 기준 또는 자연스러운 구분)
-    const scenes = script.split(/\n\s*\n/).filter(s => s.trim().length > 0)
+    let scenes = script.split(/\n\s*\n/).filter(s => s.trim().length > 0)
     
     if (scenes.length === 0) {
       // 빈 줄이 없으면 전체를 하나의 씬으로 처리
-      scenes.push(script)
+      scenes = [script]
     }
+    
+    // 긴 씬을 여러 씬으로 분할 (각 씬이 2000자 이상이면 분할)
+    const MAX_SCENE_LENGTH = 2000 // 씬당 최대 길이
+    const splitScenes: string[] = []
+    
+    for (const scene of scenes) {
+      if (scene.length <= MAX_SCENE_LENGTH) {
+        splitScenes.push(scene)
+      } else {
+        // 긴 씬을 문장 단위로 분할
+        const sentences = scene.split(/([.!?。！？]\s*)/).filter(s => s.trim().length > 0)
+        let currentChunk = ""
+        
+        for (let i = 0; i < sentences.length; i++) {
+          const sentence = sentences[i]
+          if (currentChunk.length + sentence.length <= MAX_SCENE_LENGTH) {
+            currentChunk += sentence
+          } else {
+            if (currentChunk.trim().length > 0) {
+              splitScenes.push(currentChunk.trim())
+            }
+            currentChunk = sentence
+          }
+        }
+        
+        if (currentChunk.trim().length > 0) {
+          splitScenes.push(currentChunk.trim())
+        }
+      }
+    }
+    
+    scenes = splitScenes
+    console.log(`[장면 분해] 총 ${scenes.length}개의 씬으로 분할됨 (최대 길이: ${MAX_SCENE_LENGTH}자)`)
 
     const allResults: string[] = []
 
@@ -299,33 +332,64 @@ export async function decomposeScriptIntoScenes(
 
 ${sceneText}`
 
-      // Gemini API 호출
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
+      // Gemini API 호출 (타임아웃 및 재시도 로직 포함)
+      let response: Response | undefined
+      let lastError: Error | undefined
+      const maxRetries = 3
+      
+      for (let retry = 0; retry < maxRetries; retry++) {
+        try {
+          const controller = new AbortController()
+          const timeoutId = setTimeout(() => controller.abort(), 60000) // 60초 타임아웃
+          
+          response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                contents: [
                   {
-                    text: `${systemPrompt}\n\n${userPrompt}`,
+                    parts: [
+                      {
+                        text: `${systemPrompt}\n\n${userPrompt}`,
+                      },
+                    ],
                   },
                 ],
-              },
-            ],
-            generationConfig: {
-              temperature: 0.7,
-              topK: 40,
-              topP: 0.95,
-              maxOutputTokens: 20000, // 장면 분해 시 충분한 토큰 확보 (8000 -> 20000으로 증가)
-            },
-          }),
+                generationConfig: {
+                  temperature: 0.7,
+                  topK: 40,
+                  topP: 0.95,
+                  maxOutputTokens: 20000, // 장면 분해 시 충분한 토큰 확보 (8000 -> 20000으로 증가)
+                },
+              }),
+              signal: controller.signal,
+            }
+          )
+          
+          clearTimeout(timeoutId)
+          break // 성공하면 루프 종료
+        } catch (fetchError: any) {
+          lastError = fetchError
+          if (fetchError.name === 'AbortError') {
+            console.warn(`[장면 분해] 씬 ${sceneNumber} 타임아웃 (${retry + 1}/${maxRetries})`)
+          } else {
+            console.warn(`[장면 분해] 씬 ${sceneNumber} API 호출 실패 (${retry + 1}/${maxRetries}):`, fetchError.message)
+          }
+          
+          if (retry < maxRetries - 1) {
+            // 재시도 전 대기
+            await new Promise(resolve => setTimeout(resolve, 1000 * (retry + 1)))
+          }
         }
-      )
+      }
+      
+      if (!response) {
+        throw new Error(`씬 ${sceneNumber} 장면 분해 실패: ${lastError?.message || "API 호출 실패"}`)
+      }
 
       if (!response.ok) {
         const errorText = await response.text()
