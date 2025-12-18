@@ -874,7 +874,7 @@ export default function LongformContentPage() {
 
       // 로컬 변수로 이미지와 오디오 결과를 추적 (React state는 비동기라서 바로 반영 안됨)
       let localImageResults: Array<{ lineId: number; imageUrl: string; prompt: string }> = []
-      let localAudioResults: Array<{ lineId: number; audioUrl: string; audioBase64: string }> = []
+      let localAudioResults: Array<{ lineId: number; audioUrl: string; audioBase64: string; alignment?: any }> = []
 
       // Step 4: 이미지 생성 (수동 모드와 동일하게 전체 문장에 대해 생성)
       if (replicateApiKey) {
@@ -1051,7 +1051,7 @@ export default function LongformContentPage() {
           // ===== 수동 모드의 handleRenderVideo와 완전히 동일한 로직 =====
           
           // 1. 각 TTS 오디오의 정확한 길이 측정 (수동 모드와 동일)
-          const audioDurations: Array<{ lineId: number; duration: number; audioBuffer?: AudioBuffer }> = []
+          const audioDurations: Array<{ lineId: number; duration: number; audioBuffer?: AudioBuffer; alignment?: any }> = []
           const audioContextForAnalysis = new (window.AudioContext || (window as any).webkitAudioContext)()
 
           for (let i = 0; i < sentences.length; i++) {
@@ -1070,7 +1070,12 @@ export default function LongformContentPage() {
                 const response = await fetch(audio.audioUrl)
                 const arrayBuffer = await response.arrayBuffer()
                 const audioBuffer = await audioContextForAnalysis.decodeAudioData(arrayBuffer)
-                audioDurations.push({ lineId: line.id, duration: audioBuffer.duration, audioBuffer })
+                audioDurations.push({ 
+                  lineId: line.id, 
+                  duration: audioBuffer.duration, 
+                  audioBuffer,
+                  alignment: audio.alignment || undefined // alignment 데이터 포함
+                })
               } catch (error) {
                 console.error(`[자동화] 오디오 ${line.id} 분석 실패:`, error)
                 audioDurations.push({ lineId: line.id, duration: 3 })
@@ -1155,12 +1160,51 @@ export default function LongformContentPage() {
             const audioData = audioDurations.find((d) => d.lineId === line.id)
             const audioDuration = audioData?.duration || 0
             const audioBuffer = audioData?.audioBuffer
+            const alignment = audioData?.alignment
             
             if (audioDuration > 0) {
-              // 문장을 단어 단위로 나누고 오디오 버퍼를 사용해 정확한 타이밍 계산
+              // ElevenLabs alignment가 있으면 정확한 타이밍 사용
+              if (alignment && selectedVoiceId && !selectedVoiceId.startsWith("google-tts-") && !selectedVoiceId.startsWith("ttsmaker-")) {
+                try {
+                  const geminiApiKey = getGeminiApiKey()
+                  if (geminiApiKey) {
+                    // 의미 단위 세그먼트 생성
+                    const semanticSegments = await generateSemanticSegments(line.text, geminiApiKey)
+                    // alignment와 세그먼트 매칭하여 정확한 타이밍 계산
+                    const phrases = alignmentToPhrases(alignment, 20, semanticSegments)
+                    
+                    // 각 자막 생성 (alignment 기반 정확한 타이밍)
+                    for (const phrase of phrases) {
+                      const start = subtitleTime + phrase.start
+                      const end = subtitleTime + phrase.end
+
+                      subtitles.push({
+                        id: subtitleId++,
+                        start: Number.parseFloat(start.toFixed(3)),
+                        end: Number.parseFloat(end.toFixed(3)),
+                        text: phrase.text
+                      })
+                    }
+                  } else {
+                    // Gemini API 키가 없으면 기존 방식 사용
               const subtitleLines = splitIntoSubtitleLines(line.text, audioBuffer, audioDuration)
-              
-              // 각 자막 생성 (오디오 버퍼 분석 기반 정확한 타이밍)
+                    for (let j = 0; j < subtitleLines.length; j++) {
+                      const subtitleLine = subtitleLines[j]
+                      const start = subtitleTime + subtitleLine.startTime
+                      const end = subtitleTime + subtitleLine.endTime
+
+                      subtitles.push({
+                        id: subtitleId++,
+                        start: Number.parseFloat(start.toFixed(3)),
+                        end: Number.parseFloat(end.toFixed(3)),
+                        text: subtitleLine.text
+                      })
+                    }
+                  }
+                } catch (error) {
+                  console.error(`[자막 생성] alignment 사용 실패 (줄 ${line.id}), 기존 방식 사용:`, error)
+                  // 실패 시 기존 방식 사용
+                  const subtitleLines = splitIntoSubtitleLines(line.text, audioBuffer, audioDuration)
               for (let j = 0; j < subtitleLines.length; j++) {
                 const subtitleLine = subtitleLines[j]
                 const start = subtitleTime + subtitleLine.startTime
@@ -1168,10 +1212,28 @@ export default function LongformContentPage() {
 
                 subtitles.push({
                   id: subtitleId++,
-                  start: Number.parseFloat(start.toFixed(3)), // 0.001초 단위로 정밀도 향상
+                      start: Number.parseFloat(start.toFixed(3)),
                   end: Number.parseFloat(end.toFixed(3)),
                   text: subtitleLine.text
                 })
+                  }
+                }
+              } else {
+                // alignment가 없거나 ElevenLabs가 아니면 기존 방식 사용
+                const subtitleLines = splitIntoSubtitleLines(line.text, audioBuffer, audioDuration)
+                
+                for (let j = 0; j < subtitleLines.length; j++) {
+                  const subtitleLine = subtitleLines[j]
+                  const start = subtitleTime + subtitleLine.startTime
+                  const end = subtitleTime + subtitleLine.endTime
+
+                  subtitles.push({
+                    id: subtitleId++,
+                    start: Number.parseFloat(start.toFixed(3)),
+                    end: Number.parseFloat(end.toFixed(3)),
+                    text: subtitleLine.text
+                  })
+                }
               }
             } else {
               // 오디오가 없으면 기본값 사용 (3초)
@@ -3454,6 +3516,142 @@ export default function LongformContentPage() {
     return lines
   }
 
+  // Gemini API를 사용하여 의미 단위 세그먼트 생성
+  const generateSemanticSegments = async (text: string, geminiApiKey: string): Promise<string[]> => {
+    try {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${geminiApiKey}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{
+              text: `다음 텍스트를 의미 단위로 분할해주세요. 각 의미 단위는 독립적인 문장이나 구절이어야 합니다. 결과는 JSON 배열 형식으로 반환해주세요.\n\n텍스트: ${text}\n\n결과 형식: ["의미 단위 1", "의미 단위 2", ...]`
+            }]
+          }],
+          generationConfig: {
+            temperature: 0.3,
+            maxOutputTokens: 2000,
+          },
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Gemini API 호출 실패: ${response.status}`)
+      }
+
+      const data = await response.json()
+      const resultText = data.candidates?.[0]?.content?.parts?.[0]?.text || ""
+      
+      // JSON 배열 추출
+      const jsonMatch = resultText.match(/\[[\s\S]*\]/)
+      if (jsonMatch) {
+        const segments = JSON.parse(jsonMatch[0])
+        return Array.isArray(segments) ? segments : [text]
+      }
+      
+      // JSON이 없으면 줄바꿈으로 분할
+      return resultText.split('\n').filter((s: string) => s.trim().length > 0)
+    } catch (error) {
+      console.error("[의미 단위 세그먼트 생성 실패]:", error)
+      // 실패 시 기본 분할 (문장 단위)
+      return text.split(/[.!?。！？]\s*/).filter(s => s.trim().length > 0)
+    }
+  }
+
+  // Alignment와 세그먼트를 매칭하여 정확한 자막 타이밍 생성
+  const alignmentToPhrases = (
+    alignment: any,
+    charLimit: number,
+    semanticSegments: string[]
+  ): Array<{ text: string; start: number; end: number }> => {
+    if (!alignment || !alignment.characters || !alignment.character_start_times_seconds || !alignment.character_end_times_seconds) {
+      // alignment가 없으면 fallback
+      return []
+    }
+
+    const characters = alignment.characters
+    const startTimes = alignment.character_start_times_seconds
+    const endTimes = alignment.character_end_times_seconds
+
+    const phrases: Array<{ text: string; start: number; end: number }> = []
+    let currentPhrase = ""
+    let phraseStart = 0
+    let phraseEnd = 0
+    let charIndex = 0
+
+    // semantic segments와 alignment 매칭
+    for (const segment of semanticSegments) {
+      const segmentStartChar = charIndex
+      const segmentEndChar = charIndex + segment.length
+      
+      // 세그먼트의 시작/종료 문자 인덱스 찾기
+      let segmentStartTime = 0
+      let segmentEndTime = 0
+      
+      // 세그먼트의 첫 문자와 마지막 문자의 시간 찾기
+      for (let i = 0; i < characters.length; i++) {
+        if (i >= segmentStartChar && i < segmentEndChar) {
+          if (segmentStartTime === 0 && startTimes[i] !== undefined) {
+            segmentStartTime = startTimes[i]
+          }
+          if (endTimes[i] !== undefined) {
+            segmentEndTime = endTimes[i]
+          }
+        }
+      }
+
+      // 세그먼트를 charLimit 단위로 나누기
+      let currentLine = ""
+      let lineStart = segmentStartTime
+      let lineEnd = segmentStartTime
+
+      for (let i = 0; i < segment.length; i++) {
+        const char = segment[i]
+        const charIdx = segmentStartChar + i
+        
+        if (charIdx < characters.length) {
+          const charStart = startTimes[charIdx] || segmentStartTime
+          const charEnd = endTimes[charIdx] || segmentEndTime
+          
+          const testLine = currentLine + char
+          
+          if (testLine.length > charLimit && currentLine.length > 0) {
+            // 현재 줄 저장
+            phrases.push({
+              text: currentLine.trim(),
+              start: lineStart,
+              end: lineEnd,
+            })
+            // 새 줄 시작
+            currentLine = char
+            lineStart = charStart
+            lineEnd = charEnd
+          } else {
+            currentLine = testLine
+            lineEnd = charEnd
+          }
+        } else {
+          currentLine += char
+        }
+      }
+
+      // 마지막 줄 저장
+      if (currentLine.trim().length > 0) {
+        phrases.push({
+          text: currentLine.trim(),
+          start: lineStart,
+          end: segmentEndTime > 0 ? segmentEndTime : lineEnd,
+        })
+      }
+
+      charIndex = segmentEndChar
+    }
+
+    return phrases.length > 0 ? phrases : []
+  }
+
   const splitScriptIntoLines = (scriptText: string, isRefined: boolean = false): Array<{ id: number; text: string }> => {
     if (!scriptText || scriptText.trim().length === 0) {
       return []
@@ -4452,11 +4650,11 @@ export default function LongformContentPage() {
           throw new Error("TTS 응답에 오디오 데이터가 없습니다.")
         }
         
-        // 성공 시 반환 (ElevenLabs인 경우 alignment 포함)
+        // 성공 시 반환 (alignment 데이터 포함)
         return {
           audioUrl: data.audioUrl,
           audioBase64: data.audioBase64,
-          alignment: data.alignment, // ElevenLabs alignment 데이터
+          alignment: data.alignment || undefined, // alignment 데이터 포함
         }
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error))
@@ -4673,6 +4871,7 @@ export default function LongformContentPage() {
                   lineId: sceneText.lineId,
                   audioUrl: data.audioUrl,
                   audioBase64: data.audioBase64,
+                  alignment: data.alignment || undefined, // alignment 데이터 저장
                 },
               ]
               console.log(`[TTS] 현재 생성된 TTS 개수: ${newAudios.length}`)
@@ -4761,7 +4960,6 @@ export default function LongformContentPage() {
               lineId: line.id,
               audioUrl: data.audioUrl,
               audioBase64: data.audioBase64,
-              alignment: data.alignment, // ElevenLabs alignment 데이터 저장
             },
           ])
           successCount++
@@ -5223,376 +5421,93 @@ export default function LongformContentPage() {
         // 2. 자막 생성 (씬별)
         const subtitles: Array<{ id: number; start: number; end: number; text: string }> = []
         
-        // Gemini API로 의미 단위 세그먼트 생성
-        const generateSemanticSegments = async (text: string, geminiApiKey: string): Promise<string[]> => {
-          try {
-            const response = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`,
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                  contents: [
-                    {
-                      parts: [
-                        {
-                          text: `다음 텍스트를 의미 단위로 분할해주세요. 각 의미 단위는 자연스러운 구문으로 나누어주세요. 각 구문을 한 줄씩 출력해주세요.\n\n텍스트: ${text}`,
-                        },
-                      ],
-                    },
-                  ],
-                  generationConfig: {
-                    temperature: 0.3,
-                    maxOutputTokens: 1000,
-                  },
-                }),
-              }
-            )
-
-            if (!response.ok) {
-              console.warn("[v0] Gemini API 호출 실패, 기본 분할 사용")
-              return text.split(/[.!?。！？]\s*/).filter((s: string) => s.trim().length > 0)
-            }
-
-            const data = await response.json()
-            const content = data.candidates?.[0]?.content?.parts?.[0]?.text || ""
-            
-            if (content.trim()) {
-              const segments = content.split("\n").filter((s: string) => s.trim().length > 0)
-              return segments.length > 0 ? segments : [text]
-            }
-            
-            return text.split(/[.!?。！？]\s*/).filter((s: string) => s.trim().length > 0)
-          } catch (error) {
-            console.warn("[v0] 의미 단위 세그먼트 생성 실패, 기본 분할 사용:", error)
-            return text.split(/[.!?。！？]\s*/).filter(s => s.trim().length > 0)
-          }
-        }
-
-        // Alignment와 세그먼트를 매칭하여 정확한 자막 타이밍 계산
-        const alignmentToPhrases = (
-          alignment: any,
-          semanticSegments: string[],
-          maxChars: number = 20
-        ): Array<{ text: string; startTime: number; endTime: number }> => {
-          if (!alignment || !alignment.characters || !alignment.character_start_times_seconds || !alignment.character_end_times_seconds) {
-            return []
-          }
-
-          const characters = alignment.characters
-          const startTimes = alignment.character_start_times_seconds
-          const endTimes = alignment.character_end_times_seconds
-
-          if (characters.length !== startTimes.length || characters.length !== endTimes.length) {
-            console.warn("[v0] Alignment 데이터 불일치")
-            return []
-          }
-
-          // 전체 텍스트 재구성
-          const fullText = characters.join("")
+        const splitIntoSubtitleLines = (text: string, audioBuffer?: AudioBuffer, totalDuration: number = 0): Array<{ text: string; startTime: number; endTime: number }> => {
+          const words = text.split(" ").filter(w => w.trim().length > 0)
+          if (words.length === 0) return [{ text, startTime: 0, endTime: totalDuration }]
           
-          // 각 세그먼트의 시작/종료 문자 인덱스 찾기
-          const phrases: Array<{ text: string; startTime: number; endTime: number }> = []
-          let currentCharIndex = 0
-
-          for (const segment of semanticSegments) {
-            const segmentText = segment.trim()
-            if (!segmentText) continue
-
-            // 세그먼트의 시작 문자 인덱스 찾기
-            const segmentStartIndex = fullText.indexOf(segmentText, currentCharIndex)
-            if (segmentStartIndex === -1) {
-              // 정확히 찾지 못하면 현재 위치에서 시작
-              const segmentEndIndex = Math.min(currentCharIndex + segmentText.length, characters.length)
-              const segmentStartTime = startTimes[Math.min(currentCharIndex, startTimes.length - 1)] || 0
-              const segmentEndTime = endTimes[Math.min(segmentEndIndex - 1, endTimes.length - 1)] || 0
-              
-              phrases.push({
-                text: segmentText,
-                startTime: segmentStartTime,
-                endTime: segmentEndTime,
-              })
-              currentCharIndex = segmentEndIndex
-              continue
+          const result: Array<{ text: string; startTime: number; endTime: number }> = []
+          let silenceThreshold = 0.01
+          let wordStartTimes: number[] = []
+          
+          if (audioBuffer && totalDuration > 0) {
+            const totalChars = words.reduce((sum, w) => sum + w.length, 0)
+            let currentTime = 0
+            
+            for (const word of words) {
+              const wordRatio = word.length / totalChars
+              const wordDuration = wordRatio * totalDuration
+              wordStartTimes.push(currentTime)
+              currentTime += wordDuration
             }
-
-            const segmentEndIndex = segmentStartIndex + segmentText.length
-            const segmentStartTime = startTimes[Math.min(segmentStartIndex, startTimes.length - 1)] || 0
-            const segmentEndTime = endTimes[Math.min(segmentEndIndex - 1, endTimes.length - 1)] || 0
-
-            // 세그먼트가 너무 길면 자막 라인으로 분할 (최대 20자)
-            if (segmentText.length > maxChars) {
-              const words = segmentText.split(" ")
-              let currentLine: string[] = []
-              let lineStartCharIndex = segmentStartIndex
-              
-              for (const word of words) {
-                const testLine = currentLine.length > 0 ? currentLine.join(" ") + " " + word : word
-                
-                if (testLine.length > maxChars && currentLine.length >= 1) {
-                  // 현재 라인 완료
-                  const lineEndCharIndex = lineStartCharIndex + currentLine.join(" ").length
-                  const lineStartTime = startTimes[Math.min(lineStartCharIndex, startTimes.length - 1)] || segmentStartTime
-                  const lineEndTime = endTimes[Math.min(lineEndCharIndex - 1, endTimes.length - 1)] || segmentEndTime
-                  
-                  phrases.push({
-                    text: currentLine.join(" "),
-                    startTime: lineStartTime,
-                    endTime: lineEndTime,
-                  })
-                  
-                  // 새 라인 시작
-                  currentLine = [word]
-                  lineStartCharIndex = lineEndCharIndex
-                } else {
-                  currentLine.push(word)
-                }
-              }
-              
-              // 마지막 라인 처리
+          } else {
+            const timePerWord = totalDuration / words.length
+            for (let i = 0; i < words.length; i++) {
+              wordStartTimes.push(i * timePerWord)
+            }
+          }
+          
+          let currentLine: string[] = []
+          let lineStartTime = 0
+          const maxChars = 20 // 공백 포함 20자까지
+          
+          for (let i = 0; i < words.length; i++) {
+            const word = words[i]
+            const testLine = currentLine.length > 0 ? currentLine.join(" ") + " " + word : word
+            
+            if (testLine.length > maxChars && currentLine.length >= 1) {
               if (currentLine.length > 0) {
-                const lineEndCharIndex = segmentEndIndex
-                const lineStartTime = startTimes[Math.min(lineStartCharIndex, startTimes.length - 1)] || segmentStartTime
-                const lineEndTime = endTimes[Math.min(lineEndCharIndex - 1, endTimes.length - 1)] || segmentEndTime
-                
-                phrases.push({
+                const lineEndTime = i < wordStartTimes.length ? wordStartTimes[i] : totalDuration
+                result.push({
                   text: currentLine.join(" "),
                   startTime: lineStartTime,
                   endTime: lineEndTime,
                 })
               }
+              currentLine = [word]
+              lineStartTime = wordStartTimes[i] || (i * (totalDuration / words.length))
             } else {
-              phrases.push({
-                text: segmentText,
-                startTime: segmentStartTime,
-                endTime: segmentEndTime,
-              })
-            }
-
-            currentCharIndex = segmentEndIndex
-          }
-
-          return phrases
-        }
-
-        // 정확한 자막 타이밍 계산 함수 (ElevenLabs alignment 데이터 우선 사용)
-        const splitIntoSubtitleLines = async (
-          text: string,
-          audioBuffer: AudioBuffer | undefined,
-          totalDuration: number,
-          alignment?: any,
-          geminiApiKey?: string
-        ): Promise<Array<{ text: string; startTime: number; endTime: number }>> => {
-          // ElevenLabs alignment 데이터가 있으면 사용
-          if (alignment && geminiApiKey) {
-            try {
-              // 의미 단위 세그먼트 생성
-              const semanticSegments = await generateSemanticSegments(text, geminiApiKey)
-              
-              // Alignment와 세그먼트 매칭
-              const phrases = alignmentToPhrases(alignment, semanticSegments, 20)
-              
-              if (phrases.length > 0) {
-                console.log(`[v0] Alignment 기반 자막 생성: ${phrases.length}개 구간`)
-                return phrases
-              }
-            } catch (error) {
-              console.warn("[v0] Alignment 기반 자막 생성 실패, Fallback 사용:", error)
+              currentLine.push(word)
             }
           }
           
-          // Fallback: 기존 방식 사용
-          const words = text.split(" ").filter(w => w.trim().length > 0)
-          if (words.length === 0) return [{ text, startTime: 0, endTime: totalDuration }]
-          
-          const result: Array<{ text: string; startTime: number; endTime: number }> = []
-          
-          // 오디오 버퍼가 있으면 실제 샘플 데이터를 사용하여 정확한 타이밍 계산
-          if (audioBuffer && totalDuration > 0) {
-            const sampleRate = audioBuffer.sampleRate
-            const channelData = audioBuffer.getChannelData(0) // 첫 번째 채널 사용
-            const totalSamples = channelData.length
-            
-            // 실제 오디오 길이 (샘플 수 / 샘플레이트) - 가장 정확함
-            const actualDuration = totalSamples / sampleRate
-            
-            // 각 단어의 문자 수 비율로 시간 분배
-            const totalChars = words.reduce((sum, w) => sum + w.length, 0)
-            let currentTime = 0
-            
-            const wordTimes: Array<{ start: number; end: number }> = []
-            
-            for (const word of words) {
-              const wordRatio = word.length / totalChars
-              const wordDuration = wordRatio * actualDuration
-              wordTimes.push({
-                start: currentTime,
-                end: currentTime + wordDuration
-              })
-              currentTime += wordDuration
-            }
-            
-            // 마지막 단어의 끝 시간을 실제 오디오 길이로 조정
-            if (wordTimes.length > 0) {
-              wordTimes[wordTimes.length - 1].end = actualDuration
-            }
-            
-            // 단어들을 자막 라인으로 그룹화 (최대 20자)
-            let currentLine: string[] = []
-            let lineStartTime = 0
-            const maxChars = 20
-            
-            for (let i = 0; i < words.length; i++) {
-              const word = words[i]
-              const testLine = currentLine.length > 0 ? currentLine.join(" ") + " " + word : word
-              
-              if (testLine.length > maxChars && currentLine.length >= 1) {
-                // 현재 라인 완료
-                if (currentLine.length > 0) {
-                  const lineEndTime = i > 0 ? wordTimes[i - 1].end : wordTimes[i].start
-                  result.push({
-                    text: currentLine.join(" "),
-                    startTime: lineStartTime,
-                    endTime: lineEndTime,
-                  })
-                }
-                // 새 라인 시작
-                currentLine = [word]
-                lineStartTime = wordTimes[i].start
-              } else {
-                currentLine.push(word)
-              }
-            }
-            
-            // 마지막 라인 처리
-            if (currentLine.length > 0) {
-              const lastWordIndex = words.length - 1
-              result.push({
-                text: currentLine.join(" "),
-                startTime: lineStartTime,
-                endTime: wordTimes[lastWordIndex].end,
-              })
-            }
-          } else {
-            // 오디오 버퍼가 없는 경우 균등 분배
-            const timePerWord = totalDuration / words.length
-            let currentLine: string[] = []
-            let lineStartTime = 0
-            const maxChars = 20
-            
-            for (let i = 0; i < words.length; i++) {
-              const word = words[i]
-              const testLine = currentLine.length > 0 ? currentLine.join(" ") + " " + word : word
-              
-              if (testLine.length > maxChars && currentLine.length >= 1) {
-                if (currentLine.length > 0) {
-                  result.push({
-                    text: currentLine.join(" "),
-                    startTime: lineStartTime,
-                    endTime: i * timePerWord,
-                  })
-                }
-                currentLine = [word]
-                lineStartTime = i * timePerWord
-              } else {
-                currentLine.push(word)
-              }
-            }
-            
-            if (currentLine.length > 0) {
-              result.push({
-                text: currentLine.join(" "),
-                startTime: lineStartTime,
-                endTime: totalDuration,
-              })
-            }
+          if (currentLine.length > 0) {
+            result.push({
+              text: currentLine.join(" "),
+              startTime: lineStartTime,
+              endTime: totalDuration,
+            })
           }
           
           return result.length > 0 ? result : [{ text, startTime: 0, endTime: totalDuration }]
         }
         
-        // 씬별로 자막 생성 (각 오디오의 실제 길이를 정확히 측정하여 사용)
-        const actualAudioDurations: Array<{ lineId: number; actualDuration: number }> = []
-        
-        // 먼저 각 오디오의 실제 길이를 정확히 측정
-        for (const [sceneNum, lines] of sceneAudioMapping.entries()) {
-          for (const line of lines) {
-            const audioData = audioDurations.find((d) => d.lineId === line.lineId)
-            if (audioData && audioData.audioBuffer) {
-              // AudioBuffer의 실제 duration 사용 (가장 정확함)
-              const actualDuration = audioData.audioBuffer.duration
-              actualAudioDurations.push({
-                lineId: line.lineId,
-                actualDuration: actualDuration
-              })
-              console.log(`[v0] 씬 ${sceneNum} 오디오 ${line.lineId} 실제 길이: ${actualDuration.toFixed(6)}초 (계산된 길이: ${audioData.duration.toFixed(6)}초)`)
-            }
-          }
-        }
-        
-        // 각 오디오 세그먼트의 실제 시작 시간을 정확히 계산
-        const segmentStartTimes: Map<number, number> = new Map() // lineId -> 시작 시간
-        let currentSegmentStartTime = 0
-        
-        // 먼저 각 세그먼트의 시작 시간을 계산
-        for (const [sceneNum, lines] of sceneAudioMapping.entries()) {
-          for (const line of lines) {
-            const actualDurationData = actualAudioDurations.find((d) => d.lineId === line.lineId)
-            const audioData = audioDurations.find((d) => d.lineId === line.lineId)
-            const audioDuration = actualDurationData?.actualDuration || audioData?.duration || 0
-            
-            if (audioDuration > 0) {
-              segmentStartTimes.set(line.lineId, currentSegmentStartTime)
-              currentSegmentStartTime += audioDuration
-              console.log(`[v0] 씬 ${sceneNum} 오디오 ${line.lineId} 시작 시간: ${segmentStartTimes.get(line.lineId)!.toFixed(6)}초, 길이: ${audioDuration.toFixed(6)}초`)
-            }
-          }
-        }
-        
+        let subtitleTime = 0
         let subtitleId = 1
         
-        // 씬별로 자막 생성 (각 세그먼트의 실제 시작 시간 사용)
+        // 씬별로 자막 생성
         for (const [sceneNum, lines] of sceneAudioMapping.entries()) {
           for (const line of lines) {
             const audioData = audioDurations.find((d) => d.lineId === line.lineId)
-            const actualDurationData = actualAudioDurations.find((d) => d.lineId === line.lineId)
-            
-            // 실제 길이를 우선 사용, 없으면 계산된 길이 사용
-            const audioDuration = actualDurationData?.actualDuration || audioData?.duration || 0
+            const audioDuration = audioData?.duration || 0
             const audioBuffer = audioData?.audioBuffer
-            const segmentStartTime = segmentStartTimes.get(line.lineId) || 0
             
             if (audioDuration > 0) {
-              // ElevenLabs alignment 데이터 가져오기
-              const audio = generatedAudios.find((a) => a.lineId === line.lineId)
-              const alignment = audio?.alignment
-              const geminiApiKey = getGeminiApiKey()
-              
-              const subtitleLines = await splitIntoSubtitleLines(
-                line.text,
-                audioBuffer,
-                audioDuration,
-                alignment,
-                geminiApiKey
-              )
+              const subtitleLines = splitIntoSubtitleLines(line.text, audioBuffer, audioDuration)
               
               for (let j = 0; j < subtitleLines.length; j++) {
                 const subtitleLine = subtitleLines[j]
-                // 각 세그먼트의 실제 시작 시간 + 상대 시간
-                const start = segmentStartTime + subtitleLine.startTime
-                const end = segmentStartTime + subtitleLine.endTime
+                const start = subtitleTime + subtitleLine.startTime
+                const end = subtitleTime + subtitleLine.endTime
                 
                 subtitles.push({
                   id: subtitleId++,
-                  start: Number.parseFloat(start.toFixed(6)), // 더 정밀한 타이밍 (마이크로초 단위)
-                  end: Number.parseFloat(end.toFixed(6)),
+                  start: Number.parseFloat(start.toFixed(3)),
+                  end: Number.parseFloat(end.toFixed(3)),
                   text: subtitleLine.text,
                 })
-                
-                console.log(`[v0] 자막 ${subtitleId - 1}: "${subtitleLine.text.substring(0, 20)}..." (${start.toFixed(6)}s - ${end.toFixed(6)}s, 세그먼트 시작: ${segmentStartTime.toFixed(6)}s)`)
               }
+              
+              subtitleTime += audioDuration
             }
           }
         }
@@ -5607,7 +5522,9 @@ export default function LongformContentPage() {
           motion?: string
         }> = []
         
-        // 씬별로 이미지 매핑 (정확한 세그먼트 정보 사용)
+        let imageTime = 0
+        
+        // 씬별로 이미지 매핑 (각 장면의 TTS와 정확히 매칭)
         for (const parsedScene of parsedScenes) {
           const sceneData = sceneImagePrompts.find(s => s.sceneNumber === parsedScene.sceneNumber)
           if (!sceneData) continue
@@ -5616,27 +5533,31 @@ export default function LongformContentPage() {
           
           // 각 장면의 TTS와 이미지를 정확히 매칭
           for (const line of sceneLines) {
-            const actualDurationData = actualAudioDurations.find((d) => d.lineId === line.lineId)
-            const audioData = audioDurations.find(d => d.lineId === line.lineId)
-            const audioDuration = actualDurationData?.actualDuration || audioData?.duration || 0
-            const imageStartTime = segmentStartTimes.get(line.lineId) || 0
+            const audioDuration = audioDurations.find(d => d.lineId === line.lineId)?.duration || 0
             
             if (audioDuration > 0) {
               // 해당 장면의 이미지 찾기 (imageNumber로 매칭)
               const image = sceneData.images.find(img => img.imageNumber === line.imageNumber && img.imageUrl)
               
               if (image && image.imageUrl) {
+                // 영상으로 변환된 이미지가 있으면 영상 URL 사용, 없으면 이미지 URL 사용
+                const videoKey = `${parsedScene.sceneNumber}-${line.imageNumber}`
+                const videoUrl = convertedSceneVideos.get(videoKey)
+                const finalUrl = videoUrl || image.imageUrl
+                
                 autoImages.push({
                   id: `scene_${parsedScene.sceneNumber}_image_${line.imageNumber}`,
-                  url: image.imageUrl,
-                  startTime: imageStartTime, // 정확한 세그먼트 시작 시간
-                  endTime: imageStartTime + audioDuration, // 정확한 세그먼트 시작 시간 + 실제 길이
+                  url: finalUrl,
+                  startTime: imageTime,
+                  endTime: imageTime + audioDuration,
                   keyword: line.text.substring(0, 30),
                   motion: "static",
                 })
                 
-                console.log(`[v0] 씬 ${parsedScene.sceneNumber} 장면 ${line.imageNumber} 매핑: 이미지=${image.imageUrl.substring(0, 50)}..., 시작=${imageStartTime.toFixed(6)}초, 길이=${audioDuration.toFixed(6)}초`)
+                console.log(`[v0] 씬 ${parsedScene.sceneNumber} 장면 ${line.imageNumber} 매핑: ${videoUrl ? "영상" : "이미지"}=${finalUrl.substring(0, 50)}..., TTS 길이=${audioDuration.toFixed(3)}초`)
               }
+              
+              imageTime += audioDuration
             }
           }
         }
@@ -5652,32 +5573,19 @@ export default function LongformContentPage() {
         // 5. 모든 오디오를 순차적으로 합치기
         const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
         const audioBuffers: AudioBuffer[] = []
-        const actualSegmentDurations: number[] = [] // 각 세그먼트의 실제 길이 저장
         
-        // 씬별로 오디오 수집 (이미 로드된 audioBuffer 우선 사용)
+        // 씬별로 오디오 수집
         for (const [sceneNum, lines] of sceneAudioMapping.entries()) {
           for (const line of lines) {
-            const audioData = audioDurations.find((d) => d.lineId === line.lineId)
-            
-            if (audioData && audioData.audioBuffer) {
-              // 이미 로드된 audioBuffer 사용 (정확한 길이 보장)
-              audioBuffers.push(audioData.audioBuffer)
-              actualSegmentDurations.push(audioData.audioBuffer.duration)
-              console.log(`[v0] 씬 ${sceneNum} 오디오 ${line.lineId} 버퍼 사용: ${audioData.audioBuffer.duration.toFixed(6)}초`)
-            } else {
-              // audioBuffer가 없으면 새로 로드
-              const audio = generatedAudios.find((a) => a.lineId === line.lineId)
-              if (audio) {
-                try {
-                  const audioResponse = await fetch(audio.audioUrl)
-                  const audioArrayBuffer = await audioResponse.arrayBuffer()
-                  const audioBuffer = await audioContext.decodeAudioData(audioArrayBuffer)
-                  audioBuffers.push(audioBuffer)
-                  actualSegmentDurations.push(audioBuffer.duration)
-                  console.log(`[v0] 씬 ${sceneNum} 오디오 ${line.lineId} 새로 로드: ${audioBuffer.duration.toFixed(6)}초`)
-                } catch (error) {
-                  console.error(`오디오 디코딩 실패 (씬 ${sceneNum}, 줄 ${line.lineId}):`, error)
-                }
+            const audio = generatedAudios.find((a) => a.lineId === line.lineId)
+            if (audio) {
+              try {
+                const audioResponse = await fetch(audio.audioUrl)
+                const audioArrayBuffer = await audioResponse.arrayBuffer()
+                const audioBuffer = await audioContext.decodeAudioData(audioArrayBuffer)
+                audioBuffers.push(audioBuffer)
+              } catch (error) {
+                console.error(`오디오 디코딩 실패 (씬 ${sceneNum}, 줄 ${line.lineId}):`, error)
               }
             }
           }
@@ -5705,33 +5613,26 @@ export default function LongformContentPage() {
         }
         
         const actualMergedDuration = mergedBuffer.duration
-        const calculatedFromActualSegments = actualSegmentDurations.reduce((sum, d) => sum + d, 0)
+        console.log(`[v0] 계산된 총 길이: ${calculatedTotalDuration.toFixed(3)}초, 실제 병합된 오디오 길이: ${actualMergedDuration.toFixed(3)}초`)
         
-        console.log(`[v0] 계산된 총 길이: ${calculatedTotalDuration.toFixed(6)}초`)
-        console.log(`[v0] 실제 세그먼트 길이 합: ${calculatedFromActualSegments.toFixed(6)}초`)
-        console.log(`[v0] 실제 병합된 오디오 길이: ${actualMergedDuration.toFixed(6)}초`)
-        
-        // 실제 세그먼트 길이 합을 기준으로 조정 (더 정확함)
-        const durationRatio = actualMergedDuration > 0 && calculatedFromActualSegments > 0 
-          ? actualMergedDuration / calculatedFromActualSegments 
+        const durationRatio = actualMergedDuration > 0 && calculatedTotalDuration > 0 
+          ? actualMergedDuration / calculatedTotalDuration 
           : 1.0
         
-        console.log(`[v0] Duration ratio: ${durationRatio.toFixed(6)}`)
+        console.log(`[v0] Duration ratio: ${durationRatio.toFixed(4)}`)
         
-        if (Math.abs(durationRatio - 1.0) > 0.001) {
-          console.log(`[v0] 자막 타이밍 조정 중... (ratio: ${durationRatio.toFixed(6)})`)
+        if (durationRatio !== 1.0) {
+          console.log(`[v0] 자막 타이밍 조정 중... (ratio: ${durationRatio.toFixed(4)})`)
           for (let i = 0; i < subtitles.length; i++) {
-            subtitles[i].start = Number.parseFloat((subtitles[i].start * durationRatio).toFixed(6))
-            subtitles[i].end = Number.parseFloat((subtitles[i].end * durationRatio).toFixed(6))
+            subtitles[i].start = Number.parseFloat((subtitles[i].start * durationRatio).toFixed(3))
+            subtitles[i].end = Number.parseFloat((subtitles[i].end * durationRatio).toFixed(3))
           }
           
           for (let i = 0; i < autoImages.length; i++) {
-            autoImages[i].startTime = Number.parseFloat((autoImages[i].startTime * durationRatio).toFixed(6))
-            autoImages[i].endTime = Number.parseFloat((autoImages[i].endTime * durationRatio).toFixed(6))
+            autoImages[i].startTime = Number.parseFloat((autoImages[i].startTime * durationRatio).toFixed(3))
+            autoImages[i].endTime = Number.parseFloat((autoImages[i].endTime * durationRatio).toFixed(3))
           }
           console.log(`[v0] 자막 및 이미지 타이밍 조정 완료`)
-        } else {
-          console.log(`[v0] 타이밍 조정 불필요 (ratio: ${durationRatio.toFixed(6)})`)
         }
         
         const totalDuration = actualMergedDuration
@@ -5983,14 +5884,20 @@ export default function LongformContentPage() {
 
           // 이미지가 이미 추가되지 않았으면 추가
           if (!autoImages.find((img) => img.startTime === imageStartTime)) {
+            // 영상으로 변환된 이미지가 있으면 영상 URL 사용, 없으면 이미지 URL 사용
+            const videoUrl = convertedVideos.get(line.id)
+            const finalUrl = videoUrl || image.imageUrl
+            
             autoImages.push({
               id: `image_${line.id}`,
-              url: image.imageUrl,
+              url: finalUrl,
               startTime: imageStartTime,
               endTime: imageEndTime,
               keyword: `문장 ${line.id}`,
               motion: "static",
             })
+            
+            console.log(`[v0] 문장 ${line.id} 매핑: ${videoUrl ? "영상" : "이미지"}=${finalUrl.substring(0, 50)}...`)
           }
 
           imageTime += audioDuration
@@ -6395,12 +6302,36 @@ export default function LongformContentPage() {
         endTime: number
         keyword: string
         motion?: string
+        isVideo?: boolean
       }> = []
 
       if (videoData.autoImages && videoData.autoImages.length > 0) {
-        // videoData에 저장된 autoImages 사용
-        autoImagesForRender = videoData.autoImages
-        console.log("[v0] videoData에서 autoImages 사용:", autoImagesForRender.length, "개")
+        // videoData에 저장된 autoImages 사용 (영상 URL 확인)
+        autoImagesForRender = videoData.autoImages.map((img) => {
+          // id에서 lineId 또는 scene 정보 추출
+          const idParts = img.id.split("_")
+          let videoUrl: string | undefined = undefined
+          
+          if (idParts[0] === "scene") {
+            // 씬별 이미지: scene_1_image_1 -> 1-1
+            const sceneNumber = Number.parseInt(idParts[1] || "0")
+            const imageNumber = Number.parseInt(idParts[3] || "0")
+            const sceneVideoKey = `${sceneNumber}-${imageNumber}`
+            videoUrl = convertedSceneVideos.get(sceneVideoKey)
+          } else {
+            // 일반 이미지: image_1 -> 1
+            const lineId = Number.parseInt(idParts.pop() || "0")
+            videoUrl = convertedVideos.get(lineId)
+          }
+          
+          // 영상 URL이 있으면 사용, 없으면 원본 이미지 URL 사용
+          return {
+            ...img,
+            url: videoUrl || img.url,
+            isVideo: !!videoUrl,
+          }
+        })
+        console.log("[v0] videoData에서 autoImages 사용:", autoImagesForRender.length, "개 (영상 포함:", autoImagesForRender.filter(img => img.isVideo).length, "개)")
       } else {
         // videoData에 없으면 재계산
         console.log("[v0] autoImages 재계산 중...")
@@ -6438,13 +6369,17 @@ export default function LongformContentPage() {
 
               // 이미지가 이미 추가되지 않았으면 추가
               if (!autoImagesForRender.find((img) => Math.abs(img.startTime - imageStartTime) < 0.1)) {
+                // 영상 URL 확인
+                const videoUrl = convertedVideos.get(line.id)
+                
                 autoImagesForRender.push({
                   id: `image_${line.id}`,
-                  url: image.imageUrl,
+                  url: videoUrl || image.imageUrl,
                   startTime: imageStartTime,
                   endTime: imageEndTime,
                   keyword: `문장 ${line.id}`,
                   motion: "static",
+                  isVideo: !!videoUrl,
                 })
               }
             }
@@ -6486,16 +6421,46 @@ export default function LongformContentPage() {
         throw new Error("이미지가 없습니다. 이미지를 생성해주세요.")
       }
 
-      // 3. 이미지를 1920x1080으로 리사이즈
+      // 3. 이미지를 1920x1080으로 리사이즈 (영상이 아닌 경우만)
       console.log("[v0] 이미지 리사이즈 시작 (1920x1080)...")
       
-      // characterImage 리사이즈
-      const resizedCharacterImageBase64 = await resizeImageTo1920x1080(firstImage!.imageUrl)
-      console.log("[v0] characterImage 리사이즈 완료")
+      // characterImage가 영상인지 확인
+      const firstImageIdParts = autoImagesForRender.length > 0 ? autoImagesForRender[0].id.split("_") : []
+      let firstImageIsVideo = false
+      if (firstImageIdParts.length > 0) {
+        if (firstImageIdParts[0] === "scene") {
+          const sceneNumber = Number.parseInt(firstImageIdParts[1] || "0")
+          const imageNumber = Number.parseInt(firstImageIdParts[3] || "0")
+          const sceneVideoKey = `${sceneNumber}-${imageNumber}`
+          firstImageIsVideo = convertedSceneVideos.has(sceneVideoKey)
+        } else {
+          const lineId = Number.parseInt(firstImageIdParts.pop() || "0")
+          firstImageIsVideo = convertedVideos.has(lineId)
+        }
+      }
       
-      // autoImages 리사이즈
+      // characterImage 리사이즈 (영상이 아닌 경우만)
+      let resizedCharacterImageBase64: string
+      if (firstImageIsVideo) {
+        // 영상인 경우 원본 URL 사용 (리사이즈하지 않음)
+        resizedCharacterImageBase64 = firstImage!.imageUrl
+        console.log("[v0] characterImage는 영상이므로 리사이즈하지 않음")
+      } else {
+        resizedCharacterImageBase64 = await resizeImageTo1920x1080(firstImage!.imageUrl)
+        console.log("[v0] characterImage 리사이즈 완료")
+      }
+      
+      // autoImages 리사이즈 (영상이 아닌 경우만)
       const resizedAutoImagesBase64 = await Promise.all(
         autoImagesForRender.map(async (img) => {
+          // 영상인 경우 리사이즈하지 않고 원본 URL 사용
+          if (img.isVideo) {
+            return {
+              ...img,
+              url: img.url, // 영상 URL 그대로 사용
+            }
+          }
+          // 이미지인 경우 리사이즈
           const resizedUrl = await resizeImageTo1920x1080(img.url)
           return {
             ...img,
@@ -6503,92 +6468,109 @@ export default function LongformContentPage() {
           }
         })
       )
-      console.log("[v0] autoImages 리사이즈 완료:", resizedAutoImagesBase64.length, "개")
+      console.log("[v0] autoImages 처리 완료:", resizedAutoImagesBase64.length, "개 (영상:", resizedAutoImagesBase64.filter(img => img.isVideo).length, "개)")
 
       // 4. 이미지를 Cloud Storage에 업로드 (크기가 큰 경우)
-      // base64 크기 계산 (대략적으로, 실제로는 더 클 수 있음)
-      const characterImageSize = resizedCharacterImageBase64.length
-      const totalAutoImagesSize = resizedAutoImagesBase64.reduce((sum, img) => sum + img.url.length, 0)
+      // base64 크기 계산 (영상 URL은 크기 계산에서 제외)
+      const characterImageSize = firstImageIsVideo ? 0 : resizedCharacterImageBase64.length
+      const totalAutoImagesSize = resizedAutoImagesBase64.reduce((sum, img) => {
+        // 영상인 경우 크기 계산에서 제외
+        return img.isVideo ? sum : sum + img.url.length
+      }, 0)
       const totalImagesSize = characterImageSize + totalAutoImagesSize
       
       console.log("[v0] 이미지 크기:", {
-        characterImage: `${Math.round(characterImageSize / 1024)} KB`,
+        characterImage: firstImageIsVideo ? "영상 (크기 계산 제외)" : `${Math.round(characterImageSize / 1024)} KB`,
         autoImages: `${Math.round(totalAutoImagesSize / 1024)} KB`,
         total: `${Math.round(totalImagesSize / 1024)} KB`,
       })
 
-      // 이미지도 Cloud Storage에 업로드 (1MB 이상이면 업로드)
+      // 이미지도 Cloud Storage에 업로드 (500KB 이상이면 업로드 - 더 엄격한 기준)
+      // 단, 영상 URL은 업로드하지 않음 (원본 URL 사용)
       let characterImageGcsUrl: string | null = null
-      let autoImagesGcsUrls: Array<{ id: string; url: string; startTime: number; endTime: number; keyword: string; motion?: string }> = []
+      let autoImagesGcsUrls: Array<{ id: string; url: string; startTime: number; endTime: number; keyword: string; motion?: string; isVideo?: boolean }> = []
       
-      const shouldUploadImagesToGcs = totalImagesSize > 1024 * 1024 // 1MB 이상
+      // 개별 이미지가 300KB 이상이거나 전체 이미지 크기가 500KB 이상이면 업로드 (더 적극적으로)
+      // 단, characterImage가 영상인 경우 업로드하지 않음
+      const shouldUploadImagesToGcs = !firstImageIsVideo && (characterImageSize > 300 * 1024 || totalImagesSize > 500 * 1024)
       
       if (shouldUploadImagesToGcs) {
         console.log("[v0] 이미지가 큽니다. Cloud Storage에 업로드합니다...")
         
         try {
-          // characterImage 업로드 (재시도 로직 포함)
-          const charImageBase64 = resizedCharacterImageBase64.includes(",") 
-            ? resizedCharacterImageBase64.split(",")[1] 
-            : resizedCharacterImageBase64
-          
-          // base64를 Blob으로 변환
-          const binaryString = atob(charImageBase64)
-          const charBytes = new Uint8Array(binaryString.length)
-          for (let i = 0; i < binaryString.length; i++) {
-            charBytes[i] = binaryString.charCodeAt(i)
-          }
-          const charImageBlob = new Blob([charBytes], { type: "image/png" })
-          
-          // characterImage 업로드 재시도 (최대 3회)
-          let charUploadSuccess = false
-          for (let retry = 0; retry < 3; retry++) {
-            try {
-              const charSignedUrlResponse = await fetch("/api/upload-to-gcs/signed-url", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  fileName: `character_image_${Date.now()}_${retry}.png`,
-                  contentType: "image/png",
-                }),
-              })
-              
-              if (!charSignedUrlResponse.ok) {
-                throw new Error(`Signed URL 생성 실패: ${charSignedUrlResponse.status}`)
+          // characterImage 업로드 (재시도 로직 포함) - 영상이 아닌 경우만
+          if (!firstImageIsVideo) {
+            const charImageBase64 = resizedCharacterImageBase64.includes(",") 
+              ? resizedCharacterImageBase64.split(",")[1] 
+              : resizedCharacterImageBase64
+            
+            // base64를 Blob으로 변환
+            const binaryString = atob(charImageBase64)
+            const charBytes = new Uint8Array(binaryString.length)
+            for (let i = 0; i < binaryString.length; i++) {
+              charBytes[i] = binaryString.charCodeAt(i)
+            }
+            const charImageBlob = new Blob([charBytes], { type: "image/png" })
+            
+            // characterImage 업로드 재시도 (최대 3회)
+            let charUploadSuccess = false
+            for (let retry = 0; retry < 3; retry++) {
+              try {
+                const charSignedUrlResponse = await fetch("/api/upload-to-gcs/signed-url", {
+        method: "POST",
+                  headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+                    fileName: `character_image_${Date.now()}_${retry}.png`,
+                    contentType: "image/png",
+                  }),
+                })
+                
+                if (!charSignedUrlResponse.ok) {
+                  throw new Error(`Signed URL 생성 실패: ${charSignedUrlResponse.status}`)
+                }
+                
+                const { signedUrl, publicUrl } = await charSignedUrlResponse.json()
+                const uploadResponse = await fetch(signedUrl, {
+                  method: "PUT",
+                  headers: { "Content-Type": "image/png" },
+                  body: charImageBlob,
+                })
+                
+                if (uploadResponse.ok) {
+                  characterImageGcsUrl = publicUrl
+                  console.log("[v0] characterImage Cloud Storage 업로드 완료:", characterImageGcsUrl)
+                  charUploadSuccess = true
+                  break
+                } else {
+                  throw new Error(`업로드 실패: ${uploadResponse.status}`)
+                }
+              } catch (error) {
+                console.warn(`[v0] characterImage 업로드 시도 ${retry + 1}/3 실패:`, error)
+                if (retry < 2) {
+                  await new Promise(resolve => setTimeout(resolve, 1000 * (retry + 1))) // 1초, 2초 대기
+                } else {
+                  throw new Error(`characterImage 업로드 실패 (3회 시도): ${error instanceof Error ? error.message : String(error)}`)
+                }
               }
-              
-              const { signedUrl, publicUrl } = await charSignedUrlResponse.json()
-              const uploadResponse = await fetch(signedUrl, {
-                method: "PUT",
-                headers: { "Content-Type": "image/png" },
-                body: charImageBlob,
-              })
-              
-              if (uploadResponse.ok) {
-                characterImageGcsUrl = publicUrl
-                console.log("[v0] characterImage Cloud Storage 업로드 완료:", characterImageGcsUrl)
-                charUploadSuccess = true
-                break
-              } else {
-                throw new Error(`업로드 실패: ${uploadResponse.status}`)
-              }
-            } catch (error) {
-              console.warn(`[v0] characterImage 업로드 시도 ${retry + 1}/3 실패:`, error)
-              if (retry < 2) {
-                await new Promise(resolve => setTimeout(resolve, 1000 * (retry + 1))) // 1초, 2초 대기
-              } else {
-                throw new Error(`characterImage 업로드 실패 (3회 시도): ${error instanceof Error ? error.message : String(error)}`)
-              }
+            }
+            
+            if (!charUploadSuccess) {
+              throw new Error("characterImage 업로드에 실패했습니다.")
             }
           }
           
-          if (!charUploadSuccess) {
-            throw new Error("characterImage 업로드에 실패했습니다.")
-          }
-          
-          // autoImages 업로드 (재시도 로직 포함)
+          // autoImages 업로드 (재시도 로직 포함) - 영상이 아닌 경우만
           autoImagesGcsUrls = await Promise.all(
             resizedAutoImagesBase64.map(async (img, index) => {
+              // 영상인 경우 업로드하지 않고 원본 URL 사용
+              if (img.isVideo) {
+                return {
+                  ...img,
+                  url: img.url, // 영상 URL 그대로 사용
+                }
+              }
+              
+              // 이미지인 경우에만 base64 디코딩 및 업로드
               const imgBase64 = img.url.includes(",") 
                 ? img.url.split(",")[1] 
                 : img.url
@@ -6663,45 +6645,516 @@ export default function LongformContentPage() {
         throw new Error("characterImage가 없습니다. 이미지 리사이즈에 실패했을 수 있습니다.")
       }
       
-      console.log("[v0] 렌더링 요청 준비:", {
-        characterImage: characterImageGcsUrl ? "Cloud Storage" : "base64",
-        characterImageSize: finalCharacterImage.length,
-        autoImagesCount: autoImagesGcsUrls.length || resizedAutoImagesBase64.length,
-        duration: videoData.duration,
-        subtitlesCount: videoData.subtitles.length,
-        audioGcsUrl: audioGcsUrl ? "있음" : "없음",
-        audioBase64Length: audioBase64 ? audioBase64.length : 0,
-      })
-
-      // 6. Cloud Run 렌더링 API 호출
-      const renderResponse = await fetch("/api/ai/render", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
+      // 전체 요청 크기 계산 (JSON 문자열화 전 크기 추정)
+      // 영상 URL은 크기가 작으므로 크기 계산에서 제외
+      const requestBodyForSizeEstimate = {
           // Cloud Storage URL이 있으면 사용, 없으면 base64 사용
-          ...(audioGcsUrl ? { audioGcsUrl: audioGcsUrl } : { audioBase64: audioBase64 }),
+        ...(audioGcsUrl ? { audioGcsUrl: audioGcsUrl } : { audioBase64: audioBase64 }),
           subtitles: videoData.subtitles.map((s) => ({
             id: s.id,
             start: s.start,
             end: s.end,
             text: s.text,
           })),
-          // 이미지: characterImage는 항상 전송 (안전장치)
-          // characterImageGcsUrl이 있으면 함께 전송 (서버에서 선택)
-          characterImage: resizedCharacterImageBase64,
-          ...(characterImageGcsUrl ? { characterImageGcsUrl: characterImageGcsUrl } : {}),
-          autoImages: (autoImagesGcsUrls.length > 0 && autoImagesGcsUrls.some(img => !img.url.startsWith("data:"))) 
-            ? autoImagesGcsUrls 
-            : resizedAutoImagesBase64,
+        // 이미지: Cloud Storage URL이 있으면 base64 전송하지 않음
+        // 영상인 경우 URL만 전송 (크기 작음)
+        ...(characterImageGcsUrl 
+          ? { characterImageGcsUrl: characterImageGcsUrl } 
+          : (firstImageIsVideo 
+            ? { characterImageUrl: resizedCharacterImageBase64 } // 영상 URL
+            : { characterImage: resizedCharacterImageBase64 })), // 이미지 base64
+        // autoImages: 영상인 경우 URL만, 이미지인 경우 base64 또는 GCS URL
+        autoImages: (autoImagesGcsUrls.length > 0 && autoImagesGcsUrls.every(img => !img.url.startsWith("data:"))) 
+          ? autoImagesGcsUrls.map(img => ({
+              ...img,
+              // 영상인 경우 URL만 전송 (크기 작음)
+              url: img.isVideo ? img.url : img.url
+            }))
+          : resizedAutoImagesBase64.map(img => ({
+              ...img,
+              // 영상인 경우 URL만 전송 (크기 작음)
+              url: img.isVideo ? img.url : img.url
+            })),
           duration: videoData.duration,
           config: {
             width: 1920,
             height: 1080,
             fps: 30,
           },
-        }),
+      }
+      
+      // 요청 크기 추정 (JSON 문자열화)
+      // 영상 URL은 크기가 작으므로 크기 계산에서 제외하기 위해 별도 계산
+      let estimatedRequestSize = 0
+      
+      // 오디오 크기
+      if (audioGcsUrl) {
+        estimatedRequestSize += audioGcsUrl.length // URL 크기 (작음)
+      } else if (audioBase64) {
+        estimatedRequestSize += audioBase64.length
+      }
+      
+      // 자막 크기 (대략적 추정)
+      estimatedRequestSize += JSON.stringify(videoData.subtitles).length
+      
+      // characterImage 크기
+      if (characterImageGcsUrl) {
+        estimatedRequestSize += Math.min(characterImageGcsUrl.length, 500) // URL 크기 (작음, 최대 500 bytes)
+      } else if (firstImageIsVideo) {
+        // 영상 URL은 크기가 작음 (약 100-500 bytes, 최대 1000 bytes로 제한)
+        estimatedRequestSize += Math.min(resizedCharacterImageBase64.length, 1000)
+      } else {
+        estimatedRequestSize += resizedCharacterImageBase64.length // 이미지 base64 크기
+      }
+      
+      // autoImages 크기
+      const autoImagesForSize = (autoImagesGcsUrls.length > 0 && autoImagesGcsUrls.every(img => !img.url.startsWith("data:"))) 
+        ? autoImagesGcsUrls 
+        : resizedAutoImagesBase64
+      
+      for (const img of autoImagesForSize) {
+        if (img.isVideo) {
+          // 영상 URL은 크기가 작음 (약 100-500 bytes, 최대 1000 bytes로 제한)
+          estimatedRequestSize += Math.min(img.url.length, 1000)
+        } else {
+          // 이미지 base64 또는 GCS URL
+          if (img.url.startsWith("data:")) {
+            estimatedRequestSize += img.url.length // base64 크기
+          } else {
+            estimatedRequestSize += Math.min(img.url.length, 500) // GCS URL 크기 (작음, 최대 500 bytes)
+          }
+        }
+      }
+      
+      // 기타 필드 크기 (대략적 추정)
+      estimatedRequestSize += 1000 // duration, config, JSON 구조 등
+      
+      const estimatedRequestSizeMB = estimatedRequestSize / 1024 / 1024
+      
+      // 요청 크기가 4MB를 초과하면 이미지 업로드를 강제로 시도
+      if (estimatedRequestSizeMB > 4.0) {
+        // 이미지 업로드를 강제로 시도 (이미 업로드되지 않은 경우)
+        const needsImageUpload = !firstImageIsVideo && !characterImageGcsUrl && characterImageSize > 0
+        const needsAutoImagesUpload = resizedAutoImagesBase64.some(img => !img.isVideo && img.url.startsWith("data:"))
+        
+        if (needsImageUpload || needsAutoImagesUpload) {
+          console.log("[v0] 요청 크기 초과로 인해 이미지 업로드를 강제로 시도합니다...")
+          // 이미지 업로드 재시도
+          try {
+            // characterImage 업로드 (영상이 아닌 경우만)
+            if (!firstImageIsVideo && !characterImageGcsUrl && characterImageSize > 0) {
+              const charImageBase64 = resizedCharacterImageBase64.includes(",") 
+                ? resizedCharacterImageBase64.split(",")[1] 
+                : resizedCharacterImageBase64
+              
+              const binaryString = atob(charImageBase64)
+              const charBytes = new Uint8Array(binaryString.length)
+              for (let i = 0; i < binaryString.length; i++) {
+                charBytes[i] = binaryString.charCodeAt(i)
+              }
+              const charImageBlob = new Blob([charBytes], { type: "image/png" })
+              
+              for (let retry = 0; retry < 3; retry++) {
+                try {
+                  const charSignedUrlResponse = await fetch("/api/upload-to-gcs/signed-url", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      fileName: `character_image_${Date.now()}_${retry}.png`,
+                      contentType: "image/png",
+                    }),
+                  })
+                  
+                  if (charSignedUrlResponse.ok) {
+                    const { signedUrl, publicUrl } = await charSignedUrlResponse.json()
+                    const uploadResponse = await fetch(signedUrl, {
+                      method: "PUT",
+                      headers: { "Content-Type": "image/png" },
+                      body: charImageBlob,
+                    })
+                    
+                    if (uploadResponse.ok) {
+                      characterImageGcsUrl = publicUrl
+                      console.log("[v0] characterImage 강제 업로드 완료:", characterImageGcsUrl)
+                      break
+                    }
+                  }
+                } catch (error) {
+                  console.warn(`[v0] characterImage 강제 업로드 시도 ${retry + 1}/3 실패:`, error)
+                }
+              }
+            }
+            
+            // autoImages 업로드 (영상이 아닌 이미지만)
+            const imagesToUpload = resizedAutoImagesBase64.filter(img => !img.isVideo && img.url.startsWith("data:"))
+            if (imagesToUpload.length > 0 && autoImagesGcsUrls.length === 0) {
+              console.log(`[v0] ${imagesToUpload.length}개의 이미지를 강제 업로드 시도...`)
+              const uploadedImages = await Promise.all(
+                imagesToUpload.map(async (img, index) => {
+                  const imgBase64 = img.url.includes(",") 
+                    ? img.url.split(",")[1] 
+                    : img.url
+                  
+                  const binaryString = atob(imgBase64)
+                  const imgBytes = new Uint8Array(binaryString.length)
+                  for (let i = 0; i < binaryString.length; i++) {
+                    imgBytes[i] = binaryString.charCodeAt(i)
+                  }
+                  const imgBlob = new Blob([imgBytes], { type: "image/png" })
+                  
+                  for (let retry = 0; retry < 3; retry++) {
+                    try {
+                      const signedUrlResponse = await fetch("/api/upload-to-gcs/signed-url", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          fileName: `auto_image_${Date.now()}_${index}_${retry}_${img.id}.png`,
+                          contentType: "image/png",
+                        }),
+                      })
+                      
+                      if (signedUrlResponse.ok) {
+                        const { signedUrl, publicUrl } = await signedUrlResponse.json()
+                        const uploadResponse = await fetch(signedUrl, {
+                          method: "PUT",
+                          headers: { "Content-Type": "image/png" },
+                          body: imgBlob,
+                        })
+                        
+                        if (uploadResponse.ok) {
+                          return {
+                            ...img,
+                            url: publicUrl,
+                          }
+                        }
+                      }
+                    } catch (error) {
+                      console.warn(`[v0] autoImage ${img.id} 강제 업로드 시도 ${retry + 1}/3 실패:`, error)
+                    }
+                  }
+                  
+                  // 업로드 실패 시 원본 반환
+                  return img
+                })
+              )
+              
+              // 업로드 성공한 이미지만 GCS URL로 교체
+              autoImagesGcsUrls = resizedAutoImagesBase64.map(img => {
+                const uploaded = uploadedImages.find(u => u.id === img.id)
+                return uploaded && !uploaded.url.startsWith("data:") ? uploaded : img
+              })
+              
+              console.log(`[v0] autoImages 강제 업로드 완료: ${uploadedImages.filter(img => !img.url.startsWith("data:")).length}/${imagesToUpload.length}개`)
+            }
+          } catch (error) {
+            console.error("[v0] 이미지 강제 업로드 실패:", error)
+          }
+        }
+        
+        // 업로드 후 크기 재계산
+        let finalEstimatedSize = 0
+        
+        // 오디오 크기
+        if (audioGcsUrl) {
+          finalEstimatedSize += Math.min(audioGcsUrl.length, 500)
+        } else if (audioBase64) {
+          finalEstimatedSize += audioBase64.length
+        }
+        
+        // 자막 크기
+        finalEstimatedSize += JSON.stringify(videoData.subtitles).length
+        
+        // characterImage 크기
+        if (characterImageGcsUrl) {
+          finalEstimatedSize += Math.min(characterImageGcsUrl.length, 500)
+        } else if (firstImageIsVideo) {
+          finalEstimatedSize += Math.min(resizedCharacterImageBase64.length, 1000)
+        } else {
+          finalEstimatedSize += resizedCharacterImageBase64.length
+        }
+        
+        // autoImages 크기
+        const finalAutoImages = (autoImagesGcsUrls.length > 0 && autoImagesGcsUrls.some(img => !img.url.startsWith("data:"))) 
+          ? autoImagesGcsUrls 
+          : resizedAutoImagesBase64
+        
+        for (const img of finalAutoImages) {
+          if (img.isVideo) {
+            finalEstimatedSize += Math.min(img.url.length, 1000)
+          } else {
+            if (img.url.startsWith("data:")) {
+              finalEstimatedSize += img.url.length
+            } else {
+              finalEstimatedSize += Math.min(img.url.length, 500)
+            }
+          }
+        }
+        
+        finalEstimatedSize += 1000 // 기타 필드
+        
+        const finalEstimatedSizeMB = finalEstimatedSize / 1024 / 1024
+        
+        if (finalEstimatedSizeMB > 4.0) {
+          const errorMsg = `요청 크기가 너무 큽니다 (예상: ${finalEstimatedSizeMB.toFixed(2)}MB). ` +
+            `이미지나 오디오를 Cloud Storage에 업로드해야 합니다. ` +
+            `이미지 업로드가 실패했을 수 있습니다. 다시 시도해주세요.`
+          console.error("[v0] 요청 크기 초과:", errorMsg)
+          alert(errorMsg)
+          setIsExporting(false)
+          return
+        }
+      }
+      
+      console.log("[v0] 렌더링 요청 준비:", {
+        characterImage: characterImageGcsUrl ? "Cloud Storage" : (firstImageIsVideo ? "영상 URL" : "base64"),
+        characterImageSize: characterImageGcsUrl ? 0 : (firstImageIsVideo ? resizedCharacterImageBase64.length : resizedCharacterImageBase64.length),
+        autoImagesCount: autoImagesGcsUrls.length || resizedAutoImagesBase64.length,
+        autoImagesVideoCount: (autoImagesGcsUrls.length > 0 ? autoImagesGcsUrls : resizedAutoImagesBase64).filter(img => img.isVideo).length,
+        duration: videoData.duration,
+        subtitlesCount: videoData.subtitles.length,
+        audioGcsUrl: audioGcsUrl ? "있음" : "없음",
+        audioBase64Length: audioBase64 ? audioBase64.length : 0,
+        estimatedRequestSizeMB: estimatedRequestSizeMB.toFixed(2),
+      })
+      
+      // 요청 크기가 4MB를 초과하면 이미지 업로드를 강제로 시도
+      if (estimatedRequestSizeMB > 4.0) {
+        // 이미지 업로드를 강제로 시도 (이미 업로드되지 않은 경우)
+        const needsImageUpload = !firstImageIsVideo && !characterImageGcsUrl && characterImageSize > 0
+        const needsAutoImagesUpload = resizedAutoImagesBase64.some(img => !img.isVideo && img.url.startsWith("data:"))
+        
+        if (needsImageUpload || needsAutoImagesUpload) {
+          console.log("[v0] 요청 크기 초과로 인해 이미지 업로드를 강제로 시도합니다...")
+          // 이미지 업로드 재시도
+          try {
+            // characterImage 업로드 (영상이 아닌 경우만)
+            if (!firstImageIsVideo && !characterImageGcsUrl && characterImageSize > 0) {
+              const charImageBase64 = resizedCharacterImageBase64.includes(",") 
+                ? resizedCharacterImageBase64.split(",")[1] 
+                : resizedCharacterImageBase64
+              
+              const binaryString = atob(charImageBase64)
+              const charBytes = new Uint8Array(binaryString.length)
+              for (let i = 0; i < binaryString.length; i++) {
+                charBytes[i] = binaryString.charCodeAt(i)
+              }
+              const charImageBlob = new Blob([charBytes], { type: "image/png" })
+              
+              for (let retry = 0; retry < 3; retry++) {
+                try {
+                  const charSignedUrlResponse = await fetch("/api/upload-to-gcs/signed-url", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      fileName: `character_image_${Date.now()}_${retry}.png`,
+                      contentType: "image/png",
+                    }),
+                  })
+                  
+                  if (charSignedUrlResponse.ok) {
+                    const { signedUrl, publicUrl } = await charSignedUrlResponse.json()
+                    const uploadResponse = await fetch(signedUrl, {
+                      method: "PUT",
+                      headers: { "Content-Type": "image/png" },
+                      body: charImageBlob,
+                    })
+                    
+                    if (uploadResponse.ok) {
+                      characterImageGcsUrl = publicUrl
+                      console.log("[v0] characterImage 강제 업로드 완료:", characterImageGcsUrl)
+                      break
+                    }
+                  }
+                } catch (error) {
+                  console.warn(`[v0] characterImage 강제 업로드 시도 ${retry + 1}/3 실패:`, error)
+                }
+              }
+            }
+            
+            // autoImages 업로드 (영상이 아닌 이미지만)
+            const imagesToUpload = resizedAutoImagesBase64.filter(img => !img.isVideo && img.url.startsWith("data:"))
+            if (imagesToUpload.length > 0 && autoImagesGcsUrls.length === 0) {
+              console.log(`[v0] ${imagesToUpload.length}개의 이미지를 강제 업로드 시도...`)
+              const uploadedImages = await Promise.all(
+                imagesToUpload.map(async (img, index) => {
+                  const imgBase64 = img.url.includes(",") 
+                    ? img.url.split(",")[1] 
+                    : img.url
+                  
+                  const binaryString = atob(imgBase64)
+                  const imgBytes = new Uint8Array(binaryString.length)
+                  for (let i = 0; i < binaryString.length; i++) {
+                    imgBytes[i] = binaryString.charCodeAt(i)
+                  }
+                  const imgBlob = new Blob([imgBytes], { type: "image/png" })
+                  
+                  for (let retry = 0; retry < 3; retry++) {
+                    try {
+                      const signedUrlResponse = await fetch("/api/upload-to-gcs/signed-url", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          fileName: `auto_image_${Date.now()}_${index}_${retry}_${img.id}.png`,
+                          contentType: "image/png",
+                        }),
+                      })
+                      
+                      if (signedUrlResponse.ok) {
+                        const { signedUrl, publicUrl } = await signedUrlResponse.json()
+                        const uploadResponse = await fetch(signedUrl, {
+                          method: "PUT",
+                          headers: { "Content-Type": "image/png" },
+                          body: imgBlob,
+                        })
+                        
+                        if (uploadResponse.ok) {
+                          return {
+                            ...img,
+                            url: publicUrl,
+                          }
+                        }
+                      }
+                    } catch (error) {
+                      console.warn(`[v0] autoImage ${img.id} 강제 업로드 시도 ${retry + 1}/3 실패:`, error)
+                    }
+                  }
+                  
+                  // 업로드 실패 시 원본 반환
+                  return img
+                })
+              )
+              
+              // 업로드 성공한 이미지만 GCS URL로 교체
+              autoImagesGcsUrls = resizedAutoImagesBase64.map(img => {
+                const uploaded = uploadedImages.find(u => u.id === img.id)
+                return uploaded && !uploaded.url.startsWith("data:") ? uploaded : img
+              })
+              
+              console.log(`[v0] autoImages 강제 업로드 완료: ${uploadedImages.filter(img => !img.url.startsWith("data:")).length}/${imagesToUpload.length}개`)
+            }
+          } catch (error) {
+            console.error("[v0] 이미지 강제 업로드 실패:", error)
+          }
+        }
+      }
+
+      // 6. Cloud Run 렌더링 API 호출
+      // requestBody는 위에서 이미 생성되었으므로 여기서는 업데이트된 변수 사용
+      
+      // characterImage 관련 필드 결정
+      let characterImageField: Record<string, string> = {}
+      if (characterImageGcsUrl) {
+        characterImageField.characterImageGcsUrl = characterImageGcsUrl
+        console.log("[v0] characterImageGcsUrl 사용:", characterImageGcsUrl.substring(0, 50))
+      } else if (firstImageIsVideo) {
+        // 영상 URL인 경우 characterImageUrl 사용
+        characterImageField.characterImageUrl = resizedCharacterImageBase64 // 영상 URL
+        console.log("[v0] characterImageUrl 사용 (영상):", resizedCharacterImageBase64.substring(0, 100))
+      } else {
+        characterImageField.characterImage = resizedCharacterImageBase64 // 이미지 base64
+        console.log("[v0] characterImage 사용 (base64):", resizedCharacterImageBase64.substring(0, 50) + "...")
+      }
+      
+      // characterImageField가 비어있는지 확인
+      if (Object.keys(characterImageField).length === 0) {
+        console.error("[v0] characterImageField가 비어있습니다!", {
+          characterImageGcsUrl,
+          firstImageIsVideo,
+          resizedCharacterImageBase64: resizedCharacterImageBase64 ? resizedCharacterImageBase64.substring(0, 50) : "null",
+        })
+        throw new Error("이미지 데이터가 없습니다. 이미지를 먼저 생성해주세요.")
+      }
+      
+      // 오디오 필드 결정 (null이나 빈 문자열 체크)
+      const audioField: Record<string, string> = {}
+      if (audioGcsUrl) {
+        audioField.audioGcsUrl = audioGcsUrl
+      } else if (audioBase64 && audioBase64.trim() !== "") {
+        audioField.audioBase64 = audioBase64
+      } else {
+        throw new Error("오디오 데이터가 없습니다. TTS를 먼저 생성해주세요.")
+      }
+      
+      // characterImage 필드 확인
+      if (Object.keys(characterImageField).length === 0) {
+        console.error("[v0] characterImageField가 비어있습니다!", {
+          characterImageGcsUrl,
+          firstImageIsVideo,
+          resizedCharacterImageBase64: resizedCharacterImageBase64 ? resizedCharacterImageBase64.substring(0, 50) : "null",
+        })
+        throw new Error("이미지 데이터가 없습니다. 이미지를 먼저 생성해주세요.")
+      }
+      
+      console.log("[v0] characterImageField 결정:", {
+        keys: Object.keys(characterImageField),
+        firstImageIsVideo,
+        hasCharacterImageGcsUrl: !!characterImageGcsUrl,
+        valuePreview: Object.values(characterImageField)[0]?.substring(0, 100),
+      })
+      
+      // characterImageField 값이 비어있거나 null인지 확인
+      const characterImageValue = Object.values(characterImageField)[0]
+      if (!characterImageValue || characterImageValue.trim() === "") {
+        console.error("[v0] characterImageField 값이 비어있습니다!", {
+          characterImageField,
+          characterImageValue,
+        })
+        throw new Error("이미지 데이터가 비어있습니다. 이미지를 먼저 생성해주세요.")
+      }
+      
+      const finalRequestBody = {
+        // Cloud Storage URL이 있으면 사용, 없으면 base64 사용
+        ...audioField,
+        subtitles: videoData.subtitles.map((s) => ({
+          id: s.id,
+          start: s.start,
+          end: s.end,
+          text: s.text,
+        })),
+        // 이미지: Cloud Storage URL이 있으면 base64 전송하지 않음
+        // 영상인 경우 URL만 전송
+        ...characterImageField,
+        autoImages: (autoImagesGcsUrls.length > 0 && autoImagesGcsUrls.some(img => !img.url.startsWith("data:"))) 
+          ? autoImagesGcsUrls 
+          : resizedAutoImagesBase64,
+        duration: videoData.duration,
+        config: {
+          width: 1920,
+          height: 1080,
+          fps: 30,
+        },
+      }
+      
+      const requestBodyString = JSON.stringify(finalRequestBody)
+      
+      // 디버깅: 요청 본문 확인
+      console.log("[v0] 최종 요청 본문 키:", Object.keys(finalRequestBody))
+      console.log("[v0] 오디오 관련:", {
+        hasAudioGcsUrl: 'audioGcsUrl' in finalRequestBody && !!finalRequestBody.audioGcsUrl,
+        hasAudioBase64: 'audioBase64' in finalRequestBody && !!finalRequestBody.audioBase64,
+        audioGcsUrl: audioGcsUrl,
+        audioBase64Length: audioBase64 ? audioBase64.length : 0,
+      })
+      console.log("[v0] characterImage 관련:", {
+        hasCharacterImage: 'characterImage' in finalRequestBody && !!finalRequestBody.characterImage,
+        hasCharacterImageGcsUrl: 'characterImageGcsUrl' in finalRequestBody && !!finalRequestBody.characterImageGcsUrl,
+        hasCharacterImageUrl: 'characterImageUrl' in finalRequestBody && !!finalRequestBody.characterImageUrl,
+        firstImageIsVideo,
+        characterImageFieldKeys: Object.keys(characterImageField),
+        characterImageFieldValue: Object.values(characterImageField)[0]?.substring(0, 100),
+      })
+      console.log("[v0] subtitles:", {
+        count: finalRequestBody.subtitles.length,
+        first: finalRequestBody.subtitles[0],
+      })
+      console.log("[v0] 최종 요청 본문 (일부):", JSON.stringify(finalRequestBody).substring(0, 500))
+      
+      const renderResponse = await fetch("/api/ai/render", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: requestBodyString,
       })
 
       if (!renderResponse.ok) {
@@ -7439,15 +7892,28 @@ export default function LongformContentPage() {
 
       // 이미지와 비디오 렌더링
       const images: HTMLImageElement[] = []
-      const videos: Map<number, HTMLVideoElement> = new Map() // 변환된 비디오 저장
+      const videos: Map<string, HTMLVideoElement> = new Map() // 변환된 비디오 저장 (key: imgData.id)
       
       // 이미지/비디오 미리 로드
       for (const imgData of videoData.autoImages || []) {
-        // lineId 추출 (image_1 -> 1)
-        const lineId = Number.parseInt(imgData.id.split("_").pop() || "0")
+        // id에서 lineId 또는 scene 정보 추출
+        const idParts = imgData.id.split("_")
+        let videoUrl: string | undefined = undefined
         
-        // 변환된 비디오가 있는지 확인
-        if (convertedVideos.has(lineId)) {
+        if (idParts[0] === "scene") {
+          // 씬별 이미지: scene_1_image_1 -> 1-1
+          const sceneNumber = Number.parseInt(idParts[1] || "0")
+          const imageNumber = Number.parseInt(idParts[3] || "0")
+          const sceneVideoKey = `${sceneNumber}-${imageNumber}`
+          videoUrl = convertedSceneVideos.get(sceneVideoKey)
+        } else {
+          // 일반 이미지: image_1 -> 1
+          const lineId = Number.parseInt(idParts.pop() || "0")
+          videoUrl = convertedVideos.get(lineId)
+        }
+        
+        // 변환된 비디오가 있으면 비디오 사용
+        if (videoUrl) {
           const video = document.createElement("video")
           video.crossOrigin = "anonymous"
           video.preload = "auto"
@@ -7455,9 +7921,9 @@ export default function LongformContentPage() {
           await new Promise<void>((resolve, reject) => {
             video.onloadeddata = () => resolve()
             video.onerror = reject
-            video.src = convertedVideos.get(lineId)!
+            video.src = videoUrl!
           })
-          videos.set(lineId, video)
+          videos.set(imgData.id, video)
           // 비디오가 있으면 이미지는 스킵
           const placeholderImg = new Image()
           placeholderImg.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" // 1x1 투명 이미지
@@ -7571,10 +8037,20 @@ export default function LongformContentPage() {
           // 현재 이미지 그리기
           if (currentImage) {
             const imgIndex = videoData.autoImages?.indexOf(currentImage) || 0
-            const lineId = Number.parseInt(currentImage.id.split("_").pop() || "0")
-            const hasVideo = convertedVideos.has(lineId)
+            const hasVideo = videos.has(currentImage.id)
             
-            if (imgIndex < images.length) {
+            if (hasVideo) {
+              // 비디오 재생
+              const video = videos.get(currentImage.id)!
+              const imageStartTime = currentImage.startTime
+              const timeInImage = adjustedTime - imageStartTime
+              const videoDuration = video.duration || 6
+              const videoTime = timeInImage % videoDuration
+              video.currentTime = videoTime
+              
+              // 비디오를 1920x1080에 딱 맞게 그리기
+              ctx.drawImage(video, 0, 0, 1920, 1080)
+            } else if (imgIndex < images.length) {
               const img = images[imgIndex]
               
               // 이미지를 1920x1080에 딱 맞게 조정 (잘려도 됨)
@@ -7603,20 +8079,19 @@ export default function LongformContentPage() {
                 sourceY = (img.height - sourceHeight) / 2
               }
               
-              // 현재 이미지/비디오 그리기 (전환 효과 없음)
-              if (!hasVideo) {
-                // 현재 이미지를 1920x1080에 딱 맞게 그리기
+              // 현재 이미지를 1920x1080에 딱 맞게 그리기
                 ctx.drawImage(
                   img,
                   sourceX, sourceY, sourceWidth, sourceHeight, // 소스: 크롭할 영역
-                  0, 0, targetWidth, targetHeight // 대상: 1920x1080 전체
+                0, 0, targetWidth, targetHeight // 대상: 1920x1080 전체
                 )
               }
               
               // 이전 이미지 업데이트
               if (previousImage?.id !== currentImage.id) {
                 previousImage = currentImage as AutoImage
-                previousImageElement = img
+              if (imgIndex < images.length) {
+                previousImageElement = images[imgIndex]
               }
             }
           }
@@ -10158,8 +10633,8 @@ export default function LongformContentPage() {
                             navigator.clipboard.writeText(customStylePrompt)
                             alert("프롬프트가 복사되었습니다.")
                           }}
-                          className="flex-1"
-                        >
+                    className="flex-1"
+                  >
                           <Copy className="w-4 h-4 mr-2" />
                           프롬프트 복사
                         </Button>
@@ -10174,16 +10649,16 @@ export default function LongformContentPage() {
                           }}
                         >
                           제거
-                        </Button>
-                      </div>
+                  </Button>
+                </div>
                       <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                         <p className="text-xs text-blue-800">
                           💡 이 커스텀 스타일 프롬프트가 이미지 생성 시 자동으로 적용됩니다.
-                        </p>
+                </p>
                       </div>
                     </div>
-                  </CardContent>
-                </Card>
+              </CardContent>
+            </Card>
               )}
             </div>
 
@@ -10531,7 +11006,8 @@ export default function LongformContentPage() {
                                             )}
                                           </Button>
                                           {image.imageUrl ? (
-                                            <div className="w-80 aspect-video rounded border overflow-hidden relative group">
+                                            <div className="w-80 rounded border overflow-hidden">
+                                              <div className="aspect-video overflow-hidden">
                                               {convertedSceneVideos.has(`${scene.sceneNumber}-${image.imageNumber}`) ? (
                                                 <video
                                                   src={convertedSceneVideos.get(`${scene.sceneNumber}-${image.imageNumber}`)}
@@ -10545,7 +11021,9 @@ export default function LongformContentPage() {
                                                   className="w-full h-full object-cover"
                                                 />
                                               )}
-                                              <label className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 cursor-pointer">
+                                              </div>
+                                              <div className="p-2 flex items-center justify-center gap-2 bg-gray-50 border-t">
+                                                <label className="cursor-pointer">
                                                 <input
                                                   type="file"
                                                   accept="image/*"
@@ -10568,6 +11046,7 @@ export default function LongformContentPage() {
                                                     교체
                                                   </span>
                                                 </Button>
+                                                </label>
                                                 {!convertedSceneVideos.has(`${scene.sceneNumber}-${image.imageNumber}`) && (
                                                   <Button
                                                     size="sm"
@@ -10592,7 +11071,7 @@ export default function LongformContentPage() {
                                                     )}
                                                   </Button>
                                                 )}
-                                              </label>
+                                              </div>
                                             </div>
                                           ) : (
                                             <label className="w-80 aspect-video rounded border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-gray-400 transition-colors">
@@ -11277,9 +11756,25 @@ export default function LongformContentPage() {
                           (img) => adjustedTime >= img.startTime && adjustedTime <= img.endTime
                         )
                         
-                        // lineId 추출 (image_1 -> 1)
-                        const lineId = currentImage ? Number.parseInt(currentImage.id.split("_").pop() || "0") : null
-                        const hasVideo = lineId !== null && convertedVideos.has(lineId)
+                        // lineId 추출 (image_1 -> 1 또는 scene_1_image_1 -> 1-1)
+                        let lineId: number | null = null
+                        let sceneVideoKey: string | null = null
+                        let hasVideo = false
+                        
+                        if (currentImage) {
+                          const idParts = currentImage.id.split("_")
+                          if (idParts[0] === "scene") {
+                            // 씬별 이미지: scene_1_image_1 -> 1-1
+                            const sceneNumber = Number.parseInt(idParts[1] || "0")
+                            const imageNumber = Number.parseInt(idParts[3] || "0")
+                            sceneVideoKey = `${sceneNumber}-${imageNumber}`
+                            hasVideo = convertedSceneVideos.has(sceneVideoKey)
+                          } else {
+                            // 일반 이미지: image_1 -> 1
+                            lineId = Number.parseInt(idParts.pop() || "0")
+                            hasVideo = convertedVideos.has(lineId)
+                          }
+                        }
                         
                         const imageUrl = currentImage
                           ? currentImage.url
@@ -11296,9 +11791,13 @@ export default function LongformContentPage() {
                         }
                         
                         // 비디오가 있으면 비디오 재생
-                        if (hasVideo && lineId !== null) {
-                          const videoUrl = convertedVideos.get(lineId)!
-                          const imageStartTime = currentImage!.startTime
+                        if (hasVideo && currentImage) {
+                          const videoUrl = sceneVideoKey 
+                            ? convertedSceneVideos.get(sceneVideoKey)! 
+                            : (lineId !== null ? convertedVideos.get(lineId)! : null)
+                          
+                          if (videoUrl) {
+                            const imageStartTime = currentImage.startTime
                           const timeInImage = adjustedTime - imageStartTime
                           
                           return (
@@ -11390,6 +11889,7 @@ export default function LongformContentPage() {
                               )}
                             </div>
                           )
+                        }
                         }
 
                         const currentImg = currentImage || autoImages[0]

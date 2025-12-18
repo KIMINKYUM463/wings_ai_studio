@@ -339,3 +339,4 @@ export async function generateTimingsWithWhisper(
   return data.wordTimings || []
 }
 
+

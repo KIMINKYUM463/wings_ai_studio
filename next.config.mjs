@@ -6,6 +6,18 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      // 서버 사이드에서 undici를 external로 처리 (webpack 번들링 방지)
+      config.externals = config.externals || []
+      if (Array.isArray(config.externals)) {
+        config.externals.push('undici')
+      } else {
+        config.externals = [config.externals, 'undici']
+      }
+    }
+    return config
+  },
   // 환경 변수 설정
   env: {
     CLOUD_RUN_RENDER_URL: 'https://my-project-350911437561.asia-northeast1.run.app',

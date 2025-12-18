@@ -1,5 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server"
 
+// 긴 렌더링 작업을 위해 타임아웃 설정 (최대 50분)
+export const maxDuration = 3000 // 50분 (초 단위)
+export const runtime = 'nodejs' // Node.js 런타임 사용
+
 /**
  * Cloud Run을 통한 영상 렌더링 API
  * 
@@ -50,14 +54,15 @@ export async function POST(request: NextRequest) {
       subtitles,
       characterImage,
       characterImageGcsUrl,
+      characterImageUrl,
       autoImages,
       duration,
       config = { width: 1920, height: 1080, fps: 30 },
     } = await request.json()
 
-    if ((!audioBase64 && !audioGcsUrl) || !subtitles || (!characterImage && !characterImageGcsUrl)) {
+    if ((!audioBase64 && !audioGcsUrl) || !subtitles || (!characterImage && !characterImageGcsUrl && !characterImageUrl)) {
       return NextResponse.json(
-        { error: "audioBase64 또는 audioGcsUrl, subtitles, characterImage 또는 characterImageGcsUrl이 필요합니다." },
+        { error: "audioBase64 또는 audioGcsUrl, subtitles, characterImage, characterImageGcsUrl 또는 characterImageUrl이 필요합니다." },
         { status: 400 }
       )
     }
@@ -75,24 +80,79 @@ export async function POST(request: NextRequest) {
     }
 
     // Cloud Run 서비스에 렌더링 요청 전송
-    const renderResponse = await fetch(`${CLOUD_RUN_URL}/render`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        // Cloud Run 인증이 필요한 경우 Authorization 헤더 추가
-        ...(process.env.CLOUD_RUN_AUTH_TOKEN && {
-          Authorization: `Bearer ${process.env.CLOUD_RUN_AUTH_TOKEN}`,
+    // 긴 렌더링 작업을 위해 타임아웃을 50분(3000초)으로 설정
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 50 * 60 * 1000) // 50분
+    
+    let renderResponse
+    try {
+      // 긴 렌더링 작업을 위해 커스텀 fetch 옵션 사용
+      // Next.js의 기본 fetch는 undici를 사용하므로, 커스텀 dispatcher로 타임아웃 설정
+      const fetchOptions: any = {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          // Cloud Run 인증이 필요한 경우 Authorization 헤더 추가
+          ...(process.env.CLOUD_RUN_AUTH_TOKEN && {
+            Authorization: `Bearer ${process.env.CLOUD_RUN_AUTH_TOKEN}`,
+          }),
+        },
+        body: JSON.stringify({
+          ...(audioGcsUrl ? { audioGcsUrl } : { audioBase64 }),
+          subtitles,
+          ...(characterImageGcsUrl 
+            ? { characterImageGcsUrl } 
+            : characterImageUrl 
+              ? { characterImageUrl } 
+              : { characterImage }),
+          autoImages: autoImages || [],
+          duration,
+          config,
         }),
-      },
-      body: JSON.stringify({
-        ...(audioGcsUrl ? { audioGcsUrl } : { audioBase64 }),
-        subtitles,
-        ...(characterImageGcsUrl ? { characterImageGcsUrl } : { characterImage }),
-        autoImages: autoImages || [],
-        duration,
-        config,
-      }),
-    })
+        signal: controller.signal,
+      }
+      
+      // Node.js 환경에서 긴 타임아웃을 위해 커스텀 dispatcher 사용
+      // undici 패키지가 설치되어 있으므로 사용 가능
+      if (typeof process !== 'undefined' && process.versions && process.versions.node) {
+        try {
+          // undici를 동적으로 import (webpack external 설정으로 번들링 방지)
+          const undici = await import('undici')
+          const { Agent } = undici
+          fetchOptions.dispatcher = new Agent({
+            connectTimeout: 60000, // 60초
+            headersTimeout: 50 * 60 * 1000, // 50분 (기본값은 약 5분)
+            bodyTimeout: 50 * 60 * 1000, // 50분
+          })
+          console.log("[v0] 커스텀 dispatcher로 타임아웃 설정: 50분")
+        } catch (undiciError: any) {
+          // undici를 사용할 수 없는 경우, 기본 fetch 사용
+          console.warn("[v0] undici Agent를 사용할 수 없습니다. 기본 fetch 사용 (타임아웃: 약 5분):", undiciError.message || undiciError)
+          // Next.js의 기본 fetch는 약 5분 타임아웃이 있으므로,
+          // 긴 렌더링 작업의 경우 Cloud Run이 스트리밍 응답을 보내도록 수정 필요
+        }
+      }
+      
+      renderResponse = await fetch(`${CLOUD_RUN_URL}/render`, fetchOptions)
+      
+      clearTimeout(timeoutId)
+    } catch (fetchError: any) {
+      clearTimeout(timeoutId)
+      
+      // 타임아웃 오류 처리
+      if (fetchError.name === 'AbortError' || fetchError.code === 'UND_ERR_HEADERS_TIMEOUT') {
+        console.error("[v0] Cloud Run 렌더링 타임아웃 (50분 초과)")
+        return NextResponse.json(
+          { 
+            error: "렌더링 시간이 너무 오래 걸립니다. 영상 길이를 줄이거나 잠시 후 다시 시도해주세요.",
+            details: "타임아웃: 50분"
+          },
+          { status: 504 }
+        )
+      }
+      
+      throw fetchError
+    }
 
     if (!renderResponse.ok) {
       const errorText = await renderResponse.text()

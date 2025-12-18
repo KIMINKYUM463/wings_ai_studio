@@ -86,37 +86,75 @@ export async function POST(request: NextRequest) {
 
     const data = await response.json()
     
-    // /with-timestamps 응답 구조: { audio_base64, alignment }
-    const audioBase64 = data.audio_base64 || data.audioBase64
+    // alignment 데이터 추출
     const alignment = data.alignment || null
+    let audioBase64 = ""
+    let audioUrl = ""
     
-    if (!audioBase64) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "오디오 데이터가 응답에 없습니다.",
+    // audio 데이터 처리 (base64 또는 URL)
+    if (data.audio) {
+      if (typeof data.audio === 'string') {
+        // base64 문자열인 경우
+        audioBase64 = data.audio.replace(/^data:audio\/[^;]+;base64,/, '')
+        audioUrl = data.audio
+      } else if (data.audio instanceof ArrayBuffer) {
+        // ArrayBuffer인 경우
+        audioBase64 = Buffer.from(data.audio).toString("base64")
+        audioUrl = `data:audio/mpeg;base64,${audioBase64}`
+      }
+    } else if (data.audio_base64) {
+      // audio_base64 필드가 있는 경우
+      audioBase64 = data.audio_base64
+      audioUrl = `data:audio/mpeg;base64,${audioBase64}`
+    } else {
+      // audio가 없으면 일반 엔드포인트로 fallback
+      console.warn("[v0] /with-timestamps 응답에 audio가 없습니다. 일반 엔드포인트로 fallback")
+      const fallbackResponse = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+        method: "POST",
+        headers: {
+          Accept: "audio/mpeg",
+          "Content-Type": "application/json",
+          "xi-api-key": apiKey,
         },
-        { status: 500 }
-      )
+        body: JSON.stringify({
+          text: ttsText,
+          model_id: "eleven_multilingual_v2",
+          voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.75,
+          },
+        }),
+      })
+      
+      if (!fallbackResponse.ok) {
+        throw new Error(`Fallback API 호출 실패: ${fallbackResponse.status}`)
+      }
+      
+      const audioBuffer = await fallbackResponse.arrayBuffer()
+      audioBase64 = Buffer.from(audioBuffer).toString("base64")
+      audioUrl = `data:audio/mpeg;base64,${audioBase64}`
     }
 
-    console.log("[v0] ElevenLabs TTS 생성 완료, 오디오 크기:", audioBase64.length, "문자 (base64)")
-    
+    console.log("[v0] ElevenLabs TTS 생성 완료")
+    console.log("[v0] alignment 데이터:", alignment ? "있음" : "없음")
     if (alignment) {
-      console.log("[v0] Alignment 데이터 수신:", {
-        characters: alignment.characters?.length || 0,
-        hasStartTimes: !!alignment.character_start_times_seconds,
-        hasEndTimes: !!alignment.character_end_times_seconds,
-      })
+      console.log("[v0] alignment characters 개수:", alignment.characters?.length || 0)
+    }
+    
+    // 오디오가 너무 짧으면 문제가 있을 수 있음 (최소 1KB 이상이어야 함)
+    if (audioBase64.length < 1024) {
+      console.warn("[v0] 경고: 생성된 오디오가 매우 짧습니다. 텍스트가 제대로 처리되지 않았을 수 있습니다.")
+      console.warn("[v0] 원본 텍스트 길이:", ttsText.length, "자")
+      console.warn("[v0] 원본 텍스트 내용:", ttsText)
     } else {
-      console.warn("[v0] 경고: Alignment 데이터가 없습니다. Fallback 방식 사용됩니다.")
+      console.log("[v0] 오디오 생성 성공 - 대본 전체가 포함되었는지 확인 필요")
     }
 
     return NextResponse.json({
       success: true,
       audioBase64,
-      audioUrl: `data:audio/mpeg;base64,${audioBase64}`,
-      alignment: alignment, // alignment 데이터 전달
+      audioUrl,
+      alignment: alignment || null, // alignment 데이터 포함
     })
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
