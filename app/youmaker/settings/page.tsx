@@ -23,10 +23,17 @@ export default function SettingsPage() {
   useEffect(() => {
     const savedYoutubeKey = localStorage.getItem("youmaker_youtube_api_key") || ""
     const savedGeminiKey = localStorage.getItem("youmaker_gemini_api_key") || ""
-    const savedReplicateKey = localStorage.getItem("youmaker_replicate_api_key") || ""
+    const savedReplicateKey = localStorage.getItem("youmaker_replicate_api_key")
+    const defaultReplicateKey = "r8_AgOeBCpTw8baE7gXQsErwViD1taChAB19ZHLA"
+    
     setYoutubeApiKey(savedYoutubeKey)
     setGeminiApiKey(savedGeminiKey)
-    setReplicateApiKey(savedReplicateKey)
+    setReplicateApiKey(savedReplicateKey || defaultReplicateKey)
+    
+    // Replicate API 키가 없으면 기본값으로 저장
+    if (!savedReplicateKey) {
+      localStorage.setItem("youmaker_replicate_api_key", defaultReplicateKey)
+    }
   }, [])
 
   // API 키 저장
@@ -80,7 +87,7 @@ export default function SettingsPage() {
             <CardHeader>
               <CardTitle className="text-2xl">설정</CardTitle>
               <p className="text-sm text-slate-600 mt-2">
-                YouTube Data API Key와 Gemini API Key를 입력하세요.
+                YouTube Data API Key, Gemini API Key, Replicate API Key를 입력하세요.
               </p>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -164,6 +171,46 @@ export default function SettingsPage() {
                 </div>
               </div>
 
+              {/* Replicate API Key */}
+              <div className="space-y-2">
+                <Label htmlFor="replicate-api-key" className="text-base font-semibold">
+                  Replicate API Key
+                </Label>
+                <p className="text-sm text-slate-600">
+                  나노바나나 AI 썸네일 생성을 위해 필요합니다.{" "}
+                  <a
+                    href="https://replicate.com/account/api-tokens"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-orange-500 hover:text-orange-600 underline"
+                  >
+                    Replicate
+                  </a>
+                  에서 발급받을 수 있습니다. (기본값이 설정되어 있습니다)
+                </p>
+                <div className="relative">
+                  <Input
+                    id="replicate-api-key"
+                    type={showReplicateKey ? "text" : "password"}
+                    placeholder="Replicate API Key를 입력하세요"
+                    value={replicateApiKey}
+                    onChange={(e) => setReplicateApiKey(e.target.value)}
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowReplicateKey(!showReplicateKey)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700"
+                  >
+                    {showReplicateKey ? (
+                      <EyeOff className="w-4 h-4" />
+                    ) : (
+                      <Eye className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
               {/* 저장 버튼 및 메시지 */}
               <div className="space-y-4">
                 {saveMessage && (
@@ -231,6 +278,15 @@ export default function SettingsPage() {
                   <li>로그인 후 "Get API Key"를 클릭합니다.</li>
                   <li>프로젝트를 선택하거나 새로 생성합니다.</li>
                   <li>생성된 API 키를 복사하여 입력합니다.</li>
+                </ol>
+              </div>
+              <div>
+                <h4 className="font-semibold mb-2">Replicate API Key 발급 방법:</h4>
+                <ol className="list-decimal list-inside space-y-1 ml-2">
+                  <li>Replicate에 접속합니다.</li>
+                  <li>로그인 후 계정 설정으로 이동합니다.</li>
+                  <li>"API Tokens" 섹션에서 새 토큰을 생성합니다.</li>
+                  <li>생성된 토큰을 복사하여 입력합니다. (기본값이 설정되어 있습니다)</li>
                 </ol>
               </div>
             </CardContent>

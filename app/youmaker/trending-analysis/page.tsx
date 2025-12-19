@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Search, Sparkles, CheckCircle2, Circle, Info, Bookmark, Play } from "lucide-react"
+import { Search, Sparkles, CheckCircle2, Circle, Info, Bookmark, Play, Brain, TrendingUp, BarChart3, Eye, Heart, MessageSquare, Home } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 
@@ -203,7 +203,7 @@ export default function TrendingAnalysisPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50">
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-6">
+        <div className="mb-6 flex items-center justify-between">
           <Button
             variant="ghost"
             onClick={() => router.push("/youmaker")}
@@ -211,16 +211,27 @@ export default function TrendingAnalysisPage() {
           >
             ← 메인으로
           </Button>
+          <Button
+            variant="outline"
+            onClick={() => router.push("/youmaker")}
+            className="mb-4 bg-gradient-to-r from-orange-50 to-red-50 border-orange-300 text-orange-700 hover:from-orange-100 hover:to-red-100"
+          >
+            <Home className="w-4 h-4 mr-2" />
+            홈으로
+          </Button>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* 좌측 진행 과정 */}
           <div className="lg:col-span-1">
-            <Card className="border-0 shadow-lg sticky top-24">
-              <CardHeader>
-                <CardTitle className="text-lg">진행 과정</CardTitle>
+            <Card className="border-0 shadow-xl bg-gradient-to-br from-white to-slate-50 sticky top-24">
+              <CardHeader className="bg-gradient-to-r from-slate-50 to-white border-b">
+                <CardTitle className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                  <TrendingUp className="w-5 h-5 text-orange-500" />
+                  진행 과정
+                </CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="pt-6">
                 <div className="space-y-6">
                   {steps.map((step, index) => {
                     const isActive = step.id === currentStep
@@ -230,7 +241,7 @@ export default function TrendingAnalysisPage() {
                       <div key={step.id} className="relative">
                         {/* 연결선 */}
                         {index < steps.length - 1 && (
-                          <div className="absolute left-5 top-10 w-0.5 h-12 bg-slate-200">
+                          <div className="absolute left-6 top-12 w-0.5 h-14 bg-slate-200">
                             <div
                               className={`h-full transition-all duration-500 ${
                                 isCompleted ? "bg-gradient-to-b from-orange-500 to-red-500" : "bg-slate-200"
@@ -246,24 +257,33 @@ export default function TrendingAnalysisPage() {
                           {/* 아이콘 */}
                           <div className="relative z-10">
                             {isCompleted ? (
-                              <div className="w-10 h-10 rounded-full bg-gradient-to-r from-orange-500 to-red-500 flex items-center justify-center shadow-lg animate-pulse">
-                                <CheckCircle2 className="w-6 h-6 text-white" />
+                              <div className="relative">
+                                <div className="absolute inset-0 bg-gradient-to-r from-orange-500 to-red-500 rounded-full blur-lg opacity-50 animate-pulse"></div>
+                                <div className="relative w-12 h-12 rounded-full bg-gradient-to-r from-orange-500 to-red-500 flex items-center justify-center shadow-xl">
+                                  <CheckCircle2 className="w-6 h-6 text-white" />
+                                </div>
                               </div>
                             ) : isActive ? (
-                              <div className="w-10 h-10 rounded-full bg-gradient-to-r from-orange-500 to-red-500 flex items-center justify-center shadow-lg animate-pulse">
-                                <Sparkles className="w-6 h-6 text-white animate-spin" />
+                              <div className="relative">
+                                <div className="absolute inset-0 bg-gradient-to-r from-orange-500 to-red-500 rounded-full blur-lg opacity-50 animate-pulse"></div>
+                                <div className="relative w-12 h-12 rounded-full bg-gradient-to-r from-orange-500 to-red-500 flex items-center justify-center shadow-xl">
+                                  <Sparkles className="w-6 h-6 text-white animate-spin" style={{ animationDuration: '1s' }} />
+                                </div>
+                                <div className="absolute -top-1 -right-1">
+                                  <div className="w-4 h-4 bg-orange-400 rounded-full animate-ping"></div>
+                                </div>
                               </div>
                             ) : (
-                              <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center">
+                              <div className="w-12 h-12 rounded-full bg-slate-200 flex items-center justify-center border-2 border-slate-300">
                                 <Circle className="w-6 h-6 text-slate-400" />
                               </div>
                             )}
                           </div>
 
                           {/* 텍스트 */}
-                          <div className="flex-1 pt-1">
+                          <div className="flex-1 pt-1.5">
                             <h3
-                              className={`font-semibold text-sm mb-1 transition-colors ${
+                              className={`font-bold text-sm mb-1 transition-colors ${
                                 isActive || isCompleted
                                   ? "text-orange-600"
                                   : "text-slate-400"
@@ -271,7 +291,7 @@ export default function TrendingAnalysisPage() {
                             >
                               {step.label}
                             </h3>
-                            <p className="text-xs text-slate-500">{step.description}</p>
+                            <p className="text-xs text-slate-500 leading-relaxed">{step.description}</p>
                           </div>
                         </div>
                       </div>
@@ -286,11 +306,14 @@ export default function TrendingAnalysisPage() {
           <div className="lg:col-span-3">
             <div className="space-y-6">
               {/* 검색 필터 카드 */}
-              <Card className="border-0 shadow-lg bg-white">
-                <CardHeader>
-                  <CardTitle className="text-2xl text-slate-900">떡상 영상 분석</CardTitle>
+              <Card className="border-0 shadow-xl bg-gradient-to-br from-white to-slate-50">
+                <CardHeader className="bg-gradient-to-r from-slate-50 to-white border-b">
+                  <CardTitle className="text-3xl font-bold bg-gradient-to-r from-orange-600 to-red-600 bg-clip-text text-transparent flex items-center gap-3">
+                    <TrendingUp className="w-8 h-8 text-orange-500" />
+                    떡상 영상 분석
+                  </CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-4">
+                <CardContent className="space-y-4 pt-6">
                   {/* 필터 입력 영역 */}
                   <div className="flex flex-nowrap gap-2 items-end">
                     <div className="flex-1 min-w-[180px]">
@@ -353,10 +376,11 @@ export default function TrendingAnalysisPage() {
                     <Button
                       onClick={handleTrendingAnalysis}
                       disabled={isLoading || !keyword.trim()}
-                      className="h-12 px-4 bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white flex-shrink-0"
+                      className="h-12 px-6 bg-gradient-to-r from-orange-500 via-orange-600 to-red-500 hover:from-orange-600 hover:via-red-500 hover:to-red-600 text-white flex-shrink-0 shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 font-semibold"
                       size="lg"
                     >
-                      <Search className="w-4 h-4" />
+                      <Search className="w-5 h-5 mr-2" />
+                      분석 시작
                     </Button>
                   </div>
                   <div className="flex items-center gap-2 text-sm text-slate-600">
@@ -367,11 +391,45 @@ export default function TrendingAnalysisPage() {
               </Card>
 
               {isLoading && (
-                <Card className="border-0 shadow-lg">
-                  <CardContent className="py-12 text-center">
-                    <Sparkles className="w-8 h-8 mx-auto mb-4 animate-spin text-orange-500" />
-                    <p className="text-slate-600">영상을 분석하고 있습니다...</p>
-                    <Progress value={66} className="mt-4 max-w-md mx-auto" />
+                <Card className="border-0 shadow-xl bg-gradient-to-br from-white to-slate-50 overflow-hidden">
+                  <CardContent className="py-16 text-center relative">
+                    {/* AI 분석 애니메이션 배경 */}
+                    <div className="absolute inset-0 overflow-hidden">
+                      <div className="absolute top-1/4 left-1/4 w-32 h-32 bg-orange-400/20 rounded-full blur-3xl animate-pulse"></div>
+                      <div className="absolute top-1/2 right-1/4 w-40 h-40 bg-red-400/20 rounded-full blur-3xl animate-pulse delay-300"></div>
+                      <div className="absolute bottom-1/4 left-1/2 w-36 h-36 bg-pink-400/20 rounded-full blur-3xl animate-pulse delay-700"></div>
+                    </div>
+                    
+                    {/* AI 아이콘 애니메이션 */}
+                    <div className="relative z-10">
+                      <div className="relative inline-block mb-6">
+                        <div className="absolute inset-0 bg-gradient-to-r from-orange-500 via-red-500 to-pink-500 rounded-full blur-xl opacity-50 animate-pulse"></div>
+                        <div className="relative bg-gradient-to-br from-orange-500 via-red-500 to-pink-500 p-6 rounded-full shadow-2xl">
+                          <Brain className="w-12 h-12 text-white animate-pulse" />
+                        </div>
+                        <div className="absolute -top-2 -right-2">
+                          <Sparkles className="w-6 h-6 text-yellow-400 animate-spin" style={{ animationDuration: '2s' }} />
+                        </div>
+                        <div className="absolute -bottom-2 -left-2">
+                          <TrendingUp className="w-5 h-5 text-orange-400 animate-spin" style={{ animationDuration: '1.5s', animationDirection: 'reverse' }} />
+                        </div>
+                      </div>
+                      
+                      <h3 className="text-2xl font-bold text-slate-800 mb-2">AI가 영상을 분석하고 있습니다</h3>
+                      <p className="text-slate-600 mb-6">1개월간 조회수 높은 영상을 수집 중...</p>
+                      
+                      {/* 진행 바 */}
+                      <div className="w-full max-w-md mx-auto bg-slate-200 rounded-full h-3 overflow-hidden">
+                        <div className="h-full bg-gradient-to-r from-orange-500 via-red-500 to-pink-500 rounded-full animate-progress-bar"></div>
+                      </div>
+                      
+                      {/* 로딩 도트 애니메이션 */}
+                      <div className="flex justify-center gap-2 mt-6">
+                        <div className="w-2 h-2 bg-orange-500 rounded-full animate-bounce" style={{ animationDelay: '0s' }}></div>
+                        <div className="w-2 h-2 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                        <div className="w-2 h-2 bg-pink-500 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
               )}
@@ -379,45 +437,60 @@ export default function TrendingAnalysisPage() {
               {trendingVideos.length > 0 && (
                 <>
                   {/* 통계 카드 */}
-                  <Card className="border-0 shadow-lg bg-white">
-                    <CardContent className="p-6">
-                      <div className="mb-4">
-                        <div className="text-sm text-slate-600 mb-1">Q 키워드: "{keyword}"</div>
+                  <Card className="border-0 shadow-xl bg-gradient-to-br from-white to-slate-50">
+                    <CardHeader className="bg-gradient-to-r from-slate-50 to-white border-b">
+                      <div className="mb-2">
+                        <div className="text-base font-semibold text-slate-800 mb-1 flex items-center gap-2">
+                          <Search className="w-4 h-4 text-orange-500" />
+                          키워드: <span className="text-orange-600">"{keyword}"</span>
+                        </div>
                         <div className="text-sm text-slate-600">
                           검색 결과 분석 (상위 {stats.analyzedCount}개 영상 / 목표 {stats.targetCount}개)
                         </div>
                       </div>
-                      <div className="grid grid-cols-3 gap-6">
-                        <div>
-                          <div className="text-3xl font-bold text-orange-500 mb-1">
+                    </CardHeader>
+                    <CardContent className="p-6">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div className="text-center p-6 rounded-xl bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 hover:shadow-lg transition-all">
+                          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 mb-3 shadow-lg">
+                            <Eye className="w-6 h-6 text-white" />
+                          </div>
+                          <div className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-blue-700 bg-clip-text text-transparent mb-2">
                             {formatNumber(stats.totalViews)}
                           </div>
-                          <div className="text-sm text-slate-600">총 조회수</div>
+                          <div className="text-sm font-semibold text-slate-700">총 조회수</div>
                         </div>
-                        <div>
-                          <div className="text-3xl font-bold text-orange-500 mb-1">
+                        <div className="text-center p-6 rounded-xl bg-gradient-to-br from-red-50 to-red-100 border border-red-200 hover:shadow-lg transition-all">
+                          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-gradient-to-br from-red-400 to-red-600 mb-3 shadow-lg">
+                            <Heart className="w-6 h-6 text-white" />
+                          </div>
+                          <div className="text-4xl font-bold bg-gradient-to-r from-red-600 to-red-700 bg-clip-text text-transparent mb-2">
                             {formatNumber(stats.totalLikes)}
                           </div>
-                          <div className="text-sm text-slate-600">총 좋아요</div>
+                          <div className="text-sm font-semibold text-slate-700">총 좋아요</div>
                         </div>
-                        <div>
-                          <div className="text-3xl font-bold text-orange-500 mb-1">
+                        <div className="text-center p-6 rounded-xl bg-gradient-to-br from-purple-50 to-purple-100 border border-purple-200 hover:shadow-lg transition-all">
+                          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-gradient-to-br from-purple-400 to-purple-600 mb-3 shadow-lg">
+                            <MessageSquare className="w-6 h-6 text-white" />
+                          </div>
+                          <div className="text-4xl font-bold bg-gradient-to-r from-purple-600 to-purple-700 bg-clip-text text-transparent mb-2">
                             {formatNumber(stats.totalComments)}
                           </div>
-                          <div className="text-sm text-slate-600">총 댓글</div>
+                          <div className="text-sm font-semibold text-slate-700">총 댓글</div>
                         </div>
                       </div>
                     </CardContent>
                   </Card>
 
                   {/* 인기 점수 분포 차트 */}
-                  <Card className="border-0 shadow-lg bg-white">
-                    <CardHeader>
-                      <CardTitle className="text-xl text-slate-900">
+                  <Card className="border-0 shadow-xl bg-gradient-to-br from-white to-slate-50">
+                    <CardHeader className="bg-gradient-to-r from-slate-50 to-white border-b">
+                      <CardTitle className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                        <BarChart3 className="w-6 h-6 text-orange-500" />
                         "{keyword}" 검색 결과 인기 점수 분포 (상위 {Math.min(50, trendingVideos.length)}개)
                       </CardTitle>
                     </CardHeader>
-                    <CardContent>
+                    <CardContent className="pt-6">
                       <ResponsiveContainer width="100%" height={300}>
                         <BarChart data={chartData}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
@@ -439,21 +512,30 @@ export default function TrendingAnalysisPage() {
                             }}
                             formatter={(value: number) => [`${value}점`, "인기 점수"]}
                           />
-                          <Bar dataKey="score" fill="#F97316" radius={[4, 4, 0, 0]} />
+                          <defs>
+                            <linearGradient id="colorGradient" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="#F97316" stopOpacity={1} />
+                              <stop offset="100%" stopColor="#EF4444" stopOpacity={0.8} />
+                            </linearGradient>
+                          </defs>
+                          <Bar dataKey="score" fill="url(#colorGradient)" radius={[6, 6, 0, 0]} />
                         </BarChart>
                       </ResponsiveContainer>
                     </CardContent>
                   </Card>
 
                   {/* 영상 목록 */}
-                  <Card className="border-0 shadow-lg bg-white">
-                    <CardHeader>
+                  <Card className="border-0 shadow-xl bg-gradient-to-br from-white to-slate-50">
+                    <CardHeader className="bg-gradient-to-r from-slate-50 to-white border-b">
                       <div className="flex items-center justify-between">
-                        <CardTitle className="text-xl text-slate-900">검색 결과</CardTitle>
+                        <CardTitle className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                          <Play className="w-6 h-6 text-orange-500" />
+                          검색 결과
+                        </CardTitle>
                         <div className="flex items-center gap-2">
-                          <span className="text-sm text-slate-600">정렬:</span>
+                          <span className="text-sm font-medium text-slate-600">정렬:</span>
                           <Select value={sortBy} onValueChange={(value: "popularity" | "views" | "date") => setSortBy(value)}>
-                            <SelectTrigger className="h-9 w-[140px] bg-white border-slate-300 text-slate-900">
+                            <SelectTrigger className="h-10 w-[140px] bg-white border-slate-300 text-slate-900 font-medium">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent className="bg-white text-slate-900 border-slate-300">
@@ -465,61 +547,73 @@ export default function TrendingAnalysisPage() {
                         </div>
                       </div>
                     </CardHeader>
-                    <CardContent>
+                    <CardContent className="pt-6">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {sortedVideos.map((video, index) => (
                           <Card
                             key={video.id}
-                            className="cursor-pointer hover:shadow-xl transition-all border-slate-200 bg-white hover:bg-slate-50 hover:scale-[1.02]"
+                            className="cursor-pointer hover:shadow-2xl transition-all border-slate-200 bg-white hover:bg-gradient-to-br hover:from-orange-50 hover:to-red-50 hover:scale-[1.02] hover:border-orange-300 group"
                             onClick={() => handleVideoSelect(video)}
                           >
-                            <CardContent className="p-4">
+                            <CardContent className="p-5">
                               <div className="flex gap-4">
-                                <div className="relative flex-shrink-0">
+                                <div className="relative flex-shrink-0 group-hover:scale-105 transition-transform">
                                   <img
                                     src={video.thumbnail}
                                     alt={video.title}
-                                    className="w-32 h-20 object-cover rounded"
+                                    className="w-36 h-24 object-cover rounded-lg shadow-lg"
                                   />
-                                  <div className="absolute top-1 left-1 bg-black/70 text-white text-xs px-1.5 py-0.5 rounded">
-                                    {index + 1}
+                                  <div className="absolute top-2 left-2 bg-gradient-to-r from-orange-500 to-red-500 text-white text-xs font-bold px-2 py-1 rounded-lg shadow-lg">
+                                    #{index + 1}
                                   </div>
+                                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"></div>
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                  <div className="flex items-start justify-between mb-1">
-                                    <h3 className="font-semibold text-sm text-slate-900 line-clamp-2 flex-1">
+                                  <div className="flex items-start justify-between mb-2">
+                                    <h3 className="font-bold text-sm text-slate-900 line-clamp-2 flex-1 group-hover:text-orange-600 transition-colors">
                                       {video.title}
                                     </h3>
-                                    <Bookmark className="w-4 h-4 text-slate-400 ml-2 flex-shrink-0" />
+                                    <Bookmark className="w-4 h-4 text-slate-400 ml-2 flex-shrink-0 group-hover:text-orange-500 transition-colors" />
                                   </div>
-                                  <p className="text-xs text-slate-600 mb-2 truncate">{video.channelTitle}</p>
+                                  <p className="text-xs text-slate-600 mb-2 truncate font-medium">{video.channelTitle}</p>
                                   <div className="flex items-center gap-3 text-xs text-slate-500 mb-2">
-                                    <span>게시일: {new Date(video.publishedAt).toLocaleDateString("ko-KR")}</span>
-                                    <span>길이: {formatDuration(video.duration)}</span>
+                                    <span>{new Date(video.publishedAt).toLocaleDateString("ko-KR")}</span>
+                                    <span>•</span>
+                                    <span>{formatDuration(video.duration)}</span>
                                   </div>
-                                  <div className="flex items-center gap-4 text-xs text-slate-600 mb-2">
-                                    <span>조회수: {formatNumber(video.viewCount)}</span>
-                                    <span>좋아요/댓글: {formatNumber(video.likeCount)}/{formatNumber(video.commentCount)}</span>
+                                  <div className="flex items-center gap-4 text-xs text-slate-600 mb-3">
+                                    <span className="flex items-center gap-1">
+                                      <Eye className="w-3 h-3" />
+                                      {formatNumber(video.viewCount)}
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                      <Heart className="w-3 h-3" />
+                                      {formatNumber(video.likeCount)}
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                      <MessageSquare className="w-3 h-3" />
+                                      {formatNumber(video.commentCount)}
+                                    </span>
                                   </div>
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-xs text-slate-600">인기 점수</span>
+                                  <div className="flex items-center gap-2 mb-3">
+                                    <span className="text-xs font-semibold text-slate-700">인기 점수</span>
                                     <Progress
                                       value={Math.min(100, video.popularityScore)}
-                                      className="flex-1 h-2"
+                                      className="flex-1 h-2.5"
                                     />
-                                    <span className="text-xs font-semibold text-orange-500">
+                                    <span className="text-xs font-bold text-orange-600">
                                       {video.popularityScore.toFixed(1)}
                                     </span>
                                   </div>
                                   <Button
                                     size="sm"
-                                    className="mt-2 w-full bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white"
+                                    className="w-full bg-gradient-to-r from-orange-500 via-orange-600 to-red-500 hover:from-orange-600 hover:via-red-500 hover:to-red-600 text-white font-semibold shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200"
                                     onClick={(e) => {
                                       e.stopPropagation()
                                       window.open(`https://www.youtube.com/watch?v=${video.id}`, '_blank')
                                     }}
                                   >
-                                    <Play className="w-3 h-3 mr-1" />
+                                    <Play className="w-4 h-4 mr-1.5" />
                                     영상보기
                                   </Button>
                                 </div>

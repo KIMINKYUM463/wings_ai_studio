@@ -2626,10 +2626,78 @@ export async function generateAIThumbnail(
   }
 }
 
-/**
- * 이미지를 영상으로 변환하는 함수
- * Replicate의 wan-video/wan-2.2-i2v-fast 모델 사용
- */
+export async function generateHookingVideoPrompt(
+  topic: string,
+  script?: string,
+  geminiApiKey?: string
+): Promise<string> {
+  const GEMINI_API_KEY = geminiApiKey || process.env.GEMINI_API_KEY
+
+  if (!GEMINI_API_KEY) {
+    throw new Error("Gemini API 키가 필요합니다.")
+  }
+
+  try {
+    const systemPrompt = `당신은 소라2(Sora 2)용 15초 영상 프롬프트 전문가입니다. 주제와 대본을 바탕으로 시각적으로 매력적인 15초 영상 프롬프트를 영어로 작성해주세요.
+
+요구사항:
+- 15초 영상에 최적화
+- 주제를 시각적으로 표현
+- 카메라 움직임, 조명, 구도 상세히 기술
+- 영어로 작성
+- 프롬프트 2개를 번호 없이 줄바꿈으로 구분하여 출력
+- 설명 없이 프롬프트만 출력`
+
+    const userPrompt = script
+      ? `주제: ${topic}\n\n대본:\n${script}\n\n위 주제와 대본을 바탕으로 소라2용 15초 영상 프롬프트를 2개 작성해주세요.`
+      : `주제: ${topic}\n\n위 주제를 바탕으로 소라2용 15초 영상 프롬프트를 2개 작성해주세요.`
+
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  text: `${systemPrompt}\n\n${userPrompt}`,
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.7,
+            topK: 40,
+            topP: 0.95,
+            maxOutputTokens: 1024,
+          },
+        }),
+      }
+    )
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(`Gemini API 호출 실패: ${response.status} - ${errorText}`)
+    }
+
+    const data = await response.json()
+    const prompt = data.candidates?.[0]?.content?.parts?.[0]?.text
+
+    if (!prompt) {
+      throw new Error("프롬프트 생성에 실패했습니다.")
+    }
+
+    return prompt.trim()
+  } catch (error) {
+    console.error("[Hooking Video] 프롬프트 생성 실패:", error)
+    throw error
+  }
+}
+
 export async function convertImageToVideo(
   imageUrl: string,
   replicateApiKey: string,
@@ -2729,111 +2797,6 @@ export async function convertImageToVideo(
     throw new Error("영상 변환 시간 초과")
   } catch (error) {
     console.error("[Longform] 영상 변환 실패:", error)
-    throw error
-  }
-}
-
-/**
- * 후킹 영상 프롬프트 생성 함수 (소라2용 30초 후킹 영상)
- * Gemini API를 사용하여 30초 후킹 영상 프롬프트를 생성합니다.
- * 
- * @param topic - 영상 주제
- * @param script - 대본 내용 (선택사항)
- * @param geminiApiKey - Gemini API 키
- * @returns 후킹 영상 프롬프트
- */
-export async function generateHookingVideoPrompt(
-  topic: string,
-  script?: string,
-  geminiApiKey?: string
-): Promise<string> {
-  const GEMINI_API_KEY = geminiApiKey || process.env.GEMINI_API_KEY
-
-  if (!GEMINI_API_KEY) {
-    throw new Error("Gemini API 키가 필요합니다.")
-  }
-
-  try {
-    const systemInstruction = `You are an expert video prompt engineer specializing in creating 30-second hooking video prompts for Sora 2 (text-to-video AI model).
-
-Your task is to create a detailed, cinematic video prompt that:
-1. Captures attention in the first 3 seconds with a strong visual hook
-2. Maintains engagement throughout the 30-second duration
-3. Is optimized for Sora 2's text-to-video generation capabilities
-4. Includes specific visual details, camera movements, lighting, and composition
-5. Creates a compelling narrative arc within 30 seconds
-
-The prompt should be:
-- Written in English
-- Highly detailed with visual descriptions
-- Include camera movements (zoom, pan, dolly, etc.)
-- Specify lighting and atmosphere
-- Describe composition and framing
-- Include any relevant visual effects or transitions
-- Be optimized for 30-second video generation
-
-Output only the video prompt, no explanations or additional text.`
-
-    const userPrompt = script
-      ? `Topic: ${topic}
-
-Script content:
-${script}
-
-Create a detailed 30-second hooking video prompt for Sora 2 based on the above topic and script. The prompt should create a visually compelling video that hooks viewers from the first 3 seconds.`
-      : `Topic: ${topic}
-
-Create a detailed 30-second hooking video prompt for Sora 2 based on the above topic. The prompt should create a visually compelling video that hooks viewers from the first 3 seconds.`
-
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  text: `${systemInstruction}\n\n${userPrompt}`,
-                },
-              ],
-            },
-          ],
-          generationConfig: {
-            temperature: 0.9,
-            topK: 40,
-            topP: 0.95,
-            maxOutputTokens: 1024,
-          },
-        }),
-      }
-    )
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
-      console.error("[Hooking Video] Gemini API 오류:", response.status, errorData)
-      throw new Error(`API 호출 실패: ${response.status}`)
-    }
-
-    const data = await response.json()
-
-    if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
-      throw new Error("API 응답 형식이 올바르지 않습니다.")
-    }
-
-    const prompt = data.candidates[0].content.parts[0].text.trim()
-
-    if (!prompt) {
-      throw new Error("생성된 프롬프트가 비어있습니다.")
-    }
-
-    console.log("[Hooking Video] 프롬프트 생성 완료")
-    return prompt
-  } catch (error) {
-    console.error("[Hooking Video] 프롬프트 생성 실패:", error)
     throw error
   }
 }

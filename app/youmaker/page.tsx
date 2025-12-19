@@ -133,8 +133,10 @@ function Header({ onSettingsClick }: { onSettingsClick: () => void }) {
 function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const [youtubeApiKey, setYoutubeApiKey] = useState("")
   const [geminiApiKey, setGeminiApiKey] = useState("")
+  const [replicateApiKey, setReplicateApiKey] = useState("")
   const [showYoutubeKey, setShowYoutubeKey] = useState(false)
   const [showGeminiKey, setShowGeminiKey] = useState(false)
+  const [showReplicateKey, setShowReplicateKey] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
 
@@ -143,8 +145,17 @@ function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenChange: (o
     if (open) {
       const savedYoutubeKey = localStorage.getItem("youmaker_youtube_api_key") || ""
       const savedGeminiKey = localStorage.getItem("youmaker_gemini_api_key") || ""
+      const savedReplicateKey = localStorage.getItem("youmaker_replicate_api_key")
+      const defaultReplicateKey = "r8_AgOeBCpTw8baE7gXQsErwViD1taChAB19ZHLA"
+      
       setYoutubeApiKey(savedYoutubeKey)
       setGeminiApiKey(savedGeminiKey)
+      setReplicateApiKey(savedReplicateKey || defaultReplicateKey)
+      
+      // Replicate API 키가 없으면 기본값으로 저장
+      if (!savedReplicateKey) {
+        localStorage.setItem("youmaker_replicate_api_key", defaultReplicateKey)
+      }
     }
   }, [open])
 
@@ -157,6 +168,7 @@ function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenChange: (o
       // 로컬 스토리지에 저장
       localStorage.setItem("youmaker_youtube_api_key", youtubeApiKey)
       localStorage.setItem("youmaker_gemini_api_key", geminiApiKey)
+      localStorage.setItem("youmaker_replicate_api_key", replicateApiKey)
 
       setSaveMessage({ type: "success", text: "설정이 저장되었습니다." })
       
@@ -178,7 +190,7 @@ function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenChange: (o
         <DialogHeader>
           <DialogTitle className="text-2xl">설정</DialogTitle>
           <DialogDescription>
-            YouTube Data API Key와 Gemini API Key를 입력하세요.
+            YouTube Data API Key, Gemini API Key, Replicate API Key를 입력하세요.
           </DialogDescription>
         </DialogHeader>
 
@@ -255,6 +267,46 @@ function SettingsModal({ open, onOpenChange }: { open: boolean; onOpenChange: (o
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700"
               >
                 {showGeminiKey ? (
+                  <EyeOff className="w-4 h-4" />
+                ) : (
+                  <Eye className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Replicate API Key */}
+          <div className="space-y-2">
+            <Label htmlFor="replicate-api-key" className="text-base font-semibold">
+              Replicate API Key
+            </Label>
+            <p className="text-sm text-slate-600">
+              나노바나나 AI 썸네일 생성을 위해 필요합니다.{" "}
+              <a
+                href="https://replicate.com/account/api-tokens"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-orange-500 hover:text-orange-600 underline"
+              >
+                Replicate
+              </a>
+              에서 발급받을 수 있습니다. (기본값이 설정되어 있습니다)
+            </p>
+            <div className="relative">
+              <Input
+                id="replicate-api-key"
+                type={showReplicateKey ? "text" : "password"}
+                placeholder="Replicate API Key를 입력하세요"
+                value={replicateApiKey}
+                onChange={(e) => setReplicateApiKey(e.target.value)}
+                className="pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowReplicateKey(!showReplicateKey)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700"
+              >
+                {showReplicateKey ? (
                   <EyeOff className="w-4 h-4" />
                 ) : (
                   <Eye className="w-4 h-4" />
@@ -743,6 +795,26 @@ export default function YouMakerPage() {
                 onClick={() => router.push("/youmaker/ai-voice-studio")}
                 size="lg"
                 className="bg-white text-green-600 hover:bg-white/90 font-semibold"
+              >
+                시작하기
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* AI 썸네일 분석 */}
+          <Card className="border-0 shadow-xl bg-gradient-to-br from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 cursor-pointer transition-all hover:scale-105">
+            <CardContent className="p-8 text-center text-white">
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-white/20 backdrop-blur-sm mb-4">
+                <ImageIcon className="w-8 h-8" />
+              </div>
+              <h3 className="text-2xl font-bold mb-2">AI 썸네일 분석</h3>
+              <p className="text-white/90 text-sm mb-4">
+                썸네일을 업로드하면 AI가 클릭률을 높이는 전략을 분석합니다
+              </p>
+              <Button
+                onClick={() => router.push("/youmaker/thumbnail-analysis")}
+                size="lg"
+                className="bg-white text-indigo-600 hover:bg-white/90 font-semibold"
               >
                 시작하기
               </Button>

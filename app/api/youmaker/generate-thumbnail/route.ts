@@ -27,105 +27,24 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (!geminiApiKey) {
+    // 나노바나나를 직접 사용 (Replicate API 키 필수)
+    if (!replicateApiKey) {
       return NextResponse.json(
-        { error: "Gemini API Key가 필요합니다." },
+        { error: "Replicate API Key가 필요합니다. 나노바나나 모델을 사용하기 위해 설정 페이지에서 API 키를 입력해주세요." },
         { status: 400 }
       )
     }
 
-    // Gemini AI 초기화 (이미지 생성 모델)
-    const genAI = new GoogleGenerativeAI(geminiApiKey)
-    
-    try {
-      // Gemini 2.5 Flash Image 모델로 직접 이미지 생성 시도
-      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-image" })
-
-      console.log("[Thumbnail Generation] Gemini 2.5 Flash Image 이미지 생성 시작")
-      const imagePrompt = `앞에 주제에 대한 유튜브 썸네일 16:9로 만들려고 해. 썸네일 만들어줘
-
-제목: ${title || "없음"}
-썸네일 문구: ${thumbnailText || "없음"}
-
-위 정보를 바탕으로 유튜브 썸네일 이미지를 생성해주세요.
-
-요구사항:
-- 유튜브 썸네일 스타일 (클릭률 높은 디자인)
-- 16:9 비율
-- 밝고 강렬한 색상
-- 텍스트 영역 고려 (썸네일 문구가 들어갈 공간)
-- 시각적으로 임팩트 있는 구도
-- 전문적이고 고품질`
-
-      const result = await model.generateContent(imagePrompt)
-      const response = await result.response
-
-      // 이미지 URL 추출
-      let imageUrl: string | null = null
-      
-      try {
-        const text = response.text()
-        console.log("[Thumbnail Generation] Gemini 응답:", text.substring(0, 200))
-        
-        // JSON 형식으로 응답이 올 수 있음
-        const jsonMatch = text.match(/\{[\s\S]*\}/)
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0])
-          imageUrl = parsed.imageUrl || parsed.url || parsed.image || parsed.output
-        }
-        
-        // URL 패턴으로 직접 찾기
-        if (!imageUrl) {
-          const urlMatch = text.match(/https?:\/\/[^\s"']+/)
-          if (urlMatch) {
-            imageUrl = urlMatch[0]
-          }
-        }
-        
-        // 응답 객체에서 직접 이미지 데이터 확인
-        if (!imageUrl && response.candidates && response.candidates[0]) {
-          const candidate = response.candidates[0]
-          if (candidate.content && candidate.content.parts) {
-            for (const part of candidate.content.parts) {
-              if (part.inlineData && part.inlineData.data) {
-                // Base64 이미지 데이터인 경우
-                const base64Data = part.inlineData.data
-                const mimeType = part.inlineData.mimeType || "image/png"
-                imageUrl = `data:${mimeType};base64,${base64Data}`
-                break
-              } else if (part.url) {
-                imageUrl = part.url
-                break
-              }
-            }
-          }
-        }
-      } catch (error) {
-        console.error("[Thumbnail Generation] 이미지 URL 추출 오류:", error)
-      }
-
-      if (imageUrl) {
-        console.log("[Thumbnail Generation] Gemini 이미지 생성 완료:", imageUrl.substring(0, 100))
-        return NextResponse.json({
-          success: true,
-          imageUrl,
-          prompt: imagePrompt,
-        })
-      }
-    } catch (geminiError) {
-      console.error("[Thumbnail Generation] Gemini 이미지 생성 실패:", geminiError)
-      
-      // Gemini 실패 시 나노바나나로 fallback (Replicate API 키가 있는 경우)
-      if (replicateApiKey) {
-        console.log("[Thumbnail Generation] 나노바나나 모델로 fallback 시도")
-        return await generateWithNanobanana(title, thumbnailText, replicateApiKey, geminiApiKey)
-      }
-      
-      throw geminiError
+    if (!geminiApiKey) {
+      return NextResponse.json(
+        { error: "Gemini API Key가 필요합니다. 프롬프트 생성을 위해 설정 페이지에서 API 키를 입력해주세요." },
+        { status: 400 }
+      )
     }
 
-    // Gemini로 이미지 생성 실패하고 Replicate API 키도 없는 경우
-    throw new Error("이미지 생성에 실패했습니다. Replicate API 키를 제공하면 나노바나나 모델로 재시도합니다.")
+    // 나노바나나로 직접 생성
+    console.log("[Thumbnail Generation] 나노바나나 모델로 이미지 생성 시작")
+    return await generateWithNanobanana(title, thumbnailText, replicateApiKey, geminiApiKey)
   } catch (error) {
     console.error("[Thumbnail Generation] 오류:", error)
     return NextResponse.json(
@@ -151,30 +70,42 @@ async function generateWithNanobanana(
     const genAI = new GoogleGenerativeAI(geminiApiKey)
     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" })
     
-    const promptGenerationPrompt = `앞에 주제에 대한 유튜브 썸네일 16:9로 만들려고 해. 썸네일 만들어줘
+    const promptGenerationPrompt = `Create a YouTube thumbnail image (16:9 aspect ratio) based on the following information:
 
-제목: ${title || "없음"}
-썸네일 문구: ${thumbnailText || "없음"}
+Title: ${title || "N/A"}
+Thumbnail Text (Korean): ${thumbnailText || "N/A"}
 
-위 정보를 바탕으로 유튜브 썸네일 이미지 생성을 위한 영어 프롬프트를 작성해주세요.
+Create an English prompt for generating a YouTube thumbnail image that includes the Korean text "${thumbnailText || ""}" clearly visible in the image.
 
-요구사항:
-- 영어로만 작성
-- 유튜브 썸네일 스타일 (클릭률 높은 디자인)
-- 16:9 비율
-- 밝고 강렬한 색상
-- 텍스트 영역 고려 (썸네일 문구가 들어갈 공간)
-- 시각적으로 임팩트 있는 구도
-- 전문적이고 고품질
+Requirements:
+- Write the prompt in English only
+- YouTube thumbnail style (high click-through rate design)
+- 16:9 aspect ratio
+- Bright and vibrant colors
+- The Korean text "${thumbnailText || ""}" must be clearly visible and readable in the thumbnail
+- Make sure the Korean text is prominently displayed and easy to read
+- Visually impactful composition
+- Professional and high quality
+- The Korean text should be the main focal point or clearly visible
 
-프롬프트만 작성하고 설명은 추가하지 마세요.`
+Write only the prompt without any additional explanation.`
 
     const promptResult = await model.generateContent(promptGenerationPrompt)
-    const imagePrompt = promptResult.response.text().trim()
+    let imagePrompt = promptResult.response.text().trim()
+
+    // 한국어 텍스트가 프롬프트에 포함되도록 보장
+    if (thumbnailText && !imagePrompt.includes(thumbnailText)) {
+      imagePrompt = `${imagePrompt}, with Korean text "${thumbnailText}" clearly visible and readable in the thumbnail`
+    }
 
     console.log("[Thumbnail Generation] 나노바나나 프롬프트:", imagePrompt)
 
     // 나노바나나 모델로 이미지 생성
+    // 한국어 텍스트를 직접 프롬프트에 포함
+    const finalPrompt = thumbnailText 
+      ? `${imagePrompt}. The Korean text "${thumbnailText}" must be prominently displayed in the image.`
+      : imagePrompt
+
     const response = await fetch("https://api.replicate.com/v1/models/google/nano-banana-pro/predictions", {
       method: "POST",
       headers: {
@@ -183,7 +114,7 @@ async function generateWithNanobanana(
       },
       body: JSON.stringify({
         input: {
-          prompt: imagePrompt,
+          prompt: finalPrompt,
           aspect_ratio: "16:9",
           output_format: "png",
         },
@@ -236,7 +167,7 @@ async function generateWithNanobanana(
         return NextResponse.json({
           success: true,
           imageUrl,
-          prompt: imagePrompt,
+          prompt: finalPrompt,
         })
       } else if (statusData.status === "failed") {
         throw new Error(`이미지 생성 실패: ${statusData.error || "알 수 없는 오류"}`)

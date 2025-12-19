@@ -63,6 +63,7 @@ def render_video():
         audio_base64 = data.get('audioBase64')
         audio_gcs_url = data.get('audioGcsUrl')  # Cloud Storage URL
         subtitles = data.get('subtitles', [])
+        show_subtitles = data.get('showSubtitles', True)  # 자막 표시 여부 (기본값: True)
         character_image = data.get('characterImage')  # base64 이미지
         character_image_gcs_url = data.get('characterImageGcsUrl')  # Cloud Storage URL 이미지
         character_image_url = data.get('characterImageUrl')  # 영상 URL
@@ -431,7 +432,7 @@ def render_video():
                         
                         # 이 세그먼트에 해당하는 자막 필터 생성 (같은 시간대 자막을 한 줄로 합침)
                         segment_subtitle_filters = []
-                        if subtitles:
+                        if show_subtitles and subtitles and len(subtitles) > 0:
                             # 시간대별로 자막 그룹화
                             subtitle_groups = {}
                             first_subtitle_start = None  # 이 세그먼트의 첫 자막 시작 시간
@@ -532,36 +533,37 @@ def render_video():
                             stream = input_video.video.filter('scale', 1920, 1080, force_original_aspect_ratio='decrease')
                             stream = stream.filter('pad', 1920, 1080, '(ow-iw)/2', '(oh-ih)/2', color='black')
                         
-                        # 자막 필터 추가 (한 줄, 큰 글씨)
-                        for sub_info in segment_subtitle_filters:
-                            # 텍스트를 한 줄로 강제 (줄바꿈 제거) - 이미 이스케이프된 텍스트에서 줄바꿈만 제거
-                            text_for_display = sub_info['text'].replace('\n', ' ').replace('\r', ' ').replace('  ', ' ').strip()
-                            
-                            drawtext_params = {
-                                'text': text_for_display,
-                                'fontsize': 80,  # 크기 증가 (60 -> 80)
-                                'fontcolor': 'white',
-                                'x': '(w-text_w)/2',
-                                'y': 'h-th-100',
-                                'box': 1,
-                                'boxcolor': 'black@0.75',
-                                'boxborderw': 10,
-                                'enable': f'between(t,{sub_info["start"]},{sub_info["end"]})',
-                                'fix_bounds': 1  # 텍스트 경계 고정
-                            }
-                            if font_path:
-                                drawtext_params['fontfile'] = font_path
-                                print(f"[Render] 자막 폰트 사용: {font_path}")
-                            else:
-                                # 폰트가 없으면 에러 발생 (네모박스 X 문제 방지)
-                                raise Exception("한글 폰트 파일을 찾을 수 없습니다. NotoSansCJK 폰트가 필요합니다.")
-                            
-                            try:
-                                stream = stream.filter('drawtext', **drawtext_params)
-                            except Exception as e:
-                                print(f"[Render] 자막 필터 적용 오류: {str(e)}")
-                                print(f"[Render] 자막 텍스트: {text_for_display[:50]}...")
-                                raise
+                        # 자막 필터 추가 (한 줄, 큰 글씨) - show_subtitles가 True일 때만
+                        if show_subtitles:
+                            for sub_info in segment_subtitle_filters:
+                                # 텍스트를 한 줄로 강제 (줄바꿈 제거) - 이미 이스케이프된 텍스트에서 줄바꿈만 제거
+                                text_for_display = sub_info['text'].replace('\n', ' ').replace('\r', ' ').replace('  ', ' ').strip()
+                                
+                                drawtext_params = {
+                                    'text': text_for_display,
+                                    'fontsize': 80,  # 크기 증가 (60 -> 80)
+                                    'fontcolor': 'white',
+                                    'x': '(w-text_w)/2',
+                                    'y': 'h-th-100',
+                                    'box': 1,
+                                    'boxcolor': 'black@0.75',
+                                    'boxborderw': 10,
+                                    'enable': f'between(t,{sub_info["start"]},{sub_info["end"]})',
+                                    'fix_bounds': 1  # 텍스트 경계 고정
+                                }
+                                if font_path:
+                                    drawtext_params['fontfile'] = font_path
+                                    print(f"[Render] 자막 폰트 사용: {font_path}")
+                                else:
+                                    # 폰트가 없으면 에러 발생 (네모박스 X 문제 방지)
+                                    raise Exception("한글 폰트 파일을 찾을 수 없습니다. NotoSansCJK 폰트가 필요합니다.")
+                                
+                                try:
+                                    stream = stream.filter('drawtext', **drawtext_params)
+                                except Exception as e:
+                                    print(f"[Render] 자막 필터 적용 오류: {str(e)}")
+                                    print(f"[Render] 자막 텍스트: {text_for_display[:50]}...")
+                                    raise
                         
                         # 이 세그먼트에 해당하는 오디오 부분 추출
                         segment_audio_output = f"{temp_dir}/segment_audio_{idx}.wav"
@@ -641,7 +643,7 @@ def render_video():
                     
                     # 자막 필터 생성 (같은 시간대 자막을 한 줄로 합침)
                     subtitle_filters = []
-                    if subtitles:
+                    if show_subtitles and subtitles and len(subtitles) > 0:
                         # 시간대별로 자막 그룹화
                         subtitle_groups = {}
                         for sub in subtitles:
@@ -692,36 +694,37 @@ def render_video():
                     stream = input_video.video.filter('scale', 1920, 1080, force_original_aspect_ratio='decrease')
                     stream = stream.filter('pad', 1920, 1080, '(ow-iw)/2', '(oh-ih)/2', color='black')
                     
-                    # 자막 필터 추가 (한 줄, 큰 글씨)
-                    for sub_info in subtitle_filters:
-                        # 텍스트를 한 줄로 강제 (줄바꿈 제거) - 이미 이스케이프된 텍스트에서 줄바꿈만 제거
-                        text_for_display = sub_info['text'].replace('\n', ' ').replace('\r', ' ').replace('  ', ' ').strip()
-                        
-                        drawtext_params = {
-                            'text': text_for_display,
-                            'fontsize': 80,  # 크기 증가 (60 -> 80)
-                            'fontcolor': 'white',
-                            'x': '(w-text_w)/2',
-                            'y': 'h-th-100',
-                            'box': 1,
-                            'boxcolor': 'black@0.75',
-                            'boxborderw': 10,
-                            'enable': f'between(t,{sub_info["start"]},{sub_info["end"]})',
-                            'fix_bounds': 1  # 텍스트 경계 고정
-                        }
-                        if font_path:
-                            drawtext_params['fontfile'] = font_path
-                            print(f"[Render] 자막 폰트 사용: {font_path}")
-                        else:
-                            # 폰트가 없으면 에러 발생 (네모박스 X 문제 방지)
-                            raise Exception("한글 폰트 파일을 찾을 수 없습니다. NotoSansCJK 폰트가 필요합니다.")
-                        
-                        try:
-                            stream = stream.filter('drawtext', **drawtext_params)
-                        except Exception as e:
-                            print(f"[Render] 자막 필터 적용 오류: {str(e)}")
-                            print(f"[Render] 자막 텍스트: {sub_info['text'][:50]}...")
-                            raise
+                    # 자막 필터 추가 (한 줄, 큰 글씨) - show_subtitles가 True일 때만
+                    if show_subtitles:
+                        for sub_info in subtitle_filters:
+                            # 텍스트를 한 줄로 강제 (줄바꿈 제거) - 이미 이스케이프된 텍스트에서 줄바꿈만 제거
+                            text_for_display = sub_info['text'].replace('\n', ' ').replace('\r', ' ').replace('  ', ' ').strip()
+                            
+                            drawtext_params = {
+                                'text': text_for_display,
+                                'fontsize': 80,  # 크기 증가 (60 -> 80)
+                                'fontcolor': 'white',
+                                'x': '(w-text_w)/2',
+                                'y': 'h-th-100',
+                                'box': 1,
+                                'boxcolor': 'black@0.75',
+                                'boxborderw': 10,
+                                'enable': f'between(t,{sub_info["start"]},{sub_info["end"]})',
+                                'fix_bounds': 1  # 텍스트 경계 고정
+                            }
+                            if font_path:
+                                drawtext_params['fontfile'] = font_path
+                                print(f"[Render] 자막 폰트 사용: {font_path}")
+                            else:
+                                # 폰트가 없으면 에러 발생 (네모박스 X 문제 방지)
+                                raise Exception("한글 폰트 파일을 찾을 수 없습니다. NotoSansCJK 폰트가 필요합니다.")
+                            
+                            try:
+                                stream = stream.filter('drawtext', **drawtext_params)
+                            except Exception as e:
+                                print(f"[Render] 자막 필터 적용 오류: {str(e)}")
+                                print(f"[Render] 자막 텍스트: {sub_info['text'][:50]}...")
+                                raise
                     
                     # 출력 설정
                     audio_codec_str = 'aac' if audio_codec and audio_codec.lower() not in ['aac', 'mp3'] else 'copy'

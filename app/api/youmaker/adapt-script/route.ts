@@ -17,7 +17,7 @@ export const dynamic = 'force-dynamic'
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { script, geminiApiKey } = body
+    const { script, geminiApiKey, commentAnalysis } = body
 
     if (!script || !script.trim()) {
       return NextResponse.json(
@@ -85,6 +85,21 @@ ${cleanedScript}
 
     // Step 3: 새로운 대본 재창조
     console.log("[Script Adaptation] Step 3: 새로운 대본 재창조 시작")
+    
+    // 댓글 분석 결과를 활용한 추가 컨텍스트 구성
+    let commentContext = ""
+    if (commentAnalysis) {
+      commentContext = `
+댓글 민심 분석 결과:
+- 감정 분포: 긍정 ${commentAnalysis.sentiment?.positive || 0}%, 부정 ${commentAnalysis.sentiment?.negative || 0}%, 중립 ${commentAnalysis.sentiment?.neutral || 0}%
+- 주요 키워드: ${commentAnalysis.bestKeywords?.join(", ") || "없음"}
+- 댓글 요약: ${commentAnalysis.summary || "없음"}
+- 장점 (Pros): ${commentAnalysis.pros?.join(", ") || "없음"}
+- 단점 (Cons): ${commentAnalysis.cons?.join(", ") || "없음"}
+
+위 댓글 분석 결과를 참고하여 시청자들이 관심 있어 하는 부분을 강조하고, 부정적인 피드백을 해소할 수 있는 내용을 포함하여 대본을 작성하세요.`
+    }
+    
     const reconstructionPrompt = `1억 뷰 유튜버의 페르소나로 빙의하라. 추출한 구조를 바탕으로 완전히 새로운 대본을 써라. 원본을 베끼지 말고, 몰입도를 극대화할 수 있는 시각적 연출(Visual Cue)을 포함하라.
 
 요약 정보:
@@ -92,6 +107,7 @@ ${cleanedScript}
 - 핵심 메시지: ${summaryData.coreMessage}
 - 논리적 구조: ${JSON.stringify(summaryData.structure)}
 - 요약 포인트: ${JSON.stringify(summaryData.summaryPoints)}
+${commentContext}
 
 다음 JSON 형식으로 응답해주세요:
 {

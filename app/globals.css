@@ -346,3 +346,31 @@
 .animate-float-particle {
   animation: float-particle 4s ease-in-out infinite;
 }
+
+/* AI 분석 진행 바 애니메이션 */
+@keyframes progress-bar {
+  0% {
+    width: 0%;
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    width: 100%;
+    opacity: 0.8;
+  }
+}
+
+.animate-progress-bar {
+  animation: progress-bar 2s ease-in-out infinite;
+}
+
+/* 애니메이션 delay 유틸리티 */
+.delay-300 {
+  animation-delay: 300ms;
+}
+
+.delay-700 {
+  animation-delay: 700ms;
+}

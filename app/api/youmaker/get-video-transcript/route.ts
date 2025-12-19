@@ -160,38 +160,23 @@ export async function POST(request: NextRequest) {
       
       // baseUrl에 이미 fmt 파라미터가 있는지 확인
       const urlObj = new URL(transcriptUrl)
-      if (!urlObj.searchParams.has('fmt')) {
-        // fmt 파라미터가 없으면 추가 (Python 라이브러리는 기본적으로 srv3 또는 json3 사용)
-        urlObj.searchParams.set('fmt', 'json3')
-        transcriptUrl = urlObj.toString()
-      }
       
-      console.log(`[Transcript] 자막 URL: ${transcriptUrl.substring(0, 200)}...`)
-
-      // Python 라이브러리처럼 자막 URL을 직접 호출
-      // Referer와 User-Agent를 watch 페이지와 동일하게 설정
-      const transcriptResponse = await fetch(transcriptUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': '*/*',
-          'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-          'Referer': watchPageUrl,
-          'Origin': 'https://www.youtube.com',
-        },
-      })
-
-      if (!transcriptResponse.ok) {
-        const errorText = await transcriptResponse.text().catch(() => '')
-        console.error(`[Transcript] 자막 fetch 실패: ${transcriptResponse.status} ${transcriptResponse.statusText}`)
-        console.error(`[Transcript] 에러 응답: ${errorText.substring(0, 500)}`)
+      // 여러 fmt 형식을 시도 (우선순위: srv3 > srv1 > json3 > ttml1)
+      const fmtOptions = ['srv3', 'srv1', 'json3', 'ttml1']
+      let transcriptContent = ""
+      let successfulFmt = ""
+      
+      for (const fmt of fmtOptions) {
+        // fmt 파라미터 설정
+        urlObj.searchParams.set('fmt', fmt)
+        const testUrl = urlObj.toString()
         
-        // fmt=json3이 실패하면 fmt=srv3 또는 fmt=xml3 시도
-        if (urlObj.searchParams.get('fmt') === 'json3') {
-          console.log(`[Transcript] json3 실패, srv3 형식으로 재시도`)
-          urlObj.searchParams.set('fmt', 'srv3')
-          const retryUrl = urlObj.toString()
-          
-          const retryResponse = await fetch(retryUrl, {
+        console.log(`[Transcript] ${fmt} 형식으로 시도: ${testUrl.substring(0, 200)}...`)
+        
+        try {
+          // Python 라이브러리처럼 자막 URL을 직접 호출
+          // Referer와 User-Agent를 watch 페이지와 동일하게 설정
+          const transcriptResponse = await fetch(testUrl, {
             headers: {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
               'Accept': '*/*',
@@ -200,33 +185,43 @@ export async function POST(request: NextRequest) {
               'Origin': 'https://www.youtube.com',
             },
           })
-          
-          if (retryResponse.ok) {
-            const retryContent = await retryResponse.text()
-            console.log(`[Transcript] srv3 형식으로 자막 가져오기 성공: ${retryContent.length}자`)
-            return parseTranscript(retryContent, 'srv3', selectedTrack.languageCode)
+
+          if (transcriptResponse.ok) {
+            const content = await transcriptResponse.text()
+            console.log(`[Transcript] ${fmt} 형식 응답 길이: ${content.length}자`)
+            
+            if (content.length > 0) {
+              transcriptContent = content
+              successfulFmt = fmt
+              console.log(`[Transcript] ${fmt} 형식으로 자막 가져오기 성공!`)
+              console.log(`[Transcript] 자막 응답 시작 부분: ${content.substring(0, 200)}`)
+              break
+            } else {
+              console.log(`[Transcript] ${fmt} 형식 응답이 비어있음, 다음 형식 시도`)
+            }
+          } else {
+            const errorText = await transcriptResponse.text().catch(() => '')
+            console.log(`[Transcript] ${fmt} 형식 실패: ${transcriptResponse.status} ${transcriptResponse.statusText}`)
+            console.log(`[Transcript] 에러 응답: ${errorText.substring(0, 200)}`)
           }
+        } catch (fetchError) {
+          console.error(`[Transcript] ${fmt} 형식 fetch 오류:`, fetchError)
+          continue
         }
-        
-        throw new Error(`자막 데이터를 가져올 수 없습니다: ${transcriptResponse.status}`)
       }
 
-      const transcriptContent = await transcriptResponse.text()
-      console.log(`[Transcript] 자막 응답 길이: ${transcriptContent.length}자`)
-      console.log(`[Transcript] 자막 응답 시작 부분: ${transcriptContent.substring(0, 200)}`)
-
       if (transcriptContent.length === 0) {
+        console.error(`[Transcript] 모든 형식 시도 실패. baseUrl: ${selectedTrack.baseUrl}`)
         return NextResponse.json({
-          success: true,
+          success: false,
           transcript: "",
           hasCaptions: false,
-          message: "자막 데이터가 비어있습니다.",
+          message: "자막 데이터를 가져올 수 없습니다. 자막이 비활성화되었거나 접근이 제한된 영상일 수 있습니다.",
         })
       }
 
       // 5단계: 자막 데이터 파싱
-      const fmt = urlObj.searchParams.get('fmt') || 'json3'
-      return parseTranscript(transcriptContent, fmt, selectedTrack.languageCode)
+      return parseTranscript(transcriptContent, successfulFmt, selectedTrack.languageCode)
       
     } catch (transcriptError) {
       console.error("[Get Video Transcript] 자막 가져오기 실패:", transcriptError)
@@ -264,51 +259,107 @@ function parseTranscript(content: string, fmt: string, languageCode: string): Ne
   let transcriptText = ""
   
   try {
-    if (fmt === 'json3' || fmt === 'srv3') {
-      // JSON 형식 파싱
-      const jsonData = JSON.parse(content)
-      
-      if (jsonData.events) {
-        // Python 라이브러리와 동일하게 events 배열에서 텍스트 추출
-        transcriptText = jsonData.events
-          .filter((event: any) => event.segs && event.segs.length > 0)
-          .map((event: any) => {
-            return event.segs
-              .map((seg: any) => {
-                // utf8 필드가 있으면 사용, 없으면 text 필드 사용
-                return seg.utf8 || seg.text || ''
-              })
-              .join('')
-          })
-          .filter((text: string) => text && text.trim().length > 0)
-          .join(" ")
-          .replace(/\s+/g, " ")
-          .trim()
+    if (fmt === 'json3') {
+      // JSON3 형식 파싱
+      try {
+        const jsonData = JSON.parse(content)
         
-        console.log(`[Transcript] JSON 형식(${fmt})으로 자막 추출 완료: ${transcriptText.length}자`)
-      } else if (jsonData.actions) {
-        // srv3 형식은 actions 배열을 사용할 수 있음
-        transcriptText = jsonData.actions
-          .filter((action: any) => action.updateEngagementPanelAction?.content?.transcriptRenderer?.body?.transcriptBodyRenderer?.cueGroups)
-          .flatMap((action: any) => {
-            const cueGroups = action.updateEngagementPanelAction?.content?.transcriptRenderer?.body?.transcriptBodyRenderer?.cueGroups || []
-            return cueGroups.flatMap((group: any) => {
-              const cues = group.transcriptCueGroupRenderer?.cues || []
-              return cues.map((cue: any) => {
-                const runs = cue.transcriptCueRenderer?.cue?.simpleText || 
-                           cue.transcriptCueRenderer?.cue?.runs?.map((r: any) => r.text).join('') || ''
-                return runs
+        if (jsonData.events) {
+          // Python 라이브러리와 동일하게 events 배열에서 텍스트 추출
+          transcriptText = jsonData.events
+            .filter((event: any) => event.segs && event.segs.length > 0)
+            .map((event: any) => {
+              return event.segs
+                .map((seg: any) => {
+                  // utf8 필드가 있으면 사용, 없으면 text 필드 사용
+                  return seg.utf8 || seg.text || ''
+                })
+                .join('')
+            })
+            .filter((text: string) => text && text.trim().length > 0)
+            .join(" ")
+            .replace(/\s+/g, " ")
+            .trim()
+          
+          console.log(`[Transcript] JSON3 형식으로 자막 추출 완료: ${transcriptText.length}자`)
+        } else if (jsonData.actions) {
+          // actions 배열을 사용하는 경우
+          transcriptText = jsonData.actions
+            .filter((action: any) => action.updateEngagementPanelAction?.content?.transcriptRenderer?.body?.transcriptBodyRenderer?.cueGroups)
+            .flatMap((action: any) => {
+              const cueGroups = action.updateEngagementPanelAction?.content?.transcriptRenderer?.body?.transcriptBodyRenderer?.cueGroups || []
+              return cueGroups.flatMap((group: any) => {
+                const cues = group.transcriptCueGroupRenderer?.cues || []
+                return cues.map((cue: any) => {
+                  const runs = cue.transcriptCueRenderer?.cue?.simpleText || 
+                             cue.transcriptCueRenderer?.cue?.runs?.map((r: any) => r.text).join('') || ''
+                  return runs
+                })
               })
             })
-          })
-          .filter((text: string) => text && text.trim().length > 0)
-          .join(" ")
-          .replace(/\s+/g, " ")
-          .trim()
-        
-        console.log(`[Transcript] JSON actions 형식(${fmt})으로 자막 추출 완료: ${transcriptText.length}자`)
+            .filter((text: string) => text && text.trim().length > 0)
+            .join(" ")
+            .replace(/\s+/g, " ")
+            .trim()
+          
+          console.log(`[Transcript] JSON3 actions 형식으로 자막 추출 완료: ${transcriptText.length}자`)
+        }
+      } catch (jsonError) {
+        console.error(`[Transcript] JSON3 파싱 실패:`, jsonError)
       }
-    } else {
+    } else if (fmt === 'srv3' || fmt === 'srv1') {
+      // SRV 형식 파싱 (서버 응답 형식)
+      try {
+        // srv3/srv1은 XML 형식일 수 있음
+        if (content.trim().startsWith('<')) {
+          // XML 형식으로 파싱
+          const textMatches = content.match(/<text[^>]*>([^<]+)<\/text>/g)
+          
+          if (textMatches && textMatches.length > 0) {
+            transcriptText = textMatches
+              .map((match: string) => {
+                const textContent = match.replace(/<[^>]+>/g, "")
+                return decodeHtmlEntities(textContent)
+              })
+              .filter((text: string) => text && text.trim().length > 0)
+              .join(" ")
+              .replace(/\s+/g, " ")
+              .trim()
+            
+            console.log(`[Transcript] SRV XML 형식(${fmt})으로 자막 추출 완료: ${transcriptText.length}자`)
+          }
+        } else {
+          // JSON 형식일 수도 있음
+          try {
+            const jsonData = JSON.parse(content)
+            if (jsonData.events) {
+              transcriptText = jsonData.events
+                .filter((event: any) => event.segs && event.segs.length > 0)
+                .map((event: any) => {
+                  return event.segs
+                    .map((seg: any) => seg.utf8 || seg.text || '')
+                    .join('')
+                })
+                .filter((text: string) => text && text.trim().length > 0)
+                .join(" ")
+                .replace(/\s+/g, " ")
+                .trim()
+              
+              console.log(`[Transcript] SRV JSON 형식(${fmt})으로 자막 추출 완료: ${transcriptText.length}자`)
+            }
+          } catch (jsonError) {
+            // JSON이 아니면 텍스트로 직접 처리
+            console.log(`[Transcript] SRV 텍스트 형식으로 처리 시도`)
+            transcriptText = content
+              .replace(/<[^>]+>/g, " ")
+              .replace(/\s+/g, " ")
+              .trim()
+          }
+        }
+      } catch (srvError) {
+        console.error(`[Transcript] SRV(${fmt}) 파싱 실패:`, srvError)
+      }
+    } else if (fmt === 'ttml1' || fmt === 'xml') {
       // XML 형식 파싱
       console.log(`[Transcript] XML 형식(${fmt})으로 파싱 시도`)
       

@@ -891,10 +891,10 @@ export default function HomePage() {
               <p className="text-xs text-muted-foreground">GPT 모델 사용에 필요합니다</p>
             </div>
 
-            {/* ElevenLabs API Key */}
+            {/* TTSMaker API Key */}
             <div className="space-y-2">
               <Label htmlFor="elevenlabs-key" className="text-sm font-medium">
-                ElevenLabs API Key
+                TTSMaker API Key
               </Label>
               <div className="flex items-center gap-2">
                 <Input
@@ -1165,7 +1165,7 @@ export default function HomePage() {
                     size="sm"
                     onClick={handleYoutubeConnect}
                     className="text-xs bg-red-500 hover:bg-red-600"
-                    disabled={!apiKeys.youtubeClientId || !apiKeys.youtubeClientSecret}
+                    disabled={true}
                   >
                     <Link2 className="w-3 h-3 mr-1" />
                     연결하기

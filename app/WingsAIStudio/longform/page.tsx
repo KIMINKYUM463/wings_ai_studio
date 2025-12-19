@@ -2735,17 +2735,20 @@ export default function LongformContentPage() {
     })
   }
 
-  // 쇼츠 TTS 생성 함수 (쇼츠 페이지와 동일한 방식)
+  // 쇼츠 TTS 생성 함수 (롱폼에서 선택한 TTS 사용)
   const handleGenerateShortsTTS = async () => {
     if (shortsScriptLines.length === 0) {
       alert("생성된 문장 리스트가 없습니다. 먼저 대본을 요약해주세요.")
       return
     }
 
-    const elevenlabsApiKey = getApiKey("elevenlabs_api_key")
-    if (!elevenlabsApiKey) {
-      alert("ElevenLabs API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
-      return
+    // Google TTS와 TTSMaker는 API 키 불필요, ElevenLabs만 필요
+    if (selectedVoiceId !== "google-tts-neural2-a" && selectedVoiceId !== "google-tts-neural2-c" && !selectedVoiceId?.startsWith("ttsmaker-")) {
+      const elevenlabsApiKey = getApiKey("elevenlabs_api_key")
+      if (!elevenlabsApiKey) {
+        alert("TTSMaker API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+        return
+      }
     }
 
     setIsGeneratingShortsTts(true)
@@ -2755,44 +2758,16 @@ export default function LongformContentPage() {
     const collectedAudios: Array<{ lineId: number; audioUrl?: string; audioBase64?: string; audioBuffer?: AudioBuffer; duration?: number }> = []
 
     try {
-      // 각 라인별로 TTS 생성
+      // 각 라인별로 TTS 생성 (롱폼과 동일한 generateTTSWithRetry 함수 사용)
       for (let i = 0; i < shortsScriptLines.length; i++) {
         const line = shortsScriptLines[i]
         setTtsGenerationProgress({ current: i + 1, total: shortsScriptLines.length })
 
         try {
           console.log(`[Shorts] TTS 생성 중... (${i + 1}/${shortsScriptLines.length})`)
-          const response = await fetch("/api/elevenlabs-tts", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              text: line.text,
-              voiceId: selectedVoiceId,
-              apiKey: elevenlabsApiKey,
-            }),
-          })
-
-          if (!response.ok) {
-            let errorMessage = "TTS 생성 실패"
-            try {
-              const errorData = await response.json()
-              errorMessage = errorData.error || errorData.message || `HTTP ${response.status}: ${response.statusText}`
-            } catch (e) {
-              const errorText = await response.text()
-              errorMessage = errorText || `HTTP ${response.status}: ${response.statusText}`
-            }
-            console.error(`[Shorts] TTS API 오류 (줄 ${line.id}):`, errorMessage)
-            throw new Error(errorMessage)
-          }
-
-          const data = await response.json()
           
-          if (!data.audioBase64 && !data.audioUrl) {
-            console.error(`[Shorts] TTS 응답에 오디오 데이터 없음 (줄 ${line.id}):`, data)
-            throw new Error("TTS 응답에 오디오 데이터가 없습니다.")
-          }
+          // 롱폼에서 사용하는 generateTTSWithRetry 함수 사용
+          const data = await generateTTSWithRetry(line, selectedVoiceId)
           
           console.log(`[Shorts] TTS 생성 완료 (줄 ${line.id}):`, data.audioUrl ? "URL 있음" : "URL 없음", data.audioBase64 ? "Base64 있음" : "Base64 없음")
 
@@ -2927,7 +2902,7 @@ export default function LongformContentPage() {
           setShortsTtsAudioUrl(url)
         }
       } else {
-        const errorMessage = "TTS 생성에 실패했습니다.\n\n가능한 원인:\n1. ElevenLabs API 키가 올바르지 않습니다\n2. API 키의 사용량이 초과되었습니다\n3. 네트워크 연결 문제\n\n브라우저 콘솔(F12)에서 자세한 오류를 확인해주세요."
+        const errorMessage = "TTS 생성에 실패했습니다.\n\n가능한 원인:\n1. API 키가 올바르지 않습니다\n2. API 키의 사용량이 초과되었습니다\n3. 네트워크 연결 문제\n\n브라우저 콘솔(F12)에서 자세한 오류를 확인해주세요."
         alert(errorMessage)
       }
     } catch (error) {
@@ -3011,45 +2986,89 @@ export default function LongformContentPage() {
       const images: HTMLImageElement[] = []
       const imageLineIdMap: Map<number, number> = new Map() // lineId -> imageIndex 매핑
       
-      // 먼저 sceneImagePrompts의 이미지를 추가
+      // sceneImagePrompts의 이미지는 나중에 allImageUrls에 포함시킬 예정이므로 여기서는 건너뜀
+      // (generatedImages가 없을 때 사용하기 위해)
       let imageIndex = 0
+      
+      // 그 다음 generatedImages 추가 - shortsScriptLines와 순서대로 매칭
+      // generatedImages를 lineId 순서로 정렬
+      const sortedGeneratedImages = [...generatedImages].sort((a, b) => a.lineId - b.lineId)
+      
+      // sceneImagePrompts에서 이미지 URL 수집 (generatedImages가 없을 때 사용)
+      const sceneImageUrls: string[] = []
       for (const scene of sceneImagePrompts) {
         for (const imgData of scene.images || []) {
-          if (imgData.imageUrl) {
-            // sceneImagePrompts의 이미지는 shortsScriptLines의 lineId와 매칭
-            // sceneNumber와 imageNumber를 기반으로 lineId 찾기
-            const matchingLine = shortsScriptLines.find(line => 
-              (line as any).sceneNumber === scene.sceneNumber && 
-              (line as any).imageNumber === imgData.imageNumber
-            )
-            if (matchingLine) {
+          if (imgData.imageUrl && !sceneImageUrls.includes(imgData.imageUrl)) {
+            sceneImageUrls.push(imgData.imageUrl)
+          }
+        }
+      }
+      
+      // 모든 사용 가능한 이미지 URL 수집
+      const allImageUrls: string[] = []
+      for (const imgData of sortedGeneratedImages) {
+        if (imgData.imageUrl && !allImageUrls.includes(imgData.imageUrl)) {
+          allImageUrls.push(imgData.imageUrl)
+        }
+      }
+      // generatedImages가 없으면 sceneImagePrompts의 이미지 사용
+      if (allImageUrls.length === 0) {
+        allImageUrls.push(...sceneImageUrls)
+      }
+      
+      console.log(`[Shorts 렌더링] 사용 가능한 이미지 수: ${allImageUrls.length}개 (generatedImages: ${sortedGeneratedImages.length}개, sceneImages: ${sceneImageUrls.length}개)`)
+      
+      // shortsScriptLines의 각 라인에 대해 순서대로 이미지 매칭
+      for (let i = 0; i < shortsScriptLines.length; i++) {
+        const shortsLine = shortsScriptLines[i]
+        
+        // 사용 가능한 이미지가 있으면 순서대로 매칭
+        if (allImageUrls.length > 0) {
+          const imageUrl = allImageUrls[i % allImageUrls.length]
+          
+          // 이미 로드된 이미지인지 확인
+          let existingImageIndex = -1
+          for (let j = 0; j < images.length; j++) {
+            if (images[j].src === imageUrl || images[j].src.includes(imageUrl.split('/').pop() || '')) {
+              existingImageIndex = j
+              break
+            }
+          }
+          
+          if (existingImageIndex >= 0) {
+            // 이미 로드된 이미지 사용
+            imageLineIdMap.set(shortsLine.id, existingImageIndex)
+          } else {
+            // 새 이미지 로드
+            try {
               const img = new Image()
               img.crossOrigin = "anonymous"
               await new Promise<void>((resolve, reject) => {
                 img.onload = () => resolve()
-                img.onerror = reject
-                img.src = imgData.imageUrl!
+                img.onerror = (error) => {
+                  console.error(`[Shorts 렌더링] 이미지 로드 실패: ${imageUrl}`, error)
+                  reject(error)
+                }
+                img.src = imageUrl
               })
               images.push(img)
-              imageLineIdMap.set(matchingLine.id, imageIndex)
+              imageLineIdMap.set(shortsLine.id, imageIndex)
               imageIndex++
+              console.log(`[Shorts 렌더링] 이미지 로드 완료 (라인 ${shortsLine.id}): ${imageUrl.substring(0, 50)}...`)
+            } catch (error) {
+              console.error(`[Shorts 렌더링] 이미지 로드 실패 (라인 ${shortsLine.id}):`, error)
+              // 이미지 로드 실패해도 계속 진행
             }
           }
         }
       }
       
-      // 그 다음 generatedImages 추가
-      for (const imgData of generatedImages) {
-        const img = new Image()
-        img.crossOrigin = "anonymous"
-        await new Promise<void>((resolve, reject) => {
-          img.onload = () => resolve()
-          img.onerror = reject
-          img.src = imgData.imageUrl
-        })
-        images.push(img)
-        imageLineIdMap.set(imgData.lineId, imageIndex)
-        imageIndex++
+      console.log(`[Shorts 렌더링] 총 로드된 이미지 수: ${images.length}개, 매핑된 라인 수: ${imageLineIdMap.size}개`)
+      
+      if (images.length === 0) {
+        alert("이미지를 로드할 수 없습니다. 이미지가 생성되었는지 확인해주세요.")
+        setIsRenderingShorts(false)
+        return
       }
 
       // 렌더링 시작
@@ -3166,6 +3185,11 @@ export default function LongformContentPage() {
                 break
               }
             }
+          }
+
+          // 여전히 이미지를 찾지 못한 경우 첫 번째 이미지 사용
+          if (imageIndex < 0 && images.length > 0) {
+            imageIndex = 0
           }
 
           if (imageIndex >= 0 && images[imageIndex]) {
@@ -7183,6 +7207,7 @@ export default function LongformContentPage() {
         // Cloud Storage URL이 있으면 사용, 없으면 base64 사용
         ...audioField,
         // 자막 표시 여부에 따라 자막 포함/제외
+        showSubtitles: showSubtitles, // 자막 표시 여부 명시적으로 전달
         ...(showSubtitles ? {
           subtitles: videoData.subtitles.map((s) => ({
             id: s.id,
@@ -12365,7 +12390,7 @@ export default function LongformContentPage() {
                       })()}
 
                       {/* 자막 오버레이 */}
-                      {currentSubtitle && (
+                      {showSubtitles && currentSubtitle && (
                         <div className="absolute bottom-8 left-8 right-8 bg-black/70 text-white p-6 rounded-xl text-center shadow-2xl border border-white/20 z-10">
                           <p className="text-4xl font-bold">{currentSubtitle}</p>
                         </div>
@@ -12520,8 +12545,13 @@ export default function LongformContentPage() {
                         }
                         
                         // 오디오 시간을 그대로 사용 (이미 합쳐진 오디오이므로)
-                        const subtitle = videoData.subtitles.find((s) => audioCurrentTime >= s.start && audioCurrentTime < s.end)
-                        setCurrentSubtitle(subtitle?.text || "")
+                        // 자막 표시 여부에 따라 자막 업데이트
+                        if (showSubtitles) {
+                          const subtitle = videoData.subtitles.find((s) => audioCurrentTime >= s.start && audioCurrentTime < s.end)
+                          setCurrentSubtitle(subtitle?.text || "")
+                        } else {
+                          setCurrentSubtitle("")
+                        }
                         setCurrentTime(totalCurrentTime)
                         setIsPlaying(!audioElement.paused)
                       }}
