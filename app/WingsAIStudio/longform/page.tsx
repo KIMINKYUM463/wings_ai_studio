@@ -9903,6 +9903,7 @@ export default function LongformContentPage() {
                               <SelectContent>
                                 <SelectItem value="5">5분 (약 {Math.floor(5 * 60 * 6.9).toLocaleString()}자)</SelectItem>
                                 <SelectItem value="10">10분 (약 {Math.floor(10 * 60 * 6.9).toLocaleString()}자)</SelectItem>
+                                <SelectItem value="15">15분 (약 {Math.floor(15 * 60 * 6.9).toLocaleString()}자)</SelectItem>
                                 <SelectItem value="20">20분 (약 {Math.floor(20 * 60 * 6.9).toLocaleString()}자)</SelectItem>
                                 <SelectItem value="25">25분 (약 {Math.floor(25 * 60 * 6.9).toLocaleString()}자)</SelectItem>
                                 <SelectItem value="30">30분 (약 {Math.floor(30 * 60 * 6.9).toLocaleString()}자)</SelectItem>
@@ -10563,6 +10564,7 @@ export default function LongformContentPage() {
                       <SelectContent>
                         <SelectItem value="5">5분 (최소 {Math.floor(5 * 60 * 6.9).toLocaleString()}자)</SelectItem>
                         <SelectItem value="10">10분 (최소 {Math.floor(10 * 60 * 6.9).toLocaleString()}자)</SelectItem>
+                        <SelectItem value="15">15분 (최소 {Math.floor(15 * 60 * 6.9).toLocaleString()}자)</SelectItem>
                         <SelectItem value="20">20분 (최소 {Math.floor(20 * 60 * 6.9).toLocaleString()}자)</SelectItem>
                         <SelectItem value="25">25분 (최소 {Math.floor(25 * 60 * 6.9).toLocaleString()}자)</SelectItem>
                         <SelectItem value="30">30분 (최소 {Math.floor(30 * 60 * 6.9).toLocaleString()}자)</SelectItem>
