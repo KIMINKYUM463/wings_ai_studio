@@ -460,8 +460,12 @@ def render_video():
                                     if adjusted_start < 0:
                                         adjusted_start = 0
                                     
-                                    # adjusted_end가 0보다 크고 adjusted_start가 segment_duration보다 작아야 함
-                                    if adjusted_end <= 0 or adjusted_start >= segment_duration:
+                                    # adjusted_end도 0 이상으로 조정 (자막 타이밍이 앞당겨져서 음수가 될 수 있음)
+                                    if adjusted_end < 0:
+                                        adjusted_end = 0.1  # 최소 0.1초 길이 보장
+                                    
+                                    # adjusted_start가 segment_duration보다 작아야 함 (adjusted_end는 이미 조정됨)
+                                    if adjusted_start >= segment_duration:
                                         continue
                                     
                                     text = sub.get('text', '').strip()
