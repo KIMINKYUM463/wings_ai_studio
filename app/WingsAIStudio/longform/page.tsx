@@ -11605,7 +11605,7 @@ export default function LongformContentPage() {
                           setIsGeneratingScenePrompts(false)
                         }
                       }}
-                      disabled={isGeneratingScenePrompts || !decomposedScenes || decomposedScenes.trim().length === 0}
+                      disabled={isGeneratingScenePrompts || isGeneratingSceneImages || !decomposedScenes || decomposedScenes.trim().length === 0}
                       className="w-full h-12 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-semibold"
                       size="lg"
                     >
@@ -11647,31 +11647,71 @@ export default function LongformContentPage() {
                           const updatedPrompts = [...sceneImagePrompts]
                           let hasGeneratedImages = false
                           
+                          // 재시도 함수
+                          const generateImageWithRetry = async (
+                            prompt: string,
+                            replicateApiKey: string,
+                            imageStyle: string | undefined,
+                            sceneText: string | undefined,
+                            maxRetries: number = 3
+                          ): Promise<string | null> => {
+                            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                              try {
+                                return await generateImageWithReplicate(
+                                  prompt,
+                                  replicateApiKey,
+                                  "16:9",
+                                  imageStyle,
+                                  sceneText
+                                )
+                              } catch (error) {
+                                console.error(`[Scene Image] 재시도 ${attempt}/${maxRetries} 실패:`, error)
+                                if (attempt === maxRetries) {
+                                  throw error
+                                }
+                                // 재시도 전 대기 (지수 백오프)
+                                await new Promise(resolve => setTimeout(resolve, 1000 * attempt))
+                              }
+                            }
+                            return null
+                          }
+                          
                           for (const scene of updatedPrompts) {
                             for (const image of scene.images) {
+                              // 이미 생성된 이미지는 건너뛰기
+                              if (image.imageUrl) {
+                                currentIndex++
+                                setSceneImageGenerationProgress({ current: currentIndex, total: totalImages })
+                                console.log(`[Scene Image] 이미지 건너뛰기 (이미 생성됨): Scene ${scene.sceneNumber}, Image ${image.imageNumber}`)
+                                continue
+                              }
+                              
                               currentIndex++
                               setSceneImageGenerationProgress({ current: currentIndex, total: totalImages })
                               
                               try {
                                 console.log(`[Scene Image] 이미지 생성 중... (${currentIndex}/${totalImages}): Scene ${scene.sceneNumber}, Image ${image.imageNumber}`)
-                                // 스틱맨 스타일일 때 장면 정보(sceneText)를 전달
-                                const imageUrl = await generateImageWithReplicate(
-                                  image.prompt, 
-                                  replicateApiKey, 
-                                  "16:9", 
-                                  imageStyle,
-                                  image.sceneText // 장면 정보 전달
-                                )
-                                console.log(`[Scene Image] 이미지 생성 완료:`, imageUrl)
                                 
-                                // 해당 이미지에 imageUrl 추가
-                                const sceneIndex = updatedPrompts.findIndex(s => s.sceneNumber === scene.sceneNumber)
-                                if (sceneIndex !== -1) {
-                                  const imageIndex = updatedPrompts[sceneIndex].images.findIndex(img => img.imageNumber === image.imageNumber)
-                                  if (imageIndex !== -1) {
-                                    updatedPrompts[sceneIndex].images[imageIndex].imageUrl = imageUrl
-                                    setSceneImagePrompts([...updatedPrompts])
-                                    hasGeneratedImages = true
+                                // 재시도 로직이 포함된 이미지 생성
+                                const imageUrl = await generateImageWithRetry(
+                                  image.prompt,
+                                  replicateApiKey,
+                                  imageStyle,
+                                  image.sceneText
+                                )
+                                
+                                if (imageUrl) {
+                                  console.log(`[Scene Image] 이미지 생성 완료:`, imageUrl)
+                                  
+                                  // 해당 이미지에 imageUrl 추가
+                                  const sceneIndex = updatedPrompts.findIndex(s => s.sceneNumber === scene.sceneNumber)
+                                  if (sceneIndex !== -1) {
+                                    const imageIndex = updatedPrompts[sceneIndex].images.findIndex(img => img.imageNumber === image.imageNumber)
+                                    if (imageIndex !== -1) {
+                                      updatedPrompts[sceneIndex].images[imageIndex].imageUrl = imageUrl
+                                      setSceneImagePrompts([...updatedPrompts])
+                                      hasGeneratedImages = true
+                                    }
                                   }
                                 }
                               } catch (error) {
@@ -11679,8 +11719,10 @@ export default function LongformContentPage() {
                                 // 실패해도 계속 진행
                               }
                               
-                              // API 제한 방지를 위한 딜레이
-                              await new Promise(resolve => setTimeout(resolve, 300))
+                              // API 제한 방지를 위한 딜레이 (300ms -> 2000ms로 증가)
+                              if (currentIndex < totalImages) {
+                                await new Promise(resolve => setTimeout(resolve, 2000))
+                              }
                             }
                           }
                           
@@ -11838,7 +11880,10 @@ export default function LongformContentPage() {
                                             size="sm"
                                             variant="default"
                                             className="bg-green-500 hover:bg-green-600 text-white"
-                                            disabled={generatingImageIds.has(`${scene.sceneNumber}-${image.imageNumber}`)}
+                                            disabled={
+                                              isGeneratingSceneImages || 
+                                              generatingImageIds.has(`${scene.sceneNumber}-${image.imageNumber}`)
+                                            }
                                             onClick={async () => {
                                               const replicateApiKey = getApiKey("replicate_api_key")
                                               if (!replicateApiKey) {
@@ -11853,13 +11898,35 @@ export default function LongformContentPage() {
                                               
                                               try {
                                                 console.log(`[Scene Image] 개별 이미지 생성 시작: Scene ${scene.sceneNumber}, Image ${image.imageNumber}`)
-                                                const imageUrl = await generateImageWithReplicate(
-                                                  image.prompt,
-                                                  replicateApiKey,
-                                                  "16:9",
-                                                  imageStyle,
-                                                  image.sceneText
-                                                )
+                                                
+                                                // 재시도 로직이 포함된 이미지 생성
+                                                let imageUrl: string | null = null
+                                                const maxRetries = 3
+                                                
+                                                for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                                                  try {
+                                                    imageUrl = await generateImageWithReplicate(
+                                                      image.prompt,
+                                                      replicateApiKey,
+                                                      "16:9",
+                                                      imageStyle,
+                                                      image.sceneText
+                                                    )
+                                                    break // 성공하면 루프 종료
+                                                  } catch (error) {
+                                                    console.error(`[Scene Image] 개별 이미지 생성 재시도 ${attempt}/${maxRetries} 실패:`, error)
+                                                    if (attempt === maxRetries) {
+                                                      throw error
+                                                    }
+                                                    // 재시도 전 대기 (지수 백오프)
+                                                    await new Promise(resolve => setTimeout(resolve, 1000 * attempt))
+                                                  }
+                                                }
+                                                
+                                                if (!imageUrl) {
+                                                  throw new Error("이미지 생성에 실패했습니다.")
+                                                }
+                                                
                                                 console.log(`[Scene Image] 개별 이미지 생성 완료:`, imageUrl)
                                                 
                                                 // 해당 이미지에 imageUrl 추가
