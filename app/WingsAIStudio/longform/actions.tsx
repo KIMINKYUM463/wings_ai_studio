@@ -3282,10 +3282,18 @@ export async function generateImagePrompt(
     }
 
     const data = await response.json()
-    const prompt = data.choices?.[0]?.message?.content?.trim()
+    
+    // API 응답 검증
+    if (!data || !data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
+      console.error("[v0] API 응답 오류:", data)
+      throw new Error("프롬프트 생성에 실패했습니다: API 응답 형식이 올바르지 않습니다.")
+    }
+    
+    const prompt = data.choices[0]?.message?.content?.trim()
 
-    if (!prompt) {
-      throw new Error("프롬프트 생성에 실패했습니다. 응답 내용이 없습니다.")
+    if (!prompt || typeof prompt !== 'string') {
+      console.error("[v0] 프롬프트 없음:", data.choices[0])
+      throw new Error("프롬프트 생성에 실패했습니다: 응답 내용이 없습니다.")
     }
 
     // 한국어 제거 및 정리

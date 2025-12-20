@@ -10904,6 +10904,12 @@ export default function LongformContentPage() {
                           console.log("[이미지 프롬프트 생성] decomposedScenes 확인:", decomposedScenes.substring(0, 500))
                           console.log("[이미지 프롬프트 생성] customStylePrompt:", customStylePrompt)
                           const prompts = await generateSceneImagePrompts(decomposedScenes, imageStyle, openaiApiKey, customStylePrompt || undefined, selectedTopic || undefined, script || undefined)
+                          
+                          // 안전성 확인
+                          if (!prompts || !Array.isArray(prompts)) {
+                            throw new Error("프롬프트 생성 결과가 올바르지 않습니다.")
+                          }
+                          
                           console.log("[이미지 프롬프트 생성] 생성된 프롬프트 개수:", prompts.length)
                           setSceneImagePrompts(prompts)
                         } catch (error) {

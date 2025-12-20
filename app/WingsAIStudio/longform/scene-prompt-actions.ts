@@ -480,9 +480,19 @@ ${imageStyle === "realistic" || imageStyle === "realistic2" ? "Inference Steps�
       }
       
       sceneImages.forEach((img) => {
+        if (!img || typeof img.imageNumber !== 'number') {
+          console.warn(`[Scene ${sceneNum}] 유효하지 않은 이미지 데이터:`, img)
+          return
+        }
+        
         const promptData = prompts.get(img.imageNumber)
-        let prompt = promptData?.prompt || img.text
-        const visualInstruction = promptData?.visualInstruction || ""
+        let prompt = (promptData?.prompt || img?.text || "").trim()
+        const visualInstruction = (promptData?.visualInstruction || "").trim()
+        
+        if (!prompt) {
+          console.warn(`[Scene ${sceneNum}] Image ${img.imageNumber} 프롬프트가 비어있습니다.`)
+          prompt = img?.text || "image"
+        }
         
         // 시대적 배경이 있으면 프롬프트에 명시적으로 포함 (확실히 하기 위해)
         if (historicalContext) {
@@ -515,12 +525,17 @@ ${imageStyle === "realistic" || imageStyle === "realistic2" ? "Inference Steps�
         }
         
         // 커스텀 스타일 프롬프트가 있으면 추가 (이미 LLM이 포함했을 수도 있지만, 확실히 하기 위해 추가)
-        if (customStylePrompt && !prompt.toLowerCase().includes(customStylePrompt.toLowerCase().substring(0, 50))) {
-          prompt = `${prompt}, ${customStylePrompt}`
+        if (customStylePrompt && typeof customStylePrompt === 'string' && customStylePrompt.trim().length > 0) {
+          const customStyleLower = customStylePrompt.toLowerCase()
+          const promptLower = prompt.toLowerCase()
+          const customStylePrefix = customStyleLower.substring(0, Math.min(50, customStyleLower.length))
+          if (!promptLower.includes(customStylePrefix)) {
+            prompt = `${prompt}, ${customStylePrompt}`
+          }
         }
 
-        console.log(`[Scene ${sceneNum}] Image ${img.imageNumber} 프롬프트:`, prompt.substring(0, 100))
-        console.log(`[Scene ${sceneNum}] Image ${img.imageNumber} 시각화 지시문:`, visualInstruction)
+        console.log(`[Scene ${sceneNum}] Image ${img.imageNumber} 프롬프트:`, prompt ? prompt.substring(0, 100) : "(없음)")
+        console.log(`[Scene ${sceneNum}] Image ${img.imageNumber} 시각화 지시문:`, visualInstruction || "(없음)")
 
         sceneImageResults.push({
           imageNumber: img.imageNumber,
