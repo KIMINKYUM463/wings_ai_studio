@@ -105,6 +105,10 @@ def render_video():
         import requests
         import shutil
         import traceback
+        import uuid
+        
+        # 고유 ID 생성 (파일명 충돌 방지용)
+        unique_id = str(uuid.uuid4()).replace('-', '')[:12]  # UUID 앞 12자리만 사용
         
         temp_dir = None
         try:
@@ -435,7 +439,6 @@ def render_video():
                         if show_subtitles and subtitles and len(subtitles) > 0:
                             # 시간대별로 자막 그룹화
                             subtitle_groups = {}
-                            first_subtitle_start = None  # 이 세그먼트의 첫 자막 시작 시간
                             
                             for sub in subtitles:
                                 # 클라이언트에서 이미 조정된 자막 타이밍을 그대로 사용 (duration_ratio 적용하지 않음)
@@ -465,10 +468,6 @@ def render_video():
                                     if not text:
                                         continue
                                     
-                                    # 첫 자막 시작 시간 기록 (가장 작은 adjusted_start)
-                                    if first_subtitle_start is None or adjusted_start < first_subtitle_start:
-                                        first_subtitle_start = adjusted_start
-                                    
                                     # 같은 시작 시간의 자막들을 그룹화 (소수점 3자리까지 반올림하여 그룹화)
                                     key = f"{adjusted_start:.3f}"
                                     if key not in subtitle_groups:
@@ -480,28 +479,8 @@ def render_video():
                                     subtitle_groups[key]['texts'].append(text)
                                     subtitle_groups[key]['end'] = max(subtitle_groups[key]['end'], adjusted_end)
                             
-                            # 첫 자막이 있으면, 모든 자막 타이밍을 첫 자막 시작 시간(0)에 맞추도록 오프셋 조정
-                            if first_subtitle_start is not None and first_subtitle_start > 0:
-                                offset = first_subtitle_start  # 첫 자막을 0으로 맞추기 위한 오프셋
-                                print(f"[Render] Segment {idx}: 첫 자막 오프셋 조정 {first_subtitle_start:.3f}s -> 0s (오프셋: {offset:.3f}s)")
-                                
-                                # 모든 자막 타이밍에서 오프셋을 빼서 첫 자막이 0에 오도록 조정
-                                adjusted_groups = {}
-                                for key, group in subtitle_groups.items():
-                                    new_start = max(0, group['start'] - offset)  # 음수가 되지 않도록
-                                    new_end = max(new_start + 0.1, group['end'] - offset)  # 최소 0.1초 길이 유지
-                                    
-                                    # 세그먼트 길이를 초과하지 않도록
-                                    if new_start < segment_duration:
-                                        new_end = min(new_end, segment_duration)
-                                        new_key = f"{new_start:.3f}"
-                                        adjusted_groups[new_key] = {
-                                            'texts': group['texts'],
-                                            'start': new_start,
-                                            'end': new_end
-                                        }
-                                
-                                subtitle_groups = adjusted_groups
+                            # 오프셋 조정 제거: 클라이언트에서 전달한 자막 타이밍을 그대로 사용하여 TTS와 정확히 동기화
+                            # (이전 로직은 첫 자막을 0초로 맞추기 위해 오프셋을 빼서 TTS보다 자막이 늦게 시작하는 문제 발생)
                             
                             # 그룹화된 자막을 한 줄로 합쳐서 필터 생성
                             for key, group in subtitle_groups.items():
@@ -820,7 +799,8 @@ def render_video():
                     storage_client = storage.Client(project=project_id)
                     bucket = storage_client.bucket(bucket_name)
                     
-                    video_filename = f"rendered_video_{int(time.time())}.mp4"
+                    # 고유한 파일명 생성 (타임스탬프 + UUID로 충돌 방지)
+                    video_filename = f"rendered_video_{int(time.time())}_{unique_id}.mp4"
                     blob = bucket.blob(video_filename)
                     blob.upload_from_string(video_data, content_type='video/mp4')
                     
@@ -834,7 +814,7 @@ def render_video():
                     return jsonify({
                         "success": True,
                         "videoUrl": video_url,
-                        "projectId": f"project_{int(time.time())}"
+                        "projectId": f"project_{int(time.time())}_{unique_id}"
                     })
                 except Exception as gcs_error:
                     error_msg = str(gcs_error)
@@ -857,7 +837,7 @@ def render_video():
             return jsonify({
                 "success": True,
                 "videoBase64": video_base64,
-                "projectId": f"project_{int(time.time())}"
+                "projectId": f"project_{int(time.time())}_{unique_id}"
             })
             
         except Exception as e:
