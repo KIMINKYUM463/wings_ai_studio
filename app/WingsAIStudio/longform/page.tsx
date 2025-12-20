@@ -371,7 +371,7 @@ export default function LongformContentPage() {
   const [generatedImages, setGeneratedImages] = useState<Array<{ lineId: number; imageUrl: string; prompt: string }>>([])
   const [isGeneratingImages, setIsGeneratingImages] = useState(false)
   const [imageGenerationProgress, setImageGenerationProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 })
-  const [selectedVoiceId, setSelectedVoiceId] = useState<string>("google-tts-neural2-a") // 기본: Google TTS (여성)
+  const [selectedVoiceId, setSelectedVoiceId] = useState<string>("ttsmaker-여성1") // 기본: TTSMaker 여성1
   const [previewingVoiceId, setPreviewingVoiceId] = useState<string | null>(null)
   const [previewAudioUrl, setPreviewAudioUrl] = useState<string | null>(null)
   const [generatedAudios, setGeneratedAudios] = useState<Array<{ lineId: number; audioUrl: string; audioBase64: string; alignment?: any }>>([])
@@ -1133,8 +1133,8 @@ export default function LongformContentPage() {
       await new Promise(resolve => setTimeout(resolve, 1000))
 
       // Step 5: TTS 생성 (수동 모드와 동일하게 전체 문장에 대해 생성)
-      // Google TTS와 Gemini 2.5 Pro Preview TTS인 경우 API 키 불필요, ElevenLabs인 경우만 필요
-      if (selectedVoiceId === "google-tts-neural2-a" || selectedVoiceId === "google-tts-neural2-c" || selectedVoiceId?.startsWith("ttsmaker-") || elevenlabsApiKey) {
+      // TTSMaker는 API 키 필요, ElevenLabs인 경우만 필요
+      if (selectedVoiceId?.startsWith("ttsmaker-") || elevenlabsApiKey) {
         setAutoProgress({
           step: 5,
           totalSteps: 9,
@@ -1350,7 +1350,7 @@ export default function LongformContentPage() {
             
             if (audioDuration > 0) {
               // ElevenLabs alignment가 있으면 정확한 타이밍 사용
-              if (alignment && selectedVoiceId && !selectedVoiceId.startsWith("google-tts-") && !selectedVoiceId.startsWith("ttsmaker-")) {
+              if (alignment && selectedVoiceId && !selectedVoiceId.startsWith("ttsmaker-")) {
                 try {
                   const geminiApiKey = getGeminiApiKey()
                   if (geminiApiKey) {
@@ -2900,14 +2900,14 @@ export default function LongformContentPage() {
       return
     }
 
-    // Google TTS는 API 키 불필요, TTSMaker와 ElevenLabs는 필요
+    // TTSMaker와 ElevenLabs는 API 키 필요
     if (selectedVoiceId?.startsWith("ttsmaker-")) {
       const ttsmakerApiKey = getApiKey("ttsmaker_api_key")
       if (!ttsmakerApiKey) {
         alert("TTSMaker API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
         return
       }
-    } else if (selectedVoiceId !== "google-tts-neural2-a" && selectedVoiceId !== "google-tts-neural2-c") {
+    } else {
       const elevenlabsApiKey = getApiKey("elevenlabs_api_key")
       if (!elevenlabsApiKey) {
         alert("ElevenLabs API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
@@ -4750,20 +4750,7 @@ export default function LongformContentPage() {
       let response: Response
       
       // Google TTS인 경우
-      if (voiceId === "google-tts-neural2-a" || voiceId === "google-tts-neural2-c") {
-        const googleVoice = voiceId === "google-tts-neural2-a" ? "ko-KR-Neural2-A" : "ko-KR-Neural2-C"
-        response = await fetch("/api/google-tts", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            text: "여러분 환영합니다",
-            voice: googleVoice,
-            speed: 1.0,
-          }),
-        })
-      } else if (voiceId?.startsWith("ttsmaker-")) {
+      if (voiceId?.startsWith("ttsmaker-")) {
         // TTSMaker인 경우
         const voiceName = voiceId.replace("ttsmaker-", "")
         // 남성5는 음높이 -10% (pitch 0.9)
@@ -4900,21 +4887,8 @@ export default function LongformContentPage() {
       try {
         let response: Response
         
-        // Google TTS인 경우
-        if (selectedVoiceId === "google-tts-neural2-a" || selectedVoiceId === "google-tts-neural2-c") {
-          const googleVoice = selectedVoiceId === "google-tts-neural2-a" ? "ko-KR-Neural2-A" : "ko-KR-Neural2-C"
-          response = await fetch("/api/google-tts", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              text: convertedText,
-              voice: googleVoice,
-              speed: 1.0,
-            }),
-          })
-        } else if (selectedVoiceId?.startsWith("ttsmaker-")) {
+        // TTSMaker인 경우
+        if (selectedVoiceId?.startsWith("ttsmaker-")) {
           // TTSMaker인 경우
           const voiceName = selectedVoiceId.replace("ttsmaker-", "")
           const pitch = voiceName === "남성5" ? 0.9 : 1.0
@@ -5002,14 +4976,14 @@ export default function LongformContentPage() {
       return
     }
 
-    // Google TTS는 API 키 불필요, TTSMaker와 ElevenLabs는 필요
+    // TTSMaker와 ElevenLabs는 API 키 필요
     if (selectedVoiceId?.startsWith("ttsmaker-")) {
       const ttsmakerApiKey = getApiKey("ttsmaker_api_key")
       if (!ttsmakerApiKey) {
         alert("TTSMaker API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
         return
       }
-    } else if (selectedVoiceId !== "google-tts-neural2-a" && selectedVoiceId !== "google-tts-neural2-c") {
+    } else {
       const elevenlabsApiKey = getApiKey("elevenlabs_api_key")
       if (!elevenlabsApiKey) {
         alert("ElevenLabs API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
@@ -5070,8 +5044,8 @@ export default function LongformContentPage() {
       return
     }
 
-    // Google TTS와 Gemini 2.5 Pro Preview TTS인 경우 API 키 체크 불필요
-    if (selectedVoiceId !== "google-tts-neural2-a" && selectedVoiceId !== "google-tts-neural2-c" && !selectedVoiceId?.startsWith("ttsmaker-")) {
+    // TTSMaker와 ElevenLabs는 API 키 필요
+    if (!selectedVoiceId?.startsWith("ttsmaker-")) {
       const elevenlabsApiKey = getApiKey("elevenlabs_api_key")
       if (!elevenlabsApiKey) {
         alert("ElevenLabs API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
@@ -9898,8 +9872,6 @@ export default function LongformContentPage() {
                                 // { id: "jB1Cifc2UQbq1gR3wnb0", name: "Rachel", note: "기본(Default)", provider: "elevenlabs" }, // 숨김
                                 // { id: "8jHHF8rMqMlg8if2mOUe", name: "Voice 2", note: "사용자 선택형", provider: "elevenlabs" }, // 숨김
                                 // { id: "uyVNoMrnUku1dZyVEXwD", name: "Voice 3", note: "", provider: "elevenlabs" }, // 숨김
-                                { id: "google-tts-neural2-a", name: "Google TTS (여성)", note: "ko-KR-Neural2-A", provider: "google" },
-                                { id: "google-tts-neural2-c", name: "Google TTS (남성)", note: "ko-KR-Neural2-C", provider: "google" },
                                 { id: "ttsmaker-여성1", name: "TTSMaker 여성1", note: "ID: 503", provider: "ttsmaker" },
                                 { id: "ttsmaker-여성2", name: "TTSMaker 여성2", note: "ID: 509", provider: "ttsmaker" },
                                 { id: "ttsmaker-여성6", name: "TTSMaker 여성3", note: "ID: 5802", provider: "ttsmaker" },
@@ -12232,8 +12204,6 @@ export default function LongformContentPage() {
                           // { id: "jB1Cifc2UQbq1gR3wnb0", name: "Rachel", note: "기본(Default)", provider: "elevenlabs" }, // 숨김
                           // { id: "8jHHF8rMqMlg8if2mOUe", name: "Voice 2", note: "사용자 선택형", provider: "elevenlabs" }, // 숨김
                           // { id: "uyVNoMrnUku1dZyVEXwD", name: "Voice 3", note: "", provider: "elevenlabs" }, // 숨김
-                          { id: "google-tts-neural2-a", name: "Google TTS (여성)", note: "ko-KR-Neural2-A", provider: "google" },
-                          { id: "google-tts-neural2-c", name: "Google TTS (남성)", note: "ko-KR-Neural2-C", provider: "google" },
                           { id: "ttsmaker-여성1", name: "TTSMaker 여성1", note: "ID: 503", provider: "ttsmaker" },
                           { id: "ttsmaker-여성2", name: "TTSMaker 여성2", note: "ID: 509", provider: "ttsmaker" },
                           { id: "ttsmaker-여성6", name: "TTSMaker 여성3", note: "ID: 5802", provider: "ttsmaker" },
