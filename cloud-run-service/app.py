@@ -440,6 +440,9 @@ def render_video():
                             # 시간대별로 자막 그룹화
                             subtitle_groups = {}
                             
+                            # 첫 자막인지 확인하기 위한 변수
+                            is_first_subtitle_in_segment = True
+                            
                             for sub in subtitles:
                                 # 클라이언트에서 이미 조정된 자막 타이밍을 그대로 사용 (duration_ratio 적용하지 않음)
                                 sub_start = float(sub.get('start', sub.get('startTime', 0)))
@@ -451,22 +454,36 @@ def render_video():
                                     adjusted_start = sub_start - seg_start_time
                                     adjusted_end = min(segment_duration, sub_end - seg_start_time)
                                     
-                                    # adjusted_start가 음수면 0으로 조정 (세그먼트 시작 이전에 시작한 자막도 포함)
-                                    # 단, 세그먼트 시작 시간보다 0.5초 이상 이전에 시작하면 제외 (이전 장면의 자막 제외)
-                                    if adjusted_start < -0.5:
-                                        continue
-                                    
-                                    # adjusted_start를 0 이상으로 조정
-                                    if adjusted_start < 0:
-                                        adjusted_start = 0
-                                    
-                                    # adjusted_end도 0 이상으로 조정 (자막 타이밍이 앞당겨져서 음수가 될 수 있음)
-                                    if adjusted_end < 0:
-                                        adjusted_end = 0.1  # 최소 0.1초 길이 보장
+                                    # 첫 자막인 경우 무조건 포함 (자막 타이밍이 앞당겨져서 음수가 될 수 있음)
+                                    if is_first_subtitle_in_segment:
+                                        # 첫 자막은 무조건 포함하되, 음수면 0으로 조정
+                                        if adjusted_start < 0:
+                                            adjusted_start = 0
+                                        if adjusted_end < 0:
+                                            adjusted_end = max(0.1, adjusted_start + 0.1)  # 최소 0.1초 길이 보장
+                                        is_first_subtitle_in_segment = False
+                                    else:
+                                        # 두 번째 자막부터는 기존 로직 적용
+                                        # adjusted_start가 음수면 0으로 조정 (세그먼트 시작 이전에 시작한 자막도 포함)
+                                        # 단, 세그먼트 시작 시간보다 0.5초 이상 이전에 시작하면 제외 (이전 장면의 자막 제외)
+                                        if adjusted_start < -0.5:
+                                            continue
+                                        
+                                        # adjusted_start를 0 이상으로 조정
+                                        if adjusted_start < 0:
+                                            adjusted_start = 0
+                                        
+                                        # adjusted_end도 0 이상으로 조정 (자막 타이밍이 앞당겨져서 음수가 될 수 있음)
+                                        if adjusted_end < 0:
+                                            adjusted_end = max(0.1, adjusted_start + 0.1)  # 최소 0.1초 길이 보장
                                     
                                     # adjusted_start가 segment_duration보다 작아야 함 (adjusted_end는 이미 조정됨)
                                     if adjusted_start >= segment_duration:
                                         continue
+                                    
+                                    # adjusted_end가 adjusted_start보다 커야 함
+                                    if adjusted_end <= adjusted_start:
+                                        adjusted_end = adjusted_start + 0.1  # 최소 0.1초 길이 보장
                                     
                                     text = sub.get('text', '').strip()
                                     if not text:
