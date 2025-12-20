@@ -433,12 +433,14 @@ export default function LongformContentPage() {
     elevenlabs: "",
     replicate: "",
     gemini: "",
+    ttsmaker: "",
   })
   const [showKeys, setShowKeys] = useState({
     openai: false,
     elevenlabs: false,
     replicate: false,
     gemini: false,
+    ttsmaker: false,
   })
   const [saved, setSaved] = useState(false)
   
@@ -662,12 +664,14 @@ export default function LongformContentPage() {
     const storedElevenLabs = localStorage.getItem("elevenlabs_api_key") || ""
     const storedReplicate = localStorage.getItem("replicate_api_key") || ""
     const storedGemini = localStorage.getItem("gemini_api_key") || ""
+    const storedTTSMaker = localStorage.getItem("ttsmaker_api_key") || ""
 
     setApiKeys({
       openai: storedOpenAI,
       elevenlabs: storedElevenLabs,
       replicate: storedReplicate,
       gemini: storedGemini,
+      ttsmaker: storedTTSMaker,
     })
   }, [])
 
@@ -677,6 +681,7 @@ export default function LongformContentPage() {
     localStorage.setItem("elevenlabs_api_key", apiKeys.elevenlabs)
     localStorage.setItem("replicate_api_key", apiKeys.replicate)
     localStorage.setItem("gemini_api_key", apiKeys.gemini)
+    localStorage.setItem("ttsmaker_api_key", apiKeys.ttsmaker)
     setSaved(true)
     setTimeout(() => {
       setSaved(false)
@@ -2895,11 +2900,17 @@ export default function LongformContentPage() {
       return
     }
 
-    // Google TTS와 TTSMaker는 API 키 불필요, ElevenLabs만 필요
-    if (selectedVoiceId !== "google-tts-neural2-a" && selectedVoiceId !== "google-tts-neural2-c" && !selectedVoiceId?.startsWith("ttsmaker-")) {
+    // Google TTS는 API 키 불필요, TTSMaker와 ElevenLabs는 필요
+    if (selectedVoiceId?.startsWith("ttsmaker-")) {
+      const ttsmakerApiKey = getApiKey("ttsmaker_api_key")
+      if (!ttsmakerApiKey) {
+        alert("TTSMaker API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+        return
+      }
+    } else if (selectedVoiceId !== "google-tts-neural2-a" && selectedVoiceId !== "google-tts-neural2-c") {
       const elevenlabsApiKey = getApiKey("elevenlabs_api_key")
       if (!elevenlabsApiKey) {
-        alert("TTSMaker API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+        alert("ElevenLabs API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
         return
       }
     }
@@ -4757,6 +4768,14 @@ export default function LongformContentPage() {
         const voiceName = voiceId.replace("ttsmaker-", "")
         // 남성5는 음높이 -10% (pitch 0.9)
         const pitch = voiceName === "남성5" ? 0.9 : 1.0
+        const ttsmakerApiKey = getApiKey("ttsmaker_api_key")
+        
+        if (!ttsmakerApiKey) {
+          alert("TTSMaker API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+          setPreviewingVoiceId(null)
+          return
+        }
+        
         console.log(`[미리듣기] TTSMaker voice: ${voiceId} -> ${voiceName}, pitch: ${pitch}`)
         response = await fetch("/api/ttsmaker", {
           method: "POST",
@@ -4768,6 +4787,7 @@ export default function LongformContentPage() {
             voice: voiceName,
             speed: 1.0,
             pitch: pitch,
+            apiKey: ttsmakerApiKey,
           }),
         })
       } else {
@@ -4898,6 +4918,12 @@ export default function LongformContentPage() {
           // TTSMaker인 경우
           const voiceName = selectedVoiceId.replace("ttsmaker-", "")
           const pitch = voiceName === "남성5" ? 0.9 : 1.0
+          const ttsmakerApiKey = getApiKey("ttsmaker_api_key")
+          
+          if (!ttsmakerApiKey) {
+            throw new Error("TTSMaker API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+          }
+          
           response = await fetch("/api/ttsmaker", {
             method: "POST",
             headers: {
@@ -4908,6 +4934,7 @@ export default function LongformContentPage() {
               voice: voiceName,
               speed: 1.0,
               pitch: pitch,
+              apiKey: ttsmakerApiKey,
             }),
           })
         } else {
@@ -4975,8 +5002,14 @@ export default function LongformContentPage() {
       return
     }
 
-    // Google TTS와 Gemini 2.5 Pro Preview TTS인 경우 API 키 체크 불필요
-    if (selectedVoiceId !== "google-tts-neural2-a" && selectedVoiceId !== "google-tts-neural2-c" && !selectedVoiceId?.startsWith("ttsmaker-")) {
+    // Google TTS는 API 키 불필요, TTSMaker와 ElevenLabs는 필요
+    if (selectedVoiceId?.startsWith("ttsmaker-")) {
+      const ttsmakerApiKey = getApiKey("ttsmaker_api_key")
+      if (!ttsmakerApiKey) {
+        alert("TTSMaker API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+        return
+      }
+    } else if (selectedVoiceId !== "google-tts-neural2-a" && selectedVoiceId !== "google-tts-neural2-c") {
       const elevenlabsApiKey = getApiKey("elevenlabs_api_key")
       if (!elevenlabsApiKey) {
         alert("ElevenLabs API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
@@ -11693,12 +11726,30 @@ export default function LongformContentPage() {
                                 console.log(`[Scene Image] 이미지 생성 중... (${currentIndex}/${totalImages}): Scene ${scene.sceneNumber}, Image ${image.imageNumber}`)
                                 
                                 // 재시도 로직이 포함된 이미지 생성
-                                const imageUrl = await generateImageWithRetry(
+                                let imageUrl = await generateImageWithRetry(
                                   image.prompt,
                                   replicateApiKey,
                                   imageStyle,
                                   image.sceneText
                                 )
+                                
+                                // 이미지가 안 나오면 5초 더 기다렸다가 재시도
+                                if (!imageUrl) {
+                                  console.log(`[Scene Image] 이미지가 생성되지 않음, 5초 대기 후 재시도...`)
+                                  await new Promise(resolve => setTimeout(resolve, 5000))
+                                  
+                                  // 한 번 더 시도
+                                  try {
+                                    imageUrl = await generateImageWithRetry(
+                                      image.prompt,
+                                      replicateApiKey,
+                                      imageStyle,
+                                      image.sceneText
+                                    )
+                                  } catch (retryError) {
+                                    console.error(`[Scene Image] 재시도 후에도 실패:`, retryError)
+                                  }
+                                }
                                 
                                 if (imageUrl) {
                                   console.log(`[Scene Image] 이미지 생성 완료:`, imageUrl)
@@ -11713,15 +11764,17 @@ export default function LongformContentPage() {
                                       hasGeneratedImages = true
                                     }
                                   }
+                                } else {
+                                  console.warn(`[Scene Image] 이미지 생성 실패 (Scene ${scene.sceneNumber}, Image ${image.imageNumber}): 이미지 URL을 받지 못함`)
                                 }
                               } catch (error) {
                                 console.error(`[Scene Image] 이미지 생성 실패 (Scene ${scene.sceneNumber}, Image ${image.imageNumber}):`, error)
                                 // 실패해도 계속 진행
                               }
                               
-                              // API 제한 방지를 위한 딜레이 (300ms -> 2000ms로 증가)
+                              // API 제한 방지를 위한 딜레이 (5초 간격)
                               if (currentIndex < totalImages) {
-                                await new Promise(resolve => setTimeout(resolve, 2000))
+                                await new Promise(resolve => setTimeout(resolve, 5000))
                               }
                             }
                           }
@@ -16029,35 +16082,35 @@ export default function LongformContentPage() {
 
             {/* TTSMaker API Key */}
             <div className="space-y-2">
-              <Label htmlFor="elevenlabs-key" className="text-sm font-medium">
+              <Label htmlFor="ttsmaker-key" className="text-sm font-medium">
                 TTSMaker API Key
               </Label>
               <div className="flex items-center gap-2">
                 <Input
-                  id="elevenlabs-key"
-                  type={showKeys.elevenlabs ? "text" : "password"}
+                  id="ttsmaker-key"
+                  type={showKeys.ttsmaker ? "text" : "password"}
                   placeholder="입력하세요"
-                  value={apiKeys.elevenlabs}
-                  onChange={(e) => setApiKeys({ ...apiKeys, elevenlabs: e.target.value })}
+                  value={apiKeys.ttsmaker}
+                  onChange={(e) => setApiKeys({ ...apiKeys, ttsmaker: e.target.value })}
                   className="font-mono text-sm"
                 />
                 <Button
                   type="button"
                   variant="outline"
                   size="icon"
-                  onClick={() => setShowKeys({ ...showKeys, elevenlabs: !showKeys.elevenlabs })}
+                  onClick={() => setShowKeys({ ...showKeys, ttsmaker: !showKeys.ttsmaker })}
                   className="shrink-0"
                 >
-                  {showKeys.elevenlabs ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  {showKeys.ttsmaker ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
                   size="icon"
                   onClick={() => {
-                    navigator.clipboard.writeText(apiKeys.elevenlabs)
+                    navigator.clipboard.writeText(apiKeys.ttsmaker)
                   }}
-                  disabled={!apiKeys.elevenlabs}
+                  disabled={!apiKeys.ttsmaker}
                   className="shrink-0"
                 >
                   <Copy className="w-4 h-4" />

@@ -1,10 +1,18 @@
 import { type NextRequest, NextResponse } from "next/server"
 
-const TTSMAKER_API_KEY = "QWkkzthNyOLNskWCNf1vjuqMKyEcf0ZJtzAGVjIlqkE"
-
 export async function POST(request: NextRequest) {
   try {
-    const { text, voice = "ko-KR-Standard-A", speed = 1.0, pitch = 1.0 } = await request.json()
+    const { text, voice = "ko-KR-Standard-A", speed = 1.0, pitch = 1.0, apiKey } = await request.json()
+    
+    // API 키 확인 (요청 본문에서 받거나 환경 변수에서 가져오기)
+    const TTSMAKER_API_KEY = apiKey || process.env.TTSMAKER_API_KEY
+    
+    if (!TTSMAKER_API_KEY) {
+      return NextResponse.json(
+        { error: "TTSMaker API 키가 필요합니다. 설정에서 API 키를 입력해주세요." },
+        { status: 400 }
+      )
+    }
 
     if (!text) {
       return NextResponse.json({ error: "텍스트가 필요합니다." }, { status: 400 })
