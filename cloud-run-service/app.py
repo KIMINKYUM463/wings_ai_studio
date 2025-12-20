@@ -449,7 +449,17 @@ def render_video():
                                 sub_end = float(sub.get('end', sub.get('endTime', sub_start + 2)))
                                 
                                 # 자막이 이 세그먼트 시간 범위와 겹치면 포함
-                                if not (sub_end < seg_start_time or sub_start > seg_end_time):
+                                # 단, 이전 세그먼트의 자막이 포함되지 않도록 더 엄격하게 체크
+                                # 자막이 세그먼트 시작 시간 이전에 끝나면 제외 (이전 세그먼트의 자막)
+                                if sub_end <= seg_start_time:
+                                    continue
+                                
+                                # 자막이 세그먼트 끝 시간 이후에 시작하면 제외 (다음 세그먼트의 자막)
+                                if sub_start >= seg_end_time:
+                                    continue
+                                
+                                # 자막이 세그먼트 시간 범위와 겹치는 경우만 포함
+                                if sub_start < seg_end_time and sub_end > seg_start_time:
                                     # 세그먼트 시작 시간 기준으로 조정 (상대 시간으로 변환)
                                     adjusted_start = sub_start - seg_start_time
                                     adjusted_end = min(segment_duration, sub_end - seg_start_time)
