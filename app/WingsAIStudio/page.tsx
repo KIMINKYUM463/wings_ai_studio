@@ -1038,7 +1038,7 @@ export default function HomePage() {
                   <Copy className="w-4 h-4" />
                 </Button>
               </div>
-              <p className="text-xs text-muted-foreground">고품질 음성 합성에 사용됩니다</p>
+              <p className="text-xs text-muted-foreground">TTSMaker 음성 합성에 사용됩니다</p>
             </div>
 
             {/* Replicate API Key */}

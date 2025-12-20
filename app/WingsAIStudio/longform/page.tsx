@@ -274,7 +274,7 @@ const sidebarItems = [
   { id: "title", title: "제목/설명 생성", icon: Type, description: "최적화된 유튜브 제목 자동 생성" },
   { id: "thumbnail", title: "썸네일 생성기", icon: ImageIcon, description: "클릭률 높은 썸네일 디자인 생성" },
   { id: "shorts", title: "쇼츠 생성기", icon: Scissors, description: "롱폼 대본을 쇼츠 영상으로 변환" },
-  { id: "hooking-video", title: "후킹 영상 프롬프트", icon: Plus, description: "소라2용 30초 후킹 영상 프롬프트 생성", isSpecial: true },
+  // { id: "hooking-video", title: "후킹 영상 프롬프트", icon: Plus, description: "소라2용 30초 후킹 영상 프롬프트 생성", isSpecial: true }, // 비활성화
 ]
 
 const parseAnalysisForCharts = (analysis: string) => {
@@ -15960,10 +15960,10 @@ export default function LongformContentPage() {
               <p className="text-xs text-muted-foreground">GPT 모델 사용에 필요합니다</p>
             </div>
 
-            {/* ElevenLabs API Key */}
+            {/* TTSMaker API Key */}
             <div className="space-y-2">
               <Label htmlFor="elevenlabs-key" className="text-sm font-medium">
-                ElevenLabs API Key
+                TTSMaker API Key
               </Label>
               <div className="flex items-center gap-2">
                 <Input
@@ -15996,7 +15996,7 @@ export default function LongformContentPage() {
                   <Copy className="w-4 h-4" />
                 </Button>
               </div>
-              <p className="text-xs text-muted-foreground">고품질 음성 합성에 사용됩니다</p>
+              <p className="text-xs text-muted-foreground">TTSMaker 음성 합성에 사용됩니다</p>
             </div>
 
             {/* Replicate API Key */}
@@ -16124,15 +16124,7 @@ export default function LongformContentPage() {
                       {isStepCompleted(item.id) ? (
                         <div className="w-6 h-6 rounded-full flex items-center justify-center bg-green-500 text-white flex-shrink-0">
                           <Check className="w-4 h-4" />
-                    </div>
-                      ) : item.isSpecial ? (
-                        <div
-                          className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${
-                            itemIsActive ? "bg-red-500 text-white" : "bg-gray-200 text-gray-600"
-                          }`}
-                        >
-                          <Icon className="w-4 h-4" />
-                      </div>
+                        </div>
                       ) : (
                         <div
                           className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0 ${
