@@ -1055,25 +1055,25 @@ export async function generateScriptPlan(
 
     // 모든 재시도 실패
     throw lastError || new Error("대본 기획 생성에 실패했습니다.")
-    }
-
-    // 먼저 사용자 API 키로 시도
-    try {
-      return await tryGenerate(GEMINI_API_KEY, false)
     } catch (error) {
-      // 실패 시 백업 API 키로 재시도 (오류 메시지 표시하지 않음)
-      console.log("[v0] 사용자 API 키 실패, 백업 API 키로 재시도...")
-      try {
-        return await tryGenerate(BACKUP_GEMINI_API_KEY, true)
-      } catch (retryError) {
-        // 백업 API 키로도 실패한 경우에만 오류 발생
-        console.error("[v0] 백업 API 키로도 실패:", retryError)
-        throw retryError
-      }
+      console.error(`[v0] 대본 기획 생성 실패 (재시도: ${isRetry ? "예" : "아니오"}):`, error)
+      throw error
     }
+  }
+
+  // 먼저 사용자 API 키로 시도
+  try {
+    return await tryGenerate(GEMINI_API_KEY, false)
   } catch (error) {
-    console.error("대본 기획 생성 실패:", error)
-    throw error
+    // 실패 시 백업 API 키로 재시도 (오류 메시지 표시하지 않음)
+    console.log("[v0] 사용자 API 키 실패, 백업 API 키로 재시도...")
+    try {
+      return await tryGenerate(BACKUP_GEMINI_API_KEY, true)
+    } catch (retryError) {
+      // 백업 API 키로도 실패한 경우에만 오류 발생
+      console.error("[v0] 백업 API 키로도 실패:", retryError)
+      throw retryError
+    }
   }
 }
 
