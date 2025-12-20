@@ -574,8 +574,8 @@ export async function decomposeScriptIntoScenes(
       scenes = [script]
     }
     
-    // 긴 씬을 여러 씬으로 분할 (각 씬이 1500자 이상이면 분할) - 더 작게 분할하여 타임아웃 방지
-    const MAX_SCENE_LENGTH = 1500 // 씬당 최대 길이
+    // 긴 씬을 여러 씬으로 분할 (각 씬이 1000자 이상이면 분할) - 더 작게 분할하여 타임아웃 방지 및 빠른 처리
+    const MAX_SCENE_LENGTH = 1000 // 씬당 최대 길이 (1500 -> 1000으로 감소)
     console.log(`[장면 분해] 긴 씬 분할 시작 (최대 길이: ${MAX_SCENE_LENGTH}자)`)
     const splitScenes: string[] = []
     
@@ -656,7 +656,7 @@ ${sceneText}`
         try {
           console.log(`[장면 분해] 씬 ${sceneNumber} 시도 ${retry + 1}/${maxRetries}`)
           const controller = new AbortController()
-          const timeoutId = setTimeout(() => controller.abort(), 300000) // 300초(5분) 타임아웃 - 씬당 타임아웃
+          const timeoutId = setTimeout(() => controller.abort(), 600000) // 600초(10분) 타임아웃 - 씬당 타임아웃 (40분 영상 대응)
           
           const requestBody = {
             contents: [
@@ -775,10 +775,20 @@ ${sceneText}`
         }
       }
       
-      // 모든 재시도 실패 시 즉시 에러 발생 (부분 성공 불가)
+      // 모든 재시도 실패 시 원본 씬을 그대로 사용 (부분 성공 허용)
       if (!response) {
         console.error(`[장면 분해] 씬 ${sceneNumber} 최종 실패:`, lastError)
-        throw new Error(`씬 ${sceneNumber} 장면 분해 실패: ${lastError?.message || "API 호출 실패"}`)
+        console.warn(`[장면 분해] 씬 ${sceneNumber}는 원본 그대로 사용합니다.`)
+        // 실패한 씬은 원본을 그대로 사용 (장면 분해 없이)
+        allResults.push(`씬 ${sceneNumber}\n\n[장면 1]\n\n${sceneText}`)
+        console.log(`[장면 분해] 씬 ${sceneNumber} 원본 사용 (총 ${allResults.length}개 씬 완료)`)
+      }
+      
+      // 씬 처리 간 딜레이 추가 (API 제한 방지 및 서버 부하 완화)
+      if (i < scenes.length - 1) {
+        const delay = 2000 // 2초 대기
+        console.log(`[장면 분해] 다음 씬 처리 전 ${delay}ms 대기...`)
+        await new Promise(resolve => setTimeout(resolve, delay))
       }
     }
 

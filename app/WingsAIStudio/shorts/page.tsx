@@ -81,7 +81,11 @@ export default function ShortsPage() {
   const [isGeneratingTts, setIsGeneratingTts] = useState(false)
   const [ttsGenerationProgress, setTtsGenerationProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 })
   const [generatedAudios, setGeneratedAudios] = useState<Array<{ lineId: number; audioUrl?: string; audioBase64?: string; audioBuffer?: AudioBuffer; duration?: number }>>([])
-  const [selectedVoiceId, setSelectedVoiceId] = useState<string>("jB1Cifc2UQbq1gR3wnb0") // 기본: Rachel (롱폼과 동일)
+  const [selectedVoiceId, setSelectedVoiceId] = useState<string>("ttsmaker-여성1") // 기본: TTSMaker 여성1
+  const [previewingVoiceId, setPreviewingVoiceId] = useState<string | null>(null)
+  const [previewAudioUrl, setPreviewAudioUrl] = useState<string | null>(null)
+  // 이미지 스타일 선택
+  const [imageStyle, setImageStyle] = useState<string>("stickman-animation")
   const [videoUrl, setVideoUrl] = useState<string>("")
   const [isRendering, setIsRendering] = useState(false)
   const [scriptLines, setScriptLines] = useState<Array<{ id: number; text: string; startTime: number; endTime: number }>>([])
@@ -223,9 +227,37 @@ export default function ShortsPage() {
     setGeneratedImages([])
 
     try {
+      // 재시도 함수
+      const generateImageWithRetry = async (
+        prompt: string,
+        replicateApiKey: string,
+        maxRetries: number = 3
+      ): Promise<string | null> => {
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            return await generateImageWithReplicate(prompt, replicateApiKey, "1:1", imageStyle, undefined)
+          } catch (error) {
+            console.error(`[Shorts] 재시도 ${attempt}/${maxRetries} 실패:`, error)
+            if (attempt === maxRetries) {
+              throw error
+            }
+            // 재시도 전 대기 (지수 백오프)
+            await new Promise(resolve => setTimeout(resolve, 1000 * attempt))
+          }
+        }
+        return null
+      }
+
       for (let i = 0; i < scriptLines.length; i++) {
         const line = scriptLines[i]
         console.log(`[Shorts] 이미지 생성 중: ${i + 1}/${scriptLines.length}`)
+
+        // 이미 생성된 이미지는 건너뛰기
+        const existingImage = generatedImages.find(img => img.lineId === line.id)
+        if (existingImage) {
+          console.log(`[Shorts] 이미지 건너뛰기 (이미 생성됨): 줄 ${line.id}`)
+          continue
+        }
 
         // 프롬프트 생성 (1:1 비율 강제)
         // custom 카테고리는 health로 대체, fortune(사주)도 health로 대체
@@ -243,19 +275,51 @@ export default function ShortsPage() {
         // 1:1 비율 강제 추가 및 인물 제거 명시 (맨 끝에)
         const imagePrompt = `${prompt.trim()}, 1:1 aspect ratio, square composition, square format, no people, no person, no human, no hands, no faces, no body parts, landscape or object focused`
 
-        // 이미지 생성 (1:1 비율 - Replicate API에 직접 전달)
-        console.log(`[Shorts] 이미지 생성 - Aspect Ratio: 1:1, Prompt: ${imagePrompt.substring(0, 100)}...`)
-        const imageUrl = await generateImageWithReplicate(imagePrompt, replicateApiKey, "1:1")
-        console.log(`[Shorts] 이미지 생성 완료: ${imageUrl}`)
-
-        setGeneratedImages((prev) => [
-          ...prev,
-          {
-            lineId: line.id,
-            imageUrl,
-            prompt: imagePrompt,
-          },
-        ])
+        try {
+          // 이미지 생성 (1:1 비율 - Replicate API에 직접 전달)
+          console.log(`[Shorts] 이미지 생성 - Aspect Ratio: 1:1, Prompt: ${imagePrompt.substring(0, 100)}...`)
+          
+          // 재시도 로직이 포함된 이미지 생성
+          let imageUrl = await generateImageWithRetry(imagePrompt, replicateApiKey)
+          
+          // 이미지가 안 나오면 5초 더 기다렸다가 재시도
+          if (!imageUrl) {
+            console.log(`[Shorts] 이미지가 생성되지 않음, 5초 대기 후 재시도...`)
+            await new Promise(resolve => setTimeout(resolve, 5000))
+            
+            // 한 번 더 시도
+            try {
+              imageUrl = await generateImageWithRetry(imagePrompt, replicateApiKey)
+            } catch (retryError) {
+              console.error(`[Shorts] 재시도 후에도 실패:`, retryError)
+            }
+          }
+          
+          if (imageUrl) {
+            console.log(`[Shorts] 이미지 생성 완료: ${imageUrl}`)
+            
+            setGeneratedImages((prev) => [
+              ...prev,
+              {
+                lineId: line.id,
+                imageUrl,
+                prompt: imagePrompt,
+              },
+            ])
+          } else {
+            console.warn(`[Shorts] 이미지 생성 실패 (줄 ${line.id}): 이미지 URL을 받지 못함`)
+          }
+        } catch (error) {
+          console.error(`[Shorts] 이미지 생성 실패 (줄 ${line.id}):`, error)
+          // 실패해도 계속 진행
+        }
+        
+        // API 제한 방지를 위한 딜레이 (5~10초 랜덤 간격)
+        if (i < scriptLines.length - 1) {
+          const delay = Math.floor(Math.random() * 5000) + 5000 // 5000ms ~ 10000ms (5~10초)
+          console.log(`[Shorts] ${delay}ms 대기 후 다음 이미지 생성...`)
+          await new Promise(resolve => setTimeout(resolve, delay))
+        }
       }
 
       setActiveStep("image")
@@ -267,22 +331,109 @@ export default function ShortsPage() {
     }
   }
 
-  // TTS 생성 (롱폼과 동일한 ElevenLabs 방식)
+  // 목소리 미리듣기 함수
+  const handlePreviewVoice = async (voiceId: string) => {
+    setPreviewingVoiceId(voiceId)
+    
+    try {
+      const voiceName = voiceId.replace("ttsmaker-", "")
+      const pitch = voiceName === "남성5" ? 0.9 : 1.0
+      const ttsmakerApiKey = typeof window !== "undefined" ? localStorage.getItem("ttsmaker_api_key") || undefined : undefined
+      
+      if (!ttsmakerApiKey) {
+        alert("TTSMaker API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+        setPreviewingVoiceId(null)
+        return
+      }
+      
+      console.log(`[미리듣기] TTSMaker voice: ${voiceId} -> ${voiceName}, pitch: ${pitch}`)
+      const response = await fetch("/api/ttsmaker", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          text: "여러분 환영합니다",
+          voice: voiceName,
+          speed: 1.0,
+          pitch: pitch,
+          apiKey: ttsmakerApiKey,
+        }),
+      })
+
+      if (!response.ok) {
+        let errorMessage = "미리듣기 실패"
+        try {
+          const errorData = await response.json()
+          errorMessage = errorData.error || errorData.message || `HTTP ${response.status}: ${response.statusText}`
+        } catch (e) {
+          const errorText = await response.text()
+          errorMessage = errorText || `HTTP ${response.status}: ${response.statusText}`
+        }
+        throw new Error(errorMessage)
+      }
+
+      const data = await response.json()
+      
+      if (data.audioUrl) {
+        setPreviewAudioUrl(data.audioUrl)
+        const audio = new Audio(data.audioUrl)
+        audio.play()
+        audio.onended = () => {
+          setPreviewingVoiceId(null)
+          setPreviewAudioUrl(null)
+        }
+        audio.onerror = () => {
+          setPreviewingVoiceId(null)
+          setPreviewAudioUrl(null)
+        }
+      } else if (data.audioBase64) {
+        const binaryString = atob(data.audioBase64)
+        const bytes = new Uint8Array(binaryString.length)
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i)
+        }
+        const blob = new Blob([bytes], { type: "audio/mpeg" })
+        const audioUrl = URL.createObjectURL(blob)
+        setPreviewAudioUrl(audioUrl)
+        
+        const audio = new Audio(audioUrl)
+        audio.play()
+        audio.onended = () => {
+          URL.revokeObjectURL(audioUrl)
+          setPreviewingVoiceId(null)
+          setPreviewAudioUrl(null)
+        }
+        audio.onerror = () => {
+          URL.revokeObjectURL(audioUrl)
+          setPreviewingVoiceId(null)
+          setPreviewAudioUrl(null)
+        }
+      }
+    } catch (error) {
+      console.error("미리듣기 실패:", error)
+      alert(`미리듣기에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+      setPreviewingVoiceId(null)
+      setPreviewAudioUrl(null)
+    }
+  }
+
+  // TTS 생성 (TTSMaker 방식)
   const handleGenerateTts = async () => {
     if (scriptLines.length === 0) {
       alert("생성된 문장 리스트가 없습니다. 먼저 대본을 생성해주세요.")
       return
     }
 
-    // 롱폼과 동일한 방식으로 API 키 가져오기 (메인 페이지 설정에서)
-    const elevenlabsApiKey = typeof window !== "undefined" ? localStorage.getItem("elevenlabs_api_key") || undefined : undefined
+    // TTSMaker API 키 가져오기
+    const ttsmakerApiKey = typeof window !== "undefined" ? localStorage.getItem("ttsmaker_api_key") || undefined : undefined
 
-    if (!elevenlabsApiKey) {
-      alert("ElevenLabs API 키가 필요합니다. 메인 화면의 설정(톱니바퀴 아이콘)에서 API 키를 입력해주세요.")
+    if (!ttsmakerApiKey) {
+      alert("TTSMaker API 키가 필요합니다. 메인 화면의 설정(톱니바퀴 아이콘)에서 API 키를 입력해주세요.")
       return
     }
 
-    console.log("[Shorts] ElevenLabs API 키 확인:", elevenlabsApiKey ? "있음" : "없음")
+    console.log("[Shorts] TTSMaker API 키 확인:", ttsmakerApiKey ? "있음" : "없음")
 
     setIsGeneratingTts(true)
     setTtsGenerationProgress({ current: 0, total: scriptLines.length })
@@ -299,19 +450,23 @@ export default function ShortsPage() {
         setTtsGenerationProgress({ current: i + 1, total: scriptLines.length })
 
         try {
-          // ElevenLabs API를 통해 TTS 생성 (롱폼과 동일)
+          // TTSMaker API를 통해 TTS 생성
+          const voiceName = selectedVoiceId.replace("ttsmaker-", "")
+          const pitch = voiceName === "남성5" ? 0.9 : 1.0
           console.log(`[Shorts] TTS 생성 중... (${i + 1}/${scriptLines.length})`)
-          const response = await fetch("/api/elevenlabs-tts", {
-        method: "POST",
+          const response = await fetch("/api/ttsmaker", {
+            method: "POST",
             headers: {
               "Content-Type": "application/json",
             },
-        body: JSON.stringify({
+            body: JSON.stringify({
               text: line.text,
-              voiceId: selectedVoiceId,
-              apiKey: elevenlabsApiKey,
-        }),
-      })
+              voice: voiceName,
+              speed: 1.0,
+              pitch: pitch,
+              apiKey: ttsmakerApiKey,
+            }),
+          })
 
           if (!response.ok) {
             let errorMessage = "TTS 생성 실패"
@@ -485,7 +640,7 @@ export default function ShortsPage() {
         
         setActiveStep("preview") // TTS 후 미리보기로 이동
       } else {
-        const errorMessage = "TTS 생성에 실패했습니다.\n\n가능한 원인:\n1. ElevenLabs API 키가 올바르지 않습니다\n2. API 키의 사용량이 초과되었습니다\n3. 네트워크 연결 문제\n\n브라우저 콘솔(F12)에서 자세한 오류를 확인해주세요."
+        const errorMessage = "TTS 생성에 실패했습니다.\n\n가능한 원인:\n1. TTSMaker API 키가 올바르지 않습니다\n2. API 키의 사용량이 초과되었습니다\n3. 네트워크 연결 문제\n\n브라우저 콘솔(F12)에서 자세한 오류를 확인해주세요."
         alert(errorMessage)
       }
     } catch (error) {
@@ -792,7 +947,7 @@ export default function ShortsPage() {
               }
             }
             
-            // 이미지가 있으면 표시 (줌인 효과 포함)
+            // 이미지가 있으면 표시 (줌인 효과 제거)
             if (imageIndex >= 0 && images[imageIndex]) {
               const img = images[imageIndex]
               // 좌우 공백 없이 꽉 차게 표시
@@ -803,79 +958,28 @@ export default function ShortsPage() {
               const titleHeight = hookingTitle ? 300 : 100 // 200 + 80 (위쪽 여백) + 20 (추가 간격)
               const imageY = titleHeight + 30 // 제목 밑에 30px 여백 추가
 
-            // 줌인 효과 설정 (매우 천천히, 서서히 확대)
-            const baseScale = 1.0
-            const maxScale = 1.15 // 최대 15% 확대 (더 작게 조정)
-            
-            // 매우 부드러운 easing 함수 (더 느린 속도)
-            const easeInOutSmooth = (t: number): number => {
-              // 매우 느리고 부드러운 곡선 - 천천히 시작하고 천천히 끝남
-              return t * t * (3 - 2 * t) // smoothstep 함수 사용
-            }
-            
-            // 현재 이미지가 표시되는 시간 동안 줌인 진행
-            const imageStartTime = currentLine.startTime / 1000
-            const imageEndTime = currentLine.endTime / 1000
-            const imageDuration = imageEndTime - imageStartTime
-            const timeInImage = elapsed - imageStartTime
-            // 줌인 속도를 더 느리게 조정 (0.5배 속도로 느리게)
-            let zoomProgress = Math.min(Math.max((timeInImage / imageDuration) * 0.5, 0), 1) // 0~1 사이, 더 느리게
-            
-            // 매우 부드러운 easing 적용 (2번 적용하여 더 부드럽게)
-            zoomProgress = easeInOutSmooth(easeInOutSmooth(zoomProgress))
-              
-              // 줌인 스케일 계산
-              const zoomScale = baseScale + (maxScale - baseScale) * zoomProgress
-              
-              // 각 이미지마다 고정된 랜덤 방향 생성 (lineId 기반)
-              const zoomDirection = currentLine.id % 2 === 0 ? "left-to-right" : "right-to-left"
-              
-              // 크롭할 영역 계산 (이미지 중앙에서 시작해서 점점 작은 영역 선택)
-              let sourceX = 0
-              let sourceY = 0
-              let sourceWidth = img.width
-              let sourceHeight = img.height
-              
+              // 1:1 이미지인 경우 그대로 표시, 아닌 경우 중앙 크롭
               if (img.width === img.height) {
-                // 정확히 1:1인 경우
-                const cropSize = img.width / zoomScale
-                const maxOffsetX = (img.width - cropSize) * zoomProgress
-                
-                if (zoomDirection === "left-to-right") {
-                  sourceX = maxOffsetX
-                } else {
-                  sourceX = (img.width - cropSize) - maxOffsetX
-                }
-                sourceY = (img.height - cropSize) / 2
-                sourceWidth = cropSize
-                sourceHeight = cropSize
+                // 정확히 1:1인 경우 그대로 표시
+                ctx.drawImage(
+                  img,
+                  0, 0, img.width, img.height, // 소스: 전체 이미지
+                  imageX, imageY, imageWidth, imageHeight // 대상: 좌우 꽉 차게 표시
+                )
               } else {
                 // 1:1이 아닌 경우, 중앙에서 1:1 영역만 크롭하여 표시
                 const sourceSize = Math.min(img.width, img.height)
-                const cropSize = sourceSize / zoomScale
-                const maxOffsetX = (sourceSize - cropSize) * zoomProgress
+                const sourceX = (img.width - sourceSize) / 2
+                const sourceY = (img.height - sourceSize) / 2
                 
-                const baseX = (img.width - sourceSize) / 2
-                const baseY = (img.height - sourceSize) / 2
-                
-                if (zoomDirection === "left-to-right") {
-                  sourceX = baseX + maxOffsetX
-                } else {
-                  sourceX = baseX + (sourceSize - cropSize) - maxOffsetX
-                }
-                sourceY = baseY + (sourceSize - cropSize) / 2
-                sourceWidth = cropSize
-                sourceHeight = cropSize
+                ctx.drawImage(
+                  img,
+                  sourceX, sourceY, sourceSize, sourceSize, // 소스: 중앙 1:1 영역
+                  imageX, imageY, imageWidth, imageHeight // 대상: 좌우 꽉 차게 표시
+                )
               }
-              
-              // 크롭된 영역을 캔버스에 그리기
-              ctx.drawImage(
-                img,
-                sourceX, sourceY, sourceWidth, sourceHeight, // 소스: 크롭된 영역
-                imageX, imageY, imageWidth, imageHeight // 대상: 좌우 꽉 차게 표시
-              )
             } else if (images.length > 0) {
-              // 이미지가 하나도 매칭되지 않으면 마지막 이미지 표시 (줌인 효과 포함)
+              // 이미지가 하나도 매칭되지 않으면 마지막 이미지 표시
               const lastImg = images[images.length - 1]
               const imageWidth = canvas.width
               const imageHeight = canvas.width
@@ -883,51 +987,22 @@ export default function ShortsPage() {
               const titleHeight = hookingTitle ? 300 : 100
               const imageY = titleHeight + 30
 
-              // 줌인 효과 (마지막 이미지도 동일하게 적용 - 매우 천천히)
-              const baseScale = 1.0
-              const maxScale = 1.15 // 최대 15% 확대
-              const easeInOutSmooth = (t: number): number => {
-                // 매우 느리고 부드러운 곡선
-                return t * t * (3 - 2 * t) // smoothstep 함수 사용
-              }
-              
-              const imageStartTime = currentLine.startTime / 1000
-              const imageEndTime = currentLine.endTime / 1000
-              const imageDuration = imageEndTime - imageStartTime
-              const timeInImage = elapsed - imageStartTime
-              // 줌인 속도를 더 느리게 조정 (0.5배 속도로 느리게)
-              let zoomProgress = Math.min(Math.max((timeInImage / imageDuration) * 0.5, 0), 1)
-              // 매우 부드러운 easing 적용 (2번 적용하여 더 부드럽게)
-              zoomProgress = easeInOutSmooth(easeInOutSmooth(zoomProgress))
-              
-              const zoomScale = baseScale + (maxScale - baseScale) * zoomProgress
-              const zoomDirection = currentLine.id % 2 === 0 ? "left-to-right" : "right-to-left"
-              
               if (lastImg.width === lastImg.height) {
-                const cropSize = lastImg.width / zoomScale
-                const maxOffsetX = (lastImg.width - cropSize) * zoomProgress
-                const sourceX = zoomDirection === "left-to-right" ? maxOffsetX : (lastImg.width - cropSize) - maxOffsetX
-                const sourceY = (lastImg.height - cropSize) / 2
-                
+                // 정확히 1:1인 경우 그대로 표시
                 ctx.drawImage(
                   lastImg,
-                  sourceX, sourceY, cropSize, cropSize,
+                  0, 0, lastImg.width, lastImg.height,
                   imageX, imageY, imageWidth, imageHeight
                 )
               } else {
+                // 1:1이 아닌 경우, 중앙에서 1:1 영역만 크롭하여 표시
                 const sourceSize = Math.min(lastImg.width, lastImg.height)
-                const cropSize = sourceSize / zoomScale
-                const maxOffsetX = (sourceSize - cropSize) * zoomProgress
-                const baseX = (lastImg.width - sourceSize) / 2
-                const baseY = (lastImg.height - sourceSize) / 2
-                const sourceX = zoomDirection === "left-to-right" 
-                  ? baseX + maxOffsetX 
-                  : baseX + (sourceSize - cropSize) - maxOffsetX
-                const sourceY = baseY + (sourceSize - cropSize) / 2
+                const sourceX = (lastImg.width - sourceSize) / 2
+                const sourceY = (lastImg.height - sourceSize) / 2
                 
                 ctx.drawImage(
                   lastImg,
-                  sourceX, sourceY, cropSize, cropSize,
+                  sourceX, sourceY, sourceSize, sourceSize,
                   imageX, imageY, imageWidth, imageHeight
                 )
               }
@@ -1712,77 +1787,26 @@ export default function ShortsPage() {
             const titleHeight = hookingTitle ? 300 : 100
             const imageY = titleHeight + 30
 
-            // 줌인 효과 설정 (매우 천천히)
-            const baseScale = 1.0
-            const maxScale = 1.15 // 최대 15% 확대 (더 작게 조정)
-            
-            // 매우 부드러운 easing 함수 (더 느린 속도)
-            const easeInOutSmooth = (t: number): number => {
-              // 매우 느리고 부드러운 곡선 - 천천히 시작하고 천천히 끝남
-              return t * t * (3 - 2 * t) // smoothstep 함수 사용
-            }
-            
-            // 현재 이미지가 표시되는 시간 동안 줌인 진행
-            const imageStartTime = currentLine.startTime / 1000
-            const imageEndTime = currentLine.endTime / 1000
-            const imageDuration = imageEndTime - imageStartTime
-            const timeInImage = elapsed - imageStartTime
-            // 줌인 속도를 더 느리게 조정 (0.5배 속도로 느리게)
-            let zoomProgress = Math.min(Math.max((timeInImage / imageDuration) * 0.5, 0), 1) // 0~1 사이, 더 느리게
-            
-            // 매우 부드러운 easing 적용 (2번 적용하여 더 부드럽게)
-            zoomProgress = easeInOutSmooth(easeInOutSmooth(zoomProgress))
-            
-            // 줌인 스케일 계산
-            const zoomScale = baseScale + (maxScale - baseScale) * zoomProgress
-            
-            // 각 이미지마다 고정된 랜덤 방향 생성 (lineId 기반)
-            const zoomDirection = currentLine.id % 2 === 0 ? "left-to-right" : "right-to-left"
-            
-            // 크롭할 영역 계산
-            let sourceX = 0
-            let sourceY = 0
-            let sourceWidth = img.width
-            let sourceHeight = img.height
-            
+            // 줌인 효과 제거 - 단순히 이미지 표시
             if (img.width === img.height) {
-              // 정확히 1:1인 경우
-              const cropSize = img.width / zoomScale
-              const maxOffsetX = (img.width - cropSize) * zoomProgress
-              
-              if (zoomDirection === "left-to-right") {
-                sourceX = maxOffsetX
-              } else {
-                sourceX = (img.width - cropSize) - maxOffsetX
-              }
-              sourceY = (img.height - cropSize) / 2
-              sourceWidth = cropSize
-              sourceHeight = cropSize
+              // 정확히 1:1인 경우 그대로 표시
+              ctx.drawImage(
+                img,
+                0, 0, img.width, img.height, // 소스: 전체 이미지
+                imageX, imageY, imageWidth, imageHeight // 대상: 좌우 꽉 차게 표시
+              )
             } else {
               // 1:1이 아닌 경우, 중앙에서 1:1 영역만 크롭하여 표시
               const sourceSize = Math.min(img.width, img.height)
-              const cropSize = sourceSize / zoomScale
-              const maxOffsetX = (sourceSize - cropSize) * zoomProgress
+              const sourceX = (img.width - sourceSize) / 2
+              const sourceY = (img.height - sourceSize) / 2
               
-              const baseX = (img.width - sourceSize) / 2
-              const baseY = (img.height - sourceSize) / 2
-              
-              if (zoomDirection === "left-to-right") {
-                sourceX = baseX + maxOffsetX
-              } else {
-                sourceX = baseX + (sourceSize - cropSize) - maxOffsetX
-              }
-              sourceY = baseY + (sourceSize - cropSize) / 2
-              sourceWidth = cropSize
-              sourceHeight = cropSize
+              ctx.drawImage(
+                img,
+                sourceX, sourceY, sourceSize, sourceSize, // 소스: 중앙 1:1 영역
+                imageX, imageY, imageWidth, imageHeight // 대상: 좌우 꽉 차게 표시
+              )
             }
-            
-            // 크롭된 영역을 캔버스에 그리기
-            ctx.drawImage(
-              img,
-              sourceX, sourceY, sourceWidth, sourceHeight,
-              imageX, imageY, imageWidth, imageHeight
-            )
           } else if (images.length > 0) {
             const lastImg = images[images.length - 1]
             const imageWidth = canvas.width
@@ -1791,51 +1815,23 @@ export default function ShortsPage() {
             const titleHeight = hookingTitle ? 300 : 100
             const imageY = titleHeight + 30
 
-            // 줌인 효과 (마지막 이미지도 동일하게 적용 - 매우 천천히)
-            const baseScale = 1.0
-            const maxScale = 1.15 // 최대 15% 확대
-            const easeInOutSmooth = (t: number): number => {
-              // 매우 느리고 부드러운 곡선
-              return t * t * (3 - 2 * t) // smoothstep 함수 사용
-            }
-            
-            const imageStartTime = currentLine.startTime / 1000
-            const imageEndTime = currentLine.endTime / 1000
-            const imageDuration = imageEndTime - imageStartTime
-            const timeInImage = elapsed - imageStartTime
-            // 줌인 속도를 더 느리게 조정 (0.5배 속도로 느리게)
-            let zoomProgress = Math.min(Math.max((timeInImage / imageDuration) * 0.5, 0), 1)
-            // 매우 부드러운 easing 적용 (2번 적용하여 더 부드럽게)
-            zoomProgress = easeInOutSmooth(easeInOutSmooth(zoomProgress))
-            
-            const zoomScale = baseScale + (maxScale - baseScale) * zoomProgress
-            const zoomDirection = currentLine.id % 2 === 0 ? "left-to-right" : "right-to-left"
-            
+            // 줌인 효과 제거 - 단순히 이미지 표시
             if (lastImg.width === lastImg.height) {
-              const cropSize = lastImg.width / zoomScale
-              const maxOffsetX = (lastImg.width - cropSize) * zoomProgress
-              const sourceX = zoomDirection === "left-to-right" ? maxOffsetX : (lastImg.width - cropSize) - maxOffsetX
-              const sourceY = (lastImg.height - cropSize) / 2
-              
+              // 정확히 1:1인 경우 그대로 표시
               ctx.drawImage(
                 lastImg,
-                sourceX, sourceY, cropSize, cropSize,
+                0, 0, lastImg.width, lastImg.height,
                 imageX, imageY, imageWidth, imageHeight
               )
             } else {
+              // 1:1이 아닌 경우, 중앙에서 1:1 영역만 크롭하여 표시
               const sourceSize = Math.min(lastImg.width, lastImg.height)
-              const cropSize = sourceSize / zoomScale
-              const maxOffsetX = (sourceSize - cropSize) * zoomProgress
-              const baseX = (lastImg.width - sourceSize) / 2
-              const baseY = (lastImg.height - sourceSize) / 2
-              const sourceX = zoomDirection === "left-to-right" 
-                ? baseX + maxOffsetX 
-                : baseX + (sourceSize - cropSize) - maxOffsetX
-              const sourceY = baseY + (sourceSize - cropSize) / 2
+              const sourceX = (lastImg.width - sourceSize) / 2
+              const sourceY = (lastImg.height - sourceSize) / 2
               
               ctx.drawImage(
                 lastImg,
-                sourceX, sourceY, cropSize, cropSize,
+                sourceX, sourceY, sourceSize, sourceSize,
                 imageX, imageY, imageWidth, imageHeight
               )
             }
@@ -2256,6 +2252,52 @@ export default function ShortsPage() {
               </Card>
             )}
 
+            {/* 이미지 스타일 선택 */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">이미지 스타일 선택</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 gap-3">
+                  <Button
+                    variant={imageStyle === "stickman-animation" ? "default" : "outline"}
+                    onClick={() => setImageStyle("stickman-animation")}
+                    className="flex-1"
+                  >
+                    스틱맨 애니메이션
+                  </Button>
+                  <Button
+                    variant={imageStyle === "realistic" ? "default" : "outline"}
+                    onClick={() => setImageStyle("realistic")}
+                    className="flex-1"
+                  >
+                    실사화
+                  </Button>
+                  <Button
+                    variant={imageStyle === "realistic2" ? "default" : "outline"}
+                    onClick={() => setImageStyle("realistic2")}
+                    className="flex-1"
+                  >
+                    실사화2
+                  </Button>
+                  <Button
+                    variant={imageStyle === "animation2" ? "default" : "outline"}
+                    onClick={() => setImageStyle("animation2")}
+                    className="flex-1"
+                  >
+                    애니메이션2
+                  </Button>
+                  <Button
+                    variant={imageStyle === "animation3" ? "default" : "outline"}
+                    onClick={() => setImageStyle("animation3")}
+                    className="flex-1"
+                  >
+                    유럽풍 그래픽 노블
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
             <div className="flex gap-4">
               <Button variant="outline" onClick={() => setActiveStep("topic")}>
                 <ArrowLeft className="w-4 h-4 mr-2" />
@@ -2302,6 +2344,84 @@ export default function ShortsPage() {
                 </Card>
               ))}
             </div>
+            {/* 목소리 선택 */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">목소리 선택</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-h-[300px] overflow-y-auto p-2 border border-gray-200 rounded-lg">
+                  {[
+                    { id: "ttsmaker-여성1", name: "TTSMaker 여성1", note: "ID: 503", provider: "ttsmaker" },
+                    { id: "ttsmaker-여성2", name: "TTSMaker 여성2", note: "ID: 509", provider: "ttsmaker" },
+                    { id: "ttsmaker-여성6", name: "TTSMaker 여성3", note: "ID: 5802", provider: "ttsmaker" },
+                    { id: "ttsmaker-남성1", name: "TTSMaker 남성1", note: "ID: 5501", provider: "ttsmaker" },
+                    { id: "ttsmaker-남성4", name: "TTSMaker 남성2", note: "ID: 5888", provider: "ttsmaker" },
+                    { id: "ttsmaker-남성5", name: "TTSMaker 남성3", note: "ID: 5888 (음높이 -10%)", provider: "ttsmaker" },
+                  ].map((voice) => (
+                    <div
+                      key={voice.id}
+                      className={`p-3 border-2 rounded-lg transition-all ${
+                        selectedVoiceId === voice.id
+                          ? "border-red-500 bg-red-50"
+                          : "border-gray-200 hover:border-gray-300"
+                      }`}
+                    >
+                      <div className="flex items-center space-x-2 mb-2">
+                        <div
+                          className={`w-4 h-4 rounded-full border-2 cursor-pointer ${
+                            selectedVoiceId === voice.id ? "border-red-500 bg-red-500" : "border-gray-300"
+                          }`}
+                          onClick={() => setSelectedVoiceId(voice.id)}
+                        >
+                          {selectedVoiceId === voice.id && (
+                            <div className="w-2 h-2 bg-white rounded-full mx-auto mt-0.5"></div>
+                          )}
+                        </div>
+                        <div className="flex-1" onClick={() => setSelectedVoiceId(voice.id)}>
+                          <p className="text-sm font-medium">{voice.name}</p>
+                          <p className="text-xs text-gray-500">{voice.note}</p>
+                        </div>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full text-xs"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handlePreviewVoice(voice.id)
+                        }}
+                        disabled={previewingVoiceId === voice.id}
+                      >
+                        {previewingVoiceId === voice.id ? (
+                          <>
+                            <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                            재생 중...
+                          </>
+                        ) : (
+                          <>
+                            <Volume2 className="w-3 h-3 mr-1" />
+                            미리듣기
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+                {previewAudioUrl && (
+                  <audio
+                    src={previewAudioUrl}
+                    autoPlay
+                    onEnded={() => {
+                      setPreviewAudioUrl(null)
+                      setPreviewingVoiceId(null)
+                    }}
+                    className="w-full mt-4"
+                  />
+                )}
+              </CardContent>
+            </Card>
+
             <div className="flex gap-4">
               <Button variant="outline" onClick={() => setActiveStep("script")}>
                 <ArrowLeft className="w-4 h-4 mr-2" />
