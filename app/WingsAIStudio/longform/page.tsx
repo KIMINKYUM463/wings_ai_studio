@@ -1491,8 +1491,9 @@ export default function LongformContentPage() {
                 ...(audioGcsUrl ? { audioGcsUrl } : { audioBase64 }),
                 subtitles: subtitles.map((s) => ({
                   id: s.id,
-                  start: s.start,
-                  end: s.end,
+                  // 자막 타이밍을 1초 앞당겨서 전달 (TTS와 동기화 개선)
+                  start: Math.max(0, s.start - 1),
+                  end: Math.max(0, s.end - 1),
                   text: s.text,
                 })),
                 characterImage: firstImage.imageUrl,
@@ -6753,8 +6754,9 @@ export default function LongformContentPage() {
         ...(audioGcsUrl ? { audioGcsUrl: audioGcsUrl } : { audioBase64: audioBase64 }),
           subtitles: videoData.subtitles.map((s) => ({
             id: s.id,
-            start: s.start,
-            end: s.end,
+            // 자막 타이밍을 1초 앞당겨서 전달 (TTS와 동기화 개선)
+            start: Math.max(0, s.start - 1),
+            end: Math.max(0, s.end - 1),
             text: s.text,
           })),
         // 이미지: Cloud Storage URL이 있으면 base64 전송하지 않음
@@ -7211,8 +7213,9 @@ export default function LongformContentPage() {
         ...(showSubtitles ? {
           subtitles: videoData.subtitles.map((s) => ({
             id: s.id,
-            start: s.start,
-            end: s.end,
+            // 자막 타이밍을 1초 앞당겨서 전달 (TTS와 동기화 개선)
+            start: Math.max(0, s.start - 1),
+            end: Math.max(0, s.end - 1),
             text: s.text,
           })),
         } : {
