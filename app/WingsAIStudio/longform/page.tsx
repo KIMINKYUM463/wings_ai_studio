@@ -568,7 +568,7 @@ export default function LongformContentPage() {
       return
     }
 
-    // 상태 저장
+    // 상태 저장 (audioBase64는 용량이 크므로 제외하고 audioUrl만 저장)
     const stateToSave = {
       activeStep,
       keywords,
@@ -578,7 +578,13 @@ export default function LongformContentPage() {
       scriptLines,
       sceneImagePrompts,
       generatedImages,
-      generatedAudios,
+      // audioBase64는 용량이 크므로 localStorage에 저장하지 않음 (audioUrl만 저장)
+      generatedAudios: generatedAudios.map(audio => ({
+        lineId: audio.lineId,
+        audioUrl: audio.audioUrl,
+        // audioBase64 제외
+        alignment: audio.alignment,
+      })),
       videoData,
       selectedVoiceId,
       youtubeTitle,
@@ -589,7 +595,52 @@ export default function LongformContentPage() {
       scriptPlan,
       scriptDraft,
     }
-    localStorage.setItem("longform_state", JSON.stringify(stateToSave))
+    
+    try {
+      localStorage.setItem("longform_state", JSON.stringify(stateToSave))
+    } catch (error) {
+      // localStorage 용량 초과 시 에러 처리
+      if (error instanceof Error && error.name === "QuotaExceededError") {
+        console.warn("[localStorage] 용량 초과로 상태 저장 실패. 일부 데이터를 제외하고 저장합니다.")
+        // 더 작은 버전으로 저장 시도 (generatedImages도 제외)
+        const minimalState = {
+          activeStep,
+          keywords,
+          selectedTopic,
+          generatedTopics,
+          script,
+          scriptLines,
+          sceneImagePrompts,
+          // generatedImages 제외 (이미지 URL만 저장)
+          generatedImages: generatedImages.map(img => ({
+            lineId: img.lineId,
+            imageUrl: img.imageUrl,
+            prompt: img.prompt,
+          })),
+          generatedAudios: generatedAudios.map(audio => ({
+            lineId: audio.lineId,
+            audioUrl: audio.audioUrl,
+            alignment: audio.alignment,
+          })),
+          videoData,
+          selectedVoiceId,
+          youtubeTitle,
+          youtubeDescription,
+          thumbnailText,
+          selectedTitle,
+          customTitle,
+          scriptPlan,
+          scriptDraft,
+        }
+        try {
+          localStorage.setItem("longform_state", JSON.stringify(minimalState))
+        } catch (retryError) {
+          console.error("[localStorage] 최소 상태 저장도 실패:", retryError)
+        }
+      } else {
+        throw error
+      }
+    }
   }, [
     activeStep,
     keywords,
