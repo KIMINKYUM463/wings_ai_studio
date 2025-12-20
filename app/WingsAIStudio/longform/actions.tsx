@@ -822,6 +822,9 @@ export async function generateScript(topic: string, customScript?: string) {
   }
 }
 
+// 백업 Gemini API 키 (대본 기획/생성 실패 시 재시도용)
+const BACKUP_GEMINI_API_KEY = "AIzaSyBBLb_fJPIr9yM3OrifHQ_ipEvYIm037_k"
+
 export async function generateScriptPlan(
   topic: string,
   category: Category = "health",
@@ -836,7 +839,9 @@ export async function generateScriptPlan(
     throw new Error("Gemini API 키가 설정되지 않았습니다. 설정에서 API 키를 입력해주세요.")
   }
 
-  try {
+  // 재시도 함수
+  const tryGenerate = async (geminiKey: string, isRetry: boolean = false): Promise<string> => {
+    try {
     const systemPrompt = `당신은 '지식 스토리텔링 전문 기획자'입니다.
 
 당신의 임무는 사용자가 이미 선택한 [주제]를 바탕으로,
@@ -963,7 +968,7 @@ export async function generateScriptPlan(
 
         // Gemini API 호출
         const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: {
@@ -1033,7 +1038,7 @@ export async function generateScriptPlan(
           console.warn("[v0] ⚠️ 대본 기획 응답이 토큰 제한으로 잘렸을 수 있습니다.")
         }
 
-        console.log("[v0] 대본 기획 생성 완료, 길이:", content.length, "finishReason:", finishReason)
+        console.log(`[v0] 대본 기획 생성 완료 (재시도: ${isRetry ? "예" : "아니오"}), 길이:`, content.length, "finishReason:", finishReason)
         return content
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error))
@@ -1050,28 +1055,22 @@ export async function generateScriptPlan(
 
     // 모든 재시도 실패
     throw lastError || new Error("대본 기획 생성에 실패했습니다.")
-
-    const data = await response.json()
-    const candidate = data.candidates?.[0]
-    
-    if (!candidate) {
-      throw new Error("대본 기획 생성에 실패했습니다. 응답 후보가 없습니다.")
     }
 
-    const content = candidate.content?.parts?.[0]?.text
-    const finishReason = candidate.finishReason
-
-    if (!content) {
-      throw new Error("대본 기획 생성에 실패했습니다. 응답 내용이 없습니다.")
+    // 먼저 사용자 API 키로 시도
+    try {
+      return await tryGenerate(GEMINI_API_KEY, false)
+    } catch (error) {
+      // 실패 시 백업 API 키로 재시도 (오류 메시지 표시하지 않음)
+      console.log("[v0] 사용자 API 키 실패, 백업 API 키로 재시도...")
+      try {
+        return await tryGenerate(BACKUP_GEMINI_API_KEY, true)
+      } catch (retryError) {
+        // 백업 API 키로도 실패한 경우에만 오류 발생
+        console.error("[v0] 백업 API 키로도 실패:", retryError)
+        throw retryError
+      }
     }
-
-    // 응답이 토큰 제한으로 잘렸는지 확인
-    if (finishReason === "MAX_TOKENS") {
-      console.warn("[v0] ⚠️ 대본 기획 응답이 토큰 제한으로 잘렸을 수 있습니다.")
-    }
-
-    console.log("[v0] 대본 기획 생성 완료, 길이:", content.length, "finishReason:", finishReason)
-    return content
   } catch (error) {
     console.error("대본 기획 생성 실패:", error)
     throw error
@@ -1675,6 +1674,9 @@ ${script}
 
    구조:
 
+   - **첫 줄 (매우 중요!)**: 핵심 키워드 해시태그 3-5개 (#키워드1 #키워드2 #키워드3 형식)
+     → 유튜브 알고리즘에서 잘 뜨기 위해 반드시 첫 줄에 해시태그 포함!
+
    - 🔥 훅: 강력한 질문이나 혜택 제시
 
    - 영상 소개 (1-2줄)
@@ -1693,7 +1695,8 @@ ${script}
 
 2. pinnedComment: 고정댓글 (3-5줄, 시청자 참여 유도)
 
-3. hashtags: 설명란 해시태그 5개 (# 포함, 한 줄)
+3. hashtags: 설명란에 사용된 핵심 키워드 해시태그 5개 (# 포함, 한 줄)
+   → 이 해시태그들은 description의 첫 줄에도 반드시 포함되어야 함
 
 4. uploadTags: 업로드 태그 20-25개
 
@@ -1767,18 +1770,40 @@ JSON 형식으로만 응답:
     const result = JSON.parse(jsonMatch[0])
     console.log("[v0] 유튜브 설명 생성 완료")
 
+    // 설명란의 첫 줄에 해시태그가 항상 포함되도록 보장 (유튜브 알고리즘 최적화)
+    if (result.description && result.hashtags) {
+      const hashtagLine = result.hashtags.trim()
+      const descriptionLines = result.description.split('\n')
+      const firstLine = descriptionLines[0]?.trim() || ''
+      
+      // 첫 줄이 해시태그로 시작하는지 확인
+      const hasHashtagInFirstLine = firstLine.startsWith('#') && firstLine.split(' ').every(word => word.startsWith('#'))
+      
+      if (!hasHashtagInFirstLine && hashtagLine) {
+        // 해시태그를 설명란의 첫 줄에 추가
+        result.description = `${hashtagLine}\n\n${result.description}`
+        console.log("[v0] 설명란 첫 줄에 해시태그 추가:", hashtagLine)
+      } else {
+        console.log("[v0] 설명란 첫 줄에 이미 해시태그가 포함되어 있습니다.")
+      }
+    }
+
     return result
   } catch (error) {
     console.error("설명 생성 실패:", error)
 
     // Fallback
     const categoryName = categoryDescriptions[category] || category
+    const fallbackHashtags = "#건강정보 #시니어건강 #60대건강 #건강팁 #건강관리"
     return {
-      description: `📋 **영상 개요**
+      description: `${fallbackHashtags}
+
+📋 **영상 개요**
 ${categoryName}에 대한 중요한 정보를 알려드립니다.
-\n영상이 도움되셨다면 구독과 좋아요 부탁드립니다!`,
+
+영상이 도움되셨다면 구독과 좋아요 부탁드립니다!`,
       pinnedComment: "여러분은 어떻게 생각하시나요? 댓글로 의견 남겨주세요! 😊",
-      hashtags: "#건강정보 #시니어건강 #60대건강 #건강팁 #건강관리",
+      hashtags: fallbackHashtags,
       uploadTags: ["건강정보", "시니어건강", "60대건강", "건강팁", "건강관리"],
     }
   }
@@ -2914,12 +2939,15 @@ export async function generateImagePrompt(
   category: "health" | "wisdom" | "religion" | "history" | "self_improvement" | "space" | "society" | "domestic_story" | "international_story" | "romance_of_three_kingdoms" | "folktale" | "science" | "horror" | "northkorea" | "greek_roman_mythology" | "death" | "ai" | "alien" | "palmistry" | "physiognomy" | "fortune_telling" | "urban_legend" | "serial_crime" | "unsolved_case" | "reserve_army" | "elementary_school" = "health",
   historyStyle?: "animation" | "realistic"
 ): Promise<string> {
-  try {
-    const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
+  const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
 
-    if (!GPT_API_KEY) {
-      throw new Error("GPT API 키가 설정되지 않았습니다. 설정에서 API 키를 입력해주세요.")
-    }
+  if (!GPT_API_KEY) {
+    throw new Error("GPT API 키가 설정되지 않았습니다. 설정에서 API 키를 입력해주세요.")
+  }
+
+  // 재시도 함수
+  const tryGenerate = async (key: string, isRetry: boolean = false): Promise<string> => {
+    try {
 
     // 카테고리별 시스템 프롬프트
     const categoryPrompts = {
@@ -3310,13 +3338,15 @@ export async function generateImagePrompt(
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${GPT_API_KEY}`,
+        Authorization: `Bearer ${key}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
         model: "gpt-4o-mini",
         messages: [
-          { role: "system", content: `${systemPrompt}\n\n중요: 반드시 16:9 비율(aspect ratio)로 이미지를 생성하도록 프롬프트에 명시하세요.` },
+          { role: "system", content: `${systemPrompt}\n\n중요: 
+1. 반드시 16:9 비율(aspect ratio)로 이미지를 생성하도록 프롬프트에 명시하세요.
+2. 이미지에 텍스트, 글씨, 문자, 단어, 라벨, 표지판, 워터마크가 절대 포함되지 않도록 프롬프트에 "no text", "no letters", "no words", "no writing", "no labels", "no signs", "no watermark"를 명시하세요.` },
           { role: "user", content: userPrompt },
         ],
         temperature: 0.8,
@@ -3361,11 +3391,34 @@ export async function generateImagePrompt(
       cleanedPrompt = `${cleanedPrompt}, 16:9 aspect ratio`
     }
 
-    console.log("[v0] 이미지 프롬프트 생성 완료")
+    // 텍스트 제외 지시 추가 (없으면 추가)
+    const textExclusionTerms = ["no text", "no letters", "no words", "no writing", "no labels", "no signs", "no watermark"]
+    const hasTextExclusion = textExclusionTerms.some(term => cleanedPrompt.toLowerCase().includes(term))
+    if (!hasTextExclusion) {
+      cleanedPrompt = `${cleanedPrompt}, no text, no letters, no words, no writing, no labels, no signs, no watermark`
+    }
+
+    console.log(`[v0] 이미지 프롬프트 생성 완료 (재시도: ${isRetry ? "예" : "아니오"})`)
     return cleanedPrompt
+    } catch (error) {
+      console.error(`[v0] 이미지 프롬프트 생성 실패 (재시도: ${isRetry ? "예" : "아니오"}):`, error)
+      throw error
+    }
+  }
+
+  // 먼저 사용자 API 키로 시도
+  try {
+    return await tryGenerate(GPT_API_KEY, false)
   } catch (error) {
-    console.error("이미지 프롬프트 생성 실패:", error)
-    throw error
+    // 실패 시 백업 API 키로 재시도 (오류 메시지 표시하지 않음)
+    console.log("[v0] 사용자 API 키 실패, 백업 API 키로 재시도...")
+    try {
+      return await tryGenerate(BACKUP_OPENAI_API_KEY, true)
+    } catch (retryError) {
+      // 백업 API 키로도 실패한 경우에만 오류 발생
+      console.error("[v0] 백업 API 키로도 실패:", retryError)
+      throw retryError
+    }
   }
 }
 
@@ -3555,6 +3608,14 @@ export async function generateImageWithReplicate(
 
     // 프롬프트 그대로 사용 (이미지 프롬프트 생성에서 완성된 프롬프트 사용)
     let finalPrompt = prompt
+    
+    // 텍스트 제외 지시가 없으면 추가 (모든 모델에 적용)
+    const textExclusionTerms = ["no text", "no letters", "no words", "no writing", "no labels", "no signs", "no watermark"]
+    const hasTextExclusion = textExclusionTerms.some(term => finalPrompt.toLowerCase().includes(term))
+    if (!hasTextExclusion) {
+      finalPrompt = `${finalPrompt}, no text, no letters, no words, no writing, no labels, no signs, no watermark`
+    }
+    
     console.log(`[v0] 프롬프트 사용: ${finalPrompt.substring(0, 100)}...`)
 
     console.log(`[v0] Replicate 이미지 생성 시작, 모델: ${model}`)
@@ -3565,7 +3626,7 @@ export async function generateImageWithReplicate(
     let requestBody: any = {}
     if (model === "prunaai/hidream-l1-fast") {
       // hidream-l1-fast 모델용 입력 형식
-      let negativePrompt = "realistic human, detailed human skin, photograph, 3d render, blank white background, line-art only, text, watermark"
+      let negativePrompt = "realistic human, detailed human skin, photograph, 3d render, blank white background, line-art only, text, letters, words, writing, labels, signs, watermark, typography, font, caption, subtitle"
       
       if (imageStyle === "stickman-animation") {
         // 스틱맨 애니메이션 전용 negative prompt

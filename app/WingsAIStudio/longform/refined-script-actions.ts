@@ -1,5 +1,8 @@
 "use server"
 
+// 백업 Gemini API 키 (대본 생성 실패 시 재시도용)
+const BACKUP_GEMINI_API_KEY = "AIzaSyBBLb_fJPIr9yM3OrifHQ_ipEvYIm037_k"
+
 /**
  * 정교한 대본 생성 함수 (Gemini 2.5 Pro 사용)
  * 초안을 바탕으로 매우 정교하고 완성도 높은 최종 대본을 생성합니다.
@@ -19,7 +22,9 @@ export async function generateRefinedScript(
     throw new Error("Gemini API 키가 설정되지 않았습니다.")
   }
 
-  try {
+  // 재시도 함수
+  const tryGenerate = async (geminiKey: string, isRetry: boolean = false): Promise<string> => {
+    try {
     const durationText = duration ? `${duration}분` : "적절한 분량"
     const charsText = targetChars ? `${targetChars}자` : "적절한 분량"
 
@@ -122,7 +127,7 @@ ${lengthRulePrompt}
       console.log(`[v0] 대본 통합 생성 시작 (${duration}분, 목표: ${targetChars}자)`)
       
       const fullResponse = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${GEMINI_API_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
         {
           method: "POST",
           headers: {
@@ -185,7 +190,7 @@ ${lengthRulePrompt}
       console.log(`[v0] 기본 대본 생성 시작 (목표: ${baseTargetChars}자)`)
       
       const baseResponse = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${GEMINI_API_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
         {
           method: "POST",
           headers: {
@@ -391,7 +396,7 @@ ${content}
 (위 대본의 클라이맥스 부분 마지막 문장 이후에 자연스럽게 이어지는 내용을 ${additionalTarget}자 이상 작성하세요)`
             
             const retryResponse = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${GEMINI_API_KEY}`,
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
               {
                 method: "POST",
                 headers: {
@@ -477,9 +482,25 @@ ${content}
     }
 
     return content
+    } catch (error) {
+      console.error(`[v0] 정교한 대본 생성 실패 (재시도: ${isRetry ? "예" : "아니오"}):`, error)
+      throw error
+    }
+  }
+
+  // 먼저 사용자 API 키로 시도
+  try {
+    return await tryGenerate(GEMINI_API_KEY, false)
   } catch (error) {
-    console.error("정교한 대본 생성 실패:", error)
-    throw error
+    // 실패 시 백업 API 키로 재시도 (오류 메시지 표시하지 않음)
+    console.log("[v0] 사용자 API 키 실패, 백업 API 키로 재시도...")
+    try {
+      return await tryGenerate(BACKUP_GEMINI_API_KEY, true)
+    } catch (retryError) {
+      // 백업 API 키로도 실패한 경우에만 오류 발생
+      console.error("[v0] 백업 API 키로도 실패:", retryError)
+      throw retryError
+    }
   }
 }
 
