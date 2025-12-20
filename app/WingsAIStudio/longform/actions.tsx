@@ -1792,20 +1792,34 @@ async function generateScriptPart(
   topic: string,
   previousParts: string,
   GPT_API_KEY: string,
-  totalTargetChars: number
+  totalTargetChars: number,
+  durationMinutes?: number
 ): Promise<string> {
+  const minChars = Math.floor(partTargetChars * 0.95) // 최소 95%
+  const maxChars = Math.floor(partTargetChars * 1.05) // 최대 105%
+  
+  // 시간이 길어질수록 더 강력한 강조
+  const durationWarning = durationMinutes && durationMinutes > 20 
+    ? `\n⚠️ 중요: 이 영상은 ${durationMinutes}분 분량입니다. 목표 글자수(${partTargetChars.toLocaleString()}자)를 반드시 달성해야 합니다! 부족하면 영상 시간이 부족해집니다!`
+    : ""
+
   const systemPrompt = `당신은 유튜브 대본 전문가입니다. 대본의 한 부분을 작성합니다.
 
 🚨🚨🚨 매우 중요한 지시사항 🚨🚨🚨
 - 이 부분은 반드시 정확히 ${partTargetChars.toLocaleString()}자로 작성해야 합니다!
 - 목표 글자수: ${partTargetChars.toLocaleString()}자
-- 허용 범위: ${Math.floor(partTargetChars * 0.95).toLocaleString()}자 ~ ${Math.floor(partTargetChars * 1.05).toLocaleString()}자 (±5%)
-- 절대로 목표 길이를 크게 벗어나지 마세요!
+- 최소 글자수: ${minChars.toLocaleString()}자 (절대 이보다 적으면 안 됩니다!)
+- 허용 범위: ${minChars.toLocaleString()}자 ~ ${maxChars.toLocaleString()}자 (±5%)
+- 절대로 ${minChars.toLocaleString()}자 미만으로 작성하지 마세요!
 - 각 문장을 길고 상세하게 작성하세요!
-- 예시, 사례, 설명을 많이 추가하세요!
+- 예시, 사례, 설명을 많이 추가하여 목표 글자수를 반드시 달성하세요!
 - 괄호나 대괄호를 사용하지 마세요 (TTS를 이용할 것이기 때문)
 - "개요", "서론", "본론", "챕터", "1부", "2부", "3부", "4부", "5부", "결론" 같은 구조적 단어를 절대 사용하지 마세요!
-- 오로지 대본 내용만 작성하세요!`
+- 오로지 대본 내용만 작성하세요!${durationWarning}
+
+⚠️ 글자수 확인 필수:
+작성 후 반드시 글자수를 확인하세요. ${minChars.toLocaleString()}자 미만이면 절대 안 됩니다!
+목표는 ${partTargetChars.toLocaleString()}자입니다. 이 글자수에 맞춰 충분히 상세하게 작성하세요!`
 
   const userPrompt = `주제: ${topic}
 
@@ -1818,9 +1832,11 @@ ${previousParts ? `이미 작성된 부분:\n${previousParts}\n\n` : ""}
 🚨🚨🚨 매우 중요한 필수 요구사항 🚨🚨🚨
 1. 이 부분은 반드시 정확히 ${partTargetChars.toLocaleString()}자로 작성해야 합니다!
    - 목표 글자수: ${partTargetChars.toLocaleString()}자
-   - 허용 범위: ${Math.floor(partTargetChars * 0.95).toLocaleString()}자 ~ ${Math.floor(partTargetChars * 1.05).toLocaleString()}자 (±5%)
-   - 절대로 ${Math.floor(partTargetChars * 1.1).toLocaleString()}자를 초과하지 마세요!
-   - 절대로 ${Math.floor(partTargetChars * 0.9).toLocaleString()}자 미만으로 작성하지 마세요!
+   - 최소 글자수: ${minChars.toLocaleString()}자 (이것보다 적으면 절대 안 됩니다!)
+   - 허용 범위: ${minChars.toLocaleString()}자 ~ ${maxChars.toLocaleString()}자 (±5%)
+   - 절대로 ${maxChars.toLocaleString()}자를 초과하지 마세요!
+   - 절대로 ${minChars.toLocaleString()}자 미만으로 작성하지 마세요!
+   ${durationMinutes && durationMinutes > 20 ? `- ⚠️ 이 영상은 ${durationMinutes}분 분량입니다. 목표 글자수를 반드시 달성해야 합니다!` : ""}
 2. 전체 목표 길이는 ${totalTargetChars.toLocaleString()}자입니다. 각 부분이 정확한 글자수로 작성되어야 전체 목표를 달성할 수 있습니다.
 3. ${previousParts ? "이미 작성된 부분과 자연스럽게 연결되도록 작성하세요." : "대본의 시작 부분이므로 시청자의 관심을 끄는 내용으로 작성하세요."}
 4. 절대로 요약하지 말고 모든 내용을 상세하게 작성하세요.
@@ -1829,10 +1845,26 @@ ${previousParts ? `이미 작성된 부분:\n${previousParts}\n\n` : ""}
 7. 오로지 대본 내용만 작성하세요!
 
 대본 내용만 작성해주세요. 제목이나 구조적 단어는 사용하지 마세요.
-작성 후 글자수를 확인하여 목표 글자수(${partTargetChars.toLocaleString()}자)에 맞는지 확인하세요!`
 
-  const calculatedTokens = Math.ceil(partTargetChars * 2.3 * 1.1)
-  const maxTokens = Math.min(100000, Math.max(8000, calculatedTokens))
+⚠️⚠️⚠️ 최종 확인 사항 ⚠️⚠️⚠️
+1. 반드시 ${minChars.toLocaleString()}자 이상 작성하세요! (목표: ${partTargetChars.toLocaleString()}자)
+2. 글자수가 부족하면 예시, 사례, 설명을 더 추가하세요!
+3. 각 문장을 길고 상세하게 작성하여 목표 글자수를 달성하세요!
+4. 작성 후 글자수를 확인하여 ${minChars.toLocaleString()}자 이상인지 확인하세요!
+
+${durationMinutes && durationMinutes > 20 ? `⚠️ 이 영상은 ${durationMinutes}분 분량입니다. 목표 글자수(${partTargetChars.toLocaleString()}자)를 반드시 달성해야 영상 시간이 부족하지 않습니다!` : ""}`
+
+  // 시간이 길수록 더 많은 토큰 할당 (목표 글자수를 확실히 달성하기 위해)
+  // 한글은 1자당 약 2-3토큰이 필요하므로 여유있게 계산
+  // 목표 글자수에 충분한 토큰을 할당 (최소 4배, 최대 6배)
+  const baseTokenPerChar = 4.0 // 한글 1자당 4토큰으로 계산 (여유있게)
+  const tokenMultiplier = durationMinutes && durationMinutes > 20 ? 1.5 : 1.3
+  const calculatedTokens = Math.ceil(partTargetChars * baseTokenPerChar * tokenMultiplier)
+  // gpt-4o-mini의 max_completion_tokens는 최대 16384이지만, 실제로는 더 큰 값도 가능할 수 있음
+  // 최소값을 계산된 토큰의 1.2배로 설정하여 충분한 여유 확보
+  const minTokens = Math.ceil(calculatedTokens * 1.2)
+  // 최대값은 16384로 설정 (gpt-4o-mini의 일반적인 최대값)
+  const maxTokens = Math.min(16384, Math.max(minTokens, calculatedTokens))
 
   console.log(`[v0] 📝 ${partName} 생성 시작 (목표: ${partTargetChars.toLocaleString()}자, 토큰: ${maxTokens.toLocaleString()})`)
 
@@ -1965,8 +1997,7 @@ ${previousParts ? `이미 작성된 부분:\n${previousParts}\n\n` : ""}
   }).filter(line => line.trim().length > 0).join("\n")
   
   // 목표 길이 조정 (±5% 범위 내로)
-  const minChars = Math.floor(partTargetChars * 0.95)
-  const maxChars = Math.floor(partTargetChars * 1.05)
+  // minChars와 maxChars는 이미 함수 시작 부분에서 선언됨
   
   if (cleanedContent.length > maxChars) {
     console.warn(`[v0] ⚠️ ${partName}이 목표 길이의 105%를 초과합니다. (${cleanedContent.length.toLocaleString()}자 / 목표: ${partTargetChars.toLocaleString()}자) 자동으로 조정합니다.`)
@@ -1981,9 +2012,10 @@ ${previousParts ? `이미 작성된 부분:\n${previousParts}\n\n` : ""}
     }
   } else if (cleanedContent.length < minChars) {
     console.warn(`[v0] ⚠️ ${partName}이 목표 길이의 95% 미만입니다. (${cleanedContent.length.toLocaleString()}자 / 목표: ${partTargetChars.toLocaleString()}자)`)
+    console.warn(`[v0] ⚠️ 부족한 글자수: ${(minChars - cleanedContent.length).toLocaleString()}자`)
   }
 
-  console.log(`[v0] ✅ ${partName} 생성 완료: ${cleanedContent.length.toLocaleString()}자`)
+  console.log(`[v0] ✅ ${partName} 생성 완료: ${cleanedContent.length.toLocaleString()}자 (목표: ${partTargetChars.toLocaleString()}자)`)
   return cleanedContent.trim()
 }
 
@@ -2042,7 +2074,8 @@ export async function generateFinalScript(
       topic,
       previousParts,
       GPT_API_KEY,
-      targetChars
+      targetChars,
+      durationMinutes
     )
     parts.push(intro)
     previousParts += intro + "\n\n"
@@ -2058,7 +2091,8 @@ export async function generateFinalScript(
         topic,
         previousParts,
         GPT_API_KEY,
-        targetChars
+        targetChars,
+        durationMinutes
       )
       parts.push(chapter)
       previousParts += chapter + "\n\n"
@@ -2074,7 +2108,8 @@ export async function generateFinalScript(
       topic,
       previousParts,
       GPT_API_KEY,
-      targetChars
+      targetChars,
+      durationMinutes
     )
     parts.push(conclusion)
     console.log(`[v0] ✅ 마지막 부분 완료: ${conclusion.length.toLocaleString()}자\n`)
@@ -2404,6 +2439,12 @@ ${scriptPlan}
   }
 }
 
+// 6.25만 한글로 변환하는 함수 (6.25 -> 육이오)
+function convertNumbersToKorean(text: string): string {
+  // 6.25만 "육이오"로 변환
+  return text.replace(/6\.25/g, "육이오")
+}
+
 function generateFallbackFullScript(topic: string): string {
   return `이 이야기는 어디에서 절대 꺼내지 않는 이야기입니다. 왜냐하면 그들은 이것으로 막대한 돈을 벌어왔기 때문입니다.
 
@@ -2480,7 +2521,9 @@ export async function generateVideoWithTTS(
       const sentence = sentenceChunks[i]
       console.log(`[v0] TTS 생성 중 ${i + 1}/${sentenceChunks.length}: "${sentence.substring(0, 30)}..."`)
 
-      const subtitleLines = splitIntoSubtitleLines(sentence)
+      // 숫자를 한글로 변환
+      const convertedSentence = convertNumbersToKorean(sentence)
+      const subtitleLines = splitIntoSubtitleLines(convertedSentence)
 
       let ssmlText = "<speak>"
       for (let j = 0; j < subtitleLines.length; j++) {

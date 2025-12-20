@@ -26,14 +26,24 @@ export async function GET(request: NextRequest) {
     const userData = JSON.parse(kakaoUserCookie.value)
     const kakaoId = userData.id
 
+    // WingsAIStudio를 기본 프로그램으로 추가 (모든 로그인 사용자에게 제공)
+    const wingsAIStudioProgram = {
+      id: "wingsaistudio",
+      program_name: "WingsAIStudio",
+      program_path: "/WingsAIStudio",
+      program_description: "AI 기반 영상 자동 제작 플랫폼"
+    }
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
     if (!supabaseUrl || !supabaseServiceKey) {
-      return NextResponse.json(
-        { error: "Supabase 환경 변수가 설정되지 않았습니다." },
-        { status: 500 }
-      )
+      // Supabase가 없어도 WingsAIStudio는 반환
+      return NextResponse.json({
+        success: true,
+        programs: [wingsAIStudioProgram],
+        hasInstructor: false,
+      })
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
@@ -46,10 +56,10 @@ export async function GET(request: NextRequest) {
       .single()
 
     if (userError || !user || !user.instructor) {
-      // 강사가 지정되지 않은 경우 빈 배열과 함께 hasInstructor: false 반환
+      // 강사가 지정되지 않은 경우 WingsAIStudio만 반환
       return NextResponse.json({
         success: true,
-        programs: [],
+        programs: [wingsAIStudioProgram],
         hasInstructor: false,
       })
     }
@@ -63,15 +73,25 @@ export async function GET(request: NextRequest) {
 
     if (programsError) {
       console.error("[User Programs] 프로그램 목록 조회 실패:", programsError)
-      return NextResponse.json(
-        { error: `프로그램 목록 조회 실패: ${programsError.message}` },
-        { status: 500 }
-      )
+      // 조회 실패해도 WingsAIStudio는 반환
+      return NextResponse.json({
+        success: true,
+        programs: [wingsAIStudioProgram],
+        hasInstructor: true,
+      })
     }
+
+    // WingsAIStudio가 이미 목록에 있는지 확인
+    const hasWingsAIStudio = programs?.some((p: any) => p.id === "wingsaistudio" || p.program_path === "/WingsAIStudio")
+    
+    // WingsAIStudio가 없으면 맨 앞에 추가
+    const allPrograms = hasWingsAIStudio 
+      ? programs || []
+      : [wingsAIStudioProgram, ...(programs || [])]
 
     return NextResponse.json({
       success: true,
-      programs: programs || [],
+      programs: allPrograms,
       hasInstructor: true,
     })
   } catch (error) {

@@ -313,85 +313,18 @@ export default function HomePage() {
             <h2 className="text-3xl font-bold tracking-tight md:text-4xl">요금제</h2>
             <p className="mt-4 text-muted-foreground">필요에 맞는 플랜을 선택하세요</p>
           </div>
-          <div className="mx-auto grid max-w-3xl gap-6 md:grid-cols-2">
-            {/* Free Plan */}
-            <div className="relative flex flex-col rounded-2xl border border-border bg-card p-8">
+          <div className="mx-auto flex justify-center max-w-3xl">
+            {/* Pro Plan */}
+            <div className="relative flex flex-col rounded-2xl border border-foreground bg-foreground text-background p-8 w-full max-w-md">
               <span className="absolute -top-3 left-6 rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground">
                 수강생 전용
               </span>
-              <h3 className="text-lg font-semibold">Free</h3>
-              <p className="mt-2 text-sm text-muted-foreground">수강생 전용 무료 플랜</p>
-              <div className="mt-6">
-                <span className="text-4xl font-bold">₩0</span>
-                <span className="text-sm text-muted-foreground">/월</span>
-              </div>
-              <ul className="mt-8 flex-1 space-y-3">
-                <li className="flex items-center gap-3 text-sm">
-                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                  </svg>
-                  월 10회 생성
-                </li>
-                <li className="flex items-center gap-3 text-sm">
-                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                  </svg>
-                  기본 템플릿
-                </li>
-                <li className="flex items-center gap-3 text-sm">
-                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                  </svg>
-                  커뮤니티 지원
-                </li>
-              </ul>
-              <button className="mt-8 w-full px-4 py-2 text-sm font-medium rounded-md border border-border hover:bg-card transition-colors">
-                수강생 인증하기
-              </button>
-            </div>
-            {/* Pro Plan */}
-            <div className="relative flex flex-col rounded-2xl border border-foreground bg-foreground text-background p-8">
               <h3 className="text-lg font-semibold">Pro</h3>
-              <p className="mt-2 text-sm opacity-70">모든 기능을 무제한으로</p>
+              <p className="mt-2 text-sm opacity-70">수강생 전용</p>
               <div className="mt-6">
-                <span className="text-4xl font-bold">₩50,000</span>
+                <span className="text-4xl font-bold">₩100,000</span>
                 <span className="text-sm opacity-70">/월</span>
               </div>
-              <ul className="mt-8 flex-1 space-y-3">
-                <li className="flex items-center gap-3 text-sm">
-                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                  </svg>
-                  무제한 생성
-                </li>
-                <li className="flex items-center gap-3 text-sm">
-                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                  </svg>
-                  프리미엄 템플릿
-                </li>
-                <li className="flex items-center gap-3 text-sm">
-                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                  </svg>
-                  우선 지원
-                </li>
-                <li className="flex items-center gap-3 text-sm">
-                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                  </svg>
-                  API 접근
-                </li>
-                <li className="flex items-center gap-3 text-sm">
-                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                  </svg>
-                  새로운 기능 우선 제공
-                </li>
-              </ul>
-              <button className="mt-8 w-full px-4 py-2 text-sm font-medium rounded-md bg-background text-foreground hover:opacity-90 transition-opacity">
-                Pro 시작하기
-              </button>
             </div>
           </div>
         </section>

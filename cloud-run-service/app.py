@@ -599,10 +599,11 @@ def render_video():
                             vcodec='libx264',
                             acodec='aac',
                             audio_bitrate='256k',
-                            preset='veryfast',
-                            crf=23,
+                            preset='ultrafast',  # 가장 빠른 인코딩 속도
+                            crf=28,  # 품질을 약간 낮춰서 속도 향상 (23 -> 28)
                             tune='stillimage',
                             pix_fmt='yuv420p',
+                            threads=0,  # 모든 CPU 코어 사용
                             shortest=None  # 오디오 길이에 맞춤
                         )
                         
@@ -747,10 +748,11 @@ def render_video():
                         input_audio,
                         output_path,
                         vcodec='libx264',
-                        preset='veryfast',
-                        crf=23,
+                        preset='ultrafast',  # 가장 빠른 인코딩 속도
+                        crf=28,  # 품질을 약간 낮춰서 속도 향상 (23 -> 28)
                         tune='stillimage',
                         pix_fmt='yuv420p',
+                        threads=0,  # 모든 CPU 코어 사용
                         acodec=audio_codec_str,
                         movflags='+faststart'
                     )

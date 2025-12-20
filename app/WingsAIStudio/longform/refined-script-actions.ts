@@ -110,46 +110,199 @@ ${lengthRulePrompt}
 ────────────────────────
 [대본 기획안]:`
 
-    const userPrompt = `${systemPrompt}\n\n${scriptPlan}`
+    const userPrompt = `${systemPrompt}\n\n[대본 기획안]:\n${scriptPlan}`
 
-    // Gemini API 호출
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  text: userPrompt,
-                },
-              ],
-            },
-          ],
-          generationConfig: {
-            temperature: 1,
-            topK: 40,
-            topP: 0.95,
-            maxOutputTokens: 32000, // 글자수 보장을 위해 토큰 수 증가
+    // 5분, 10분은 한 번에 생성, 20분 이상은 기본 대본 + 클라이맥스로 분할 생성
+    const shouldSplit = duration && duration >= 20
+    
+    let content: string
+    
+    if (!shouldSplit) {
+      // 5분, 10분: 한 번에 생성
+      console.log(`[v0] 대본 통합 생성 시작 (${duration}분, 목표: ${targetChars}자)`)
+      
+      const fullResponse = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${GEMINI_API_KEY}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
           },
-        }),
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  {
+                    text: userPrompt,
+                  },
+                ],
+              },
+            ],
+            generationConfig: {
+              temperature: 1,
+              topK: 40,
+              topP: 0.95,
+              maxOutputTokens: targetChars ? Math.min(32768, Math.max(8192, Math.ceil(targetChars * 2.5))) : 16384,
+            },
+          }),
+        }
+      )
+
+      if (!fullResponse.ok) {
+        const errorText = await fullResponse.text()
+        throw new Error(`대본 생성 실패: ${fullResponse.status} - ${errorText}`)
       }
-    )
 
-    if (!response.ok) {
-      const errorText = await response.text()
-      throw new Error(`Gemini API 호출 실패: ${response.status} - ${errorText}`)
-    }
+      const fullData = await fullResponse.json()
+      content = fullData.candidates?.[0]?.content?.parts?.[0]?.text
 
-    const data = await response.json()
-    let content = data.candidates?.[0]?.content?.parts?.[0]?.text
+      if (!content) {
+        throw new Error("대본을 생성할 수 없습니다.")
+      }
+      
+      content = content.trim()
+      console.log(`[v0] 대본 통합 생성 완료: ${content.length}자 (목표: ${targetChars}자)`)
+    } else {
+      // 20분 이상: 기본 대본(70%)과 클라이맥스(30%)로 나눠서 생성
+      const baseTargetChars = targetChars ? Math.floor(targetChars * 0.7) : null // 기본 대본 목표 글자수 (70%)
+      const climaxTargetChars = targetChars ? Math.floor(targetChars * 0.3) : null // 클라이맥스 목표 글자수 (30%)
+      
+      console.log(`[v0] 대본 분할 생성 시작 - 기본: ${baseTargetChars}자, 클라이맥스: ${climaxTargetChars}자`)
+      
+      // 1단계: 기본 대본 생성 (전반부)
+      const baseSystemPrompt = `${systemPrompt}
 
-    if (!content) {
-      throw new Error("정교한 대본을 생성할 수 없습니다.")
+────────────────────────
+[6) 기본 대본 작성 규칙]
+────────────────────────
+- 이 부분은 대본의 전반부입니다 (약 70% 분량).
+- 기획안의 앞부분 내용을 상세하게 작성하세요.
+- 클라이맥스나 결론은 포함하지 마세요.
+- 자연스러운 흐름으로 작성하되, 마지막 문장은 다음 부분으로 이어질 수 있도록 작성하세요.`
+
+      const baseUserPrompt = `${baseSystemPrompt}\n\n[대본 기획안]:\n${scriptPlan}`
+      
+      console.log(`[v0] 기본 대본 생성 시작 (목표: ${baseTargetChars}자)`)
+      
+      const baseResponse = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${GEMINI_API_KEY}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  {
+                    text: baseUserPrompt,
+                  },
+                ],
+              },
+            ],
+            generationConfig: {
+              temperature: 1,
+              topK: 40,
+              topP: 0.95,
+              maxOutputTokens: baseTargetChars ? Math.min(32768, Math.max(8192, Math.ceil(baseTargetChars * 2.5))) : 16384,
+            },
+          }),
+        }
+      )
+
+      if (!baseResponse.ok) {
+        const errorText = await baseResponse.text()
+        throw new Error(`기본 대본 생성 실패: ${baseResponse.status} - ${errorText}`)
+      }
+
+      const baseData = await baseResponse.json()
+      let baseContent = baseData.candidates?.[0]?.content?.parts?.[0]?.text
+
+      if (!baseContent) {
+        throw new Error("기본 대본을 생성할 수 없습니다.")
+      }
+      
+      baseContent = baseContent.trim()
+      console.log(`[v0] 기본 대본 생성 완료: ${baseContent.length}자 (목표: ${baseTargetChars}자)`)
+      
+      // 2단계: 클라이맥스 생성 (후반부)
+      const climaxSystemPrompt = `${systemPrompt}
+
+────────────────────────
+[6) 클라이맥스 대본 작성 규칙]
+────────────────────────
+- 이 부분은 대본의 후반부이자 클라이맥스입니다 (약 30% 분량).
+- 기획안의 뒷부분 내용을 상세하게 작성하세요.
+- 전반부 대본의 내용을 자연스럽게 이어받아 작성하세요.
+- 클라이맥스, 결론, 여운 질문, CTA를 포함하여 작성하세요.
+- 전반부 대본의 마지막 문장 이후에 자연스럽게 이어지는 내용을 작성하세요.`
+
+      const climaxUserPrompt = `${climaxSystemPrompt}
+
+[전반부 대본 (참고용 - 이어서 작성하세요)]:
+${baseContent}
+
+[대본 기획안]:
+${scriptPlan}
+
+위 전반부 대본의 마지막 문장 이후에 자연스럽게 이어지는 클라이맥스 부분을 작성하세요.`
+      
+      console.log(`[v0] 클라이맥스 생성 시작 (목표: ${climaxTargetChars}자)`)
+      
+      const climaxResponse = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${GEMINI_API_KEY}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  {
+                    text: climaxUserPrompt,
+                  },
+                ],
+              },
+            ],
+            generationConfig: {
+              temperature: 1,
+              topK: 40,
+              topP: 0.95,
+              maxOutputTokens: climaxTargetChars ? Math.min(32768, Math.max(8192, Math.ceil(climaxTargetChars * 2.5))) : 16384,
+            },
+          }),
+        }
+      )
+
+      if (!climaxResponse.ok) {
+        const errorText = await climaxResponse.text()
+        throw new Error(`클라이맥스 생성 실패: ${climaxResponse.status} - ${errorText}`)
+      }
+
+      const climaxData = await climaxResponse.json()
+      let climaxContent = climaxData.candidates?.[0]?.content?.parts?.[0]?.text
+
+      if (!climaxContent) {
+        throw new Error("클라이맥스를 생성할 수 없습니다.")
+      }
+      
+      climaxContent = climaxContent.trim()
+      console.log(`[v0] 클라이맥스 생성 완료: ${climaxContent.length}자 (목표: ${climaxTargetChars}자)`)
+      
+      // 3단계: 기본 대본과 클라이맥스를 자연스럽게 합치기
+      const lastChar = baseContent.trim().slice(-1)
+      const needsSpace = !['.', '?', '!', '。', '？', '！'].includes(lastChar)
+      
+      // 자연스러운 연결을 위해 공백 추가 (필요한 경우)
+      if (needsSpace && !climaxContent.startsWith(' ')) {
+        climaxContent = ' ' + climaxContent
+      }
+      
+      content = baseContent + climaxContent
+      console.log(`[v0] 대본 합치기 완료: 총 ${content.length}자 (기본: ${baseContent.length}자, 클라이맥스: ${climaxContent.length}자)`)
     }
 
     // 대본이 잘렸는지 확인하고, 마지막 문장이 완전한지 검증
@@ -204,18 +357,38 @@ ${lengthRulePrompt}
         }
       }
 
-      // 너무 짧으면 재생성 시도
+      // 너무 짧으면 클라이맥스 부분만 확장 시도 (기존 대본 유지)
       if (currentLength < minLength) {
         console.warn(`[v0] ⚠️ 대본이 목표 글자수(${targetChars}자)보다 부족합니다. (현재: ${currentLength}자)`)
-        console.warn(`[v0] ⚠️ 최소 글자수(${minLength}자)에 도달하지 못했습니다. 재생성을 시도합니다.`)
+        console.warn(`[v0] ⚠️ 최소 글자수(${minLength}자)에 도달하지 못했습니다. 클라이맥스 부분을 확장합니다.`)
         
-        // 재생성 시도 (최대 2회)
+        const shortage = minLength - currentLength // 부족한 글자수
+        const additionalTarget = Math.ceil(shortage * 1.2) // 여유있게 20% 더 생성
+        
+        // 클라이맥스 확장 시도 (최대 2회)
         for (let retry = 0; retry < 2; retry++) {
           try {
-            console.log(`[v0] 대본 재생성 시도 ${retry + 1}/2 (목표: ${targetChars}자 이상)`)
+            console.log(`[v0] 클라이맥스 확장 시도 ${retry + 1}/2 (부족: ${shortage}자, 목표 추가: ${additionalTarget}자)`)
             
-            // 더 강력한 프롬프트로 재생성
-            const retryPrompt = `${userPrompt}\n\n⚠️⚠️⚠️ 중요: 이전 생성 결과가 ${currentLength}자로 목표 글자수(${targetChars}자)에 도달하지 못했습니다. 반드시 ${targetChars}자 이상으로 작성하세요. 각 문장을 더 길게, 예시와 설명을 더 풍부하게 추가하세요. ⚠️⚠️⚠️`
+            // 기존 대본을 유지하고 클라이맥스 부분만 확장하는 프롬프트
+            const additionalPrompt = `다음은 이미 생성된 대본입니다. 이 대본의 기본 부분(전반부)은 절대 변경하지 말고, 클라이맥스 부분(후반부)만 자연스럽게 확장하여 추가 내용을 작성해주세요.
+
+⚠️⚠️⚠️ 매우 중요한 지시사항 ⚠️⚠️⚠️
+- 기존 대본의 전반부 내용을 절대 변경하거나 수정하지 마세요.
+- 클라이맥스 부분(후반부)만 확장하여 추가 내용을 작성하세요.
+- 기존 클라이맥스의 마지막 문장 이후에 자연스럽게 이어지는 내용을 작성하세요.
+- 반드시 ${additionalTarget}자 이상의 추가 내용을 작성하세요.
+- 기존 대본의 주제와 톤을 유지하면서 클라이맥스를 더 풍부하게 확장하세요.
+- 예시, 사례, 설명을 풍부하게 추가하여 분량을 채우세요.
+- 괄호나 대괄호를 사용하지 마세요.
+- "개요", "서론", "본론", "챕터", "1부", "2부", "3부", "4부", "5부", "결론" 같은 구조적 단어를 절대 사용하지 마세요.
+- 오로지 대본 내용만 작성하세요.
+
+[기존 대본]:
+${content}
+
+[추가 작성할 내용]:
+(위 대본의 클라이맥스 부분 마지막 문장 이후에 자연스럽게 이어지는 내용을 ${additionalTarget}자 이상 작성하세요)`
             
             const retryResponse = await fetch(
               `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${GEMINI_API_KEY}`,
@@ -229,16 +402,16 @@ ${lengthRulePrompt}
                     {
                       parts: [
                         {
-                          text: retryPrompt,
+                          text: additionalPrompt,
                         },
                       ],
                     },
                   ],
                   generationConfig: {
-                    temperature: 1.2, // 더 창의적으로
+                    temperature: 1.0,
                     topK: 40,
                     topP: 0.95,
-                    maxOutputTokens: 32000,
+                    maxOutputTokens: Math.min(8192, Math.ceil(additionalTarget * 2.5)), // 추가 분량에 맞춰 토큰 할당
                   },
                 }),
               }
@@ -246,36 +419,49 @@ ${lengthRulePrompt}
             
             if (!retryResponse.ok) {
               const errorText = await retryResponse.text()
-              console.error(`[v0] 재생성 API 호출 실패: ${retryResponse.status} - ${errorText}`)
+              console.error(`[v0] 추가 생성 API 호출 실패: ${retryResponse.status} - ${errorText}`)
               break
             }
             
             const retryData = await retryResponse.json()
-            let retryContent = retryData.candidates?.[0]?.content?.parts?.[0]?.text
+            let additionalContent = retryData.candidates?.[0]?.content?.parts?.[0]?.text
             
-            if (!retryContent) {
-              console.error(`[v0] 재생성 결과가 비어있습니다.`)
+            if (!additionalContent) {
+              console.error(`[v0] 추가 생성 결과가 비어있습니다.`)
               break
             }
             
-            retryContent = retryContent.trim()
-            const retryLength = retryContent.length
+            additionalContent = additionalContent.trim()
             
-            console.log(`[v0] 재생성 결과: ${retryLength}자 (목표: ${targetChars}자, 최소: ${minLength}자)`)
+            // 추가 내용이 기존 대본과 자연스럽게 이어지도록 처리
+            // 기존 대본의 마지막 문장 부호 확인
+            const lastChar = content.trim().slice(-1)
+            const needsSpace = !['.', '?', '!', '。', '？', '！'].includes(lastChar)
             
-            // 재생성 결과가 더 좋으면 사용
-            if (retryLength >= minLength || retryLength > currentLength) {
-              content = retryContent
-              currentLength = retryLength
-              console.log(`[v0] ✅ 재생성 성공: ${currentLength}자 (목표 달성: ${currentLength >= minLength ? "예" : "아니오"})`)
+            // 추가 내용 앞에 공백 추가 (필요한 경우)
+            if (needsSpace && !additionalContent.startsWith(' ')) {
+              additionalContent = ' ' + additionalContent
+            }
+            
+            // 기존 대본에 추가 내용을 이어붙임
+            const combinedContent = content + additionalContent
+            const combinedLength = combinedContent.length
+            
+            console.log(`[v0] 추가 생성 결과: ${additionalContent.length}자 추가됨 (기존: ${currentLength}자, 합계: ${combinedLength}자)`)
+            
+            // 합친 결과가 더 좋으면 사용
+            if (combinedLength >= minLength || combinedLength > currentLength) {
+              content = combinedContent
+              currentLength = combinedLength
+              console.log(`[v0] ✅ 추가 생성 성공: ${currentLength}자 (목표 달성: ${currentLength >= minLength ? "예" : "아니오"})`)
               if (currentLength >= minLength) {
                 break // 목표 달성했으면 중단
               }
             } else {
-              console.warn(`[v0] 재생성 결과가 이전보다 나아지지 않았습니다. (${retryLength}자 < ${currentLength}자)`)
+              console.warn(`[v0] 추가 생성 결과가 기대보다 적습니다. (합계: ${combinedLength}자 < 기존: ${currentLength}자)`)
             }
           } catch (retryError) {
-            console.error(`[v0] 재생성 중 오류 발생:`, retryError)
+            console.error(`[v0] 추가 생성 중 오류 발생:`, retryError)
             break
           }
         }
@@ -284,6 +470,8 @@ ${lengthRulePrompt}
         if (currentLength < minLength) {
           console.error(`[v0] ❌ 최종 대본이 최소 글자수(${minLength}자)에 도달하지 못했습니다. (현재: ${currentLength}자)`)
           console.error(`[v0] ❌ 목표 글자수: ${targetChars}자, 현재: ${currentLength}자, 부족: ${minLength - currentLength}자`)
+        } else {
+          console.log(`[v0] ✅ 최종 대본 완성: ${currentLength}자 (목표: ${targetChars}자, 최소: ${minLength}자)`)
         }
       }
     }
@@ -484,7 +672,7 @@ ${sceneText}`
               temperature: 0.7,
               topK: 40,
               topP: 0.95,
-              maxOutputTokens: 20000,
+              maxOutputTokens: 8192, // Gemini 2.5 Pro의 최대 토큰 제한
             },
           }
           
@@ -613,4 +801,120 @@ ${sceneText}`
   }
 }
 
+/**
+ * 대본을 의미 단위로 자동 분할하는 함수
+ * 한 줄로 된 대본을 AI가 분석하여 의미 단위로 나눠줍니다.
+ */
+export async function autoSplitScriptByMeaning(
+  script: string,
+  apiKey?: string
+): Promise<string> {
+  const GEMINI_API_KEY = apiKey || process.env.GEMINI_API_KEY
 
+  if (!GEMINI_API_KEY) {
+    throw new Error("Gemini API 키가 설정되지 않았습니다.")
+  }
+
+  if (!script || script.trim().length === 0) {
+    throw new Error("대본이 비어있습니다.")
+  }
+
+  try {
+    const systemPrompt = `당신은 대본 편집 전문가입니다. 한 줄로 된 대본을 의미 단위로 분석하여 적절한 위치에 빈 줄을 추가하여 나눠주세요.
+
+[중요 규칙]
+1. 대본의 내용을 절대 변경하거나 수정하지 마세요.
+2. 문장을 추가하거나 삭제하지 마세요.
+3. 오직 의미 단위로 구분하기 위해 빈 줄만 추가하세요.
+4. 의미 단위란:
+   - 주제가 바뀌는 지점
+   - 장면이 전환되는 지점
+   - 시간이나 공간이 바뀌는 지점
+   - 새로운 이야기나 사건이 시작되는 지점
+5. 각 의미 단위는 2-5문장 정도로 구성되도록 나누세요.
+6. 너무 짧게 나누지 말고, 너무 길게 묶지도 마세요.
+7. 원본 대본의 모든 문장을 그대로 유지하세요.
+
+[출력 형식]
+- 의미 단위 사이에 빈 줄 하나를 추가하세요.
+- 각 의미 단위는 자연스럽게 연결되어야 합니다.
+- 원본 대본의 모든 내용을 포함해야 합니다.`
+
+    const userPrompt = `다음 대본을 의미 단위로 나눠주세요. 빈 줄만 추가하고 내용은 절대 변경하지 마세요.
+
+[대본]:
+${script}`
+
+    console.log("[씬 나누기] 의미 단위 분석 시작...")
+    
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  text: `${systemPrompt}\n\n${userPrompt}`,
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.3, // 낮은 온도로 정확한 분석
+            topK: 40,
+            topP: 0.95,
+            maxOutputTokens: Math.min(32768, Math.ceil(script.length * 1.5)), // 원본보다 약간 더 긴 토큰 할당
+          },
+        }),
+      }
+    )
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(`씬 나누기 실패: ${response.status} - ${errorText}`)
+    }
+
+    const data = await response.json()
+    let result = data.candidates?.[0]?.content?.parts?.[0]?.text
+
+    if (!result) {
+      throw new Error("씬 나누기 결과를 생성할 수 없습니다.")
+    }
+
+    result = result.trim()
+    
+    // 결과에서 "[대본]:" 같은 프롬프트 부분 제거
+    const lines = result.split('\n')
+    let startIndex = 0
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].includes('대본') && lines[i].includes(':')) {
+        startIndex = i + 1
+        break
+      }
+    }
+    result = lines.slice(startIndex).join('\n').trim()
+    
+    // 원본 대본의 글자수와 비교하여 너무 많이 변경되었는지 확인
+    const originalLength = script.replace(/\s+/g, '').length
+    const resultLength = result.replace(/\s+/g, '').length
+    const lengthDiff = Math.abs(originalLength - resultLength) / originalLength
+    
+    if (lengthDiff > 0.1) {
+      // 10% 이상 차이나면 원본을 반환하고 경고
+      console.warn("[씬 나누기] 결과가 원본과 너무 많이 달라서 원본을 반환합니다.")
+      return script
+    }
+    
+    console.log(`[씬 나누기] 완료: 원본 ${script.length}자 -> 결과 ${result.length}자`)
+    
+    return result
+  } catch (error) {
+    console.error("씬 나누기 실패:", error)
+    throw error
+  }
+}

@@ -53,6 +53,9 @@ import {
   Search,
   RefreshCw,
   Plus,
+  Key,
+  Eye,
+  EyeOff,
 } from "lucide-react"
 import Link from "next/link"
 import {
@@ -76,7 +79,7 @@ import {
   generateHookingVideoPrompt, // 후킹 영상 프롬프트 생성 함수 import 추가
   // generateCommonStylePrompt, // 공통 스타일 프롬프트 생성 함수 import 추가 (임시 주석 처리)
 } from "./actions"
-import { generateRefinedScript, decomposeScriptIntoScenes } from "./refined-script-actions"
+import { generateRefinedScript, decomposeScriptIntoScenes, autoSplitScriptByMeaning } from "./refined-script-actions"
 import { generateSceneImagePrompts } from "./scene-prompt-actions"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
@@ -359,6 +362,7 @@ export default function LongformContentPage() {
   const [scriptLines, setScriptLines] = useState<Array<{ id: number; text: string }>>([])
   const [sceneImagePrompts, setSceneImagePrompts] = useState<Array<{ sceneNumber: number; images: Array<{ imageNumber: number; prompt: string; sceneText: string; visualInstruction?: string; imageUrl?: string }> }>>([]) // Scene별 이미지 프롬프트
   const [isGeneratingScenePrompts, setIsGeneratingScenePrompts] = useState(false) // Scene 프롬프트 생성 중
+  const [scenePromptProgress, setScenePromptProgress] = useState<{ current: number; total: number } | null>(null) // 이미지 프롬프트 생성 진행률
   const [isGeneratingSceneImages, setIsGeneratingSceneImages] = useState(false) // Scene 이미지 생성 중
   const [sceneImageGenerationProgress, setSceneImageGenerationProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 }) // Scene 이미지 생성 진행도
   const [generatingImageIds, setGeneratingImageIds] = useState<Set<string>>(new Set()) // 개별 이미지 생성 중인 ID들 (형식: "sceneNumber-imageNumber")
@@ -387,7 +391,10 @@ export default function LongformContentPage() {
     uploadTags: string[]
   } | null>(null)
   const [isGenerating, setIsGenerating] = useState(false)
+  const [scriptGenerationProgress, setScriptGenerationProgress] = useState<{ progress: number; elapsedTime: number; estimatedTime: number } | null>(null) // 정교한 대본 생성 진행률
   const [isDecomposingScenes, setIsDecomposingScenes] = useState(false) // 장면 분해 중 상태
+  const [sceneDecompositionProgress, setSceneDecompositionProgress] = useState<{ current: number; total: number; progress: number; elapsedTime: number; estimatedTime: number } | null>(null) // 장면 분해 진행률
+  const [isSplittingScenes, setIsSplittingScenes] = useState(false) // 씬 나누기 중 상태
   const [isScanning, setIsScanning] = useState(false)
   const [completedSteps, setCompletedSteps] = useState<string[]>([])
   const [improvementRequest, setImprovementRequest] = useState("")
@@ -418,6 +425,22 @@ export default function LongformContentPage() {
   useEffect(() => {
     videoDataRef.current = videoData
   }, [videoData])
+
+  // 설정 다이얼로그 상태
+  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
+  const [apiKeys, setApiKeys] = useState({
+    openai: "",
+    elevenlabs: "",
+    replicate: "",
+    gemini: "",
+  })
+  const [showKeys, setShowKeys] = useState({
+    openai: false,
+    elevenlabs: false,
+    replicate: false,
+    gemini: false,
+  })
+  const [saved, setSaved] = useState(false)
   
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false)
   const [currentSubtitle, setCurrentSubtitle] = useState("")
@@ -531,6 +554,134 @@ export default function LongformContentPage() {
   const [isPlayingShorts, setIsPlayingShorts] = useState(false) // 쇼츠 재생 중
   const [shortsCurrentTime, setShortsCurrentTime] = useState(0) // 쇼츠 현재 시간
   const [testImageFile, setTestImageFile] = useState<File | null>(null) // 테스트용 이미지 파일
+
+  // 상태 저장 (localStorage에 저장, 새로고침 시에만 초기화)
+  useEffect(() => {
+    // 새로고침 플래그 확인
+    const isRefresh = sessionStorage.getItem("longform_refresh_flag")
+    if (isRefresh) {
+      // 새로고침이면 초기화하고 플래그 제거
+      sessionStorage.removeItem("longform_refresh_flag")
+      localStorage.removeItem("longform_state")
+      return
+    }
+
+    // 상태 저장
+    const stateToSave = {
+      activeStep,
+      keywords,
+      selectedTopic,
+      generatedTopics,
+      script,
+      scriptLines,
+      sceneImagePrompts,
+      generatedImages,
+      generatedAudios,
+      videoData,
+      selectedVoiceId,
+      youtubeTitle,
+      youtubeDescription,
+      thumbnailText,
+      selectedTitle,
+      customTitle,
+      scriptPlan,
+      scriptDraft,
+    }
+    localStorage.setItem("longform_state", JSON.stringify(stateToSave))
+  }, [
+    activeStep,
+    keywords,
+    selectedTopic,
+    generatedTopics,
+    script,
+    scriptLines,
+    sceneImagePrompts,
+    generatedImages,
+    generatedAudios,
+    videoData,
+    selectedVoiceId,
+    youtubeTitle,
+    youtubeDescription,
+    thumbnailText,
+    selectedTitle,
+    customTitle,
+    scriptPlan,
+    scriptDraft,
+  ])
+
+  // 상태 복원 (컴포넌트 마운트 시)
+  useEffect(() => {
+    // 새로고침 플래그가 없으면 복원
+    const isRefresh = sessionStorage.getItem("longform_refresh_flag")
+    if (isRefresh) {
+      return
+    }
+
+    const savedState = localStorage.getItem("longform_state")
+    if (savedState) {
+      try {
+        const state = JSON.parse(savedState)
+        if (state.activeStep) setActiveStep(state.activeStep)
+        if (state.keywords) setKeywords(state.keywords)
+        if (state.selectedTopic) setSelectedTopic(state.selectedTopic)
+        if (state.generatedTopics) setGeneratedTopics(state.generatedTopics)
+        if (state.script) setScript(state.script)
+        if (state.scriptLines) setScriptLines(state.scriptLines)
+        if (state.sceneImagePrompts) setSceneImagePrompts(state.sceneImagePrompts)
+        if (state.generatedImages) setGeneratedImages(state.generatedImages)
+        if (state.generatedAudios) setGeneratedAudios(state.generatedAudios)
+        if (state.videoData) setVideoData(state.videoData)
+        if (state.selectedVoiceId) setSelectedVoiceId(state.selectedVoiceId)
+        if (state.youtubeTitle) setYoutubeTitle(state.youtubeTitle)
+        if (state.youtubeDescription) setYoutubeDescription(state.youtubeDescription)
+        if (state.thumbnailText) setThumbnailText(state.thumbnailText)
+        if (state.selectedTitle) setSelectedTitle(state.selectedTitle)
+        if (state.customTitle) setCustomTitle(state.customTitle)
+        if (state.scriptPlan) setScriptPlan(state.scriptPlan)
+        if (state.scriptDraft) setScriptDraft(state.scriptDraft)
+      } catch (error) {
+        console.error("상태 복원 실패:", error)
+      }
+    }
+  }, [])
+
+  // 새로고침 감지
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      sessionStorage.setItem("longform_refresh_flag", "true")
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload)
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload)
+    }
+  }, [])
+
+  // API 키 로드
+  useEffect(() => {
+    const storedOpenAI = localStorage.getItem("openai_api_key") || ""
+    const storedElevenLabs = localStorage.getItem("elevenlabs_api_key") || ""
+    const storedReplicate = localStorage.getItem("replicate_api_key") || ""
+    const storedGemini = localStorage.getItem("gemini_api_key") || ""
+
+    setApiKeys({
+      openai: storedOpenAI,
+      elevenlabs: storedElevenLabs,
+      replicate: storedReplicate,
+      gemini: storedGemini,
+    })
+  }, [])
+
+  // API 키 저장
+  const handleSaveApiKeys = () => {
+    localStorage.setItem("openai_api_key", apiKeys.openai)
+    localStorage.setItem("elevenlabs_api_key", apiKeys.elevenlabs)
+    localStorage.setItem("replicate_api_key", apiKeys.replicate)
+    localStorage.setItem("gemini_api_key", apiKeys.gemini)
+    setSaved(true)
+    setTimeout(() => {
+      setSaved(false)
+    }, 2000)
+  }
   const [testImageUrl, setTestImageUrl] = useState<string | null>(null) // 테스트용 이미지 URL
   const previewContainerRef = useRef<HTMLDivElement | null>(null)
   
@@ -1492,9 +1643,9 @@ export default function LongformContentPage() {
                 ...(audioGcsUrl ? { audioGcsUrl } : { audioBase64 }),
                 subtitles: subtitles.map((s) => ({
                   id: s.id,
-                  // 자막 타이밍을 1초 앞당겨서 전달 (TTS와 동기화 개선)
-                  start: Math.max(0, s.start - 1),
-                  end: Math.max(0, s.end - 1),
+                  // 자막 타이밍을 0.5초 앞당겨서 전달 (TTS와 동기화 개선)
+                  start: Math.max(0, s.start - 0.5),
+                  end: Math.max(0, s.end - 0.5),
                   text: s.text,
                 })),
                 characterImage: firstImage.imageUrl,
@@ -4032,13 +4183,32 @@ export default function LongformContentPage() {
     }
 
     setIsGenerating(true)
+    const startTime = Date.now()
+    
+    // 목표 글자수 기반 예상 시간 계산 (1000자당 약 10-15초 소요 가정)
+    const topic = isCustomTopicSelected ? customTopic : selectedTopic
+    const targetChars = Math.floor(scriptDuration * 60 * 6.9)
+    const estimatedSeconds = Math.max(30, Math.ceil(targetChars / 1000 * 12)) // 최소 30초, 1000자당 12초
+    const estimatedTime = estimatedSeconds * 1000 // 밀리초로 변환
+    
+    // 진행률 업데이트 인터벌 시작
+    const progressInterval = setInterval(() => {
+      const elapsedTime = Date.now() - startTime
+      // 진행률 계산: 경과 시간 / 예상 시간 (최대 95%까지, 실제 완료 전까지는 100%로 표시하지 않음)
+      const progress = Math.min(95, Math.floor((elapsedTime / estimatedTime) * 100))
+      setScriptGenerationProgress({
+        progress,
+        elapsedTime: Math.floor(elapsedTime / 1000), // 초 단위
+        estimatedTime: Math.floor(estimatedTime / 1000) // 초 단위
+      })
+    }, 500) // 0.5초마다 업데이트
+    
     try {
       console.log("[v0] 정교한 대본 생성 시작")
-      const topic = isCustomTopicSelected ? customTopic : selectedTopic
-      // 선택한 시간에 맞춰 대본 길이 계산 (1초당 6.9자)
-      const targetChars = Math.floor(scriptDuration * 60 * 6.9)
       const geminiApiKey = getGeminiApiKey()
       if (!geminiApiKey) {
+        clearInterval(progressInterval)
+        setScriptGenerationProgress(null)
         alert("Gemini API 키를 설정해주세요. 설정 페이지에서 API 키를 입력하고 저장해주세요.")
         return
       }
@@ -4051,12 +4221,24 @@ export default function LongformContentPage() {
       setScriptLines(groupedLines)
       setCompletedSteps((prev) => [...prev, "script"])
       console.log("[v0] 정교한 대본 생성 완료, 문장 그룹 수:", groupedLines.length)
+      
+      // 완료 시 100% 표시
+      setScriptGenerationProgress({
+        progress: 100,
+        elapsedTime: Math.floor((Date.now() - startTime) / 1000),
+        estimatedTime: Math.floor(estimatedTime / 1000)
+      })
     } catch (error) {
       console.error("정교한 대본 생성 실패:", error)
       const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다."
       alert(`정교한 대본 생성에 실패했습니다: ${errorMessage}`)
     } finally {
+      clearInterval(progressInterval)
       setIsGenerating(false)
+      // 완료 후 1초 뒤 진행률 초기화
+      setTimeout(() => {
+        setScriptGenerationProgress(null)
+      }, 1000)
     }
   }
 
@@ -4677,6 +4859,12 @@ export default function LongformContentPage() {
     }
   }
 
+  // 6.25만 한글로 변환하는 함수 (6.25 -> 육이오)
+  const convertNumbersToKorean = (text: string): string => {
+    // 6.25만 "육이오"로 변환
+    return text.replace(/6\.25/g, "육이오")
+  }
+
   // TTS 생성 재시도 헬퍼 함수
   const generateTTSWithRetry = async (
     line: { id: number; text: string },
@@ -4684,6 +4872,9 @@ export default function LongformContentPage() {
     maxRetries: number = 5
   ): Promise<{ audioUrl: string; audioBase64: string; alignment?: any }> => {
     let lastError: Error | null = null
+    
+    // 숫자를 한글로 변환
+    const convertedText = convertNumbersToKorean(line.text)
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
@@ -4698,7 +4889,7 @@ export default function LongformContentPage() {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              text: line.text,
+              text: convertedText,
               voice: googleVoice,
               speed: 1.0,
             }),
@@ -4713,7 +4904,7 @@ export default function LongformContentPage() {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              text: line.text,
+              text: convertedText,
               voice: voiceName,
               speed: 1.0,
               pitch: pitch,
@@ -4728,7 +4919,7 @@ export default function LongformContentPage() {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              text: line.text,
+              text: convertedText,
               voiceId: selectedVoiceId,
               apiKey: elevenlabsApiKey,
             }),
@@ -6755,7 +6946,7 @@ export default function LongformContentPage() {
         ...(audioGcsUrl ? { audioGcsUrl: audioGcsUrl } : { audioBase64: audioBase64 }),
           subtitles: videoData.subtitles.map((s) => ({
             id: s.id,
-            // 자막 타이밍을 1초 앞당겨서 전달 (TTS와 동기화 개선)
+            // 자막 타이밍을 0.5초 앞당겨서 전달 (TTS와 동기화 개선)
             start: Math.max(0, s.start - 1),
             end: Math.max(0, s.end - 1),
             text: s.text,
@@ -7214,7 +7405,7 @@ export default function LongformContentPage() {
         ...(showSubtitles ? {
           subtitles: videoData.subtitles.map((s) => ({
             id: s.id,
-            // 자막 타이밍을 1초 앞당겨서 전달 (TTS와 동기화 개선)
+            // 자막 타이밍을 0.5초 앞당겨서 전달 (TTS와 동기화 개선)
             start: Math.max(0, s.start - 1),
             end: Math.max(0, s.end - 1),
             text: s.text,
@@ -8286,8 +8477,9 @@ export default function LongformContentPage() {
           adjustedTimeForSubtitles = introVideo ? currentTime - 10 : currentTime
         }
         
+        // 자막 타이밍을 0.5초 앞당기기 (TTS와 동기화를 위해)
         const currentSubtitles = videoData.subtitles.filter(
-          (s) => adjustedTimeForSubtitles >= s.start && adjustedTimeForSubtitles <= s.end
+          (s) => adjustedTimeForSubtitles >= Math.max(0, s.start - 0.5) && adjustedTimeForSubtitles <= Math.max(0, s.end - 0.5)
         )
 
         // 자막 표시 여부 확인
@@ -10346,6 +10538,68 @@ export default function LongformContentPage() {
                       </>
                     )}
                   </Button>
+                  
+                  {/* 로딩 다이얼로그 */}
+                  <Dialog open={isGenerating} onOpenChange={() => {}}>
+                    <DialogContent className="sm:max-w-md" showCloseButton={false}>
+                      <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                          <Sparkles className="w-5 h-5 animate-spin text-blue-500" />
+                          정교한 대본 생성 중...
+                        </DialogTitle>
+                        <DialogDescription>
+                          AI가 대본을 생성하고 있습니다. 잠시만 기다려주세요.
+                        </DialogDescription>
+                      </DialogHeader>
+                      
+                      {scriptGenerationProgress && (
+                        <div className="space-y-4 py-4">
+                          {/* 진행률 바 */}
+                          <div className="space-y-2">
+                            <div className="flex justify-between items-center text-sm">
+                              <span className="font-medium">진행률</span>
+                              <span className="text-blue-600 font-semibold">{scriptGenerationProgress.progress}%</span>
+                            </div>
+                            <div className="w-full bg-slate-200 rounded-full h-3 overflow-hidden">
+                              <div 
+                                className="bg-gradient-to-r from-blue-500 to-purple-600 h-full rounded-full transition-all duration-500 ease-out flex items-center justify-end pr-2"
+                                style={{ width: `${scriptGenerationProgress.progress}%` }}
+                              >
+                                {scriptGenerationProgress.progress > 10 && (
+                                  <span className="text-xs text-white font-medium">{scriptGenerationProgress.progress}%</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* 시간 정보 */}
+                          <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div className="space-y-1">
+                              <p className="text-muted-foreground">경과 시간</p>
+                              <p className="font-semibold">
+                                {Math.floor(scriptGenerationProgress.elapsedTime / 60)}분 {scriptGenerationProgress.elapsedTime % 60}초
+                              </p>
+                            </div>
+                            {scriptGenerationProgress.progress < 95 && (
+                              <div className="space-y-1">
+                                <p className="text-muted-foreground">예상 시간</p>
+                                <p className="font-semibold">
+                                  {Math.floor(scriptGenerationProgress.estimatedTime / 60)}분 {scriptGenerationProgress.estimatedTime % 60}초
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                          
+                          {/* 남은 시간 (예상) */}
+                          {scriptGenerationProgress.progress < 95 && scriptGenerationProgress.estimatedTime > scriptGenerationProgress.elapsedTime && (
+                            <div className="text-center text-sm text-muted-foreground">
+                              예상 남은 시간: 약 {Math.floor((scriptGenerationProgress.estimatedTime - scriptGenerationProgress.elapsedTime) / 60)}분 {(scriptGenerationProgress.estimatedTime - scriptGenerationProgress.elapsedTime) % 60}초
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </DialogContent>
+                  </Dialog>
 
                   <div className="grid grid-cols-1 gap-2">
                     <Button onClick={() => setShowDirectScriptInput(true)} variant="outline" className="w-full" size="lg">
@@ -10416,6 +10670,50 @@ export default function LongformContentPage() {
               <div className="flex items-center justify-between mb-4">
                     <label className="text-sm font-medium">대본 전체 내용 (수정 가능)</label>
                 <div className="flex gap-2">
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={async () => {
+                      if (!script || script.trim().length === 0) {
+                        alert("대본이 없습니다.")
+                        return
+                      }
+                      
+                      setIsSplittingScenes(true)
+                      try {
+                        const geminiApiKey = getGeminiApiKey()
+                        if (!geminiApiKey) {
+                          alert("Gemini API 키를 설정해주세요. 설정 페이지에서 API 키를 입력하고 저장해주세요.")
+                          return
+                        }
+                        
+                        console.log("[씬 나누기] 시작...")
+                        const splitResult = await autoSplitScriptByMeaning(script, geminiApiKey)
+                        setScript(splitResult)
+                        console.log("[씬 나누기] 완료")
+                        alert("대본이 의미 단위로 나뉘었습니다.")
+                      } catch (error) {
+                        console.error("[씬 나누기] 에러:", error)
+                        const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다."
+                        alert(`씬 나누기에 실패했습니다: ${errorMessage}`)
+                      } finally {
+                        setIsSplittingScenes(false)
+                      }
+                    }}
+                    disabled={isSplittingScenes || !script.trim()}
+                  >
+                    {isSplittingScenes ? (
+                      <>
+                        <Sparkles className="w-4 h-4 mr-2 animate-spin" />
+                        나누는 중...
+                      </>
+                    ) : (
+                      <>
+                        <Scissors className="w-4 h-4 mr-2" />
+                        씬 나누기
+                      </>
+                    )}
+                  </Button>
                   <Button variant="outline" size="sm" onClick={() => copyToClipboard(script)}>
                     <Copy className="w-4 h-4 mr-2" />
                     복사
@@ -10448,16 +10746,104 @@ export default function LongformContentPage() {
                       }
                       console.log(`[장면 분해 버튼] 대본 길이: ${script.length}자`)
                       setIsDecomposingScenes(true)
+                      
+                      // 1단계: 총 씬 개수 먼저 분석
+                      console.log("[장면 분해] 총 씬 개수 분석 시작...")
+                      
+                      // 대본을 의미 단위(씬)로 나누기 (빈 줄 기준 또는 자연스러운 구분)
+                      let scenes = script.split(/\n\s*\n/).filter(s => s.trim().length > 0)
+                      
+                      if (scenes.length === 0) {
+                        // 빈 줄이 없으면 전체를 하나의 씬으로 처리
+                        scenes = [script]
+                      }
+                      
+                      // 긴 씬을 여러 씬으로 분할 (각 씬이 1500자 이상이면 분할)
+                      const MAX_SCENE_LENGTH = 1500
+                      const splitScenes: string[] = []
+                      
+                      for (let idx = 0; idx < scenes.length; idx++) {
+                        const scene = scenes[idx]
+                        
+                        if (scene.length <= MAX_SCENE_LENGTH) {
+                          splitScenes.push(scene)
+                        } else {
+                          // 긴 씬을 문장 단위로 분할
+                          const sentences = scene.split(/([.!?。！？]\s*)/).filter(s => s.trim().length > 0)
+                          let currentChunk = ""
+                          
+                          for (let i = 0; i < sentences.length; i++) {
+                            const sentence = sentences[i]
+                            if (currentChunk.length + sentence.length <= MAX_SCENE_LENGTH) {
+                              currentChunk += sentence
+                            } else {
+                              if (currentChunk.trim().length > 0) {
+                                splitScenes.push(currentChunk.trim())
+                              }
+                              currentChunk = sentence
+                            }
+                          }
+                          
+                          if (currentChunk.trim().length > 0) {
+                            splitScenes.push(currentChunk.trim())
+                          }
+                        }
+                      }
+                      
+                      const totalScenes = splitScenes.length
+                      console.log(`[장면 분해] 총 씬 개수 분석 완료: ${totalScenes}개 씬`)
+                      
+                      const startTime = Date.now()
+                      // 씬당 약 15-20초 소요 가정
+                      const estimatedSeconds = Math.max(30, totalScenes * 18)
+                      const estimatedTime = estimatedSeconds * 1000
+                      
+                      // 진행률 초기화
+                      setSceneDecompositionProgress({
+                        current: 0,
+                        total: totalScenes,
+                        progress: 0,
+                        elapsedTime: 0,
+                        estimatedTime: estimatedSeconds
+                      })
+                      
+                      // 진행률 업데이트 인터벌
+                      let currentProcessedScene = 0
+                      const progressInterval = setInterval(() => {
+                        const elapsedTime = Date.now() - startTime
+                        const elapsedSeconds = Math.floor(elapsedTime / 1000)
+                        // 씬당 예상 소요 시간으로 현재 씬 번호 추정
+                        const estimatedTimePerScene = estimatedSeconds / totalScenes
+                        const estimatedCurrentScene = Math.min(
+                          totalScenes, 
+                          Math.max(1, Math.floor(elapsedSeconds / estimatedTimePerScene) + 1)
+                        )
+                        
+                        // 진행률 계산: 추정된 현재 씬 / 총 씬 개수 (최대 95%까지)
+                        const progress = Math.min(95, Math.floor((estimatedCurrentScene / totalScenes) * 100))
+                        
+                        setSceneDecompositionProgress({
+                          current: estimatedCurrentScene,
+                          total: totalScenes,
+                          progress,
+                          elapsedTime: elapsedSeconds,
+                          estimatedTime: estimatedSeconds
+                        })
+                      }, 500) // 0.5초마다 업데이트
+                      
                       try {
                         console.log("[장면 분해 버튼] Gemini API 키 확인 중...")
                         const geminiApiKey = getGeminiApiKey()
                         if (!geminiApiKey) {
+                          clearInterval(progressInterval)
+                          setSceneDecompositionProgress(null)
                           console.error("[장면 분해 버튼] Gemini API 키 없음")
                           alert("Gemini API 키를 설정해주세요. 설정 페이지에서 API 키를 입력하고 저장해주세요.")
                           setIsDecomposingScenes(false)
                           return
                         }
                         console.log("[장면 분해 버튼] API 키 확인 완료, decomposeScriptIntoScenes 호출 시작")
+                        console.log(`[장면 분해 버튼] 총 ${totalScenes}개 씬 처리 예정`)
                         const decomposedResult = await decomposeScriptIntoScenes(script, geminiApiKey)
                         console.log("[장면 분해 버튼] decomposeScriptIntoScenes 완료, 결과 길이:", decomposedResult.length)
                         // 장면 분해 결과를 저장
@@ -10471,8 +10857,26 @@ export default function LongformContentPage() {
                         // 대본 생성 단계 완료 표시
                         setCompletedSteps((prev) => [...new Set([...prev, "script"])])
                         
+                        // 완료 시 100% 표시
+                        clearInterval(progressInterval)
+                        const finalElapsedTime = Math.floor((Date.now() - startTime) / 1000)
+                        setSceneDecompositionProgress({
+                          current: totalScenes,
+                          total: totalScenes,
+                          progress: 100,
+                          elapsedTime: finalElapsedTime,
+                          estimatedTime: estimatedSeconds
+                        })
+                        
+                        // 1초 후 진행률 초기화
+                        setTimeout(() => {
+                          setSceneDecompositionProgress(null)
+                        }, 1000)
+                        
                         alert(`대본이 ${scenes.length}개의 장면으로 분해되었습니다.`)
                       } catch (error) {
+                        clearInterval(progressInterval)
+                        setSceneDecompositionProgress(null)
                         console.error("[장면 분해 버튼] 에러 발생:", error)
                         console.error("[장면 분해 버튼] 에러 상세:", {
                           name: error instanceof Error ? error.name : "Unknown",
@@ -10500,6 +10904,70 @@ export default function LongformContentPage() {
                       </>
                     )}
                   </Button>
+                  
+                  {/* 장면 분해 진행률 다이얼로그 */}
+                  <Dialog open={isDecomposingScenes} onOpenChange={() => {}}>
+                    <DialogContent className="sm:max-w-md" showCloseButton={false}>
+                      <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                          <Scissors className="w-5 h-5 animate-pulse text-blue-500" />
+                          장면 분해 중...
+                        </DialogTitle>
+                        <DialogDescription>
+                          대본을 장면 단위로 분해하고 있습니다. 잠시만 기다려주세요.
+                        </DialogDescription>
+                      </DialogHeader>
+                      
+                      {sceneDecompositionProgress && (
+                        <div className="space-y-4 py-4">
+                          {/* 씬 진행률 */}
+                          <div className="space-y-2">
+                            <div className="flex justify-between items-center text-sm">
+                              <span className="font-medium">씬 처리 중</span>
+                              <span className="text-blue-600 font-semibold">
+                                {sceneDecompositionProgress.current} / {sceneDecompositionProgress.total} 씬
+                              </span>
+                            </div>
+                            <div className="w-full bg-slate-200 rounded-full h-3 overflow-hidden">
+                              <div 
+                                className="bg-gradient-to-r from-blue-500 to-purple-600 h-full rounded-full transition-all duration-500 ease-out flex items-center justify-end pr-2"
+                                style={{ width: `${sceneDecompositionProgress.progress}%` }}
+                              >
+                                {sceneDecompositionProgress.progress > 10 && (
+                                  <span className="text-xs text-white font-medium">{sceneDecompositionProgress.progress}%</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* 시간 정보 */}
+                          <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div className="space-y-1">
+                              <p className="text-muted-foreground">경과 시간</p>
+                              <p className="font-semibold">
+                                {Math.floor(sceneDecompositionProgress.elapsedTime / 60)}분 {sceneDecompositionProgress.elapsedTime % 60}초
+                              </p>
+                            </div>
+                            {sceneDecompositionProgress.progress < 95 && (
+                              <div className="space-y-1">
+                                <p className="text-muted-foreground">예상 시간</p>
+                                <p className="font-semibold">
+                                  {Math.floor(sceneDecompositionProgress.estimatedTime / 60)}분 {sceneDecompositionProgress.estimatedTime % 60}초
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                          
+                          {/* 남은 시간 (예상) */}
+                          {sceneDecompositionProgress.progress < 95 && sceneDecompositionProgress.estimatedTime > sceneDecompositionProgress.elapsedTime && (
+                            <div className="text-center text-sm text-muted-foreground">
+                              예상 남은 시간: 약 {Math.floor((sceneDecompositionProgress.estimatedTime - sceneDecompositionProgress.elapsedTime) / 60)}분 {(sceneDecompositionProgress.estimatedTime - sceneDecompositionProgress.elapsedTime) % 60}초
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </DialogContent>
+                  </Dialog>
                 </div>
               </Card>
             )}
@@ -11074,6 +11542,36 @@ export default function LongformContentPage() {
                           return
                         }
                         setIsGeneratingScenePrompts(true)
+                        
+                        // 총 씬 개수 먼저 계산
+                        const sceneBlocks = decomposedScenes.split(/(?=씬\s+\d+)/).filter(block => block.trim().length > 0)
+                        const totalScenes = sceneBlocks.length
+                        console.log(`[이미지 프롬프트 생성] 총 씬 개수: ${totalScenes}개`)
+                        
+                        // 진행률 초기화
+                        setScenePromptProgress({
+                          current: 0,
+                          total: totalScenes
+                        })
+                        
+                        // 진행률 업데이트 인터벌 (씬당 약 5-8초 소요 가정)
+                        const startTime = Date.now()
+                        const estimatedTimePerScene = 6 // 씬당 약 6초
+                        const progressInterval = setInterval(() => {
+                          const elapsedTime = Date.now() - startTime
+                          const elapsedSeconds = Math.floor(elapsedTime / 1000)
+                          // 씬당 예상 소요 시간으로 현재 씬 번호 추정
+                          const estimatedCurrentScene = Math.min(
+                            totalScenes, 
+                            Math.max(1, Math.floor(elapsedSeconds / estimatedTimePerScene) + 1)
+                          )
+                          
+                          setScenePromptProgress({
+                            current: estimatedCurrentScene,
+                            total: totalScenes
+                          })
+                        }, 500) // 0.5초마다 업데이트
+                        
                         try {
                           console.log("[이미지 프롬프트 생성] decomposedScenes 확인:", decomposedScenes.substring(0, 500))
                           console.log("[이미지 프롬프트 생성] customStylePrompt:", customStylePrompt)
@@ -11086,7 +11584,21 @@ export default function LongformContentPage() {
                           
                           console.log("[이미지 프롬프트 생성] 생성된 프롬프트 개수:", prompts.length)
                           setSceneImagePrompts(prompts)
+                          
+                          // 완료 시 진행률 업데이트
+                          clearInterval(progressInterval)
+                          setScenePromptProgress({
+                            current: totalScenes,
+                            total: totalScenes
+                          })
+                          
+                          // 1초 후 진행률 초기화
+                          setTimeout(() => {
+                            setScenePromptProgress(null)
+                          }, 1000)
                         } catch (error) {
+                          clearInterval(progressInterval)
+                          setScenePromptProgress(null)
                           console.error("이미지 프롬프트 생성 실패:", error)
                           alert(`이미지 프롬프트 생성에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
                         } finally {
@@ -11101,6 +11613,11 @@ export default function LongformContentPage() {
                         <>
                           <Sparkles className="w-4 h-4 mr-2 animate-spin" />
                           1. 이미지 프롬프트 생성 중...
+                          {scenePromptProgress && (
+                            <span className="ml-2 text-sm opacity-90">
+                              ({scenePromptProgress.current}/{scenePromptProgress.total} 씬)
+                            </span>
+                          )}
                         </>
                       ) : (
                         <>
@@ -15376,9 +15893,205 @@ export default function LongformContentPage() {
                 wingsAIStudio - AI 기반 영상 자동 제작 툴
                 </h1>
             </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="rounded-full"
+                onClick={() => setSettingsDialogOpen(true)}
+                title="설정"
+              >
+                <Settings className="w-5 h-5" />
+              </Button>
+            </div>
           </div>
         </div>
       </header>
+
+      {/* 설정 다이얼로그 */}
+      <Dialog open={settingsDialogOpen} onOpenChange={setSettingsDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Key className="w-5 h-5" />
+              API 키 설정
+            </DialogTitle>
+            <DialogDescription>
+              AI 서비스 사용을 위한 API 키를 입력해주세요. 키는 브라우저에 안전하게 저장됩니다.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6 py-4">
+            {/* OpenAI API Key */}
+            <div className="space-y-2">
+              <Label htmlFor="openai-key" className="text-sm font-medium">
+                OpenAI API Key
+              </Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="openai-key"
+                  type={showKeys.openai ? "text" : "password"}
+                  placeholder="sk-..."
+                  value={apiKeys.openai}
+                  onChange={(e) => setApiKeys({ ...apiKeys, openai: e.target.value })}
+                  className="font-mono text-sm"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowKeys({ ...showKeys, openai: !showKeys.openai })}
+                  className="shrink-0"
+                >
+                  {showKeys.openai ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    navigator.clipboard.writeText(apiKeys.openai)
+                  }}
+                  disabled={!apiKeys.openai}
+                  className="shrink-0"
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">GPT 모델 사용에 필요합니다</p>
+            </div>
+
+            {/* ElevenLabs API Key */}
+            <div className="space-y-2">
+              <Label htmlFor="elevenlabs-key" className="text-sm font-medium">
+                ElevenLabs API Key
+              </Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="elevenlabs-key"
+                  type={showKeys.elevenlabs ? "text" : "password"}
+                  placeholder="입력하세요"
+                  value={apiKeys.elevenlabs}
+                  onChange={(e) => setApiKeys({ ...apiKeys, elevenlabs: e.target.value })}
+                  className="font-mono text-sm"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowKeys({ ...showKeys, elevenlabs: !showKeys.elevenlabs })}
+                  className="shrink-0"
+                >
+                  {showKeys.elevenlabs ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    navigator.clipboard.writeText(apiKeys.elevenlabs)
+                  }}
+                  disabled={!apiKeys.elevenlabs}
+                  className="shrink-0"
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">고품질 음성 합성에 사용됩니다</p>
+            </div>
+
+            {/* Replicate API Key */}
+            <div className="space-y-2">
+              <Label htmlFor="replicate-key" className="text-sm font-medium">
+                Replicate API Key
+              </Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="replicate-key"
+                  type={showKeys.replicate ? "text" : "password"}
+                  placeholder="r8_..."
+                  value={apiKeys.replicate}
+                  onChange={(e) => setApiKeys({ ...apiKeys, replicate: e.target.value })}
+                  className="font-mono text-sm"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowKeys({ ...showKeys, replicate: !showKeys.replicate })}
+                  className="shrink-0"
+                >
+                  {showKeys.replicate ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    navigator.clipboard.writeText(apiKeys.replicate)
+                  }}
+                  disabled={!apiKeys.replicate}
+                  className="shrink-0"
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">AI 모델 실행에 사용됩니다</p>
+            </div>
+
+            {/* Gemini API Key */}
+            <div className="space-y-2">
+              <Label htmlFor="gemini-key" className="text-sm font-medium">
+                Gemini API Key
+              </Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="gemini-key"
+                  type={showKeys.gemini ? "text" : "password"}
+                  placeholder="입력하세요"
+                  value={apiKeys.gemini}
+                  onChange={(e) => setApiKeys({ ...apiKeys, gemini: e.target.value })}
+                  className="font-mono text-sm"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowKeys({ ...showKeys, gemini: !showKeys.gemini })}
+                  className="shrink-0"
+                >
+                  {showKeys.gemini ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    navigator.clipboard.writeText(apiKeys.gemini)
+                  }}
+                  disabled={!apiKeys.gemini}
+                  className="shrink-0"
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">대본 기획 및 생성에 사용됩니다</p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4">
+              <Button onClick={handleSaveApiKeys} variant="default">
+                {saved ? (
+                  <>
+                    <CheckCircle className="w-4 h-4 mr-2" />
+                    저장됨
+                  </>
+                ) : (
+                  "저장"
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <div className="flex flex-col lg:flex-row">
         {/* Sidebar - 모바일에서는 하단으로 */}

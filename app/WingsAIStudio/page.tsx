@@ -222,6 +222,8 @@ const otherToolsServices = [
 
 // Header 컴포넌트
 function Header({ onSettingsClick }: { onSettingsClick: () => void }) {
+  const router = useRouter()
+  
   return (
     <header className="w-full border-b border-slate-200/50 bg-white/80 backdrop-blur-sm sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -236,6 +238,13 @@ function Header({ onSettingsClick }: { onSettingsClick: () => void }) {
 
           {/* 메뉴 */}
           <nav className="hidden md:flex items-center gap-6">
+            <Button 
+              variant="ghost" 
+              className="text-slate-700 hover:text-slate-900"
+              onClick={() => router.push('/')}
+            >
+              부스텍AI홈
+            </Button>
             <Button 
               variant="ghost" 
               className="text-slate-700 hover:text-slate-900"
@@ -491,8 +500,11 @@ function FeatureCard({
     >
       {/* 잠금 오버레이 (모자이크 효과) */}
       {isLocked && (
-        <div className="absolute inset-0 z-20 bg-slate-300/90 backdrop-blur-[4px] flex items-center justify-center">
+        <div className="absolute inset-0 z-20 bg-slate-300/90 backdrop-blur-[4px] flex flex-col items-center justify-center gap-2">
           <Lock className="w-8 h-8 text-slate-400" />
+          {service.id === "shopping" && (
+            <span className="text-sm font-semibold text-slate-600">보너스주차 오픈</span>
+          )}
         </div>
       )}
 
@@ -613,8 +625,12 @@ export default function HomePage() {
   const [checkingYoutube, setCheckingYoutube] = useState(false)
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [isCheckingLogin, setIsCheckingLogin] = useState(true)
+  const [showPasswordDialog, setShowPasswordDialog] = useState(false)
+  const [password, setPassword] = useState("")
+  const [passwordError, setPasswordError] = useState("")
+  const [isPasswordAuthenticated, setIsPasswordAuthenticated] = useState(false)
 
-  // 로그인 상태 확인
+  // 로그인 상태 확인 및 비밀번호 인증 확인
   useEffect(() => {
     const checkLoginStatus = async () => {
       try {
@@ -623,6 +639,15 @@ export default function HomePage() {
           const data = await response.json()
           if (data.loggedIn) {
             setIsLoggedIn(true)
+            
+            // 비밀번호 인증 확인 (sessionStorage)
+            const passwordAuth = sessionStorage.getItem('wingsaistudio_password_auth')
+            if (passwordAuth === 'true') {
+              setIsPasswordAuthenticated(true)
+            } else {
+              // 비밀번호 인증이 안 되어 있으면 다이얼로그 표시
+              setShowPasswordDialog(true)
+            }
           } else {
             // 로그인하지 않은 경우 메인 페이지로 리다이렉트
             router.push('/?redirect=/WingsAIStudio')
@@ -646,10 +671,30 @@ export default function HomePage() {
     checkLoginStatus()
   }, [router])
 
+  // 비밀번호 확인 핸들러
+  const handlePasswordSubmit = (e?: React.FormEvent) => {
+    if (e) {
+      e.preventDefault()
+    }
+    
+    setPasswordError("")
+    
+    if (password === "1235") {
+      // 비밀번호가 맞으면 sessionStorage에 저장
+      sessionStorage.setItem('wingsaistudio_password_auth', 'true')
+      setIsPasswordAuthenticated(true)
+      setShowPasswordDialog(false)
+      setPassword("")
+    } else {
+      setPasswordError("비밀번호가 올바르지 않습니다.")
+      setPassword("")
+    }
+  }
+
   // 로컬스토리지에서 API 키 불러오기
   useEffect(() => {
-    // 로그인 확인 후에만 실행
-    if (!isCheckingLogin && isLoggedIn) {
+    // 로그인 및 비밀번호 인증 확인 후에만 실행
+    if (!isCheckingLogin && isLoggedIn && isPasswordAuthenticated) {
       const storedOpenAI = localStorage.getItem("openai_api_key") || ""
       const storedElevenLabs = localStorage.getItem("elevenlabs_api_key") || ""
       const storedReplicate = localStorage.getItem("replicate_api_key") || ""
@@ -671,7 +716,7 @@ export default function HomePage() {
       // YouTube 연결 상태 확인
       checkYoutubeConnection()
     }
-  }, [isCheckingLogin, isLoggedIn])
+  }, [isCheckingLogin, isLoggedIn, isPasswordAuthenticated])
 
   // YouTube 연결 상태 확인 (로컬스토리지에서)
   const checkYoutubeConnection = async () => {
@@ -787,6 +832,70 @@ export default function HomePage() {
   // 로그인하지 않은 경우 아무것도 렌더링하지 않음 (이미 리다이렉트됨)
   if (!isLoggedIn) {
     return null
+  }
+
+  // 비밀번호 인증이 안 되어 있으면 다이얼로그만 표시
+  if (!isPasswordAuthenticated) {
+    return (
+      <Dialog open={showPasswordDialog} onOpenChange={(open) => {
+        if (!open) {
+          // 다이얼로그를 닫으려고 하면 메인 페이지로 리다이렉트
+          router.push('/')
+        }
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Lock className="w-5 h-5" />
+              WingsAIStudio 접근 인증
+            </DialogTitle>
+            <DialogDescription>
+              WingsAIStudio에 접근하려면 비밀번호를 입력해주세요.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handlePasswordSubmit}>
+            <div className="space-y-4 py-4">
+              {/* 경고 메시지 */}
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                <p className="text-sm text-amber-800 font-medium">
+                  ⚠️ 매일 수강생인지 확인 후 아닐 시 영구정지됩니다.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="password">비밀번호</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value)
+                    setPasswordError("")
+                  }}
+                  placeholder="비밀번호를 입력하세요"
+                  autoFocus
+                  className={passwordError ? "border-red-500" : ""}
+                />
+                {passwordError && (
+                  <p className="text-sm text-red-500">{passwordError}</p>
+                )}
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => router.push('/')}
+              >
+                취소
+              </Button>
+              <Button type="submit">
+                확인
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+    )
   }
 
   return (
