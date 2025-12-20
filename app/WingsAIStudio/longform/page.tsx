@@ -560,6 +560,7 @@ export default function LongformContentPage() {
   const [customImageDialogOpen, setCustomImageDialogOpen] = useState<number | null>(null)
   const [customImagePrompt, setCustomImagePrompt] = useState("")
   const [isGeneratingCustomImage, setIsGeneratingCustomImage] = useState(false)
+  const [audioExportDialogOpen, setAudioExportDialogOpen] = useState(false)
   const [hoveredImageId, setHoveredImageId] = useState<number | null>(null)
   const [selectedImagesForVideo, setSelectedImagesForVideo] = useState<Set<number>>(new Set()) // 영상으로 변환할 이미지 선택
   const [isConvertingToVideo, setIsConvertingToVideo] = useState(false) // 영상 변환 중 상태
@@ -8569,6 +8570,176 @@ export default function LongformContentPage() {
   }
   */
 
+  // SRT 파일로 내보내기
+  const handleExportSRT = () => {
+    if (!videoData || !videoData.subtitles || videoData.subtitles.length === 0) {
+      alert("자막 데이터가 없습니다. 먼저 '영상 생성' 버튼을 클릭하여 미리보기를 생성해주세요.")
+      return
+    }
+
+    // 초를 SRT 시간 형식으로 변환 (HH:MM:SS,mmm)
+    const formatSRTTime = (seconds: number): string => {
+      const hours = Math.floor(seconds / 3600)
+      const minutes = Math.floor((seconds % 3600) / 60)
+      const secs = Math.floor(seconds % 60)
+      const milliseconds = Math.floor((seconds % 1) * 1000)
+      
+      return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')},${String(milliseconds).padStart(3, '0')}`
+    }
+
+    // 자막을 시간순으로 정렬
+    const sortedSubtitles = [...videoData.subtitles].sort((a, b) => a.start - b.start)
+
+    // SRT 형식으로 변환
+    let srtContent = ""
+    sortedSubtitles.forEach((subtitle, index) => {
+      const startTime = formatSRTTime(subtitle.start)
+      const endTime = formatSRTTime(subtitle.end)
+      
+      srtContent += `${index + 1}\n`
+      srtContent += `${startTime} --> ${endTime}\n`
+      srtContent += `${subtitle.text}\n`
+      srtContent += `\n`
+    })
+
+    // 파일로 다운로드
+    const blob = new Blob([srtContent], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `subtitles_${Date.now()}.srt`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+
+  // 사진만 내보내기
+  const handleExportImages = async () => {
+    const images: Array<{ url: string; order: number }> = []
+
+    // 1. sceneImagePrompts에서 이미지 수집
+    sceneImagePrompts.forEach((scene) => {
+      scene.images.forEach((img) => {
+        if (img.imageUrl) {
+          images.push({ url: img.imageUrl, order: scene.sceneNumber * 1000 + img.imageNumber })
+        }
+      })
+    })
+
+    // 2. generatedImages에서 이미지 수집
+    generatedImages.forEach((img) => {
+      images.push({ url: img.imageUrl, order: img.lineId })
+    })
+
+    // 3. videoData.autoImages에서 이미지 수집
+    if (videoData?.autoImages) {
+      videoData.autoImages.forEach((img) => {
+        images.push({ url: img.url, order: img.startTime })
+      })
+    }
+
+    if (images.length === 0) {
+      alert("내보낼 이미지가 없습니다.")
+      return
+    }
+
+    // order 기준으로 정렬
+    images.sort((a, b) => a.order - b.order)
+
+    // 각 이미지를 순서대로 다운로드
+    for (let i = 0; i < images.length; i++) {
+      try {
+        const response = await fetch(images[i].url)
+        const blob = await response.blob()
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        
+        // 확장자 추출 (URL에서 또는 blob type에서)
+        let extension = 'jpg'
+        const urlPath = images[i].url.split('?')[0] // 쿼리 파라미터 제거
+        const urlExtension = urlPath.split('.').pop()?.toLowerCase()
+        if (urlExtension && ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(urlExtension)) {
+          extension = urlExtension === 'jpeg' ? 'jpg' : urlExtension
+        } else if (blob.type) {
+          const mimeExtension = blob.type.split('/')[1]
+          if (mimeExtension && ['jpeg', 'png', 'gif', 'webp'].includes(mimeExtension)) {
+            extension = mimeExtension === 'jpeg' ? 'jpg' : mimeExtension
+          }
+        }
+        
+        link.download = `사진${i + 1}.${extension}`
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        URL.revokeObjectURL(url)
+        
+        // 다운로드 간격을 두어 브라우저가 처리할 시간 제공
+        if (i < images.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 300))
+        }
+      } catch (error) {
+        console.error(`이미지 ${i + 1} 다운로드 실패:`, error)
+      }
+    }
+  }
+
+  // 음성만 내보내기 (전체)
+  const handleExportFullAudio = async () => {
+    if (!videoData || !videoData.audioUrl) {
+      alert("오디오 데이터가 없습니다.")
+      return
+    }
+
+    try {
+      const response = await fetch(videoData.audioUrl)
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `전체음악.mp3`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      console.error("전체 오디오 다운로드 실패:", error)
+      alert("오디오 다운로드 중 오류가 발생했습니다.")
+    }
+  }
+
+  // 음성만 내보내기 (각각)
+  const handleExportIndividualAudios = async () => {
+    if (!generatedAudios || generatedAudios.length === 0) {
+      alert("개별 오디오 데이터가 없습니다.")
+      return
+    }
+
+    for (let i = 0; i < generatedAudios.length; i++) {
+      try {
+        const audio = generatedAudios[i]
+        const response = await fetch(audio.audioUrl)
+        const blob = await response.blob()
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = `음악${i + 1}.mp3`
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        URL.revokeObjectURL(url)
+        
+        // 다운로드 간격을 두어 브라우저가 처리할 시간 제공
+        if (i < generatedAudios.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 300))
+        }
+      } catch (error) {
+        console.error(`오디오 ${i + 1} 다운로드 실패:`, error)
+      }
+    }
+  }
+
   const handleSaveThumbnailImage = async () => {
     if (!thumbnailPreviewRef.current) {
       alert("썸네일 미리보기를 찾을 수 없습니다.")
@@ -12973,27 +13144,96 @@ export default function LongformContentPage() {
                 )}
 
                 {videoData && !isExporting && !isGeneratingVideo && (
-                  <div className="flex gap-2 mt-2">
-                  <Button
-                      onClick={handleFastDownload}
-                      disabled={isExporting}
-                      variant="default"
-                    size="lg"
-                      className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
-                    >
-                      <Zap className="w-4 h-4 mr-2" />
-                      빠른다운로드
-                    </Button>
+                  <div className="flex flex-col gap-2 mt-2">
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={handleFastDownload}
+                        disabled={isExporting}
+                        variant="default"
+                        size="lg"
+                        className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                      >
+                        <Zap className="w-4 h-4 mr-2" />
+                        빠른다운로드
+                      </Button>
+                      <Button
+                        onClick={handleNormalDownload}
+                        disabled={isExporting}
+                        variant="outline"
+                        size="lg"
+                        className="flex-1"
+                      >
+                        <Download className="w-4 h-4 mr-2" />
+                        보통다운로드
+                      </Button>
+                    </div>
                     <Button
-                      onClick={handleNormalDownload}
-                    disabled={isExporting}
+                      onClick={handleExportSRT}
+                      disabled={isExporting}
                       variant="outline"
                       size="lg"
-                      className="flex-1"
+                      className="w-full"
                     >
-                        <Download className="w-4 h-4 mr-2" />
-                      보통다운로드
+                      <FileText className="w-4 h-4 mr-2" />
+                      SRT로 내보내기
                     </Button>
+                    <Button
+                      onClick={handleExportImages}
+                      disabled={isExporting}
+                      variant="outline"
+                      size="lg"
+                      className="w-full"
+                    >
+                      <ImageIcon className="w-4 h-4 mr-2" />
+                      사진만 내보내기
+                    </Button>
+                    <Dialog open={audioExportDialogOpen} onOpenChange={setAudioExportDialogOpen}>
+                      <DialogTrigger asChild>
+                        <Button
+                          disabled={isExporting}
+                          variant="outline"
+                          size="lg"
+                          className="w-full"
+                        >
+                          <Volume2 className="w-4 h-4 mr-2" />
+                          음성만 내보내기
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>음성 내보내기</DialogTitle>
+                          <DialogDescription>
+                            전체 음악 또는 개별 음악을 선택하여 내보낼 수 있습니다.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="flex flex-col gap-2 mt-4">
+                          <Button
+                            onClick={() => {
+                              handleExportFullAudio()
+                              setAudioExportDialogOpen(false)
+                            }}
+                            variant="default"
+                            size="lg"
+                            className="w-full"
+                          >
+                            <Download className="w-4 h-4 mr-2" />
+                            전체음악 내보내기
+                          </Button>
+                          <Button
+                            onClick={() => {
+                              handleExportIndividualAudios()
+                              setAudioExportDialogOpen(false)
+                            }}
+                            variant="outline"
+                            size="lg"
+                            className="w-full"
+                          >
+                            <Download className="w-4 h-4 mr-2" />
+                            각각 음악 내보내기
+                          </Button>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
                   </div>
                 )}
                 

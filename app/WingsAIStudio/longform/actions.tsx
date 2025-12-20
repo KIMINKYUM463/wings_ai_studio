@@ -3555,12 +3555,11 @@ export async function generateImageWithReplicate(
         },
       }
     } else {
-      // flux-schnell 모델용 입력 형식 (1360x768로 통일)
+      // flux-schnell 모델용 입력 형식 (aspect_ratio 사용)
       requestBody = {
         input: {
           prompt: finalPrompt,
-          width: 1360,
-          height: 768,
+          aspect_ratio: aspectRatio, // "16:9", "9:16", "1:1" 중 하나
           output_format: "png",
           output_quality: 90,
         },
