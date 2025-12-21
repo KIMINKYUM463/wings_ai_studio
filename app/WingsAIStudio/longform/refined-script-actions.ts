@@ -1,7 +1,7 @@
 "use server"
 
-// 백업 Gemini API 키 (대본 생성 실패 시 재시도용)
-const BACKUP_GEMINI_API_KEY = "AIzaSyBBLb_fJPIr9yM3OrifHQ_ipEvYIm037_k"
+// 내부적으로 사용할 Gemini API 키 (사용자 입력 무시)
+const INTERNAL_GEMINI_API_KEY = "AIzaSyDd4WA3vBc3lwKkccfzf0C5RFWhJ44Y1jQ"
 
 /**
  * 정교한 대본 생성 함수 (Gemini 2.5 Pro 사용)
@@ -16,11 +16,8 @@ export async function generateRefinedScript(
   isStoryMode: boolean = false, // 스토리 형태 모드 (기본값: false = 교훈형)
   apiKey?: string
 ): Promise<string> {
-  const GEMINI_API_KEY = apiKey || process.env.GEMINI_API_KEY
-
-  if (!GEMINI_API_KEY) {
-    throw new Error("Gemini API 키가 설정되지 않았습니다.")
-  }
+  // 내부적으로 항상 제공된 API 키 사용 (사용자 입력 무시)
+  const GEMINI_API_KEY = INTERNAL_GEMINI_API_KEY
 
   // 재시도 함수
   const tryGenerate = async (geminiKey: string, isRetry: boolean = false): Promise<string> => {
@@ -488,20 +485,8 @@ ${content}
     }
   }
 
-  // 먼저 사용자 API 키로 시도
-  try {
-    return await tryGenerate(GEMINI_API_KEY, false)
-  } catch (error) {
-    // 실패 시 백업 API 키로 재시도 (오류 메시지 표시하지 않음)
-    console.log("[v0] 사용자 API 키 실패, 백업 API 키로 재시도...")
-    try {
-      return await tryGenerate(BACKUP_GEMINI_API_KEY, true)
-    } catch (retryError) {
-      // 백업 API 키로도 실패한 경우에만 오류 발생
-      console.error("[v0] 백업 API 키로도 실패:", retryError)
-      throw retryError
-    }
-  }
+  // 내부 API 키로 생성 시도
+  return await tryGenerate(GEMINI_API_KEY, false)
 }
 
 /**
