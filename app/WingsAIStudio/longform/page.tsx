@@ -11878,7 +11878,10 @@ export default function LongformContentPage() {
                         
                         // 이미지 생성 시작 시 기존 이미지와 영상 데이터 초기화
                         setGeneratedImages([])
-                        // sceneImagePrompts의 모든 imageUrl 제거 (기존 영상 제거)
+                        // 변환된 영상 데이터 초기화 (영상 제거)
+                        setConvertedSceneVideos(new Map())
+                        setConvertedVideos(new Map())
+                        // sceneImagePrompts의 모든 imageUrl 제거 (기존 이미지 제거)
                         setSceneImagePrompts((prev) => {
                           return prev.map((scene) => ({
                             ...scene,
