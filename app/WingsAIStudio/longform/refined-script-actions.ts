@@ -490,8 +490,200 @@ ${content}
 }
 
 /**
+ * 단일 씬을 장면으로 분해하는 함수
+ * @param sceneText - 씬 텍스트
+ * @param sceneNumber - 씬 번호
+ * @param apiKey - API 키 (사용되지 않음, 내부 키 사용)
+ * @returns 분해된 장면 텍스트
+ */
+export async function decomposeSingleScene(
+  sceneText: string,
+  sceneNumber: number,
+  apiKey?: string
+): Promise<string> {
+  // 내부적으로 항상 제공된 API 키 사용 (사용자 입력 무시)
+  const INTERNAL_GEMINI_API_KEY = "AIzaSyDd4WA3vBc3lwKkccfzf0C5RFWhJ44Y1jQ"
+  const GEMINI_API_KEY = INTERNAL_GEMINI_API_KEY
+
+  if (!GEMINI_API_KEY) {
+    throw new Error("Gemini API 키가 설정되지 않았습니다.")
+  }
+
+  const trimmedSceneText = sceneText.trim()
+
+  // 씬이 너무 짧으면 기본 형식으로 반환
+  if (trimmedSceneText.length < 10) {
+    console.warn(`[장면 분해] 씬 ${sceneNumber}이 너무 짧아 기본 형식으로 반환합니다.`)
+    return `씬 ${sceneNumber}\n\n[장면 1]\n\n${trimmedSceneText}`
+  }
+
+  const systemPrompt = `[YOUR ROLE]
+
+당신은 '씬(Scene) 기반 장면 분해 에디터'이자
+'시각적 일관성 관리자(Visual Consistency Controller)'입니다.
+
+입력으로 들어온 하나의 씬 대본을
+영상 연출 기준에 맞게 장면으로 분해합니다.
+
+[CRITICAL: VISUAL CONSISTENCY RULES]
+
+장면 분해의 최우선 기준은 문장 수가 아니라
+'같은 화면으로 표현 가능한가'입니다.
+
+다음 요소가 동일할 때만 같은 장면으로 묶을 수 있습니다:
+1) 배경(장소, 공간, 환경)
+2) 시대(과거/현대/고대 등)
+3) 인물 구성(등장 인물 유무 및 동일성)
+4) 시점(관찰, 회상, 설명, 현재 진행)
+
+위 요소 중 하나라도 달라지면
+반드시 새로운 장면으로 분리하세요.
+
+[CRITICAL RULES]
+
+1) 출력 언어는 반드시 한국어만 사용합니다.
+
+2) 입력 대본 문장은 최대한 그대로 유지합니다.
+   - 요약, 재작성, 문장 창작 금지
+
+3) 장면 개수는 최소 1개, 최대 3개입니다.
+
+4) 각 장면은 '하나의 대표 이미지'로 표현 가능한 단위여야 합니다.
+
+5) 장면당 문장 수는 1~4문장 이내로 제한합니다.
+
+6) 장면 설명, 해설, 분석 문구는 절대 추가하지 마세요.
+   오직 대본 문장만 출력합니다.
+
+[OUTPUT FORMAT]
+
+씬 {scene_number}
+
+[장면 1]
+
+(해당 장면에 속하는 대본 문장들)
+
+[장면 2]
+
+(해당 시)
+
+[장면 3]
+
+(해당 시)`
+
+  const userPrompt = `다음은 씬 대본입니다. 길이에 맞게 장면을 최소 1개~최대 3개로 분해해 주세요.
+
+한국어만 출력하세요.
+
+씬 번호: ${sceneNumber}
+
+씬 대본:
+
+${trimmedSceneText}`
+
+  let response: Response | undefined
+  let lastError: Error | undefined
+  const maxRetries = 3
+
+  for (let retry = 0; retry < maxRetries; retry++) {
+    try {
+      console.log(`[장면 분해] 씬 ${sceneNumber} 시도 ${retry + 1}/${maxRetries}`)
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 180000) // 3분 타임아웃
+
+      const requestBody = {
+        contents: [
+          {
+            parts: [
+              {
+                text: `${systemPrompt}\n\n${userPrompt}`,
+              },
+            ],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.7,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 8192,
+        },
+      }
+
+      const startTime = Date.now()
+      try {
+        response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${GEMINI_API_KEY}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(requestBody),
+            signal: controller.signal,
+          }
+        )
+        clearTimeout(timeoutId)
+      } catch (fetchError) {
+        clearTimeout(timeoutId)
+        if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+          throw new Error(`씬 ${sceneNumber} 처리 타임아웃 (3분 초과)`)
+        }
+        throw fetchError
+      }
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(`Gemini API 호출 실패: ${response.status} - ${errorText}`)
+      }
+
+      const data = await response.json()
+      const candidate = data.candidates?.[0]
+
+      if (!candidate) {
+        throw new Error(`씬 ${sceneNumber} 장면 분해에 실패했습니다: 응답 후보가 없습니다.`)
+      }
+
+      const content = candidate.content?.parts?.[0]?.text
+
+      if (!content || content.trim().length === 0) {
+        throw new Error(`씬 ${sceneNumber} 장면 분해에 실패했습니다: 내용이 없습니다.`)
+      }
+
+      const trimmedContent = content.trim()
+
+      // 최소한 "씬 N" 또는 "[장면 1]" 같은 패턴이 있는지 확인
+      const hasValidFormat = trimmedContent.match(/씬\s+\d+|\[장면\s+\d+\]/)
+
+      if (!hasValidFormat) {
+        throw new Error(`씬 ${sceneNumber} 장면 분해 결과 형식이 올바르지 않습니다.`)
+      }
+
+      console.log(`[장면 분해] 씬 ${sceneNumber} 처리 완료`)
+      return trimmedContent
+
+    } catch (fetchError: any) {
+      lastError = fetchError
+      console.error(`[장면 분해] 씬 ${sceneNumber} 오류 발생:`, {
+        name: fetchError.name,
+        message: fetchError.message,
+      })
+
+      if (retry < maxRetries - 1) {
+        const waitTime = 2000 * (retry + 1)
+        await new Promise(resolve => setTimeout(resolve, waitTime))
+      }
+    }
+  }
+
+  // 모든 재시도 실패 시 원본 씬을 그대로 사용
+  console.warn(`[장면 분해] 씬 ${sceneNumber} 최종 실패, 원본 사용:`, lastError)
+  return `씬 ${sceneNumber}\n\n[장면 1]\n\n${trimmedSceneText}`
+}
+
+/**
  * 대본을 장면 단위로 분해하는 함수
  * 대본 장면(씬) 분해 에디터
+ * @deprecated 이 함수는 모든 씬을 한 번에 처리합니다. 씬별로 순차 처리하려면 클라이언트에서 decomposeSingleScene을 사용하세요.
  */
 export async function decomposeScriptIntoScenes(
   script: string,

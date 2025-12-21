@@ -80,7 +80,7 @@ import {
   generateHookingVideoPrompt, // 후킹 영상 프롬프트 생성 함수 import 추가
   // generateCommonStylePrompt, // 공통 스타일 프롬프트 생성 함수 import 추가 (임시 주석 처리)
 } from "./actions"
-import { generateRefinedScript, decomposeScriptIntoScenes, autoSplitScriptByMeaning } from "./refined-script-actions"
+import { generateRefinedScript, decomposeScriptIntoScenes, decomposeSingleScene, autoSplitScriptByMeaning } from "./refined-script-actions"
 import { generateSceneImagePrompts } from "./scene-prompt-actions"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
@@ -10922,31 +10922,81 @@ export default function LongformContentPage() {
                       }, 500) // 0.5초마다 업데이트
                       
                       try {
-                        console.log("[장면 분해 버튼] Gemini API 키 확인 중...")
-                        const geminiApiKey = getGeminiApiKey()
-                        if (!geminiApiKey) {
-                          clearInterval(progressInterval)
-                          setSceneDecompositionProgress(null)
-                          console.error("[장면 분해 버튼] Gemini API 키 없음")
-                          alert("Gemini API 키를 설정해주세요. 설정 페이지에서 API 키를 입력하고 저장해주세요.")
-                          setIsDecomposingScenes(false)
-                          return
-                        }
-                        console.log("[장면 분해 버튼] API 키 확인 완료, decomposeScriptIntoScenes 호출 시작")
+                        console.log("[장면 분해 버튼] 씬별 순차 처리 시작")
                         console.log(`[장면 분해 버튼] 총 ${totalScenes}개 씬 처리 예정`)
-                        const decomposedResult = await decomposeScriptIntoScenes(script, geminiApiKey)
                         
-                        // 결과 검증
-                        if (!decomposedResult || typeof decomposedResult !== 'string' || decomposedResult.trim().length === 0) {
+                        // 씬별로 순차 처리하면서 결과를 실시간으로 업데이트
+                        const allResults: string[] = []
+                        
+                        for (let i = 0; i < splitScenes.length; i++) {
+                          const sceneText = splitScenes[i]
+                          const sceneNumber = i + 1
+                          
+                          console.log(`[장면 분해] 씬 ${sceneNumber} 처리 시작 (${i + 1}/${totalScenes})`)
+                          
+                          // 진행률 업데이트
+                          setSceneDecompositionProgress({
+                            current: i,
+                            total: totalScenes,
+                            progress: Math.floor((i / totalScenes) * 100),
+                            elapsedTime: Math.floor((Date.now() - startTime) / 1000),
+                            estimatedTime: estimatedSeconds
+                          })
+                          
+                          try {
+                            // 단일 씬 처리
+                            const sceneResult = await decomposeSingleScene(sceneText, sceneNumber)
+                            
+                            if (sceneResult && sceneResult.trim().length > 0) {
+                              allResults.push(sceneResult)
+                              console.log(`[장면 분해] 씬 ${sceneNumber} 처리 완료 (${allResults.length}/${totalScenes})`)
+                              
+                              // 실시간으로 결과 업데이트 (부분 결과)
+                              const partialResult = allResults.join("\n\n")
+                              setDecomposedScenes(partialResult)
+                              
+                              // 부분 결과를 파싱하여 scriptLines 업데이트
+                              try {
+                                const partialScenes = parseSceneBlocks(partialResult)
+                                if (partialScenes && Array.isArray(partialScenes) && partialScenes.length > 0) {
+                                  setScriptLines(partialScenes)
+                                }
+                              } catch (parseError) {
+                                console.warn(`[장면 분해] 씬 ${sceneNumber} 부분 파싱 실패 (무시):`, parseError)
+                              }
+                            } else {
+                              console.warn(`[장면 분해] 씬 ${sceneNumber} 결과가 비어있음, 기본 형식 사용`)
+                              const defaultResult = `씬 ${sceneNumber}\n\n[장면 1]\n\n${sceneText.trim()}`
+                              allResults.push(defaultResult)
+                            }
+                          } catch (sceneError) {
+                            console.error(`[장면 분해] 씬 ${sceneNumber} 처리 실패:`, sceneError)
+                            // 실패한 씬은 기본 형식으로 추가
+                            const defaultResult = `씬 ${sceneNumber}\n\n[장면 1]\n\n${sceneText.trim()}`
+                            allResults.push(defaultResult)
+                            console.log(`[장면 분해] 씬 ${sceneNumber} 기본 형식으로 추가됨`)
+                          }
+                          
+                          // 씬 처리 간 딜레이 (API 제한 방지)
+                          if (i < splitScenes.length - 1) {
+                            await new Promise(resolve => setTimeout(resolve, 2000)) // 2초 대기
+                          }
+                        }
+                        
+                        // 최종 결과 검증
+                        if (allResults.length === 0) {
                           throw new Error("장면 분해 결과가 비어있습니다. 다시 시도해주세요.")
                         }
                         
-                        console.log("[장면 분해 버튼] decomposeScriptIntoScenes 완료, 결과 길이:", decomposedResult.length)
-                        // 장면 분해 결과를 저장
-                        setDecomposedScenes(decomposedResult)
-                        // 장면 분해 결과를 scriptLines에 넣기
+                        const finalResult = allResults.join("\n\n")
+                        console.log(`[장면 분해 버튼] 모든 씬 처리 완료, 최종 결과 길이: ${finalResult.length}자`)
+                        
+                        // 최종 결과 저장
+                        setDecomposedScenes(finalResult)
+                        
+                        // 최종 결과 파싱
                         console.log("[장면 분해 버튼] parseSceneBlocks 호출 중...")
-                        const scenes = parseSceneBlocks(decomposedResult)
+                        const scenes = parseSceneBlocks(finalResult)
                         
                         // scenes 검증
                         if (!scenes || !Array.isArray(scenes) || scenes.length === 0) {
