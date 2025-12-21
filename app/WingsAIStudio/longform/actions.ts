@@ -650,6 +650,14 @@ export async function generateImageWithReplicate(
 
     // 프롬프트 그대로 사용 (이미지 프롬프트 생성에서 완성된 프롬프트 사용)
     let finalPrompt = prompt
+    
+    // 텍스트 제외 지시가 없으면 추가 (모든 모델에 적용)
+    const textExclusionTerms = ["no text", "no letters", "no words", "no writing", "no labels", "no signs", "no watermark"]
+    const hasTextExclusion = textExclusionTerms.some(term => finalPrompt.toLowerCase().includes(term))
+    if (!hasTextExclusion) {
+      finalPrompt = `${finalPrompt}, no text, no letters, no words, no writing, no labels, no signs, no watermark`
+    }
+    
     console.log(`[Longform] 프롬프트 사용: ${finalPrompt.substring(0, 100)}...`)
 
     // 모델별 입력 형식 설정
@@ -660,7 +668,7 @@ export async function generateImageWithReplicate(
         prompt: finalPrompt,
         width: 1360, // 스틱맨 애니메이션 전용 해상도
         height: 768,
-        negative_prompt: "realistic human, detailed human skin, photograph, 3d render, blank white background, line-art only, text, watermark, non-stickman, mixed style, detailed cartoon human, prince, princess, disney, pixar, anime, chibi, kawaii, big head, human body, human skin, realistic, 3d render, semi-realistic, detailed face, eyelashes, blush, nose, lips, hair, ears, detailed clothing folds, portrait, close-up, single character focus, bokeh, depth of field, watercolor, painterly, airbrush, soft shading",
+        negative_prompt: "realistic human, detailed human skin, photograph, 3d render, blank white background, line-art only, text, letters, words, writing, labels, signs, watermark, typography, font, caption, subtitle, non-stickman, mixed style, detailed cartoon human, prince, princess, disney, pixar, anime, chibi, kawaii, big head, human body, human skin, realistic, 3d render, semi-realistic, detailed face, eyelashes, blush, nose, lips, hair, ears, detailed clothing folds, portrait, close-up, single character focus, bokeh, depth of field, watercolor, painterly, airbrush, soft shading",
         num_inference_steps: 16,
         image_format: "png",
       }
