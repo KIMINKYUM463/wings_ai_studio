@@ -11217,6 +11217,7 @@ export default function LongformContentPage() {
             {/* 이미지 스타일 선택 및 생성 - 좌우 배치 */}
             <div className="flex flex-col lg:flex-row items-start gap-6 mb-6">
             {/* 이미지 스타일 선택 */}
+              {!customStylePrompt && (
               <div className={`flex-1 relative ${(customStyleCharacterImage !== null || customStyleBackgroundImage !== null) ? 'opacity-50' : ''}`}>
                 <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white">
               <CardHeader className="pb-4 border-b border-gray-100">
@@ -11367,8 +11368,10 @@ export default function LongformContentPage() {
                   </div>
                 )}
               </div>
+              )}
 
               {/* OR 구분선 */}
+              {!customStylePrompt && (
               <div className="flex items-center justify-center w-full lg:w-auto my-4 lg:my-0">
                 <div className="flex items-center gap-2 w-full lg:w-auto">
                   <div className="flex-1 lg:flex-none h-px bg-gray-300"></div>
@@ -11376,6 +11379,7 @@ export default function LongformContentPage() {
                   <div className="flex-1 lg:flex-none h-px bg-gray-300"></div>
                 </div>
               </div>
+              )}
 
               {/* 이미지 스타일 생성 */}
             <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white flex-1">
