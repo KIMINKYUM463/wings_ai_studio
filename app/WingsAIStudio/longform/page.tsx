@@ -9873,12 +9873,8 @@ export default function LongformContentPage() {
               <p className="text-gray-600">작업한 내용을 저장하고 관리하세요</p>
               <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
                 <p className="text-sm text-amber-800">
-                  <strong>안내사항:</strong>
+                  <strong>안내사항:</strong> 이미지는 1시간 후에 삭제가 되기에 미리 저장 또는 렌더링 부탁드립니다. TTS 용량이 크면 저장이 안될 수 있습니다. 참고바랍니다.
                 </p>
-                <ul className="text-sm text-amber-800 mt-2 space-y-1 list-disc list-inside">
-                  <li>이미지는 1시간 후에 삭제가 되기에 미리 저장 또는 렌더링 부탁드립니다.</li>
-                  <li>TTS 용량이 크면 저장이 안될 수 있습니다. 참고바랍니다.</li>
-                </ul>
               </div>
             </div>
             
@@ -9910,7 +9906,7 @@ export default function LongformContentPage() {
             <p className="text-gray-600">작업한 내용을 저장하고 관리하세요</p>
             <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
               <p className="text-sm text-amber-800">
-                <strong>안내사항:</strong> 이미지는 1시간 후에 삭제가 되기에 미리 저장 또는 렌더링 부탁드립니다.
+                <strong>안내사항:</strong> 이미지는 1시간 후에 삭제가 되기에 미리 저장 또는 렌더링 부탁드립니다. TTS 용량이 크면 저장이 안될 수 있습니다. 참고바랍니다.
               </p>
             </div>
           </div>
