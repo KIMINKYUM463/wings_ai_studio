@@ -1,11 +1,11 @@
 "use server"
 
-export async function generateShortsTopics(category: "wisdom" | "health" | "self_improvement" | "society" | "history" | "space" | "fortune", apiKey?: string) {
-  const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
+// 내부적으로 사용할 OpenAI API 키 (사용자 입력 무시)
+const INTERNAL_OPENAI_API_KEY = "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"
 
-  if (!GPT_API_KEY) {
-    throw new Error("GPT API 키가 설정되지 않았습니다. 환경 변수를 확인해주세요.")
-  }
+export async function generateShortsTopics(category: "wisdom" | "health" | "self_improvement" | "society" | "history" | "space" | "fortune", apiKey?: string) {
+  // 내부적으로 항상 제공된 API 키 사용 (사용자 입력 무시)
+  const GPT_API_KEY = INTERNAL_OPENAI_API_KEY
 
   const categoryPrompts = {
     wisdom: "인생 명언, 지혜, 철학, 삶의 교훈과 관련된 쇼츠 주제",
@@ -134,11 +134,8 @@ export async function generateShortsTopics(category: "wisdom" | "health" | "self
 }
 
 export async function generateShortsScriptPlan(topic: string) {
-  const GPT_API_KEY = process.env.GPT_API_KEY
-
-  if (!GPT_API_KEY) {
-    throw new Error("GPT API 키가 설정되지 않았습니다.")
-  }
+  // 내부적으로 항상 제공된 API 키 사용 (사용자 입력 무시)
+  const GPT_API_KEY = INTERNAL_OPENAI_API_KEY
 
   try {
     const systemPrompt = `당신은 쇼츠 대본 기획 전문가입니다. 15-20초 길이의 쇼츠에 최적화된 대본 기획안을 작성해주세요.
@@ -225,11 +222,8 @@ export async function generateShortsScriptPlan(topic: string) {
 }
 
 export async function generateShortsScript(topic: string, duration: 1 | 2 | 3 = 1, apiKey?: string) {
-  const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
-
-  if (!GPT_API_KEY) {
-    throw new Error("GPT API 키가 설정되지 않았습니다. 환경 변수를 확인해주세요.")
-  }
+  // 내부적으로 항상 제공된 API 키 사용 (사용자 입력 무시)
+  const GPT_API_KEY = INTERNAL_OPENAI_API_KEY
 
   // 시간별 예상 문자 수 (초당 6.9자 기준)
   const charCounts = {
@@ -318,11 +312,8 @@ export async function generateShortsScript(topic: string, duration: 1 | 2 | 3 = 
 }
 
 export async function improveShortsScript(currentScript: string, improvementRequest: string) {
-  const GPT_API_KEY = process.env.GPT_API_KEY
-
-  if (!GPT_API_KEY) {
-    throw new Error("GPT API 키가 설정되지 않았습니다.")
-  }
+  // 내부적으로 항상 제공된 API 키 사용 (사용자 입력 무시)
+  const GPT_API_KEY = INTERNAL_OPENAI_API_KEY
 
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -369,11 +360,8 @@ export async function improveShortsScript(currentScript: string, improvementRequ
 
 // 쇼츠용 후킹 제목 생성 (위 4~5줄, 아래 4~5줄로 생성)
 export async function generateShortsHookingTitle(topic: string, script: string, apiKey?: string) {
-  const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
-
-  if (!GPT_API_KEY) {
-    throw new Error("GPT API 키가 설정되지 않았습니다. 환경 변수를 확인해주세요.")
-  }
+  // 내부적으로 항상 제공된 API 키 사용 (사용자 입력 무시)
+  const GPT_API_KEY = INTERNAL_OPENAI_API_KEY
 
   try {
     const titlePrompt = `당신은 바이럴 쇼츠 제목 전문가입니다. 사람들이 반드시 클릭하고 싶게 만드는 강력한 후킹 제목을 생성해주세요.

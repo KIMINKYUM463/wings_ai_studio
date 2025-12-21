@@ -2490,12 +2490,9 @@ export async function summarizeScriptForShorts(
   duration: 1 | 2 | 3,
   openaiApiKey?: string
 ): Promise<string> {
-  // 서버 액션: 대본을 쇼츠 길이에 맞게 요약
-  const GPT_API_KEY = openaiApiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
-
-  if (!GPT_API_KEY) {
-    throw new Error("GPT API 키가 설정되지 않았습니다. 환경 변수를 확인해주세요.")
-  }
+  // 내부적으로 항상 제공된 API 키 사용 (사용자 입력 무시)
+  const INTERNAL_OPENAI_API_KEY = "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"
+  const GPT_API_KEY = INTERNAL_OPENAI_API_KEY
 
   if (!script || script.trim().length === 0) {
     throw new Error("대본이 없습니다.")
