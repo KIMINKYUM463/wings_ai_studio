@@ -11875,6 +11875,20 @@ export default function LongformContentPage() {
                         }
                         
                         setIsGeneratingSceneImages(true)
+                        
+                        // 이미지 생성 시작 시 기존 이미지와 영상 데이터 초기화
+                        setGeneratedImages([])
+                        // sceneImagePrompts의 모든 imageUrl 제거 (기존 영상 제거)
+                        setSceneImagePrompts((prev) => {
+                          return prev.map((scene) => ({
+                            ...scene,
+                            images: scene.images.map((img) => ({
+                              ...img,
+                              imageUrl: undefined
+                            }))
+                          }))
+                        })
+                        
                         const totalImages = sceneImagePrompts.reduce((sum, scene) => sum + scene.images.length, 0)
                         setSceneImageGenerationProgress({ current: 0, total: totalImages })
                         
