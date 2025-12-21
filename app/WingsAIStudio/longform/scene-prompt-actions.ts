@@ -99,7 +99,8 @@ export async function generateSingleSceneImagePrompts(
   customStylePrompt?: string,
   historicalContext?: string | null,
   stickmanCharacterDescription?: string | null,
-  openaiApiKey?: string
+  openaiApiKey?: string,
+  realisticCharacterType?: "korean" | "foreign" | null
 ): Promise<Array<{ imageNumber: number; prompt: string; sceneText: string; visualInstruction?: string }>> {
   // 내부적으로 항상 제공된 API 키 사용
   const actualApiKey = INTERNAL_OPENAI_API_KEY
@@ -392,6 +393,18 @@ ${imageStyle === "realistic" || imageStyle === "realistic2" ? "Inference Steps�
         if (!promptLower.includes("hyperrealistic") || !promptLower.includes("photorealistic") || !promptLower.includes("8k") || !promptLower.includes("dslr")) {
           prompt = `${prompt}, ${realisticBasePrompt}`
         }
+        
+        // 한국인/외국인 키워드 강제 추가
+        if (realisticCharacterType === "korean") {
+          if (!promptLower.includes("korean") && !promptLower.includes("korean person") && !promptLower.includes("korean character") && !promptLower.includes("asian features")) {
+            prompt = `${prompt}, Korean person, Korean character, Asian features`
+          }
+        } else if (realisticCharacterType === "foreign") {
+          if (!promptLower.includes("western") && !promptLower.includes("caucasian") && !promptLower.includes("european") && !promptLower.includes("american")) {
+            prompt = `${prompt}, Western person, Caucasian, European features`
+          }
+        }
+        
         if (!promptLower.includes("no animation") && !promptLower.includes("no cartoon")) {
           prompt = `${prompt}, no animation style, no cartoon style, no illustration style, photorealistic only`
         }
@@ -447,7 +460,8 @@ export async function generateSceneImagePrompts(
   openaiApiKey: string,
   customStylePrompt?: string,
   topic?: string,
-  script?: string
+  script?: string,
+  realisticCharacterType?: "korean" | "foreign" | null
 ): Promise<Array<{ sceneNumber: number; images: Array<{ imageNumber: number; prompt: string; sceneText: string; visualInstruction?: string; imageUrl?: string }> }>> {
   // 내부적으로 항상 제공된 API 키 사용
   const actualApiKey = INTERNAL_OPENAI_API_KEY
@@ -728,11 +742,17 @@ STEP 3에서 영어 프롬프트를 생성할 때, BASE_PROMPT와 추가 구성�
         continue
       }
 
+      const characterTypeInfo = (imageStyle === "realistic" || imageStyle === "realistic2") && realisticCharacterType
+        ? realisticCharacterType === "korean"
+          ? `\n⚠️ 중요: 모든 인물은 한국인(Korean)으로 묘사되어야 합니다. 프롬프트에 'Korean', 'Korean person', 'Korean character', 'Asian features' 등을 반드시 포함하세요.\n`
+          : `\n⚠️ 중요: 모든 인물은 외국인(Western/Caucasian)으로 묘사되어야 합니다. 프롬프트에 'Western', 'Caucasian', 'European', 'American' 등을 반드시 포함하세요.\n`
+        : ""
+      
       const userPrompt = `${
         historicalContext 
           ? `\n⚠️ 중요: 전체 대본의 시대적 배경은 "${historicalContext}"입니다. 모든 장면의 프롬프트에 이 시대적 배경을 반드시 포함하세요.\n`
           : ""
-      }
+      }${characterTypeInfo}
 Scene ${sceneNum}에는 ${sceneImages.length}개의 장면이 있습니다.
 
 ${styleInfo}${templateInfo}${characterContext}${customStyleInfo}
@@ -960,15 +980,27 @@ ${imageStyle === "realistic" || imageStyle === "realistic2" ? "Inference Steps�
           })
           prompt = cleanedPrompt.replace(/\s+/g, ' ').trim()
           
-          // 실사 스타일 BASE_PROMPT 강제 추가 (모든 씬에 일관되게)
-          const realisticBasePrompt = "A hyperrealistic, photorealistic masterpiece, 8K, ultra-detailed, sharp focus, cinematic lighting, shot on a professional DSLR camera with a 50mm lens"
-          const promptLower = prompt.toLowerCase()
-          if (!promptLower.includes("hyperrealistic") || !promptLower.includes("photorealistic") || !promptLower.includes("8k") || !promptLower.includes("dslr")) {
-            prompt = `${prompt}, ${realisticBasePrompt}`
+        // 실사 스타일 BASE_PROMPT 강제 추가 (모든 씬에 일관되게)
+        const realisticBasePrompt = "A hyperrealistic, photorealistic masterpiece, 8K, ultra-detailed, sharp focus, cinematic lighting, shot on a professional DSLR camera with a 50mm lens"
+        const promptLower = prompt.toLowerCase()
+        if (!promptLower.includes("hyperrealistic") || !promptLower.includes("photorealistic") || !promptLower.includes("8k") || !promptLower.includes("dslr")) {
+          prompt = `${prompt}, ${realisticBasePrompt}`
+        }
+        
+        // 한국인/외국인 키워드 강제 추가
+        if (realisticCharacterType === "korean") {
+          if (!promptLower.includes("korean") && !promptLower.includes("korean person") && !promptLower.includes("korean character") && !promptLower.includes("asian features")) {
+            prompt = `${prompt}, Korean person, Korean character, Asian features`
           }
-          if (!promptLower.includes("no animation") && !promptLower.includes("no cartoon")) {
-            prompt = `${prompt}, no animation style, no cartoon style, no illustration style, photorealistic only`
+        } else if (realisticCharacterType === "foreign") {
+          if (!promptLower.includes("western") && !promptLower.includes("caucasian") && !promptLower.includes("european") && !promptLower.includes("american")) {
+            prompt = `${prompt}, Western person, Caucasian, European features`
           }
+        }
+        
+        if (!promptLower.includes("no animation") && !promptLower.includes("no cartoon")) {
+          prompt = `${prompt}, no animation style, no cartoon style, no illustration style, photorealistic only`
+        }
         } else if (imageStyle === "animation2") {
           // 애니메이션2: 스틱맨 및 실사 키워드 제거
           const nonAnimation2Terms = ["stickman", "stick figure", "stick man", "photorealistic", "hyperrealistic", "realistic photography", "3D CGI", "rendered", "photography style", "DSLR camera", "professional photography"]

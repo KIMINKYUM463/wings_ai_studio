@@ -745,6 +745,8 @@ export default function LongformContentPage() {
   // 이미지 스타일 선택
   const [imageStyle, setImageStyle] = useState<string>("stickman-animation")
   const [hoveredStyle, setHoveredStyle] = useState<string | null>(null)
+  // 실사화 인물 타입 선택 (한국인/외국인)
+  const [realisticCharacterType, setRealisticCharacterType] = useState<"korean" | "foreign" | null>(null)
   
   // 샘플 이미지 URL 매핑 (ImgBB 직접 이미지 링크)
   // ImgBB 페이지 URL: https://ibb.co/{hash} -> 직접 이미지 URL: https://i.ibb.co/{hash}/{filename}.{ext}
@@ -11212,7 +11214,12 @@ export default function LongformContentPage() {
                   </Button>
                   <Button
                         variant={imageStyle === "realistic" ? "default" : "outline"}
-                        onClick={() => setImageStyle("realistic")}
+                        onClick={() => {
+                          setImageStyle("realistic")
+                          if (!realisticCharacterType) {
+                            setRealisticCharacterType("korean") // 기본값: 한국인
+                          }
+                        }}
                         onMouseEnter={() => setHoveredStyle("realistic")}
                         onMouseLeave={() => setHoveredStyle(null)}
                     className="flex-1"
@@ -11222,7 +11229,12 @@ export default function LongformContentPage() {
                   </Button>
                   <Button
                         variant={imageStyle === "realistic2" ? "default" : "outline"}
-                        onClick={() => setImageStyle("realistic2")}
+                        onClick={() => {
+                          setImageStyle("realistic2")
+                          if (!realisticCharacterType) {
+                            setRealisticCharacterType("korean") // 기본값: 한국인
+                          }
+                        }}
                         onMouseEnter={() => setHoveredStyle("realistic2")}
                         onMouseLeave={() => setHoveredStyle(null)}
                     className="flex-1"
@@ -11251,6 +11263,30 @@ export default function LongformContentPage() {
                         유럽풍 그래픽 노블
                   </Button>
                     </div>
+                    {/* 실사화/실사화2 선택 시 인물 타입 선택 */}
+                    {(imageStyle === "realistic" || imageStyle === "realistic2") && (
+                      <div className="mt-4 pt-4 border-t border-gray-200">
+                        <p className="text-sm font-medium text-gray-700 mb-2">인물 타입 선택</p>
+                        <div className="flex gap-2">
+                          <Button
+                            variant={realisticCharacterType === "korean" ? "default" : "outline"}
+                            onClick={() => setRealisticCharacterType("korean")}
+                            className="flex-1"
+                            size="sm"
+                          >
+                            한국인
+                          </Button>
+                          <Button
+                            variant={realisticCharacterType === "foreign" ? "default" : "outline"}
+                            onClick={() => setRealisticCharacterType("foreign")}
+                            className="flex-1"
+                            size="sm"
+                          >
+                            외국인
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                     <p className="text-xs text-gray-500 mt-3">
                       선택한 스타일이 모든 이미지에 일관되게 적용됩니다.
                     </p>
@@ -11781,7 +11817,8 @@ export default function LongformContentPage() {
                                 customStylePrompt || undefined,
                                 historicalContext || undefined,
                                 stickmanCharacterDescription || undefined,
-                                openaiApiKey
+                                openaiApiKey,
+                                realisticCharacterType || undefined
                               )
                               
                               // 스틱맨 애니메이션의 경우 첫 번째 씬에서 캐릭터 설명 추출
