@@ -500,7 +500,8 @@ ${content}
 export async function decomposeSingleScene(
   sceneText: string,
   sceneNumber: number,
-  apiKey?: string
+  apiKey?: string,
+  maxScenes: 1 | 2 | 3 = 3
 ): Promise<string> {
   // 사용자가 제공한 API 키 사용 (없으면 환경 변수에서 가져오기)
   const GEMINI_API_KEY = apiKey || process.env.GEMINI_API_KEY
@@ -546,7 +547,7 @@ export async function decomposeSingleScene(
 2) 입력 대본 문장은 최대한 그대로 유지합니다.
    - 요약, 재작성, 문장 창작 금지
 
-3) 장면 개수는 최소 1개, 최대 3개입니다.
+3) 장면 개수는 최소 1개, 최대 ${maxScenes}개입니다.
 
 4) 각 장면은 '하나의 대표 이미지'로 표현 가능한 단위여야 합니다.
 
@@ -563,15 +564,9 @@ export async function decomposeSingleScene(
 
 (해당 장면에 속하는 대본 문장들)
 
-[장면 2]
+${maxScenes >= 2 ? '[장면 2]\n\n(해당 시)\n\n' : ''}${maxScenes >= 3 ? '[장면 3]\n\n(해당 시)' : ''}`
 
-(해당 시)
-
-[장면 3]
-
-(해당 시)`
-
-  const userPrompt = `다음은 씬 대본입니다. 길이에 맞게 장면을 최소 1개~최대 3개로 분해해 주세요.
+  const userPrompt = `다음은 씬 대본입니다. 길이에 맞게 장면을 최소 1개~최대 ${maxScenes}개로 분해해 주세요.
 
 한국어만 출력하세요.
 

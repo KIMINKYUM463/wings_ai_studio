@@ -396,6 +396,7 @@ export default function LongformContentPage() {
   const [scriptGenerationProgress, setScriptGenerationProgress] = useState<{ progress: number; elapsedTime: number; estimatedTime: number } | null>(null) // 정교한 대본 생성 진행률
   const [isDecomposingScenes, setIsDecomposingScenes] = useState(false) // 장면 분해 중 상태
   const [sceneDecompositionProgress, setSceneDecompositionProgress] = useState<{ current: number; total: number; progress: number; elapsedTime: number; estimatedTime: number } | null>(null) // 장면 분해 진행률
+  const [maxScenesPerScene, setMaxScenesPerScene] = useState<1 | 2 | 3>(3) // 씬당 최대 장면 개수
   const [isSplittingScenes, setIsSplittingScenes] = useState(false) // 씬 나누기 중 상태
   const [isScanning, setIsScanning] = useState(false)
   const [completedSteps, setCompletedSteps] = useState<string[]>([])
@@ -10839,7 +10840,24 @@ export default function LongformContentPage() {
             </div>
                 </CardContent>
                 {/* 장면 분해 버튼 - 카드 테두리 밑 */}
-                <div className="px-6 pb-6 pt-4 border-t border-gray-100">
+                <div className="px-6 pb-6 pt-4 border-t border-gray-100 space-y-4">
+                  {/* 최대 장면 개수 선택 */}
+                  <div className="flex items-center gap-4">
+                    <Label className="text-sm font-medium text-gray-700 whitespace-nowrap">씬당 최대 장면 개수:</Label>
+                    <div className="flex gap-2">
+                      {[1, 2, 3].map((num) => (
+                        <Button
+                          key={num}
+                          variant={maxScenesPerScene === num ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setMaxScenesPerScene(num as 1 | 2 | 3)}
+                          className={maxScenesPerScene === num ? "bg-blue-600 hover:bg-blue-700 text-white" : ""}
+                        >
+                          최대 {num}개
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
                   <Button
                     variant="default"
                     size="lg"
@@ -10971,8 +10989,8 @@ export default function LongformContentPage() {
                           })
                           
                           try {
-                            // 단일 씬 처리 (API 키 전달)
-                            const sceneResult = await decomposeSingleScene(sceneText, sceneNumber, geminiApiKey)
+                            // 단일 씬 처리 (API 키 및 최대 장면 개수 전달)
+                            const sceneResult = await decomposeSingleScene(sceneText, sceneNumber, geminiApiKey, maxScenesPerScene)
                             
                             if (sceneResult && sceneResult.trim().length > 0) {
                               allResults.push(sceneResult)
