@@ -365,11 +365,15 @@ ${imageStyle === "realistic" || imageStyle === "realistic2" ? "Inference Steps�
         })
         prompt = cleanedPrompt.replace(/\s+/g, ' ').trim()
         
-        // 스틱맨 일관성 키워드 강제 추가 (항상)
-        if (!prompt.toLowerCase().includes("stickman") && !prompt.toLowerCase().includes("stick-figure")) {
-          prompt = `stickman character, ${prompt}`
+        // 스틱맨 애니메이션 BASE_PROMPT 강제 추가 (모든 씬에 일관되게)
+        const stickmanBasePrompt = "a vibrant 2D cartoon, fully rendered illustration featuring a stickman with a white circular face, simple black outline, dot eyes, curved mouth, thin black limbs, exactly two arms, exactly two hands (mitten hands with no fingers), expressive pose, correct anatomy, natural pose"
+        const stickmanStylePhrase = "Consistent stick-figure illustration style, clean bold lines, solid colors, explainer video aesthetic, simplified background"
+        const stickmanExtra = "colorful detailed drawing, rich environment, dynamic lighting, no realistic human anatomy, no blank background, anatomically correct stickman, proper body proportions"
+        const promptLower = prompt.toLowerCase()
+        if (!promptLower.includes("stickman") || !promptLower.includes("white circular face") || !promptLower.includes("consistent stick-figure")) {
+          prompt = `${prompt}, ${stickmanBasePrompt}, ${stickmanStylePhrase}, ${stickmanExtra}`
         }
-        if (!prompt.toLowerCase().includes("consistent stickman")) {
+        if (!promptLower.includes("consistent stickman")) {
           prompt = `${prompt}, consistent stickman style, all characters are stickmen, no exceptions, only stickman characters`
         }
       } else if (imageStyle === "realistic" || imageStyle === "realistic2") {
@@ -382,11 +386,13 @@ ${imageStyle === "realistic" || imageStyle === "realistic2" ? "Inference Steps�
         })
         prompt = cleanedPrompt.replace(/\s+/g, ' ').trim()
         
-        // 실사 스타일 키워드 강제 추가
-        if (!prompt.toLowerCase().includes("photorealistic") && !prompt.toLowerCase().includes("hyperrealistic")) {
-          prompt = `${prompt}, photorealistic, hyperrealistic, professional photography, DSLR camera`
+        // 실사 스타일 BASE_PROMPT 강제 추가 (모든 씬에 일관되게)
+        const realisticBasePrompt = "A hyperrealistic, photorealistic masterpiece, 8K, ultra-detailed, sharp focus, cinematic lighting, shot on a professional DSLR camera with a 50mm lens"
+        const promptLower = prompt.toLowerCase()
+        if (!promptLower.includes("hyperrealistic") || !promptLower.includes("photorealistic") || !promptLower.includes("8k") || !promptLower.includes("dslr")) {
+          prompt = `${prompt}, ${realisticBasePrompt}`
         }
-        if (!prompt.toLowerCase().includes("no animation") && !prompt.toLowerCase().includes("no cartoon")) {
+        if (!promptLower.includes("no animation") && !promptLower.includes("no cartoon")) {
           prompt = `${prompt}, no animation style, no cartoon style, no illustration style, photorealistic only`
         }
       } else if (imageStyle === "animation2") {
@@ -399,12 +405,21 @@ ${imageStyle === "realistic" || imageStyle === "realistic2" ? "Inference Steps�
         })
         prompt = cleanedPrompt.replace(/\s+/g, ' ').trim()
         
-        // 애니메이션2 스타일 키워드 강제 추가
-        if (!prompt.toLowerCase().includes("2D vector") && !prompt.toLowerCase().includes("stylized cartoon")) {
-          prompt = `${prompt}, 2D vector illustration, stylized cartoon character, flat design`
+        // 애니메이션2 스타일 BASE_PROMPT 강제 추가 (모든 씬에 일관되게)
+        const animation2BasePrompt = "Flat 2D vector illustration, minimal vector art, stylized cartoon character, thick bold black outlines, unshaded, flat solid colors, cel-shaded, simple line art, comic book inking style, completely flat, no shadows, no gradients, no depth"
+        const promptLower = prompt.toLowerCase()
+        if (!promptLower.includes("flat 2d vector") || !promptLower.includes("stylized cartoon character") || !promptLower.includes("thick bold black outlines") || !promptLower.includes("cel-shaded")) {
+          prompt = `${prompt}, ${animation2BasePrompt}`
         }
-        if (!prompt.toLowerCase().includes("no stickman")) {
+        if (!promptLower.includes("no stickman")) {
           prompt = `${prompt}, no stickman, no stick figure, no realistic photography`
+        }
+      } else if (imageStyle === "animation3") {
+        // 애니메이션3 스타일 BASE_PROMPT 강제 추가 (모든 씬에 일관되게)
+        const animation3BasePrompt = "European graphic novel style, bande dessinée aesthetic, highly detailed traditional illustration, hand-drawn ink lines with cross-hatching shadows, sophisticated and muted color palette, atmospheric, cinematic frame"
+        const promptLower = prompt.toLowerCase()
+        if (!promptLower.includes("european graphic novel") || !promptLower.includes("bande dessinée") || !promptLower.includes("hand-drawn ink lines") || !promptLower.includes("cross-hatching")) {
+          prompt = `${prompt}, ${animation3BasePrompt}`
         }
       }
 
@@ -924,11 +939,15 @@ ${imageStyle === "realistic" || imageStyle === "realistic2" ? "Inference Steps�
           })
           prompt = cleanedPrompt.replace(/\s+/g, ' ').trim()
           
-          // 스틱맨 일관성 키워드 강제 추가 (항상)
-          if (!prompt.toLowerCase().includes("stickman") && !prompt.toLowerCase().includes("stick-figure")) {
-            prompt = `stickman character, ${prompt}`
+          // 스틱맨 애니메이션 BASE_PROMPT 강제 추가 (모든 씬에 일관되게)
+          const stickmanBasePrompt = "a vibrant 2D cartoon, fully rendered illustration featuring a stickman with a white circular face, simple black outline, dot eyes, curved mouth, thin black limbs, exactly two arms, exactly two hands (mitten hands with no fingers), expressive pose, correct anatomy, natural pose"
+          const stickmanStylePhrase = "Consistent stick-figure illustration style, clean bold lines, solid colors, explainer video aesthetic, simplified background"
+          const stickmanExtra = "colorful detailed drawing, rich environment, dynamic lighting, no realistic human anatomy, no blank background, anatomically correct stickman, proper body proportions"
+          const promptLower = prompt.toLowerCase()
+          if (!promptLower.includes("stickman") || !promptLower.includes("white circular face") || !promptLower.includes("consistent stick-figure")) {
+            prompt = `${prompt}, ${stickmanBasePrompt}, ${stickmanStylePhrase}, ${stickmanExtra}`
           }
-          if (!prompt.toLowerCase().includes("consistent stickman")) {
+          if (!promptLower.includes("consistent stickman")) {
             prompt = `${prompt}, consistent stickman style, all characters are stickmen, no exceptions, only stickman characters`
           }
         } else if (imageStyle === "realistic" || imageStyle === "realistic2") {
@@ -941,11 +960,13 @@ ${imageStyle === "realistic" || imageStyle === "realistic2" ? "Inference Steps�
           })
           prompt = cleanedPrompt.replace(/\s+/g, ' ').trim()
           
-          // 실사 스타일 키워드 강제 추가
-          if (!prompt.toLowerCase().includes("photorealistic") && !prompt.toLowerCase().includes("hyperrealistic")) {
-            prompt = `${prompt}, photorealistic, hyperrealistic, professional photography, DSLR camera`
+          // 실사 스타일 BASE_PROMPT 강제 추가 (모든 씬에 일관되게)
+          const realisticBasePrompt = "A hyperrealistic, photorealistic masterpiece, 8K, ultra-detailed, sharp focus, cinematic lighting, shot on a professional DSLR camera with a 50mm lens"
+          const promptLower = prompt.toLowerCase()
+          if (!promptLower.includes("hyperrealistic") || !promptLower.includes("photorealistic") || !promptLower.includes("8k") || !promptLower.includes("dslr")) {
+            prompt = `${prompt}, ${realisticBasePrompt}`
           }
-          if (!prompt.toLowerCase().includes("no animation") && !prompt.toLowerCase().includes("no cartoon")) {
+          if (!promptLower.includes("no animation") && !promptLower.includes("no cartoon")) {
             prompt = `${prompt}, no animation style, no cartoon style, no illustration style, photorealistic only`
           }
         } else if (imageStyle === "animation2") {
@@ -958,12 +979,21 @@ ${imageStyle === "realistic" || imageStyle === "realistic2" ? "Inference Steps�
           })
           prompt = cleanedPrompt.replace(/\s+/g, ' ').trim()
           
-          // 애니메이션2 스타일 키워드 강제 추가
-          if (!prompt.toLowerCase().includes("2D vector") && !prompt.toLowerCase().includes("stylized cartoon")) {
-            prompt = `${prompt}, 2D vector illustration, stylized cartoon character, flat design`
+          // 애니메이션2 스타일 BASE_PROMPT 강제 추가 (모든 씬에 일관되게)
+          const animation2BasePrompt = "Flat 2D vector illustration, minimal vector art, stylized cartoon character, thick bold black outlines, unshaded, flat solid colors, cel-shaded, simple line art, comic book inking style, completely flat, no shadows, no gradients, no depth"
+          const promptLower = prompt.toLowerCase()
+          if (!promptLower.includes("flat 2d vector") || !promptLower.includes("stylized cartoon character") || !promptLower.includes("thick bold black outlines") || !promptLower.includes("cel-shaded")) {
+            prompt = `${prompt}, ${animation2BasePrompt}`
           }
-          if (!prompt.toLowerCase().includes("no stickman")) {
+          if (!promptLower.includes("no stickman")) {
             prompt = `${prompt}, no stickman, no stick figure, no realistic photography`
+          }
+        } else if (imageStyle === "animation3") {
+          // 애니메이션3 스타일 BASE_PROMPT 강제 추가 (모든 씬에 일관되게)
+          const animation3BasePrompt = "European graphic novel style, bande dessinée aesthetic, highly detailed traditional illustration, hand-drawn ink lines with cross-hatching shadows, sophisticated and muted color palette, atmospheric, cinematic frame"
+          const promptLower = prompt.toLowerCase()
+          if (!promptLower.includes("european graphic novel") || !promptLower.includes("bande dessinée") || !promptLower.includes("hand-drawn ink lines") || !promptLower.includes("cross-hatching")) {
+            prompt = `${prompt}, ${animation3BasePrompt}`
           }
         }
 
