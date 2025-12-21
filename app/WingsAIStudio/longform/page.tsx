@@ -81,7 +81,7 @@ import {
   // generateCommonStylePrompt, // 공통 스타일 프롬프트 생성 함수 import 추가 (임시 주석 처리)
 } from "./actions"
 import { generateRefinedScript, decomposeScriptIntoScenes, decomposeSingleScene, autoSplitScriptByMeaning } from "./refined-script-actions"
-import { generateSceneImagePrompts } from "./scene-prompt-actions"
+import { generateSceneImagePrompts, generateSingleSceneImagePrompts, extractHistoricalContext } from "./scene-prompt-actions"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
@@ -11727,15 +11727,85 @@ export default function LongformContentPage() {
                         try {
                           console.log("[이미지 프롬프트 생성] decomposedScenes 확인:", decomposedScenes.substring(0, 500))
                           console.log("[이미지 프롬프트 생성] customStylePrompt:", customStylePrompt)
-                          const prompts = await generateSceneImagePrompts(decomposedScenes, imageStyle, openaiApiKey, customStylePrompt || undefined, selectedTopic || undefined, script || undefined)
                           
-                          // 안전성 확인
-                          if (!prompts || !Array.isArray(prompts)) {
+                          // 시대적 배경 추출 (한 번만)
+                          const historicalContext = await extractHistoricalContext(selectedTopic || undefined, script || undefined, openaiApiKey).catch(() => null)
+                          
+                          // 씬별로 순차 처리
+                          const allResults: Array<{ sceneNumber: number; images: Array<{ imageNumber: number; prompt: string; sceneText: string; visualInstruction?: string; imageUrl?: string }> }> = []
+                          let stickmanCharacterDescription: string | null = null
+                          
+                          for (let i = 0; i < sceneBlocks.length; i++) {
+                            const sceneBlock = sceneBlocks[i]
+                            const sceneNumMatch = sceneBlock.match(/씬\s+(\d+)/)
+                            if (!sceneNumMatch) continue
+                            
+                            const sceneNum = parseInt(sceneNumMatch[1])
+                            console.log(`[이미지 프롬프트 생성] 씬 ${sceneNum} 처리 시작 (${i + 1}/${totalScenes})`)
+                            
+                            // 진행률 업데이트
+                            setScenePromptProgress({
+                              current: i,
+                              total: totalScenes
+                            })
+                            
+                            try {
+                              const sceneImages = await generateSingleSceneImagePrompts(
+                                sceneBlock,
+                                sceneNum,
+                                imageStyle,
+                                customStylePrompt || undefined,
+                                historicalContext || undefined,
+                                stickmanCharacterDescription || undefined,
+                                openaiApiKey
+                              )
+                              
+                              // 스틱맨 애니메이션의 경우 첫 번째 씬에서 캐릭터 설명 추출
+                              if (imageStyle === "stickman-animation" && sceneNum === 1 && sceneImages.length > 0) {
+                                const firstPrompt = sceneImages[0]?.prompt || ""
+                                const characterMatch = firstPrompt.match(/(?:the same stickman character|the main stickman character|the protagonist stickman)\s*\(([^)]+)\)/i)
+                                if (characterMatch) {
+                                  stickmanCharacterDescription = characterMatch[1]
+                                } else {
+                                  const firstSceneText = sceneImages[0]?.sceneText || ""
+                                  const roleMatch = firstSceneText.match(/(?:탐정|의사|선생님|학생|경찰|요리사|운동선수|가수|배우|기자|변호사|간호사|엔지니어|프로그래머|디자이너|예술가|작가|음악가)/)
+                                  stickmanCharacterDescription = roleMatch ? roleMatch[0] : "the main protagonist"
+                                }
+                                console.log(`[이미지 프롬프트 생성] 씬 1 스틱맨 캐릭터 설명 저장: ${stickmanCharacterDescription}`)
+                              }
+                              
+                              allResults.push({
+                                sceneNumber: sceneNum,
+                                images: sceneImages,
+                              })
+                              
+                              console.log(`[이미지 프롬프트 생성] 씬 ${sceneNum} 처리 완료 (${allResults.length}/${totalScenes})`)
+                              
+                              // 실시간으로 결과 업데이트
+                              setSceneImagePrompts([...allResults])
+                              
+                            } catch (sceneError) {
+                              console.error(`[이미지 프롬프트 생성] 씬 ${sceneNum} 처리 실패:`, sceneError)
+                              // 실패한 씬은 빈 결과로 추가
+                              allResults.push({
+                                sceneNumber: sceneNum,
+                                images: [],
+                              })
+                            }
+                            
+                            // 씬 처리 간 딜레이 (API 제한 방지)
+                            if (i < sceneBlocks.length - 1) {
+                              await new Promise(resolve => setTimeout(resolve, 2000)) // 2초 대기
+                            }
+                          }
+                          
+                          // 최종 결과 검증
+                          if (allResults.length === 0) {
                             throw new Error("프롬프트 생성 결과가 올바르지 않습니다.")
                           }
                           
-                          console.log("[이미지 프롬프트 생성] 생성된 프롬프트 개수:", prompts.length)
-                          setSceneImagePrompts(prompts)
+                          console.log("[이미지 프롬프트 생성] 모든 씬 처리 완료, 최종 결과:", allResults.length)
+                          setSceneImagePrompts(allResults)
                           
                           // 완료 시 진행률 업데이트
                           clearInterval(progressInterval)
@@ -11752,11 +11822,8 @@ export default function LongformContentPage() {
                           clearInterval(progressInterval)
                           setScenePromptProgress(null)
                           console.error("이미지 프롬프트 생성 실패:", error)
-                          // 백업 API 키로 재시도했지만 실패한 경우에만 오류 메시지 표시
-                          // (일반적인 실패는 백업 API 키로 자동 재시도되므로 오류 메시지 표시하지 않음)
-                          if (error instanceof Error && error.message.includes("백업 API 키로도 실패")) {
-                            alert(`이미지 프롬프트 생성에 실패했습니다: ${error.message}`)
-                          }
+                          const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다."
+                          alert(`이미지 프롬프트 생성에 실패했습니다: ${errorMessage}`)
                         } finally {
                           setIsGeneratingScenePrompts(false)
                         }

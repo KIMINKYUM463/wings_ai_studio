@@ -10,7 +10,7 @@ const INTERNAL_OPENAI_API_KEY = "sk-proj-5V2ZqvfSMwyO_W6ixxXuX5FPkNfLrrl6eJCs1g-
 /**
  * 주제나 대본에서 시대적 배경을 추출하는 함수
  */
-async function extractHistoricalContext(
+export async function extractHistoricalContext(
   topic: string | undefined,
   script: string | undefined,
   openaiApiKey: string
@@ -78,6 +78,265 @@ ${contextText.substring(0, 2000)}
   } catch (error) {
     console.warn("[시대적 배경 추출] 오류 발생, 시대적 배경 없이 진행:", error)
     return null
+  }
+}
+
+/**
+ * 단일 씬의 이미지 프롬프트를 생성하는 함수
+ * @param sceneBlock - 씬 블록 텍스트
+ * @param sceneNumber - 씬 번호
+ * @param imageStyle - 이미지 스타일
+ * @param customStylePrompt - 커스텀 스타일 프롬프트
+ * @param historicalContext - 시대적 배경
+ * @param stickmanCharacterDescription - 스틱맨 캐릭터 설명 (스틱맨 애니메이션용)
+ * @param openaiApiKey - API 키 (사용되지 않음, 내부 키 사용)
+ * @returns 씬의 이미지 프롬프트 배열
+ */
+export async function generateSingleSceneImagePrompts(
+  sceneBlock: string,
+  sceneNumber: number,
+  imageStyle: string,
+  customStylePrompt?: string,
+  historicalContext?: string | null,
+  stickmanCharacterDescription?: string | null,
+  openaiApiKey?: string
+): Promise<Array<{ imageNumber: number; prompt: string; sceneText: string; visualInstruction?: string }>> {
+  // 내부적으로 항상 제공된 API 키 사용 (사용자 입력 무시)
+  const actualApiKey = INTERNAL_OPENAI_API_KEY
+
+  if (!sceneBlock || sceneBlock.trim().length === 0) {
+    throw new Error(`씬 ${sceneNumber} 블록이 비어있습니다.`)
+  }
+
+  // Scene 블록 내에서 모든 [장면 N] 패턴 찾기
+  const imageRegex = /\[장면\s+(\d+)\]\s*\n([\s\S]*?)(?=\[장면\s+\d+\]|씬\s+\d+|$)/g
+  const sceneImages: Array<{ imageNumber: number; text: string }> = []
+  let imageMatch
+  
+  while ((imageMatch = imageRegex.exec(sceneBlock)) !== null) {
+    const imageNum = parseInt(imageMatch[1])
+    let imageText = imageMatch[2].trim()
+    
+    if (imageText && imageText.length > 0) {
+      sceneImages.push({
+        imageNumber: imageNum,
+        text: imageText,
+      })
+    }
+  }
+  
+  // 정규식으로 찾지 못한 경우 대체 방법 시도
+  if (sceneImages.length === 0) {
+    const flexibleRegex = /\[장면\s*(\d+)\][\s\n]*([\s\S]*?)(?=\[장면|\b씬|\s*$)/g
+    let flexMatch
+    while ((flexMatch = flexibleRegex.exec(sceneBlock)) !== null) {
+      const imageNum = parseInt(flexMatch[1])
+      let imageText = flexMatch[2].trim()
+      if (imageText && imageText.length > 0) {
+        sceneImages.push({
+          imageNumber: imageNum,
+          text: imageText,
+        })
+      }
+    }
+  }
+  
+  if (sceneImages.length === 0) {
+    console.warn(`[프롬프트 생성] Scene ${sceneNumber}에서 장면을 찾을 수 없습니다.`)
+    return []
+  }
+
+  // 시스템 프롬프트 생성 (기존 로직과 동일)
+  const systemPrompt = `너는 장면 기반 이미지 프롬프트 생성기다.
+
+입력은 이미 장면(Scene) 단위로 분리된 한국어 텍스트이며,
+너의 작업은 다음 순서를 반드시 따른다. 먼저 이미지 스타일에 따라
+인물을 부여하고 그 인물은 각 장면에 일관성있게 무조건 유지되어야한다.
+인물이 많으면 그 인물들도 다 일관성있게 유지되어야 한다.
+
+**스틱맨 애니메이션 스타일의 경우:**
+- 첫 번째 장면에서 주인공 스틱맨 캐릭터를 정의하고, 모든 장면에서 동일한 스틱맨 캐릭터를 사용해야 합니다.
+- 각 장면의 프롬프트에 "the same stickman character", "the main stickman character" 등을 명시적으로 포함하여 동일한 캐릭터임을 보장하세요.
+- 새로운 사람이나 다른 캐릭터가 등장하면 안 됩니다. 모든 장면은 동일한 스틱맨 주인공을 중심으로 진행됩니다.
+
+[STEP 1] 장면 해석 (요약 금지)
+- 각 장면에서 다음 요소를 추출한다.
+  - 시대/시간대
+  - 장소
+  - 주요 인물(역할 중심)
+  - 핵심 행동(1개)
+  - 분위기/감정
+
+[STEP 2] 영어 프롬프트 생성
+- 각 장면을 하나의 이미지로 표현할 수 있는 영어 프롬프트를 작성한다.
+- 프롬프트는 구체적이고 시각적으로 명확해야 한다.
+- 인물, 배경, 행동, 분위기를 모두 포함한다.
+- 이미지 스타일에 맞는 표현을 사용한다.
+
+[STEP 3] 출력 형식
+각 장면마다 다음 형식으로 출력한다:
+장면 1: [시각화 지시문(한국어)]
+[영어 프롬프트]
+
+장면 2: [시각화 지시문(한국어)]
+[영어 프롬프트]
+
+...`
+
+  const sceneTexts = sceneImages.map(img => `[장면 ${img.imageNumber}]\n${img.text}`).join("\n\n")
+  const userPrompt = `다음은 씬 ${sceneNumber}의 장면들입니다. 각 장면에 대한 이미지 프롬프트를 생성해주세요.
+
+${sceneTexts}
+
+이미지 스타일: ${imageStyle}
+${historicalContext ? `시대적 배경: ${historicalContext}` : ""}
+${customStylePrompt ? `커스텀 스타일: ${customStylePrompt}` : ""}
+${imageStyle === "realistic" || imageStyle === "realistic2" ? "Inference Steps는 4입니다." : imageStyle === "animation2" || imageStyle === "animation3" || imageStyle === "stickman-animation" ? "Inference Steps는 16입니다." : ""}`
+
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 60000) // 60초 타임아웃
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${actualApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: systemPrompt,
+          },
+          {
+            role: "user",
+            content: userPrompt,
+          },
+        ],
+        max_tokens: 4000,
+        temperature: 0.7,
+      }),
+      signal: controller.signal,
+    })
+
+    clearTimeout(timeoutId)
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(`OpenAI API 호출 실패: ${response.status} - ${errorText}`)
+    }
+
+    const data = await response.json()
+    
+    // API 응답 검증
+    if (!data || !data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
+      console.error(`[Scene ${sceneNumber}] API 응답 오류:`, data)
+      throw new Error(`Scene ${sceneNumber} 프롬프트 생성에 실패했습니다: API 응답 형식이 올바르지 않습니다.`)
+    }
+    
+    const content = data.choices[0]?.message?.content
+
+    if (!content || typeof content !== 'string') {
+      console.error(`[Scene ${sceneNumber}] 콘텐츠 없음:`, data.choices[0])
+      throw new Error(`Scene ${sceneNumber} 프롬프트 생성에 실패했습니다: 응답 내용이 없습니다.`)
+    }
+
+    // 텍스트에서 각 장면의 프롬프트 추출
+    const sceneImageResults: Array<{ imageNumber: number; prompt: string; sceneText: string; visualInstruction?: string }> = []
+    
+    // "장면 N: [시각화 지시문(한국어)]\n[영어 프롬프트]" 패턴으로 파싱
+    const promptRegex = /장면\s+(\d+):\s*([^\n]+)\n([\s\S]+?)(?=\n장면\s+\d+:|$)/g
+    const prompts: Map<number, { visualInstruction: string; prompt: string }> = new Map()
+    
+    let match
+    while ((match = promptRegex.exec(content)) !== null) {
+      const imageNum = parseInt(match[1])
+      const visualInstruction = match[2].trim()
+      const prompt = match[3].trim()
+      if (prompt) {
+        prompts.set(imageNum, { visualInstruction, prompt })
+      }
+    }
+    
+    // 새로운 형식으로 파싱되지 않은 경우 기존 형식으로 시도
+    if (prompts.size === 0) {
+      const fallbackRegex = /장면\s+(\d+):\s*([\s\S]+?)(?=\n장면\s+\d+:|$)/g
+      let fallbackMatch
+      while ((fallbackMatch = fallbackRegex.exec(content)) !== null) {
+        const imageNum = parseInt(fallbackMatch[1])
+        const prompt = fallbackMatch[2].trim()
+        if (prompt) {
+          prompts.set(imageNum, { visualInstruction: "", prompt })
+        }
+      }
+    }
+
+    // 각 장면에 대해 프롬프트 매칭
+    sceneImages.forEach((img) => {
+      if (!img || typeof img.imageNumber !== 'number') {
+        console.warn(`[Scene ${sceneNumber}] 유효하지 않은 이미지 데이터:`, img)
+        return
+      }
+      
+      const promptData = prompts.get(img.imageNumber)
+      let prompt = (promptData?.prompt || img?.text || "").trim()
+      const visualInstruction = (promptData?.visualInstruction || "").trim()
+      
+      if (!prompt) {
+        console.warn(`[Scene ${sceneNumber}] Image ${img.imageNumber} 프롬프트가 비어있습니다.`)
+        prompt = img?.text || "image"
+      }
+      
+      // 시대적 배경이 있으면 프롬프트에 명시적으로 포함
+      if (historicalContext) {
+        const contextLower = historicalContext.toLowerCase()
+        const promptLower = prompt.toLowerCase()
+        const contextKeywords = (typeof historicalContext === 'string' ? historicalContext.split(/[,\s]+/) : []).filter((k: string) => k && k.length > 3)
+        const hasContext = contextKeywords.some(keyword => 
+          promptLower.includes(keyword.toLowerCase())
+        )
+        
+        if (!hasContext) {
+          prompt = `${historicalContext}, ${prompt}`
+        }
+      }
+
+      // 스틱맨 애니메이션이고 첫 번째 Scene이 아닌 경우, 캐릭터 일관성 보장
+      if (imageStyle === "stickman-animation" && sceneNumber > 1 && stickmanCharacterDescription) {
+        if (!prompt.toLowerCase().includes("the same stickman character") && 
+            !prompt.toLowerCase().includes("the main stickman character") &&
+            !prompt.toLowerCase().includes("the protagonist stickman")) {
+          prompt = `The same stickman character from Scene 1 (${stickmanCharacterDescription}), ${prompt}`
+        }
+      }
+      
+      // 커스텀 스타일 프롬프트가 있으면 추가
+      if (customStylePrompt && typeof customStylePrompt === 'string' && customStylePrompt.trim().length > 0) {
+        const customStyleLower = customStylePrompt.toLowerCase()
+        const promptLower = prompt.toLowerCase()
+        const customStylePrefix = customStyleLower.substring(0, Math.min(50, customStyleLower.length))
+        if (!promptLower.includes(customStylePrefix)) {
+          prompt = `${prompt}, ${customStylePrompt}`
+        }
+      }
+
+      sceneImageResults.push({
+        imageNumber: img.imageNumber,
+        prompt: prompt,
+        sceneText: img.text,
+        visualInstruction: visualInstruction || undefined,
+      })
+    })
+
+    return sceneImageResults
+  } catch (error) {
+    clearTimeout(timeoutId)
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`씬 ${sceneNumber} 프롬프트 생성 타임아웃 (60초 초과)`)
+    }
+    throw error
   }
 }
 
