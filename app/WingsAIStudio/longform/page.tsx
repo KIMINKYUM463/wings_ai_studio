@@ -4494,79 +4494,169 @@ export default function LongformContentPage() {
     }
   }
 
-  // 이미지 업로드 핸들러
+  // 이미지/영상 업로드 핸들러
   const handleImageUpload = async (lineId: number, file: File) => {
     try {
-      // 16:9 비율로 이미지 리사이즈
-      const resizedImage = await resizeImageTo16_9(file)
+      const isVideo = file.type.startsWith("video/")
       
-      // Base64로 변환
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        const base64 = reader.result as string
-        const imageUrl = base64
+      if (isVideo) {
+        // 영상 파일인 경우
+        const reader = new FileReader()
+        reader.onloadend = () => {
+          const videoUrl = reader.result as string
+          
+          // 업로드된 영상 업데이트
+          setGeneratedImages((prev) => {
+            const filtered = prev.filter((img) => img.lineId !== lineId)
+            return [
+              ...filtered,
+              {
+                lineId: lineId,
+                imageUrl: videoUrl, // 영상 URL도 imageUrl에 저장
+                prompt: "사용자 업로드 영상",
+              },
+            ]
+          })
+          
+          // convertedVideos에도 저장 (영상으로 표시하기 위해)
+          setConvertedVideos((prev) => {
+            const newMap = new Map(prev)
+            newMap.set(lineId, videoUrl)
+            return newMap
+          })
+          
+          alert("영상이 업로드되었습니다!")
+        }
+        reader.readAsDataURL(file)
+      } else {
+        // 이미지 파일인 경우
+        // 16:9 비율로 이미지 리사이즈
+        const resizedImage = await resizeImageTo16_9(file)
+        
+        // Base64로 변환
+        const reader = new FileReader()
+        reader.onloadend = () => {
+          const base64 = reader.result as string
+          const imageUrl = base64
 
-        // 업로드된 이미지 업데이트
-        setGeneratedImages((prev) => {
-          const filtered = prev.filter((img) => img.lineId !== lineId)
-          return [
-            ...filtered,
-            {
-              lineId: lineId,
-              imageUrl: imageUrl,
-              prompt: "사용자 업로드 이미지",
-            },
-          ]
-        })
+          // 업로드된 이미지 업데이트
+          setGeneratedImages((prev) => {
+            const filtered = prev.filter((img) => img.lineId !== lineId)
+            return [
+              ...filtered,
+              {
+                lineId: lineId,
+                imageUrl: imageUrl,
+                prompt: "사용자 업로드 이미지",
+              },
+            ]
+          })
+          
+          // 이미지로 교체했으므로 변환된 영상 제거
+          setConvertedVideos((prev) => {
+            const newMap = new Map(prev)
+            newMap.delete(lineId)
+            return newMap
+          })
 
-        alert("이미지가 업로드되었습니다!")
+          alert("이미지가 업로드되었습니다!")
+        }
+        reader.readAsDataURL(resizedImage)
       }
-      reader.readAsDataURL(resizedImage)
     } catch (error) {
-      console.error(`[v0] 이미지 업로드 실패 (줄 ${lineId}):`, error)
-      alert(`이미지 업로드에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+      console.error(`[v0] 파일 업로드 실패 (줄 ${lineId}):`, error)
+      alert(`파일 업로드에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
     }
   }
 
-  // Scene 이미지 업로드 핸들러
+  // Scene 이미지/영상 업로드 핸들러
   const handleSceneImageUpload = async (sceneNumber: number, imageNumber: number, file: File) => {
     try {
-      // 16:9 비율로 이미지 리사이즈
-      const resizedImage = await resizeImageTo16_9(file)
+      const isVideo = file.type.startsWith("video/")
       
-      // Base64로 변환
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        const base64 = reader.result as string
-        const imageUrl = base64
-
-        // 업로드된 이미지 업데이트
-        setSceneImagePrompts((prev) => {
-          return prev.map((scene) => {
-            if (scene.sceneNumber === sceneNumber) {
-              return {
-                ...scene,
-                images: scene.images.map((img) => {
-                  if (img.imageNumber === imageNumber) {
-                    return {
-                      ...img,
-                      imageUrl: imageUrl,
+      if (isVideo) {
+        // 영상 파일인 경우
+        const reader = new FileReader()
+        reader.onloadend = () => {
+          const videoUrl = reader.result as string
+          
+          // 업로드된 영상 업데이트
+          setSceneImagePrompts((prev) => {
+            return prev.map((scene) => {
+              if (scene.sceneNumber === sceneNumber) {
+                return {
+                  ...scene,
+                  images: scene.images.map((img) => {
+                    if (img.imageNumber === imageNumber) {
+                      return {
+                        ...img,
+                        imageUrl: videoUrl, // 영상 URL도 imageUrl에 저장
+                      }
                     }
-                  }
-                  return img
-                }),
+                    return img
+                  }),
+                }
               }
-            }
-            return scene
+              return scene
+            })
           })
-        })
+          
+          // convertedSceneVideos에도 저장 (영상으로 표시하기 위해)
+          setConvertedSceneVideos((prev) => {
+            const newMap = new Map(prev)
+            newMap.set(`${sceneNumber}-${imageNumber}`, videoUrl)
+            return newMap
+          })
+          
+          alert("영상이 업로드되었습니다!")
+        }
+        reader.readAsDataURL(file)
+      } else {
+        // 이미지 파일인 경우
+        // 16:9 비율로 이미지 리사이즈
+        const resizedImage = await resizeImageTo16_9(file)
+        
+        // Base64로 변환
+        const reader = new FileReader()
+        reader.onloadend = () => {
+          const base64 = reader.result as string
+          const imageUrl = base64
 
-        alert("이미지가 업로드되었습니다!")
+          // 업로드된 이미지 업데이트
+          setSceneImagePrompts((prev) => {
+            return prev.map((scene) => {
+              if (scene.sceneNumber === sceneNumber) {
+                return {
+                  ...scene,
+                  images: scene.images.map((img) => {
+                    if (img.imageNumber === imageNumber) {
+                      return {
+                        ...img,
+                        imageUrl: imageUrl,
+                      }
+                    }
+                    return img
+                  }),
+                }
+              }
+              return scene
+            })
+          })
+          
+          // 이미지로 교체했으므로 변환된 영상 제거
+          setConvertedSceneVideos((prev) => {
+            const newMap = new Map(prev)
+            newMap.delete(`${sceneNumber}-${imageNumber}`)
+            return newMap
+          })
+
+          alert("이미지가 업로드되었습니다!")
+        }
+        reader.readAsDataURL(resizedImage)
       }
-      reader.readAsDataURL(resizedImage)
     } catch (error) {
-      console.error(`[Scene] 이미지 업로드 실패 (Scene ${sceneNumber}, Image ${imageNumber}):`, error)
-      alert(`이미지 업로드에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+      console.error(`[Scene] 파일 업로드 실패 (Scene ${sceneNumber}, Image ${imageNumber}):`, error)
+      alert(`파일 업로드에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
     }
   }
 
@@ -12508,25 +12598,36 @@ export default function LongformContentPage() {
                                           {image.imageUrl ? (
                                             <div className="w-80 rounded border overflow-hidden">
                                               <div className="aspect-video overflow-hidden">
-                                              {convertedSceneVideos.has(`${scene.sceneNumber}-${image.imageNumber}`) ? (
-                                                <video
-                                                  src={convertedSceneVideos.get(`${scene.sceneNumber}-${image.imageNumber}`)}
-                                                  controls
-                                                  className="w-full h-full object-cover"
-                                                />
-                                              ) : (
-                                                <img
-                                                  src={image.imageUrl}
-                                                  alt={`Scene ${scene.sceneNumber} Image ${image.imageNumber}`}
-                                                  className="w-full h-full object-cover"
-                                                />
-                                              )}
+                                              {(() => {
+                                                const videoUrl = convertedSceneVideos.get(`${scene.sceneNumber}-${image.imageNumber}`)
+                                                const isVideo = videoUrl || (image.imageUrl && (image.imageUrl.startsWith("data:video/") || image.imageUrl.includes("video")))
+                                                const displayUrl = videoUrl || image.imageUrl
+                                                
+                                                if (isVideo && displayUrl) {
+                                                  return (
+                                                    <video
+                                                      src={displayUrl}
+                                                      controls
+                                                      className="w-full h-full object-cover"
+                                                    />
+                                                  )
+                                                } else if (image.imageUrl) {
+                                                  return (
+                                                    <img
+                                                      src={image.imageUrl}
+                                                      alt={`Scene ${scene.sceneNumber} Image ${image.imageNumber}`}
+                                                      className="w-full h-full object-cover"
+                                                    />
+                                                  )
+                                                }
+                                                return null
+                                              })()}
                                               </div>
                                               <div className="p-2 flex items-center justify-center gap-2 bg-gray-50 border-t">
                                                 <label className="cursor-pointer">
                                                 <input
                                                   type="file"
-                                                  accept="image/*"
+                                                  accept="image/*,video/*"
                                                   className="hidden"
                                                   onChange={(e) => {
                                                     const file = e.target.files?.[0]
@@ -12577,7 +12678,7 @@ export default function LongformContentPage() {
                                             <label className="w-80 aspect-video rounded border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-gray-400 transition-colors">
                                               <input
                                                 type="file"
-                                                accept="image/*"
+                                                accept="image/*,video/*"
                                                 className="hidden"
                                                 onChange={(e) => {
                                                   const file = e.target.files?.[0]
@@ -12588,7 +12689,7 @@ export default function LongformContentPage() {
                                               />
                                               <div className="text-center">
                                                 <Upload className="w-6 h-6 mx-auto mb-2 text-gray-400" />
-                                                <p className="text-xs text-gray-500">이미지 업로드</p>
+                                                <p className="text-xs text-gray-500">이미지/영상 업로드</p>
                                               </div>
                                             </label>
                                           )}
