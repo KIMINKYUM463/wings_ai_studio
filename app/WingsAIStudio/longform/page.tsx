@@ -7049,8 +7049,8 @@ export default function LongformContentPage() {
           subtitles: videoData.subtitles.map((s) => ({
             id: s.id,
             // 자막 타이밍을 0.5초 앞당겨서 전달 (TTS와 동기화 개선)
-            start: Math.max(0, s.start - 1),
-            end: Math.max(0, s.end - 1),
+            start: Math.max(0, s.start - 0.5),
+            end: Math.max(0, s.end - 0.5),
             text: s.text,
           })),
         // 이미지: Cloud Storage URL이 있으면 base64 전송하지 않음
@@ -7508,8 +7508,8 @@ export default function LongformContentPage() {
           subtitles: videoData.subtitles.map((s) => ({
             id: s.id,
             // 자막 타이밍을 0.5초 앞당겨서 전달 (TTS와 동기화 개선)
-            start: Math.max(0, s.start - 1),
-            end: Math.max(0, s.end - 1),
+            start: Math.max(0, s.start - 0.5),
+            end: Math.max(0, s.end - 0.5),
             text: s.text,
           })),
         } : {
@@ -8570,14 +8570,17 @@ export default function LongformContentPage() {
         }
 
         // 현재 시간에 맞는 자막 찾기 (오디오 currentTime 기반으로 정확한 동기화)
+        // 자막이 0.5초 늦게 나오므로 0.5초 앞당겨서 TTS와 싱크 맞춤
         let adjustedTimeForSubtitles: number
         if (isAudioStarted && !audio.paused) {
           // 오디오가 재생 중이면 오디오의 currentTime 직접 사용 (가장 정확)
           // introVideo가 있으면 오디오는 10초부터 시작하므로 자막 타이밍도 10초를 빼야 함
-          adjustedTimeForSubtitles = introVideo ? audio.currentTime - 10 : audio.currentTime
+          // 자막이 0.5초 늦게 나오므로 0.5초를 더해서 앞당김
+          adjustedTimeForSubtitles = introVideo ? audio.currentTime - 10 + 0.5 : audio.currentTime + 0.5
         } else {
           // 오디오가 아직 시작되지 않았거나 일시정지 상태면 계산된 시간 사용
-          adjustedTimeForSubtitles = introVideo ? currentTime - 10 : currentTime
+          // 자막이 0.5초 늦게 나오므로 0.5초를 더해서 앞당김
+          adjustedTimeForSubtitles = introVideo ? currentTime - 10 + 0.5 : currentTime + 0.5
         }
         
         // 자막 타이밍을 정확히 매칭 (TTS와 동기화)
