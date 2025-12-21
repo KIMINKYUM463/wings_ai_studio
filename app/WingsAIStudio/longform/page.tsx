@@ -10935,12 +10935,24 @@ export default function LongformContentPage() {
                         console.log("[장면 분해 버튼] API 키 확인 완료, decomposeScriptIntoScenes 호출 시작")
                         console.log(`[장면 분해 버튼] 총 ${totalScenes}개 씬 처리 예정`)
                         const decomposedResult = await decomposeScriptIntoScenes(script, geminiApiKey)
+                        
+                        // 결과 검증
+                        if (!decomposedResult || typeof decomposedResult !== 'string' || decomposedResult.trim().length === 0) {
+                          throw new Error("장면 분해 결과가 비어있습니다. 다시 시도해주세요.")
+                        }
+                        
                         console.log("[장면 분해 버튼] decomposeScriptIntoScenes 완료, 결과 길이:", decomposedResult.length)
                         // 장면 분해 결과를 저장
                         setDecomposedScenes(decomposedResult)
                         // 장면 분해 결과를 scriptLines에 넣기
                         console.log("[장면 분해 버튼] parseSceneBlocks 호출 중...")
                         const scenes = parseSceneBlocks(decomposedResult)
+                        
+                        // scenes 검증
+                        if (!scenes || !Array.isArray(scenes) || scenes.length === 0) {
+                          throw new Error("장면 파싱에 실패했습니다. 결과를 확인할 수 없습니다.")
+                        }
+                        
                         console.log(`[장면 분해 버튼] parseSceneBlocks 완료: ${scenes.length}개 장면`)
                         setScriptLines(scenes)
                         

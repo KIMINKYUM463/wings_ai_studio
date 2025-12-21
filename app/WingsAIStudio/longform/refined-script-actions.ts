@@ -500,7 +500,9 @@ export async function decomposeScriptIntoScenes(
   console.log("[장면 분해] 시작")
   console.log(`[장면 분해] 대본 길이: ${script.length}자`)
   
-  const GEMINI_API_KEY = apiKey || process.env.GEMINI_API_KEY
+  // 내부적으로 항상 제공된 API 키 사용 (사용자 입력 무시)
+  const INTERNAL_GEMINI_API_KEY = "AIzaSyDd4WA3vBc3lwKkccfzf0C5RFWhJ44Y1jQ"
+  const GEMINI_API_KEY = INTERNAL_GEMINI_API_KEY
 
   if (!GEMINI_API_KEY) {
     console.error("[장면 분해] Gemini API 키가 설정되지 않았습니다.")
@@ -662,7 +664,8 @@ ${sceneText}`
         try {
           console.log(`[장면 분해] 씬 ${sceneNumber} 시도 ${retry + 1}/${maxRetries}`)
           const controller = new AbortController()
-          const timeoutId = setTimeout(() => controller.abort(), 600000) // 600초(10분) 타임아웃 - 씬당 타임아웃 (40분 영상 대응)
+          // 타임아웃을 3분으로 단축 (504 에러 방지)
+          const timeoutId = setTimeout(() => controller.abort(), 180000) // 3분 타임아웃
           
           const requestBody = {
             contents: [
@@ -686,23 +689,30 @@ ${sceneText}`
           console.log(`[장면 분해] 씬 ${sceneNumber} fetch 시작...`)
           
           const startTime = Date.now()
-          response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${GEMINI_API_KEY}`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify(requestBody),
-              signal: controller.signal,
+          try {
+            response = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${GEMINI_API_KEY}`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify(requestBody),
+                signal: controller.signal,
+              }
+            )
+            clearTimeout(timeoutId)
+          } catch (fetchError) {
+            clearTimeout(timeoutId)
+            if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+              throw new Error(`씬 ${sceneNumber} 처리 타임아웃 (3분 초과)`)
             }
-          )
+            throw fetchError
+          }
           
           const elapsedTime = Date.now() - startTime
           console.log(`[장면 분해] 씬 ${sceneNumber} fetch 완료 (소요 시간: ${elapsedTime}ms)`)
           console.log(`[장면 분해] 씬 ${sceneNumber} 응답 상태: ${response.status} ${response.statusText}`)
-          
-          clearTimeout(timeoutId)
           
           if (!response.ok) {
             const errorText = await response.text()
