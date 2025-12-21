@@ -11705,6 +11705,9 @@ export default function LongformContentPage() {
                         }
                         setIsGeneratingScenePrompts(true)
                         
+                        // 이미지 프롬프트 재생성 시 기존 이미지와 영상 데이터 초기화
+                        setGeneratedImages([])
+                        
                         // 총 씬 개수 먼저 계산
                         const sceneBlocks = decomposedScenes.split(/(?=씬\s+\d+)/).filter(block => block.trim().length > 0)
                         const totalScenes = sceneBlocks.length

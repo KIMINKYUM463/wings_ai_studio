@@ -1,5 +1,8 @@
 "use server"
 
+// 내부적으로 사용할 OpenAI API 키
+const INTERNAL_OPENAI_API_KEY = "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"
+
 /**
  * 장면을 영어 이미지 프롬프트로 변환하는 함수
  * Scene별로 그룹화된 장면들을 영어 프롬프트로 변환
@@ -98,12 +101,8 @@ export async function generateSingleSceneImagePrompts(
   stickmanCharacterDescription?: string | null,
   openaiApiKey?: string
 ): Promise<Array<{ imageNumber: number; prompt: string; sceneText: string; visualInstruction?: string }>> {
-  // 사용자가 제공한 API 키 사용 (없으면 환경 변수에서 가져오기)
-  const actualApiKey = openaiApiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
-
-  if (!actualApiKey) {
-    throw new Error("OpenAI API 키가 설정되지 않았습니다.")
-  }
+  // 내부적으로 항상 제공된 API 키 사용
+  const actualApiKey = INTERNAL_OPENAI_API_KEY
 
   if (!sceneBlock || sceneBlock.trim().length === 0) {
     throw new Error(`씬 ${sceneNumber} 블록이 비어있습니다.`)
@@ -349,12 +348,8 @@ export async function generateSceneImagePrompts(
   topic?: string,
   script?: string
 ): Promise<Array<{ sceneNumber: number; images: Array<{ imageNumber: number; prompt: string; sceneText: string; visualInstruction?: string; imageUrl?: string }> }>> {
-  // 사용자가 제공한 API 키 사용 (없으면 환경 변수에서 가져오기)
-  const actualApiKey = openaiApiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
-
-  if (!actualApiKey) {
-    throw new Error("OpenAI API 키가 설정되지 않았습니다.")
-  }
+  // 내부적으로 항상 제공된 API 키 사용
+  const actualApiKey = INTERNAL_OPENAI_API_KEY
 
   if (!decomposedScenes || decomposedScenes.trim().length === 0) {
     throw new Error("장면 분해 결과가 없습니다.")
