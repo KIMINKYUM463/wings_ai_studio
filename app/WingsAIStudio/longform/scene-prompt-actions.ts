@@ -342,22 +342,57 @@ ${imageStyle === "realistic" || imageStyle === "realistic2" ? "Inference Steps�
         prompt = `${prompt}, no text, no letters, no words, no writing, no labels, no signs, no watermark`
       }
 
-      // 애니메이션2 스타일인 경우 스틱맨 제거
-      if (imageStyle === "animation2") {
-        const stickmanTerms = ["stickman", "stick figure", "stick man", "stick-man"]
-        const hasStickman = stickmanTerms.some(term => prompt.toLowerCase().includes(term))
-        if (hasStickman) {
-          // 스틱맨 관련 단어 제거
-          let cleanedPrompt = prompt
-          stickmanTerms.forEach(term => {
-            const regex = new RegExp(term, 'gi')
-            cleanedPrompt = cleanedPrompt.replace(regex, '')
-          })
-          prompt = cleanedPrompt.replace(/\s+/g, ' ').trim()
-          // 스틱맨 제외 지시 추가
-          if (!prompt.toLowerCase().includes("no stickman")) {
-            prompt = `${prompt}, no stickman, no stick figure`
-          }
+      // 스타일 일관성 강화: 스타일별 불일치 키워드 제거 및 일관성 키워드 추가
+      if (imageStyle === "stickman-animation") {
+        // 스틱맨 애니메이션: 다른 스타일 키워드 제거
+        const nonStickmanTerms = ["realistic", "photorealistic", "hyperrealistic", "photograph", "3D CGI", "rendered", "animation style", "cartoon style", "illustration style", "vector art", "flat design", "cel-shaded", "stylized character", "non-stickman"]
+        let cleanedPrompt = prompt
+        nonStickmanTerms.forEach(term => {
+          const regex = new RegExp(term, 'gi')
+          cleanedPrompt = cleanedPrompt.replace(regex, '')
+        })
+        prompt = cleanedPrompt.replace(/\s+/g, ' ').trim()
+        
+        // 스틱맨 일관성 키워드 강제 추가
+        if (!prompt.toLowerCase().includes("stickman") && !prompt.toLowerCase().includes("stick-figure")) {
+          prompt = `stickman character, ${prompt}`
+        }
+        if (!prompt.toLowerCase().includes("consistent stickman")) {
+          prompt = `${prompt}, consistent stickman style, all characters are stickmen, no exceptions`
+        }
+      } else if (imageStyle === "realistic" || imageStyle === "realistic2") {
+        // 실사화: 애니메이션/카툰 키워드 제거
+        const nonRealisticTerms = ["stickman", "stick figure", "stick man", "animation style", "animated", "cel-shaded", "vector art", "flat design", "stylized character", "cartoon character", "illustrated", "graphic novel", "comic book", "hand-drawn", "digital art", "2D animation", "animated character", "cartoon style"]
+        let cleanedPrompt = prompt
+        nonRealisticTerms.forEach(term => {
+          const regex = new RegExp(term, 'gi')
+          cleanedPrompt = cleanedPrompt.replace(regex, '')
+        })
+        prompt = cleanedPrompt.replace(/\s+/g, ' ').trim()
+        
+        // 실사 스타일 키워드 강제 추가
+        if (!prompt.toLowerCase().includes("photorealistic") && !prompt.toLowerCase().includes("hyperrealistic")) {
+          prompt = `${prompt}, photorealistic, hyperrealistic, professional photography, DSLR camera`
+        }
+        if (!prompt.toLowerCase().includes("no animation") && !prompt.toLowerCase().includes("no cartoon")) {
+          prompt = `${prompt}, no animation style, no cartoon style, no illustration style, photorealistic only`
+        }
+      } else if (imageStyle === "animation2") {
+        // 애니메이션2: 스틱맨 및 실사 키워드 제거
+        const nonAnimation2Terms = ["stickman", "stick figure", "stick man", "photorealistic", "hyperrealistic", "realistic photography", "3D CGI", "rendered", "photography style", "DSLR camera", "professional photography"]
+        let cleanedPrompt = prompt
+        nonAnimation2Terms.forEach(term => {
+          const regex = new RegExp(term, 'gi')
+          cleanedPrompt = cleanedPrompt.replace(regex, '')
+        })
+        prompt = cleanedPrompt.replace(/\s+/g, ' ').trim()
+        
+        // 애니메이션2 스타일 키워드 강제 추가
+        if (!prompt.toLowerCase().includes("2D vector") && !prompt.toLowerCase().includes("stylized cartoon")) {
+          prompt = `${prompt}, 2D vector illustration, stylized cartoon character, flat design`
+        }
+        if (!prompt.toLowerCase().includes("no stickman")) {
+          prompt = `${prompt}, no stickman, no stick figure, no realistic photography`
         }
       }
 
@@ -530,7 +565,7 @@ The detective finds a clue, a vibrant 2D cartoon..., no text, no letters, no wor
         styleInfo = `스타일: 스틱맨 애니메이션
 모델: prunaai/hidream-l1-fast
 해상도: 1360x768
-negative_prompt: realistic human, detailed human skin, photograph, 3d render, blank white background, line-art only, text, watermark, non-stickman, mixed style, detailed cartoon human, prince, princess, disney, pixar, anime, chibi, kawaii, big head, human body, human skin, realistic, 3d render, semi-realistic, detailed face, eyelashes, blush, nose, lips, hair, ears, detailed clothing folds, portrait, close-up, single character focus, bokeh, depth of field, watercolor, painterly, airbrush, soft shading, extra hands, multiple hands, three hands, four hands, extra arms, multiple arms, three arms, four arms, extra limbs, deformed hands, malformed hands, wrong number of fingers, too many fingers, missing hands, missing arms, anatomical errors, body part errors`
+negative_prompt: realistic human, detailed human skin, photograph, 3d render, blank white background, line-art only, text, watermark, non-stickman, mixed style, detailed cartoon human, prince, princess, disney, pixar, anime, chibi, kawaii, big head, human body, human skin, realistic, 3d render, semi-realistic, detailed face, eyelashes, blush, nose, lips, hair, ears, detailed clothing folds, portrait, close-up, single character focus, bokeh, depth of field, watercolor, painterly, airbrush, soft shading, extra hands, multiple hands, three hands, four hands, extra arms, multiple arms, three arms, four arms, extra limbs, deformed hands, malformed hands, wrong number of fingers, too many fingers, missing hands, missing arms, anatomical errors, body part errors, photorealistic, realistic photography, hyperrealistic, 3D CGI, rendered, animation style, cartoon style, illustration style, vector art, flat design, cel-shaded, stylized character, non-stickman character, human character, detailed character, realistic character, any non-stickman style`
         
         templateInfo = `
 [스틱맨 프롬프트 템플릿]
@@ -571,7 +606,7 @@ BASE_PROMPT:
 A hyperrealistic, photorealistic masterpiece, 8K, ultra-detailed, sharp focus, cinematic lighting, shot on a professional DSLR camera with a 50mm lens
 
 NEGATIVE_PROMPT:
-painting, drawing, illustration, cartoon, anime, 3d, cgi, render, sketch, watercolor, text, watermark, signature, blurry, out of focus
+painting, drawing, illustration, cartoon, anime, 3d, cgi, render, sketch, watercolor, text, watermark, signature, blurry, out of focus, stickman, stick figure, stick man, animation style, animated, cel-shaded, vector art, flat design, stylized character, cartoon character, illustrated, graphic novel style, comic book style, non-photorealistic, non-realistic, artistic style, hand-drawn, digital art, illustration, 2D animation, animated character, cartoon style, any non-photorealistic style
 
 ${imageStyle === "realistic2" ? "차이점: 스타일 키워드 중복 방지 로직 포함" : ""}
 
@@ -594,7 +629,7 @@ Flat 2D vector illustration, minimal vector art, stylized cartoon character, thi
 - Constraints: Base Character Consistency: Maintain consistent character design throughout. No Realistic Anatomy: Do not add realistic human features, muscles, or photorealistic clothing textures. Stick to the simple cartoon style.
 
 NEGATIVE_PROMPT:
-realistic human, detailed human skin, photograph, 3d render, blank white background, line-art only, text, watermark, stickman
+realistic human, detailed human skin, photograph, 3d render, blank white background, line-art only, text, watermark, stickman, stick figure, stick man, photorealistic, realistic photography, hyperrealistic, 3D CGI, rendered, photography style, DSLR camera, professional photography, cinematic photography, any realistic or photorealistic style
 
 [애니메이션2 프롬프트 템플릿]
 STEP 3에서 영어 프롬프트를 생성할 때, BASE_PROMPT와 추가 구성을 반드시 포함하고, 사용자 프롬프트와 결합하세요.
@@ -856,22 +891,57 @@ ${imageStyle === "realistic" || imageStyle === "realistic2" ? "Inference Steps�
           prompt = `${prompt}, no text, no letters, no words, no writing, no labels, no signs, no watermark`
         }
 
-        // 애니메이션2 스타일인 경우 스틱맨 제거
-        if (imageStyle === "animation2") {
-          const stickmanTerms = ["stickman", "stick figure", "stick man", "stick-man"]
-          const hasStickman = stickmanTerms.some(term => prompt.toLowerCase().includes(term))
-          if (hasStickman) {
-            // 스틱맨 관련 단어 제거
-            let cleanedPrompt = prompt
-            stickmanTerms.forEach(term => {
-              const regex = new RegExp(term, 'gi')
-              cleanedPrompt = cleanedPrompt.replace(regex, '')
-            })
-            prompt = cleanedPrompt.replace(/\s+/g, ' ').trim()
-            // 스틱맨 제외 지시 추가
-            if (!prompt.toLowerCase().includes("no stickman")) {
-              prompt = `${prompt}, no stickman, no stick figure`
-            }
+        // 스타일 일관성 강화: 스타일별 불일치 키워드 제거 및 일관성 키워드 추가
+        if (imageStyle === "stickman-animation") {
+          // 스틱맨 애니메이션: 다른 스타일 키워드 제거
+          const nonStickmanTerms = ["realistic", "photorealistic", "hyperrealistic", "photograph", "3D CGI", "rendered", "animation style", "cartoon style", "illustration style", "vector art", "flat design", "cel-shaded", "stylized character", "non-stickman"]
+          let cleanedPrompt = prompt
+          nonStickmanTerms.forEach(term => {
+            const regex = new RegExp(term, 'gi')
+            cleanedPrompt = cleanedPrompt.replace(regex, '')
+          })
+          prompt = cleanedPrompt.replace(/\s+/g, ' ').trim()
+          
+          // 스틱맨 일관성 키워드 강제 추가
+          if (!prompt.toLowerCase().includes("stickman") && !prompt.toLowerCase().includes("stick-figure")) {
+            prompt = `stickman character, ${prompt}`
+          }
+          if (!prompt.toLowerCase().includes("consistent stickman")) {
+            prompt = `${prompt}, consistent stickman style, all characters are stickmen, no exceptions`
+          }
+        } else if (imageStyle === "realistic" || imageStyle === "realistic2") {
+          // 실사화: 애니메이션/카툰 키워드 제거
+          const nonRealisticTerms = ["stickman", "stick figure", "stick man", "animation style", "animated", "cel-shaded", "vector art", "flat design", "stylized character", "cartoon character", "illustrated", "graphic novel", "comic book", "hand-drawn", "digital art", "2D animation", "animated character", "cartoon style"]
+          let cleanedPrompt = prompt
+          nonRealisticTerms.forEach(term => {
+            const regex = new RegExp(term, 'gi')
+            cleanedPrompt = cleanedPrompt.replace(regex, '')
+          })
+          prompt = cleanedPrompt.replace(/\s+/g, ' ').trim()
+          
+          // 실사 스타일 키워드 강제 추가
+          if (!prompt.toLowerCase().includes("photorealistic") && !prompt.toLowerCase().includes("hyperrealistic")) {
+            prompt = `${prompt}, photorealistic, hyperrealistic, professional photography, DSLR camera`
+          }
+          if (!prompt.toLowerCase().includes("no animation") && !prompt.toLowerCase().includes("no cartoon")) {
+            prompt = `${prompt}, no animation style, no cartoon style, no illustration style, photorealistic only`
+          }
+        } else if (imageStyle === "animation2") {
+          // 애니메이션2: 스틱맨 및 실사 키워드 제거
+          const nonAnimation2Terms = ["stickman", "stick figure", "stick man", "photorealistic", "hyperrealistic", "realistic photography", "3D CGI", "rendered", "photography style", "DSLR camera", "professional photography"]
+          let cleanedPrompt = prompt
+          nonAnimation2Terms.forEach(term => {
+            const regex = new RegExp(term, 'gi')
+            cleanedPrompt = cleanedPrompt.replace(regex, '')
+          })
+          prompt = cleanedPrompt.replace(/\s+/g, ' ').trim()
+          
+          // 애니메이션2 스타일 키워드 강제 추가
+          if (!prompt.toLowerCase().includes("2D vector") && !prompt.toLowerCase().includes("stylized cartoon")) {
+            prompt = `${prompt}, 2D vector illustration, stylized cartoon character, flat design`
+          }
+          if (!prompt.toLowerCase().includes("no stickman")) {
+            prompt = `${prompt}, no stickman, no stick figure, no realistic photography`
           }
         }
 
