@@ -3600,6 +3600,10 @@ export async function generateImageWithReplicate(
     // 프롬프트 그대로 사용 (이미지 프롬프트 생성에서 완성된 프롬프트 사용)
     let finalPrompt = prompt
     
+    // 한국어 제거: 프롬프트에서 한국어 문자 제거
+    const koreanRegex = /[가-힣]+/g
+    finalPrompt = finalPrompt.replace(koreanRegex, '').replace(/\s+/g, ' ').trim()
+    
     // 텍스트 제외 지시가 없으면 추가 (모든 모델에 적용)
     const textExclusionTerms = ["no text", "no letters", "no words", "no writing", "no labels", "no signs", "no watermark"]
     const hasTextExclusion = textExclusionTerms.some(term => finalPrompt.toLowerCase().includes(term))
@@ -3618,13 +3622,13 @@ export async function generateImageWithReplicate(
       })
       finalPrompt = cleanedPrompt.replace(/\s+/g, ' ').trim()
       
-      // 스틱맨 일관성 키워드 강제 추가
-      if (!finalPrompt.toLowerCase().includes("stickman") && !finalPrompt.toLowerCase().includes("stick-figure")) {
-        finalPrompt = `stickman character, ${finalPrompt}`
-      }
-      if (!finalPrompt.toLowerCase().includes("consistent stickman")) {
-        finalPrompt = `${finalPrompt}, consistent stickman style, all characters are stickmen, no exceptions`
-      }
+        // 스틱맨 일관성 키워드 강제 추가 (항상)
+        if (!finalPrompt.toLowerCase().includes("stickman") && !finalPrompt.toLowerCase().includes("stick-figure")) {
+          finalPrompt = `stickman character, ${finalPrompt}`
+        }
+        if (!finalPrompt.toLowerCase().includes("consistent stickman")) {
+          finalPrompt = `${finalPrompt}, consistent stickman style, all characters are stickmen, no exceptions, only stickman characters`
+        }
     } else if (imageStyle === "realistic" || imageStyle === "realistic2") {
       // 실사화: 애니메이션/카툰 키워드 제거
       const nonRealisticTerms = ["stickman", "stick figure", "stick man", "animation style", "animated", "cel-shaded", "vector art", "flat design", "stylized character", "cartoon character", "illustrated", "graphic novel", "comic book", "hand-drawn", "digital art", "2D animation", "animated character", "cartoon style"]

@@ -11891,14 +11891,17 @@ export default function LongformContentPage() {
                         // 변환된 영상 데이터 초기화 (영상 제거)
                         setConvertedSceneVideos(new Map())
                         setConvertedVideos(new Map())
-                        // sceneImagePrompts의 모든 imageUrl 제거 (기존 이미지 제거)
+                        // sceneImagePrompts의 imageUrl 제거 (기존 이미지 제거) - 단, 이미 생성된 이미지는 유지
                         setSceneImagePrompts((prev) => {
                           return prev.map((scene) => ({
                             ...scene,
-                            images: scene.images.map((img) => ({
-                              ...img,
-                              imageUrl: undefined
-                            }))
+                            images: scene.images.map((img) => {
+                              // 이미 생성된 이미지는 유지 (개별 생성 버튼으로 생성한 이미지 보존)
+                              if (img.imageUrl) {
+                                return img
+                              }
+                              return { ...img, imageUrl: undefined }
+                            })
                           }))
                         })
                         
