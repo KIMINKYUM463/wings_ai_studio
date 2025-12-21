@@ -296,8 +296,12 @@ export async function generateTopics(
   benchmarkUrl?: string,
   apiKey?: string
 ) {
-  // 내부적으로 항상 제공된 API 키 사용 (사용자 입력 무시)
-  const GPT_API_KEY = INTERNAL_OPENAI_API_KEY
+  // 사용자가 제공한 API 키 사용 (없으면 환경 변수에서 가져오기)
+  const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
+
+  if (!GPT_API_KEY) {
+    throw new Error("OpenAI API 키가 설정되지 않았습니다.")
+  }
 
   try {
     // 공통 프롬프트
@@ -783,12 +787,12 @@ export async function generateTrendingTopics(
   }
 }
 
-export async function generateScript(topic: string, customScript?: string) {
-  // 내부적으로 항상 제공된 API 키 사용 (사용자 입력 무시)
-  const GPT_API_KEY = INTERNAL_OPENAI_API_KEY
+export async function generateScript(topic: string, customScript?: string, apiKey?: string) {
+  // 사용자가 제공한 API 키 사용 (없으면 환경 변수에서 가져오기)
+  const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
 
   if (!GPT_API_KEY) {
-    throw new Error("GPT API 키가 설정되지 않았습니다.")
+    throw new Error("OpenAI API 키가 설정되지 않았습니다.")
   }
 
   try {
@@ -819,9 +823,6 @@ export async function generateScript(topic: string, customScript?: string) {
   }
 }
 
-// 내부적으로 사용할 Gemini API 키 (사용자 입력 무시)
-const INTERNAL_GEMINI_API_KEY = "AIzaSyDd4WA3vBc3lwKkccfzf0C5RFWhJ44Y1jQ"
-
 export async function generateScriptPlan(
   topic: string,
   category: Category = "health",
@@ -829,8 +830,12 @@ export async function generateScriptPlan(
   apiKey?: string,
   isStoryMode: boolean = false // 스토리 형태 모드 (기본값: false = 교훈형)
 ) {
-  // 내부적으로 항상 제공된 API 키 사용 (사용자 입력 무시)
-  const GEMINI_API_KEY = INTERNAL_GEMINI_API_KEY
+  // 사용자가 제공한 API 키 사용 (없으면 환경 변수에서 가져오기)
+  const GEMINI_API_KEY = apiKey || process.env.GEMINI_API_KEY
+
+  if (!GEMINI_API_KEY) {
+    throw new Error("Gemini API 키가 설정되지 않았습니다.")
+  }
 
   // 재시도 함수
   const tryGenerate = async (geminiKey: string, isRetry: boolean = false): Promise<string> => {
@@ -1121,12 +1126,12 @@ function generateFallbackScript(topic: string): string {
 이 기획안을 바탕으로 상세한 대본을 작성하시면 됩니다.`
 }
 
-export async function improveScriptPlan(currentScript: string, improvementRequest: string) {
-  // 내부적으로 항상 제공된 API 키 사용 (사용자 입력 무시)
-  const GPT_API_KEY = INTERNAL_OPENAI_API_KEY
+export async function improveScriptPlan(currentScript: string, improvementRequest: string, apiKey?: string) {
+  // 사용자가 제공한 API 키 사용 (없으면 환경 변수에서 가져오기)
+  const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
 
   if (!GPT_API_KEY) {
-    throw new Error("GPT API 키가 설정되지 않았습니다.")
+    throw new Error("OpenAI API 키가 설정되지 않았습니다.")
   }
 
   try {
@@ -1176,8 +1181,12 @@ export async function improveScriptPlan(currentScript: string, improvementReques
 }
 
 export async function analyzeScriptPlan(script: string, apiKey?: string) {
-  // 내부적으로 항상 제공된 API 키 사용 (사용자 입력 무시)
-  const GPT_API_KEY = INTERNAL_OPENAI_API_KEY
+  // 사용자가 제공한 API 키 사용 (없으면 환경 변수에서 가져오기)
+  const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
+
+  if (!GPT_API_KEY) {
+    throw new Error("OpenAI API 키가 설정되지 않았습니다.")
+  }
 
   try {
     console.log("[v0] 대본 분석 시작")
@@ -1237,8 +1246,12 @@ export async function generateScriptDraft(
   topic: string,
   apiKey?: string
 ) {
-  // 내부적으로 항상 제공된 API 키 사용 (사용자 입력 무시)
-  const GPT_API_KEY = INTERNAL_OPENAI_API_KEY
+  // 사용자가 제공한 API 키 사용 (없으면 환경 변수에서 가져오기)
+  const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
+
+  if (!GPT_API_KEY) {
+    throw new Error("OpenAI API 키가 설정되지 않았습니다.")
+  }
 
   try {
     console.log("[v0] 대본 초안 생성 시작")
@@ -1478,8 +1491,12 @@ export async function generateDoctorImage(selectedType: "clinic" | "podcast" | "
 }
 
 export async function generateYouTubeTitle(script: string, topic: string, apiKey?: string) {
-  // 내부적으로 항상 제공된 API 키 사용 (사용자 입력 무시)
-  const GPT_API_KEY = INTERNAL_OPENAI_API_KEY
+  // 사용자가 제공한 API 키 사용 (없으면 환경 변수에서 가져오기)
+  const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
+
+  if (!GPT_API_KEY) {
+    throw new Error("OpenAI API 키가 설정되지 않았습니다.")
+  }
 
   try {
     await new Promise((resolve) => setTimeout(resolve, 1500))
@@ -1502,8 +1519,12 @@ export async function generateYouTubeTitles(
   category: Category,
   apiKey?: string
 ) {
-  // 내부적으로 항상 제공된 API 키 사용 (사용자 입력 무시)
-  const GPT_API_KEY = INTERNAL_OPENAI_API_KEY
+  // 사용자가 제공한 API 키 사용 (없으면 환경 변수에서 가져오기)
+  const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
+
+  if (!GPT_API_KEY) {
+    throw new Error("OpenAI API 키가 설정되지 않았습니다.")
+  }
 
   try {
     console.log("[v0] 유튜브 제목 생성 시작")
@@ -1617,8 +1638,12 @@ export async function generateYouTubeDescription(
   title: string,
   apiKey?: string
 ) {
-  // 내부적으로 항상 제공된 API 키 사용 (사용자 입력 무시)
-  const GPT_API_KEY = INTERNAL_OPENAI_API_KEY
+  // 사용자가 제공한 API 키 사용 (없으면 환경 변수에서 가져오기)
+  const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
+
+  if (!GPT_API_KEY) {
+    throw new Error("OpenAI API 키가 설정되지 않았습니다.")
+  }
 
   try {
     console.log("[v0] 유튜브 설명 생성 시작")
@@ -2016,8 +2041,12 @@ export async function generateFinalScript(
   durationMinutes: number = 20,
   targetChars: number = 8280
 ): Promise<string> {
-  // 내부적으로 항상 제공된 API 키 사용 (사용자 입력 무시)
-  const GPT_API_KEY = INTERNAL_OPENAI_API_KEY
+  // 사용자가 제공한 API 키 사용 (없으면 환경 변수에서 가져오기)
+  const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
+
+  if (!GPT_API_KEY) {
+    throw new Error("OpenAI API 키가 설정되지 않았습니다.")
+  }
 
   try {
     console.log("=".repeat(80))
@@ -2181,8 +2210,12 @@ export async function generateFullScript(
   category: Category = "health",
   apiKey?: string
 ) {
-  // 내부적으로 항상 제공된 API 키 사용 (사용자 입력 무시)
-  const GPT_API_KEY = INTERNAL_OPENAI_API_KEY
+  // 사용자가 제공한 API 키 사용 (없으면 환경 변수에서 가져오기)
+  const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
+
+  if (!GPT_API_KEY) {
+    throw new Error("OpenAI API 키가 설정되지 않았습니다.")
+  }
 
   try {
     console.log("[v0] GPT-4o-mini API로 대본 생성 시작")
@@ -2889,9 +2922,6 @@ function getFallbackThumbnailText(): string {
   return fallbackTexts[randomIndex]
 }
 
-// 내부적으로 사용할 OpenAI API 키 (사용자 입력 무시)
-const INTERNAL_OPENAI_API_KEY = "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"
-
 // 이미지 프롬프트 생성 함수 (카테고리별)
 export async function generateImagePrompt(
   scriptText: string, 
@@ -2899,8 +2929,12 @@ export async function generateImagePrompt(
   category: "health" | "wisdom" | "religion" | "history" | "self_improvement" | "space" | "society" | "domestic_story" | "international_story" | "romance_of_three_kingdoms" | "folktale" | "science" | "horror" | "northkorea" | "greek_roman_mythology" | "death" | "ai" | "alien" | "palmistry" | "physiognomy" | "fortune_telling" | "urban_legend" | "serial_crime" | "unsolved_case" | "reserve_army" | "elementary_school" = "health",
   historyStyle?: "animation" | "realistic"
 ): Promise<string> {
-  // 내부적으로 항상 제공된 API 키 사용 (사용자 입력 무시)
-  const GPT_API_KEY = INTERNAL_OPENAI_API_KEY
+  // 사용자가 제공한 API 키 사용 (없으면 환경 변수에서 가져오기)
+  const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
+
+  if (!GPT_API_KEY) {
+    throw new Error("OpenAI API 키가 설정되지 않았습니다.")
+  }
 
   // 재시도 함수
   const tryGenerate = async (key: string, isRetry: boolean = false): Promise<string> => {
@@ -3759,12 +3793,12 @@ export async function generateCustomPrompt(koreanDescription: string, apiKey?: s
   }
 }
 
-export async function extractKeywordsFromScript(script: string) {
-  // 내부적으로 항상 제공된 API 키 사용 (사용자 입력 무시)
-  const GPT_API_KEY = INTERNAL_OPENAI_API_KEY
+export async function extractKeywordsFromScript(script: string, apiKey?: string) {
+  // 사용자가 제공한 API 키 사용 (없으면 환경 변수에서 가져오기)
+  const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
 
   if (!GPT_API_KEY) {
-    throw new Error("GPT API 키가 설정되지 않았습니다.")
+    throw new Error("OpenAI API 키가 설정되지 않았습니다.")
   }
 
   try {

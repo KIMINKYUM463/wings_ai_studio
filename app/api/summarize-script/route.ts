@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
 
-// 내부적으로 사용할 OpenAI API 키 (사용자 입력 무시)
-const INTERNAL_OPENAI_API_KEY = "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"
-
 export async function POST(request: NextRequest) {
   try {
     const { script, duration, openaiApiKey } = await request.json()
@@ -11,8 +8,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "대본이 없습니다." }, { status: 400 })
     }
 
-    // 내부적으로 항상 제공된 API 키 사용 (사용자 입력 무시)
-    const GPT_API_KEY = INTERNAL_OPENAI_API_KEY
+    // 사용자가 제공한 API 키 사용 (없으면 환경 변수에서 가져오기)
+    const GPT_API_KEY = openaiApiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
+
+    if (!GPT_API_KEY) {
+      return NextResponse.json({ error: "OpenAI API 키가 설정되지 않았습니다." }, { status: 400 })
+    }
 
     const durationText = duration === 1 ? "1분" : duration === 2 ? "2분" : "3분"
     const targetWordCount = duration === 1 ? 150 : duration === 2 ? 300 : 450 // 분당 약 150단어 기준

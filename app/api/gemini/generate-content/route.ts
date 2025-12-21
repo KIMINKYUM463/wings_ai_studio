@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 
-// 내부적으로 사용할 Gemini API 키
-const INTERNAL_GEMINI_API_KEY = "AIzaSyDd4WA3vBc3lwKkccfzf0C5RFWhJ44Y1jQ"
-
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { model, contents, generationConfig } = body
+    const { model, contents, generationConfig, apiKey } = body
 
     if (!model || !contents) {
       return NextResponse.json(
@@ -15,8 +12,18 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // 사용자가 제공한 API 키 사용 (없으면 환경 변수에서 가져오기)
+    const GEMINI_API_KEY = apiKey || process.env.GEMINI_API_KEY
+
+    if (!GEMINI_API_KEY) {
+      return NextResponse.json(
+        { error: "Gemini API 키가 설정되지 않았습니다." },
+        { status: 400 }
+      )
+    }
+
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${INTERNAL_GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
       {
         method: "POST",
         headers: {

@@ -1,8 +1,5 @@
 "use server"
 
-// 내부적으로 사용할 Gemini API 키 (사용자 입력 무시)
-const INTERNAL_GEMINI_API_KEY = "AIzaSyDd4WA3vBc3lwKkccfzf0C5RFWhJ44Y1jQ"
-
 /**
  * 정교한 대본 생성 함수 (Gemini 2.5 Pro 사용)
  * 초안을 바탕으로 매우 정교하고 완성도 높은 최종 대본을 생성합니다.
@@ -16,8 +13,12 @@ export async function generateRefinedScript(
   isStoryMode: boolean = false, // 스토리 형태 모드 (기본값: false = 교훈형)
   apiKey?: string
 ): Promise<string> {
-  // 내부적으로 항상 제공된 API 키 사용 (사용자 입력 무시)
-  const GEMINI_API_KEY = INTERNAL_GEMINI_API_KEY
+  // 사용자가 제공한 API 키 사용 (없으면 환경 변수에서 가져오기)
+  const GEMINI_API_KEY = apiKey || process.env.GEMINI_API_KEY
+
+  if (!GEMINI_API_KEY) {
+    throw new Error("Gemini API 키가 설정되지 않았습니다.")
+  }
 
   // 재시도 함수
   const tryGenerate = async (geminiKey: string, isRetry: boolean = false): Promise<string> => {
@@ -501,9 +502,8 @@ export async function decomposeSingleScene(
   sceneNumber: number,
   apiKey?: string
 ): Promise<string> {
-  // 내부적으로 항상 제공된 API 키 사용 (사용자 입력 무시)
-  const INTERNAL_GEMINI_API_KEY = "AIzaSyDd4WA3vBc3lwKkccfzf0C5RFWhJ44Y1jQ"
-  const GEMINI_API_KEY = INTERNAL_GEMINI_API_KEY
+  // 사용자가 제공한 API 키 사용 (없으면 환경 변수에서 가져오기)
+  const GEMINI_API_KEY = apiKey || process.env.GEMINI_API_KEY
 
   if (!GEMINI_API_KEY) {
     throw new Error("Gemini API 키가 설정되지 않았습니다.")
@@ -692,9 +692,8 @@ export async function decomposeScriptIntoScenes(
   console.log("[장면 분해] 시작")
   console.log(`[장면 분해] 대본 길이: ${script.length}자`)
   
-  // 내부적으로 항상 제공된 API 키 사용 (사용자 입력 무시)
-  const INTERNAL_GEMINI_API_KEY = "AIzaSyDd4WA3vBc3lwKkccfzf0C5RFWhJ44Y1jQ"
-  const GEMINI_API_KEY = INTERNAL_GEMINI_API_KEY
+  // 사용자가 제공한 API 키 사용 (없으면 환경 변수에서 가져오기)
+  const GEMINI_API_KEY = apiKey || process.env.GEMINI_API_KEY
 
   if (!GEMINI_API_KEY) {
     console.error("[장면 분해] Gemini API 키가 설정되지 않았습니다.")

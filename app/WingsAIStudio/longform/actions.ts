@@ -2491,8 +2491,12 @@ export async function summarizeScriptForShorts(
   openaiApiKey?: string
 ): Promise<string> {
   // 내부적으로 항상 제공된 API 키 사용 (사용자 입력 무시)
-  const INTERNAL_OPENAI_API_KEY = "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"
-  const GPT_API_KEY = INTERNAL_OPENAI_API_KEY
+  // 사용자가 제공한 API 키 사용 (없으면 환경 변수에서 가져오기)
+  const GPT_API_KEY = openaiApiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
+
+  if (!GPT_API_KEY) {
+    throw new Error("OpenAI API 키가 설정되지 않았습니다.")
+  }
 
   if (!script || script.trim().length === 0) {
     throw new Error("대본이 없습니다.")
