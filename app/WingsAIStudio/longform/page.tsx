@@ -175,6 +175,7 @@ Output only the English prompt, no explanations or additional text.`
         topP: 0.95,
         maxOutputTokens: 1000,
       },
+      apiKey: geminiApiKey,
     }),
   })
 
