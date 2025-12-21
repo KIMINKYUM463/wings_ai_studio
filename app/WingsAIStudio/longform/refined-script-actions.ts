@@ -635,9 +635,10 @@ export async function decomposeScriptIntoScenes(
       const sceneText = scenes[i].trim()
       const sceneNumber = i + 1
 
-      // 씬이 너무 짧으면 건너뛰기
+      // 씬이 너무 짧으면 기본 형식으로 추가
       if (sceneText.length < 10) {
-        console.warn(`[장면 분해] 씬 ${sceneNumber}이 너무 짧아 건너뜁니다.`)
+        console.warn(`[장면 분해] 씬 ${sceneNumber}이 너무 짧아 기본 형식으로 추가합니다.`)
+        allResults.push(`씬 ${sceneNumber}\n\n[장면 1]\n\n${sceneText}`)
         continue
       }
 
@@ -810,10 +811,39 @@ ${sceneText}`
 
     // 모든 씬의 결과를 합쳐서 반환
     console.log(`[장면 분해] 모든 씬 처리 완료, 결과 합치기 시작...`)
+    
+    // 결과가 비어있으면 원본 대본을 기본 형식으로 반환
+    if (allResults.length === 0) {
+      console.warn(`[장면 분해] 모든 씬이 실패하거나 건너뛰어짐. 원본 대본을 기본 형식으로 반환합니다.`)
+      // 원본 대본을 씬 단위로 나누어 기본 형식으로 반환
+      const fallbackResults: string[] = []
+      for (let i = 0; i < scenes.length; i++) {
+        const sceneText = scenes[i].trim()
+        if (sceneText.length >= 10) {
+          fallbackResults.push(`씬 ${i + 1}\n\n[장면 1]\n\n${sceneText}`)
+        }
+      }
+      
+      if (fallbackResults.length === 0) {
+        // 씬도 없으면 전체를 하나의 씬으로 반환
+        return `씬 1\n\n[장면 1]\n\n${script.trim()}`
+      }
+      
+      const fallbackResult = fallbackResults.join("\n\n")
+      console.log(`[장면 분해] 기본 형식 결과 길이: ${fallbackResult.length}자`)
+      return fallbackResult
+    }
+    
     const finalResult = allResults.join("\n\n")
     console.log(`[장면 분해] 최종 결과 길이: ${finalResult.length}자`)
     console.log(`[장면 분해] 완료: ${allResults.length}/${scenes.length}개 씬 처리 성공`)
     console.log(`[장면 분해] 최종 결과 미리보기:`, finalResult.substring(0, 500))
+    
+    // 최종 결과가 비어있거나 너무 짧으면 원본 반환
+    if (!finalResult || finalResult.trim().length < 10) {
+      console.warn(`[장면 분해] 최종 결과가 비어있음. 원본 대본을 기본 형식으로 반환합니다.`)
+      return `씬 1\n\n[장면 1]\n\n${script.trim()}`
+    }
     
     return finalResult
   } catch (error) {
