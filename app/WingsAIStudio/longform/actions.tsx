@@ -3650,23 +3650,30 @@ export async function generateImageWithReplicate(
       if (!finalPrompt.toLowerCase().includes("no animation") && !finalPrompt.toLowerCase().includes("no cartoon")) {
         finalPrompt = `${finalPrompt}, no animation style, no cartoon style, no illustration style, photorealistic only`
       }
-    } else if (imageStyle === "animation2") {
-      // 애니메이션2: 스틱맨 및 실사 키워드 제거
-      const nonAnimation2Terms = ["stickman", "stick figure", "stick man", "photorealistic", "hyperrealistic", "realistic photography", "3D CGI", "rendered", "photography style", "DSLR camera", "professional photography"]
-      let cleanedPrompt = finalPrompt
-      nonAnimation2Terms.forEach(term => {
-        const regex = new RegExp(term, 'gi')
-        cleanedPrompt = cleanedPrompt.replace(regex, '')
-      })
-      finalPrompt = cleanedPrompt.replace(/\s+/g, ' ').trim()
-      
-      // 애니메이션2 스타일 키워드 강제 추가
-      if (!finalPrompt.toLowerCase().includes("2D vector") && !finalPrompt.toLowerCase().includes("stylized cartoon")) {
-        finalPrompt = `${finalPrompt}, 2D vector illustration, stylized cartoon character, flat design`
-      }
-      if (!finalPrompt.toLowerCase().includes("no stickman")) {
-        finalPrompt = `${finalPrompt}, no stickman, no stick figure, no realistic photography`
-      }
+      } else if (imageStyle === "animation2") {
+        // 애니메이션2: 스틱맨 및 실사 키워드 제거
+        const nonAnimation2Terms = ["stickman", "stick figure", "stick man", "photorealistic", "hyperrealistic", "realistic photography", "3D CGI", "rendered", "photography style", "DSLR camera", "professional photography", "mixed art styles", "inconsistent style"]
+        let cleanedPrompt = finalPrompt
+        nonAnimation2Terms.forEach(term => {
+          const regex = new RegExp(term, 'gi')
+          cleanedPrompt = cleanedPrompt.replace(regex, '')
+        })
+        finalPrompt = cleanedPrompt.replace(/\s+/g, ' ').trim()
+        
+        // 애니메이션2 스타일 BASE_PROMPT 강제 추가 (모든 씬에 일관되게) - 고도화된 일관성
+        const animation2BasePrompt = "Flat 2D vector illustration, minimal vector art, stylized cartoon character, thick bold black outlines, unshaded, flat solid colors, cel-shaded, simple line art, comic book inking style, completely flat, no shadows, no gradients, no depth, consistent cartoon style, bold clean lines, vibrant colors, simplified shapes, graphic design aesthetic"
+        const animation2CharacterDetails = "expressive dynamic pose, stylized cartoon clothing, simple bold-line cartoon aesthetic, consistent character design"
+        const animation2Environment = "rich detailed colorful stylized cartoon environment, filled frame, no blank background, dynamic dramatic lighting, 2D cartoon feel"
+        const promptLower = finalPrompt.toLowerCase()
+        if (!promptLower.includes("flat 2d vector") || !promptLower.includes("stylized cartoon character") || !promptLower.includes("thick bold black outlines") || !promptLower.includes("cel-shaded") || !promptLower.includes("consistent cartoon style")) {
+          finalPrompt = `${finalPrompt}, ${animation2BasePrompt}`
+        }
+        if (!promptLower.includes("consistent character design") || !promptLower.includes("bold clean lines")) {
+          finalPrompt = `${finalPrompt}, ${animation2CharacterDetails}, ${animation2Environment}`
+        }
+        if (!promptLower.includes("no stickman")) {
+          finalPrompt = `${finalPrompt}, no stickman, no stick figure, no realistic photography, no mixed art styles, no inconsistent style`
+        }
     }
     
     console.log(`[v0] 프롬프트 사용: ${finalPrompt.substring(0, 100)}...`)
