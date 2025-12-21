@@ -3628,8 +3628,8 @@ export async function generateImageWithReplicate(
       const stickmanBasePrompt = "Stickman rules (must follow): Perfectly round white head, dot eyes and simple curved smile ONLY, no nose, no ears, no hair, no facial details, ultra-thin black line limbs with uniform stroke width, no body volume, no torso shape, no muscles, simple mitten hands, no fingers, flat 2D vector drawing ONLY"
       const stickmanAnatomyRules = "STRICT ANATOMY RULES FOR STICKMAN: Exactly TWO arms only, Exactly TWO hands only, Exactly TWO legs only, No extra arms, no extra hands, no duplicated limbs, Each arm is drawn once, clearly connected to the body, One head, one body, two arms, two hands, two legs, No duplicates, no extra parts. Stickman body constraints: One head, One body, Two arms only, Two hands only, Two legs only, No duplicates, no extra parts. If any extra limbs appear, the result is incorrect."
       const stickmanStylePhrase = "Scene is illustrated in a simple cartoon style: flat colors, bold black outlines, minimal details, no depth, no lighting effects, no textures. Background must be fully illustrated (cartoon), simple shapes only, no realistic environment. Educational explainer illustration style. Use calm pose, simple gesture, neutral stance, minimal movement instead of animated gestures or dynamic action"
-      const stickmanNoText = "NO TEXT ALLOWED IN IMAGE. Do NOT include speech bubbles, captions, labels, words, letters, logos, symbols, numbers, or any readable text. This is NOT a comic, NOT a poster, NOT an advertisement. Pure visual illustration only."
-      const stickmanFinalCheck = "If the result looks realistic, 3D, or human-like, it is WRONG. If the image contains text, speech bubbles, or readable symbols, the result is incorrect. If any extra limbs appear, the result is incorrect."
+      const stickmanNoText = "NO TEXT ALLOWED IN IMAGE. ABSOLUTELY NO TEXT. Do NOT include speech bubbles, thought bubbles, text bubbles, captions, labels, words, letters, logos, symbols, numbers, or any readable text. This is NOT a comic, NOT a poster, NOT an advertisement. Pure visual illustration only. NO TEXT. NO SPEECH BUBBLES. NO WORDS. NO LETTERS."
+      const stickmanFinalCheck = "If the result looks realistic, 3D, or human-like, it is WRONG. If the image contains text, speech bubbles, thought bubbles, text bubbles, or readable symbols, the result is incorrect. If any extra limbs appear, the result is incorrect. ABSOLUTELY NO TEXT OR SPEECH BUBBLES ALLOWED."
       
       if (!promptLower.includes("absolute stickman-only") || !promptLower.includes("only 2d stickman") || !promptLower.includes("symbolic drawing")) {
         finalPrompt = `${stickmanMainPrompt} ${finalPrompt}`
@@ -3643,16 +3643,32 @@ export async function generateImageWithReplicate(
       if (!promptLower.includes("flat 2d vector drawing") || !promptLower.includes("simple cartoon style") || !promptLower.includes("educational explainer")) {
         finalPrompt = `${finalPrompt}, ${stickmanStylePhrase}`
       }
-      if (!promptLower.includes("no text allowed") || !promptLower.includes("no speech bubbles")) {
+      // 말풍선/텍스트 차단을 더 강력하게 적용 (여러 위치에 반복)
+      if (!promptLower.includes("no text allowed") || !promptLower.includes("no speech bubbles") || !promptLower.includes("absolutely no text")) {
+        finalPrompt = `${stickmanNoText} ${finalPrompt}`
+      }
+      // 프롬프트 끝에도 반복 추가
+      if (!promptLower.includes("absolutely no text or speech bubbles allowed")) {
         finalPrompt = `${finalPrompt}, ${stickmanNoText}`
       }
       if (!promptLower.includes("no hair") || !promptLower.includes("no ears") || !promptLower.includes("no nose")) {
         finalPrompt = `${finalPrompt}, no hair, no ears, no nose, no cheeks, no detailed facial features, no realistic human anatomy, no person, no man, no woman, only stickman, no saying, no explaining, no talking, use gesturing or pointing instead, no explaining with both hands, no animated gestures, no expressive movement, no dynamic action, use calm pose, simple gesture, neutral stance, minimal movement instead`
       }
-      // 최종 확인 문구 추가
+      // 말풍선/텍스트 관련 표현 제거
+      const textBubbleTerms = ["speech bubble", "thought bubble", "text bubble", "saying", "speaking", "talking", "explaining", "caption", "subtitle", "label", "text", "words", "letters", "dialogue", "conversation"]
+      let cleanedPromptForText = finalPrompt
+      textBubbleTerms.forEach(term => {
+        const regex = new RegExp(term, 'gi')
+        cleanedPromptForText = cleanedPromptForText.replace(regex, '')
+      })
+      finalPrompt = cleanedPromptForText.replace(/\s+/g, ' ').trim()
+      
+      // 최종 확인 문구 추가 (말풍선 차단 강조)
       if (!promptLower.includes("if the result looks realistic") && !promptLower.includes("it is wrong")) {
         finalPrompt = `${finalPrompt}. ${stickmanFinalCheck}`
       }
+      // 말풍선 차단을 프롬프트 끝에 한 번 더 강조
+      finalPrompt = `${finalPrompt}. ABSOLUTELY NO TEXT. NO SPEECH BUBBLES. NO THOUGHT BUBBLES. NO TEXT BUBBLES. NO WORDS. NO LETTERS. PURE VISUAL ILLUSTRATION ONLY.`
     } else if (imageStyle === "realistic" || imageStyle === "realistic2") {
       // 실사화: 애니메이션/카툰 키워드 제거
       const nonRealisticTerms = ["stickman", "stick figure", "stick man", "animation style", "animated", "cel-shaded", "vector art", "flat design", "stylized character", "cartoon character", "illustrated", "graphic novel", "comic book", "hand-drawn", "digital art", "2D animation", "animated character", "cartoon style"]
@@ -3710,7 +3726,7 @@ export async function generateImageWithReplicate(
       
       if (imageStyle === "stickman-animation") {
         // 스틱맨 애니메이션 전용 negative prompt - 3D, 실사, 말풍선 완전 차단
-        negativePrompt = "realistic, photo, photograph, real people, human, man, woman, semi-realistic, cinematic, movie still, 3d, 3d render, pixar, disney, blender, unreal engine, plastic, glossy, smooth shading, real room, real office, real furniture, lighting effects, depth of field, shadows, character design, mascot, robot, android, detailed face, skin, fingers, joints, body proportions, realistic human, human anatomy, person, cartoon human, anime, manga, portrait, nose, lips, teeth, eyelashes, hair, ears, skin texture, wrinkles, hands with fingers, body volume, torso muscles, render, photorealistic, painterly, digital painting, gradients, soft shading, detailed clothing folds, realistic proportions, close-up face, high detail character design, blank white background, line-art only, text, watermark, speech bubble, thought bubble, text bubble, caption, subtitle, label, signage, words, letters, typography, font, comic panel, comic strip, meme, poster, advertisement, slogan, headline, logo, non-stickman, mixed style, detailed cartoon human, prince, princess, chibi, kawaii, big head, human body, human skin, 3d render, detailed face, blush, portrait, close-up, single character focus, bokeh, depth of field, watercolor, airbrush, extra arms, extra hands, multiple arms, multiple hands, duplicated limbs, cloned arms, ghost limbs, motion trails, overlapping arms, sketch artifacts, three hands, four hands, three arms, four arms, extra limbs, deformed hands, malformed hands, wrong number of fingers, too many fingers, missing hands, missing arms, anatomical errors, body part errors, realistic photography, hyperrealistic, 3D CGI, rendered, animation style, cartoon style, illustration style, vector art, flat design, cel-shaded, stylized character, non-stickman character, human character, detailed character, realistic character, any non-stickman style"
+        negativePrompt = "realistic, photo, photograph, real people, human, man, woman, semi-realistic, cinematic, movie still, 3d, 3d render, pixar, disney, blender, unreal engine, plastic, glossy, smooth shading, real room, real office, real furniture, lighting effects, depth of field, shadows, character design, mascot, robot, android, detailed face, skin, fingers, joints, body proportions, realistic human, human anatomy, person, cartoon human, anime, manga, portrait, nose, lips, teeth, eyelashes, hair, ears, skin texture, wrinkles, hands with fingers, body volume, torso muscles, render, photorealistic, painterly, digital painting, gradients, soft shading, detailed clothing folds, realistic proportions, close-up face, high detail character design, blank white background, line-art only, text, watermark, speech bubble, thought bubble, text bubble, dialogue bubble, conversation bubble, caption, subtitle, label, signage, words, letters, typography, font, comic panel, comic strip, meme, poster, advertisement, slogan, headline, logo, readable text, visible text, any text, any words, any letters, any symbols, any numbers, any writing, any dialogue, any speech, any conversation, non-stickman, mixed style, detailed cartoon human, prince, princess, chibi, kawaii, big head, human body, human skin, 3d render, detailed face, blush, portrait, close-up, single character focus, bokeh, depth of field, watercolor, airbrush, extra arms, extra hands, multiple arms, multiple hands, duplicated limbs, cloned arms, ghost limbs, motion trails, overlapping arms, sketch artifacts, three hands, four hands, three arms, four arms, extra limbs, deformed hands, malformed hands, wrong number of fingers, too many fingers, missing hands, missing arms, anatomical errors, body part errors, realistic photography, hyperrealistic, 3D CGI, rendered, animation style, cartoon style, illustration style, vector art, flat design, cel-shaded, stylized character, non-stickman character, human character, detailed character, realistic character, any non-stickman style"
       } else if (imageStyle === "animation2") {
         // 애니메이션2: 스틱맨 및 실사 제외
         negativePrompt = "realistic human, detailed human skin, photograph, 3d render, blank white background, line-art only, text, watermark, stickman, stick figure, stick man, photorealistic, realistic photography, hyperrealistic, 3D CGI, rendered, photography style, DSLR camera, professional photography, any realistic or photorealistic style"
