@@ -10922,7 +10922,17 @@ export default function LongformContentPage() {
                       }, 500) // 0.5초마다 업데이트
                       
                       try {
-                        console.log("[장면 분해 버튼] 씬별 순차 처리 시작")
+                        console.log("[장면 분해 버튼] Gemini API 키 확인 중...")
+                        const geminiApiKey = getGeminiApiKey()
+                        if (!geminiApiKey) {
+                          clearInterval(progressInterval)
+                          setSceneDecompositionProgress(null)
+                          console.error("[장면 분해 버튼] Gemini API 키 없음")
+                          alert("Gemini API 키를 설정해주세요. 설정 페이지에서 API 키를 입력하고 저장해주세요.")
+                          setIsDecomposingScenes(false)
+                          return
+                        }
+                        console.log("[장면 분해 버튼] API 키 확인 완료, 씬별 순차 처리 시작")
                         console.log(`[장면 분해 버튼] 총 ${totalScenes}개 씬 처리 예정`)
                         
                         // 씬별로 순차 처리하면서 결과를 실시간으로 업데이트
@@ -10944,8 +10954,8 @@ export default function LongformContentPage() {
                           })
                           
                           try {
-                            // 단일 씬 처리
-                            const sceneResult = await decomposeSingleScene(sceneText, sceneNumber)
+                            // 단일 씬 처리 (API 키 전달)
+                            const sceneResult = await decomposeSingleScene(sceneText, sceneNumber, geminiApiKey)
                             
                             if (sceneResult && sceneResult.trim().length > 0) {
                               allResults.push(sceneResult)
