@@ -11705,8 +11705,8 @@ export default function LongformContentPage() {
                         }
                         setIsGeneratingScenePrompts(true)
                         
-                        // 이미지 프롬프트 재생성 시 기존 이미지와 영상 데이터 초기화
-                        setGeneratedImages([])
+                        // 이미지 프롬프트 재생성 시 기존 이미지 데이터는 유지 (영상은 유지됨)
+                        // setGeneratedImages([]) 제거 - 기존 영상 유지
                         
                         // 총 씬 개수 먼저 계산
                         const sceneBlocks = decomposedScenes.split(/(?=씬\s+\d+)/).filter(block => block.trim().length > 0)
@@ -11884,23 +11884,24 @@ export default function LongformContentPage() {
                           let hasGeneratedImages = false
                           shouldStopImageGeneration.current = false // 중단 플래그 초기화
                           
-                          // 재시도 함수 (생성될 때까지 계속 시도)
+                          // 재시도 함수 (최대 5번 시도)
                           const generateImageWithRetry = async (
                             prompt: string,
                             replicateApiKey: string,
                             imageStyle: string | undefined,
                             sceneText: string | undefined
                           ): Promise<string | null> => {
+                            const maxRetries = 5
                             let attempt = 1
                             
-                            while (true) {
+                            while (attempt <= maxRetries) {
                               // 중단 체크
                               if (shouldStopImageGeneration.current) {
                                 throw new Error("이미지 생성이 중단되었습니다.")
                               }
                               
                               try {
-                                console.log(`[Scene Image] 이미지 생성 시도 ${attempt}...`)
+                                console.log(`[Scene Image] 이미지 생성 시도 ${attempt}/${maxRetries}...`)
                                 const imageUrl = await generateImageWithReplicate(
                                   prompt,
                                   replicateApiKey,
@@ -11915,14 +11916,24 @@ export default function LongformContentPage() {
                                 if (shouldStopImageGeneration.current) {
                                   throw error
                                 }
-                                console.error(`[Scene Image] 재시도 ${attempt} 실패:`, error)
-                                attempt++
-                                // 재시도 전 대기 (지수 백오프, 최대 10초)
-                                const delay = Math.min(1000 * attempt, 10000)
-                                console.log(`[Scene Image] ${delay}ms 후 재시도...`)
-                                await new Promise(resolve => setTimeout(resolve, delay))
+                                console.error(`[Scene Image] 재시도 ${attempt}/${maxRetries} 실패:`, error)
+                                
+                                // 마지막 시도가 아니면 재시도
+                                if (attempt < maxRetries) {
+                                  attempt++
+                                  // 재시도 전 대기 (지수 백오프, 최대 10초)
+                                  const delay = Math.min(1000 * attempt, 10000)
+                                  console.log(`[Scene Image] ${delay}ms 후 재시도...`)
+                                  await new Promise(resolve => setTimeout(resolve, delay))
+                                } else {
+                                  // 최대 재시도 횟수 도달
+                                  console.warn(`[Scene Image] 최대 재시도 횟수(${maxRetries}) 도달, 다음 이미지로 넘어갑니다.`)
+                                  return null
+                                }
                               }
                             }
+                            
+                            return null
                           }
                           
                           for (const scene of updatedPrompts) {
@@ -12179,13 +12190,14 @@ export default function LongformContentPage() {
                                               try {
                                                 console.log(`[Scene Image] 개별 이미지 생성 시작: Scene ${scene.sceneNumber}, Image ${image.imageNumber}`)
                                                 
-                                                // 재시도 로직이 포함된 이미지 생성 (생성될 때까지 계속 시도)
+                                                // 재시도 로직이 포함된 이미지 생성 (최대 5번 시도)
                                                 let imageUrl: string | null = null
+                                                const maxRetries = 5
                                                 let attempt = 1
                                                 
-                                                while (!imageUrl) {
+                                                while (attempt <= maxRetries && !imageUrl) {
                                                   try {
-                                                    console.log(`[Scene Image] 개별 이미지 생성 시도 ${attempt}...`)
+                                                    console.log(`[Scene Image] 개별 이미지 생성 시도 ${attempt}/${maxRetries}...`)
                                                     imageUrl = await generateImageWithReplicate(
                                                       image.prompt,
                                                       replicateApiKey,
@@ -12196,38 +12208,47 @@ export default function LongformContentPage() {
                                                     console.log(`[Scene Image] 개별 이미지 생성 성공 (시도 ${attempt})`)
                                                     break // 성공하면 루프 종료
                                                   } catch (error) {
-                                                    console.error(`[Scene Image] 개별 이미지 생성 재시도 ${attempt} 실패:`, error)
-                                                    attempt++
-                                                    // 재시도 전 대기 (지수 백오프, 최대 10초)
-                                                    const delay = Math.min(1000 * attempt, 10000)
-                                                    console.log(`[Scene Image] ${delay}ms 후 재시도...`)
-                                                    await new Promise(resolve => setTimeout(resolve, delay))
+                                                    console.error(`[Scene Image] 개별 이미지 생성 재시도 ${attempt}/${maxRetries} 실패:`, error)
+                                                    
+                                                    // 마지막 시도가 아니면 재시도
+                                                    if (attempt < maxRetries) {
+                                                      attempt++
+                                                      // 재시도 전 대기 (지수 백오프, 최대 10초)
+                                                      const delay = Math.min(1000 * attempt, 10000)
+                                                      console.log(`[Scene Image] ${delay}ms 후 재시도...`)
+                                                      await new Promise(resolve => setTimeout(resolve, delay))
+                                                    } else {
+                                                      // 최대 재시도 횟수 도달
+                                                      console.warn(`[Scene Image] 최대 재시도 횟수(${maxRetries}) 도달, 다음 이미지로 넘어갑니다.`)
+                                                      break
+                                                    }
                                                   }
                                                 }
                                                 
-                                                if (!imageUrl) {
-                                                  throw new Error("이미지 생성에 실패했습니다.")
-                                                }
-                                                
-                                                console.log(`[Scene Image] 개별 이미지 생성 완료:`, imageUrl)
-                                                
-                                                // 해당 이미지에 imageUrl 추가
-                                                setSceneImagePrompts((prev) => {
-                                                  return prev.map((s) => {
-                                                    if (s.sceneNumber === scene.sceneNumber) {
-                                                      return {
-                                                        ...s,
-                                                        images: s.images.map((img) => {
-                                                          if (img.imageNumber === image.imageNumber) {
-                                                            return { ...img, imageUrl }
-                                                          }
-                                                          return img
-                                                        }),
+                                                // imageUrl이 없으면 다음 이미지로 넘어감 (에러 throw하지 않음)
+                                                if (imageUrl) {
+                                                  console.log(`[Scene Image] 개별 이미지 생성 완료:`, imageUrl)
+                                                  
+                                                  // 해당 이미지에 imageUrl 추가
+                                                  setSceneImagePrompts((prev) => {
+                                                    return prev.map((s) => {
+                                                      if (s.sceneNumber === scene.sceneNumber) {
+                                                        return {
+                                                          ...s,
+                                                          images: s.images.map((img) => {
+                                                            if (img.imageNumber === image.imageNumber) {
+                                                              return { ...img, imageUrl: imageUrl ? imageUrl : undefined }
+                                                            }
+                                                            return img
+                                                          }),
+                                                        }
                                                       }
-                                                    }
-                                                    return s
+                                                      return s
+                                                    })
                                                   })
-                                                })
+                                                } else {
+                                                  console.warn(`[Scene Image] 이미지 생성 실패 (Scene ${scene.sceneNumber}, Image ${image.imageNumber}), 다음 이미지로 넘어갑니다.`)
+                                                }
                                                 
                                                 // 완료 표시 업데이트
                                                 setCompletedSteps((prev) => {
