@@ -624,6 +624,8 @@ export default function HomePage() {
   const [youtubeConnected, setYoutubeConnected] = useState(false)
   const [checkingYoutube, setCheckingYoutube] = useState(false)
   const [isLoggedIn, setIsLoggedIn] = useState(false)
+  const [testingKeys, setTestingKeys] = useState<{ [key: string]: boolean }>({})
+  const [testResults, setTestResults] = useState<{ [key: string]: { success: boolean; message: string } }>({})
   const [isCheckingLogin, setIsCheckingLogin] = useState(true)
   const [showPasswordDialog, setShowPasswordDialog] = useState(false)
   const [password, setPassword] = useState("")
@@ -809,6 +811,132 @@ export default function HomePage() {
     }, 2000)
   }
 
+  // API 키 연결 확인 함수
+  const testApiKey = async (keyType: string) => {
+    if (!apiKeys[keyType as keyof typeof apiKeys]) {
+      setTestResults({
+        ...testResults,
+        [keyType]: { success: false, message: "API 키를 먼저 입력해주세요." }
+      })
+      return
+    }
+
+    setTestingKeys({ ...testingKeys, [keyType]: true })
+    setTestResults({ ...testResults, [keyType]: { success: false, message: "" } })
+
+    try {
+      switch (keyType) {
+        case "openai": {
+          const response = await fetch("https://api.openai.com/v1/models", {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${apiKeys.openai}`,
+            },
+          })
+          if (response.ok) {
+            setTestResults({
+              ...testResults,
+              [keyType]: { success: true, message: "연결 성공!" }
+            })
+          } else {
+            const error = await response.json()
+            setTestResults({
+              ...testResults,
+              [keyType]: { success: false, message: `연결 실패: ${error.error?.message || response.statusText}` }
+            })
+          }
+          break
+        }
+        case "gemini": {
+          const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKeys.gemini}`,
+            {
+              method: "GET",
+            }
+          )
+          if (response.ok) {
+            setTestResults({
+              ...testResults,
+              [keyType]: { success: true, message: "연결 성공!" }
+            })
+          } else {
+            const error = await response.json()
+            setTestResults({
+              ...testResults,
+              [keyType]: { success: false, message: `연결 실패: ${error.error?.message || response.statusText}` }
+            })
+          }
+          break
+        }
+        case "replicate": {
+          // 서버 사이드 API를 통해 테스트 (CORS 문제 해결)
+          const response = await fetch("/api/test-replicate", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ apiKey: apiKeys.replicate }),
+          })
+          const result = await response.json()
+          setTestResults({
+            ...testResults,
+            [keyType]: { success: result.success, message: result.message }
+          })
+          break
+        }
+        case "youtubeDataApiKey": {
+          const response = await fetch(
+            `https://www.googleapis.com/youtube/v3/search?part=snippet&q=test&key=${apiKeys.youtubeDataApiKey}&maxResults=1`,
+            {
+              method: "GET",
+            }
+          )
+          if (response.ok) {
+            setTestResults({
+              ...testResults,
+              [keyType]: { success: true, message: "연결 성공!" }
+            })
+          } else {
+            const error = await response.json()
+            setTestResults({
+              ...testResults,
+              [keyType]: { success: false, message: `연결 실패: ${error.error?.message || response.statusText}` }
+            })
+          }
+          break
+        }
+        case "elevenlabs": {
+          // 서버 사이드 API를 통해 테스트 (TTSMaker API)
+          const response = await fetch("/api/test-ttsmaker", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ apiKey: apiKeys.elevenlabs }),
+          })
+          const result = await response.json()
+          setTestResults({
+            ...testResults,
+            [keyType]: { success: result.success, message: result.message }
+          })
+          break
+        }
+        default:
+          setTestResults({
+            ...testResults,
+            [keyType]: { success: false, message: "지원하지 않는 API 키입니다." }
+          })
+      }
+    } catch (error: any) {
+      setTestResults({
+        ...testResults,
+        [keyType]: { success: false, message: `연결 실패: ${error.message || "알 수 없는 오류"}` }
+      })
+    } finally {
+      setTestingKeys({ ...testingKeys, [keyType]: false })
+    }
+  }
+
   const handleServiceClick = (service: (typeof videoProductionServices)[0] | (typeof analysisToolsServices)[0] | (typeof otherToolsServices)[0]) => {
     if (service.url.startsWith("http")) {
       window.open(service.url, "_blank")
@@ -948,7 +1076,7 @@ export default function HomePage() {
 
       {/* API 키 설정 다이얼로그 */}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[500px] max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Key className="w-5 h-5" />
@@ -958,7 +1086,7 @@ export default function HomePage() {
               AI 서비스 사용을 위한 API 키를 입력해주세요. 키는 브라우저에 안전하게 저장됩니다.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-6 py-4">
+          <div className="space-y-6 py-4 overflow-y-auto flex-1">
             {/* OpenAI API Key */}
             <div className="space-y-2">
               <Label htmlFor="openai-key" className="text-sm font-medium">
@@ -996,7 +1124,22 @@ export default function HomePage() {
                 >
                   <Copy className="w-4 h-4" />
                 </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => testApiKey("openai")}
+                  disabled={testingKeys.openai || !apiKeys.openai}
+                  className="shrink-0 text-xs"
+                >
+                  {testingKeys.openai ? "확인 중..." : "연결확인"}
+                </Button>
               </div>
+              {testResults.openai && (
+                <p className={`text-xs ${testResults.openai.success ? "text-green-600" : "text-red-600"}`}>
+                  {testResults.openai.message}
+                </p>
+              )}
               <p className="text-xs text-muted-foreground">GPT 모델 사용에 필요합니다</p>
             </div>
 
@@ -1037,7 +1180,22 @@ export default function HomePage() {
                 >
                   <Copy className="w-4 h-4" />
                 </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => testApiKey("elevenlabs")}
+                  disabled={testingKeys.elevenlabs || !apiKeys.elevenlabs}
+                  className="shrink-0 text-xs"
+                >
+                  {testingKeys.elevenlabs ? "확인 중..." : "연결확인"}
+                </Button>
               </div>
+              {testResults.elevenlabs && (
+                <p className={`text-xs ${testResults.elevenlabs.success ? "text-green-600" : "text-red-600"}`}>
+                  {testResults.elevenlabs.message}
+                </p>
+              )}
               <p className="text-xs text-muted-foreground">TTSMaker 음성 합성에 사용됩니다</p>
             </div>
 
@@ -1078,7 +1236,22 @@ export default function HomePage() {
                 >
                   <Copy className="w-4 h-4" />
                 </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => testApiKey("replicate")}
+                  disabled={testingKeys.replicate || !apiKeys.replicate}
+                  className="shrink-0 text-xs"
+                >
+                  {testingKeys.replicate ? "확인 중..." : "연결확인"}
+                </Button>
               </div>
+              {testResults.replicate && (
+                <p className={`text-xs ${testResults.replicate.success ? "text-green-600" : "text-red-600"}`}>
+                  {testResults.replicate.message}
+                </p>
+              )}
               <p className="text-xs text-muted-foreground">AI 모델 실행에 사용됩니다</p>
             </div>
 
@@ -1119,178 +1292,87 @@ export default function HomePage() {
                 >
                   <Copy className="w-4 h-4" />
                 </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => testApiKey("gemini")}
+                  disabled={testingKeys.gemini || !apiKeys.gemini}
+                  className="shrink-0 text-xs"
+                >
+                  {testingKeys.gemini ? "확인 중..." : "연결확인"}
+                </Button>
               </div>
+              {testResults.gemini && (
+                <p className={`text-xs ${testResults.gemini.success ? "text-green-600" : "text-red-600"}`}>
+                  {testResults.gemini.message}
+                </p>
+              )}
               <p className="text-xs text-muted-foreground">대본 기획 및 생성에 사용됩니다</p>
             </div>
 
             {/* 구분선 */}
             <div className="border-t border-slate-200 my-4" />
 
-            {/* 구분선 */}
-            <div className="border-t border-slate-200 my-4" />
-
-            {/* YouTube 설정 섹션 */}
-            <div className="space-y-4">
-              <Label className="text-sm font-medium flex items-center gap-2">
-                <Youtube className="w-4 h-4 text-red-500" />
-                YouTube 설정
+            {/* YouTube Data API Key */}
+            <div className="space-y-2">
+              <Label htmlFor="youtube-data-api-key" className="text-sm font-medium">
+                YouTube Data API Key
               </Label>
-              
-              {/* YouTube Client ID - 숨김 */}
-              {/* <div className="space-y-2">
-                <Label htmlFor="youtube-client-id" className="text-sm font-medium">
-                  YouTube Client ID
-                </Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="youtube-client-id"
-                    type={showKeys.youtubeClientId ? "text" : "password"}
-                    placeholder="Google Cloud Console에서 발급받은 Client ID"
-                    value={apiKeys.youtubeClientId}
-                    onChange={(e) => setApiKeys({ ...apiKeys, youtubeClientId: e.target.value })}
-                    className="font-mono text-sm"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    onClick={() => setShowKeys({ ...showKeys, youtubeClientId: !showKeys.youtubeClientId })}
-                    className="shrink-0"
-                  >
-                    {showKeys.youtubeClientId ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Google Cloud Console에서 OAuth 2.0 클라이언트 ID를 발급받아 입력하세요.
-                </p>
-              </div> */}
-
-              {/* YouTube Client Secret - 숨김 */}
-              {/* <div className="space-y-2">
-                <Label htmlFor="youtube-client-secret" className="text-sm font-medium">
-                  YouTube Client Secret
-                </Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="youtube-client-secret"
-                    type={showKeys.youtubeClientSecret ? "text" : "password"}
-                    placeholder="Google Cloud Console에서 발급받은 Client Secret"
-                    value={apiKeys.youtubeClientSecret}
-                    onChange={(e) => setApiKeys({ ...apiKeys, youtubeClientSecret: e.target.value })}
-                    className="font-mono text-sm"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    onClick={() => setShowKeys({ ...showKeys, youtubeClientSecret: !showKeys.youtubeClientSecret })}
-                    className="shrink-0"
-                  >
-                    {showKeys.youtubeClientSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Google Cloud Console에서 OAuth 2.0 클라이언트 Secret을 발급받아 입력하세요.
-                </p>
-              </div> */}
-
-              {/* YouTube Data API Key */}
-              <div className="space-y-2">
-                <Label htmlFor="youtube-data-api-key" className="text-sm font-medium">
-                  YouTube Data API Key
-                </Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="youtube-data-api-key"
-                    type={showKeys.youtubeDataApiKey ? "text" : "password"}
-                    placeholder="Google Cloud Console에서 발급받은 API Key"
-                    value={apiKeys.youtubeDataApiKey}
-                    onChange={(e) => setApiKeys({ ...apiKeys, youtubeDataApiKey: e.target.value })}
-                    className="font-mono text-sm"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    onClick={() => setShowKeys({ ...showKeys, youtubeDataApiKey: !showKeys.youtubeDataApiKey })}
-                    className="shrink-0"
-                  >
-                    {showKeys.youtubeDataApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    onClick={() => {
-                      navigator.clipboard.writeText(apiKeys.youtubeDataApiKey)
-                      setCopied(true)
-                      setTimeout(() => setCopied(false), 2000)
-                    }}
-                    disabled={!apiKeys.youtubeDataApiKey}
-                    className="shrink-0"
-                  >
-                    <Copy className="w-4 h-4" />
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  유튜브 분석, 유튜브 실시간 분석, 롱폼의 '일주일간 인기 주제' 기능에 사용됩니다.
-                </p>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="youtube-data-api-key"
+                  type={showKeys.youtubeDataApiKey ? "text" : "password"}
+                  placeholder="Google Cloud Console에서 발급받은 API Key"
+                  value={apiKeys.youtubeDataApiKey}
+                  onChange={(e) => setApiKeys({ ...apiKeys, youtubeDataApiKey: e.target.value })}
+                  className="font-mono text-sm"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowKeys({ ...showKeys, youtubeDataApiKey: !showKeys.youtubeDataApiKey })}
+                  className="shrink-0"
+                >
+                  {showKeys.youtubeDataApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    navigator.clipboard.writeText(apiKeys.youtubeDataApiKey)
+                    setCopied(true)
+                    setTimeout(() => setCopied(false), 2000)
+                  }}
+                  disabled={!apiKeys.youtubeDataApiKey}
+                  className="shrink-0"
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => testApiKey("youtubeDataApiKey")}
+                  disabled={testingKeys.youtubeDataApiKey || !apiKeys.youtubeDataApiKey}
+                  className="shrink-0 text-xs"
+                >
+                  {testingKeys.youtubeDataApiKey ? "확인 중..." : "연결확인"}
+                </Button>
               </div>
-
-              {/* YouTube 연결 상태 */}
-              <div className="flex items-center justify-between p-3 rounded-lg border border-slate-200 bg-slate-50">
-                <div className="flex items-center gap-2">
-                  {checkingYoutube ? (
-                    <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
-                  ) : youtubeConnected ? (
-                    <CheckCircle2 className="w-4 h-4 text-green-500" />
-                  ) : (
-                    <Unlink className="w-4 h-4 text-slate-400" />
-                  )}
-                  <span className="text-sm text-slate-700">
-                    {checkingYoutube
-                      ? "확인 중..."
-                      : youtubeConnected
-                      ? "YouTube에 연결됨"
-                      : "YouTube에 연결되지 않음"}
-                  </span>
-                </div>
-                {youtubeConnected ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleYoutubeDisconnect}
-                    className="text-xs"
-                    disabled={!apiKeys.youtubeClientId || !apiKeys.youtubeClientSecret}
-                  >
-                    <Unlink className="w-3 h-3 mr-1" />
-                    연결 해제
-                  </Button>
-                ) : (
-                  <Button
-                    type="button"
-                    variant="default"
-                    size="sm"
-                    onClick={handleYoutubeConnect}
-                    className="text-xs bg-red-500 hover:bg-red-600"
-                    disabled={true}
-                  >
-                    <Link2 className="w-3 h-3 mr-1" />
-                    연결하기
-                  </Button>
-                )}
-              </div>
+              {testResults.youtubeDataApiKey && (
+                <p className={`text-xs ${testResults.youtubeDataApiKey.success ? "text-green-600" : "text-red-600"}`}>
+                  {testResults.youtubeDataApiKey.message}
+                </p>
+              )}
               <p className="text-xs text-muted-foreground">
-                {!apiKeys.youtubeClientId || !apiKeys.youtubeClientSecret
-                  ? "Client ID와 Secret을 먼저 입력하고 저장한 후 연결할 수 있습니다."
-                  : youtubeConnected
-                  ? "자동화 모드에서 생성된 영상을 자동으로 업로드할 수 있습니다."
-                  : "YouTube 계정을 연결하면 자동화 모드에서 생성된 영상을 자동으로 업로드할 수 있습니다."}
+                유튜브 분석, 유튜브 실시간 분석, 롱폼의 '일주일간 인기 주제' 기능에 사용됩니다.
               </p>
             </div>
           </div>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between border-t pt-4 mt-4 shrink-0">
             <div className="flex items-center gap-2 text-sm text-green-600">
               {saved && (
                 <>

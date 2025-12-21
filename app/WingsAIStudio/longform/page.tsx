@@ -87,6 +87,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { getApiKey } from "@/lib/api-keys"
 import { generateShortsHookingTitle } from "../shorts/actions"
+import { getProjects, createProject, updateProject, deleteProject, getProject, type LongformProject, type ProjectData } from "./project-actions"
+import { Trash2, Folder, FolderPlus, Save } from "lucide-react"
 
 // <-- FFmpeg imports 제거 -->
 
@@ -329,6 +331,17 @@ export default function LongformContentPage() {
   // <-- CHANGE: Component name changed
   const [activeStep, setActiveStep] = useState("topic")
   
+  // 프로젝트 관리 상태
+  const [projects, setProjects] = useState<LongformProject[]>([])
+  const [currentProject, setCurrentProject] = useState<LongformProject | null>(null)
+  const [showProjectList, setShowProjectList] = useState(true) // 프로젝트 목록 화면 표시 여부
+  const [isLoadingProjects, setIsLoadingProjects] = useState(false)
+  const [isSavingProject, setIsSavingProject] = useState(false)
+  const [newProjectName, setNewProjectName] = useState("")
+  const [newProjectDescription, setNewProjectDescription] = useState("")
+  const [showCreateProjectDialog, setShowCreateProjectDialog] = useState(false)
+  const [userId, setUserId] = useState<string>("") // 사용자 ID (이메일 또는 사용자 식별자)
+  
   // API 키 가져오기 헬퍼 함수
   const getApiKey = (keyName?: string) => {
     if (typeof window === "undefined") return undefined
@@ -343,6 +356,14 @@ export default function LongformContentPage() {
     if (typeof window === "undefined") return undefined
     return localStorage.getItem("gemini_api_key") || undefined
   }
+  
+  // 사용자 ID 가져오기 (로컬 스토리지 또는 기본값)
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const storedUserId = localStorage.getItem("user_id") || localStorage.getItem("user_email") || "anonymous"
+      setUserId(storedUserId)
+    }
+  }, [])
   const [keywords, setKeywords] = useState("")
   const [selectedTopic, setSelectedTopic] = useState("")
   const [generatedTopics, setGeneratedTopics] = useState<string[]>([])
@@ -9286,6 +9307,338 @@ export default function LongformContentPage() {
   // The second handleCanvasClick was removed as it was a duplicate.
   // The `handleThumbnailCanvasClick` function is used instead for the thumbnail canvas.
 
+  // 프로젝트 관리 함수들
+  // 프로젝트 목록 불러오기
+  const loadProjects = async () => {
+    if (!userId) return
+    
+    setIsLoadingProjects(true)
+    try {
+      const projectList = await getProjects(userId)
+      setProjects(projectList)
+    } catch (error) {
+      console.error("[Projects] 프로젝트 목록 불러오기 실패:", error)
+      alert("프로젝트 목록을 불러오는데 실패했습니다.")
+    } finally {
+      setIsLoadingProjects(false)
+    }
+  }
+
+  // 프로젝트 생성
+  const handleCreateProject = async () => {
+    if (!newProjectName.trim()) {
+      alert("프로젝트 이름을 입력해주세요.")
+      return
+    }
+    
+    if (!userId) {
+      alert("사용자 정보를 찾을 수 없습니다.")
+      return
+    }
+
+    setIsSavingProject(true)
+    try {
+      const project = await createProject(userId, newProjectName.trim(), newProjectDescription.trim() || undefined)
+      setProjects([project, ...projects])
+      setCurrentProject(project)
+      setShowProjectList(false)
+      setShowCreateProjectDialog(false)
+      setNewProjectName("")
+      setNewProjectDescription("")
+    } catch (error) {
+      console.error("[Projects] 프로젝트 생성 실패:", error)
+      alert("프로젝트 생성에 실패했습니다.")
+    } finally {
+      setIsSavingProject(false)
+    }
+  }
+
+  // 프로젝트 선택
+  const handleSelectProject = async (project: LongformProject) => {
+    setCurrentProject(project)
+    setShowProjectList(false)
+    
+    // 프로젝트 데이터 불러오기
+    try {
+      const projectData = project.data as ProjectData
+      
+      // 상태 복원
+      if (projectData.selectedTopic) setSelectedTopic(projectData.selectedTopic)
+      if (projectData.keywords) setKeywords(projectData.keywords)
+      if (projectData.customTopic) setCustomTopic(projectData.customTopic)
+      if (projectData.isDirectInputSelected !== undefined) setIsDirectInputSelected(projectData.isDirectInputSelected)
+      if (projectData.benchmarkScript) setBenchmarkScript(projectData.benchmarkScript)
+      if (projectData.isDirectScriptInput !== undefined) setIsDirectScriptInput(projectData.isDirectScriptInput)
+      if (projectData.directScript) setDirectScript(projectData.directScript)
+      if (projectData.isStoryMode !== undefined) setIsStoryMode(projectData.isStoryMode)
+      if (projectData.script) setScript(projectData.script)
+      if (projectData.decomposedScenes) setDecomposedScenes(projectData.decomposedScenes)
+      if (projectData.scriptLines) setScriptLines(projectData.scriptLines)
+      if (projectData.sceneImagePrompts) setSceneImagePrompts(projectData.sceneImagePrompts)
+      if (projectData.generatedImages) setGeneratedImages(projectData.generatedImages)
+      if (projectData.imageStyle) setImageStyle(projectData.imageStyle)
+      if (projectData.customStylePrompt) setCustomStylePrompt(projectData.customStylePrompt)
+      if (projectData.customStyleCharacterImage !== undefined) setCustomStyleCharacterImage(projectData.customStyleCharacterImage)
+      if (projectData.customStyleBackgroundImage !== undefined) setCustomStyleBackgroundImage(projectData.customStyleBackgroundImage)
+      if (projectData.realisticCharacterType !== undefined) setRealisticCharacterType(projectData.realisticCharacterType)
+      if (projectData.stickmanCharacterDescription !== undefined) setStickmanCharacterDescription(projectData.stickmanCharacterDescription)
+      if (projectData.selectedVoiceId) setSelectedVoiceId(projectData.selectedVoiceId)
+      if (projectData.generatedAudios) setGeneratedAudios(projectData.generatedAudios)
+      if (projectData.videoData) setVideoData(projectData.videoData)
+      if (projectData.youtubeTitle) setYoutubeTitle(projectData.youtubeTitle)
+      if (projectData.youtubeDescription) setYoutubeDescription(projectData.youtubeDescription)
+      if (projectData.aiThumbnailUrl !== undefined) setAiThumbnailUrl(projectData.aiThumbnailUrl)
+      if (projectData.thumbnailCustomText) setThumbnailCustomText(projectData.thumbnailCustomText)
+      if (projectData.completedSteps) setCompletedSteps(projectData.completedSteps)
+      if (projectData.activeStep) setActiveStep(projectData.activeStep)
+      if (projectData.scriptDuration) setScriptDuration(projectData.scriptDuration)
+      if (projectData.maxScenesPerScene) setMaxScenesPerScene(projectData.maxScenesPerScene)
+    } catch (error) {
+      console.error("[Projects] 프로젝트 데이터 복원 실패:", error)
+    }
+  }
+
+  // 프로젝트 저장
+  const handleSaveProject = async () => {
+    if (!currentProject) {
+      alert("저장할 프로젝트가 없습니다. 먼저 프로젝트를 생성하거나 선택해주세요.")
+      return
+    }
+
+    setIsSavingProject(true)
+    try {
+      // 현재 상태를 프로젝트 데이터로 변환
+      const projectData: ProjectData = {
+        selectedTopic,
+        keywords,
+        customTopic,
+        isDirectInputSelected,
+        benchmarkScript,
+        isDirectScriptInput,
+        directScript,
+        isStoryMode,
+        script,
+        decomposedScenes,
+        scriptLines,
+        sceneImagePrompts,
+        generatedImages,
+        imageStyle,
+        customStylePrompt,
+        customStyleCharacterImage,
+        customStyleBackgroundImage,
+        realisticCharacterType,
+        stickmanCharacterDescription,
+        selectedVoiceId,
+        generatedAudios,
+        videoData,
+        youtubeTitle,
+        youtubeDescription,
+        aiThumbnailUrl,
+        thumbnailCustomText,
+        completedSteps,
+        activeStep,
+        scriptDuration,
+        maxScenesPerScene,
+      }
+
+      await updateProject(currentProject.id, { data: projectData })
+      
+      // 프로젝트 목록 업데이트
+      await loadProjects()
+      
+      // 현재 프로젝트 업데이트
+      const updatedProject = await getProject(currentProject.id)
+      if (updatedProject) {
+        setCurrentProject(updatedProject)
+      }
+    } catch (error) {
+      console.error("[Projects] 프로젝트 저장 실패:", error)
+      alert("프로젝트 저장에 실패했습니다.")
+    } finally {
+      setIsSavingProject(false)
+    }
+  }
+
+  // 프로젝트 삭제
+  const handleDeleteProject = async (projectId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    
+    if (!confirm("정말 이 프로젝트를 삭제하시겠습니까?")) {
+      return
+    }
+
+    try {
+      await deleteProject(projectId)
+      setProjects(projects.filter(p => p.id !== projectId))
+      
+      // 현재 선택된 프로젝트가 삭제된 경우
+      if (currentProject?.id === projectId) {
+        setCurrentProject(null)
+        setShowProjectList(true)
+      }
+    } catch (error) {
+      console.error("[Projects] 프로젝트 삭제 실패:", error)
+      alert("프로젝트 삭제에 실패했습니다.")
+    }
+  }
+
+  // 프로젝트 목록 화면 표시
+  const handleShowProjectList = () => {
+    setShowProjectList(true)
+    setCurrentProject(null)
+  }
+
+  // 프로젝트 목록 불러오기 (컴포넌트 마운트 시)
+  useEffect(() => {
+    if (userId) {
+      loadProjects()
+    }
+  }, [userId])
+
+  // 프로젝트 목록 화면 렌더링
+  const renderProjectList = () => {
+    return (
+      <div className="min-h-screen bg-gray-50 p-6">
+        <div className="max-w-6xl mx-auto">
+          <div className="mb-8">
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">롱폼 프로젝트</h1>
+            <p className="text-gray-600">작업한 내용을 저장하고 관리하세요</p>
+          </div>
+
+          <div className="mb-6 flex justify-end">
+            <Button
+              onClick={() => setShowCreateProjectDialog(true)}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              <FolderPlus className="w-4 h-4 mr-2" />
+              새 프로젝트 만들기
+            </Button>
+          </div>
+
+          {isLoadingProjects ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+            </div>
+          ) : projects.length === 0 ? (
+            <Card className="p-12 text-center">
+              <Folder className="w-16 h-16 mx-auto mb-4 text-gray-400" />
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">프로젝트가 없습니다</h3>
+              <p className="text-gray-600 mb-6">새 프로젝트를 만들어 시작하세요</p>
+              <Button
+                onClick={() => setShowCreateProjectDialog(true)}
+                className="bg-red-600 hover:bg-red-700 text-white"
+              >
+                <FolderPlus className="w-4 h-4 mr-2" />
+                새 프로젝트 만들기
+              </Button>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {projects.map((project) => (
+                <Card
+                  key={project.id}
+                  className="cursor-pointer hover:shadow-lg transition-shadow"
+                  onClick={() => handleSelectProject(project)}
+                >
+                  <CardHeader>
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <CardTitle className="text-lg mb-1">{project.name}</CardTitle>
+                        {project.description && (
+                          <p className="text-sm text-gray-600 line-clamp-2">{project.description}</p>
+                        )}
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
+                        onClick={(e) => handleDeleteProject(project.id, e)}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-xs text-gray-500">
+                      <p>수정: {new Date(project.updated_at).toLocaleString("ko-KR")}</p>
+                      <p>생성: {new Date(project.created_at).toLocaleString("ko-KR")}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* 프로젝트 생성 다이얼로그 */}
+        <Dialog open={showCreateProjectDialog} onOpenChange={setShowCreateProjectDialog}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>새 프로젝트 만들기</DialogTitle>
+              <DialogDescription>
+                프로젝트 이름을 입력하고 작업을 시작하세요
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="project-name">프로젝트 이름 *</Label>
+                <Input
+                  id="project-name"
+                  value={newProjectName}
+                  onChange={(e) => setNewProjectName(e.target.value)}
+                  placeholder="예: 건강 영상 프로젝트"
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label htmlFor="project-description">프로젝트 설명 (선택사항)</Label>
+                <Textarea
+                  id="project-description"
+                  value={newProjectDescription}
+                  onChange={(e) => setNewProjectDescription(e.target.value)}
+                  placeholder="프로젝트에 대한 간단한 설명을 입력하세요"
+                  className="mt-1"
+                  rows={3}
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowCreateProjectDialog(false)
+                    setNewProjectName("")
+                    setNewProjectDescription("")
+                  }}
+                >
+                  취소
+                </Button>
+                <Button
+                  onClick={handleCreateProject}
+                  disabled={isSavingProject || !newProjectName.trim()}
+                  className="bg-red-600 hover:bg-red-700 text-white"
+                >
+                  {isSavingProject ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      생성 중...
+                    </>
+                  ) : (
+                    "생성"
+                  )}
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+    )
+  }
+
+  // 프로젝트 목록 화면이 표시되어야 하면 프로젝트 목록 렌더링
+  if (showProjectList) {
+    return renderProjectList()
+  }
+
   const renderStepContent = () => {
     switch (activeStep) {
       case "topic":
@@ -16794,6 +17147,43 @@ export default function LongformContentPage() {
               <h2 className="text-xl lg:text-2xl font-bold text-red-600 mb-1">wingsAIStudio</h2>
               <p className="text-xs lg:text-sm text-gray-600">AI 영상 자동 제작</p>
             </div>
+
+            {/* 프로젝트 관리 버튼 */}
+            {currentProject && (
+              <div className="mb-6 space-y-2">
+                <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                  <p className="text-xs text-gray-600 mb-1">현재 프로젝트</p>
+                  <p className="text-sm font-semibold text-gray-900 truncate">{currentProject.name}</p>
+                </div>
+                <Button
+                  onClick={handleSaveProject}
+                  disabled={isSavingProject}
+                  className="w-full bg-red-600 hover:bg-red-700 text-white"
+                  size="sm"
+                >
+                  {isSavingProject ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      저장 중...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4 mr-2" />
+                      프로젝트 저장
+                    </>
+                  )}
+                </Button>
+                <Button
+                  onClick={handleShowProjectList}
+                  variant="outline"
+                  className="w-full"
+                  size="sm"
+                >
+                  <Folder className="w-4 h-4 mr-2" />
+                  프로젝트 목록
+                </Button>
+              </div>
+            )}
 
             {/* Navigation */}
             <nav className="space-y-1">
