@@ -357,8 +357,8 @@ ${imageStyle === "realistic" || imageStyle === "realistic2" ? "Inference Steps�
       
       // 스타일 일관성 강화: 스타일별 불일치 키워드 제거 및 일관성 키워드 추가
       if (imageStyle === "stickman-animation") {
-        // 스틱맨 애니메이션: 다른 스타일 키워드 제거
-        const nonStickmanTerms = ["realistic", "photorealistic", "hyperrealistic", "photograph", "3D CGI", "rendered", "animation style", "cartoon style", "illustration style", "vector art", "flat design", "cel-shaded", "stylized character", "non-stickman", "animated character", "cartoon character"]
+        // 스틱맨 애니메이션: 다른 스타일 키워드 제거 (3D, 실사, 말풍선 등)
+        const nonStickmanTerms = ["realistic", "photorealistic", "hyperrealistic", "photograph", "photo", "real people", "human", "man", "woman", "semi-realistic", "cinematic", "movie still", "3d", "3d render", "pixar", "disney", "blender", "unreal engine", "plastic", "glossy", "smooth shading", "real room", "real office", "real furniture", "lighting effects", "depth of field", "shadows", "character design", "mascot", "robot", "android", "3D CGI", "rendered", "animation style", "cartoon style", "illustration style", "vector art", "flat design", "cel-shaded", "stylized character", "non-stickman", "animated character", "cartoon character", "saying", "explaining", "talking", "comic"]
         let cleanedPrompt = prompt
         nonStickmanTerms.forEach(term => {
           const regex = new RegExp(term, 'gi')
@@ -366,16 +366,32 @@ ${imageStyle === "realistic" || imageStyle === "realistic2" ? "Inference Steps�
         })
         prompt = cleanedPrompt.replace(/\s+/g, ' ').trim()
         
-        // 스틱맨 애니메이션 BASE_PROMPT 강제 추가 (모든 씬에 일관되게) - STRICT STICKMAN STYLE
-        const stickmanBasePrompt = "STRICT STICKMAN STYLE. A single stickman character (round white face only). Pure stickman anatomy: round white head, dot eyes + simple curved smile only. No hair, no ears, no nose, no cheeks, no detailed facial features. Ultra-thin black limbs with uniform stroke width, simple mitten hands, no fingers, no body volume, no muscles, no realistic proportions"
-        const stickmanStylePhrase = "Flat 2D vector illustration, bold clean outline, solid color fills, minimal cel shading, playful explainer-video aesthetic"
-        const stickmanExtra = "Simple background with clean shapes and a few colorful details (buildings/windows/signs), no realistic textures, no painterly rendering. Keep the stickman centered, full body visible, clear readable silhouette, bright and friendly mood"
+        // ABSOLUTE STICKMAN-ONLY ILLUSTRATION 강화
         const promptLower = prompt.toLowerCase()
-        if (!promptLower.includes("strict stickman style") || !promptLower.includes("round white head") || !promptLower.includes("dot eyes") || !promptLower.includes("ultra-thin black limbs")) {
-          prompt = `${prompt}, ${stickmanBasePrompt}, ${stickmanStylePhrase}, ${stickmanExtra}`
+        const stickmanMainPrompt = "ABSOLUTE STICKMAN-ONLY ILLUSTRATION. This image must contain ONLY 2D stickman figures. Stickman is a symbolic drawing, NOT a human, NOT a character, NOT a person."
+        const stickmanBasePrompt = "Stickman rules (must follow): Perfectly round white head, dot eyes and simple curved smile ONLY, no nose, no ears, no hair, no facial details, ultra-thin black line limbs with uniform stroke width, no body volume, no torso shape, no muscles, simple mitten hands, no fingers, flat 2D vector drawing ONLY"
+        const stickmanStylePhrase = "Scene is illustrated in a simple cartoon style: flat colors, bold black outlines, minimal details, no depth, no lighting effects, no textures. Background must be fully illustrated (cartoon), simple shapes only, no realistic environment. Educational explainer illustration style"
+        const stickmanNoText = "NO TEXT ALLOWED IN IMAGE. Do NOT include speech bubbles, captions, labels, words, letters, logos, symbols, numbers, or any readable text. This is NOT a comic, NOT a poster, NOT an advertisement. Pure visual illustration only."
+        const stickmanFinalCheck = "If the result looks realistic, 3D, or human-like, it is WRONG. If the image contains text, speech bubbles, or readable symbols, the result is incorrect."
+        
+        if (!promptLower.includes("absolute stickman-only") || !promptLower.includes("only 2d stickman") || !promptLower.includes("symbolic drawing")) {
+          prompt = `${stickmanMainPrompt} ${prompt}`
+        }
+        if (!promptLower.includes("perfectly round white head") || !promptLower.includes("dot eyes") || !promptLower.includes("ultra-thin black line limbs")) {
+          prompt = `${prompt}, ${stickmanBasePrompt}`
+        }
+        if (!promptLower.includes("flat 2d vector drawing") || !promptLower.includes("simple cartoon style") || !promptLower.includes("educational explainer")) {
+          prompt = `${prompt}, ${stickmanStylePhrase}`
+        }
+        if (!promptLower.includes("no text allowed") || !promptLower.includes("no speech bubbles")) {
+          prompt = `${prompt}, ${stickmanNoText}`
         }
         if (!promptLower.includes("no hair") || !promptLower.includes("no ears") || !promptLower.includes("no nose")) {
-          prompt = `${prompt}, no hair, no ears, no nose, no cheeks, no detailed facial features, no realistic human anatomy, no person, no man, no woman, only stickman`
+          prompt = `${prompt}, no hair, no ears, no nose, no cheeks, no detailed facial features, no realistic human anatomy, no person, no man, no woman, only stickman, no saying, no explaining, no talking, use gesturing or pointing instead`
+        }
+        // 최종 확인 문구 추가
+        if (!promptLower.includes("if the result looks realistic") && !promptLower.includes("it is wrong")) {
+          prompt = `${prompt}. ${stickmanFinalCheck}`
         }
       } else if (imageStyle === "realistic" || imageStyle === "realistic2") {
         // 실사화: 애니메이션/카툰 키워드 제거
@@ -611,17 +627,41 @@ The detective finds a clue, a vibrant 2D cartoon..., no text, no letters, no wor
         styleInfo = `스타일: 스틱맨 애니메이션
 모델: prunaai/hidream-l1-fast
 해상도: 1360x768
-negative_prompt: realistic human, human anatomy, man, woman, person, cartoon human, pixar, disney, anime, manga, portrait, detailed face, nose, lips, teeth, eyelashes, hair, ears, skin texture, wrinkles, fingers, hands with fingers, body volume, torso muscles, 3d, render, photorealistic, cinematic, painterly, digital painting, gradients, soft shading, semi-realistic, detailed clothing folds, realistic proportions, close-up face, high detail character design, photograph, blank white background, line-art only, text, watermark, non-stickman, mixed style, detailed cartoon human, prince, princess, chibi, kawaii, big head, human body, human skin, realistic, 3d render, detailed face, blush, detailed clothing folds, portrait, close-up, single character focus, bokeh, depth of field, watercolor, airbrush, extra hands, multiple hands, three hands, four hands, extra arms, multiple arms, three arms, four arms, extra limbs, deformed hands, malformed hands, wrong number of fingers, too many fingers, missing hands, missing arms, anatomical errors, body part errors, photorealistic, realistic photography, hyperrealistic, 3D CGI, rendered, animation style, cartoon style, illustration style, vector art, flat design, cel-shaded, stylized character, non-stickman character, human character, detailed character, realistic character, any non-stickman style`
+negative_prompt: realistic, photo, photograph, real people, human, man, woman, semi-realistic, cinematic, movie still, 3d, 3d render, pixar, disney, blender, unreal engine, plastic, glossy, smooth shading, real room, real office, real furniture, lighting effects, depth of field, shadows, character design, mascot, robot, android, detailed face, skin, fingers, joints, body proportions, realistic human, human anatomy, person, cartoon human, anime, manga, portrait, nose, lips, teeth, eyelashes, hair, ears, skin texture, wrinkles, hands with fingers, body volume, torso muscles, render, photorealistic, painterly, digital painting, gradients, soft shading, detailed clothing folds, realistic proportions, close-up face, high detail character design, blank white background, line-art only, text, watermark, speech bubble, thought bubble, text bubble, caption, subtitle, label, signage, words, letters, typography, font, comic panel, comic strip, meme, poster, advertisement, slogan, headline, logo, non-stickman, mixed style, detailed cartoon human, prince, princess, chibi, kawaii, big head, human body, human skin, 3d render, detailed face, blush, portrait, close-up, single character focus, bokeh, depth of field, watercolor, airbrush, extra hands, multiple hands, three hands, four hands, extra arms, multiple arms, three arms, four arms, extra limbs, deformed hands, malformed hands, wrong number of fingers, too many fingers, missing hands, missing arms, anatomical errors, body part errors, realistic photography, hyperrealistic, 3D CGI, rendered, animation style, cartoon style, illustration style, vector art, flat design, cel-shaded, stylized character, non-stickman character, human character, detailed character, realistic character, any non-stickman style`
         
         templateInfo = `
 [스틱맨 프롬프트 템플릿]
 STEP 3에서 영어 프롬프트를 생성할 때, 다음 형식을 사용하세요:
-STRICT STICKMAN STYLE. {사용자 프롬프트}, {base}, {style_phrase}, {extra}
 
-여기서:
-- base: "A single stickman character (round white face only). Pure stickman anatomy: round white head, dot eyes + simple curved smile only. No hair, no ears, no nose, no cheeks, no detailed facial features. Ultra-thin black limbs with uniform stroke width, simple mitten hands, no fingers, no body volume, no muscles, no realistic proportions"
-- style_phrase: "Flat 2D vector illustration, bold clean outline, solid color fills, minimal cel shading, playful explainer-video aesthetic"
-- extra: "Simple background with clean shapes and a few colorful details (buildings/windows/signs), no realistic textures, no painterly rendering. Keep the stickman centered, full body visible, clear readable silhouette, bright and friendly mood"
+ABSOLUTE STICKMAN-ONLY ILLUSTRATION.
+
+This image must contain ONLY 2D stickman figures.
+Stickman is a symbolic drawing, NOT a human, NOT a character, NOT a person.
+
+NO TEXT ALLOWED IN IMAGE.
+Do NOT include speech bubbles, captions, labels, words, letters, logos, symbols, numbers, or any readable text.
+This is NOT a comic, NOT a poster, NOT an advertisement.
+Pure visual illustration only.
+
+{사용자 프롬프트}
+
+Stickman rules (must follow):
+- Perfectly round white head
+- Dot eyes and simple curved smile ONLY
+- No nose, no ears, no hair, no facial details
+- Ultra-thin black line limbs, uniform stroke width
+- No body volume, no torso shape, no muscles
+- Simple mitten hands, no fingers
+- Flat 2D vector drawing ONLY
+
+Scene is illustrated in a simple cartoon style:
+flat colors, bold black outlines, minimal details,
+no depth, no lighting effects, no textures.
+
+Background must be fully illustrated (cartoon),
+simple shapes only, no realistic environment.
+
+Educational explainer illustration style.
 
 **중요: 인물 일관성 규칙**
 - 첫 번째 장면에서 등장하는 주인공 스틱맨 캐릭터를 정의하세요.
@@ -637,10 +677,18 @@ STRICT STICKMAN STYLE. {사용자 프롬프트}, {base}, {style_phrase}, {extra}
 - 자연스러운 자세와 비율 (natural pose, proper proportions)
 - 신체 구조 오류 없음 (no anatomical errors, correct anatomy)
 
+**절대 금지 사항:**
+- "saying", "explaining", "talking" 같은 단어 사용 금지 → 대신 "gesturing", "pointing", "presenting visually" 사용
+- "comic"이라는 단어 절대 사용 금지 → "explainer illustration" 또는 "diagram style"만 사용
+- 말풍선, 텍스트, 실사 배경, 3D 렌더링, 인간 같은 특징 절대 금지
+
+⚠️ 최종 확인: If the result looks realistic, 3D, or human-like, it is WRONG.
+If the image contains text, speech bubbles, or readable symbols, the result is incorrect.
+
 예시:
 사용자 프롬프트가 "A detective looking at evidence"라면,
 최종 프롬프트는:
-"The same stickman character (a detective) looking at evidence, a vibrant 2D cartoon, fully rendered illustration featuring a stickman with a white circular face, simple black outline, dot eyes, curved mouth, thin black limbs, exactly two arms, exactly two hands (mitten hands with no fingers), expressive pose, correct anatomy, natural pose, Consistent stick-figure illustration style, clean bold lines, solid colors, explainer video aesthetic, simplified background, colorful detailed drawing, rich environment, dynamic lighting, no realistic human anatomy, no blank background, anatomically correct stickman, proper body proportions"
+"ABSOLUTE STICKMAN-ONLY ILLUSTRATION. NO TEXT ALLOWED IN IMAGE. The same stickman character (a detective) gesturing at evidence, flat 2D vector illustration, perfectly round white head, dot eyes, simple curved smile, ultra-thin black line limbs, uniform stroke width, simple mitten hands, no fingers, no body volume, bold clean outline, solid color fills, minimal cel shading, playful explainer-video aesthetic, simple background with clean shapes, no realistic textures, no painterly rendering, educational explainer illustration style, exactly two arms, exactly two hands, anatomically correct stickman, proper body proportions. If the result looks realistic, 3D, or human-like, it is WRONG."
 `
       } else if (imageStyle === "realistic" || imageStyle === "realistic2") {
         styleInfo = `스타일: ${styleName}

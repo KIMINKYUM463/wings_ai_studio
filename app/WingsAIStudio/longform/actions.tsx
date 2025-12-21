@@ -3613,8 +3613,8 @@ export async function generateImageWithReplicate(
     
     // 스타일 일관성 강화: 스타일별 불일치 키워드 제거 및 일관성 키워드 추가
     if (imageStyle === "stickman-animation") {
-      // 스틱맨 애니메이션: 다른 스타일 키워드 제거
-      const nonStickmanTerms = ["realistic", "photorealistic", "hyperrealistic", "photograph", "3D CGI", "rendered", "animation style", "cartoon style", "illustration style", "vector art", "flat design", "cel-shaded", "stylized character", "non-stickman"]
+      // 스틱맨 애니메이션: 다른 스타일 키워드 제거 (3D, 실사, 말풍선 등)
+      const nonStickmanTerms = ["realistic", "photorealistic", "hyperrealistic", "photograph", "photo", "real people", "human", "man", "woman", "semi-realistic", "cinematic", "movie still", "3d", "3d render", "pixar", "disney", "blender", "unreal engine", "plastic", "glossy", "smooth shading", "real room", "real office", "real furniture", "lighting effects", "depth of field", "shadows", "character design", "mascot", "robot", "android", "3D CGI", "rendered", "animation style", "cartoon style", "illustration style", "vector art", "flat design", "cel-shaded", "stylized character", "non-stickman", "saying", "explaining", "talking", "comic"]
       let cleanedPrompt = finalPrompt
       nonStickmanTerms.forEach(term => {
         const regex = new RegExp(term, 'gi')
@@ -3622,17 +3622,33 @@ export async function generateImageWithReplicate(
       })
       finalPrompt = cleanedPrompt.replace(/\s+/g, ' ').trim()
       
-        // 스틱맨 일관성 키워드 강제 추가 (항상) - STRICT STICKMAN STYLE
-        const promptLower = finalPrompt.toLowerCase()
-        if (!promptLower.includes("strict stickman style") || !promptLower.includes("round white head") || !promptLower.includes("dot eyes") || !promptLower.includes("ultra-thin black limbs")) {
-          const stickmanBasePrompt = "STRICT STICKMAN STYLE. A single stickman character (round white face only). Pure stickman anatomy: round white head, dot eyes + simple curved smile only. No hair, no ears, no nose, no cheeks, no detailed facial features. Ultra-thin black limbs with uniform stroke width, simple mitten hands, no fingers, no body volume, no muscles, no realistic proportions"
-          const stickmanStylePhrase = "Flat 2D vector illustration, bold clean outline, solid color fills, minimal cel shading, playful explainer-video aesthetic"
-          const stickmanExtra = "Simple background with clean shapes and a few colorful details (buildings/windows/signs), no realistic textures, no painterly rendering. Keep the stickman centered, full body visible, clear readable silhouette, bright and friendly mood"
-          finalPrompt = `${finalPrompt}, ${stickmanBasePrompt}, ${stickmanStylePhrase}, ${stickmanExtra}`
-        }
-        if (!promptLower.includes("no hair") || !promptLower.includes("no ears") || !promptLower.includes("no nose")) {
-          finalPrompt = `${finalPrompt}, no hair, no ears, no nose, no cheeks, no detailed facial features, no realistic human anatomy, no person, no man, no woman, only stickman`
-        }
+      // ABSOLUTE STICKMAN-ONLY ILLUSTRATION 강화
+      const promptLower = finalPrompt.toLowerCase()
+      const stickmanMainPrompt = "ABSOLUTE STICKMAN-ONLY ILLUSTRATION. This image must contain ONLY 2D stickman figures. Stickman is a symbolic drawing, NOT a human, NOT a character, NOT a person."
+      const stickmanBasePrompt = "Stickman rules (must follow): Perfectly round white head, dot eyes and simple curved smile ONLY, no nose, no ears, no hair, no facial details, ultra-thin black line limbs with uniform stroke width, no body volume, no torso shape, no muscles, simple mitten hands, no fingers, flat 2D vector drawing ONLY"
+      const stickmanStylePhrase = "Scene is illustrated in a simple cartoon style: flat colors, bold black outlines, minimal details, no depth, no lighting effects, no textures. Background must be fully illustrated (cartoon), simple shapes only, no realistic environment. Educational explainer illustration style"
+      const stickmanNoText = "NO TEXT ALLOWED IN IMAGE. Do NOT include speech bubbles, captions, labels, words, letters, logos, symbols, numbers, or any readable text. This is NOT a comic, NOT a poster, NOT an advertisement. Pure visual illustration only."
+      const stickmanFinalCheck = "If the result looks realistic, 3D, or human-like, it is WRONG. If the image contains text, speech bubbles, or readable symbols, the result is incorrect."
+      
+      if (!promptLower.includes("absolute stickman-only") || !promptLower.includes("only 2d stickman") || !promptLower.includes("symbolic drawing")) {
+        finalPrompt = `${stickmanMainPrompt} ${finalPrompt}`
+      }
+      if (!promptLower.includes("perfectly round white head") || !promptLower.includes("dot eyes") || !promptLower.includes("ultra-thin black line limbs")) {
+        finalPrompt = `${finalPrompt}, ${stickmanBasePrompt}`
+      }
+      if (!promptLower.includes("flat 2d vector drawing") || !promptLower.includes("simple cartoon style") || !promptLower.includes("educational explainer")) {
+        finalPrompt = `${finalPrompt}, ${stickmanStylePhrase}`
+      }
+      if (!promptLower.includes("no text allowed") || !promptLower.includes("no speech bubbles")) {
+        finalPrompt = `${finalPrompt}, ${stickmanNoText}`
+      }
+      if (!promptLower.includes("no hair") || !promptLower.includes("no ears") || !promptLower.includes("no nose")) {
+        finalPrompt = `${finalPrompt}, no hair, no ears, no nose, no cheeks, no detailed facial features, no realistic human anatomy, no person, no man, no woman, only stickman, no saying, no explaining, no talking, use gesturing or pointing instead`
+      }
+      // 최종 확인 문구 추가
+      if (!promptLower.includes("if the result looks realistic") && !promptLower.includes("it is wrong")) {
+        finalPrompt = `${finalPrompt}. ${stickmanFinalCheck}`
+      }
     } else if (imageStyle === "realistic" || imageStyle === "realistic2") {
       // 실사화: 애니메이션/카툰 키워드 제거
       const nonRealisticTerms = ["stickman", "stick figure", "stick man", "animation style", "animated", "cel-shaded", "vector art", "flat design", "stylized character", "cartoon character", "illustrated", "graphic novel", "comic book", "hand-drawn", "digital art", "2D animation", "animated character", "cartoon style"]
@@ -3689,8 +3705,8 @@ export async function generateImageWithReplicate(
       let negativePrompt = "realistic human, detailed human skin, photograph, 3d render, blank white background, line-art only, text, letters, words, writing, labels, signs, watermark, typography, font, caption, subtitle"
       
       if (imageStyle === "stickman-animation") {
-        // 스틱맨 애니메이션 전용 negative prompt - 사람/인간 해부학 강력 제외
-        negativePrompt = "realistic human, human anatomy, man, woman, person, cartoon human, pixar, disney, anime, manga, portrait, detailed face, nose, lips, teeth, eyelashes, hair, ears, skin texture, wrinkles, fingers, hands with fingers, body volume, torso muscles, 3d, render, photorealistic, cinematic, painterly, digital painting, gradients, soft shading, semi-realistic, detailed clothing folds, realistic proportions, close-up face, high detail character design, photograph, blank white background, line-art only, text, watermark, non-stickman, mixed style, detailed cartoon human, prince, princess, chibi, kawaii, big head, human body, human skin, realistic, 3d render, detailed face, blush, detailed clothing folds, portrait, close-up, single character focus, bokeh, depth of field, watercolor, airbrush, extra hands, multiple hands, three hands, four hands, extra arms, multiple arms, three arms, four arms, extra limbs, deformed hands, malformed hands, wrong number of fingers, too many fingers, missing hands, missing arms, anatomical errors, body part errors, photorealistic, realistic photography, hyperrealistic, 3D CGI, rendered, animation style, cartoon style, illustration style, vector art, flat design, cel-shaded, stylized character, non-stickman character, human character, detailed character, realistic character, any non-stickman style"
+        // 스틱맨 애니메이션 전용 negative prompt - 3D, 실사, 말풍선 완전 차단
+        negativePrompt = "realistic, photo, photograph, real people, human, man, woman, semi-realistic, cinematic, movie still, 3d, 3d render, pixar, disney, blender, unreal engine, plastic, glossy, smooth shading, real room, real office, real furniture, lighting effects, depth of field, shadows, character design, mascot, robot, android, detailed face, skin, fingers, joints, body proportions, realistic human, human anatomy, person, cartoon human, anime, manga, portrait, nose, lips, teeth, eyelashes, hair, ears, skin texture, wrinkles, hands with fingers, body volume, torso muscles, render, photorealistic, painterly, digital painting, gradients, soft shading, detailed clothing folds, realistic proportions, close-up face, high detail character design, blank white background, line-art only, text, watermark, speech bubble, thought bubble, text bubble, caption, subtitle, label, signage, words, letters, typography, font, comic panel, comic strip, meme, poster, advertisement, slogan, headline, logo, non-stickman, mixed style, detailed cartoon human, prince, princess, chibi, kawaii, big head, human body, human skin, 3d render, detailed face, blush, portrait, close-up, single character focus, bokeh, depth of field, watercolor, airbrush, extra hands, multiple hands, three hands, four hands, extra arms, multiple arms, three arms, four arms, extra limbs, deformed hands, malformed hands, wrong number of fingers, too many fingers, missing hands, missing arms, anatomical errors, body part errors, realistic photography, hyperrealistic, 3D CGI, rendered, animation style, cartoon style, illustration style, vector art, flat design, cel-shaded, stylized character, non-stickman character, human character, detailed character, realistic character, any non-stickman style"
       } else if (imageStyle === "animation2") {
         // 애니메이션2: 스틱맨 및 실사 제외
         negativePrompt = "realistic human, detailed human skin, photograph, 3d render, blank white background, line-art only, text, watermark, stickman, stick figure, stick man, photorealistic, realistic photography, hyperrealistic, 3D CGI, rendered, photography style, DSLR camera, professional photography, any realistic or photorealistic style"
