@@ -1905,8 +1905,30 @@ export default function LongformContentPage() {
         })
         
         try {
+          // 캐릭터 정보 추출 (첫 번째 장면의 첫 번째 이미지 프롬프트에서)
+          let characterDescription: string | undefined = undefined
+          if (sceneImagePrompts.length > 0 && sceneImagePrompts[0].images && sceneImagePrompts[0].images.length > 0) {
+            const firstImagePrompt = sceneImagePrompts[0].images[0].prompt
+            const characterMatch = firstImagePrompt.match(/(?:A|An|The)\s+([a-zA-Z\s]+?)(?:\s+(?:looking|standing|sitting|wearing|with|in)|,|\.|$)/i)
+            if (characterMatch && characterMatch[1]) {
+              characterDescription = characterMatch[1].trim()
+            } else {
+              const promptWords = firstImagePrompt.split(',').slice(0, 2).join(',').trim()
+              if (promptWords.length > 0 && promptWords.length < 100) {
+                characterDescription = promptWords
+              }
+            }
+          }
+          
           console.log(`[자동화] AI 썸네일 생성 시작 - 주제: ${selectedTopic}`)
-          const thumbnailUrl = await generateAIThumbnail(selectedTopic, replicateApiKey, imageStyle, thumbnailCustomText.trim() || undefined)
+          const thumbnailUrl = await generateAIThumbnail(
+            selectedTopic, 
+            replicateApiKey, 
+            imageStyle, 
+            thumbnailCustomText.trim() || undefined,
+            customStylePrompt || undefined,
+            characterDescription
+          )
           setAiThumbnailUrl(thumbnailUrl)
           setCompletedSteps((prev) => [...new Set([...prev, "thumbnail"])])
           console.log(`[자동화] AI 썸네일 생성 완료: ${thumbnailUrl.substring(0, 50)}...`)
@@ -2820,8 +2842,33 @@ export default function LongformContentPage() {
 
     setIsGeneratingAIThumbnail(true)
     try {
-      console.log("[v0] AI 썸네일 생성 시작, 주제:", selectedTopic, "이미지 스타일:", imageStyle, "커스텀 문구:", thumbnailCustomText)
-      const imageUrl = await generateAIThumbnail(selectedTopic, replicateApiKey, imageStyle, thumbnailCustomText.trim() || undefined)
+      // 캐릭터 정보 추출 (첫 번째 장면의 첫 번째 이미지 프롬프트에서)
+      let characterDescription: string | undefined = undefined
+      if (sceneImagePrompts.length > 0 && sceneImagePrompts[0].images && sceneImagePrompts[0].images.length > 0) {
+        const firstImagePrompt = sceneImagePrompts[0].images[0].prompt
+        // 프롬프트에서 캐릭터 관련 부분 추출 (간단한 추출)
+        // 예: "A detective", "The main character", "A person" 등의 패턴 찾기
+        const characterMatch = firstImagePrompt.match(/(?:A|An|The)\s+([a-zA-Z\s]+?)(?:\s+(?:looking|standing|sitting|wearing|with|in)|,|\.|$)/i)
+        if (characterMatch && characterMatch[1]) {
+          characterDescription = characterMatch[1].trim()
+        } else {
+          // 간단하게 프롬프트의 처음 부분 사용
+          const promptWords = firstImagePrompt.split(',').slice(0, 2).join(',').trim()
+          if (promptWords.length > 0 && promptWords.length < 100) {
+            characterDescription = promptWords
+          }
+        }
+      }
+      
+      console.log("[v0] AI 썸네일 생성 시작, 주제:", selectedTopic, "이미지 스타일:", imageStyle, "커스텀 문구:", thumbnailCustomText, "캐릭터:", characterDescription)
+      const imageUrl = await generateAIThumbnail(
+        selectedTopic, 
+        replicateApiKey, 
+        imageStyle, 
+        thumbnailCustomText.trim() || undefined,
+        customStylePrompt || undefined,
+        characterDescription
+      )
       setAiThumbnailUrl(imageUrl)
       setCompletedSteps((prev) => [...prev.filter((step) => step !== "thumbnail"), "thumbnail"])
       console.log("[v0] AI 썸네일 생성 완료:", imageUrl)
