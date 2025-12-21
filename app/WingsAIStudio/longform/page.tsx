@@ -56,6 +56,7 @@ import {
   Key,
   Eye,
   EyeOff,
+  Square,
 } from "lucide-react"
 import Link from "next/link"
 import {
@@ -145,42 +146,41 @@ Output only the English prompt, no explanations or additional text.`
     ? "Analyze this image and extract ONLY the art style, visual style, and rendering technique. Describe the artistic style elements that can be applied to other images, focusing on style characteristics rather than specific content."
     : "Analyze this background image in extreme detail and create a comprehensive English prompt describing the background's visual style and atmosphere."
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              {
-                text: `${systemInstruction}\n\n${userPrompt}`,
+  // 서버 API 라우트를 통해 호출 (API 키 노출 방지)
+  const response = await fetch("/api/gemini/generate-content", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "gemini-2.5-flash",
+      contents: [
+        {
+          parts: [
+            {
+              text: `${systemInstruction}\n\n${userPrompt}`,
+            },
+            {
+              inline_data: {
+                mime_type: "image/jpeg",
+                data: base64Data,
               },
-              {
-                inline_data: {
-                  mime_type: "image/jpeg",
-                  data: base64Data,
-                },
-              },
-            ],
-          },
-        ],
-        generationConfig: {
-          temperature: 0.7,
-          topK: 40,
-          topP: 0.95,
-          maxOutputTokens: 1000,
+            },
+          ],
         },
-      }),
-    }
-  )
+      ],
+      generationConfig: {
+        temperature: 0.7,
+        topK: 40,
+        topP: 0.95,
+        maxOutputTokens: 1000,
+      },
+    }),
+  })
 
   if (!response.ok) {
-    const errorText = await response.text()
-    throw new Error(`Gemini API 호출 실패: ${response.status} - ${errorText}`)
+    const errorData = await response.json()
+    throw new Error(`Gemini API 호출 실패: ${response.status} - ${errorData.error || errorData.details || "알 수 없는 오류"}`)
   }
 
   const data = await response.json()
@@ -366,6 +366,7 @@ export default function LongformContentPage() {
   const [isGeneratingSceneImages, setIsGeneratingSceneImages] = useState(false) // Scene 이미지 생성 중
   const [sceneImageGenerationProgress, setSceneImageGenerationProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 }) // Scene 이미지 생성 진행도
   const [generatingImageIds, setGeneratingImageIds] = useState<Set<string>>(new Set()) // 개별 이미지 생성 중인 ID들 (형식: "sceneNumber-imageNumber")
+  const shouldStopImageGeneration = useRef(false) // 이미지 생성 중단 플래그
   const [selectedLineIds, setSelectedLineIds] = useState<Set<number>>(new Set())
   const [scriptDuration, setScriptDuration] = useState<number>(20) // 대본 시간 (분)
   const [generatedImages, setGeneratedImages] = useState<Array<{ lineId: number; imageUrl: string; prompt: string }>>([])
@@ -1143,12 +1144,31 @@ export default function LongformContentPage() {
             const prompt = await generateImagePrompt(line.text, apiKey, selectedCategory)
             console.log(`[자동화] 이미지 프롬프트 생성 완료: ${prompt.substring(0, 50)}...`)
             
-            const imageUrl = await generateImageWithReplicate(prompt, replicateApiKey, "16:9", imageStyle)
-            console.log(`[자동화] 이미지 생성 완료: ${imageUrl.substring(0, 50)}...`)
+            // 재시도 로직이 포함된 이미지 생성 (생성될 때까지 계속 시도)
+            let imageUrl: string | null = null
+            let attempt = 1
             
-            localImageResults.push({ lineId: line.id, imageUrl, prompt })
-            setGeneratedImages([...localImageResults])
-            successCount++
+            while (!imageUrl) {
+              try {
+                console.log(`[자동화] 이미지 생성 시도 ${attempt}...`)
+                imageUrl = await generateImageWithReplicate(prompt, replicateApiKey, "16:9", imageStyle)
+                console.log(`[자동화] 이미지 생성 완료 (시도 ${attempt}): ${imageUrl.substring(0, 50)}...`)
+                break // 성공하면 루프 종료
+              } catch (error) {
+                console.error(`[자동화] 이미지 생성 재시도 ${attempt} 실패:`, error)
+                attempt++
+                // 재시도 전 대기 (지수 백오프, 최대 10초)
+                const delay = Math.min(1000 * attempt, 10000)
+                console.log(`[자동화] ${delay}ms 후 재시도...`)
+                await new Promise(resolve => setTimeout(resolve, delay))
+              }
+            }
+            
+            if (imageUrl) {
+              localImageResults.push({ lineId: line.id, imageUrl, prompt })
+              setGeneratedImages([...localImageResults])
+              successCount++
+            }
           } catch (error) {
             console.error(`[자동화] 이미지 생성 실패 (문장 ${line.id}):`, error)
             failCount++
@@ -3380,9 +3400,9 @@ export default function LongformContentPage() {
           }
         }
 
-        // 현재 시간에 맞는 이미지 찾기
+        // 현재 시간에 맞는 이미지 찾기 (자막이 1초 늦게 나오는 문제 해결: 각 자막의 시작 시간을 1초 앞당김)
         const currentLine = shortsScriptLines.find(
-          (line) => elapsed >= line.startTime / 1000 && elapsed <= line.endTime / 1000
+          (line) => elapsed >= (line.startTime / 1000) - 1 && elapsed <= (line.endTime / 1000) - 1
         ) || shortsScriptLines[shortsScriptLines.length - 1]
 
         if (currentLine) {
@@ -3519,8 +3539,8 @@ export default function LongformContentPage() {
             const audioDuration = (currentLine.endTime - currentLine.startTime) / 1000
             const subtitleLines = splitIntoSubtitleLines(subtitleText, undefined, audioDuration)
             
-            // 현재 시간에 맞는 자막 라인 찾기
-            const timeInLine = elapsed - (currentLine.startTime / 1000)
+            // 현재 시간에 맞는 자막 라인 찾기 (자막이 1초 늦게 나오는 문제 해결: 시작 시간을 1초 앞당김)
+            const timeInLine = Math.max(0, elapsed - ((currentLine.startTime / 1000) - 1))
             const currentSubtitleLine = subtitleLines.find(
               (line) => timeInLine >= line.startTime && timeInLine <= line.endTime
             ) || subtitleLines[0] || { text: subtitleText, startTime: 0, endTime: audioDuration }
@@ -3835,12 +3855,14 @@ export default function LongformContentPage() {
   // Gemini API를 사용하여 의미 단위 세그먼트 생성
   const generateSemanticSegments = async (text: string, geminiApiKey: string): Promise<string[]> => {
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${geminiApiKey}`, {
+      // 서버 API 라우트를 통해 호출 (API 키 노출 방지)
+      const response = await fetch("/api/gemini/generate-content", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          model: "gemini-2.0-flash-exp",
           contents: [{
             parts: [{
               text: `다음 텍스트를 의미 단위로 분할해주세요. 각 의미 단위는 독립적인 문장이나 구절이어야 합니다. 결과는 JSON 배열 형식으로 반환해주세요.\n\n텍스트: ${text}\n\n결과 형식: ["의미 단위 1", "의미 단위 2", ...]`
@@ -3854,7 +3876,8 @@ export default function LongformContentPage() {
       })
 
       if (!response.ok) {
-        throw new Error(`Gemini API 호출 실패: ${response.status}`)
+        const errorData = await response.json()
+        throw new Error(`Gemini API 호출 실패: ${response.status} - ${errorData.error || errorData.details || "알 수 없는 오류"}`)
       }
 
       const data = await response.json()
@@ -4709,7 +4732,15 @@ export default function LongformContentPage() {
       }
 
       // 2. 각 문장에 대해 이미지 생성
+      shouldStopImageGeneration.current = false // 중단 플래그 초기화
       for (let i = 0; i < scriptLines.length; i++) {
+        // 중단 체크
+        if (shouldStopImageGeneration.current) {
+          console.log("[v0] 이미지 생성 중단됨")
+          alert(`이미지 생성을 중단했습니다. (${successCount}개 생성 완료)`)
+          break
+        }
+        
         const line = scriptLines[i]
         setImageGenerationProgress({ current: i + 1, total: scriptLines.length })
 
@@ -4790,6 +4821,7 @@ export default function LongformContentPage() {
     } finally {
       setIsGeneratingImages(false)
       setImageGenerationProgress({ current: 0, total: 0 })
+      shouldStopImageGeneration.current = false // 중단 플래그 초기화
     }
   }
 
@@ -11658,7 +11690,11 @@ export default function LongformContentPage() {
                           clearInterval(progressInterval)
                           setScenePromptProgress(null)
                           console.error("이미지 프롬프트 생성 실패:", error)
-                          alert(`이미지 프롬프트 생성에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+                          // 백업 API 키로 재시도했지만 실패한 경우에만 오류 메시지 표시
+                          // (일반적인 실패는 백업 API 키로 자동 재시도되므로 오류 메시지 표시하지 않음)
+                          if (error instanceof Error && error.message.includes("백업 API 키로도 실패")) {
+                            alert(`이미지 프롬프트 생성에 실패했습니다: ${error.message}`)
+                          }
                         } finally {
                           setIsGeneratingScenePrompts(false)
                         }
@@ -11704,38 +11740,64 @@ export default function LongformContentPage() {
                           let currentIndex = 0
                           const updatedPrompts = [...sceneImagePrompts]
                           let hasGeneratedImages = false
+                          shouldStopImageGeneration.current = false // 중단 플래그 초기화
                           
-                          // 재시도 함수
+                          // 재시도 함수 (생성될 때까지 계속 시도)
                           const generateImageWithRetry = async (
                             prompt: string,
                             replicateApiKey: string,
                             imageStyle: string | undefined,
-                            sceneText: string | undefined,
-                            maxRetries: number = 3
+                            sceneText: string | undefined
                           ): Promise<string | null> => {
-                            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                            let attempt = 1
+                            
+                            while (true) {
+                              // 중단 체크
+                              if (shouldStopImageGeneration.current) {
+                                throw new Error("이미지 생성이 중단되었습니다.")
+                              }
+                              
                               try {
-                                return await generateImageWithReplicate(
+                                console.log(`[Scene Image] 이미지 생성 시도 ${attempt}...`)
+                                const imageUrl = await generateImageWithReplicate(
                                   prompt,
                                   replicateApiKey,
                                   "16:9",
                                   imageStyle,
                                   sceneText
                                 )
+                                console.log(`[Scene Image] 이미지 생성 성공 (시도 ${attempt})`)
+                                return imageUrl
                               } catch (error) {
-                                console.error(`[Scene Image] 재시도 ${attempt}/${maxRetries} 실패:`, error)
-                                if (attempt === maxRetries) {
+                                // 중단된 경우 재시도하지 않음
+                                if (shouldStopImageGeneration.current) {
                                   throw error
                                 }
-                                // 재시도 전 대기 (지수 백오프)
-                                await new Promise(resolve => setTimeout(resolve, 1000 * attempt))
+                                console.error(`[Scene Image] 재시도 ${attempt} 실패:`, error)
+                                attempt++
+                                // 재시도 전 대기 (지수 백오프, 최대 10초)
+                                const delay = Math.min(1000 * attempt, 10000)
+                                console.log(`[Scene Image] ${delay}ms 후 재시도...`)
+                                await new Promise(resolve => setTimeout(resolve, delay))
                               }
                             }
-                            return null
                           }
                           
                           for (const scene of updatedPrompts) {
+                            // 중단 체크
+                            if (shouldStopImageGeneration.current) {
+                              console.log("[Scene Image] 이미지 생성 중단됨")
+                              alert(`이미지 생성을 중단했습니다. (${currentIndex}/${totalImages}개 처리 완료)`)
+                              break
+                            }
+                            
                             for (const image of scene.images) {
+                              // 중단 체크
+                              if (shouldStopImageGeneration.current) {
+                                console.log("[Scene Image] 이미지 생성 중단됨")
+                                alert(`이미지 생성을 중단했습니다. (${currentIndex}/${totalImages}개 처리 완료)`)
+                                break
+                              }
                               // 이미 생성된 이미지는 건너뛰기
                               if (image.imageUrl) {
                                 currentIndex++
@@ -11750,31 +11812,13 @@ export default function LongformContentPage() {
                               try {
                                 console.log(`[Scene Image] 이미지 생성 중... (${currentIndex}/${totalImages}): Scene ${scene.sceneNumber}, Image ${image.imageNumber}`)
                                 
-                                // 재시도 로직이 포함된 이미지 생성
+                                // 재시도 로직이 포함된 이미지 생성 (생성될 때까지 계속 시도)
                                 let imageUrl = await generateImageWithRetry(
                                   image.prompt,
                                   replicateApiKey,
                                   imageStyle,
                                   image.sceneText
                                 )
-                                
-                                // 이미지가 안 나오면 5초 더 기다렸다가 재시도
-                                if (!imageUrl) {
-                                  console.log(`[Scene Image] 이미지가 생성되지 않음, 5초 대기 후 재시도...`)
-                                  await new Promise(resolve => setTimeout(resolve, 5000))
-                                  
-                                  // 한 번 더 시도
-                                  try {
-                                    imageUrl = await generateImageWithRetry(
-                                      image.prompt,
-                                      replicateApiKey,
-                                      imageStyle,
-                                      image.sceneText
-                                    )
-                                  } catch (retryError) {
-                                    console.error(`[Scene Image] 재시도 후에도 실패:`, retryError)
-                                  }
-                                }
                                 
                                 if (imageUrl) {
                                   console.log(`[Scene Image] 이미지 생성 완료:`, imageUrl)
@@ -11821,6 +11865,7 @@ export default function LongformContentPage() {
                         } finally {
                           setIsGeneratingSceneImages(false)
                           setSceneImageGenerationProgress({ current: 0, total: 0 })
+                          shouldStopImageGeneration.current = false // 중단 플래그 초기화
                           
                           // 최종적으로 sceneImagePrompts 상태를 확인하여 완료 표시
                           setTimeout(() => {
@@ -11874,6 +11919,21 @@ export default function LongformContentPage() {
                         </>
                       )}
                 </Button>
+
+                {/* 이미지 생성 중단 버튼 */}
+                {isGeneratingSceneImages && (
+                  <Button
+                    onClick={() => {
+                      shouldStopImageGeneration.current = true
+                      console.log("[Scene Image] 이미지 생성 중단 요청")
+                    }}
+                    className="w-full h-12 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold"
+                    size="lg"
+                  >
+                    <X className="w-4 h-4 mr-2" />
+                    이미지 생성 중단
+                  </Button>
+                )}
 
                 {/* 선택한 이미지를 영상으로 변환 버튼 */}
                 {generatedImages.length > 0 && selectedImagesForVideo.size > 0 && (
@@ -11977,12 +12037,13 @@ export default function LongformContentPage() {
                                               try {
                                                 console.log(`[Scene Image] 개별 이미지 생성 시작: Scene ${scene.sceneNumber}, Image ${image.imageNumber}`)
                                                 
-                                                // 재시도 로직이 포함된 이미지 생성
+                                                // 재시도 로직이 포함된 이미지 생성 (생성될 때까지 계속 시도)
                                                 let imageUrl: string | null = null
-                                                const maxRetries = 3
+                                                let attempt = 1
                                                 
-                                                for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                                                while (!imageUrl) {
                                                   try {
+                                                    console.log(`[Scene Image] 개별 이미지 생성 시도 ${attempt}...`)
                                                     imageUrl = await generateImageWithReplicate(
                                                       image.prompt,
                                                       replicateApiKey,
@@ -11990,14 +12051,15 @@ export default function LongformContentPage() {
                                                       imageStyle,
                                                       image.sceneText
                                                     )
+                                                    console.log(`[Scene Image] 개별 이미지 생성 성공 (시도 ${attempt})`)
                                                     break // 성공하면 루프 종료
                                                   } catch (error) {
-                                                    console.error(`[Scene Image] 개별 이미지 생성 재시도 ${attempt}/${maxRetries} 실패:`, error)
-                                                    if (attempt === maxRetries) {
-                                                      throw error
-                                                    }
-                                                    // 재시도 전 대기 (지수 백오프)
-                                                    await new Promise(resolve => setTimeout(resolve, 1000 * attempt))
+                                                    console.error(`[Scene Image] 개별 이미지 생성 재시도 ${attempt} 실패:`, error)
+                                                    attempt++
+                                                    // 재시도 전 대기 (지수 백오프, 최대 10초)
+                                                    const delay = Math.min(1000 * attempt, 10000)
+                                                    console.log(`[Scene Image] ${delay}ms 후 재시도...`)
+                                                    await new Promise(resolve => setTimeout(resolve, delay))
                                                   }
                                                 }
                                                 
