@@ -8571,15 +8571,16 @@ export default function LongformContentPage() {
         let adjustedTimeForSubtitles: number
         if (isAudioStarted && !audio.paused) {
           // 오디오가 재생 중이면 오디오의 currentTime 직접 사용 (가장 정확)
-          adjustedTimeForSubtitles = audio.currentTime
+          // introVideo가 있으면 오디오는 10초부터 시작하므로 자막 타이밍도 10초를 빼야 함
+          adjustedTimeForSubtitles = introVideo ? audio.currentTime - 10 : audio.currentTime
         } else {
           // 오디오가 아직 시작되지 않았거나 일시정지 상태면 계산된 시간 사용
           adjustedTimeForSubtitles = introVideo ? currentTime - 10 : currentTime
         }
         
-        // 자막 타이밍을 0.5초 앞당기기 (TTS와 동기화를 위해)
+        // 자막 타이밍을 정확히 매칭 (TTS와 동기화)
         const currentSubtitles = videoData.subtitles.filter(
-          (s) => adjustedTimeForSubtitles >= Math.max(0, s.start - 0.5) && adjustedTimeForSubtitles <= Math.max(0, s.end - 0.5)
+          (s) => adjustedTimeForSubtitles >= s.start && adjustedTimeForSubtitles <= s.end
         )
 
         // 자막 표시 여부 확인
