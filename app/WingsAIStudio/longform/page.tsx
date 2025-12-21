@@ -9540,7 +9540,157 @@ export default function LongformContentPage() {
     }
   }
 
-  // 프로젝트 저장
+  // 프로젝트 저장 (자동 저장용 - 에러 알림 없음)
+  const handleAutoSaveProject = async (silent: boolean = true): Promise<boolean> => {
+    if (!currentProject) {
+      if (!silent) {
+        alert("저장할 프로젝트가 없습니다. 먼저 프로젝트를 생성하거나 선택해주세요.")
+      }
+      return false
+    }
+
+    // 이미 저장 중이면 스킵
+    if (isSavingProject) {
+      return false
+    }
+
+    setIsSavingProject(true)
+    try {
+      // 현재 상태를 프로젝트 데이터로 변환
+      // Map을 배열로 변환 (convertedVideos, convertedSceneVideos)
+      const convertedVideosArray = Array.from(convertedVideos.entries()).map(([lineId, videoUrl]) => ({
+        lineId,
+        videoUrl,
+      }))
+      const convertedSceneVideosArray = Array.from(convertedSceneVideos.entries()).map(([key, videoUrl]) => ({
+        key,
+        videoUrl,
+      }))
+      
+      const projectData: ProjectData = {
+        // 주제 관련
+        selectedTopic,
+        keywords,
+        customTopic,
+        isCustomTopicSelected,
+        isDirectInputSelected,
+        benchmarkScript,
+        isDirectScriptInput,
+        directScript,
+        isStoryMode,
+        generatedTopics,
+        selectedCategory,
+        
+        // 대본 관련
+        script,
+        scriptPlan,
+        scriptDraft,
+        decomposedScenes,
+        scriptLines,
+        scriptDuration,
+        maxScenesPerScene,
+        referenceTitle,
+        referenceScript,
+        
+        // 이미지 관련
+        // sceneImagePrompts와 generatedImages에서 base64 이미지 제거 (URL만 저장)
+        sceneImagePrompts: sceneImagePrompts.map(scene => ({
+          ...scene,
+          images: scene.images.map(img => ({
+            ...img,
+            // base64 이미지는 제외하고 URL만 저장
+            imageUrl: img.imageUrl?.startsWith("data:") ? undefined : img.imageUrl,
+          })),
+        })),
+        generatedImages: generatedImages.map(img => ({
+          ...img,
+          // base64 이미지는 제외하고 URL만 저장
+          imageUrl: img.imageUrl?.startsWith("data:") ? "" : img.imageUrl,
+        })),
+        imageStyle,
+        customStylePrompt,
+        // customStyleCharacterImage와 customStyleBackgroundImage는 base64일 수 있어 용량이 크므로 URL만 저장
+        customStyleCharacterImage: customStyleCharacterImage?.startsWith("data:") ? null : customStyleCharacterImage,
+        customStyleBackgroundImage: customStyleBackgroundImage?.startsWith("data:") ? null : customStyleBackgroundImage,
+        realisticCharacterType,
+        // stickmanCharacterDescription는 이미지 프롬프트 생성 시 지역 변수로만 사용되므로 저장하지 않음
+        convertedVideos: convertedVideosArray,
+        convertedSceneVideos: convertedSceneVideosArray,
+        
+        // TTS 관련
+        selectedVoiceId,
+        // audioBase64는 용량이 크므로 제외하고 audioUrl만 저장
+        generatedAudios: generatedAudios.map(audio => ({
+          lineId: audio.lineId,
+          audioUrl: audio.audioUrl,
+          alignment: audio.alignment,
+          // audioBase64 제외 (용량이 너무 큼)
+        })),
+        
+        // 영상 관련
+        // videoData의 autoImages에서 base64 이미지 제거 (URL만 저장)
+        videoData: videoData ? {
+          ...videoData,
+          autoImages: videoData.autoImages?.map(img => ({
+            ...img,
+            // base64 이미지는 제외하고 URL만 저장
+            url: img.url?.startsWith("data:") ? "" : img.url,
+          })),
+        } : null,
+        
+        // 제목 관련
+        generatedTitles,
+        selectedTitle,
+        customTitle,
+        
+        // 썸네일 관련
+        youtubeTitle,
+        youtubeDescription,
+        aiThumbnailUrl,
+        thumbnailCustomText,
+        thumbnailText,
+        
+        // 기타
+        completedSteps,
+        activeStep,
+      }
+
+      // 데이터 직렬화 테스트 (에러 확인용)
+      try {
+        JSON.stringify(projectData)
+      } catch (serializeError) {
+        console.error("[Projects] 데이터 직렬화 실패:", serializeError)
+        if (!silent) {
+          alert(`프로젝트 저장 실패: 데이터 직렬화 오류가 발생했습니다. ${serializeError instanceof Error ? serializeError.message : String(serializeError)}`)
+        }
+        return false
+      }
+
+      await updateProject(currentProject.id, { data: projectData })
+      
+      // 프로젝트 목록 업데이트 (자동 저장 시에는 생략하여 성능 향상)
+      // await loadProjects()
+      
+      // 현재 프로젝트 업데이트
+      const updatedProject = await getProject(currentProject.id)
+      if (updatedProject) {
+        setCurrentProject(updatedProject)
+      }
+      
+      return true
+    } catch (error) {
+      console.error("[Projects] 프로젝트 자동 저장 실패:", error)
+      if (!silent) {
+        const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다."
+        alert(`프로젝트 저장에 실패했습니다: ${errorMessage}`)
+      }
+      return false
+    } finally {
+      setIsSavingProject(false)
+    }
+  }
+
+  // 프로젝트 저장 (수동 저장용)
   const handleSaveProject = async () => {
     if (!currentProject) {
       alert("저장할 프로젝트가 없습니다. 먼저 프로젝트를 생성하거나 선택해주세요.")
@@ -9648,6 +9798,15 @@ export default function LongformContentPage() {
         activeStep,
       }
 
+      // 데이터 직렬화 테스트 (에러 확인용)
+      try {
+        JSON.stringify(projectData)
+      } catch (serializeError) {
+        console.error("[Projects] 데이터 직렬화 실패:", serializeError)
+        alert(`프로젝트 저장 실패: 데이터 직렬화 오류가 발생했습니다. ${serializeError instanceof Error ? serializeError.message : String(serializeError)}`)
+        return
+      }
+
       await updateProject(currentProject.id, { data: projectData })
       
       // 프로젝트 목록 업데이트
@@ -9714,8 +9873,12 @@ export default function LongformContentPage() {
               <p className="text-gray-600">작업한 내용을 저장하고 관리하세요</p>
               <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
                 <p className="text-sm text-amber-800">
-                  <strong>안내사항:</strong> 이미지는 1시간 후에 삭제가 되기에 미리 저장 또는 렌더링 부탁드립니다.
+                  <strong>안내사항:</strong>
                 </p>
+                <ul className="text-sm text-amber-800 mt-2 space-y-1 list-disc list-inside">
+                  <li>이미지는 1시간 후에 삭제가 되기에 미리 저장 또는 렌더링 부탁드립니다.</li>
+                  <li>TTS 용량이 크면 저장이 안될 수 있습니다. 참고바랍니다.</li>
+                </ul>
               </div>
             </div>
             
@@ -17442,7 +17605,13 @@ export default function LongformContentPage() {
               return (
                 <button
                   key={item.id}
-                  onClick={() => setActiveStep(item.id)}
+                  onClick={async () => {
+                    // 단계 변경 전 자동 저장
+                    if (currentProject) {
+                      await handleAutoSaveProject(true)
+                    }
+                    setActiveStep(item.id)
+                  }}
                     className={`w-full text-left p-3 rounded-lg transition-all relative ${
                       itemIsActive
                         ? "bg-red-50 text-red-600 border-l-4 border-red-500"

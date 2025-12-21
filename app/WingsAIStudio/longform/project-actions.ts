@@ -1,6 +1,6 @@
 "use server"
 
-import { createClient } from "@/lib/supabase/client"
+import { createClient } from "@/lib/supabase/server"
 
 export interface LongformProject {
   id: string
@@ -96,7 +96,7 @@ export interface ProjectData {
  */
 export async function getProjects(userId: string): Promise<LongformProject[]> {
   try {
-    const supabase = createClient()
+    const supabase = await createClient()
     const { data, error } = await supabase
       .from("longform_projects")
       .select("*")
@@ -125,7 +125,7 @@ export async function createProject(
   data?: ProjectData
 ): Promise<LongformProject> {
   try {
-    const supabase = createClient()
+    const supabase = await createClient()
     const { data: project, error } = await supabase
       .from("longform_projects")
       .insert({
@@ -161,12 +161,26 @@ export async function updateProject(
   }
 ): Promise<LongformProject> {
   try {
-    const supabase = createClient()
+    const supabase = await createClient()
     const updateData: any = {}
     
     if (updates.name !== undefined) updateData.name = updates.name
     if (updates.description !== undefined) updateData.description = updates.description
-    if (updates.data !== undefined) updateData.data = updates.data
+    if (updates.data !== undefined) {
+      // 데이터 직렬화 테스트 및 크기 확인
+      try {
+        const serialized = JSON.stringify(updates.data)
+        const dataSizeMB = serialized.length / 1024 / 1024
+        console.log(`[Projects] 저장할 데이터 크기: ${dataSizeMB.toFixed(2)}MB`)
+        if (dataSizeMB > 1) {
+          console.warn(`[Projects] 데이터 크기가 1MB를 초과합니다: ${dataSizeMB.toFixed(2)}MB`)
+        }
+        updateData.data = updates.data
+      } catch (serializeError) {
+        console.error("[Projects] 데이터 직렬화 실패:", serializeError)
+        throw new Error(`데이터 직렬화 실패: ${serializeError instanceof Error ? serializeError.message : String(serializeError)}`)
+      }
+    }
     
     const { data: project, error } = await supabase
       .from("longform_projects")
@@ -177,12 +191,23 @@ export async function updateProject(
     
     if (error) {
       console.error("[Projects] 프로젝트 업데이트 실패:", error)
+      console.error("[Projects] Supabase 에러 상세:", {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code,
+      })
       throw error
     }
     
     return project
   } catch (error) {
     console.error("[Projects] 프로젝트 업데이트 중 오류:", error)
+    console.error("[Projects] 에러 상세:", {
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      error: error,
+    })
     throw error
   }
 }
@@ -192,7 +217,7 @@ export async function updateProject(
  */
 export async function deleteProject(projectId: string): Promise<void> {
   try {
-    const supabase = createClient()
+    const supabase = await createClient()
     const { error } = await supabase
       .from("longform_projects")
       .delete()
@@ -213,7 +238,7 @@ export async function deleteProject(projectId: string): Promise<void> {
  */
 export async function getProject(projectId: string): Promise<LongformProject | null> {
   try {
-    const supabase = createClient()
+    const supabase = await createClient()
     const { data, error } = await supabase
       .from("longform_projects")
       .select("*")
