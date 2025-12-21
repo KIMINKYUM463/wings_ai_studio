@@ -4366,6 +4366,14 @@ export default function LongformContentPage() {
     }
 
     setIsGeneratingCustomImage(true)
+    
+    // 이미지 생성 시작 시 해당 이미지의 영상 데이터 초기화
+    setConvertedVideos((prev) => {
+      const newMap = new Map(prev)
+      newMap.delete(lineId)
+      return newMap
+    })
+    
     try {
       // 한글 프롬프트를 영어로 변환
       console.log(`[v0] 커스텀 이미지 생성 시작 (줄 ${lineId}):`, customImagePrompt)
@@ -4707,6 +4715,8 @@ export default function LongformContentPage() {
     setImageGenerationProgress({ current: 0, total: scriptLines.length })
     // 기존 이미지 초기화
     setGeneratedImages([])
+    // 변환된 영상 데이터 초기화 (영상 제거)
+    setConvertedVideos(new Map())
 
     let successCount = 0
     let commonStylePrompt: string | undefined = undefined
@@ -12203,6 +12213,13 @@ export default function LongformContentPage() {
                                               
                                               // 로딩 시작
                                               setGeneratingImageIds((prev) => new Set(prev).add(imageId))
+                                              
+                                              // 이미지 생성 시작 시 해당 이미지의 영상 데이터 초기화
+                                              setConvertedSceneVideos((prev) => {
+                                                const newMap = new Map(prev)
+                                                newMap.delete(imageId)
+                                                return newMap
+                                              })
                                               
                                               try {
                                                 console.log(`[Scene Image] 개별 이미지 생성 시작: Scene ${scene.sceneNumber}, Image ${image.imageNumber}`)
