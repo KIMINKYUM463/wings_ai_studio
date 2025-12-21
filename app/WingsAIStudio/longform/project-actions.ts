@@ -17,18 +17,25 @@ export interface ProjectData {
   selectedTopic?: string
   keywords?: string
   customTopic?: string
+  isCustomTopicSelected?: boolean
   isDirectInputSelected?: boolean
   benchmarkScript?: string
   isDirectScriptInput?: boolean
   directScript?: string
   isStoryMode?: boolean
+  generatedTopics?: string[] // 생성된 주제 목록
+  selectedCategory?: string // 선택된 카테고리
   
   // 대본 관련
   script?: string
+  scriptPlan?: string // 대본 기획
+  scriptDraft?: string // 대본 초안
   decomposedScenes?: string
   scriptLines?: Array<{ id: number; text: string }>
   scriptDuration?: number
   maxScenesPerScene?: 1 | 2 | 3
+  referenceTitle?: string // 레퍼런스 제목
+  referenceScript?: string // 레퍼런스 대본
   
   // 이미지 관련
   sceneImagePrompts?: Array<{ sceneNumber: number; images: Array<{ imageNumber: number; prompt: string; sceneText: string; visualInstruction?: string; imageUrl?: string }> }>
@@ -38,11 +45,13 @@ export interface ProjectData {
   customStyleCharacterImage?: string | null
   customStyleBackgroundImage?: string | null
   realisticCharacterType?: "korean" | "foreign" | null
-  stickmanCharacterDescription?: string | null
+  // stickmanCharacterDescription는 이미지 프롬프트 생성 시 지역 변수로만 사용되므로 저장하지 않음
+  convertedVideos?: Array<{ lineId: number; videoUrl: string }> // 변환된 영상 (Map을 배열로 변환)
+  convertedSceneVideos?: Array<{ key: string; videoUrl: string }> // Scene 변환된 영상 (Map을 배열로 변환)
   
   // TTS 관련
   selectedVoiceId?: string
-  generatedAudios?: Array<{ lineId: number; audioUrl: string; audioBase64: string; alignment?: any }>
+  generatedAudios?: Array<{ lineId: number; audioUrl: string; alignment?: any }> // audioBase64는 용량이 크므로 저장하지 않음
   
   // 영상 관련
   videoData?: {
@@ -60,6 +69,11 @@ export interface ProjectData {
     }>
   }
   
+  // 제목 관련
+  generatedTitles?: string[] // 생성된 제목 목록
+  selectedTitle?: string // 선택된 제목
+  customTitle?: string // 커스텀 제목
+  
   // 썸네일 관련
   youtubeTitle?: string
   youtubeDescription?: {
@@ -70,6 +84,7 @@ export interface ProjectData {
   } | null
   aiThumbnailUrl?: string | null
   thumbnailCustomText?: string
+  thumbnailText?: string[] // 썸네일 텍스트 배열
   
   // 기타
   completedSteps?: string[]

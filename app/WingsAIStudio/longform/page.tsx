@@ -357,12 +357,33 @@ export default function LongformContentPage() {
     return localStorage.getItem("gemini_api_key") || undefined
   }
   
-  // 사용자 ID 가져오기 (로컬 스토리지 또는 기본값)
+  // 사용자 ID 가져오기 (카카오 로그인 사용자 정보)
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const storedUserId = localStorage.getItem("user_id") || localStorage.getItem("user_email") || "anonymous"
-      setUserId(storedUserId)
+    const fetchUserInfo = async () => {
+      try {
+        const response = await fetch("/api/kakao/user")
+        const data = await response.json()
+        
+        if (data.loggedIn && data.user) {
+          // 카카오 로그인 사용자: 이메일 우선, 없으면 ID 사용
+          const userIdentifier = data.user.email || `kakao_${data.user.id}`
+          setUserId(userIdentifier)
+          console.log("[Projects] 로그인한 사용자:", userIdentifier)
+        } else {
+          // 로그인하지 않은 경우: 로컬 스토리지 또는 기본값
+          const storedUserId = localStorage.getItem("user_id") || localStorage.getItem("user_email") || "anonymous"
+          setUserId(storedUserId)
+          console.log("[Projects] 로그인하지 않음, 기본 사용자:", storedUserId)
+        }
+      } catch (error) {
+        console.error("[Projects] 사용자 정보 조회 실패:", error)
+        // 에러 발생 시 기본값 사용
+        const storedUserId = localStorage.getItem("user_id") || localStorage.getItem("user_email") || "anonymous"
+        setUserId(storedUserId)
+      }
     }
+    
+    fetchUserInfo()
   }, [])
   const [keywords, setKeywords] = useState("")
   const [selectedTopic, setSelectedTopic] = useState("")
@@ -9324,6 +9345,74 @@ export default function LongformContentPage() {
     }
   }
 
+  // 모든 상태 초기화 함수
+  const resetAllStates = () => {
+    // 주제 관련
+    setKeywords("")
+    setSelectedTopic("")
+    setGeneratedTopics([])
+    setTrendingTopics([])
+    setSelectedTrendingVideoId(null)
+    setCrawledNews([])
+    setCustomTopic("")
+    setIsCustomTopicSelected(false)
+    setIsDirectInputSelected(false)
+    setBenchmarkScript("")
+    setIsDirectScriptInput(false)
+    setDirectScript("")
+    setIsStoryMode(false)
+    setSelectedCategory("wisdom" as any)
+    setShowBasicCategories(true)
+    
+    // 대본 관련
+    setScript("")
+    setScriptPlan("")
+    setScriptDraft("")
+    setDecomposedScenes("")
+    setScriptLines([])
+    setScriptDuration(20)
+    setMaxScenesPerScene(3)
+    setReferenceTitle("")
+    setReferenceScript("")
+    
+    // 이미지 관련
+    setSceneImagePrompts([])
+    setGeneratedImages([])
+    setImageStyle("stickman-animation")
+    setCustomStylePrompt(null)
+    setCustomStyleCharacterImage(null)
+    setCustomStyleBackgroundImage(null)
+    setRealisticCharacterType(null)
+    setConvertedVideos(new Map())
+    setConvertedSceneVideos(new Map())
+    
+    // TTS 관련
+    setSelectedVoiceId("ttsmaker-여성1")
+    setGeneratedAudios([])
+    
+    // 영상 관련
+    setVideoData(null)
+    
+    // 제목 관련
+    setGeneratedTitles([])
+    setSelectedTitle("")
+    setCustomTitle("")
+    
+    // 썸네일 관련
+    setYoutubeTitle("")
+    setYoutubeDescription(null)
+    setAiThumbnailUrl(null)
+    setThumbnailCustomText("")
+    setThumbnailText([])
+    setThumbnailBackgroundImage(null)
+    setThumbnailOverlayImage(null)
+    setSelectedThumbnailTemplate(null)
+    
+    // 기타
+    setCompletedSteps([])
+    setActiveStep("topic")
+  }
+
   // 프로젝트 생성
   const handleCreateProject = async () => {
     if (!newProjectName.trim()) {
@@ -9338,7 +9427,11 @@ export default function LongformContentPage() {
 
     setIsSavingProject(true)
     try {
-      const project = await createProject(userId, newProjectName.trim(), newProjectDescription.trim() || undefined)
+      // 새 프로젝트 생성 전 모든 상태 초기화
+      resetAllStates()
+      
+      // 빈 데이터로 프로젝트 생성
+      const project = await createProject(userId, newProjectName.trim(), newProjectDescription.trim() || undefined, {})
       setProjects([project, ...projects])
       setCurrentProject(project)
       setShowProjectList(false)
@@ -9363,17 +9456,31 @@ export default function LongformContentPage() {
       const projectData = project.data as ProjectData
       
       // 상태 복원
+      // 주제 관련
       if (projectData.selectedTopic) setSelectedTopic(projectData.selectedTopic)
       if (projectData.keywords) setKeywords(projectData.keywords)
       if (projectData.customTopic) setCustomTopic(projectData.customTopic)
+      if (projectData.isCustomTopicSelected !== undefined) setIsCustomTopicSelected(projectData.isCustomTopicSelected)
       if (projectData.isDirectInputSelected !== undefined) setIsDirectInputSelected(projectData.isDirectInputSelected)
       if (projectData.benchmarkScript) setBenchmarkScript(projectData.benchmarkScript)
       if (projectData.isDirectScriptInput !== undefined) setIsDirectScriptInput(projectData.isDirectScriptInput)
       if (projectData.directScript) setDirectScript(projectData.directScript)
       if (projectData.isStoryMode !== undefined) setIsStoryMode(projectData.isStoryMode)
+      if (projectData.generatedTopics) setGeneratedTopics(projectData.generatedTopics)
+      if (projectData.selectedCategory) setSelectedCategory(projectData.selectedCategory as any)
+      
+      // 대본 관련
       if (projectData.script) setScript(projectData.script)
+      if (projectData.scriptPlan) setScriptPlan(projectData.scriptPlan)
+      if (projectData.scriptDraft) setScriptDraft(projectData.scriptDraft)
       if (projectData.decomposedScenes) setDecomposedScenes(projectData.decomposedScenes)
       if (projectData.scriptLines) setScriptLines(projectData.scriptLines)
+      if (projectData.scriptDuration) setScriptDuration(projectData.scriptDuration)
+      if (projectData.maxScenesPerScene) setMaxScenesPerScene(projectData.maxScenesPerScene)
+      if (projectData.referenceTitle) setReferenceTitle(projectData.referenceTitle)
+      if (projectData.referenceScript) setReferenceScript(projectData.referenceScript)
+      
+      // 이미지 관련
       if (projectData.sceneImagePrompts) setSceneImagePrompts(projectData.sceneImagePrompts)
       if (projectData.generatedImages) setGeneratedImages(projectData.generatedImages)
       if (projectData.imageStyle) setImageStyle(projectData.imageStyle)
@@ -9381,18 +9488,53 @@ export default function LongformContentPage() {
       if (projectData.customStyleCharacterImage !== undefined) setCustomStyleCharacterImage(projectData.customStyleCharacterImage)
       if (projectData.customStyleBackgroundImage !== undefined) setCustomStyleBackgroundImage(projectData.customStyleBackgroundImage)
       if (projectData.realisticCharacterType !== undefined) setRealisticCharacterType(projectData.realisticCharacterType)
-      if (projectData.stickmanCharacterDescription !== undefined) setStickmanCharacterDescription(projectData.stickmanCharacterDescription)
+      // stickmanCharacterDescription는 이미지 프롬프트 생성 시 지역 변수로만 사용되므로 복원하지 않음
+      // 변환된 영상 복원 (배열을 Map으로 변환)
+      if (projectData.convertedVideos) {
+        const convertedVideosMap = new Map<number, string>()
+        projectData.convertedVideos.forEach(({ lineId, videoUrl }) => {
+          convertedVideosMap.set(lineId, videoUrl)
+        })
+        setConvertedVideos(convertedVideosMap)
+      }
+      if (projectData.convertedSceneVideos) {
+        const convertedSceneVideosMap = new Map<string, string>()
+        projectData.convertedSceneVideos.forEach(({ key, videoUrl }) => {
+          convertedSceneVideosMap.set(key, videoUrl)
+        })
+        setConvertedSceneVideos(convertedSceneVideosMap)
+      }
+      
+      // TTS 관련
       if (projectData.selectedVoiceId) setSelectedVoiceId(projectData.selectedVoiceId)
-      if (projectData.generatedAudios) setGeneratedAudios(projectData.generatedAudios)
+      if (projectData.generatedAudios) {
+        // audioBase64는 저장하지 않았으므로 복원 시 빈 문자열로 설정
+        setGeneratedAudios(projectData.generatedAudios.map(audio => ({
+          lineId: audio.lineId,
+          audioUrl: audio.audioUrl,
+          audioBase64: "", // 저장되지 않았으므로 빈 문자열
+          alignment: audio.alignment,
+        })))
+      }
+      
+      // 영상 관련
       if (projectData.videoData) setVideoData(projectData.videoData)
+      
+      // 제목 관련
+      if (projectData.generatedTitles) setGeneratedTitles(projectData.generatedTitles)
+      if (projectData.selectedTitle) setSelectedTitle(projectData.selectedTitle)
+      if (projectData.customTitle) setCustomTitle(projectData.customTitle)
+      
+      // 썸네일 관련
       if (projectData.youtubeTitle) setYoutubeTitle(projectData.youtubeTitle)
       if (projectData.youtubeDescription) setYoutubeDescription(projectData.youtubeDescription)
       if (projectData.aiThumbnailUrl !== undefined) setAiThumbnailUrl(projectData.aiThumbnailUrl)
       if (projectData.thumbnailCustomText) setThumbnailCustomText(projectData.thumbnailCustomText)
+      if (projectData.thumbnailText) setThumbnailText(projectData.thumbnailText)
+      
+      // 기타
       if (projectData.completedSteps) setCompletedSteps(projectData.completedSteps)
       if (projectData.activeStep) setActiveStep(projectData.activeStep)
-      if (projectData.scriptDuration) setScriptDuration(projectData.scriptDuration)
-      if (projectData.maxScenesPerScene) setMaxScenesPerScene(projectData.maxScenesPerScene)
     } catch (error) {
       console.error("[Projects] 프로젝트 데이터 복원 실패:", error)
     }
@@ -9408,37 +9550,102 @@ export default function LongformContentPage() {
     setIsSavingProject(true)
     try {
       // 현재 상태를 프로젝트 데이터로 변환
+      // Map을 배열로 변환 (convertedVideos, convertedSceneVideos)
+      const convertedVideosArray = Array.from(convertedVideos.entries()).map(([lineId, videoUrl]) => ({
+        lineId,
+        videoUrl,
+      }))
+      const convertedSceneVideosArray = Array.from(convertedSceneVideos.entries()).map(([key, videoUrl]) => ({
+        key,
+        videoUrl,
+      }))
+      
       const projectData: ProjectData = {
+        // 주제 관련
         selectedTopic,
         keywords,
         customTopic,
+        isCustomTopicSelected,
         isDirectInputSelected,
         benchmarkScript,
         isDirectScriptInput,
         directScript,
         isStoryMode,
+        generatedTopics,
+        selectedCategory,
+        
+        // 대본 관련
         script,
+        scriptPlan,
+        scriptDraft,
         decomposedScenes,
         scriptLines,
-        sceneImagePrompts,
-        generatedImages,
+        scriptDuration,
+        maxScenesPerScene,
+        referenceTitle,
+        referenceScript,
+        
+        // 이미지 관련
+        // sceneImagePrompts와 generatedImages에서 base64 이미지 제거 (URL만 저장)
+        sceneImagePrompts: sceneImagePrompts.map(scene => ({
+          ...scene,
+          images: scene.images.map(img => ({
+            ...img,
+            // base64 이미지는 제외하고 URL만 저장
+            imageUrl: img.imageUrl?.startsWith("data:") ? undefined : img.imageUrl,
+          })),
+        })),
+        generatedImages: generatedImages.map(img => ({
+          ...img,
+          // base64 이미지는 제외하고 URL만 저장
+          imageUrl: img.imageUrl?.startsWith("data:") ? "" : img.imageUrl,
+        })),
         imageStyle,
         customStylePrompt,
-        customStyleCharacterImage,
-        customStyleBackgroundImage,
+        // customStyleCharacterImage와 customStyleBackgroundImage는 base64일 수 있어 용량이 크므로 URL만 저장
+        customStyleCharacterImage: customStyleCharacterImage?.startsWith("data:") ? null : customStyleCharacterImage,
+        customStyleBackgroundImage: customStyleBackgroundImage?.startsWith("data:") ? null : customStyleBackgroundImage,
         realisticCharacterType,
-        stickmanCharacterDescription,
+        // stickmanCharacterDescription는 이미지 프롬프트 생성 시 지역 변수로만 사용되므로 저장하지 않음
+        convertedVideos: convertedVideosArray,
+        convertedSceneVideos: convertedSceneVideosArray,
+        
+        // TTS 관련
         selectedVoiceId,
-        generatedAudios,
-        videoData,
+        // audioBase64는 용량이 크므로 제외하고 audioUrl만 저장
+        generatedAudios: generatedAudios.map(audio => ({
+          lineId: audio.lineId,
+          audioUrl: audio.audioUrl,
+          alignment: audio.alignment,
+          // audioBase64 제외 (용량이 너무 큼)
+        })),
+        
+        // 영상 관련
+        // videoData의 autoImages에서 base64 이미지 제거 (URL만 저장)
+        videoData: videoData ? {
+          ...videoData,
+          autoImages: videoData.autoImages?.map(img => ({
+            ...img,
+            // base64 이미지는 제외하고 URL만 저장
+            url: img.url?.startsWith("data:") ? "" : img.url,
+          })),
+        } : null,
+        
+        // 제목 관련
+        generatedTitles,
+        selectedTitle,
+        customTitle,
+        
+        // 썸네일 관련
         youtubeTitle,
         youtubeDescription,
         aiThumbnailUrl,
         thumbnailCustomText,
+        thumbnailText,
+        
+        // 기타
         completedSteps,
         activeStep,
-        scriptDuration,
-        maxScenesPerScene,
       }
 
       await updateProject(currentProject.id, { data: projectData })
@@ -9497,12 +9704,52 @@ export default function LongformContentPage() {
 
   // 프로젝트 목록 화면 렌더링
   const renderProjectList = () => {
+    // 로그인하지 않은 경우 안내
+    if (userId === "anonymous" || !userId) {
+      return (
+        <div className="min-h-screen bg-gray-50 p-6">
+          <div className="max-w-6xl mx-auto">
+            <div className="mb-8">
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">롱폼 프로젝트</h1>
+              <p className="text-gray-600">작업한 내용을 저장하고 관리하세요</p>
+              <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                <p className="text-sm text-amber-800">
+                  <strong>안내사항:</strong> 이미지는 1시간 후에 삭제가 되기에 미리 저장 또는 렌더링 부탁드립니다.
+                </p>
+              </div>
+            </div>
+            
+            <Card className="p-12 text-center">
+              <div className="max-w-md mx-auto">
+                <User className="w-16 h-16 mx-auto mb-4 text-gray-400" />
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">로그인이 필요합니다</h3>
+                <p className="text-gray-600 mb-6">
+                  프로젝트를 생성하고 관리하려면 먼저 로그인해주세요.
+                </p>
+                <Button
+                  onClick={() => window.location.href = "/"}
+                  className="bg-red-600 hover:bg-red-700 text-white"
+                >
+                  로그인하러 가기
+                </Button>
+              </div>
+            </Card>
+          </div>
+        </div>
+      )
+    }
+
     return (
       <div className="min-h-screen bg-gray-50 p-6">
         <div className="max-w-6xl mx-auto">
           <div className="mb-8">
             <h1 className="text-3xl font-bold text-gray-900 mb-2">롱폼 프로젝트</h1>
             <p className="text-gray-600">작업한 내용을 저장하고 관리하세요</p>
+            <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+              <p className="text-sm text-amber-800">
+                <strong>안내사항:</strong> 이미지는 1시간 후에 삭제가 되기에 미리 저장 또는 렌더링 부탁드립니다.
+              </p>
+            </div>
           </div>
 
           <div className="mb-6 flex justify-end">
