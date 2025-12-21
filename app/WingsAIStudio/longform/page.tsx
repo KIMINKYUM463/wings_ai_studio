@@ -3078,9 +3078,9 @@ export default function LongformContentPage() {
 
       if (successCount > 0) {
         if (successCount < shortsScriptLines.length) {
-          alert(`${successCount}개의 TTS가 생성되었습니다. (${shortsScriptLines.length - successCount}개 실패)\n\n실패한 항목은 브라우저 콘솔을 확인해주세요.`)
+          // alert(`${successCount}개의 TTS가 생성되었습니다. (${shortsScriptLines.length - successCount}개 실패)\n\n실패한 항목은 브라우저 콘솔을 확인해주세요.`) // 완료 알림 제거
         } else {
-          alert(`${successCount}개의 TTS가 모두 생성되었습니다!`)
+          // alert(`${successCount}개의 TTS가 모두 생성되었습니다!`) // 완료 알림 제거
         }
         
         // 각 TTS 오디오의 실제 길이 측정 및 오디오 버퍼 저장
@@ -3265,7 +3265,7 @@ export default function LongformContentPage() {
         setShortsVideoUrl(videoUrl)
         URL.revokeObjectURL(audioUrl)
         setIsRenderingShorts(false)
-        alert("쇼츠 영상 렌더링이 완료되었습니다!")
+        // alert("쇼츠 영상 렌더링이 완료되었습니다!") // 완료 알림 제거
       }
 
       // 이미지 미리 로드 - sceneImagePrompts와 generatedImages 모두 포함
@@ -4485,7 +4485,7 @@ export default function LongformContentPage() {
 
       setCustomImageDialogOpen(null)
       setCustomImagePrompt("")
-      alert("이미지가 생성되었습니다!")
+      // alert("이미지가 생성되었습니다!") // 완료 알림 제거
     } catch (error) {
       console.error(`[v0] 커스텀 이미지 생성 실패 (줄 ${lineId}):`, error)
       alert(`이미지 생성에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
@@ -4525,7 +4525,7 @@ export default function LongformContentPage() {
             return newMap
           })
           
-          alert("영상이 업로드되었습니다!")
+          // alert("영상이 업로드되었습니다!") // 완료 알림 제거
         }
         reader.readAsDataURL(file)
       } else {
@@ -4559,7 +4559,7 @@ export default function LongformContentPage() {
             return newMap
           })
 
-          alert("이미지가 업로드되었습니다!")
+          // alert("이미지가 업로드되었습니다!") // 완료 알림 제거
         }
         reader.readAsDataURL(resizedImage)
       }
@@ -4608,7 +4608,7 @@ export default function LongformContentPage() {
             return newMap
           })
           
-          alert("영상이 업로드되었습니다!")
+          // alert("영상이 업로드되었습니다!") // 완료 알림 제거
         }
         reader.readAsDataURL(file)
       } else {
@@ -4650,7 +4650,7 @@ export default function LongformContentPage() {
             return newMap
           })
 
-          alert("이미지가 업로드되었습니다!")
+          // alert("이미지가 업로드되었습니다!") // 완료 알림 제거
         }
         reader.readAsDataURL(resizedImage)
       }
@@ -4888,7 +4888,7 @@ export default function LongformContentPage() {
         // 중단 체크
         if (shouldStopImageGeneration.current) {
           console.log("[v0] 이미지 생성 중단됨")
-          alert(`이미지 생성을 중단했습니다. (${successCount}개 생성 완료)`)
+          // alert(`이미지 생성을 중단했습니다. (${successCount}개 생성 완료)`) // 완료 알림 제거
           break
         }
         
@@ -4947,7 +4947,7 @@ export default function LongformContentPage() {
           return prev
         })
         if (!isAutoMode) {
-          alert(`${successCount}개의 이미지가 생성되었습니다!`)
+          // alert(`${successCount}개의 이미지가 생성되었습니다!`) // 완료 알림 제거
         }
         
         // 자동화 모드일 때 다음 단계 자동 진행 (TTS 생성)
@@ -5434,9 +5434,9 @@ export default function LongformContentPage() {
           
           if (!isAutoMode) {
             if (successCount < sceneTextsForTTS.length) {
-              alert(`${successCount}개의 TTS가 생성되었습니다. (${sceneTextsForTTS.length - successCount}개 실패)\n\n실패한 항목은 브라우저 콘솔을 확인해주세요.`)
+              // alert(`${successCount}개의 TTS가 생성되었습니다. (${sceneTextsForTTS.length - successCount}개 실패)\n\n실패한 항목은 브라우저 콘솔을 확인해주세요.`) // 완료 알림 제거
             } else {
-              alert(`${successCount}개의 TTS가 모두 생성되었습니다!`)
+              // alert(`${successCount}개의 TTS가 모두 생성되었습니다!`) // 완료 알림 제거
             }
           }
           
@@ -5521,9 +5521,9 @@ export default function LongformContentPage() {
         
         if (!isAutoMode) {
           if (successCount < scriptLines.length) {
-            alert(`${successCount}개의 TTS가 생성되었습니다. (${scriptLines.length - successCount}개 실패)\n\n실패한 항목은 브라우저 콘솔을 확인해주세요.`)
+            // alert(`${successCount}개의 TTS가 생성되었습니다. (${scriptLines.length - successCount}개 실패)\n\n실패한 항목은 브라우저 콘솔을 확인해주세요.`) // 완료 알림 제거
           } else {
-            alert(`${successCount}개의 TTS가 모두 생성되었습니다!`)
+            // alert(`${successCount}개의 TTS가 모두 생성되었습니다!`) // 완료 알림 제거
           }
         }
         
@@ -8052,9 +8052,9 @@ export default function LongformContentPage() {
         setIsAutoMode(false)
         setAutoModeStep("")
         setAutoModeProgress({ current: "", total: 7 })
-        alert("자동화 작업이 완료되었습니다! 영상 다운로드가 완료되었습니다.")
+        // alert("자동화 작업이 완료되었습니다! 영상 다운로드가 완료되었습니다.") // 완료 알림 제거
       } else {
-        alert("영상 렌더링이 완료되었습니다!")
+        // alert("영상 렌더링이 완료되었습니다!") // 완료 알림 제거
       }
       setIsExporting(false)
     } catch (error) {
@@ -8410,7 +8410,7 @@ export default function LongformContentPage() {
           }
           return prev
         })
-        alert("영상 렌더링이 완료되었습니다!")
+        // alert("영상 렌더링이 완료되었습니다!") // 완료 알림 제거
         setIsExporting(false)
       }
 
@@ -11125,7 +11125,7 @@ export default function LongformContentPage() {
                           setSceneDecompositionProgress(null)
                         }, 1000)
                         
-                        alert(`대본이 ${scenes.length}개의 장면으로 분해되었습니다.`)
+                        // alert(`대본이 ${scenes.length}개의 장면으로 분해되었습니다.`) // 완료 알림 제거
                         setIsDecomposingScenes(false)
                         return
                       }
@@ -11282,7 +11282,7 @@ export default function LongformContentPage() {
                           setSceneDecompositionProgress(null)
                         }, 1000)
                         
-                        alert(`대본이 ${scenes.length}개의 장면으로 분해되었습니다.`)
+                        // alert(`대본이 ${scenes.length}개의 장면으로 분해되었습니다.`) // 완료 알림 제거
                       } catch (error) {
                         clearInterval(progressInterval)
                         setSceneDecompositionProgress(null)
