@@ -10919,6 +10919,81 @@ export default function LongformContentPage() {
                       console.log(`[장면 분해] 총 씬 개수 분석 완료: ${totalScenes}개 씬`)
                       
                       const startTime = Date.now()
+                      
+                      // 최대 1개를 선택했을 때는 AI 호출 없이 바로 형식만 변환
+                      if (maxScenesPerScene === 1) {
+                        console.log("[장면 분해] 최대 1개 선택됨 - AI 호출 없이 바로 형식 변환")
+                        
+                        // 진행률 초기화
+                        setSceneDecompositionProgress({
+                          current: 0,
+                          total: totalScenes,
+                          progress: 0,
+                          elapsedTime: 0,
+                          estimatedTime: 1
+                        })
+                        
+                        // 씬별로 바로 형식 변환
+                        const allResults: string[] = []
+                        
+                        for (let i = 0; i < splitScenes.length; i++) {
+                          const sceneText = splitScenes[i]
+                          const sceneNumber = i + 1
+                          
+                          // 진행률 업데이트
+                          setSceneDecompositionProgress({
+                            current: i + 1,
+                            total: totalScenes,
+                            progress: Math.floor(((i + 1) / totalScenes) * 100),
+                            elapsedTime: Math.floor((Date.now() - startTime) / 1000),
+                            estimatedTime: 1
+                          })
+                          
+                          // 각 씬을 [장면 1] 형식으로 변환
+                          const formattedResult = `씬 ${sceneNumber}\n\n[장면 1]\n\n${sceneText.trim()}`
+                          allResults.push(formattedResult)
+                          
+                          // 실시간으로 결과 업데이트
+                          const partialResult = allResults.join("\n\n")
+                          setDecomposedScenes(partialResult)
+                        }
+                        
+                        const finalResult = allResults.join("\n\n")
+                        console.log(`[장면 분해] 형식 변환 완료, 최종 결과 길이: ${finalResult.length}자`)
+                        
+                        // 최종 결과 저장
+                        setDecomposedScenes(finalResult)
+                        
+                        // 최종 결과 파싱
+                        const scenes = parseSceneBlocks(finalResult)
+                        
+                        if (!scenes || !Array.isArray(scenes) || scenes.length === 0) {
+                          throw new Error("장면 파싱에 실패했습니다.")
+                        }
+                        
+                        setScriptLines(scenes)
+                        setCompletedSteps((prev) => [...new Set([...prev, "script"])])
+                        
+                        // 완료 시 100% 표시
+                        setSceneDecompositionProgress({
+                          current: totalScenes,
+                          total: totalScenes,
+                          progress: 100,
+                          elapsedTime: Math.floor((Date.now() - startTime) / 1000),
+                          estimatedTime: 1
+                        })
+                        
+                        // 1초 후 진행률 초기화
+                        setTimeout(() => {
+                          setSceneDecompositionProgress(null)
+                        }, 1000)
+                        
+                        alert(`대본이 ${scenes.length}개의 장면으로 분해되었습니다.`)
+                        setIsDecomposingScenes(false)
+                        return
+                      }
+                      
+                      // 최대 2개 이상일 때는 기존 AI 호출 로직 사용
                       // 씬당 약 15-20초 소요 가정
                       const estimatedSeconds = Math.max(30, totalScenes * 18)
                       const estimatedTime = estimatedSeconds * 1000
