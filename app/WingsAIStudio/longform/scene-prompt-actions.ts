@@ -1,7 +1,70 @@
 "use server"
 
+import { getEnvApiKey } from "@/lib/api-keys"
+
 // 내부적으로 사용할 OpenAI API 키
 const INTERNAL_OPENAI_API_KEY = "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"
+
+/**
+ * Gemini API를 통해 이미지 프롬프트 생성
+ */
+async function generatePromptsWithGemini(
+  systemPrompt: string,
+  userPrompt: string,
+  geminiApiKey: string
+): Promise<string> {
+  try {
+    const response = await fetch("/api/gemini/generate-content", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gemini-2.5-flash", // Gemini 2.5 Flash 사용 (사용 불가 시 gemini-2.0-flash-exp로 변경 가능)
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                text: `${systemPrompt}\n\n${userPrompt}`,
+              },
+            ],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 4000,
+        },
+        apiKey: geminiApiKey,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(`Gemini API 호출 실패: ${response.status} - ${errorText}`)
+    }
+
+    const data = await response.json()
+
+    // Gemini 응답 형식 파싱
+    if (!data.candidates || !Array.isArray(data.candidates) || data.candidates.length === 0) {
+      console.error("[Gemini] API 응답 오류:", data)
+      throw new Error("Gemini API 응답 형식이 올바르지 않습니다.")
+    }
+
+    const content = data.candidates[0]?.content?.parts?.[0]?.text
+
+    if (!content || typeof content !== "string") {
+      console.error("[Gemini] 콘텐츠 없음:", data.candidates[0])
+      throw new Error("Gemini 응답 내용이 없습니다.")
+    }
+
+    return content
+  } catch (error) {
+    console.error("[Gemini] 프롬프트 생성 실패:", error)
+    throw error
+  }
+}
 
 /**
  * 장면을 영어 이미지 프롬프트로 변환하는 함수
@@ -210,6 +273,8 @@ ${imageStyle === "realistic" || imageStyle === "realistic2" ? "Inference Steps�
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 60000) // 60초 타임아웃
 
+  let content: string
+
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -239,22 +304,56 @@ ${imageStyle === "realistic" || imageStyle === "realistic2" ? "Inference Steps�
 
     if (!response.ok) {
       const errorText = await response.text()
-      throw new Error(`OpenAI API 호출 실패: ${response.status} - ${errorText}`)
-    }
+      let errorData: any = null
+      
+      try {
+        errorData = JSON.parse(errorText)
+      } catch {
+        // JSON 파싱 실패 시 무시
+      }
 
-    const data = await response.json()
-    
-    // API 응답 검증
-    if (!data || !data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
-      console.error(`[Scene ${sceneNumber}] API 응답 오류:`, data)
-      throw new Error(`Scene ${sceneNumber} 프롬프트 생성에 실패했습니다: API 응답 형식이 올바르지 않습니다.`)
-    }
-    
-    const content = data.choices[0]?.message?.content
+      // Rate Limit 오류 감지 (429 또는 rate_limit_exceeded)
+      const isRateLimitError = 
+        response.status === 429 || 
+        errorData?.error?.code === "rate_limit_exceeded" ||
+        errorText.includes("Rate limit") ||
+        errorText.includes("rate_limit")
 
-    if (!content || typeof content !== 'string') {
-      console.error(`[Scene ${sceneNumber}] 콘텐츠 없음:`, data.choices[0])
-      throw new Error(`Scene ${sceneNumber} 프롬프트 생성에 실패했습니다: 응답 내용이 없습니다.`)
+      if (isRateLimitError) {
+        console.warn(`[Scene ${sceneNumber}] OpenAI Rate Limit 초과, Gemini로 전환 시도`)
+        
+        // Gemini API 키 가져오기
+        const geminiApiKey = getEnvApiKey("gemini")
+        
+        if (!geminiApiKey) {
+          throw new Error(`OpenAI Rate Limit 초과 및 Gemini API 키가 설정되지 않았습니다. 설정에서 Gemini API 키를 입력해주세요.`)
+        }
+
+        // Gemini API로 fallback
+        try {
+          content = await generatePromptsWithGemini(systemPrompt, userPrompt, geminiApiKey)
+          console.log(`[Scene ${sceneNumber}] Gemini API로 프롬프트 생성 성공`)
+        } catch (geminiError) {
+          throw new Error(`OpenAI Rate Limit 초과 및 Gemini API 호출 실패: ${geminiError instanceof Error ? geminiError.message : "알 수 없는 오류"}`)
+        }
+      } else {
+        throw new Error(`OpenAI API 호출 실패: ${response.status} - ${errorText}`)
+      }
+    } else {
+      const data = await response.json()
+      
+      // API 응답 검증
+      if (!data || !data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
+        console.error(`[Scene ${sceneNumber}] API 응답 오류:`, data)
+        throw new Error(`Scene ${sceneNumber} 프롬프트 생성에 실패했습니다: API 응답 형식이 올바르지 않습니다.`)
+      }
+      
+      content = data.choices[0]?.message?.content
+
+      if (!content || typeof content !== 'string') {
+        console.error(`[Scene ${sceneNumber}] 콘텐츠 없음:`, data.choices[0])
+        throw new Error(`Scene ${sceneNumber} 프롬프트 생성에 실패했습니다: 응답 내용이 없습니다.`)
+      }
     }
 
     // 텍스트에서 각 장면의 프롬프트 추출
@@ -924,47 +1023,104 @@ ${customStylePrompt ? "각 장면의 영어 프롬프트에는 반드시 위의 
 장면 번호는 ${sceneImages.map(img => img.imageNumber).join(", ")}입니다.
 ${imageStyle === "realistic" || imageStyle === "realistic2" ? "Inference Steps는 4입니다." : imageStyle === "animation2" || imageStyle === "animation3" || imageStyle === "stickman-animation" ? "Inference Steps는 16입니다." : ""}`
 
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${actualApiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          messages: [
-            {
-              role: "system",
-              content: systemPrompt,
-            },
-            {
-              role: "user",
-              content: userPrompt,
-            },
-          ],
-          max_tokens: 4000,
-          temperature: 0.7,
-        }),
-      })
+      let content: string
 
-      if (!response.ok) {
-        const errorText = await response.text()
-        throw new Error(`OpenAI API 호출 실패: ${response.status} - ${errorText}`)
-      }
+      try {
+        const response = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${actualApiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            messages: [
+              {
+                role: "system",
+                content: systemPrompt,
+              },
+              {
+                role: "user",
+                content: userPrompt,
+              },
+            ],
+            max_tokens: 4000,
+            temperature: 0.7,
+          }),
+        })
 
-      const data = await response.json()
-      
-      // API 응답 검증
-      if (!data || !data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
-        console.error(`[Scene ${sceneNum}] API 응답 오류:`, data)
-        throw new Error(`Scene ${sceneNum} 프롬프트 생성에 실패했습니다: API 응답 형식이 올바르지 않습니다.`)
-      }
-      
-      const content = data.choices[0]?.message?.content
+        if (!response.ok) {
+          const errorText = await response.text()
+          let errorData: any = null
+          
+          try {
+            errorData = JSON.parse(errorText)
+          } catch {
+            // JSON 파싱 실패 시 무시
+          }
 
-      if (!content || typeof content !== 'string') {
-        console.error(`[Scene ${sceneNum}] 콘텐츠 없음:`, data.choices[0])
-        throw new Error(`Scene ${sceneNum} 프롬프트 생성에 실패했습니다: 응답 내용이 없습니다.`)
+          // Rate Limit 오류 감지 (429 또는 rate_limit_exceeded)
+          const isRateLimitError = 
+            response.status === 429 || 
+            errorData?.error?.code === "rate_limit_exceeded" ||
+            errorText.includes("Rate limit") ||
+            errorText.includes("rate_limit")
+
+          if (isRateLimitError) {
+            console.warn(`[Scene ${sceneNum}] OpenAI Rate Limit 초과, Gemini로 전환 시도`)
+            
+            // Gemini API 키 가져오기
+            const geminiApiKey = getEnvApiKey("gemini")
+            
+            if (!geminiApiKey) {
+              throw new Error(`OpenAI Rate Limit 초과 및 Gemini API 키가 설정되지 않았습니다. 설정에서 Gemini API 키를 입력해주세요.`)
+            }
+
+            // Gemini API로 fallback
+            try {
+              content = await generatePromptsWithGemini(systemPrompt, userPrompt, geminiApiKey)
+              console.log(`[Scene ${sceneNum}] Gemini API로 프롬프트 생성 성공`)
+            } catch (geminiError) {
+              throw new Error(`OpenAI Rate Limit 초과 및 Gemini API 호출 실패: ${geminiError instanceof Error ? geminiError.message : "알 수 없는 오류"}`)
+            }
+          } else {
+            throw new Error(`OpenAI API 호출 실패: ${response.status} - ${errorText}`)
+          }
+        } else {
+          const data = await response.json()
+          
+          // API 응답 검증
+          if (!data || !data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
+            console.error(`[Scene ${sceneNum}] API 응답 오류:`, data)
+            throw new Error(`Scene ${sceneNum} 프롬프트 생성에 실패했습니다: API 응답 형식이 올바르지 않습니다.`)
+          }
+          
+          content = data.choices[0]?.message?.content
+
+          if (!content || typeof content !== 'string') {
+            console.error(`[Scene ${sceneNum}] 콘텐츠 없음:`, data.choices[0])
+            throw new Error(`Scene ${sceneNum} 프롬프트 생성에 실패했습니다: 응답 내용이 없습니다.`)
+          }
+        }
+      } catch (error) {
+        // 이미 처리된 오류는 그대로 throw
+        if (error instanceof Error && error.message.includes("Rate Limit")) {
+          throw error
+        }
+        // 기타 오류도 Gemini로 fallback 시도
+        console.warn(`[Scene ${sceneNum}] OpenAI API 오류, Gemini로 fallback 시도:`, error)
+        
+        const geminiApiKey = getEnvApiKey("gemini")
+        if (geminiApiKey) {
+          try {
+            content = await generatePromptsWithGemini(systemPrompt, userPrompt, geminiApiKey)
+            console.log(`[Scene ${sceneNum}] Gemini API로 프롬프트 생성 성공 (fallback)`)
+          } catch (geminiError) {
+            throw new Error(`OpenAI API 실패 및 Gemini API 호출 실패: ${geminiError instanceof Error ? geminiError.message : "알 수 없는 오류"}`)
+          }
+        } else {
+          throw error
+        }
       }
 
       console.log(`[Scene ${sceneNum}] API 응답 내용:`, content.substring(0, 500))

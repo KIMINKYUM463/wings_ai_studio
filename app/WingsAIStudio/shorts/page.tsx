@@ -2266,7 +2266,6 @@ export default function ShortsPage() {
                   </div>
                 </CardContent>
               </Card>
-            )}
 
             {/* 이미지 스타일 선택 */}
             <Card>
