@@ -38,19 +38,61 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify(requestBody),
     })
 
+    // TTSMaker API 응답 파싱 (HTTP 상태 코드와 관계없이 응답 본문 확인)
+    let data: any
+    try {
+      const responseText = await response.text()
+      console.log("[Test TTSMaker] API 응답:", responseText)
+      data = JSON.parse(responseText)
+    } catch (parseError) {
+      // 응답이 JSON이 아닌 경우
+      return NextResponse.json(
+        {
+          success: false,
+          message: `연결 실패: API 응답을 파싱할 수 없습니다. (HTTP ${response.status})`,
+        },
+        { status: response.status || 500 }
+      )
+    }
+
+    // TTSMaker API는 HTTP 200으로 응답하지만 error_code로 오류를 표시할 수 있음
+    // error_code가 0이 아니면 오류
+    if (data.error_code !== undefined && data.error_code !== 0) {
+      const errorMessage = 
+        data.error_summary || 
+        data.msg || 
+        data.message || 
+        data.error || 
+        `오류 코드: ${data.error_code}` ||
+        "알 수 없는 오류"
+      
+      console.error("[Test TTSMaker] API 오류:", {
+        error_code: data.error_code,
+        error_summary: data.error_summary,
+        msg: data.msg,
+        message: data.message,
+        error: data.error,
+        fullResponse: data,
+      })
+      
+      return NextResponse.json(
+        {
+          success: false,
+          message: `연결 실패: ${errorMessage}`,
+        },
+        { status: 400 }
+      )
+    }
+
+    // HTTP 상태 코드가 200이 아니면 오류
     if (!response.ok) {
-      let errorMessage = "Unknown error"
-      try {
-        const errorText = await response.clone().text()
-        try {
-          const errorDetails = JSON.parse(errorText)
-          errorMessage = errorDetails.error_summary || errorDetails.msg || errorDetails.error || errorText
-        } catch (parseError) {
-          errorMessage = errorText || `HTTP ${response.status}: ${response.statusText}`
-        }
-      } catch (e) {
-        errorMessage = `HTTP ${response.status}: ${response.statusText}`
-      }
+      const errorMessage = 
+        data.error_summary || 
+        data.msg || 
+        data.message || 
+        data.error || 
+        `HTTP ${response.status}: ${response.statusText}`
+      
       return NextResponse.json(
         {
           success: false,
@@ -60,17 +102,14 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // TTSMaker API 응답 파싱
-    const data = await response.json()
-    
-    // 실제 API 응답 구조에 맞게 확인: error_code가 0이면 성공
+    // 성공 조건: error_code가 0이거나 audio_download_url이 있으면 성공
     if (data.error_code === 0 || data.audio_download_url || data.audio_download_backup_url) {
       return NextResponse.json({
         success: true,
         message: "연결 성공!",
       })
     } else {
-      // 에러 응답 처리
+      // 예상치 못한 응답 구조
       return NextResponse.json(
         {
           success: false,
