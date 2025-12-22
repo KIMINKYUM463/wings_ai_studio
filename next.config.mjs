@@ -6,6 +6,11 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '10mb', // Server Actions body size limit을 10MB로 증가
+    },
+  },
   webpack: (config, { isServer }) => {
     if (isServer) {
       // 서버 사이드에서 undici를 external로 처리 (webpack 번들링 방지)
