@@ -151,6 +151,7 @@ export default function ShortsPage() {
     setIsGeneratingScript(true)
     try {
       const scriptText = await generateShortsScript(selectedTopic, selectedDuration, openaiApiKey)
+      console.log("[Shorts] 대본 생성 완료, 길이:", scriptText?.length || 0)
       setScript(scriptText)
 
       // 대본을 문장 단위로 분할 (각 문장당 하나의 이미지)
@@ -2185,7 +2186,8 @@ export default function ShortsPage() {
                     </div>
                     <Button
                       onClick={async () => {
-                        if (!script || script.trim().length === 0) {
+                        console.log("[Shorts] 후킹 제목 생성 버튼 클릭, script 상태:", script ? `길이: ${script.length}` : "없음")
+                        if (!script || typeof script !== 'string' || script.trim().length === 0) {
                           alert("대본이 필요합니다.")
                           return
                         }
@@ -2220,7 +2222,7 @@ export default function ShortsPage() {
                           setIsGeneratingTitle(false)
                         }
                       }}
-                      disabled={isGeneratingTitle || !script || script.trim().length === 0}
+                      disabled={isGeneratingTitle || !(script && typeof script === 'string' && script.trim().length > 0)}
                       className="w-full"
                       size="lg"
                     >
@@ -2632,7 +2634,8 @@ export default function ShortsPage() {
               </div>
                     <Button
                       onClick={async () => {
-                        if (!script || script.trim().length === 0) {
+                        console.log("[Shorts] 후킹 제목 생성 버튼 클릭, script 상태:", script ? `길이: ${script.length}` : "없음")
+                        if (!script || typeof script !== 'string' || script.trim().length === 0) {
                           alert("대본이 필요합니다.")
                           return
                         }
@@ -2667,7 +2670,7 @@ export default function ShortsPage() {
                           setIsGeneratingTitle(false)
                         }
                       }}
-                      disabled={isGeneratingTitle || !script || script.trim().length === 0}
+                      disabled={isGeneratingTitle || !(script && typeof script === 'string' && script.trim().length > 0)}
                       className="w-full"
                       size="lg"
                     >
