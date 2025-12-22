@@ -9516,11 +9516,13 @@ export default function LongformContentPage() {
       // TTS 관련
       if (projectData.selectedVoiceId) setSelectedVoiceId(projectData.selectedVoiceId)
       if (projectData.generatedAudios) {
-        // audioBase64는 1MB 이하일 때 저장되었을 수 있음, alignment는 저장하지 않음
+        // audioBase64는 용량이 커서 저장하지 않음 (Server Actions 1MB 제한)
+        // audioUrl만 저장되므로, audioBase64는 빈 문자열로 설정
+        // alignment는 저장하지 않음
         setGeneratedAudios(projectData.generatedAudios.map(audio => ({
           lineId: audio.lineId,
           audioUrl: audio.audioUrl,
-          audioBase64: audio.audioBase64 || "", // 저장되었으면 복원, 없으면 빈 문자열
+          audioBase64: "", // audioBase64는 저장하지 않으므로 항상 빈 문자열
           alignment: undefined, // alignment는 저장하지 않았으므로 undefined
         })))
       }
@@ -9627,24 +9629,14 @@ export default function LongformContentPage() {
         
         // TTS 관련
         selectedVoiceId,
-        // audioBase64는 항상 저장 (크기 제한 없음, alignment만 제외)
-        generatedAudios: (() => {
-          // 전체 audioBase64 크기 계산 (로깅용)
-          const totalAudioSize = generatedAudios.reduce((total, audio) => {
-            return total + (audio.audioBase64?.length || 0)
-          }, 0)
-          const totalAudioSizeMB = totalAudioSize / 1024 / 1024
-          
-          console.log(`[Projects] TTS 데이터 총 크기: ${totalAudioSizeMB.toFixed(2)}MB`)
-          
-          // audioBase64는 항상 저장 (크기 제한 없음)
-          return generatedAudios.map(audio => ({
-            lineId: audio.lineId,
-            audioUrl: audio.audioUrl,
-            audioBase64: audio.audioBase64 || "", // 항상 저장
-            // alignment는 용량이 클 수 있으므로 제외
-          }))
-        })(),
+        // audioBase64는 용량이 커서 Server Actions의 1MB 제한을 초과할 수 있으므로 제외
+        // audioUrl만 저장 (TTSMaker/ElevenLabs는 이미 URL을 제공)
+        generatedAudios: generatedAudios.map(audio => ({
+          lineId: audio.lineId,
+          audioUrl: audio.audioUrl,
+          // audioBase64는 용량이 커서 제외 (Server Actions 1MB 제한)
+          // alignment는 용량이 클 수 있으므로 제외
+        })),
         
         // 영상 관련
         // videoData의 autoImages에서 base64 이미지 제거 (URL만 저장)
@@ -9791,24 +9783,14 @@ export default function LongformContentPage() {
         
         // TTS 관련
         selectedVoiceId,
-        // audioBase64는 항상 저장 (크기 제한 없음, alignment만 제외)
-        generatedAudios: (() => {
-          // 전체 audioBase64 크기 계산 (로깅용)
-          const totalAudioSize = generatedAudios.reduce((total, audio) => {
-            return total + (audio.audioBase64?.length || 0)
-          }, 0)
-          const totalAudioSizeMB = totalAudioSize / 1024 / 1024
-          
-          console.log(`[Projects] TTS 데이터 총 크기: ${totalAudioSizeMB.toFixed(2)}MB`)
-          
-          // audioBase64는 항상 저장 (크기 제한 없음)
-          return generatedAudios.map(audio => ({
-            lineId: audio.lineId,
-            audioUrl: audio.audioUrl,
-            audioBase64: audio.audioBase64 || "", // 항상 저장
-            // alignment는 용량이 클 수 있으므로 제외
-          }))
-        })(),
+        // audioBase64는 용량이 커서 Server Actions의 1MB 제한을 초과할 수 있으므로 제외
+        // audioUrl만 저장 (TTSMaker/ElevenLabs는 이미 URL을 제공)
+        generatedAudios: generatedAudios.map(audio => ({
+          lineId: audio.lineId,
+          audioUrl: audio.audioUrl,
+          // audioBase64는 용량이 커서 제외 (Server Actions 1MB 제한)
+          // alignment는 용량이 클 수 있으므로 제외
+        })),
         
         // 영상 관련
         // videoData의 autoImages에서 base64 이미지 제거 (URL만 저장)
