@@ -16728,13 +16728,13 @@ export default function LongformContentPage() {
 
                   <Button
                     onClick={handleAIGenerateThumbnail}
-                    disabled={!selectedTopic || isGeneratingAIThumbnail}
+                    disabled={(!selectedTopic && !script) || isGeneratingAIThumbnail}
                     className="w-full mb-6"
                   >
                     {isGeneratingAIThumbnail ? (
                       <>
                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        AI가 썸네일을 생성하고 있습니다...
+                        {selectedTopic ? "AI가 썸네일을 생성하고 있습니다..." : "대본에서 주제를 추출하고 있습니다..."}
                       </>
                     ) : (
                       <>
