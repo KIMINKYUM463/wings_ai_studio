@@ -7680,6 +7680,13 @@ export default function LongformContentPage() {
         throw new Error("이미지 데이터가 비어있습니다. 이미지를 먼저 생성해주세요.")
       }
       
+      // duration 검증
+      const duration = videoData.duration
+      if (!duration || duration <= 0 || !isFinite(duration)) {
+        console.error("[v0] 유효하지 않은 duration:", duration)
+        throw new Error(`유효하지 않은 영상 길이입니다: ${duration}. TTS를 다시 생성해주세요.`)
+      }
+      
       const finalRequestBody = {
         // Cloud Storage URL이 있으면 사용, 없으면 base64 사용
         ...audioField,
@@ -7702,7 +7709,7 @@ export default function LongformContentPage() {
         autoImages: (autoImagesGcsUrls.length > 0 && autoImagesGcsUrls.some(img => !img.url.startsWith("data:"))) 
           ? autoImagesGcsUrls 
           : resizedAutoImagesBase64,
-        duration: videoData.duration,
+        duration: duration, // 검증된 duration 사용
         config: {
           width: 1920,
           height: 1080,
@@ -7839,7 +7846,8 @@ export default function LongformContentPage() {
               errorMessage += "가능한 원인:\n"
               errorMessage += "1. 이미지 파일 형식 문제\n"
               errorMessage += "2. 오디오 파일 문제\n"
-              errorMessage += "3. 서버 측 FFmpeg 설정 문제\n\n"
+              errorMessage += "3. 영상 길이(duration) 문제\n"
+              errorMessage += "4. 서버 측 FFmpeg 설정 문제\n\n"
               errorMessage += "해결 방법:\n"
               errorMessage += "- 다른 이미지로 다시 시도해보세요\n"
               errorMessage += "- 오디오 파일을 확인해주세요\n"
