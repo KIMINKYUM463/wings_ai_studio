@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -51,6 +52,7 @@ import {
   Link2,
   Unlink,
   X,
+  Loader2,
 } from "lucide-react"
 import { useRouter } from "next/navigation"
 
@@ -637,6 +639,12 @@ export default function HomePage() {
   // 업데이트 팝업 관련 상태
   const [announcement, setAnnouncement] = useState<{ id: string; title: string; content: string; created_at: string } | null>(null)
   const [isAnnouncementClosed, setIsAnnouncementClosed] = useState(false)
+  
+  // 개선사항 관련 상태
+  const [showFeedbackDialog, setShowFeedbackDialog] = useState(false)
+  const [feedbackContent, setFeedbackContent] = useState("")
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false)
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false)
 
   // 로그인 상태 확인 및 비밀번호 인증 확인
   useEffect(() => {
@@ -1143,8 +1151,150 @@ export default function HomePage() {
               dangerouslySetInnerHTML={{ __html: announcement.content.replace(/\n/g, '<br />') }}
             />
           </div>
+          
+          {/* 프로그램 개선사항 버튼 */}
+          <div className="p-4 border-t border-gray-200">
+            <Button
+              onClick={() => setShowFeedbackDialog(true)}
+              variant="outline"
+              className="w-full bg-gradient-to-r from-blue-50 to-indigo-50 hover:from-blue-100 hover:to-indigo-100 border-blue-200 text-blue-700"
+            >
+              <MessageSquare className="w-4 h-4 mr-2" />
+              프로그램 개선사항
+            </Button>
+          </div>
         </div>
       )}
+
+      {/* 개선사항 작성 다이얼로그 */}
+      <Dialog open={showFeedbackDialog} onOpenChange={setShowFeedbackDialog}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MessageSquare className="w-5 h-5 text-blue-500" />
+              프로그램 개선사항
+            </DialogTitle>
+            <DialogDescription>
+              개선하고 싶은 사항이나 제안하고 싶은 기능을 자유롭게 작성해주세요.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {feedbackSubmitted ? (
+            <div className="py-8 text-center">
+              <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">제출 완료</h3>
+              <p className="text-sm text-gray-600 mb-6">
+                소중한 의견 감사합니다. 검토 후 반영하겠습니다.
+              </p>
+              <Button
+                onClick={() => {
+                  setShowFeedbackDialog(false)
+                  setFeedbackSubmitted(false)
+                  setFeedbackContent("")
+                }}
+                className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
+              >
+                확인
+              </Button>
+            </div>
+          ) : (
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault()
+                if (!feedbackContent.trim()) {
+                  alert("개선사항을 입력해주세요.")
+                  return
+                }
+                
+                setIsSubmittingFeedback(true)
+                try {
+                  // 사용자 ID 가져오기
+                  let userId = null
+                  try {
+                    const userResponse = await fetch('/api/kakao/user')
+                    if (userResponse.ok) {
+                      const userData = await userResponse.json()
+                      if (userData.loggedIn && userData.user) {
+                        userId = userData.user.email || userData.user.id || null
+                      }
+                    }
+                  } catch (error) {
+                    console.error("[Feedback] 사용자 정보 가져오기 실패:", error)
+                  }
+                  
+                  const response = await fetch('/api/feedback', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      content: feedbackContent.trim(),
+                      userId: userId,
+                    }),
+                  })
+                  
+                  if (response.ok) {
+                    setFeedbackSubmitted(true)
+                    setFeedbackContent("")
+                  } else {
+                    const errorData = await response.json()
+                    alert(errorData.error || "개선사항 제출에 실패했습니다.")
+                  }
+                } catch (error) {
+                  console.error("[Feedback] 제출 실패:", error)
+                  alert("개선사항 제출 중 오류가 발생했습니다.")
+                } finally {
+                  setIsSubmittingFeedback(false)
+                }
+              }}
+            >
+              <div className="space-y-4 mt-4">
+                <div>
+                  <Label htmlFor="feedback-content" className="text-sm font-medium">
+                    개선사항
+                  </Label>
+                  <Textarea
+                    id="feedback-content"
+                    value={feedbackContent}
+                    onChange={(e) => setFeedbackContent(e.target.value)}
+                    placeholder="예: 새로운 기능 추가, 버그 수정, UI 개선 등 자유롭게 작성해주세요."
+                    className="min-h-[150px] resize-none mt-2"
+                    disabled={isSubmittingFeedback}
+                  />
+                </div>
+                
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setShowFeedbackDialog(false)
+                      setFeedbackContent("")
+                    }}
+                    disabled={isSubmittingFeedback}
+                  >
+                    취소
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={isSubmittingFeedback || !feedbackContent.trim()}
+                    className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
+                  >
+                    {isSubmittingFeedback ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        제출 중...
+                      </>
+                    ) : (
+                      "제출"
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* 메인 컨텐츠 */}
       <main className="relative z-10">

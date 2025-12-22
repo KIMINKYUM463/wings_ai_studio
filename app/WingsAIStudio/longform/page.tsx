@@ -461,6 +461,33 @@ export default function LongformContentPage() {
     return localStorage.getItem("gemini_api_key") || undefined
   }
   
+  // 알림음 재생 함수 (띠링 소리)
+  const playNotificationSound = () => {
+    try {
+      // Web Audio API를 사용하여 간단한 beep 소리 생성
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const oscillator = audioContext.createOscillator()
+      const gainNode = audioContext.createGain()
+      
+      oscillator.connect(gainNode)
+      gainNode.connect(audioContext.destination)
+      
+      // 800Hz 주파수로 0.2초 동안 재생
+      oscillator.frequency.value = 800
+      oscillator.type = 'sine'
+      
+      // 페이드 아웃 효과
+      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime)
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2)
+      
+      oscillator.start(audioContext.currentTime)
+      oscillator.stop(audioContext.currentTime + 0.2)
+    } catch (error) {
+      // 오디오 재생 실패 시 무시 (일부 브라우저에서 사용자 인터랙션 없이는 재생 불가)
+      console.log("[알림음] 재생 실패 (무시됨):", error)
+    }
+  }
+  
   // 사용자 ID 가져오기 (카카오 로그인 사용자 정보)
   useEffect(() => {
     const fetchUserInfo = async () => {
@@ -1829,13 +1856,36 @@ export default function LongformContentPage() {
           const audioBlob = new Blob([wavData], { type: "audio/wav" })
           const audioUrl = URL.createObjectURL(audioBlob)
 
+          // 실제 병합된 오디오의 길이 확인
+          const actualMergedDuration = mergedBuffer.duration
+          console.log(`[자동화] 계산된 총 길이: ${totalDuration.toFixed(3)}초, 실제 병합된 오디오 길이: ${actualMergedDuration.toFixed(3)}초`)
           console.log(`[자동화] 합쳐진 오디오 크기: ${Math.round(audioBlob.size / 1024)}KB`)
+          
+          // 실제 병합된 오디오 길이를 사용 (음성 잘림 방지)
+          const finalDuration = actualMergedDuration
+          
+          // 마지막 자막과 이미지의 endTime을 오디오의 실제 마지막 시간과 일치시키기
+          if (subtitles.length > 0) {
+            const lastSubtitle = subtitles[subtitles.length - 1]
+            if (lastSubtitle.end < finalDuration) {
+              console.log(`[자동화] 마지막 자막 endTime 조정: ${lastSubtitle.end.toFixed(3)}초 -> ${finalDuration.toFixed(3)}초`)
+              lastSubtitle.end = Number.parseFloat(finalDuration.toFixed(3))
+            }
+          }
+          
+          if (autoImagesForRender.length > 0) {
+            const lastImage = autoImagesForRender[autoImagesForRender.length - 1]
+            if (lastImage.endTime < finalDuration) {
+              console.log(`[자동화] 마지막 이미지 endTime 조정: ${lastImage.endTime.toFixed(3)}초 -> ${finalDuration.toFixed(3)}초`)
+              lastImage.endTime = Number.parseFloat(finalDuration.toFixed(3))
+            }
+          }
 
           // 5. videoData 설정 (autoImages 포함 - 수동 모드와 동일)
           const newVideoData = {
             audioUrl,
             subtitles,
-            duration: totalDuration,
+            duration: finalDuration, // 실제 병합된 오디오 길이 사용
             autoImages: autoImagesForRender.map((img) => ({
               id: img.id,
               url: img.url,
@@ -1864,6 +1914,7 @@ export default function LongformContentPage() {
           setRenderingStatusMessage("영상 렌더링 완료!")
           setCompletedSteps((prev) => [...new Set([...prev, "render"])])
           console.log("[자동화] 영상 렌더링 완료")
+          playNotificationSound() // 알림음 재생
 
           // 6. 빠른 다운로드 실행 (수동 모드의 handleFastDownload와 동일)
           setAutoProgress({
@@ -2054,6 +2105,7 @@ export default function LongformContentPage() {
             }, 100)
 
             console.log("[자동화] 영상 다운로드 완료")
+            playNotificationSound() // 알림음 재생
             setIsExporting(false)
 
           } catch (downloadError) {
@@ -3143,6 +3195,7 @@ export default function LongformContentPage() {
       setAiThumbnailUrl(imageUrl)
       setCompletedSteps((prev) => [...new Set([...prev, "thumbnail"])])
       console.log("[v0] AI 썸네일 생성 완료:", imageUrl)
+      playNotificationSound() // 알림음 재생
     } catch (error) {
       console.error("[v0] AI 썸네일 생성 실패:", error)
       const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다."
@@ -4630,6 +4683,7 @@ export default function LongformContentPage() {
       setScriptLines(groupedLines)
       setCompletedSteps((prev) => [...prev, "script"])
       console.log("[v0] 정교한 대본 생성 완료, 문장 그룹 수:", groupedLines.length)
+      playNotificationSound() // 알림음 재생
       
       // 완료 시 100% 표시
       setScriptGenerationProgress({
@@ -5214,6 +5268,7 @@ export default function LongformContentPage() {
       }
 
       console.log("[v0] 모든 이미지 생성 완료, 성공:", successCount, "개")
+      if (successCount > 0) playNotificationSound() // 알림음 재생
       
       // 이미지가 하나라도 생성되었으면 완료 표시
       if (successCount > 0) {
@@ -5786,6 +5841,7 @@ export default function LongformContentPage() {
       }
 
       console.log("[v0] 모든 TTS 생성 완료, 성공:", successCount, "개 / 전체:", scriptLines.length, "개")
+      if (successCount > 0) playNotificationSound() // 알림음 재생
 
       // TTS가 하나라도 생성되었으면 완료 표시
       if (successCount > 0) {
@@ -6453,6 +6509,23 @@ export default function LongformContentPage() {
         
         const totalDuration = actualMergedDuration
         
+        // 마지막 자막과 이미지의 endTime을 오디오의 실제 마지막 시간과 일치시키기 (음성 잘림 방지)
+        if (subtitles.length > 0) {
+          const lastSubtitle = subtitles[subtitles.length - 1]
+          if (lastSubtitle.end < totalDuration) {
+            console.log(`[v0] 마지막 자막 endTime 조정: ${lastSubtitle.end.toFixed(3)}초 -> ${totalDuration.toFixed(3)}초`)
+            lastSubtitle.end = Number.parseFloat(totalDuration.toFixed(3))
+          }
+        }
+        
+        if (autoImages.length > 0) {
+          const lastImage = autoImages[autoImages.length - 1]
+          if (lastImage.endTime < totalDuration) {
+            console.log(`[v0] 마지막 이미지 endTime 조정: ${lastImage.endTime.toFixed(3)}초 -> ${totalDuration.toFixed(3)}초`)
+            lastImage.endTime = Number.parseFloat(totalDuration.toFixed(3))
+          }
+        }
+        
         console.log("[v0] 미리보기용 오디오 생성 (원본 품질 유지)")
         
         const wav = audioBufferToWav(mergedBuffer)
@@ -6522,6 +6595,7 @@ export default function LongformContentPage() {
         setIsGeneratingVideo(false)
         setGeneratingVideoProgress(100)
         setRenderingStatusMessage("영상 렌더링 완료!")
+        playNotificationSound() // 알림음 재생
         // 영상 렌더링 단계 체크
         setCompletedSteps((prev) => [...new Set([...prev, "render"])])
         
@@ -6826,6 +6900,23 @@ export default function LongformContentPage() {
       
       // 실제 병합된 오디오 길이를 사용
       const totalDuration = actualMergedDuration
+      
+      // 마지막 자막과 이미지의 endTime을 오디오의 실제 마지막 시간과 일치시키기 (음성 잘림 방지)
+      if (subtitles.length > 0) {
+        const lastSubtitle = subtitles[subtitles.length - 1]
+        if (lastSubtitle.end < totalDuration) {
+          console.log(`[v0] 마지막 자막 endTime 조정: ${lastSubtitle.end.toFixed(3)}초 -> ${totalDuration.toFixed(3)}초`)
+          lastSubtitle.end = Number.parseFloat(totalDuration.toFixed(3))
+        }
+      }
+      
+      if (autoImages.length > 0) {
+        const lastImage = autoImages[autoImages.length - 1]
+        if (lastImage.endTime < totalDuration) {
+          console.log(`[v0] 마지막 이미지 endTime 조정: ${lastImage.endTime.toFixed(3)}초 -> ${totalDuration.toFixed(3)}초`)
+          lastImage.endTime = Number.parseFloat(totalDuration.toFixed(3))
+        }
+      }
 
       // 미리보기용 오디오는 원본 품질 유지 (압축하지 않음)
       // 압축은 다운로드 시에만 적용
@@ -6903,6 +6994,7 @@ export default function LongformContentPage() {
       setIsGeneratingVideo(false)
       setGeneratingVideoProgress(100)
       setRenderingStatusMessage("영상 렌더링 완료!")
+      playNotificationSound() // 알림음 재생
       // 영상 렌더링 단계 체크
       setCompletedSteps((prev) => [...new Set([...prev, "render"])])
       
@@ -8376,6 +8468,7 @@ export default function LongformContentPage() {
       a.click()
       setExportProgress(100)
       setExportStatusMessage("다운로드 완료!")
+      playNotificationSound() // 알림음 재생
       
       // 약간의 지연 후 정리
       setTimeout(() => {
@@ -8760,6 +8853,7 @@ export default function LongformContentPage() {
       mediaRecorder.onstop = () => {
         setExportProgress(100)
         setExportStatusMessage("다운로드 완료!")
+        playNotificationSound() // 알림음 재생
         const videoBlob = new Blob(chunks, { type: "video/webm" })
         const videoUrl = URL.createObjectURL(videoBlob)
         const a = document.createElement("a")
@@ -9567,7 +9661,12 @@ export default function LongformContentPage() {
 
     try {
       // html2canvas-pro를 사용하여 실제 미리보기 div를 캡처 (oklch 색상 지원)
-      const html2canvas = (await import("html2canvas-pro")).default
+      const html2canvasModule = await import("html2canvas-pro")
+      const html2canvas = html2canvasModule.default || html2canvasModule
+      
+      if (typeof html2canvas !== 'function') {
+        throw new Error("html2canvas-pro를 불러올 수 없습니다.")
+      }
       
       const element = thumbnailPreviewRef.current
       
@@ -9606,25 +9705,47 @@ export default function LongformContentPage() {
         logging: false,
       })
 
+      // Canvas가 제대로 생성되었는지 확인
+      if (!canvas || !(canvas instanceof HTMLCanvasElement)) {
+        throw new Error("캔버스 생성에 실패했습니다.")
+      }
+
       // Canvas를 이미지로 변환하여 다운로드
-      canvas.toBlob(
-        (blob) => {
-          if (blob) {
-            const url = URL.createObjectURL(blob)
-            const a = document.createElement("a")
-            a.href = url
-            a.download = `thumbnail-${Date.now()}.jpg`
-            document.body.appendChild(a)
-            a.click()
-            document.body.removeChild(a)
-            URL.revokeObjectURL(url)
-          } else {
-            alert("이미지 저장에 실패했습니다.")
-          }
-        },
-        "image/jpeg",
-        0.95,
-      )
+      // toBlob을 Promise로 변환하여 안전하게 처리
+      const blob = await new Promise<Blob | null>((resolve, reject) => {
+        if (!canvas || typeof canvas.toBlob !== 'function') {
+          reject(new Error("캔버스의 toBlob 메서드를 사용할 수 없습니다."))
+          return
+        }
+        try {
+          canvas.toBlob(
+            (blob) => {
+              if (blob) {
+                resolve(blob)
+              } else {
+                reject(new Error("Blob 생성에 실패했습니다."))
+              }
+            },
+            "image/jpeg",
+            0.95,
+          )
+        } catch (error) {
+          reject(error)
+        }
+      })
+      
+      if (blob) {
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement("a")
+        a.href = url
+        a.download = `thumbnail-${Date.now()}.jpg`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+      } else {
+        alert("이미지 저장에 실패했습니다.")
+      }
     } catch (error) {
       console.error("썸네일 저장 오류:", error)
       alert(`썸네일 저장에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
@@ -10438,7 +10559,7 @@ export default function LongformContentPage() {
                   id="project-name"
                   value={newProjectName}
                   onChange={(e) => setNewProjectName(e.target.value)}
-                  placeholder="예: 건강 영상 프로젝트"
+                  placeholder="예: 12/6 고구려 시리즈"
                   className="mt-1 h-12 border-2 border-gray-200 focus:border-red-500 rounded-xl transition-all duration-300 focus:ring-2 focus:ring-red-200"
                 />
               </div>
