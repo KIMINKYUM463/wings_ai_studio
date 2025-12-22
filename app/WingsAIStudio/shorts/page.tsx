@@ -73,6 +73,7 @@ export default function ShortsPage() {
   const [selectedTopic, setSelectedTopic] = useState<string>("")
   const [customTopic, setCustomTopic] = useState<string>("") // 직접입력 주제
   const [script, setScript] = useState<string>("")
+  const [scriptSummary, setScriptSummary] = useState<string>("") // 대본 요약 상태
   const [hookingTitle, setHookingTitle] = useState<{ line1: string; line2: string } | null>(null)
   const [isGeneratingTitle, setIsGeneratingTitle] = useState(false)
   const [isGeneratingTopics, setIsGeneratingTopics] = useState(false)
@@ -236,11 +237,16 @@ export default function ShortsPage() {
       setScriptLines(lines)
       setActiveStep("script")
 
-      // 대본 생성 후 자동으로 제목 생성 시도
-      if (scriptText && selectedTopic && openaiApiKey) {
+      // 대본 생성 후 자동으로 제목 생성 시도 (대본 기반)
+      if (scriptText && openaiApiKey) {
         try {
-          console.log("[Shorts] 대본 생성 완료 - 자동 제목 생성 시작")
-          const title = await generateShortsHookingTitle(selectedTopic, scriptText, openaiApiKey)
+          console.log("[Shorts] 대본 생성 완료 - 자동 제목 생성 시작 (대본 기반)")
+          // 대본의 앞부분을 요약으로 사용 (주제 대신 대본 요약 사용)
+          const scriptSummary = scriptText.substring(0, 200).replace(/\n/g, " ").trim()
+          const topicToUse = scriptSummary.length > 100 
+            ? scriptSummary.substring(0, 100) + "..." 
+            : scriptSummary
+          const title = await generateShortsHookingTitle(topicToUse, scriptText, openaiApiKey)
           console.log("[Shorts] 자동 생성된 제목:", title)
           setHookingTitle(title)
         } catch (error) {
@@ -1238,14 +1244,19 @@ export default function ShortsPage() {
   // 미리보기 초기화 및 자동 제목 생성
   useEffect(() => {
     if (activeStep === "preview" && canvasRef.current) {
-      // 자동으로 후킹 제목 생성 (아직 생성되지 않았고, 주제와 대본이 있는 경우)
-      if (!hookingTitle && selectedTopic && script) {
+      // 자동으로 후킹 제목 생성 (아직 생성되지 않았고, 대본이 있는 경우 - 대본 기반)
+      if (!hookingTitle && script && script.trim().length > 0) {
         const generateTitle = async () => {
           try {
             const openaiApiKey = typeof window !== "undefined" ? localStorage.getItem("openai_api_key") || undefined : undefined
             if (openaiApiKey) {
-              console.log("[Shorts] 미리보기 진입 - 자동 제목 생성 시작")
-              const title = await generateShortsHookingTitle(selectedTopic, script, openaiApiKey)
+              console.log("[Shorts] 미리보기 진입 - 자동 제목 생성 시작 (대본 기반)")
+              // 대본의 앞부분을 요약으로 사용 (주제 대신 대본 요약 사용)
+              const scriptSummary = script.substring(0, 200).replace(/\n/g, " ").trim()
+              const topicToUse = scriptSummary.length > 100 
+                ? scriptSummary.substring(0, 100) + "..." 
+                : scriptSummary
+              const title = await generateShortsHookingTitle(topicToUse, script, openaiApiKey)
               console.log("[Shorts] 자동 생성된 제목:", title)
               setHookingTitle(title)
             }
@@ -2281,6 +2292,58 @@ export default function ShortsPage() {
                   className="min-h-[200px]"
                   placeholder="대본이 여기에 표시됩니다..."
                 />
+                {script && script.trim().length > 0 && (
+                  <div className="mt-4">
+                    <Button
+                      onClick={async () => {
+                        if (!script || typeof script !== 'string' || script.trim().length === 0) {
+                          alert("대본이 필요합니다.")
+                          return
+                        }
+                        
+                        // 대본 요약 생성 (대본의 앞부분을 요약으로 사용)
+                        const summary = script.substring(0, 200).replace(/\n/g, " ").trim()
+                        const finalSummary = summary.length > 100 
+                          ? summary.substring(0, 100) + "..." 
+                          : summary
+                        setScriptSummary(finalSummary)
+                        console.log("[Shorts] 대본 요약 생성 완료:", finalSummary)
+                        
+                        // 대본 요약 생성 후 자동으로 후킹 제목 생성
+                        try {
+                          setIsGeneratingTitle(true)
+                          const openaiApiKey = typeof window !== "undefined" ? localStorage.getItem("openai_api_key") || undefined : undefined
+                          if (!openaiApiKey) {
+                            alert("OpenAI API 키가 필요합니다. 메인 화면의 설정에서 API 키를 입력해주세요.")
+                            setIsGeneratingTitle(false)
+                            return
+                          }
+                          
+                          console.log("[Shorts] 대본 요약 후 자동 제목 생성 시작")
+                          const title = await generateShortsHookingTitle(finalSummary, script, openaiApiKey)
+                          console.log("[Shorts] 자동 생성된 제목:", title)
+                          setHookingTitle(title)
+                        } catch (error) {
+                          console.error("제목 생성 실패:", error)
+                          alert("제목 생성에 실패했습니다.")
+                        } finally {
+                          setIsGeneratingTitle(false)
+                        }
+                      }}
+                      variant="outline"
+                      className="w-full"
+                      size="sm"
+                    >
+                      <FileText className="w-4 h-4 mr-2" />
+                      대본 요약하기
+                    </Button>
+                    {scriptSummary && (
+                      <p className="text-xs text-gray-500 mt-2">
+                        대본 요약: {scriptSummary}
+                      </p>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -2310,19 +2373,21 @@ export default function ShortsPage() {
                           return
                         }
                         
-                        // 주제가 없으면 대본 전체를 기반으로 제목 생성 (대본 요약 활용)
-                        let topicToUse = selectedTopic
+                        // 대본을 기반으로 제목 생성 (대본 요약 활용)
+                        // 대본 요약이 있으면 사용, 없으면 생성
+                        let topicToUse = scriptSummary
                         if (!topicToUse || topicToUse.trim().length === 0) {
-                          console.log("[Shorts] 주제가 없어서 대본 요약을 기반으로 제목 생성 중...")
-                          // 대본의 앞부분(100자)을 주제로 사용 (더 많은 컨텍스트)
-                          topicToUse = script.substring(0, 100).replace(/\n/g, " ").trim()
-                          if (topicToUse.length > 50) {
-                            topicToUse = topicToUse.substring(0, 50) + "..."
-                          }
-                          console.log("[Shorts] 대본 요약 기반 주제:", topicToUse)
+                          const summary = script.substring(0, 200).replace(/\n/g, " ").trim()
+                          topicToUse = summary.length > 100 
+                            ? summary.substring(0, 100) + "..." 
+                            : summary
+                          setScriptSummary(topicToUse) // 요약 저장
                         }
                         
-                        // 대본 전체를 전달하여 제목 생성 (대본 요약 활용)
+                        console.log("[Shorts] 대본 기반 제목 생성 중... (대본 요약 사용)")
+                        console.log("[Shorts] 대본 요약:", topicToUse)
+                        
+                        // 대본 전체를 전달하여 제목 생성 (대본 요약을 주제로 사용)
                         const title = await generateShortsHookingTitle(topicToUse, script, openaiApiKey)
                         console.log("[Shorts] 생성된 제목:", title)
                         setHookingTitle(title)
@@ -2333,7 +2398,7 @@ export default function ShortsPage() {
                         setIsGeneratingTitle(false)
                       }
                     }}
-                    disabled={isGeneratingTitle}
+                    disabled={false}
                     className="w-full"
                     size="lg"
                   >
@@ -2758,19 +2823,21 @@ export default function ShortsPage() {
                             return
                           }
                           
-                          // 주제가 없으면 대본 전체를 기반으로 제목 생성 (대본 요약 활용)
-                          let topicToUse = selectedTopic
+                          // 대본을 기반으로 제목 생성 (대본 요약 활용)
+                          // 대본 요약이 있으면 사용, 없으면 생성
+                          let topicToUse = scriptSummary
                           if (!topicToUse || topicToUse.trim().length === 0) {
-                            console.log("[Shorts] 주제가 없어서 대본 요약을 기반으로 제목 생성 중...")
-                            // 대본의 앞부분(100자)을 주제로 사용 (더 많은 컨텍스트)
-                            topicToUse = script.substring(0, 100).replace(/\n/g, " ").trim()
-                            if (topicToUse.length > 50) {
-                              topicToUse = topicToUse.substring(0, 50) + "..."
-                            }
-                            console.log("[Shorts] 대본 요약 기반 주제:", topicToUse)
+                            const summary = script.substring(0, 200).replace(/\n/g, " ").trim()
+                            topicToUse = summary.length > 100 
+                              ? summary.substring(0, 100) + "..." 
+                              : summary
+                            setScriptSummary(topicToUse) // 요약 저장
                           }
                           
-                          // 대본 전체를 전달하여 제목 생성 (대본 요약 활용)
+                          console.log("[Shorts] 대본 기반 제목 생성 중... (대본 요약 사용)")
+                          console.log("[Shorts] 대본 요약:", topicToUse)
+                          
+                          // 대본 전체를 전달하여 제목 생성 (대본 요약을 주제로 사용)
                           const title = await generateShortsHookingTitle(topicToUse, script, openaiApiKey)
                           console.log("[Shorts] 생성된 제목:", title)
                           setHookingTitle(title)
@@ -2781,7 +2848,7 @@ export default function ShortsPage() {
                           setIsGeneratingTitle(false)
                         }
                       }}
-                      disabled={isGeneratingTitle}
+                      disabled={false}
                       className="w-full"
                       size="lg"
                     >
