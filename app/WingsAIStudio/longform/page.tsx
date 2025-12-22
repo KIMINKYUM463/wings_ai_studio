@@ -15320,6 +15320,9 @@ export default function LongformContentPage() {
                         보통다운로드
                       </Button>
                     </div>
+                    <p className="text-sm text-red-600 mt-1">
+                      ⚠️ 이미지생성 1시간이 지나면 다운로드 시 오류가 발생합니다. 꼭 이미지 생성 후 한시간 이내 다운로드 부탁드립니다
+                    </p>
                     <Button
                       onClick={handleExportSRT}
                       disabled={isExporting}

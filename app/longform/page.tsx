@@ -9885,29 +9885,34 @@ export default function LongformContentPage() {
                 </Button>
 
                 {videoData && !isExporting && (
-                  <div className="flex gap-2 mt-2">
-                  <Button
-                      onClick={handleFastDownload}
-                      disabled={isExporting}
-                      variant="default"
-                    size="lg"
-                      className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
-                    >
-                      <Zap className="w-4 h-4 mr-2" />
-                      빠른다운로드
-                      <span className="ml-2 text-xs opacity-80">(Cloud Run)</span>
-                    </Button>
-                    <Button
-                      onClick={handleNormalDownload}
-                    disabled={isExporting}
-                      variant="outline"
-                      size="lg"
-                      className="flex-1"
-                    >
+                  <div className="flex flex-col gap-2 mt-2">
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={handleFastDownload}
+                        disabled={isExporting}
+                        variant="default"
+                        size="lg"
+                        className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                      >
+                        <Zap className="w-4 h-4 mr-2" />
+                        빠른다운로드
+                        <span className="ml-2 text-xs opacity-80">(Cloud Run)</span>
+                      </Button>
+                      <Button
+                        onClick={handleNormalDownload}
+                        disabled={isExporting}
+                        variant="outline"
+                        size="lg"
+                        className="flex-1"
+                      >
                         <Download className="w-4 h-4 mr-2" />
-                      보통다운로드
-                      <span className="ml-2 text-xs opacity-80">(MediaRecorder)</span>
-                    </Button>
+                        보통다운로드
+                        <span className="ml-2 text-xs opacity-80">(MediaRecorder)</span>
+                      </Button>
+                    </div>
+                    <p className="text-sm text-red-600 mt-1">
+                      ⚠️ 이미지생성 1시간이 지나면 다운로드 시 오류가 발생합니다. 꼭 이미지 생성 후 한시간 이내 다운로드 부탁드립니다
+                    </p>
                   </div>
                 )}
                 
