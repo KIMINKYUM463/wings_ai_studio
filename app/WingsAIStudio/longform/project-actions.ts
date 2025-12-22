@@ -51,7 +51,7 @@ export interface ProjectData {
   
   // TTS 관련
   selectedVoiceId?: string
-  generatedAudios?: Array<{ lineId: number; audioUrl: string; alignment?: any }> // audioBase64는 용량이 크므로 저장하지 않음
+  generatedAudios?: Array<{ lineId: number; audioUrl: string; audioBase64?: string }> // audioBase64는 항상 저장 (크기 제한 없음), alignment는 저장하지 않음
   
   // 영상 관련
   videoData?: {

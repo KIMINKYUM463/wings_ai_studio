@@ -9516,12 +9516,12 @@ export default function LongformContentPage() {
       // TTS 관련
       if (projectData.selectedVoiceId) setSelectedVoiceId(projectData.selectedVoiceId)
       if (projectData.generatedAudios) {
-        // audioBase64는 저장하지 않았으므로 복원 시 빈 문자열로 설정
+        // audioBase64는 1MB 이하일 때 저장되었을 수 있음, alignment는 저장하지 않음
         setGeneratedAudios(projectData.generatedAudios.map(audio => ({
           lineId: audio.lineId,
           audioUrl: audio.audioUrl,
-          audioBase64: "", // 저장되지 않았으므로 빈 문자열
-          alignment: audio.alignment,
+          audioBase64: audio.audioBase64 || "", // 저장되었으면 복원, 없으면 빈 문자열
+          alignment: undefined, // alignment는 저장하지 않았으므로 undefined
         })))
       }
       
@@ -9627,13 +9627,24 @@ export default function LongformContentPage() {
         
         // TTS 관련
         selectedVoiceId,
-        // audioBase64는 용량이 크므로 제외하고 audioUrl만 저장
-        generatedAudios: generatedAudios.map(audio => ({
-          lineId: audio.lineId,
-          audioUrl: audio.audioUrl,
-          alignment: audio.alignment,
-          // audioBase64 제외 (용량이 너무 큼)
-        })),
+        // audioBase64는 항상 저장 (크기 제한 없음, alignment만 제외)
+        generatedAudios: (() => {
+          // 전체 audioBase64 크기 계산 (로깅용)
+          const totalAudioSize = generatedAudios.reduce((total, audio) => {
+            return total + (audio.audioBase64?.length || 0)
+          }, 0)
+          const totalAudioSizeMB = totalAudioSize / 1024 / 1024
+          
+          console.log(`[Projects] TTS 데이터 총 크기: ${totalAudioSizeMB.toFixed(2)}MB`)
+          
+          // audioBase64는 항상 저장 (크기 제한 없음)
+          return generatedAudios.map(audio => ({
+            lineId: audio.lineId,
+            audioUrl: audio.audioUrl,
+            audioBase64: audio.audioBase64 || "", // 항상 저장
+            // alignment는 용량이 클 수 있으므로 제외
+          }))
+        })(),
         
         // 영상 관련
         // videoData의 autoImages에서 base64 이미지 제거 (URL만 저장)
@@ -9663,11 +9674,21 @@ export default function LongformContentPage() {
         activeStep,
       }
 
-      // 데이터 직렬화 테스트 (에러 확인용)
+      // 데이터 직렬화 테스트 및 크기 확인
       try {
-        JSON.stringify(projectData)
+        const serialized = JSON.stringify(projectData)
+        const dataSizeMB = serialized.length / 1024 / 1024
+        console.log(`[Projects] 자동 저장할 데이터 크기: ${dataSizeMB.toFixed(2)}MB`)
+        
+        if (dataSizeMB > 1) {
+          console.warn(`[Projects] 데이터 크기가 1MB를 초과합니다: ${dataSizeMB.toFixed(2)}MB`)
+        }
       } catch (serializeError) {
         console.error("[Projects] 데이터 직렬화 실패:", serializeError)
+        console.error("[Projects] 직렬화 실패한 데이터 일부:", {
+          generatedAudiosCount: projectData.generatedAudios?.length || 0,
+          generatedAudiosSample: projectData.generatedAudios?.slice(0, 2),
+        })
         if (!silent) {
           alert(`프로젝트 저장 실패: 데이터 직렬화 오류가 발생했습니다. ${serializeError instanceof Error ? serializeError.message : String(serializeError)}`)
         }
@@ -9770,13 +9791,24 @@ export default function LongformContentPage() {
         
         // TTS 관련
         selectedVoiceId,
-        // audioBase64는 용량이 크므로 제외하고 audioUrl만 저장
-        generatedAudios: generatedAudios.map(audio => ({
-          lineId: audio.lineId,
-          audioUrl: audio.audioUrl,
-          alignment: audio.alignment,
-          // audioBase64 제외 (용량이 너무 큼)
-        })),
+        // audioBase64는 항상 저장 (크기 제한 없음, alignment만 제외)
+        generatedAudios: (() => {
+          // 전체 audioBase64 크기 계산 (로깅용)
+          const totalAudioSize = generatedAudios.reduce((total, audio) => {
+            return total + (audio.audioBase64?.length || 0)
+          }, 0)
+          const totalAudioSizeMB = totalAudioSize / 1024 / 1024
+          
+          console.log(`[Projects] TTS 데이터 총 크기: ${totalAudioSizeMB.toFixed(2)}MB`)
+          
+          // audioBase64는 항상 저장 (크기 제한 없음)
+          return generatedAudios.map(audio => ({
+            lineId: audio.lineId,
+            audioUrl: audio.audioUrl,
+            audioBase64: audio.audioBase64 || "", // 항상 저장
+            // alignment는 용량이 클 수 있으므로 제외
+          }))
+        })(),
         
         // 영상 관련
         // videoData의 autoImages에서 base64 이미지 제거 (URL만 저장)
@@ -9806,11 +9838,24 @@ export default function LongformContentPage() {
         activeStep,
       }
 
-      // 데이터 직렬화 테스트 (에러 확인용)
+      // 데이터 직렬화 테스트 및 크기 확인
       try {
-        JSON.stringify(projectData)
+        const serialized = JSON.stringify(projectData)
+        const dataSizeMB = serialized.length / 1024 / 1024
+        console.log(`[Projects] 저장할 데이터 크기: ${dataSizeMB.toFixed(2)}MB`)
+        
+        if (dataSizeMB > 1) {
+          console.warn(`[Projects] 데이터 크기가 1MB를 초과합니다: ${dataSizeMB.toFixed(2)}MB`)
+          // 1MB를 초과하면 경고만 표시하고 계속 진행 (Supabase JSONB는 더 큰 데이터도 지원)
+        }
       } catch (serializeError) {
         console.error("[Projects] 데이터 직렬화 실패:", serializeError)
+        console.error("[Projects] 직렬화 실패한 데이터 일부:", {
+          generatedAudiosCount: projectData.generatedAudios?.length || 0,
+          generatedAudiosSample: projectData.generatedAudios?.slice(0, 2),
+          generatedImagesCount: projectData.generatedImages?.length || 0,
+          sceneImagePromptsCount: projectData.sceneImagePrompts?.length || 0,
+        })
         alert(`프로젝트 저장 실패: 데이터 직렬화 오류가 발생했습니다. ${serializeError instanceof Error ? serializeError.message : String(serializeError)}`)
         return
       }
