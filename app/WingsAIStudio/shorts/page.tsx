@@ -1655,6 +1655,53 @@ export default function ShortsPage() {
         URL.revokeObjectURL(audioUrl)
         
         console.log("[Shorts] MediaRecorder 렌더링 완료")
+        
+        // 롱폼 페이지의 사이드바에 쇼츠 생성기 체크 표시를 위해 localStorage 업데이트
+        try {
+          // 롱폼 페이지의 completedSteps 가져오기
+          const longformStateStr = localStorage.getItem("longform_state")
+          if (longformStateStr) {
+            const longformState = JSON.parse(longformStateStr)
+            const completedSteps = longformState.completedSteps || []
+            
+            // "shorts"가 없으면 추가
+            if (!completedSteps.includes("shorts")) {
+              completedSteps.push("shorts")
+              longformState.completedSteps = completedSteps
+              localStorage.setItem("longform_state", JSON.stringify(longformState))
+              console.log("[Shorts] 롱폼 페이지 사이드바에 쇼츠 생성기 체크 표시 완료")
+            }
+          } else {
+            // longform_state가 없으면 새로 생성
+            const newState = {
+              completedSteps: ["shorts"],
+              activeStep: "topic"
+            }
+            localStorage.setItem("longform_state", JSON.stringify(newState))
+            console.log("[Shorts] 롱폼 페이지 상태 생성 및 쇼츠 생성기 체크 표시 완료")
+          }
+          
+          // 프로젝트 데이터에도 저장 (있는 경우)
+          const projectDataStr = localStorage.getItem("longform_project_data")
+          if (projectDataStr) {
+            const projectData = JSON.parse(projectDataStr)
+            if (!projectData.completedSteps) {
+              projectData.completedSteps = []
+            }
+            if (!projectData.completedSteps.includes("shorts")) {
+              projectData.completedSteps.push("shorts")
+              localStorage.setItem("longform_project_data", JSON.stringify(projectData))
+              
+              // 같은 탭에서도 업데이트되도록 커스텀 이벤트 발생
+              window.dispatchEvent(new CustomEvent("longformCompletedStepsUpdated", {
+                detail: { completedSteps: projectData.completedSteps }
+              }))
+            }
+          }
+        } catch (error) {
+          console.error("[Shorts] 사이드바 체크 상태 저장 실패:", error)
+        }
+        
         alert("영상 렌더링이 완료되었습니다!")
         setIsRendering(false)
       }

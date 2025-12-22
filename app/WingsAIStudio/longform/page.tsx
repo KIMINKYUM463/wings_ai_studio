@@ -740,9 +740,58 @@ export default function LongformContentPage() {
         if (state.customTitle) setCustomTitle(state.customTitle)
         if (state.scriptPlan) setScriptPlan(state.scriptPlan)
         if (state.scriptDraft) setScriptDraft(state.scriptDraft)
+        // completedSteps 복원
+        if (state.completedSteps) setCompletedSteps(state.completedSteps)
       } catch (error) {
         console.error("상태 복원 실패:", error)
       }
+    }
+    
+    // 프로젝트 데이터에서도 completedSteps 복원
+    const projectDataStr = localStorage.getItem("longform_project_data")
+    if (projectDataStr) {
+      try {
+        const projectData = JSON.parse(projectDataStr)
+        if (projectData.completedSteps) {
+          setCompletedSteps(projectData.completedSteps)
+        }
+      } catch (error) {
+        console.error("프로젝트 데이터 복원 실패:", error)
+      }
+    }
+  }, [])
+  
+  // localStorage 변경 감지 및 커스텀 이벤트 리스너 (쇼츠 페이지에서 완료 상태 업데이트 시)
+  useEffect(() => {
+    // 다른 탭에서의 변경 감지
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === "longform_project_data" && e.newValue) {
+        try {
+          const projectData = JSON.parse(e.newValue)
+          if (projectData.completedSteps) {
+            setCompletedSteps(projectData.completedSteps)
+            console.log("[Longform] 쇼츠 완료 상태 업데이트 (다른 탭):", projectData.completedSteps)
+          }
+        } catch (error) {
+          console.error("[Longform] 프로젝트 데이터 파싱 실패:", error)
+        }
+      }
+    }
+    
+    // 같은 탭에서의 변경 감지 (커스텀 이벤트)
+    const handleCustomEvent = (e: CustomEvent) => {
+      if (e.detail?.completedSteps) {
+        setCompletedSteps(e.detail.completedSteps)
+        console.log("[Longform] 쇼츠 완료 상태 업데이트 (같은 탭):", e.detail.completedSteps)
+      }
+    }
+    
+    window.addEventListener("storage", handleStorageChange)
+    window.addEventListener("longformCompletedStepsUpdated", handleCustomEvent as EventListener)
+    
+    return () => {
+      window.removeEventListener("storage", handleStorageChange)
+      window.removeEventListener("longformCompletedStepsUpdated", handleCustomEvent as EventListener)
     }
   }, [])
 
