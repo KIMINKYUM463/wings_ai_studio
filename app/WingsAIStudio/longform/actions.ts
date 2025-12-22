@@ -2567,7 +2567,10 @@ export async function generateAIThumbnail(
   topic: string,
   replicateApiKey: string,
   imageStyle?: string,
-  customText?: string
+  customText?: string,
+  customStylePrompt?: string,
+  characterDescription?: string,
+  withoutText?: boolean
 ): Promise<string> {
   if (!replicateApiKey) {
     throw new Error("Replicate API 키가 필요합니다.")
@@ -2589,11 +2592,18 @@ export async function generateAIThumbnail(
     }
 
     // 유튜브 썸네일용 프롬프트 생성
-    let basePrompt = `YouTube thumbnail for video about: ${topic}. High quality, eye-catching, professional thumbnail design. Bright colors, clear text area, engaging composition. 16:9 aspect ratio.`
-    
-    // 커스텀 문구가 있으면 프롬프트에 추가
-    if (customText && customText.trim()) {
-      basePrompt = `${basePrompt} Include text or visual elements related to: "${customText.trim()}".`
+    let basePrompt: string
+    if (withoutText) {
+      // 문구 없이 그림만 생성
+      basePrompt = `YouTube thumbnail for video about: ${topic}. High quality, eye-catching, professional thumbnail design. no text, no letters, no words, no typography, image only. 16:9 aspect ratio.`
+    } else {
+      // 기본 프롬프트 (텍스트 영역 포함)
+      basePrompt = `YouTube thumbnail for video about: ${topic}. High quality, eye-catching, professional thumbnail design. Bright colors, clear text area, engaging composition. 16:9 aspect ratio.`
+      
+      // 커스텀 문구가 있으면 프롬프트에 추가
+      if (customText && customText.trim()) {
+        basePrompt = `${basePrompt} Include text or visual elements related to: "${customText.trim()}".`
+      }
     }
     
     const prompt = stylePrompt ? `${basePrompt} ${stylePrompt}` : basePrompt

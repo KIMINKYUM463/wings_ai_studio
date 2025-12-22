@@ -50,6 +50,7 @@ import {
   Youtube,
   Link2,
   Unlink,
+  X,
 } from "lucide-react"
 import { useRouter } from "next/navigation"
 
@@ -632,6 +633,10 @@ export default function HomePage() {
   const [password, setPassword] = useState("")
   const [passwordError, setPasswordError] = useState("")
   const [isPasswordAuthenticated, setIsPasswordAuthenticated] = useState(false)
+  
+  // 업데이트 팝업 관련 상태
+  const [announcement, setAnnouncement] = useState<{ id: string; title: string; content: string; created_at: string } | null>(null)
+  const [isAnnouncementClosed, setIsAnnouncementClosed] = useState(false)
 
   // 로그인 상태 확인 및 비밀번호 인증 확인
   useEffect(() => {
@@ -673,6 +678,36 @@ export default function HomePage() {
 
     checkLoginStatus()
   }, [router])
+
+  // 업데이트 내용 불러오기
+  useEffect(() => {
+    const fetchAnnouncement = async () => {
+      try {
+        const response = await fetch('/api/announcements')
+        if (response.ok) {
+          const data = await response.json()
+          if (data.announcement) {
+            // 이미 본 업데이트인지 확인
+            const viewedAnnouncements = localStorage.getItem('viewed_announcements')
+            const viewedIds = viewedAnnouncements ? JSON.parse(viewedAnnouncements) : []
+            
+            // 이 업데이트를 아직 보지 않았으면 팝업 표시
+            if (!viewedIds.includes(data.announcement.id)) {
+              setAnnouncement(data.announcement)
+              setIsAnnouncementClosed(false)
+            }
+          }
+        }
+      } catch (error) {
+        console.error("[Announcements] 업데이트 내용 불러오기 실패:", error)
+      }
+    }
+    
+    // 비밀번호 인증이 완료된 후에만 업데이트 내용 불러오기
+    if (isPasswordAuthenticated) {
+      fetchAnnouncement()
+    }
+  }, [isPasswordAuthenticated])
 
   // 비밀번호 확인 핸들러
   const handlePasswordSubmit = (e?: React.FormEvent) => {
@@ -1046,6 +1081,20 @@ export default function HomePage() {
     )
   }
 
+  // 업데이트 팝업 닫기 핸들러
+  const handleCloseAnnouncement = () => {
+    if (announcement) {
+      // 본 업데이트 ID를 localStorage에 저장
+      const viewedAnnouncements = localStorage.getItem('viewed_announcements')
+      const viewedIds = viewedAnnouncements ? JSON.parse(viewedAnnouncements) : []
+      if (!viewedIds.includes(announcement.id)) {
+        viewedIds.push(announcement.id)
+        localStorage.setItem('viewed_announcements', JSON.stringify(viewedIds))
+      }
+    }
+    setIsAnnouncementClosed(true)
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100">
       {/* 배경 장식 */}
@@ -1057,6 +1106,45 @@ export default function HomePage() {
 
       {/* 헤더 */}
       <Header onSettingsClick={() => setOpen(true)} />
+
+      {/* 업데이트 팝업 (왼쪽 고정 패널) */}
+      {announcement && !isAnnouncementClosed && (
+        <div className="fixed left-4 top-20 z-50 w-80 max-h-[calc(100vh-6rem)] bg-white/95 backdrop-blur-md border border-gray-200 rounded-xl shadow-2xl flex flex-col animate-slide-in-right">
+          {/* 헤더 */}
+          <div className="flex items-center justify-between p-4 border-b border-gray-200">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-blue-500" />
+              <h3 className="font-semibold text-gray-900">업데이트 내용</h3>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 hover:bg-gray-100"
+              onClick={handleCloseAnnouncement}
+            >
+              <X className="w-4 h-4 text-gray-600" />
+            </Button>
+          </div>
+          
+          {/* 내용 */}
+          <div className="flex-1 overflow-y-auto p-4">
+            <div className="mb-3">
+              <h4 className="font-bold text-lg text-gray-900 mb-1">{announcement.title}</h4>
+              <p className="text-xs text-gray-500">
+                {new Date(announcement.created_at).toLocaleDateString("ko-KR", {
+                  year: "numeric",
+                  month: "long",
+                  day: "numeric",
+                })}
+              </p>
+            </div>
+            <div 
+              className="prose prose-sm max-w-none text-gray-700 whitespace-pre-wrap text-sm leading-relaxed"
+              dangerouslySetInnerHTML={{ __html: announcement.content.replace(/\n/g, '<br />') }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* 메인 컨텐츠 */}
       <main className="relative z-10">

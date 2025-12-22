@@ -48,6 +48,26 @@ const customStyles = `
     }
   }
   
+  @keyframes slide-in-right {
+    from {
+      opacity: 0;
+      transform: translateX(100%);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+  
+  @keyframes shimmer {
+    0% {
+      background-position: -100% 0;
+    }
+    100% {
+      background-position: 100% 0;
+    }
+  }
+  
   .animate-fade-in {
     animation: fade-in 0.6s ease-out forwards;
   }
@@ -62,6 +82,16 @@ const customStyles = `
   
   .animate-dialog-enter {
     animation: dialog-enter 0.3s ease-out forwards;
+  }
+  
+  .animate-slide-in-right {
+    animation: slide-in-right 0.4s ease-out forwards;
+  }
+  
+  .animate-shimmer {
+    animation: shimmer 2s linear infinite;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+    background-size: 200% 100%;
   }
 `
 
@@ -595,6 +625,7 @@ export default function LongformContentPage() {
   const [isGeneratingAIThumbnail, setIsGeneratingAIThumbnail] = useState(false) // AI 썸네일 생성 중 상태
   const [selectedThumbnailTemplate, setSelectedThumbnailTemplate] = useState<string | null>(null) // 선택된 썸네일 템플릿
   const [thumbnailCustomText, setThumbnailCustomText] = useState<string>("") // 썸네일 커스텀 문구
+  const [thumbnailWithoutText, setThumbnailWithoutText] = useState<boolean>(false) // 썸네일 문구 없이 그림만 생성
   const [thumbnailBackgroundImage, setThumbnailBackgroundImage] = useState<string | null>(null) // 썸네일 배경 이미지
   const [thumbnailOverlayImage, setThumbnailOverlayImage] = useState<string | null>(null) // 썸네일 오버레이 이미지 (선택 가능한 이미지)
   const [overlayImageSize, setOverlayImageSize] = useState({ width: 50, height: 50 }) // 오버레이 이미지 크기 (%)
@@ -1070,6 +1101,9 @@ export default function LongformContentPage() {
   const [autoImages, setAutoImages] = useState<AutoImage[]>([])
   const [isLoadingAutoImages, setIsLoadingAutoImages] = useState(false)
   const [generatingVideoProgress, setGeneratingVideoProgress] = useState(0)
+  const [renderingStatusMessage, setRenderingStatusMessage] = useState("영상 렌더링을 시작합니다...") // 렌더링 상태 메시지
+  const [exportProgress, setExportProgress] = useState(0) // 다운로드 진행률
+  const [exportStatusMessage, setExportStatusMessage] = useState("") // 다운로드 상태 메시지
   // <-- New state variables for FFmpeg export -->
   // const [exportProgress, setExportProgress] = useState(0)
   // const [exportStatus, setExportStatus] = useState("")
@@ -1502,6 +1536,7 @@ export default function LongformContentPage() {
           console.log("[자동화] 영상 렌더링 시작")
           setIsGeneratingVideo(true)
           setGeneratingVideoProgress(0)
+          setRenderingStatusMessage("오디오 분석 중...")
           
           // ===== 수동 모드의 handleRenderVideo와 완전히 동일한 로직 =====
           
@@ -1706,9 +1741,11 @@ export default function LongformContentPage() {
           const totalDuration = subtitleTime
           console.log(`[자동화] 자막 ${subtitles.length}개 생성 완료 (수동 모드와 동일한 분할 방식)`)
           console.log(`[자동화] 총 영상 길이: ${totalDuration.toFixed(2)}초`)
+          setRenderingStatusMessage(`자막 생성 완료 (${subtitles.length}개)`)
 
           // 3. 이미지 매핑 (수동 모드와 완전히 동일한 로직) - 오디오 합치기 전에 먼저 실행
           console.log("[자동화] 이미지 매핑 시작")
+          setRenderingStatusMessage("이미지 매핑 중...")
           const autoImagesForRender: Array<{
             id: string
             url: string
@@ -1763,6 +1800,7 @@ export default function LongformContentPage() {
             message: `오디오 합치는 중... (총 ${Math.floor(totalDuration / 60)}분 ${Math.floor(totalDuration % 60)}초)`,
             isComplete: false,
           })
+          setRenderingStatusMessage(`오디오 합치는 중... (${Math.floor(totalDuration / 60)}분 ${Math.floor(totalDuration % 60)}초)`)
 
           // 4. 오디오 합치기
           const targetSampleRate = 44100
@@ -1823,6 +1861,7 @@ export default function LongformContentPage() {
 
           setIsGeneratingVideo(false)
           setGeneratingVideoProgress(100)
+          setRenderingStatusMessage("영상 렌더링 완료!")
           setCompletedSteps((prev) => [...new Set([...prev, "render"])])
           console.log("[자동화] 영상 렌더링 완료")
 
@@ -2121,7 +2160,8 @@ export default function LongformContentPage() {
             imageStyle, 
             thumbnailCustomText.trim() || undefined,
             customStylePrompt || undefined,
-            characterDescription
+            characterDescription,
+            thumbnailWithoutText
           )
           setAiThumbnailUrl(thumbnailUrl)
           setCompletedSteps((prev) => [...new Set([...prev, "thumbnail"])])
@@ -3090,14 +3130,15 @@ export default function LongformContentPage() {
         }
       }
       
-      console.log("[v0] AI 썸네일 생성 시작, 주제:", topicToUse, "이미지 스타일:", imageStyle, "커스텀 문구:", thumbnailCustomText, "캐릭터:", characterDescription)
+      console.log("[v0] AI 썸네일 생성 시작, 주제:", topicToUse, "이미지 스타일:", imageStyle, "커스텀 문구:", thumbnailCustomText, "문구 없이:", thumbnailWithoutText, "캐릭터:", characterDescription)
       const imageUrl = await generateAIThumbnail(
         topicToUse, 
         replicateApiKey, 
         imageStyle, 
         thumbnailCustomText.trim() || undefined,
         customStylePrompt || undefined,
-        characterDescription
+        characterDescription,
+        thumbnailWithoutText
       )
       setAiThumbnailUrl(imageUrl)
       setCompletedSteps((prev) => [...new Set([...prev, "thumbnail"])])
@@ -5855,6 +5896,7 @@ export default function LongformContentPage() {
 
     setIsGeneratingVideo(true)
     setGeneratingVideoProgress(0) // Reset progress
+    setRenderingStatusMessage("영상 생성 중...")
 
     try {
       console.log("[v0] 영상 생성 시작")
@@ -5958,6 +6000,7 @@ export default function LongformContentPage() {
     } finally {
       setIsGeneratingVideo(false)
       setGeneratingVideoProgress(0) // Reset progress
+      setRenderingStatusMessage("")
     }
   }
 
@@ -6063,6 +6106,7 @@ export default function LongformContentPage() {
 
     setIsGeneratingVideo(true)
     setGeneratingVideoProgress(0)
+    setRenderingStatusMessage("오디오 분석 중...")
 
     try {
       console.log("[v0] 영상 렌더링 시작")
@@ -6188,6 +6232,7 @@ export default function LongformContentPage() {
         }
         
         // 2. 자막 생성 (씬별)
+        setRenderingStatusMessage("자막 생성 중...")
         const subtitles: Array<{ id: number; start: number; end: number; text: string }> = []
         
         const splitIntoSubtitleLines = (text: string, audioBuffer?: AudioBuffer, totalDuration: number = 0): Array<{ text: string; startTime: number; endTime: number }> => {
@@ -6282,6 +6327,7 @@ export default function LongformContentPage() {
         }
         
         // 3. 이미지 매핑 (씬별)
+        setRenderingStatusMessage("이미지 매핑 중...")
         const autoImages: Array<{
           id: string
           url: string
@@ -6340,6 +6386,7 @@ export default function LongformContentPage() {
         }
         
         // 5. 모든 오디오를 순차적으로 합치기
+        setRenderingStatusMessage("오디오 합치는 중...")
         const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
         const audioBuffers: AudioBuffer[] = []
         
@@ -6474,6 +6521,7 @@ export default function LongformContentPage() {
         console.log("[v0] 미리보기 데이터 생성 완료 (씬별 렌더링)")
         setIsGeneratingVideo(false)
         setGeneratingVideoProgress(100)
+        setRenderingStatusMessage("영상 렌더링 완료!")
         // 영상 렌더링 단계 체크
         setCompletedSteps((prev) => [...new Set([...prev, "render"])])
         
@@ -6698,6 +6746,7 @@ export default function LongformContentPage() {
       }
 
       // 4. 모든 TTS 오디오를 하나로 합치기
+      setRenderingStatusMessage("오디오 합치는 중...")
       const calculatedTotalDuration = audioDurations.reduce((sum, d) => sum + d.duration, 0)
 
       // 첫 번째 이미지를 기본 배경으로 사용
@@ -6855,6 +6904,7 @@ export default function LongformContentPage() {
       console.log("[v0] 미리보기 데이터 생성 완료")
       setIsGeneratingVideo(false)
       setGeneratingVideoProgress(100)
+      setRenderingStatusMessage("영상 렌더링 완료!")
       // 영상 렌더링 단계 체크
       setCompletedSteps((prev) => [...new Set([...prev, "render"])])
       
@@ -6872,6 +6922,7 @@ export default function LongformContentPage() {
       alert(`미리보기 생성 중 오류가 발생했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
       setIsGeneratingVideo(false)
       setGeneratingVideoProgress(0)
+      setRenderingStatusMessage("")
       if (isAutoMode) {
         setIsAutoMode(false)
         setAutoModeStep("")
@@ -6969,12 +7020,16 @@ export default function LongformContentPage() {
     }
 
     setIsExporting(true)
+    setExportProgress(0)
+    setExportStatusMessage("오디오 준비 중...")
 
     try {
       console.log("[v0] Cloud Run 렌더링 시작 (빠른다운로드)")
 
       // 1. 오디오를 base64로 변환 (원본 그대로 전송, 압축 없음)
       // 압축은 Cloud Run에서 FFmpeg로 처리하여 오디오 품질 보장
+      setExportStatusMessage("오디오 변환 중...")
+      setExportProgress(10)
       const audioResponse = await fetch(videoData.audioUrl)
       const audioBlob = await audioResponse.blob()
       
@@ -6997,6 +7052,8 @@ export default function LongformContentPage() {
 
       let base64SizeMB = audioBase64.length / 1024 / 1024
       console.log("[v0] 오디오 base64 변환 완료, 크기:", Math.round(base64SizeMB * 1024), "KB", `(${base64SizeMB.toFixed(2)}MB)`)
+      setExportProgress(20)
+      setExportStatusMessage("이미지 준비 중...")
       
       // 압축 로직 제거 - 원본 그대로 사용
       
@@ -7106,6 +7163,8 @@ export default function LongformContentPage() {
       }
 
       // 2. 이미지 매핑 - videoData에 저장된 autoImages 사용 (없으면 재계산)
+      setExportProgress(30)
+      setExportStatusMessage("이미지 매핑 중...")
       let autoImagesForRender: Array<{
         id: string
         url: string
@@ -7851,6 +7910,8 @@ export default function LongformContentPage() {
       }
 
       // 6. Cloud Run 렌더링 API 호출
+      setExportProgress(50)
+      setExportStatusMessage("윙스 AI 서버에 렌더링 요청 중...")
       // requestBody는 위에서 이미 생성되었으므로 여기서는 업데이트된 변수 사용
       
       // characterImage 관련 필드 결정
@@ -8241,6 +8302,8 @@ export default function LongformContentPage() {
       }
 
       console.log("[v0] Cloud Run 렌더링 완료")
+      setExportProgress(80)
+      setExportStatusMessage("영상 다운로드 준비 중...")
       console.log("[v0] 렌더링 결과:", {
         hasVideoBase64: !!renderResult.videoBase64,
         hasVideoUrl: !!renderResult.videoUrl,
@@ -8303,6 +8366,8 @@ export default function LongformContentPage() {
       }
 
       // 다운로드 실행
+      setExportProgress(95)
+      setExportStatusMessage("다운로드 중...")
       console.log("[v0] 다운로드 실행 시작...")
       const videoUrl = URL.createObjectURL(videoBlob)
       console.log("[v0] Object URL 생성:", videoUrl)
@@ -8313,6 +8378,8 @@ export default function LongformContentPage() {
       document.body.appendChild(a)
       console.log("[v0] 다운로드 링크 클릭 실행...")
       a.click()
+      setExportProgress(100)
+      setExportStatusMessage("다운로드 완료!")
       
       // 약간의 지연 후 정리
       setTimeout(() => {
@@ -8592,6 +8659,8 @@ export default function LongformContentPage() {
     }
 
     setIsExporting(true)
+    setExportProgress(0)
+    setExportStatusMessage("오디오 로드 중...")
 
     try {
       console.log("[v0] MediaRecorder 렌더링 시작 (보통다운로드)")
@@ -8627,7 +8696,11 @@ export default function LongformContentPage() {
       }
       
       await new Promise<void>((resolve, reject) => {
-        audio.onloadeddata = () => resolve()
+        audio.onloadeddata = () => {
+          setExportProgress(10)
+          setExportStatusMessage("이미지 준비 중...")
+          resolve()
+        }
         audio.onerror = reject
       })
 
@@ -8684,8 +8757,13 @@ export default function LongformContentPage() {
           chunks.push(e.data)
         }
       }
+      
+      setExportProgress(20)
+      setExportStatusMessage("렌더링 준비 중...")
 
       mediaRecorder.onstop = () => {
+        setExportProgress(100)
+        setExportStatusMessage("다운로드 완료!")
         const videoBlob = new Blob(chunks, { type: "video/webm" })
         const videoUrl = URL.createObjectURL(videoBlob)
         const a = document.createElement("a")
@@ -9073,9 +9151,16 @@ export default function LongformContentPage() {
         }
 
         const totalDuration = introVideo ? videoData.duration + 10 : videoData.duration
+        // 진행률 업데이트 (렌더링 중)
+        const progress = Math.min(95, 20 + (currentTime / totalDuration) * 75)
+        setExportProgress(Math.round(progress))
+        setExportStatusMessage(`렌더링 중... (${Math.round(currentTime)}초 / ${Math.round(totalDuration)}초)`)
+        
         if (currentTime < totalDuration) {
           requestAnimationFrame(renderFrame)
         } else {
+          setExportProgress(95)
+          setExportStatusMessage("렌더링 완료, 다운로드 준비 중...")
           mediaRecorder.stop()
           audio.pause()
           if (introVideoElement) {
@@ -9092,6 +9177,8 @@ export default function LongformContentPage() {
     } catch (error) {
       console.error("[v0] MediaRecorder 렌더링 오류:", error)
       alert(`영상 렌더링 중 오류가 발생했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+      setExportProgress(0)
+      setExportStatusMessage("")
       setIsExporting(false)
     }
   }
@@ -9593,7 +9680,13 @@ export default function LongformContentPage() {
     setIsLoadingProjects(true)
     try {
       const projectList = await getProjects(userId)
-      setProjects(projectList)
+      // 마지막으로 저장된 프로젝트가 위에 오도록 updated_at 기준 내림차순 정렬
+      const sortedProjects = [...projectList].sort((a, b) => {
+        const dateA = new Date(a.updated_at).getTime()
+        const dateB = new Date(b.updated_at).getTime()
+        return dateB - dateA // 내림차순 (최신순)
+      })
+      setProjects(sortedProjects)
     } catch (error) {
       console.error("[Projects] 프로젝트 목록 불러오기 실패:", error)
       alert("프로젝트 목록을 불러오는데 실패했습니다.")
@@ -10198,10 +10291,20 @@ export default function LongformContentPage() {
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-6">
         <div className="max-w-6xl mx-auto">
           <div className="mb-8 animate-fade-in">
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 bg-clip-text text-transparent mb-3">
-              롱폼 프로젝트
-            </h1>
-            <p className="text-gray-600 text-lg">작업한 내용을 저장하고 관리하세요</p>
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h1 className="text-4xl font-bold bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 bg-clip-text text-transparent mb-3">
+                  롱폼 프로젝트
+                </h1>
+                <p className="text-gray-600 text-lg">작업한 내용을 저장하고 관리하세요</p>
+              </div>
+              <Link href="/WingsAIStudio">
+                <Button variant="outline" size="lg" className="flex items-center gap-2 shadow-md hover:shadow-lg transition-all duration-300">
+                  <Home className="w-5 h-5" />
+                  메인화면
+                </Button>
+              </Link>
+            </div>
             <div className="mt-4 p-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl shadow-sm backdrop-blur-sm">
               <p className="text-sm text-amber-800">
                 <strong>안내사항:</strong> 이미지는 1시간 후에 삭제가 되기에 미리 저장 또는 렌더링 부탁드립니다. TTS 용량이 크면 저장이 안될 수 있습니다. 참고바랍니다.
@@ -10265,9 +10368,23 @@ export default function LongformContentPage() {
                   <CardHeader className="relative z-10 pb-3">
                     <div className="flex items-start justify-between">
                       <div className="flex-1 min-w-0">
-                        <CardTitle className="text-xl mb-2 font-bold text-gray-900 group-hover:text-red-600 transition-colors duration-300 truncate">
-                          {project.name}
-                        </CardTitle>
+                        <div className="flex items-center gap-2 mb-2">
+                          <CardTitle className="text-xl font-bold text-gray-900 group-hover:text-red-600 transition-colors duration-300 truncate">
+                            {project.name}
+                          </CardTitle>
+                          {/* 최근 작업 배지 (가장 최근에 저장된 프로젝트 하나만) */}
+                          {(() => {
+                            // 첫 번째 프로젝트(가장 최근에 저장된 프로젝트)만 배지 표시
+                            if (index === 0) {
+                              return (
+                                <span className="px-2 py-0.5 text-xs font-semibold bg-gradient-to-r from-red-500 to-pink-500 text-white rounded-full shadow-sm animate-pulse">
+                                  최근 작업
+                                </span>
+                              )
+                            }
+                            return null
+                          })()}
+                        </div>
                         {project.description && (
                           <p className="text-sm text-gray-600 line-clamp-2 leading-relaxed">
                             {project.description}
@@ -15593,10 +15710,7 @@ export default function LongformContentPage() {
                   )}
                 </Button>
 
-                {/* 영상 미리보기 생성 중 애니메이션 */}
-                {isGeneratingVideo && (
-                  <AIGeneratingAnimation type="영상 미리보기" />
-                )}
+                {/* 영상 미리보기 생성 중 애니메이션 - 우측 상단 진행 상황 표시로 대체 */}
 
                 {videoData && !isExporting && !isGeneratingVideo && (
                   <div className="flex flex-col gap-2 mt-2">
@@ -15695,9 +15809,6 @@ export default function LongformContentPage() {
                   </div>
                 )}
                 
-                {isExporting && (
-                  <AIGeneratingAnimation type="영상 미리보기" />
-                )}
                 {videoData && isExporting && (
                   <Button
                     className="w-full mt-2"
@@ -17137,10 +17248,31 @@ export default function LongformContentPage() {
                       onChange={(e) => setThumbnailCustomText(e.target.value)}
                       placeholder="썸네일에 포함하고 싶은 문구를 입력하세요. 예: '충격적인 진실', '꼭 알아야 할 사실' 등"
                       className="min-h-[100px] resize-none"
+                      disabled={thumbnailWithoutText}
                     />
                     <p className="text-xs text-muted-foreground">
                       입력한 문구가 썸네일 생성 프롬프트에 포함됩니다.
                     </p>
+                  </div>
+
+                  {/* 문구 없이 그림만 생성 체크박스 */}
+                  <div className="mb-6 flex items-center space-x-2">
+                    <Checkbox
+                      id="thumbnail-without-text"
+                      checked={thumbnailWithoutText}
+                      onCheckedChange={(checked) => {
+                        setThumbnailWithoutText(checked === true)
+                        if (checked === true) {
+                          setThumbnailCustomText("") // 체크 시 문구 초기화
+                        }
+                      }}
+                    />
+                    <Label
+                      htmlFor="thumbnail-without-text"
+                      className="text-sm font-medium cursor-pointer"
+                    >
+                      문구 없이 그림만 생성
+                    </Label>
                   </div>
 
                   <Button
@@ -18236,6 +18368,151 @@ export default function LongformContentPage() {
           </div>
         </div>
       </footer>
+
+      {/* 영상 렌더링 진행 상황 표시 (우측 상단 고정) */}
+      {isGeneratingVideo && (
+        <div className="fixed top-4 right-4 z-[9999] w-80 bg-white/95 backdrop-blur-md border border-gray-200 rounded-xl shadow-2xl animate-slide-in-right">
+          <div className="p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>
+                <h3 className="font-semibold text-gray-900">영상 렌더링 중</h3>
+              </div>
+              {generatingVideoProgress >= 100 ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 hover:bg-gray-100"
+                  onClick={() => {
+                    setIsGeneratingVideo(false)
+                    setRenderingStatusMessage("")
+                  }}
+                >
+                  <X className="w-4 h-4 text-gray-600" />
+                </Button>
+              ) : (
+                <div className="h-6 w-6 flex items-center justify-center">
+                  <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />
+                </div>
+              )}
+            </div>
+            
+            {/* 진행률 바 */}
+            <div className="mb-3">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm text-gray-600">진행률</span>
+                <span className="text-sm font-semibold text-gray-900">{generatingVideoProgress}%</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                <div 
+                  className="h-full bg-gradient-to-r from-red-500 via-pink-500 to-red-500 rounded-full transition-all duration-300 ease-out relative"
+                  style={{ width: `${generatingVideoProgress}%` }}
+                >
+                  <div className="absolute inset-0 bg-white/30 animate-shimmer"></div>
+                </div>
+              </div>
+            </div>
+
+            {/* 상태 메시지 */}
+            {renderingStatusMessage && (
+              <div className={`text-xs rounded-lg p-2.5 mb-2 ${
+                generatingVideoProgress >= 100 
+                  ? "bg-green-50 text-green-700 border border-green-200" 
+                  : "bg-gray-50 text-gray-700"
+              }`}>
+                <div className="flex items-center gap-2">
+                  {generatingVideoProgress >= 100 ? (
+                    <CheckCircle className="w-3.5 h-3.5 text-green-600" />
+                  ) : (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-500" />
+                  )}
+                  <span>{renderingStatusMessage}</span>
+                </div>
+              </div>
+            )}
+
+            {/* 안내 메시지 */}
+            <p className="text-xs text-gray-500">
+              {generatingVideoProgress >= 100 
+                ? "렌더링이 완료되었습니다. 우측 상단의 X 버튼을 눌러 닫을 수 있습니다."
+                : "렌더링 중에도 다른 작업을 계속할 수 있습니다."}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* 영상 다운로드 진행 상황 표시 (우측 상단 고정) */}
+      {isExporting && (
+        <div className="fixed top-4 right-4 z-[9999] w-80 bg-white/95 backdrop-blur-md border border-gray-200 rounded-xl shadow-2xl animate-slide-in-right">
+          <div className="p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
+                <h3 className="font-semibold text-gray-900">영상 다운로드 중</h3>
+              </div>
+              {exportProgress >= 100 ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 hover:bg-gray-100"
+                  onClick={() => {
+                    setIsExporting(false)
+                    setExportStatusMessage("")
+                    setExportProgress(0)
+                  }}
+                >
+                  <X className="w-4 h-4 text-gray-600" />
+                </Button>
+              ) : (
+                <div className="h-6 w-6 flex items-center justify-center">
+                  <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
+                </div>
+              )}
+            </div>
+            
+            {/* 진행률 바 */}
+            <div className="mb-3">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm text-gray-600">진행률</span>
+                <span className="text-sm font-semibold text-gray-900">{exportProgress}%</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                <div 
+                  className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-blue-500 rounded-full transition-all duration-300 ease-out relative"
+                  style={{ width: `${exportProgress}%` }}
+                >
+                  <div className="absolute inset-0 bg-white/30 animate-shimmer"></div>
+                </div>
+              </div>
+            </div>
+
+            {/* 상태 메시지 */}
+            {exportStatusMessage && (
+              <div className={`text-xs rounded-lg p-2.5 mb-2 ${
+                exportProgress >= 100 
+                  ? "bg-green-50 text-green-700 border border-green-200" 
+                  : "bg-gray-50 text-gray-700"
+              }`}>
+                <div className="flex items-center gap-2">
+                  {exportProgress >= 100 ? (
+                    <CheckCircle className="w-3.5 h-3.5 text-green-600" />
+                  ) : (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-500" />
+                  )}
+                  <span>{exportStatusMessage}</span>
+                </div>
+              </div>
+            )}
+
+            {/* 안내 메시지 */}
+            <p className="text-xs text-gray-500">
+              {exportProgress >= 100 
+                ? "다운로드가 완료되었습니다. 우측 상단의 X 버튼을 눌러 닫을 수 있습니다."
+                : "다운로드 중에도 다른 작업을 계속할 수 있습니다."}
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
