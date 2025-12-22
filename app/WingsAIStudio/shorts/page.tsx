@@ -2185,8 +2185,8 @@ export default function ShortsPage() {
                     </div>
                     <Button
                       onClick={async () => {
-                        if (!selectedTopic || !script) {
-                          alert("주제와 대본이 필요합니다.")
+                        if (!script || script.trim().length === 0) {
+                          alert("대본이 필요합니다.")
                           return
                         }
                         setIsGeneratingTitle(true)
@@ -2194,9 +2194,23 @@ export default function ShortsPage() {
                           const openaiApiKey = typeof window !== "undefined" ? localStorage.getItem("openai_api_key") || undefined : undefined
                           if (!openaiApiKey) {
                             alert("OpenAI API 키가 필요합니다. 메인 화면의 설정에서 API 키를 입력해주세요.")
+                            setIsGeneratingTitle(false)
                             return
                           }
-                          const title = await generateShortsHookingTitle(selectedTopic, script, openaiApiKey)
+                          
+                          // 주제가 없으면 대본의 앞부분을 주제로 사용
+                          let topicToUse = selectedTopic
+                          if (!topicToUse || topicToUse.trim().length === 0) {
+                            console.log("[Shorts] 주제가 없어서 대본에서 주제 추출 중...")
+                            // 대본의 앞부분(50자)을 주제로 사용
+                            topicToUse = script.substring(0, 50).replace(/\n/g, " ").trim()
+                            if (topicToUse.length > 30) {
+                              topicToUse = topicToUse.substring(0, 30) + "..."
+                            }
+                            console.log("[Shorts] 추출된 주제:", topicToUse)
+                          }
+                          
+                          const title = await generateShortsHookingTitle(topicToUse, script, openaiApiKey)
                           console.log("[Shorts] 생성된 제목:", title)
                           setHookingTitle(title)
                         } catch (error) {
@@ -2206,7 +2220,7 @@ export default function ShortsPage() {
                           setIsGeneratingTitle(false)
                         }
                       }}
-                      disabled={isGeneratingTitle || !selectedTopic || !script}
+                      disabled={isGeneratingTitle || !script || script.trim().length === 0}
                       className="w-full"
                       size="lg"
                     >
@@ -2618,8 +2632,8 @@ export default function ShortsPage() {
               </div>
                     <Button
                       onClick={async () => {
-                        if (!selectedTopic || !script) {
-                          alert("주제와 대본이 필요합니다.")
+                        if (!script || script.trim().length === 0) {
+                          alert("대본이 필요합니다.")
                           return
                         }
                         setIsGeneratingTitle(true)
@@ -2627,9 +2641,23 @@ export default function ShortsPage() {
                           const openaiApiKey = typeof window !== "undefined" ? localStorage.getItem("openai_api_key") || undefined : undefined
                           if (!openaiApiKey) {
                             alert("OpenAI API 키가 필요합니다. 메인 화면의 설정에서 API 키를 입력해주세요.")
+                            setIsGeneratingTitle(false)
                             return
                           }
-                          const title = await generateShortsHookingTitle(selectedTopic, script, openaiApiKey)
+                          
+                          // 주제가 없으면 대본의 앞부분을 주제로 사용
+                          let topicToUse = selectedTopic
+                          if (!topicToUse || topicToUse.trim().length === 0) {
+                            console.log("[Shorts] 주제가 없어서 대본에서 주제 추출 중...")
+                            // 대본의 앞부분(50자)을 주제로 사용
+                            topicToUse = script.substring(0, 50).replace(/\n/g, " ").trim()
+                            if (topicToUse.length > 30) {
+                              topicToUse = topicToUse.substring(0, 30) + "..."
+                            }
+                            console.log("[Shorts] 추출된 주제:", topicToUse)
+                          }
+                          
+                          const title = await generateShortsHookingTitle(topicToUse, script, openaiApiKey)
                           console.log("[Shorts] 생성된 제목:", title)
                           setHookingTitle(title)
                         } catch (error) {
@@ -2639,7 +2667,7 @@ export default function ShortsPage() {
                           setIsGeneratingTitle(false)
                         }
                       }}
-                      disabled={isGeneratingTitle || !selectedTopic || !script}
+                      disabled={isGeneratingTitle || !script || script.trim().length === 0}
                       className="w-full"
                       size="lg"
                     >
