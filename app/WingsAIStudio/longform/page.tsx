@@ -77,6 +77,7 @@ import {
   generateImageWithReplicate, // Replicate 이미지 생성 함수 import 추가
   generateAIThumbnail, // AI 썸네일 생성 함수 import 추가
   extractTopicFromScript, // 대본에서 주제 추출 함수 import 추가
+  regenerateScript, // 대본 재생성 함수 import 추가
   summarizeScriptForShorts, // 쇼츠 대본 요약 함수 import 추가
   generateHookingVideoPrompt, // 후킹 영상 프롬프트 생성 함수 import 추가
   // generateCommonStylePrompt, // 공통 스타일 프롬프트 생성 함수 import 추가 (임시 주석 처리)
@@ -441,6 +442,7 @@ export default function LongformContentPage() {
   const [sceneDecompositionProgress, setSceneDecompositionProgress] = useState<{ current: number; total: number; progress: number; elapsedTime: number; estimatedTime: number } | null>(null) // 장면 분해 진행률
   const [maxScenesPerScene, setMaxScenesPerScene] = useState<1 | 2 | 3>(3) // 씬당 최대 장면 개수
   const [isSplittingScenes, setIsSplittingScenes] = useState(false) // 씬 나누기 중 상태
+  const [isRegeneratingScript, setIsRegeneratingScript] = useState(false) // 대본 재생성 중 상태
   const [isScanning, setIsScanning] = useState(false)
   const [completedSteps, setCompletedSteps] = useState<string[]>([])
   const [improvementRequest, setImprovementRequest] = useState("")
@@ -11747,6 +11749,54 @@ export default function LongformContentPage() {
               <div className="flex items-center justify-between mb-4">
                     <label className="text-sm font-medium">대본 전체 내용 (수정 가능)</label>
                 <div className="flex gap-2">
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={async () => {
+                      if (!script || script.trim().length === 0) {
+                        alert("대본이 없습니다.")
+                        return
+                      }
+                      
+                      if (!selectedTopic) {
+                        alert("주제가 필요합니다. 주제를 선택해주세요.")
+                        return
+                      }
+                      
+                      setIsRegeneratingScript(true)
+                      try {
+                        const apiKey = getApiKey("openai_api_key")
+                        if (!apiKey) {
+                          alert("OpenAI API 키를 설정해주세요. 설정 페이지에서 API 키를 입력하고 저장해주세요.")
+                          return
+                        }
+                        
+                        console.log("[대본 재생성] 시작...")
+                        const regeneratedScript = await regenerateScript(script, selectedTopic, apiKey, selectedCategory)
+                        setScript(regeneratedScript)
+                        console.log("[대본 재생성] 완료")
+                      } catch (error) {
+                        console.error("[대본 재생성] 에러:", error)
+                        const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다."
+                        alert(`대본 재생성에 실패했습니다: ${errorMessage}`)
+                      } finally {
+                        setIsRegeneratingScript(false)
+                      }
+                    }}
+                    disabled={isRegeneratingScript || !script.trim() || !selectedTopic}
+                  >
+                    {isRegeneratingScript ? (
+                      <>
+                        <Sparkles className="w-4 h-4 mr-2 animate-spin" />
+                        재생성 중...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        대본 재생성
+                      </>
+                    )}
+                  </Button>
                   <Button 
                     variant="outline" 
                     size="sm" 

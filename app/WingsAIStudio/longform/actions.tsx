@@ -4170,3 +4170,98 @@ export async function extractTopicFromScript(script: string, apiKey?: string): P
     throw error
   }
 }
+
+/**
+ * 기존 대본을 기반으로 각색하여 재생성하는 함수
+ */
+export async function regenerateScript(
+  existingScript: string,
+  topic: string,
+  apiKey?: string,
+  category: Category = "health"
+): Promise<string> {
+  const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
+
+  if (!GPT_API_KEY) {
+    throw new Error("OpenAI API 키가 설정되지 않았습니다.")
+  }
+
+  try {
+    console.log("[v0] 대본 재생성 시작 (각색)")
+
+    const systemPrompt = `당신은 유튜브 대본 전문가입니다. 기존 대본을 기반으로 각색하여 새로운 버전의 대본을 작성합니다.
+
+작성 원칙:
+1. 기존 대본의 핵심 내용과 구조를 유지하되, 표현과 문장을 다르게 각색합니다.
+2. 같은 의미를 전달하되, 더 자연스럽고 흥미로운 표현으로 재작성합니다.
+3. 문장 종결 표현을 다양화합니다 ("~니다", "~네요", "~거든요", "~죠", "~거죠", "~는데", "~했고", "~면서" 등).
+4. 괄호나 대괄호를 사용하지 않습니다 (TTS를 이용할 것이기 때문).
+5. "개요", "서론", "본론", "챕터", "1부", "2부", "3부", "4부", "5부", "결론" 같은 구조적 단어를 절대 사용하지 않습니다.
+6. 오로지 대본 내용만 작성합니다.
+7. 기존 대본의 길이와 비슷하게 유지합니다.
+
+각색 요구사항:
+- 기존 대본의 핵심 메시지와 정보는 그대로 유지
+- 표현 방식과 문장 구조를 다르게 각색
+- 더 자연스럽고 흥미로운 문장으로 재작성
+- 시청자가 지루하지 않도록 다양한 표현 사용`
+
+    const userPrompt = `주제: ${topic}
+
+기존 대본:
+${existingScript}
+
+위 기존 대본을 기반으로 각색하여 새로운 버전의 대본을 작성해주세요.
+- 기존 대본의 핵심 내용과 구조는 유지하되, 표현과 문장을 다르게 각색해주세요.
+- 같은 의미를 전달하되, 더 자연스럽고 흥미로운 표현으로 재작성해주세요.
+- 기존 대본의 길이와 비슷하게 유지해주세요.
+- 대본 내용만 작성해주세요. 제목이나 구조적 단어는 사용하지 마세요.`
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${GPT_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.8, // 창의적인 각색을 위해 temperature를 높게 설정
+        max_tokens: 16384,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error?.message || "대본 재생성에 실패했습니다.")
+    }
+
+    const data = await response.json()
+    const regeneratedScript = data.choices[0]?.message?.content?.trim()
+
+    if (!regeneratedScript) {
+      throw new Error("재생성된 대본을 생성할 수 없습니다.")
+    }
+
+    // 구조적 단어 제거
+    const structuralWords = [
+      "개요", "서론", "본론", "챕터", "1부", "2부", "3부", "4부", "5부", "결론",
+      "Chapter", "Part", "Introduction", "Body", "Conclusion"
+    ]
+    
+    let cleanedScript = regeneratedScript
+    for (const word of structuralWords) {
+      const regex = new RegExp(`\\s*${word}\\s*:?\\s*`, "gi")
+      cleanedScript = cleanedScript.replace(regex, "")
+    }
+
+    console.log("[v0] 대본 재생성 완료")
+    return cleanedScript.trim()
+  } catch (error) {
+    console.error("[v0] 대본 재생성 실패:", error)
+    throw error
+  }
+}
