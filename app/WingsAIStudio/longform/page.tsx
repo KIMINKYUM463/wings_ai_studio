@@ -15487,10 +15487,8 @@ export default function LongformContentPage() {
                               try {
                                 const result = await generateYouTubeDescription(script, selectedCategory, cleanedTitle, getApiKey())
                                 setYoutubeDescription(result)
-                                setCompletedSteps((prev) => {
-                                  const newSteps = [...prev.filter((step) => step !== "description"), "description"]
-                                  return newSteps
-                                })
+                                // 제목/설명 생성 단계 체크 (사이드바 ID는 "title")
+                                setCompletedSteps((prev) => [...new Set([...prev, "title"])])
                               } catch (error) {
                                 console.error("설명 생성 실패:", error)
                                 // 설명 생성 실패해도 제목은 선택된 상태 유지
