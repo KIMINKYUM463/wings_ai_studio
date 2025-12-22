@@ -345,21 +345,21 @@ ${imageStyle === "realistic" || imageStyle === "realistic2" ? "Inference Steps�
         }
       } else {
         throw new Error(`OpenAI API 호출 실패: ${response.status} - ${errorText}`)
-      }
+    }
     } else {
-      const data = await response.json()
-      
-      // API 응답 검증
-      if (!data || !data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
-        console.error(`[Scene ${sceneNumber}] API 응답 오류:`, data)
-        throw new Error(`Scene ${sceneNumber} 프롬프트 생성에 실패했습니다: API 응답 형식이 올바르지 않습니다.`)
-      }
-      
+    const data = await response.json()
+    
+    // API 응답 검증
+    if (!data || !data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
+      console.error(`[Scene ${sceneNumber}] API 응답 오류:`, data)
+      throw new Error(`Scene ${sceneNumber} 프롬프트 생성에 실패했습니다: API 응답 형식이 올바르지 않습니다.`)
+    }
+    
       content = data.choices[0]?.message?.content
 
-      if (!content || typeof content !== 'string') {
-        console.error(`[Scene ${sceneNumber}] 콘텐츠 없음:`, data.choices[0])
-        throw new Error(`Scene ${sceneNumber} 프롬프트 생성에 실패했습니다: 응답 내용이 없습니다.`)
+    if (!content || typeof content !== 'string') {
+      console.error(`[Scene ${sceneNumber}] 콘텐츠 없음:`, data.choices[0])
+      throw new Error(`Scene ${sceneNumber} 프롬프트 생성에 실패했습니다: 응답 내용이 없습니다.`)
       }
     }
 
@@ -1036,31 +1036,31 @@ ${imageStyle === "realistic" || imageStyle === "realistic2" ? "Inference Steps�
       let content: string
 
       try {
-        const response = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${actualApiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "gpt-4o-mini",
-            messages: [
-              {
-                role: "system",
-                content: systemPrompt,
-              },
-              {
-                role: "user",
-                content: userPrompt,
-              },
-            ],
-            max_tokens: 4000,
-            temperature: 0.7,
-          }),
-        })
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${actualApiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content: systemPrompt,
+            },
+            {
+              role: "user",
+              content: userPrompt,
+            },
+          ],
+          max_tokens: 4000,
+          temperature: 0.7,
+        }),
+      })
 
-        if (!response.ok) {
-          const errorText = await response.text()
+      if (!response.ok) {
+        const errorText = await response.text()
           let errorData: any = null
           
           try {
@@ -1095,21 +1095,21 @@ ${imageStyle === "realistic" || imageStyle === "realistic2" ? "Inference Steps�
             }
           } else {
             throw new Error(`OpenAI API 호출 실패: ${response.status} - ${errorText}`)
-          }
+      }
         } else {
-          const data = await response.json()
-          
-          // API 응답 검증
-          if (!data || !data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
-            console.error(`[Scene ${sceneNum}] API 응답 오류:`, data)
-            throw new Error(`Scene ${sceneNum} 프롬프트 생성에 실패했습니다: API 응답 형식이 올바르지 않습니다.`)
-          }
-          
+      const data = await response.json()
+      
+      // API 응답 검증
+      if (!data || !data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
+        console.error(`[Scene ${sceneNum}] API 응답 오류:`, data)
+        throw new Error(`Scene ${sceneNum} 프롬프트 생성에 실패했습니다: API 응답 형식이 올바르지 않습니다.`)
+      }
+      
           content = data.choices[0]?.message?.content
 
-          if (!content || typeof content !== 'string') {
-            console.error(`[Scene ${sceneNum}] 콘텐츠 없음:`, data.choices[0])
-            throw new Error(`Scene ${sceneNum} 프롬프트 생성에 실패했습니다: 응답 내용이 없습니다.`)
+      if (!content || typeof content !== 'string') {
+        console.error(`[Scene ${sceneNum}] 콘텐츠 없음:`, data.choices[0])
+        throw new Error(`Scene ${sceneNum} 프롬프트 생성에 실패했습니다: 응답 내용이 없습니다.`)
           }
         }
       } catch (error) {

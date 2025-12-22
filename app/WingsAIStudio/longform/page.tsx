@@ -3,6 +3,78 @@
 import type React from "react"
 
 import { useState, useEffect, useRef } from "react"
+
+// 커스텀 애니메이션 스타일 추가
+const customStyles = `
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  @keyframes slide-up {
+    from {
+      opacity: 0;
+      transform: translateY(30px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  @keyframes bounce-slow {
+    0%, 100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-10px);
+    }
+  }
+  
+  @keyframes dialog-enter {
+    from {
+      opacity: 0;
+      transform: scale(0.95) translateY(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+  }
+  
+  .animate-fade-in {
+    animation: fade-in 0.6s ease-out forwards;
+  }
+  
+  .animate-slide-up {
+    animation: slide-up 0.8s ease-out forwards;
+  }
+  
+  .animate-bounce-slow {
+    animation: bounce-slow 2s ease-in-out infinite;
+  }
+  
+  .animate-dialog-enter {
+    animation: dialog-enter 0.3s ease-out forwards;
+  }
+`
+
+// 스타일 태그를 동적으로 추가
+if (typeof document !== 'undefined') {
+  const styleId = 'custom-animations-styles'
+  if (!document.getElementById(styleId)) {
+    const style = document.createElement('style')
+    style.id = styleId
+    style.textContent = customStyles
+    document.head.appendChild(style)
+  }
+}
 import { motion, useMotionValue, useSpring, useTransform } from "framer-motion"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -10086,28 +10158,32 @@ export default function LongformContentPage() {
     // 로그인하지 않은 경우 안내
     if (userId === "anonymous" || !userId) {
       return (
-        <div className="min-h-screen bg-gray-50 p-6">
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-6">
           <div className="max-w-6xl mx-auto">
-            <div className="mb-8">
-              <h1 className="text-3xl font-bold text-gray-900 mb-2">롱폼 프로젝트</h1>
-              <p className="text-gray-600">작업한 내용을 저장하고 관리하세요</p>
-              <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+            <div className="mb-8 animate-fade-in">
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 bg-clip-text text-transparent mb-3">
+                롱폼 프로젝트
+              </h1>
+              <p className="text-gray-600 text-lg">작업한 내용을 저장하고 관리하세요</p>
+              <div className="mt-4 p-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl shadow-sm backdrop-blur-sm">
                 <p className="text-sm text-amber-800">
                   <strong>안내사항:</strong> 이미지는 1시간 후에 삭제가 되기에 미리 저장 또는 렌더링 부탁드립니다. TTS 용량이 크면 저장이 안될 수 있습니다. 참고바랍니다.
                 </p>
               </div>
             </div>
             
-            <Card className="p-12 text-center">
+            <Card className="p-12 text-center shadow-xl border-0 bg-white/80 backdrop-blur-sm animate-slide-up">
               <div className="max-w-md mx-auto">
-                <User className="w-16 h-16 mx-auto mb-4 text-gray-400" />
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">로그인이 필요합니다</h3>
-                <p className="text-gray-600 mb-6">
+                <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-gradient-to-br from-blue-100 to-indigo-100 flex items-center justify-center animate-bounce-slow">
+                  <User className="w-10 h-10 text-blue-600" />
+                </div>
+                <h3 className="text-2xl font-semibold text-gray-900 mb-3">로그인이 필요합니다</h3>
+                <p className="text-gray-600 mb-8 text-lg">
                   프로젝트를 생성하고 관리하려면 먼저 로그인해주세요.
                 </p>
                 <Button
                   onClick={() => window.location.href = "/"}
-                  className="bg-red-600 hover:bg-red-700 text-white"
+                  className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 px-8 py-6 text-lg font-semibold rounded-xl"
                 >
                   로그인하러 가기
                 </Button>
@@ -10119,77 +10195,110 @@ export default function LongformContentPage() {
     }
 
     return (
-      <div className="min-h-screen bg-gray-50 p-6">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-6">
         <div className="max-w-6xl mx-auto">
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">롱폼 프로젝트</h1>
-            <p className="text-gray-600">작업한 내용을 저장하고 관리하세요</p>
-            <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+          <div className="mb-8 animate-fade-in">
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 bg-clip-text text-transparent mb-3">
+              롱폼 프로젝트
+            </h1>
+            <p className="text-gray-600 text-lg">작업한 내용을 저장하고 관리하세요</p>
+            <div className="mt-4 p-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl shadow-sm backdrop-blur-sm">
               <p className="text-sm text-amber-800">
                 <strong>안내사항:</strong> 이미지는 1시간 후에 삭제가 되기에 미리 저장 또는 렌더링 부탁드립니다. TTS 용량이 크면 저장이 안될 수 있습니다. 참고바랍니다.
               </p>
             </div>
           </div>
 
-          <div className="mb-6 flex justify-end">
+          <div className="mb-6 flex justify-end animate-fade-in">
             <Button
               onClick={() => setShowCreateProjectDialog(true)}
-              className="bg-red-600 hover:bg-red-700 text-white"
+              className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 px-6 py-6 rounded-xl font-semibold"
             >
-              <FolderPlus className="w-4 h-4 mr-2" />
+              <FolderPlus className="w-5 h-5 mr-2" />
               새 프로젝트 만들기
             </Button>
           </div>
 
           {isLoadingProjects ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+            <div className="flex flex-col items-center justify-center py-20 animate-fade-in">
+              <div className="relative">
+                <Loader2 className="w-16 h-16 animate-spin text-blue-600" />
+                <div className="absolute inset-0 w-16 h-16 border-4 border-blue-200 rounded-full animate-ping opacity-20"></div>
+              </div>
+              <p className="mt-6 text-gray-600 text-lg font-medium">프로젝트를 불러오는 중...</p>
             </div>
           ) : projects.length === 0 ? (
-            <Card className="p-12 text-center">
-              <Folder className="w-16 h-16 mx-auto mb-4 text-gray-400" />
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">프로젝트가 없습니다</h3>
-              <p className="text-gray-600 mb-6">새 프로젝트를 만들어 시작하세요</p>
-              <Button
-                onClick={() => setShowCreateProjectDialog(true)}
-                className="bg-red-600 hover:bg-red-700 text-white"
-              >
-                <FolderPlus className="w-4 h-4 mr-2" />
-                새 프로젝트 만들기
-              </Button>
+            <Card className="p-12 text-center shadow-xl border-0 bg-white/80 backdrop-blur-sm animate-slide-up">
+              <div className="max-w-md mx-auto">
+                <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
+                  <Folder className="w-10 h-10 text-gray-400" />
+                </div>
+                <h3 className="text-2xl font-semibold text-gray-900 mb-3">프로젝트가 없습니다</h3>
+                <p className="text-gray-600 mb-8 text-lg">새 프로젝트를 만들어 시작하세요</p>
+                <Button
+                  onClick={() => setShowCreateProjectDialog(true)}
+                  className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 px-8 py-6 text-lg font-semibold rounded-xl"
+                >
+                  <FolderPlus className="w-5 h-5 mr-2" />
+                  새 프로젝트 만들기
+                </Button>
+              </div>
             </Card>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {projects.map((project) => (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {projects.map((project, index) => (
                 <Card
                   key={project.id}
-                  className="cursor-pointer hover:shadow-lg transition-shadow"
+                  className="cursor-pointer group relative overflow-hidden border-0 shadow-lg hover:shadow-2xl transition-all duration-500 transform hover:scale-105 hover:-translate-y-2 bg-white/90 backdrop-blur-sm animate-fade-in"
+                  style={{
+                    animationDelay: `${index * 100}ms`,
+                    animationFillMode: 'both'
+                  }}
                   onClick={() => handleSelectProject(project)}
                 >
-                  <CardHeader>
+                  {/* 그라데이션 배경 효과 */}
+                  <div className="absolute inset-0 bg-gradient-to-br from-blue-50/50 via-transparent to-indigo-50/50 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                  
+                  {/* 상단 장식 라인 */}
+                  <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-500 via-pink-500 to-red-500 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-500"></div>
+                  
+                  <CardHeader className="relative z-10 pb-3">
                     <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <CardTitle className="text-lg mb-1">{project.name}</CardTitle>
+                      <div className="flex-1 min-w-0">
+                        <CardTitle className="text-xl mb-2 font-bold text-gray-900 group-hover:text-red-600 transition-colors duration-300 truncate">
+                          {project.name}
+                        </CardTitle>
                         {project.description && (
-                          <p className="text-sm text-gray-600 line-clamp-2">{project.description}</p>
+                          <p className="text-sm text-gray-600 line-clamp-2 leading-relaxed">
+                            {project.description}
+                          </p>
                         )}
                       </div>
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
+                        className="h-9 w-9 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-all duration-300 transform hover:scale-110 ml-2 flex-shrink-0"
                         onClick={(e) => handleDeleteProject(project.id, e)}
                       >
                         <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>
                   </CardHeader>
-                  <CardContent>
-                    <div className="text-xs text-gray-500">
-                      <p>수정: {new Date(project.updated_at).toLocaleString("ko-KR")}</p>
-                      <p>생성: {new Date(project.created_at).toLocaleString("ko-KR")}</p>
+                  <CardContent className="relative z-10 pt-0">
+                    <div className="space-y-2 text-xs text-gray-500">
+                      <div className="flex items-center gap-2">
+                        <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse"></div>
+                        <p className="font-medium">수정: {new Date(project.updated_at).toLocaleString("ko-KR")}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-1.5 h-1.5 rounded-full bg-blue-400"></div>
+                        <p>생성: {new Date(project.created_at).toLocaleString("ko-KR")}</p>
+                      </div>
                     </div>
                   </CardContent>
+                  
+                  {/* 호버 시 표시되는 오버레이 */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"></div>
                 </Card>
               ))}
             </div>
@@ -10198,36 +10307,42 @@ export default function LongformContentPage() {
 
         {/* 프로젝트 생성 다이얼로그 */}
         <Dialog open={showCreateProjectDialog} onOpenChange={setShowCreateProjectDialog}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>새 프로젝트 만들기</DialogTitle>
-              <DialogDescription>
+          <DialogContent className="sm:max-w-[500px] bg-white/95 backdrop-blur-md border-0 shadow-2xl rounded-2xl animate-dialog-enter">
+            <DialogHeader className="space-y-3 pb-4 border-b border-gray-100">
+              <DialogTitle className="text-2xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
+                새 프로젝트 만들기
+              </DialogTitle>
+              <DialogDescription className="text-gray-600 text-base">
                 프로젝트 이름을 입력하고 작업을 시작하세요
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="project-name">프로젝트 이름 *</Label>
+            <div className="space-y-6 pt-4">
+              <div className="space-y-2">
+                <Label htmlFor="project-name" className="text-sm font-semibold text-gray-700">
+                  프로젝트 이름 <span className="text-red-500">*</span>
+                </Label>
                 <Input
                   id="project-name"
                   value={newProjectName}
                   onChange={(e) => setNewProjectName(e.target.value)}
                   placeholder="예: 건강 영상 프로젝트"
-                  className="mt-1"
+                  className="mt-1 h-12 border-2 border-gray-200 focus:border-red-500 rounded-xl transition-all duration-300 focus:ring-2 focus:ring-red-200"
                 />
               </div>
-              <div>
-                <Label htmlFor="project-description">프로젝트 설명 (선택사항)</Label>
+              <div className="space-y-2">
+                <Label htmlFor="project-description" className="text-sm font-semibold text-gray-700">
+                  프로젝트 설명 <span className="text-gray-400 text-xs">(선택사항)</span>
+                </Label>
                 <Textarea
                   id="project-description"
                   value={newProjectDescription}
                   onChange={(e) => setNewProjectDescription(e.target.value)}
                   placeholder="프로젝트에 대한 간단한 설명을 입력하세요"
-                  className="mt-1"
+                  className="mt-1 border-2 border-gray-200 focus:border-red-500 rounded-xl transition-all duration-300 focus:ring-2 focus:ring-red-200 resize-none"
                   rows={3}
                 />
               </div>
-              <div className="flex justify-end gap-2">
+              <div className="flex justify-end gap-3 pt-4">
                 <Button
                   variant="outline"
                   onClick={() => {
@@ -10235,17 +10350,18 @@ export default function LongformContentPage() {
                     setNewProjectName("")
                     setNewProjectDescription("")
                   }}
+                  className="px-6 py-6 rounded-xl border-2 hover:bg-gray-50 transition-all duration-300"
                 >
                   취소
                 </Button>
                 <Button
                   onClick={handleCreateProject}
                   disabled={isSavingProject || !newProjectName.trim()}
-                  className="bg-red-600 hover:bg-red-700 text-white"
+                  className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none px-8 py-6 rounded-xl font-semibold"
                 >
                   {isSavingProject ? (
                     <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                       생성 중...
                     </>
                   ) : (
