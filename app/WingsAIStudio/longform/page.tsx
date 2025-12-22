@@ -76,6 +76,7 @@ import {
   generateImagePrompt, // 이미지 프롬프트 생성 함수 import 추가
   generateImageWithReplicate, // Replicate 이미지 생성 함수 import 추가
   generateAIThumbnail, // AI 썸네일 생성 함수 import 추가
+  extractTopicFromScript, // 대본에서 주제 추출 함수 import 추가
   summarizeScriptForShorts, // 쇼츠 대본 요약 함수 import 추가
   generateHookingVideoPrompt, // 후킹 영상 프롬프트 생성 함수 import 추가
   // generateCommonStylePrompt, // 공통 스타일 프롬프트 생성 함수 import 추가 (임시 주석 처리)
@@ -2872,14 +2873,40 @@ export default function LongformContentPage() {
 
   // AI 썸네일 생성 함수
   const handleAIGenerateThumbnail = async () => {
-    if (!selectedTopic) {
-      alert("먼저 주제를 선택해주세요.")
-      return
+    // 주제가 없으면 대본에서 주제 추출
+    let topicToUse = selectedTopic
+    
+    if (!topicToUse) {
+      if (!script) {
+        alert("주제 또는 대본이 필요합니다. 먼저 주제를 선택하거나 대본을 생성해주세요.")
+        return
+      }
+      
+      // 대본에서 주제 추출
+      const openaiApiKey = getApiKey("openai_api_key")
+      if (!openaiApiKey) {
+        alert("OpenAI API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+        return
+      }
+      
+      setIsGeneratingAIThumbnail(true)
+      try {
+        console.log("[v0] 대본에서 주제 추출 중...")
+        topicToUse = await extractTopicFromScript(script, openaiApiKey)
+        console.log("[v0] 추출된 주제:", topicToUse)
+      } catch (error) {
+        console.error("[v0] 주제 추출 실패:", error)
+        const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다."
+        alert(`주제 추출에 실패했습니다: ${errorMessage}`)
+        setIsGeneratingAIThumbnail(false)
+        return
+      }
     }
 
     const replicateApiKey = getApiKey("replicate_api_key")
     if (!replicateApiKey) {
       alert("Replicate API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+      setIsGeneratingAIThumbnail(false)
       return
     }
 
@@ -2903,9 +2930,9 @@ export default function LongformContentPage() {
         }
       }
       
-      console.log("[v0] AI 썸네일 생성 시작, 주제:", selectedTopic, "이미지 스타일:", imageStyle, "커스텀 문구:", thumbnailCustomText, "캐릭터:", characterDescription)
+      console.log("[v0] AI 썸네일 생성 시작, 주제:", topicToUse, "이미지 스타일:", imageStyle, "커스텀 문구:", thumbnailCustomText, "캐릭터:", characterDescription)
       const imageUrl = await generateAIThumbnail(
-        selectedTopic, 
+        topicToUse, 
         replicateApiKey, 
         imageStyle, 
         thumbnailCustomText.trim() || undefined,
@@ -2913,7 +2940,7 @@ export default function LongformContentPage() {
         characterDescription
       )
       setAiThumbnailUrl(imageUrl)
-      setCompletedSteps((prev) => [...prev.filter((step) => step !== "thumbnail"), "thumbnail"])
+      setCompletedSteps((prev) => [...new Set([...prev, "thumbnail"])])
       console.log("[v0] AI 썸네일 생성 완료:", imageUrl)
     } catch (error) {
       console.error("[v0] AI 썸네일 생성 실패:", error)

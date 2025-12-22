@@ -4109,3 +4109,64 @@ export async function generateAIThumbnail(
     throw error
   }
 }
+
+/**
+ * 대본에서 주제를 추출하는 함수
+ */
+export async function extractTopicFromScript(script: string, apiKey?: string): Promise<string> {
+  const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
+
+  if (!GPT_API_KEY) {
+    throw new Error("OpenAI API 키가 설정되지 않았습니다.")
+  }
+
+  try {
+    console.log("[v0] 대본에서 주제 추출 시작")
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${GPT_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `당신은 영상 콘텐츠 분석 전문가입니다. 주어진 대본을 분석하여 이 영상의 핵심 주제를 한 문장으로 요약해주세요.
+
+규칙:
+- 대본의 핵심 내용을 파악하여 간결하고 명확한 주제로 요약
+- 20자 이내로 간결하게 작성
+- 예: "60대 건강 관리 방법", "삼국지 관우 이야기", "치매 예방 운동법" 등`,
+          },
+          {
+            role: "user",
+            content: `다음 대본의 핵심 주제를 한 문장으로 요약해주세요:\n\n${script.substring(0, 2000)}`, // 대본이 너무 길면 앞부분만 사용
+          },
+        ],
+        temperature: 0.7,
+        max_tokens: 100,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error?.message || "주제 추출에 실패했습니다.")
+    }
+
+    const data = await response.json()
+    const topic = data.choices[0]?.message?.content?.trim()
+
+    if (!topic) {
+      throw new Error("주제 추출 결과가 비어있습니다.")
+    }
+
+    console.log("[v0] 추출된 주제:", topic)
+    return topic
+  } catch (error) {
+    console.error("[v0] 대본에서 주제 추출 실패:", error)
+    throw error
+  }
+}
