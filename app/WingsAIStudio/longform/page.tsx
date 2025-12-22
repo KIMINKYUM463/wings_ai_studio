@@ -11758,21 +11758,34 @@ export default function LongformContentPage() {
                         return
                       }
                       
-                      if (!selectedTopic) {
-                        alert("주제가 필요합니다. 주제를 선택해주세요.")
-                        return
-                      }
-                      
                       setIsRegeneratingScript(true)
                       try {
                         const apiKey = getApiKey("openai_api_key")
                         if (!apiKey) {
                           alert("OpenAI API 키를 설정해주세요. 설정 페이지에서 API 키를 입력하고 저장해주세요.")
+                          setIsRegeneratingScript(false)
                           return
                         }
                         
+                        // 주제가 없으면 대본에서 주제 추출
+                        let topicToUse = selectedTopic
+                        if (!topicToUse) {
+                          console.log("[대본 재생성] 주제가 없어서 대본에서 주제 추출 중...")
+                          try {
+                            topicToUse = await extractTopicFromScript(script, apiKey)
+                            console.log("[대본 재생성] 추출된 주제:", topicToUse)
+                          } catch (error) {
+                            console.error("[대본 재생성] 주제 추출 실패, 대본 요약 사용:", error)
+                            // 주제 추출 실패 시 대본의 앞부분을 주제로 사용
+                            topicToUse = script.substring(0, 50).replace(/\n/g, " ").trim()
+                            if (topicToUse.length > 30) {
+                              topicToUse = topicToUse.substring(0, 30) + "..."
+                            }
+                          }
+                        }
+                        
                         console.log("[대본 재생성] 시작...")
-                        const regeneratedScript = await regenerateScript(script, selectedTopic, apiKey, selectedCategory)
+                        const regeneratedScript = await regenerateScript(script, topicToUse, apiKey, selectedCategory)
                         setScript(regeneratedScript)
                         console.log("[대본 재생성] 완료")
                       } catch (error) {
@@ -11783,7 +11796,7 @@ export default function LongformContentPage() {
                         setIsRegeneratingScript(false)
                       }
                     }}
-                    disabled={isRegeneratingScript || !script.trim() || !selectedTopic}
+                    disabled={isRegeneratingScript || !script.trim()}
                   >
                     {isRegeneratingScript ? (
                       <>
