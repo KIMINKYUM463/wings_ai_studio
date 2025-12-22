@@ -1,6 +1,6 @@
 "use server"
 
-export async function generateShortsTopics(category: "wisdom" | "health" | "self_improvement" | "society" | "history" | "space" | "fortune", apiKey?: string) {
+export async function generateShortsTopics(category: "wisdom" | "health" | "self_improvement" | "society" | "history" | "space" | "fortune" | "psychology" | "custom", apiKey?: string, customTopic?: string) {
   // 사용자가 제공한 API 키 사용 (없으면 환경 변수에서 가져오기)
   const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
 
@@ -16,6 +16,8 @@ export async function generateShortsTopics(category: "wisdom" | "health" | "self
     history: "역사 이야기, 역사적 사실과 관련된 쇼츠 주제",
     space: "우주, 천문학, 우주 탐사, 별과 행성, 우주 미스터리와 관련된 쇼츠 주제",
     fortune: "사주, 운세, 타로, 점성술, 사주팔자와 관련된 쇼츠 주제",
+    psychology: "심리학, 인간 심리, 행동 심리, 관계 심리, 감정 관리와 관련된 쇼츠 주제",
+    custom: customTopic ? `${customTopic}와 관련된 쇼츠 주제` : "다양한 쇼츠 주제",
   }
 
   try {
@@ -31,11 +33,15 @@ export async function generateShortsTopics(category: "wisdom" | "health" | "self
           {
             role: "system",
             content:
-              "당신은 쇼츠 콘텐츠 전문가입니다. 주어진 카테고리를 바탕으로 1-3분 길이의 쇼츠에 적합한 주제 10개를 생성해주세요. 각 주제는 시청자의 관심을 끌고 바이럴 가능성이 높아야 합니다.\n\n중요: 각 주제는 핵심 주제만 한 줄로 작성하세요. 제목과 내용을 나누지 말고, 주제 자체만 간결하게 작성하세요.\n\n출력 형식:\n1. 주제1\n2. 주제2\n3. 주제3\n...\n10. 주제10\n\n각 주제는 10-20자 내외의 간결한 핵심 주제만 작성하세요.",
+              category === "custom" 
+                ? "당신은 쇼츠 콘텐츠 전문가입니다. 주어진 주제를 바탕으로 1-3분 길이의 쇼츠에 적합한 주제 15개를 생성해주세요. 각 주제는 시청자의 관심을 끌고 바이럴 가능성이 높아야 합니다.\n\n중요: 각 주제는 핵심 주제만 한 줄로 작성하세요. 제목과 내용을 나누지 말고, 주제 자체만 간결하게 작성하세요.\n\n출력 형식:\n1. 주제1\n2. 주제2\n3. 주제3\n...\n15. 주제15\n\n각 주제는 10-20자 내외의 간결한 핵심 주제만 작성하세요."
+                : "당신은 쇼츠 콘텐츠 전문가입니다. 주어진 카테고리를 바탕으로 1-3분 길이의 쇼츠에 적합한 주제 10개를 생성해주세요. 각 주제는 시청자의 관심을 끌고 바이럴 가능성이 높아야 합니다.\n\n중요: 각 주제는 핵심 주제만 한 줄로 작성하세요. 제목과 내용을 나누지 말고, 주제 자체만 간결하게 작성하세요.\n\n출력 형식:\n1. 주제1\n2. 주제2\n3. 주제3\n...\n10. 주제10\n\n각 주제는 10-20자 내외의 간결한 핵심 주제만 작성하세요.",
           },
           {
             role: "user",
-            content: `카테고리: ${categoryPrompts[category]}\n\n위 카테고리를 바탕으로 쇼츠에 적합한 핵심 주제 10개만 생성해주세요.\n\n요구사항:\n- 각 주제는 핵심 주제만 한 줄로 작성 (10-20자 내외)\n- 제목과 내용을 나누지 말고 주제 자체만 작성\n- 번호와 함께 간결하게 작성\n- 예시: "3초만에 알아보는 다이어트 꿀팁" (이런 식으로 한 줄로만)\n\n출력 형식:\n1. 주제1\n2. 주제2\n3. 주제3\n...\n10. 주제10`,
+            content: category === "custom"
+              ? `주제: ${customTopic}\n\n위 주제를 바탕으로 쇼츠에 적합한 핵심 주제 15개만 생성해주세요.\n\n요구사항:\n- 각 주제는 핵심 주제만 한 줄로 작성 (10-20자 내외)\n- 제목과 내용을 나누지 말고 주제 자체만 작성\n- 번호와 함께 간결하게 작성\n- 예시: "3초만에 알아보는 다이어트 꿀팁" (이런 식으로 한 줄로만)\n\n출력 형식:\n1. 주제1\n2. 주제2\n3. 주제3\n...\n15. 주제15`
+              : `카테고리: ${categoryPrompts[category]}\n\n위 카테고리를 바탕으로 쇼츠에 적합한 핵심 주제 10개만 생성해주세요.\n\n요구사항:\n- 각 주제는 핵심 주제만 한 줄로 작성 (10-20자 내외)\n- 제목과 내용을 나누지 말고 주제 자체만 작성\n- 번호와 함께 간결하게 작성\n- 예시: "3초만에 알아보는 다이어트 꿀팁" (이런 식으로 한 줄로만)\n\n출력 형식:\n1. 주제1\n2. 주제2\n3. 주제3\n...\n10. 주제10`,
           },
         ],
         max_tokens: 1000,
@@ -69,12 +75,14 @@ export async function generateShortsTopics(category: "wisdom" | "health" | "self
           topics.push(cleanTopic)
         }
       }
-      // 10개가 모이면 중단
-      if (topics.length >= 10) break
+      // 목표 개수에 도달하면 중단
+      const targetCount = category === "custom" ? 15 : 10
+      if (topics.length >= targetCount) break
     }
     
-    // 10개가 안 모이면 추가 파싱 시도
-    if (topics.length < 10) {
+    // 목표 개수가 안 모이면 추가 파싱 시도
+    const targetCount = category === "custom" ? 15 : 10
+    if (topics.length < targetCount) {
       const fallbackTopics = content
         .split("\n")
         .filter((line: string) => {
@@ -97,11 +105,11 @@ export async function generateShortsTopics(category: "wisdom" | "health" | "self
           return topic
         })
         .filter((topic: string) => topic && topic.length > 0)
-        .slice(0, 10)
+        .slice(0, targetCount)
       
       // 중복 제거하면서 추가
       for (const topic of fallbackTopics) {
-        if (!topics.includes(topic) && topics.length < 10) {
+        if (!topics.includes(topic) && topics.length < targetCount) {
           topics.push(topic)
         }
       }

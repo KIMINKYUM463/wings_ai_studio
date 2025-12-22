@@ -417,6 +417,13 @@ export default function LongformContentPage() {
   const [generatedImages, setGeneratedImages] = useState<Array<{ lineId: number; imageUrl: string; prompt: string }>>([])
   const [isGeneratingImages, setIsGeneratingImages] = useState(false)
   const [imageGenerationProgress, setImageGenerationProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 })
+  // 이미지 스타일 선택 (useEffect보다 먼저 선언되어야 함)
+  const [imageStyle, setImageStyle] = useState<string>("stickman-animation")
+  const [hoveredStyle, setHoveredStyle] = useState<string | null>(null)
+  // 실사화 인물 타입 선택 (한국인/외국인)
+  const [realisticCharacterType, setRealisticCharacterType] = useState<"korean" | "foreign" | null>(null)
+  // 이미지 생성 모델 선택 (스틱맨 애니메이션, 애니메이션2, 유럽풍 그래픽 노블용)
+  const [imageModel, setImageModel] = useState<"prunaai/hidream-l1-fast" | "black-forest-labs/flux-schnell">("prunaai/hidream-l1-fast")
   const [selectedVoiceId, setSelectedVoiceId] = useState<string>("ttsmaker-여성1") // 기본: TTSMaker 여성1
   const [previewingVoiceId, setPreviewingVoiceId] = useState<string | null>(null)
   const [previewAudioUrl, setPreviewAudioUrl] = useState<string | null>(null)
@@ -642,6 +649,8 @@ export default function LongformContentPage() {
       customTitle,
       scriptPlan,
       scriptDraft,
+      imageStyle,
+      imageModel,
     }
     
     try {
@@ -705,9 +714,11 @@ export default function LongformContentPage() {
     youtubeDescription,
     thumbnailText,
     selectedTitle,
-    customTitle,
-    scriptPlan,
-    scriptDraft,
+      customTitle,
+      scriptPlan,
+      scriptDraft,
+      imageStyle,
+      imageModel,
   ])
 
   // 상태 복원 (컴포넌트 마운트 시)
@@ -740,6 +751,9 @@ export default function LongformContentPage() {
         if (state.customTitle) setCustomTitle(state.customTitle)
         if (state.scriptPlan) setScriptPlan(state.scriptPlan)
         if (state.scriptDraft) setScriptDraft(state.scriptDraft)
+        // 이미지 모델 설정 복원
+        if (state.imageStyle) setImageStyle(state.imageStyle)
+        if (state.imageModel) setImageModel(state.imageModel)
         // completedSteps 복원
         if (state.completedSteps) setCompletedSteps(state.completedSteps)
       } catch (error) {
@@ -837,12 +851,6 @@ export default function LongformContentPage() {
   }
   const [testImageUrl, setTestImageUrl] = useState<string | null>(null) // 테스트용 이미지 URL
   const previewContainerRef = useRef<HTMLDivElement | null>(null)
-  
-  // 이미지 스타일 선택
-  const [imageStyle, setImageStyle] = useState<string>("stickman-animation")
-  const [hoveredStyle, setHoveredStyle] = useState<string | null>(null)
-  // 실사화 인물 타입 선택 (한국인/외국인)
-  const [realisticCharacterType, setRealisticCharacterType] = useState<"korean" | "foreign" | null>(null)
   
   // 샘플 이미지 URL 매핑 (ImgBB 직접 이미지 링크)
   // ImgBB 페이지 URL: https://ibb.co/{hash} -> 직접 이미지 URL: https://i.ibb.co/{hash}/{filename}.{ext}
@@ -1016,6 +1024,7 @@ export default function LongformContentPage() {
     | "unsolved_case"
       | "reserve_army"
       | "elementary_school"
+      | "psychology"
     >("health")
   
   // 기본 주제/틈새 주제 토글 상태
@@ -1249,7 +1258,11 @@ export default function LongformContentPage() {
             while (!imageUrl) {
               try {
                 console.log(`[자동화] 이미지 생성 시도 ${attempt}...`)
-                imageUrl = await generateImageWithReplicate(prompt, replicateApiKey, "16:9", imageStyle)
+                // 모델 선택: 스틱맨 애니메이션, 애니메이션2, 유럽풍 그래픽 노블인 경우 사용자 선택 모델 사용
+                const selectedModel = (imageStyle === "stickman-animation" || imageStyle === "animation2" || imageStyle === "animation3") 
+                  ? imageModel 
+                  : undefined
+                imageUrl = await generateImageWithReplicate(prompt, replicateApiKey, "16:9", imageStyle, undefined, selectedModel)
                 console.log(`[자동화] 이미지 생성 완료 (시도 ${attempt}): ${imageUrl.substring(0, 50)}...`)
                 break // 성공하면 루프 종료
               } catch (error) {
@@ -2553,8 +2566,11 @@ export default function LongformContentPage() {
       // 키워드는 선택 사항 (빈 문자열이면 undefined로 전달)
       const keywordsValue = keywords.trim() || undefined
       
-      console.log("[v0] 주제 생성 시작, 카테고리:", selectedCategory, "키워드:", keywordsValue) // 디버깅 로그 추가
-      const topics = await generateTopics(selectedCategory, keywordsValue, undefined, apiKey)
+      console.log("[v0] 주제 생성 시작, 카테고리:", selectedCategory, "키워드:", keywordsValue, "직접입력:", isDirectInputSelected, "직접입력 주제:", customTopic) // 디버깅 로그 추가
+      // 직접입력일 때는 customTopic을 전달하고 카테고리를 "custom"으로 설정
+      const categoryToUse = isDirectInputSelected && customTopic ? "custom" : selectedCategory
+      const customTopicToUse = isDirectInputSelected && customTopic ? customTopic : undefined
+      const topics = await generateTopics(categoryToUse, keywordsValue, undefined, apiKey, customTopicToUse)
       console.log("[v0] 생성된 주제:", topics) // 디버깅 로그 추가
       setGeneratedTopics(topics)
       setCompletedSteps((prev) => [...prev, "topic"])
@@ -10296,6 +10312,7 @@ export default function LongformContentPage() {
                           { id: "unsolved_case", name: "미제사건", icon: "🔍", gradient: "from-amber-500 to-yellow-600", available: true },
                           { id: "reserve_army", name: "예비군이야기", icon: "🪖", gradient: "from-green-600 to-emerald-700", available: true },
                           { id: "elementary_school", name: "국민학교", icon: "🏫", gradient: "from-orange-400 to-amber-500", available: true },
+                          { id: "psychology", name: "심리학", icon: "🧠", gradient: "from-purple-400 to-pink-500", available: true },
                           { id: "direct_input", name: "직접입력", icon: "✍️", gradient: "from-purple-500 to-pink-500", available: true, isDirectInput: true },
                         ]
                           .filter((category) => {
@@ -10442,20 +10459,37 @@ export default function LongformContentPage() {
                       </Button>
                     </div>
                   ) : isDirectInputSelected ? (
-                    <div className="space-y-2">
-                      <Label htmlFor="benchmark-script" className="text-sm font-medium text-gray-700">
-                        벤치마킹 대본 입력
-                      </Label>
-                      <p className="text-xs text-gray-500 mb-3">
-                        참고할 대본을 입력하세요. 이 대본을 기반으로 대본 기획이 생성됩니다.
-                      </p>
-                      <Textarea
-                        id="benchmark-script"
-                        value={benchmarkScript}
-                        onChange={(e) => setBenchmarkScript(e.target.value)}
-                        placeholder="벤치마킹 대본을 입력하세요..."
-                        className="min-h-[200px] resize-y border-gray-300 focus:ring-red-500 focus:border-red-500 rounded-lg"
-                      />
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="custom-topic" className="text-sm font-medium text-gray-700">
+                          주제 직접 입력
+                        </Label>
+                        <p className="text-xs text-gray-500 mb-3">
+                          주제를 입력하면 해당 주제를 바탕으로 주제 15개를 생성합니다.
+                        </p>
+                        <Input
+                          id="custom-topic"
+                          value={customTopic}
+                          onChange={(e) => setCustomTopic(e.target.value)}
+                          placeholder="예: 인공지능의 미래, 건강한 식습관, 투자 초보자를 위한 팁 등..."
+                          className="border-gray-300 focus:ring-red-500 focus:border-red-500 rounded-lg"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="benchmark-script" className="text-sm font-medium text-gray-700">
+                          벤치마킹 대본 입력 (선택사항)
+                        </Label>
+                        <p className="text-xs text-gray-500 mb-3">
+                          참고할 대본을 입력하세요. 이 대본을 기반으로 대본 기획이 생성됩니다.
+                        </p>
+                        <Textarea
+                          id="benchmark-script"
+                          value={benchmarkScript}
+                          onChange={(e) => setBenchmarkScript(e.target.value)}
+                          placeholder="벤치마킹 대본을 입력하세요..."
+                          className="min-h-[200px] resize-y border-gray-300 focus:ring-red-500 focus:border-red-500 rounded-lg"
+                        />
+                      </div>
                     </div>
                   ) : (
                     <div className="space-y-2">
@@ -10476,8 +10510,15 @@ export default function LongformContentPage() {
                     {isDirectInputSelected ? (
                       <Button
                         onClick={async () => {
+                          // 주제가 입력되어 있으면 주제 15개 생성
+                          if (customTopic.trim()) {
+                            await handleTopicGeneration()
+                            return
+                          }
+                          
+                          // 주제가 없고 벤치마킹 대본만 있으면 기존 로직 사용
                           if (!benchmarkScript.trim()) {
-                            alert("벤치마킹 대본을 입력해주세요.")
+                            alert("주제를 입력하거나 벤치마킹 대본을 입력해주세요.")
                             return
                           }
                           
@@ -10525,19 +10566,28 @@ export default function LongformContentPage() {
                             setIsGenerating(false)
                           }
                         }}
-                        disabled={isGenerating || !benchmarkScript.trim()}
+                        disabled={isGenerating || (!customTopic.trim() && !benchmarkScript.trim())}
                         className="h-12 bg-red-500 hover:bg-red-600 text-white rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                         size="lg"
                       >
                         {isGenerating ? (
                           <>
                             <Sparkles className="w-5 h-5 mr-2 animate-spin" />
-                            AI가 대본 기획을 생성하고 있습니다...
+                            {customTopic.trim() ? "주제를 생성하고 있습니다..." : "AI가 대본 기획을 생성하고 있습니다..."}
                           </>
                         ) : (
                           <>
-                            <FileText className="w-5 h-5 mr-2" />
-                            대본 기획 생성하기
+                            {customTopic.trim() ? (
+                              <>
+                                <Sparkles className="w-5 h-5 mr-2" />
+                                주제 생성하기 (15개)
+                              </>
+                            ) : (
+                              <>
+                                <FileText className="w-5 h-5 mr-2" />
+                                대본 기획 생성하기
+                              </>
+                            )}
                           </>
                         )}
                       </Button>
@@ -10991,15 +11041,15 @@ export default function LongformContentPage() {
                             <Label className="text-sm font-medium text-gray-700">목소리 선택</Label>
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 max-h-[300px] overflow-y-auto p-2 border border-gray-200 rounded-lg">
                               {[
-                                // { id: "jB1Cifc2UQbq1gR3wnb0", name: "Rachel", note: "기본(Default)", provider: "elevenlabs" }, // 숨김
-                                // { id: "8jHHF8rMqMlg8if2mOUe", name: "Voice 2", note: "사용자 선택형", provider: "elevenlabs" }, // 숨김
-                                // { id: "uyVNoMrnUku1dZyVEXwD", name: "Voice 3", note: "", provider: "elevenlabs" }, // 숨김
                                 { id: "ttsmaker-여성1", name: "TTSMaker 여성1", note: "ID: 503", provider: "ttsmaker" },
                                 { id: "ttsmaker-여성2", name: "TTSMaker 여성2", note: "ID: 509", provider: "ttsmaker" },
                                 { id: "ttsmaker-여성6", name: "TTSMaker 여성3", note: "ID: 5802", provider: "ttsmaker" },
                                 { id: "ttsmaker-남성1", name: "TTSMaker 남성1", note: "ID: 5501", provider: "ttsmaker" },
                                 { id: "ttsmaker-남성4", name: "TTSMaker 남성2", note: "ID: 5888", provider: "ttsmaker" },
                                 { id: "ttsmaker-남성5", name: "TTSMaker 남성3", note: "ID: 5888 (음높이 -10%)", provider: "ttsmaker" },
+                                { id: "jB1Cifc2UQbq1gR3wnb0", name: "ElevenLabs Rachel", note: "기본(Default)", provider: "elevenlabs" },
+                                { id: "8jHHF8rMqMlg8if2mOUe", name: "ElevenLabs Voice 2", note: "사용자 선택형", provider: "elevenlabs" },
+                                { id: "uyVNoMrnUku1dZyVEXwD", name: "ElevenLabs Voice 3", note: "", provider: "elevenlabs" },
                               ].map((voice) => (
                                 <div
                                   key={voice.id}
@@ -11022,6 +11072,7 @@ export default function LongformContentPage() {
                                     </div>
                                     <div className="flex-1" onClick={() => setSelectedVoiceId(voice.id)}>
                                       <p className="text-sm font-medium">{voice.name}</p>
+                                      {voice.note && <p className="text-xs text-gray-500">{voice.note}</p>}
                                     </div>
                                   </div>
                                   <Button
@@ -12442,6 +12493,28 @@ export default function LongformContentPage() {
                         유럽풍 그래픽 노블
                   </Button>
                     </div>
+                    {/* 스틱맨 애니메이션, 애니메이션2, 유럽풍 그래픽 노블 선택 시 모델 선택 */}
+                    {(imageStyle === "stickman-animation" || imageStyle === "animation2" || imageStyle === "animation3") && (
+                      <div className="mt-4 pt-4 border-t border-gray-200">
+                        <div>
+                          <p className="text-sm font-medium text-gray-700 mb-2">AI 모델 선택</p>
+                          <Select value={imageModel} onValueChange={(value: "prunaai/hidream-l1-fast" | "black-forest-labs/flux-schnell") => setImageModel(value)}>
+                            <SelectTrigger className="w-full">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="prunaai/hidream-l1-fast">prunaai/hidream-l1-fast</SelectItem>
+                              <SelectItem value="black-forest-labs/flux-schnell">black-forest-labs/flux-schnell</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          {imageModel === "black-forest-labs/flux-schnell" && (
+                            <p className="text-xs text-gray-500 mt-1">
+                              Negative prompt는 자동으로 프롬프트에 결합됩니다. (16:9 비율 고정)
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
                     {/* 실사화/실사화2 선택 시 인물 타입 선택 */}
                     {(imageStyle === "realistic" || imageStyle === "realistic2") && (
                       <div className="mt-4 pt-4 border-t border-gray-200">
@@ -13152,12 +13225,17 @@ export default function LongformContentPage() {
                               
                               try {
                                 console.log(`[Scene Image] 이미지 생성 시도 ${attempt}/${maxRetries}...`)
+                                // 모델 선택: 스틱맨 애니메이션, 애니메이션2, 유럽풍 그래픽 노블인 경우 사용자 선택 모델 사용
+                                const selectedModel = (imageStyle === "stickman-animation" || imageStyle === "animation2" || imageStyle === "animation3") 
+                                  ? imageModel 
+                                  : undefined
                                 const imageUrl = await generateImageWithReplicate(
                                   prompt,
                                   replicateApiKey,
                                   "16:9",
                                   imageStyle,
-                                  sceneText
+                                  undefined,
+                                  selectedModel
                                 )
                                 console.log(`[Scene Image] 이미지 생성 성공 (시도 ${attempt})`)
                                 return imageUrl
@@ -13455,12 +13533,17 @@ export default function LongformContentPage() {
                                                 while (attempt <= maxRetries && !imageUrl) {
                                                   try {
                                                     console.log(`[Scene Image] 개별 이미지 생성 시도 ${attempt}/${maxRetries}...`)
+                                                    // 모델 선택: 스틱맨 애니메이션, 애니메이션2, 유럽풍 그래픽 노블인 경우 사용자 선택 모델 사용
+                                                    const selectedModel = (imageStyle === "stickman-animation" || imageStyle === "animation2" || imageStyle === "animation3") 
+                                                      ? imageModel 
+                                                      : undefined
                                                     imageUrl = await generateImageWithReplicate(
                                                       image.prompt,
                                                       replicateApiKey,
                                                       "16:9",
                                                       imageStyle,
-                                                      image.sceneText
+                                                      undefined,
+                                                      selectedModel
                                                     )
                                                     console.log(`[Scene Image] 개별 이미지 생성 성공 (시도 ${attempt})`)
                                                     break // 성공하면 루프 종료
@@ -13747,15 +13830,15 @@ export default function LongformContentPage() {
                     <div className="space-y-2">
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         {[
-                          // { id: "jB1Cifc2UQbq1gR3wnb0", name: "Rachel", note: "기본(Default)", provider: "elevenlabs" }, // 숨김
-                          // { id: "8jHHF8rMqMlg8if2mOUe", name: "Voice 2", note: "사용자 선택형", provider: "elevenlabs" }, // 숨김
-                          // { id: "uyVNoMrnUku1dZyVEXwD", name: "Voice 3", note: "", provider: "elevenlabs" }, // 숨김
                           { id: "ttsmaker-여성1", name: "TTSMaker 여성1", note: "ID: 503", provider: "ttsmaker" },
                           { id: "ttsmaker-여성2", name: "TTSMaker 여성2", note: "ID: 509", provider: "ttsmaker" },
                           { id: "ttsmaker-여성6", name: "TTSMaker 여성3", note: "ID: 5802", provider: "ttsmaker" },
                           { id: "ttsmaker-남성1", name: "TTSMaker 남성1", note: "ID: 5501", provider: "ttsmaker" },
                           { id: "ttsmaker-남성4", name: "TTSMaker 남성2", note: "ID: 5888", provider: "ttsmaker" },
                           { id: "ttsmaker-남성5", name: "TTSMaker 남성3", note: "ID: 5888 (음높이 -10%)", provider: "ttsmaker" },
+                          { id: "jB1Cifc2UQbq1gR3wnb0", name: "ElevenLabs Rachel", note: "기본(Default)", provider: "elevenlabs" },
+                          { id: "8jHHF8rMqMlg8if2mOUe", name: "ElevenLabs Voice 2", note: "사용자 선택형", provider: "elevenlabs" },
+                          { id: "uyVNoMrnUku1dZyVEXwD", name: "ElevenLabs Voice 3", note: "", provider: "elevenlabs" },
                         ].map((voice) => (
                           <div
                             key={voice.id}
@@ -13778,6 +13861,7 @@ export default function LongformContentPage() {
                               </div>
                               <div className="flex-1" onClick={() => setSelectedVoiceId(voice.id)}>
                                 <p className="text-sm font-medium">{voice.name}</p>
+                                {voice.note && <p className="text-xs text-gray-500">{voice.note}</p>}
                               </div>
                             </div>
                           <Button
@@ -17712,6 +17796,45 @@ export default function LongformContentPage() {
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">대본 기획 및 생성에 사용됩니다</p>
+            </div>
+
+            {/* ElevenLabs API Key */}
+            <div className="space-y-2">
+              <Label htmlFor="elevenlabs-key" className="text-sm font-medium">
+                ElevenLabs API Key
+              </Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="elevenlabs-key"
+                  type={showKeys.elevenlabs ? "text" : "password"}
+                  placeholder="입력하세요"
+                  value={apiKeys.elevenlabs}
+                  onChange={(e) => setApiKeys({ ...apiKeys, elevenlabs: e.target.value })}
+                  className="font-mono text-sm"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowKeys({ ...showKeys, elevenlabs: !showKeys.elevenlabs })}
+                  className="shrink-0"
+                >
+                  {showKeys.elevenlabs ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    navigator.clipboard.writeText(apiKeys.elevenlabs)
+                  }}
+                  disabled={!apiKeys.elevenlabs}
+                  className="shrink-0"
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">ElevenLabs 음성 합성에 사용됩니다</p>
             </div>
 
             <div className="flex justify-end gap-2 pt-4">

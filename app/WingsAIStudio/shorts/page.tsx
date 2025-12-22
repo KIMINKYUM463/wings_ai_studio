@@ -37,7 +37,7 @@ import { Label } from "@/components/ui/label"
 import { getApiKey } from "@/lib/api-keys"
 import { Slider } from "@/components/ui/slider"
 
-type ShortsCategory = "wisdom" | "health" | "self_improvement" | "society" | "history" | "space" | "fortune" | "custom"
+type ShortsCategory = "wisdom" | "health" | "self_improvement" | "society" | "history" | "space" | "fortune" | "psychology" | "custom"
 type ShortsDuration = 1 | 2 | 3
 
 const categoryInfo = {
@@ -48,6 +48,7 @@ const categoryInfo = {
   history: { name: "역사", icon: "📜", gradient: "from-blue-400 to-cyan-500" },
   space: { name: "우주", icon: "🌌", gradient: "from-indigo-600 to-purple-600" },
   fortune: { name: "사주", icon: "🔮", gradient: "from-pink-400 to-rose-500" },
+  psychology: { name: "심리학", icon: "🧠", gradient: "from-purple-400 to-pink-500" },
   custom: { name: "직접입력", icon: "✏️", gradient: "from-gray-400 to-gray-600" },
 }
 
@@ -60,6 +61,7 @@ const categoryOrder: ShortsCategory[] = [
   "history",
   "space",
   "fortune",
+  "psychology",
   "custom",
 ]
 
@@ -101,14 +103,32 @@ export default function ShortsPage() {
   const handleGenerateTopics = async () => {
     if (!selectedCategory) return
 
-    // 직접입력인 경우 주제 생성 스킵
+    // 직접입력인 경우 주제 15개 생성
     if (selectedCategory === "custom") {
       if (!customTopic.trim()) {
         alert("주제를 입력해주세요.")
         return
       }
-      setSelectedTopic(customTopic.trim())
-      setActiveStep("script") // 주제 선택 단계 스킵하고 바로 대본 생성 단계로
+      
+      // 로컬스토리지에서 직접 가져오기
+      const openaiApiKey = typeof window !== "undefined" ? localStorage.getItem("openai_api_key") || undefined : undefined
+      
+      if (!openaiApiKey) {
+        alert("OpenAI API 키가 필요합니다. 메인 화면의 설정(톱니바퀴 아이콘)에서 API 키를 입력해주세요.")
+        return
+      }
+
+      setIsGeneratingTopics(true)
+      try {
+        const topics = await generateShortsTopics("custom", openaiApiKey, customTopic.trim())
+        setTopics(topics)
+        setActiveStep("topic")
+      } catch (error) {
+        console.error("주제 생성 실패:", error)
+        alert(`주제 생성에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+      } finally {
+        setIsGeneratingTopics(false)
+      }
       return
     }
 
@@ -122,7 +142,7 @@ export default function ShortsPage() {
 
     setIsGeneratingTopics(true)
     try {
-      const topics = await generateShortsTopics(selectedCategory as "wisdom" | "health" | "self_improvement" | "society" | "history" | "space" | "fortune", openaiApiKey)
+      const topics = await generateShortsTopics(selectedCategory as "wisdom" | "health" | "self_improvement" | "society" | "history" | "space" | "fortune" | "psychology", openaiApiKey)
       setTopics(topics)
       setActiveStep("topic")
     } catch (error) {
@@ -152,6 +172,34 @@ export default function ShortsPage() {
     try {
       const scriptText = await generateShortsScript(selectedTopic, selectedDuration, openaiApiKey)
       console.log("[Shorts] 대본 생성 완료, 길이:", scriptText?.length || 0)
+      
+      // 목표 길이 확인 및 경고
+      const targetChars = {
+        1: 414, // 1분 = 60초 * 6.9
+        2: 828, // 2분 = 120초 * 6.9
+        3: 1242, // 3분 = 180초 * 6.9
+      }[selectedDuration]
+      
+      const actualLength = scriptText.length
+      const expectedDuration = actualLength / 6.9 / 60 // 분 단위
+      
+      console.log(`[Shorts] 목표 길이: ${targetChars}자, 실제 길이: ${actualLength}자, 예상 시간: ${expectedDuration.toFixed(2)}분`)
+      
+      // 목표 길이의 150%를 초과하면 경고
+      if (actualLength > targetChars * 1.5) {
+        const warningMessage = `⚠️ 경고: 생성된 대본이 목표 길이(${targetChars}자)보다 훨씬 깁니다.\n\n` +
+          `실제 길이: ${actualLength}자\n` +
+          `예상 시간: 약 ${expectedDuration.toFixed(1)}분\n\n` +
+          `목표 시간(${selectedDuration}분)보다 길어질 수 있습니다. 대본을 수정하거나 다시 생성해주세요.`
+        alert(warningMessage)
+      } else if (actualLength > targetChars * 1.2) {
+        const infoMessage = `ℹ️ 생성된 대본이 목표 길이보다 약간 깁니다.\n\n` +
+          `실제 길이: ${actualLength}자\n` +
+          `예상 시간: 약 ${expectedDuration.toFixed(1)}분\n\n` +
+          `목표 시간(${selectedDuration}분)보다 약간 길 수 있습니다.`
+        console.warn("[Shorts]", infoMessage)
+      }
+      
       setScript(scriptText)
 
       // 대본을 문장 단위로 분할 (각 문장당 하나의 이미지)
@@ -1620,7 +1668,23 @@ export default function ShortsPage() {
 
       // 실제 오디오 길이 측정
       const actualAudioDuration = audio.duration
-      console.log("[Shorts] 실제 오디오 길이:", actualAudioDuration.toFixed(3), "초")
+      const actualDurationMinutes = actualAudioDuration / 60
+      console.log("[Shorts] 실제 오디오 길이:", actualAudioDuration.toFixed(3), "초 (", actualDurationMinutes.toFixed(2), "분)")
+      
+      // 목표 시간과 비교하여 경고
+      if (actualDurationMinutes > selectedDuration * 1.3) {
+        const warningMessage = `⚠️ 경고: 실제 오디오 길이가 목표 시간(${selectedDuration}분)보다 훨씬 깁니다.\n\n` +
+          `실제 길이: ${actualDurationMinutes.toFixed(2)}분 (${actualAudioDuration.toFixed(1)}초)\n` +
+          `목표 시간: ${selectedDuration}분\n\n` +
+          `생성된 영상이 목표 시간보다 길어질 수 있습니다.`
+        console.warn("[Shorts]", warningMessage)
+        alert(warningMessage)
+      } else if (actualDurationMinutes > selectedDuration * 1.1) {
+        const infoMessage = `ℹ️ 실제 오디오 길이가 목표 시간보다 약간 깁니다.\n\n` +
+          `실제 길이: ${actualDurationMinutes.toFixed(2)}분\n` +
+          `목표 시간: ${selectedDuration}분`
+        console.log("[Shorts]", infoMessage)
+      }
 
       // MediaRecorder 설정
       const stream = canvas.captureStream(30) // 30fps
@@ -2147,7 +2211,7 @@ export default function ShortsPage() {
               ) : selectedCategory === "custom" ? (
                 <>
                   <Sparkles className="w-4 h-4 mr-2" />
-                  대본 생성하기
+                  주제 생성하기 (15개)
                 </>
               ) : (
                 <>

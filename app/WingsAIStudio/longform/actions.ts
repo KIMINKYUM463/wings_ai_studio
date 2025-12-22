@@ -878,7 +878,8 @@ export async function generateTopics(
   category: string,
   keywords?: string,
   trendingData?: any,
-  apiKey?: string
+  apiKey?: string,
+  customTopic?: string
 ): Promise<string[]> {
   const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
 
@@ -894,8 +895,10 @@ export async function generateTopics(
     society: "사회 트렌드, 최신 이슈와 관련된 롱폼 비디오 주제",
     space: "우주, 천문학과 관련된 롱폼 비디오 주제",
     fortune: "사주, 운세와 관련된 롱폼 비디오 주제",
+    psychology: "심리학, 인간 심리, 행동 심리, 관계 심리, 감정 관리와 관련된 롱폼 비디오 주제",
     reserve_army: "예비군 이야기, 예비군 경험과 관련된 롱폼 비디오 주제",
     elementary_school: "국민학교 시절, 추억과 관련된 롱폼 비디오 주제",
+    custom: keywords ? `${keywords}와 관련된 롱폼 비디오 주제` : "다양한 롱폼 비디오 주제",
   }
 
   try {
@@ -919,6 +922,10 @@ export async function generateTopics(
     console.log("[generateTopics] categoryPrompt:", categoryPrompt)
 
     const keywordsText = keywords ? `\n키워드: ${keywords}` : ""
+    const customTopicText = customTopic ? `\n직접 입력한 주제: ${customTopic}` : ""
+    const finalPrompt = category === "custom" && customTopic 
+      ? `다음 주제를 바탕으로 롱폼 비디오 주제 15개를 생성해주세요:\n\n주제: ${customTopic}\n\n요구사항:\n- 주제 15개를 반드시 생성해주세요\n- 각 주제는 한 줄로 간결하게 작성\n- 번호 형식: 1. 주제명\n- 사과 메시지나 설명 없이 주제만 작성\n\n주제 목록:`
+      : `다음 카테고리에 해당하는 롱폼 비디오 주제 15개를 생성해주세요:\n\n카테고리 설명: ${categoryPrompt}${keywordsText}${customTopicText}\n\n요구사항:\n- 주제 15개를 반드시 생성해주세요\n- 각 주제는 한 줄로 간결하게 작성\n- 번호 형식: 1. 주제명\n- 사과 메시지나 설명 없이 주제만 작성\n\n주제 목록:`
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -931,11 +938,11 @@ export async function generateTopics(
         messages: [
           {
             role: "system",
-            content: "당신은 롱폼 비디오 콘텐츠 전문가입니다. 사용자가 제공하는 카테고리 설명을 바탕으로 해당 카테고리에 맞는 주제 15개를 반드시 생성해주세요. 주제만 생성하고, 사과 메시지나 설명은 절대 포함하지 마세요. 각 주제는 번호를 붙여서 작성해주세요 (예: 1. 주제명).",
+            content: "당신은 롱폼 비디오 콘텐츠 전문가입니다. 사용자가 제공하는 카테고리 설명 또는 주제를 바탕으로 해당 카테고리에 맞는 주제 15개를 반드시 생성해주세요. 주제만 생성하고, 사과 메시지나 설명은 절대 포함하지 마세요. 각 주제는 번호를 붙여서 작성해주세요 (예: 1. 주제명).",
           },
           {
             role: "user",
-            content: `다음 카테고리에 해당하는 롱폼 비디오 주제 15개를 생성해주세요:\n\n카테고리 설명: ${categoryPrompt}${keywordsText}\n\n요구사항:\n- 주제 15개를 반드시 생성해주세요\n- 각 주제는 한 줄로 간결하게 작성\n- 번호 형식: 1. 주제명\n- 사과 메시지나 설명 없이 주제만 작성\n\n주제 목록:`,
+            content: finalPrompt,
           },
         ],
         max_tokens: 1000,

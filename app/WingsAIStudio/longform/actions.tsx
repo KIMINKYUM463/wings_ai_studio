@@ -3578,9 +3578,10 @@ function enforceStickmanPrompt(prompt: string, sceneDescription?: string): strin
 export async function generateImageWithReplicate(
   prompt: string,
   replicateApiKey?: string,
-  aspectRatio: "16:9" | "9:16" | "1:1" = "16:9",
+  aspectRatio: "16:9" | "9:16" | "1:1" | "21:9" = "16:9",
   imageStyle?: string,
-  sceneDescription?: string
+  sceneDescription?: string,
+  selectedModel?: "prunaai/hidream-l1-fast" | "black-forest-labs/flux-schnell"
 ): Promise<string> {
   try {
     const REPLICATE_API_TOKEN = replicateApiKey || process.env.REPLICATE_API_TOKEN
@@ -3589,9 +3590,11 @@ export async function generateImageWithReplicate(
       throw new Error("Replicate API 키가 설정되지 않았습니다. 설정에서 API 키를 입력해주세요.")
     }
 
-    // 이미지 스타일에 따라 모델 선택
+    // 이미지 스타일에 따라 모델 선택 (사용자가 선택한 모델이 있으면 우선 사용)
     let model = "black-forest-labs/flux-schnell"
-    if (imageStyle === "stickman-animation" || imageStyle === "animation2" || imageStyle === "animation3") {
+    if (selectedModel) {
+      model = selectedModel
+    } else if (imageStyle === "stickman-animation" || imageStyle === "animation2" || imageStyle === "animation3") {
       model = "prunaai/hidream-l1-fast"
     } else if (imageStyle === "realistic" || imageStyle === "realistic2") {
       model = "google/imagen-4-fast"
@@ -3743,11 +3746,31 @@ export async function generateImageWithReplicate(
         },
       }
     } else {
-      // flux-schnell 모델용 입력 형식 (aspect_ratio 사용)
+      // flux-schnell 모델용 입력 형식 (negative prompt는 프롬프트에 결합)
+      // 각 스타일별로 negative prompt 생성
+      let negativePromptText = ""
+      
+      if (imageStyle === "stickman-animation") {
+        // 스틱맨 애니메이션 전용 negative prompt
+        negativePromptText = "avoid: realistic, photo, photograph, real people, human, man, woman, semi-realistic, cinematic, movie still, 3d, 3d render, pixar, disney, blender, unreal engine, plastic, glossy, smooth shading, real room, real office, real furniture, lighting effects, depth of field, shadows, character design, mascot, robot, android, detailed face, skin, fingers, joints, body proportions, realistic human, human anatomy, person, cartoon human, anime, manga, portrait, nose, lips, teeth, eyelashes, hair, ears, skin texture, wrinkles, hands with fingers, body volume, torso muscles, render, photorealistic, painterly, digital painting, gradients, soft shading, detailed clothing folds, realistic proportions, close-up face, high detail character design, blank white background, line-art only, text, watermark, speech bubble, thought bubble, text bubble, caption, subtitle, label, signage, words, letters, typography, font, comic panel, comic strip, meme, poster, advertisement, slogan, headline, logo, non-stickman, mixed style, detailed cartoon human, prince, princess, chibi, kawaii, big head, human body, human skin, 3d render, detailed face, blush, portrait, close-up, single character focus, bokeh, depth of field, watercolor, airbrush, extra arms, extra hands, multiple arms, multiple hands, duplicated limbs, cloned arms, ghost limbs, motion trails, overlapping arms, sketch artifacts, three hands, four hands, three arms, four arms, extra limbs, deformed hands, malformed hands, wrong number of fingers, too many fingers, missing hands, missing arms, anatomical errors, body part errors, realistic photography, hyperrealistic, 3D CGI, rendered, animation style, cartoon style, illustration style, vector art, flat design, cel-shaded, stylized character, non-stickman character, human character, detailed character, realistic character, any non-stickman style"
+      } else if (imageStyle === "animation2") {
+        // 애니메이션2: 스틱맨 및 실사 제외
+        negativePromptText = "avoid: realistic human, detailed human skin, photograph, 3d render, blank white background, line-art only, text, watermark, stickman, stick figure, stick man, photorealistic, realistic photography, hyperrealistic, 3D CGI, rendered, photography style, DSLR camera, professional photography, any realistic or photorealistic style"
+      } else if (imageStyle === "animation3") {
+        // 유럽풍 그래픽 노블
+        negativePromptText = "avoid: anime style, Studio Ghibli look, manga big eyes, cute aesthetic, purely sleek digital painting look"
+      } else {
+        // 기본 negative prompt
+        negativePromptText = "avoid: realistic, photo, photograph, 3d render, text, watermark, low quality, blurry"
+      }
+      
+      // negative prompt를 프롬프트에 결합
+      const combinedPrompt = `${finalPrompt}. ${negativePromptText}`
+      
       requestBody = {
         input: {
-          prompt: finalPrompt,
-          aspect_ratio: aspectRatio, // "16:9", "9:16", "1:1" 중 하나
+          prompt: combinedPrompt,
+          aspect_ratio: "16:9", // flux-schnell은 16:9로 통일
           output_format: "png",
           output_quality: 90,
         },
