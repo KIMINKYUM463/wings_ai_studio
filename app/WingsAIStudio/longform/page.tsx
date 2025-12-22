@@ -6530,8 +6530,6 @@ export default function LongformContentPage() {
           setAutoModeProgress({ current: "7/7", total: 7 })
           console.log("[v0] 자동화 모드: 빠른다운로드 시작")
           setTimeout(() => handleFastDownload(), 2000)
-        } else {
-          alert("영상 미리보기가 준비되었습니다!")
         }
         
         return
@@ -6914,8 +6912,6 @@ export default function LongformContentPage() {
         setAutoModeProgress({ current: "7/7", total: 7 })
         console.log("[v0] 자동화 모드: 빠른다운로드 시작")
         setTimeout(() => handleFastDownload(), 2000)
-      } else {
-        alert("영상 미리보기가 준비되었습니다!")
       }
     } catch (error) {
       console.error("[v0] 미리보기 생성 오류:", error)
