@@ -17735,12 +17735,15 @@ export default function LongformContentPage() {
               return (
                 <button
                   key={item.id}
-                  onClick={async () => {
-                    // 단계 변경 전 자동 저장
-                    if (currentProject) {
-                      await handleAutoSaveProject(true)
-                    }
+                  onClick={() => {
+                    // 탭 이동은 즉시 실행
                     setActiveStep(item.id)
+                    // 저장은 백그라운드에서 비동기로 실행 (await 없이)
+                    if (currentProject) {
+                      handleAutoSaveProject(true).catch((error) => {
+                        console.error("[Projects] 백그라운드 자동 저장 실패:", error)
+                      })
+                    }
                   }}
                     className={`w-full text-left p-3 rounded-lg transition-all relative ${
                       itemIsActive
