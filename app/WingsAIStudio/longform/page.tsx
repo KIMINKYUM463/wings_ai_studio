@@ -2882,24 +2882,30 @@ export default function LongformContentPage() {
         return
       }
       
-      // 대본에서 주제 추출
+      // 대본에서 주제 추출 시도
       const openaiApiKey = getApiKey("openai_api_key")
-      if (!openaiApiKey) {
-        alert("OpenAI API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
-        return
-      }
-      
-      setIsGeneratingAIThumbnail(true)
-      try {
-        console.log("[v0] 대본에서 주제 추출 중...")
-        topicToUse = await extractTopicFromScript(script, openaiApiKey)
-        console.log("[v0] 추출된 주제:", topicToUse)
-      } catch (error) {
-        console.error("[v0] 주제 추출 실패:", error)
-        const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다."
-        alert(`주제 추출에 실패했습니다: ${errorMessage}`)
-        setIsGeneratingAIThumbnail(false)
-        return
+      if (openaiApiKey) {
+        setIsGeneratingAIThumbnail(true)
+        try {
+          console.log("[v0] 대본에서 주제 추출 중...")
+          topicToUse = await extractTopicFromScript(script, openaiApiKey)
+          console.log("[v0] 추출된 주제:", topicToUse)
+        } catch (error) {
+          console.error("[v0] 주제 추출 실패, 대본 요약 사용:", error)
+          // 주제 추출 실패 시 대본의 앞부분을 주제로 사용
+          topicToUse = script.substring(0, 100).replace(/\n/g, " ").trim()
+          if (topicToUse.length > 50) {
+            topicToUse = topicToUse.substring(0, 50) + "..."
+          }
+          console.log("[v0] 대본 요약을 주제로 사용:", topicToUse)
+        }
+      } else {
+        // OpenAI API 키가 없으면 대본의 앞부분을 주제로 사용
+        topicToUse = script.substring(0, 100).replace(/\n/g, " ").trim()
+        if (topicToUse.length > 50) {
+          topicToUse = topicToUse.substring(0, 50) + "..."
+        }
+        console.log("[v0] 대본 요약을 주제로 사용:", topicToUse)
       }
     }
 
