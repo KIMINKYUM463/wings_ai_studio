@@ -2720,7 +2720,8 @@ export default function LongformContentPage() {
     try {
       const result = await generateYouTubeDescription(script, selectedCategory, selectedTitle, getApiKey())
       setYoutubeDescription(result)
-      setCompletedSteps((prev) => [...prev, "description"])
+      // 제목/설명 생성 단계 체크
+      setCompletedSteps((prev) => [...new Set([...prev, "title"])])
     } catch (error) {
       console.error("설명 생성 실패:", error)
       alert(`설명 생성에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
@@ -6263,6 +6264,8 @@ export default function LongformContentPage() {
         console.log("[v0] 미리보기 데이터 생성 완료 (씬별 렌더링)")
         setIsGeneratingVideo(false)
         setGeneratingVideoProgress(100)
+        // 영상 렌더링 단계 체크
+        setCompletedSteps((prev) => [...new Set([...prev, "render"])])
         
         if (isAutoMode) {
           setAutoModeStep("빠른다운로드 중...")
@@ -6623,6 +6626,8 @@ export default function LongformContentPage() {
       console.log("[v0] 미리보기 데이터 생성 완료")
       setIsGeneratingVideo(false)
       setGeneratingVideoProgress(100)
+      // 영상 렌더링 단계 체크
+      setCompletedSteps((prev) => [...new Set([...prev, "render"])])
       
       // 자동화 모드일 때 다음 단계 자동 진행 (빠른다운로드)
       if (isAutoMode) {
