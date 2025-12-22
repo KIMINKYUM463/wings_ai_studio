@@ -21,7 +21,69 @@ export interface AlignmentResult {
 }
 
 /**
+ * AudioBuffer를 WAV Blob으로 변환하는 헬퍼 함수
+ */
+async function audioBufferToBlob(audioBuffer: AudioBuffer): Promise<Blob> {
+  const numberOfChannels = audioBuffer.numberOfChannels
+  const sampleRate = audioBuffer.sampleRate
+  const length = audioBuffer.length
+  
+  // 인터리브된 데이터 생성
+  const resultBuffer = new Float32Array(length * numberOfChannels)
+  let offset = 0
+  for (let channel = 0; channel < numberOfChannels; channel++) {
+    resultBuffer.set(audioBuffer.getChannelData(channel), offset)
+    offset += length
+  }
+  
+  // WAV 인코딩
+  const wavBuffer = encodeWAV(resultBuffer, numberOfChannels, sampleRate)
+  return new Blob([wavBuffer], { type: 'audio/wav' })
+}
+
+/**
+ * Float32Array를 WAV 형식으로 인코딩
+ */
+function encodeWAV(samples: Float32Array, numChannels: number, sampleRate: number): ArrayBuffer {
+  const length = samples.length
+  const buffer = new ArrayBuffer(44 + length * 2)
+  const view = new DataView(buffer)
+  
+  // WAV 헤더 작성
+  const writeString = (offset: number, string: string) => {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i))
+    }
+  }
+  
+  writeString(0, 'RIFF')
+  view.setUint32(4, 36 + length * 2, true)
+  writeString(8, 'WAVE')
+  writeString(12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, numChannels, true)
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, sampleRate * numChannels * 2, true)
+  view.setUint16(32, numChannels * 2, true)
+  view.setUint16(34, 16, true)
+  writeString(36, 'data')
+  view.setUint32(40, length * 2, true)
+  
+  // 샘플 데이터 변환 (Float32 -> Int16)
+  let offset = 44
+  for (let i = 0; i < length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]))
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true)
+    offset += 2
+  }
+  
+  return buffer
+}
+
+/**
  * 향상된 오디오 분석을 통한 단어 단위 타이밍 생성
+ * STT 기술을 우선적으로 사용하여 최고 정확도 달성
  * 
  * @param audioBuffer - 분석할 오디오 버퍼
  * @param text - 정렬할 텍스트
@@ -37,18 +99,80 @@ export async function generateWordTimings(
   }
 
   const duration = audioBuffer.duration
-  const sampleRate = audioBuffer.sampleRate
-  const channelData = audioBuffer.getChannelData(0)
-  const totalSamples = channelData.length
+  let wordTimings: WordTiming[] = []
 
-  // 1. 음성 활동 감지 (VAD) - 개선된 버전
-  const voiceActivity = detectVoiceActivity(channelData, sampleRate)
-  
-  // 2. 음성 구간에서 음소 경계 찾기
-  const phonemeBoundaries = detectPhonemeBoundaries(channelData, sampleRate, voiceActivity)
-  
-  // 3. 텍스트와 오디오 정렬
-  const wordTimings = alignWordsToAudio(words, phonemeBoundaries, duration)
+  // 1. Whisper API 시도 (가장 정확함)
+  try {
+    if (typeof window !== 'undefined') {
+      // 동적 import로 클라이언트 사이드에서만 로드
+      const { getApiKey } = await import('@/lib/api-keys')
+      const openaiApiKey = getApiKey("openai")
+      
+      if (openaiApiKey) {
+        console.log("[Alignment] Whisper API 시도...")
+        const audioBlob = await audioBufferToBlob(audioBuffer)
+        wordTimings = await generateTimingsWithWhisper(audioBlob, text, '/api/whisper-align')
+        
+        if (wordTimings.length > 0 && wordTimings.length >= words.length * 0.8) {
+          // 80% 이상의 단어가 매칭되면 성공으로 간주
+          console.log("[Alignment] Whisper API 성공:", wordTimings.length, "단어")
+          return wordTimings
+        } else {
+          console.warn("[Alignment] Whisper API 결과 부족:", wordTimings.length, "/", words.length)
+        }
+      } else {
+        console.warn("[Alignment] OpenAI API 키 없음, Whisper API 건너뜀.")
+      }
+    }
+  } catch (e) {
+    console.warn("[Alignment] Whisper API 실패:", e)
+  }
+
+  // 2. Web Speech API 시도 (클라이언트 측)
+  try {
+    if (typeof window !== 'undefined' && ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+      console.log("[Alignment] Web Speech API 시도...")
+      const audioBlob = await audioBufferToBlob(audioBuffer)
+      wordTimings = await generateTimingsWithWebSpeechAPI(audioBlob, text)
+      
+      if (wordTimings.length > 0 && wordTimings.length >= words.length * 0.8) {
+        console.log("[Alignment] Web Speech API 성공:", wordTimings.length, "단어")
+        return wordTimings
+      } else {
+        console.warn("[Alignment] Web Speech API 결과 부족:", wordTimings.length, "/", words.length)
+      }
+    }
+  } catch (e) {
+    console.warn("[Alignment] Web Speech API 실패:", e)
+  }
+
+  // 3. VAD 기반 분석 (fallback)
+  try {
+    console.log("[Alignment] VAD 기반 분석 시도...")
+    const sampleRate = audioBuffer.sampleRate
+    const channelData = audioBuffer.getChannelData(0)
+    
+    const voiceActivity = detectVoiceActivity(channelData, sampleRate)
+    const phonemeBoundaries = detectPhonemeBoundaries(channelData, sampleRate, voiceActivity)
+    wordTimings = alignWordsToAudio(words, phonemeBoundaries, duration)
+    
+    if (wordTimings.length > 0) {
+      console.log("[Alignment] VAD 기반 분석 성공:", wordTimings.length, "단어")
+      return wordTimings
+    }
+  } catch (e) {
+    console.warn("[Alignment] VAD 기반 분석 실패:", e)
+  }
+
+  // 4. 최종 fallback: 문자 길이 기반 균등 분배
+  console.warn("[Alignment] 모든 정밀 분석 실패, 문자 길이 기반 fallback 사용.")
+  const totalChars = words.reduce((sum, w) => sum + w.length, 0)
+  let currentTime = 0
+  for (const word of words) {
+    const wordDuration = (word.length / totalChars) * duration
+    wordTimings.push({ word, start: currentTime, end: currentTime + wordDuration })
+    currentTime += wordDuration
+  }
   
   return wordTimings
 }

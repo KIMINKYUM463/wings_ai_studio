@@ -617,6 +617,7 @@ export default function HomePage() {
     elevenlabs: false,
     replicate: false,
     gemini: false,
+    ttsmaker: false,
     youtubeClientId: false,
     youtubeClientSecret: false,
     youtubeDataApiKey: false,
@@ -701,6 +702,7 @@ export default function HomePage() {
       const storedElevenLabs = localStorage.getItem("elevenlabs_api_key") || ""
       const storedReplicate = localStorage.getItem("replicate_api_key") || ""
       const storedGemini = localStorage.getItem("gemini_api_key") || ""
+      const storedTTSMaker = localStorage.getItem("ttsmaker_api_key") || ""
       const storedYoutubeClientId = localStorage.getItem("youtube_client_id") || ""
       const storedYoutubeClientSecret = localStorage.getItem("youtube_client_secret") || ""
       const storedYoutubeDataApiKey = localStorage.getItem("wings_youtube_data_api_key") || ""
@@ -710,6 +712,7 @@ export default function HomePage() {
         elevenlabs: storedElevenLabs,
         replicate: storedReplicate,
         gemini: storedGemini,
+        ttsmaker: storedTTSMaker,
         youtubeClientId: storedYoutubeClientId,
         youtubeClientSecret: storedYoutubeClientSecret,
         youtubeDataApiKey: storedYoutubeDataApiKey,
@@ -801,6 +804,7 @@ export default function HomePage() {
     localStorage.setItem("elevenlabs_api_key", apiKeys.elevenlabs)
     localStorage.setItem("replicate_api_key", apiKeys.replicate)
     localStorage.setItem("gemini_api_key", apiKeys.gemini)
+    localStorage.setItem("ttsmaker_api_key", apiKeys.ttsmaker || "")
     localStorage.setItem("youtube_client_id", apiKeys.youtubeClientId)
     localStorage.setItem("youtube_client_secret", apiKeys.youtubeClientSecret)
     localStorage.setItem("wings_youtube_data_api_key", apiKeys.youtubeDataApiKey)
@@ -905,9 +909,25 @@ export default function HomePage() {
           }
           break
         }
-        case "elevenlabs": {
+        case "ttsmaker": {
           // 서버 사이드 API를 통해 테스트 (TTSMaker API)
           const response = await fetch("/api/test-ttsmaker", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ apiKey: apiKeys.ttsmaker }),
+          })
+          const result = await response.json()
+          setTestResults({
+            ...testResults,
+            [keyType]: { success: result.success, message: result.message }
+          })
+          break
+        }
+        case "elevenlabs": {
+          // 서버 사이드 API를 통해 테스트 (ElevenLabs API)
+          const response = await fetch("/api/test-elevenlabs", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -1145,8 +1165,64 @@ export default function HomePage() {
 
             {/* TTSMaker API Key */}
             <div className="space-y-2">
-              <Label htmlFor="elevenlabs-key" className="text-sm font-medium">
+              <Label htmlFor="ttsmaker-key" className="text-sm font-medium">
                 TTSMaker API Key
+              </Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="ttsmaker-key"
+                  type={showKeys.ttsmaker ? "text" : "password"}
+                  placeholder="입력하세요"
+                  value={apiKeys.ttsmaker || ""}
+                  onChange={(e) => setApiKeys({ ...apiKeys, ttsmaker: e.target.value })}
+                  className="font-mono text-sm"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowKeys({ ...showKeys, ttsmaker: !showKeys.ttsmaker })}
+                  className="shrink-0"
+                >
+                  {showKeys.ttsmaker ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    navigator.clipboard.writeText(apiKeys.ttsmaker || "")
+                    setCopied(true)
+                    setTimeout(() => setCopied(false), 2000)
+                  }}
+                  disabled={!apiKeys.ttsmaker}
+                  className="shrink-0"
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => testApiKey("ttsmaker")}
+                  disabled={testingKeys.ttsmaker || !apiKeys.ttsmaker}
+                  className="shrink-0 text-xs"
+                >
+                  {testingKeys.ttsmaker ? "확인 중..." : "연결확인"}
+                </Button>
+              </div>
+              {testResults.ttsmaker && (
+                <p className={`text-xs ${testResults.ttsmaker.success ? "text-green-600" : "text-red-600"}`}>
+                  {testResults.ttsmaker.message}
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">TTSMaker 음성 합성에 사용됩니다</p>
+            </div>
+
+            {/* ElevenLabs API Key */}
+            <div className="space-y-2">
+              <Label htmlFor="elevenlabs-key" className="text-sm font-medium">
+                ElevenLabs API Key
               </Label>
               <div className="flex items-center gap-2">
                 <Input
@@ -1196,7 +1272,7 @@ export default function HomePage() {
                   {testResults.elevenlabs.message}
                 </p>
               )}
-              <p className="text-xs text-muted-foreground">TTSMaker 음성 합성에 사용됩니다</p>
+              <p className="text-xs text-muted-foreground">ElevenLabs 음성 합성에 사용됩니다</p>
             </div>
 
             {/* Replicate API Key */}

@@ -405,7 +405,7 @@ export default function LongformContentPage() {
   const [script, setScript] = useState("")
   const [decomposedScenes, setDecomposedScenes] = useState("") // 장면 분해 결과
   const [scriptLines, setScriptLines] = useState<Array<{ id: number; text: string }>>([])
-  const [sceneImagePrompts, setSceneImagePrompts] = useState<Array<{ sceneNumber: number; images: Array<{ imageNumber: number; prompt: string; sceneText: string; visualInstruction?: string; imageUrl?: string }> }>>([]) // Scene별 이미지 프롬프트
+  const [sceneImagePrompts, setSceneImagePrompts] = useState<Array<{ sceneNumber: number; images: Array<{ imageNumber: number; prompt: string; sceneText: string; visualInstruction?: string; imageUrl?: string; createdAt?: number }> }>>([]) // Scene별 이미지 프롬프트
   const [isGeneratingScenePrompts, setIsGeneratingScenePrompts] = useState(false) // Scene 프롬프트 생성 중
   const [scenePromptProgress, setScenePromptProgress] = useState<{ current: number; total: number } | null>(null) // 이미지 프롬프트 생성 진행률
   const [isGeneratingSceneImages, setIsGeneratingSceneImages] = useState(false) // Scene 이미지 생성 중
@@ -414,7 +414,7 @@ export default function LongformContentPage() {
   const shouldStopImageGeneration = useRef(false) // 이미지 생성 중단 플래그
   const [selectedLineIds, setSelectedLineIds] = useState<Set<number>>(new Set())
   const [scriptDuration, setScriptDuration] = useState<number>(20) // 대본 시간 (분)
-  const [generatedImages, setGeneratedImages] = useState<Array<{ lineId: number; imageUrl: string; prompt: string }>>([])
+  const [generatedImages, setGeneratedImages] = useState<Array<{ lineId: number; imageUrl: string; prompt: string; createdAt?: number }>>([])
   const [isGeneratingImages, setIsGeneratingImages] = useState(false)
   const [imageGenerationProgress, setImageGenerationProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 })
   // 이미지 스타일 선택 (useEffect보다 먼저 선언되어야 함)
@@ -462,6 +462,7 @@ export default function LongformContentPage() {
   const [selectedVoice] = useState("ko-KR-Neural2-B")
   const [videoData, setVideoData] = useState<{
     audioUrl: string
+    audioBase64?: string // 오디오 base64 (빠른 로딩을 위해 미리 준비)
     subtitles: Array<{ id: number; start: number; end: number; text: string }>
     duration: number
     videoUrl?: string // 렌더링된 영상 URL (GCS 또는 Cloud Run)
@@ -489,6 +490,7 @@ export default function LongformContentPage() {
     replicate: "",
     gemini: "",
     ttsmaker: "",
+    youtubeDataApiKey: "",
   })
   const [showKeys, setShowKeys] = useState({
     openai: false,
@@ -496,8 +498,10 @@ export default function LongformContentPage() {
     replicate: false,
     gemini: false,
     ttsmaker: false,
+    youtubeDataApiKey: false,
   })
   const [saved, setSaved] = useState(false)
+  const [currentTimestamp, setCurrentTimestamp] = useState(Date.now()) // 이미지 만료 시간 계산용
   
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false)
   const [currentSubtitle, setCurrentSubtitle] = useState("")
@@ -827,6 +831,7 @@ export default function LongformContentPage() {
     const storedReplicate = localStorage.getItem("replicate_api_key") || ""
     const storedGemini = localStorage.getItem("gemini_api_key") || ""
     const storedTTSMaker = localStorage.getItem("ttsmaker_api_key") || ""
+    const storedYoutubeDataApiKey = localStorage.getItem("wings_youtube_data_api_key") || ""
 
     setApiKeys({
       openai: storedOpenAI,
@@ -834,7 +839,16 @@ export default function LongformContentPage() {
       replicate: storedReplicate,
       gemini: storedGemini,
       ttsmaker: storedTTSMaker,
+      youtubeDataApiKey: storedYoutubeDataApiKey,
     })
+  }, [])
+
+  // 1초마다 현재 시간 업데이트 (이미지 만료 시간 계산용)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTimestamp(Date.now())
+    }, 1000)
+    return () => clearInterval(interval)
   }, [])
 
   // API 키 저장
@@ -844,6 +858,7 @@ export default function LongformContentPage() {
     localStorage.setItem("replicate_api_key", apiKeys.replicate)
     localStorage.setItem("gemini_api_key", apiKeys.gemini)
     localStorage.setItem("ttsmaker_api_key", apiKeys.ttsmaker)
+    localStorage.setItem("wings_youtube_data_api_key", apiKeys.youtubeDataApiKey)
     setSaved(true)
     setTimeout(() => {
       setSaved(false)
@@ -4624,6 +4639,7 @@ export default function LongformContentPage() {
             lineId: lineId,
             imageUrl: data.imageUrl,
             prompt: englishPrompt,
+            createdAt: Date.now(), // 이미지 생성 시간 저장
           },
         ]
       })
@@ -5074,6 +5090,7 @@ export default function LongformContentPage() {
               lineId: line.id,
               imageUrl: data.imageUrl,
               prompt: data.prompt,
+              createdAt: Date.now(), // 이미지 생성 시간 저장
             },
           ])
           successCount++
@@ -6340,8 +6357,27 @@ export default function LongformContentPage() {
         
         console.log("[v0] 오디오 Blob URL 생성 완료:", audioUrl)
         
+        // 오디오를 base64로 변환 (빠른 다운로드를 위해 미리 준비)
+        let audioBase64ForStorage = ""
+        try {
+          audioBase64ForStorage = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onloadend = () => {
+              const base64String = reader.result as string
+              const base64 = base64String.split(",")[1]
+              resolve(base64)
+            }
+            reader.onerror = reject
+            reader.readAsDataURL(audioBlob)
+          })
+          console.log("[v0] 오디오 base64 변환 완료 (빠른 다운로드용)")
+        } catch (error) {
+          console.warn("[v0] 오디오 base64 변환 실패 (무시하고 계속 진행):", error)
+        }
+        
         setVideoData({
           audioUrl,
+          audioBase64: audioBase64ForStorage, // 빠른 다운로드를 위해 base64도 저장
           subtitles,
           duration: totalDuration,
           autoImages: autoImages.map((img) => ({
@@ -6700,9 +6736,28 @@ export default function LongformContentPage() {
 
       console.log("[v0] 오디오 Blob URL 생성 완료:", audioUrl)
 
-      // 7. videoData에 저장 (미리보기용) - autoImages도 함께 저장
+      // 6-1. 오디오를 base64로 변환 (빠른 다운로드를 위해 미리 준비)
+      let audioBase64ForStorage = ""
+      try {
+        audioBase64ForStorage = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onloadend = () => {
+            const base64String = reader.result as string
+            const base64 = base64String.split(",")[1]
+            resolve(base64)
+          }
+          reader.onerror = reject
+          reader.readAsDataURL(audioBlob)
+        })
+        console.log("[v0] 오디오 base64 변환 완료 (빠른 다운로드용)")
+      } catch (error) {
+        console.warn("[v0] 오디오 base64 변환 실패 (무시하고 계속 진행):", error)
+      }
+
+      // 7. videoData에 저장 (미리보기용) - autoImages도 함께 저장, base64도 저장
       setVideoData({
         audioUrl,
+        audioBase64: audioBase64ForStorage, // 빠른 다운로드를 위해 base64도 저장
         subtitles,
         duration: totalDuration,
         autoImages: autoImages.map((img) => ({
@@ -8478,11 +8533,26 @@ export default function LongformContentPage() {
         throw new Error("Canvas context를 생성할 수 없습니다.")
       }
 
-      // 오디오 로드
-      const audioResponse = await fetch(videoData.audioUrl)
-      const audioBlob = await audioResponse.blob()
-      const audioUrl = URL.createObjectURL(audioBlob)
-      const audio = new Audio(audioUrl)
+      // 오디오 로드 (base64가 있으면 바로 사용, 없으면 fetch)
+      let audioUrl: string
+      let audio: HTMLAudioElement
+      
+      if (videoData.audioBase64) {
+        // base64가 있으면 바로 사용 (빠른 로딩)
+        console.log("[보통다운로드] base64 오디오 사용 (빠른 로딩)")
+        const audioBlob = new Blob([
+          Uint8Array.from(atob(videoData.audioBase64), c => c.charCodeAt(0))
+        ], { type: "audio/wav" })
+        audioUrl = URL.createObjectURL(audioBlob)
+        audio = new Audio(audioUrl)
+      } else {
+        // base64가 없으면 fetch로 가져오기 (기존 방식)
+        console.log("[보통다운로드] fetch로 오디오 로드")
+        const audioResponse = await fetch(videoData.audioUrl)
+        const audioBlob = await audioResponse.blob()
+        audioUrl = URL.createObjectURL(audioBlob)
+        audio = new Audio(audioUrl)
+      }
       
       await new Promise<void>((resolve, reject) => {
         audio.onloadeddata = () => resolve()
@@ -13320,6 +13390,7 @@ export default function LongformContentPage() {
                                     const imageIndex = updatedPrompts[sceneIndex].images.findIndex(img => img.imageNumber === image.imageNumber)
                                     if (imageIndex !== -1) {
                                       updatedPrompts[sceneIndex].images[imageIndex].imageUrl = imageUrl
+                                      updatedPrompts[sceneIndex].images[imageIndex].createdAt = Date.now() // 이미지 생성 시간 저장
                                       setSceneImagePrompts([...updatedPrompts])
                                       hasGeneratedImages = true
                                     }
@@ -13587,7 +13658,7 @@ export default function LongformContentPage() {
                                                           ...s,
                                                           images: s.images.map((img) => {
                                                             if (img.imageNumber === image.imageNumber) {
-                                                              return { ...img, imageUrl: imageUrl ? imageUrl : undefined }
+                                                              return { ...img, imageUrl: imageUrl ? imageUrl : undefined, createdAt: Date.now() } // 이미지 생성 시간 저장
                                                             }
                                                             return img
                                                           }),
@@ -13633,7 +13704,7 @@ export default function LongformContentPage() {
                                             )}
                                           </Button>
                                           {image.imageUrl ? (
-                                            <div className="w-80 rounded border overflow-hidden">
+                                            <div className="w-80 rounded border overflow-hidden relative">
                                               <div className="aspect-video overflow-hidden">
                                               {(() => {
                                                 const videoUrl = convertedSceneVideos.get(`${scene.sceneNumber}-${image.imageNumber}`)
@@ -13660,6 +13731,27 @@ export default function LongformContentPage() {
                                                 return null
                                               })()}
                                               </div>
+                                              {/* 1시간 카운트다운 표시 */}
+                                              {image.createdAt && (() => {
+                                                const elapsed = currentTimestamp - image.createdAt
+                                                const oneHour = 60 * 60 * 1000
+                                                const remaining = oneHour - elapsed
+                                                const isExpired = remaining <= 0
+                                                const remainingMinutes = Math.floor(remaining / (60 * 1000))
+                                                const remainingSeconds = Math.floor((remaining % (60 * 1000)) / 1000)
+                                                
+                                                return (
+                                                  <div className="absolute top-2 right-2 bg-black/80 text-white px-2 py-1 rounded text-xs font-bold">
+                                                    {isExpired ? (
+                                                      <span className="text-red-400">만료됨</span>
+                                                    ) : (
+                                                      <span>
+                                                        {remainingMinutes > 0 ? `${remainingMinutes}분 ` : ''}{remainingSeconds}초
+                                                      </span>
+                                                    )}
+                                                  </div>
+                                                )
+                                              })()}
                                               <div className="p-2 flex items-center justify-center gap-2 bg-gray-50 border-t">
                                                 <label className="cursor-pointer">
                                                 <input
@@ -17845,6 +17937,50 @@ export default function LongformContentPage() {
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">ElevenLabs 음성 합성에 사용됩니다</p>
+            </div>
+
+            {/* 구분선 */}
+            <div className="border-t border-slate-200 my-4" />
+
+            {/* YouTube Data API Key */}
+            <div className="space-y-2">
+              <Label htmlFor="youtube-data-api-key" className="text-sm font-medium">
+                YouTube Data API Key
+              </Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="youtube-data-api-key"
+                  type={showKeys.youtubeDataApiKey ? "text" : "password"}
+                  placeholder="Google Cloud Console에서 발급받은 API Key"
+                  value={apiKeys.youtubeDataApiKey}
+                  onChange={(e) => setApiKeys({ ...apiKeys, youtubeDataApiKey: e.target.value })}
+                  className="font-mono text-sm"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowKeys({ ...showKeys, youtubeDataApiKey: !showKeys.youtubeDataApiKey })}
+                  className="shrink-0"
+                >
+                  {showKeys.youtubeDataApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    navigator.clipboard.writeText(apiKeys.youtubeDataApiKey)
+                  }}
+                  disabled={!apiKeys.youtubeDataApiKey}
+                  className="shrink-0"
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                유튜브 분석, 유튜브 실시간 분석, 롱폼의 '일주일간 인기 주제' 기능에 사용됩니다.
+              </p>
             </div>
 
             <div className="flex justify-end gap-2 pt-4">
