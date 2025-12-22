@@ -2,9 +2,6 @@
 
 import { getEnvApiKey } from "@/lib/api-keys"
 
-// 내부적으로 사용할 OpenAI API 키
-const INTERNAL_OPENAI_API_KEY = "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"
-
 /**
  * Gemini API를 통해 이미지 프롬프트 생성
  */
@@ -88,8 +85,11 @@ export async function extractHistoricalContext(
       return null
     }
 
-    // 사용자가 제공한 API 키 사용 (없으면 내부 키 사용)
-    const actualApiKey = openaiApiKey || INTERNAL_OPENAI_API_KEY
+    // 사용자가 제공한 API 키 필수 사용
+    if (!openaiApiKey || openaiApiKey.trim().length === 0) {
+      throw new Error("OpenAI API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+    }
+    const actualApiKey = openaiApiKey
 
     const prompt = `다음 주제나 대본에서 시대적 배경(시대, 시간대, 역사적 배경)을 추출해주세요.
 
@@ -155,7 +155,7 @@ ${contextText.substring(0, 2000)}
  * @param customStylePrompt - 커스텀 스타일 프롬프트
  * @param historicalContext - 시대적 배경
  * @param stickmanCharacterDescription - 스틱맨 캐릭터 설명 (스틱맨 애니메이션용)
- * @param openaiApiKey - API 키 (설정에서 입력한 키 사용, 없으면 내부 키 사용)
+ * @param openaiApiKey - API 키 (설정에서 입력한 키 필수 사용)
  * @returns 씬의 이미지 프롬프트 배열
  */
 export async function generateSingleSceneImagePrompts(
@@ -168,8 +168,12 @@ export async function generateSingleSceneImagePrompts(
   openaiApiKey?: string,
   realisticCharacterType?: "korean" | "foreign" | null
 ): Promise<Array<{ imageNumber: number; prompt: string; sceneText: string; visualInstruction?: string }>> {
-  // 사용자가 제공한 API 키 사용 (없으면 내부 키 사용)
-  const actualApiKey = openaiApiKey || INTERNAL_OPENAI_API_KEY
+  // 사용자가 제공한 API 키 필수 사용
+  // 사용자가 제공한 API 키 필수 사용
+  if (!openaiApiKey || openaiApiKey.trim().length === 0) {
+    throw new Error("OpenAI API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+  }
+  const actualApiKey = openaiApiKey
 
   if (!sceneBlock || sceneBlock.trim().length === 0) {
     throw new Error(`씬 ${sceneNumber} 블록이 비어있습니다.`)
@@ -590,8 +594,11 @@ export async function generateSceneImagePrompts(
   script?: string,
   realisticCharacterType?: "korean" | "foreign" | null
 ): Promise<Array<{ sceneNumber: number; images: Array<{ imageNumber: number; prompt: string; sceneText: string; visualInstruction?: string; imageUrl?: string }> }>> {
-  // 사용자가 제공한 API 키 사용 (없으면 내부 키 사용)
-  const actualApiKey = openaiApiKey || INTERNAL_OPENAI_API_KEY
+  // 사용자가 제공한 API 키 필수 사용
+  if (!openaiApiKey || openaiApiKey.trim().length === 0) {
+    throw new Error("OpenAI API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+  }
+  const actualApiKey = openaiApiKey
 
   if (!decomposedScenes || decomposedScenes.trim().length === 0) {
     throw new Error("장면 분해 결과가 없습니다.")
