@@ -88,6 +88,9 @@ export async function extractHistoricalContext(
       return null
     }
 
+    // 사용자가 제공한 API 키 사용 (없으면 내부 키 사용)
+    const actualApiKey = openaiApiKey || INTERNAL_OPENAI_API_KEY
+
     const prompt = `다음 주제나 대본에서 시대적 배경(시대, 시간대, 역사적 배경)을 추출해주세요.
 
 ${contextText.substring(0, 2000)}
@@ -104,7 +107,7 @@ ${contextText.substring(0, 2000)}
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${INTERNAL_OPENAI_API_KEY}`,
+        Authorization: `Bearer ${actualApiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -152,7 +155,7 @@ ${contextText.substring(0, 2000)}
  * @param customStylePrompt - 커스텀 스타일 프롬프트
  * @param historicalContext - 시대적 배경
  * @param stickmanCharacterDescription - 스틱맨 캐릭터 설명 (스틱맨 애니메이션용)
- * @param openaiApiKey - API 키 (사용되지 않음, 내부 키 사용)
+ * @param openaiApiKey - API 키 (설정에서 입력한 키 사용, 없으면 내부 키 사용)
  * @returns 씬의 이미지 프롬프트 배열
  */
 export async function generateSingleSceneImagePrompts(
@@ -165,8 +168,8 @@ export async function generateSingleSceneImagePrompts(
   openaiApiKey?: string,
   realisticCharacterType?: "korean" | "foreign" | null
 ): Promise<Array<{ imageNumber: number; prompt: string; sceneText: string; visualInstruction?: string }>> {
-  // 내부적으로 항상 제공된 API 키 사용
-  const actualApiKey = INTERNAL_OPENAI_API_KEY
+  // 사용자가 제공한 API 키 사용 (없으면 내부 키 사용)
+  const actualApiKey = openaiApiKey || INTERNAL_OPENAI_API_KEY
 
   if (!sceneBlock || sceneBlock.trim().length === 0) {
     throw new Error(`씬 ${sceneNumber} 블록이 비어있습니다.`)
@@ -587,8 +590,8 @@ export async function generateSceneImagePrompts(
   script?: string,
   realisticCharacterType?: "korean" | "foreign" | null
 ): Promise<Array<{ sceneNumber: number; images: Array<{ imageNumber: number; prompt: string; sceneText: string; visualInstruction?: string; imageUrl?: string }> }>> {
-  // 내부적으로 항상 제공된 API 키 사용
-  const actualApiKey = INTERNAL_OPENAI_API_KEY
+  // 사용자가 제공한 API 키 사용 (없으면 내부 키 사용)
+  const actualApiKey = openaiApiKey || INTERNAL_OPENAI_API_KEY
 
   if (!decomposedScenes || decomposedScenes.trim().length === 0) {
     throw new Error("장면 분해 결과가 없습니다.")
