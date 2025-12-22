@@ -3625,16 +3625,16 @@ export async function generateImageWithReplicate(
       })
       finalPrompt = cleanedPrompt.replace(/\s+/g, ' ').trim()
       
-      // ABSOLUTE STICKMAN-ONLY ILLUSTRATION 강화
+      // 스틱맨 전용 이미지 강화 (텍스트 제거)
       const promptLower = finalPrompt.toLowerCase()
-      const stickmanMainPrompt = "ABSOLUTE STICKMAN-ONLY ILLUSTRATION. This image must contain ONLY 2D stickman figures. Stickman is a symbolic drawing, NOT a human, NOT a character, NOT a person."
-      const stickmanBasePrompt = "Stickman rules (must follow): Perfectly round white head, dot eyes and simple curved smile ONLY, no nose, no ears, no hair, no facial details, ultra-thin black line limbs with uniform stroke width, no body volume, no torso shape, no muscles, simple mitten hands, no fingers, flat 2D vector drawing ONLY"
-      const stickmanAnatomyRules = "STRICT ANATOMY RULES FOR STICKMAN: Exactly TWO arms only, Exactly TWO hands only, Exactly TWO legs only, No extra arms, no extra hands, no duplicated limbs, Each arm is drawn once, clearly connected to the body, One head, one body, two arms, two hands, two legs, No duplicates, no extra parts. Stickman body constraints: One head, One body, Two arms only, Two hands only, Two legs only, No duplicates, no extra parts. If any extra limbs appear, the result is incorrect."
+      const stickmanMainPrompt = "This image must contain only 2D stickman figures. Stickman is a symbolic drawing, not a human, not a character, not a person. Every figure in the image must be a stickman."
+      const stickmanBasePrompt = "Stickman rules: perfectly round white head, dot eyes and simple curved smile only, no nose, no ears, no hair, no facial details, ultra-thin black line limbs with uniform stroke width, no body volume, no torso shape, no muscles, simple mitten hands, no fingers, flat 2D vector drawing only"
+      const stickmanAnatomyRules = "Strict anatomy rules for stickman: exactly two arms only, exactly two hands only, exactly two legs only, no extra arms, no extra hands, no duplicated limbs, each arm is drawn once, clearly connected to the body, one head, one body, two arms, two hands, two legs, no duplicates, no extra parts. Stickman body constraints: one head, one body, two arms only, two hands only, two legs only, no duplicates, no extra parts. If any extra limbs appear, the result is incorrect."
       const stickmanStylePhrase = "Scene is illustrated in a simple cartoon style: flat colors, bold black outlines, minimal details, no depth, no lighting effects, no textures. Background must be fully illustrated (cartoon), simple shapes only, no realistic environment. Educational explainer illustration style. Use calm pose, simple gesture, neutral stance, minimal movement instead of animated gestures or dynamic action"
-      const stickmanNoText = "NO TEXT ALLOWED IN IMAGE. Do NOT include speech bubbles, captions, labels, words, letters, logos, symbols, numbers, or any readable text. This is NOT a comic, NOT a poster, NOT an advertisement. Pure visual illustration only."
-      const stickmanFinalCheck = "If the result looks realistic, 3D, or human-like, it is WRONG. If the image contains text, speech bubbles, or readable symbols, the result is incorrect. If any extra limbs appear, the result is incorrect."
+      const stickmanNoText = "No text allowed in image. Do not include speech bubbles, captions, labels, words, letters, logos, symbols, numbers, or any readable text. This is not a comic, not a poster, not an advertisement. Pure visual illustration only. Absolutely no text or words visible in the image."
+      const stickmanFinalCheck = "If the result looks realistic, 3D, or human-like, it is wrong. If the image contains text, speech bubbles, or readable symbols, the result is incorrect. If any extra limbs appear, the result is incorrect."
       
-      if (!promptLower.includes("absolute stickman-only") || !promptLower.includes("only 2d stickman") || !promptLower.includes("symbolic drawing")) {
+      if (!promptLower.includes("only 2d stickman") || !promptLower.includes("symbolic drawing")) {
         finalPrompt = `${stickmanMainPrompt} ${finalPrompt}`
       }
       if (!promptLower.includes("perfectly round white head") || !promptLower.includes("dot eyes") || !promptLower.includes("ultra-thin black line limbs")) {

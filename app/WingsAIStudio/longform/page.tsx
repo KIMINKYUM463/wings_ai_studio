@@ -3124,8 +3124,8 @@ export default function LongformContentPage() {
 
   // 쇼츠 제목 생성 함수
   const handleGenerateShortsTitle = async () => {
-    if (!selectedTopic || !summarizedScript) {
-      alert("주제와 요약된 대본이 필요합니다.")
+    if (!summarizedScript) {
+      alert("요약된 대본이 필요합니다.")
       return
     }
 
@@ -3137,7 +3137,9 @@ export default function LongformContentPage() {
 
     setIsGeneratingShortsTitle(true)
     try {
-      const title = await generateShortsHookingTitle(selectedTopic, summarizedScript, openaiApiKey)
+      // selectedTopic이 없으면 summarizedScript의 앞부분을 주제로 사용
+      const topicToUse = selectedTopic || summarizedScript.substring(0, 100).replace(/\n/g, " ").trim()
+      const title = await generateShortsHookingTitle(topicToUse, summarizedScript, openaiApiKey)
       setShortsHookingTitle(title)
       console.log("[Shorts] 생성된 제목:", title)
     } catch (error) {
@@ -9640,6 +9642,10 @@ export default function LongformContentPage() {
       if (projectData.selectedTitle) setSelectedTitle(projectData.selectedTitle)
       if (projectData.customTitle) setCustomTitle(projectData.customTitle)
       
+      // 쇼츠 관련
+      if (projectData.summarizedScript) setSummarizedScript(projectData.summarizedScript)
+      if (projectData.shortsHookingTitle) setShortsHookingTitle(projectData.shortsHookingTitle)
+      
       // 썸네일 관련
       if (projectData.youtubeTitle) setYoutubeTitle(projectData.youtubeTitle)
       if (projectData.youtubeDescription) setYoutubeDescription(projectData.youtubeDescription)
@@ -9919,6 +9925,10 @@ export default function LongformContentPage() {
         aiThumbnailUrl,
         thumbnailCustomText,
         thumbnailText,
+        
+        // 쇼츠 관련
+        summarizedScript,
+        shortsHookingTitle,
         
         // 기타
         completedSteps,
@@ -17093,8 +17103,8 @@ export default function LongformContentPage() {
                 <CardContent className="space-y-4">
                   <Button
                     onClick={handleGenerateShortsTitle}
-                    disabled={!selectedTopic || !summarizedScript || isGeneratingShortsTitle}
-                    className="w-full"
+                    disabled={!summarizedScript || isGeneratingShortsTitle}
+                    className="w-full !opacity-100 !pointer-events-auto cursor-pointer"
                     size="lg"
                   >
                     {isGeneratingShortsTitle ? (

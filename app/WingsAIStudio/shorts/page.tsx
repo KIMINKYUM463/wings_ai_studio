@@ -91,6 +91,44 @@ export default function ShortsPage() {
   const [imageStyle, setImageStyle] = useState<string>("stickman-animation")
   const [videoUrl, setVideoUrl] = useState<string>("")
   const [isRendering, setIsRendering] = useState(false)
+
+  // 페이지 마운트 시 및 프로젝트 데이터 변경 시 상태 초기화
+  useEffect(() => {
+    // isGeneratingTitle이 true로 남아있을 수 있으므로 초기화
+    setIsGeneratingTitle(false)
+    
+    // 프로젝트 데이터 확인 및 상태 복원
+    const projectDataStr = localStorage.getItem("longform_project_data")
+    if (projectDataStr) {
+      try {
+        const projectData = JSON.parse(projectDataStr)
+        // 프로젝트 데이터에서 쇼츠 관련 데이터 복원
+        if (projectData.script) {
+          setScript(projectData.script)
+        }
+        // 롱폼 페이지의 summarizedScript를 scriptSummary로 매핑
+        if (projectData.summarizedScript) {
+          setScriptSummary(projectData.summarizedScript)
+        } else if (projectData.scriptSummary) {
+          // 기존 프로젝트 호환성
+          setScriptSummary(projectData.scriptSummary)
+        }
+        // 롱폼 페이지의 shortsHookingTitle을 hookingTitle로 매핑
+        if (projectData.shortsHookingTitle) {
+          setHookingTitle(projectData.shortsHookingTitle)
+        } else if (projectData.hookingTitle) {
+          // 기존 프로젝트 호환성
+          setHookingTitle(projectData.hookingTitle)
+        }
+        // activeStep이 script 이상이면 script로 설정
+        if (projectData.script) {
+          setActiveStep("script")
+        }
+      } catch (error) {
+        console.error("[Shorts] 프로젝트 데이터 파싱 실패:", error)
+      }
+    }
+  }, [])
   const [scriptLines, setScriptLines] = useState<Array<{ id: number; text: string; startTime: number; endTime: number }>>([])
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
@@ -2358,6 +2396,7 @@ export default function ShortsPage() {
                     </p>
                   </div>
                   <Button
+                    variant="default"
                     onClick={async () => {
                       console.log("[Shorts] 후킹 제목 생성 버튼 클릭, script 상태:", script ? `길이: ${script.length}` : "없음")
                       if (!script || typeof script !== 'string' || script.trim().length === 0) {
@@ -2398,8 +2437,7 @@ export default function ShortsPage() {
                         setIsGeneratingTitle(false)
                       }
                     }}
-                    disabled={false}
-                    className="w-full"
+                    className="w-full !opacity-100 !pointer-events-auto cursor-pointer"
                     size="lg"
                   >
                       {isGeneratingTitle ? (
@@ -2807,7 +2845,8 @@ export default function ShortsPage() {
                         AI가 후킹될만한 제목을 두 줄로 생성합니다. 대본 요약을 기반으로 제목이 생성됩니다.
                 </p>
               </div>
-                    <Button
+                      <Button
+                      variant="default"
                       onClick={async () => {
                         console.log("[Shorts] 후킹 제목 생성 버튼 클릭, script 상태:", script ? `길이: ${script.length}` : "없음")
                         if (!script || typeof script !== 'string' || script.trim().length === 0) {
@@ -2848,8 +2887,7 @@ export default function ShortsPage() {
                           setIsGeneratingTitle(false)
                         }
                       }}
-                      disabled={false}
-                      className="w-full"
+                      className="w-full !opacity-100 !pointer-events-auto cursor-pointer"
                       size="lg"
                     >
                       {isGeneratingTitle ? (
