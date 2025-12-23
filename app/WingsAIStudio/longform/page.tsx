@@ -4950,6 +4950,10 @@ export default function LongformContentPage() {
             newMap.set(lineId, videoUrl)
             return newMap
           })
+
+          // 이미지 변경 시 videoData 초기화 (미리보기 재생성 필요)
+          setVideoData(null)
+          setAutoImages([])
           
           // alert("영상이 업로드되었습니다!") // 완료 알림 제거
         }
@@ -4984,6 +4988,10 @@ export default function LongformContentPage() {
             newMap.delete(lineId)
             return newMap
           })
+
+          // 이미지 변경 시 videoData 초기화 (미리보기 재생성 필요)
+          setVideoData(null)
+          setAutoImages([])
 
           // alert("이미지가 업로드되었습니다!") // 완료 알림 제거
         }
@@ -5033,6 +5041,10 @@ export default function LongformContentPage() {
             newMap.set(`${sceneNumber}-${imageNumber}`, videoUrl)
             return newMap
           })
+
+          // 이미지 변경 시 videoData 초기화 (미리보기 재생성 필요)
+          setVideoData(null)
+          setAutoImages([])
           
           // alert("영상이 업로드되었습니다!") // 완료 알림 제거
         }
@@ -5075,6 +5087,10 @@ export default function LongformContentPage() {
             newMap.delete(`${sceneNumber}-${imageNumber}`)
             return newMap
           })
+
+          // 이미지 변경 시 videoData 초기화 (미리보기 재생성 필요)
+          setVideoData(null)
+          setAutoImages([])
 
           // alert("이미지가 업로드되었습니다!") // 완료 알림 제거
         }
@@ -9103,6 +9119,25 @@ export default function LongformContentPage() {
         audio.onerror = reject
       })
 
+      // 실제 오디오 길이 측정 (videoData.duration과 비교)
+      let actualAudioDuration = 0
+      try {
+        const audioContextForDuration = new (window.AudioContext || (window as any).webkitAudioContext)()
+        const audioResponseForDuration = await fetch(audioUrl)
+        const audioArrayBufferForDuration = await audioResponseForDuration.arrayBuffer()
+        const audioBufferForDuration = await audioContextForDuration.decodeAudioData(audioArrayBufferForDuration)
+        actualAudioDuration = audioBufferForDuration.duration
+        console.log(`[보통다운로드] 실제 오디오 길이: ${actualAudioDuration.toFixed(3)}초 (videoData.duration: ${videoData.duration?.toFixed(3)}초)`)
+        
+        // 실제 오디오 길이와 videoData.duration이 다르면 경고
+        if (actualAudioDuration > 0 && Math.abs(actualAudioDuration - (videoData.duration || 0)) > 0.1) {
+          console.warn(`[보통다운로드] 오디오 길이 불일치: 실제=${actualAudioDuration.toFixed(3)}초, videoData=${videoData.duration?.toFixed(3)}초. 실제 길이 + 3초 여유를 사용합니다.`)
+        }
+      } catch (error) {
+        console.warn("[보통다운로드] 오디오 길이 측정 실패, videoData.duration 사용:", error)
+        actualAudioDuration = videoData.duration || 0
+      }
+
       // 효과음 및 배경음악 로드
       const audioBuffers: Array<{ buffer: AudioBuffer; track: AudioTrack }> = []
       if (audioTracks.length > 0) {
@@ -9601,7 +9636,9 @@ export default function LongformContentPage() {
           setCurrentSubtitle("")
         }
 
-        const totalDuration = introVideo ? videoData.duration + 10 : videoData.duration
+        // 실제 오디오 길이를 사용 (3초 여유 포함)
+        const audioDurationWithPadding = actualAudioDuration > 0 ? actualAudioDuration + 3 : (videoData.duration || 0) + 3
+        const totalDuration = introVideo ? audioDurationWithPadding + 10 : audioDurationWithPadding
         // 진행률 업데이트 (렌더링 중)
         const progress = Math.min(95, 20 + (currentTime / totalDuration) * 75)
         setExportProgress(Math.round(progress))
@@ -13347,8 +13384,8 @@ export default function LongformContentPage() {
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="prunaai/hidream-l1-fast">prunaai/hidream-l1-fast</SelectItem>
-                              <SelectItem value="black-forest-labs/flux-schnell">black-forest-labs/flux-schnell</SelectItem>
+                              <SelectItem value="prunaai/hidream-l1-fast">prunaai/hidream-l1-fast (이미지 한장당 7원)</SelectItem>
+                              <SelectItem value="black-forest-labs/flux-schnell">black-forest-labs/flux-schnell (이미지 한장당 4원)</SelectItem>
                             </SelectContent>
                           </Select>
                           {imageModel === "black-forest-labs/flux-schnell" && (
