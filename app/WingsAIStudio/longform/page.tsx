@@ -1132,6 +1132,8 @@ export default function LongformContentPage() {
   const [renderingStatusMessage, setRenderingStatusMessage] = useState("영상 렌더링을 시작합니다...") // 렌더링 상태 메시지
   const [exportProgress, setExportProgress] = useState(0) // 다운로드 진행률
   const [exportStatusMessage, setExportStatusMessage] = useState("") // 다운로드 상태 메시지
+  const [estimatedRenderTime, setEstimatedRenderTime] = useState<number | null>(null) // 예상 렌더링 시간 (초)
+  const [remainingRenderTime, setRemainingRenderTime] = useState<number | null>(null) // 남은 렌더링 시간 (초)
   // <-- New state variables for FFmpeg export -->
   // const [exportProgress, setExportProgress] = useState(0)
   // const [exportStatus, setExportStatus] = useState("")
@@ -4943,7 +4945,7 @@ export default function LongformContentPage() {
     } catch (error) {
       console.error("정교한 대본 생성 실패:", error)
       const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다."
-      alert(`정교한 대본 생성에 실패했습니다: ${errorMessage}`)
+      alert(`정교한 대본 생성에 실패했습니다: ${errorMessage}\n\n한번더 생성해주세요.`)
     } finally {
       clearInterval(progressInterval)
       setIsGenerating(false)
@@ -7585,9 +7587,13 @@ export default function LongformContentPage() {
     setIsExporting(true)
     setExportProgress(0)
     setExportStatusMessage("오디오 준비 중...")
+    setEstimatedRenderTime(null)
+    setRemainingRenderTime(null)
 
     // 실제 오디오 길이를 저장할 변수 (음성 잘림 방지)
     let actualAudioDuration = 0
+    let countdownInterval: NodeJS.Timeout | null = null
+    let estimatedTimeSeconds: number | null = null // 예상 시간을 로컬 변수로도 저장
 
     try {
       console.log("[v0] Cloud Run 렌더링 시작 (빠른다운로드)")
@@ -7608,6 +7614,20 @@ export default function LongformContentPage() {
       const audioBuffer = await audioContext.decodeAudioData(audioArrayBuffer)
       actualAudioDuration = audioBuffer.duration
       console.log(`[v0] 실제 오디오 길이: ${actualAudioDuration.toFixed(3)}초 (videoData.duration: ${videoData.duration?.toFixed(3)}초)`)
+      
+      // 예상 렌더링 시간 계산 (영상 1초 생성 시 0.5초 소요)
+      estimatedTimeSeconds = Math.ceil(actualAudioDuration * 0.5)
+      setEstimatedRenderTime(estimatedTimeSeconds)
+      setRemainingRenderTime(estimatedTimeSeconds)
+      console.log(`[v0] 예상 렌더링 시간: ${estimatedTimeSeconds}초 (영상 길이: ${actualAudioDuration.toFixed(1)}초)`)
+      
+      // 예상 시간을 사용자에게 표시
+      const estimatedMinutes = Math.floor(estimatedTimeSeconds / 60)
+      const estimatedSeconds = estimatedTimeSeconds % 60
+      const estimatedTimeString = estimatedMinutes > 0 
+        ? `${estimatedMinutes}분 ${estimatedSeconds}초` 
+        : `${estimatedSeconds}초`
+      setExportStatusMessage(`렌더링 준비 중... (예상 소요 시간: 약 ${estimatedTimeString})`)
       
       // 원본 오디오를 그대로 사용 (압축하지 않음)
       console.log("[v0] 원본 오디오를 그대로 사용 (압축하지 않음)")
@@ -8484,7 +8504,38 @@ export default function LongformContentPage() {
 
       // 6. Cloud Run 렌더링 API 호출
       setExportProgress(50)
-      setExportStatusMessage("윙스 AI 서버에 렌더링 요청 중...")
+      
+      // 카운트다운 타이머 시작
+      const renderStartTime = Date.now()
+      
+      // 타입 안전성을 위해 null 체크 후 값을 상수로 캡처 (비동기 콜백에서 사용하기 위함)
+      if (estimatedTimeSeconds !== null && estimatedTimeSeconds > 0) {
+        const estimatedTime = estimatedTimeSeconds
+        console.log(`[v0] 카운트다운 시작: 예상 시간 ${estimatedTime}초`)
+        countdownInterval = setInterval(() => {
+          const elapsed = Math.floor((Date.now() - renderStartTime) / 1000)
+          const remaining = Math.max(0, estimatedTime - elapsed)
+          setRemainingRenderTime(remaining)
+          
+          const minutes = Math.floor(remaining / 60)
+          const seconds = remaining % 60
+          const timeString = minutes > 0 ? `${minutes}분 ${seconds}초` : `${seconds}초`
+          
+          setExportStatusMessage(`렌더링 중... (예상 남은 시간: ${timeString})`)
+          
+          // 남은 시간이 0이 되면 타이머 정리
+          if (remaining <= 0) {
+            if (countdownInterval) {
+              clearInterval(countdownInterval)
+              countdownInterval = null
+            }
+          }
+        }, 1000) // 1초마다 업데이트
+      } else {
+        console.log("[v0] 예상 시간이 없어 카운트다운을 시작하지 않습니다.")
+        setExportStatusMessage("윙스 AI 서버에 렌더링 요청 중...")
+      }
+      
       // requestBody는 위에서 이미 생성되었으므로 여기서는 업데이트된 변수 사용
       
       // characterImage 관련 필드 결정
@@ -8932,6 +8983,12 @@ export default function LongformContentPage() {
         throw new Error(`${errorMsg}${errorDetails}`)
       }
 
+      // 카운트다운 타이머 정리
+      if (countdownInterval) {
+        clearInterval(countdownInterval)
+        countdownInterval = null
+      }
+      
       console.log("[v0] Cloud Run 렌더링 완료")
       setExportProgress(80)
       setExportStatusMessage("영상 다운로드 준비 중...")
@@ -9040,7 +9097,15 @@ export default function LongformContentPage() {
         // alert("영상 렌더링이 완료되었습니다!") // 완료 알림 제거
       }
       setIsExporting(false)
+      setEstimatedRenderTime(null)
+      setRemainingRenderTime(null)
     } catch (error) {
+      // 카운트다운 타이머 정리
+      if (countdownInterval) {
+        clearInterval(countdownInterval)
+        countdownInterval = null
+      }
+      
       console.error("[v0] 영상 렌더링 오류:", error)
       
       // 오류 메시지 구성
@@ -9064,6 +9129,8 @@ export default function LongformContentPage() {
         setAutoModeProgress({ current: "", total: 7 })
       }
       setIsExporting(false)
+      setEstimatedRenderTime(null)
+      setRemainingRenderTime(null)
     }
 
     // 클라이언트 사이드 렌더링 (주석 처리 - Cloud Run 사용 시 불필요)
@@ -13208,6 +13275,9 @@ export default function LongformContentPage() {
                         // 최종 결과 저장
                         setDecomposedScenes(finalResult)
                         
+                        // 대본 상태 업데이트 (원본 대본 유지)
+                        setScript(finalResult)
+                        
                         // 최종 결과 파싱
                         const scenes = parseSceneBlocks(finalResult)
                         
@@ -13357,6 +13427,9 @@ export default function LongformContentPage() {
                         
                         // 최종 결과 저장
                         setDecomposedScenes(finalResult)
+                        
+                        // 대본 상태 업데이트 (원본 대본 유지)
+                        setScript(finalResult)
                         
                         // 최종 결과 파싱
                         console.log("[장면 분해 버튼] parseSceneBlocks 호출 중...")
@@ -19526,9 +19599,33 @@ export default function LongformContentPage() {
         <div className="fixed top-4 right-4 z-[9999] w-80 bg-white/95 backdrop-blur-md border border-gray-200 rounded-xl shadow-2xl animate-slide-in-right">
           <div className="p-4">
             <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
-                <h3 className="font-semibold text-gray-900">영상 다운로드 중</h3>
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
+                  <h3 className="font-semibold text-gray-900">영상 다운로드 중</h3>
+                </div>
+                {estimatedRenderTime !== null && remainingRenderTime !== null && exportProgress < 100 && (
+                  <div className="text-xs text-gray-600 ml-4">
+                    {remainingRenderTime > 0 ? (
+                      <>
+                        예상 남은 시간: <span className="font-semibold text-blue-600">
+                          {Math.floor(remainingRenderTime / 60) > 0 
+                            ? `${Math.floor(remainingRenderTime / 60)}분 ${remainingRenderTime % 60}초`
+                            : `${remainingRenderTime}초`}
+                        </span>
+                        {" "}(총 예상: {Math.floor(estimatedRenderTime / 60) > 0 
+                          ? `${Math.floor(estimatedRenderTime / 60)}분 ${estimatedRenderTime % 60}초`
+                          : `${estimatedRenderTime}초`})
+                      </>
+                    ) : (
+                      <>예상 소요 시간: <span className="font-semibold text-blue-600">
+                        {Math.floor(estimatedRenderTime / 60) > 0 
+                          ? `${Math.floor(estimatedRenderTime / 60)}분 ${estimatedRenderTime % 60}초`
+                          : `${estimatedRenderTime}초`}
+                      </span></>
+                    )}
+                  </div>
+                )}
               </div>
               {exportProgress >= 100 ? (
                 <Button

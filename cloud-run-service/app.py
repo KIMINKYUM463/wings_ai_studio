@@ -26,6 +26,29 @@ CORS(app, resources={
 # Cloud Run의 요청 크기 제한은 32MB이지만, Flask 앱 레벨에서도 제한 설정
 app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 32MB
 
+def add_cors_headers(response):
+    """모든 응답에 CORS 헤더 추가"""
+    origin = request.headers.get('Origin', '')
+    allowed_origins = ['https://wingsaistudio.com', 'http://localhost:3000']
+    
+    # Vercel 프리뷰 URL도 허용
+    if origin.endswith('.vercel.app'):
+        allowed_origins.append(origin)
+    
+    if origin in allowed_origins:
+        response.headers.add('Access-Control-Allow-Origin', origin)
+    else:
+        response.headers.add('Access-Control-Allow-Origin', 'https://wingsaistudio.com')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
+    response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+    response.headers.add('Access-Control-Max-Age', '3600')
+    return response
+
+@app.after_request
+def after_request(response):
+    """모든 응답 후 CORS 헤더 추가"""
+    return add_cors_headers(response)
+
 @app.route('/render', methods=['POST', 'OPTIONS'])
 def render_video():
     # OPTIONS 요청 처리 (CORS preflight)
