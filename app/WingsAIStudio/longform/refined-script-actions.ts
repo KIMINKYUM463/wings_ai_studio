@@ -556,6 +556,12 @@ export async function decomposeSingleScene(
 6) 장면 설명, 해설, 분석 문구는 절대 추가하지 마세요.
    오직 대본 문장만 출력합니다.
 
+7) ⚠️ 매우 중요: 내부 추론 과정, 생각 과정, 판단 과정을 절대 출력하지 마세요.
+   - "follow the", "Wait", "I'll", "Let's go", "Actually", "So", "Is there" 같은 영어 추론 문구 금지
+   - "4-sentence rule", "2-scene rule" 같은 내부 규칙 언급 금지
+   - "씬 {scene_number}" 또는 "[장면 1]" 형식만 출력하세요.
+   - 추론 과정 없이 바로 최종 결과만 출력하세요.
+
 [OUTPUT FORMAT]
 
 씬 {scene_number}
@@ -597,7 +603,7 @@ ${trimmedSceneText}`
           },
         ],
         generationConfig: {
-          temperature: 0.7,
+          temperature: 0.3, // 낮춰서 더 결정적인 출력 (내부 추론 과정 방지)
           topK: 40,
           topP: 0.95,
           maxOutputTokens: 8192,
@@ -644,7 +650,45 @@ ${trimmedSceneText}`
         throw new Error(`씬 ${sceneNumber} 장면 분해에 실패했습니다: 내용이 없습니다.`)
       }
 
-      const trimmedContent = content.trim()
+      let trimmedContent = content.trim()
+
+      // 내부 추론 과정 제거 (영어 추론 문구가 포함된 경우)
+      // "씬 {scene_number}" 또는 "[장면 1]" 형식이 나오기 전의 모든 내용 제거
+      const sceneStartPattern = /(씬\s+\d+|\[장면\s+\d+\])/
+      const sceneStartMatch = trimmedContent.search(sceneStartPattern)
+      
+      if (sceneStartMatch > 0) {
+        // "씬 N" 또는 "[장면 1]" 이전의 내용이 있으면 제거 (내부 추론 과정으로 간주)
+        console.log(`[장면 분해] 씬 ${sceneNumber} 내부 추론 과정 제거 (${sceneStartMatch}자 제거)`)
+        trimmedContent = trimmedContent.substring(sceneStartMatch)
+      }
+      
+      // 영어 추론 문구가 포함된 줄 제거
+      const lines = trimmedContent.split('\n')
+      const filteredLines: string[] = []
+      let foundSceneStart = false
+      
+      for (const line of lines) {
+        const trimmedLine = line.trim()
+        
+        // "씬 N" 또는 "[장면 1]" 형식이 나오면 그 이후부터 유효한 내용으로 간주
+        if (trimmedLine.match(/^(씬\s+\d+|\[장면\s+\d+\])/)) {
+          foundSceneStart = true
+        }
+        
+        // 씬 시작 전에는 영어 추론 문구가 포함된 줄 제거
+        if (!foundSceneStart) {
+          const hasEnglishReasoning = /(follow|wait|i'll|let's|actually|so|is there|what if|i'll stick|ready|one more|looking at)/i.test(trimmedLine)
+          if (hasEnglishReasoning) {
+            console.log(`[장면 분해] 씬 ${sceneNumber} 추론 문구 제거: ${trimmedLine.substring(0, 50)}...`)
+            continue
+          }
+        }
+        
+        filteredLines.push(line)
+      }
+      
+      trimmedContent = filteredLines.join('\n').trim()
 
       // 최소한 "씬 N" 또는 "[장면 1]" 같은 패턴이 있는지 확인
       const hasValidFormat = trimmedContent.match(/씬\s+\d+|\[장면\s+\d+\]/)
