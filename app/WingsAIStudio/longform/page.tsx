@@ -577,7 +577,7 @@ export default function LongformContentPage() {
   const [scriptGenerationProgress, setScriptGenerationProgress] = useState<{ progress: number; elapsedTime: number; estimatedTime: number } | null>(null) // 정교한 대본 생성 진행률
   const [isDecomposingScenes, setIsDecomposingScenes] = useState(false) // 장면 분해 중 상태
   const [sceneDecompositionProgress, setSceneDecompositionProgress] = useState<{ current: number; total: number; progress: number; elapsedTime: number; estimatedTime: number } | null>(null) // 장면 분해 진행률
-  const [maxScenesPerScene, setMaxScenesPerScene] = useState<1 | 2 | 3>(3) // 씬당 최대 장면 개수
+  const [maxScenesPerScene, setMaxScenesPerScene] = useState<1 | 2 | 3 | 4 | 5>(3) // 씬당 최대 장면 개수
   const [isSplittingScenes, setIsSplittingScenes] = useState(false) // 씬 나누기 중 상태
   const [isRegeneratingScript, setIsRegeneratingScript] = useState(false) // 대본 재생성 중 상태
   const [isScanning, setIsScanning] = useState(false)
@@ -738,6 +738,7 @@ export default function LongformContentPage() {
   const [isGeneratingShortsTts, setIsGeneratingShortsTts] = useState(false) // 쇼츠 TTS 생성 중
   const [shortsVideoUrl, setShortsVideoUrl] = useState<string>("") // 쇼츠 영상 URL
   const [isRenderingShorts, setIsRenderingShorts] = useState(false) // 쇼츠 영상 렌더링 중
+  const [selectedImagesForShorts, setSelectedImagesForShorts] = useState<Set<string>>(new Set()) // 쇼츠용 선택된 이미지 URL
   const shortsCanvasRef = useRef<HTMLCanvasElement>(null) // 쇼츠 캔버스 ref
   const thumbnailPreviewRef = useRef<HTMLDivElement>(null) // 썸네일 미리보기 ref
   const shortsVideoRef = useRef<HTMLVideoElement>(null) // 쇼츠 비디오 ref
@@ -1715,9 +1716,34 @@ export default function LongformContentPage() {
                 const response = await fetch(audio.audioUrl)
                 const arrayBuffer = await response.arrayBuffer()
                 const audioBuffer = await audioContextForAnalysis.decodeAudioData(arrayBuffer)
+                
+                // 더 정확한 duration 계산: length / sampleRate
+                const preciseDuration = audioBuffer.length / audioBuffer.sampleRate
+                
+                // 실제 오디오 데이터의 끝부분 확인 (침묵 구간 제외)
+                let actualEndSample = audioBuffer.length
+                const silenceThreshold = 0.001
+                const lookbackSamples = Math.floor(audioBuffer.sampleRate * 0.1)
+                
+                for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
+                  const channelData = audioBuffer.getChannelData(channel)
+                  for (let i = audioBuffer.length - 1; i >= Math.max(0, audioBuffer.length - lookbackSamples); i--) {
+                    if (Math.abs(channelData[i]) > silenceThreshold) {
+                      actualEndSample = Math.max(actualEndSample, i + 1)
+                      break
+                    }
+                  }
+                }
+                
+                const actualDuration = Math.max(
+                  preciseDuration,
+                  actualEndSample / audioBuffer.sampleRate
+                )
+                const finalDuration = Number.parseFloat(actualDuration.toFixed(6))
+                
                 audioDurations.push({ 
                   lineId: line.id, 
-                  duration: audioBuffer.duration, 
+                  duration: finalDuration, 
                   audioBuffer,
                   alignment: audio.alignment || undefined // alignment 데이터 포함
                 })
@@ -3624,7 +3650,29 @@ export default function LongformContentPage() {
                 const audioArrayBuffer = await audioResponse.arrayBuffer()
                 const audioBuffer = await audioContextForAnalysis.decodeAudioData(audioArrayBuffer)
                 
-                const preciseDuration = audioBuffer.duration
+                // 더 정확한 duration 계산: length / sampleRate
+                const calculatedDuration = audioBuffer.length / audioBuffer.sampleRate
+                
+                // 실제 오디오 데이터의 끝부분 확인 (침묵 구간 제외)
+                let actualEndSample = audioBuffer.length
+                const silenceThreshold = 0.001
+                const lookbackSamples = Math.floor(audioBuffer.sampleRate * 0.1)
+                
+                for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
+                  const channelData = audioBuffer.getChannelData(channel)
+                  for (let i = audioBuffer.length - 1; i >= Math.max(0, audioBuffer.length - lookbackSamples); i--) {
+                    if (Math.abs(channelData[i]) > silenceThreshold) {
+                      actualEndSample = Math.max(actualEndSample, i + 1)
+                      break
+                    }
+                  }
+                }
+                
+                const actualDuration = Math.max(
+                  calculatedDuration,
+                  actualEndSample / audioBuffer.sampleRate
+                )
+                const preciseDuration = Number.parseFloat(actualDuration.toFixed(6))
                 
                 // 실제 오디오 길이에 맞춰 startTime과 endTime 업데이트
                 updatedScriptLines.push({
@@ -3705,6 +3753,8 @@ export default function LongformContentPage() {
           const blob = new Blob([wav], { type: "audio/wav" })
           const url = URL.createObjectURL(blob)
           setShortsTtsAudioUrl(url)
+          // TTS 생성 후 이미지 선택 초기화
+          setSelectedImagesForShorts(new Set())
         }
       } else {
         const errorMessage = "TTS 생성에 실패했습니다.\n\n가능한 원인:\n1. API 키가 올바르지 않습니다\n2. API 키의 사용량이 초과되었습니다\n3. 네트워크 연결 문제\n\n브라우저 콘솔(F12)에서 자세한 오류를 확인해주세요."
@@ -3809,27 +3859,24 @@ export default function LongformContentPage() {
         }
       }
       
-      // 모든 사용 가능한 이미지 URL 수집
-      const allImageUrls: string[] = []
-      for (const imgData of sortedGeneratedImages) {
-        if (imgData.imageUrl && !allImageUrls.includes(imgData.imageUrl)) {
-          allImageUrls.push(imgData.imageUrl)
-        }
-      }
-      // generatedImages가 없으면 sceneImagePrompts의 이미지 사용
-      if (allImageUrls.length === 0) {
-        allImageUrls.push(...sceneImageUrls)
+      // 선택된 이미지만 사용
+      const selectedImageUrls: string[] = Array.from(selectedImagesForShorts)
+      
+      if (selectedImageUrls.length === 0) {
+        alert("이미지를 선택해주세요.")
+        setIsRenderingShorts(false)
+        return
       }
       
-      console.log(`[Shorts 렌더링] 사용 가능한 이미지 수: ${allImageUrls.length}개 (generatedImages: ${sortedGeneratedImages.length}개, sceneImages: ${sceneImageUrls.length}개)`)
+      console.log(`[Shorts 렌더링] 선택된 이미지 수: ${selectedImageUrls.length}개`)
       
       // shortsScriptLines의 각 라인에 대해 순서대로 이미지 매칭
       for (let i = 0; i < shortsScriptLines.length; i++) {
         const shortsLine = shortsScriptLines[i]
         
-        // 사용 가능한 이미지가 있으면 순서대로 매칭
-        if (allImageUrls.length > 0) {
-          const imageUrl = allImageUrls[i % allImageUrls.length]
+        // 선택된 이미지가 있으면 순서대로 매칭
+        if (selectedImageUrls.length > 0) {
+          const imageUrl = selectedImageUrls[i % selectedImageUrls.length]
           
           // 이미 로드된 이미지인지 확인
           let existingImageIndex = -1
@@ -4470,6 +4517,63 @@ export default function LongformContentPage() {
     }
   }
 
+  // AudioBuffer를 WAV Blob으로 변환하는 헬퍼 함수
+  const audioBufferToBlob = async (audioBuffer: AudioBuffer): Promise<Blob> => {
+    const numberOfChannels = audioBuffer.numberOfChannels
+    const sampleRate = audioBuffer.sampleRate
+    const length = audioBuffer.length
+    
+    // 인터리브된 데이터 생성
+    const resultBuffer = new Float32Array(length * numberOfChannels)
+    let offset = 0
+    for (let channel = 0; channel < numberOfChannels; channel++) {
+      resultBuffer.set(audioBuffer.getChannelData(channel), offset)
+      offset += length
+    }
+    
+    // WAV 인코딩
+    const wavBuffer = encodeWAV(resultBuffer, numberOfChannels, sampleRate)
+    return new Blob([wavBuffer], { type: 'audio/wav' })
+  }
+
+  // Float32Array를 WAV 형식으로 인코딩
+  const encodeWAV = (samples: Float32Array, numChannels: number, sampleRate: number): ArrayBuffer => {
+    const length = samples.length
+    const buffer = new ArrayBuffer(44 + length * 2)
+    const view = new DataView(buffer)
+    
+    // WAV 헤더 작성
+    const writeString = (offset: number, string: string) => {
+      for (let i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i))
+      }
+    }
+    
+    writeString(0, 'RIFF')
+    view.setUint32(4, 36 + length * 2, true)
+    writeString(8, 'WAVE')
+    writeString(12, 'fmt ')
+    view.setUint32(16, 16, true)
+    view.setUint16(20, 1, true)
+    view.setUint16(22, numChannels, true)
+    view.setUint32(24, sampleRate, true)
+    view.setUint32(28, sampleRate * numChannels * 2, true)
+    view.setUint16(32, numChannels * 2, true)
+    view.setUint16(34, 16, true)
+    writeString(36, 'data')
+    view.setUint32(40, length * 2, true)
+    
+    // 샘플 데이터 변환 (Float32 -> Int16)
+    let offset = 44
+    for (let i = 0; i < length; i++) {
+      const s = Math.max(-1, Math.min(1, samples[i]))
+      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true)
+      offset += 2
+    }
+    
+    return buffer
+  }
+
   // wordTimings를 alignment 형식으로 변환 (Whisper align API 결과를 ElevenLabs 형식으로 변환)
   const convertWordTimingsToAlignment = (
     wordTimings: Array<{ word: string; start: number; end: number; confidence?: number }>,
@@ -5076,179 +5180,109 @@ export default function LongformContentPage() {
   // 이미지/영상 업로드 핸들러
   const handleImageUpload = async (lineId: number, file: File) => {
     try {
-      const isVideo = file.type.startsWith("video/")
-      
-      if (isVideo) {
-        // 영상 파일인 경우
-        const reader = new FileReader()
-        reader.onloadend = () => {
-          const videoUrl = reader.result as string
-          
-          // 업로드된 영상 업데이트
-          setGeneratedImages((prev) => {
-            const filtered = prev.filter((img) => img.lineId !== lineId)
-            return [
-              ...filtered,
-              {
-                lineId: lineId,
-                imageUrl: videoUrl, // 영상 URL도 imageUrl에 저장
-                prompt: "사용자 업로드 영상",
-              },
-            ]
-          })
-          
-          // convertedVideos에도 저장 (영상으로 표시하기 위해)
-          setConvertedVideos((prev) => {
-            const newMap = new Map(prev)
-            newMap.set(lineId, videoUrl)
-            return newMap
-          })
-
-          // 이미지 변경 시 videoData 초기화 (미리보기 재생성 필요)
-          setVideoData(null)
-          setAutoImages([])
-          
-          // alert("영상이 업로드되었습니다!") // 완료 알림 제거
-        }
-        reader.readAsDataURL(file)
-      } else {
-        // 이미지 파일인 경우
-        // 16:9 비율로 이미지 리사이즈
-        const resizedImage = await resizeImageTo16_9(file)
-        
-        // Base64로 변환
-        const reader = new FileReader()
-        reader.onloadend = () => {
-          const base64 = reader.result as string
-          const imageUrl = base64
-
-          // 업로드된 이미지 업데이트
-          setGeneratedImages((prev) => {
-            const filtered = prev.filter((img) => img.lineId !== lineId)
-            return [
-              ...filtered,
-              {
-                lineId: lineId,
-                imageUrl: imageUrl,
-                prompt: "사용자 업로드 이미지",
-              },
-            ]
-          })
-          
-          // 이미지로 교체했으므로 변환된 영상 제거
-          setConvertedVideos((prev) => {
-            const newMap = new Map(prev)
-            newMap.delete(lineId)
-            return newMap
-          })
-
-          // 이미지 변경 시 videoData 초기화 (미리보기 재생성 필요)
-          setVideoData(null)
-          setAutoImages([])
-
-          // alert("이미지가 업로드되었습니다!") // 완료 알림 제거
-        }
-        reader.readAsDataURL(resizedImage)
+      // 동영상 파일 차단
+      if (file.type.startsWith("video/")) {
+        alert("동영상 파일은 업로드할 수 없습니다. 이미지 파일만 업로드 가능합니다.")
+        return
       }
+      
+      // 이미지 파일만 처리
+      // 16:9 비율로 이미지 리사이즈
+      const resizedImage = await resizeImageTo16_9(file)
+      
+      // Base64로 변환
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        const base64 = reader.result as string
+        const imageUrl = base64
+
+        // 업로드된 이미지 업데이트
+        setGeneratedImages((prev) => {
+          const filtered = prev.filter((img) => img.lineId !== lineId)
+          return [
+            ...filtered,
+            {
+              lineId: lineId,
+              imageUrl: imageUrl,
+              prompt: "사용자 업로드 이미지",
+            },
+          ]
+        })
+        
+        // 이미지로 교체했으므로 변환된 영상 제거
+        setConvertedVideos((prev) => {
+          const newMap = new Map(prev)
+          newMap.delete(lineId)
+          return newMap
+        })
+
+        // 이미지 변경 시 videoData 초기화 (미리보기 재생성 필요)
+        setVideoData(null)
+        setAutoImages([])
+        
+        // alert("이미지가 업로드되었습니다!") // 완료 알림 제거
+      }
+      reader.readAsDataURL(resizedImage)
     } catch (error) {
       console.error(`[v0] 파일 업로드 실패 (줄 ${lineId}):`, error)
       alert(`파일 업로드에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
     }
   }
 
-  // Scene 이미지/영상 업로드 핸들러
+  // Scene 이미지 업로드 핸들러 (동영상 업로드 불가)
   const handleSceneImageUpload = async (sceneNumber: number, imageNumber: number, file: File) => {
     try {
-      const isVideo = file.type.startsWith("video/")
-      
-      if (isVideo) {
-        // 영상 파일인 경우
-        const reader = new FileReader()
-        reader.onloadend = () => {
-          const videoUrl = reader.result as string
-          
-          // 업로드된 영상 업데이트
-          setSceneImagePrompts((prev) => {
-            return prev.map((scene) => {
-              if (scene.sceneNumber === sceneNumber) {
-                return {
-                  ...scene,
-                  images: scene.images.map((img) => {
-                    if (img.imageNumber === imageNumber) {
-                      return {
-                        ...img,
-                        imageUrl: videoUrl, // 영상 URL도 imageUrl에 저장
-                      }
-                    }
-                    return img
-                  }),
-                }
-              }
-              return scene
-            })
-          })
-          
-          // convertedSceneVideos에도 저장 (영상으로 표시하기 위해)
-          setConvertedSceneVideos((prev) => {
-            const newMap = new Map(prev)
-            newMap.set(`${sceneNumber}-${imageNumber}`, videoUrl)
-            return newMap
-          })
-
-          // 이미지 변경 시 videoData 초기화 (미리보기 재생성 필요)
-          setVideoData(null)
-          setAutoImages([])
-          
-          // alert("영상이 업로드되었습니다!") // 완료 알림 제거
-        }
-        reader.readAsDataURL(file)
-      } else {
-        // 이미지 파일인 경우
-        // 16:9 비율로 이미지 리사이즈
-        const resizedImage = await resizeImageTo16_9(file)
-        
-        // Base64로 변환
-        const reader = new FileReader()
-        reader.onloadend = () => {
-          const base64 = reader.result as string
-          const imageUrl = base64
-
-          // 업로드된 이미지 업데이트
-          setSceneImagePrompts((prev) => {
-            return prev.map((scene) => {
-              if (scene.sceneNumber === sceneNumber) {
-                return {
-                  ...scene,
-                  images: scene.images.map((img) => {
-                    if (img.imageNumber === imageNumber) {
-                      return {
-                        ...img,
-                        imageUrl: imageUrl,
-                      }
-                    }
-                    return img
-                  }),
-                }
-              }
-              return scene
-            })
-          })
-          
-          // 이미지로 교체했으므로 변환된 영상 제거
-          setConvertedSceneVideos((prev) => {
-            const newMap = new Map(prev)
-            newMap.delete(`${sceneNumber}-${imageNumber}`)
-            return newMap
-          })
-
-          // 이미지 변경 시 videoData 초기화 (미리보기 재생성 필요)
-          setVideoData(null)
-          setAutoImages([])
-
-          // alert("이미지가 업로드되었습니다!") // 완료 알림 제거
-        }
-        reader.readAsDataURL(resizedImage)
+      // 동영상 파일 차단
+      if (file.type.startsWith("video/")) {
+        alert("동영상 파일은 업로드할 수 없습니다. 이미지 파일만 업로드 가능합니다.")
+        return
       }
+      
+      // 이미지 파일만 처리
+      // 16:9 비율로 이미지 리사이즈
+      const resizedImage = await resizeImageTo16_9(file)
+      
+      // Base64로 변환
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        const base64 = reader.result as string
+        const imageUrl = base64
+
+        // 업로드된 이미지 업데이트
+        setSceneImagePrompts((prev) => {
+          return prev.map((scene) => {
+            if (scene.sceneNumber === sceneNumber) {
+              return {
+                ...scene,
+                images: scene.images.map((img) => {
+                  if (img.imageNumber === imageNumber) {
+                    return {
+                      ...img,
+                      imageUrl: imageUrl,
+                    }
+                  }
+                  return img
+                }),
+              }
+            }
+            return scene
+          })
+        })
+        
+        // 이미지로 교체했으므로 변환된 영상 제거
+        setConvertedSceneVideos((prev) => {
+          const newMap = new Map(prev)
+          newMap.delete(`${sceneNumber}-${imageNumber}`)
+          return newMap
+        })
+
+        // 이미지 변경 시 videoData 초기화 (미리보기 재생성 필요)
+        setVideoData(null)
+        setAutoImages([])
+        
+        // alert("이미지가 업로드되었습니다!") // 완료 알림 제거
+      }
+      reader.readAsDataURL(resizedImage)
     } catch (error) {
       console.error(`[Scene] 파일 업로드 실패 (Scene ${sceneNumber}, Image ${imageNumber}):`, error)
       alert(`파일 업로드에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
@@ -6629,16 +6663,39 @@ export default function LongformContentPage() {
                 const audioResponse = await fetch(audio.audioUrl)
                 const audioArrayBuffer = await audioResponse.arrayBuffer()
                 const audioBuffer = await audioContextForAnalysis.decodeAudioData(audioArrayBuffer)
-                const preciseDuration = audioBuffer.duration
+                
+                // 더 정확한 duration 계산: length / sampleRate
+                const preciseDuration = audioBuffer.length / audioBuffer.sampleRate
+                
+                // 실제 오디오 데이터의 끝부분 확인 (침묵 구간 제외)
+                let actualEndSample = audioBuffer.length
+                const silenceThreshold = 0.001
+                const lookbackSamples = Math.floor(audioBuffer.sampleRate * 0.1)
+                
+                for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
+                  const channelData = audioBuffer.getChannelData(channel)
+                  for (let i = audioBuffer.length - 1; i >= Math.max(0, audioBuffer.length - lookbackSamples); i--) {
+                    if (Math.abs(channelData[i]) > silenceThreshold) {
+                      actualEndSample = Math.max(actualEndSample, i + 1)
+                      break
+                    }
+                  }
+                }
+                
+                const actualDuration = Math.max(
+                  preciseDuration,
+                  actualEndSample / audioBuffer.sampleRate
+                )
+                const finalDuration = Number.parseFloat(actualDuration.toFixed(6))
                 
                 audioDurations.push({
                   lineId: line.lineId,
-                  duration: preciseDuration,
+                  duration: finalDuration,
                   audioBuffer: audioBuffer,
                   alignment: audio.alignment || undefined, // ElevenLabs alignment 데이터 포함
                 })
                 
-                console.log(`[v0] 씬 ${sceneNum} 오디오 ${line.lineId} 길이: ${preciseDuration.toFixed(3)}초, alignment: ${audio.alignment ? "있음" : "없음"}`)
+                console.log(`[v0] 씬 ${sceneNum} 오디오 ${line.lineId} 길이: ${finalDuration.toFixed(6)}초, alignment: ${audio.alignment ? "있음" : "없음"}`)
               } catch (error) {
                 console.error(`오디오 로드 실패 (씬 ${sceneNum}, 줄 ${line.lineId}):`, error)
                 const audioElement = new Audio(audio.audioUrl)
@@ -6795,20 +6852,103 @@ export default function LongformContentPage() {
                   }
                 }
               } else {
-                // alignment가 없거나 ElevenLabs가 아니면 기존 방식 사용
-                const subtitleLines = splitIntoSubtitleLines(line.text, audioBuffer, audioDuration)
+                // alignment가 없으면 Whisper API를 사용하여 정확한 타이밍 추출
+                let whisperWordTimings: Array<{ word: string; start: number; end: number }> | null = null
                 
-                for (let j = 0; j < subtitleLines.length; j++) {
-                  const subtitleLine = subtitleLines[j]
-                  const start = subtitleTime + subtitleLine.startTime
-                  const end = subtitleTime + subtitleLine.endTime
+                try {
+                  const openaiApiKey = getApiKey("openai") || getApiKey("gpt_api_key") || getApiKey("chatgpt_api_key")
                   
-                  subtitles.push({
-                    id: subtitleId++,
-                    start: Number.parseFloat(start.toFixed(5)), // 소수점 5자리까지 정확하게
-                    end: Number.parseFloat(end.toFixed(5)),
-                    text: subtitleLine.text,
-                  })
+                  if (openaiApiKey && audioBuffer) {
+                    console.log(`[Whisper] TTS 오디오 STT 분석 시작 (씬 ${sceneNum}, 줄 ${line.lineId})`)
+                    setRenderingStatusMessage(`자막 생성 중... (${line.lineId}/${scriptLines.length})`)
+                    
+                    // AudioBuffer를 Blob으로 변환
+                    const audioBlob = await audioBufferToBlob(audioBuffer)
+                    
+                    // Whisper align API 호출
+                    const formData = new FormData()
+                    formData.append("audio", audioBlob, "audio.wav")
+                    formData.append("text", line.text)
+                    
+                    const whisperResponse = await fetch("/api/whisper-align", {
+                      method: "POST",
+                      body: formData,
+                    })
+                    
+                    if (whisperResponse.ok) {
+                      const whisperData = await whisperResponse.json()
+                      if (whisperData.wordTimings && whisperData.wordTimings.length > 0) {
+                        whisperWordTimings = whisperData.wordTimings
+                        console.log(`[Whisper] ${whisperData.wordTimings.length}개 단어 타이밍 추출 완료 (씬 ${sceneNum}, 줄 ${line.lineId})`)
+                      }
+                    } else {
+                      console.warn(`[Whisper] API 호출 실패 (씬 ${sceneNum}, 줄 ${line.lineId}):`, await whisperResponse.text())
+                    }
+                  } else {
+                    console.warn(`[Whisper] OpenAI API 키 없음, Whisper API 건너뜀 (씬 ${sceneNum}, 줄 ${line.lineId})`)
+                  }
+                } catch (error) {
+                  console.warn(`[Whisper] 오류 (씬 ${sceneNum}, 줄 ${line.lineId}):`, error)
+                  // Whisper 실패해도 계속 진행
+                }
+                
+                // Whisper 결과가 있으면 사용, 없으면 기존 방식 사용
+                if (whisperWordTimings && whisperWordTimings.length > 0) {
+                  // Whisper word timings를 사용하여 정확한 자막 생성
+                  const validWordTimings = whisperWordTimings // TypeScript 타입 가드
+                  let currentLine: string[] = []
+                  let lineStartTime = 0
+                  const maxChars = 20 // 공백 포함 20자까지
+                  
+                  for (let i = 0; i < validWordTimings.length; i++) {
+                    const wordTiming = validWordTimings[i]
+                    const word = wordTiming.word
+                    const testLine = currentLine.length > 0 ? currentLine.join(" ") + " " + word : word
+                    
+                    if (testLine.length > maxChars && currentLine.length >= 1) {
+                      if (currentLine.length > 0) {
+                        // 이전 줄의 마지막 단어 endTime 사용
+                        const prevWordEnd = i > 0 ? validWordTimings[i - 1].end : wordTiming.start
+                        subtitles.push({
+                          id: subtitleId++,
+                          start: Number.parseFloat((subtitleTime + lineStartTime).toFixed(5)),
+                          end: Number.parseFloat((subtitleTime + prevWordEnd).toFixed(5)),
+                          text: currentLine.join(" "),
+                        })
+                      }
+                      currentLine = [word]
+                      lineStartTime = wordTiming.start
+                    } else {
+                      currentLine.push(word)
+                    }
+                  }
+                  
+                  // 마지막 줄 추가
+                  if (currentLine.length > 0) {
+                    const lastWordEnd = validWordTimings[validWordTimings.length - 1].end
+                    subtitles.push({
+                      id: subtitleId++,
+                      start: Number.parseFloat((subtitleTime + lineStartTime).toFixed(5)),
+                      end: Number.parseFloat((subtitleTime + lastWordEnd).toFixed(5)),
+                      text: currentLine.join(" "),
+                    })
+                  }
+                } else {
+                  // Whisper 결과가 없으면 기존 방식 사용
+                  const subtitleLines = splitIntoSubtitleLines(line.text, audioBuffer, audioDuration)
+                  
+                  for (let j = 0; j < subtitleLines.length; j++) {
+                    const subtitleLine = subtitleLines[j]
+                    const start = subtitleTime + subtitleLine.startTime
+                    const end = subtitleTime + subtitleLine.endTime
+                    
+                    subtitles.push({
+                      id: subtitleId++,
+                      start: Number.parseFloat(start.toFixed(5)), // 소수점 5자리까지 정확하게
+                      end: Number.parseFloat(end.toFixed(5)),
+                      text: subtitleLine.text,
+                    })
+                  }
                 }
               }
               
@@ -7060,17 +7200,45 @@ export default function LongformContentPage() {
             const audioArrayBuffer = await audioResponse.arrayBuffer()
             const audioBuffer = await audioContextForAnalysis.decodeAudioData(audioArrayBuffer)
             
-            // 정확한 duration (샘플 수 / 샘플레이트)
-            const preciseDuration = audioBuffer.duration
+            // 더 정확한 duration 계산: length / sampleRate (AudioBuffer.duration보다 정확)
+            // AudioBuffer.duration은 부동소수점 오차가 있을 수 있으므로 직접 계산
+            const preciseDuration = audioBuffer.length / audioBuffer.sampleRate
+            
+            // 실제 오디오 데이터의 끝부분 확인 (침묵 구간 제외하여 더 정확한 길이 측정)
+            // 모든 채널을 확인하여 실제 오디오가 끝나는 지점 찾기
+            let actualEndSample = audioBuffer.length
+            const silenceThreshold = 0.001 // 침묵 임계값
+            const lookbackSamples = Math.floor(audioBuffer.sampleRate * 0.1) // 마지막 0.1초 확인
+            
+            // 뒤에서부터 실제 오디오가 있는 지점 찾기
+            for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
+              const channelData = audioBuffer.getChannelData(channel)
+              for (let i = audioBuffer.length - 1; i >= Math.max(0, audioBuffer.length - lookbackSamples); i--) {
+                if (Math.abs(channelData[i]) > silenceThreshold) {
+                  // 이 채널에서 실제 오디오가 끝나는 지점
+                  actualEndSample = Math.max(actualEndSample, i + 1)
+                  break
+                }
+              }
+            }
+            
+            // 실제 오디오 길이 계산 (최소한 audioBuffer.duration은 보장)
+            const actualDuration = Math.max(
+              preciseDuration,
+              actualEndSample / audioBuffer.sampleRate
+            )
+            
+            // 소수점 6자리까지 정확하게 반올림
+            const finalDuration = Number.parseFloat(actualDuration.toFixed(6))
             
             audioDurations.push({
               lineId: line.id,
-              duration: preciseDuration,
+              duration: finalDuration,
               audioBuffer: audioBuffer, // 나중에 웨이브폼 분석에 사용
               alignment: audio.alignment || undefined, // ElevenLabs alignment 데이터 포함
             })
             
-            console.log(`[v0] 오디오 ${line.id} 정확한 길이: ${preciseDuration.toFixed(3)}초, alignment: ${audio.alignment ? "있음" : "없음"}`)
+            console.log(`[v0] 오디오 ${line.id} 정확한 길이: ${finalDuration.toFixed(6)}초 (length: ${audioBuffer.length}, sampleRate: ${audioBuffer.sampleRate}, alignment: ${audio.alignment ? "있음" : "없음"})`)
           } catch (error) {
             console.error(`오디오 로드 실패 (줄 ${line.id}):`, error)
             // Fallback: AudioElement 사용
@@ -7232,21 +7400,104 @@ export default function LongformContentPage() {
               }
             }
           } else {
-            // alignment가 없거나 ElevenLabs가 아니면 기존 방식 사용
-            const subtitleLines = splitIntoSubtitleLines(line.text, audioBuffer, audioDuration)
+            // alignment가 없으면 Whisper API를 사용하여 정확한 타이밍 추출
+            let whisperWordTimings: Array<{ word: string; start: number; end: number }> | null = null
             
-            // 각 자막 생성 (오디오 버퍼 분석 기반 정확한 타이밍)
-            for (let j = 0; j < subtitleLines.length; j++) {
-              const subtitleLine = subtitleLines[j]
-              const start = subtitleTime + subtitleLine.startTime
-              const end = subtitleTime + subtitleLine.endTime
+            try {
+              const openaiApiKey = getApiKey("openai") || getApiKey("gpt_api_key") || getApiKey("chatgpt_api_key")
+              
+              if (openaiApiKey && audioBuffer) {
+                console.log(`[Whisper] TTS 오디오 STT 분석 시작 (줄 ${line.id})`)
+                setRenderingStatusMessage(`자막 생성 중... (${line.id}/${scriptLines.length})`)
+                
+                // AudioBuffer를 Blob으로 변환
+                const audioBlob = await audioBufferToBlob(audioBuffer)
+                
+                // Whisper align API 호출
+                const formData = new FormData()
+                formData.append("audio", audioBlob, "audio.wav")
+                formData.append("text", line.text)
+                
+                const whisperResponse = await fetch("/api/whisper-align", {
+                  method: "POST",
+                  body: formData,
+                })
+                
+                if (whisperResponse.ok) {
+                  const whisperData = await whisperResponse.json()
+                  if (whisperData.wordTimings && whisperData.wordTimings.length > 0) {
+                    whisperWordTimings = whisperData.wordTimings
+                    console.log(`[Whisper] ${whisperData.wordTimings.length}개 단어 타이밍 추출 완료 (줄 ${line.id})`)
+                  }
+                } else {
+                  console.warn(`[Whisper] API 호출 실패 (줄 ${line.id}):`, await whisperResponse.text())
+                }
+              } else {
+                console.warn(`[Whisper] OpenAI API 키 없음, Whisper API 건너뜀 (줄 ${line.id})`)
+              }
+            } catch (error) {
+              console.warn(`[Whisper] 오류 (줄 ${line.id}):`, error)
+              // Whisper 실패해도 계속 진행
+            }
+            
+            // Whisper 결과가 있으면 사용, 없으면 기존 방식 사용
+            if (whisperWordTimings && whisperWordTimings.length > 0) {
+              // Whisper word timings를 사용하여 정확한 자막 생성
+              const validWordTimings = whisperWordTimings // TypeScript 타입 가드
+              let currentLine: string[] = []
+              let lineStartTime = 0
+              const maxChars = 20 // 공백 포함 20자까지
+              
+              for (let i = 0; i < validWordTimings.length; i++) {
+                const wordTiming = validWordTimings[i]
+                const word = wordTiming.word
+                const testLine = currentLine.length > 0 ? currentLine.join(" ") + " " + word : word
+                
+                if (testLine.length > maxChars && currentLine.length >= 1) {
+                  if (currentLine.length > 0) {
+                    // 이전 줄의 마지막 단어 endTime 사용
+                    const prevWordEnd = i > 0 ? validWordTimings[i - 1].end : wordTiming.start
+                    subtitles.push({
+                      id: subtitleId++,
+                      start: Number.parseFloat((subtitleTime + lineStartTime).toFixed(5)),
+                      end: Number.parseFloat((subtitleTime + prevWordEnd).toFixed(5)),
+                      text: currentLine.join(" "),
+                    })
+                  }
+                  currentLine = [word]
+                  lineStartTime = wordTiming.start
+                } else {
+                  currentLine.push(word)
+                }
+              }
+              
+              // 마지막 줄 추가
+              if (currentLine.length > 0) {
+                const lastWordEnd = validWordTimings[validWordTimings.length - 1].end
+                subtitles.push({
+                  id: subtitleId++,
+                  start: Number.parseFloat((subtitleTime + lineStartTime).toFixed(5)),
+                  end: Number.parseFloat((subtitleTime + lastWordEnd).toFixed(5)),
+                  text: currentLine.join(" "),
+                })
+              }
+            } else {
+              // Whisper 결과가 없으면 기존 방식 사용
+              const subtitleLines = splitIntoSubtitleLines(line.text, audioBuffer, audioDuration)
+              
+              // 각 자막 생성 (오디오 버퍼 분석 기반 정확한 타이밍)
+              for (let j = 0; j < subtitleLines.length; j++) {
+                const subtitleLine = subtitleLines[j]
+                const start = subtitleTime + subtitleLine.startTime
+                const end = subtitleTime + subtitleLine.endTime
 
-              subtitles.push({
-                id: subtitleId++,
-                start: Number.parseFloat(start.toFixed(3)), // 0.001초 단위로 정밀도 향상
-                end: Number.parseFloat(end.toFixed(3)),
-                text: subtitleLine.text,
-              })
+                subtitles.push({
+                  id: subtitleId++,
+                  start: Number.parseFloat(start.toFixed(3)), // 0.001초 단위로 정밀도 향상
+                  end: Number.parseFloat(end.toFixed(3)),
+                  text: subtitleLine.text,
+                })
+              }
             }
           }
 
@@ -7629,8 +7880,31 @@ export default function LongformContentPage() {
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
       const audioArrayBuffer = await audioBlob.arrayBuffer()
       const audioBuffer = await audioContext.decodeAudioData(audioArrayBuffer)
-      actualAudioDuration = audioBuffer.duration
-      console.log(`[v0] 실제 오디오 길이: ${actualAudioDuration.toFixed(3)}초 (videoData.duration: ${videoData.duration?.toFixed(3)}초)`)
+      
+      // 더 정확한 duration 계산: length / sampleRate
+      const preciseDuration = audioBuffer.length / audioBuffer.sampleRate
+      
+      // 실제 오디오 데이터의 끝부분 확인 (침묵 구간 제외)
+      let actualEndSample = audioBuffer.length
+      const silenceThreshold = 0.001
+      const lookbackSamples = Math.floor(audioBuffer.sampleRate * 0.1)
+      
+      for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
+        const channelData = audioBuffer.getChannelData(channel)
+        for (let i = audioBuffer.length - 1; i >= Math.max(0, audioBuffer.length - lookbackSamples); i--) {
+          if (Math.abs(channelData[i]) > silenceThreshold) {
+            actualEndSample = Math.max(actualEndSample, i + 1)
+            break
+          }
+        }
+      }
+      
+      const actualDuration = Math.max(
+        preciseDuration,
+        actualEndSample / audioBuffer.sampleRate
+      )
+      actualAudioDuration = Number.parseFloat(actualDuration.toFixed(6))
+      console.log(`[v0] 실제 오디오 길이: ${actualAudioDuration.toFixed(6)}초 (videoData.duration: ${videoData.duration?.toFixed(3)}초)`)
       
       // 예상 렌더링 시간 계산 (영상 1초 생성 시 0.5초 소요)
       estimatedTimeSeconds = Math.ceil(actualAudioDuration * 0.5)
@@ -8632,43 +8906,29 @@ export default function LongformContentPage() {
       
       console.log(`[v0] 영상 길이 설정: 실제 오디오=${actualAudioDuration.toFixed(3)}초, 여유 포함=${audioDurationWithPadding.toFixed(3)}초`)
       
-      // 자막과 이미지의 마지막 endTime을 실제 오디오 길이 + 여유 시간에 맞춰 조정 (음성 잘림 방지)
-      // 마지막 자막의 원본 endTime을 먼저 확인하고, 실제 오디오 길이 + 여유에 맞춘 후 0.5초 앞당김
-      const adjustedSubtitles = showSubtitles ? videoData.subtitles.map((s, index) => {
+      // 미리보기에서 사용하는 자막을 그대로 전달 (0.5초 앞당김 제거)
+      // 마지막 자막의 endTime만 실제 오디오 길이 + 3초로 조정
+      const finalSubtitles = showSubtitles ? videoData.subtitles.map((s, index) => {
         const isLastSubtitle = index === videoData.subtitles.length - 1
         let endTime = s.end
         
-        // 마지막 자막의 경우, 실제 오디오 길이 + 여유에 맞춰 조정 (0.5초 앞당김 전에)
+        // 마지막 자막의 경우, 실제 오디오 길이 + 3초 여유에 맞춰 조정
         if (isLastSubtitle && actualAudioDuration > 0) {
-          const targetEndTime = audioDurationWithPadding
-          // 원본 endTime이 목표 길이보다 짧으면 목표 길이로 조정
+          const targetEndTime = actualAudioDuration + 3
           if (s.end < targetEndTime) {
-            console.log(`[v0] 마지막 자막 원본 endTime 조정: ${s.end.toFixed(3)}초 -> ${targetEndTime.toFixed(3)}초 (3초 여유 포함)`)
-            endTime = targetEndTime
-          } else {
-            // 원본 endTime이 목표 길이보다 길면 목표 길이로 제한
+            console.log(`[v0] 마지막 자막 endTime 조정: ${s.end.toFixed(3)}초 -> ${targetEndTime.toFixed(3)}초 (실제 오디오 길이: ${actualAudioDuration.toFixed(3)}초 + 3초 여유)`)
             endTime = targetEndTime
           }
         }
         
+        // 미리보기에서 사용하는 자막 시간을 그대로 사용 (0.5초 앞당김 제거)
         return {
           id: s.id,
-          // 자막 타이밍을 0.5초 앞당겨서 전달 (TTS와 동기화 개선)
-          start: Math.max(0, s.start - 0.5),
-          end: Math.max(0, endTime - 0.5), // 조정된 endTime에서 0.5초 빼기
+          start: s.start,
+          end: endTime,
           text: s.text,
         }
       }) : []
-      
-      // 마지막 자막의 endTime이 실제 오디오 길이 + 여유(0.5초 앞당김 후)보다 짧으면 다시 조정
-      if (adjustedSubtitles.length > 0 && actualAudioDuration > 0) {
-        const lastSubtitle = adjustedSubtitles[adjustedSubtitles.length - 1]
-        const adjustedAudioDurationWithPadding = Math.max(0, audioDurationWithPadding - 0.5) // 0.5초 앞당김 반영
-        if (lastSubtitle.end < adjustedAudioDurationWithPadding) {
-          console.log(`[v0] 마지막 자막 endTime 최종 조정: ${lastSubtitle.end.toFixed(3)}초 -> ${adjustedAudioDurationWithPadding.toFixed(3)}초`)
-          lastSubtitle.end = Number.parseFloat(adjustedAudioDurationWithPadding.toFixed(3))
-        }
-      }
       
       // autoImages의 마지막 endTime도 조정 (이미지는 0.5초 앞당김 없음)
       const finalAutoImages = (autoImagesGcsUrls.length > 0 && autoImagesGcsUrls.some(img => !img.url.startsWith("data:"))) 
@@ -8695,7 +8955,7 @@ export default function LongformContentPage() {
         // 자막 표시 여부에 따라 자막 포함/제외
         showSubtitles: showSubtitles, // 자막 표시 여부 명시적으로 전달
         ...(showSubtitles ? {
-          subtitles: adjustedSubtitles,
+          subtitles: finalSubtitles, // 미리보기에서 사용하는 자막을 그대로 전달
         } : {
           subtitles: [], // 자막 빼기 선택 시 빈 배열
         }),
@@ -9872,21 +10132,21 @@ export default function LongformContentPage() {
           ctx.drawImage(logoImg, logoX, logoY, logoWidth, logoHeight)
         }
 
-        // 현재 시간에 맞는 자막 찾기 (오디오 currentTime 기반으로 정확한 동기화)
-        // 자막이 0.5초 늦게 나오므로 0.5초 앞당겨서 TTS와 싱크 맞춤
+        // 현재 시간에 맞는 자막 찾기 (미리보기와 동일하게: videoData.subtitles의 정확한 시간 사용)
+        // 미리보기에서 Whisper API로 정확하게 계산된 시간을 그대로 사용
         let adjustedTimeForSubtitles: number
         if (isAudioStarted && !audio.paused) {
           // 오디오가 재생 중이면 오디오의 currentTime 직접 사용 (가장 정확)
           // introVideo가 있으면 오디오는 10초부터 시작하므로 자막 타이밍도 10초를 빼야 함
-          // 자막이 0.5초 늦게 나오므로 0.5초를 더해서 앞당김
-          adjustedTimeForSubtitles = introVideo ? audio.currentTime - 10 + 0.5 : audio.currentTime + 0.5
+          // 미리보기와 동일하게: 오프셋 없이 정확한 시간 사용
+          adjustedTimeForSubtitles = introVideo ? audio.currentTime - 10 : audio.currentTime
         } else {
           // 오디오가 아직 시작되지 않았거나 일시정지 상태면 계산된 시간 사용
-          // 자막이 0.5초 늦게 나오므로 0.5초를 더해서 앞당김
-          adjustedTimeForSubtitles = introVideo ? currentTime - 10 + 0.5 : currentTime + 0.5
+          // 미리보기와 동일하게: 오프셋 없이 정확한 시간 사용
+          adjustedTimeForSubtitles = introVideo ? currentTime - 10 : currentTime
         }
         
-        // 자막 타이밍을 정확히 매칭 (TTS와 동기화)
+        // 자막 타이밍을 정확히 매칭 (미리보기와 동일: videoData.subtitles의 start/end를 그대로 사용)
         const currentSubtitles = videoData.subtitles.filter(
           (s) => adjustedTimeForSubtitles >= s.start && adjustedTimeForSubtitles <= s.end
         )
@@ -10818,7 +11078,7 @@ export default function LongformContentPage() {
         decomposedScenes,
         scriptLines,
         scriptDuration,
-        maxScenesPerScene,
+        maxScenesPerScene: maxScenesPerScene as 1 | 2 | 3 | 4 | 5 | undefined,
         referenceTitle,
         referenceScript,
         
@@ -10849,14 +11109,8 @@ export default function LongformContentPage() {
         
         // TTS 관련
         selectedVoiceId,
-        // audioBase64는 용량이 커서 Server Actions의 1MB 제한을 초과할 수 있으므로 제외
-        // audioUrl만 저장 (TTSMaker/ElevenLabs는 이미 URL을 제공)
-        generatedAudios: generatedAudios.map(audio => ({
-          lineId: audio.lineId,
-          audioUrl: audio.audioUrl,
-          // audioBase64는 용량이 커서 제외 (Server Actions 1MB 제한)
-          // alignment는 용량이 클 수 있으므로 제외
-        })),
+        // TTS 생성 결과는 용량이 크므로 저장하지 않음 (필요시 다시 생성 가능)
+        generatedAudios: [],
         
         // 영상 관련
         // videoData의 autoImages에서 base64 이미지 제거 (URL만 저장)
@@ -10979,7 +11233,7 @@ export default function LongformContentPage() {
         decomposedScenes,
         scriptLines,
         scriptDuration,
-        maxScenesPerScene,
+        maxScenesPerScene: maxScenesPerScene as 1 | 2 | 3 | 4 | 5 | undefined,
         referenceTitle,
         referenceScript,
         
@@ -11010,14 +11264,8 @@ export default function LongformContentPage() {
         
         // TTS 관련
         selectedVoiceId,
-        // audioBase64는 용량이 커서 Server Actions의 1MB 제한을 초과할 수 있으므로 제외
-        // audioUrl만 저장 (TTSMaker/ElevenLabs는 이미 URL을 제공)
-        generatedAudios: generatedAudios.map(audio => ({
-          lineId: audio.lineId,
-          audioUrl: audio.audioUrl,
-          // audioBase64는 용량이 커서 제외 (Server Actions 1MB 제한)
-          // alignment는 용량이 클 수 있으므로 제외
-        })),
+        // TTS 생성 결과는 용량이 크므로 저장하지 않음 (필요시 다시 생성 가능)
+        generatedAudios: [],
         
         // 영상 관련
         // videoData의 autoImages에서 base64 이미지 제거 (URL만 저장)
@@ -13175,12 +13423,12 @@ export default function LongformContentPage() {
                   <div className="flex items-center gap-4">
                     <Label className="text-sm font-medium text-gray-700 whitespace-nowrap">씬당 최대 장면 개수:</Label>
                     <div className="flex gap-2">
-                      {[1, 2, 3].map((num) => (
+                      {[1, 2, 3, 4, 5].map((num) => (
                         <Button
                           key={num}
                           variant={maxScenesPerScene === num ? "default" : "outline"}
                           size="sm"
-                          onClick={() => setMaxScenesPerScene(num as 1 | 2 | 3)}
+                          onClick={() => setMaxScenesPerScene(num as 1 | 2 | 3 | 4 | 5)}
                           className={maxScenesPerScene === num ? "bg-blue-600 hover:bg-blue-700 text-white" : ""}
                         >
                           최대 {num}개
@@ -13840,11 +14088,27 @@ export default function LongformContentPage() {
                         e.stopPropagation()
                         e.currentTarget.classList.remove("border-blue-500", "bg-blue-50")
                         const file = e.dataTransfer.files?.[0]
-                        if (file && file.type.startsWith("image/")) {
+                        if (file) {
+                          // 동영상 파일 명시적 차단
+                          if (file.type.startsWith("video/")) {
+                            alert("동영상 파일은 업로드할 수 없습니다. 이미지 파일만 업로드 가능합니다.")
+                            return
+                          }
+                          // 이미지 파일만 허용
+                          if (!file.type.startsWith("image/")) {
+                            alert("이미지 파일만 업로드 가능합니다. (JPG, PNG, WEBP, GIF만 지원)")
+                            return
+                          }
+                          // 확장자 검증 (추가 안전장치)
+                          const fileName = file.name.toLowerCase()
+                          const validExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif']
+                          const hasValidExtension = validExtensions.some(ext => fileName.endsWith(ext))
+                          if (!hasValidExtension) {
+                            alert("지원하지 않는 파일 형식입니다. JPG, PNG, WEBP, GIF 파일만 업로드 가능합니다.")
+                            return
+                          }
                           const url = URL.createObjectURL(file)
                           setCustomStyleCharacterImage(url)
-                        } else {
-                          alert("이미지 파일만 업로드 가능합니다.")
                         }
                       }}
                       onClick={() => {
@@ -13882,16 +14146,33 @@ export default function LongformContentPage() {
                             클릭하거나 드래그하여 업로드
                           </p>
                           <p className="text-xs text-gray-400">
-                            JPG, PNG, WEBP 지원
+                            JPG, PNG, WEBP, GIF 지원 (동영상 불가)
                           </p>
                           <Input
                             type="file"
-                            accept="image/*"
+                            accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
                             onChange={(e) => {
                               const file = e.target.files?.[0]
                               if (file) {
+                                // 동영상 파일 명시적 차단
+                                if (file.type.startsWith("video/")) {
+                                  alert("동영상 파일은 업로드할 수 없습니다. 이미지 파일만 업로드 가능합니다.")
+                                  e.target.value = "" // 파일 선택 초기화
+                                  return
+                                }
+                                // 이미지 파일만 허용
                                 if (!file.type.startsWith("image/")) {
-                                  alert("이미지 파일만 업로드 가능합니다.")
+                                  alert("이미지 파일만 업로드 가능합니다. (JPG, PNG, WEBP, GIF만 지원)")
+                                  e.target.value = "" // 파일 선택 초기화
+                                  return
+                                }
+                                // 확장자 검증 (추가 안전장치)
+                                const fileName = file.name.toLowerCase()
+                                const validExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif']
+                                const hasValidExtension = validExtensions.some(ext => fileName.endsWith(ext))
+                                if (!hasValidExtension) {
+                                  alert("지원하지 않는 파일 형식입니다. JPG, PNG, WEBP, GIF 파일만 업로드 가능합니다.")
+                                  e.target.value = "" // 파일 선택 초기화
                                   return
                                 }
                                 const url = URL.createObjectURL(file)
@@ -13926,11 +14207,27 @@ export default function LongformContentPage() {
                         e.stopPropagation()
                         e.currentTarget.classList.remove("border-blue-500", "bg-blue-50")
                         const file = e.dataTransfer.files?.[0]
-                        if (file && file.type.startsWith("image/")) {
+                        if (file) {
+                          // 동영상 파일 명시적 차단
+                          if (file.type.startsWith("video/")) {
+                            alert("동영상 파일은 업로드할 수 없습니다. 이미지 파일만 업로드 가능합니다.")
+                            return
+                          }
+                          // 이미지 파일만 허용
+                          if (!file.type.startsWith("image/")) {
+                            alert("이미지 파일만 업로드 가능합니다. (JPG, PNG, WEBP, GIF만 지원)")
+                            return
+                          }
+                          // 확장자 검증 (추가 안전장치)
+                          const fileName = file.name.toLowerCase()
+                          const validExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif']
+                          const hasValidExtension = validExtensions.some(ext => fileName.endsWith(ext))
+                          if (!hasValidExtension) {
+                            alert("지원하지 않는 파일 형식입니다. JPG, PNG, WEBP, GIF 파일만 업로드 가능합니다.")
+                            return
+                          }
                           const url = URL.createObjectURL(file)
                           setCustomStyleBackgroundImage(url)
-                        } else {
-                          alert("이미지 파일만 업로드 가능합니다.")
                         }
                       }}
                       onClick={() => {
@@ -13968,16 +14265,33 @@ export default function LongformContentPage() {
                             클릭하거나 드래그하여 업로드
                           </p>
                           <p className="text-xs text-gray-400">
-                            JPG, PNG, WEBP 지원
+                            JPG, PNG, WEBP, GIF 지원 (동영상 불가)
                           </p>
                           <Input
                             type="file"
-                            accept="image/*"
+                            accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
                             onChange={(e) => {
                               const file = e.target.files?.[0]
                               if (file) {
+                                // 동영상 파일 명시적 차단
+                                if (file.type.startsWith("video/")) {
+                                  alert("동영상 파일은 업로드할 수 없습니다. 이미지 파일만 업로드 가능합니다.")
+                                  e.target.value = "" // 파일 선택 초기화
+                                  return
+                                }
+                                // 이미지 파일만 허용
                                 if (!file.type.startsWith("image/")) {
-                                  alert("이미지 파일만 업로드 가능합니다.")
+                                  alert("이미지 파일만 업로드 가능합니다. (JPG, PNG, WEBP, GIF만 지원)")
+                                  e.target.value = "" // 파일 선택 초기화
+                                  return
+                                }
+                                // 확장자 검증 (추가 안전장치)
+                                const fileName = file.name.toLowerCase()
+                                const validExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif']
+                                const hasValidExtension = validExtensions.some(ext => fileName.endsWith(ext))
+                                if (!hasValidExtension) {
+                                  alert("지원하지 않는 파일 형식입니다. JPG, PNG, WEBP, GIF 파일만 업로드 가능합니다.")
+                                  e.target.value = "" // 파일 선택 초기화
                                   return
                                 }
                                 const url = URL.createObjectURL(file)
@@ -14197,21 +14511,39 @@ export default function LongformContentPage() {
                         <label className="cursor-pointer">
                           <input
                             type="file"
-                            accept="image/*,video/*"
+                            accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
                             multiple
                             className="hidden"
                               onChange={async (e) => {
                                 const files = Array.from(e.target.files || [])
                                 if (files.length === 0) return
                                 
+                                // 동영상 파일 필터링
+                                const imageFiles = files.filter(file => {
+                                  if (file.type.startsWith("video/")) {
+                                    alert(`${file.name}: 동영상 파일은 업로드할 수 없습니다. 이미지 파일만 업로드 가능합니다.`)
+                                    return false
+                                  }
+                                  if (!file.type.startsWith("image/")) {
+                                    alert(`${file.name}: 이미지 파일만 업로드 가능합니다. (JPG, PNG, WEBP, GIF만 지원)`)
+                                    return false
+                                  }
+                                  return true
+                                })
+                                
+                                if (imageFiles.length === 0) {
+                                  e.target.value = ""
+                                  return
+                                }
+                                
                                 // 씬별 이미지가 있는 경우: 각 씬의 각 장면에 순차적으로 할당
                                 if (sceneImagePrompts.length > 0) {
                                   // 총 장면 수 계산
                                   const totalImages = sceneImagePrompts.reduce((sum, scene) => sum + scene.images.length, 0)
-                                  const imageFiles = files.slice(0, totalImages)
+                                  const selectedImageFiles = imageFiles.slice(0, totalImages)
                                   
-                                  if (files.length > totalImages) {
-                                    alert(`선택한 이미지가 ${files.length}개인데 총 장면이 ${totalImages}개입니다. 처음 ${imageFiles.length}개만 사용됩니다.`)
+                                  if (imageFiles.length > totalImages) {
+                                    alert(`선택한 이미지가 ${imageFiles.length}개인데 총 장면이 ${totalImages}개입니다. 처음 ${selectedImageFiles.length}개만 사용됩니다.`)
                                   }
                                   
                                   let fileIndex = 0
@@ -14220,46 +14552,27 @@ export default function LongformContentPage() {
                                   // 각 씬의 각 장면에 순차적으로 이미지 할당
                                   for (const scene of updatedPrompts) {
                                     for (const image of scene.images) {
-                                      if (fileIndex >= imageFiles.length) break
+                                      if (fileIndex >= selectedImageFiles.length) break
                                       
-                                      const file = imageFiles[fileIndex]
+                                      const file = selectedImageFiles[fileIndex]
                                       
                                       try {
-                                        const isVideo = file.type.startsWith("video/")
-                                        let imageUrl: string
+                                        // 이미지 파일만 처리 (동영상은 이미 필터링됨)
+                                        // 16:9 비율로 리사이즈
+                                        const resizedImage = await resizeImageTo16_9(file)
+                                        const imageUrl = await new Promise<string>((resolve, reject) => {
+                                          const reader = new FileReader()
+                                          reader.onloadend = () => resolve(reader.result as string)
+                                          reader.onerror = reject
+                                          reader.readAsDataURL(resizedImage)
+                                        })
                                         
-                                        if (isVideo) {
-                                          // 영상 파일인 경우
-                                          imageUrl = await new Promise<string>((resolve, reject) => {
-                                            const reader = new FileReader()
-                                            reader.onloadend = () => resolve(reader.result as string)
-                                            reader.onerror = reject
-                                            reader.readAsDataURL(file)
-                                          })
-                                          
-                                          // convertedSceneVideos에도 저장
-                                          setConvertedSceneVideos((prev) => {
-                                            const newMap = new Map(prev)
-                                            newMap.set(`${scene.sceneNumber}-${image.imageNumber}`, imageUrl)
-                                            return newMap
-                                          })
-                                        } else {
-                                          // 이미지 파일인 경우 - 16:9 비율로 리사이즈
-                                          const resizedImage = await resizeImageTo16_9(file)
-                                          imageUrl = await new Promise<string>((resolve, reject) => {
-                                            const reader = new FileReader()
-                                            reader.onloadend = () => resolve(reader.result as string)
-                                            reader.onerror = reject
-                                            reader.readAsDataURL(resizedImage)
-                                          })
-                                          
-                                          // 이미지로 교체했으므로 변환된 영상 제거
-                                          setConvertedSceneVideos((prev) => {
-                                            const newMap = new Map(prev)
-                                            newMap.delete(`${scene.sceneNumber}-${image.imageNumber}`)
-                                            return newMap
-                                          })
-                                        }
+                                        // 이미지로 교체했으므로 변환된 영상 제거
+                                        setConvertedSceneVideos((prev) => {
+                                          const newMap = new Map(prev)
+                                          newMap.delete(`${scene.sceneNumber}-${image.imageNumber}`)
+                                          return newMap
+                                        })
                                         
                                         // 해당 장면에 imageUrl 할당
                                         const sceneIndex = updatedPrompts.findIndex(s => s.sceneNumber === scene.sceneNumber)
@@ -14300,60 +14613,41 @@ export default function LongformContentPage() {
                                   alert(`이미지 ${fileIndex}개가 일괄 등록되었습니다. (씬별 장면 기준)`)
                                 } else {
                                   // 일반 이미지인 경우: scriptLines 기준으로 할당
-                                  const imageFiles = files.slice(0, scriptLines.length)
+                                  const selectedImageFiles = imageFiles.slice(0, scriptLines.length)
                                   
-                                  if (files.length > scriptLines.length) {
-                                    alert(`선택한 이미지가 ${files.length}개인데 문장이 ${scriptLines.length}개입니다. 처음 ${imageFiles.length}개만 사용됩니다.`)
+                                  if (imageFiles.length > scriptLines.length) {
+                                    alert(`선택한 이미지가 ${imageFiles.length}개인데 문장이 ${scriptLines.length}개입니다. 처음 ${selectedImageFiles.length}개만 사용됩니다.`)
                                   }
                                   
                                   // 각 이미지를 순차적으로 처리
                                   const newImages: Array<{ lineId: number; imageUrl: string; prompt: string }> = []
                                   
-                                  for (let i = 0; i < imageFiles.length && i < scriptLines.length; i++) {
-                                    const file = imageFiles[i]
+                                  for (let i = 0; i < selectedImageFiles.length && i < scriptLines.length; i++) {
+                                    const file = selectedImageFiles[i]
                                     const line = scriptLines[i]
                                     
                                     try {
-                                      const isVideo = file.type.startsWith("video/")
-                                      let imageUrl: string
+                                      // 이미지 파일만 처리 (동영상은 이미 필터링됨)
+                                      // 16:9 비율로 리사이즈
+                                      const resizedImage = await resizeImageTo16_9(file)
+                                      const imageUrl = await new Promise<string>((resolve, reject) => {
+                                        const reader = new FileReader()
+                                        reader.onloadend = () => resolve(reader.result as string)
+                                        reader.onerror = reject
+                                        reader.readAsDataURL(resizedImage)
+                                      })
                                       
-                                      if (isVideo) {
-                                        // 영상 파일인 경우
-                                        imageUrl = await new Promise<string>((resolve, reject) => {
-                                          const reader = new FileReader()
-                                          reader.onloadend = () => resolve(reader.result as string)
-                                          reader.onerror = reject
-                                          reader.readAsDataURL(file)
-                                        })
-                                        
-                                        // convertedVideos에도 저장
-                                        setConvertedVideos((prev) => {
-                                          const newMap = new Map(prev)
-                                          newMap.set(line.id, imageUrl)
-                                          return newMap
-                                        })
-                                      } else {
-                                        // 이미지 파일인 경우 - 16:9 비율로 리사이즈
-                                        const resizedImage = await resizeImageTo16_9(file)
-                                        imageUrl = await new Promise<string>((resolve, reject) => {
-                                          const reader = new FileReader()
-                                          reader.onloadend = () => resolve(reader.result as string)
-                                          reader.onerror = reject
-                                          reader.readAsDataURL(resizedImage)
-                                        })
-                                        
-                                        // 이미지로 교체했으므로 변환된 영상 제거
-                                        setConvertedVideos((prev) => {
-                                          const newMap = new Map(prev)
-                                          newMap.delete(line.id)
-                                          return newMap
-                                        })
-                                      }
+                                      // 이미지로 교체했으므로 변환된 영상 제거
+                                      setConvertedVideos((prev) => {
+                                        const newMap = new Map(prev)
+                                        newMap.delete(line.id)
+                                        return newMap
+                                      })
                                       
                                       newImages.push({
                                         lineId: line.id,
                                         imageUrl: imageUrl,
-                                        prompt: isVideo ? "사용자 업로드 영상" : "사용자 업로드 이미지",
+                                        prompt: "사용자 업로드 이미지",
                                       })
                                     } catch (error) {
                                       console.error(`[일괄 등록] 이미지 ${i + 1} 업로드 실패:`, error)
@@ -15193,11 +15487,23 @@ export default function LongformContentPage() {
                                                 <label className="cursor-pointer">
                                                 <input
                                                   type="file"
-                                                  accept="image/*,video/*"
+                                                  accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
                                                   className="hidden"
                                                   onChange={(e) => {
                                                     const file = e.target.files?.[0]
                                                     if (file) {
+                                                      // 동영상 파일 차단
+                                                      if (file.type.startsWith("video/")) {
+                                                        alert("동영상 파일은 업로드할 수 없습니다. 이미지 파일만 업로드 가능합니다.")
+                                                        e.target.value = ""
+                                                        return
+                                                      }
+                                                      // 이미지 파일만 허용
+                                                      if (!file.type.startsWith("image/")) {
+                                                        alert("이미지 파일만 업로드 가능합니다. (JPG, PNG, WEBP, GIF만 지원)")
+                                                        e.target.value = ""
+                                                        return
+                                                      }
                                                       handleSceneImageUpload(scene.sceneNumber, image.imageNumber, file)
                                                     }
                                                   }}
@@ -15244,18 +15550,30 @@ export default function LongformContentPage() {
                                             <label className="w-80 aspect-video rounded border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-gray-400 transition-colors">
                                               <input
                                                 type="file"
-                                                accept="image/*,video/*"
+                                                accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
                                                 className="hidden"
                                                 onChange={(e) => {
                                                   const file = e.target.files?.[0]
                                                   if (file) {
+                                                    // 동영상 파일 차단
+                                                    if (file.type.startsWith("video/")) {
+                                                      alert("동영상 파일은 업로드할 수 없습니다. 이미지 파일만 업로드 가능합니다.")
+                                                      e.target.value = ""
+                                                      return
+                                                    }
+                                                    // 이미지 파일만 허용
+                                                    if (!file.type.startsWith("image/")) {
+                                                      alert("이미지 파일만 업로드 가능합니다. (JPG, PNG, WEBP, GIF만 지원)")
+                                                      e.target.value = ""
+                                                      return
+                                                    }
                                                     handleSceneImageUpload(scene.sceneNumber, image.imageNumber, file)
                                                   }
                                                 }}
                                               />
                                               <div className="text-center">
                                                 <Upload className="w-6 h-6 mx-auto mb-2 text-gray-400" />
-                                                <p className="text-xs text-gray-500">이미지/영상 업로드</p>
+                                                <p className="text-xs text-gray-500">이미지 업로드</p>
                                               </div>
                                             </label>
                                           )}
@@ -17219,18 +17537,67 @@ export default function LongformContentPage() {
                     className="flex-1"
                   />
                   <Button
-                    onClick={() => {
+                    onClick={async () => {
                       if (customTitle.trim()) {
-                        setSelectedTitle(customTitle.trim())
+                        const titleToUse = customTitle.trim()
+                        setSelectedTitle(titleToUse)
                         setCustomTitle("")
+                        
+                        // 제목 선택 시 자동으로 설명 생성
+                        if (script && titleToUse) {
+                          setIsGenerating(true)
+                          try {
+                            const apiKey = getApiKey()
+                            if (!apiKey) {
+                              alert("OpenAI API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+                              setIsGenerating(false)
+                              return
+                            }
+                            
+                            const result = await generateYouTubeDescription(script, selectedCategory, titleToUse, apiKey)
+                            if (result) {
+                              setYoutubeDescription(result)
+                              // 제목/설명 생성 단계 체크 (사이드바 ID는 "title")
+                              setCompletedSteps((prev) => [...new Set([...prev, "title"])])
+                            } else {
+                              alert("설명 생성에 실패했습니다. 다시 시도해주세요.")
+                            }
+                          } catch (error) {
+                            console.error("설명 생성 실패:", error)
+                            const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류"
+                            alert(`설명 생성에 실패했습니다: ${errorMessage}`)
+                            // 설명 생성 실패해도 제목은 선택된 상태 유지
+                          } finally {
+                            setIsGenerating(false)
+                          }
+                        } else {
+                          if (!script) {
+                            alert("대본이 필요합니다. 먼저 대본을 생성해주세요.")
+                          }
+                        }
                       }
                     }}
-                    disabled={!customTitle.trim()}
+                    disabled={!customTitle.trim() || isGenerating}
                   >
-                    사용
+                    {isGenerating ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        설명 생성 중...
+                      </>
+                    ) : (
+                      "사용"
+                    )}
                   </Button>
                 </div>
               </div>
+
+              {/* 선택된 제목 표시 (직접 입력 또는 추천 제목 선택 시) */}
+              {selectedTitle && (
+                <div className="mb-6 p-4 bg-red-50 rounded-lg border border-red-200">
+                  <p className="text-sm text-gray-500 mb-2">선택된 제목:</p>
+                  <p className="text-base font-medium text-red-700">{selectedTitle}</p>
+                </div>
+              )}
 
               {generatedTitles.length > 0 && (
                 <div className="space-y-4">
@@ -17287,20 +17654,15 @@ export default function LongformContentPage() {
                       )
                     })}
                   </div>
-
-                  {selectedTitle && (
-                    <div className="mt-4 p-4 bg-red-50 rounded-lg border border-red-200">
-                      <p className="text-sm text-gray-500 mb-2">선택된 제목:</p>
-                      <p className="text-base font-medium text-red-700">{selectedTitle}</p>
-                    </div>
-                  )}
                 </div>
               )}
 
               {/* 설명 생성 결과 표시 */}
-              {selectedTitle && youtubeDescription && (
-                <div className="mt-6 space-y-6">
-                  <h3 className="text-xl font-semibold mb-4">생성된 설명란</h3>
+              {selectedTitle && (
+                <>
+                  {youtubeDescription ? (
+                    <div className="mt-6 space-y-6">
+                      <h3 className="text-xl font-semibold mb-4">생성된 설명란</h3>
                   
                   {/* 설명란 (해시태그 포함) */}
                   <div className="space-y-4">
@@ -17395,12 +17757,27 @@ export default function LongformContentPage() {
                         </div>
                       </CardContent>
                     </Card>
+                    </div>
                   </div>
-                </div>
+                  ) : (
+                    <div className="mt-6 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                      <p className="text-sm text-yellow-800">
+                        {isGenerating ? (
+                          <>
+                            <Loader2 className="w-4 h-4 inline mr-2 animate-spin" />
+                            설명을 생성하고 있습니다...
+                          </>
+                        ) : (
+                          "설명을 생성하려면 '사용' 버튼을 클릭하거나 추천 제목을 선택해주세요."
+                        )}
+                      </p>
+                    </div>
+                  )}
+                </>
               )}
 
               {/* 설명 생성 중 표시 */}
-              {selectedTitle && isGenerating && (
+              {selectedTitle && isGenerating && !youtubeDescription && (
                 <div className="mt-6">
                   <AIGeneratingAnimation type="영상 설명" />
                 </div>
@@ -18582,7 +18959,11 @@ export default function LongformContentPage() {
                   {[1, 2, 3].map((duration) => (
                     <button
                       key={duration}
-                      onClick={() => setShortsDuration(duration as 1 | 2 | 3)}
+                      onClick={() => {
+                        setShortsDuration(duration as 1 | 2 | 3)
+                        // 쇼츠 길이 변경 시 이미지 선택 초기화
+                        setSelectedImagesForShorts(new Set())
+                      }}
                       className={`p-4 rounded-lg border-2 transition-all ${
                         shortsDuration === duration
                           ? "border-blue-500 bg-blue-50"
@@ -18629,13 +19010,16 @@ export default function LongformContentPage() {
 
                 {summarizedScript && (
                   <div className="mt-4">
-                    <Label className="mb-2 block">요약된 대본</Label>
+                    <Label className="mb-2 block">요약된 대본 (수정 가능)</Label>
                     <Textarea
                       value={summarizedScript}
-                      readOnly
+                      onChange={(e) => setSummarizedScript(e.target.value)}
                       className="min-h-[200px]"
-                      placeholder="요약된 대본이 여기에 표시됩니다..."
+                      placeholder="요약된 대본이 여기에 표시됩니다. 필요시 직접 수정할 수 있습니다..."
                     />
+                    <p className="text-xs text-muted-foreground mt-2">
+                      💡 대본을 직접 수정하여 쇼츠에 맞게 조정할 수 있습니다.
+                    </p>
                   </div>
                 )}
               </CardContent>
@@ -18800,8 +19184,119 @@ export default function LongformContentPage() {
               </Card>
             )}
 
+            {/* 이미지 선택 */}
+            {shortsTtsAudioUrl && (() => {
+              // 사용 가능한 이미지 수집
+              const sceneImageUrls: string[] = []
+              for (const scene of sceneImagePrompts) {
+                for (const imgData of scene.images || []) {
+                  if (imgData.imageUrl && !sceneImageUrls.includes(imgData.imageUrl)) {
+                    sceneImageUrls.push(imgData.imageUrl)
+                  }
+                }
+              }
+              
+              const sortedGeneratedImages = [...generatedImages].sort((a, b) => a.lineId - b.lineId)
+              const allImageUrls: string[] = []
+              for (const imgData of sortedGeneratedImages) {
+                if (imgData.imageUrl && !allImageUrls.includes(imgData.imageUrl)) {
+                  allImageUrls.push(imgData.imageUrl)
+                }
+              }
+              if (allImageUrls.length === 0) {
+                allImageUrls.push(...sceneImageUrls)
+              }
+              
+              // 쇼츠 길이에 따라 필요한 이미지 개수 계산 (1분=8개, 2분=15개, 3분=22개)
+              const requiredImageCount = shortsDuration === 1 ? 8 : shortsDuration === 2 ? 15 : 22
+              
+              // 초기 선택: 필요한 개수만큼 자동 선택
+              if (selectedImagesForShorts.size === 0 && allImageUrls.length > 0) {
+                const initialSelection = new Set<string>()
+                for (let i = 0; i < Math.min(requiredImageCount, allImageUrls.length); i++) {
+                  initialSelection.add(allImageUrls[i])
+                }
+                setSelectedImagesForShorts(initialSelection)
+              }
+              
+              return (
+                <Card className="mb-6">
+                  <CardHeader>
+                    <CardTitle className="text-lg">이미지 선택</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm text-muted-foreground">
+                        {shortsDuration}분 쇼츠에 맞게 <span className="font-semibold text-blue-600">{requiredImageCount}개</span>의 이미지를 선택해주세요.
+                      </p>
+                      <p className="text-sm font-semibold">
+                        선택된 이미지: <span className={selectedImagesForShorts.size === requiredImageCount ? "text-green-600" : "text-orange-600"}>
+                          {selectedImagesForShorts.size}개
+                        </span> / {requiredImageCount}개
+                      </p>
+                    </div>
+                    
+                    <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 max-h-[400px] overflow-y-auto p-2 border rounded-lg">
+                      {allImageUrls.map((imageUrl, index) => {
+                        const isSelected = selectedImagesForShorts.has(imageUrl)
+                        const canSelect = selectedImagesForShorts.size < requiredImageCount || isSelected
+                        
+                        return (
+                          <div
+                            key={imageUrl}
+                            className={`relative border-2 rounded-lg overflow-hidden cursor-pointer transition-all ${
+                              isSelected
+                                ? "border-blue-500 ring-2 ring-blue-300"
+                                : canSelect
+                                ? "border-gray-300 hover:border-blue-400"
+                                : "border-gray-200 opacity-50 cursor-not-allowed"
+                            }`}
+                            onClick={() => {
+                              if (!canSelect) return
+                              
+                              const newSelection = new Set(selectedImagesForShorts)
+                              if (isSelected) {
+                                newSelection.delete(imageUrl)
+                              } else {
+                                if (newSelection.size < requiredImageCount) {
+                                  newSelection.add(imageUrl)
+                                }
+                              }
+                              setSelectedImagesForShorts(newSelection)
+                            }}
+                          >
+                            <img
+                              src={imageUrl}
+                              alt={`이미지 ${index + 1}`}
+                              className="w-full h-32 object-cover"
+                            />
+                            {isSelected && (
+                              <div className="absolute top-1 right-1 bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold">
+                                ✓
+                              </div>
+                            )}
+                            {!canSelect && !isSelected && (
+                              <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                                <span className="text-white text-xs">최대 {requiredImageCount}개</span>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                    
+                    {selectedImagesForShorts.size !== requiredImageCount && (
+                      <p className="text-sm text-orange-600 text-center">
+                        ⚠️ {requiredImageCount}개의 이미지를 선택해주세요. ({selectedImagesForShorts.size}개 선택됨)
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              )
+            })()}
+
             {/* 영상 렌더링 */}
-            {shortsTtsAudioUrl && (
+            {shortsTtsAudioUrl && selectedImagesForShorts.size > 0 && (
               <Card>
                 <CardHeader>
                   <CardTitle className="text-lg">영상 렌더링</CardTitle>
@@ -18817,7 +19312,7 @@ export default function LongformContentPage() {
 
                   <Button
                     onClick={handleRenderShortsVideo}
-                    disabled={!shortsTtsAudioUrl || isRenderingShorts}
+                    disabled={!shortsTtsAudioUrl || isRenderingShorts || selectedImagesForShorts.size === 0}
                     className="w-full bg-red-600 hover:bg-red-700 text-white"
                   >
                     {isRenderingShorts ? (

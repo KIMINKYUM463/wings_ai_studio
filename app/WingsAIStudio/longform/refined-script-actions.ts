@@ -501,7 +501,7 @@ export async function decomposeSingleScene(
   sceneText: string,
   sceneNumber: number,
   apiKey?: string,
-  maxScenes: 1 | 2 | 3 = 3
+  maxScenes: 1 | 2 | 3 | 4 | 5 = 3
 ): Promise<string> {
   // 사용자가 제공한 API 키 사용 (없으면 환경 변수에서 가져오기)
   const GEMINI_API_KEY = apiKey || process.env.GEMINI_API_KEY
@@ -570,7 +570,7 @@ export async function decomposeSingleScene(
 
 (해당 장면에 속하는 대본 문장들)
 
-${maxScenes >= 2 ? '[장면 2]\n\n(해당 시)\n\n' : ''}${maxScenes >= 3 ? '[장면 3]\n\n(해당 시)' : ''}`
+${maxScenes >= 2 ? '[장면 2]\n\n(해당 시)\n\n' : ''}${maxScenes >= 3 ? '[장면 3]\n\n(해당 시)\n\n' : ''}${maxScenes >= 4 ? '[장면 4]\n\n(해당 시)\n\n' : ''}${maxScenes >= 5 ? '[장면 5]\n\n(해당 시)' : ''}`
 
   const userPrompt = `다음은 씬 대본입니다. 길이에 맞게 장면을 최소 1개~최대 ${maxScenes}개로 분해해 주세요.
 

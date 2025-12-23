@@ -33,7 +33,7 @@ export interface ProjectData {
   decomposedScenes?: string
   scriptLines?: Array<{ id: number; text: string }>
   scriptDuration?: number
-  maxScenesPerScene?: 1 | 2 | 3
+  maxScenesPerScene?: 1 | 2 | 3 | 4 | 5
   referenceTitle?: string // 레퍼런스 제목
   referenceScript?: string // 레퍼런스 대본
   
