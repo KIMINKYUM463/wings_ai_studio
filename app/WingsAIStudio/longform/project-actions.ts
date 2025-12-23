@@ -74,6 +74,10 @@ export interface ProjectData {
   selectedTitle?: string // 선택된 제목
   customTitle?: string // 커스텀 제목
   
+  // 쇼츠 관련
+  summarizedScript?: string // 요약된 대본
+  shortsHookingTitle?: { line1: string; line2: string } | null // 쇼츠 제목
+  
   // 썸네일 관련
   youtubeTitle?: string
   youtubeDescription?: {

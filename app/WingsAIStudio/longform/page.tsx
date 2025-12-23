@@ -179,10 +179,10 @@ import {
   generateImagePrompt, // 이미지 프롬프트 생성 함수 import 추가
   generateImageWithReplicate, // Replicate 이미지 생성 함수 import 추가
   generateAIThumbnail, // AI 썸네일 생성 함수 import 추가
-  extractTopicFromScript, // 대본에서 주제 추출 함수 import 추가
-  regenerateScript, // 대본 재생성 함수 import 추가
   summarizeScriptForShorts, // 쇼츠 대본 요약 함수 import 추가
   generateHookingVideoPrompt, // 후킹 영상 프롬프트 생성 함수 import 추가
+  extractTopicFromScript, // 대본에서 주제 추출 함수 import 추가
+  regenerateScript, // 대본 재생성 함수 import 추가
   // generateCommonStylePrompt, // 공통 스타일 프롬프트 생성 함수 import 추가 (임시 주석 처리)
 } from "./actions"
 import { generateRefinedScript, decomposeScriptIntoScenes, decomposeSingleScene, autoSplitScriptByMeaning } from "./refined-script-actions"
@@ -1216,6 +1216,74 @@ export default function LongformContentPage() {
     }
   }, [])
 
+  // 자막 동기화 개선: requestAnimationFrame을 사용하여 더 정확한 타이밍
+  useEffect(() => {
+    if (!audioRef || !videoData || !showSubtitles) {
+      return
+    }
+
+    let animationFrameId: number
+    let lastSubtitleText = ""
+
+    const updateSubtitle = () => {
+      if (!audioRef || audioRef.paused) {
+        if (lastSubtitleText !== "") {
+          setCurrentSubtitle("")
+          lastSubtitleText = ""
+        }
+        animationFrameId = requestAnimationFrame(updateSubtitle)
+        return
+      }
+
+      const audioCurrentTime = audioRef.currentTime
+      
+      // 자막 타이밍을 동적으로 조정 (STT 엔진의 지연을 보정)
+      // 소수점 5자리까지 정확하게 비교
+      const playbackRate = audioRef.playbackRate || 1.0
+      const timingOffset = playbackRate > 1.0 ? 0.15 : 0.2 // 더 정밀한 조정
+      const adjustedTimeForSubtitles = Number.parseFloat((audioCurrentTime + timingOffset).toFixed(5))
+      
+      // 현재 시간에 맞는 자막 찾기 (소수점 5자리 정밀도로 비교)
+      const subtitle = videoData.subtitles.find((s) => {
+        const start = Number.parseFloat(s.start.toFixed(5))
+        const end = Number.parseFloat(s.end.toFixed(5))
+        return adjustedTimeForSubtitles >= start && adjustedTimeForSubtitles < end
+      })
+      
+      // 자막이 없으면 다음 자막이 곧 시작되는지 확인 (0.3초 이내면 미리 표시)
+      let subtitleText = ""
+      if (subtitle) {
+        subtitleText = subtitle.text
+      } else {
+        // 소수점 5자리 정밀도로 다음 자막 찾기
+        const currentTimePrecise = Number.parseFloat(audioCurrentTime.toFixed(5))
+        const upcomingSubtitle = videoData.subtitles.find((s) => {
+          const startPrecise = Number.parseFloat(s.start.toFixed(5))
+          return startPrecise > currentTimePrecise && startPrecise <= currentTimePrecise + 0.3
+        })
+        if (upcomingSubtitle) {
+          subtitleText = upcomingSubtitle.text
+        }
+      }
+      
+      // 자막이 변경되었을 때만 업데이트 (불필요한 리렌더링 방지)
+      if (subtitleText !== lastSubtitleText) {
+        setCurrentSubtitle(subtitleText)
+        lastSubtitleText = subtitleText
+      }
+      
+      animationFrameId = requestAnimationFrame(updateSubtitle)
+    }
+
+    animationFrameId = requestAnimationFrame(updateSubtitle)
+
+    return () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId)
+      }
+    }
+  }, [audioRef, videoData, showSubtitles])
+
   // 일주일간 인기 주제 로드 함수
   const loadTrendingTopics = async () => {
     if (!selectedCategory) {
@@ -1730,8 +1798,8 @@ export default function LongformContentPage() {
 
                       subtitles.push({
                         id: subtitleId++,
-                        start: Number.parseFloat(start.toFixed(3)),
-                        end: Number.parseFloat(end.toFixed(3)),
+                        start: Number.parseFloat(start.toFixed(5)), // 소수점 5자리까지 정확하게
+                        end: Number.parseFloat(end.toFixed(5)),
                         text: phrase.text
                       })
                     }
@@ -1745,8 +1813,8 @@ export default function LongformContentPage() {
 
                       subtitles.push({
                         id: subtitleId++,
-                        start: Number.parseFloat(start.toFixed(3)),
-                        end: Number.parseFloat(end.toFixed(3)),
+                        start: Number.parseFloat(start.toFixed(5)), // 소수점 5자리까지 정확하게
+                        end: Number.parseFloat(end.toFixed(5)),
                         text: subtitleLine.text
                       })
                     }
@@ -4022,10 +4090,11 @@ export default function LongformContentPage() {
             
             const displayLine = currentSubtitleLine.text
 
-            // 자막 배경 (한 줄만 표시하므로 고정 높이)
+            // 자막 배경 (한 줄만 표시하므로 고정 높이) - 채널명과 겹치지 않도록 더 위로
             const subtitleHeight = 100
+            const subtitleBottomOffset = 400 // 채널명과 겹치지 않도록 250에서 400으로 증가
             ctx.fillStyle = "rgba(0, 0, 0, 0.75)"
-            ctx.fillRect(0, canvas.height - subtitleHeight - 250, canvas.width, subtitleHeight)
+            ctx.fillRect(0, canvas.height - subtitleHeight - subtitleBottomOffset, canvas.width, subtitleHeight)
 
             // 자막 텍스트 (한 줄만 표시, 화면 너비 확인)
             ctx.fillStyle = "white"
@@ -4038,7 +4107,7 @@ export default function LongformContentPage() {
               }
               finalText = finalText + "..."
             }
-            ctx.fillText(finalText, canvas.width / 2, canvas.height - 250 - 50)
+            ctx.fillText(finalText, canvas.width / 2, canvas.height - subtitleBottomOffset - 50)
           }
         }
 
@@ -4371,6 +4440,63 @@ export default function LongformContentPage() {
       console.error("[의미 단위 세그먼트 생성 실패]:", error)
       // 실패 시 기본 분할 (문장 단위)
       return text.split(/[.!?。！？]\s*/).filter(s => s.trim().length > 0)
+    }
+  }
+
+  // wordTimings를 alignment 형식으로 변환 (Whisper align API 결과를 ElevenLabs 형식으로 변환)
+  const convertWordTimingsToAlignment = (
+    wordTimings: Array<{ word: string; start: number; end: number; confidence?: number }>,
+    text: string
+  ): any => {
+    if (!wordTimings || wordTimings.length === 0) {
+      return null
+    }
+
+    // 텍스트를 문자 배열로 변환
+    const characters: string[] = []
+    const characterStartTimes: number[] = []
+    const characterEndTimes: number[] = []
+
+    let textIndex = 0
+    for (const wordTiming of wordTimings) {
+      const word = wordTiming.word
+      const wordStart = wordTiming.start
+      const wordEnd = wordTiming.end
+      const wordDuration = wordEnd - wordStart
+
+      // 단어의 각 문자에 시간 할당
+      for (let i = 0; i < word.length; i++) {
+        const char = word[i]
+        const charRatio = i / word.length
+        const charStart = wordStart + (wordDuration * charRatio)
+        const charEnd = i === word.length - 1 
+          ? wordEnd 
+          : wordStart + (wordDuration * ((i + 1) / word.length))
+
+        characters.push(char)
+        characterStartTimes.push(Number.parseFloat(charStart.toFixed(6))) // 소수점 6자리까지
+        characterEndTimes.push(Number.parseFloat(charEnd.toFixed(6)))
+        textIndex++
+      }
+
+      // 단어 뒤에 공백 추가 (마지막 단어가 아니면)
+      if (wordTiming !== wordTimings[wordTimings.length - 1]) {
+        const spaceStart = wordEnd
+        const spaceEnd = wordTiming !== wordTimings[wordTimings.length - 1] 
+          ? (wordTimings[wordTimings.indexOf(wordTiming) + 1]?.start || wordEnd)
+          : wordEnd
+
+        characters.push(" ")
+        characterStartTimes.push(Number.parseFloat(spaceStart.toFixed(6)))
+        characterEndTimes.push(Number.parseFloat(Math.min(spaceEnd, wordEnd + 0.1).toFixed(6)))
+        textIndex++
+      }
+    }
+
+    return {
+      characters: characters.join(""),
+      character_start_times_seconds: characterStartTimes,
+      character_end_times_seconds: characterEndTimes,
     }
   }
 
@@ -5648,11 +5774,52 @@ export default function LongformContentPage() {
           throw new Error("TTS 응답에 오디오 데이터가 없습니다.")
         }
         
+        // ElevenLabs alignment가 없으면 Whisper align API를 호출하여 word-level timing 받기
+        let alignment = data.alignment
+        if (!alignment) {
+          try {
+            console.log(`[Whisper Align] TTS 생성 후 word-level timing 분석 시작 (줄 ${line.id})`)
+            const openaiApiKey = getApiKey("openai") || getApiKey("gpt_api_key") || getApiKey("chatgpt_api_key")
+            
+            if (openaiApiKey) {
+              // 오디오 URL에서 오디오 데이터 가져오기
+              const audioResponse = await fetch(data.audioUrl)
+              const audioBlob = await audioResponse.blob()
+              
+              // Whisper align API 호출
+              const formData = new FormData()
+              formData.append("audio", audioBlob, "audio.wav")
+              formData.append("text", convertedText)
+              
+              const whisperResponse = await fetch("/api/whisper-align", {
+                method: "POST",
+                body: formData,
+              })
+              
+              if (whisperResponse.ok) {
+                const whisperData = await whisperResponse.json()
+                if (whisperData.wordTimings && whisperData.wordTimings.length > 0) {
+                  // wordTimings를 alignment 형식으로 변환
+                  alignment = convertWordTimingsToAlignment(whisperData.wordTimings, convertedText)
+                  console.log(`[Whisper Align] ${whisperData.wordTimings.length}개 단어 타이밍 추출 완료 (줄 ${line.id})`)
+                }
+              } else {
+                console.warn(`[Whisper Align] API 호출 실패 (줄 ${line.id}):`, await whisperResponse.text())
+              }
+            } else {
+              console.warn(`[Whisper Align] OpenAI API 키 없음, word-level timing 건너뜀 (줄 ${line.id})`)
+            }
+          } catch (error) {
+            console.warn(`[Whisper Align] 오류 (줄 ${line.id}):`, error)
+            // Whisper align 실패해도 계속 진행
+          }
+        }
+        
         // 성공 시 반환 (alignment 데이터 포함)
         return {
           audioUrl: data.audioUrl,
           audioBase64: data.audioBase64,
-          alignment: data.alignment || undefined, // alignment 데이터 포함
+          alignment: alignment || undefined, // alignment 데이터 포함
         }
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error))
@@ -6520,8 +6687,8 @@ export default function LongformContentPage() {
 
                       subtitles.push({
                         id: subtitleId++,
-                        start: Number.parseFloat(start.toFixed(3)),
-                        end: Number.parseFloat(end.toFixed(3)),
+                        start: Number.parseFloat(start.toFixed(5)), // 소수점 5자리까지 정확하게
+                        end: Number.parseFloat(end.toFixed(5)),
                         text: phrase.text
                       })
                     }
@@ -6535,8 +6702,8 @@ export default function LongformContentPage() {
                       
                       subtitles.push({
                         id: subtitleId++,
-                        start: Number.parseFloat(start.toFixed(3)),
-                        end: Number.parseFloat(end.toFixed(3)),
+                        start: Number.parseFloat(start.toFixed(5)), // 소수점 5자리까지 정확하게
+                        end: Number.parseFloat(end.toFixed(5)),
                         text: subtitleLine.text,
                       })
                     }
@@ -6552,8 +6719,8 @@ export default function LongformContentPage() {
                     
                     subtitles.push({
                       id: subtitleId++,
-                      start: Number.parseFloat(start.toFixed(3)),
-                      end: Number.parseFloat(end.toFixed(3)),
+                      start: Number.parseFloat(start.toFixed(5)), // 소수점 5자리까지 정확하게
+                      end: Number.parseFloat(end.toFixed(5)),
                       text: subtitleLine.text,
                     })
                   }
@@ -6569,8 +6736,8 @@ export default function LongformContentPage() {
                   
                   subtitles.push({
                     id: subtitleId++,
-                    start: Number.parseFloat(start.toFixed(3)),
-                    end: Number.parseFloat(end.toFixed(3)),
+                    start: Number.parseFloat(start.toFixed(5)), // 소수점 5자리까지 정확하게
+                    end: Number.parseFloat(end.toFixed(5)),
                     text: subtitleLine.text,
                   })
                 }
@@ -10482,14 +10649,19 @@ export default function LongformContentPage() {
     try {
       // 현재 상태를 프로젝트 데이터로 변환
       // Map을 배열로 변환 (convertedVideos, convertedSceneVideos)
-      const convertedVideosArray = Array.from(convertedVideos.entries()).map(([lineId, videoUrl]) => ({
-        lineId,
-        videoUrl,
-      }))
-      const convertedSceneVideosArray = Array.from(convertedSceneVideos.entries()).map(([key, videoUrl]) => ({
-        key,
-        videoUrl,
-      }))
+      // base64 영상 데이터는 용량이 크므로 제외하고 URL만 저장
+      const convertedVideosArray = Array.from(convertedVideos.entries())
+        .filter(([lineId, videoUrl]) => !videoUrl?.startsWith("data:"))
+        .map(([lineId, videoUrl]) => ({
+          lineId,
+          videoUrl,
+        }))
+      const convertedSceneVideosArray = Array.from(convertedSceneVideos.entries())
+        .filter(([key, videoUrl]) => !videoUrl?.startsWith("data:"))
+        .map(([key, videoUrl]) => ({
+          key,
+          videoUrl,
+        }))
       
       const projectData: ProjectData = {
         // 주제 관련
@@ -10532,10 +10704,10 @@ export default function LongformContentPage() {
           imageUrl: img.imageUrl?.startsWith("data:") ? "" : img.imageUrl,
         })),
         imageStyle,
-        customStylePrompt,
+        customStylePrompt: customStylePrompt !== null ? customStylePrompt : undefined,
         // customStyleCharacterImage와 customStyleBackgroundImage는 base64일 수 있어 용량이 크므로 URL만 저장
-        customStyleCharacterImage: customStyleCharacterImage?.startsWith("data:") ? null : customStyleCharacterImage,
-        customStyleBackgroundImage: customStyleBackgroundImage?.startsWith("data:") ? null : customStyleBackgroundImage,
+        customStyleCharacterImage: customStyleCharacterImage?.startsWith("data:") ? undefined : customStyleCharacterImage,
+        customStyleBackgroundImage: customStyleBackgroundImage?.startsWith("data:") ? undefined : customStyleBackgroundImage,
         realisticCharacterType,
         // stickmanCharacterDescription는 이미지 프롬프트 생성 시 지역 변수로만 사용되므로 저장하지 않음
         convertedVideos: convertedVideosArray,
@@ -10554,14 +10726,16 @@ export default function LongformContentPage() {
         
         // 영상 관련
         // videoData의 autoImages에서 base64 이미지 제거 (URL만 저장)
-        videoData: videoData ? {
-          ...videoData,
-          autoImages: videoData.autoImages?.map(img => ({
-            ...img,
-            // base64 이미지는 제외하고 URL만 저장
-            url: img.url?.startsWith("data:") ? "" : img.url,
-          })),
-        } : null,
+        ...(videoData ? {
+          videoData: {
+            ...videoData,
+            autoImages: videoData.autoImages?.map(img => ({
+              ...img,
+              // base64 이미지는 제외하고 URL만 저장
+              url: img.url?.startsWith("data:") ? "" : img.url,
+            })),
+          }
+        } : {}),
         
         // 제목 관련
         generatedTitles,
@@ -10636,14 +10810,19 @@ export default function LongformContentPage() {
     try {
       // 현재 상태를 프로젝트 데이터로 변환
       // Map을 배열로 변환 (convertedVideos, convertedSceneVideos)
-      const convertedVideosArray = Array.from(convertedVideos.entries()).map(([lineId, videoUrl]) => ({
-        lineId,
-        videoUrl,
-      }))
-      const convertedSceneVideosArray = Array.from(convertedSceneVideos.entries()).map(([key, videoUrl]) => ({
-        key,
-        videoUrl,
-      }))
+      // base64 영상 데이터는 용량이 크므로 제외하고 URL만 저장
+      const convertedVideosArray = Array.from(convertedVideos.entries())
+        .filter(([lineId, videoUrl]) => !videoUrl?.startsWith("data:"))
+        .map(([lineId, videoUrl]) => ({
+          lineId,
+          videoUrl,
+        }))
+      const convertedSceneVideosArray = Array.from(convertedSceneVideos.entries())
+        .filter(([key, videoUrl]) => !videoUrl?.startsWith("data:"))
+        .map(([key, videoUrl]) => ({
+          key,
+          videoUrl,
+        }))
       
       const projectData: ProjectData = {
         // 주제 관련
@@ -10686,10 +10865,10 @@ export default function LongformContentPage() {
           imageUrl: img.imageUrl?.startsWith("data:") ? "" : img.imageUrl,
         })),
         imageStyle,
-        customStylePrompt,
+        customStylePrompt: customStylePrompt !== null ? customStylePrompt : undefined,
         // customStyleCharacterImage와 customStyleBackgroundImage는 base64일 수 있어 용량이 크므로 URL만 저장
-        customStyleCharacterImage: customStyleCharacterImage?.startsWith("data:") ? null : customStyleCharacterImage,
-        customStyleBackgroundImage: customStyleBackgroundImage?.startsWith("data:") ? null : customStyleBackgroundImage,
+        customStyleCharacterImage: customStyleCharacterImage?.startsWith("data:") ? undefined : customStyleCharacterImage,
+        customStyleBackgroundImage: customStyleBackgroundImage?.startsWith("data:") ? undefined : customStyleBackgroundImage,
         realisticCharacterType,
         // stickmanCharacterDescription는 이미지 프롬프트 생성 시 지역 변수로만 사용되므로 저장하지 않음
         convertedVideos: convertedVideosArray,
@@ -10708,14 +10887,16 @@ export default function LongformContentPage() {
         
         // 영상 관련
         // videoData의 autoImages에서 base64 이미지 제거 (URL만 저장)
-        videoData: videoData ? {
-          ...videoData,
-          autoImages: videoData.autoImages?.map(img => ({
-            ...img,
-            // base64 이미지는 제외하고 URL만 저장
-            url: img.url?.startsWith("data:") ? "" : img.url,
-          })),
-        } : null,
+        ...(videoData ? {
+          videoData: {
+            ...videoData,
+            autoImages: videoData.autoImages?.map(img => ({
+              ...img,
+              // base64 이미지는 제외하고 URL만 저장
+              url: img.url?.startsWith("data:") ? "" : img.url,
+            })),
+          }
+        } : {}),
         
         // 제목 관련
         generatedTitles,
@@ -13276,13 +13457,14 @@ export default function LongformContentPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="pt-6">
-                  <div className="bg-gray-50 p-4 rounded-lg max-h-96 overflow-y-auto">
-                    <div className="whitespace-pre-wrap text-sm text-gray-700 font-mono">
-                      {decomposedScenes}
-                    </div>
-                  </div>
+                  <Textarea
+                    value={decomposedScenes}
+                    onChange={(e) => setDecomposedScenes(e.target.value)}
+                    className="bg-gray-50 p-4 rounded-lg min-h-[200px] max-h-96 font-mono text-sm text-gray-700 whitespace-pre-wrap"
+                    placeholder="장면 분해 결과가 여기에 표시됩니다. 필요시 수정할 수 있습니다."
+                  />
                   <div className="mt-4 text-xs text-gray-500">
-                    총 {scriptLines.length}개의 장면이 생성되었습니다.
+                    총 {scriptLines.length}개의 장면이 생성되었습니다. 장면 분해 결과를 수정할 수 있습니다.
                   </div>
                 </CardContent>
               </Card>
@@ -13872,7 +14054,220 @@ export default function LongformContentPage() {
               <>
                 <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white">
                   <CardHeader className="pb-4 border-b border-gray-100">
-                    <CardTitle className="text-lg font-semibold text-slate-900">생성된 문장 리스트</CardTitle>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-lg font-semibold text-slate-900">생성된 문장 리스트</CardTitle>
+                      {/* 이미지 일괄 등록 버튼 */}
+                      <div className="flex items-center gap-2">
+                        <label className="cursor-pointer">
+                          <input
+                            type="file"
+                            accept="image/*,video/*"
+                            multiple
+                            className="hidden"
+                              onChange={async (e) => {
+                                const files = Array.from(e.target.files || [])
+                                if (files.length === 0) return
+                                
+                                // 씬별 이미지가 있는 경우: 각 씬의 각 장면에 순차적으로 할당
+                                if (sceneImagePrompts.length > 0) {
+                                  // 총 장면 수 계산
+                                  const totalImages = sceneImagePrompts.reduce((sum, scene) => sum + scene.images.length, 0)
+                                  const imageFiles = files.slice(0, totalImages)
+                                  
+                                  if (files.length > totalImages) {
+                                    alert(`선택한 이미지가 ${files.length}개인데 총 장면이 ${totalImages}개입니다. 처음 ${imageFiles.length}개만 사용됩니다.`)
+                                  }
+                                  
+                                  let fileIndex = 0
+                                  const updatedPrompts = [...sceneImagePrompts]
+                                  
+                                  // 각 씬의 각 장면에 순차적으로 이미지 할당
+                                  for (const scene of updatedPrompts) {
+                                    for (const image of scene.images) {
+                                      if (fileIndex >= imageFiles.length) break
+                                      
+                                      const file = imageFiles[fileIndex]
+                                      
+                                      try {
+                                        const isVideo = file.type.startsWith("video/")
+                                        let imageUrl: string
+                                        
+                                        if (isVideo) {
+                                          // 영상 파일인 경우
+                                          imageUrl = await new Promise<string>((resolve, reject) => {
+                                            const reader = new FileReader()
+                                            reader.onloadend = () => resolve(reader.result as string)
+                                            reader.onerror = reject
+                                            reader.readAsDataURL(file)
+                                          })
+                                          
+                                          // convertedSceneVideos에도 저장
+                                          setConvertedSceneVideos((prev) => {
+                                            const newMap = new Map(prev)
+                                            newMap.set(`${scene.sceneNumber}-${image.imageNumber}`, imageUrl)
+                                            return newMap
+                                          })
+                                        } else {
+                                          // 이미지 파일인 경우 - 16:9 비율로 리사이즈
+                                          const resizedImage = await resizeImageTo16_9(file)
+                                          imageUrl = await new Promise<string>((resolve, reject) => {
+                                            const reader = new FileReader()
+                                            reader.onloadend = () => resolve(reader.result as string)
+                                            reader.onerror = reject
+                                            reader.readAsDataURL(resizedImage)
+                                          })
+                                          
+                                          // 이미지로 교체했으므로 변환된 영상 제거
+                                          setConvertedSceneVideos((prev) => {
+                                            const newMap = new Map(prev)
+                                            newMap.delete(`${scene.sceneNumber}-${image.imageNumber}`)
+                                            return newMap
+                                          })
+                                        }
+                                        
+                                        // 해당 장면에 imageUrl 할당
+                                        const sceneIndex = updatedPrompts.findIndex(s => s.sceneNumber === scene.sceneNumber)
+                                        if (sceneIndex !== -1) {
+                                          const imageIndex = updatedPrompts[sceneIndex].images.findIndex(img => img.imageNumber === image.imageNumber)
+                                          if (imageIndex !== -1) {
+                                            updatedPrompts[sceneIndex].images[imageIndex].imageUrl = imageUrl
+                                            updatedPrompts[sceneIndex].images[imageIndex].createdAt = Date.now()
+                                          }
+                                        }
+                                        
+                                        fileIndex++
+                                      } catch (error) {
+                                        console.error(`[일괄 등록] 씬 ${scene.sceneNumber} 장면 ${image.imageNumber} 이미지 업로드 실패:`, error)
+                                        fileIndex++
+                                      }
+                                    }
+                                    if (fileIndex >= imageFiles.length) break
+                                  }
+                                  
+                                  // sceneImagePrompts 업데이트
+                                  setSceneImagePrompts(updatedPrompts)
+                                  
+                                  // 이미지 변경 시 videoData 초기화
+                                  setVideoData(null)
+                                  setAutoImages([])
+                                  
+                                  // 완료 표시 업데이트
+                                  if (fileIndex > 0) {
+                                    setCompletedSteps((prev) => {
+                                      if (!prev.includes("image")) {
+                                        return [...prev, "image"]
+                                      }
+                                      return prev
+                                    })
+                                  }
+                                  
+                                  alert(`이미지 ${fileIndex}개가 일괄 등록되었습니다. (씬별 장면 기준)`)
+                                } else {
+                                  // 일반 이미지인 경우: scriptLines 기준으로 할당
+                                  const imageFiles = files.slice(0, scriptLines.length)
+                                  
+                                  if (files.length > scriptLines.length) {
+                                    alert(`선택한 이미지가 ${files.length}개인데 문장이 ${scriptLines.length}개입니다. 처음 ${imageFiles.length}개만 사용됩니다.`)
+                                  }
+                                  
+                                  // 각 이미지를 순차적으로 처리
+                                  const newImages: Array<{ lineId: number; imageUrl: string; prompt: string }> = []
+                                  
+                                  for (let i = 0; i < imageFiles.length && i < scriptLines.length; i++) {
+                                    const file = imageFiles[i]
+                                    const line = scriptLines[i]
+                                    
+                                    try {
+                                      const isVideo = file.type.startsWith("video/")
+                                      let imageUrl: string
+                                      
+                                      if (isVideo) {
+                                        // 영상 파일인 경우
+                                        imageUrl = await new Promise<string>((resolve, reject) => {
+                                          const reader = new FileReader()
+                                          reader.onloadend = () => resolve(reader.result as string)
+                                          reader.onerror = reject
+                                          reader.readAsDataURL(file)
+                                        })
+                                        
+                                        // convertedVideos에도 저장
+                                        setConvertedVideos((prev) => {
+                                          const newMap = new Map(prev)
+                                          newMap.set(line.id, imageUrl)
+                                          return newMap
+                                        })
+                                      } else {
+                                        // 이미지 파일인 경우 - 16:9 비율로 리사이즈
+                                        const resizedImage = await resizeImageTo16_9(file)
+                                        imageUrl = await new Promise<string>((resolve, reject) => {
+                                          const reader = new FileReader()
+                                          reader.onloadend = () => resolve(reader.result as string)
+                                          reader.onerror = reject
+                                          reader.readAsDataURL(resizedImage)
+                                        })
+                                        
+                                        // 이미지로 교체했으므로 변환된 영상 제거
+                                        setConvertedVideos((prev) => {
+                                          const newMap = new Map(prev)
+                                          newMap.delete(line.id)
+                                          return newMap
+                                        })
+                                      }
+                                      
+                                      newImages.push({
+                                        lineId: line.id,
+                                        imageUrl: imageUrl,
+                                        prompt: isVideo ? "사용자 업로드 영상" : "사용자 업로드 이미지",
+                                      })
+                                    } catch (error) {
+                                      console.error(`[일괄 등록] 이미지 ${i + 1} 업로드 실패:`, error)
+                                    }
+                                  }
+                                  
+                                  // 기존 이미지와 병합 (같은 lineId는 새 이미지로 교체)
+                                  setGeneratedImages((prev) => {
+                                    const filtered = prev.filter((img) => !newImages.some(newImg => newImg.lineId === img.lineId))
+                                    return [...filtered, ...newImages]
+                                  })
+                                  
+                                  // 이미지 변경 시 videoData 초기화
+                                  setVideoData(null)
+                                  setAutoImages([])
+                                  
+                                  // 완료 표시 업데이트
+                                  if (newImages.length > 0) {
+                                    setCompletedSteps((prev) => {
+                                      if (!prev.includes("image")) {
+                                        return [...prev, "image"]
+                                      }
+                                      return prev
+                                    })
+                                  }
+                                  
+                                  alert(`이미지 ${newImages.length}개가 일괄 등록되었습니다.`)
+                                }
+                                
+                                // input 초기화
+                                e.target.value = ""
+                              }}
+                            />
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              asChild
+                            >
+                              <span>
+                                <Upload className="w-4 h-4 mr-2" />
+                                이미지 일괄 등록 ({
+                                  sceneImagePrompts.length > 0 
+                                    ? sceneImagePrompts.reduce((sum, scene) => sum + scene.images.length, 0) 
+                                    : scriptLines.length
+                                }개)
+                              </span>
+                            </Button>
+                          </label>
+                        </div>
+                    </div>
                   </CardHeader>
                   <CardContent className="pt-6 space-y-4">
                 <Button
@@ -15864,14 +16259,8 @@ export default function LongformContentPage() {
                           }
                         }
                         
-                        // 오디오 시간을 그대로 사용 (이미 합쳐진 오디오이므로)
-                        // 자막 표시 여부에 따라 자막 업데이트
-                        if (showSubtitles) {
-                          const subtitle = videoData.subtitles.find((s) => audioCurrentTime >= s.start && audioCurrentTime < s.end)
-                          setCurrentSubtitle(subtitle?.text || "")
-                        } else {
-                          setCurrentSubtitle("")
-                        }
+                        // 자막 업데이트는 requestAnimationFrame을 사용하는 useEffect에서 처리
+                        // (더 정확한 동기화를 위해 별도로 처리)
                         setCurrentTime(totalCurrentTime)
                         setIsPlaying(!audioElement.paused)
                       }}
@@ -18037,9 +18426,9 @@ export default function LongformContentPage() {
                       <div className="relative aspect-[9/16] bg-black rounded-lg overflow-hidden border-2 border-gray-300" style={{ maxHeight: '200px' }}>
                         {/* 샘플 배경 (첫 번째 이미지 또는 그라데이션) */}
                         <div className="absolute inset-0 bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600 opacity-80">
-                          {(generatedImages.length > 0 && generatedImages[0]?.imageUrl) || (sceneImagePrompts.length > 0 && sceneImagePrompts[0]?.imageUrl) ? (
+                          {(generatedImages.length > 0 && generatedImages[0]?.imageUrl) || (sceneImagePrompts.length > 0 && sceneImagePrompts[0]?.images?.[0]?.imageUrl) ? (
                             <img 
-                              src={generatedImages[0]?.imageUrl || sceneImagePrompts[0]?.imageUrl || ""} 
+                              src={generatedImages[0]?.imageUrl || sceneImagePrompts[0]?.images?.[0]?.imageUrl || ""} 
                               alt="샘플 배경" 
                               className="w-full h-full object-cover opacity-50"
                             />
@@ -18947,8 +19336,9 @@ export default function LongformContentPage() {
                   onClick={() => {
                     // 탭 이동은 즉시 실행
                     setActiveStep(item.id)
-                    // 저장은 백그라운드에서 비동기로 실행 (await 없이)
-                    if (currentProject) {
+                    // 주제 추천부터 이미지 생성까지만 자동 저장 (용량 문제 방지)
+                    const autoSaveSteps = ["topic", "planning", "script", "image"]
+                    if (currentProject && autoSaveSteps.includes(item.id)) {
                       handleAutoSaveProject(true).catch((error) => {
                         console.error("[Projects] 백그라운드 자동 저장 실패:", error)
                       })

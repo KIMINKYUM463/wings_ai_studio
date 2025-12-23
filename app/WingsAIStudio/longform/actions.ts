@@ -31,7 +31,7 @@ type CategoryType =
   | "war" | "affair" | "ancient" | "biology" | "greek_roman_mythology"
   | "death" | "ai" | "alien" | "palmistry" | "physiognomy"
   | "fortune_telling" | "urban_legend" | "serial_crime" | "unsolved_case"
-  | "reserve_army" | "elementary_school"
+  | "reserve_army" | "elementary_school" | "psychology"
 
 interface CategoryPrompts {
   plan?: string // 대본 기획 추가 지시사항
@@ -594,7 +594,7 @@ ${characterInfo.type === "foreign" ? "프롬프트에 'Western', 'Caucasian', 'E
 
     // 특정 스타일인 경우 특별한 프롬프트 템플릿 적용 (모든 카테고리)
     // 기존 animation 스타일은 호환성을 위해 유지
-    if (historyStyle === "animation" || historyStyle === "stickman-animation" || historyStyle === "flat-2d-illustration" || historyStyle === "semi-realistic-animation" || historyStyle === "vintage-illustration" || historyStyle === "dark-fantasy-concept") {
+    if (historyStyle === "animation" || historyStyle === "stickman-animation" || historyStyle === "animation2" || historyStyle === "animation3" || historyStyle === "flat-2d-illustration" || historyStyle === "semi-realistic-animation" || historyStyle === "vintage-illustration" || historyStyle === "dark-fantasy-concept") {
       // 대본 텍스트에서 주체, 배경, 행동 추출
       // 간단한 추출: 주체는 명사, 배경은 장소/환경, 행동은 동사
       const extractElements = async (text: string) => {
@@ -711,7 +711,8 @@ Crisp vector edges, clean lines, consistent stroke weight. No text, no captions,
           break
           
         case "flat-2d-illustration":
-          stylePrompt = `A ${elements.subject}${characterContext} in a ${elements.setting}${periodContext}${categoryContext}, ${elements.action}. flat 2D illustration style, vector art, bold colors, clean shapes, no gradients, minimal shadows, graphic design aesthetic, modern flat design, vibrant color palette, 16:9 aspect ratio. NEGATIVE: 3D rendering, realistic textures, depth, shadows, gradients, photorealistic, detailed rendering, text, letters, words, typography, English text, Korean text, Chinese text, numbers, logos, watermarks, signs, labels${characterInfo.type === "korean" ? ", Chinese person, Japanese person, wrong ethnicity" : ""}.`
+        case "animation2":
+          stylePrompt = `A ${elements.subject}${characterContext} in a ${elements.setting}${periodContext}${categoryContext}, ${elements.action}. flat 2D vector illustration, minimal vector art, stylized cartoon character, thick bold black outlines, unshaded, flat solid colors, cel-shaded, simple line art, comic book inking style, completely flat, no shadows, no gradients, no depth, vibrant color palette, 16:9 aspect ratio. NEGATIVE: 3D rendering, realistic textures, depth, shadows, gradients, photorealistic, detailed rendering, stickman, stick figure, text, letters, words, typography, English text, Korean text, Chinese text, numbers, logos, watermarks, signs, labels${characterInfo.type === "korean" ? ", Chinese person, Japanese person, wrong ethnicity" : ""}.`
           break
           
         case "semi-realistic-animation":
@@ -960,6 +961,7 @@ function enforceStickmanPrompt(prompt: string, sceneDescription?: string): strin
  * @param aspectRatio - 이미지 비율 ("16:9", "9:16", "1:1")
  * @param imageStyle - 이미지 스타일 (예: "stickman-animation")
  * @param sceneDescription - 장면 설명 (스틱맨 스타일일 때 사용)
+ * @param selectedModel - 사용자가 선택한 모델 (선택사항)
  * @returns 생성된 이미지 URL
  */
 export async function generateImageWithReplicate(
@@ -967,7 +969,8 @@ export async function generateImageWithReplicate(
   replicateApiKey: string,
   aspectRatio: "16:9" | "9:16" | "1:1" = "16:9",
   imageStyle?: string,
-  sceneDescription?: string
+  sceneDescription?: string,
+  selectedModel?: "prunaai/hidream-l1-fast" | "black-forest-labs/flux-schnell" | "black-forest-labs/flux-pro"
 ): Promise<string> {
   if (!replicateApiKey) {
     throw new Error("Replicate API 키가 필요합니다.")
@@ -976,9 +979,11 @@ export async function generateImageWithReplicate(
   try {
     console.log(`[Longform] Replicate 이미지 생성 시작, 비율: ${aspectRatio}, 스타일: ${imageStyle || "기본"}`)
 
-    // 이미지 스타일에 따라 모델 선택
+    // 이미지 스타일에 따라 모델 선택 (사용자가 선택한 모델이 있으면 우선 사용)
     let model = "black-forest-labs/flux-pro"
-    if (imageStyle === "stickman-animation") {
+    if (selectedModel) {
+      model = selectedModel
+    } else if (imageStyle === "stickman-animation") {
       model = "prunaai/hidream-l1-fast"
     }
 
@@ -993,6 +998,18 @@ export async function generateImageWithReplicate(
 
     // 프롬프트 그대로 사용 (이미지 프롬프트 생성에서 완성된 프롬프트 사용)
     let finalPrompt = prompt
+    
+    // 애니메이션2 스타일인 경우 스틱맨 관련 키워드 제거
+    if (imageStyle === "animation2") {
+      // 스틱맨 관련 키워드 제거
+      finalPrompt = finalPrompt
+        .replace(/stickman/gi, "")
+        .replace(/stick figure/gi, "")
+        .replace(/stick-man/gi, "")
+        .replace(/stick-figure/gi, "")
+        .replace(/\s+/g, " ")
+        .trim()
+    }
     
     // 텍스트 제외 지시가 없으면 추가 (모든 모델에 적용)
     const textExclusionTerms = ["no text", "no letters", "no words", "no writing", "no labels", "no signs", "no watermark"]
@@ -3240,6 +3257,162 @@ export async function convertImageToVideo(
     throw new Error("영상 변환 시간 초과")
   } catch (error) {
     console.error("[Longform] 영상 변환 실패:", error)
+    throw error
+  }
+}
+
+/**
+ * 대본에서 주제를 추출하는 함수
+ */
+export async function extractTopicFromScript(script: string, apiKey?: string): Promise<string> {
+  const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
+
+  if (!GPT_API_KEY) {
+    throw new Error("OpenAI API 키가 설정되지 않았습니다.")
+  }
+
+  try {
+    console.log("[v0] 대본에서 주제 추출 시작")
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${GPT_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `당신은 영상 콘텐츠 분석 전문가입니다. 주어진 대본을 분석하여 이 영상의 핵심 주제를 한 문장으로 요약해주세요.
+
+규칙:
+- 대본의 핵심 내용을 파악하여 간결하고 명확한 주제로 요약
+- 20자 이내로 간결하게 작성
+- 예: "60대 건강 관리 방법", "삼국지 관우 이야기", "치매 예방 운동법" 등`,
+          },
+          {
+            role: "user",
+            content: `다음 대본의 핵심 주제를 한 문장으로 요약해주세요:\n\n${script.substring(0, 2000)}`, // 대본이 너무 길면 앞부분만 사용
+          },
+        ],
+        temperature: 0.7,
+        max_tokens: 100,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error?.message || "주제 추출에 실패했습니다.")
+    }
+
+    const data = await response.json()
+    const topic = data.choices[0]?.message?.content?.trim()
+
+    if (!topic) {
+      throw new Error("주제 추출 결과가 비어있습니다.")
+    }
+
+    console.log("[v0] 추출된 주제:", topic)
+    return topic
+  } catch (error) {
+    console.error("[v0] 대본에서 주제 추출 실패:", error)
+    throw error
+  }
+}
+
+/**
+ * 기존 대본을 기반으로 각색하여 재생성하는 함수
+ */
+export async function regenerateScript(
+  existingScript: string,
+  topic: string,
+  apiKey?: string,
+  category: CategoryType = "health"
+): Promise<string> {
+  const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
+
+  if (!GPT_API_KEY) {
+    throw new Error("OpenAI API 키가 설정되지 않았습니다.")
+  }
+
+  try {
+    console.log("[v0] 대본 재생성 시작 (각색)")
+
+    const systemPrompt = `당신은 유튜브 대본 전문가입니다. 기존 대본을 기반으로 각색하여 새로운 버전의 대본을 작성합니다.
+
+작성 원칙:
+1. 기존 대본의 핵심 내용과 구조를 유지하되, 표현과 문장을 다르게 각색합니다.
+2. 같은 의미를 전달하되, 더 자연스럽고 흥미로운 표현으로 재작성합니다.
+3. 문장 종결 표현을 다양화합니다 ("~니다", "~네요", "~거든요", "~죠", "~거죠", "~는데", "~했고", "~면서" 등).
+4. 괄호나 대괄호를 사용하지 않습니다 (TTS를 이용할 것이기 때문).
+5. "개요", "서론", "본론", "챕터", "1부", "2부", "3부", "4부", "5부", "결론" 같은 구조적 단어를 절대 사용하지 않습니다.
+6. 오로지 대본 내용만 작성합니다.
+7. 기존 대본의 길이와 비슷하게 유지합니다.
+
+각색 요구사항:
+- 기존 대본의 핵심 메시지와 정보는 그대로 유지
+- 표현 방식과 문장 구조를 다르게 각색
+- 더 자연스럽고 흥미로운 문장으로 재작성
+- 시청자가 지루하지 않도록 다양한 표현 사용`
+
+    const userPrompt = `주제: ${topic}
+
+기존 대본:
+${existingScript}
+
+위 기존 대본을 기반으로 각색하여 새로운 버전의 대본을 작성해주세요.
+- 기존 대본의 핵심 내용과 구조는 유지하되, 표현과 문장을 다르게 각색해주세요.
+- 같은 의미를 전달하되, 더 자연스럽고 흥미로운 표현으로 재작성해주세요.
+- 기존 대본의 길이와 비슷하게 유지해주세요.
+- 대본 내용만 작성해주세요. 제목이나 구조적 단어는 사용하지 마세요.`
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${GPT_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.8, // 창의적인 각색을 위해 temperature를 높게 설정
+        max_tokens: 16384,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error?.message || "대본 재생성에 실패했습니다.")
+    }
+
+    const data = await response.json()
+    const regeneratedScript = data.choices[0]?.message?.content?.trim()
+
+    if (!regeneratedScript) {
+      throw new Error("재생성된 대본을 생성할 수 없습니다.")
+    }
+
+    // 구조적 단어 제거
+    const structuralWords = [
+      "개요", "서론", "본론", "챕터", "1부", "2부", "3부", "4부", "5부", "결론",
+      "Chapter", "Part", "Introduction", "Body", "Conclusion"
+    ]
+    
+    let cleanedScript = regeneratedScript
+    for (const word of structuralWords) {
+      const regex = new RegExp(`\\s*${word}\\s*:?\\s*`, "gi")
+      cleanedScript = cleanedScript.replace(regex, "")
+    }
+
+    console.log("[v0] 대본 재생성 완료")
+    return cleanedScript.trim()
+  } catch (error) {
+    console.error("[v0] 대본 재생성 실패:", error)
     throw error
   }
 }

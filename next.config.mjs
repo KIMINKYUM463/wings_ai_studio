@@ -8,7 +8,7 @@ const nextConfig = {
   },
   experimental: {
     serverActions: {
-      bodySizeLimit: '10mb', // Server Actions body size limit을 10MB로 증가
+      bodySizeLimit: '50mb', // Server Actions body size limit을 50MB로 증가 (프로젝트 저장 시 대용량 데이터 처리)
     },
   },
   webpack: (config, { isServer }) => {
