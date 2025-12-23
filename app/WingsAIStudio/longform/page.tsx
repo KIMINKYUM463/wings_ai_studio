@@ -5561,6 +5561,23 @@ export default function LongformContentPage() {
                   renderingStyle = extractedRendering
                   console.log("[v0] 그림체 스타일 추출 완료:", renderingStyle.substring(0, 100) + "...")
                 }
+              } else {
+                // 애니메이션 스타일(유럽풍 그래픽 노블 포함)에서도 그림체 스타일 추출 (일관성 유지)
+                const isAnimation = imageStyle === "stickman-animation" || imageStyle === "animation2" || imageStyle === "animation3" || imageStyle === "semi-realistic-animation"
+                if (isAnimation) {
+                  try {
+                    const { renderingStyle: extractedRendering } = await extractBackgroundAndRenderingStyle(
+                      data.imageUrl,
+                      openaiApiKey
+                    )
+                    if (extractedRendering) {
+                      renderingStyle = extractedRendering
+                      console.log("[v0] 애니메이션 그림체 스타일 추출 완료:", renderingStyle.substring(0, 100) + "...")
+                    }
+                  } catch (error) {
+                    console.warn("[v0] 애니메이션 그림체 스타일 추출 실패:", error)
+                  }
+                }
               }
             } catch (error) {
               console.warn("[v0] 스타일 정보 추출 실패, 계속 진행:", error)
@@ -13272,11 +13289,8 @@ export default function LongformContentPage() {
                         const finalResult = allResults.join("\n\n")
                         console.log(`[장면 분해] 형식 변환 완료, 최종 결과 길이: ${finalResult.length}자`)
                         
-                        // 최종 결과 저장
+                        // 최종 결과 저장 (원본 대본은 유지, 장면 분해 결과만 저장)
                         setDecomposedScenes(finalResult)
-                        
-                        // 대본 상태 업데이트 (원본 대본 유지)
-                        setScript(finalResult)
                         
                         // 최종 결과 파싱
                         const scenes = parseSceneBlocks(finalResult)
@@ -13425,11 +13439,8 @@ export default function LongformContentPage() {
                         const finalResult = allResults.join("\n\n")
                         console.log(`[장면 분해 버튼] 모든 씬 처리 완료, 최종 결과 길이: ${finalResult.length}자`)
                         
-                        // 최종 결과 저장
+                        // 최종 결과 저장 (원본 대본은 유지, 장면 분해 결과만 저장)
                         setDecomposedScenes(finalResult)
-                        
-                        // 대본 상태 업데이트 (원본 대본 유지)
-                        setScript(finalResult)
                         
                         // 최종 결과 파싱
                         console.log("[장면 분해 버튼] parseSceneBlocks 호출 중...")
@@ -14606,6 +14617,13 @@ export default function LongformContentPage() {
                           let hasGeneratedImages = false
                           shouldStopImageGeneration.current = false // 중단 플래그 초기화
                           
+                          // 캐릭터 앵커와 스타일 정보 (첫 번째 이미지에서 추출)
+                          let characterAnchor: string | null = null
+                          let backgroundStyle: string | null = null
+                          let renderingStyle: string | null = null
+                          const isRealistic = imageStyle === "realistic" || imageStyle === "realistic2"
+                          let isFirstImage = true // 첫 번째 이미지 여부
+                          
                           // 재시도 함수 (최대 5번 시도)
                           const generateImageWithRetry = async (
                             prompt: string,
@@ -14692,9 +14710,44 @@ export default function LongformContentPage() {
                               try {
                                 console.log(`[Scene Image] 이미지 생성 중... (${currentIndex}/${totalImages}): Scene ${scene.sceneNumber}, Image ${image.imageNumber}`)
                                 
+                                // 캐릭터 앵커와 스타일 정보가 있으면 프롬프트에 추가
+                                let finalPrompt = image.prompt
+                                if (!isFirstImage && characterAnchor) {
+                                  // 실사화 스타일일 때는 더 강력하게 적용
+                                  if (isRealistic) {
+                                    finalPrompt = `THE SAME CHARACTER (MUST BE IDENTICAL): ${characterAnchor}, ${finalPrompt}`
+                                  } else {
+                                    // 애니메이션 스타일에서도 캐릭터 일관성 유지
+                                    const isAnimation = imageStyle === "stickman-animation" || imageStyle === "animation2" || imageStyle === "animation3" || imageStyle === "semi-realistic-animation"
+                                    if (isAnimation) {
+                                      finalPrompt = `THE SAME CHARACTER (CONSISTENT DESIGN): ${characterAnchor}, ${finalPrompt}`
+                                    } else {
+                                      finalPrompt = `${characterAnchor}, ${finalPrompt}`
+                                    }
+                                  }
+                                }
+                                
+                                // 배경 스타일과 그림체 스타일 추가 (실사화 스타일일 때)
+                                if (!isFirstImage && isRealistic) {
+                                  if (backgroundStyle) {
+                                    finalPrompt = `${finalPrompt}, background style: ${backgroundStyle}`
+                                  }
+                                  if (renderingStyle) {
+                                    finalPrompt = `${finalPrompt}, rendering style: ${renderingStyle}`
+                                  }
+                                }
+                                
+                                // 애니메이션 스타일에서도 그림체 일관성 유지
+                                if (!isFirstImage && !isRealistic) {
+                                  const isAnimation = imageStyle === "stickman-animation" || imageStyle === "animation2" || imageStyle === "animation3" || imageStyle === "semi-realistic-animation"
+                                  if (isAnimation && renderingStyle) {
+                                    finalPrompt = `${finalPrompt}, consistent art style: ${renderingStyle}`
+                                  }
+                                }
+                                
                                 // 재시도 로직이 포함된 이미지 생성 (생성될 때까지 계속 시도)
                                 let imageUrl = await generateImageWithRetry(
-                                  image.prompt,
+                                  finalPrompt,
                                   replicateApiKey,
                                   imageStyle,
                                   image.sceneText
@@ -14702,6 +14755,69 @@ export default function LongformContentPage() {
                                 
                                 if (imageUrl) {
                                   console.log(`[Scene Image] 이미지 생성 완료:`, imageUrl)
+                                  
+                                  // 첫 번째 이미지에서 캐릭터 앵커와 스타일 추출
+                                  if (isFirstImage) {
+                                    try {
+                                      const openaiApiKey = getApiKey("openai_api_key")
+                                      if (openaiApiKey) {
+                                        const { extractCharacterAnchor, extractBackgroundAndRenderingStyle } = await import("./actions")
+                                        const topic = isCustomTopicSelected ? customTopic : selectedTopic
+                                        
+                                        // 캐릭터 앵커 추출 (인물이 있는 경우) - 모든 스타일에서 추출
+                                        if (!characterAnchor) {
+                                          const extractedAnchor = await extractCharacterAnchor(
+                                            imageUrl,
+                                            image.sceneText || image.prompt,
+                                            openaiApiKey,
+                                            topic || undefined
+                                          )
+                                          if (extractedAnchor) {
+                                            characterAnchor = extractedAnchor
+                                            console.log("[Scene Image] 캐릭터 앵커 추출 완료:", characterAnchor.substring(0, 100) + "...")
+                                          } else {
+                                            console.log("[Scene Image] 캐릭터 앵커 추출: 인물 없음 또는 추출 실패")
+                                          }
+                                        }
+                                        
+                                        // 실사화 스타일일 때 배경 스타일과 그림체 추출
+                                        if (isRealistic) {
+                                          const { backgroundStyle: extractedBg, renderingStyle: extractedRendering } = await extractBackgroundAndRenderingStyle(
+                                            imageUrl,
+                                            openaiApiKey
+                                          )
+                                          if (extractedBg) {
+                                            backgroundStyle = extractedBg
+                                            console.log("[Scene Image] 배경 스타일 추출 완료:", backgroundStyle.substring(0, 100) + "...")
+                                          }
+                                          if (extractedRendering) {
+                                            renderingStyle = extractedRendering
+                                            console.log("[Scene Image] 그림체 스타일 추출 완료:", renderingStyle.substring(0, 100) + "...")
+                                          }
+                                        } else {
+                                          // 애니메이션 스타일에서도 그림체 스타일 추출 (일관성 유지)
+                                          const isAnimation = imageStyle === "stickman-animation" || imageStyle === "animation2" || imageStyle === "animation3" || imageStyle === "semi-realistic-animation"
+                                          if (isAnimation) {
+                                            try {
+                                              const { renderingStyle: extractedRendering } = await extractBackgroundAndRenderingStyle(
+                                                imageUrl,
+                                                openaiApiKey
+                                              )
+                                              if (extractedRendering) {
+                                                renderingStyle = extractedRendering
+                                                console.log("[Scene Image] 애니메이션 그림체 스타일 추출 완료:", renderingStyle.substring(0, 100) + "...")
+                                              }
+                                            } catch (error) {
+                                              console.warn("[Scene Image] 애니메이션 그림체 스타일 추출 실패:", error)
+                                            }
+                                          }
+                                        }
+                                      }
+                                    } catch (error) {
+                                      console.warn("[Scene Image] 스타일 정보 추출 실패, 계속 진행:", error)
+                                    }
+                                    isFirstImage = false // 첫 번째 이미지 처리 완료
+                                  }
                                   
                                   // 해당 이미지에 imageUrl 추가
                                   const sceneIndex = updatedPrompts.findIndex(s => s.sceneNumber === scene.sceneNumber)
@@ -15311,6 +15427,12 @@ export default function LongformContentPage() {
                               ))}
                             </div>
                           </div>
+
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+                          <p className="text-sm text-blue-800">
+                            <strong>안내:</strong> TTS는 씬1부터 순서대로 생성하셔야 합니다.
+                          </p>
+                        </div>
 
                         <Button
                       onClick={handleGenerateTTSForLines}

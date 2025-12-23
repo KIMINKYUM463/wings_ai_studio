@@ -4,7 +4,6 @@ FFmpeg-python을 사용한 안정적인 렌더링
 """
 
 from flask import Flask, request, jsonify
-from flask_cors import CORS
 import os
 import sys
 import datetime
@@ -12,36 +11,32 @@ import ffmpeg
 import subprocess
 
 app = Flask(__name__)
-# CORS 설정 - 모든 origin 허용 (프로덕션에서는 특정 도메인만 허용하도록 변경 권장)
-CORS(app, resources={
-    r"/*": {
-        "origins": ["https://wingsaistudio.com", "http://localhost:3000", "https://*.vercel.app"],
-        "methods": ["GET", "POST", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"],
-        "max_age": 3600,
-        "supports_credentials": False
-    }
-})
 
 # Cloud Run의 요청 크기 제한은 32MB이지만, Flask 앱 레벨에서도 제한 설정
 app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 32MB
 
+# CORS 헤더 추가 함수
 def add_cors_headers(response):
     """모든 응답에 CORS 헤더 추가"""
     origin = request.headers.get('Origin', '')
+    
+    # 허용된 origin 목록
     allowed_origins = ['https://wingsaistudio.com', 'http://localhost:3000']
     
     # Vercel 프리뷰 URL도 허용
-    if origin.endswith('.vercel.app'):
+    if origin and origin.endswith('.vercel.app'):
         allowed_origins.append(origin)
     
+    # Origin이 허용된 목록에 있으면 CORS 헤더 추가
     if origin in allowed_origins:
-        response.headers.add('Access-Control-Allow-Origin', origin)
-    else:
-        response.headers.add('Access-Control-Allow-Origin', 'https://wingsaistudio.com')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
-    response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-    response.headers.add('Access-Control-Max-Age', '3600')
+        response.headers['Access-Control-Allow-Origin'] = origin
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+        response.headers['Access-Control-Max-Age'] = '3600'
+    elif not origin:
+        # Origin 헤더가 없는 경우 (같은 origin 요청) 기본값 설정
+        response.headers['Access-Control-Allow-Origin'] = 'https://wingsaistudio.com'
+    
     return response
 
 @app.after_request
@@ -53,22 +48,8 @@ def after_request(response):
 def render_video():
     # OPTIONS 요청 처리 (CORS preflight)
     if request.method == 'OPTIONS':
-        origin = request.headers.get('Origin', '')
-        allowed_origins = ['https://wingsaistudio.com', 'http://localhost:3000']
-        
-        # Vercel 프리뷰 URL도 허용
-        if origin.endswith('.vercel.app'):
-            allowed_origins.append(origin)
-        
         response = jsonify({})
-        if origin in allowed_origins:
-            response.headers.add('Access-Control-Allow-Origin', origin)
-        else:
-            response.headers.add('Access-Control-Allow-Origin', 'https://wingsaistudio.com')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
-        response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        response.headers.add('Access-Control-Max-Age', '3600')
-        return response, 200
+        return add_cors_headers(response), 200
     """
     영상 렌더링 엔드포인트
     현재는 테스트용으로 간단한 응답만 반환
