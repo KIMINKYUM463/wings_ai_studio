@@ -3840,6 +3840,7 @@ export default function LongformContentPage() {
       // 이미지 미리 로드 - sceneImagePrompts와 generatedImages 모두 포함
       const images: HTMLImageElement[] = []
       const imageLineIdMap: Map<number, number> = new Map() // lineId -> imageIndex 매핑
+      const imageUrlToIndexMap: Map<string, number> = new Map() // imageUrl -> imageIndex 매핑 (중복 로드 방지)
       
       // sceneImagePrompts의 이미지는 나중에 allImageUrls에 포함시킬 예정이므로 여기서는 건너뜀
       // (generatedImages가 없을 때 사용하기 위해)
@@ -3869,6 +3870,7 @@ export default function LongformContentPage() {
       }
       
       console.log(`[Shorts 렌더링] 선택된 이미지 수: ${selectedImageUrls.length}개`)
+      console.log(`[Shorts 렌더링] 선택된 이미지 URL 목록:`, selectedImageUrls)
       
       // shortsScriptLines의 각 라인에 대해 순서대로 이미지 매칭
       for (let i = 0; i < shortsScriptLines.length; i++) {
@@ -3878,18 +3880,13 @@ export default function LongformContentPage() {
         if (selectedImageUrls.length > 0) {
           const imageUrl = selectedImageUrls[i % selectedImageUrls.length]
           
-          // 이미 로드된 이미지인지 확인
-          let existingImageIndex = -1
-          for (let j = 0; j < images.length; j++) {
-            if (images[j].src === imageUrl || images[j].src.includes(imageUrl.split('/').pop() || '')) {
-              existingImageIndex = j
-              break
-            }
-          }
+          // 이미 로드된 이미지인지 확인 (정확한 URL 비교)
+          let existingImageIndex = imageUrlToIndexMap.get(imageUrl)
           
-          if (existingImageIndex >= 0) {
+          if (existingImageIndex !== undefined && existingImageIndex >= 0) {
             // 이미 로드된 이미지 사용
             imageLineIdMap.set(shortsLine.id, existingImageIndex)
+            console.log(`[Shorts 렌더링] 라인 ${shortsLine.id}에 기존 이미지 인덱스 ${existingImageIndex} 할당 (URL: ${imageUrl.substring(0, 50)}...)`)
           } else {
             // 새 이미지 로드
             try {
@@ -3904,9 +3901,10 @@ export default function LongformContentPage() {
                 img.src = imageUrl
               })
               images.push(img)
+              imageUrlToIndexMap.set(imageUrl, imageIndex)
               imageLineIdMap.set(shortsLine.id, imageIndex)
+              console.log(`[Shorts 렌더링] 이미지 로드 완료 (라인 ${shortsLine.id}, 인덱스 ${imageIndex}): ${imageUrl.substring(0, 50)}...`)
               imageIndex++
-              console.log(`[Shorts 렌더링] 이미지 로드 완료 (라인 ${shortsLine.id}): ${imageUrl.substring(0, 50)}...`)
             } catch (error) {
               console.error(`[Shorts 렌더링] 이미지 로드 실패 (라인 ${shortsLine.id}):`, error)
               // 이미지 로드 실패해도 계속 진행
@@ -4046,6 +4044,10 @@ export default function LongformContentPage() {
 
           if (imageIndex >= 0 && images[imageIndex]) {
             const img = images[imageIndex]
+            // 디버깅: 이미지 인덱스 확인 (처음 몇 프레임만 로그)
+            if (Math.random() < 0.01) { // 1% 확률로만 로그 (성능 영향 최소화)
+              console.log(`[Shorts 렌더링] 라인 ${currentLine.id}에 이미지 인덱스 ${imageIndex} 사용 (총 이미지 수: ${images.length})`)
+            }
             const imageWidth = canvas.width
             const imageHeight = canvas.width
             const imageX = 0
