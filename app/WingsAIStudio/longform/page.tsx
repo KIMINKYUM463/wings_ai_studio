@@ -11120,6 +11120,8 @@ export default function LongformContentPage() {
   const handleShowProjectList = () => {
     setShowProjectList(true)
     setCurrentProject(null)
+    // 프로젝트 목록을 표시한 후 페이지 새로고침
+    window.location.reload()
   }
 
   // 프로젝트 목록 불러오기 (컴포넌트 마운트 시)

@@ -301,6 +301,18 @@ def render_video():
                         end_time = float(auto_img.get('endTime', start_time + 1))
                         is_video = auto_img.get('isVideo', False)
                         
+                        # 마지막 이미지인 경우 실제 오디오 길이에 맞춰 end_time 조정
+                        is_last_image = (idx == len(auto_images) - 1)
+                        if is_last_image and actual_audio_duration > 0:
+                            # 실제 오디오 길이 + 3초 여유를 목표로 설정
+                            target_end_time = actual_audio_duration + 3
+                            if end_time < target_end_time:
+                                print(f"[Render] 마지막 이미지 endTime 조정: {end_time:.3f}s -> {target_end_time:.3f}s (실제 오디오 길이: {actual_audio_duration:.3f}s)")
+                                end_time = target_end_time
+                            elif end_time > target_end_time:
+                                print(f"[Render] 마지막 이미지 endTime 제한: {end_time:.3f}s -> {target_end_time:.3f}s (실제 오디오 길이: {actual_audio_duration:.3f}s)")
+                                end_time = target_end_time
+                        
                         if img_url:
                             if is_video:
                                 # 영상 URL인 경우 다운로드
@@ -435,90 +447,111 @@ def render_video():
                         if segment_duration <= 0:
                             continue
                         
+                        # 마지막 세그먼트인지 확인
+                        is_last_segment = (idx == len(image_segments) - 1)
+                        
                         segment_output = f"{temp_dir}/segment_{idx}.mp4"
-                        print(f"[Render] Processing segment {idx}: {img_file} ({segment_duration:.2f}s, is_video={is_video})")
+                        print(f"[Render] Processing segment {idx}: {img_file} ({segment_duration:.2f}s, is_video={is_video}, is_last={is_last_segment})")
                         
                         # 이 세그먼트에 해당하는 자막 필터 생성 (같은 시간대 자막을 한 줄로 합침)
                         segment_subtitle_filters = []
                         if show_subtitles and subtitles and len(subtitles) > 0:
-                            # 시간대별로 자막 그룹화
-                            subtitle_groups = {}
+                            # 먼저 이 세그먼트에 포함될 자막들을 수집 (세그먼트 경계 체크를 더 관대하게)
+                            valid_subtitles = []
+                            last_subtitle_index = len(subtitles) - 1
                             
-                            # 첫 자막인지 확인하기 위한 변수
-                            is_first_subtitle_in_segment = True
-                            
-                            for sub in subtitles:
+                            for sub_idx, sub in enumerate(subtitles):
                                 # 클라이언트에서 이미 조정된 자막 타이밍을 그대로 사용 (duration_ratio 적용하지 않음)
                                 sub_start = float(sub.get('start', sub.get('startTime', 0)))
                                 sub_end = float(sub.get('end', sub.get('endTime', sub_start + 2)))
                                 
-                                # 자막이 이 세그먼트 시간 범위와 겹치면 포함
-                                # 단, 이전 세그먼트의 자막이 포함되지 않도록 더 엄격하게 체크
-                                # 자막이 세그먼트 시작 시간 이전에 끝나면 제외 (이전 세그먼트의 자막)
-                                if sub_end <= seg_start_time:
+                                # 마지막 세그먼트의 마지막 자막인 경우, 실제 오디오 길이에 맞춰 endTime 조정
+                                is_last_subtitle = (sub_idx == last_subtitle_index)
+                                if is_last_segment and is_last_subtitle and actual_audio_duration > 0:
+                                    if sub_end < actual_audio_duration:
+                                        print(f"[Render] 마지막 세그먼트의 마지막 자막 endTime 조정: {sub_end:.3f}s -> {actual_audio_duration:.3f}s (실제 오디오 길이)")
+                                        sub_end = actual_audio_duration
+                                
+                                # 자막이 세그먼트 시간 범위와 겹치면 포함 (더 관대한 체크)
+                                # 자막이 세그먼트 시작 시간 이전에 끝나면 제외 (단, 0.1초 이내의 여유는 허용)
+                                if sub_end < seg_start_time - 0.1:
                                     continue
                                 
-                                # 자막이 세그먼트 끝 시간 이후에 시작하면 제외 (다음 세그먼트의 자막)
-                                if sub_start >= seg_end_time:
+                                # 자막이 세그먼트 끝 시간 이후에 시작하면 제외 (단, 마지막 세그먼트의 마지막 자막은 예외)
+                                if sub_start > seg_end_time + 0.1 and not (is_last_segment and is_last_subtitle):
                                     continue
                                 
-                                # 자막이 세그먼트 시간 범위와 겹치는 경우만 포함
-                                if sub_start < seg_end_time and sub_end > seg_start_time:
-                                    # 세그먼트 시작 시간 기준으로 조정 (상대 시간으로 변환)
-                                    adjusted_start = sub_start - seg_start_time
+                                # 세그먼트 시작 시간 기준으로 조정 (상대 시간으로 변환)
+                                adjusted_start = sub_start - seg_start_time
+                                # 마지막 세그먼트의 마지막 자막인 경우, 실제 오디오 길이에 맞춰 조정
+                                if is_last_segment and is_last_subtitle and actual_audio_duration > 0:
+                                    adjusted_end = min(segment_duration, actual_audio_duration - seg_start_time)
+                                else:
                                     adjusted_end = min(segment_duration, sub_end - seg_start_time)
-                                    
-                                    # 첫 자막인 경우 무조건 포함 (자막 타이밍이 앞당겨져서 음수가 될 수 있음)
-                                    if is_first_subtitle_in_segment:
-                                        # 첫 자막은 무조건 포함하되, 음수면 0으로 조정
-                                        if adjusted_start < 0:
-                                            adjusted_start = 0
-                                        if adjusted_end < 0:
-                                            adjusted_end = max(0.1, adjusted_start + 0.1)  # 최소 0.1초 길이 보장
-                                        is_first_subtitle_in_segment = False
-                                    else:
-                                        # 두 번째 자막부터는 기존 로직 적용
-                                        # adjusted_start가 음수면 0으로 조정 (세그먼트 시작 이전에 시작한 자막도 포함)
-                                        # 단, 세그먼트 시작 시간보다 0.5초 이상 이전에 시작하면 제외 (이전 장면의 자막 제외)
-                                        if adjusted_start < -0.5:
-                                            continue
-                                        
-                                        # adjusted_start를 0 이상으로 조정
-                                        if adjusted_start < 0:
-                                            adjusted_start = 0
-                                        
-                                        # adjusted_end도 0 이상으로 조정 (자막 타이밍이 앞당겨져서 음수가 될 수 있음)
-                                        if adjusted_end < 0:
-                                            adjusted_end = max(0.1, adjusted_start + 0.1)  # 최소 0.1초 길이 보장
-                                    
-                                    # adjusted_start가 segment_duration보다 작아야 함 (adjusted_end는 이미 조정됨)
-                                    if adjusted_start >= segment_duration:
-                                        continue
-                                    
-                                    # adjusted_end가 adjusted_start보다 커야 함
-                                    if adjusted_end <= adjusted_start:
-                                        adjusted_end = adjusted_start + 0.1  # 최소 0.1초 길이 보장
-                                    
-                                    text = sub.get('text', '').strip()
-                                    if not text:
-                                        continue
-                                    
-                                    # 같은 시작 시간의 자막들을 그룹화 (소수점 3자리까지 반올림하여 그룹화)
-                                    key = f"{adjusted_start:.3f}"
-                                    if key not in subtitle_groups:
-                                        subtitle_groups[key] = {
-                                            'texts': [],
-                                            'start': adjusted_start,
-                                            'end': adjusted_end
-                                        }
-                                    subtitle_groups[key]['texts'].append(text)
-                                    subtitle_groups[key]['end'] = max(subtitle_groups[key]['end'], adjusted_end)
+                                
+                                # adjusted_start가 음수면 0으로 조정 (세그먼트 시작 이전에 시작한 자막도 포함)
+                                # 단, 세그먼트 시작 시간보다 0.5초 이상 이전에 시작하면 제외 (이전 장면의 자막 제외)
+                                if adjusted_start < -0.5:
+                                    continue
+                                
+                                if adjusted_start < 0:
+                                    adjusted_start = 0
+                                
+                                # adjusted_end도 0 이상으로 조정
+                                if adjusted_end < 0:
+                                    adjusted_end = max(0.1, adjusted_start + 0.1)  # 최소 0.1초 길이 보장
+                                
+                                # adjusted_start가 segment_duration보다 작아야 함
+                                if adjusted_start >= segment_duration:
+                                    continue
+                                
+                                # adjusted_end가 adjusted_start보다 커야 함
+                                if adjusted_end <= adjusted_start:
+                                    adjusted_end = adjusted_start + 0.1  # 최소 0.1초 길이 보장
+                                
+                                text = sub.get('text', '').strip()
+                                if not text:
+                                    continue
+                                
+                                valid_subtitles.append({
+                                    'text': text,
+                                    'start': adjusted_start,
+                                    'end': adjusted_end,
+                                    'original_start': sub_start,
+                                    'original_end': sub_end
+                                })
+                            
+                            # 시간 순서대로 정렬
+                            valid_subtitles.sort(key=lambda x: x['start'])
+                            
+                            # 시간 차이가 작은 자막들을 그룹화 (0.1초 이내의 차이는 같은 그룹으로 처리)
+                            subtitle_groups = []
+                            GROUP_TIME_THRESHOLD = 0.1  # 0.1초 이내의 차이는 같은 그룹
+                            
+                            for sub in valid_subtitles:
+                                # 기존 그룹 중에서 시간 차이가 작은 그룹 찾기
+                                found_group = False
+                                for group in subtitle_groups:
+                                    # 현재 자막의 시작 시간이 그룹의 시작 시간과 0.1초 이내 차이면 같은 그룹으로 합치기
+                                    if abs(sub['start'] - group['start']) <= GROUP_TIME_THRESHOLD:
+                                        group['texts'].append(sub['text'])
+                                        group['end'] = max(group['end'], sub['end'])  # 더 긴 endTime 사용
+                                        found_group = True
+                                        break
+                                
+                                # 기존 그룹에 합치지 못한 경우 새 그룹 생성
+                                if not found_group:
+                                    subtitle_groups.append({
+                                        'texts': [sub['text']],
+                                        'start': sub['start'],
+                                        'end': sub['end']
+                                    })
                             
                             # 오프셋 조정 제거: 클라이언트에서 전달한 자막 타이밍을 그대로 사용하여 TTS와 정확히 동기화
                             # (이전 로직은 첫 자막을 0초로 맞추기 위해 오프셋을 빼서 TTS보다 자막이 늦게 시작하는 문제 발생)
                             
                             # 그룹화된 자막을 한 줄로 합쳐서 필터 생성
-                            for key, group in subtitle_groups.items():
+                            for group in subtitle_groups:
                                 # 여러 자막을 공백으로 합쳐서 한 줄로 표시 (줄바꿈 문자 제거)
                                 combined_text = ' '.join(group['texts']).replace('\n', ' ').replace('\r', ' ').strip()
                                 
@@ -641,11 +674,10 @@ def render_video():
                     
                     # 각 세그먼트에 오디오가 이미 포함되어 있으므로 duration 옵션 불필요
                     # 각 세그먼트가 정확한 길이를 가지고 있어서 concat 시 자동으로 맞춰짐
+                    # -t 옵션을 사용하지 않으면 각 세그먼트의 실제 길이에 맞춰 자동으로 전체 길이가 결정됨
                     print(f"[Render] Concat {len(segment_files)} segments with embedded audio")
-                    if duration and duration > 0:
-                        concat_cmd.insert(-1, '-t')
-                        concat_cmd.insert(-1, str(duration))
-                        print(f"[Render] Using requested duration: {duration:.3f}s")
+                    print(f"[Render] Actual audio duration: {actual_audio_duration:.3f}s, Requested duration: {duration:.3f}s")
+                    print(f"[Render] 각 세그먼트의 실제 길이에 맞춰 자동으로 전체 길이 결정 (duration 옵션 사용 안 함)")
                     
                     result = subprocess.run(concat_cmd, capture_output=True, text=True, timeout=3000)  # 50분
                     if result.returncode != 0:
@@ -659,9 +691,11 @@ def render_video():
                     # 자막 필터 생성 (같은 시간대 자막을 한 줄로 합침)
                     subtitle_filters = []
                     if show_subtitles and subtitles and len(subtitles) > 0:
-                        # 시간대별로 자막 그룹화
-                        subtitle_groups = {}
-                        for sub in subtitles:
+                        # 먼저 모든 자막을 수집하고 시간 순서대로 정렬
+                        valid_subtitles = []
+                        last_subtitle_index = len(subtitles) - 1
+                        
+                        for sub_idx, sub in enumerate(subtitles):
                             text = sub.get('text', '').strip()
                             if not text:
                                 continue
@@ -670,19 +704,47 @@ def render_video():
                             start_time = float(sub.get('start', sub.get('startTime', 0)))
                             end_time = float(sub.get('end', sub.get('endTime', start_time + 2)))
                             
-                            # 같은 시작 시간의 자막들을 그룹화 (소수점 3자리까지 반올림하여 그룹화)
-                            key = f"{start_time:.3f}"
-                            if key not in subtitle_groups:
-                                subtitle_groups[key] = {
-                                    'texts': [],
-                                    'start': start_time,
-                                    'end': end_time
-                                }
-                            subtitle_groups[key]['texts'].append(text)
-                            subtitle_groups[key]['end'] = max(subtitle_groups[key]['end'], end_time)
+                            # 마지막 자막인 경우, 실제 오디오 길이에 맞춰 endTime 조정
+                            is_last_subtitle = (sub_idx == last_subtitle_index)
+                            if is_last_subtitle and actual_audio_duration > 0:
+                                if end_time < actual_audio_duration:
+                                    print(f"[Render] 단일 이미지의 마지막 자막 endTime 조정: {end_time:.3f}s -> {actual_audio_duration:.3f}s (실제 오디오 길이)")
+                                    end_time = actual_audio_duration
+                            
+                            valid_subtitles.append({
+                                'text': text,
+                                'start': start_time,
+                                'end': end_time
+                            })
+                        
+                        # 시간 순서대로 정렬
+                        valid_subtitles.sort(key=lambda x: x['start'])
+                        
+                        # 시간 차이가 작은 자막들을 그룹화 (0.1초 이내의 차이는 같은 그룹으로 처리)
+                        subtitle_groups = []
+                        GROUP_TIME_THRESHOLD = 0.1  # 0.1초 이내의 차이는 같은 그룹
+                        
+                        for sub in valid_subtitles:
+                            # 기존 그룹 중에서 시간 차이가 작은 그룹 찾기
+                            found_group = False
+                            for group in subtitle_groups:
+                                # 현재 자막의 시작 시간이 그룹의 시작 시간과 0.1초 이내 차이면 같은 그룹으로 합치기
+                                if abs(sub['start'] - group['start']) <= GROUP_TIME_THRESHOLD:
+                                    group['texts'].append(sub['text'])
+                                    group['end'] = max(group['end'], sub['end'])  # 더 긴 endTime 사용
+                                    found_group = True
+                                    break
+                            
+                            # 기존 그룹에 합치지 못한 경우 새 그룹 생성
+                            if not found_group:
+                                subtitle_groups.append({
+                                    'texts': [sub['text']],
+                                    'start': sub['start'],
+                                    'end': sub['end']
+                                })
                         
                         # 그룹화된 자막을 한 줄로 합쳐서 필터 생성
-                        for key, group in subtitle_groups.items():
+                        for group in subtitle_groups:
                             # 여러 자막을 공백으로 합쳐서 한 줄로 표시 (줄바꿈 문자 제거)
                             combined_text = ' '.join(group['texts']).replace('\n', ' ').replace('\r', ' ').strip()
                             
