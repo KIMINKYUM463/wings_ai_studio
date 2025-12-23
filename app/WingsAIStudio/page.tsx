@@ -609,6 +609,7 @@ export default function HomePage() {
     elevenlabs: "",
     replicate: "",
     gemini: "",
+    ttsmaker: "",
     youtubeClientId: "",
     youtubeClientSecret: "",
     youtubeDataApiKey: "",

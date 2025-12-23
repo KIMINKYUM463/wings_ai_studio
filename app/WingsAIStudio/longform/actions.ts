@@ -2599,10 +2599,10 @@ export async function generateAIThumbnail(
     } else {
       // 기본 프롬프트 (텍스트 영역 포함)
       basePrompt = `YouTube thumbnail for video about: ${topic}. High quality, eye-catching, professional thumbnail design. Bright colors, clear text area, engaging composition. 16:9 aspect ratio.`
-      
-      // 커스텀 문구가 있으면 프롬프트에 추가
-      if (customText && customText.trim()) {
-        basePrompt = `${basePrompt} Include text or visual elements related to: "${customText.trim()}".`
+    
+    // 커스텀 문구가 있으면 프롬프트에 추가
+    if (customText && customText.trim()) {
+      basePrompt = `${basePrompt} Include text or visual elements related to: "${customText.trim()}".`
       }
     }
     

@@ -743,23 +743,29 @@ def render_video():
                     # 실제 오디오 길이를 사용하여 영상 길이 결정
                     video_duration = actual_audio_duration if actual_audio_duration > 0 else (duration if duration > 0 else None)
                     
+                    # 출력 설정 (duration이 있으면 t 옵션 포함)
+                    output_kwargs = {
+                        'vcodec': 'libx264',
+                        'preset': 'ultrafast',  # 가장 빠른 인코딩 속도
+                        'crf': 28,  # 품질을 약간 낮춰서 속도 향상 (23 -> 28)
+                        'tune': 'stillimage',
+                        'pix_fmt': 'yuv420p',
+                        'threads': 0,  # 모든 CPU 코어 사용
+                        'acodec': audio_codec_str,
+                        'movflags': '+faststart'
+                    }
+                    
+                    # duration이 있으면 t 옵션 추가
+                    if video_duration and video_duration > 0:
+                        output_kwargs['t'] = video_duration
+                        print(f"[Render] Using video duration: {video_duration:.3f}s (actual_audio: {actual_audio_duration:.3f}s, requested: {duration:.3f}s)")
+                    
                     output = ffmpeg.output(
                         stream,
                         input_audio,
                         output_path,
-                        vcodec='libx264',
-                        preset='ultrafast',  # 가장 빠른 인코딩 속도
-                        crf=28,  # 품질을 약간 낮춰서 속도 향상 (23 -> 28)
-                        tune='stillimage',
-                        pix_fmt='yuv420p',
-                        threads=0,  # 모든 CPU 코어 사용
-                        acodec=audio_codec_str,
-                        movflags='+faststart'
+                        **output_kwargs
                     )
-                    
-                    if video_duration and video_duration > 0:
-                        output = ffmpeg.output(output, t=video_duration)
-                        print(f"[Render] Using video duration: {video_duration:.3f}s (actual_audio: {actual_audio_duration:.3f}s, requested: {duration:.3f}s)")
                     
                     ffmpeg.run(output, overwrite_output=True, quiet=True)
                 

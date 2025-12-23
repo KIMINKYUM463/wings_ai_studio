@@ -3,6 +3,7 @@
 import type React from "react"
 
 import { useState, useEffect, useRef } from "react"
+import JSZip from "jszip"
 
 // 커스텀 애니메이션 스타일 추가
 const customStyles = `
@@ -1936,6 +1937,13 @@ export default function LongformContentPage() {
             console.log("[자동화] 원본 오디오 크기:", Math.round(audioBlob.size / 1024), "KB")
             console.log("[자동화] 원본 오디오를 그대로 사용 (압축하지 않음)")
             
+            // 실제 오디오 길이 측정 (음성 잘림 방지)
+            const audioContextForAuto = new (window.AudioContext || (window as any).webkitAudioContext)()
+            const audioArrayBufferForAuto = await audioBlob.arrayBuffer()
+            const audioBufferForAuto = await audioContextForAuto.decodeAudioData(audioArrayBufferForAuto)
+            const actualAudioDurationForAuto = audioBufferForAuto.duration
+            console.log(`[자동화] 실제 오디오 길이: ${actualAudioDurationForAuto.toFixed(3)}초 (videoData.duration: ${finalDuration.toFixed(3)}초)`)
+            
             // 원본 오디오를 그대로 base64로 변환 (압축하지 않음)
             const reader = new FileReader()
             let audioBase64 = await new Promise<string>((resolve) => {
@@ -1996,6 +2004,70 @@ export default function LongformContentPage() {
 
             console.log("[자동화] Cloud Run 렌더링 요청 - 이미지:", autoImagesForRender.length, "개")
 
+            // 실제 오디오 길이 + 여유 시간 사용 (음성 잘림 방지)
+            // 실제 오디오 길이에 3초 여유를 더해서 사용
+            const audioDurationWithPaddingForAuto = actualAudioDurationForAuto > 0 ? actualAudioDurationForAuto + 3 : totalDuration + 3
+            const finalDurationForAuto = actualAudioDurationForAuto > 0 ? audioDurationWithPaddingForAuto : totalDuration
+            if (actualAudioDurationForAuto > 0 && Math.abs(actualAudioDurationForAuto - totalDuration) > 0.1) {
+              console.warn(`[자동화] 오디오 길이 불일치: 실제=${actualAudioDurationForAuto.toFixed(3)}초, 계산=${totalDuration.toFixed(3)}초. 실제 길이 + 3초 여유를 사용합니다.`)
+            }
+            
+            console.log(`[자동화] 영상 길이 설정: 실제 오디오=${actualAudioDurationForAuto.toFixed(3)}초, 여유 포함=${audioDurationWithPaddingForAuto.toFixed(3)}초`)
+
+            // 자막과 이미지의 마지막 endTime을 실제 오디오 길이 + 여유 시간에 맞춰 조정 (음성 잘림 방지)
+            // 마지막 자막의 원본 endTime을 먼저 확인하고, 실제 오디오 길이 + 여유에 맞춘 후 0.5초 앞당김
+            const adjustedSubtitlesForAuto = subtitles.map((s, index) => {
+              const isLastSubtitle = index === subtitles.length - 1
+              let endTime = s.end
+              
+              // 마지막 자막의 경우, 실제 오디오 길이 + 여유에 맞춰 조정 (0.5초 앞당김 전에)
+              if (isLastSubtitle && actualAudioDurationForAuto > 0) {
+                const targetEndTime = audioDurationWithPaddingForAuto
+                // 원본 endTime이 목표 길이보다 짧으면 목표 길이로 조정
+                if (s.end < targetEndTime) {
+                  console.log(`[자동화] 마지막 자막 원본 endTime 조정: ${s.end.toFixed(3)}초 -> ${targetEndTime.toFixed(3)}초 (3초 여유 포함)`)
+                  endTime = targetEndTime
+                } else {
+                  // 원본 endTime이 목표 길이보다 길면 목표 길이로 제한
+                  endTime = targetEndTime
+                }
+              }
+              
+              return {
+                id: s.id,
+                // 자막 타이밍을 0.5초 앞당겨서 전달 (TTS와 동기화 개선)
+                start: Math.max(0, s.start - 0.5),
+                end: Math.max(0, endTime - 0.5), // 조정된 endTime에서 0.5초 빼기
+                text: s.text,
+              }
+            })
+            
+            // 마지막 자막의 endTime이 실제 오디오 길이 + 여유(0.5초 앞당김 후)보다 짧으면 다시 조정
+            if (adjustedSubtitlesForAuto.length > 0 && actualAudioDurationForAuto > 0) {
+              const lastSubtitle = adjustedSubtitlesForAuto[adjustedSubtitlesForAuto.length - 1]
+              const adjustedAudioDurationWithPaddingForAuto = Math.max(0, audioDurationWithPaddingForAuto - 0.5) // 0.5초 앞당김 반영
+              if (lastSubtitle.end < adjustedAudioDurationWithPaddingForAuto) {
+                console.log(`[자동화] 마지막 자막 endTime 최종 조정: ${lastSubtitle.end.toFixed(3)}초 -> ${adjustedAudioDurationWithPaddingForAuto.toFixed(3)}초`)
+                lastSubtitle.end = Number.parseFloat(adjustedAudioDurationWithPaddingForAuto.toFixed(3))
+              }
+            }
+            
+            // autoImages의 마지막 endTime도 조정 (이미지는 0.5초 앞당김 없음)
+            const adjustedAutoImagesForAuto = autoImagesForRender.map(img => ({ ...img })) // 복사본 생성
+            if (adjustedAutoImagesForAuto.length > 0 && actualAudioDurationForAuto > 0) {
+              const lastImage = adjustedAutoImagesForAuto[adjustedAutoImagesForAuto.length - 1]
+              const targetEndTime = audioDurationWithPaddingForAuto
+              // 마지막 이미지의 endTime이 목표 길이보다 짧으면 목표 길이로 조정
+              if (lastImage.endTime < targetEndTime) {
+                console.log(`[자동화] 마지막 이미지 endTime 조정: ${lastImage.endTime.toFixed(3)}초 -> ${targetEndTime.toFixed(3)}초 (3초 여유 포함)`)
+                lastImage.endTime = Number.parseFloat(targetEndTime.toFixed(3))
+              } else if (lastImage.endTime > targetEndTime) {
+                // 마지막 이미지의 endTime이 목표 길이보다 길면 목표 길이로 제한
+                console.log(`[자동화] 마지막 이미지 endTime 제한: ${lastImage.endTime.toFixed(3)}초 -> ${targetEndTime.toFixed(3)}초`)
+                lastImage.endTime = Number.parseFloat(targetEndTime.toFixed(3))
+              }
+            }
+
             // Cloud Run 렌더링 API 호출
             const renderResponse = await fetch("/api/ai/render", {
               method: "POST",
@@ -2005,16 +2077,10 @@ export default function LongformContentPage() {
               body: JSON.stringify({
                 // Cloud Storage URL이 있으면 사용, 없으면 base64 사용
                 ...(audioGcsUrl ? { audioGcsUrl } : { audioBase64 }),
-                subtitles: subtitles.map((s) => ({
-                  id: s.id,
-                  // 자막 타이밍을 0.5초 앞당겨서 전달 (TTS와 동기화 개선)
-                  start: Math.max(0, s.start - 0.5),
-                  end: Math.max(0, s.end - 0.5),
-                  text: s.text,
-                })),
+                subtitles: adjustedSubtitlesForAuto,
                 characterImage: firstImage.imageUrl,
-                autoImages: autoImagesForRender,
-                duration: totalDuration,
+                autoImages: adjustedAutoImagesForAuto,
+                duration: finalDurationForAuto, // 실제 오디오 길이 사용
                 config: {
                   width: 1920,
                   height: 1080,
@@ -7111,6 +7177,9 @@ export default function LongformContentPage() {
     setExportProgress(0)
     setExportStatusMessage("오디오 준비 중...")
 
+    // 실제 오디오 길이를 저장할 변수 (음성 잘림 방지)
+    let actualAudioDuration = 0
+
     try {
       console.log("[v0] Cloud Run 렌더링 시작 (빠른다운로드)")
 
@@ -7123,6 +7192,13 @@ export default function LongformContentPage() {
       
       console.log("[v0] 원본 오디오 크기:", Math.round(audioBlob.size / 1024), "KB", "타입:", audioBlob.type)
       console.log("[v0] 클라이언트에서는 압축하지 않고 원본 그대로 전송합니다.")
+      
+      // 실제 오디오 길이 측정 (음성 잘림 방지)
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const audioArrayBuffer = await audioBlob.arrayBuffer()
+      const audioBuffer = await audioContext.decodeAudioData(audioArrayBuffer)
+      actualAudioDuration = audioBuffer.duration
+      console.log(`[v0] 실제 오디오 길이: ${actualAudioDuration.toFixed(3)}초 (videoData.duration: ${videoData.duration?.toFixed(3)}초)`)
       
       // 원본 오디오를 그대로 사용 (압축하지 않음)
       console.log("[v0] 원본 오디오를 그대로 사용 (압축하지 않음)")
@@ -8063,11 +8139,77 @@ export default function LongformContentPage() {
         throw new Error("이미지 데이터가 비어있습니다. 이미지를 먼저 생성해주세요.")
       }
       
-      // duration 검증
-      const duration = videoData.duration
+      // duration 검증 및 실제 오디오 길이 + 여유 시간 사용 (음성 잘림 방지)
+      // 실제 오디오 길이에 3초 여유를 더해서 사용
+      const audioDurationWithPadding = actualAudioDuration > 0 ? actualAudioDuration + 3 : (videoData.duration || 0) + 3
+      const duration = actualAudioDuration > 0 ? audioDurationWithPadding : videoData.duration
       if (!duration || duration <= 0 || !isFinite(duration)) {
         console.error("[v0] 유효하지 않은 duration:", duration)
         throw new Error(`유효하지 않은 영상 길이입니다: ${duration}. TTS를 다시 생성해주세요.`)
+      }
+      
+      // 실제 오디오 길이와 videoData.duration이 다르면 경고
+      if (actualAudioDuration > 0 && Math.abs(actualAudioDuration - (videoData.duration || 0)) > 0.1) {
+        console.warn(`[v0] 오디오 길이 불일치: 실제=${actualAudioDuration.toFixed(3)}초, videoData=${videoData.duration?.toFixed(3)}초. 실제 길이 + 3초 여유를 사용합니다.`)
+      }
+      
+      console.log(`[v0] 영상 길이 설정: 실제 오디오=${actualAudioDuration.toFixed(3)}초, 여유 포함=${audioDurationWithPadding.toFixed(3)}초`)
+      
+      // 자막과 이미지의 마지막 endTime을 실제 오디오 길이 + 여유 시간에 맞춰 조정 (음성 잘림 방지)
+      // 마지막 자막의 원본 endTime을 먼저 확인하고, 실제 오디오 길이 + 여유에 맞춘 후 0.5초 앞당김
+      const adjustedSubtitles = showSubtitles ? videoData.subtitles.map((s, index) => {
+        const isLastSubtitle = index === videoData.subtitles.length - 1
+        let endTime = s.end
+        
+        // 마지막 자막의 경우, 실제 오디오 길이 + 여유에 맞춰 조정 (0.5초 앞당김 전에)
+        if (isLastSubtitle && actualAudioDuration > 0) {
+          const targetEndTime = audioDurationWithPadding
+          // 원본 endTime이 목표 길이보다 짧으면 목표 길이로 조정
+          if (s.end < targetEndTime) {
+            console.log(`[v0] 마지막 자막 원본 endTime 조정: ${s.end.toFixed(3)}초 -> ${targetEndTime.toFixed(3)}초 (3초 여유 포함)`)
+            endTime = targetEndTime
+          } else {
+            // 원본 endTime이 목표 길이보다 길면 목표 길이로 제한
+            endTime = targetEndTime
+          }
+        }
+        
+        return {
+          id: s.id,
+          // 자막 타이밍을 0.5초 앞당겨서 전달 (TTS와 동기화 개선)
+          start: Math.max(0, s.start - 0.5),
+          end: Math.max(0, endTime - 0.5), // 조정된 endTime에서 0.5초 빼기
+          text: s.text,
+        }
+      }) : []
+      
+      // 마지막 자막의 endTime이 실제 오디오 길이 + 여유(0.5초 앞당김 후)보다 짧으면 다시 조정
+      if (adjustedSubtitles.length > 0 && actualAudioDuration > 0) {
+        const lastSubtitle = adjustedSubtitles[adjustedSubtitles.length - 1]
+        const adjustedAudioDurationWithPadding = Math.max(0, audioDurationWithPadding - 0.5) // 0.5초 앞당김 반영
+        if (lastSubtitle.end < adjustedAudioDurationWithPadding) {
+          console.log(`[v0] 마지막 자막 endTime 최종 조정: ${lastSubtitle.end.toFixed(3)}초 -> ${adjustedAudioDurationWithPadding.toFixed(3)}초`)
+          lastSubtitle.end = Number.parseFloat(adjustedAudioDurationWithPadding.toFixed(3))
+        }
+      }
+      
+      // autoImages의 마지막 endTime도 조정 (이미지는 0.5초 앞당김 없음)
+      const finalAutoImages = (autoImagesGcsUrls.length > 0 && autoImagesGcsUrls.some(img => !img.url.startsWith("data:"))) 
+        ? autoImagesGcsUrls.map(img => ({ ...img })) // 복사본 생성
+        : resizedAutoImagesBase64.map(img => ({ ...img })) // 복사본 생성
+      
+      if (finalAutoImages.length > 0 && actualAudioDuration > 0) {
+        const lastImage = finalAutoImages[finalAutoImages.length - 1]
+        const targetEndTime = audioDurationWithPadding
+        // 마지막 이미지의 endTime이 목표 길이보다 짧으면 목표 길이로 조정
+        if (lastImage.endTime < targetEndTime) {
+          console.log(`[v0] 마지막 이미지 endTime 조정: ${lastImage.endTime.toFixed(3)}초 -> ${targetEndTime.toFixed(3)}초 (3초 여유 포함)`)
+          lastImage.endTime = Number.parseFloat(targetEndTime.toFixed(3))
+        } else if (lastImage.endTime > targetEndTime) {
+          // 마지막 이미지의 endTime이 목표 길이보다 길면 목표 길이로 제한
+          console.log(`[v0] 마지막 이미지 endTime 제한: ${lastImage.endTime.toFixed(3)}초 -> ${targetEndTime.toFixed(3)}초`)
+          lastImage.endTime = Number.parseFloat(targetEndTime.toFixed(3))
+        }
       }
       
       const finalRequestBody = {
@@ -8076,22 +8218,14 @@ export default function LongformContentPage() {
         // 자막 표시 여부에 따라 자막 포함/제외
         showSubtitles: showSubtitles, // 자막 표시 여부 명시적으로 전달
         ...(showSubtitles ? {
-          subtitles: videoData.subtitles.map((s) => ({
-            id: s.id,
-            // 자막 타이밍을 0.5초 앞당겨서 전달 (TTS와 동기화 개선)
-            start: Math.max(0, s.start - 0.5),
-            end: Math.max(0, s.end - 0.5),
-            text: s.text,
-          })),
+          subtitles: adjustedSubtitles,
         } : {
           subtitles: [], // 자막 빼기 선택 시 빈 배열
         }),
         // 이미지: Cloud Storage URL이 있으면 base64 전송하지 않음
         // 영상인 경우 URL만 전송
         ...characterImageField,
-        autoImages: (autoImagesGcsUrls.length > 0 && autoImagesGcsUrls.some(img => !img.url.startsWith("data:"))) 
-          ? autoImagesGcsUrls 
-          : resizedAutoImagesBase64,
+        autoImages: finalAutoImages,
         duration: duration, // 검증된 duration 사용
         config: {
           width: 1920,
@@ -9560,41 +9694,68 @@ export default function LongformContentPage() {
     // order 기준으로 정렬
     images.sort((a, b) => a.order - b.order)
 
-    // 각 이미지를 순서대로 다운로드
-    for (let i = 0; i < images.length; i++) {
-      try {
-        const response = await fetch(images[i].url)
-        const blob = await response.blob()
-        const url = URL.createObjectURL(blob)
-        const link = document.createElement('a')
-        link.href = url
-        
-        // 확장자 추출 (URL에서 또는 blob type에서)
-        let extension = 'jpg'
-        const urlPath = images[i].url.split('?')[0] // 쿼리 파라미터 제거
-        const urlExtension = urlPath.split('.').pop()?.toLowerCase()
-        if (urlExtension && ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(urlExtension)) {
-          extension = urlExtension === 'jpeg' ? 'jpg' : urlExtension
-        } else if (blob.type) {
-          const mimeExtension = blob.type.split('/')[1]
-          if (mimeExtension && ['jpeg', 'png', 'gif', 'webp'].includes(mimeExtension)) {
-            extension = mimeExtension === 'jpeg' ? 'jpg' : mimeExtension
-          }
+    try {
+      // JSZip 인스턴스 생성
+      const zip = new JSZip()
+      
+      // 각 이미지를 zip에 추가 (PNG로 변환)
+      for (let i = 0; i < images.length; i++) {
+        try {
+          const response = await fetch(images[i].url)
+          const blob = await response.blob()
+          
+          // 모든 이미지를 PNG로 변환
+          const img = new Image()
+          img.crossOrigin = "anonymous"
+          await new Promise<void>((resolve, reject) => {
+            img.onload = () => {
+              try {
+                const canvas = document.createElement('canvas')
+                canvas.width = img.width
+                canvas.height = img.height
+                const ctx = canvas.getContext('2d')
+                if (!ctx) {
+                  reject(new Error("Canvas context를 생성할 수 없습니다."))
+                  return
+                }
+                ctx.drawImage(img, 0, 0)
+                canvas.toBlob((pngBlob) => {
+                  if (pngBlob) {
+                    // zip에 PNG 이미지 추가
+                    const fileName = `사진${i + 1}.png`
+                    zip.file(fileName, pngBlob)
+                    resolve()
+                  } else {
+                    reject(new Error("PNG 변환 실패"))
+                  }
+                }, 'image/png', 1.0)
+              } catch (error) {
+                reject(error)
+              }
+            }
+            img.onerror = reject
+            img.src = images[i].url
+          })
+        } catch (error) {
+          console.error(`이미지 ${i + 1} 로드 실패:`, error)
         }
-        
-        link.download = `사진${i + 1}.${extension}`
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-        URL.revokeObjectURL(url)
-        
-        // 다운로드 간격을 두어 브라우저가 처리할 시간 제공
-        if (i < images.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 300))
-        }
-      } catch (error) {
-        console.error(`이미지 ${i + 1} 다운로드 실패:`, error)
       }
+      
+      // zip 파일 생성 및 다운로드
+      const zipBlob = await zip.generateAsync({ type: "blob" })
+      const zipUrl = URL.createObjectURL(zipBlob)
+      const link = document.createElement('a')
+      link.href = zipUrl
+      link.download = `사진모음_${Date.now()}.zip`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(zipUrl)
+      
+      console.log(`[사진 내보내기] ${images.length}개의 이미지를 PNG로 변환하여 zip 파일로 다운로드 완료`)
+    } catch (error) {
+      console.error("[사진 내보내기] zip 파일 생성 실패:", error)
+      alert("이미지를 zip 파일로 묶는 중 오류가 발생했습니다.")
     }
   }
 
@@ -9629,27 +9790,53 @@ export default function LongformContentPage() {
       return
     }
 
-    for (let i = 0; i < generatedAudios.length; i++) {
-      try {
-        const audio = generatedAudios[i]
-        const response = await fetch(audio.audioUrl)
-        const blob = await response.blob()
-        const url = URL.createObjectURL(blob)
-        const link = document.createElement('a')
-        link.href = url
-        link.download = `음악${i + 1}.mp3`
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-        URL.revokeObjectURL(url)
-        
-        // 다운로드 간격을 두어 브라우저가 처리할 시간 제공
-        if (i < generatedAudios.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 300))
+    try {
+      // JSZip 인스턴스 생성
+      const zip = new JSZip()
+      
+      // 각 오디오를 zip에 추가
+      for (let i = 0; i < generatedAudios.length; i++) {
+        try {
+          const audio = generatedAudios[i]
+          const response = await fetch(audio.audioUrl)
+          const blob = await response.blob()
+          
+          // 확장자 추출 (URL에서 또는 blob type에서)
+          let extension = 'mp3'
+          const urlPath = audio.audioUrl.split('?')[0] // 쿼리 파라미터 제거
+          const urlExtension = urlPath.split('.').pop()?.toLowerCase()
+          if (urlExtension && ['mp3', 'wav', 'm4a', 'ogg', 'webm'].includes(urlExtension)) {
+            extension = urlExtension
+          } else if (blob.type) {
+            const mimeExtension = blob.type.split('/')[1]
+            if (mimeExtension && ['mpeg', 'wav', 'm4a', 'ogg', 'webm'].includes(mimeExtension)) {
+              extension = mimeExtension === 'mpeg' ? 'mp3' : mimeExtension
+            }
+          }
+          
+          // zip에 오디오 추가
+          const fileName = `음악${i + 1}.${extension}`
+          zip.file(fileName, blob)
+        } catch (error) {
+          console.error(`오디오 ${i + 1} 로드 실패:`, error)
         }
-      } catch (error) {
-        console.error(`오디오 ${i + 1} 다운로드 실패:`, error)
       }
+      
+      // zip 파일 생성 및 다운로드
+      const zipBlob = await zip.generateAsync({ type: "blob" })
+      const zipUrl = URL.createObjectURL(zipBlob)
+      const link = document.createElement('a')
+      link.href = zipUrl
+      link.download = `음성모음_${Date.now()}.zip`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(zipUrl)
+      
+      console.log(`[음성 내보내기] ${generatedAudios.length}개의 음성을 zip 파일로 다운로드 완료`)
+    } catch (error) {
+      console.error("[음성 내보내기] zip 파일 생성 실패:", error)
+      alert("음성을 zip 파일로 묶는 중 오류가 발생했습니다.")
     }
   }
 
