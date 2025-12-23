@@ -6308,7 +6308,7 @@ export default function LongformContentPage() {
         }
         
         // 1. 각 TTS 오디오의 정확한 길이 측정 (씬별)
-        const audioDurations: Array<{ lineId: number; duration: number; audioBuffer?: AudioBuffer }> = []
+        const audioDurations: Array<{ lineId: number; duration: number; audioBuffer?: AudioBuffer; alignment?: any }> = []
         const audioContextForAnalysis = new (window.AudioContext || (window as any).webkitAudioContext)()
         
         // 모든 씬의 오디오 길이 측정
@@ -6326,9 +6326,10 @@ export default function LongformContentPage() {
                   lineId: line.lineId,
                   duration: preciseDuration,
                   audioBuffer: audioBuffer,
+                  alignment: audio.alignment || undefined, // ElevenLabs alignment 데이터 포함
                 })
                 
-                console.log(`[v0] 씬 ${sceneNum} 오디오 ${line.lineId} 길이: ${preciseDuration.toFixed(3)}초`)
+                console.log(`[v0] 씬 ${sceneNum} 오디오 ${line.lineId} 길이: ${preciseDuration.toFixed(3)}초, alignment: ${audio.alignment ? "있음" : "없음"}`)
               } catch (error) {
                 console.error(`오디오 로드 실패 (씬 ${sceneNum}, 줄 ${line.lineId}):`, error)
                 const audioElement = new Audio(audio.audioUrl)
@@ -6426,21 +6427,80 @@ export default function LongformContentPage() {
             const audioData = audioDurations.find((d) => d.lineId === line.lineId)
             const audioDuration = audioData?.duration || 0
             const audioBuffer = audioData?.audioBuffer
+            const alignment = audioData?.alignment
             
             if (audioDuration > 0) {
-              const subtitleLines = splitIntoSubtitleLines(line.text, audioBuffer, audioDuration)
-              
-              for (let j = 0; j < subtitleLines.length; j++) {
-                const subtitleLine = subtitleLines[j]
-                const start = subtitleTime + subtitleLine.startTime
-                const end = subtitleTime + subtitleLine.endTime
+              // ElevenLabs alignment가 있으면 정확한 타이밍 사용
+              if (alignment && selectedVoiceId && !selectedVoiceId.startsWith("ttsmaker-")) {
+                try {
+                  const geminiApiKey = getGeminiApiKey()
+                  if (geminiApiKey) {
+                    // 의미 단위 세그먼트 생성
+                    const semanticSegments = await generateSemanticSegments(line.text, geminiApiKey)
+                    // alignment와 세그먼트 매칭하여 정확한 타이밍 계산
+                    const phrases = alignmentToPhrases(alignment, 20, semanticSegments)
+                    
+                    // 각 자막 생성 (alignment 기반 정확한 타이밍)
+                    for (const phrase of phrases) {
+                      const start = subtitleTime + phrase.start
+                      const end = subtitleTime + phrase.end
+
+                      subtitles.push({
+                        id: subtitleId++,
+                        start: Number.parseFloat(start.toFixed(3)),
+                        end: Number.parseFloat(end.toFixed(3)),
+                        text: phrase.text
+                      })
+                    }
+                  } else {
+                    // Gemini API 키가 없으면 기존 방식 사용
+                    const subtitleLines = splitIntoSubtitleLines(line.text, audioBuffer, audioDuration)
+                    for (let j = 0; j < subtitleLines.length; j++) {
+                      const subtitleLine = subtitleLines[j]
+                      const start = subtitleTime + subtitleLine.startTime
+                      const end = subtitleTime + subtitleLine.endTime
+                      
+                      subtitles.push({
+                        id: subtitleId++,
+                        start: Number.parseFloat(start.toFixed(3)),
+                        end: Number.parseFloat(end.toFixed(3)),
+                        text: subtitleLine.text,
+                      })
+                    }
+                  }
+                } catch (error) {
+                  console.error(`[자막 생성] alignment 사용 실패 (씬 ${sceneNum}, 줄 ${line.lineId}), 기존 방식 사용:`, error)
+                  // 에러 발생 시 기존 방식 사용
+                  const subtitleLines = splitIntoSubtitleLines(line.text, audioBuffer, audioDuration)
+                  for (let j = 0; j < subtitleLines.length; j++) {
+                    const subtitleLine = subtitleLines[j]
+                    const start = subtitleTime + subtitleLine.startTime
+                    const end = subtitleTime + subtitleLine.endTime
+                    
+                    subtitles.push({
+                      id: subtitleId++,
+                      start: Number.parseFloat(start.toFixed(3)),
+                      end: Number.parseFloat(end.toFixed(3)),
+                      text: subtitleLine.text,
+                    })
+                  }
+                }
+              } else {
+                // alignment가 없거나 ElevenLabs가 아니면 기존 방식 사용
+                const subtitleLines = splitIntoSubtitleLines(line.text, audioBuffer, audioDuration)
                 
-                subtitles.push({
-                  id: subtitleId++,
-                  start: Number.parseFloat(start.toFixed(3)),
-                  end: Number.parseFloat(end.toFixed(3)),
-                  text: subtitleLine.text,
-                })
+                for (let j = 0; j < subtitleLines.length; j++) {
+                  const subtitleLine = subtitleLines[j]
+                  const start = subtitleTime + subtitleLine.startTime
+                  const end = subtitleTime + subtitleLine.endTime
+                  
+                  subtitles.push({
+                    id: subtitleId++,
+                    start: Number.parseFloat(start.toFixed(3)),
+                    end: Number.parseFloat(end.toFixed(3)),
+                    text: subtitleLine.text,
+                  })
+                }
               }
               
               subtitleTime += audioDuration
@@ -6679,7 +6739,7 @@ export default function LongformContentPage() {
       console.log("[v0] 일반 렌더링 모드 사용")
 
       // 1. 각 TTS 오디오의 정확한 길이 측정 (AudioBuffer 사용)
-      const audioDurations: Array<{ lineId: number; duration: number; audioBuffer?: AudioBuffer }> = []
+      const audioDurations: Array<{ lineId: number; duration: number; audioBuffer?: AudioBuffer; alignment?: any }> = []
       const audioContextForAnalysis = new (window.AudioContext || (window as any).webkitAudioContext)()
 
       for (const line of scriptLines) {
@@ -6698,9 +6758,10 @@ export default function LongformContentPage() {
               lineId: line.id,
               duration: preciseDuration,
               audioBuffer: audioBuffer, // 나중에 웨이브폼 분석에 사용
+              alignment: audio.alignment || undefined, // ElevenLabs alignment 데이터 포함
             })
             
-            console.log(`[v0] 오디오 ${line.id} 정확한 길이: ${preciseDuration.toFixed(3)}초`)
+            console.log(`[v0] 오디오 ${line.id} 정확한 길이: ${preciseDuration.toFixed(3)}초, alignment: ${audio.alignment ? "있음" : "없음"}`)
           } catch (error) {
             console.error(`오디오 로드 실패 (줄 ${line.id}):`, error)
             // Fallback: AudioElement 사용
@@ -6803,23 +6864,81 @@ export default function LongformContentPage() {
         const audioData = audioDurations.find((d) => d.lineId === line.id)
         const audioDuration = audioData?.duration || 0
         const audioBuffer = audioData?.audioBuffer
+        const alignment = audioData?.alignment
         
         if (audioDuration > 0) {
-          // 문장을 단어 단위로 나누고 오디오 버퍼를 사용해 정확한 타이밍 계산
-          const subtitleLines = splitIntoSubtitleLines(line.text, audioBuffer, audioDuration)
-          
-          // 각 자막 생성 (오디오 버퍼 분석 기반 정확한 타이밍)
-          for (let j = 0; j < subtitleLines.length; j++) {
-            const subtitleLine = subtitleLines[j]
-            const start = subtitleTime + subtitleLine.startTime
-            const end = subtitleTime + subtitleLine.endTime
+          // ElevenLabs alignment가 있으면 정확한 타이밍 사용
+          if (alignment && selectedVoiceId && !selectedVoiceId.startsWith("ttsmaker-")) {
+            try {
+              const geminiApiKey = getGeminiApiKey()
+              if (geminiApiKey) {
+                // 의미 단위 세그먼트 생성
+                const semanticSegments = await generateSemanticSegments(line.text, geminiApiKey)
+                // alignment와 세그먼트 매칭하여 정확한 타이밍 계산
+                const phrases = alignmentToPhrases(alignment, 20, semanticSegments)
+                
+                // 각 자막 생성 (alignment 기반 정확한 타이밍)
+                for (const phrase of phrases) {
+                  const start = subtitleTime + phrase.start
+                  const end = subtitleTime + phrase.end
 
-            subtitles.push({
-              id: subtitleId++,
-              start: Number.parseFloat(start.toFixed(3)), // 0.001초 단위로 정밀도 향상
-              end: Number.parseFloat(end.toFixed(3)),
-              text: subtitleLine.text,
-            })
+                  subtitles.push({
+                    id: subtitleId++,
+                    start: Number.parseFloat(start.toFixed(3)),
+                    end: Number.parseFloat(end.toFixed(3)),
+                    text: phrase.text
+                  })
+                }
+              } else {
+                // Gemini API 키가 없으면 기존 방식 사용
+                const subtitleLines = splitIntoSubtitleLines(line.text, audioBuffer, audioDuration)
+                for (let j = 0; j < subtitleLines.length; j++) {
+                  const subtitleLine = subtitleLines[j]
+                  const start = subtitleTime + subtitleLine.startTime
+                  const end = subtitleTime + subtitleLine.endTime
+
+                  subtitles.push({
+                    id: subtitleId++,
+                    start: Number.parseFloat(start.toFixed(3)),
+                    end: Number.parseFloat(end.toFixed(3)),
+                    text: subtitleLine.text,
+                  })
+                }
+              }
+            } catch (error) {
+              console.error(`[자막 생성] alignment 사용 실패 (줄 ${line.id}), 기존 방식 사용:`, error)
+              // 에러 발생 시 기존 방식 사용
+              const subtitleLines = splitIntoSubtitleLines(line.text, audioBuffer, audioDuration)
+              for (let j = 0; j < subtitleLines.length; j++) {
+                const subtitleLine = subtitleLines[j]
+                const start = subtitleTime + subtitleLine.startTime
+                const end = subtitleTime + subtitleLine.endTime
+
+                subtitles.push({
+                  id: subtitleId++,
+                  start: Number.parseFloat(start.toFixed(3)),
+                  end: Number.parseFloat(end.toFixed(3)),
+                  text: subtitleLine.text,
+                })
+              }
+            }
+          } else {
+            // alignment가 없거나 ElevenLabs가 아니면 기존 방식 사용
+            const subtitleLines = splitIntoSubtitleLines(line.text, audioBuffer, audioDuration)
+            
+            // 각 자막 생성 (오디오 버퍼 분석 기반 정확한 타이밍)
+            for (let j = 0; j < subtitleLines.length; j++) {
+              const subtitleLine = subtitleLines[j]
+              const start = subtitleTime + subtitleLine.startTime
+              const end = subtitleTime + subtitleLine.endTime
+
+              subtitles.push({
+                id: subtitleId++,
+                start: Number.parseFloat(start.toFixed(3)), // 0.001초 단위로 정밀도 향상
+                end: Number.parseFloat(end.toFixed(3)),
+                text: subtitleLine.text,
+              })
+            }
           }
 
           subtitleTime += audioDuration
