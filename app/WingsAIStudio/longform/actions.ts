@@ -76,6 +76,102 @@ const categoryPromptCustomizations: Record<string, CategoryPrompts> = {
  * @returns 영어 이미지 프롬프트
  */
 /**
+ * 첫 번째 이미지에서 배경 스타일과 그림체 정보를 추출하는 함수
+ * 실사화 스타일에서 배경과 렌더링 스타일의 일관성을 유지하기 위한 정보를 추출합니다.
+ */
+export async function extractBackgroundAndRenderingStyle(
+  imageUrl: string,
+  openaiApiKey: string
+): Promise<{ backgroundStyle: string | null; renderingStyle: string | null }> {
+  if (!openaiApiKey) {
+    return { backgroundStyle: null, renderingStyle: null }
+  }
+
+  try {
+    // 이미지 URL을 가져와서 base64로 변환
+    let imageBase64: string | null = null
+    try {
+      const imageResponse = await fetch(imageUrl)
+      if (imageResponse.ok) {
+        const imageBlob = await imageResponse.blob()
+        const arrayBuffer = await imageBlob.arrayBuffer()
+        const buffer = Buffer.from(arrayBuffer)
+        imageBase64 = buffer.toString('base64')
+      }
+    } catch (error) {
+      console.warn("[Longform] 이미지 다운로드 실패:", error)
+      return { backgroundStyle: null, renderingStyle: null }
+    }
+
+    if (!imageBase64) {
+      return { backgroundStyle: null, renderingStyle: null }
+    }
+
+    const analysisPrompt = `다음 이미지를 분석하여 배경 스타일과 그림체(렌더링 스타일) 정보를 추출해주세요.
+
+다음 형식으로만 응답하세요:
+BACKGROUND_STYLE: [배경의 색상, 분위기, 조명, 스타일 등을 상세히 영어로 묘사]
+RENDERING_STYLE: [그림체, 렌더링 기법, 시각적 스타일 등을 상세히 영어로 묘사]
+
+중요:
+- BACKGROUND_STYLE: 배경의 색상 팔레트, 조명 스타일, 분위기, 텍스처, 깊이감 등을 정확히 묘사
+- RENDERING_STYLE: 렌더링 기법(실사, 세미리얼, 페인팅 등), 색감 처리, 선명도, 그림자 스타일, 질감 표현 등을 정확히 묘사
+- 이 정보는 이후 모든 이미지에서 동일한 배경 스타일과 그림체를 유지하기 위해 사용됩니다
+
+예시:
+BACKGROUND_STYLE: cinematic background with warm golden hour lighting, soft natural light, atmospheric depth, muted color palette with warm browns and grays, shallow depth of field, cinematic composition
+RENDERING_STYLE: hyperrealistic photorealistic rendering, 8K ultra-detailed, sharp focus, professional DSLR camera quality, natural skin texture, realistic material rendering, cinematic lighting`
+
+    const messages: any[] = [
+      {
+        role: "system",
+        content: "You analyze images to extract background style and rendering style information for maintaining visual consistency. Respond only in the specified format.",
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: analysisPrompt },
+          { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } }
+        ],
+      },
+    ]
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${openaiApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages,
+        max_tokens: 400,
+        temperature: 0.3,
+      }),
+    })
+
+    if (response.ok) {
+      const data = await response.json()
+      
+      if (data && data.choices && Array.isArray(data.choices) && data.choices.length > 0) {
+        const text = data.choices[0]?.message?.content || ""
+        const backgroundMatch = text.match(/BACKGROUND_STYLE:\s*(.+?)(?=RENDERING_STYLE|$)/is)
+        const renderingMatch = text.match(/RENDERING_STYLE:\s*(.+)/is)
+        
+        return {
+          backgroundStyle: backgroundMatch ? backgroundMatch[1].trim() : null,
+          renderingStyle: renderingMatch ? renderingMatch[1].trim() : null,
+        }
+      }
+    }
+  } catch (error) {
+    console.warn("[Longform] 배경/그림체 스타일 추출 실패:", error)
+  }
+  
+  return { backgroundStyle: null, renderingStyle: null }
+}
+
+/**
  * 첫 번째 이미지에서 캐릭터 정보를 추출하는 함수
  * 옷, 색상, 체형, 외모 등 캐릭터의 일관성을 유지하기 위한 정보를 추출합니다.
  */
@@ -113,12 +209,16 @@ ${topic ? `주제: ${topic}` : ""}
 다음 형식으로만 응답하세요:
 CHARACTER_ANCHOR: [캐릭터의 옷, 색상, 체형, 외모, 특징 등을 상세히 영어로 묘사]
 
-중요:
-- 이미지에서 실제로 보이는 옷의 색상, 스타일, 디자인을 정확히 묘사
-- 체형, 키, 체격 등을 묘사
-- 얼굴 특징, 헤어스타일, 피부색 등을 묘사
-- 액세서리, 무기, 소지품 등이 있으면 포함
-- 이 정보는 이후 모든 이미지에서 동일한 캐릭터를 유지하기 위해 사용됩니다
+⚠️ 매우 중요 - 실사화 스타일 일관성 유지:
+- 이미지에서 실제로 보이는 모든 시각적 특징을 정확히 묘사해야 합니다
+- 얼굴 특징: 얼굴형, 눈 모양과 색상, 코 모양, 입 모양, 턱선, 이마, 눈썹 등
+- 헤어스타일: 머리 길이, 스타일, 색상, 가르마 위치 등
+- 체형: 키, 체격, 어깨 폭, 팔 길이, 다리 길이 등
+- 옷: 색상, 스타일, 디자인, 패턴, 소재 등 모든 세부사항
+- 피부색과 톤
+- 액세서리, 무기, 소지품 등 모든 소지품
+- 특징적인 자세나 습관
+- 이 정보는 이후 모든 이미지에서 정확히 동일한 캐릭터를 유지하기 위해 사용됩니다
 - 인물이 없거나 풍경/사물만 있는 경우 "CHARACTER_ANCHOR: none"으로 응답
 
 예시:
@@ -206,7 +306,9 @@ export async function generateImagePrompt(
   historyStyle?: string,
   commonStylePrompt?: string, // 전체 대본의 공통 스타일 프롬프트
   topic?: string, // 주제 (시대적 배경 파악용)
-  characterAnchor?: string // 캐릭터 앵커 (옷, 색상, 체형, 외모 등 일관성 유지용)
+  characterAnchor?: string, // 캐릭터 앵커 (옷, 색상, 체형, 외모 등 일관성 유지용)
+  backgroundStyle?: string, // 배경 스타일 (실사화 일관성 유지용)
+  renderingStyle?: string // 그림체/렌더링 스타일 (실사화 일관성 유지용)
 ): Promise<string> {
   if (!openaiApiKey) {
     throw new Error("OpenAI API 키가 필요합니다.")
@@ -393,18 +495,43 @@ PERIOD: [시대적 배경을 영어로 표현]
     // 캐릭터 앵커가 있으면 일관성 유지 가이드 추가
     let characterConsistencyGuidance = ""
     if (characterAnchor) {
-      characterConsistencyGuidance = `\n⚠️ 매우 중요 - 캐릭터 일관성 유지:
+      // 실사화 스타일일 때 더 강력한 일관성 지시
+      const isRealistic = historyStyle === "realistic" || historyStyle === "realistic2"
+      
+      characterConsistencyGuidance = `\n⚠️ 매우 중요 - 캐릭터 일관성 유지${isRealistic ? " (실사화 스타일 - 절대 필수)" : ""}:
 이전 이미지에서 추출된 캐릭터 정보를 정확히 유지해야 합니다:
 ${characterAnchor}
 
 다음 요소들을 반드시 동일하게 유지하세요:
-- 옷의 색상, 스타일, 디자인
-- 체형, 키, 체격
-- 얼굴 특징, 헤어스타일, 피부색
+- 옷의 색상, 스타일, 디자인, 패턴, 소재
+- 체형, 키, 체격, 어깨 폭, 팔/다리 길이
+- 얼굴 특징: 얼굴형, 눈 모양과 색상, 코 모양, 입 모양, 턱선, 이마, 눈썹
+- 헤어스타일: 머리 길이, 스타일, 색상, 가르마 위치
+- 피부색과 톤
 - 액세서리, 무기, 소지품
 - 전체적인 외모와 특징
+${isRealistic ? "- 실사화 스타일이므로 얼굴, 체형, 옷 등 모든 세부사항이 정확히 동일해야 합니다\n- 다른 사람이나 다른 얼굴이 생성되면 안 됩니다\n- 얼굴 특징, 체형, 옷의 모든 세부사항을 정확히 동일하게 유지하세요" : ""}
 
-이 캐릭터 정보를 프롬프트에 반드시 포함하고, 동일한 캐릭터가 계속 등장하도록 하세요.`
+이 캐릭터 정보를 프롬프트의 맨 앞부분에 반드시 포함하고, 동일한 캐릭터가 계속 등장하도록 하세요.${isRealistic ? " 실사화 스타일에서는 캐릭터 일관성이 가장 중요합니다." : ""}`
+    }
+
+    // 배경 스타일과 그림체 일관성 가이드 추가 (실사화 스타일)
+    let backgroundRenderingGuidance = ""
+    const isRealistic = historyStyle === "realistic" || historyStyle === "realistic2"
+    if (isRealistic && (backgroundStyle || renderingStyle)) {
+      backgroundRenderingGuidance = `\n⚠️ 매우 중요 - 배경 스타일 및 그림체 일관성 유지 (실사화 스타일 - 절대 필수):
+이전 이미지에서 추출된 배경 스타일과 그림체 정보를 정확히 유지해야 합니다:
+${backgroundStyle ? `배경 스타일: ${backgroundStyle}` : ""}
+${renderingStyle ? `그림체/렌더링 스타일: ${renderingStyle}` : ""}
+
+다음 요소들을 반드시 동일하게 유지하세요:
+${backgroundStyle ? "- 배경의 색상 팔레트, 조명 스타일, 분위기, 텍스처, 깊이감을 정확히 동일하게 유지\n" : ""}
+${renderingStyle ? "- 렌더링 기법, 색감 처리, 선명도, 그림자 스타일, 질감 표현을 정확히 동일하게 유지\n" : ""}
+- 모든 이미지가 동일한 시각적 스타일과 분위기를 가져야 합니다
+- 배경과 그림체가 각기 다르게 생성되면 안 됩니다
+- 첫 번째 이미지와 정확히 동일한 배경 스타일과 그림체를 유지하세요
+
+이 배경 스타일과 그림체 정보를 프롬프트에 반드시 포함하고, 모든 이미지에서 일관되게 적용하세요.`
     }
 
     const systemPrompt = `당신은 이미지 생성 프롬프트 전문가입니다. 주어진 텍스트를 바탕으로 고품질 이미지를 생성할 수 있는 영어 프롬프트를 작성해주세요.
@@ -416,10 +543,11 @@ ${characterAnchor}
 - ${categoryGuide}
 ${historicalPeriod ? `- 시대적 배경: ${historicalPeriod} (이 시대적 배경을 프롬프트에 반드시 포함하고, 해당 시대의 건축, 의상, 무기, 생활 양식 등을 정확하게 반영하세요. 한국 역사인 경우 "Korean"을 명확히 포함하여 중국이나 다른 국가와 구분하세요)` : ""}
 ${commonStylePrompt ? `- 전체 대본의 공통 스타일: ${commonStylePrompt} (이 스타일을 반드시 유지하세요)` : ""}
-${characterGuidance}${characterConsistencyGuidance}
+${characterGuidance}${characterConsistencyGuidance}${backgroundRenderingGuidance}
 - 16:9 비율에 최적화된 시네마틱한 구도
 - 텍스트, 글씨, 영어, 한글, 숫자, 로고, 워터마크 등 모든 텍스트 요소 절대 금지
 - 배경에 영어나 다른 언어 텍스트가 보이지 않도록 주의
+${historyStyle === "realistic" || historyStyle === "realistic2" ? "- ⚠️ 실사화 스타일: 자막, 캡션, 텍스트 오버레이, 배경 텍스트 등 모든 텍스트 요소가 절대적으로 금지됩니다. 순수한 시각적 이미지만 생성하세요." : ""}
 ${commonStylePrompt ? "- 모든 이미지가 동일한 스타일, 색감, 분위기를 유지하도록 작성하세요" : ""}
 ${characterAnchor ? "- 캐릭터의 옷, 색상, 체형, 외모를 이전 이미지와 정확히 동일하게 유지하세요" : ""}
 
@@ -442,14 +570,16 @@ ${historyStyle ? `이미지 스타일: ${getImageStyleName(historyStyle)}` : ""}
 ${historicalPeriod ? `시대적 배경: ${historicalPeriod} (이 시대적 배경을 프롬프트에 반드시 포함하세요. 한국 역사인 경우 "Korean"을 명확히 포함하여 중국이나 다른 국가와 구분하세요)` : ""}
 ${characterInfo.type !== "none" ? `인물 정보: ${characterInfo.type === "korean" ? "한국인 (Korean person, Korean character, Korean features 필수 포함)" : "외국인 (Western/Caucasian person 필수 포함)"}` : "인물 없음 (풍경, 사물, 개념 중심)"}
 ${characterInfo.description && characterInfo.type !== "none" ? `인물 상세: ${characterInfo.description}` : ""}
-${characterAnchor ? `\n⚠️ 매우 중요 - 캐릭터 일관성: 이전 이미지에서 추출된 캐릭터 정보를 정확히 유지하세요:\n${characterAnchor}\n이 캐릭터 정보를 프롬프트에 반드시 포함하고, 옷, 색상, 체형, 외모를 동일하게 유지하세요.` : ""}
+${characterAnchor ? `\n⚠️ 매우 중요 - 캐릭터 일관성${historyStyle === "realistic" || historyStyle === "realistic2" ? " (실사화 스타일 - 절대 필수)" : ""}: 이전 이미지에서 추출된 캐릭터 정보를 정확히 유지하세요:\n${characterAnchor}\n이 캐릭터 정보를 프롬프트의 맨 앞부분에 반드시 포함하고, 옷, 색상, 체형, 외모, 얼굴 특징, 헤어스타일 등 모든 세부사항을 정확히 동일하게 유지하세요.${historyStyle === "realistic" || historyStyle === "realistic2" ? " 실사화 스타일에서는 다른 사람이나 다른 얼굴이 생성되면 안 됩니다. 정확히 동일한 캐릭터여야 합니다." : ""}` : ""}
+${backgroundStyle || renderingStyle ? `\n⚠️ 매우 중요 - 배경 스타일 및 그림체 일관성${historyStyle === "realistic" || historyStyle === "realistic2" ? " (실사화 스타일 - 절대 필수)" : ""}: 이전 이미지에서 추출된 배경 스타일과 그림체 정보를 정확히 유지하세요:\n${backgroundStyle ? `배경 스타일: ${backgroundStyle}\n` : ""}${renderingStyle ? `그림체/렌더링 스타일: ${renderingStyle}\n` : ""}이 배경 스타일과 그림체 정보를 프롬프트에 반드시 포함하고, 모든 이미지에서 정확히 동일한 배경 스타일과 그림체를 유지하세요. 배경과 그림체가 각기 다르게 생성되면 안 됩니다.` : ""}
 ${commonStylePrompt ? `\n중요: 전체 대본의 공통 스타일을 유지하세요: ${commonStylePrompt}` : ""}
 
 위 텍스트의 핵심 내용을 시각적으로 표현할 수 있는 영어 프롬프트를 작성해주세요.
 ${historicalPeriod ? `프롬프트에 "${historicalPeriod}" 시대적 배경을 반드시 포함하세요.` : ""}
 ${characterInfo.type === "korean" ? "프롬프트에 'Korean', 'Korean person', 'Korean character', 'Korean features', 'Asian features' 등을 반드시 포함하여 한국인임을 명확히 하세요. 중국인이나 다른 아시아인으로 오해될 수 있는 표현은 절대 사용하지 마세요." : ""}
 ${characterInfo.type === "foreign" ? "프롬프트에 'Western', 'Caucasian', 'European', 'American' 등을 반드시 포함하여 외국인임을 명확히 하세요." : ""}
-프롬프트에 NEGATIVE로 "text, letters, words, typography, English text, Korean text, Chinese text, numbers, logos, watermarks, signs, labels"를 반드시 포함하여 텍스트가 보이지 않도록 하세요.
+프롬프트에 NEGATIVE로 "text, letters, words, typography, English text, Korean text, Chinese text, numbers, logos, watermarks, signs, labels${historyStyle === "realistic" || historyStyle === "realistic2" ? ", subtitles, captions, text overlay, floating text, text in background, written text, text elements, lettering, inscription, calligraphy, text box, text area, text banner, text label, text sign, text poster, text display, text graphics, text design, text illustration, any form of text" : ""}"를 반드시 포함하여 텍스트가 보이지 않도록 하세요.
+${historyStyle === "realistic" || historyStyle === "realistic2" ? "\n⚠️ 실사화 스타일 특별 지시: 이미지에 자막, 캡션, 텍스트 오버레이, 배경 텍스트 등 어떤 형태의 텍스트도 절대 포함하지 마세요. 순수한 시각적 이미지만 생성하세요." : ""}
 프롬프트만 작성하고 설명은 추가하지 마세요.`
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -541,14 +671,23 @@ ${characterInfo.type === "foreign" ? "프롬프트에 'Western', 'Caucasian', 'E
     
     // 캐릭터 앵커가 있으면 프롬프트에 추가 (일관성 유지)
     if (characterAnchor) {
+      // 실사화 스타일일 때는 더 강력하게 적용
+      const isRealistic = historyStyle === "realistic" || historyStyle === "realistic2"
+      
       // 캐릭터 앵커가 프롬프트에 포함되어 있는지 확인
       const promptLower = cleanPrompt.toLowerCase()
       const anchorKeywords = characterAnchor.toLowerCase().split(/\s+/).slice(0, 5) // 처음 5개 키워드만 확인
       const hasAnchorKeywords = anchorKeywords.some(kw => kw.length > 3 && promptLower.includes(kw))
       
-      if (!hasAnchorKeywords) {
-        // 캐릭터 앵커 정보를 프롬프트 앞부분에 추가 (더 강조)
-        cleanPrompt = `${characterAnchor}, ${cleanPrompt}`
+      if (!hasAnchorKeywords || isRealistic) {
+        // 실사화 스타일이거나 포함되지 않은 경우 프롬프트 맨 앞에 강조해서 추가
+        if (isRealistic) {
+          // 실사화 스타일: "THE SAME CHARACTER: [캐릭터 앵커]" 형식으로 강조
+          cleanPrompt = `THE SAME CHARACTER (MUST BE IDENTICAL): ${characterAnchor}, ${cleanPrompt}`
+        } else {
+          // 일반 스타일: 캐릭터 앵커를 앞부분에 추가
+          cleanPrompt = `${characterAnchor}, ${cleanPrompt}`
+        }
       } else {
         // 이미 포함되어 있으면 NEGATIVE 부분 앞에 추가
         const negativeIndex = cleanPrompt.search(/NEGATIVE|negative/i)
@@ -557,6 +696,24 @@ ${characterInfo.type === "foreign" ? "프롬프트에 'Western', 'Caucasian', 'E
         } else {
           cleanPrompt = `${cleanPrompt}, ${characterAnchor}`
         }
+      }
+    }
+
+    // 배경 스타일과 그림체 정보 추가 (실사화 스타일)
+    const isRealistic = historyStyle === "realistic" || historyStyle === "realistic2"
+    if (isRealistic && (backgroundStyle || renderingStyle)) {
+      let styleInfo = ""
+      if (backgroundStyle && renderingStyle) {
+        styleInfo = `THE SAME BACKGROUND STYLE AND RENDERING STYLE (MUST BE IDENTICAL): Background: ${backgroundStyle}, Rendering: ${renderingStyle}`
+      } else if (backgroundStyle) {
+        styleInfo = `THE SAME BACKGROUND STYLE (MUST BE IDENTICAL): ${backgroundStyle}`
+      } else if (renderingStyle) {
+        styleInfo = `THE SAME RENDERING STYLE (MUST BE IDENTICAL): ${renderingStyle}`
+      }
+      
+      if (styleInfo) {
+        // 프롬프트 앞부분에 배경 스타일과 그림체 정보 추가
+        cleanPrompt = `${styleInfo}, ${cleanPrompt}`
       }
     }
 
@@ -1011,11 +1168,46 @@ export async function generateImageWithReplicate(
         .trim()
     }
     
+    // 실사화 스타일인 경우 텍스트 관련 키워드 강력 제거
+    if (imageStyle === "realistic" || imageStyle === "realistic2") {
+      // 텍스트 관련 키워드 제거 (자막, 캡션, 텍스트 등)
+      finalPrompt = finalPrompt
+        .replace(/subtitle/gi, "")
+        .replace(/caption/gi, "")
+        .replace(/text overlay/gi, "")
+        .replace(/text on image/gi, "")
+        .replace(/floating text/gi, "")
+        .replace(/text in background/gi, "")
+        .replace(/written text/gi, "")
+        .replace(/text element/gi, "")
+        .replace(/text content/gi, "")
+        .replace(/text graphics/gi, "")
+        .replace(/text design/gi, "")
+        .replace(/text illustration/gi, "")
+        .replace(/lettering/gi, "")
+        .replace(/inscription/gi, "")
+        .replace(/calligraphy/gi, "")
+        .replace(/text box/gi, "")
+        .replace(/text area/gi, "")
+        .replace(/text banner/gi, "")
+        .replace(/text label/gi, "")
+        .replace(/text sign/gi, "")
+        .replace(/text poster/gi, "")
+        .replace(/text display/gi, "")
+        .replace(/\s+/g, " ")
+        .trim()
+    }
+    
     // 텍스트 제외 지시가 없으면 추가 (모든 모델에 적용)
     const textExclusionTerms = ["no text", "no letters", "no words", "no writing", "no labels", "no signs", "no watermark"]
     const hasTextExclusion = textExclusionTerms.some(term => finalPrompt.toLowerCase().includes(term))
     if (!hasTextExclusion) {
-      finalPrompt = `${finalPrompt}, no text, no letters, no words, no writing, no labels, no signs, no watermark`
+      // 실사화 스타일일 때는 더 강력한 텍스트 제거 지시 추가
+      if (imageStyle === "realistic" || imageStyle === "realistic2") {
+        finalPrompt = `${finalPrompt}, absolutely no text, no letters, no words, no writing, no labels, no signs, no watermark, no subtitles, no captions, no text overlay, no floating text, no text in background, no written content, no text elements, no typography, no lettering, no inscription, no calligraphy, no text box, no text area, no text banner, no text label, no text sign, no text poster, no text display, no text graphics, no text design, no text illustration, completely text-free image`
+      } else {
+        finalPrompt = `${finalPrompt}, no text, no letters, no words, no writing, no labels, no signs, no watermark`
+      }
     }
     
     console.log(`[Longform] 프롬프트 사용: ${finalPrompt.substring(0, 100)}...`)
@@ -1034,12 +1226,18 @@ export async function generateImageWithReplicate(
       }
     } else {
       // flux-pro 모델용 입력 형식 (1360x768로 통일)
+      // 실사화 스타일일 때는 negative prompt 추가
+      const negativePrompt = (imageStyle === "realistic" || imageStyle === "realistic2")
+        ? "text, letters, words, typography, English text, Korean text, Chinese text, Japanese text, numbers, logos, watermarks, signs, labels, captions, subtitles, written text, text overlay, any text elements, any written content, any letters, any numbers, any symbols that form text, text on image, text in background, floating text, alphabet, characters, fonts, typeface, lettering, inscription, writing, script, calligraphy, text box, text area, text banner, text label, text sign, text poster, text display, text graphics, text design, text art, text illustration, any form of text, any form of writing, any form of letters, any form of numbers, any readable text, any visible text, any text content, different person, different face, face morph, altered identity, wrong person, different character, different appearance, inconsistent character, changed appearance, different facial features, different body type, different clothing style"
+        : undefined
+      
       inputBody = {
         prompt: finalPrompt,
         width: 1360,
         height: 768,
         output_format: "png",
         output_quality: 90,
+        ...(negativePrompt && { negative_prompt: negativePrompt }),
       }
     }
 

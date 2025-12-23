@@ -1454,6 +1454,9 @@ export default function LongformContentPage() {
         
         // 수동 모드와 동일하게 전체 문장에 대해 이미지 생성
         let characterAnchor: string | null = null // 캐릭터 앵커 (첫 번째 이미지에서 추출)
+        let backgroundStyle: string | null = null // 배경 스타일 (실사화 일관성 유지용)
+        let renderingStyle: string | null = null // 그림체/렌더링 스타일 (실사화 일관성 유지용)
+        const isRealistic = imageStyle === "realistic" || imageStyle === "realistic2"
         
         for (let i = 0; i < sentences.length; i++) {
           const line = sentences[i]
@@ -1475,7 +1478,9 @@ export default function LongformContentPage() {
               imageStyle,
               undefined, // commonStylePrompt
               topic || undefined,
-              characterAnchor || undefined // 캐릭터 앵커 전달
+              characterAnchor || undefined, // 캐릭터 앵커 전달
+              backgroundStyle || undefined, // 배경 스타일 전달
+              renderingStyle || undefined // 그림체 스타일 전달
             )
             console.log(`[자동화] 이미지 프롬프트 생성 완료: ${prompt.substring(0, 50)}...`)
             
@@ -1508,24 +1513,44 @@ export default function LongformContentPage() {
               setGeneratedImages([...localImageResults])
               successCount++
               
-              // 첫 번째 이미지에서 캐릭터 앵커 추출 (인물이 있는 경우)
-              if (i === 0 && !characterAnchor) {
+              // 첫 번째 이미지에서 캐릭터 앵커, 배경 스타일, 그림체 추출
+              if (i === 0) {
                 try {
-                  const { extractCharacterAnchor } = await import("./actions")
-                  const extractedAnchor = await extractCharacterAnchor(
-                    imageUrl,
-                    line.text,
-                    apiKey,
-                    topic || undefined
-                  )
-                  if (extractedAnchor) {
-                    characterAnchor = extractedAnchor
-                    console.log("[자동화] 캐릭터 앵커 추출 완료:", characterAnchor.substring(0, 100) + "...")
-                  } else {
-                    console.log("[자동화] 캐릭터 앵커 추출: 인물 없음 또는 추출 실패")
+                  const { extractCharacterAnchor, extractBackgroundAndRenderingStyle } = await import("./actions")
+                  
+                  // 캐릭터 앵커 추출 (인물이 있는 경우)
+                  if (!characterAnchor) {
+                    const extractedAnchor = await extractCharacterAnchor(
+                      imageUrl,
+                      line.text,
+                      apiKey,
+                      topic || undefined
+                    )
+                    if (extractedAnchor) {
+                      characterAnchor = extractedAnchor
+                      console.log("[자동화] 캐릭터 앵커 추출 완료:", characterAnchor.substring(0, 100) + "...")
+                    } else {
+                      console.log("[자동화] 캐릭터 앵커 추출: 인물 없음 또는 추출 실패")
+                    }
+                  }
+                  
+                  // 실사화 스타일일 때 배경 스타일과 그림체 추출
+                  if (isRealistic) {
+                    const { backgroundStyle: extractedBg, renderingStyle: extractedRendering } = await extractBackgroundAndRenderingStyle(
+                      imageUrl,
+                      apiKey
+                    )
+                    if (extractedBg) {
+                      backgroundStyle = extractedBg
+                      console.log("[자동화] 배경 스타일 추출 완료:", backgroundStyle.substring(0, 100) + "...")
+                    }
+                    if (extractedRendering) {
+                      renderingStyle = extractedRendering
+                      console.log("[자동화] 그림체 스타일 추출 완료:", renderingStyle.substring(0, 100) + "...")
+                    }
                   }
                 } catch (error) {
-                  console.warn("[자동화] 캐릭터 앵커 추출 실패, 계속 진행:", error)
+                  console.warn("[자동화] 스타일 정보 추출 실패, 계속 진행:", error)
                 }
               }
             }
@@ -5453,6 +5478,9 @@ export default function LongformContentPage() {
       // 2. 각 문장에 대해 이미지 생성
       shouldStopImageGeneration.current = false // 중단 플래그 초기화
       let characterAnchor: string | null = null // 캐릭터 앵커 (첫 번째 이미지에서 추출)
+      let backgroundStyle: string | null = null // 배경 스타일 (실사화 일관성 유지용)
+      let renderingStyle: string | null = null // 그림체/렌더링 스타일 (실사화 일관성 유지용)
+      const isRealistic = imageStyle === "realistic" || imageStyle === "realistic2"
       
       for (let i = 0; i < scriptLines.length; i++) {
         // 중단 체크
@@ -5482,6 +5510,8 @@ export default function LongformContentPage() {
               commonStylePrompt, // 공통 스타일 프롬프트 전달
               topic: isCustomTopicSelected ? customTopic : selectedTopic, // 주제 전달 (시대적 배경 파악용)
               characterAnchor: characterAnchor || undefined, // 캐릭터 앵커 전달 (첫 번째 이미지 이후)
+              backgroundStyle: backgroundStyle || undefined, // 배경 스타일 전달 (실사화 일관성 유지용)
+              renderingStyle: renderingStyle || undefined, // 그림체 스타일 전달 (실사화 일관성 유지용)
             }),
           })
 
@@ -5493,25 +5523,45 @@ export default function LongformContentPage() {
           const data = await response.json()
           console.log(`[v0] 이미지 생성 완료:`, data.imageUrl)
 
-          // 첫 번째 이미지에서 캐릭터 앵커 추출 (인물이 있는 경우)
-          if (i === 0 && !characterAnchor && data.imageUrl) {
+          // 첫 번째 이미지에서 캐릭터 앵커, 배경 스타일, 그림체 추출
+          if (i === 0 && data.imageUrl) {
             try {
-              const { extractCharacterAnchor } = await import("./actions")
+              const { extractCharacterAnchor, extractBackgroundAndRenderingStyle } = await import("./actions")
               const topic = isCustomTopicSelected ? customTopic : selectedTopic
-              const extractedAnchor = await extractCharacterAnchor(
-                data.imageUrl,
-                line.text,
-                openaiApiKey,
-                topic || undefined
-              )
-              if (extractedAnchor) {
-                characterAnchor = extractedAnchor
-                console.log("[v0] 캐릭터 앵커 추출 완료:", characterAnchor.substring(0, 100) + "...")
-              } else {
-                console.log("[v0] 캐릭터 앵커 추출: 인물 없음 또는 추출 실패")
+              
+              // 캐릭터 앵커 추출 (인물이 있는 경우)
+              if (!characterAnchor) {
+                const extractedAnchor = await extractCharacterAnchor(
+                  data.imageUrl,
+                  line.text,
+                  openaiApiKey,
+                  topic || undefined
+                )
+                if (extractedAnchor) {
+                  characterAnchor = extractedAnchor
+                  console.log("[v0] 캐릭터 앵커 추출 완료:", characterAnchor.substring(0, 100) + "...")
+                } else {
+                  console.log("[v0] 캐릭터 앵커 추출: 인물 없음 또는 추출 실패")
+                }
+              }
+              
+              // 실사화 스타일일 때 배경 스타일과 그림체 추출
+              if (isRealistic) {
+                const { backgroundStyle: extractedBg, renderingStyle: extractedRendering } = await extractBackgroundAndRenderingStyle(
+                  data.imageUrl,
+                  openaiApiKey
+                )
+                if (extractedBg) {
+                  backgroundStyle = extractedBg
+                  console.log("[v0] 배경 스타일 추출 완료:", backgroundStyle.substring(0, 100) + "...")
+                }
+                if (extractedRendering) {
+                  renderingStyle = extractedRendering
+                  console.log("[v0] 그림체 스타일 추출 완료:", renderingStyle.substring(0, 100) + "...")
+                }
               }
             } catch (error) {
-              console.warn("[v0] 캐릭터 앵커 추출 실패, 계속 진행:", error)
+              console.warn("[v0] 스타일 정보 추출 실패, 계속 진행:", error)
             }
           }
 
