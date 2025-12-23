@@ -224,7 +224,7 @@ const otherToolsServices = [
 ]
 
 // Header 컴포넌트
-function Header({ onSettingsClick }: { onSettingsClick: () => void }) {
+function Header({ onSettingsClick, onFeedbackClick }: { onSettingsClick: () => void; onFeedbackClick: () => void }) {
   const router = useRouter()
   
   return (
@@ -255,8 +255,12 @@ function Header({ onSettingsClick }: { onSettingsClick: () => void }) {
             >
               가이드
             </Button>
-            <Button variant="ghost" className="text-slate-700 hover:text-slate-900">
-              공지사항
+            <Button 
+              variant="ghost" 
+              className="text-slate-700 hover:text-slate-900"
+              onClick={onFeedbackClick}
+            >
+              프로그램 개선사항
             </Button>
           </nav>
 
@@ -1106,7 +1110,7 @@ export default function HomePage() {
       </div>
 
       {/* 헤더 */}
-      <Header onSettingsClick={() => setOpen(true)} />
+      <Header onSettingsClick={() => setOpen(true)} onFeedbackClick={() => setShowFeedbackDialog(true)} />
 
       {/* 업데이트 팝업 (왼쪽 고정 패널) */}
       {announcement && !isAnnouncementClosed && (

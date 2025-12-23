@@ -16943,6 +16943,9 @@ export default function LongformContentPage() {
                     <p className="text-sm text-red-600 mt-1">
                       ⚠️ 이미지생성 1시간이 지나면 다운로드 시 오류가 발생합니다. 꼭 이미지 생성 후 한시간 이내 다운로드 부탁드립니다
                     </p>
+                    <p className="text-sm text-red-600 mt-1 font-semibold">
+                      ⚠️ 영상렌더링 후 PC 영상 프로그램으로 재생시, 음성과 자막이 안맞는 이슈가 있습니다. 해당 부분은 영상 프로그램 문제입니다. 실제로 렌더링이 잘되어있고 capcut이나 핸드폰으로 옮겨서 보시면 잘나옵니다
+                    </p>
                     <Button
                       onClick={handleExportSRT}
                       disabled={isExporting}
