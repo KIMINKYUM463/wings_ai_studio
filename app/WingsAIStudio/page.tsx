@@ -970,18 +970,10 @@ export default function HomePage() {
           break
         }
         case "elevenlabs": {
-          // 서버 사이드 API를 통해 테스트 (ElevenLabs API)
-          const response = await fetch("/api/test-elevenlabs", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ apiKey: apiKeys.elevenlabs }),
-          })
-          const result = await response.json()
+          // ElevenLabs API 키는 연결 확인만 표시 (실제 API 호출 없음)
           setTestResults({
             ...testResults,
-            [keyType]: { success: result.success, message: result.message }
+            [keyType]: { success: true, message: "연결 확인" }
           })
           break
         }

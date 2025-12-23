@@ -137,6 +137,7 @@ export default function ShortsPage() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const animationFrameRef = useRef<number | null>(null)
+  const titlePreviewCanvasRef = useRef<HTMLCanvasElement>(null)
 
   // 주제 생성
   const handleGenerateTopics = async () => {
@@ -1687,6 +1688,95 @@ export default function ShortsPage() {
     }
   }, [activeStep, ttsAudioUrl, selectedTopic, generatedImages, scriptLines, hookingTitle])
 
+  // 제목 미리보기 그리기
+  useEffect(() => {
+    if (!titlePreviewCanvasRef.current || !hookingTitle || generatedImages.length === 0) {
+      return
+    }
+
+    const canvas = titlePreviewCanvasRef.current
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+
+    // 캔버스 크기 설정 (9:16 비율)
+    canvas.width = 1080
+    canvas.height = 1920
+
+    // 배경 초기화
+    ctx.fillStyle = "black"
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+    // 제목 그리기 (미리보기와 동일한 스타일)
+    const line1 = hookingTitle.line1 || ""
+    const line2 = hookingTitle.line2 || ""
+    
+    const lineHeight = 100
+    const topMargin = 80
+    const totalTitleHeight = 200 + topMargin + 20
+    
+    ctx.fillStyle = "rgba(0, 0, 0, 0.8)"
+    ctx.fillRect(0, 0, canvas.width, totalTitleHeight)
+    
+    const maxWidth = canvas.width * 0.9
+    let fontSize = 96
+    ctx.font = `bold ${fontSize}px Arial`
+    ctx.textAlign = "center"
+    ctx.textBaseline = "middle"
+    
+    // line1 폰트 크기 조정
+    let line1Metrics = ctx.measureText(line1)
+    while (line1Metrics.width > maxWidth && fontSize > 40) {
+      fontSize -= 2
+      ctx.font = `bold ${fontSize}px Arial`
+      line1Metrics = ctx.measureText(line1)
+    }
+    
+    // 첫 번째 줄: 노란색
+    ctx.fillStyle = "yellow"
+    ctx.fillText(line1, canvas.width / 2, 50 + topMargin)
+    
+    // line2 폰트 크기 조정
+    const line2Metrics = ctx.measureText(line2)
+    if (line2Metrics.width > maxWidth) {
+      let fontSize2 = fontSize
+      while (ctx.measureText(line2).width > maxWidth && fontSize2 > 40) {
+        fontSize2 -= 2
+        ctx.font = `bold ${fontSize2}px Arial`
+      }
+    }
+    
+    // 두 번째 줄: 흰색
+    ctx.fillStyle = "white"
+    ctx.fillText(line2, canvas.width / 2, 50 + topMargin + lineHeight)
+
+    // 첫 번째 이미지 로드 및 표시
+    const firstImage = new Image()
+    firstImage.crossOrigin = "anonymous"
+    firstImage.onload = () => {
+      const titleHeight = 300
+      const imageY = titleHeight + 30
+      const imageWidth = canvas.width
+      const imageHeight = canvas.width
+
+      if (firstImage.width === firstImage.height) {
+        ctx.drawImage(firstImage, 0, imageY, imageWidth, imageHeight)
+      } else {
+        const sourceSize = Math.min(firstImage.width, firstImage.height)
+        const sourceX = (firstImage.width - sourceSize) / 2
+        const sourceY = (firstImage.height - sourceSize) / 2
+        ctx.drawImage(
+          firstImage,
+          sourceX, sourceY, sourceSize, sourceSize,
+          0, imageY, imageWidth, imageHeight
+        )
+      }
+    }
+    firstImage.onerror = () => {
+      console.error("[제목 미리보기] 이미지 로드 실패:", generatedImages[0]?.imageUrl)
+    }
+    firstImage.src = generatedImages[0].imageUrl
+  }, [hookingTitle, generatedImages])
+
   // 영상 렌더링 (MediaRecorder 사용 - 미리보기 그대로 다운로드)
   const handleRenderVideo = async () => {
     if (generatedImages.length === 0 || !ttsAudioUrl || !canvasRef.current) {
@@ -2477,6 +2567,19 @@ export default function ShortsPage() {
                         </div>
                       </div>
                     )}
+                    {/* 제목 미리보기 */}
+                    {hookingTitle && generatedImages.length > 0 && (
+                      <div className="mt-4 p-4 bg-muted rounded-lg">
+                        <p className="text-sm font-semibold mb-3">제목 미리보기</p>
+                        <div className="relative w-full aspect-[9/16] bg-black rounded-lg overflow-hidden">
+                          <canvas
+                            ref={titlePreviewCanvasRef}
+                            className="w-full h-full"
+                            style={{ imageRendering: 'auto' }}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -2845,6 +2948,9 @@ export default function ShortsPage() {
                         AI가 후킹될만한 제목을 두 줄로 생성합니다. 대본 요약을 기반으로 제목이 생성됩니다.
                 </p>
               </div>
+                    <div className="flex gap-4 items-start">
+                      {/* 제목 생성 버튼 */}
+                      <div className="flex-1">
                       <Button
                       variant="default"
                       onClick={async () => {
@@ -2902,6 +3008,55 @@ export default function ShortsPage() {
                         </>
                       )}
                     </Button>
+                      </div>
+                      
+                      {/* 제목 배치 샘플 시뮬레이션 */}
+                      <div className="flex-1">
+                        <div className="relative aspect-[9/16] bg-black rounded-lg overflow-hidden border-2 border-gray-300">
+                          {/* 샘플 배경 (첫 번째 이미지 또는 그라데이션) */}
+                          <div className="absolute inset-0 bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600 opacity-80">
+                            {generatedImages.length > 0 && generatedImages[0]?.imageUrl ? (
+                              <img 
+                                src={generatedImages[0].imageUrl} 
+                                alt="샘플 배경" 
+                                className="w-full h-full object-cover opacity-50"
+                              />
+                            ) : null}
+                          </div>
+                          
+                          {/* 샘플 제목 배치 */}
+                          <div className="absolute inset-0 flex flex-col justify-start items-center pt-8 px-4">
+                            {/* 첫 번째 줄 (노란색) */}
+                            <div className="text-center mb-2">
+                              <div className="inline-block px-4 py-2 bg-yellow-500 rounded-lg shadow-lg">
+                                <p className="text-white font-bold text-lg leading-tight">
+                                  샘플 제목 첫 줄
+                                </p>
+                              </div>
+                            </div>
+                            
+                            {/* 두 번째 줄 (흰색) */}
+                            <div className="text-center">
+                              <div className="inline-block px-4 py-2 bg-black/70 rounded-lg shadow-lg backdrop-blur-sm">
+                                <p className="text-white font-bold text-xl leading-tight">
+                                  샘플 제목 두 번째 줄
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* 설명 텍스트 */}
+                          <div className="absolute bottom-2 left-0 right-0 text-center">
+                            <p className="text-xs text-white/70 bg-black/50 px-2 py-1 rounded">
+                              제목 배치 미리보기
+                            </p>
+                          </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-2 text-center">
+                          생성된 제목이 이렇게 배치됩니다
+                        </p>
+                      </div>
+                    </div>
                     {hookingTitle ? (
                       <div className="p-4 bg-muted rounded-lg space-y-3">
                         <p className="text-sm font-semibold mb-2">생성된 제목 (수정 가능):</p>

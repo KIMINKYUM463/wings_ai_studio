@@ -1385,6 +1385,8 @@ export default function LongformContentPage() {
         let failCount = 0
         
         // 수동 모드와 동일하게 전체 문장에 대해 이미지 생성
+        let characterAnchor: string | null = null // 캐릭터 앵커 (첫 번째 이미지에서 추출)
+        
         for (let i = 0; i < sentences.length; i++) {
           const line = sentences[i]
           setAutoProgress({
@@ -1397,7 +1399,16 @@ export default function LongformContentPage() {
           
           try {
             console.log(`[자동화] 이미지 생성 시작 (${i + 1}/${sentences.length}): ${line.text.substring(0, 30)}...`)
-            const prompt = await generateImagePrompt(line.text, apiKey, selectedCategory)
+            const topic = isCustomTopicSelected ? customTopic : selectedTopic
+            const prompt = await generateImagePrompt(
+              line.text, 
+              apiKey, 
+              selectedCategory,
+              imageStyle,
+              undefined, // commonStylePrompt
+              topic || undefined,
+              characterAnchor || undefined // 캐릭터 앵커 전달
+            )
             console.log(`[자동화] 이미지 프롬프트 생성 완료: ${prompt.substring(0, 50)}...`)
             
             // 재시도 로직이 포함된 이미지 생성 (생성될 때까지 계속 시도)
@@ -1428,6 +1439,27 @@ export default function LongformContentPage() {
               localImageResults.push({ lineId: line.id, imageUrl, prompt })
               setGeneratedImages([...localImageResults])
               successCount++
+              
+              // 첫 번째 이미지에서 캐릭터 앵커 추출 (인물이 있는 경우)
+              if (i === 0 && !characterAnchor) {
+                try {
+                  const { extractCharacterAnchor } = await import("./actions")
+                  const extractedAnchor = await extractCharacterAnchor(
+                    imageUrl,
+                    line.text,
+                    apiKey,
+                    topic || undefined
+                  )
+                  if (extractedAnchor) {
+                    characterAnchor = extractedAnchor
+                    console.log("[자동화] 캐릭터 앵커 추출 완료:", characterAnchor.substring(0, 100) + "...")
+                  } else {
+                    console.log("[자동화] 캐릭터 앵커 추출: 인물 없음 또는 추출 실패")
+                  }
+                } catch (error) {
+                  console.warn("[자동화] 캐릭터 앵커 추출 실패, 계속 진행:", error)
+                }
+              }
             }
           } catch (error) {
             console.error(`[자동화] 이미지 생성 실패 (문장 ${line.id}):`, error)
@@ -5278,6 +5310,8 @@ export default function LongformContentPage() {
 
       // 2. 각 문장에 대해 이미지 생성
       shouldStopImageGeneration.current = false // 중단 플래그 초기화
+      let characterAnchor: string | null = null // 캐릭터 앵커 (첫 번째 이미지에서 추출)
+      
       for (let i = 0; i < scriptLines.length; i++) {
         // 중단 체크
         if (shouldStopImageGeneration.current) {
@@ -5305,6 +5339,7 @@ export default function LongformContentPage() {
               historyStyle: imageStyle, // 모든 카테고리에서 스타일 적용
               commonStylePrompt, // 공통 스타일 프롬프트 전달
               topic: isCustomTopicSelected ? customTopic : selectedTopic, // 주제 전달 (시대적 배경 파악용)
+              characterAnchor: characterAnchor || undefined, // 캐릭터 앵커 전달 (첫 번째 이미지 이후)
             }),
           })
 
@@ -5315,6 +5350,28 @@ export default function LongformContentPage() {
 
           const data = await response.json()
           console.log(`[v0] 이미지 생성 완료:`, data.imageUrl)
+
+          // 첫 번째 이미지에서 캐릭터 앵커 추출 (인물이 있는 경우)
+          if (i === 0 && !characterAnchor && data.imageUrl) {
+            try {
+              const { extractCharacterAnchor } = await import("./actions")
+              const topic = isCustomTopicSelected ? customTopic : selectedTopic
+              const extractedAnchor = await extractCharacterAnchor(
+                data.imageUrl,
+                line.text,
+                openaiApiKey,
+                topic || undefined
+              )
+              if (extractedAnchor) {
+                characterAnchor = extractedAnchor
+                console.log("[v0] 캐릭터 앵커 추출 완료:", characterAnchor.substring(0, 100) + "...")
+              } else {
+                console.log("[v0] 캐릭터 앵커 추출: 인물 없음 또는 추출 실패")
+              }
+            } catch (error) {
+              console.warn("[v0] 캐릭터 앵커 추출 실패, 계속 진행:", error)
+            }
+          }
 
           // 이미지가 생성되면 즉시 state 업데이트 (실시간 표시)
           setGeneratedImages((prev) => [
@@ -9320,9 +9377,19 @@ export default function LongformContentPage() {
         } else {
           // 현재 시간에 맞는 이미지 찾기
           const adjustedTime = introVideo ? currentTime - 10 : currentTime // 앞부분 동영상이 있으면 10초 빼기
-          const currentImage = videoData.autoImages?.find(
+          let currentImage = videoData.autoImages?.find(
             (img) => adjustedTime >= img.startTime && adjustedTime <= img.endTime
           )
+          
+          // 모든 이미지의 endTime이 지나버렸을 때 마지막 이미지 계속 표시 (에러 방지)
+          if (!currentImage && videoData.autoImages && videoData.autoImages.length > 0) {
+            const lastImage = videoData.autoImages[videoData.autoImages.length - 1]
+            if (adjustedTime >= lastImage.startTime) {
+              // 마지막 이미지의 startTime 이후면 마지막 이미지 계속 표시
+              currentImage = lastImage
+              console.log(`[렌더링] 모든 이미지 시간 종료, 마지막 이미지 계속 표시 (시간: ${adjustedTime.toFixed(2)}초)`)
+            }
+          }
           
           // 현재 이미지 인덱스 찾기
           const currentImageIndex = currentImage ? videoData.autoImages?.indexOf(currentImage) || -1 : -1
@@ -9359,19 +9426,22 @@ export default function LongformContentPage() {
             const imgIndex = videoData.autoImages?.indexOf(currentImage) || 0
             const hasVideo = videos.has(currentImage.id)
             
-            if (hasVideo) {
-              // 비디오 재생
-              const video = videos.get(currentImage.id)!
-              const imageStartTime = currentImage.startTime
-              const timeInImage = adjustedTime - imageStartTime
-              const videoDuration = video.duration || 6
-              const videoTime = timeInImage % videoDuration
-              video.currentTime = videoTime
-              
-              // 비디오를 1920x1080에 딱 맞게 그리기
-              ctx.drawImage(video, 0, 0, 1920, 1080)
-            } else if (imgIndex < images.length) {
-              const img = images[imgIndex]
+            try {
+              if (hasVideo) {
+                // 비디오 재생
+                const video = videos.get(currentImage.id)
+                if (video) {
+                  const imageStartTime = currentImage.startTime
+                  const timeInImage = adjustedTime - imageStartTime
+                  const videoDuration = video.duration || 6
+                  const videoTime = timeInImage % videoDuration
+                  video.currentTime = videoTime
+                  
+                  // 비디오를 1920x1080에 딱 맞게 그리기
+                  ctx.drawImage(video, 0, 0, 1920, 1080)
+                }
+              } else if (imgIndex >= 0 && imgIndex < images.length) {
+                const img = images[imgIndex]
               
               // 이미지를 1920x1080에 딱 맞게 조정 (잘려도 됨)
               const targetWidth = 1920
@@ -9399,19 +9469,57 @@ export default function LongformContentPage() {
                 sourceY = (img.height - sourceHeight) / 2
               }
               
-              // 현재 이미지를 1920x1080에 딱 맞게 그리기
-                ctx.drawImage(
-                  img,
-                  sourceX, sourceY, sourceWidth, sourceHeight, // 소스: 크롭할 영역
-                0, 0, targetWidth, targetHeight // 대상: 1920x1080 전체
-                )
+                // 현재 이미지를 1920x1080에 딱 맞게 그리기
+                if (img && img.complete && img.naturalWidth > 0) {
+                  ctx.drawImage(
+                    img,
+                    sourceX, sourceY, sourceWidth, sourceHeight, // 소스: 크롭할 영역
+                    0, 0, targetWidth, targetHeight // 대상: 1920x1080 전체
+                  )
+                }
+              } else {
+                // 이미지 인덱스가 범위를 벗어났을 때 마지막 이미지 사용
+                if (images.length > 0) {
+                  const lastImg = images[images.length - 1]
+                  if (lastImg && lastImg.complete && lastImg.naturalWidth > 0) {
+                    ctx.drawImage(lastImg, 0, 0, 1920, 1080)
+                  }
+                }
               }
-              
-              // 이전 이미지 업데이트
-              if (previousImage?.id !== currentImage.id) {
-                previousImage = currentImage as AutoImage
-              if (imgIndex < images.length) {
-                previousImageElement = images[imgIndex]
+            } catch (error) {
+              console.error("[렌더링] 이미지 그리기 오류:", error)
+              // 에러 발생 시 검은 화면 또는 마지막 이미지 표시
+              if (images.length > 0) {
+                const lastImg = images[images.length - 1]
+                if (lastImg && lastImg.complete && lastImg.naturalWidth > 0) {
+                  try {
+                    ctx.drawImage(lastImg, 0, 0, 1920, 1080)
+                  } catch (e) {
+                    // 마지막 이미지도 실패하면 검은 화면 유지
+                    console.error("[렌더링] 마지막 이미지 그리기도 실패:", e)
+                  }
+                }
+              }
+            }
+            
+            // 이전 이미지 업데이트
+            if (previousImage?.id !== currentImage.id) {
+              previousImage = currentImage as AutoImage
+              const safeImgIndex = videoData.autoImages?.indexOf(currentImage) || 0
+              if (safeImgIndex >= 0 && safeImgIndex < images.length) {
+                previousImageElement = images[safeImgIndex]
+              }
+            }
+          } else {
+            // currentImage가 없을 때 마지막 이미지 표시 (에러 방지)
+            if (images.length > 0) {
+              const lastImg = images[images.length - 1]
+              if (lastImg && lastImg.complete && lastImg.naturalWidth > 0) {
+                try {
+                  ctx.drawImage(lastImg, 0, 0, 1920, 1080)
+                } catch (error) {
+                  console.error("[렌더링] 마지막 이미지 표시 실패:", error)
+                }
               }
             }
           }
@@ -17864,24 +17972,96 @@ export default function LongformContentPage() {
                   <CardTitle className="text-lg">제목 생성</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <Button
-                    onClick={handleGenerateShortsTitle}
-                    disabled={!summarizedScript || isGeneratingShortsTitle}
-                    className="w-full !opacity-100 !pointer-events-auto cursor-pointer"
-                    size="lg"
-                  >
-                    {isGeneratingShortsTitle ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        제목 생성 중...
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="w-4 h-4 mr-2" />
-                        후킹 제목 생성하기
-                      </>
-                    )}
-                  </Button>
+                  <div className="flex gap-4 items-start">
+                    {/* 제목 생성 버튼 */}
+                    <div className="flex-1">
+                      <Button
+                        onClick={handleGenerateShortsTitle}
+                        disabled={!summarizedScript || isGeneratingShortsTitle}
+                        className="w-full !opacity-100 !pointer-events-auto cursor-pointer"
+                        size="lg"
+                      >
+                        {isGeneratingShortsTitle ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            제목 생성 중...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-4 h-4 mr-2" />
+                            후킹 제목 생성하기
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                    
+                    {/* 제목 배치 샘플 시뮬레이션 */}
+                    <div className="flex-1 max-w-[150px]">
+                      <div className="relative aspect-[9/16] bg-black rounded-lg overflow-hidden border-2 border-gray-300" style={{ maxHeight: '200px' }}>
+                        {/* 샘플 배경 (첫 번째 이미지 또는 그라데이션) */}
+                        <div className="absolute inset-0 bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600 opacity-80">
+                          {(generatedImages.length > 0 && generatedImages[0]?.imageUrl) || (sceneImagePrompts.length > 0 && sceneImagePrompts[0]?.imageUrl) ? (
+                            <img 
+                              src={generatedImages[0]?.imageUrl || sceneImagePrompts[0]?.imageUrl || ""} 
+                              alt="샘플 배경" 
+                              className="w-full h-full object-cover opacity-50"
+                            />
+                          ) : null}
+                        </div>
+                        
+                        {/* 제목 배치 (생성된 제목이 있으면 표시, 없으면 샘플) */}
+                        <div className="absolute inset-0 flex flex-col justify-start items-center pt-4 px-2">
+                          {/* 첫 번째 줄 (노란색) */}
+                          {shortsHookingTitle?.line1 ? (
+                            <div className="text-center mb-1">
+                              <div className="inline-block px-2 py-1 bg-yellow-500 rounded-lg shadow-lg">
+                                <p className="text-white font-bold text-xs leading-tight whitespace-nowrap">
+                                  {shortsHookingTitle.line1}
+                                </p>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="text-center mb-1">
+                              <div className="inline-block px-2 py-1 bg-yellow-500 rounded-lg shadow-lg">
+                                <p className="text-white font-bold text-xs leading-tight">
+                                  샘플 제목 첫 줄
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                          
+                          {/* 두 번째 줄 (흰색) */}
+                          {shortsHookingTitle?.line2 ? (
+                            <div className="text-center">
+                              <div className="inline-block px-2 py-1 bg-black/70 rounded-lg shadow-lg backdrop-blur-sm">
+                                <p className="text-white font-bold text-sm leading-tight whitespace-nowrap">
+                                  {shortsHookingTitle.line2}
+                                </p>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="text-center">
+                              <div className="inline-block px-2 py-1 bg-black/70 rounded-lg shadow-lg backdrop-blur-sm">
+                                <p className="text-white font-bold text-sm leading-tight">
+                                  샘플 제목 두 번째 줄
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        
+                        {/* 설명 텍스트 */}
+                        <div className="absolute bottom-1 left-0 right-0 text-center">
+                          <p className="text-[10px] text-white/70 bg-black/50 px-1 py-0.5 rounded">
+                            미리보기
+                          </p>
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground mt-1 text-center">
+                        {shortsHookingTitle ? "생성된 제목" : "제목 배치 예시"}
+                      </p>
+                    </div>
+                  </div>
                   {shortsHookingTitle && (
                     <div className="p-4 bg-muted rounded-lg space-y-3">
                       <p className="text-sm font-semibold mb-2">생성된 제목 (수정 가능):</p>
