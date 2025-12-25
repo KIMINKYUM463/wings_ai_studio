@@ -1,6 +1,52 @@
 "use server"
 
 /**
+ * 두 텍스트 간의 유사도를 계산하는 함수
+ * 단어 기반 Jaccard similarity를 사용하여 0과 1 사이의 값을 반환합니다.
+ * @param text1 첫 번째 텍스트
+ * @param text2 두 번째 텍스트
+ * @returns 0과 1 사이의 유사도 값 (1에 가까울수록 유사함)
+ */
+function calculateTextSimilarity(text1: string, text2: string): number {
+  // 빈 문자열 처리
+  if (!text1 || !text2) {
+    return 0
+  }
+
+  // 텍스트를 단어로 분리 (공백, 구두점 기준)
+  const normalizeText = (text: string): Set<string> => {
+    return new Set(
+      text
+        .toLowerCase()
+        .replace(/[^\w\s가-힣]/g, ' ') // 한글, 영문, 숫자만 유지
+        .split(/\s+/)
+        .filter(word => word.length > 0)
+    )
+  }
+
+  const words1 = normalizeText(text1)
+  const words2 = normalizeText(text2)
+
+  // 공통 단어 수 계산
+  let commonWords = 0
+  for (const word of words1) {
+    if (words2.has(word)) {
+      commonWords++
+    }
+  }
+
+  // 전체 고유 단어 수 (합집합)
+  const totalUniqueWords = words1.size + words2.size - commonWords
+
+  // Jaccard similarity: 교집합 / 합집합
+  if (totalUniqueWords === 0) {
+    return 1 // 두 텍스트가 모두 비어있거나 동일한 경우
+  }
+
+  return commonWords / totalUniqueWords
+}
+
+/**
  * 정교한 대본 생성 함수 (Gemini 2.5 Pro 사용)
  * 초안을 바탕으로 매우 정교하고 완성도 높은 최종 대본을 생성합니다.
  * Gemini API를 사용하여 gemini-2.5-pro 모델로 생성합니다.
@@ -60,6 +106,9 @@ export async function generateRefinedScript(
 - 각 파트마다 '짧은 미니 장면' 2~3개를 포함하십시오.`
     }
 
+    // folktale 카테고리는 강제로 스토리 모드로 설정
+    const shouldUseStoryMode = isStoryMode || false // category 파라미터가 없으므로 isStoryMode만 확인
+    
     const systemPrompt = `당신은 '지식 스토리텔링 전문 유튜브 대본 작가'입니다.
 
 입력으로 [대본 기획안]이 주어집니다.
@@ -68,6 +117,18 @@ export async function generateRefinedScript(
 기획안의 흐름을 그대로 "TTS 전용 순수 내레이션 대본"으로 작성하십시오.
 
 ${lengthRulePrompt}
+${shouldUseStoryMode ? `
+⚠️⚠️⚠️ 매우 중요: 이 대본은 "옛날이야기(민담)" 카테고리입니다.
+
+반드시 다음을 준수하세요:
+1. 에세이 형식 절대 금지 - 설명문, 논설문, 분석문 형식은 사용하지 마세요.
+2. 이야기 형식 필수 - "옛날 옛날에...", "한 옛날에...", "예전에..." 같은 전래동화/민담 형식으로 작성하세요.
+3. 등장인물 중심 - 주인공, 조연, 악역 등 명확한 등장인물을 설정하고 그들의 이야기를 중심으로 구성하세요.
+4. 사건 전개 구조 - 시작 → 사건 발생 → 갈등/시련 → 해결 → 교훈/결말의 이야기 구조를 따르세요.
+5. 재미 요소 - 이야기의 흥미진진함, 반전, 교훈이 자연스럽게 녹아있어야 합니다.
+6. 옛날 할머니/할아버지가 손자에게 들려주는 듯한 따뜻하고 재미있는 이야기꾼 톤을 유지하세요.
+
+이 대본은 반드시 "재미있는 이야기" 형식으로 작성되어야 하며, 에세이 형식으로 작성되면 안 됩니다.` : ""}
 
 ────────────────────────
 [2) TTS 전용 출력 규칙]
@@ -113,7 +174,16 @@ ${lengthRulePrompt}
 ────────────────────────
 [대본 기획안]:`
 
-    const userPrompt = `${systemPrompt}\n\n[대본 기획안]:\n${scriptPlan}`
+    const userPrompt = `${systemPrompt}
+
+⚠️⚠️⚠️ 중복 방지 규칙 (매우 중요) ⚠️⚠️⚠️
+- 같은 내용을 반복해서 작성하지 마세요.
+- 이전에 다룬 내용을 다시 설명하지 마세요.
+- 각 문단은 새로운 내용을 다루어야 합니다.
+- 비슷한 표현이나 내용을 반복하지 마세요.
+- 도입부와 결론이 같은 내용으로 시작하거나 끝나지 않도록 주의하세요.
+
+[대본 기획안]:\n${scriptPlan}`
 
     // 5분, 10분은 한 번에 생성, 20분 이상은 기본 대본 + 클라이맥스로 분할 생성
     const shouldSplit = duration && duration >= 20
@@ -181,7 +251,9 @@ ${lengthRulePrompt}
 - 이 부분은 대본의 전반부입니다 (약 70% 분량).
 - 기획안의 앞부분 내용을 상세하게 작성하세요.
 - 클라이맥스나 결론은 포함하지 마세요.
-- 자연스러운 흐름으로 작성하되, 마지막 문장은 다음 부분으로 이어질 수 있도록 작성하세요.`
+- 자연스러운 흐름으로 작성하되, 마지막 문장은 다음 부분으로 이어질 수 있도록 작성하세요.
+- ⚠️ 매우 중요: 결론, 여운 질문, CTA, 마무리 문구를 절대 포함하지 마세요. 이는 후반부에서 작성됩니다.
+- 전반부는 서론과 본론의 전반부 내용만 다루세요.`
 
       const baseUserPrompt = `${baseSystemPrompt}\n\n[대본 기획안]:\n${scriptPlan}`
       
@@ -239,17 +311,34 @@ ${lengthRulePrompt}
 - 기획안의 뒷부분 내용을 상세하게 작성하세요.
 - 전반부 대본의 내용을 자연스럽게 이어받아 작성하세요.
 - 클라이맥스, 결론, 여운 질문, CTA를 포함하여 작성하세요.
-- 전반부 대본의 마지막 문장 이후에 자연스럽게 이어지는 내용을 작성하세요.`
+- 전반부 대본의 마지막 문장 이후에 자연스럽게 이어지는 내용을 작성하세요.
+- ⚠️ 매우 중요: 전반부 대본의 내용을 절대 반복하거나 중복해서 작성하지 마세요. 오직 새로운 내용만 작성하세요.
+- 전반부에서 이미 다룬 내용을 다시 설명하거나 반복하지 마세요.`
 
+      // 전반부 대본의 마지막 2-3문장만 추출하여 참고용으로 제공 (중복 방지 강화)
+      const baseSentences = baseContent.split(/[.!?。！？]+/).filter((s: string) => s.trim().length > 0)
+      const lastSentences = baseSentences.slice(-3).join('. ') + (baseSentences.length > 0 ? '.' : '')
+      
       const climaxUserPrompt = `${climaxSystemPrompt}
 
-[전반부 대본 (참고용 - 이어서 작성하세요)]:
-${baseContent}
+[전반부 대본의 마지막 부분 (참고용 - 이어서 작성하세요)]:
+${lastSentences}
 
 [대본 기획안]:
 ${scriptPlan}
 
-위 전반부 대본의 마지막 문장 이후에 자연스럽게 이어지는 클라이맥스 부분을 작성하세요.`
+🚫🚫🚫 절대 금지 사항 (반드시 준수하세요) 🚫🚫🚫
+- 전반부 대본의 내용을 절대 반복하거나 중복해서 작성하지 마세요.
+- 전반부에서 이미 다룬 내용을 다시 설명하거나 반복하지 마세요.
+- 전반부 대본의 앞부분 내용을 다시 설명하지 마세요.
+- 전반부 대본의 도입부나 본론 내용을 다시 작성하지 마세요.
+- 오직 새로운 내용, 클라이맥스, 결론, 여운 질문, CTA만 작성하세요.
+
+⚠️ 중요 지시사항:
+- 위 전반부 대본의 마지막 문장 이후에 자연스럽게 이어지는 클라이맥스 부분을 작성하세요.
+- 전반부에서 이미 다룬 주제나 내용을 다시 다루지 마세요.
+- 기획안의 뒷부분(클라이맥스, 결론) 내용만 작성하세요.
+- 전반부 대본과 중복되지 않는 완전히 새로운 내용만 작성하세요.`
       
       console.log(`[v0] 클라이맥스 생성 시작 (목표: ${climaxTargetChars}자)`)
       
@@ -302,6 +391,17 @@ ${scriptPlan}
       // 자연스러운 연결을 위해 공백 추가 (필요한 경우)
       if (needsSpace && !climaxContent.startsWith(' ')) {
         climaxContent = ' ' + climaxContent
+      }
+      
+      // 중복 내용 검사 및 제거
+      // 클라이맥스가 기본 대본의 앞부분과 중복되는지 확인
+      const baseFirstParagraph = baseContent.substring(0, Math.min(500, baseContent.length)).trim()
+      const climaxFirstParagraph = climaxContent.substring(0, Math.min(500, climaxContent.length)).trim()
+      
+      // 유사도가 높으면 (50% 이상) 중복으로 간주
+      const similarity = calculateTextSimilarity(baseFirstParagraph, climaxFirstParagraph)
+      if (similarity > 0.5) {
+        console.warn(`[v0] ⚠️ 클라이맥스가 기본 대본과 중복되는 것으로 감지됨 (유사도: ${(similarity * 100).toFixed(1)}%). 클라이맥스 재생성 권장.`)
       }
       
       content = baseContent + climaxContent
@@ -374,24 +474,35 @@ ${scriptPlan}
             console.log(`[v0] 클라이맥스 확장 시도 ${retry + 1}/2 (부족: ${shortage}자, 목표 추가: ${additionalTarget}자)`)
             
             // 기존 대본을 유지하고 클라이맥스 부분만 확장하는 프롬프트
-            const additionalPrompt = `다음은 이미 생성된 대본입니다. 이 대본의 기본 부분(전반부)은 절대 변경하지 말고, 클라이맥스 부분(후반부)만 자연스럽게 확장하여 추가 내용을 작성해주세요.
+            // 기존 대본의 마지막 부분만 추출하여 참고용으로 제공 (중복 방지)
+            const contentSentences = content.split(/[.!?。！？]+/).filter((s: string) => s.trim().length > 0)
+            const lastContentSentences = contentSentences.slice(-5).join('. ') + (contentSentences.length > 0 ? '.' : '')
+            
+            const additionalPrompt = `다음은 이미 생성된 대본의 마지막 부분입니다. 이 대본의 기본 부분(전반부)은 절대 변경하지 말고, 클라이맥스 부분(후반부)만 자연스럽게 확장하여 추가 내용을 작성해주세요.
+
+🚫🚫🚫 절대 금지 사항 (반드시 준수하세요) 🚫🚫🚫
+- 기존 대본의 전반부 내용을 절대 변경하거나 수정하지 마세요.
+- 기존 대본의 내용을 절대 반복하거나 중복해서 작성하지 마세요.
+- 기존 대본에서 이미 다룬 주제나 내용을 다시 다루지 마세요.
+- 기존 대본의 앞부분 내용을 다시 설명하지 마세요.
+- 같은 표현이나 비슷한 내용을 반복하지 마세요.
+- 도입부와 같은 내용으로 시작하지 마세요.
 
 ⚠️⚠️⚠️ 매우 중요한 지시사항 ⚠️⚠️⚠️
-- 기존 대본의 전반부 내용을 절대 변경하거나 수정하지 마세요.
 - 클라이맥스 부분(후반부)만 확장하여 추가 내용을 작성하세요.
-- 기존 클라이맥스의 마지막 문장 이후에 자연스럽게 이어지는 내용을 작성하세요.
+- 기존 클라이맥스의 마지막 문장 이후에 자연스럽게 이어지는 새로운 내용만 작성하세요.
 - 반드시 ${additionalTarget}자 이상의 추가 내용을 작성하세요.
 - 기존 대본의 주제와 톤을 유지하면서 클라이맥스를 더 풍부하게 확장하세요.
-- 예시, 사례, 설명을 풍부하게 추가하여 분량을 채우세요.
+- 예시, 사례, 설명을 풍부하게 추가하여 분량을 채우세요 (단, 기존 내용과 중복되지 않는 새로운 예시/사례만).
 - 괄호나 대괄호를 사용하지 마세요.
 - "개요", "서론", "본론", "챕터", "1부", "2부", "3부", "4부", "5부", "결론" 같은 구조적 단어를 절대 사용하지 마세요.
 - 오로지 대본 내용만 작성하세요.
 
-[기존 대본]:
-${content}
+[기존 대본의 마지막 부분 (참고용)]:
+${lastContentSentences}
 
 [추가 작성할 내용]:
-(위 대본의 클라이맥스 부분 마지막 문장 이후에 자연스럽게 이어지는 내용을 ${additionalTarget}자 이상 작성하세요)`
+(위 대본의 마지막 문장 이후에 자연스럽게 이어지는 완전히 새로운 내용을 ${additionalTarget}자 이상 작성하세요. 기존 내용을 반복하거나 중복하지 마세요.)`
             
             const retryResponse = await fetch(
               `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
@@ -803,7 +914,7 @@ export async function decomposeScriptIntoScenes(
 
     // 대본을 의미 단위(씬)로 나누기 (빈 줄 기준 또는 자연스러운 구분)
     console.log("[장면 분해] 대본을 씬 단위로 분할 중...")
-    let scenes = script.split(/\n\s*\n/).filter(s => s.trim().length > 0)
+    let scenes = script.split(/\n\s*\n/).filter((s: string) => s.trim().length > 0)
     console.log(`[장면 분해] 빈 줄 기준 분할 결과: ${scenes.length}개 씬`)
     
     if (scenes.length === 0) {
@@ -827,7 +938,7 @@ export async function decomposeScriptIntoScenes(
       } else {
         console.log(`[장면 분해] 씬 ${idx + 1} 분할 필요 (${scene.length}자 > ${MAX_SCENE_LENGTH}자)`)
         // 긴 씬을 문장 단위로 분할
-        const sentences = scene.split(/([.!?。！？]\s*)/).filter(s => s.trim().length > 0)
+        const sentences = scene.split(/([.!?。！？]\s*)/).filter((s: string) => s.trim().length > 0)
         console.log(`[장면 분해] 씬 ${idx + 1} 문장 수: ${sentences.length}개`)
         let currentChunk = ""
         let chunkCount = 0

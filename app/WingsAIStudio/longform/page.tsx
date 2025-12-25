@@ -123,6 +123,7 @@ import {
 import {
   Lightbulb,
   FileText,
+  FileSearch,
   Wand2,
   User,
   Video,
@@ -159,7 +160,11 @@ import {
   Key,
   Eye,
   EyeOff,
+  Pencil,
   Square,
+  Bot,
+  ArrowRight,
+  ArrowDown,
 } from "lucide-react"
 import Link from "next/link"
 import {
@@ -176,6 +181,7 @@ import {
   extractKeywordsFromScript, // 대본에서 키워드 추출 함수 import 추가
   generateDoctorImage,
   generateYouTubeDescription,
+  recommendContentType, // 콘텐츠 타입 추천 함수 import 추가
   generateImagePrompt, // 이미지 프롬프트 생성 함수 import 추가
   generateImageWithReplicate, // Replicate 이미지 생성 함수 import 추가
   generateAIThumbnail, // AI 썸네일 생성 함수 import 추가
@@ -183,6 +189,7 @@ import {
   generateHookingVideoPrompt, // 후킹 영상 프롬프트 생성 함수 import 추가
   extractTopicFromScript, // 대본에서 주제 추출 함수 import 추가
   regenerateScript, // 대본 재생성 함수 import 추가
+  analyzeBenchmarkScript, // 벤치마킹 대본 분석 함수 import 추가
   // generateCommonStylePrompt, // 공통 스타일 프롬프트 생성 함수 import 추가 (임시 주석 처리)
 } from "./actions"
 import { generateRefinedScript, decomposeScriptIntoScenes, decomposeSingleScene, autoSplitScriptByMeaning } from "./refined-script-actions"
@@ -529,9 +536,15 @@ export default function LongformContentPage() {
   const [isCustomTopicSelected, setIsCustomTopicSelected] = useState(false)
   const [isDirectInputSelected, setIsDirectInputSelected] = useState(false) // 직접입력 선택 여부
   const [benchmarkScript, setBenchmarkScript] = useState("") // 벤치마킹 대본
+  const [benchmarkAnalysis, setBenchmarkAnalysis] = useState<string | null>(null) // 벤치마킹 대본 분석 결과
+  const [isAnalyzingBenchmark, setIsAnalyzingBenchmark] = useState(false) // 벤치마킹 대본 분석 중
   const [isDirectScriptInput, setIsDirectScriptInput] = useState(false) // 대본 직접 넣기 모드
   const [directScript, setDirectScript] = useState("") // 직접 입력한 대본
   const [isStoryMode, setIsStoryMode] = useState(false) // 스토리 형태 모드 (false = 교훈형, true = 스토리형)
+  const [selectedContentType, setSelectedContentType] = useState<"A" | "B" | "C" | "D" | "custom" | null>(null) // 선택한 콘텐츠 타입
+  const [customContentTypeDescription, setCustomContentTypeDescription] = useState<string>("") // 커스텀 타입 설명
+  const [recommendedContentType, setRecommendedContentType] = useState<"A" | "B" | "C" | "D" | null>(null) // AI가 추천한 콘텐츠 타입
+  const [isRecommendingContentType, setIsRecommendingContentType] = useState(false) // 콘텐츠 타입 추천 중
   const [script, setScript] = useState("")
   const [decomposedScenes, setDecomposedScenes] = useState("") // 장면 분해 결과
   const [scriptLines, setScriptLines] = useState<Array<{ id: number; text: string }>>([])
@@ -563,6 +576,7 @@ export default function LongformContentPage() {
   const [ttsGenerationProgress, setTtsGenerationProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 })
   const [customScript, setCustomScript] = useState("")
   const [scriptPlan, setScriptPlan] = useState("")
+  const [scriptPlanEditMode, setScriptPlanEditMode] = useState<"view" | "edit">("view")
   const [scriptDraft, setScriptDraft] = useState("")
   const [generatedImage, setGeneratedImage] = useState("")
   const [doctorPrompt, setDoctorPrompt] = useState("")
@@ -656,6 +670,7 @@ export default function LongformContentPage() {
   const [thumbnailWithoutText, setThumbnailWithoutText] = useState<boolean>(false) // 썸네일 문구 없이 그림만 생성
   const [thumbnailBackgroundImage, setThumbnailBackgroundImage] = useState<string | null>(null) // 썸네일 배경 이미지
   const [thumbnailOverlayImage, setThumbnailOverlayImage] = useState<string | null>(null) // 썸네일 오버레이 이미지 (선택 가능한 이미지)
+  const [benchmarkThumbnailUrl, setBenchmarkThumbnailUrl] = useState<string | null>(null) // 벤치마킹 썸네일 URL
   const [overlayImageSize, setOverlayImageSize] = useState({ width: 50, height: 50 }) // 오버레이 이미지 크기 (%)
   const [overlayImagePosition, setOverlayImagePosition] = useState({ x: 50, y: 50 }) // 오버레이 이미지 위치 (%)
   const [selectedTextIndex, setSelectedTextIndex] = useState<number | null>(null)
@@ -1386,7 +1401,20 @@ export default function LongformContentPage() {
         alert("Gemini API 키를 설정해주세요. 설정 페이지에서 API 키를 입력하고 저장해주세요.")
         return
       }
-      const planResult = await generateScriptPlan(selectedTopic, selectedCategory, undefined, geminiApiKey, autoDurationMinutes, referenceScript || undefined) // 자동화 모드는 기본 교훈형
+      
+      // 콘텐츠 타입 선택이 필수입니다
+      if (!selectedContentType) {
+        alert("콘텐츠 타입을 선택해주세요. Type A, B, C, D 또는 커스텀 타입 중 하나를 선택해야 기획안을 생성할 수 있습니다.")
+        return
+      }
+      
+      // 커스텀 타입 선택 시 설명이 필수입니다
+      if (selectedContentType === "custom" && (!customContentTypeDescription || !customContentTypeDescription.trim())) {
+        alert("커스텀 타입을 선택하셨습니다. 원하는 대본 구조를 입력해주세요.")
+        return
+      }
+      
+      const planResult = await generateScriptPlan(selectedTopic, selectedCategory, undefined, geminiApiKey, autoDurationMinutes, referenceScript || undefined, selectedContentType, selectedContentType === "custom" ? customContentTypeDescription : undefined)
       setScriptPlan(planResult)
       setCompletedSteps((prev) => [...new Set([...prev, "planning"])])
       await new Promise(resolve => setTimeout(resolve, 1000))
@@ -1401,7 +1429,9 @@ export default function LongformContentPage() {
       })
       // activeStep은 planning으로 유지 (별도의 draft UI가 없음)
       
-      const draftResult = await generateScriptDraft(planResult, selectedTopic, apiKey, selectedCategory, isStoryMode)
+      // folktale 카테고리 또는 Type D 선택 시 자동으로 스토리 모드로 설정
+      const shouldUseStoryMode = isStoryMode || selectedCategory === "folktale" || selectedContentType === "D"
+      const draftResult = await generateScriptDraft(planResult, selectedTopic, apiKey, selectedCategory, shouldUseStoryMode, selectedContentType || undefined)
       setScriptDraft(draftResult)
       setCompletedSteps((prev) => [...new Set([...prev, "draft"])])
       await new Promise(resolve => setTimeout(resolve, 1000))
@@ -2425,6 +2455,7 @@ export default function LongformContentPage() {
           }
           
           console.log(`[자동화] AI 썸네일 생성 시작 - 주제: ${selectedTopic}`)
+          const openaiApiKey = getApiKey("openai_api_key")
           const thumbnailUrl = await generateAIThumbnail(
             selectedTopic, 
             replicateApiKey, 
@@ -2432,7 +2463,9 @@ export default function LongformContentPage() {
             thumbnailCustomText.trim() || undefined,
             customStylePrompt || undefined,
             characterDescription,
-            thumbnailWithoutText
+            thumbnailWithoutText,
+            benchmarkThumbnailUrl || undefined,
+            openaiApiKey || undefined
           )
           setAiThumbnailUrl(thumbnailUrl)
           setCompletedSteps((prev) => [...new Set([...prev, "thumbnail"])])
@@ -2958,6 +2991,13 @@ export default function LongformContentPage() {
   const handleTopicGeneration = async () => {
     setIsGenerating(true)
     try {
+      // 직접입력 모드일 때 주제가 비어있으면 에러
+      if (isDirectInputSelected && !customTopic.trim()) {
+        alert("주제를 입력해주세요.")
+        setIsGenerating(false)
+        return
+      }
+      
       // 로컬스토리지에서 API 키 가져오기
       const apiKey = localStorage.getItem("openai_api_key") || undefined
       
@@ -2965,11 +3005,43 @@ export default function LongformContentPage() {
       const keywordsValue = keywords.trim() || undefined
       
       console.log("[v0] 주제 생성 시작, 카테고리:", selectedCategory, "키워드:", keywordsValue, "직접입력:", isDirectInputSelected, "직접입력 주제:", customTopic) // 디버깅 로그 추가
-      // 직접입력일 때는 customTopic을 전달하고 카테고리를 "custom"으로 설정
-      const categoryToUse = isDirectInputSelected && customTopic ? "custom" : selectedCategory
-      const customTopicToUse = isDirectInputSelected && customTopic ? customTopic : undefined
-      const topics = await generateTopics(categoryToUse, keywordsValue, undefined, apiKey, customTopicToUse)
+      
+      // 직접입력 모드: 주제만으로 관련 주제 15개 생성 (카테고리, 키워드 모두 무시)
+      // 카테고리 기반 모드: 카테고리와 키워드로 주제 생성
+      let categoryToUse: string | undefined = undefined
+      let keywordsToUse: string | undefined = undefined
+      let customTopicToUse: string | undefined = undefined
+      
+      if (isDirectInputSelected) {
+        // 직접입력 모드: 주제만 사용, 카테고리와 키워드 무시
+        if (!customTopic || !customTopic.trim()) {
+          alert("주제를 입력해주세요.")
+          setIsGenerating(false)
+          return
+        }
+        customTopicToUse = customTopic.trim()
+        categoryToUse = undefined // 카테고리 무시 (빈 문자열이 아닌 undefined)
+        keywordsToUse = undefined // 키워드 무시
+        console.log("[v0] 직접입력 모드 - 주제만 사용:", customTopicToUse, "카테고리:", categoryToUse)
+      } else {
+        // 카테고리 기반 모드
+        categoryToUse = selectedCategory
+        keywordsToUse = keywordsValue
+        customTopicToUse = undefined
+        console.log("[v0] 카테고리 기반 모드 - 카테고리:", categoryToUse, "키워드:", keywordsToUse)
+      }
+      
+      console.log("[v0] 주제 생성 파라미터 - categoryToUse:", categoryToUse, "keywordsToUse:", keywordsToUse, "customTopicToUse:", customTopicToUse)
+      
+      const topics = await generateTopics(categoryToUse, keywordsToUse, undefined, apiKey, customTopicToUse)
       console.log("[v0] 생성된 주제:", topics) // 디버깅 로그 추가
+      
+      if (!topics || topics.length === 0) {
+        alert("주제 생성에 실패했습니다. 생성된 주제가 없습니다.")
+        setIsGenerating(false)
+        return
+      }
+      
       setGeneratedTopics(topics)
       setCompletedSteps((prev) => [...prev, "topic"])
       
@@ -3402,6 +3474,7 @@ export default function LongformContentPage() {
       }
       
       console.log("[v0] AI 썸네일 생성 시작, 주제:", topicToUse, "이미지 스타일:", imageStyle, "커스텀 문구:", thumbnailCustomText, "문구 없이:", thumbnailWithoutText, "캐릭터:", characterDescription)
+      const openaiApiKey = getApiKey("openai_api_key")
       const imageUrl = await generateAIThumbnail(
         topicToUse, 
         replicateApiKey, 
@@ -3409,7 +3482,9 @@ export default function LongformContentPage() {
         thumbnailCustomText.trim() || undefined,
         customStylePrompt || undefined,
         characterDescription,
-        thumbnailWithoutText
+        thumbnailWithoutText,
+        benchmarkThumbnailUrl || undefined,
+        openaiApiKey || undefined
       )
       setAiThumbnailUrl(imageUrl)
       setCompletedSteps((prev) => [...new Set([...prev, "thumbnail"])])
@@ -4295,9 +4370,21 @@ export default function LongformContentPage() {
       return
     }
     
+    // 커스텀 타입 선택 시 설명이 필수입니다
+    if (selectedContentType === "custom" && (!customContentTypeDescription || !customContentTypeDescription.trim())) {
+      alert("커스텀 타입을 선택하셨습니다. 원하는 대본 구조를 입력해주세요.")
+      return
+    }
+    
     // 직접입력 모드에서 벤치마킹 대본이 있으면 referenceScript에 설정
     if (isDirectInputSelected && benchmarkScript.trim()) {
       setReferenceScript(benchmarkScript)
+    }
+
+    // 이미 생성 중이면 중복 실행 방지
+    if (isGenerating) {
+      console.log("[대본 기획] 이미 생성 중입니다.")
+      return
     }
 
     setIsGenerating(true)
@@ -4314,18 +4401,48 @@ export default function LongformContentPage() {
         setIsGenerating(false)
         return
       }
-      const plan = await generateScriptPlan(
-        topic,
-        selectedCategory || "health",
-        keywords || undefined,
-        geminiApiKey,
-        scriptDuration,
-        referenceScript || undefined
-      )
-      console.log("[v0] 대본 기획 생성 완료")
+      
+      console.log("[대본 기획] API 호출 시작...")
+      console.log("[대본 기획] 선택된 콘텐츠 타입:", selectedContentType)
+      console.log("[대본 기획] 커스텀 타입 설명:", selectedContentType === "custom" ? customContentTypeDescription : "없음")
+      console.log("[대본 기획] ⚠️ generateScriptPlan 호출 직전 - 파라미터 확인:")
+      console.log("  - topic:", topic)
+      console.log("  - selectedCategory:", selectedCategory)
+      console.log("  - selectedContentType:", selectedContentType, "(타입:", typeof selectedContentType, ")")
+      console.log("  - customContentTypeDescription:", selectedContentType === "custom" ? customContentTypeDescription : undefined)
+      
+      let plan: string
+      try {
+        console.log("[대본 기획] 🚀 generateScriptPlan 호출 시작!")
+        plan = await generateScriptPlan(
+          topic,
+          selectedCategory || "health",
+          keywords || undefined,
+          geminiApiKey,
+          scriptDuration,
+          referenceScript || undefined,
+          selectedContentType || undefined,
+          selectedContentType === "custom" ? customContentTypeDescription : undefined
+        )
+        console.log("[대본 기획] ✅ generateScriptPlan 호출 완료!")
+      } catch (error) {
+        console.error("[대본 기획] ❌ generateScriptPlan 호출 중 에러:", error)
+        throw error
+      }
+      
+      if (!plan || plan.trim().length === 0) {
+        throw new Error("생성된 기획안이 비어있습니다.")
+      }
+      
+      console.log("[v0] 대본 기획 생성 완료, 길이:", plan.length)
       setScriptPlan(plan)
       setScriptDraft("") // 기획안이 새로 생성되면 초안 초기화
-      setCompletedSteps((prev) => [...prev, "planning"])
+      setCompletedSteps((prev) => {
+        if (!prev.includes("planning")) {
+          return [...prev, "planning"]
+        }
+        return prev
+      })
       
       // 자동화 모드일 때 다음 단계 자동 진행
       if (isAutoMode) {
@@ -4359,7 +4476,9 @@ export default function LongformContentPage() {
     try {
       console.log("[v0] 대본 초안 생성 시작")
       const topic = isCustomTopicSelected ? customTopic : selectedTopic
-      const draft = await generateScriptDraft(scriptPlan, topic || "", getApiKey(), selectedCategory, isStoryMode)
+      // folktale 카테고리 또는 Type D 선택 시 자동으로 스토리 모드로 설정
+      const shouldUseStoryMode = isStoryMode || selectedCategory === "folktale" || selectedContentType === "D"
+      const draft = await generateScriptDraft(scriptPlan, topic || "", getApiKey(), selectedCategory, shouldUseStoryMode, selectedContentType || undefined)
       console.log("[v0] 대본 초안 생성 완료")
       setScriptDraft(draft)
       // 대본 초안 생성 후 자동으로 대본 생성 단계로 이동
@@ -4977,7 +5096,9 @@ export default function LongformContentPage() {
       const topic = isCustomTopicSelected ? customTopic : selectedTopic
       // 선택한 시간에 맞춰 대본 길이 계산 (1초당 6.9자)
       const targetChars = Math.floor(scriptDuration * 60 * 6.9)
-      const fullScript = await generateFinalScript(scriptPlan, topic || "", getApiKey(), scriptDuration, targetChars, selectedCategory, isStoryMode)
+      // folktale 카테고리 또는 Type D 선택 시 자동으로 스토리 모드로 설정
+      const shouldUseStoryMode = isStoryMode || selectedCategory === "folktale" || selectedContentType === "D"
+      const fullScript = await generateFinalScript(scriptPlan, topic || "", getApiKey(), scriptDuration, targetChars, selectedCategory, shouldUseStoryMode)
       setScript(fullScript)
       
       // 대본을 문장 단위로 분리하고 적절한 길이로 묶기
@@ -5003,6 +5124,9 @@ export default function LongformContentPage() {
 
     setIsGenerating(true)
     const startTime = Date.now()
+    
+    // folktale 카테고리 또는 Type D 선택 시 자동으로 스토리 모드로 설정
+    const shouldUseStoryMode = isStoryMode || selectedCategory === "folktale" || selectedContentType === "D"
     
     // 목표 글자수 기반 예상 시간 계산 (1000자당 약 10-15초 소요 가정)
     const topic = isCustomTopicSelected ? customTopic : selectedTopic
@@ -5031,7 +5155,9 @@ export default function LongformContentPage() {
         alert("Gemini API 키를 설정해주세요. 설정 페이지에서 API 키를 입력하고 저장해주세요.")
         return
       }
-      const fullScript = await generateRefinedScript(scriptPlan, topic || "", scriptDuration, targetChars, isStoryMode, geminiApiKey)
+      // folktale 카테고리 또는 Type D 선택 시 자동으로 스토리 모드로 설정
+      const shouldUseStoryMode = isStoryMode || selectedCategory === "folktale" || selectedContentType === "D"
+      const fullScript = await generateRefinedScript(scriptPlan, topic || "", scriptDuration, targetChars, shouldUseStoryMode, geminiApiKey)
       setScript(fullScript)
       
       // 정교한 대본은 의미/장면 기반으로 나누기
@@ -11115,17 +11241,8 @@ export default function LongformContentPage() {
         generatedAudios: [],
         
         // 영상 관련
-        // videoData의 autoImages에서 base64 이미지 제거 (URL만 저장)
-        ...(videoData ? {
-          videoData: {
-            ...videoData,
-            autoImages: videoData.autoImages?.map(img => ({
-              ...img,
-              // base64 이미지는 제외하고 URL만 저장
-              url: img.url?.startsWith("data:") ? "" : img.url,
-            })),
-          }
-        } : {}),
+        // 영상 렌더링 결과는 저장하지 않음 (필요시 다시 렌더링 가능)
+        // videoData 제외
         
         // 제목 관련
         generatedTitles,
@@ -11270,17 +11387,8 @@ export default function LongformContentPage() {
         generatedAudios: [],
         
         // 영상 관련
-        // videoData의 autoImages에서 base64 이미지 제거 (URL만 저장)
-        ...(videoData ? {
-          videoData: {
-            ...videoData,
-            autoImages: videoData.autoImages?.map(img => ({
-              ...img,
-              // base64 이미지는 제외하고 URL만 저장
-              url: img.url?.startsWith("data:") ? "" : img.url,
-            })),
-          }
-        } : {}),
+        // 영상 렌더링 결과는 저장하지 않음 (필요시 다시 렌더링 가능)
+        // videoData 제외
         
         // 제목 관련
         generatedTitles,
@@ -11925,18 +12033,79 @@ export default function LongformContentPage() {
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="benchmark-script" className="text-sm font-medium text-gray-700">
-                          벤치마킹 대본 입력 (선택사항)
+                          벤치마킹 대본 구조 뽑기 (선택사항)
+                          <span className="ml-2 text-xs font-normal text-gray-500">커스텀 타입때 활용가능</span>
                         </Label>
                         <p className="text-xs text-gray-500 mb-3">
-                          참고할 대본을 입력하세요. 이 대본을 기반으로 대본 기획이 생성됩니다.
+                          분석할 대본을 입력하고 분석 버튼을 클릭하면 AI가 대본의 구조와 알고리즘 관점을 분석해드립니다.
                         </p>
                         <Textarea
                           id="benchmark-script"
                           value={benchmarkScript}
-                          onChange={(e) => setBenchmarkScript(e.target.value)}
-                          placeholder="벤치마킹 대본을 입력하세요..."
-                          className="min-h-[200px] resize-y border-gray-300 focus:ring-red-500 focus:border-red-500 rounded-lg"
+                          onChange={(e) => {
+                            setBenchmarkScript(e.target.value)
+                            setBenchmarkAnalysis(null) // 대본이 변경되면 분석 결과 초기화
+                          }}
+                          placeholder="분석할 대본을 입력하세요..."
+                          className="h-[200px] overflow-y-auto resize-none border-gray-300 focus:ring-red-500 focus:border-red-500 rounded-lg"
                         />
+                        <Button
+                          type="button"
+                          onClick={async () => {
+                            if (!benchmarkScript.trim()) {
+                              alert("분석할 대본을 입력해주세요.")
+                              return
+                            }
+                            
+                            setIsAnalyzingBenchmark(true)
+                            setBenchmarkAnalysis(null)
+                            
+                            try {
+                              const apiKey = localStorage.getItem("openai_api_key") || undefined
+                              const analysis = await analyzeBenchmarkScript(benchmarkScript.trim(), apiKey)
+                              setBenchmarkAnalysis(analysis)
+                            } catch (error) {
+                              console.error("대본 분석 실패:", error)
+                              const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다."
+                              alert(`대본 분석에 실패했습니다: ${errorMessage}`)
+                            } finally {
+                              setIsAnalyzingBenchmark(false)
+                            }
+                          }}
+                          disabled={isAnalyzingBenchmark || !benchmarkScript.trim()}
+                          className="w-full bg-red-500 hover:bg-red-600 text-white"
+                        >
+                          {isAnalyzingBenchmark ? (
+                            <>
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              분석 중...
+                            </>
+                          ) : (
+                            <>
+                              <FileSearch className="w-4 h-4 mr-2" />
+                              대본 구조 분석하기
+                            </>
+                          )}
+                        </Button>
+                        {benchmarkAnalysis && (
+                          <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                            <div className="flex items-center justify-between mb-3">
+                              <h4 className="text-sm font-semibold text-gray-800">분석 결과</h4>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setBenchmarkAnalysis(null)}
+                                className="text-xs text-gray-500 hover:text-gray-700"
+                              >
+                                닫기
+                              </Button>
+                            </div>
+                            <div className="text-sm text-gray-700 whitespace-pre-wrap max-h-[500px] overflow-y-auto">
+                              {benchmarkAnalysis}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ) : (
@@ -11984,6 +12153,20 @@ export default function LongformContentPage() {
                           // 대본 기획 생성 시작
                           setIsGenerating(true)
                           try {
+                            // 콘텐츠 타입 선택이 필수입니다
+                            if (!selectedContentType) {
+                              alert("콘텐츠 타입을 선택해주세요. Type A, B, C, D 또는 커스텀 타입 중 하나를 선택해야 기획안을 생성할 수 있습니다.")
+                              setIsGenerating(false)
+                              return
+                            }
+                            
+                            // 커스텀 타입 선택 시 설명이 필수입니다
+                            if (selectedContentType === "custom" && (!customContentTypeDescription || !customContentTypeDescription.trim())) {
+                              alert("커스텀 타입을 선택하셨습니다. 원하는 대본 구조를 입력해주세요.")
+                              setIsGenerating(false)
+                              return
+                            }
+                            
                             const geminiApiKey = getGeminiApiKey()
                             if (!geminiApiKey) {
                               alert("Gemini API 키를 설정해주세요. 설정 페이지에서 API 키를 입력하고 저장해주세요.")
@@ -11996,7 +12179,9 @@ export default function LongformContentPage() {
                               keywords || undefined,
                               geminiApiKey,
                               scriptDuration,
-                              benchmarkScript || undefined
+                              benchmarkScript || undefined,
+                              selectedContentType,
+                              selectedContentType === "custom" ? customContentTypeDescription : undefined
                             )
                             setScriptPlan(plan)
                             setScriptDraft("") // 기획안이 새로 생성되면 초안 초기화
@@ -12975,15 +13160,83 @@ export default function LongformContentPage() {
 
             <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white">
               <CardHeader className="pb-4 border-b border-gray-100">
-                <CardTitle className="text-lg font-semibold text-slate-900">벤치마킹 대본 입력 (선택사항)</CardTitle>
+                <CardTitle className="text-lg font-semibold text-slate-900">
+                  벤치마킹 대본 구조 뽑기 (선택사항)
+                  <span className="ml-2 text-sm font-normal text-gray-500">커스텀 타입때 활용가능</span>
+                </CardTitle>
               </CardHeader>
-              <CardContent>
-                <Textarea
-                  placeholder="참고할 대본이 있다면 여기에 입력하세요..."
-                  value={customScript}
-                  onChange={(e) => setCustomScript(e.target.value)}
-                  className="min-h-[200px]"
-                />
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <p className="text-xs text-gray-500">
+                    분석할 대본을 입력하고 분석 버튼을 클릭하면 AI가 대본의 구조와 알고리즘 관점을 분석해드립니다.
+                  </p>
+                  <Textarea
+                    placeholder="분석할 대본을 입력하세요..."
+                    value={benchmarkScript}
+                    onChange={(e) => {
+                      setBenchmarkScript(e.target.value)
+                      setBenchmarkAnalysis(null) // 대본이 변경되면 분석 결과 초기화
+                    }}
+                    className="h-[200px] overflow-y-auto resize-none border-gray-300 focus:ring-red-500 focus:border-red-500 rounded-lg"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  onClick={async () => {
+                    if (!benchmarkScript.trim()) {
+                      alert("분석할 대본을 입력해주세요.")
+                      return
+                    }
+                    
+                    setIsAnalyzingBenchmark(true)
+                    setBenchmarkAnalysis(null)
+                    
+                    try {
+                      const apiKey = localStorage.getItem("openai_api_key") || undefined
+                      const analysis = await analyzeBenchmarkScript(benchmarkScript.trim(), apiKey)
+                      setBenchmarkAnalysis(analysis)
+                    } catch (error) {
+                      console.error("대본 분석 실패:", error)
+                      const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다."
+                      alert(`대본 분석에 실패했습니다: ${errorMessage}`)
+                    } finally {
+                      setIsAnalyzingBenchmark(false)
+                    }
+                  }}
+                  disabled={isAnalyzingBenchmark || !benchmarkScript.trim()}
+                  className="w-full bg-red-500 hover:bg-red-600 text-white"
+                >
+                  {isAnalyzingBenchmark ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      분석 중...
+                    </>
+                  ) : (
+                    <>
+                      <FileSearch className="w-4 h-4 mr-2" />
+                      대본 구조 분석하기
+                    </>
+                  )}
+                </Button>
+                {benchmarkAnalysis && (
+                  <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-sm font-semibold text-gray-800">분석 결과</h4>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setBenchmarkAnalysis(null)}
+                        className="text-xs text-gray-500 hover:text-gray-700"
+                      >
+                        닫기
+                      </Button>
+                    </div>
+                    <div className="text-sm text-gray-700 whitespace-pre-wrap max-h-[500px] overflow-y-auto">
+                      {benchmarkAnalysis}
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -12992,10 +13245,403 @@ export default function LongformContentPage() {
                 <CardHeader className="pb-4 border-b border-gray-100">
                   <CardTitle className="text-lg font-semibold text-slate-900">대본 기획 생성</CardTitle>
                 </CardHeader>
-                <CardContent className="pt-6 space-y-4">
+                <CardContent className="pt-6 space-y-6">
+                  {/* 콘텐츠 타입 선택 */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm font-semibold">콘텐츠 타입 선택</Label>
+                      {isRecommendingContentType && (
+                        <div className="flex items-center gap-1 text-xs text-blue-600">
+                          <Sparkles className="w-3 h-3 animate-spin" />
+                          <span>AI가 추천 중...</span>
+                        </div>
+                      )}
+                    </div>
+                    {recommendedContentType && !isRecommendingContentType && (
+                      <div className="flex items-center gap-2 p-3 bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <Bot className="w-5 h-5 text-blue-600 animate-pulse" />
+                          <div className="flex-1">
+                            <p className="text-sm font-semibold text-blue-900">
+                              AI가 이 주제에 <span className="text-blue-600">Type {recommendedContentType}</span>를 추천합니다!
+                            </p>
+                            <p className="text-xs text-blue-700 mt-0.5">
+                              주제를 분석한 결과, 가장 적합한 구조입니다.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {!recommendedContentType && !isRecommendingContentType && (
+                      <p className="text-xs text-muted-foreground">
+                        대본의 구조 방식을 선택하세요. 선택하지 않으면 AI가 자동으로 결정합니다.
+                      </p>
+                    )}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 relative">
+                      {/* Type A */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedContentType(selectedContentType === "A" ? null : "A")
+                          if (selectedContentType !== "A") {
+                            setCustomContentTypeDescription("")
+                          }
+                        }}
+                        className={`group relative p-5 rounded-xl border-2 text-left transition-all duration-300 overflow-hidden ${
+                          selectedContentType === "A"
+                            ? "border-indigo-500 bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 shadow-xl shadow-indigo-200/50 scale-105"
+                            : recommendedContentType === "A"
+                            ? "border-blue-400 bg-gradient-to-br from-blue-50 via-cyan-50 to-blue-50 shadow-lg ring-2 ring-blue-300/50 hover:shadow-xl hover:scale-[1.02]"
+                            : "border-slate-200 bg-white hover:border-slate-300 hover:shadow-md hover:scale-[1.01] hover:bg-gradient-to-br hover:from-slate-50 hover:to-slate-50"
+                        }`}
+                      >
+                        {/* 그라데이션 오버레이 효과 */}
+                        {selectedContentType === "A" && (
+                          <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 via-purple-500/10 to-pink-500/10 animate-pulse" />
+                        )}
+                        
+                        {/* 선택 표시 */}
+                        {selectedContentType === "A" && (
+                          <div className="absolute top-3 right-3 w-6 h-6 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center shadow-lg">
+                            <Check className="w-4 h-4 text-white" />
+                          </div>
+                        )}
+                        
+                        {recommendedContentType === "A" && selectedContentType !== "A" && (
+                          <>
+                            <div className="absolute -top-2 -right-2 bg-gradient-to-br from-blue-500 to-cyan-500 text-white rounded-full p-2 shadow-xl animate-bounce z-10">
+                              <Bot className="w-4 h-4" />
+                            </div>
+                            <div className="absolute top-3 right-3 flex items-center gap-1 bg-gradient-to-r from-blue-500 to-cyan-500 text-white text-xs px-2.5 py-1 rounded-full shadow-lg backdrop-blur-sm">
+                              <Sparkles className="w-3 h-3" />
+                              <span className="font-semibold">AI 추천</span>
+                            </div>
+                            <div className="absolute -left-10 top-1/2 -translate-y-1/2 hidden lg:block">
+                              <div className="flex items-center gap-1 text-blue-600 animate-pulse">
+                                <ArrowRight className="w-5 h-5" />
+                                <span className="text-xs font-bold whitespace-nowrap bg-white/80 px-2 py-1 rounded-full shadow-md">이거예요!</span>
+                              </div>
+                            </div>
+                          </>
+                        )}
+                        
+                        <div className="relative z-10">
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className={`w-2 h-2 rounded-full ${
+                              selectedContentType === "A" 
+                                ? "bg-gradient-to-r from-indigo-500 to-purple-600" 
+                                : "bg-slate-300"
+                            }`} />
+                            <div className={`font-bold text-sm ${
+                              selectedContentType === "A" 
+                                ? "text-indigo-900" 
+                                : "text-slate-900"
+                            }`}>
+                              Type A. 단일 서사 심층형
+                            </div>
+                          </div>
+                          <div className={`text-xs leading-relaxed ${
+                            selectedContentType === "A" 
+                              ? "text-slate-700" 
+                              : "text-slate-600"
+                          }`}>
+                            하나의 사건, 인물, 역사적 이야기를 깊이 있게 다룹니다. 기승전결 구조 중심.
+                          </div>
+                        </div>
+                      </button>
+                      
+                      {/* Type B */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedContentType(selectedContentType === "B" ? null : "B")
+                          if (selectedContentType !== "B") {
+                            setCustomContentTypeDescription("")
+                          }
+                        }}
+                        className={`group relative p-5 rounded-xl border-2 text-left transition-all duration-300 overflow-hidden ${
+                          selectedContentType === "B"
+                            ? "border-emerald-500 bg-gradient-to-br from-emerald-50 via-teal-50 to-cyan-50 shadow-xl shadow-emerald-200/50 scale-105"
+                            : recommendedContentType === "B"
+                            ? "border-blue-400 bg-gradient-to-br from-blue-50 via-cyan-50 to-blue-50 shadow-lg ring-2 ring-blue-300/50 hover:shadow-xl hover:scale-[1.02]"
+                            : "border-slate-200 bg-white hover:border-slate-300 hover:shadow-md hover:scale-[1.01] hover:bg-gradient-to-br hover:from-slate-50 hover:to-slate-50"
+                        }`}
+                      >
+                        {selectedContentType === "B" && (
+                          <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 via-teal-500/10 to-cyan-500/10 animate-pulse" />
+                        )}
+                        
+                        {selectedContentType === "B" && (
+                          <div className="absolute top-3 right-3 w-6 h-6 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-full flex items-center justify-center shadow-lg">
+                            <Check className="w-4 h-4 text-white" />
+                          </div>
+                        )}
+                        
+                        {recommendedContentType === "B" && selectedContentType !== "B" && (
+                          <>
+                            <div className="absolute -top-2 -right-2 bg-gradient-to-br from-blue-500 to-cyan-500 text-white rounded-full p-2 shadow-xl animate-bounce z-10">
+                              <Bot className="w-4 h-4" />
+                            </div>
+                            <div className="absolute top-3 right-3 flex items-center gap-1 bg-gradient-to-r from-blue-500 to-cyan-500 text-white text-xs px-2.5 py-1 rounded-full shadow-lg backdrop-blur-sm">
+                              <Sparkles className="w-3 h-3" />
+                              <span className="font-semibold">AI 추천</span>
+                            </div>
+                            <div className="absolute -left-10 top-1/2 -translate-y-1/2 hidden lg:block">
+                              <div className="flex items-center gap-1 text-blue-600 animate-pulse">
+                                <ArrowRight className="w-5 h-5" />
+                                <span className="text-xs font-bold whitespace-nowrap bg-white/80 px-2 py-1 rounded-full shadow-md">이거예요!</span>
+                              </div>
+                            </div>
+                          </>
+                        )}
+                        
+                        <div className="relative z-10">
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className={`w-2 h-2 rounded-full ${
+                              selectedContentType === "B" 
+                                ? "bg-gradient-to-r from-emerald-500 to-teal-600" 
+                                : "bg-slate-300"
+                            }`} />
+                            <div className={`font-bold text-sm ${
+                              selectedContentType === "B" 
+                                ? "text-emerald-900" 
+                                : "text-slate-900"
+                            }`}>
+                              Type B. 컴필레이션 / 목록형
+                            </div>
+                          </div>
+                          <div className={`text-xs leading-relaxed ${
+                            selectedContentType === "B" 
+                              ? "text-slate-700" 
+                              : "text-slate-600"
+                          }`}>
+                            하나의 대주제 아래 3~5개의 사례를 나열합니다. 각 사례는 미니 스토리 구조.
+                          </div>
+                        </div>
+                      </button>
+                      
+                      {/* Type C */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedContentType(selectedContentType === "C" ? null : "C")
+                          if (selectedContentType !== "C") {
+                            setCustomContentTypeDescription("")
+                          }
+                        }}
+                        className={`group relative p-5 rounded-xl border-2 text-left transition-all duration-300 overflow-hidden ${
+                          selectedContentType === "C"
+                            ? "border-amber-500 bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50 shadow-xl shadow-amber-200/50 scale-105"
+                            : recommendedContentType === "C"
+                            ? "border-blue-400 bg-gradient-to-br from-blue-50 via-cyan-50 to-blue-50 shadow-lg ring-2 ring-blue-300/50 hover:shadow-xl hover:scale-[1.02]"
+                            : "border-slate-200 bg-white hover:border-slate-300 hover:shadow-md hover:scale-[1.01] hover:bg-gradient-to-br hover:from-slate-50 hover:to-slate-50"
+                        }`}
+                      >
+                        {selectedContentType === "C" && (
+                          <div className="absolute inset-0 bg-gradient-to-br from-amber-500/10 via-orange-500/10 to-yellow-500/10 animate-pulse" />
+                        )}
+                        
+                        {selectedContentType === "C" && (
+                          <div className="absolute top-3 right-3 w-6 h-6 bg-gradient-to-br from-amber-500 to-orange-600 rounded-full flex items-center justify-center shadow-lg">
+                            <Check className="w-4 h-4 text-white" />
+                          </div>
+                        )}
+                        
+                        {recommendedContentType === "C" && selectedContentType !== "C" && (
+                          <>
+                            <div className="absolute -top-2 -right-2 bg-gradient-to-br from-blue-500 to-cyan-500 text-white rounded-full p-2 shadow-xl animate-bounce z-10">
+                              <Bot className="w-4 h-4" />
+                            </div>
+                            <div className="absolute top-3 right-3 flex items-center gap-1 bg-gradient-to-r from-blue-500 to-cyan-500 text-white text-xs px-2.5 py-1 rounded-full shadow-lg backdrop-blur-sm">
+                              <Sparkles className="w-3 h-3" />
+                              <span className="font-semibold">AI 추천</span>
+                            </div>
+                            <div className="absolute -left-10 top-1/2 -translate-y-1/2 hidden lg:block">
+                              <div className="flex items-center gap-1 text-blue-600 animate-pulse">
+                                <ArrowRight className="w-5 h-5" />
+                                <span className="text-xs font-bold whitespace-nowrap bg-white/80 px-2 py-1 rounded-full shadow-md">이거예요!</span>
+                              </div>
+                            </div>
+                          </>
+                        )}
+                        
+                        <div className="relative z-10">
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className={`w-2 h-2 rounded-full ${
+                              selectedContentType === "C" 
+                                ? "bg-gradient-to-r from-amber-500 to-orange-600" 
+                                : "bg-slate-300"
+                            }`} />
+                            <div className={`font-bold text-sm ${
+                              selectedContentType === "C" 
+                                ? "text-amber-900" 
+                                : "text-slate-900"
+                            }`}>
+                              Type C. 다각도 탐구형
+                            </div>
+                          </div>
+                          <div className={`text-xs leading-relaxed ${
+                            selectedContentType === "C" 
+                              ? "text-slate-700" 
+                              : "text-slate-600"
+                          }`}>
+                            하나의 대상을 여러 관점으로 분석합니다. 논리적 흐름과 점층적 몰입 중심.
+                          </div>
+                        </div>
+                      </button>
+                      
+                      {/* Type D */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedContentType(selectedContentType === "D" ? null : "D")
+                          if (selectedContentType !== "D") {
+                            setCustomContentTypeDescription("")
+                          }
+                        }}
+                        className={`group relative p-5 rounded-xl border-2 text-left transition-all duration-300 overflow-hidden ${
+                          selectedContentType === "D"
+                            ? "border-rose-500 bg-gradient-to-br from-rose-50 via-pink-50 to-fuchsia-50 shadow-xl shadow-rose-200/50 scale-105"
+                            : recommendedContentType === "D"
+                            ? "border-blue-400 bg-gradient-to-br from-blue-50 via-cyan-50 to-blue-50 shadow-lg ring-2 ring-blue-300/50 hover:shadow-xl hover:scale-[1.02]"
+                            : "border-slate-200 bg-white hover:border-slate-300 hover:shadow-md hover:scale-[1.01] hover:bg-gradient-to-br hover:from-slate-50 hover:to-slate-50"
+                        }`}
+                      >
+                        {selectedContentType === "D" && (
+                          <div className="absolute inset-0 bg-gradient-to-br from-rose-500/10 via-pink-500/10 to-fuchsia-500/10 animate-pulse" />
+                        )}
+                        
+                        {selectedContentType === "D" && (
+                          <div className="absolute top-3 right-3 w-6 h-6 bg-gradient-to-br from-rose-500 to-pink-600 rounded-full flex items-center justify-center shadow-lg">
+                            <Check className="w-4 h-4 text-white" />
+                          </div>
+                        )}
+                        
+                        {recommendedContentType === "D" && selectedContentType !== "D" && (
+                          <>
+                            <div className="absolute -top-2 -right-2 bg-gradient-to-br from-blue-500 to-cyan-500 text-white rounded-full p-2 shadow-xl animate-bounce z-10">
+                              <Bot className="w-4 h-4" />
+                            </div>
+                            <div className="absolute top-3 right-3 flex items-center gap-1 bg-gradient-to-r from-blue-500 to-cyan-500 text-white text-xs px-2.5 py-1 rounded-full shadow-lg backdrop-blur-sm">
+                              <Sparkles className="w-3 h-3" />
+                              <span className="font-semibold">AI 추천</span>
+                            </div>
+                            <div className="absolute -left-10 top-1/2 -translate-y-1/2 hidden lg:block">
+                              <div className="flex items-center gap-1 text-blue-600 animate-pulse">
+                                <ArrowRight className="w-5 h-5" />
+                                <span className="text-xs font-bold whitespace-nowrap bg-white/80 px-2 py-1 rounded-full shadow-md">이거예요!</span>
+                              </div>
+                            </div>
+                          </>
+                        )}
+                        
+                        <div className="relative z-10">
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className={`w-2 h-2 rounded-full ${
+                              selectedContentType === "D" 
+                                ? "bg-gradient-to-r from-rose-500 to-pink-600" 
+                                : "bg-slate-300"
+                            }`} />
+                            <div className={`font-bold text-sm ${
+                              selectedContentType === "D" 
+                                ? "text-rose-900" 
+                                : "text-slate-900"
+                            }`}>
+                              Type D. 이야기형 (옛날이야기/민담)
+                            </div>
+                          </div>
+                          <div className={`text-xs leading-relaxed ${
+                            selectedContentType === "D" 
+                              ? "text-slate-700" 
+                              : "text-slate-600"
+                          }`}>
+                            "옛날 옛날에..." 형식의 재미있는 이야기 구조. 등장인물 중심, 에세이 형식 절대 금지.
+                          </div>
+                        </div>
+                      </button>
+                      
+                      {/* 커스텀 타입 */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedContentType(selectedContentType === "custom" ? null : "custom")
+                          if (selectedContentType !== "custom") {
+                            setCustomContentTypeDescription("")
+                          }
+                        }}
+                        className={`group relative p-5 rounded-xl border-2 text-left transition-all duration-300 overflow-hidden ${
+                          selectedContentType === "custom"
+                            ? "border-slate-500 bg-gradient-to-br from-slate-50 via-gray-50 to-slate-50 shadow-xl shadow-slate-200/50 scale-105"
+                            : "border-slate-200 bg-white hover:border-slate-300 hover:shadow-md hover:scale-[1.01] hover:bg-gradient-to-br hover:from-slate-50 hover:to-slate-50"
+                        }`}
+                      >
+                        {selectedContentType === "custom" && (
+                          <div className="absolute inset-0 bg-gradient-to-br from-slate-500/10 via-gray-500/10 to-slate-500/10 animate-pulse" />
+                        )}
+                        
+                        {selectedContentType === "custom" && (
+                          <div className="absolute top-3 right-3 w-6 h-6 bg-gradient-to-br from-slate-500 to-gray-600 rounded-full flex items-center justify-center shadow-lg">
+                            <Check className="w-4 h-4 text-white" />
+                          </div>
+                        )}
+                        
+                        <div className="relative z-10">
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className={`w-2 h-2 rounded-full ${
+                              selectedContentType === "custom" 
+                                ? "bg-gradient-to-r from-slate-500 to-gray-600" 
+                                : "bg-slate-300"
+                            }`} />
+                            <div className={`font-bold text-sm ${
+                              selectedContentType === "custom" 
+                                ? "text-slate-900" 
+                                : "text-slate-900"
+                            }`}>
+                              커스텀 타입
+                            </div>
+                          </div>
+                          <div className={`text-xs leading-relaxed ${
+                            selectedContentType === "custom" 
+                              ? "text-slate-700" 
+                              : "text-slate-600"
+                          }`}>
+                            원하는 대본 구조를 직접 입력하여 기획합니다.
+                          </div>
+                        </div>
+                      </button>
+                    </div>
+                    
+                    {/* 커스텀 타입 선택 시 입력 필드 */}
+                    {selectedContentType === "custom" && (
+                      <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                        <Label htmlFor="custom-content-type" className="text-sm font-semibold mb-2 block">
+                          원하는 대본 구조를 설명해주세요
+                        </Label>
+                        <Textarea
+                          id="custom-content-type"
+                          value={customContentTypeDescription}
+                          onChange={(e) => setCustomContentTypeDescription(e.target.value)}
+                          placeholder="예: '역사적 사건을 시간순으로 설명하면서, 각 시점마다 주요 인물의 행동과 결정을 중심으로 구성하고, 마지막에 현대적 시사점을 제시하는 구조'"
+                          className="min-h-[120px] resize-y"
+                        />
+                        <p className="text-xs text-muted-foreground mt-2">
+                          💡 원하는 대본의 구조, 전개 방식, 핵심 포인트 등을 자세히 설명해주세요. AI가 이를 기반으로 기획서를 작성합니다.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
                   {/* 대본 기획 생성/재생성 버튼 */}
                   {!scriptPlan ? (
-                    <Button onClick={handleScriptPlanGeneration} disabled={isGenerating || isScanning} className="w-full h-12 bg-red-500 hover:bg-red-600 text-white rounded-lg font-semibold">
+                    <Button 
+                      onClick={handleScriptPlanGeneration} 
+                      disabled={
+                        isGenerating || 
+                        isScanning || 
+                        (selectedContentType === "custom" && !customContentTypeDescription.trim())
+                      } 
+                      className="w-full h-12 bg-red-500 hover:bg-red-600 text-white rounded-lg font-semibold"
+                    >
                       {isGenerating && !isScanning ? (
                         <>
                           <Sparkles className="w-4 h-4 mr-2 animate-spin" />
@@ -13009,7 +13655,12 @@ export default function LongformContentPage() {
                       )}
                     </Button>
                   ) : (
-                    <Button onClick={handleScriptPlanGeneration} disabled={isGenerating || isScanning} variant="outline" className="w-full">
+                    <Button 
+                      onClick={handleScriptPlanGeneration} 
+                      disabled={isGenerating || isScanning || (selectedContentType === "custom" && !customContentTypeDescription?.trim())} 
+                      variant="outline" 
+                      className="w-full"
+                    >
                       {isGenerating && !isScanning ? (
                         <>
                           <Sparkles className="w-4 h-4 mr-2 animate-spin" />
@@ -13036,29 +13687,182 @@ export default function LongformContentPage() {
                         </div>
                       </div>
 
-                      <Card>
-                        <CardHeader>
-                          <CardTitle className="text-lg flex items-center gap-2">
-                            <Wand2 className="w-5 h-5" />
-                            AI 대본 에디터
-                          </CardTitle>
+                      <Card className="border border-slate-200/60 shadow-lg bg-gradient-to-br from-white via-slate-50/30 to-white">
+                        <CardHeader className="pb-3 border-b border-slate-100 bg-gradient-to-r from-slate-50/50 to-transparent">
+                          <div className="flex items-center justify-between">
+                            <CardTitle className="text-lg font-semibold flex items-center gap-2 text-slate-800">
+                              <Wand2 className="w-5 h-5 text-indigo-600" />
+                              AI 대본 에디터
+                            </CardTitle>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  const newMode = scriptPlanEditMode === "view" ? "edit" : "view"
+                                  setScriptPlanEditMode(newMode)
+                                }}
+                                className="h-7 text-xs text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+                              >
+                                {scriptPlanEditMode === "view" ? (
+                                  <>
+                                    <Pencil className="w-3 h-3 mr-1" />
+                                    편집
+                                  </>
+                                ) : (
+                                  <>
+                                    <Eye className="w-3 h-3 mr-1" />
+                                    보기
+                                  </>
+                                )}
+                              </Button>
+                            </div>
+                          </div>
                         </CardHeader>
-                        <CardContent className="space-y-4">
+                        <CardContent className="space-y-4 pt-6">
                           <div className="relative">
-                            <Textarea
-                              value={scriptPlan}
-                              onChange={(e) => setScriptPlan(e.target.value)}
-                              className="min-h-[400px] font-mono text-sm"
-                              placeholder="대본 기획안이 여기에 표시됩니다..."
-                            />
+                            {scriptPlanEditMode === "view" ? (
+                              <div className="min-h-[400px] max-h-[600px] overflow-y-auto p-6 bg-white rounded-lg border border-slate-200/80 shadow-inner backdrop-blur-sm">
+                                <div 
+                                  className="text-[15px] leading-relaxed text-slate-700 font-[450] antialiased
+                                    [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:text-slate-900 [&_h1]:mt-8 [&_h1]:mb-4 [&_h1]:pb-2 [&_h1]:border-b [&_h1]:border-slate-200
+                                    [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:text-slate-900 [&_h2]:mt-6 [&_h2]:mb-3 [&_h2]:text-indigo-700
+                                    [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:text-slate-800 [&_h3]:mt-5 [&_h3]:mb-2 [&_h3]:text-slate-700
+                                    [&_h4]:text-base [&_h4]:font-semibold [&_h4]:text-slate-700 [&_h4]:mt-4 [&_h4]:mb-2
+                                    [&_p]:mb-4 [&_p]:leading-[1.75] [&_p]:text-[15px]
+                                    [&_strong]:font-bold [&_strong]:text-slate-900 [&_strong]:text-[16px] [&_strong]:tracking-tight
+                                    [&_em]:italic [&_em]:text-slate-600
+                                    [&_ul]:my-4 [&_ul]:pl-6 [&_ul]:list-disc [&_ul]:space-y-2
+                                    [&_ol]:my-4 [&_ol]:pl-6 [&_ol]:list-decimal [&_ol]:space-y-2
+                                    [&_li]:mb-2 [&_li]:leading-relaxed [&_li]:pl-2
+                                    [&_hr]:border-slate-200 [&_hr]:my-6
+                                    [&_blockquote]:border-l-4 [&_blockquote]:border-indigo-300 [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-slate-600 [&_blockquote]:my-4
+                                    [&_code]:bg-slate-100 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-sm [&_code]:font-mono [&_code]:text-slate-800
+                                    selection:bg-indigo-100 selection:text-indigo-900
+                                    [&_div]:space-y-2"
+                                  dangerouslySetInnerHTML={{
+                                    __html: (() => {
+                                      const lines = scriptPlan.split('\n')
+                                      let html = ''
+                                      let inList = false
+                                      let listItems: string[] = []
+                                      
+                                      const flushList = () => {
+                                        if (listItems.length > 0) {
+                                          html += `<ul class="my-4 pl-6 list-disc space-y-2">${listItems.join('')}</ul>`
+                                          listItems = []
+                                          inList = false
+                                        }
+                                      }
+                                      
+                                      for (let i = 0; i < lines.length; i++) {
+                                        const line = lines[i].trim()
+                                        const nextLine = i < lines.length - 1 ? lines[i + 1].trim() : ''
+                                        
+                                        // 빈 줄
+                                        if (!line) {
+                                          flushList()
+                                          html += '<div class="h-2"></div>'
+                                          continue
+                                        }
+                                        
+                                        // 제목 처리 (1) 2) 3) 형식)
+                                        if (/^\d+\)\s+/.test(line)) {
+                                          flushList()
+                                          const match = line.match(/^(\d+\))\s+(.+)$/)
+                                          if (match) {
+                                            html += `<h2 class="text-xl font-semibold text-slate-900 mt-6 mb-3 text-indigo-700 flex items-center gap-2 border-b border-indigo-100 pb-2"><span class="text-indigo-600 font-bold text-lg">${match[1]}</span><span>${match[2]}</span></h2>`
+                                          }
+                                          continue
+                                        }
+                                        
+                                        // 소제목 처리 (- 형식, 단독으로 있을 때)
+                                        if (/^-\s+[^-]/.test(line) && !nextLine.match(/^-\s+|^\s+[·•-]/)) {
+                                          flushList()
+                                          const match = line.match(/^(-\s+)(.+)$/)
+                                          if (match) {
+                                            html += `<h3 class="text-lg font-semibold text-slate-800 mt-5 mb-2 text-slate-700 flex items-center gap-2"><span class="text-slate-500">${match[1]}</span><span>${match[2]}</span></h3>`
+                                          }
+                                          continue
+                                        }
+                                        
+                                        // 리스트 항목 (·, •, - 형식)
+                                        if (/^[·•-]\s+/.test(line) || /^\s+[·•-]\s+/.test(line)) {
+                                          if (!inList) {
+                                            inList = true
+                                          }
+                                          const content = line.replace(/^[\s·•-]+/, '')
+                                          const processed = content
+                                            .replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-slate-900 text-[16px] tracking-tight">$1</strong>')
+                                            .replace(/\*(.*?)\*/g, '<em class="italic text-slate-600">$1</em>')
+                                          listItems.push(`<li class="mb-2 leading-relaxed pl-2">${processed}</li>`)
+                                          continue
+                                        }
+                                        
+                                        // 번호 리스트
+                                        if (/^\d+\.\s+/.test(line)) {
+                                          flushList()
+                                          const match = line.match(/^(\d+\.)\s+(.+)$/)
+                                          if (match) {
+                                            const processed = match[2]
+                                              .replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-slate-900 text-[16px] tracking-tight">$1</strong>')
+                                              .replace(/\*(.*?)\*/g, '<em class="italic text-slate-600">$1</em>')
+                                            html += `<div class="mb-3 pl-4 border-l-2 border-indigo-200"><span class="font-semibold text-indigo-600 mr-2">${match[1]}</span><span class="text-slate-700">${processed}</span></div>`
+                                          }
+                                          continue
+                                        }
+                                        
+                                        // 구분선
+                                        if (/^[-]{3,}$/.test(line)) {
+                                          flushList()
+                                          html += '<hr class="border-slate-200 my-6" />'
+                                          continue
+                                        }
+                                        
+                                        // 일반 텍스트
+                                        flushList()
+                                        const processed = line
+                                          .replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-slate-900 text-[16px] tracking-tight">$1</strong>')
+                                          .replace(/\*(.*?)\*/g, '<em class="italic text-slate-600">$1</em>')
+                                        html += `<p class="mb-3 leading-[1.75] text-[15px] text-slate-700">${processed}</p>`
+                                      }
+                                      
+                                      flushList()
+                                      return `<div class="space-y-1">${html}</div>`
+                                    })()
+                                  }}
+                                />
+                              </div>
+                            ) : (
+                              <Textarea
+                                value={scriptPlan}
+                                onChange={(e) => setScriptPlan(e.target.value)}
+                                className="min-h-[400px] max-h-[600px] p-6 bg-white rounded-lg border border-slate-200/80 shadow-inner backdrop-blur-sm
+                                  text-[15px] leading-relaxed text-slate-700 font-[450] antialiased font-mono
+                                  placeholder:text-slate-400
+                                  focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300
+                                  resize-none"
+                                placeholder="대본 기획안이 여기에 표시됩니다..."
+                              />
+                            )}
                             {isScanning && (
-                              <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-md">
+                              <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-lg">
                                 <div className="scan-line" />
                                 <div className="absolute inset-0 bg-blue-500/5" />
                               </div>
                             )}
                           </div>
-
+                          <div className="flex items-center justify-end text-xs text-slate-500 pt-2 border-t border-slate-100">
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              onClick={() => copyToClipboard(scriptPlan)}
+                              className="h-7 text-xs text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+                            >
+                              <Copy className="w-3 h-3 mr-1" />
+                              복사
+                            </Button>
+                          </div>
                         </CardContent>
                       </Card>
                     </div>
@@ -14407,6 +15211,31 @@ export default function LongformContentPage() {
                       setCustomStylePrompt(combinedPrompt)
                       setImageStyle("custom-style")
                       
+                      // 샘플 이미지 생성 (black-forest-labs/flux-schnell 모델 사용)
+                      try {
+                        const replicateApiKey = typeof window !== "undefined" ? localStorage.getItem("replicate_api_key") || undefined : undefined
+                        if (replicateApiKey) {
+                          console.log("[Custom Style] 샘플 이미지 생성 시작...")
+                          // 샘플 프롬프트 생성 (간단한 장면 + 커스텀 스타일)
+                          const samplePrompt = `a simple scene with a character, ${combinedPrompt}, 16:9 aspect ratio, no text, no letters, no words, no writing, no labels, no signs, no watermark`
+                          const sampleImageUrl = await generateImageWithReplicate(
+                            samplePrompt,
+                            replicateApiKey,
+                            "16:9",
+                            undefined,
+                            undefined,
+                            "black-forest-labs/flux-schnell"
+                          )
+                          setCustomStyleResult(sampleImageUrl)
+                          console.log("[Custom Style] 샘플 이미지 생성 완료:", sampleImageUrl)
+                        } else {
+                          console.warn("[Custom Style] Replicate API 키가 없어 샘플 이미지를 생성할 수 없습니다.")
+                        }
+                      } catch (error) {
+                        console.error("[Custom Style] 샘플 이미지 생성 실패:", error)
+                        // 샘플 이미지 생성 실패해도 프롬프트는 성공했으므로 계속 진행
+                      }
+                      
                       // 경고 메시지 표시 (일부 실패한 경우)
                       if (errors.length > 0) {
                         alert(`일부 이미지 분석에 실패했지만, 성공한 이미지의 프롬프트를 생성했습니다.\n\n${errors.join("\n")}`)
@@ -14448,6 +15277,33 @@ export default function LongformContentPage() {
                   </CardHeader>
                   <CardContent className="pt-6">
                     <div className="space-y-4">
+                      {/* 샘플 이미지 표시 */}
+                      {customStyleResult && (
+                        <div>
+                          <Label className="text-sm font-medium mb-2 block">샘플 예시 이미지</Label>
+                          <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                            <img 
+                              src={customStyleResult} 
+                              alt="커스텀 스타일 샘플" 
+                              className="w-full rounded-lg"
+                            />
+                            <p className="text-xs text-gray-500 mt-2 text-center">
+                              모델: black-forest-labs/flux-schnell
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                      {isGeneratingCustomStyle && !customStyleResult && (
+                        <div>
+                          <Label className="text-sm font-medium mb-2 block">샘플 예시 이미지</Label>
+                          <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 flex items-center justify-center min-h-[200px]">
+                            <div className="text-center">
+                              <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
+                              <p className="text-sm text-gray-500">샘플 이미지 생성 중...</p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                       <div>
                         <Label className="text-sm font-medium mb-2 block">영어 프롬프트</Label>
                         <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
@@ -14474,6 +15330,7 @@ export default function LongformContentPage() {
                           size="sm"
                           onClick={() => {
                             setCustomStylePrompt(null)
+                            setCustomStyleResult(null)
                             setCustomStyleCharacterImage(null)
                             setCustomStyleBackgroundImage(null)
                             setImageStyle("stickman-animation") // 기본값으로 리셋
@@ -15039,7 +15896,12 @@ export default function LongformContentPage() {
                                 if (!isFirstImage && !isRealistic) {
                                   const isAnimation = imageStyle === "stickman-animation" || imageStyle === "animation2" || imageStyle === "animation3" || imageStyle === "semi-realistic-animation"
                                   if (isAnimation && renderingStyle) {
-                                    finalPrompt = `${finalPrompt}, consistent art style: ${renderingStyle}`
+                                    // 스틱맨 애니메이션의 경우 그림체를 프롬프트 앞부분에 강조해서 추가
+                                    if (imageStyle === "stickman-animation") {
+                                      finalPrompt = `THE SAME ART STYLE (MUST BE IDENTICAL): ${renderingStyle}, ${finalPrompt}`
+                                    } else {
+                                      finalPrompt = `THE SAME ART STYLE (CONSISTENT RENDERING): ${renderingStyle}, ${finalPrompt}`
+                                    }
                                   }
                                 }
                                 
@@ -18803,102 +19665,199 @@ export default function LongformContentPage() {
 
               {/* AI로 썸네일 만들기 탭 */}
               <TabsContent value="ai" className="space-y-6">
-                <div>
-                  <h3 className="text-xl font-semibold mb-4">AI 썸네일 생성</h3>
-                  <p className="text-muted-foreground mb-6">
-                    선택한 주제를 기반으로 AI가 유튜브 썸네일을 자동으로 생성합니다. 16:9 비율로 최적화된 썸네일을 제공합니다.
-                  </p>
+                <div className="space-y-6">
+                  {/* 헤더 */}
+                  <div>
+                    <h3 className="text-2xl font-bold mb-2">AI 썸네일 생성</h3>
+                    <p className="text-muted-foreground">
+                      선택한 주제를 기반으로 AI가 유튜브 썸네일을 자동으로 생성합니다. 16:9 비율로 최적화된 썸네일을 제공합니다.
+                    </p>
+                  </div>
 
+                  {/* 주제 정보 카드 */}
                   {!selectedTopic && (
-                    <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                      <p className="text-sm text-yellow-800">
-                        주제를 먼저 선택해주세요. 주제 추천 단계에서 주제를 선택한 후 사용할 수 있습니다.
-                      </p>
-                    </div>
+                    <Card className="border-yellow-200 bg-yellow-50">
+                      <CardContent className="pt-6">
+                        <div className="flex items-start gap-3">
+                          <div className="text-yellow-600 text-xl">⚠️</div>
+                          <div>
+                            <p className="text-sm font-medium text-yellow-900 mb-1">주제가 필요합니다</p>
+                            <p className="text-sm text-yellow-800">
+                              주제 추천 단계에서 주제를 선택한 후 사용할 수 있습니다.
+                            </p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
                   )}
 
-                  <div className="mb-6">
-                    <p className="text-sm text-muted-foreground mb-2">
-                      선택된 주제: <span className="font-semibold text-gray-900">{selectedTopic || "없음"}</span>
-                    </p>
-                  </div>
+                  {selectedTopic && (
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base">선택된 주제</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-lg font-semibold text-gray-900">{selectedTopic}</p>
+                      </CardContent>
+                    </Card>
+                  )}
 
-                  {/* 썸네일 커스텀 문구 입력 */}
-                  <div className="mb-6 space-y-2">
-                    <Label htmlFor="thumbnail-custom-text" className="text-sm font-medium">
-                      썸네일 문구 (선택사항)
-                    </Label>
-                    <Textarea
-                      id="thumbnail-custom-text"
-                      value={thumbnailCustomText}
-                      onChange={(e) => setThumbnailCustomText(e.target.value)}
-                      placeholder="썸네일에 포함하고 싶은 문구를 입력하세요. 예: '충격적인 진실', '꼭 알아야 할 사실' 등"
-                      className="min-h-[100px] resize-none"
-                      disabled={thumbnailWithoutText}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      입력한 문구가 썸네일 생성 프롬프트에 포함됩니다.
-                    </p>
-                  </div>
+                  {/* 썸네일 설정 카드 */}
+                  <Card>
+                    <CardHeader className="pb-4">
+                      <CardTitle className="text-lg">썸네일 설정</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                      {/* 썸네일 커스텀 문구 입력 */}
+                      <div className="space-y-2">
+                        <Label htmlFor="thumbnail-custom-text" className="text-sm font-semibold">
+                          썸네일 문구 (선택사항)
+                        </Label>
+                        <Textarea
+                          id="thumbnail-custom-text"
+                          value={thumbnailCustomText}
+                          onChange={(e) => setThumbnailCustomText(e.target.value)}
+                          placeholder="썸네일에 포함하고 싶은 문구를 입력하세요. 예: '충격적인 진실', '꼭 알아야 할 사실' 등"
+                          className="min-h-[100px] resize-none"
+                          disabled={thumbnailWithoutText}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          💡 입력한 문구가 썸네일 생성 프롬프트에 포함됩니다.
+                        </p>
+                      </div>
 
-                  {/* 문구 없이 그림만 생성 체크박스 */}
-                  <div className="mb-6 flex items-center space-x-2">
-                    <Checkbox
-                      id="thumbnail-without-text"
-                      checked={thumbnailWithoutText}
-                      onCheckedChange={(checked) => {
-                        setThumbnailWithoutText(checked === true)
-                        if (checked === true) {
-                          setThumbnailCustomText("") // 체크 시 문구 초기화
-                        }
-                      }}
-                    />
-                    <Label
-                      htmlFor="thumbnail-without-text"
-                      className="text-sm font-medium cursor-pointer"
-                    >
-                      문구 없이 그림만 생성
-                    </Label>
-                  </div>
+                      {/* 문구 없이 그림만 생성 체크박스 */}
+                      <div className="flex items-center space-x-2 p-3 bg-gray-50 rounded-lg">
+                        <Checkbox
+                          id="thumbnail-without-text"
+                          checked={thumbnailWithoutText}
+                          onCheckedChange={(checked) => {
+                            setThumbnailWithoutText(checked === true)
+                            if (checked === true) {
+                              setThumbnailCustomText("") // 체크 시 문구 초기화
+                            }
+                          }}
+                        />
+                        <Label
+                          htmlFor="thumbnail-without-text"
+                          className="text-sm font-medium cursor-pointer"
+                        >
+                          문구 없이 그림만 생성
+                        </Label>
+                      </div>
+                    </CardContent>
+                  </Card>
 
+                  {/* 벤치마킹 썸네일 카드 */}
+                  <Card>
+                    <CardHeader className="pb-4">
+                      <CardTitle className="text-lg">벤치마킹 썸네일 (선택사항)</CardTitle>
+                      <p className="text-sm text-muted-foreground font-normal mt-1">
+                        참고할 썸네일을 업로드하면 AI가 분석하여 비슷한 스타일의 썸네일을 생성합니다.
+                      </p>
+                    </CardHeader>
+                    <CardContent>
+                      {benchmarkThumbnailUrl ? (
+                        <div className="space-y-3">
+                          <div className="relative bg-black rounded-lg overflow-hidden shadow-lg" style={{ aspectRatio: "16/9", maxWidth: "400px" }}>
+                            <img
+                              src={benchmarkThumbnailUrl}
+                              alt="벤치마킹 썸네일"
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              if (benchmarkThumbnailUrl.startsWith("blob:")) {
+                                URL.revokeObjectURL(benchmarkThumbnailUrl)
+                              }
+                              setBenchmarkThumbnailUrl(null)
+                            }}
+                            className="w-full sm:w-auto"
+                          >
+                            <X className="w-4 h-4 mr-2" />
+                            제거
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-gray-400 transition-colors">
+                          <Input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            id="benchmark-thumbnail-upload"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0]
+                              if (file) {
+                                const url = URL.createObjectURL(file)
+                                setBenchmarkThumbnailUrl(url)
+                              }
+                            }}
+                          />
+                          <Label
+                            htmlFor="benchmark-thumbnail-upload"
+                            className="cursor-pointer flex flex-col items-center"
+                          >
+                            <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mb-3">
+                              <Upload className="w-6 h-6 text-gray-500" />
+                            </div>
+                            <span className="text-sm font-medium text-gray-700">클릭하여 썸네일 업로드</span>
+                            <span className="text-xs text-gray-500 mt-1">JPG, PNG, WEBP 지원</span>
+                          </Label>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* 생성 버튼 */}
                   <Button
                     onClick={handleAIGenerateThumbnail}
                     disabled={(!selectedTopic && !script) || isGeneratingAIThumbnail}
-                    className="w-full mb-6"
+                    className="w-full h-12 text-base font-semibold"
+                    size="lg"
                   >
                     {isGeneratingAIThumbnail ? (
                       <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                         {selectedTopic ? "AI가 썸네일을 생성하고 있습니다..." : "대본에서 주제를 추출하고 있습니다..."}
                       </>
                     ) : (
                       <>
-                        <Sparkles className="w-4 h-4 mr-2" />
+                        <Sparkles className="w-5 h-5 mr-2" />
                         AI 썸네일 생성하기
                       </>
                     )}
                   </Button>
 
+                  {/* 생성된 썸네일 카드 */}
                   {aiThumbnailUrl && (
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <h4 className="text-lg font-medium">생성된 썸네일</h4>
-                        <Button onClick={handleDownloadAIThumbnail} variant="outline" size="sm">
-                          <Download className="w-4 h-4 mr-2" />
-                          다운로드
-                        </Button>
-                      </div>
-                      <div className="relative bg-black rounded-lg overflow-hidden" style={{ aspectRatio: "16/9" }}>
-                        <img
-                          src={aiThumbnailUrl}
-                          alt="AI 생성 썸네일"
-                          className="w-full h-full object-cover"
-                        />
-                      </div>
-                      <p className="text-sm text-muted-foreground text-center">
-                        유튜브 썸네일 규격 (16:9)으로 생성되었습니다.
-                      </p>
-                    </div>
+                    <Card className="border-green-200">
+                      <CardHeader className="pb-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <CardTitle className="text-lg">생성된 썸네일</CardTitle>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              유튜브 썸네일 규격 (16:9)으로 생성되었습니다.
+                            </p>
+                          </div>
+                          <Button onClick={handleDownloadAIThumbnail} variant="outline" size="sm">
+                            <Download className="w-4 h-4 mr-2" />
+                            다운로드
+                          </Button>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="relative bg-black rounded-lg overflow-hidden shadow-xl" style={{ aspectRatio: "16/9" }}>
+                          <img
+                            src={aiThumbnailUrl}
+                            alt="AI 생성 썸네일"
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                      </CardContent>
+                    </Card>
                   )}
                 </div>
               </TabsContent>

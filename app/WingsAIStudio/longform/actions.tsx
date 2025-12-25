@@ -2,6 +2,130 @@
 
 const thumbnailCache = new Map<string, string>()
 
+/**
+ * 직접입력 주제로 관련 주제 15개 생성 (카테고리 무시)
+ */
+async function generateTopicsFromCustomTopic(customTopic: string, apiKey: string): Promise<string[]> {
+  console.log("[generateTopicsFromCustomTopic] 시작, 주제:", customTopic)
+  
+  const finalPrompt = `🚫🚫🚫 절대 금지: 다른 주제나 카테고리로 벗어나지 마세요. 오직 "${customTopic}"와 직접적으로 관련된 주제만 생성하세요. 🚫🚫🚫
+
+다음 주제를 바탕으로 **오직 해당 주제와 직접적으로 관련된** 다양한 스타일의 롱폼 비디오 주제 15개를 생성해주세요:
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📌 핵심 주제: "${customTopic}"
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚠️⚠️⚠️ 절대적 필수 사항 (반드시 준수하세요) ⚠️⚠️⚠️:
+1. 모든 주제는 반드시 "${customTopic}"와 직접적으로 관련되어야 합니다.
+2. "${customTopic}"와 관련 없는 주제는 절대 생성하지 마세요.
+3. 건강, 인생 교훈, 가족 이야기 등 다른 카테고리 주제는 절대 생성하지 마세요.
+4. 오직 "${customTopic}"에 대한 주제만 생성하세요.
+
+예시:
+- 주제가 "테슬라"라면: 테슬라 전기차, 테슬라 자율주행, 테슬라 배터리, 테슬라 주식 등 테슬라 관련 주제만 생성
+- 주제가 "여자친구 데이트"라면: 데이트 장소, 데이트 아이디어, 데이트 팁 등 데이트 관련 주제만 생성
+- 건강, 인생 교훈, 가족 이야기 등은 절대 생성하지 마세요.
+
+요구사항:
+- 주제 15개를 반드시 생성해주세요
+- 모든 주제는 "${customTopic}"와 직접적으로 관련되어야 합니다
+- 다양한 스타일을 골고루 섞어서 생성하세요 (호기심 유발형, 실용 팁형, 스토리형, 트렌드 분석형, 비교형, 과학 설명형 등)
+- 각 주제는 한 줄로 간결하게 작성
+- 번호 형식: 1. 주제명
+- 사과 메시지나 설명 없이 주제만 작성
+
+주제 목록:`
+  
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `당신은 유튜브 롱폼 콘텐츠 기획 전문가입니다. 사용자가 입력한 주제와 **오직 직접적으로 관련된** 주제만 생성해야 합니다.
+
+🚫🚫🚫 절대 금지 사항 🚫🚫🚫:
+1. 사용자가 입력한 주제와 관련 없는 주제는 절대 생성하지 마세요.
+2. 건강, 인생 교훈, 가족 이야기 등 다른 카테고리 주제는 절대 생성하지 마세요.
+3. 주제가 "테슬라"라면 테슬라 관련 주제만 생성하고, 건강이나 다른 주제는 절대 생성하지 마세요.
+4. 주제가 "여자친구 데이트"라면 데이트 관련 주제만 생성하고, 다른 주제는 절대 생성하지 마세요.
+
+✅ 필수 사항:
+- 사용자가 입력한 주제와 직접적으로 관련된 주제만 생성하세요.
+- 모든 주제는 입력한 주제의 핵심 키워드를 포함해야 합니다.
+
+주제 스타일 다양화 (입력한 주제와 관련된 범위 내에서):
+   - 호기심 유발형: 미스터리, 궁금증, 비밀, 숨겨진 이야기 (2-3개)
+   - 실용 팁형: How-to, 실생활 적용, 꿀팁, 방법론 (2-3개)
+   - 스토리/인물형: 인물 중심, 사건 중심, 경험담 (2-3개)
+   - 트렌드 분석형: 최신 이슈, 트렌드, 변화 (1-2개)
+   - 비교/대조형: A vs B, 차이점, 선택 가이드 (1-2개)
+   - 과학/지식 설명형: 원리, 메커니즘, 배경 지식 (1-2개)
+   - 감동/공감형: 인간적 이야기, 공감대 형성 (1-2개)
+
+기타:
+- 각 주제는 시청자의 호기심을 자극하고 클릭하고 싶게 만들어야 합니다.
+- 주제만 생성하고, 사과 메시지나 설명은 절대 포함하지 마세요.
+- 각 주제는 번호를 붙여서 작성해주세요 (예: 1. 주제명).`,
+        },
+        {
+          role: "user",
+          content: finalPrompt,
+        },
+      ],
+      max_tokens: 1500,
+      temperature: 0.9,
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`API 호출 실패: ${response.status}`)
+  }
+
+  const data = await response.json()
+  const content = data.choices[0]?.message?.content
+
+  if (!content) {
+    throw new Error("API 응답에서 내용을 찾을 수 없습니다.")
+  }
+
+  console.log("[generateTopicsFromCustomTopic] GPT API 응답:", content.substring(0, 200))
+
+  const lines = content.split("\n").filter((line: string) => line.trim())
+  const topics: string[] = []
+  
+  for (const line of lines) {
+    // 다양한 번호 형식 지원: "1.", "1)", "1. ", "- 1." 등
+    const match = line.match(/^[\d\-]+[\.\)]\s*(.+)$/) || line.match(/^[\-\*]\s*(.+)$/)
+    if (match && match[1]) {
+      const topic = match[1].trim()
+      // 오류 메시지가 아닌 실제 주제인지 확인
+      if (topic && 
+          topic.length > 0 && 
+          !topic.includes("카테고리가") && 
+          !topic.includes("죄송하지만") &&
+          !topic.includes("제공해")) {
+        topics.push(topic)
+      }
+    }
+    if (topics.length >= 15) break
+  }
+
+  if (topics.length === 0) {
+    console.error("[generateTopicsFromCustomTopic] 주제를 파싱할 수 없습니다. 원본 응답:", content)
+    throw new Error(`주제를 생성할 수 없습니다. GPT API 응답: ${content.substring(0, 200)}`)
+  }
+
+  console.log("[generateTopicsFromCustomTopic] 생성 완료, 주제 수:", topics.length)
+  return topics
+}
+
 async function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -294,13 +418,23 @@ export async function generateTopics(
   category: Category = "health",
   keywords?: string,
   benchmarkUrl?: string,
-  apiKey?: string
+  apiKey?: string,
+  customTopic?: string
 ) {
   // 사용자가 제공한 API 키 사용 (없으면 환경 변수에서 가져오기)
   const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
 
   if (!GPT_API_KEY) {
     throw new Error("OpenAI API 키가 설정되지 않았습니다.")
+  }
+
+  // ⚠️ 매우 중요: 직접입력 주제가 있으면 actions.ts의 generateTopicsFromCustomTopic 함수 호출
+  if (customTopic && typeof customTopic === 'string' && customTopic.trim().length > 0) {
+    console.log("[actions.tsx] 직접입력 주제 모드 감지 - 주제:", customTopic.trim())
+    console.log("[actions.tsx] generateTopicsFromCustomTopic 함수 호출 시작")
+    const result = await generateTopicsFromCustomTopic(customTopic.trim(), GPT_API_KEY)
+    console.log("[actions.tsx] generateTopicsFromCustomTopic 함수 완료, 결과:", result.length, "개")
+    return result
   }
 
   try {
@@ -825,25 +959,57 @@ export async function generateScript(topic: string, customScript?: string, apiKe
 
 export async function generateScriptPlan(
   topic: string,
-  category: Category = "health",
-  benchmarkScript?: string,
+  category: string,
+  keywords?: string,
   apiKey?: string,
-  isStoryMode: boolean = false // 스토리 형태 모드 (기본값: false = 교훈형)
-) {
+  videoDurationMinutes?: number, // 영상 길이 (분)
+  referenceScript?: string, // 레퍼런스 대본
+  contentType?: "A" | "B" | "C" | "D" | "custom" | null, // 사용자가 선택한 콘텐츠 타입
+  customContentTypeDescription?: string // 커스텀 타입 선택 시 사용자 입력 설명
+): Promise<string> {
+  // ⚠️ 중요: 이 함수는 서버 사이드에서 실행되므로 로그는 서버 콘솔(터미널)에 찍힙니다!
+  console.log("=".repeat(80))
+  console.log("[generateScriptPlan - actions.tsx] 🚀 함수 호출됨!")
+  console.log("[generateScriptPlan - actions.tsx] 전달된 파라미터:")
+  console.log("  - topic:", topic)
+  console.log("  - category:", category)
+  console.log("  - keywords:", keywords)
+  console.log("  - contentType:", contentType, "(타입:", typeof contentType, ")")
+  console.log("  - customContentTypeDescription:", customContentTypeDescription)
+  console.log("=".repeat(80))
+  
   // 사용자가 제공한 API 키 사용 (없으면 환경 변수에서 가져오기)
   const GEMINI_API_KEY = apiKey || process.env.GEMINI_API_KEY
 
   if (!GEMINI_API_KEY) {
+    console.error("[generateScriptPlan - actions.tsx] ❌ Gemini API 키가 없습니다!")
     throw new Error("Gemini API 키가 설정되지 않았습니다.")
   }
 
-  // 재시도 함수
-  const tryGenerate = async (geminiKey: string, isRetry: boolean = false): Promise<string> => {
-    try {
-    const systemPrompt = `당신은 '지식 스토리텔링 전문 기획자'입니다.
+  // 타입이 선택되지 않으면 AI가 자동으로 결정합니다
+  if (!contentType) {
+    console.log("[generateScriptPlan - actions.tsx] ⚠️ contentType이 없습니다. AI가 자동으로 타입을 결정합니다.")
+    // contentType을 null로 유지하여 AI가 자동으로 선택하도록 함
+  }
 
-당신의 임무는 사용자가 이미 선택한 [주제]를 바탕으로,
+  // 커스텀 타입 선택 시 설명이 필수입니다.
+  if (contentType === "custom" && (!customContentTypeDescription || !customContentTypeDescription.trim())) {
+    console.error("[generateScriptPlan - actions.tsx] ❌ 커스텀 타입인데 설명이 없습니다!")
+    throw new Error("커스텀 타입을 선택하셨습니다. 원하는 대본 구조를 입력해주세요.")
+  }
+
+  const duration = videoDurationMinutes || 5 // 기본값 5분
+  console.log("[generateScriptPlan - actions.tsx] ✅ 검증 통과 - duration:", duration)
+
+  // 공통 System Prompt (타입별로 추가 지시사항이 붙음)
+  const baseSystemPrompt = `당신은 '지식 스토리텔링 전문 기획자'입니다.
+
+당신의 임무는 사용자가 이미 선택한 콘텐츠 타입 구조에 맞게,
 본격적인 대본 작성을 위한 '대본 기획안(스토리 설계도)'을 만드는 것입니다.
+
+⚠️⚠️⚠️ 매우 중요: 콘텐츠 타입은 이미 결정되어 있습니다.
+⚠️ 주제를 분석하거나 타입을 선택하지 마세요. 타입은 변경할 수 없습니다.
+⚠️ 주제는 단순히 기획안을 작성할 때 사용하는 정보일 뿐입니다. 주제를 보고 타입을 판단하지 마세요.
 
 이 단계에서는 완성된 대본을 쓰지 않습니다.
 대신, 이후 단계에서 대본 생성 AI가 흔들리지 않도록
@@ -878,31 +1044,12 @@ export async function generateScriptPlan(
 - "설명"보다 "상황 → 의미" 구조를 우선
 
 ────────────────────────
-[콘텐츠 구조 선택]
-────────────────────────
-아래 3가지 중, 주제에 가장 적합한 구조를 **하나만 선택**하여 기획하시오.
-
-● Type A. 단일 서사 심층형
-- 하나의 사건, 인물, 역사적 이야기
-- 기승전결 + 감정 곡선 중심
-
-● Type B. 컴필레이션 / 목록형
-- 하나의 대주제 아래 3~5개의 사례
-- 각 사례는 '미니 스토리' 구조
-
-● Type C. 다각도 탐구형
-- 하나의 대상을 여러 관점으로 분해
-- 논리적 흐름 + 점층적 몰입
-
-선택한 타입을 명확히 밝히고 기획을 진행할 것.
-
-────────────────────────
 [기획 산출물 형식]
 ────────────────────────
 아래 형식을 반드시 지켜서 출력하십시오.
 
-1) 선택한 콘텐츠 타입
-- Type A / B / C 중 하나
+1) 콘텐츠 타입
+- [타입이 여기에 들어갑니다]
 
 2) 전체 이야기 한 줄 요약
 - 이 영상이 "결국 어떤 이야기를 하려는지"를 한 문장으로
@@ -934,133 +1081,534 @@ export async function generateScriptPlan(
 - 실제 내레이션 문장, 대사, TTS용 문구는 절대 포함하지 마십시오.
 - 설명은 기획자의 시점에서 서술하십시오.
 - 제작자 노트, 체크리스트, 파트 구분, 글자수 등은 절대 포함하지 마십시오.
-- 오직 기획안만 출력하십시오. 추가 설명이나 메타 정보는 포함하지 마십시오.
+- 오직 기획안만 출력하십시오. 추가 설명이나 메타 정보는 포함하지 마십시오.`
+
+  try {
+    // 타입별 if문 분기: 선택한 타입에 맞는 프롬프트 생성 및 AI 호출
+    console.log("[generateScriptPlan - actions.tsx] ========== 타입 분기 시작 ==========")
+    console.log("[generateScriptPlan - actions.tsx] contentType 값:", contentType)
+    console.log("[generateScriptPlan - actions.tsx] contentType 타입:", typeof contentType)
+    console.log("[generateScriptPlan - actions.tsx] contentType === 'A':", contentType === "A")
+    console.log("[generateScriptPlan - actions.tsx] contentType === 'B':", contentType === "B")
+    console.log("[generateScriptPlan - actions.tsx] contentType === 'C':", contentType === "C")
+    console.log("[generateScriptPlan - actions.tsx] contentType === 'D':", contentType === "D")
+    console.log("[generateScriptPlan - actions.tsx] contentType === 'custom':", contentType === "custom")
+    
+    let systemPrompt = ""
+    let userPrompt = ""
+
+    if (contentType === "A") {
+      // Type A 선택됨 → Type A 전용 프롬프트 생성
+      console.log("[generateScriptPlan - actions.tsx] ✅ Type A 분기 진입 - Type A 전용 프롬프트 생성")
+      
+      systemPrompt = `${baseSystemPrompt}
 
 ────────────────────────
-[프롬프트 실행]
+[Type A. 단일 서사 심층형 - 필수 구조]
 ────────────────────────
-아래 [주제]를 바탕으로 위 모든 조건을 충족하는
-'대본 기획안'을 작성하십시오.
+⚠️ 매우 중요: 이 기획안은 반드시 Type A (단일 서사 심층형) 구조로 작성해야 합니다.
 
-⚠️ 중요: 출력은 반드시 기획안만 포함해야 합니다.
-- 제작자 노트, 체크리스트, 파트 구분, 글자수, 메타 정보는 절대 포함하지 마십시오.
-- 대본 문장, 내레이션, 대사는 절대 포함하지 마십시오.
-- 오직 1)~6) 기획 산출물 형식만 출력하십시오.`
+Type A의 핵심 원칙:
+1. 하나의 사건, 인물, 또는 역사적 이야기를 깊이 있게 다룹니다
+2. 기승전결 구조를 중심으로 구성합니다
+   - 기(起): 이야기의 시작, 배경 설정
+   - 승(承): 사건의 전개, 갈등의 시작
+   - 전(轉): 절정, 갈등의 정점
+   - 결(結): 해결, 교훈 또는 여운
+3. 감정 곡선을 명확히 설계합니다
+   - 초반: 호기심 유발
+   - 중반: 긴장감 증가
+   - 후반: 감동 또는 깨달음
+4. 단일 서사 구조로 일관되게 전개합니다
+   - 여러 사례를 나열하지 않습니다
+   - 하나의 이야기에 집중합니다
+   - 시간순 또는 사건 순서대로 구성
+   - 인물의 심리 변화와 행동을 중심으로
 
-    const userPrompt = `[주제]: ${topic}`
+❌ Type A에서 하지 말아야 할 것:
+- Type B처럼 여러 사례를 나열하는 것
+- Type C처럼 여러 관점으로 분석하는 것
+- 목록형 구조를 사용하는 것
 
-    console.log("[v0] 대본 기획 API 호출 시작 (Gemini)")
+기획안의 "1) 콘텐츠 타입" 부분에는 반드시 "- Type A"라고만 작성하세요.`
 
-    // 재시도 로직 (최대 3번, exponential backoff)
-    let lastError: Error | null = null
-    const maxRetries = 3
-    const baseDelay = 1000 // 1초
+      userPrompt = `⚠️ 필수 확인사항:
+1. 콘텐츠 타입은 이미 Type A로 결정되어 있습니다. 이것은 변경할 수 없습니다.
+2. 주제를 분석하거나 타입을 선택하지 마세요. 타입은 이미 Type A로 결정되어 있습니다.
+3. "1) 콘텐츠 타입" 부분에는 반드시 "- Type A"라고만 작성하세요.
 
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      try {
-        if (attempt > 0) {
-          const delay = baseDelay * Math.pow(2, attempt - 1) // 1초, 2초, 4초
-          console.log(`[v0] 재시도 ${attempt}/${maxRetries - 1} - ${delay}ms 후 재시도...`)
-          await new Promise((resolve) => setTimeout(resolve, delay))
-        }
+[기획할 주제]: ${topic}
 
-        // Gemini API 호출
-        const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              contents: [
-                {
-                  parts: [
-                    {
-                      text: `${systemPrompt}\n\n${userPrompt}`,
-                    },
-                  ],
-                },
-              ],
-              generationConfig: {
-                temperature: 0.7,
-                topK: 40,
-                topP: 0.95,
-                maxOutputTokens: 8000,
-              },
-            }),
-          }
-        )
+Type A (단일 서사 심층형)의 구조와 특징에 맞게 기획안을 작성하세요.
+주제는 기획안을 작성할 때 사용하는 정보일 뿐입니다. 주제를 분석하거나 타입을 선택하지 마세요.
 
-        console.log("[v0] API 응답 상태:", response.status)
+Type A 작성 방법:
+- 하나의 사건, 인물, 또는 역사적 이야기를 깊이 있게 다루세요
+- 기승전결 구조로 구성하세요 (기 → 승 → 전 → 결)
+- 감정 곡선을 설계하세요 (호기심 → 긴장 → 감동/깨달음)
+- 여러 사례를 나열하지 말고 하나의 이야기에 집중하세요
+- Type B처럼 여러 사례를 나열하지 마세요
+- Type C처럼 여러 관점으로 분석하지 마세요`
 
-        if (!response.ok) {
-          const errorText = await response.text()
-          console.log("[v0] API 오류 응답:", errorText)
-          
-          // 503 에러이고 재시도 가능한 경우
-          if (response.status === 503 && attempt < maxRetries - 1) {
-            try {
-              const errorData = JSON.parse(errorText)
-              if (errorData.error?.message?.includes("overloaded") || errorData.error?.status === "UNAVAILABLE") {
-                lastError = new Error(`Gemini API 서버가 과부하 상태입니다. 재시도 중... (${attempt + 1}/${maxRetries})`)
-                continue // 재시도
-              }
-            } catch (parseError) {
-              // JSON 파싱 실패 시에도 503이면 재시도
-              lastError = new Error(`Gemini API 서버가 과부하 상태입니다. 재시도 중... (${attempt + 1}/${maxRetries})`)
-              continue
-            }
-          }
-          
-          throw new Error(`Gemini API 호출 실패: ${response.status} - ${errorText}`)
-        }
+    } else if (contentType === "B") {
+      // Type B 선택됨 → Type B 전용 프롬프트 생성
+      console.log("[generateScriptPlan - actions.tsx] ✅ Type B 분기 진입 - Type B 전용 프롬프트 생성")
+      
+      systemPrompt = `${baseSystemPrompt}
 
-        // 성공한 경우 루프 탈출
-        const data = await response.json()
-        const candidate = data.candidates?.[0]
-        
-        if (!candidate) {
-          throw new Error("대본 기획 생성에 실패했습니다. 응답 후보가 없습니다.")
-        }
+────────────────────────
+[Type B. 컴필레이션 / 목록형 - 필수 구조]
+────────────────────────
+⚠️ 매우 중요: 이 기획안은 반드시 Type B (컴필레이션 / 목록형) 구조로 작성해야 합니다.
 
-        const content = candidate.content?.parts?.[0]?.text
-        const finishReason = candidate.finishReason
+Type B의 핵심 원칙:
+1. 하나의 대주제 아래 3~5개의 사례를 나열합니다
+2. 각 사례는 미니 스토리 구조로 작성합니다
+3. 목록형 구조로 체계적으로 전개합니다
+4. 대주제 소개 → 사례 1 → 사례 2 → 사례 3 → 통찰/교훈 순서로 구성합니다
 
-        if (!content) {
-          throw new Error("대본 기획 생성에 실패했습니다. 응답 내용이 없습니다.")
-        }
+❌ Type B에서 하지 말아야 할 것:
+- Type A처럼 하나의 이야기에 집중하는 것
+- Type C처럼 여러 관점으로 분석하는 것
+- 단일 서사 구조를 사용하는 것
 
-        // 응답이 토큰 제한으로 잘렸는지 확인
-        if (finishReason === "MAX_TOKENS") {
-          console.warn("[v0] ⚠️ 대본 기획 응답이 토큰 제한으로 잘렸을 수 있습니다.")
-        }
+기획안의 "1) 콘텐츠 타입" 부분에는 반드시 "- Type B"라고만 작성하세요.`
 
-        console.log(`[v0] 대본 기획 생성 완료 (재시도: ${isRetry ? "예" : "아니오"}), 길이:`, content.length, "finishReason:", finishReason)
-        return content
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error))
-        
-        // 마지막 시도가 아니고 503 에러인 경우에만 재시도
-        if (attempt < maxRetries - 1 && lastError.message.includes("503")) {
-          continue
-        }
-        
-        // 재시도 불가능한 경우 에러 throw
-        throw lastError
-      }
+      userPrompt = `⚠️ 필수 확인사항:
+1. 콘텐츠 타입은 이미 Type B로 결정되어 있습니다. 이것은 변경할 수 없습니다.
+2. 주제를 분석하거나 타입을 선택하지 마세요. 타입은 이미 Type B로 결정되어 있습니다.
+3. "1) 콘텐츠 타입" 부분에는 반드시 "- Type B"라고만 작성하세요.
+
+[기획할 주제]: ${topic}
+
+Type B (컴필레이션 / 목록형)의 구조와 특징에 맞게 기획안을 작성하세요.
+주제는 기획안을 작성할 때 사용하는 정보일 뿐입니다. 주제를 분석하거나 타입을 선택하지 마세요.
+
+Type B 작성 방법:
+- 하나의 대주제 아래 3~5개의 사례를 나열하세요
+- 각 사례는 미니 스토리 구조로 작성하세요
+- 목록형 구조로 체계적으로 전개하세요
+- 대주제 소개 → 사례 1 → 사례 2 → 사례 3 → 통찰/교훈 순서로 구성하세요
+- Type A처럼 하나의 이야기에 집중하지 마세요
+- Type C처럼 여러 관점으로 분석하지 마세요`
+
+    } else if (contentType === "C") {
+      // Type C 선택됨 → Type C 전용 프롬프트 생성
+      console.log("[generateScriptPlan - actions.tsx] ✅ Type C 분기 진입 - Type C 전용 프롬프트 생성")
+      
+      systemPrompt = `${baseSystemPrompt}
+
+────────────────────────
+[Type C. 다각도 탐구형 - 필수 구조]
+────────────────────────
+⚠️ 매우 중요: 이 기획안은 반드시 Type C (다각도 탐구형) 구조로 작성해야 합니다.
+
+Type C의 핵심 원칙:
+1. 하나의 대상을 여러 관점으로 분석합니다 (역사적, 사회적, 경제적, 문화적 등)
+2. 논리적 흐름을 중심으로 구성합니다
+3. 점층적 몰입 구조로 설계합니다 (표면적 이해 → 깊은 통찰)
+4. 대상 소개 → 관점 1 → 관점 2 → 관점 3 → 종합적 통찰 순서로 구성합니다
+
+❌ Type C에서 하지 말아야 할 것:
+- Type A처럼 하나의 이야기에 집중하는 것
+- Type B처럼 여러 사례를 나열하는 것
+- 단일 서사 구조를 사용하는 것
+
+기획안의 "1) 콘텐츠 타입" 부분에는 반드시 "- Type C"라고만 작성하세요.`
+
+      userPrompt = `⚠️ 필수 확인사항:
+1. 콘텐츠 타입은 이미 Type C로 결정되어 있습니다. 이것은 변경할 수 없습니다.
+2. 주제를 분석하거나 타입을 선택하지 마세요. 타입은 이미 Type C로 결정되어 있습니다.
+3. "1) 콘텐츠 타입" 부분에는 반드시 "- Type C"라고만 작성하세요.
+
+[기획할 주제]: ${topic}
+
+Type C (다각도 탐구형)의 구조와 특징에 맞게 기획안을 작성하세요.
+주제는 기획안을 작성할 때 사용하는 정보일 뿐입니다. 주제를 분석하거나 타입을 선택하지 마세요.
+
+Type C 작성 방법:
+- 하나의 대상을 여러 관점으로 분석하세요 (역사적, 사회적, 경제적, 문화적 등)
+- 논리적 흐름을 중심으로 구성하세요
+- 점층적 몰입 구조로 설계하세요 (표면적 이해 → 깊은 통찰)
+- 대상 소개 → 관점 1 → 관점 2 → 관점 3 → 종합적 통찰 순서로 구성하세요
+- Type A처럼 하나의 이야기에 집중하지 마세요
+- Type B처럼 여러 사례를 나열하지 마세요`
+
+    } else if (contentType === "D") {
+      // Type D 선택됨 → Type D 전용 프롬프트 생성
+      console.log("[generateScriptPlan - actions.tsx] ✅ Type D 분기 진입 - Type D 전용 프롬프트 생성")
+      
+      systemPrompt = `${baseSystemPrompt}
+
+═══════════════════════════════════════════════════════════════
+🚨🚨🚨 절대 필수: Type D (이야기형) 구조로만 작성하세요 🚨🚨🚨
+═══════════════════════════════════════════════════════════════
+
+⚠️⚠️⚠️ 매우 중요: 이 기획안은 반드시 Type D (이야기형) 구조로 작성해야 합니다.
+⚠️ 주제가 역사적 인물이든, 사건이든, 무엇이든 상관없이 Type D 구조로 작성하세요.
+
+Type D의 핵심 원칙:
+1. "옛날 옛날에...", "한 옛날에..." 같은 전래동화/민담 형식으로 기획합니다
+2. 등장인물 중심으로 구성합니다
+   - 주인공: 명확한 성격과 목표
+   - 조연: 주인공을 돕는 인물
+   - 악역 또는 시련: 갈등의 원인
+3. 사건 전개 구조를 따릅니다
+   - 시작: 주인공과 배경 소개
+   - 사건 발생: 문제나 시련의 시작
+   - 갈등/시련: 주인공이 겪는 어려움
+   - 해결: 문제 해결 과정
+   - 교훈/결말: 이야기의 의미와 교훈
+4. 재미 요소를 포함합니다
+   - 흥미진진한 전개
+   - 반전 요소
+   - 자연스러운 교훈
+5. 옛날 할머니/할아버지가 손자에게 들려주는 듯한 따뜻하고 재미있는 이야기꾼 톤
+
+❌❌❌ Type D에서 절대 하지 말아야 할 것:
+- Type A (단일 서사 심층형) 구조 사용 - 절대 금지
+- Type B (목록형) 구조 사용 - 절대 금지
+- Type C (다각도 탐구형) 구조 사용 - 절대 금지
+- 에세이 형식 (설명문, 논설문, 분석문 형식 절대 금지)
+- 역사적 사실을 그대로 나열하는 형식 - 절대 금지
+- "세종대왕은..." 같은 설명문 형식 - 절대 금지
+
+✅✅✅ 반드시 해야 할 것:
+- "옛날 옛날에 세종대왕이라는 왕이 살았습니다..." 같은 이야기 형식으로 시작
+- 등장인물(세종대왕, 조선의 신하들 등)을 중심으로 이야기 구성
+- 사건 전개 구조 (시작 → 사건 → 갈등 → 해결 → 교훈)
+- 기획안의 "1) 콘텐츠 타입" 부분에는 반드시 "- Type D"라고만 작성하세요.`
+
+      userPrompt = `🚨🚨🚨 절대 필수 확인사항 🚨🚨🚨
+1. 콘텐츠 타입은 이미 Type D로 결정되어 있습니다. 이것은 변경할 수 없습니다.
+2. 주제를 분석하거나 타입을 선택하지 마세요. 타입은 이미 Type D로 결정되어 있습니다.
+3. "1) 콘텐츠 타입" 부분에는 반드시 "- Type D"라고만 작성하세요.
+4. Type A, B, C는 절대 사용하지 마세요.
+
+[기획할 주제]: ${topic}
+
+Type D (이야기형)의 구조와 특징에 맞게 기획안을 작성하세요.
+주제는 기획안을 작성할 때 사용하는 정보일 뿐입니다. 주제를 분석하거나 타입을 선택하지 마세요.
+
+Type D 작성 방법:
+- "옛날 옛날에...", "한 옛날에..." 같은 전래동화/민담 형식으로 시작하세요
+- 등장인물 중심으로 구성하세요 (주인공, 조연, 악역 등)
+- 사건 전개 구조를 따르세요: 시작 → 사건 발생 → 갈등/시련 → 해결 → 교훈/결말
+- 재미 요소를 포함하세요 (흥미진진함, 반전, 교훈)
+- 옛날 할머니/할아버지가 손자에게 들려주는 듯한 따뜻하고 재미있는 이야기꾼 톤으로 작성하세요
+- 에세이 형식은 절대 사용하지 마세요 (설명문, 논설문, 분석문 형식 금지)
+- Type A처럼 역사적 사실을 나열하는 형식은 절대 사용하지 마세요
+- Type B처럼 여러 사례를 나열하는 형식은 절대 사용하지 마세요
+- Type C처럼 여러 관점으로 분석하는 형식은 절대 사용하지 마세요
+
+예시:
+❌ 잘못된 형식: "세종대왕은 조선의 제4대 왕으로, 한글을 창제한 위대한 성군이었습니다..."
+✅ 올바른 형식: "옛날 옛날에, 조선이라는 나라에 세종대왕이라는 지혜로운 왕이 살았습니다. 그 왕은 백성들을 사랑하는 마음이 깊었는데..."`
+
+    } else if (contentType === "custom" && customContentTypeDescription) {
+      // 커스텀 타입 선택됨 → 커스텀 타입 전용 프롬프트 생성
+      console.log("[generateScriptPlan - actions.tsx] ✅ 커스텀 타입 분기 진입 - 커스텀 타입 전용 프롬프트 생성")
+      console.log("[generateScriptPlan - actions.tsx] 📝 커스텀 구조 내용:")
+      console.log(customContentTypeDescription)
+      console.log("[generateScriptPlan - actions.tsx] 📝 커스텀 구조 길이:", customContentTypeDescription.length)
+      
+      // 커스텀 타입은 baseSystemPrompt의 형식 제약을 완화하고 사용자 구조를 최우선으로 반영
+      const customBaseSystemPrompt = `당신은 '지식 스토리텔링 전문 기획자'입니다.
+
+당신의 임무는 사용자가 지정한 커스텀 구조에 정확히 맞게,
+본격적인 대본 작성을 위한 '대본 기획안(스토리 설계도)'을 만드는 것입니다.
+
+⚠️⚠️⚠️ 매우 중요: 
+- 사용자가 지정한 커스텀 구조를 최우선으로 반영하세요.
+- 다른 타입(A, B, C, D)의 구조나 형식을 사용하지 마세요.
+- 사용자가 지정한 구조의 형식, 단계, 흐름을 그대로 따르세요.
+
+이 단계에서는 완성된 대본을 쓰지 않습니다.
+대신, 이후 단계에서 대본 생성 AI가 흔들리지 않도록
+이야기의 구조, 감정 흐름, 핵심 포인트를 명확히 설계해야 합니다.
+
+────────────────────────
+[채널 및 콘텐츠 정체성]
+────────────────────────
+- 채널 성격: 역사·사회·경제·미스터리·전쟁사 기반의 지식 스토리텔링
+- 타깃: 한국인 성인 시청자
+- 톤: 친근하지만 가볍지 않음, 이야기꾼의 구어체, 몰입감 최우선
+- 목표: 정보 전달이 아니라 '끝까지 보게 만드는 흐름' 설계
+
+────────────────────────
+[기획 핵심 원칙]
+────────────────────────
+1) 이탈 방지 최우선
+- 초반 30초 안에 반드시 '강력한 궁금증'을 유발해야 함
+- 중간중간 "이 다음을 보지 않으면 안 될 이유"를 설계
+
+2) 사실 기반 + 신뢰도 최우선 (중요)
+- 허구의 주인공/가상 인물/드라마적 운명 교차/로맨스/과장된 배신극을 절대 사용하지 마십시오.
+- 역사·외교·전쟁 주제는 "실존 국가/실존 인물(필요 시)/결정 구조/외교 흐름/기록에 근거한 사건" 중심으로 기획하십시오.
+- 확실하지 않은 정보는 단정하지 말고, "~로 알려져 있다/기록에 따르면/해석이 갈린다"처럼 표현하십시오.
+
+3) 장면화 가능성 고려
+- 이후 이 기획안은 '장면 단위 이미지 생성'으로 확장됨
+- 추상적인 설명만 나열하지 말고, 장면·상황·사람이 떠오르도록 구성
+
+4) 과도한 정보 나열 금지
+- 사실은 이야기 속에 녹여서 배치
+- "설명"보다 "상황 → 의미" 구조를 우선
+
+────────────────────────
+[커스텀 타입 - 필수 구조]
+────────────────────────
+⚠️⚠️⚠️ 절대 필수: 사용자가 지정한 커스텀 구조를 정확히 따르세요.
+
+[사용자가 지정한 커스텀 구조]:
+${customContentTypeDescription}
+
+이 구조에 따라 기획안을 작성하세요:
+- 사용자가 명시한 전개 방식, 핵심 포인트, 구조를 정확히 반영
+- 사용자가 지정한 단계, 흐름, 형식을 그대로 따르세요
+- 사용자가 요청하지 않은 요소는 추가하지 않음
+- 다른 타입(A, B, C, D)의 구조를 사용하지 마세요
+- 사용자가 지정한 구조의 형식에 맞춰 기획안을 작성하세요
+
+────────────────────────
+[기획 산출물 형식]
+────────────────────────
+⚠️ 중요: 사용자가 지정한 커스텀 구조에 형식이 명시되어 있다면, 그 형식을 우선적으로 따르세요.
+형식이 명시되지 않았다면, 아래 기본 형식을 사용하되 커스텀 구조의 내용을 반영하세요.
+
+1) 콘텐츠 타입
+- 커스텀 타입
+
+2) 전체 이야기 한 줄 요약
+- 이 영상이 "결국 어떤 이야기를 하려는지"를 한 문장으로
+
+3) 오프닝 기획
+- 초반 훅의 핵심 질문 또는 충격 포인트
+- 시청자가 왜 이 영상을 계속 봐야 하는지
+
+4) 본론 구성 설계
+- 사용자가 지정한 커스텀 구조의 단계별 흐름을 반영
+- 각 단계마다:
+  · 다루는 핵심 내용
+  · 감정 방향 (불안 / 긴장 / 충격 / 공감 / 희망 등)
+  · 장면화 가능한 포인트 (사람, 상황, 공간, 상징 오브젝트)
+
+5) 클라이맥스 / 핵심 메시지
+- 이야기의 정점
+- 시청자의 감정이 가장 크게 움직여야 하는 지점
+
+6) 아웃트로 설계
+- 오늘 이야기가 '지금 우리에게 왜 중요한지'
+- 여운을 남기는 마무리 방향
+- 다음 영상으로 자연스럽게 이어지는 문장(기획 관점)
+
+────────────────────────
+[출력 제한]
+────────────────────────
+- 아직 '대본 문장'을 쓰지 마십시오.
+- 실제 내레이션 문장, 대사, TTS용 문구는 절대 포함하지 마십시오.
+- 설명은 기획자의 시점에서 서술하십시오.
+- 제작자 노트, 체크리스트, 파트 구분, 글자수 등은 절대 포함하지 마십시오.
+- 오직 기획안만 출력하십시오. 추가 설명이나 메타 정보는 포함하지 마십시오.`
+
+      systemPrompt = customBaseSystemPrompt
+
+      userPrompt = `⚠️⚠️⚠️ 절대 필수 확인사항:
+1. 콘텐츠 타입은 이미 커스텀 타입으로 결정되어 있습니다. 이것은 변경할 수 없습니다.
+2. 주제를 분석하거나 타입을 선택하지 마세요. 타입은 이미 커스텀 타입으로 결정되어 있습니다.
+3. 사용자가 지정한 커스텀 구조를 정확히 따르세요. 다른 타입(A, B, C, D)의 구조를 사용하지 마세요.
+4. 사용자가 지정한 구조의 형식, 단계, 흐름을 그대로 반영하세요.
+
+[기획할 주제]: ${topic}
+
+[사용자가 지정한 커스텀 구조]:
+${customContentTypeDescription}
+
+⚠️⚠️⚠️ 매우 중요:
+- 위에 명시된 커스텀 구조를 정확히 따르세요.
+- 커스텀 구조에 명시된 단계, 흐름, 형식을 그대로 반영하세요.
+- 커스텀 구조에 "초반 15초 구조", "중반 전개 구조", "후반 마무리 구조" 등이 명시되어 있다면, 그 구조를 정확히 따르세요.
+- 커스텀 구조에 "시청자의 ○○ 감정을 자극하며 ○○을 제기하는 구조" 같은 형식이 있다면, 그 형식을 그대로 사용하세요.
+- 다른 타입(A, B, C, D)의 구조나 형식을 사용하지 마세요.
+- 주제는 기획안을 작성할 때 사용하는 정보일 뿐입니다. 주제를 분석하거나 타입을 선택하지 마세요.`
+
+    } else if (!contentType || contentType === null || contentType === undefined || contentType === "") {
+      // 타입이 선택되지 않은 경우 - AI가 자동으로 타입을 결정하도록 함
+      console.log("[generateScriptPlan - actions.tsx] ⚠️ 타입이 선택되지 않았습니다. AI가 자동으로 타입을 결정합니다.")
+      console.log("[generateScriptPlan - actions.tsx] contentType 값:", contentType)
+      
+      systemPrompt = `${baseSystemPrompt}
+
+────────────────────────
+[콘텐츠 구조 선택]
+────────────────────────
+아래 4가지 중, 주제에 가장 적합한 구조를 **하나만 선택**하여 기획하시오.
+
+● Type A. 단일 서사 심층형
+- 하나의 사건, 인물, 역사적 이야기
+- 기승전결 + 감정 곡선 중심
+
+● Type B. 컴필레이션 / 목록형
+- 하나의 대주제 아래 3~5개의 사례
+- 각 사례는 '미니 스토리' 구조
+
+● Type C. 다각도 탐구형
+- 하나의 대상을 여러 관점으로 분해
+- 논리적 흐름 + 점층적 몰입
+
+● Type D. 이야기형 (옛날이야기/민담)
+- "옛날 옛날에..." 형식의 전래동화/민담 형식
+- 등장인물 중심 구성
+- 사건 전개 구조 (시작 → 사건 → 갈등 → 해결 → 교훈)
+
+선택한 타입을 명확히 밝히고 기획을 진행할 것.
+
+기획안의 "1) 콘텐츠 타입" 부분에는 선택한 타입을 명확히 표시하세요.`
+
+      userPrompt = `[기획할 주제]: ${topic}
+
+위 주제에 가장 적합한 콘텐츠 타입을 선택하고, 그 타입에 맞게 기획안을 작성하세요.
+
+주제를 분석하여 가장 적합한 타입을 선택하세요:
+- Type A: 하나의 사건이나 인물을 깊이 있게 다루는 경우
+- Type B: 여러 사례를 나열하는 경우
+- Type C: 하나의 대상을 여러 관점으로 분석하는 경우
+- Type D: 옛날이야기/민담 형식으로 전달하는 경우
+
+선택한 타입을 "1) 콘텐츠 타입" 부분에 명확히 표시하세요.`
+    } else {
+      // 잘못된 타입인 경우
+      console.error("[generateScriptPlan - actions.tsx] ❌ 잘못된 타입입니다!")
+      console.error("[generateScriptPlan - actions.tsx] contentType:", contentType)
+      throw new Error(`콘텐츠 타입이 올바르지 않습니다. contentType: ${contentType}`)
     }
+    
+    console.log("[generateScriptPlan - actions.tsx] ========== 타입 분기 완료 ==========")
+    console.log("[generateScriptPlan - actions.tsx] systemPrompt 길이:", systemPrompt.length)
+    console.log("[generateScriptPlan - actions.tsx] userPrompt 길이:", userPrompt.length)
 
-    // 모든 재시도 실패
-    throw lastError || new Error("대본 기획 생성에 실패했습니다.")
+    // 재시도 함수
+    const tryGenerate = async (geminiKey: string, isRetry: boolean = false): Promise<string> => {
+    try {
+      console.log("[generateScriptPlan - actions.tsx] 사용할 프롬프트:")
+      console.log("  - systemPrompt 길이:", systemPrompt.length)
+      console.log("  - userPrompt 길이:", userPrompt.length)
+      console.log("[v0] 대본 기획 API 호출 시작 (Gemini)")
+
+      // 재시도 로직 (최대 3번, exponential backoff)
+      let lastError: Error | null = null
+      const maxRetries = 3
+      const baseDelay = 1000 // 1초
+
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+          if (attempt > 0) {
+            const delay = baseDelay * Math.pow(2, attempt - 1) // 1초, 2초, 4초
+            console.log(`[v0] 재시도 ${attempt}/${maxRetries - 1} - ${delay}ms 후 재시도...`)
+            await new Promise((resolve) => setTimeout(resolve, delay))
+          }
+
+          // Gemini API 호출
+          const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                contents: [
+                  {
+                    parts: [
+                      {
+                        text: `${systemPrompt}\n\n${userPrompt}`,
+                      },
+                    ],
+                  },
+                ],
+                generationConfig: {
+                  temperature: 0.7,
+                  topK: 40,
+                  topP: 0.95,
+                  maxOutputTokens: 8000,
+                },
+              }),
+            }
+          )
+
+          console.log("[v0] API 응답 상태:", response.status)
+
+          if (!response.ok) {
+            const errorText = await response.text()
+            console.log("[v0] API 오류 응답:", errorText)
+            
+            // 503 에러이고 재시도 가능한 경우
+            if (response.status === 503 && attempt < maxRetries - 1) {
+              try {
+                const errorData = JSON.parse(errorText)
+                if (errorData.error?.message?.includes("overloaded") || errorData.error?.status === "UNAVAILABLE") {
+                  lastError = new Error(`Gemini API 서버가 과부하 상태입니다. 재시도 중... (${attempt + 1}/${maxRetries})`)
+                  continue // 재시도
+                }
+              } catch (parseError) {
+                // JSON 파싱 실패 시에도 503이면 재시도
+                lastError = new Error(`Gemini API 서버가 과부하 상태입니다. 재시도 중... (${attempt + 1}/${maxRetries})`)
+                continue
+              }
+            }
+            
+            throw new Error(`Gemini API 호출 실패: ${response.status} - ${errorText}`)
+          }
+
+          // 성공한 경우 루프 탈출
+          const data = await response.json()
+          const candidate = data.candidates?.[0]
+          
+          if (!candidate) {
+            throw new Error("대본 기획 생성에 실패했습니다. 응답 후보가 없습니다.")
+          }
+
+          const content = candidate.content?.parts?.[0]?.text
+          const finishReason = candidate.finishReason
+
+          if (!content) {
+            throw new Error("대본 기획 생성에 실패했습니다. 응답 내용이 없습니다.")
+          }
+
+          // 응답이 토큰 제한으로 잘렸는지 확인
+          if (finishReason === "MAX_TOKENS") {
+            console.warn("[v0] ⚠️ 대본 기획 응답이 토큰 제한으로 잘렸을 수 있습니다.")
+          }
+
+          console.log(`[v0] 대본 기획 생성 완료 (재시도: ${isRetry ? "예" : "아니오"}), 길이:`, content.length, "finishReason:", finishReason)
+          return content
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error(String(error))
+          
+          // 마지막 시도가 아니고 503 에러인 경우에만 재시도
+          if (attempt < maxRetries - 1 && lastError.message.includes("503")) {
+            continue
+          }
+          
+          // 재시도 불가능한 경우 에러 throw
+          throw lastError
+        }
+      }
+
+      // 모든 재시도 실패
+      throw lastError || new Error("대본 기획 생성에 실패했습니다.")
     } catch (error) {
       console.error(`[v0] 대본 기획 생성 실패 (재시도: ${isRetry ? "예" : "아니오"}):`, error)
       throw error
     }
-  }
+    }
 
-  // 내부 API 키로 생성 시도
-  return await tryGenerate(GEMINI_API_KEY, false)
+    // 내부 API 키로 생성 시도
+    return await tryGenerate(GEMINI_API_KEY, false);
+  } catch (error) {
+    console.error("[generateScriptPlan - actions.tsx] ❌ 에러 발생:", error)
+    throw error
+  }
 }
 
 function generateFallbackScript(topic: string): string {
@@ -4285,6 +4833,123 @@ ${existingScript}
     return cleanedScript.trim()
   } catch (error) {
     console.error("[v0] 대본 재생성 실패:", error)
+    throw error
+  }
+}
+
+/**
+ * 벤치마킹 대본 구조 분석
+ */
+export async function analyzeBenchmarkScript(script: string, apiKey?: string): Promise<string> {
+  console.log("[analyzeBenchmarkScript] 시작, 대본 길이:", script.length)
+
+  const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
+
+  if (!GPT_API_KEY) {
+    throw new Error("GPT API 키가 설정되지 않았습니다. 환경 변수를 확인해주세요.")
+  }
+
+  if (!script || !script.trim()) {
+    throw new Error("분석할 대본을 입력해주세요.")
+  }
+
+  const systemPrompt = `너는 유튜브 롱폼 대본을 분석해
+'내용을 제거한 순수 구조'만 추출하는 스크립트 설계자다.
+
+아래 대본에서
+주제, 사례, 숫자, 주장, 결론 같은 '내용'은 전부 제거하고
+오직 "구조와 진행 방식"만 추상화해서 정리해라.
+
+목표는
+이 구조를 그대로 커스텀 타입 입력란에 넣어
+다른 주제로도 재사용할 수 있게 만드는 것이다.
+
+다음 기준을 반드시 지켜라.
+
+1. 대본 전체를 단계별 구조로 분해
+- 초반 / 중반 / 후반 흐름을 명확히 구분
+- 각 단계가 수행하는 역할을 설명
+
+2. 초반 15초는 반드시 별도로 분리
+- 어떤 방식으로 시작하는지
+- 질문형인지, 단정형인지, 위기 제시형인지
+- 시청 지속을 유도하는 장치가 무엇인지
+
+3. 구조 설명은 반드시 '형식 문장'으로 작성
+- "○○을 설명한다" ❌
+- "시청자의 ○○ 감정을 자극하며 ○○을 제기하는 구조" ⭕️
+
+4. 내용 고유명사, 수치, 사례, 주제 단어 사용 금지
+- 이 구조를 다른 모든 주제에 적용할 수 있어야 한다
+
+5. 결과물은 '설명서 문장'처럼 작성
+- AI가 이 구조를 그대로 따라 대본을 다시 만들 수 있어야 한다
+
+출력 형식은 아래를 따르라.
+
+[이 대본의 전체 구조 요약]
+- …
+
+[초반 15초 구조]
+- …
+
+[중반 전개 구조]
+- …
+
+[후반 마무리 구조]
+- …
+
+[이 구조의 핵심 특징]
+- …`
+
+  const userPrompt = `이제 아래 대본의 구조만 추출해라.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+대본:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+${script}`
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${GPT_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: systemPrompt,
+          },
+          {
+            role: "user",
+            content: userPrompt,
+          },
+        ],
+        max_tokens: 4000,
+        temperature: 0.7,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(`API 호출 실패: ${response.status} - ${JSON.stringify(errorData)}`)
+    }
+
+    const data = await response.json()
+    const content = data.choices[0]?.message?.content
+
+    if (!content) {
+      throw new Error("API 응답에서 내용을 찾을 수 없습니다.")
+    }
+
+    console.log("[analyzeBenchmarkScript] 분석 완료")
+    return content.trim()
+  } catch (error) {
+    console.error("[analyzeBenchmarkScript] 분석 실패:", error)
     throw error
   }
 }
