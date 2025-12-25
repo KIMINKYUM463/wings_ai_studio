@@ -78,6 +78,13 @@ def render_video():
                 "error": "요청 데이터가 없습니다."
             }), 400
         
+        # data가 dict가 아닌 경우 처리
+        if not isinstance(data, dict):
+            return jsonify({
+                "success": False,
+                "error": f"요청 데이터 형식이 올바르지 않습니다. (type: {type(data).__name__})"
+            }), 400
+        
         # 비동기 모드 확인
         async_mode = data.get('asyncMode', False)
         
@@ -130,8 +137,12 @@ def render_video():
                         job_status_dict=job_status
                     )
                     
-                    # 결과 저장
-                    if result.get('success'):
+                    # 결과 저장 (result가 None인 경우 처리)
+                    if result is None:
+                        job_status[job_id]['status'] = 'failed'
+                        job_status[job_id]['error'] = '렌더링 결과가 None입니다.'
+                        job_status[job_id]['message'] = '렌더링 실패: 결과를 받을 수 없습니다.'
+                    elif isinstance(result, dict) and result.get('success'):
                         job_status[job_id]['status'] = 'completed'
                         job_status[job_id]['progress'] = 100
                         job_status[job_id]['message'] = '렌더링 완료'
@@ -140,8 +151,11 @@ def render_video():
                         job_status[job_id]['downloadUrl'] = result.get('downloadUrl')
                     else:
                         job_status[job_id]['status'] = 'failed'
-                        job_status[job_id]['error'] = result.get('error', '알 수 없는 오류')
-                        job_status[job_id]['message'] = f'렌더링 실패: {result.get("error", "알 수 없는 오류")}'
+                        error_msg = '알 수 없는 오류'
+                        if isinstance(result, dict):
+                            error_msg = result.get('error', '알 수 없는 오류')
+                        job_status[job_id]['error'] = error_msg
+                        job_status[job_id]['message'] = f'렌더링 실패: {error_msg}'
                     
                 except Exception as e:
                     import traceback
@@ -193,8 +207,14 @@ def render_video():
             job_status_dict=None
         )
         
-        # 결과를 jsonify로 변환하여 반환
-        if result.get('success'):
+        # 결과를 jsonify로 변환하여 반환 (result가 None인 경우 처리)
+        if result is None:
+            return jsonify({
+                "success": False,
+                "error": "렌더링 결과가 None입니다.",
+                "details": "execute_render_logic 함수가 None을 반환했습니다."
+            }), 500
+        elif isinstance(result, dict) and result.get('success'):
             return jsonify({
                 "success": True,
                 "videoUrl": result.get('videoUrl'),
@@ -203,10 +223,15 @@ def render_video():
                 "projectId": result.get('projectId', f"project_{int(time.time())}")
             })
         else:
+            error_msg = '알 수 없는 오류'
+            details_msg = ''
+            if isinstance(result, dict):
+                error_msg = result.get('error', '알 수 없는 오류')
+                details_msg = result.get('details', '')
             return jsonify({
                 "success": False,
-                "error": result.get('error', '알 수 없는 오류'),
-                "details": result.get('details', '')
+                "error": error_msg,
+                "details": details_msg
             }), 500
         
     except Exception as e:
