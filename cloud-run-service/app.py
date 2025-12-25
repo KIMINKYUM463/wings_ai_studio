@@ -276,78 +276,78 @@ def execute_render_logic(audio_base64, audio_gcs_url, subtitles, show_subtitles,
         
         # 1. 오디오 다운로드/디코딩
         try:
-                if audio_gcs_url:
-                    # Cloud Storage에서 다운로드
-                    print(f"[Render] Downloading audio from Cloud Storage...")
-                    audio_response = requests.get(audio_gcs_url, timeout=300)
-                    audio_response.raise_for_status()
-                    audio_data = audio_response.content
-                    print(f"[Render] Audio downloaded from GCS: {len(audio_data) / 1024 / 1024:.2f} MB")
-                else:
-                    # base64 디코딩
-                    audio_data = base64.b64decode(audio_base64)
-                    print(f"[Render] Audio decoded from base64: {len(audio_data) / 1024 / 1024:.2f} MB")
-                
-                # 오디오 형식 자동 감지 (WAV 또는 MP3)
-                # FFmpeg가 자동으로 형식을 감지하므로 확장자는 중요하지 않음
-                audio_path = f"{temp_dir}/audio.wav"
-                with open(audio_path, 'wb') as f:
-                    f.write(audio_data)
-                print(f"[Render] Audio saved: {len(audio_data) / 1024 / 1024:.2f} MB")
-                
-                # 실제 오디오 정보 측정 (ffprobe 사용) - 길이, 코덱, 비트레이트, 샘플레이트, 채널 수
-                audio_codec = None
-                audio_bitrate = None
-                audio_sample_rate = None
-                audio_channels = None
-                try:
-                    import json
-                    probe_cmd = [
-                        'ffprobe',
-                        '-v', 'quiet',
-                        '-print_format', 'json',
-                        '-show_format',
-                        '-show_streams',
-                        audio_path
-                    ]
-                    probe_result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=30)
-                    if probe_result.returncode == 0:
-                        probe_data = json.loads(probe_result.stdout)
-                        actual_audio_duration = float(probe_data.get('format', {}).get('duration', 0))
-                        print(f"[Render] Actual audio duration: {actual_audio_duration:.3f}s (requested: {duration}s)")
+            if audio_gcs_url:
+                # Cloud Storage에서 다운로드
+                print(f"[Render] Downloading audio from Cloud Storage...")
+                audio_response = requests.get(audio_gcs_url, timeout=300)
+                audio_response.raise_for_status()
+                audio_data = audio_response.content
+                print(f"[Render] Audio downloaded from GCS: {len(audio_data) / 1024 / 1024:.2f} MB")
+            else:
+                # base64 디코딩
+                audio_data = base64.b64decode(audio_base64)
+                print(f"[Render] Audio decoded from base64: {len(audio_data) / 1024 / 1024:.2f} MB")
+            
+            # 오디오 형식 자동 감지 (WAV 또는 MP3)
+            # FFmpeg가 자동으로 형식을 감지하므로 확장자는 중요하지 않음
+            audio_path = f"{temp_dir}/audio.wav"
+            with open(audio_path, 'wb') as f:
+                f.write(audio_data)
+            print(f"[Render] Audio saved: {len(audio_data) / 1024 / 1024:.2f} MB")
+            
+            # 실제 오디오 정보 측정 (ffprobe 사용) - 길이, 코덱, 비트레이트, 샘플레이트, 채널 수
+            audio_codec = None
+            audio_bitrate = None
+            audio_sample_rate = None
+            audio_channels = None
+            try:
+                import json
+                probe_cmd = [
+                    'ffprobe',
+                    '-v', 'quiet',
+                    '-print_format', 'json',
+                    '-show_format',
+                    '-show_streams',
+                    audio_path
+                ]
+                probe_result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=30)
+                if probe_result.returncode == 0:
+                    probe_data = json.loads(probe_result.stdout)
+                    actual_audio_duration = float(probe_data.get('format', {}).get('duration', 0))
+                    print(f"[Render] Actual audio duration: {actual_audio_duration:.3f}s (requested: {duration}s)")
+                    
+                    # 오디오 스트림 정보 추출
+                    audio_streams = [s for s in probe_data.get('streams', []) if s.get('codec_type') == 'audio']
+                    if audio_streams:
+                        audio_stream = audio_streams[0]
+                        audio_codec = audio_stream.get('codec_name', '')
+                        audio_sample_rate = audio_stream.get('sample_rate', '')
+                        audio_channels = audio_stream.get('channels', '')
                         
-                        # 오디오 스트림 정보 추출
-                        audio_streams = [s for s in probe_data.get('streams', []) if s.get('codec_type') == 'audio']
-                        if audio_streams:
-                            audio_stream = audio_streams[0]
-                            audio_codec = audio_stream.get('codec_name', '')
-                            audio_sample_rate = audio_stream.get('sample_rate', '')
-                            audio_channels = audio_stream.get('channels', '')
-                            
-                            # 비트레이트 추출 (format 또는 stream에서)
-                            audio_bitrate = probe_data.get('format', {}).get('bit_rate', '')
-                            if not audio_bitrate and audio_stream.get('bit_rate'):
-                                audio_bitrate = audio_stream.get('bit_rate')
-                            
-                            print(f"[Render] Original audio info - codec: {audio_codec}, bitrate: {audio_bitrate}, sample_rate: {audio_sample_rate}, channels: {audio_channels}")
+                        # 비트레이트 추출 (format 또는 stream에서)
+                        audio_bitrate = probe_data.get('format', {}).get('bit_rate', '')
+                        if not audio_bitrate and audio_stream.get('bit_rate'):
+                            audio_bitrate = audio_stream.get('bit_rate')
                         
-                        # 실제 오디오 길이와 요청된 duration이 다르면 자막 타이밍 조정
-                        if actual_audio_duration > 0 and duration > 0:
-                            duration_ratio = actual_audio_duration / duration
-                            print(f"[Render] Duration ratio: {duration_ratio:.4f} (will adjust subtitle timings)")
-                        else:
-                            duration_ratio = 1.0
+                        print(f"[Render] Original audio info - codec: {audio_codec}, bitrate: {audio_bitrate}, sample_rate: {audio_sample_rate}, channels: {audio_channels}")
+                    
+                    # 실제 오디오 길이와 요청된 duration이 다르면 자막 타이밍 조정
+                    if actual_audio_duration > 0 and duration > 0:
+                        duration_ratio = actual_audio_duration / duration
+                        print(f"[Render] Duration ratio: {duration_ratio:.4f} (will adjust subtitle timings)")
                     else:
-                        print(f"[Render] Warning: Could not probe audio duration, using requested duration")
                         duration_ratio = 1.0
-                        actual_audio_duration = duration
-                except Exception as probe_error:
-                    print(f"[Render] Warning: Audio probe failed: {str(probe_error)}, using requested duration")
+                else:
+                    print(f"[Render] Warning: Could not probe audio duration, using requested duration")
                     duration_ratio = 1.0
                     actual_audio_duration = duration
-            except Exception as e:
-                print(f"[Render] 오디오 처리 오류: {str(e)}")
-                raise Exception(f"오디오 처리 실패: {str(e)}")
+            except Exception as probe_error:
+                print(f"[Render] Warning: Audio probe failed: {str(probe_error)}, using requested duration")
+                duration_ratio = 1.0
+                actual_audio_duration = duration
+        except Exception as e:
+            print(f"[Render] 오디오 처리 오류: {str(e)}")
+            raise Exception(f"오디오 처리 실패: {str(e)}")
             
             # 2. 이미지 처리 (여러 이미지 지원)
             def download_image(img_url, output_path):
