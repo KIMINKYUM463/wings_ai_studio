@@ -165,6 +165,7 @@ import {
   Bot,
   ArrowRight,
   ArrowDown,
+  AlertCircle,
 } from "lucide-react"
 import Link from "next/link"
 import {
@@ -568,6 +569,10 @@ export default function LongformContentPage() {
   // 이미지 생성 모델 선택 (스틱맨 애니메이션, 애니메이션2, 유럽풍 그래픽 노블용)
   const [imageModel, setImageModel] = useState<"prunaai/hidream-l1-fast" | "black-forest-labs/flux-schnell">("prunaai/hidream-l1-fast")
   const [selectedVoiceId, setSelectedVoiceId] = useState<string>("ttsmaker-여성1") // 기본: TTSMaker 여성1
+  const [customElevenLabsVoices, setCustomElevenLabsVoices] = useState<Array<{ id: string; name: string }>>([]) // 사용자 추가 일레븐랩스 목소리
+  const [showAddVoiceDialog, setShowAddVoiceDialog] = useState(false) // 목소리 추가 다이얼로그
+  const [newVoiceId, setNewVoiceId] = useState("") // 새 목소리 ID
+  const [newVoiceName, setNewVoiceName] = useState("") // 새 목소리 이름
   const [previewingVoiceId, setPreviewingVoiceId] = useState<string | null>(null)
   const [previewAudioUrl, setPreviewAudioUrl] = useState<string | null>(null)
   const [generatedAudios, setGeneratedAudios] = useState<Array<{ lineId: number; audioUrl: string; audioBase64: string; alignment?: any }>>([])
@@ -588,7 +593,7 @@ export default function LongformContentPage() {
     uploadTags: string[]
   } | null>(null)
   const [isGenerating, setIsGenerating] = useState(false)
-  const [scriptGenerationProgress, setScriptGenerationProgress] = useState<{ progress: number; elapsedTime: number; estimatedTime: number } | null>(null) // 정교한 대본 생성 진행률
+  const [scriptGenerationProgress, setScriptGenerationProgress] = useState<{ progress: number; elapsedTime: number; estimatedTime: number; currentPart?: number; totalParts?: number } | null>(null) // 정교한 대본 생성 진행률
   const [isDecomposingScenes, setIsDecomposingScenes] = useState(false) // 장면 분해 중 상태
   const [sceneDecompositionProgress, setSceneDecompositionProgress] = useState<{ current: number; total: number; progress: number; elapsedTime: number; estimatedTime: number } | null>(null) // 장면 분해 진행률
   const [maxScenesPerScene, setMaxScenesPerScene] = useState<1 | 2 | 3 | 4 | 5>(3) // 씬당 최대 장면 개수
@@ -634,6 +639,7 @@ export default function LongformContentPage() {
     replicate: "",
     gemini: "",
     ttsmaker: "",
+    supertone: "",
     youtubeDataApiKey: "",
   })
   const [showKeys, setShowKeys] = useState({
@@ -642,6 +648,7 @@ export default function LongformContentPage() {
     replicate: false,
     gemini: false,
     ttsmaker: false,
+    supertone: false,
     youtubeDataApiKey: false,
   })
   const [saved, setSaved] = useState(false)
@@ -741,7 +748,7 @@ export default function LongformContentPage() {
   })
   
   // 쇼츠 생성기 상태
-  const [shortsDuration, setShortsDuration] = useState<1 | 2 | 3>(1) // 쇼츠 길이 (1분, 2분, 3분)
+  const [shortsDuration, setShortsDuration] = useState<0.5 | 1 | 2 | 3>(1) // 쇼츠 길이 (30초, 1분, 2분, 3분)
   const [summarizedScript, setSummarizedScript] = useState<string>("") // 요약된 대본
   const [isSummarizingScript, setIsSummarizingScript] = useState(false) // 대본 요약 중
   const [shortsScriptLines, setShortsScriptLines] = useState<Array<{ id: number; text: string; startTime: number; endTime: number }>>([]) // 쇼츠 대본 라인
@@ -978,6 +985,7 @@ export default function LongformContentPage() {
     const storedReplicate = localStorage.getItem("replicate_api_key") || ""
     const storedGemini = localStorage.getItem("gemini_api_key") || ""
     const storedTTSMaker = localStorage.getItem("ttsmaker_api_key") || ""
+    const storedSuperton = localStorage.getItem("supertone_api_key") || ""
     const storedYoutubeDataApiKey = localStorage.getItem("wings_youtube_data_api_key") || ""
 
     setApiKeys({
@@ -986,8 +994,19 @@ export default function LongformContentPage() {
       replicate: storedReplicate,
       gemini: storedGemini,
       ttsmaker: storedTTSMaker,
+      supertone: storedSuperton,
       youtubeDataApiKey: storedYoutubeDataApiKey,
     })
+
+    // 사용자 정의 일레븐랩스 목소리 불러오기
+    const storedCustomVoices = localStorage.getItem("custom_elevenlabs_voices")
+    if (storedCustomVoices) {
+      try {
+        setCustomElevenLabsVoices(JSON.parse(storedCustomVoices))
+      } catch (e) {
+        console.error("사용자 정의 목소리 불러오기 실패:", e)
+      }
+    }
   }, [])
 
   // 1초마다 현재 시간 업데이트 (이미지 만료 시간 계산용)
@@ -1005,6 +1024,7 @@ export default function LongformContentPage() {
     localStorage.setItem("replicate_api_key", apiKeys.replicate)
     localStorage.setItem("gemini_api_key", apiKeys.gemini)
     localStorage.setItem("ttsmaker_api_key", apiKeys.ttsmaker)
+    localStorage.setItem("supertone_api_key", apiKeys.supertone)
     localStorage.setItem("wings_youtube_data_api_key", apiKeys.youtubeDataApiKey)
     setSaved(true)
     setTimeout(() => {
@@ -1150,6 +1170,7 @@ export default function LongformContentPage() {
   const [exportStatusMessage, setExportStatusMessage] = useState("") // 다운로드 상태 메시지
   const [estimatedRenderTime, setEstimatedRenderTime] = useState<number | null>(null) // 예상 렌더링 시간 (초)
   const [remainingRenderTime, setRemainingRenderTime] = useState<number | null>(null) // 남은 렌더링 시간 (초)
+  const [exportErrorLog, setExportErrorLog] = useState<{ message: string; analysis: string; timestamp: string } | null>(null) // 렌더링 오류 로그
   // <-- New state variables for FFmpeg export -->
   // const [exportProgress, setExportProgress] = useState(0)
   // const [exportStatus, setExportStatus] = useState("")
@@ -1447,7 +1468,7 @@ export default function LongformContentPage() {
       // 자동화 중에는 activeStep을 변경하지 않음 (주제 추천 화면 유지)
       
       // 수동 모드와 동일하게 초안(draft)을 기반으로 최종 대본 생성
-      const targetChars = Math.floor(autoDurationMinutes * 60 * 6.9) // 1초당 6.9자
+      const targetChars = Math.floor(autoDurationMinutes * 60 * 6.9) // 1초당 6.9자 (목표 글자수 계산)
       const scriptResult = await generateFinalScript(
         draftResult,
         selectedTopic,
@@ -2410,7 +2431,7 @@ export default function LongformContentPage() {
       
       // 수동 모드와 동일하게 호출: (script, category, title, apiKey)
       const selectedRandomTitle = youtubeTitle || titles[0] || selectedTopic
-      const description = await generateYouTubeDescription(scriptResult, selectedCategory, selectedRandomTitle, apiKey)
+      const description = await generateYouTubeDescription(scriptResult, selectedCategory, selectedRandomTitle, apiKey, scriptDuration)
       setYoutubeDescription(description)
       setCompletedSteps((prev) => [...new Set([...prev, "title"])])
       console.log("[자동화] 제목/설명 생성 완료:", description)
@@ -3256,7 +3277,7 @@ export default function LongformContentPage() {
 
     setIsGenerating(true)
     try {
-      const result = await generateYouTubeDescription(script, selectedCategory, selectedTitle, getApiKey())
+      const result = await generateYouTubeDescription(script, selectedCategory, selectedTitle, getApiKey(), scriptDuration)
       setYoutubeDescription(result)
       // 제목/설명 생성 단계 체크
       setCompletedSteps((prev) => [...new Set([...prev, "title"])])
@@ -3551,7 +3572,7 @@ export default function LongformContentPage() {
       // 요약된 대본을 문장 단위로 분할
       const lines: Array<{ id: number; text: string; startTime: number; endTime: number }> = []
       let currentTime = 0
-      const charsPerSecond = 6.9 // 초당 문자 수
+      const charsPerSecond = 10 // 초당 문자 수
 
       const sentences = summarized
         .split(/[.!?。！？]\s*/)
@@ -3637,7 +3658,45 @@ export default function LongformContentPage() {
 
   // 쇼츠 TTS 생성 함수 (롱폼에서 선택한 TTS 사용)
   const handleGenerateShortsTTS = async () => {
-    if (shortsScriptLines.length === 0) {
+    // summarizedScript가 있으면 그것을 사용하여 shortsScriptLines를 다시 생성 (수정된 대본 반영)
+    let scriptLinesToUse = shortsScriptLines
+    
+    if (summarizedScript && summarizedScript.trim().length > 0) {
+      console.log("[Shorts] 수정된 대본을 사용하여 shortsScriptLines 재생성")
+      
+      // 요약된 대본을 문장 단위로 분할
+      const lines: Array<{ id: number; text: string; startTime: number; endTime: number }> = []
+      let currentTime = 0
+      const charsPerSecond = 10 // 초당 문자 수
+
+      const sentences = summarizedScript
+        .split(/[.!?。！？]\s*/)
+        .map((s: string) => s.trim())
+        .filter((s: string) => s.length > 0)
+        .map((s: string) => {
+          if (!s.endsWith(".") && !s.endsWith("!") && !s.endsWith("?") && !s.endsWith("。") && !s.endsWith("！") && !s.endsWith("？")) {
+            return s + "."
+          }
+          return s
+        })
+
+      sentences.forEach((sentence: string, index: number) => {
+        const duration = (sentence.length / charsPerSecond) * 1000
+        lines.push({
+          id: index + 1,
+          text: sentence,
+          startTime: currentTime,
+          endTime: currentTime + duration,
+        })
+        currentTime += duration
+      })
+
+      scriptLinesToUse = lines
+      setShortsScriptLines(lines)
+      console.log(`[Shorts] shortsScriptLines 재생성 완료: ${lines.length}개 문장`)
+    }
+    
+    if (scriptLinesToUse.length === 0) {
       alert("생성된 문장 리스트가 없습니다. 먼저 대본을 요약해주세요.")
       return
     }
@@ -3650,24 +3709,33 @@ export default function LongformContentPage() {
         return
       }
     } else {
-      const elevenlabsApiKey = getApiKey("elevenlabs_api_key")
-      if (!elevenlabsApiKey) {
+      // 직접 로컬스토리지에서 가져오기
+      let elevenlabsApiKey = typeof window !== "undefined" 
+        ? (localStorage.getItem("elevenlabs_api_key") || "").trim() 
+        : null
+      
+      // localStorage에 없으면 getApiKey로 시도
+      if (!elevenlabsApiKey || elevenlabsApiKey.length === 0) {
+        elevenlabsApiKey = getApiKey("elevenlabs") ?? null
+      }
+      
+      if (!elevenlabsApiKey || elevenlabsApiKey.length === 0) {
         alert("ElevenLabs API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
         return
       }
     }
 
     setIsGeneratingShortsTts(true)
-    setTtsGenerationProgress({ current: 0, total: shortsScriptLines.length })
+    setTtsGenerationProgress({ current: 0, total: scriptLinesToUse.length })
     
     let successCount = 0
     const collectedAudios: Array<{ lineId: number; audioUrl?: string; audioBase64?: string; audioBuffer?: AudioBuffer; duration?: number }> = []
 
     try {
       // 각 라인별로 TTS 생성 (롱폼과 동일한 generateTTSWithRetry 함수 사용)
-      for (let i = 0; i < shortsScriptLines.length; i++) {
-        const line = shortsScriptLines[i]
-        setTtsGenerationProgress({ current: i + 1, total: shortsScriptLines.length })
+      for (let i = 0; i < scriptLinesToUse.length; i++) {
+        const line = scriptLinesToUse[i]
+        setTtsGenerationProgress({ current: i + 1, total: scriptLinesToUse.length })
 
         try {
           console.log(`[Shorts] TTS 생성 중... (${i + 1}/${shortsScriptLines.length})`)
@@ -3694,11 +3762,11 @@ export default function LongformContentPage() {
         }
       }
 
-      console.log("[Shorts] 모든 TTS 생성 완료, 성공:", successCount, "개 / 전체:", shortsScriptLines.length, "개")
+      console.log("[Shorts] 모든 TTS 생성 완료, 성공:", successCount, "개 / 전체:", scriptLinesToUse.length, "개")
 
       if (successCount > 0) {
-        if (successCount < shortsScriptLines.length) {
-          // alert(`${successCount}개의 TTS가 생성되었습니다. (${shortsScriptLines.length - successCount}개 실패)\n\n실패한 항목은 브라우저 콘솔을 확인해주세요.`) // 완료 알림 제거
+        if (successCount < scriptLinesToUse.length) {
+          // alert(`${successCount}개의 TTS가 생성되었습니다. (${scriptLinesToUse.length - successCount}개 실패)\n\n실패한 항목은 브라우저 콘솔을 확인해주세요.`) // 완료 알림 제거
         } else {
           // alert(`${successCount}개의 TTS가 모두 생성되었습니다!`) // 완료 알림 제거
         }
@@ -3711,7 +3779,7 @@ export default function LongformContentPage() {
         let currentTime = 0
         const updatedScriptLines = []
 
-        for (const line of shortsScriptLines) {
+        for (const line of scriptLinesToUse) {
           const audio = collectedAudios.find((a) => a.lineId === line.id)
           if (audio) {
             try {
@@ -3847,6 +3915,16 @@ export default function LongformContentPage() {
 
   // 쇼츠 영상 렌더링 함수
   const handleRenderShortsVideo = async () => {
+    // shortsScriptLines를 직접 사용 (이미 실제 오디오 길이로 업데이트됨)
+    let scriptLinesToUse = shortsScriptLines
+    
+    if (scriptLinesToUse.length === 0) {
+      alert("TTS가 생성되지 않았습니다. 먼저 TTS를 생성해주세요.")
+      return
+    }
+    
+    console.log(`[Shorts 렌더링] ${scriptLinesToUse.length}개 문장 사용 (실제 오디오 길이 기반)`)
+    
     // 씬별 이미지와 일반 이미지 모두 확인
     const hasSceneImages = sceneImagePrompts.length > 0 && sceneImagePrompts.some(scene => 
       scene.images && scene.images.some(img => img.imageUrl)
@@ -3867,7 +3945,7 @@ export default function LongformContentPage() {
         throw new Error("Canvas context를 생성할 수 없습니다.")
       }
 
-      // 오디오 로드
+      // 오디오 로드 및 AudioBuffer로 변환 (STT 분석용)
       const audioResponse = await fetch(shortsTtsAudioUrl)
       const audioBlob = await audioResponse.blob()
       const audioUrl = URL.createObjectURL(audioBlob)
@@ -3879,6 +3957,123 @@ export default function LongformContentPage() {
       })
 
       const actualAudioDuration = audio.duration
+      
+      // STT 분석을 위해 오디오를 AudioBuffer로 로드 (audioBlob에서 arrayBuffer 읽기)
+      const audioArrayBuffer = await audioBlob.arrayBuffer()
+      const audioContextForSTT = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const mergedAudioBuffer = await audioContextForSTT.decodeAudioData(audioArrayBuffer)
+      
+      console.log(`[Shorts 렌더링] 오디오 로드 완료: ${actualAudioDuration.toFixed(3)}초`)
+      
+      // STT 분석으로 정확한 타이밍 추출
+      const openaiApiKey = getApiKey("openai") || getApiKey("gpt_api_key") || getApiKey("chatgpt_api_key")
+      const allWordTimings: Array<{ word: string; start: number; end: number; lineId: number }> = []
+      
+      // AudioBuffer에서 특정 구간을 추출하는 헬퍼 함수
+      const extractAudioSegment = (buffer: AudioBuffer, startTime: number, endTime: number): AudioBuffer => {
+        const sampleRate = buffer.sampleRate
+        const startSample = Math.floor(startTime * sampleRate)
+        const endSample = Math.floor(endTime * sampleRate)
+        const length = endSample - startSample
+        
+        const extractedBuffer = audioContextForSTT.createBuffer(
+          buffer.numberOfChannels,
+          length,
+          sampleRate
+        )
+        
+        for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+          const sourceData = buffer.getChannelData(channel)
+          const targetData = extractedBuffer.getChannelData(channel)
+          targetData.set(sourceData.subarray(startSample, endSample))
+        }
+        
+        return extractedBuffer
+      }
+      
+      if (openaiApiKey && scriptLinesToUse.length > 0) {
+        console.log(`[Shorts 렌더링] STT 분석 시작 (${scriptLinesToUse.length}개 문장)`)
+        
+        // 각 문장별로 개별 STT 분석 수행 (실제 오디오 길이 기반)
+        for (let i = 0; i < scriptLinesToUse.length; i++) {
+          const line = scriptLinesToUse[i]
+          const startTime = line.startTime / 1000 // 밀리초를 초로 변환
+          const endTime = line.endTime / 1000 // 실제 오디오 길이 기반
+          
+          if (endTime > startTime && endTime <= actualAudioDuration) {
+            try {
+              console.log(`[Shorts 렌더링] 문장 ${line.id} STT 분석 시작 (구간: ${startTime.toFixed(3)}초 ~ ${endTime.toFixed(3)}초, 실제 길이: ${(endTime - startTime).toFixed(3)}초)`)
+              
+              // 합쳐진 오디오에서 해당 구간만 추출 (실제 오디오 길이 기반)
+              const segmentBuffer = extractAudioSegment(mergedAudioBuffer, startTime, endTime)
+              
+              // 추출된 구간을 Blob으로 변환
+              const audioBlobForSTT = await audioBufferToBlob(segmentBuffer)
+              
+              // Whisper align API 호출 (해당 문장만)
+              const formData = new FormData()
+              formData.append("audio", audioBlobForSTT, `shorts_sentence_${line.id}.wav`)
+              formData.append("text", line.text)
+              
+              const whisperResponse = await fetch("/api/whisper-align", {
+                method: "POST",
+                body: formData,
+              })
+              
+              if (whisperResponse.ok) {
+                const whisperData = await whisperResponse.json()
+                if (whisperData.wordTimings && whisperData.wordTimings.length > 0) {
+                  // 각 단어의 타이밍을 절대 시간으로 변환
+                  for (const wordTiming of whisperData.wordTimings) {
+                    allWordTimings.push({
+                      word: wordTiming.word,
+                      start: startTime + wordTiming.start, // 절대 시간으로 변환
+                      end: startTime + wordTiming.end, // 절대 시간으로 변환
+                      lineId: line.id,
+                    })
+                  }
+                  console.log(`[Shorts 렌더링] 문장 ${line.id}: ${whisperData.wordTimings.length}개 단어 타이밍 추출 완료`)
+                } else {
+                  console.warn(`[Shorts 렌더링] 문장 ${line.id}: 단어 타이밍 없음`)
+                }
+              } else {
+                console.warn(`[Shorts 렌더링] 문장 ${line.id} API 호출 실패:`, await whisperResponse.text())
+              }
+            } catch (error) {
+              console.warn(`[Shorts 렌더링] 문장 ${line.id} STT 분석 오류:`, error)
+              // 개별 문장 실패해도 계속 진행
+            }
+          }
+        }
+        
+        console.log(`[Shorts 렌더링] 전체 ${allWordTimings.length}개 단어 타이밍 추출 완료`)
+      } else {
+        console.warn(`[Shorts 렌더링] OpenAI API 키 없음 또는 문장 없음, STT 분석 건너뜀`)
+      }
+      
+      // STT 결과를 기반으로 scriptLinesToUse 업데이트 (단어 단위 정밀도 향상)
+      if (allWordTimings.length > 0) {
+        // 각 문장별로 정확한 시작/끝 시간 계산 (STT 기반)
+        const updatedScriptLines = scriptLinesToUse.map(line => {
+          const lineWordTimings = allWordTimings.filter(wt => wt.lineId === line.id)
+          if (lineWordTimings.length > 0) {
+            // STT 결과의 첫 단어 시작 시간과 마지막 단어 끝 시간 사용
+            const startTime = Math.min(...lineWordTimings.map(wt => wt.start)) * 1000 // 초를 밀리초로 변환
+            const endTime = Math.max(...lineWordTimings.map(wt => wt.end)) * 1000
+            console.log(`[Shorts 렌더링] 문장 ${line.id} 타이밍 업데이트: ${(startTime/1000).toFixed(3)}초 ~ ${(endTime/1000).toFixed(3)}초 (기존: ${(line.startTime/1000).toFixed(3)}초 ~ ${(line.endTime/1000).toFixed(3)}초)`)
+            return {
+              ...line,
+              startTime,
+              endTime,
+            }
+          }
+          return line
+        })
+        scriptLinesToUse = updatedScriptLines
+        console.log(`[Shorts 렌더링] STT 기반 타이밍으로 scriptLines 업데이트 완료 (${allWordTimings.length}개 단어 타이밍 사용)`)
+      } else {
+        console.log(`[Shorts 렌더링] STT 결과 없음, 실제 오디오 길이 기반 타이밍 사용 (${scriptLinesToUse.length}개 문장)`)
+      }
 
       // MediaRecorder 설정
       const stream = canvas.captureStream(30)
@@ -3948,8 +4143,8 @@ export default function LongformContentPage() {
       console.log(`[Shorts 렌더링] 선택된 이미지 URL 목록:`, selectedImageUrls)
       
       // shortsScriptLines의 각 라인에 대해 순서대로 이미지 매칭
-      for (let i = 0; i < shortsScriptLines.length; i++) {
-        const shortsLine = shortsScriptLines[i]
+      for (let i = 0; i < scriptLinesToUse.length; i++) {
+        const shortsLine = scriptLinesToUse[i]
         
         // 선택된 이미지가 있으면 순서대로 매칭
         if (selectedImageUrls.length > 0) {
@@ -4090,10 +4285,10 @@ export default function LongformContentPage() {
           }
         }
 
-        // 현재 시간에 맞는 이미지 찾기 (자막이 1초 늦게 나오는 문제 해결: 각 자막의 시작 시간을 1초 앞당김)
-        const currentLine = shortsScriptLines.find(
-          (line) => elapsed >= (line.startTime / 1000) - 1 && elapsed <= (line.endTime / 1000) - 1
-        ) || shortsScriptLines[shortsScriptLines.length - 1]
+        // 현재 시간에 맞는 이미지 찾기 (STT 기반 정확한 타이밍 사용)
+        const currentLine = scriptLinesToUse.find(
+          (line) => elapsed >= (line.startTime / 1000) && elapsed <= (line.endTime / 1000)
+        ) || scriptLinesToUse[scriptLinesToUse.length - 1]
 
         if (currentLine) {
           // imageLineIdMap에서 먼저 찾기 (sceneImagePrompts와 generatedImages 모두 포함)
@@ -4101,9 +4296,9 @@ export default function LongformContentPage() {
 
           // 찾지 못한 경우 이전 라인에서 이미지 찾기
           if (imageIndex < 0) {
-            const currentLineIndex = shortsScriptLines.findIndex((line) => line.id === currentLine.id)
+            const currentLineIndex = scriptLinesToUse.findIndex((line) => line.id === currentLine.id)
             for (let i = currentLineIndex; i >= 0; i--) {
-              const prevLine = shortsScriptLines[i]
+              const prevLine = scriptLinesToUse[i]
               const prevImageIndex = imageLineIdMap.get(prevLine.id)
               if (prevImageIndex !== undefined && prevImageIndex >= 0) {
                 imageIndex = prevImageIndex
@@ -4229,12 +4424,66 @@ export default function LongformContentPage() {
               return result.length > 0 ? result : [{ text, startTime: 0, endTime: totalDuration }]
             }
             
-            // 오디오 버퍼 기반으로 자막 라인 생성
-            const audioDuration = (currentLine.endTime - currentLine.startTime) / 1000
-            const subtitleLines = splitIntoSubtitleLines(subtitleText, undefined, audioDuration)
+            // STT 기반 정확한 타이밍으로 자막 라인 생성
+            const lineStartTime = currentLine.startTime / 1000
+            const lineEndTime = currentLine.endTime / 1000
+            const audioDuration = lineEndTime - lineStartTime
             
-            // 현재 시간에 맞는 자막 라인 찾기 (자막이 1초 늦게 나오는 문제 해결: 시작 시간을 1초 앞당김)
-            const timeInLine = Math.max(0, elapsed - ((currentLine.startTime / 1000) - 1))
+            // 현재 문장의 단어 타이밍 가져오기
+            const lineWordTimings = allWordTimings.filter(wt => wt.lineId === currentLine.id)
+            
+            let subtitleLines: Array<{ text: string; startTime: number; endTime: number }> = []
+            
+            if (lineWordTimings.length > 0) {
+              // STT 기반 정확한 타이밍 사용
+              const words = subtitleText.split(" ").filter(w => w.trim().length > 0)
+              let wordIndex = 0
+              let currentSubtitleLine: string[] = []
+              let lineStartTimeInLine = 0
+              
+              for (let i = 0; i < lineWordTimings.length && wordIndex < words.length; i++) {
+                const wordTiming = lineWordTimings[i]
+                const word = words[wordIndex] || wordTiming.word
+                
+                // 화면 너비 확인
+                const testLine = currentSubtitleLine.length > 0 ? currentSubtitleLine.join(" ") + " " + word : word
+                const textWidth = ctx.measureText(testLine).width
+                const maxWidth = canvas.width - 80
+                
+                if (textWidth > maxWidth && currentSubtitleLine.length >= 1) {
+                  // 줄 분리
+                  if (currentSubtitleLine.length > 0) {
+                    const prevWordTiming = lineWordTimings[i - 1]
+                    subtitleLines.push({
+                      text: currentSubtitleLine.join(" "),
+                      startTime: lineStartTimeInLine,
+                      endTime: prevWordTiming ? prevWordTiming.end - lineStartTime : wordTiming.start - lineStartTime,
+                    })
+                  }
+                  currentSubtitleLine = [word]
+                  lineStartTimeInLine = wordTiming.start - lineStartTime
+                } else {
+                  currentSubtitleLine.push(word)
+                }
+                wordIndex++
+              }
+              
+              // 마지막 줄 처리
+              if (currentSubtitleLine.length > 0) {
+                const lastWordTiming = lineWordTimings[lineWordTimings.length - 1]
+                subtitleLines.push({
+                  text: currentSubtitleLine.join(" "),
+                  startTime: lineStartTimeInLine,
+                  endTime: lastWordTiming ? lastWordTiming.end - lineStartTime : audioDuration,
+                })
+              }
+            } else {
+              // STT 결과가 없으면 기존 방식 사용
+              subtitleLines = splitIntoSubtitleLines(subtitleText, undefined, audioDuration)
+            }
+            
+            // 현재 시간에 맞는 자막 라인 찾기 (STT 기반 정확한 타이밍 사용)
+            const timeInLine = Math.max(0, elapsed - lineStartTime)
             const currentSubtitleLine = subtitleLines.find(
               (line) => timeInLine >= line.startTime && timeInLine <= line.endTime
             ) || subtitleLines[0] || { text: subtitleText, startTime: 0, endTime: audioDuration }
@@ -5094,7 +5343,7 @@ export default function LongformContentPage() {
     try {
       console.log("[v0] 기본 대본 생성 시작")
       const topic = isCustomTopicSelected ? customTopic : selectedTopic
-      // 선택한 시간에 맞춰 대본 길이 계산 (1초당 6.9자)
+      // 선택한 시간에 맞춰 대본 길이 계산 (1초당 6.9자 - 목표 글자수 계산)
       const targetChars = Math.floor(scriptDuration * 60 * 6.9)
       // folktale 카테고리 또는 Type D 선택 시 자동으로 스토리 모드로 설정
       const shouldUseStoryMode = isStoryMode || selectedCategory === "folktale" || selectedContentType === "D"
@@ -5130,7 +5379,7 @@ export default function LongformContentPage() {
     
     // 목표 글자수 기반 예상 시간 계산 (1000자당 약 10-15초 소요 가정)
     const topic = isCustomTopicSelected ? customTopic : selectedTopic
-    const targetChars = Math.floor(scriptDuration * 60 * 6.9)
+    const targetChars = Math.floor(scriptDuration * 60 * 6.9) // 1초당 6.9자 (목표 글자수 계산)
     const estimatedSeconds = Math.max(30, Math.ceil(targetChars / 1000 * 12)) // 최소 30초, 1000자당 12초
     const estimatedTime = estimatedSeconds * 1000 // 밀리초로 변환
     
@@ -5157,7 +5406,14 @@ export default function LongformContentPage() {
       }
       // folktale 카테고리 또는 Type D 선택 시 자동으로 스토리 모드로 설정
       const shouldUseStoryMode = isStoryMode || selectedCategory === "folktale" || selectedContentType === "D"
-      const fullScript = await generateRefinedScript(scriptPlan, topic || "", scriptDuration, targetChars, shouldUseStoryMode, geminiApiKey)
+      const fullScript = await generateRefinedScript(
+        scriptPlan, 
+        topic || "", 
+        scriptDuration, 
+        targetChars, 
+        shouldUseStoryMode, 
+        geminiApiKey
+      )
       setScript(fullScript)
       
       // 정교한 대본은 의미/장면 기반으로 나누기
@@ -5839,9 +6095,18 @@ export default function LongformContentPage() {
         })
       } else {
         // ElevenLabs인 경우
-        const elevenlabsApiKey = getApiKey("elevenlabs_api_key")
+        // 직접 로컬스토리지에서 가져오기
+        let elevenlabsApiKey = typeof window !== "undefined" 
+          ? (localStorage.getItem("elevenlabs_api_key") || "").trim() 
+          : null
         
-        if (!elevenlabsApiKey) {
+        // localStorage에 없으면 getApiKey로 시도
+        if (!elevenlabsApiKey || elevenlabsApiKey.length === 0) {
+          const apiKey = getApiKey("elevenlabs")
+          elevenlabsApiKey = apiKey !== undefined ? apiKey : null
+        }
+        
+        if (!elevenlabsApiKey || elevenlabsApiKey.length === 0) {
           alert("ElevenLabs API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
           setPreviewingVoiceId(null)
           return
@@ -5971,9 +6236,45 @@ export default function LongformContentPage() {
               apiKey: ttsmakerApiKey,
             }),
           })
+        } else if (selectedVoiceId?.startsWith("supertone-")) {
+          // 수퍼톤인 경우
+          const voiceId = selectedVoiceId.replace("supertone-", "")
+          const supertoneApiKey = getApiKey("supertone")
+          
+          if (!supertoneApiKey) {
+            throw new Error("수퍼톤 API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+          }
+          
+          response = await fetch("/api/supertone-tts", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              text: convertedText,
+              voiceId: voiceId,
+              apiKey: supertoneApiKey,
+            }),
+          })
         } else {
           // ElevenLabs API를 통해 TTS 생성
-          const elevenlabsApiKey = getApiKey("elevenlabs_api_key")
+          // 직접 로컬스토리지에서 가져오기 (getApiKey가 작동하지 않을 수 있음)
+          let elevenlabsApiKey = typeof window !== "undefined" 
+            ? (localStorage.getItem("elevenlabs_api_key") || "").trim() 
+            : null
+          
+          console.log(`[TTS 생성] ElevenLabs API 키 확인 (localStorage) - 존재: ${!!elevenlabsApiKey}, 길이: ${elevenlabsApiKey?.length || 0}`)
+          
+          // localStorage에 없으면 getApiKey로 시도
+          if (!elevenlabsApiKey || elevenlabsApiKey.length === 0) {
+            elevenlabsApiKey = getApiKey("elevenlabs") ?? null
+            console.log(`[TTS 생성] ElevenLabs API 키 확인 (getApiKey) - 존재: ${!!elevenlabsApiKey}, 길이: ${elevenlabsApiKey?.length || 0}`)
+          }
+          
+          if (!elevenlabsApiKey || elevenlabsApiKey.length === 0) {
+            throw new Error("ElevenLabs API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+          }
+          
           response = await fetch("/api/elevenlabs-tts", {
             method: "POST",
             headers: {
@@ -6085,7 +6386,7 @@ export default function LongformContentPage() {
         return
       }
     } else {
-      const elevenlabsApiKey = getApiKey("elevenlabs_api_key")
+      const elevenlabsApiKey = getApiKey("elevenlabs")
       if (!elevenlabsApiKey) {
         alert("ElevenLabs API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
         return
@@ -6147,7 +6448,7 @@ export default function LongformContentPage() {
 
     // TTSMaker와 ElevenLabs는 API 키 필요
     if (!selectedVoiceId?.startsWith("ttsmaker-")) {
-      const elevenlabsApiKey = getApiKey("elevenlabs_api_key")
+      const elevenlabsApiKey = getApiKey("elevenlabs")
       if (!elevenlabsApiKey) {
         alert("ElevenLabs API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
         if (isAutoMode) {
@@ -6778,11 +7079,13 @@ export default function LongformContentPage() {
           sceneAudioMapping.set(parsedScene.sceneNumber, sceneLines)
         }
         
-        // 1. 각 TTS 오디오의 정확한 길이 측정 (씬별)
-        const audioDurations: Array<{ lineId: number; duration: number; audioBuffer?: AudioBuffer; alignment?: any }> = []
-        const audioContextForAnalysis = new (window.AudioContext || (window as any).webkitAudioContext)()
+        // 1. 먼저 모든 TTS 오디오를 하나로 합치기 (빠른다운로드와 싱크 맞추기 위해)
+        setRenderingStatusMessage("오디오 합치는 중...")
+        const audioContextForMerge = new (window.AudioContext || (window as any).webkitAudioContext)()
+        const audioBuffersForMerge: AudioBuffer[] = []
+        const audioDurations: Array<{ lineId: number; duration: number; alignment?: any }> = []
         
-        // 모든 씬의 오디오 길이 측정
+        // 씬별로 순서대로 모든 오디오 로드
         for (const [sceneNum, lines] of sceneAudioMapping.entries()) {
           for (const line of lines) {
             const audio = generatedAudios.find((a) => a.lineId === line.lineId)
@@ -6790,91 +7093,336 @@ export default function LongformContentPage() {
               try {
                 const audioResponse = await fetch(audio.audioUrl)
                 const audioArrayBuffer = await audioResponse.arrayBuffer()
-                const audioBuffer = await audioContextForAnalysis.decodeAudioData(audioArrayBuffer)
+                const audioBuffer = await audioContextForMerge.decodeAudioData(audioArrayBuffer)
+                audioBuffersForMerge.push(audioBuffer)
                 
-                // 더 정확한 duration 계산: length / sampleRate
+                // 각 오디오의 길이 저장
                 const preciseDuration = audioBuffer.length / audioBuffer.sampleRate
-                
-                // 실제 오디오 데이터의 끝부분 확인 (침묵 구간 제외)
-                let actualEndSample = audioBuffer.length
-                const silenceThreshold = 0.001
-                const lookbackSamples = Math.floor(audioBuffer.sampleRate * 0.1)
-                
-                for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
-                  const channelData = audioBuffer.getChannelData(channel)
-                  for (let i = audioBuffer.length - 1; i >= Math.max(0, audioBuffer.length - lookbackSamples); i--) {
-                    if (Math.abs(channelData[i]) > silenceThreshold) {
-                      actualEndSample = Math.max(actualEndSample, i + 1)
-                      break
-                    }
-                  }
-                }
-                
-                const actualDuration = Math.max(
-                  preciseDuration,
-                  actualEndSample / audioBuffer.sampleRate
-                )
-                const finalDuration = Number.parseFloat(actualDuration.toFixed(6))
-                
+                const finalDuration = Number.parseFloat(preciseDuration.toFixed(6))
                 audioDurations.push({
                   lineId: line.lineId,
                   duration: finalDuration,
-                  audioBuffer: audioBuffer,
                   alignment: audio.alignment || undefined, // ElevenLabs alignment 데이터 포함
                 })
                 
-                console.log(`[v0] 씬 ${sceneNum} 오디오 ${line.lineId} 길이: ${finalDuration.toFixed(6)}초, alignment: ${audio.alignment ? "있음" : "없음"}`)
+                console.log(`[v0] 씬 ${sceneNum} 오디오 ${line.lineId} 로드 완료: ${finalDuration.toFixed(6)}초`)
               } catch (error) {
                 console.error(`오디오 로드 실패 (씬 ${sceneNum}, 줄 ${line.lineId}):`, error)
-                const audioElement = new Audio(audio.audioUrl)
-                await new Promise((resolve) => {
-                  audioElement.addEventListener("loadedmetadata", () => {
-                    audioDurations.push({
-                      lineId: line.lineId,
-                      duration: audioElement.duration,
-                    })
-                    resolve(null)
-                  })
-                  audioElement.addEventListener("error", () => {
-                    audioDurations.push({
-                      lineId: line.lineId,
-                      duration: 0,
-                    })
-                    resolve(null)
-                  })
+                // 실패한 오디오는 duration만 저장
+                audioDurations.push({
+                  lineId: line.lineId,
+                  duration: 0,
                 })
               }
             }
           }
         }
         
-        // 2. 자막 생성 (씬별)
-        setRenderingStatusMessage("자막 생성 중...")
+        if (audioBuffersForMerge.length === 0) {
+          throw new Error("합칠 수 있는 오디오가 없습니다.")
+        }
+        
+        // 모든 오디오 버퍼를 하나로 합치기
+        const totalLength = audioBuffersForMerge.reduce((sum, buffer) => sum + buffer.length, 0)
+        const numberOfChannels = audioBuffersForMerge[0].numberOfChannels
+        const sampleRate = audioBuffersForMerge[0].sampleRate
+        
+        const mergedBuffer = audioContextForMerge.createBuffer(numberOfChannels, totalLength, sampleRate)
+        
+        let offset = 0
+        for (const buffer of audioBuffersForMerge) {
+          for (let channel = 0; channel < numberOfChannels; channel++) {
+            const mergedData = mergedBuffer.getChannelData(channel)
+            const bufferData = buffer.getChannelData(channel)
+            mergedData.set(bufferData, offset)
+          }
+          offset += buffer.length
+        }
+        
+        const actualMergedDuration = mergedBuffer.duration
+        console.log(`[v0] 씬별 오디오 합치기 완료: 실제 병합된 오디오 길이 ${actualMergedDuration.toFixed(3)}초`)
+        
+        // 2. 합쳐진 오디오에서 각 장면별로 구간 추출하여 개별 STT 분석 수행
+        setRenderingStatusMessage("STT 분석 중...")
         const subtitles: Array<{ id: number; start: number; end: number; text: string }> = []
         
-        const splitIntoSubtitleLines = (text: string, audioBuffer?: AudioBuffer, totalDuration: number = 0): Array<{ text: string; startTime: number; endTime: number }> => {
+        // AudioBuffer에서 특정 구간을 추출하는 헬퍼 함수
+        const extractAudioSegment = (buffer: AudioBuffer, startTime: number, endTime: number): AudioBuffer => {
+          const sampleRate = buffer.sampleRate
+          const startSample = Math.floor(startTime * sampleRate)
+          const endSample = Math.floor(endTime * sampleRate)
+          const length = endSample - startSample
+          
+          const extractedBuffer = audioContextForMerge.createBuffer(
+            buffer.numberOfChannels,
+            length,
+            sampleRate
+          )
+          
+          for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+            const sourceData = buffer.getChannelData(channel)
+            const targetData = extractedBuffer.getChannelData(channel)
+            targetData.set(sourceData.subarray(startSample, endSample))
+          }
+          
+          return extractedBuffer
+        }
+        
+        // 문장을 의미 단위(구, 절)로 분할하는 함수 (일반 렌더링 모드와 동일)
+        const splitIntoSemanticPhrases = (text: string): string[] => {
+          const minPhraseLength = 10
+          const punctuationSplit = text.split(/([.,!?;:])/).filter(s => s.trim().length > 0)
+          const phrases: string[] = []
+          let currentPhrase = ""
+          
+          for (let i = 0; i < punctuationSplit.length; i++) {
+            const segment = punctuationSplit[i]
+            if (/^[.,!?;:]$/.test(segment)) {
+              currentPhrase += segment
+              if (currentPhrase.trim().length >= minPhraseLength) {
+                phrases.push(currentPhrase.trim())
+                currentPhrase = ""
+              }
+            } else {
+              currentPhrase += segment
+              if (currentPhrase.trim().length >= minPhraseLength * 2) {
+                const words = currentPhrase.trim().split(/\s+/)
+                if (words.length > 5) {
+                  const midPoint = Math.floor(words.length / 2)
+                  const firstHalf = words.slice(0, midPoint).join(" ")
+                  const secondHalf = words.slice(midPoint).join(" ")
+                  if (firstHalf.length >= minPhraseLength) {
+                    phrases.push(firstHalf)
+                  }
+                  currentPhrase = secondHalf
+                }
+              }
+            }
+          }
+          
+          if (currentPhrase.trim().length > 0) {
+            phrases.push(currentPhrase.trim())
+          }
+          
+          return phrases.length > 0 ? phrases : [text]
+        }
+        
+        // 각 장면을 의미 단위로 나눠서 개별 STT 분석 수행
+        const openaiApiKey = getApiKey("openai") || getApiKey("gpt_api_key") || getApiKey("chatgpt_api_key")
+        const allWordTimings: Array<{ word: string; start: number; end: number; lineId: number }> = []
+        
+        if (openaiApiKey) {
+          // 전체 구간 수 계산 (장면별 의미 단위 합계)
+          let totalPhrases = 0
+          const phraseMapping: Array<{ lineId: number; phrase: string; startTime: number; duration: number; sceneNum: number }> = []
+          
+          let cumulativeTime = 0
+          for (const [sceneNum, lines] of sceneAudioMapping.entries()) {
+            for (const line of lines) {
+              const audioDuration = audioDurations.find((d) => d.lineId === line.lineId)?.duration || 0
+              if (audioDuration > 0) {
+                const phrases = splitIntoSemanticPhrases(line.text)
+                const phraseDuration = audioDuration / phrases.length
+                
+                for (let j = 0; j < phrases.length; j++) {
+                  phraseMapping.push({
+                    lineId: line.lineId,
+                    phrase: phrases[j],
+                    startTime: cumulativeTime + (j * phraseDuration),
+                    duration: phraseDuration,
+                    sceneNum: sceneNum,
+                  })
+                  totalPhrases++
+                }
+                
+                cumulativeTime += audioDuration
+              }
+            }
+          }
+          
+          console.log(`[Whisper] 씬별 각 의미 단위별 개별 STT 분석 시작 (${totalPhrases}개 구간)`)
+          
+          let currentPhraseIndex = 0
+          
+          for (const [sceneNum, lines] of sceneAudioMapping.entries()) {
+            for (const line of lines) {
+              const audioDuration = audioDurations.find((d) => d.lineId === line.lineId)?.duration || 0
+              const alignment = audioDurations.find((d) => d.lineId === line.lineId)?.alignment
+              
+              if (audioDuration > 0) {
+                // ElevenLabs alignment가 있으면 정확한 타이밍 사용 (의미 단위 세분화 없이)
+                if (alignment && selectedVoiceId && !selectedVoiceId.startsWith("ttsmaker-")) {
+                  try {
+                    const geminiApiKey = getGeminiApiKey()
+                    if (geminiApiKey) {
+                      // 의미 단위 세그먼트 생성
+                      const semanticSegments = await generateSemanticSegments(line.text, geminiApiKey)
+                      // alignment와 세그먼트 매칭하여 정확한 타이밍 계산
+                      const phrases = alignmentToPhrases(alignment, 20, semanticSegments)
+                      
+                      // 각 자막 생성 (alignment 기반 정확한 타이밍, 절대 시간으로 변환)
+                      for (const phrase of phrases) {
+                        const start = cumulativeTime + phrase.start
+                        const end = cumulativeTime + phrase.end
+
+                        subtitles.push({
+                          id: subtitles.length + 1,
+                          start: Number.parseFloat(start.toFixed(5)),
+                          end: Number.parseFloat(end.toFixed(5)),
+                          text: phrase.text
+                        })
+                      }
+                    } else {
+                      // Gemini API 키가 없으면 Whisper 사용 (의미 단위로 세분화)
+                      const phrases = splitIntoSemanticPhrases(line.text)
+                      const phraseDuration = audioDuration / phrases.length
+                      
+                      for (let j = 0; j < phrases.length; j++) {
+                        currentPhraseIndex++
+                        const phraseStartTime = cumulativeTime + (j * phraseDuration)
+                        
+                        try {
+                          setRenderingStatusMessage(`STT 분석 중... (${currentPhraseIndex}/${totalPhrases})`)
+                          console.log(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}/${phrases.length} STT 분석 시작 (구간: ${phraseStartTime.toFixed(3)}초 ~ ${(phraseStartTime + phraseDuration).toFixed(3)}초)`)
+                          
+                          const segmentBuffer = extractAudioSegment(mergedBuffer, phraseStartTime, phraseStartTime + phraseDuration)
+                          const audioBlob = await audioBufferToBlob(segmentBuffer)
+                          
+                          const formData = new FormData()
+                          formData.append("audio", audioBlob, `scene_${sceneNum}_line_${line.lineId}_phrase_${j}.wav`)
+                          formData.append("text", phrases[j])
+                          
+                          const whisperResponse = await fetch("/api/whisper-align", {
+                            method: "POST",
+                            body: formData,
+                          })
+                          
+                          if (whisperResponse.ok) {
+                            const whisperData = await whisperResponse.json()
+                            if (whisperData.wordTimings && whisperData.wordTimings.length > 0) {
+                              for (const wordTiming of whisperData.wordTimings) {
+                                allWordTimings.push({
+                                  word: wordTiming.word,
+                                  start: phraseStartTime + wordTiming.start,
+                                  end: phraseStartTime + wordTiming.end,
+                                  lineId: line.lineId,
+                                })
+                              }
+                            }
+                          }
+                        } catch (error) {
+                          console.warn(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1} STT 분석 오류:`, error)
+                        }
+                      }
+                    }
+                  } catch (error) {
+                    console.error(`[자막 생성] alignment 사용 실패 (씬 ${sceneNum}, 줄 ${line.lineId}), Whisper 사용:`, error)
+                    // 에러 발생 시 Whisper 사용 (의미 단위로 세분화)
+                    const phrases = splitIntoSemanticPhrases(line.text)
+                    const phraseDuration = audioDuration / phrases.length
+                    
+                    for (let j = 0; j < phrases.length; j++) {
+                      currentPhraseIndex++
+                      const phraseStartTime = cumulativeTime + (j * phraseDuration)
+                      
+                      try {
+                        setRenderingStatusMessage(`STT 분석 중... (${currentPhraseIndex}/${totalPhrases})`)
+                        const segmentBuffer = extractAudioSegment(mergedBuffer, phraseStartTime, phraseStartTime + phraseDuration)
+                        const audioBlob = await audioBufferToBlob(segmentBuffer)
+                        
+                        const formData = new FormData()
+                        formData.append("audio", audioBlob, `scene_${sceneNum}_line_${line.lineId}_phrase_${j}.wav`)
+                        formData.append("text", phrases[j])
+                        
+                        const whisperResponse = await fetch("/api/whisper-align", {
+                          method: "POST",
+                          body: formData,
+                        })
+                        
+                        if (whisperResponse.ok) {
+                          const whisperData = await whisperResponse.json()
+                          if (whisperData.wordTimings && whisperData.wordTimings.length > 0) {
+                            for (const wordTiming of whisperData.wordTimings) {
+                              allWordTimings.push({
+                                word: wordTiming.word,
+                                start: phraseStartTime + wordTiming.start,
+                                end: phraseStartTime + wordTiming.end,
+                                lineId: line.lineId,
+                              })
+                            }
+                          }
+                        }
+                      } catch (whisperError) {
+                        console.warn(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1} STT 분석 오류:`, whisperError)
+                      }
+                    }
+                  }
+                } else {
+                  // alignment가 없으면 Whisper API를 사용하여 정확한 타이밍 추출 (의미 단위로 세분화)
+                  const phrases = splitIntoSemanticPhrases(line.text)
+                  const phraseDuration = audioDuration / phrases.length
+                  
+                  for (let j = 0; j < phrases.length; j++) {
+                    currentPhraseIndex++
+                    const phraseStartTime = cumulativeTime + (j * phraseDuration)
+                    
+                    try {
+                      setRenderingStatusMessage(`STT 분석 중... (${currentPhraseIndex}/${totalPhrases})`)
+                      console.log(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}/${phrases.length} STT 분석 시작 (구간: ${phraseStartTime.toFixed(3)}초 ~ ${(phraseStartTime + phraseDuration).toFixed(3)}초)`)
+                      
+                      const segmentBuffer = extractAudioSegment(mergedBuffer, phraseStartTime, phraseStartTime + phraseDuration)
+                      const audioBlob = await audioBufferToBlob(segmentBuffer)
+                      
+                      const formData = new FormData()
+                      formData.append("audio", audioBlob, `scene_${sceneNum}_line_${line.lineId}_phrase_${j}.wav`)
+                      formData.append("text", phrases[j])
+                      
+                      const whisperResponse = await fetch("/api/whisper-align", {
+                        method: "POST",
+                        body: formData,
+                      })
+                      
+                      if (whisperResponse.ok) {
+                        const whisperData = await whisperResponse.json()
+                        if (whisperData.wordTimings && whisperData.wordTimings.length > 0) {
+                          for (const wordTiming of whisperData.wordTimings) {
+                            allWordTimings.push({
+                              word: wordTiming.word,
+                              start: phraseStartTime + wordTiming.start,
+                              end: phraseStartTime + wordTiming.end,
+                              lineId: line.lineId,
+                            })
+                          }
+                          console.log(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}: ${whisperData.wordTimings.length}개 단어 타이밍 추출 완료`)
+                        }
+                      }
+                    } catch (error) {
+                      console.warn(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1} STT 분석 오류:`, error)
+                    }
+                  }
+                }
+              }
+              
+              cumulativeTime += audioDuration
+            }
+          }
+          
+          console.log(`[Whisper] 씬별 전체 ${allWordTimings.length}개 단어 타이밍 추출 완료 (${totalPhrases}개 구간)`)
+        } else {
+          console.warn(`[Whisper] OpenAI API 키 없음, Whisper API 건너뜀`)
+        }
+        
+        // splitIntoSubtitleLines 함수 (fallback용)
+        const splitIntoSubtitleLines = (text: string, totalDuration: number = 0): Array<{ text: string; startTime: number; endTime: number }> => {
           const words = text.split(" ").filter(w => w.trim().length > 0)
           if (words.length === 0) return [{ text, startTime: 0, endTime: totalDuration }]
           
           const result: Array<{ text: string; startTime: number; endTime: number }> = []
-          let silenceThreshold = 0.01
-          let wordStartTimes: number[] = []
+          const timePerWord = totalDuration / words.length
+          const wordStartTimes: number[] = []
           
-          if (audioBuffer && totalDuration > 0) {
-            const totalChars = words.reduce((sum, w) => sum + w.length, 0)
-            let currentTime = 0
-            
-            for (const word of words) {
-              const wordRatio = word.length / totalChars
-              const wordDuration = wordRatio * totalDuration
-              wordStartTimes.push(currentTime)
-              currentTime += wordDuration
-            }
-          } else {
-            const timePerWord = totalDuration / words.length
-            for (let i = 0; i < words.length; i++) {
-              wordStartTimes.push(i * timePerWord)
-            }
+          for (let i = 0; i < words.length; i++) {
+            wordStartTimes.push(i * timePerWord)
           }
           
           let currentLine: string[] = []
@@ -6895,7 +7443,7 @@ export default function LongformContentPage() {
                 })
               }
               currentLine = [word]
-              lineStartTime = wordStartTimes[i] || (i * (totalDuration / words.length))
+              lineStartTime = wordStartTimes[i] || (i * timePerWord)
             } else {
               currentLine.push(word)
             }
@@ -6912,180 +7460,84 @@ export default function LongformContentPage() {
           return result.length > 0 ? result : [{ text, startTime: 0, endTime: totalDuration }]
         }
         
-        let subtitleTime = 0
+        // Whisper 결과를 기반으로 자막 생성
+        setRenderingStatusMessage("자막 생성 중...")
         let subtitleId = 1
         
-        // 씬별로 자막 생성
-        for (const [sceneNum, lines] of sceneAudioMapping.entries()) {
-          for (const line of lines) {
-            const audioData = audioDurations.find((d) => d.lineId === line.lineId)
-            const audioDuration = audioData?.duration || 0
-            const audioBuffer = audioData?.audioBuffer
-            const alignment = audioData?.alignment
+        if (allWordTimings && allWordTimings.length > 0) {
+          // 각 장면별로 정렬된 단어 타이밍을 사용하여 정확한 자막 생성
+          const sortedWordTimings = allWordTimings.sort((a, b) => a.start - b.start)
+          let currentLine: string[] = []
+          let lineStartTime = 0
+          const maxChars = 20 // 공백 포함 20자까지
+          
+          for (let i = 0; i < sortedWordTimings.length; i++) {
+            const wordTiming = sortedWordTimings[i]
+            const word = wordTiming.word
+            const testLine = currentLine.length > 0 ? currentLine.join(" ") + " " + word : word
             
-            if (audioDuration > 0) {
-              // ElevenLabs alignment가 있으면 정확한 타이밍 사용
-              if (alignment && selectedVoiceId && !selectedVoiceId.startsWith("ttsmaker-")) {
-                try {
-                  const geminiApiKey = getGeminiApiKey()
-                  if (geminiApiKey) {
-                    // 의미 단위 세그먼트 생성
-                    const semanticSegments = await generateSemanticSegments(line.text, geminiApiKey)
-                    // alignment와 세그먼트 매칭하여 정확한 타이밍 계산
-                    const phrases = alignmentToPhrases(alignment, 20, semanticSegments)
-                    
-                    // 각 자막 생성 (alignment 기반 정확한 타이밍)
-                    for (const phrase of phrases) {
-                      const start = subtitleTime + phrase.start
-                      const end = subtitleTime + phrase.end
-
-                      subtitles.push({
-                        id: subtitleId++,
-                        start: Number.parseFloat(start.toFixed(5)), // 소수점 5자리까지 정확하게
-                        end: Number.parseFloat(end.toFixed(5)),
-                        text: phrase.text
-                      })
-                    }
-                  } else {
-                    // Gemini API 키가 없으면 기존 방식 사용
-                    const subtitleLines = splitIntoSubtitleLines(line.text, audioBuffer, audioDuration)
-                    for (let j = 0; j < subtitleLines.length; j++) {
-                      const subtitleLine = subtitleLines[j]
-                      const start = subtitleTime + subtitleLine.startTime
-                      const end = subtitleTime + subtitleLine.endTime
-                      
-                      subtitles.push({
-                        id: subtitleId++,
-                        start: Number.parseFloat(start.toFixed(5)), // 소수점 5자리까지 정확하게
-                        end: Number.parseFloat(end.toFixed(5)),
-                        text: subtitleLine.text,
-                      })
-                    }
-                  }
-                } catch (error) {
-                  console.error(`[자막 생성] alignment 사용 실패 (씬 ${sceneNum}, 줄 ${line.lineId}), 기존 방식 사용:`, error)
-                  // 에러 발생 시 기존 방식 사용
-                  const subtitleLines = splitIntoSubtitleLines(line.text, audioBuffer, audioDuration)
-                  for (let j = 0; j < subtitleLines.length; j++) {
-                    const subtitleLine = subtitleLines[j]
-                    const start = subtitleTime + subtitleLine.startTime
-                    const end = subtitleTime + subtitleLine.endTime
-                    
-                    subtitles.push({
-                      id: subtitleId++,
-                      start: Number.parseFloat(start.toFixed(5)), // 소수점 5자리까지 정확하게
-                      end: Number.parseFloat(end.toFixed(5)),
-                      text: subtitleLine.text,
-                    })
-                  }
-                }
-              } else {
-                // alignment가 없으면 Whisper API를 사용하여 정확한 타이밍 추출
-                let whisperWordTimings: Array<{ word: string; start: number; end: number }> | null = null
-                
-                try {
-                  const openaiApiKey = getApiKey("openai") || getApiKey("gpt_api_key") || getApiKey("chatgpt_api_key")
-                  
-                  if (openaiApiKey && audioBuffer) {
-                    console.log(`[Whisper] TTS 오디오 STT 분석 시작 (씬 ${sceneNum}, 줄 ${line.lineId})`)
-                    setRenderingStatusMessage(`자막 생성 중... (${line.lineId}/${scriptLines.length})`)
-                    
-                    // AudioBuffer를 Blob으로 변환
-                    const audioBlob = await audioBufferToBlob(audioBuffer)
-                    
-                    // Whisper align API 호출
-                    const formData = new FormData()
-                    formData.append("audio", audioBlob, "audio.wav")
-                    formData.append("text", line.text)
-                    
-                    const whisperResponse = await fetch("/api/whisper-align", {
-                      method: "POST",
-                      body: formData,
-                    })
-                    
-                    if (whisperResponse.ok) {
-                      const whisperData = await whisperResponse.json()
-                      if (whisperData.wordTimings && whisperData.wordTimings.length > 0) {
-                        whisperWordTimings = whisperData.wordTimings
-                        console.log(`[Whisper] ${whisperData.wordTimings.length}개 단어 타이밍 추출 완료 (씬 ${sceneNum}, 줄 ${line.lineId})`)
-                      }
-                    } else {
-                      console.warn(`[Whisper] API 호출 실패 (씬 ${sceneNum}, 줄 ${line.lineId}):`, await whisperResponse.text())
-                    }
-                  } else {
-                    console.warn(`[Whisper] OpenAI API 키 없음, Whisper API 건너뜀 (씬 ${sceneNum}, 줄 ${line.lineId})`)
-                  }
-                } catch (error) {
-                  console.warn(`[Whisper] 오류 (씬 ${sceneNum}, 줄 ${line.lineId}):`, error)
-                  // Whisper 실패해도 계속 진행
-                }
-                
-                // Whisper 결과가 있으면 사용, 없으면 기존 방식 사용
-                if (whisperWordTimings && whisperWordTimings.length > 0) {
-                  // Whisper word timings를 사용하여 정확한 자막 생성
-                  const validWordTimings = whisperWordTimings // TypeScript 타입 가드
-                  let currentLine: string[] = []
-                  let lineStartTime = 0
-                  const maxChars = 20 // 공백 포함 20자까지
-                  
-                  for (let i = 0; i < validWordTimings.length; i++) {
-                    const wordTiming = validWordTimings[i]
-                    const word = wordTiming.word
-                    const testLine = currentLine.length > 0 ? currentLine.join(" ") + " " + word : word
-                    
-                    if (testLine.length > maxChars && currentLine.length >= 1) {
-                      if (currentLine.length > 0) {
-                        // 이전 줄의 마지막 단어 endTime 사용
-                        const prevWordEnd = i > 0 ? validWordTimings[i - 1].end : wordTiming.start
-                        subtitles.push({
-                          id: subtitleId++,
-                          start: Number.parseFloat((subtitleTime + lineStartTime).toFixed(5)),
-                          end: Number.parseFloat((subtitleTime + prevWordEnd).toFixed(5)),
-                          text: currentLine.join(" "),
-                        })
-                      }
-                      currentLine = [word]
-                      lineStartTime = wordTiming.start
-                    } else {
-                      currentLine.push(word)
-                    }
-                  }
-                  
-                  // 마지막 줄 추가
-                  if (currentLine.length > 0) {
-                    const lastWordEnd = validWordTimings[validWordTimings.length - 1].end
-                    subtitles.push({
-                      id: subtitleId++,
-                      start: Number.parseFloat((subtitleTime + lineStartTime).toFixed(5)),
-                      end: Number.parseFloat((subtitleTime + lastWordEnd).toFixed(5)),
-                      text: currentLine.join(" "),
-                    })
-                  }
-                } else {
-                  // Whisper 결과가 없으면 기존 방식 사용
-                  const subtitleLines = splitIntoSubtitleLines(line.text, audioBuffer, audioDuration)
-                  
-                  for (let j = 0; j < subtitleLines.length; j++) {
-                    const subtitleLine = subtitleLines[j]
-                    const start = subtitleTime + subtitleLine.startTime
-                    const end = subtitleTime + subtitleLine.endTime
-                    
-                    subtitles.push({
-                      id: subtitleId++,
-                      start: Number.parseFloat(start.toFixed(5)), // 소수점 5자리까지 정확하게
-                      end: Number.parseFloat(end.toFixed(5)),
-                      text: subtitleLine.text,
-                    })
-                  }
-                }
+            if (testLine.length > maxChars && currentLine.length >= 1) {
+              if (currentLine.length > 0) {
+                // 이전 줄의 마지막 단어 endTime 사용
+                const prevWordEnd = i > 0 ? sortedWordTimings[i - 1].end : wordTiming.start
+                subtitles.push({
+                  id: subtitleId++,
+                  start: Number.parseFloat(lineStartTime.toFixed(5)),
+                  end: Number.parseFloat(prevWordEnd.toFixed(5)),
+                  text: currentLine.join(" "),
+                })
               }
+              currentLine = [word]
+              lineStartTime = wordTiming.start
+            } else {
+              currentLine.push(word)
+            }
+          }
+          
+          // 마지막 줄 추가
+          if (currentLine.length > 0) {
+            const lastWordEnd = sortedWordTimings[sortedWordTimings.length - 1].end
+            subtitles.push({
+              id: subtitleId++,
+              start: Number.parseFloat(lineStartTime.toFixed(5)),
+              end: Number.parseFloat(lastWordEnd.toFixed(5)),
+              text: currentLine.join(" "),
+            })
+          }
+          
+          console.log(`[v0] 씬별 Whisper 기반 자막 생성 완료: ${subtitles.length}개 자막 (${allWordTimings.length}개 단어 타이밍 사용)`)
+        } else {
+          // Whisper 결과가 없으면 기존 방식 사용 (단어 길이 기반)
+          console.log(`[v0] 씬별 Whisper 결과 없음, 기존 방식으로 자막 생성`)
+          let cumulativeTime = 0
+          
+          for (const [sceneNum, lines] of sceneAudioMapping.entries()) {
+            for (const line of lines) {
+              const audioDuration = audioDurations.find((d) => d.lineId === line.lineId)?.duration || 0
               
-              subtitleTime += audioDuration
+              if (audioDuration > 0) {
+                const subtitleLines = splitIntoSubtitleLines(line.text, audioDuration)
+                
+                for (let j = 0; j < subtitleLines.length; j++) {
+                  const subtitleLine = subtitleLines[j]
+                  const start = cumulativeTime + subtitleLine.startTime
+                  const end = cumulativeTime + subtitleLine.endTime
+                  
+                  subtitles.push({
+                    id: subtitleId++,
+                    start: Number.parseFloat(start.toFixed(3)),
+                    end: Number.parseFloat(end.toFixed(3)),
+                    text: subtitleLine.text,
+                  })
+                }
+                
+                cumulativeTime += audioDuration
+              }
             }
           }
         }
         
-        // 3. 이미지 매핑 (씬별)
+        // 3. 이미지 매핑 (씬별) - 합쳐진 오디오 기준으로 시간 계산
         setRenderingStatusMessage("이미지 매핑 중...")
         const autoImages: Array<{
           id: string
@@ -7136,81 +7588,60 @@ export default function LongformContentPage() {
           }
         }
         
-        // 4. 모든 TTS 오디오를 하나로 합치기
+        // 4. 합쳐진 오디오를 바로 사용 (이미 위에서 합침)
         const calculatedTotalDuration = audioDurations.reduce((sum, d) => sum + d.duration, 0)
+        const totalDuration = actualMergedDuration
         
         const firstImage = autoImages[0]
         if (!firstImage) {
           throw new Error("이미지가 없습니다.")
         }
         
-        // 5. 모든 오디오를 순차적으로 합치기
-        setRenderingStatusMessage("오디오 합치는 중...")
-        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
-        const audioBuffers: AudioBuffer[] = []
+        console.log(`[v0] 씬별 계산된 총 길이: ${calculatedTotalDuration.toFixed(3)}초, 실제 병합된 오디오 길이: ${actualMergedDuration.toFixed(3)}초`)
         
-        // 씬별로 오디오 수집
-        for (const [sceneNum, lines] of sceneAudioMapping.entries()) {
-          for (const line of lines) {
-            const audio = generatedAudios.find((a) => a.lineId === line.lineId)
-            if (audio) {
-              try {
-                const audioResponse = await fetch(audio.audioUrl)
-                const audioArrayBuffer = await audioResponse.arrayBuffer()
-                const audioBuffer = await audioContext.decodeAudioData(audioArrayBuffer)
-                audioBuffers.push(audioBuffer)
-              } catch (error) {
-                console.error(`오디오 디코딩 실패 (씬 ${sceneNum}, 줄 ${line.lineId}):`, error)
-              }
-            }
-          }
-        }
-        
-        if (audioBuffers.length === 0) {
-          throw new Error("합칠 수 있는 오디오가 없습니다.")
-        }
-        
-        // 모든 오디오 버퍼를 하나로 합치기
-        const totalLength = audioBuffers.reduce((sum, buffer) => sum + buffer.length, 0)
-        const numberOfChannels = audioBuffers[0].numberOfChannels
-        const sampleRate = audioBuffers[0].sampleRate
-        
-        const mergedBuffer = audioContext.createBuffer(numberOfChannels, totalLength, sampleRate)
-        
-        let offset = 0
-        for (const buffer of audioBuffers) {
-          for (let channel = 0; channel < numberOfChannels; channel++) {
-            const mergedData = mergedBuffer.getChannelData(channel)
-            const bufferData = buffer.getChannelData(channel)
-            mergedData.set(bufferData, offset)
-          }
-          offset += buffer.length
-        }
-        
-        const actualMergedDuration = mergedBuffer.duration
-        console.log(`[v0] 계산된 총 길이: ${calculatedTotalDuration.toFixed(3)}초, 실제 병합된 오디오 길이: ${actualMergedDuration.toFixed(3)}초`)
-        
+        // 실제 병합된 오디오 길이와 계산된 길이의 비율 계산
         const durationRatio = actualMergedDuration > 0 && calculatedTotalDuration > 0 
           ? actualMergedDuration / calculatedTotalDuration 
           : 1.0
         
-        console.log(`[v0] Duration ratio: ${durationRatio.toFixed(4)}`)
+        console.log(`[v0] 씬별 Duration ratio: ${durationRatio.toFixed(4)}`)
         
+        // 자막 타이밍을 실제 병합된 오디오 길이에 맞춰 조정
         if (durationRatio !== 1.0) {
-          console.log(`[v0] 자막 타이밍 조정 중... (ratio: ${durationRatio.toFixed(4)})`)
+          console.log(`[v0] 씬별 자막 타이밍 조정 중... (ratio: ${durationRatio.toFixed(4)})`)
           for (let i = 0; i < subtitles.length; i++) {
-            subtitles[i].start = Number.parseFloat((subtitles[i].start * durationRatio).toFixed(3))
-            subtitles[i].end = Number.parseFloat((subtitles[i].end * durationRatio).toFixed(3))
+            const originalStart = subtitles[i].start
+            const originalEnd = subtitles[i].end
+            subtitles[i].start = Number.parseFloat((originalStart * durationRatio).toFixed(3))
+            subtitles[i].end = Number.parseFloat((originalEnd * durationRatio).toFixed(3))
           }
           
+          // 이미지 타이밍도 조정
           for (let i = 0; i < autoImages.length; i++) {
-            autoImages[i].startTime = Number.parseFloat((autoImages[i].startTime * durationRatio).toFixed(3))
-            autoImages[i].endTime = Number.parseFloat((autoImages[i].endTime * durationRatio).toFixed(3))
+            const originalStart = autoImages[i].startTime
+            const originalEnd = autoImages[i].endTime
+            autoImages[i].startTime = Number.parseFloat((originalStart * durationRatio).toFixed(3))
+            autoImages[i].endTime = Number.parseFloat((originalEnd * durationRatio).toFixed(3))
           }
-          console.log(`[v0] 자막 및 이미지 타이밍 조정 완료`)
+          console.log(`[v0] 씬별 자막 및 이미지 타이밍 조정 완료`)
         }
         
-        const totalDuration = actualMergedDuration
+        // 마지막 자막과 이미지의 endTime을 오디오의 실제 마지막 시간과 일치시키기
+        if (subtitles.length > 0) {
+          const lastSubtitle = subtitles[subtitles.length - 1]
+          if (lastSubtitle.end < totalDuration) {
+            console.log(`[v0] 씬별 마지막 자막 endTime 조정: ${lastSubtitle.end.toFixed(3)}초 -> ${totalDuration.toFixed(3)}초`)
+            lastSubtitle.end = Number.parseFloat(totalDuration.toFixed(3))
+          }
+        }
+        
+        if (autoImages.length > 0) {
+          const lastImage = autoImages[autoImages.length - 1]
+          if (lastImage.endTime < totalDuration) {
+            console.log(`[v0] 씬별 마지막 이미지 endTime 조정: ${lastImage.endTime.toFixed(3)}초 -> ${totalDuration.toFixed(3)}초`)
+            lastImage.endTime = Number.parseFloat(totalDuration.toFixed(3))
+          }
+        }
         
         // 마지막 자막과 이미지의 endTime을 오디오의 실제 마지막 시간과 일치시키기 (음성 잘림 방지)
         if (subtitles.length > 0) {
@@ -7315,84 +7746,227 @@ export default function LongformContentPage() {
       // 기존 로직 (씬별 렌더링이 아닌 경우)
       console.log("[v0] 일반 렌더링 모드 사용")
 
-      // 1. 각 TTS 오디오의 정확한 길이 측정 (AudioBuffer 사용)
-      const audioDurations: Array<{ lineId: number; duration: number; audioBuffer?: AudioBuffer; alignment?: any }> = []
-      const audioContextForAnalysis = new (window.AudioContext || (window as any).webkitAudioContext)()
+      // 1. 먼저 모든 TTS 오디오를 하나로 합치기 (빠른다운로드와 싱크 맞추기 위해)
+      setRenderingStatusMessage("오디오 합치는 중...")
+      const audioContextForMerge = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const audioBuffersForMerge: AudioBuffer[] = []
+      const audioDurations: Array<{ lineId: number; duration: number }> = []
 
+      // 모든 오디오를 순서대로 로드
       for (const line of scriptLines) {
         const audio = generatedAudios.find((a) => a.lineId === line.id)
         if (audio) {
           try {
-            // AudioBuffer로 로드하여 정확한 duration 측정
             const audioResponse = await fetch(audio.audioUrl)
             const audioArrayBuffer = await audioResponse.arrayBuffer()
-            const audioBuffer = await audioContextForAnalysis.decodeAudioData(audioArrayBuffer)
+            const audioBuffer = await audioContextForMerge.decodeAudioData(audioArrayBuffer)
+            audioBuffersForMerge.push(audioBuffer)
             
-            // 더 정확한 duration 계산: length / sampleRate (AudioBuffer.duration보다 정확)
-            // AudioBuffer.duration은 부동소수점 오차가 있을 수 있으므로 직접 계산
+            // 각 오디오의 길이 저장 (이미지 매핑에 사용)
             const preciseDuration = audioBuffer.length / audioBuffer.sampleRate
-            
-            // 실제 오디오 데이터의 끝부분 확인 (침묵 구간 제외하여 더 정확한 길이 측정)
-            // 모든 채널을 확인하여 실제 오디오가 끝나는 지점 찾기
-            let actualEndSample = audioBuffer.length
-            const silenceThreshold = 0.001 // 침묵 임계값
-            const lookbackSamples = Math.floor(audioBuffer.sampleRate * 0.1) // 마지막 0.1초 확인
-            
-            // 뒤에서부터 실제 오디오가 있는 지점 찾기
-            for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
-              const channelData = audioBuffer.getChannelData(channel)
-              for (let i = audioBuffer.length - 1; i >= Math.max(0, audioBuffer.length - lookbackSamples); i--) {
-                if (Math.abs(channelData[i]) > silenceThreshold) {
-                  // 이 채널에서 실제 오디오가 끝나는 지점
-                  actualEndSample = Math.max(actualEndSample, i + 1)
-                  break
-                }
-              }
-            }
-            
-            // 실제 오디오 길이 계산 (최소한 audioBuffer.duration은 보장)
-            const actualDuration = Math.max(
-              preciseDuration,
-              actualEndSample / audioBuffer.sampleRate
-            )
-            
-            // 소수점 6자리까지 정확하게 반올림
-            const finalDuration = Number.parseFloat(actualDuration.toFixed(6))
-            
+            const finalDuration = Number.parseFloat(preciseDuration.toFixed(6))
             audioDurations.push({
               lineId: line.id,
               duration: finalDuration,
-              audioBuffer: audioBuffer, // 나중에 웨이브폼 분석에 사용
-              alignment: audio.alignment || undefined, // ElevenLabs alignment 데이터 포함
             })
             
-            console.log(`[v0] 오디오 ${line.id} 정확한 길이: ${finalDuration.toFixed(6)}초 (length: ${audioBuffer.length}, sampleRate: ${audioBuffer.sampleRate}, alignment: ${audio.alignment ? "있음" : "없음"})`)
+            console.log(`[v0] 오디오 ${line.id} 로드 완료: ${finalDuration.toFixed(6)}초`)
           } catch (error) {
             console.error(`오디오 로드 실패 (줄 ${line.id}):`, error)
-            // Fallback: AudioElement 사용
-            const audioElement = new Audio(audio.audioUrl)
-            await new Promise((resolve) => {
-              audioElement.addEventListener("loadedmetadata", () => {
-                audioDurations.push({
-                  lineId: line.id,
-                  duration: audioElement.duration,
-                })
-                resolve(null)
-              })
-              audioElement.addEventListener("error", () => {
-                audioDurations.push({
-                  lineId: line.id,
-                  duration: 0,
-                })
-                resolve(null)
-              })
-            })
           }
         }
       }
 
-      // 2. 자막 생성 (각 문장을 여러 줄로 나누어 정확한 타이밍 계산)
+      if (audioBuffersForMerge.length === 0) {
+        throw new Error("합칠 수 있는 오디오가 없습니다.")
+      }
+
+      // 모든 오디오 버퍼를 하나로 합치기
+      const totalLength = audioBuffersForMerge.reduce((sum, buffer) => sum + buffer.length, 0)
+      const numberOfChannels = audioBuffersForMerge[0].numberOfChannels
+      const sampleRate = audioBuffersForMerge[0].sampleRate
+
+      const mergedBuffer = audioContextForMerge.createBuffer(numberOfChannels, totalLength, sampleRate)
+
+      let offset = 0
+      for (const buffer of audioBuffersForMerge) {
+        for (let channel = 0; channel < numberOfChannels; channel++) {
+          const mergedData = mergedBuffer.getChannelData(channel)
+          const bufferData = buffer.getChannelData(channel)
+          mergedData.set(bufferData, offset)
+        }
+        offset += buffer.length
+      }
+
+      const actualMergedDuration = mergedBuffer.duration
+      console.log(`[v0] 오디오 합치기 완료: 실제 병합된 오디오 길이 ${actualMergedDuration.toFixed(3)}초`)
+
+      // 2. 합쳐진 오디오에서 각 문장별로 구간 추출하여 개별 STT 분석 수행
+      setRenderingStatusMessage("STT 분석 중...")
       const subtitles: Array<{ id: number; start: number; end: number; text: string }> = []
+      
+      // AudioBuffer에서 특정 구간을 추출하는 헬퍼 함수
+      const extractAudioSegment = (buffer: AudioBuffer, startTime: number, endTime: number): AudioBuffer => {
+        const sampleRate = buffer.sampleRate
+        const startSample = Math.floor(startTime * sampleRate)
+        const endSample = Math.floor(endTime * sampleRate)
+        const length = endSample - startSample
+        
+        const extractedBuffer = audioContextForMerge.createBuffer(
+          buffer.numberOfChannels,
+          length,
+          sampleRate
+        )
+        
+        for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+          const sourceData = buffer.getChannelData(channel)
+          const targetData = extractedBuffer.getChannelData(channel)
+          targetData.set(sourceData.subarray(startSample, endSample))
+        }
+        
+        return extractedBuffer
+      }
+      
+      // 문장을 의미 단위(구, 절)로 분할하는 함수
+      const splitIntoSemanticPhrases = (text: string): string[] => {
+        // 쉼표, 마침표, 느낌표, 물음표, 그리고 의미 단위 구분자로 분할
+        // 하지만 너무 짧게 나누지 않도록 최소 길이 제한
+        const minPhraseLength = 10 // 최소 10자 이상
+        
+        // 먼저 문장 부호로 분할
+        const punctuationSplit = text.split(/([.,!?;:])/).filter(s => s.trim().length > 0)
+        
+        const phrases: string[] = []
+        let currentPhrase = ""
+        
+        for (let i = 0; i < punctuationSplit.length; i++) {
+          const segment = punctuationSplit[i]
+          
+          // 문장 부호인 경우
+          if (/^[.,!?;:]$/.test(segment)) {
+            currentPhrase += segment
+            // 현재 구가 최소 길이 이상이면 추가
+            if (currentPhrase.trim().length >= minPhraseLength) {
+              phrases.push(currentPhrase.trim())
+              currentPhrase = ""
+            }
+          } else {
+            currentPhrase += segment
+            // 현재 구가 충분히 길면 추가 (최소 길이의 2배 이상)
+            if (currentPhrase.trim().length >= minPhraseLength * 2) {
+              // 공백이나 의미 단위로 나누기
+              const words = currentPhrase.trim().split(/\s+/)
+              if (words.length > 5) {
+                // 절반 정도에서 나누기
+                const midPoint = Math.floor(words.length / 2)
+                const firstHalf = words.slice(0, midPoint).join(" ")
+                const secondHalf = words.slice(midPoint).join(" ")
+                if (firstHalf.length >= minPhraseLength) {
+                  phrases.push(firstHalf)
+                }
+                currentPhrase = secondHalf
+              }
+            }
+          }
+        }
+        
+        // 남은 구 추가
+        if (currentPhrase.trim().length > 0) {
+          phrases.push(currentPhrase.trim())
+        }
+        
+        // 분할 결과가 없으면 원본 반환
+        return phrases.length > 0 ? phrases : [text]
+      }
+      
+      // 각 문장을 의미 단위로 나눠서 개별 STT 분석 수행
+      const openaiApiKey = getApiKey("openai") || getApiKey("gpt_api_key") || getApiKey("chatgpt_api_key")
+      const allWordTimings: Array<{ word: string; start: number; end: number; lineId: number }> = []
+      
+      if (openaiApiKey) {
+        // 전체 구간 수 계산 (문장별 의미 단위 합계)
+        let totalPhrases = 0
+        const phraseMapping: Array<{ lineId: number; phrase: string; startTime: number; duration: number }> = []
+        
+        let cumulativeTime = 0
+        for (const line of scriptLines) {
+          const audioDuration = audioDurations.find((d) => d.lineId === line.id)?.duration || 0
+          if (audioDuration > 0) {
+            const phrases = splitIntoSemanticPhrases(line.text)
+            const phraseDuration = audioDuration / phrases.length
+            
+            for (let j = 0; j < phrases.length; j++) {
+              phraseMapping.push({
+                lineId: line.id,
+                phrase: phrases[j],
+                startTime: cumulativeTime + (j * phraseDuration),
+                duration: phraseDuration,
+              })
+              totalPhrases++
+            }
+            
+            cumulativeTime += audioDuration
+          }
+        }
+        
+        console.log(`[Whisper] 각 의미 단위별 개별 STT 분석 시작 (${totalPhrases}개 구간, ${scriptLines.length}개 문장)`)
+        
+        for (let i = 0; i < phraseMapping.length; i++) {
+          const phraseInfo = phraseMapping[i]
+          
+          try {
+            setRenderingStatusMessage(`STT 분석 중... (${i + 1}/${totalPhrases})`)
+            console.log(`[Whisper] 구간 ${i + 1} (문장 ${phraseInfo.lineId}) STT 분석 시작 (구간: ${phraseInfo.startTime.toFixed(3)}초 ~ ${(phraseInfo.startTime + phraseInfo.duration).toFixed(3)}초)`)
+            
+            // 합쳐진 오디오에서 해당 구간만 추출
+            const segmentBuffer = extractAudioSegment(mergedBuffer, phraseInfo.startTime, phraseInfo.startTime + phraseInfo.duration)
+            
+            // 추출된 구간을 Blob으로 변환
+            const audioBlob = await audioBufferToBlob(segmentBuffer)
+            
+            // Whisper align API 호출 (해당 의미 단위만)
+            const formData = new FormData()
+            formData.append("audio", audioBlob, `phrase_${phraseInfo.lineId}_${i}.wav`)
+            formData.append("text", phraseInfo.phrase)
+            
+            const whisperResponse = await fetch("/api/whisper-align", {
+              method: "POST",
+              body: formData,
+            })
+            
+            if (whisperResponse.ok) {
+              const whisperData = await whisperResponse.json()
+              if (whisperData.wordTimings && whisperData.wordTimings.length > 0) {
+                // 각 단어의 타이밍을 합쳐진 오디오의 절대 시간으로 변환
+                for (const wordTiming of whisperData.wordTimings) {
+                  allWordTimings.push({
+                    word: wordTiming.word,
+                    start: phraseInfo.startTime + wordTiming.start, // 절대 시간으로 변환
+                    end: phraseInfo.startTime + wordTiming.end, // 절대 시간으로 변환
+                    lineId: phraseInfo.lineId,
+                  })
+                }
+                console.log(`[Whisper] 구간 ${i + 1} (문장 ${phraseInfo.lineId}): ${whisperData.wordTimings.length}개 단어 타이밍 추출 완료`)
+              } else {
+                console.warn(`[Whisper] 구간 ${i + 1} (문장 ${phraseInfo.lineId}): 단어 타이밍 없음`)
+              }
+            } else {
+              console.warn(`[Whisper] 구간 ${i + 1} (문장 ${phraseInfo.lineId}) API 호출 실패:`, await whisperResponse.text())
+            }
+          } catch (error) {
+            console.warn(`[Whisper] 구간 ${i + 1} (문장 ${phraseInfo.lineId}) STT 분석 오류:`, error)
+            // 개별 구간 실패해도 계속 진행
+          }
+        }
+        
+        console.log(`[Whisper] 전체 ${allWordTimings.length}개 단어 타이밍 추출 완료 (${totalPhrases}개 구간, ${scriptLines.length}개 문장)`)
+      } else {
+        console.warn(`[Whisper] OpenAI API 키 없음, Whisper API 건너뜀`)
+      }
+      
+      // 전체 텍스트 합치기 (fallback용)
+      const fullText = scriptLines.map(line => line.text).join(" ")
+      console.log(`[v0] 전체 텍스트 길이: ${fullText.length}자, 오디오 길이: ${actualMergedDuration.toFixed(3)}초`)
       
       // splitIntoSubtitleLines 함수 (단어 단위로 나누어 TTS와 정확히 동기화)
       const splitIntoSubtitleLines = (text: string, audioBuffer?: AudioBuffer, totalDuration: number = 0): Array<{ text: string; startTime: number; endTime: number }> => {
@@ -7462,174 +8036,65 @@ export default function LongformContentPage() {
         return result.length > 0 ? result : [{ text, startTime: 0, endTime: totalDuration }]
       }
 
-      let subtitleTime = 0
+      // Whisper 결과를 기반으로 자막 생성
+      setRenderingStatusMessage("자막 생성 중...")
       let subtitleId = 1
-
-      for (const line of scriptLines) {
-        const audioData = audioDurations.find((d) => d.lineId === line.id)
-        const audioDuration = audioData?.duration || 0
-        const audioBuffer = audioData?.audioBuffer
-        const alignment = audioData?.alignment
+      
+      if (allWordTimings && allWordTimings.length > 0) {
+        // 각 문장별로 정렬된 단어 타이밍을 사용하여 정확한 자막 생성
+        const sortedWordTimings = allWordTimings.sort((a, b) => a.start - b.start)
+        let currentLine: string[] = []
+        let lineStartTime = 0
+        const maxChars = 20 // 공백 포함 20자까지
         
-        if (audioDuration > 0) {
-          // ElevenLabs alignment가 있으면 정확한 타이밍 사용
-          if (alignment && selectedVoiceId && !selectedVoiceId.startsWith("ttsmaker-")) {
-            try {
-              const geminiApiKey = getGeminiApiKey()
-              if (geminiApiKey) {
-                // 의미 단위 세그먼트 생성
-                const semanticSegments = await generateSemanticSegments(line.text, geminiApiKey)
-                // alignment와 세그먼트 매칭하여 정확한 타이밍 계산
-                const phrases = alignmentToPhrases(alignment, 20, semanticSegments)
-                
-                // 각 자막 생성 (alignment 기반 정확한 타이밍)
-                for (const phrase of phrases) {
-                  const start = subtitleTime + phrase.start
-                  const end = subtitleTime + phrase.end
-
-                  subtitles.push({
-                    id: subtitleId++,
-                    start: Number.parseFloat(start.toFixed(3)),
-                    end: Number.parseFloat(end.toFixed(3)),
-                    text: phrase.text
-                  })
-                }
-              } else {
-                // Gemini API 키가 없으면 기존 방식 사용
-                const subtitleLines = splitIntoSubtitleLines(line.text, audioBuffer, audioDuration)
-                for (let j = 0; j < subtitleLines.length; j++) {
-                  const subtitleLine = subtitleLines[j]
-                  const start = subtitleTime + subtitleLine.startTime
-                  const end = subtitleTime + subtitleLine.endTime
-
-                  subtitles.push({
-                    id: subtitleId++,
-                    start: Number.parseFloat(start.toFixed(3)),
-                    end: Number.parseFloat(end.toFixed(3)),
-                    text: subtitleLine.text,
-                  })
-                }
-              }
-            } catch (error) {
-              console.error(`[자막 생성] alignment 사용 실패 (줄 ${line.id}), 기존 방식 사용:`, error)
-              // 에러 발생 시 기존 방식 사용
-              const subtitleLines = splitIntoSubtitleLines(line.text, audioBuffer, audioDuration)
-              for (let j = 0; j < subtitleLines.length; j++) {
-                const subtitleLine = subtitleLines[j]
-                const start = subtitleTime + subtitleLine.startTime
-                const end = subtitleTime + subtitleLine.endTime
-
-                subtitles.push({
-                  id: subtitleId++,
-                  start: Number.parseFloat(start.toFixed(3)),
-                  end: Number.parseFloat(end.toFixed(3)),
-                  text: subtitleLine.text,
-                })
-              }
+        for (let i = 0; i < sortedWordTimings.length; i++) {
+          const wordTiming = sortedWordTimings[i]
+          const word = wordTiming.word
+          const testLine = currentLine.length > 0 ? currentLine.join(" ") + " " + word : word
+          
+          if (testLine.length > maxChars && currentLine.length >= 1) {
+            if (currentLine.length > 0) {
+              // 이전 줄의 마지막 단어 endTime 사용
+              const prevWordEnd = i > 0 ? sortedWordTimings[i - 1].end : wordTiming.start
+              subtitles.push({
+                id: subtitleId++,
+                start: Number.parseFloat(lineStartTime.toFixed(5)),
+                end: Number.parseFloat(prevWordEnd.toFixed(5)),
+                text: currentLine.join(" "),
+              })
             }
+            currentLine = [word]
+            lineStartTime = wordTiming.start
           } else {
-            // alignment가 없으면 Whisper API를 사용하여 정확한 타이밍 추출
-            let whisperWordTimings: Array<{ word: string; start: number; end: number }> | null = null
-            
-            try {
-              const openaiApiKey = getApiKey("openai") || getApiKey("gpt_api_key") || getApiKey("chatgpt_api_key")
-              
-              if (openaiApiKey && audioBuffer) {
-                console.log(`[Whisper] TTS 오디오 STT 분석 시작 (줄 ${line.id})`)
-                setRenderingStatusMessage(`자막 생성 중... (${line.id}/${scriptLines.length})`)
-                
-                // AudioBuffer를 Blob으로 변환
-                const audioBlob = await audioBufferToBlob(audioBuffer)
-                
-                // Whisper align API 호출
-                const formData = new FormData()
-                formData.append("audio", audioBlob, "audio.wav")
-                formData.append("text", line.text)
-                
-                const whisperResponse = await fetch("/api/whisper-align", {
-                  method: "POST",
-                  body: formData,
-                })
-                
-                if (whisperResponse.ok) {
-                  const whisperData = await whisperResponse.json()
-                  if (whisperData.wordTimings && whisperData.wordTimings.length > 0) {
-                    whisperWordTimings = whisperData.wordTimings
-                    console.log(`[Whisper] ${whisperData.wordTimings.length}개 단어 타이밍 추출 완료 (줄 ${line.id})`)
-                  }
-                } else {
-                  console.warn(`[Whisper] API 호출 실패 (줄 ${line.id}):`, await whisperResponse.text())
-                }
-              } else {
-                console.warn(`[Whisper] OpenAI API 키 없음, Whisper API 건너뜀 (줄 ${line.id})`)
-              }
-            } catch (error) {
-              console.warn(`[Whisper] 오류 (줄 ${line.id}):`, error)
-              // Whisper 실패해도 계속 진행
-            }
-            
-            // Whisper 결과가 있으면 사용, 없으면 기존 방식 사용
-            if (whisperWordTimings && whisperWordTimings.length > 0) {
-              // Whisper word timings를 사용하여 정확한 자막 생성
-              const validWordTimings = whisperWordTimings // TypeScript 타입 가드
-              let currentLine: string[] = []
-              let lineStartTime = 0
-              const maxChars = 20 // 공백 포함 20자까지
-              
-              for (let i = 0; i < validWordTimings.length; i++) {
-                const wordTiming = validWordTimings[i]
-                const word = wordTiming.word
-                const testLine = currentLine.length > 0 ? currentLine.join(" ") + " " + word : word
-                
-                if (testLine.length > maxChars && currentLine.length >= 1) {
-                  if (currentLine.length > 0) {
-                    // 이전 줄의 마지막 단어 endTime 사용
-                    const prevWordEnd = i > 0 ? validWordTimings[i - 1].end : wordTiming.start
-                    subtitles.push({
-                      id: subtitleId++,
-                      start: Number.parseFloat((subtitleTime + lineStartTime).toFixed(5)),
-                      end: Number.parseFloat((subtitleTime + prevWordEnd).toFixed(5)),
-                      text: currentLine.join(" "),
-                    })
-                  }
-                  currentLine = [word]
-                  lineStartTime = wordTiming.start
-                } else {
-                  currentLine.push(word)
-                }
-              }
-              
-              // 마지막 줄 추가
-              if (currentLine.length > 0) {
-                const lastWordEnd = validWordTimings[validWordTimings.length - 1].end
-                subtitles.push({
-                  id: subtitleId++,
-                  start: Number.parseFloat((subtitleTime + lineStartTime).toFixed(5)),
-                  end: Number.parseFloat((subtitleTime + lastWordEnd).toFixed(5)),
-                  text: currentLine.join(" "),
-                })
-              }
-            } else {
-              // Whisper 결과가 없으면 기존 방식 사용
-              const subtitleLines = splitIntoSubtitleLines(line.text, audioBuffer, audioDuration)
-              
-              // 각 자막 생성 (오디오 버퍼 분석 기반 정확한 타이밍)
-              for (let j = 0; j < subtitleLines.length; j++) {
-                const subtitleLine = subtitleLines[j]
-                const start = subtitleTime + subtitleLine.startTime
-                const end = subtitleTime + subtitleLine.endTime
-
-                subtitles.push({
-                  id: subtitleId++,
-                  start: Number.parseFloat(start.toFixed(3)), // 0.001초 단위로 정밀도 향상
-                  end: Number.parseFloat(end.toFixed(3)),
-                  text: subtitleLine.text,
-                })
-              }
-            }
+            currentLine.push(word)
           }
-
-          subtitleTime += audioDuration
+        }
+        
+        // 마지막 줄 추가
+        if (currentLine.length > 0) {
+          const lastWordEnd = sortedWordTimings[sortedWordTimings.length - 1].end
+          subtitles.push({
+            id: subtitleId++,
+            start: Number.parseFloat(lineStartTime.toFixed(5)),
+            end: Number.parseFloat(lastWordEnd.toFixed(5)),
+            text: currentLine.join(" "),
+          })
+        }
+        
+        console.log(`[v0] Whisper 기반 자막 생성 완료: ${subtitles.length}개 자막 (${allWordTimings.length}개 단어 타이밍 사용)`)
+      } else {
+        // Whisper 결과가 없으면 기존 방식 사용 (단어 길이 기반)
+        console.log(`[v0] Whisper 결과 없음, 기존 방식으로 자막 생성`)
+        const subtitleLines = splitIntoSubtitleLines(fullText, mergedBuffer, actualMergedDuration)
+        
+        for (let j = 0; j < subtitleLines.length; j++) {
+          const subtitleLine = subtitleLines[j]
+          subtitles.push({
+            id: subtitleId++,
+            start: Number.parseFloat(subtitleLine.startTime.toFixed(3)),
+            end: Number.parseFloat(subtitleLine.endTime.toFixed(3)),
+            text: subtitleLine.text,
+          })
         }
       }
 
@@ -7690,58 +8155,10 @@ export default function LongformContentPage() {
         }
       }
 
-      // 4. 모든 TTS 오디오를 하나로 합치기
-      setRenderingStatusMessage("오디오 합치는 중...")
+      // 4. 합쳐진 오디오를 바로 사용 (이미 위에서 합침)
       const calculatedTotalDuration = audioDurations.reduce((sum, d) => sum + d.duration, 0)
-
-      // 첫 번째 이미지를 기본 배경으로 사용
-      const firstImage = generatedImages[0]
-      if (!firstImage) {
-        throw new Error("이미지가 없습니다.")
-      }
-
-      // 5. 모든 오디오를 순차적으로 합치기 (Web Audio API 사용)
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
-      const audioBuffers: AudioBuffer[] = []
-
-      for (const line of scriptLines) {
-        const audio = generatedAudios.find((a) => a.lineId === line.id)
-        if (audio) {
-          try {
-            const audioResponse = await fetch(audio.audioUrl)
-            const audioArrayBuffer = await audioResponse.arrayBuffer()
-            const audioBuffer = await audioContext.decodeAudioData(audioArrayBuffer)
-            audioBuffers.push(audioBuffer)
-          } catch (error) {
-            console.error(`오디오 디코딩 실패 (줄 ${line.id}):`, error)
-            // 실패한 오디오는 무시하고 계속 진행
-          }
-        }
-      }
-
-      if (audioBuffers.length === 0) {
-        throw new Error("합칠 수 있는 오디오가 없습니다.")
-      }
-
-      // 모든 오디오 버퍼를 하나로 합치기
-      const totalLength = audioBuffers.reduce((sum, buffer) => sum + buffer.length, 0)
-      const numberOfChannels = audioBuffers[0].numberOfChannels
-      const sampleRate = audioBuffers[0].sampleRate
-
-      const mergedBuffer = audioContext.createBuffer(numberOfChannels, totalLength, sampleRate)
-
-      let offset = 0
-      for (const buffer of audioBuffers) {
-        for (let channel = 0; channel < numberOfChannels; channel++) {
-          const mergedData = mergedBuffer.getChannelData(channel)
-          const bufferData = buffer.getChannelData(channel)
-          mergedData.set(bufferData, offset)
-        }
-        offset += buffer.length
-      }
-
-      // 병합된 오디오의 실제 길이 측정 (샘플 수 / 샘플레이트)
-      const actualMergedDuration = mergedBuffer.duration
+      const totalDuration = actualMergedDuration
+      
       console.log(`[v0] 계산된 총 길이: ${calculatedTotalDuration.toFixed(3)}초, 실제 병합된 오디오 길이: ${actualMergedDuration.toFixed(3)}초`)
       
       // 실제 병합된 오디오 길이와 계산된 길이의 비율 계산
@@ -7770,9 +8187,6 @@ export default function LongformContentPage() {
         }
         console.log(`[v0] 자막 및 이미지 타이밍 조정 완료`)
       }
-      
-      // 실제 병합된 오디오 길이를 사용
-      const totalDuration = actualMergedDuration
       
       // 마지막 자막과 이미지의 endTime을 오디오의 실제 마지막 시간과 일치시키기 (음성 잘림 방지)
       if (subtitles.length > 0) {
@@ -7951,8 +8365,81 @@ export default function LongformContentPage() {
     })
   }
 
+  // 오류 분석 함수
+  const analyzeError = (error: any): string => {
+    const errorStr = error instanceof Error ? error.message : String(error)
+    const errorLower = errorStr.toLowerCase()
+    
+    // FFmpeg 관련 오류
+    if (errorLower.includes("ffmpeg") || errorLower.includes("segment")) {
+      if (errorLower.includes("invalid") || errorLower.includes("unsupported")) {
+        return "FFmpeg 형식 오류: 이미지나 오디오 파일 형식이 지원되지 않거나 손상되었을 수 있습니다."
+      }
+      if (errorLower.includes("timeout") || errorLower.includes("time out")) {
+        return "FFmpeg 타임아웃: 렌더링 시간이 너무 오래 걸려 서버에서 중단되었습니다."
+      }
+      if (errorLower.includes("permission") || errorLower.includes("access")) {
+        return "FFmpeg 권한 오류: 파일 접근 권한 문제일 수 있습니다."
+      }
+      return "FFmpeg 렌더링 오류: 이미지나 오디오 파일 처리 중 문제가 발생했습니다."
+    }
+    
+    // 네트워크 관련 오류
+    if (errorLower.includes("network") || errorLower.includes("fetch") || errorLower.includes("failed to fetch")) {
+      return "네트워크 오류: 인터넷 연결을 확인하거나 서버 상태를 확인해주세요."
+    }
+    
+    // 크기 관련 오류
+    if (errorLower.includes("413") || errorLower.includes("too large") || errorLower.includes("크기가")) {
+      return "파일 크기 초과: 요청 크기가 너무 큽니다. Cloud Storage 업로드를 시도하거나 파일 크기를 줄여주세요."
+    }
+    
+    // 타임아웃 오류
+    if (errorLower.includes("timeout") || errorLower.includes("time out") || errorLower.includes("60분")) {
+      return "타임아웃 오류: 렌더링 시간이 너무 오래 걸립니다. 영상 길이를 줄이거나 다시 시도해주세요."
+    }
+    
+    // CORS 오류
+    if (errorLower.includes("cors") || errorLower.includes("cross-origin")) {
+      return "CORS 오류: 이미지나 오디오 파일에 접근할 수 없습니다. 파일이 공개적으로 접근 가능한지 확인해주세요."
+    }
+    
+    // 이미지 관련 오류
+    if (errorLower.includes("image") && (errorLower.includes("not found") || errorLower.includes("없습니다"))) {
+      return "이미지 오류: 이미지 파일을 찾을 수 없거나 로드할 수 없습니다."
+    }
+    
+    // 오디오 관련 오류
+    if (errorLower.includes("audio") && (errorLower.includes("not found") || errorLower.includes("없습니다"))) {
+      return "오디오 오류: 오디오 파일을 찾을 수 없거나 로드할 수 없습니다."
+    }
+    
+    // 서버 오류
+    if (errorLower.includes("500") || errorLower.includes("internal server")) {
+      return "서버 내부 오류: 서버에서 문제가 발생했습니다. 잠시 후 다시 시도해주세요."
+    }
+    
+    // 인증 오류
+    if (errorLower.includes("401") || errorLower.includes("403") || errorLower.includes("unauthorized")) {
+      return "인증 오류: 권한이 없거나 인증에 실패했습니다."
+    }
+    
+    // 일반적인 오류
+    return "알 수 없는 오류가 발생했습니다. 오류 메시지를 확인하여 문제를 파악해주세요."
+  }
+
   // 빠른다운로드: Cloud Run 사용
   const handleFastDownload = async () => {
+    // 안내 문구 표시
+    const userConfirmed = window.confirm(
+      "1시간 업데이트 처리로 약간의 오류가 있을 수 있습니다.\n\n계속 진행하시겠습니까?"
+    )
+    
+    if (!userConfirmed) {
+      console.log("[빠른다운로드] 사용자가 취소했습니다.")
+      return
+    }
+    
     // 씬별 이미지가 있는지 확인
     const hasSceneImages = sceneImagePrompts.length > 0 && sceneImagePrompts.some(scene => 
       scene.images.some(img => img.imageUrl)
@@ -8036,9 +8523,42 @@ export default function LongformContentPage() {
       
       // 예상 렌더링 시간 계산 (영상 1초 생성 시 0.5초 소요)
       estimatedTimeSeconds = Math.ceil(actualAudioDuration * 0.5)
+      
+      // 타임아웃 계산 (Vercel Pro 플랜 최대값: 800초)
+      // 렌더링 시간 = 영상 길이 * 0.5 + 여유 60초, 최대 800초
+      const maxTimeoutSeconds = Math.max(
+        300, // 최소 5분
+        Math.min(
+          800, // 최대 13분 (Vercel Pro 플랜 제한)
+          Math.ceil(actualAudioDuration * 0.5) + 60
+        )
+      )
+      
+      // 긴 영상 경고 (26분 이상)
+      if (actualAudioDuration > 26 * 60) {
+        const videoMinutes = (actualAudioDuration / 60).toFixed(1)
+        const timeoutMinutes = (maxTimeoutSeconds / 60).toFixed(1)
+        const warningMessage = 
+          `⚠️ 경고: 영상 길이가 ${videoMinutes}분으로 매우 깁니다.\n\n` +
+          `예상 렌더링 시간: 약 ${(estimatedTimeSeconds / 60).toFixed(1)}분\n` +
+          `타임아웃 제한: ${timeoutMinutes}분\n\n` +
+          `타임아웃 제한 내에 완료되지 않을 수 있습니다.\n\n` +
+          `권장 사항:\n` +
+          `1. 영상을 여러 개의 짧은 영상으로 나누어 렌더링\n` +
+          `2. Cloud Run 서버의 리소스(CPU/메모리) 증가\n` +
+          `3. 잠시 후 다시 시도 (서버 부하가 적을 때)\n\n` +
+          `계속 진행하시겠습니까?`
+        
+        const shouldContinue = window.confirm(warningMessage)
+        if (!shouldContinue) {
+          setIsExporting(false)
+          return
+        }
+      }
+      
       setEstimatedRenderTime(estimatedTimeSeconds)
       setRemainingRenderTime(estimatedTimeSeconds)
-      console.log(`[v0] 예상 렌더링 시간: ${estimatedTimeSeconds}초 (영상 길이: ${actualAudioDuration.toFixed(1)}초)`)
+      console.log(`[v0] 예상 렌더링 시간: ${estimatedTimeSeconds}초 (영상 길이: ${actualAudioDuration.toFixed(1)}초), 타임아웃 제한: ${maxTimeoutSeconds}초`)
       
       // 예상 시간을 사용자에게 표시
       const estimatedMinutes = Math.floor(estimatedTimeSeconds / 60)
@@ -9123,51 +9643,24 @@ export default function LongformContentPage() {
       })
       console.log("[v0] 최종 요청 본문 (일부):", JSON.stringify(finalRequestBody).substring(0, 500))
       
-      // 긴 렌더링을 위해 Cloud Run을 직접 호출 (Vercel API 라우트 우회)
-      // Vercel API 라우트는 최대 800초(약 13분) 제한이 있지만, 실제로는 10분 이상부터 불안정할 수 있음
-      // 클라이언트 사이드에서 직접 호출 (타임아웃 제한 없음)
-      const CLOUD_RUN_URL = "https://my-project-350911437561.asia-northeast1.run.app"
+      // CORS 문제 방지를 위해 항상 Vercel API 라우트를 통해 호출
+      // API 라우트가 서버 사이드에서 Cloud Run을 호출하므로 CORS 문제 없음
       const estimatedDurationMinutes = finalRequestBody.duration / 60
       
-      // 10분 이상이면 Cloud Run 직접 호출, 그 이하는 Vercel API 라우트 사용
-      // 10분 기준으로 낮춰서 타임아웃 방지
-      const useDirectCloudRun = estimatedDurationMinutes >= 10
+      console.log(`[v0] 렌더링 작업 시작 (${estimatedDurationMinutes.toFixed(1)}분) - Vercel API 라우트 사용`)
       
-      let renderResponse
-      if (useDirectCloudRun) {
-        console.log(`[v0] 긴 렌더링 작업 (${estimatedDurationMinutes.toFixed(1)}분) - Cloud Run 직접 호출`)
-        // Cloud Run 직접 호출 (타임아웃 없음)
-        const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), 60 * 60 * 1000) // 60분 타임아웃
-        
-        try {
-          renderResponse = await fetch(`${CLOUD_RUN_URL}/render`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: requestBodyString,
-            signal: controller.signal,
-          })
-          clearTimeout(timeoutId)
-        } catch (fetchError: any) {
-          clearTimeout(timeoutId)
-          if (fetchError.name === 'AbortError') {
-            throw new Error("렌더링 시간이 너무 오래 걸립니다. (60분 초과)")
-          }
-          throw fetchError
-        }
-      } else {
-        console.log(`[v0] 일반 렌더링 작업 (${estimatedDurationMinutes.toFixed(1)}분) - Vercel API 라우트 사용`)
-        // Vercel API 라우트 사용 (최대 800초)
-        renderResponse = await fetch("/api/ai/render", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: requestBodyString,
-        })
-      }
+      // Vercel API 라우트 사용 (서버 사이드에서 Cloud Run 호출)
+      // 비동기 모드 활성화 (타임아웃 방지)
+      const renderResponse = await fetch("/api/ai/render", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          ...finalRequestBody,
+          asyncMode: true, // 비동기 모드 활성화
+        }),
+      })
 
       if (!renderResponse.ok) {
         // 413 오류 (요청 크기 초과) 처리
@@ -9176,6 +9669,49 @@ export default function LongformContentPage() {
             "요청 크기가 너무 큽니다. Cloud Storage 업로드를 다시 시도하거나 오디오 길이를 줄여주세요. " +
             "(Vercel 요청 크기 제한: 4.5MB)"
           )
+        }
+        
+        // 504 오류 (타임아웃) 처리
+        if (renderResponse.status === 504) {
+          const contentType = renderResponse.headers.get("content-type") || ""
+          let errorData: any = null
+          
+          if (contentType.includes("application/json")) {
+            try {
+              errorData = await renderResponse.json()
+            } catch (e) {
+              // JSON 파싱 실패 시 기본 메시지 사용
+            }
+          }
+          
+          // 타임아웃 오류 메시지 구성
+          let timeoutMessage = "⏱️ 렌더링 타임아웃 오류\n\n"
+          
+          if (errorData) {
+            if (errorData.details) {
+              timeoutMessage += `${errorData.details}\n\n`
+            }
+            if (errorData.suggestion) {
+              timeoutMessage += `💡 권장 사항:\n${errorData.suggestion}\n\n`
+            }
+          }
+          
+          timeoutMessage += "📋 해결 방법:\n"
+          timeoutMessage += "1. 영상을 여러 개의 짧은 영상으로 나누어 렌더링\n"
+          timeoutMessage += "2. Cloud Run 서버의 리소스(CPU/메모리) 증가\n"
+          timeoutMessage += "3. 잠시 후 다시 시도 (서버 부하가 적을 때)\n"
+          timeoutMessage += "4. 영상 길이를 줄여서 다시 시도\n\n"
+          
+          if (errorData?.timeoutSeconds && errorData?.videoDuration) {
+            const timeoutMinutes = (errorData.timeoutSeconds / 60).toFixed(1)
+            const videoMinutes = (errorData.videoDuration / 60).toFixed(1)
+            timeoutMessage += `📊 정보:\n`
+            timeoutMessage += `- 영상 길이: ${videoMinutes}분\n`
+            timeoutMessage += `- 타임아웃 제한: ${timeoutMinutes}분\n`
+            timeoutMessage += `- 예상 필요 시간: 약 ${(errorData.videoDuration * 0.5 / 60).toFixed(1)}분\n`
+          }
+          
+          throw new Error(timeoutMessage)
         }
         
         // 응답이 JSON인지 확인
@@ -9318,7 +9854,7 @@ export default function LongformContentPage() {
 
       // 응답이 JSON인지 확인
       const contentType = renderResponse.headers.get("content-type") || ""
-      let renderResult
+      let renderResult: any
       if (contentType.includes("application/json")) {
         try {
           renderResult = await renderResponse.json()
@@ -9329,6 +9865,90 @@ export default function LongformContentPage() {
       } else {
         const errorText = await renderResponse.text()
         throw new Error(`예상하지 못한 응답 형식: ${errorText.substring(0, 200)}`)
+      }
+
+      // 비동기 모드: jobId가 있으면 폴링 시작
+      if (renderResult.success && renderResult.jobId) {
+        console.log("[v0] 비동기 모드: 작업 시작됨, 폴링 시작", { jobId: renderResult.jobId })
+        setExportStatusMessage("렌더링 진행 중... (상태 확인 중)")
+        setExportProgress(30)
+        
+        // 폴링으로 작업 상태 확인
+        const pollInterval = 3000 // 3초마다 확인
+        const maxPollAttempts = 600 // 최대 30분 (600 * 3초)
+        let pollAttempts = 0
+        let pollIntervalId: NodeJS.Timeout | null = null
+        
+        const pollStatus = async (): Promise<any> => {
+          return new Promise((resolve, reject) => {
+            pollIntervalId = setInterval(async () => {
+              pollAttempts++
+              
+              try {
+                const statusResponse = await fetch(`/api/ai/render/status?jobId=${renderResult.jobId}`)
+                
+                if (!statusResponse.ok) {
+                  const errorData = await statusResponse.json().catch(() => ({}))
+                  throw new Error(errorData.error || `상태 확인 실패: ${statusResponse.status}`)
+                }
+                
+                const statusResult = await statusResponse.json()
+                
+                console.log(`[v0] 작업 상태 확인 (${pollAttempts}/${maxPollAttempts}):`, {
+                  status: statusResult.status,
+                  progress: statusResult.progress,
+                })
+                
+                // 진행률 업데이트
+                if (statusResult.progress !== undefined) {
+                  setExportProgress(30 + Math.floor(statusResult.progress * 0.5)) // 30-80% 범위
+                }
+                
+                if (statusResult.status === "completed") {
+                  if (pollIntervalId) clearInterval(pollIntervalId)
+                  console.log("[v0] 렌더링 완료!")
+                  resolve(statusResult)
+                } else if (statusResult.status === "failed") {
+                  if (pollIntervalId) clearInterval(pollIntervalId)
+                  throw new Error(statusResult.error || "렌더링 실패")
+                } else if (statusResult.status === "processing") {
+                  // 계속 폴링
+                  setExportStatusMessage(
+                    statusResult.progress !== undefined
+                      ? `렌더링 진행 중... ${statusResult.progress}%`
+                      : "렌더링 진행 중..."
+                  )
+                  
+                  // 최대 시도 횟수 초과
+                  if (pollAttempts >= maxPollAttempts) {
+                    if (pollIntervalId) clearInterval(pollIntervalId)
+                    throw new Error("렌더링 시간이 너무 오래 걸립니다. 잠시 후 다시 시도해주세요.")
+                  }
+                }
+              } catch (error) {
+                if (pollIntervalId) clearInterval(pollIntervalId)
+                reject(error)
+              }
+            }, pollInterval)
+          })
+        }
+        
+        try {
+          // 폴링 시작
+          const finalResult = await pollStatus()
+          
+          // 최종 결과를 renderResult로 설정
+          renderResult = {
+            success: true,
+            videoUrl: finalResult.videoUrl,
+            downloadUrl: finalResult.downloadUrl,
+            videoBase64: finalResult.videoBase64,
+            projectId: finalResult.projectId || `project_${Date.now()}`,
+          }
+        } catch (pollError) {
+          console.error("[v0] 폴링 오류:", pollError)
+          throw pollError
+        }
       }
 
       if (!renderResult.success) {
@@ -9517,16 +10137,26 @@ export default function LongformContentPage() {
       let errorMessage = "알 수 없는 오류"
       if (error instanceof Error) {
         errorMessage = error.message
-        
-        // 오류 메시지가 너무 길면 일부만 표시하고 콘솔 안내
-        if (errorMessage.length > 2000) {
-          const shortMessage = errorMessage.substring(0, 2000) + "\n\n... (전체 오류 내용은 브라우저 콘솔(F12)에서 확인하세요)"
-          alert(`영상 렌더링 중 오류가 발생했습니다:\n\n${shortMessage}`)
-        } else {
-          alert(`영상 렌더링 중 오류가 발생했습니다:\n\n${errorMessage}`)
-        }
       } else {
-        alert(`영상 렌더링 중 오류가 발생했습니다: ${errorMessage}`)
+        errorMessage = String(error)
+      }
+      
+      // 오류 분석
+      const errorAnalysis = analyzeError(error)
+      
+      // 오류 로그 저장 (사진 찍을 수 있도록)
+      setExportErrorLog({
+        message: errorMessage,
+        analysis: errorAnalysis,
+        timestamp: new Date().toLocaleString("ko-KR"),
+      })
+      
+      // 오류 메시지가 너무 길면 일부만 표시하고 콘솔 안내
+      if (errorMessage.length > 2000) {
+        const shortMessage = errorMessage.substring(0, 2000) + "\n\n... (전체 오류 내용은 로딩창 하단의 오류 로그에서 확인하세요)"
+        alert(`영상 렌더링 중 오류가 발생했습니다:\n\n${shortMessage}\n\n오류 분석: ${errorAnalysis}`)
+      } else {
+        alert(`영상 렌더링 중 오류가 발생했습니다:\n\n${errorMessage}\n\n오류 분석: ${errorAnalysis}`)
       }
       if (isAutoMode) {
         setIsAutoMode(false)
@@ -12683,6 +13313,14 @@ export default function LongformContentPage() {
                                 { id: "jB1Cifc2UQbq1gR3wnb0", name: "ElevenLabs Rachel", note: "기본(Default)", provider: "elevenlabs" },
                                 { id: "8jHHF8rMqMlg8if2mOUe", name: "ElevenLabs Voice 2", note: "사용자 선택형", provider: "elevenlabs" },
                                 { id: "uyVNoMrnUku1dZyVEXwD", name: "ElevenLabs Voice 3", note: "", provider: "elevenlabs" },
+                                { id: "supertone-voice1", name: "수퍼톤 목소리1", note: "기본 여성", provider: "supertone" },
+                                { id: "supertone-voice2", name: "수퍼톤 목소리2", note: "기본 남성", provider: "supertone" },
+                                ...(customElevenLabsVoices || []).map((voice: { id: string; name: string }) => ({
+                                  id: voice.id,
+                                  name: `ElevenLabs ${voice.name}`,
+                                  note: "사용자 추가",
+                                  provider: "elevenlabs" as const,
+                                })),
                               ].map((voice) => (
                                 <div
                                   key={voice.id}
@@ -12744,7 +13382,80 @@ export default function LongformContentPage() {
                                 className="w-full"
                               />
                             )}
+                            {/* 일레븐랩스 사용자 정의 목소리 추가 버튼 */}
+                            <div className="mt-3 pt-3 border-t border-gray-200">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="w-full"
+                                onClick={() => setShowAddVoiceDialog(true)}
+                              >
+                                <Plus className="w-3 h-3 mr-1" />
+                                일레븐랩스 목소리 추가
+                              </Button>
+                            </div>
                           </div>
+                          {/* 목소리 추가 다이얼로그 */}
+                          <Dialog open={showAddVoiceDialog} onOpenChange={setShowAddVoiceDialog}>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>일레븐랩스 목소리 추가</DialogTitle>
+                                <DialogDescription>
+                                  일레븐랩스에서 발급받은 Voice ID를 입력하세요.
+                                </DialogDescription>
+                              </DialogHeader>
+                              <div className="space-y-4 mt-4">
+                                <div>
+                                  <Label>목소리 이름</Label>
+                                  <Input
+                                    value={newVoiceName}
+                                    onChange={(e) => setNewVoiceName(e.target.value)}
+                                    placeholder="예: 내 목소리"
+                                  />
+                                </div>
+                                <div>
+                                  <Label>Voice ID</Label>
+                                  <Input
+                                    value={newVoiceId}
+                                    onChange={(e) => setNewVoiceId(e.target.value)}
+                                    placeholder="예: jB1Cifc2UQbq1gR3wnb0"
+                                  />
+                                  <p className="text-xs text-gray-500 mt-1">
+                                    일레븐랩스 대시보드에서 Voice ID를 확인할 수 있습니다.
+                                  </p>
+                                </div>
+                                <div className="flex gap-2">
+                                  <Button
+                                    onClick={() => {
+                                      if (newVoiceId && newVoiceName) {
+                                        setCustomElevenLabsVoices([...customElevenLabsVoices, { id: newVoiceId, name: newVoiceName }])
+                                        // 로컬스토리지에 저장
+                                        localStorage.setItem("custom_elevenlabs_voices", JSON.stringify([...customElevenLabsVoices, { id: newVoiceId, name: newVoiceName }]))
+                                        setNewVoiceId("")
+                                        setNewVoiceName("")
+                                        setShowAddVoiceDialog(false)
+                                      } else {
+                                        alert("목소리 이름과 Voice ID를 모두 입력해주세요.")
+                                      }
+                                    }}
+                                    className="flex-1"
+                                  >
+                                    추가
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    onClick={() => {
+                                      setShowAddVoiceDialog(false)
+                                      setNewVoiceId("")
+                                      setNewVoiceName("")
+                                    }}
+                                  >
+                                    취소
+                                  </Button>
+                                </div>
+                              </div>
+                            </DialogContent>
+                          </Dialog>
                         </div>
 
                         <div className="flex gap-3 mt-6">
@@ -13980,6 +14691,11 @@ export default function LongformContentPage() {
                         </DialogTitle>
                         <DialogDescription>
                           AI가 대본을 생성하고 있습니다. 잠시만 기다려주세요.
+                          {scriptGenerationProgress?.currentPart && scriptGenerationProgress?.totalParts && (
+                            <div className="mt-2 text-sm font-medium text-blue-600">
+                              {scriptGenerationProgress.currentPart}/{scriptGenerationProgress.totalParts}회차 진행 중
+                            </div>
+                          )}
                         </DialogDescription>
                       </DialogHeader>
                       
@@ -14059,7 +14775,7 @@ export default function LongformContentPage() {
                   />
                   <div className="flex justify-between items-center text-xs text-muted-foreground">
                     <span>글자 수: {directScript.length.toLocaleString()}자</span>
-                    <span>예상 영상 길이: {Math.floor(directScript.length / 6.9 / 60)}분 {Math.floor((directScript.length / 6.9) % 60)}초</span>
+                    <span>예상 영상 길이: {Math.floor(directScript.length / 10 / 60)}분 {Math.floor((directScript.length / 10) % 60)}초</span>
                   </div>
                   <div className="flex gap-2">
                     <Button onClick={handleDirectScriptSubmit} disabled={!directScript.trim()} className="flex-1">
@@ -14112,20 +14828,32 @@ export default function LongformContentPage() {
                       
                       setIsRegeneratingScript(true)
                       try {
-                        const apiKey = getApiKey("openai_api_key")
-                        if (!apiKey) {
-                          alert("OpenAI API 키를 설정해주세요. 설정 페이지에서 API 키를 입력하고 저장해주세요.")
+                        // Gemini API 키 가져오기 (대본 재생성은 Gemini 2.5 Pro 사용)
+                        const geminiApiKey = getGeminiApiKey()
+                        if (!geminiApiKey) {
+                          alert("Gemini API 키를 설정해주세요. 설정 페이지에서 API 키를 입력하고 저장해주세요.")
                           setIsRegeneratingScript(false)
                           return
                         }
+                        
+                        // 주제 추출은 OpenAI API 사용 (extractTopicFromScript가 OpenAI 사용)
+                        const openaiApiKey = getApiKey("openai_api_key")
                         
                         // 주제가 없으면 대본에서 주제 추출
                         let topicToUse = selectedTopic
                         if (!topicToUse) {
                           console.log("[대본 재생성] 주제가 없어서 대본에서 주제 추출 중...")
                           try {
-                            topicToUse = await extractTopicFromScript(script, apiKey)
-                            console.log("[대본 재생성] 추출된 주제:", topicToUse)
+                            if (openaiApiKey) {
+                              topicToUse = await extractTopicFromScript(script, openaiApiKey)
+                              console.log("[대본 재생성] 추출된 주제:", topicToUse)
+                            } else {
+                              // OpenAI API 키가 없으면 대본의 앞부분을 주제로 사용
+                              topicToUse = script.substring(0, 50).replace(/\n/g, " ").trim()
+                              if (topicToUse.length > 30) {
+                                topicToUse = topicToUse.substring(0, 30) + "..."
+                              }
+                            }
                           } catch (error) {
                             console.error("[대본 재생성] 주제 추출 실패, 대본 요약 사용:", error)
                             // 주제 추출 실패 시 대본의 앞부분을 주제로 사용
@@ -14137,7 +14865,7 @@ export default function LongformContentPage() {
                         }
                         
                         console.log("[대본 재생성] 시작...")
-                        const regeneratedScript = await regenerateScript(script, topicToUse, apiKey, selectedCategory)
+                        const regeneratedScript = await regenerateScript(script, topicToUse, geminiApiKey, selectedCategory)
                         setScript(regeneratedScript)
                         console.log("[대본 재생성] 완료")
                       } catch (error) {
@@ -16150,18 +16878,132 @@ export default function LongformContentPage() {
                                         <div className="font-medium text-sm text-gray-600">
                                           Image {image.imageNumber}:
                                         </div>
-                                        <Button
-                                          variant="outline"
-                                          size="sm"
-                                          onClick={() => {
-                                            copyToClipboard(image.prompt)
-                                            alert(`Image ${image.imageNumber} 프롬프트가 복사되었습니다.`)
-                                          }}
-                                          className="h-7 px-2"
-                                        >
-                                          <Copy className="w-3 h-3 mr-1" />
-                                          복사
-                                        </Button>
+                                        <div className="flex gap-2">
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={async () => {
+                                              // 특정 장면의 프롬프트만 재생성
+                                              const openaiApiKey = getApiKey("openai_api_key")
+                                              if (!openaiApiKey) {
+                                                alert("OpenAI API 키를 설정해주세요.")
+                                                return
+                                              }
+                                              
+                                              if (!decomposedScenes || decomposedScenes.trim().length === 0) {
+                                                alert("장면 분해 결과가 없습니다. 먼저 장면을 분해해주세요.")
+                                                return
+                                              }
+                                              
+                                              // 해당 Scene 블록 찾기
+                                              const sceneBlocks = decomposedScenes.split(/(?=씬\s+\d+)/).filter(block => block.trim().length > 0)
+                                              const targetSceneBlock = sceneBlocks.find(block => {
+                                                const sceneNumMatch = block.match(/씬\s+(\d+)/)
+                                                return sceneNumMatch && parseInt(sceneNumMatch[1]) === scene.sceneNumber
+                                              })
+                                              
+                                              if (!targetSceneBlock) {
+                                                alert(`Scene ${scene.sceneNumber}를 찾을 수 없습니다.`)
+                                                return
+                                              }
+                                              
+                                              try {
+                                                // 시대적 배경 추출
+                                                const historicalContext = await extractHistoricalContext(selectedTopic || undefined, script || undefined, openaiApiKey).catch(() => null)
+                                                
+                                                // 스틱맨 애니메이션의 경우 첫 번째 Scene에서 캐릭터 설명 추출
+                                                let stickmanCharacterDescription: string | null = null
+                                                if (imageStyle === "stickman-animation" && scene.sceneNumber === 1) {
+                                                  const firstScene = sceneImagePrompts.find(s => s.sceneNumber === 1)
+                                                  if (firstScene && firstScene.images.length > 0) {
+                                                    const firstPrompt = firstScene.images[0]?.prompt || ""
+                                                    const characterMatch = firstPrompt.match(/(?:the same stickman character|the main stickman character|the protagonist stickman)\s*\(([^)]+)\)/i)
+                                                    if (characterMatch) {
+                                                      stickmanCharacterDescription = characterMatch[1]
+                                                    }
+                                                  }
+                                                } else if (imageStyle === "stickman-animation" && scene.sceneNumber > 1) {
+                                                  // 첫 번째 Scene에서 캐릭터 설명 가져오기
+                                                  const firstScene = sceneImagePrompts.find(s => s.sceneNumber === 1)
+                                                  if (firstScene && firstScene.images.length > 0) {
+                                                    const firstPrompt = firstScene.images[0]?.prompt || ""
+                                                    const characterMatch = firstPrompt.match(/(?:the same stickman character|the main stickman character|the protagonist stickman)\s*\(([^)]+)\)/i)
+                                                    if (characterMatch) {
+                                                      stickmanCharacterDescription = characterMatch[1]
+                                                    } else {
+                                                      const firstSceneText = firstScene.images[0]?.sceneText || ""
+                                                      const roleMatch = firstSceneText.match(/(?:탐정|의사|선생님|학생|경찰|요리사|운동선수|가수|배우|기자|변호사|간호사|엔지니어|프로그래머|디자이너|예술가|작가|음악가)/)
+                                                      stickmanCharacterDescription = roleMatch ? roleMatch[0] : "the main protagonist"
+                                                    }
+                                                  }
+                                                }
+                                                
+                                                // 해당 Scene의 프롬프트 재생성
+                                                const regeneratedImages = await generateSingleSceneImagePrompts(
+                                                  targetSceneBlock,
+                                                  scene.sceneNumber,
+                                                  imageStyle,
+                                                  customStylePrompt || undefined,
+                                                  historicalContext || undefined,
+                                                  stickmanCharacterDescription || undefined,
+                                                  openaiApiKey,
+                                                  realisticCharacterType || undefined
+                                                )
+                                                
+                                                // 재생성된 프롬프트로 업데이트 (해당 이미지만)
+                                                setSceneImagePrompts((prev) => {
+                                                  const updated = prev.map((s) => {
+                                                    if (s.sceneNumber === scene.sceneNumber) {
+                                                      const updatedImages = s.images.map((img) => {
+                                                        if (img.imageNumber === image.imageNumber) {
+                                                          // 재생성된 프롬프트 찾기
+                                                          const regeneratedImage = regeneratedImages.find(ri => ri.imageNumber === image.imageNumber)
+                                                          if (regeneratedImage) {
+                                                            return {
+                                                              ...img,
+                                                              prompt: regeneratedImage.prompt,
+                                                              visualInstruction: regeneratedImage.visualInstruction,
+                                                              // imageUrl은 유지 (재생성 시 초기화하지 않음)
+                                                            }
+                                                          }
+                                                        }
+                                                        return img
+                                                      })
+                                                      return {
+                                                        ...s,
+                                                        images: updatedImages,
+                                                      }
+                                                    }
+                                                    return s
+                                                  })
+                                                  return updated
+                                                })
+                                                
+                                                alert(`Scene ${scene.sceneNumber}의 Image ${image.imageNumber} 프롬프트가 재생성되었습니다.`)
+                                              } catch (error) {
+                                                console.error("프롬프트 재생성 실패:", error)
+                                                alert(`프롬프트 재생성에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+                                              }
+                                            }}
+                                            disabled={isGeneratingScenePrompts}
+                                            className="h-7 px-2"
+                                          >
+                                            <RefreshCw className={`w-3 h-3 mr-1 ${isGeneratingScenePrompts ? 'animate-spin' : ''}`} />
+                                            재생성
+                                          </Button>
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => {
+                                              copyToClipboard(image.prompt)
+                                              alert(`Image ${image.imageNumber} 프롬프트가 복사되었습니다.`)
+                                            }}
+                                            className="h-7 px-2"
+                                          >
+                                            <Copy className="w-3 h-3 mr-1" />
+                                            복사
+                                          </Button>
+                                        </div>
                                       </div>
                                       <div className="text-xs text-gray-500 mb-2 italic">
                                         {image.visualInstruction || image.sceneText.substring(0, 100)}{(!image.visualInstruction && image.sceneText.length > 100) ? "..." : ""}
@@ -18226,8 +19068,8 @@ export default function LongformContentPage() {
                   onChange={(e) => setScript(e.target.value)}
                 />
                 <div className="text-xs text-muted-foreground mt-2">
-                  {script.length} 글자 / 예상 영상 길이: {Math.floor(script.length / 6.9 / 60)}분{" "}
-                  {Math.floor((script.length / 6.9) % 60)}초
+                  {script.length} 글자 / 예상 영상 길이: {Math.floor(script.length / 10 / 60)}분{" "}
+                  {Math.floor((script.length / 10) % 60)}초
                 </div>
               </CardContent>
             </Card>
@@ -18418,7 +19260,7 @@ export default function LongformContentPage() {
                               return
                             }
                             
-                            const result = await generateYouTubeDescription(script, selectedCategory, titleToUse, apiKey)
+                            const result = await generateYouTubeDescription(script, selectedCategory, titleToUse, apiKey, scriptDuration)
                             if (result) {
                               setYoutubeDescription(result)
                               // 제목/설명 생성 단계 체크 (사이드바 ID는 "title")
@@ -18484,7 +19326,7 @@ export default function LongformContentPage() {
                             if (script && cleanedTitle) {
                               setIsGenerating(true)
                               try {
-                                const result = await generateYouTubeDescription(script, selectedCategory, cleanedTitle, getApiKey())
+                                const result = await generateYouTubeDescription(script, selectedCategory, cleanedTitle, getApiKey(), scriptDuration)
                                 setYoutubeDescription(result)
                                 // 제목/설명 생성 단계 체크 (사이드바 ID는 "title")
                                 setCompletedSteps((prev) => [...new Set([...prev, "title"])])
@@ -19916,12 +20758,12 @@ export default function LongformContentPage() {
                 <CardTitle className="text-lg">쇼츠 길이 선택</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-3 gap-4">
-                  {[1, 2, 3].map((duration) => (
+                <div className="grid grid-cols-4 gap-4">
+                  {[0.5, 1, 2, 3].map((duration) => (
                     <button
                       key={duration}
                       onClick={() => {
-                        setShortsDuration(duration as 1 | 2 | 3)
+                        setShortsDuration(duration as 0.5 | 1 | 2 | 3)
                         // 쇼츠 길이 변경 시 이미지 선택 초기화
                         setSelectedImagesForShorts(new Set())
                       }}
@@ -19931,7 +20773,7 @@ export default function LongformContentPage() {
                           : "border-gray-200 hover:border-gray-300"
                       }`}
                     >
-                      <p className="text-2xl font-bold">{duration}분</p>
+                      <p className="text-2xl font-bold">{duration === 0.5 ? "30초" : `${duration}분`}</p>
                       <p className="text-sm text-muted-foreground">쇼츠</p>
                     </button>
                   ))}
@@ -19964,7 +20806,7 @@ export default function LongformContentPage() {
                   ) : (
                     <>
                       <Sparkles className="w-4 h-4 mr-2" />
-                      {shortsDuration}분 길이로 대본 요약하기
+                      {shortsDuration === 0.5 ? "30초" : `${shortsDuration}분`} 길이로 대본 요약하기
                     </>
                   )}
                 </Button>
@@ -20168,8 +21010,8 @@ export default function LongformContentPage() {
                 allImageUrls.push(...sceneImageUrls)
               }
               
-              // 쇼츠 길이에 따라 필요한 이미지 개수 계산 (1분=8개, 2분=15개, 3분=22개)
-              const requiredImageCount = shortsDuration === 1 ? 8 : shortsDuration === 2 ? 15 : 22
+              // 쇼츠 길이에 따라 필요한 이미지 개수 계산 (30초=4개, 1분=8개, 2분=15개, 3분=22개)
+              const requiredImageCount = shortsDuration === 0.5 ? 4 : shortsDuration === 1 ? 8 : shortsDuration === 2 ? 15 : 22
               
               // 초기 선택: 필요한 개수만큼 자동 선택
               if (selectedImagesForShorts.size === 0 && allImageUrls.length > 0) {
@@ -20188,7 +21030,7 @@ export default function LongformContentPage() {
                   <CardContent className="space-y-4">
                     <div className="flex items-center justify-between mb-2">
                       <p className="text-sm text-muted-foreground">
-                        {shortsDuration}분 쇼츠에 맞게 <span className="font-semibold text-blue-600">{requiredImageCount}개</span>의 이미지를 선택해주세요.
+                        {shortsDuration === 0.5 ? "30초" : `${shortsDuration}분`} 쇼츠에 맞게 <span className="font-semibold text-blue-600">{requiredImageCount}개</span>의 이미지를 선택해주세요.
                       </p>
                       <p className="text-sm font-semibold">
                         선택된 이미지: <span className={selectedImagesForShorts.size === requiredImageCount ? "text-green-600" : "text-orange-600"}>
@@ -20922,6 +21764,45 @@ export default function LongformContentPage() {
               <p className="text-xs text-muted-foreground">ElevenLabs 음성 합성에 사용됩니다</p>
             </div>
 
+            {/* 수퍼톤 API Key */}
+            <div className="space-y-2">
+              <Label htmlFor="supertone-key" className="text-sm font-medium">
+                수퍼톤 API Key
+              </Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="supertone-key"
+                  type={showKeys.supertone ? "text" : "password"}
+                  placeholder="입력하세요"
+                  value={apiKeys.supertone}
+                  onChange={(e) => setApiKeys({ ...apiKeys, supertone: e.target.value })}
+                  className="font-mono text-sm"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowKeys({ ...showKeys, supertone: !showKeys.supertone })}
+                  className="shrink-0"
+                >
+                  {showKeys.supertone ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    navigator.clipboard.writeText(apiKeys.supertone)
+                  }}
+                  disabled={!apiKeys.supertone}
+                  className="shrink-0"
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">수퍼톤 음성 합성에 사용됩니다</p>
+            </div>
+
             {/* 구분선 */}
             <div className="border-t border-slate-200 my-4" />
 
@@ -21270,6 +22151,52 @@ export default function LongformContentPage() {
                 ? "다운로드가 완료되었습니다. 우측 상단의 X 버튼을 눌러 닫을 수 있습니다."
                 : "다운로드 중에도 다른 작업을 계속할 수 있습니다."}
             </p>
+
+            {/* 오류 로그 표시 영역 */}
+            {exportErrorLog && (
+              <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-sm font-semibold text-red-900 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4" />
+                    렌더링 오류 발생
+                  </h4>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0 hover:bg-red-100"
+                    onClick={() => setExportErrorLog(null)}
+                  >
+                    <X className="w-3 h-3 text-red-600" />
+                  </Button>
+                </div>
+                
+                {/* 오류 분석 */}
+                <div className="mb-2">
+                  <p className="text-xs font-semibold text-red-800 mb-1">🔍 오류 분석:</p>
+                  <p className="text-xs text-red-700 bg-red-100 p-2 rounded border border-red-200">
+                    {exportErrorLog.analysis}
+                  </p>
+                </div>
+
+                {/* 오류 메시지 (전체) */}
+                <div className="mb-2">
+                  <p className="text-xs font-semibold text-red-800 mb-1">📋 상세 오류 로그:</p>
+                  <div className="text-xs text-red-700 bg-white p-2 rounded border border-red-200 max-h-40 overflow-y-auto font-mono whitespace-pre-wrap break-words">
+                    {exportErrorLog.message}
+                  </div>
+                </div>
+
+                {/* 타임스탬프 */}
+                <p className="text-xs text-red-600 mt-2">
+                  발생 시간: {exportErrorLog.timestamp}
+                </p>
+
+                {/* 안내 메시지 */}
+                <p className="text-xs text-red-600 mt-2 italic">
+                  💡 이 오류 로그를 스크린샷으로 찍어서 개발팀에 전달해주세요.
+                </p>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -3566,6 +3566,7 @@ export async function analyzeScriptPlan(
 
 /**
  * Gemini API를 사용한 전체 대본 생성 함수
+ * duration에 따라 다른 프롬프트 사용
  */
 export async function generateFullScript(
   scriptPlan: string,
@@ -3574,17 +3575,144 @@ export async function generateFullScript(
   apiKey?: string,
   videoDurationMinutes?: number // 영상 길이 (분)
 ): Promise<string> {
-  const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
+  const GEMINI_API_KEY = apiKey || process.env.GEMINI_API_KEY
 
-  if (!GPT_API_KEY) {
-    throw new Error("GPT API 키가 설정되지 않았습니다.")
+  if (!GEMINI_API_KEY) {
+    throw new Error("Gemini API 키가 설정되지 않았습니다.")
   }
 
   const duration = videoDurationMinutes || 5 // 기본값 5분
   const totalCharacters = duration * 300 // 1분당 약 300자 (TTS 기준)
 
   try {
-    const systemPrompt = `당신은 롱폼 비디오 대본 작성 전문가입니다. 기획안을 바탕으로 완성도 높은 대본을 작성해주세요.
+    let systemPrompt = ""
+    let userPrompt = ""
+
+    // duration에 따라 다른 프롬프트 사용
+    if (duration === 5) {
+      // 5분 선택 시 제공된 프롬프트 사용
+      systemPrompt = `당신은 '대본 기획안을 정확히 구현하는 전문 내레이션 작가'입니다.
+
+당신의 역할은 아래에 제공되는 '대본 기획안'을
+의미, 구조, 순서, 감정 흐름, 장면 설계를 절대 변경하지 않고
+오직 TTS 전용 내레이션 스크립트로 변환하는 것입니다.
+
+당신은 창작자가 아니라 구현자입니다.
+기획안을 해석하거나 재구성하지 말고,
+설계도를 가장 자연스럽고 몰입도 높은 말로 풀어내십시오.
+
+────────────────────────
+[절대 준수 원칙]
+────────────────────────
+1) 기획안의 구조, 전개 순서, 핵심 메시지는 절대 변경하지 마십시오.
+2) 기획안에 없는 관점, 주장, 결론을 추가하지 마십시오.
+3) 주제의 성격은 이미 기획안에 반영되어 있으므로
+   주제를 분석하거나 판단하지 마십시오.
+4) 모든 문장은 존댓말로 작성하십시오.
+5) 설명, 해설, 제목, 소제목 없이 오직 스크립트만 출력하십시오.
+
+────────────────────────
+[분량 및 형식 강제 규칙 – 5분]
+────────────────────────
+- 전체 분량은 반드시 2,070자 이상 2,300자 이내여야 합니다.
+- 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
+- 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
+- 위 조건 중 하나라도 어기면 실패입니다.
+
+────────────────────────
+[문체 및 말투 규칙]
+────────────────────────
+- "~죠", "~습니다", "~일까요?", "문제는", "놀랍게도", "그 순간"
+  같은 구어적 존댓말 어투를 자연스럽게 섞어 사용하십시오.
+- 말투는 친근하지만 가볍지 않아야 하며,
+  설명하는 사람이 아닌 이야기꾼의 흐름을 유지하십시오.
+- 질문형 문장은 초반과 전환부에서만 제한적으로 사용하십시오.
+
+────────────────────────
+[원본 차단 및 재구성 규칙]
+────────────────────────
+- 원본의 문장 구조, 어순, 표현을 그대로 사용하지 마십시오.
+- 동일한 내용을 다루더라도
+  예시, 비유, 설명 방식은 완전히 다르게 구성하십시오.
+- 원본 문장과의 표현 유사도는 30%를 초과해서는 안 됩니다.
+- 팩트는 유지하되, 전달 순서와 이야기 흐름은 재배치하십시오.
+  (예: 결론→근거 구조를 근거→결론 구조로 변경)
+
+────────────────────────
+[스토리 전개 규칙]
+────────────────────────
+- 전체 이야기를 파악한 뒤,
+  초반에는 자극적이되 대중적인 넓은 화두로 시작하십시오.
+- 본격적인 이야기 시작을 알리는 문장은
+  전체 초반 4~6줄 사이에 자연스럽게 삽입하십시오.
+- 이후 본론으로 부드럽게 진입하십시오.
+
+────────────────────────
+[문장 리듬 및 호흡]
+────────────────────────
+- 평균 문장 길이는 원본과 다르게 가져가십시오.
+- 원본이 짧은 문장이 많다면 상대적으로 긴 문장을 사용하고,
+  원본이 나열식이라면 설명형 문장 위주로 재구성하십시오.
+- 같은 호흡의 문장이 연속되지 않도록 조절하십시오.
+
+────────────────────────
+[표현 다양화 강제 규칙]
+────────────────────────
+- "거든요"는 과다 사용하지 말고
+  "~니까요", "~기 때문이죠", "~였기에" 등으로 분산하십시오.
+- "그런데"는 반복하지 말고
+  "문제는", "놀랍게도", "한편", "이때", "그 순간" 등으로 대체하십시오.
+- "하지만"은
+  "그럼에도", "반면", "다만", "오히려", "그러나" 등으로 분산하십시오.
+- "~겁니다 / ~거예요"는
+  "~점이죠", "~사실이죠", "~라는 점입니다" 등으로 다양화하십시오.
+
+────────────────────────
+[개념 설명 및 수치 처리 규칙]
+────────────────────────
+- 핵심 개념 설명 시,
+  원본과 완전히 다른 비유와 이미지로 설명하십시오.
+- 모든 수치는 3~5% 범위 내에서 조정하여 사용하십시오.
+- 명확한 역사적 연도는 유지하십시오.
+- 한자어·고유명사는 가능한 한 풀어쓰거나 동의어로 대체하십시오.
+
+────────────────────────
+[출력 제한]
+────────────────────────
+- 괄호, 대괄호, 따옴표 사용 금지
+- 목록형 문장, 번호 매기기 금지
+- 메타 설명, 제작자 코멘트, 지시문 금지
+- 이모지, 특수기호, 해시태그 사용 금지
+
+────────────────────────
+[시간 구간 지시 – 5분]
+────────────────────────
+아래 기획안을 바탕으로
+전체 영상 중 0분부터 5분 구간에 해당하는
+대본만 작성하십시오.
+
+────────────────────────
+[최종 지시]
+────────────────────────
+기획안은 이미 완성된 설계도입니다.
+당신은 이를 기반으로
+중간에 멈출 수 없는 흐름의
+완성된 내레이션 스크립트를 작성하십시오.
+
+조건을 지키는 것보다
+자연스럽게 지키는 것이 더 중요합니다.
+그러나 조건을 어기지는 마십시오.`
+
+      userPrompt = `주제: ${topic}
+카테고리: ${category}
+
+기획안:
+${scriptPlan}
+
+위 기획안을 바탕으로 정확히 5분 분량(2,070자 이상 2,300자 이내)의 완성도 높은 대본을 작성해주세요. 대본만 작성하고 다른 설명은 하지 마세요.`
+    } else {
+      // 다른 duration의 경우 기존 프롬프트 사용 (추후 확장 가능)
+      systemPrompt = `당신은 롱폼 비디오 대본 작성 전문가입니다. 기획안을 바탕으로 완성도 높은 대본을 작성해주세요.
 
 요구사항:
 - 자연스럽고 매력적인 대화체
@@ -3600,7 +3728,7 @@ export async function generateFullScript(
 - 호흡이 너무 길어지거나 주제가 전환되는 지점에서는 과감하게 문장을 끊으세요.
 - 문장 종결 표현 예시: "~니다", "~네요", "~거든요", "~죠", "~거죠", "~는데", "~했고", "~면서", "~겁니다", "~어요", "~아요" 등을 다양하게 사용하세요.`
 
-    const userPrompt = `주제: ${topic}
+      userPrompt = `주제: ${topic}
 카테고리: ${category}
 영상 길이: ${duration}분 (약 ${totalCharacters}자)
 
@@ -3608,36 +3736,49 @@ export async function generateFullScript(
 ${scriptPlan}
 
 위 기획안을 바탕으로 정확히 ${duration}분 분량(약 ${totalCharacters}자)의 완성도 높은 대본을 작성해주세요. 대본만 작성하고 다른 설명은 하지 마세요.`
+    }
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${GPT_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt,
+    // Gemini API 호출
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  text: `${systemPrompt}\n\n${userPrompt}`,
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.7,
+            topK: 40,
+            topP: 0.95,
+            maxOutputTokens: 8192,
           },
-          {
-            role: "user",
-            content: userPrompt,
-          },
-        ],
-        max_tokens: 4000,
-        temperature: 0.8,
-      }),
-    })
+        }),
+      }
+    )
 
     if (!response.ok) {
-      throw new Error(`API 호출 실패: ${response.status}`)
+      const errorText = await response.text()
+      throw new Error(`Gemini API 호출 실패: ${response.status} - ${errorText}`)
     }
 
     const data = await response.json()
-    const content = data.choices?.[0]?.message?.content
+    const candidate = data.candidates?.[0]
+    
+    if (!candidate) {
+      throw new Error("대본 생성에 실패했습니다. 응답 후보가 없습니다.")
+    }
+
+    const content = candidate.content?.parts?.[0]?.text
 
     if (!content) {
       throw new Error("대본을 생성할 수 없습니다.")
@@ -3837,7 +3978,8 @@ export async function generateYouTubeDescription(
   script: string,
   category: string,
   title: string,
-  apiKey?: string
+  apiKey?: string,
+  videoDurationMinutes?: number // 영상 길이 (분)
 ): Promise<{ description: string; pinnedComment: string; hashtags: string; uploadTags: string[] }> {
   const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
 
@@ -3924,7 +4066,7 @@ export async function generateYouTubeDescription(
  */
 export async function summarizeScriptForShorts(
   script: string,
-  duration: 1 | 2 | 3,
+  duration: 0.5 | 1 | 2 | 3,
   openaiApiKey?: string
 ): Promise<string> {
   // 내부적으로 항상 제공된 API 키 사용 (사용자 입력 무시)
@@ -3940,9 +4082,9 @@ export async function summarizeScriptForShorts(
   }
 
   try {
-    const durationText = duration === 1 ? "1분" : duration === 2 ? "2분" : "3분"
+    const durationText = duration === 0.5 ? "30초" : duration === 1 ? "1분" : duration === 2 ? "2분" : "3분"
     // 한글 TTS 기준: 분당 약 300자 (초당 약 5자)
-    const targetCharCount = duration === 1 ? 300 : duration === 2 ? 600 : 900
+    const targetCharCount = duration === 0.5 ? 150 : duration === 1 ? 300 : duration === 2 ? 600 : 900
     // 한글은 1자당 약 2-3토큰이 필요하므로, 목표 글자수에 충분한 토큰 할당 (여유있게 4배)
     const maxTokens = Math.ceil(targetCharCount * 4) // 1분: 1200, 2분: 2400, 3분: 3600
     // gpt-4o-mini의 max_completion_tokens는 최대 16384이므로, 이를 초과하지 않도록 제한
@@ -3975,7 +4117,8 @@ export async function summarizeScriptForShorts(
 - 자연스러운 문장으로 연결
 - 문단 구분 없이 연속된 텍스트로 작성
 - 각 문장은 10-20자 내외로 짧게 작성
-- 작성 후 반드시 글자 수를 확인하여 목표 범위 내인지 확인하세요`,
+- 대본 끝에 글자수나 메타 정보를 추가하지 마세요
+- 오직 대본 내용만 작성하세요`,
           },
           {
             role: "user",
@@ -3993,11 +4136,19 @@ export async function summarizeScriptForShorts(
     }
 
     const data = await response.json()
-    const summarizedScript = data.choices[0]?.message?.content?.trim()
+    let summarizedScript = data.choices[0]?.message?.content?.trim()
 
     if (!summarizedScript) {
       throw new Error("요약된 대본을 생성할 수 없습니다.")
     }
+
+    // 괄호 안의 글자수 제거 (예: "(150자)", "(300자)", "(글자수: 150자)" 등)
+    summarizedScript = summarizedScript.replace(/\([^)]*글자[^)]*\)/gi, "")
+    summarizedScript = summarizedScript.replace(/\([^)]*\d+자[^)]*\)/gi, "")
+    summarizedScript = summarizedScript.replace(/\[[^\]]*글자[^\]]*\]/gi, "")
+    summarizedScript = summarizedScript.replace(/\[[^\]]*\d+자[^\]]*\]/gi, "")
+    // 공백 정리
+    summarizedScript = summarizedScript.replace(/\s+/g, " ").trim()
 
     return summarizedScript
   } catch (error) {
@@ -4595,71 +4746,193 @@ export async function regenerateScript(
   apiKey?: string,
   category: CategoryType = "health"
 ): Promise<string> {
-  const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
+  const GEMINI_API_KEY = apiKey || process.env.GEMINI_API_KEY
 
-  if (!GPT_API_KEY) {
-    throw new Error("OpenAI API 키가 설정되지 않았습니다.")
+  if (!GEMINI_API_KEY) {
+    throw new Error("Gemini API 키가 설정되지 않았습니다.")
   }
 
   try {
-    console.log("[v0] 대본 재생성 시작 (각색)")
+    console.log("[v0] 대본 재생성 시작 (구조 기반 각색, Gemini 2.5 Pro)")
 
-    const systemPrompt = `당신은 유튜브 대본 전문가입니다. 기존 대본을 기반으로 각색하여 새로운 버전의 대본을 작성합니다.
+    // 프롬프트가 너무 길면 existingScript를 여러 부분으로 나눠서 처리 (Gemini 토큰 제한 고려)
+    // 대략 30,000자씩 나눠서 처리 (안전 마진 고려)
+    const MAX_SCRIPT_LENGTH = 30000
+    let scriptToUse = existingScript
+    
+    if (existingScript.length > MAX_SCRIPT_LENGTH) {
+      console.log(`[v0] 대본이 길어서 여러 부분으로 나눠서 처리합니다. (전체: ${existingScript.length}자)`)
+      
+      // 대본을 여러 부분으로 나누기 (문장 단위로 나눠서 자연스럽게)
+      const parts: string[] = []
+      const sentences = existingScript.split(/([.!?。！？]\s+)/)
+      let currentPart = ""
+      
+      for (let i = 0; i < sentences.length; i++) {
+        const sentence = sentences[i]
+        if ((currentPart + sentence).length > MAX_SCRIPT_LENGTH && currentPart.length > 0) {
+          parts.push(currentPart.trim())
+          currentPart = sentence
+        } else {
+          currentPart += sentence
+        }
+      }
+      
+      if (currentPart.trim().length > 0) {
+        parts.push(currentPart.trim())
+      }
+      
+      console.log(`[v0] 대본을 ${parts.length}개 부분으로 나눴습니다.`)
+      
+      // 각 부분의 앞부분과 뒷부분을 포함하여 전체 구조 파악
+      // 첫 부분 전체 + 중간 부분들의 앞뒤 + 마지막 부분 전체
+      if (parts.length === 1) {
+        scriptToUse = parts[0].substring(0, MAX_SCRIPT_LENGTH)
+      } else if (parts.length === 2) {
+        // 2개 부분: 첫 부분 전체 + 두 번째 부분 앞부분
+        scriptToUse = parts[0] + "\n\n[중간 생략...]\n\n" + parts[1].substring(0, Math.min(10000, parts[1].length))
+      } else {
+        // 3개 이상: 첫 부분 + 중간 부분들의 요약 + 마지막 부분
+        const firstPart = parts[0].substring(0, Math.min(15000, parts[0].length))
+        const lastPart = parts[parts.length - 1].substring(0, Math.min(15000, parts[parts.length - 1].length))
+        const middleSummary = parts.length > 2 
+          ? `\n\n[중간 ${parts.length - 2}개 부분 생략 - 전체 구조를 파악하여 작성하세요]\n\n`
+          : "\n\n[중간 생략...]\n\n"
+        scriptToUse = firstPart + middleSummary + lastPart
+      }
+      
+      scriptToUse += "\n\n[참고: 원본 대본이 길어서 주요 부분만 제공되었습니다. 전체 구조와 감정 흐름을 파악하여 작성하세요.]"
+    }
 
-작성 원칙:
-1. 기존 대본의 핵심 내용과 구조를 유지하되, 표현과 문장을 다르게 각색합니다.
-2. 같은 의미를 전달하되, 더 자연스럽고 흥미로운 표현으로 재작성합니다.
-3. 문장 종결 표현을 다양화합니다 ("~니다", "~네요", "~거든요", "~죠", "~거죠", "~는데", "~했고", "~면서" 등).
-4. 괄호나 대괄호를 사용하지 않습니다 (TTS를 이용할 것이기 때문).
-5. "개요", "서론", "본론", "챕터", "1부", "2부", "3부", "4부", "5부", "결론" 같은 구조적 단어를 절대 사용하지 않습니다.
-6. 오로지 대본 내용만 작성합니다.
-7. 기존 대본의 길이와 비슷하게 유지합니다.
+    const fullPrompt = `당신은 대본 구조 분석 및 재작성 전문가입니다.
 
-각색 요구사항:
-- 기존 대본의 핵심 메시지와 정보는 그대로 유지
-- 표현 방식과 문장 구조를 다르게 각색
-- 더 자연스럽고 흥미로운 문장으로 재작성
-- 시청자가 지루하지 않도록 다양한 표현 사용`
+⚠️⚠️⚠️ 절대적 필수 원칙 ⚠️⚠️⚠️
+- 원본 대본의 문장을 절대 그대로 사용하지 마십시오
+- 원본 대본의 단어, 어구, 표현을 절대 그대로 복사하지 마십시오
+- 원본과 동일하거나 유사한 문장이 발견되면 즉시 폐기하고 완전히 새로 작성하십시오
+- 원본의 문장 구조, 어순, 표현 방식을 절대 모방하지 마십시오
+- 원본의 내용, 주제, 사례, 비유, 문장은 절대 언급하지 마십시오
+- 오직 '전개 구조'와 '감정 흐름'만 추출하고 활용하십시오
+- 원본 예시, 산업, 사건, 비유를 절대 사용하지 마십시오
+- 원본과 유사한 문장 리듬, 어투, 질문을 절대 사용하지 마십시오
+- 표절이나 유사성이 의심되면 그 문장은 폐기하고 완전히 새로 작성하십시오
+- 괄호나 대괄호를 사용하지 않습니다 (TTS를 이용할 것이기 때문)
+- "개요", "서론", "본론", "챕터", "1부", "2부", "3부", "4부", "5부", "결론" 같은 구조적 단어를 절대 사용하지 않습니다
+- 오로지 대본 내용만 작성합니다
+- 기존 대본의 길이와 비슷하게 유지합니다
 
-    const userPrompt = `주제: ${topic}
+[작성 방식]
+1단계: 벤치마킹용 대본을 분석하여 '전개 구조'와 '감정 흐름'만 추출
+2단계: 새로운 주제를 기준으로 추출한 구조를 그대로 사용하여 완전히 새로운 대본 작성
+- 모든 문장은 원본과 완전히 다른 표현으로 작성하십시오
+- 같은 의미라도 완전히 다른 단어, 다른 문장 구조, 다른 표현으로 작성하십시오
 
-기존 대본:
-${existingScript}
+────────────────────────
+[벤치마킹용 대본]
+────────────────────────
+${scriptToUse}
 
-위 기존 대본을 기반으로 각색하여 새로운 버전의 대본을 작성해주세요.
-- 기존 대본의 핵심 내용과 구조는 유지하되, 표현과 문장을 다르게 각색해주세요.
-- 같은 의미를 전달하되, 더 자연스럽고 흥미로운 표현으로 재작성해주세요.
-- 기존 대본의 길이와 비슷하게 유지해주세요.
-- 대본 내용만 작성해주세요. 제목이나 구조적 단어는 사용하지 마세요.`
+────────────────────────
+[1단계: 구조 및 감정 흐름 추출]
+────────────────────────
+⚠️⚠️⚠️ 절대 금지 ⚠️⚠️⚠️
+- 내용·주제·사례·비유·문장은 절대 언급하지 말 것
+- 원본의 단어, 어구, 표현을 절대 사용하지 말 것
+- 오직 '전개 구조'와 '감정 흐름'만 추출할 것
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${GPT_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        temperature: 0.8, // 창의적인 각색을 위해 temperature를 높게 설정
-        max_tokens: 16384,
-      }),
-    })
+────────────────────────
+[2단계: 새로운 대본 작성]
+────────────────────────
+다음 주제를 기준으로,
+위 구조를 그대로 사용하되
+완전히 새로운 대본을 작성하라.
+
+[새 주제]
+- 핵심 질문: ${topic}
+- 전달하고 싶은 한 문장 메시지: ${topic}에 대한 핵심 메시지를 전달하세요.
+
+────────────────────────
+[강제 규칙 - 절대 준수]
+────────────────────────
+🚫 원본 예시, 산업, 사건, 비유 사용 금지
+🚫 원본과 유사한 문장 리듬, 어투, 질문 금지
+🚫 원본의 단어, 어구, 표현을 그대로 사용 금지
+🚫 원본의 문장 구조, 어순을 모방 금지
+🚫 표절·유사성 의심이 들면 그 문장은 폐기하고 다시 작성
+🚫 원본과 동일하거나 유사한 문장이 발견되면 즉시 폐기
+✅ 모든 문장은 원본과 완전히 다른 표현으로 작성
+✅ 같은 의미라도 완전히 다른 단어, 다른 문장 구조로 작성
+✅ 대본 내용만 작성하세요. 제목이나 구조적 단어는 사용하지 마세요.`
+
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  text: fullPrompt,
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 1.2, // 창의적인 각색을 위해 temperature를 매우 높게 설정 (원본과 다른 표현 강제)
+            topK: 40,
+            topP: 0.95,
+            maxOutputTokens: 32768, // Gemini 2.5 Pro는 최대 32768 토큰
+          },
+        }),
+      }
+    )
 
     if (!response.ok) {
-      const errorData = await response.json()
-      throw new Error(errorData.error?.message || "대본 재생성에 실패했습니다.")
+      let errorText = ""
+      try {
+        const errorData = await response.json()
+        errorText = errorData.error?.message || JSON.stringify(errorData)
+      } catch {
+        errorText = await response.text()
+      }
+      console.error(`[v0] 대본 재생성 API 오류: ${response.status}`, errorText)
+      throw new Error(`대본 재생성 실패 (${response.status}): ${errorText}`)
     }
 
     const data = await response.json()
-    const regeneratedScript = data.choices[0]?.message?.content?.trim()
+    
+    // Gemini 응답 구조 확인
+    if (!data.candidates || data.candidates.length === 0) {
+      console.error(`[v0] 대본 재생성 실패: candidates 배열이 비어있습니다.`, JSON.stringify(data, null, 2))
+      throw new Error("재생성된 대본을 생성할 수 없습니다. API 응답에 candidates가 없습니다.")
+    }
+    
+    const candidate = data.candidates[0]
+    const finishReason = candidate.finishReason
+    
+    if (finishReason === "SAFETY" || finishReason === "RECITATION" || finishReason === "OTHER") {
+      console.error(`[v0] 대본 재생성 실패: ${finishReason}`, JSON.stringify(candidate, null, 2))
+      throw new Error(`대본 재생성에 실패했습니다. (finishReason: ${finishReason})`)
+    }
+    
+    let regeneratedScript = candidate.content?.parts?.[0]?.text
 
     if (!regeneratedScript) {
-      throw new Error("재생성된 대본을 생성할 수 없습니다.")
+      console.error(`[v0] 대본 재생성 실패: 응답 내용이 없습니다.`, JSON.stringify({
+        finishReason,
+        hasContent: !!candidate.content,
+        hasParts: !!candidate.content?.parts,
+        partsLength: candidate.content?.parts?.length,
+        fullCandidate: candidate
+      }, null, 2))
+      throw new Error(`재생성된 대본을 생성할 수 없습니다. 응답 내용이 없습니다. (finishReason: ${finishReason || "N/A"})`)
     }
+    
+    regeneratedScript = regeneratedScript.trim()
 
     // 구조적 단어 제거
     const structuralWords = [
@@ -4671,6 +4944,117 @@ ${existingScript}
     for (const word of structuralWords) {
       const regex = new RegExp(`\\s*${word}\\s*:?\\s*`, "gi")
       cleanedScript = cleanedScript.replace(regex, "")
+    }
+
+    // 원본과의 유사도 체크 (단어 기반)
+    const calculateSimilarity = (text1: string, text2: string): number => {
+      const normalizeText = (text: string): Set<string> => {
+        return new Set(
+          text
+            .toLowerCase()
+            .replace(/[^\w\s가-힣]/g, ' ')
+            .split(/\s+/)
+            .filter(word => word.length > 0)
+        )
+      }
+
+      const words1 = normalizeText(text1)
+      const words2 = normalizeText(text2)
+
+      let commonWords = 0
+      for (const word of words1) {
+        if (words2.has(word)) {
+          commonWords++
+        }
+      }
+
+      const totalUniqueWords = words1.size + words2.size - commonWords
+      if (totalUniqueWords === 0) {
+        return 1
+      }
+
+      return commonWords / totalUniqueWords
+    }
+
+    // 원본과 재생성된 대본의 유사도 체크
+    const similarity = calculateSimilarity(existingScript, cleanedScript)
+    console.log(`[v0] 원본과 재생성 대본 유사도: ${(similarity * 100).toFixed(1)}%`)
+
+    // 유사도가 40% 이상이면 재생성 (너무 유사함)
+    if (similarity > 0.4) {
+      console.warn(`[v0] ⚠️ 원본과 유사도가 너무 높습니다 (${(similarity * 100).toFixed(1)}%). 재생성 시도...`)
+      
+      // 재생성 시도 (최대 2회)
+      for (let retry = 0; retry < 2; retry++) {
+        try {
+          const retryPrompt = `${fullPrompt}
+
+⚠️⚠️⚠️ 중요: 이전 생성 결과가 원본과 너무 유사했습니다 (유사도: ${(similarity * 100).toFixed(1)}%).
+반드시 원본과 완전히 다른 표현으로 다시 작성하세요.
+- 원본의 단어, 어구, 표현을 절대 사용하지 마세요
+- 원본의 문장 구조, 어순을 절대 모방하지 마세요
+- 모든 문장을 완전히 새로운 표현으로 작성하세요`
+
+          const retryResponse = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${GEMINI_API_KEY}`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                contents: [
+                  {
+                    parts: [
+                      {
+                        text: retryPrompt,
+                      },
+                    ],
+                  },
+                ],
+                generationConfig: {
+                  temperature: 1.3, // 재생성 시 더 높은 temperature
+                  topK: 40,
+                  topP: 0.95,
+                  maxOutputTokens: 32768,
+                },
+              }),
+            }
+          )
+
+          if (!retryResponse.ok) {
+            break // 재생성 실패 시 원래 결과 사용
+          }
+
+          const retryData = await retryResponse.json()
+          
+          if (!retryData.candidates || retryData.candidates.length === 0) {
+            break
+          }
+          
+          const retryCandidate = retryData.candidates[0]
+          const retryScript = retryCandidate.content?.parts?.[0]?.text?.trim()
+          
+          if (retryScript) {
+            let retryCleaned = retryScript
+            for (const word of structuralWords) {
+              const regex = new RegExp(`\\s*${word}\\s*:?\\s*`, "gi")
+              retryCleaned = retryCleaned.replace(regex, "")
+            }
+            
+            const retrySimilarity = calculateSimilarity(existingScript, retryCleaned)
+            console.log(`[v0] 재생성 ${retry + 1}회차 유사도: ${(retrySimilarity * 100).toFixed(1)}%`)
+            
+            if (retrySimilarity < 0.4) {
+              cleanedScript = retryCleaned
+              console.log(`[v0] ✅ 재생성 성공: 유사도 ${(retrySimilarity * 100).toFixed(1)}%`)
+              break
+            }
+          }
+        } catch (retryError) {
+          console.error(`[v0] 재생성 ${retry + 1}회차 실패:`, retryError)
+        }
+      }
     }
 
     console.log("[v0] 대본 재생성 완료")

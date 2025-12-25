@@ -15,9 +15,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "OpenAI API 키가 설정되지 않았습니다." }, { status: 400 })
     }
 
-    const durationText = duration === 1 ? "1분" : duration === 2 ? "2분" : "3분"
+    const durationText = duration === 0.5 ? "30초" : duration === 1 ? "1분" : duration === 2 ? "2분" : "3분"
     // 한글 TTS 기준: 분당 약 300자 (초당 약 5자)
-    const targetCharCount = duration === 1 ? 300 : duration === 2 ? 600 : 900
+    const targetCharCount = duration === 0.5 ? 150 : duration === 1 ? 300 : duration === 2 ? 600 : 900
     // 한글은 1자당 약 2-3토큰이 필요하므로, 목표 글자수에 충분한 토큰 할당 (여유있게 4배)
     const maxTokens = Math.ceil(targetCharCount * 4) // 1분: 1200, 2분: 2400, 3분: 3600
     // gpt-4o-mini의 max_completion_tokens는 최대 16384이므로, 이를 초과하지 않도록 제한
@@ -50,7 +50,8 @@ export async function POST(request: NextRequest) {
 - 자연스러운 문장으로 연결
 - 문단 구분 없이 연속된 텍스트로 작성
 - 각 문장은 10-20자 내외로 짧게 작성
-- 작성 후 반드시 글자 수를 확인하여 목표 범위 내인지 확인하세요`,
+- 대본 끝에 글자수나 메타 정보를 추가하지 마세요
+- 오직 대본 내용만 작성하세요`,
           },
           {
             role: "user",
@@ -71,11 +72,19 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await response.json()
-    const summarizedScript = data.choices[0]?.message?.content?.trim()
+    let summarizedScript = data.choices[0]?.message?.content?.trim()
 
     if (!summarizedScript) {
       return NextResponse.json({ error: "요약된 대본을 생성할 수 없습니다." }, { status: 500 })
     }
+
+    // 괄호 안의 글자수 제거 (예: "(150자)", "(300자)", "(글자수: 150자)" 등)
+    summarizedScript = summarizedScript.replace(/\([^)]*글자[^)]*\)/gi, "")
+    summarizedScript = summarizedScript.replace(/\([^)]*\d+자[^)]*\)/gi, "")
+    summarizedScript = summarizedScript.replace(/\[[^\]]*글자[^\]]*\]/gi, "")
+    summarizedScript = summarizedScript.replace(/\[[^\]]*\d+자[^\]]*\]/gi, "")
+    // 공백 정리
+    summarizedScript = summarizedScript.replace(/\s+/g, " ").trim()
 
     return NextResponse.json({ summarizedScript })
   } catch (error) {
