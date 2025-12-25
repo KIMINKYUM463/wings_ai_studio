@@ -9892,7 +9892,14 @@ export default function LongformContentPage() {
                   throw new Error(errorData.error || `상태 확인 실패: ${statusResponse.status}`)
                 }
                 
-                const statusResult = await statusResponse.json()
+                const statusResult = await statusResponse.json().catch((parseError) => {
+                  console.error("[v0] JSON 파싱 오류:", parseError)
+                  return null
+                })
+                
+                if (!statusResult) {
+                  throw new Error("상태 응답을 파싱할 수 없습니다.")
+                }
                 
                 console.log(`[v0] 작업 상태 확인 (${pollAttempts}/${maxPollAttempts}):`, {
                   status: statusResult.status,
@@ -9900,7 +9907,7 @@ export default function LongformContentPage() {
                 })
                 
                 // 진행률 업데이트
-                if (statusResult.progress !== undefined) {
+                if (statusResult.progress !== undefined && statusResult.progress !== null) {
                   setExportProgress(30 + Math.floor(statusResult.progress * 0.5)) // 30-80% 범위
                 }
                 
@@ -9910,11 +9917,11 @@ export default function LongformContentPage() {
                   resolve(statusResult)
                 } else if (statusResult.status === "failed") {
                   if (pollIntervalId) clearInterval(pollIntervalId)
-                  throw new Error(statusResult.error || "렌더링 실패")
+                  throw new Error(statusResult.error || statusResult.message || "렌더링 실패")
                 } else if (statusResult.status === "processing") {
                   // 계속 폴링
                   setExportStatusMessage(
-                    statusResult.progress !== undefined
+                    statusResult.progress !== undefined && statusResult.progress !== null
                       ? `렌더링 진행 중... ${statusResult.progress}%`
                       : "렌더링 진행 중..."
                   )
@@ -9923,6 +9930,13 @@ export default function LongformContentPage() {
                   if (pollAttempts >= maxPollAttempts) {
                     if (pollIntervalId) clearInterval(pollIntervalId)
                     throw new Error("렌더링 시간이 너무 오래 걸립니다. 잠시 후 다시 시도해주세요.")
+                  }
+                } else {
+                  // 알 수 없는 상태
+                  console.warn("[v0] 알 수 없는 상태:", statusResult.status)
+                  if (pollAttempts >= maxPollAttempts) {
+                    if (pollIntervalId) clearInterval(pollIntervalId)
+                    throw new Error(`알 수 없는 작업 상태: ${statusResult.status}`)
                   }
                 }
               } catch (error) {
@@ -9937,12 +9951,17 @@ export default function LongformContentPage() {
           // 폴링 시작
           const finalResult = await pollStatus()
           
+          // finalResult가 null이거나 undefined인 경우 처리
+          if (!finalResult) {
+            throw new Error("렌더링 결과를 받을 수 없습니다.")
+          }
+          
           // 최종 결과를 renderResult로 설정
           renderResult = {
             success: true,
-            videoUrl: finalResult.videoUrl,
-            downloadUrl: finalResult.downloadUrl,
-            videoBase64: finalResult.videoBase64,
+            videoUrl: finalResult.videoUrl || null,
+            downloadUrl: finalResult.downloadUrl || null,
+            videoBase64: finalResult.videoBase64 || null,
             projectId: finalResult.projectId || `project_${Date.now()}`,
           }
         } catch (pollError) {

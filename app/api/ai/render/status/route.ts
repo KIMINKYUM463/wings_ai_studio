@@ -49,19 +49,36 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const statusResult = await statusResponse.json()
+    let statusResult
+    try {
+      statusResult = await statusResponse.json()
+    } catch (parseError) {
+      console.error(`[v0] JSON 파싱 오류:`, parseError)
+      return NextResponse.json(
+        { error: "상태 응답을 파싱할 수 없습니다.", details: String(parseError) },
+        { status: 500 }
+      )
+    }
+
+    if (!statusResult) {
+      return NextResponse.json(
+        { error: "상태 응답이 비어있습니다." },
+        { status: 500 }
+      )
+    }
+
     console.log(`[v0] 작업 상태: ${statusResult.status}`, { jobId, progress: statusResult.progress })
 
     return NextResponse.json({
       success: true,
       jobId,
-      status: statusResult.status, // "processing", "completed", "failed"
-      progress: statusResult.progress, // 0-100
-      videoUrl: statusResult.videoUrl,
-      downloadUrl: statusResult.downloadUrl,
-      videoBase64: statusResult.videoBase64,
-      error: statusResult.error,
-      message: statusResult.message,
+      status: statusResult.status || "unknown", // "processing", "completed", "failed"
+      progress: statusResult.progress || 0, // 0-100
+      videoUrl: statusResult.videoUrl || null,
+      downloadUrl: statusResult.downloadUrl || null,
+      videoBase64: statusResult.videoBase64 || null,
+      error: statusResult.error || null,
+      message: statusResult.message || null,
     })
   } catch (error) {
     console.error("[v0] Status API error:", error)

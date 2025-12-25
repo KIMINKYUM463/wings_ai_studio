@@ -1025,25 +1025,48 @@ def get_job_status(job_id):
         response = jsonify({})
         return add_cors_headers(response), 200
     
-    if job_id not in job_status:
+    try:
+        if job_id not in job_status:
+            return jsonify({
+                "success": False,
+                "error": f"작업을 찾을 수 없습니다: {job_id}"
+            }), 404
+        
+        status = job_status[job_id]
+        
+        # status가 None이거나 dict가 아닌 경우 처리
+        if status is None:
+            return jsonify({
+                "success": False,
+                "error": f"작업 상태가 초기화되지 않았습니다: {job_id}"
+            }), 500
+        
+        if not isinstance(status, dict):
+            return jsonify({
+                "success": False,
+                "error": f"작업 상태 형식이 올바르지 않습니다: {job_id}"
+            }), 500
+        
+        return jsonify({
+            "success": True,
+            "jobId": job_id,
+            "status": status.get('status', 'unknown') if status else 'unknown',
+            "progress": status.get('progress', 0) if status else 0,
+            "videoUrl": status.get('videoUrl') if status else None,
+            "downloadUrl": status.get('downloadUrl') if status else None,
+            "videoBase64": status.get('videoBase64') if status else None,
+            "error": status.get('error') if status else None,
+            "message": status.get('message', '') if status else '',
+        }), 200
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"[Render] 상태 확인 오류: {str(e)}\n{error_trace}")
         return jsonify({
             "success": False,
-            "error": f"작업을 찾을 수 없습니다: {job_id}"
-        }), 404
-    
-    status = job_status[job_id]
-    
-    return jsonify({
-        "success": True,
-        "jobId": job_id,
-        "status": status.get('status', 'unknown'),
-        "progress": status.get('progress', 0),
-        "videoUrl": status.get('videoUrl'),
-        "downloadUrl": status.get('downloadUrl'),
-        "videoBase64": status.get('videoBase64'),
-        "error": status.get('error'),
-        "message": status.get('message', ''),
-    }), 200
+            "error": f"상태 확인 중 오류 발생: {str(e)}",
+            "details": error_trace[:500] if len(error_trace) > 500 else error_trace
+        }), 500
 
 @app.route('/', methods=['GET'])
 def health_check():
