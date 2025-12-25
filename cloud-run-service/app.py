@@ -1038,7 +1038,8 @@ def execute_render_logic(audio_base64, audio_gcs_url, subtitles, show_subtitles,
                 )
             
             # 결과 반환
-            return {
+            print(f"[Render] execute_render_logic 성공: base64 크기 {base64_size_mb:.2f} MB")
+            result = {
                 'success': True,
                 'videoUrl': None,
                 'videoBase64': video_base64,
@@ -1047,11 +1048,13 @@ def execute_render_logic(audio_base64, audio_gcs_url, subtitles, show_subtitles,
                 'error': None,
                 'details': None
             }
+            print(f"[Render] execute_render_logic 반환 준비 완료")
+            return result
             
     except Exception as e:
         error_trace = traceback.format_exc()
-        print(f"[Render] execute_render_logic 오류: {str(e)}\n{error_trace}")
-        return {
+        print(f"[Render] execute_render_logic Exception 오류: {str(e)}\n{error_trace}")
+        result = {
             'success': False,
             'videoUrl': None,
             'videoBase64': None,
@@ -1060,11 +1063,13 @@ def execute_render_logic(audio_base64, audio_gcs_url, subtitles, show_subtitles,
             'error': str(e),
             'details': error_trace[:500] if len(error_trace) > 500 else error_trace
         }
+        print(f"[Render] execute_render_logic 오류 결과 반환: {result.get('error', 'Unknown')}")
+        return result
     except BaseException as e:
         # SystemExit, KeyboardInterrupt 등도 처리
         error_trace = traceback.format_exc()
         print(f"[Render] execute_render_logic BaseException 오류: {str(e)}\n{error_trace}")
-        return {
+        result = {
             'success': False,
             'videoUrl': None,
             'videoBase64': None,
@@ -1073,26 +1078,18 @@ def execute_render_logic(audio_base64, audio_gcs_url, subtitles, show_subtitles,
             'error': f'시스템 오류: {str(e)}',
             'details': error_trace[:500] if len(error_trace) > 500 else error_trace
         }
+        print(f"[Render] execute_render_logic BaseException 결과 반환: {result.get('error', 'Unknown')}")
+        return result
     finally:
         # 임시 파일 정리
+        print(f"[Render] execute_render_logic finally 블록 실행 시작")
         if temp_dir and os.path.exists(temp_dir):
             try:
                 shutil.rmtree(temp_dir)
                 print(f"[Render] Temp files cleaned up")
             except Exception as e:
                 print(f"[Render] 임시 파일 정리 오류: {str(e)}")
-    
-    # 이 코드에 도달하면 안 되지만, 안전을 위해 추가
-    print("[Render] 경고: execute_render_logic이 예상치 못한 경로로 종료되었습니다.")
-    return {
-        'success': False,
-        'videoUrl': None,
-        'videoBase64': None,
-        'downloadUrl': None,
-        'projectId': None,
-        'error': '예상치 못한 오류: 함수가 정상적으로 종료되지 않았습니다.',
-        'details': 'execute_render_logic 함수가 모든 return 경로를 통과하지 않았습니다.'
-    }
+        print(f"[Render] execute_render_logic finally 블록 실행 완료")
         
 @app.route('/status/<job_id>', methods=['GET', 'OPTIONS'])
 def get_job_status(job_id):
