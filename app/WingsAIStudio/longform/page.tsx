@@ -1808,36 +1808,135 @@ export default function LongformContentPage() {
           // 2. 자막 생성 (각 문장을 여러 줄로 나누어 정확한 타이밍 계산) - 수동 모드와 완전히 동일
           const subtitles: Array<{ id: number; start: number; end: number; text: string }> = []
           
-          // splitIntoSubtitleLines 함수 (수동 모드와 완전히 동일 - 단어 단위로 나누어 TTS와 정확히 동기화)
+          // splitIntoSubtitleLines 함수 (개선: 실제 오디오 웨이브폼 분석으로 침묵 구간 감지)
           const splitIntoSubtitleLines = (text: string, audioBuffer?: AudioBuffer, totalDuration: number = 0): Array<{ text: string; startTime: number; endTime: number }> => {
             const words = text.split(" ").filter(w => w.trim().length > 0)
             if (words.length === 0) return [{ text, startTime: 0, endTime: totalDuration }]
             
             const result: Array<{ text: string; startTime: number; endTime: number }> = []
             
-            // 오디오 버퍼가 있으면 웨이브폼 분석으로 침묵 구간 찾기
+            // 오디오 버퍼가 있으면 실제 웨이브폼 분석으로 침묵 구간 및 단어 타이밍 계산
             let wordStartTimes: number[] = []
+            let wordEndTimes: number[] = []
             
             if (audioBuffer && totalDuration > 0) {
-              // 각 단어의 예상 시작 시간 계산 (단어 길이 기반)
-              const totalChars = words.reduce((sum, w) => sum + w.length, 0)
-              let currentTime = 0
+              const sampleRate = audioBuffer.sampleRate
+              const numChannels = audioBuffer.numberOfChannels
+              const silenceThreshold = 0.01 // 침묵 임계값 (조정 가능)
+              const minSilenceDuration = 0.05 // 최소 침묵 시간 (50ms)
+              const windowSize = Math.floor(sampleRate * 0.01) // 10ms 윈도우
               
-              for (const word of words) {
-                const wordRatio = word.length / totalChars
-                const wordDuration = wordRatio * totalDuration
-                wordStartTimes.push(currentTime)
-                currentTime += wordDuration
+              // 모든 채널의 평균 에너지 계산
+              const energy: number[] = []
+              for (let i = 0; i < audioBuffer.length; i += windowSize) {
+                let sum = 0
+                for (let channel = 0; channel < numChannels; channel++) {
+                  const channelData = audioBuffer.getChannelData(channel)
+                  for (let j = i; j < Math.min(i + windowSize, audioBuffer.length); j++) {
+                    sum += Math.abs(channelData[j])
+                  }
+                }
+                energy.push(sum / (windowSize * numChannels))
+              }
+              
+              // 침묵 구간 찾기
+              const silenceRegions: Array<{ start: number; end: number }> = []
+              let inSilence = false
+              let silenceStart = 0
+              
+              for (let i = 0; i < energy.length; i++) {
+                const isSilent = energy[i] < silenceThreshold
+                const time = (i * windowSize) / sampleRate
+                
+                if (isSilent && !inSilence) {
+                  inSilence = true
+                  silenceStart = time
+                } else if (!isSilent && inSilence) {
+                  inSilence = false
+                  const silenceDuration = time - silenceStart
+                  if (silenceDuration >= minSilenceDuration) {
+                    silenceRegions.push({ start: silenceStart, end: time })
+                  }
+                }
+              }
+              
+              // 실제 음성이 있는 구간만 추출 (침묵 제외)
+              const speechRegions: Array<{ start: number; end: number }> = []
+              let lastEnd = 0
+              
+              for (const silence of silenceRegions) {
+                if (silence.start > lastEnd) {
+                  speechRegions.push({ start: lastEnd, end: silence.start })
+                }
+                lastEnd = silence.end
+              }
+              if (lastEnd < totalDuration) {
+                speechRegions.push({ start: lastEnd, end: totalDuration })
+              }
+              
+              // 실제 음성 구간의 총 길이 계산
+              const totalSpeechTime = speechRegions.reduce((sum, region) => sum + (region.end - region.start), 0)
+              
+              if (totalSpeechTime > 0 && speechRegions.length > 0) {
+                // 단어를 실제 음성 구간에 매핑
+                const totalChars = words.reduce((sum, w) => sum + w.length, 0)
+                let charIndex = 0
+                
+                for (let i = 0; i < words.length; i++) {
+                  const word = words[i]
+                  const wordCharRatio = word.length / totalChars
+                  const wordSpeechTime = wordCharRatio * totalSpeechTime
+                  
+                  // 현재 단어가 속한 음성 구간 찾기
+                  let accumulatedSpeechTime = 0
+                  let wordStart = 0
+                  let wordEnd = 0
+                  
+                  for (const region of speechRegions) {
+                    const regionDuration = region.end - region.start
+                    if (accumulatedSpeechTime + regionDuration >= wordCharRatio * totalSpeechTime) {
+                      // 이 구간에 단어가 속함
+                      const positionInRegion = (wordCharRatio * totalSpeechTime) - accumulatedSpeechTime
+                      wordStart = region.start + positionInRegion
+                      wordEnd = Math.min(region.end, wordStart + wordSpeechTime)
+                      break
+                    }
+                    accumulatedSpeechTime += regionDuration
+                  }
+                  
+                  if (wordStart === 0 && i > 0) {
+                    // 첫 단어가 아니고 시작 시간이 0이면 이전 단어의 끝 시간 사용
+                    wordStart = wordEndTimes[i - 1] || (i * (totalSpeechTime / words.length))
+                  }
+                  
+                  wordStartTimes.push(wordStart)
+                  wordEndTimes.push(wordEnd)
+                  charIndex += word.length + 1 // 공백 포함
+                }
+              } else {
+                // 음성 구간을 찾지 못한 경우 기존 방식 사용 (단어 길이 기반)
+                const totalChars = words.reduce((sum, w) => sum + w.length, 0)
+                let currentTime = 0
+                
+                for (const word of words) {
+                  const wordRatio = word.length / totalChars
+                  const wordDuration = wordRatio * totalDuration
+                  wordStartTimes.push(currentTime)
+                  wordEndTimes.push(currentTime + wordDuration)
+                  currentTime += wordDuration
+                }
               }
             } else {
               // Fallback: 균등 분배
               const timePerWord = totalDuration / words.length
               for (let i = 0; i < words.length; i++) {
                 wordStartTimes.push(i * timePerWord)
+                wordEndTimes.push((i + 1) * timePerWord)
               }
             }
             
             // 단어들을 묶어서 자막 라인 생성 (공백 포함 최대 20자)
+            // 실제 단어 타이밍을 사용하여 정확한 자막 생성
             let currentLine: string[] = []
             let lineStartTime = 0
             const maxChars = 20 // 공백 포함 20자까지
@@ -1846,10 +1945,15 @@ export default function LongformContentPage() {
               const word = words[i]
               const testLine = currentLine.length > 0 ? currentLine.join(" ") + " " + word : word
               
-              // 25자를 초과하면 줄 분리 (25자까지는 나오도록)
+              // 20자를 초과하면 줄 분리 (실제 단어 타이밍 사용)
               if (testLine.length > maxChars && currentLine.length >= 1) {
                 if (currentLine.length > 0) {
-                  const lineEndTime = i < wordStartTimes.length ? wordStartTimes[i] : totalDuration
+                  // 이전 줄의 마지막 단어의 endTime 사용 (실제 음성 타이밍 반영)
+                  const prevWordIndex = i - 1
+                  const lineEndTime = prevWordIndex >= 0 && wordEndTimes[prevWordIndex] 
+                    ? wordEndTimes[prevWordIndex] 
+                    : (i < wordStartTimes.length ? wordStartTimes[i] : totalDuration)
+                  
                   result.push({
                     text: currentLine.join(" "),
                     startTime: lineStartTime,
@@ -1857,18 +1961,23 @@ export default function LongformContentPage() {
                   })
                 }
                 currentLine = [word]
-                lineStartTime = wordStartTimes[i] || (i * (totalDuration / words.length))
+                lineStartTime = i < wordStartTimes.length ? wordStartTimes[i] : (i * (totalDuration / words.length))
               } else {
                 currentLine.push(word)
               }
             }
             
-            // 마지막 줄 처리
+            // 마지막 줄 처리 (실제 마지막 단어의 endTime 사용)
             if (currentLine.length > 0) {
+              const lastWordIndex = words.length - 1
+              const lastLineEndTime = lastWordIndex >= 0 && wordEndTimes[lastWordIndex] 
+                ? wordEndTimes[lastWordIndex] 
+                : totalDuration
+              
               result.push({
                 text: currentLine.join(" "),
                 startTime: lineStartTime,
-                endTime: totalDuration,
+                endTime: lastLineEndTime,
               })
             }
             
@@ -1941,7 +2050,79 @@ export default function LongformContentPage() {
                   }
                 }
               } else {
-                // alignment가 없거나 ElevenLabs가 아니면 기존 방식 사용
+                // alignment가 없으면 Whisper align 시도 (정확한 단어 타이밍 추출)
+                const openaiApiKey = getApiKey("openai") || getApiKey("gpt_api_key") || getApiKey("chatgpt_api_key")
+                
+                if (openaiApiKey && audioBuffer) {
+                  try {
+                    console.log(`[자막 생성] Whisper align 시도 (줄 ${line.id})`)
+                    
+                    // AudioBuffer를 Blob으로 변환
+                    const audioBlob = await audioBufferToBlob(audioBuffer)
+                    
+                    // Whisper align API 호출
+                    const formData = new FormData()
+                    formData.append("audio", audioBlob, `line_${line.id}.wav`)
+                    formData.append("text", line.text)
+                    
+                    const whisperResponse = await fetch("/api/whisper-align", {
+                      method: "POST",
+                      body: formData,
+                    })
+                    
+                    if (whisperResponse.ok) {
+                      const whisperData = await whisperResponse.json()
+                      if (whisperData.wordTimings && whisperData.wordTimings.length > 0) {
+                        console.log(`[자막 생성] Whisper align 성공 (줄 ${line.id}): ${whisperData.wordTimings.length}개 단어 타이밍`)
+                        
+                        // Whisper 단어 타이밍을 사용하여 자막 생성
+                        const sortedWordTimings = whisperData.wordTimings.sort((a: any, b: any) => a.start - b.start)
+                        let currentLine: string[] = []
+                        let lineStartTime = 0
+                        const maxChars = 20
+                        
+                        for (let j = 0; j < sortedWordTimings.length; j++) {
+                          const wordTiming = sortedWordTimings[j]
+                          const word = wordTiming.word
+                          const testLine = currentLine.length > 0 ? currentLine.join(" ") + " " + word : word
+                          
+                          if (testLine.length > maxChars && currentLine.length >= 1) {
+                            if (currentLine.length > 0) {
+                              const prevWordEnd = j > 0 ? sortedWordTimings[j - 1].end : wordTiming.start
+                              subtitles.push({
+                                id: subtitleId++,
+                                start: Number.parseFloat((subtitleTime + lineStartTime).toFixed(5)),
+                                end: Number.parseFloat((subtitleTime + prevWordEnd).toFixed(5)),
+                                text: currentLine.join(" ")
+                              })
+                            }
+                            currentLine = [word]
+                            lineStartTime = wordTiming.start
+                          } else {
+                            currentLine.push(word)
+                          }
+                        }
+                        
+                        // 마지막 줄 추가
+                        if (currentLine.length > 0) {
+                          const lastWordEnd = sortedWordTimings[sortedWordTimings.length - 1].end
+                          subtitles.push({
+                            id: subtitleId++,
+                            start: Number.parseFloat((subtitleTime + lineStartTime).toFixed(5)),
+                            end: Number.parseFloat((subtitleTime + lastWordEnd).toFixed(5)),
+                            text: currentLine.join(" ")
+                          })
+                        }
+                        
+                        continue // Whisper align 성공 시 다음 문장으로
+                      }
+                    }
+                  } catch (error) {
+                    console.warn(`[자막 생성] Whisper align 실패 (줄 ${line.id}), 기존 방식 사용:`, error)
+                  }
+                }
+                
+                // Whisper align 실패하거나 사용할 수 없으면 개선된 splitIntoSubtitleLines 사용
                 const subtitleLines = splitIntoSubtitleLines(line.text, audioBuffer, audioDuration)
                 
                 for (let j = 0; j < subtitleLines.length; j++) {
@@ -1951,8 +2132,8 @@ export default function LongformContentPage() {
 
                   subtitles.push({
                     id: subtitleId++,
-                    start: Number.parseFloat(start.toFixed(3)),
-                    end: Number.parseFloat(end.toFixed(3)),
+                    start: Number.parseFloat(start.toFixed(5)), // 소수점 5자리로 정밀도 향상
+                    end: Number.parseFloat(end.toFixed(5)),
                     text: subtitleLine.text
                   })
                 }
@@ -2277,9 +2458,14 @@ export default function LongformContentPage() {
             const estimatedDurationSeconds = finalDurationForAuto
             const shouldUseDirectCloudRun = estimatedDurationSeconds > 900 // 15분 이상
             
-            // Cloud Run URL 환경 변수
+            // Cloud Run URL 환경 변수 확인 (런타임에서 접근 가능한 방법)
+            // 1. window 객체에 설정된 값 (런타임 설정)
+            // 2. process.env.NEXT_PUBLIC_ 접두사 (빌드 타임에 주입됨, 클라이언트에서 접근 가능)
             const cloudRunUrl = typeof window !== "undefined" 
-              ? (window as any).CLOUD_RUN_RENDER_URL || process.env.NEXT_PUBLIC_CLOUD_RUN_RENDER_URL
+              ? ((window as any).CLOUD_RUN_RENDER_URL ||
+                 (window as any).NEXT_PUBLIC_CLOUD_RUN_RENDER_URL ||
+                 process.env.NEXT_PUBLIC_CLOUD_RUN_RENDER_URL ||
+                 "https://my-project-350911437561.asia-northeast1.run.app") // 기본값
               : null
             
             const renderRequestBody = {
@@ -2298,9 +2484,23 @@ export default function LongformContentPage() {
             
             let renderResponse: Response
             
-            if (shouldUseDirectCloudRun && cloudRunUrl) {
-              // 긴 영상이고 Cloud Run URL이 설정된 경우 직접 요청
+            if (shouldUseDirectCloudRun) {
+              // 긴 영상인 경우 Cloud Run에 직접 요청
+              if (!cloudRunUrl) {
+                const estimatedDurationMinutes = estimatedDurationSeconds / 60
+                const errorMsg = `긴 영상(${estimatedDurationMinutes.toFixed(1)}분)을 렌더링하려면 Cloud Run URL이 필요합니다.\n\n` +
+                  `Vercel API Route는 최대 800초(약 13분)까지만 지원하므로 타임아웃이 발생할 수 있습니다.\n\n` +
+                  `해결 방법:\n` +
+                  `1. Vercel 대시보드 > Settings > Environment Variables에서\n` +
+                  `   NEXT_PUBLIC_CLOUD_RUN_RENDER_URL을 설정하세요.\n` +
+                  `2. 또는 영상 길이를 15분 미만으로 줄여주세요.`
+                alert(errorMsg)
+                throw new Error(errorMsg)
+              }
+              
               console.log(`[자동화] 렌더링 작업 시작 (${(estimatedDurationSeconds / 60).toFixed(1)}분) - Cloud Run 직접 요청 (타임아웃 우회)`)
+              console.log(`[자동화] Cloud Run URL: ${cloudRunUrl}`)
+              
               renderResponse = await fetch(`${cloudRunUrl}/render`, {
                 method: "POST",
                 headers: {
@@ -2309,10 +2509,7 @@ export default function LongformContentPage() {
                 body: JSON.stringify(renderRequestBody),
               })
             } else {
-              // 짧은 영상이거나 Cloud Run URL이 없는 경우 Vercel API Route 사용
-              if (shouldUseDirectCloudRun && !cloudRunUrl) {
-                console.warn(`[자동화] 긴 영상(${(estimatedDurationSeconds / 60).toFixed(1)}분)이지만 Cloud Run URL이 설정되지 않아 Vercel API Route 사용 (타임아웃 가능성 있음)`)
-              }
+              // 짧은 영상인 경우 Vercel API Route 사용
               console.log(`[자동화] 렌더링 작업 시작 (${(estimatedDurationSeconds / 60).toFixed(1)}분) - Vercel API 라우트 사용`)
               renderResponse = await fetch("/api/ai/render", {
                 method: "POST",
@@ -7998,37 +8195,135 @@ export default function LongformContentPage() {
       const fullText = scriptLines.map(line => line.text).join(" ")
       console.log(`[v0] 전체 텍스트 길이: ${fullText.length}자, 오디오 길이: ${actualMergedDuration.toFixed(3)}초`)
       
-      // splitIntoSubtitleLines 함수 (단어 단위로 나누어 TTS와 정확히 동기화)
+      // splitIntoSubtitleLines 함수 (개선: 실제 오디오 웨이브폼 분석으로 침묵 구간 감지)
       const splitIntoSubtitleLines = (text: string, audioBuffer?: AudioBuffer, totalDuration: number = 0): Array<{ text: string; startTime: number; endTime: number }> => {
         const words = text.split(" ").filter(w => w.trim().length > 0)
         if (words.length === 0) return [{ text, startTime: 0, endTime: totalDuration }]
         
         const result: Array<{ text: string; startTime: number; endTime: number }> = []
         
-        // 오디오 버퍼가 있으면 웨이브폼 분석으로 침묵 구간 찾기
-        let silenceThreshold = 0.01 // 침묵 임계값
+        // 오디오 버퍼가 있으면 실제 웨이브폼 분석으로 침묵 구간 및 단어 타이밍 계산
         let wordStartTimes: number[] = []
+        let wordEndTimes: number[] = []
         
         if (audioBuffer && totalDuration > 0) {
-          // 각 단어의 예상 시작 시간 계산 (단어 길이 기반)
-          const totalChars = words.reduce((sum, w) => sum + w.length, 0)
-          let currentTime = 0
+          const sampleRate = audioBuffer.sampleRate
+          const numChannels = audioBuffer.numberOfChannels
+          const silenceThreshold = 0.01 // 침묵 임계값
+          const minSilenceDuration = 0.05 // 최소 침묵 시간 (50ms)
+          const windowSize = Math.floor(sampleRate * 0.01) // 10ms 윈도우
           
-          for (const word of words) {
-            const wordRatio = word.length / totalChars
-            const wordDuration = wordRatio * totalDuration
-            wordStartTimes.push(currentTime)
-            currentTime += wordDuration
+          // 모든 채널의 평균 에너지 계산
+          const energy: number[] = []
+          for (let i = 0; i < audioBuffer.length; i += windowSize) {
+            let sum = 0
+            for (let channel = 0; channel < numChannels; channel++) {
+              const channelData = audioBuffer.getChannelData(channel)
+              for (let j = i; j < Math.min(i + windowSize, audioBuffer.length); j++) {
+                sum += Math.abs(channelData[j])
+              }
+            }
+            energy.push(sum / (windowSize * numChannels))
+          }
+          
+          // 침묵 구간 찾기
+          const silenceRegions: Array<{ start: number; end: number }> = []
+          let inSilence = false
+          let silenceStart = 0
+          
+          for (let i = 0; i < energy.length; i++) {
+            const isSilent = energy[i] < silenceThreshold
+            const time = (i * windowSize) / sampleRate
+            
+            if (isSilent && !inSilence) {
+              inSilence = true
+              silenceStart = time
+            } else if (!isSilent && inSilence) {
+              inSilence = false
+              const silenceDuration = time - silenceStart
+              if (silenceDuration >= minSilenceDuration) {
+                silenceRegions.push({ start: silenceStart, end: time })
+              }
+            }
+          }
+          
+          // 실제 음성이 있는 구간만 추출 (침묵 제외)
+          const speechRegions: Array<{ start: number; end: number }> = []
+          let lastEnd = 0
+          
+          for (const silence of silenceRegions) {
+            if (silence.start > lastEnd) {
+              speechRegions.push({ start: lastEnd, end: silence.start })
+            }
+            lastEnd = silence.end
+          }
+          if (lastEnd < totalDuration) {
+            speechRegions.push({ start: lastEnd, end: totalDuration })
+          }
+          
+          // 실제 음성 구간의 총 길이 계산
+          const totalSpeechTime = speechRegions.reduce((sum, region) => sum + (region.end - region.start), 0)
+          
+          if (totalSpeechTime > 0 && speechRegions.length > 0) {
+            // 단어를 실제 음성 구간에 매핑
+            const totalChars = words.reduce((sum, w) => sum + w.length, 0)
+            let charIndex = 0
+            
+            for (let i = 0; i < words.length; i++) {
+              const word = words[i]
+              const wordCharRatio = word.length / totalChars
+              const wordSpeechTime = wordCharRatio * totalSpeechTime
+              
+              // 현재 단어가 속한 음성 구간 찾기
+              let accumulatedSpeechTime = 0
+              let wordStart = 0
+              let wordEnd = 0
+              
+              for (const region of speechRegions) {
+                const regionDuration = region.end - region.start
+                if (accumulatedSpeechTime + regionDuration >= wordCharRatio * totalSpeechTime) {
+                  // 이 구간에 단어가 속함
+                  const positionInRegion = (wordCharRatio * totalSpeechTime) - accumulatedSpeechTime
+                  wordStart = region.start + positionInRegion
+                  wordEnd = Math.min(region.end, wordStart + wordSpeechTime)
+                  break
+                }
+                accumulatedSpeechTime += regionDuration
+              }
+              
+              if (wordStart === 0 && i > 0) {
+                // 첫 단어가 아니고 시작 시간이 0이면 이전 단어의 끝 시간 사용
+                wordStart = wordEndTimes[i - 1] || (i * (totalSpeechTime / words.length))
+              }
+              
+              wordStartTimes.push(wordStart)
+              wordEndTimes.push(wordEnd)
+              charIndex += word.length + 1 // 공백 포함
+            }
+          } else {
+            // 음성 구간을 찾지 못한 경우 기존 방식 사용 (단어 길이 기반)
+            const totalChars = words.reduce((sum, w) => sum + w.length, 0)
+            let currentTime = 0
+            
+            for (const word of words) {
+              const wordRatio = word.length / totalChars
+              const wordDuration = wordRatio * totalDuration
+              wordStartTimes.push(currentTime)
+              wordEndTimes.push(currentTime + wordDuration)
+              currentTime += wordDuration
+            }
           }
         } else {
           // Fallback: 균등 분배
           const timePerWord = totalDuration / words.length
           for (let i = 0; i < words.length; i++) {
             wordStartTimes.push(i * timePerWord)
+            wordEndTimes.push((i + 1) * timePerWord)
           }
         }
         
         // 단어들을 묶어서 자막 라인 생성 (공백 포함 최대 20자)
+        // 실제 단어 타이밍을 사용하여 정확한 자막 생성
         let currentLine: string[] = []
         let lineStartTime = 0
         const maxChars = 20 // 공백 포함 20자까지
@@ -8037,10 +8332,15 @@ export default function LongformContentPage() {
           const word = words[i]
           const testLine = currentLine.length > 0 ? currentLine.join(" ") + " " + word : word
           
-          // 20자를 초과하면 줄 분리 (20자까지는 나오도록)
+          // 20자를 초과하면 줄 분리 (실제 단어 타이밍 사용)
           if (testLine.length > maxChars && currentLine.length >= 1) {
             if (currentLine.length > 0) {
-              const lineEndTime = i < wordStartTimes.length ? wordStartTimes[i] : totalDuration
+              // 이전 줄의 마지막 단어의 endTime 사용 (실제 음성 타이밍 반영)
+              const prevWordIndex = i - 1
+              const lineEndTime = prevWordIndex >= 0 && wordEndTimes[prevWordIndex] 
+                ? wordEndTimes[prevWordIndex] 
+                : (i < wordStartTimes.length ? wordStartTimes[i] : totalDuration)
+              
               result.push({
                 text: currentLine.join(" "),
                 startTime: lineStartTime,
@@ -8048,18 +8348,23 @@ export default function LongformContentPage() {
               })
             }
             currentLine = [word]
-            lineStartTime = wordStartTimes[i] || (i * (totalDuration / words.length))
+            lineStartTime = i < wordStartTimes.length ? wordStartTimes[i] : (i * (totalDuration / words.length))
           } else {
             currentLine.push(word)
           }
         }
         
-        // 마지막 줄 처리
+        // 마지막 줄 처리 (실제 마지막 단어의 endTime 사용)
         if (currentLine.length > 0) {
+          const lastWordIndex = words.length - 1
+          const lastLineEndTime = lastWordIndex >= 0 && wordEndTimes[lastWordIndex] 
+            ? wordEndTimes[lastWordIndex] 
+            : totalDuration
+          
           result.push({
             text: currentLine.join(" "),
             startTime: lineStartTime,
-            endTime: totalDuration,
+            endTime: lastLineEndTime,
           })
         }
         
@@ -10507,68 +10812,131 @@ export default function LongformContentPage() {
         }
       }
 
-      // 이미지와 비디오 렌더링
-      const images: HTMLImageElement[] = []
-      const videos: Map<string, HTMLVideoElement> = new Map() // 변환된 비디오 저장 (key: imgData.id)
+      // 이미지와 비디오 렌더링 (지연 로딩 방식으로 메모리 최적화)
+      const imageCache = new Map<string, HTMLImageElement>() // 이미지 캐시
+      const videoCache = new Map<string, HTMLVideoElement>() // 비디오 캐시
+      const loadingPromises = new Map<string, Promise<void>>() // 로딩 중인 리소스 추적
       
-      // 이미지/비디오 미리 로드
-      for (const imgData of videoData.autoImages || []) {
-        // id에서 lineId 또는 scene 정보 추출
-        const idParts = imgData.id.split("_")
-        let videoUrl: string | undefined = undefined
-        
-        if (idParts[0] === "scene") {
-          // 씬별 이미지: scene_1_image_1 -> 1-1
-          const sceneNumber = Number.parseInt(idParts[1] || "0")
-          const imageNumber = Number.parseInt(idParts[3] || "0")
-          const sceneVideoKey = `${sceneNumber}-${imageNumber}`
-          videoUrl = convertedSceneVideos.get(sceneVideoKey)
-        } else {
-          // 일반 이미지: image_1 -> 1
-          const lineId = Number.parseInt(idParts.pop() || "0")
-          videoUrl = convertedVideos.get(lineId)
+      // 이미지/비디오 지연 로딩 함수 (필요한 시점에만 로드)
+      const loadImageOrVideo = async (imgData: { id: string; url: string; startTime: number; endTime: number; keyword: string; motion?: string }): Promise<{ img: HTMLImageElement | null; video: HTMLVideoElement | null }> => {
+        // 이미 캐시에 있으면 반환
+        if (imageCache.has(imgData.id)) {
+          return { img: imageCache.get(imgData.id)!, video: null }
+        }
+        if (videoCache.has(imgData.id)) {
+          return { img: null, video: videoCache.get(imgData.id)! }
         }
         
-        // 변환된 비디오가 있으면 비디오 사용
-        if (videoUrl) {
-          const video = document.createElement("video")
-          video.crossOrigin = "anonymous"
-          video.preload = "auto"
-          video.muted = true
-          await new Promise<void>((resolve, reject) => {
-            video.onloadeddata = () => resolve()
-            video.onerror = reject
-            video.src = videoUrl!
-          })
-          videos.set(imgData.id, video)
-          // 비디오가 있으면 이미지는 스킵
-          const placeholderImg = new Image()
-          placeholderImg.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" // 1x1 투명 이미지
-          images.push(placeholderImg)
-        } else {
-          // 비디오가 없으면 이미지 로드 및 1920x1080으로 리사이즈
-          const img = new Image()
-          img.crossOrigin = "anonymous"
-          await new Promise<void>((resolve, reject) => {
-            img.onload = async () => {
-              try {
-                // 이미지를 1920x1080으로 리사이즈
-                const resizedBase64 = await resizeImageTo1920x1080(imgData.url)
-                img.src = resizedBase64 // 리사이즈된 이미지로 교체
-                await new Promise<void>((resolve2) => {
-                  img.onload = () => resolve2()
-                  img.onerror = reject
-                })
-                resolve()
-              } catch (error) {
-                console.warn("[보통다운로드] 이미지 리사이즈 실패, 원본 사용:", error)
-                resolve() // 리사이즈 실패해도 원본 이미지 사용
+        // 이미 로딩 중이면 대기
+        if (loadingPromises.has(imgData.id)) {
+          await loadingPromises.get(imgData.id)!
+          if (imageCache.has(imgData.id)) {
+            return { img: imageCache.get(imgData.id)!, video: null }
+          }
+          if (videoCache.has(imgData.id)) {
+            return { img: null, video: videoCache.get(imgData.id)! }
+          }
+        }
+        
+        // 로딩 시작
+        const loadPromise = (async () => {
+          // id에서 lineId 또는 scene 정보 추출
+          const idParts = imgData.id.split("_")
+          let videoUrl: string | undefined = undefined
+          
+          if (idParts[0] === "scene") {
+            // 씬별 이미지: scene_1_image_1 -> 1-1
+            const sceneNumber = Number.parseInt(idParts[1] || "0")
+            const imageNumber = Number.parseInt(idParts[3] || "0")
+            const sceneVideoKey = `${sceneNumber}-${imageNumber}`
+            videoUrl = convertedSceneVideos.get(sceneVideoKey)
+          } else {
+            // 일반 이미지: image_1 -> 1
+            const lineId = Number.parseInt(idParts.pop() || "0")
+            videoUrl = convertedVideos.get(lineId)
+          }
+          
+          // 변환된 비디오가 있으면 비디오 사용
+          if (videoUrl) {
+            const video = document.createElement("video")
+            video.crossOrigin = "anonymous"
+            video.preload = "auto"
+            video.muted = true
+            await new Promise<void>((resolve, reject) => {
+              video.onloadeddata = () => resolve()
+              video.onerror = reject
+              video.src = videoUrl!
+            })
+            videoCache.set(imgData.id, video)
+          } else {
+            // 비디오가 없으면 이미지 로드 및 1920x1080으로 리사이즈
+            const img = new Image()
+            img.crossOrigin = "anonymous"
+            await new Promise<void>((resolve, reject) => {
+              img.onload = async () => {
+                try {
+                  // 이미지를 1920x1080으로 리사이즈
+                  const resizedBase64 = await resizeImageTo1920x1080(imgData.url)
+                  img.src = resizedBase64 // 리사이즈된 이미지로 교체
+                  await new Promise<void>((resolve2) => {
+                    img.onload = () => resolve2()
+                    img.onerror = reject
+                  })
+                  resolve()
+                } catch (error) {
+                  console.warn("[보통다운로드] 이미지 리사이즈 실패, 원본 사용:", error)
+                  resolve() // 리사이즈 실패해도 원본 이미지 사용
+                }
               }
+              img.onerror = reject
+              img.src = imgData.url
+            })
+            imageCache.set(imgData.id, img)
+          }
+        })()
+        
+        loadingPromises.set(imgData.id, loadPromise)
+        await loadPromise
+        loadingPromises.delete(imgData.id)
+        
+        return {
+          img: imageCache.get(imgData.id) || null,
+          video: videoCache.get(imgData.id) || null
+        }
+      }
+      
+      // 긴 영상(15분 이상)인 경우: 첫 3개 이미지만 미리 로드 (메모리 절약)
+      // 짧은 영상: 모든 이미지 미리 로드 (기존 방식)
+      const preloadCount = actualAudioDuration > 900 ? 3 : (videoData.autoImages?.length || 0)
+      console.log(`[보통다운로드] 이미지 미리 로드: ${preloadCount}개 (전체: ${videoData.autoImages?.length || 0}개)`)
+      
+      for (let i = 0; i < Math.min(preloadCount, videoData.autoImages?.length || 0); i++) {
+        const imgData = videoData.autoImages![i]
+        await loadImageOrVideo(imgData as any) // 타입 호환성을 위해 any 사용
+      }
+      
+      // 사용하지 않는 이미지 정리 함수 (메모리 해제)
+      const releaseUnusedImages = (currentTime: number) => {
+        // 현재 시간 기준으로 10초 이전에 사용된 이미지만 유지
+        const keepTime = currentTime - 10
+        
+        for (const imgData of videoData.autoImages || []) {
+          // 이미지가 사용되는 시간 범위 확인
+          const isUsed = imgData.startTime <= keepTime + 10 && imgData.endTime >= keepTime - 10
+          
+          if (!isUsed && imgData.endTime < keepTime) {
+            // 사용 기간이 지난 이미지 메모리 해제
+            if (imageCache.has(imgData.id)) {
+              const img = imageCache.get(imgData.id)!
+              img.src = "" // 메모리 해제
+              imageCache.delete(imgData.id)
             }
-            img.onerror = reject
-            img.src = imgData.url
-          })
-          images.push(img)
+            if (videoCache.has(imgData.id)) {
+              const video = videoCache.get(imgData.id)!
+              video.src = "" // 메모리 해제
+              videoCache.delete(imgData.id)
+            }
+          }
         }
       }
 
@@ -10680,27 +11048,32 @@ export default function LongformContentPage() {
             previousImageIndex = currentImageIndex
           }
           
-          // 현재 이미지 그리기
+          // 현재 이미지 그리기 (지연 로딩 방식)
           if (currentImage) {
-            const imgIndex = videoData.autoImages?.indexOf(currentImage) || 0
-            const hasVideo = videos.has(currentImage.id)
+            // 필요한 이미지/비디오 로드 (비동기, 캐시 사용)
+            loadImageOrVideo(currentImage as any).then(({ img, video }) => {
+              // 다음 프레임에서 사용할 수 있도록 캐시에 저장됨
+            }).catch(err => {
+              console.warn(`[보통다운로드] 이미지 로드 실패 (${currentImage.id}):`, err)
+            })
+            
+            // 캐시에서 이미지/비디오 가져오기
+            const cachedVideo = videoCache.get(currentImage.id)
+            const cachedImg = imageCache.get(currentImage.id)
             
             try {
-              if (hasVideo) {
+              if (cachedVideo) {
                 // 비디오 재생
-                const video = videos.get(currentImage.id)
-                if (video) {
-                  const imageStartTime = currentImage.startTime
-                  const timeInImage = adjustedTime - imageStartTime
-                  const videoDuration = video.duration || 6
-                  const videoTime = timeInImage % videoDuration
-                  video.currentTime = videoTime
-                  
-                  // 비디오를 1920x1080에 딱 맞게 그리기
-                  ctx.drawImage(video, 0, 0, 1920, 1080)
-                }
-              } else if (imgIndex >= 0 && imgIndex < images.length) {
-                const img = images[imgIndex]
+                const imageStartTime = currentImage.startTime
+                const timeInImage = adjustedTime - imageStartTime
+                const videoDuration = cachedVideo.duration || 6
+                const videoTime = timeInImage % videoDuration
+                cachedVideo.currentTime = videoTime
+                
+                // 비디오를 1920x1080에 딱 맞게 그리기
+                ctx.drawImage(cachedVideo, 0, 0, 1920, 1080)
+              } else if (cachedImg) {
+                const img = cachedImg
               
               // 이미지를 1920x1080에 딱 맞게 조정 (잘려도 됨)
               const targetWidth = 1920
@@ -10737,47 +11110,55 @@ export default function LongformContentPage() {
                   )
                 }
               } else {
-                // 이미지 인덱스가 범위를 벗어났을 때 마지막 이미지 사용
-                if (images.length > 0) {
-                  const lastImg = images[images.length - 1]
-                  if (lastImg && lastImg.complete && lastImg.naturalWidth > 0) {
-                    ctx.drawImage(lastImg, 0, 0, 1920, 1080)
-                  }
+                // 이미지가 아직 로드되지 않았을 때 (로딩 중)
+                // 검은 화면 유지 또는 마지막 로드된 이미지 사용
+                if (previousImageElement && previousImageElement.complete && previousImageElement.naturalWidth > 0) {
+                  ctx.drawImage(previousImageElement, 0, 0, 1920, 1080)
                 }
               }
             } catch (error) {
               console.error("[렌더링] 이미지 그리기 오류:", error)
-              // 에러 발생 시 검은 화면 또는 마지막 이미지 표시
-              if (images.length > 0) {
-                const lastImg = images[images.length - 1]
-                if (lastImg && lastImg.complete && lastImg.naturalWidth > 0) {
-                  try {
-                    ctx.drawImage(lastImg, 0, 0, 1920, 1080)
-                  } catch (e) {
-                    // 마지막 이미지도 실패하면 검은 화면 유지
-                    console.error("[렌더링] 마지막 이미지 그리기도 실패:", e)
-                  }
+              // 에러 발생 시 검은 화면 또는 이전 이미지 표시
+              if (previousImageElement && previousImageElement.complete && previousImageElement.naturalWidth > 0) {
+                try {
+                  ctx.drawImage(previousImageElement, 0, 0, 1920, 1080)
+                } catch (e) {
+                  // 이전 이미지도 실패하면 검은 화면 유지
+                  console.error("[렌더링] 이전 이미지 그리기도 실패:", e)
                 }
               }
             }
             
-            // 이전 이미지 업데이트
+            // 메모리 정리 (10초마다 실행)
+            if (Math.floor(adjustedTime) % 10 === 0) {
+              releaseUnusedImages(adjustedTime)
+            }
+            
+            // 이전 이미지 업데이트 (캐시에서 가져오기)
             if (previousImage?.id !== currentImage.id) {
               previousImage = currentImage as AutoImage
-              const safeImgIndex = videoData.autoImages?.indexOf(currentImage) || 0
-              if (safeImgIndex >= 0 && safeImgIndex < images.length) {
-                previousImageElement = images[safeImgIndex]
+              const cachedImg = imageCache.get(currentImage.id)
+              if (cachedImg) {
+                previousImageElement = cachedImg
               }
             }
           } else {
             // currentImage가 없을 때 마지막 이미지 표시 (에러 방지)
-            if (images.length > 0) {
-              const lastImg = images[images.length - 1]
+            if (videoData.autoImages && videoData.autoImages.length > 0) {
+              const lastImageData = videoData.autoImages[videoData.autoImages.length - 1]
+              const lastImg = imageCache.get(lastImageData.id)
               if (lastImg && lastImg.complete && lastImg.naturalWidth > 0) {
                 try {
                   ctx.drawImage(lastImg, 0, 0, 1920, 1080)
                 } catch (error) {
                   console.error("[렌더링] 마지막 이미지 표시 실패:", error)
+                }
+              } else if (previousImageElement && previousImageElement.complete && previousImageElement.naturalWidth > 0) {
+                // 마지막 이미지가 없으면 이전 이미지 사용
+                try {
+                  ctx.drawImage(previousImageElement, 0, 0, 1920, 1080)
+                } catch (error) {
+                  console.error("[렌더링] 이전 이미지 표시 실패:", error)
                 }
               }
             }
