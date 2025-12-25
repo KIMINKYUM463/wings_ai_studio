@@ -117,32 +117,53 @@ def render_video():
             
             # 백그라운드에서 렌더링 시작
             def render_async():
+                result = None
                 try:
                     job_status[job_id]['status'] = 'processing'
                     job_status[job_id]['progress'] = 5
                     job_status[job_id]['message'] = '렌더링 시작...'
                     
                     # 기존 렌더링 로직 실행 (execute_render_logic 함수 호출)
-                    result = execute_render_logic(
-                        audio_base64=audio_base64,
-                        audio_gcs_url=audio_gcs_url,
-                        subtitles=subtitles,
-                        show_subtitles=show_subtitles,
-                        character_image=character_image,
-                        character_image_gcs_url=character_image_gcs_url,
-                        character_image_url=character_image_url,
-                        auto_images=auto_images,
-                        duration=duration,
-                        job_id=job_id,
-                        job_status_dict=job_status
-                    )
+                    try:
+                        result = execute_render_logic(
+                            audio_base64=audio_base64,
+                            audio_gcs_url=audio_gcs_url,
+                            subtitles=subtitles,
+                            show_subtitles=show_subtitles,
+                            character_image=character_image,
+                            character_image_gcs_url=character_image_gcs_url,
+                            character_image_url=character_image_url,
+                            auto_images=auto_images,
+                            duration=duration,
+                            job_id=job_id,
+                            job_status_dict=job_status
+                        )
+                    except Exception as render_error:
+                        import traceback
+                        error_trace = traceback.format_exc()
+                        print(f"[Render] execute_render_logic 호출 오류: {str(render_error)}\n{error_trace}")
+                        result = {
+                            'success': False,
+                            'videoUrl': None,
+                            'videoBase64': None,
+                            'downloadUrl': None,
+                            'projectId': None,
+                            'error': f'렌더링 함수 호출 실패: {str(render_error)}',
+                            'details': error_trace[:500] if len(error_trace) > 500 else error_trace
+                        }
                     
                     # 결과 저장 (result가 None인 경우 처리)
                     if result is None:
+                        print(f"[Render] 경고: execute_render_logic이 None을 반환했습니다.")
                         job_status[job_id]['status'] = 'failed'
                         job_status[job_id]['error'] = '렌더링 결과가 None입니다.'
                         job_status[job_id]['message'] = '렌더링 실패: 결과를 받을 수 없습니다.'
-                    elif isinstance(result, dict) and result.get('success'):
+                    elif not isinstance(result, dict):
+                        print(f"[Render] 경고: execute_render_logic이 dict가 아닌 값을 반환했습니다. (type: {type(result).__name__})")
+                        job_status[job_id]['status'] = 'failed'
+                        job_status[job_id]['error'] = f'렌더링 결과 형식이 올바르지 않습니다. (type: {type(result).__name__})'
+                        job_status[job_id]['message'] = '렌더링 실패: 결과 형식 오류'
+                    elif result.get('success'):
                         job_status[job_id]['status'] = 'completed'
                         job_status[job_id]['progress'] = 100
                         job_status[job_id]['message'] = '렌더링 완료'
@@ -151,9 +172,7 @@ def render_video():
                         job_status[job_id]['downloadUrl'] = result.get('downloadUrl')
                     else:
                         job_status[job_id]['status'] = 'failed'
-                        error_msg = '알 수 없는 오류'
-                        if isinstance(result, dict):
-                            error_msg = result.get('error', '알 수 없는 오류')
+                        error_msg = result.get('error', '알 수 없는 오류')
                         job_status[job_id]['error'] = error_msg
                         job_status[job_id]['message'] = f'렌더링 실패: {error_msg}'
                     
@@ -164,6 +183,13 @@ def render_video():
                     job_status[job_id]['status'] = 'failed'
                     job_status[job_id]['error'] = str(e)
                     job_status[job_id]['message'] = f'렌더링 실패: {str(e)}'
+                finally:
+                    # 최종적으로 result가 None이면 실패로 표시
+                    if result is None and job_status[job_id].get('status') != 'failed':
+                        print(f"[Render] 최종 확인: result가 None입니다. 실패로 표시합니다.")
+                        job_status[job_id]['status'] = 'failed'
+                        job_status[job_id]['error'] = '렌더링 결과를 받을 수 없습니다.'
+                        job_status[job_id]['message'] = '렌더링 실패: 결과 없음'
             
             # 백그라운드 스레드 시작
             thread = threading.Thread(target=render_async)
@@ -1034,6 +1060,19 @@ def execute_render_logic(audio_base64, audio_gcs_url, subtitles, show_subtitles,
             'error': str(e),
             'details': error_trace[:500] if len(error_trace) > 500 else error_trace
         }
+    except BaseException as e:
+        # SystemExit, KeyboardInterrupt 등도 처리
+        error_trace = traceback.format_exc()
+        print(f"[Render] execute_render_logic BaseException 오류: {str(e)}\n{error_trace}")
+        return {
+            'success': False,
+            'videoUrl': None,
+            'videoBase64': None,
+            'downloadUrl': None,
+            'projectId': None,
+            'error': f'시스템 오류: {str(e)}',
+            'details': error_trace[:500] if len(error_trace) > 500 else error_trace
+        }
     finally:
         # 임시 파일 정리
         if temp_dir and os.path.exists(temp_dir):
@@ -1042,6 +1081,18 @@ def execute_render_logic(audio_base64, audio_gcs_url, subtitles, show_subtitles,
                 print(f"[Render] Temp files cleaned up")
             except Exception as e:
                 print(f"[Render] 임시 파일 정리 오류: {str(e)}")
+    
+    # 이 코드에 도달하면 안 되지만, 안전을 위해 추가
+    print("[Render] 경고: execute_render_logic이 예상치 못한 경로로 종료되었습니다.")
+    return {
+        'success': False,
+        'videoUrl': None,
+        'videoBase64': None,
+        'downloadUrl': None,
+        'projectId': None,
+        'error': '예상치 못한 오류: 함수가 정상적으로 종료되지 않았습니다.',
+        'details': 'execute_render_logic 함수가 모든 return 경로를 통과하지 않았습니다.'
+    }
         
 @app.route('/status/<job_id>', methods=['GET', 'OPTIONS'])
 def get_job_status(job_id):
