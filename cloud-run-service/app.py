@@ -200,31 +200,14 @@ def render_video():
                 "details": result.get('details', '')
             }), 500
         
-        # 아래 코드는 execute_render_logic 함수로 이동됨 (제거)
-        # 기존 렌더링 로직은 execute_render_logic 함수에 포함됨
-        
-        # 실제 영상 렌더링 로직 구현 (제거됨 - execute_render_logic로 이동)
-        import subprocess
-        import tempfile
-        import base64
-        import time
-        import requests
-        import shutil
-        import traceback
-        import uuid
-        
-        # 고유 ID 생성 (파일명 충돌 방지용)
-        unique_id = str(uuid.uuid4()).replace('-', '')[:12]  # UUID 앞 12자리만 사용
-        
-        temp_dir = None
-        try:
-            if audio_base64:
-                print(f"[Render] 시작 - 오디오 크기: {len(audio_base64) / 1024:.2f} KB")
-            elif audio_gcs_url:
-                print(f"[Render] 시작 - Cloud Storage URL 사용: {audio_gcs_url}")
-            
-            # 임시 파일 디렉토리 생성
-            temp_dir = tempfile.mkdtemp()
+    except Exception as e:
+        print(f"[Render] 에러: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": f"오류 발생: {str(e)}"
+        }), 500
+
+def execute_render_logic(audio_base64, audio_gcs_url, subtitles, show_subtitles,
             print(f"[Render] Temp directory created: {temp_dir}")
             
             # 자막 타이밍 조정을 위한 변수 초기화
