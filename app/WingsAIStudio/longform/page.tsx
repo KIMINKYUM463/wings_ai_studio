@@ -2210,10 +2210,10 @@ export default function LongformContentPage() {
             step: 6,
             totalSteps: 9,
             currentStepName: "영상 렌더링",
-            message: `오디오 합치는 중... (총 ${Math.floor(totalDuration / 60)}분 ${Math.floor(totalDuration % 60)}초)`,
+            message: `영상 렌더링 준비 중... (총 ${Math.floor(totalDuration / 60)}분 ${Math.floor(totalDuration % 60)}초)`,
             isComplete: false,
           })
-          setRenderingStatusMessage(`오디오 합치는 중... (${Math.floor(totalDuration / 60)}분 ${Math.floor(totalDuration % 60)}초)`)
+          // 오디오 합치기는 백그라운드에서 처리 (사용자에게 메시지 표시 안 함)
 
           // 4. 오디오 합치기
           const targetSampleRate = 44100
@@ -7306,13 +7306,12 @@ export default function LongformContentPage() {
           sceneAudioMapping.set(parsedScene.sceneNumber, sceneLines)
         }
         
-        // 1. 먼저 모든 TTS 오디오를 하나로 합치기 (빠른다운로드와 싱크 맞추기 위해)
-        setRenderingStatusMessage("오디오 합치는 중...")
-        const audioContextForMerge = new (window.AudioContext || (window as any).webkitAudioContext)()
-        const audioBuffersForMerge: AudioBuffer[] = []
-        const audioDurations: Array<{ lineId: number; duration: number; alignment?: any }> = []
+        // 1. 각 TTS 오디오를 개별적으로 로드 (예전 방식 - 합치지 않음)
+        const audioContextForAnalysis = new (window.AudioContext || (window as any).webkitAudioContext)()
+        const audioBuffersMap = new Map<number, AudioBuffer>() // 각 오디오 버퍼를 개별적으로 저장
+        const audioDurations: Array<{ lineId: number; duration: number; alignment?: any; audioBuffer?: AudioBuffer }> = []
         
-        // 씬별로 순서대로 모든 오디오 로드
+        // 씬별로 순서대로 모든 오디오 로드 (개별적으로 저장)
         for (const [sceneNum, lines] of sceneAudioMapping.entries()) {
           for (const line of lines) {
             const audio = generatedAudios.find((a) => a.lineId === line.lineId)
@@ -7320,19 +7319,22 @@ export default function LongformContentPage() {
               try {
                 const audioResponse = await fetch(audio.audioUrl)
                 const audioArrayBuffer = await audioResponse.arrayBuffer()
-                const audioBuffer = await audioContextForMerge.decodeAudioData(audioArrayBuffer)
-                audioBuffersForMerge.push(audioBuffer)
+                const audioBuffer = await audioContextForAnalysis.decodeAudioData(audioArrayBuffer)
                 
-                // 각 오디오의 길이 저장
+                // 각 오디오 버퍼를 개별적으로 저장
+                audioBuffersMap.set(line.lineId, audioBuffer)
+                
+                // 각 오디오의 길이 저장 (소수점 10자리 정밀도)
                 const preciseDuration = audioBuffer.length / audioBuffer.sampleRate
-                const finalDuration = Number.parseFloat(preciseDuration.toFixed(6))
+                const finalDuration = Number.parseFloat(preciseDuration.toFixed(10)) // 소수점 10자리 정밀도
                 audioDurations.push({
                   lineId: line.lineId,
                   duration: finalDuration,
                   alignment: audio.alignment || undefined, // ElevenLabs alignment 데이터 포함
+                  audioBuffer: audioBuffer, // 개별 오디오 버퍼 저장
                 })
                 
-                console.log(`[v0] 씬 ${sceneNum} 오디오 ${line.lineId} 로드 완료: ${finalDuration.toFixed(6)}초`)
+                console.log(`[v0] 씬 ${sceneNum} 오디오 ${line.lineId} 로드 완료: ${finalDuration.toFixed(10)}초 (개별 저장, 소수점 10자리 정밀도)`)
               } catch (error) {
                 console.error(`오디오 로드 실패 (씬 ${sceneNum}, 줄 ${line.lineId}):`, error)
                 // 실패한 오디오는 duration만 저장
@@ -7345,42 +7347,29 @@ export default function LongformContentPage() {
           }
         }
         
-        if (audioBuffersForMerge.length === 0) {
-          throw new Error("합칠 수 있는 오디오가 없습니다.")
+        if (audioDurations.length === 0) {
+          throw new Error("로드할 수 있는 오디오가 없습니다.")
         }
         
-        // 모든 오디오 버퍼를 하나로 합치기
-        const totalLength = audioBuffersForMerge.reduce((sum, buffer) => sum + buffer.length, 0)
-        const numberOfChannels = audioBuffersForMerge[0].numberOfChannels
-        const sampleRate = audioBuffersForMerge[0].sampleRate
+        // 총 오디오 길이 계산 (합치지 않고 각 오디오의 duration 합계)
+        const calculatedTotalDurationForScene = audioDurations.reduce((sum, d) => sum + d.duration, 0)
+        console.log(`[v0] 씬별 총 오디오 길이: ${calculatedTotalDurationForScene.toFixed(3)}초 (개별 오디오 사용)`)
         
-        const mergedBuffer = audioContextForMerge.createBuffer(numberOfChannels, totalLength, sampleRate)
+        // 렌더링용으로는 나중에 합쳐진 오디오를 사용하므로, 여기서는 calculatedTotalDuration 변수를 선언하지 않음
         
-        let offset = 0
-        for (const buffer of audioBuffersForMerge) {
-          for (let channel = 0; channel < numberOfChannels; channel++) {
-            const mergedData = mergedBuffer.getChannelData(channel)
-            const bufferData = buffer.getChannelData(channel)
-            mergedData.set(bufferData, offset)
-          }
-          offset += buffer.length
-        }
-        
-        const actualMergedDuration = mergedBuffer.duration
-        console.log(`[v0] 씬별 오디오 합치기 완료: 실제 병합된 오디오 길이 ${actualMergedDuration.toFixed(3)}초`)
-        
-        // 2. 합쳐진 오디오에서 각 장면별로 구간 추출하여 개별 STT 분석 수행
+        // 2. 각 오디오를 개별적으로 STT 분석 수행 (예전 방식)
         setRenderingStatusMessage("STT 분석 중...")
         const subtitles: Array<{ id: number; start: number; end: number; text: string }> = []
         
-        // AudioBuffer에서 특정 구간을 추출하는 헬퍼 함수
+        // 각 오디오 버퍼에서 특정 구간을 추출하는 헬퍼 함수 (개별 오디오 사용, 소수점 10자리 정밀도)
         const extractAudioSegment = (buffer: AudioBuffer, startTime: number, endTime: number): AudioBuffer => {
           const sampleRate = buffer.sampleRate
-          const startSample = Math.floor(startTime * sampleRate)
-          const endSample = Math.floor(endTime * sampleRate)
+          // 소수점 10자리 정밀도로 샘플 계산 (더 정밀하게)
+          const startSample = Math.floor(Number.parseFloat(startTime.toFixed(10)) * sampleRate)
+          const endSample = Math.floor(Number.parseFloat(endTime.toFixed(10)) * sampleRate)
           const length = endSample - startSample
           
-          const extractedBuffer = audioContextForMerge.createBuffer(
+          const extractedBuffer = audioContextForAnalysis.createBuffer(
             buffer.numberOfChannels,
             length,
             sampleRate
@@ -7395,42 +7384,26 @@ export default function LongformContentPage() {
           return extractedBuffer
         }
         
-        // 문장을 의미 단위(구, 절)로 분할하는 함수 (일반 렌더링 모드와 동일)
+        // 문장을 단어 단위로 분할하는 함수 (씬별 렌더링 모드 - 매우 디테일한 분석, 각 단어별 분석)
+        const splitIntoWords = (text: string): string[] => {
+          // 모든 단어를 개별적으로 추출 (공백, 쉼표, 마침표 등으로 분리)
+          // "숨", "쉼" 같은 것도 포함
+          const words = text.split(/(\s+|[,，.。!！?？;；:：])/).filter(w => w.trim().length > 0)
+          return words
+        }
+        
+        // 문장을 매우 작은 의미 단위로 분할하는 함수 (fallback용)
         const splitIntoSemanticPhrases = (text: string): string[] => {
-          const minPhraseLength = 10
-          const punctuationSplit = text.split(/([.,!?;:])/).filter(s => s.trim().length > 0)
+          // 단어 단위로 나누기 (각 단어를 개별적으로 분석)
+          const words = splitIntoWords(text)
+          // 단어를 1-2개씩 묶어서 phrase 생성 (너무 작으면 Whisper가 제대로 분석 못할 수 있음)
           const phrases: string[] = []
-          let currentPhrase = ""
-          
-          for (let i = 0; i < punctuationSplit.length; i++) {
-            const segment = punctuationSplit[i]
-            if (/^[.,!?;:]$/.test(segment)) {
-              currentPhrase += segment
-              if (currentPhrase.trim().length >= minPhraseLength) {
-                phrases.push(currentPhrase.trim())
-                currentPhrase = ""
-              }
-            } else {
-              currentPhrase += segment
-              if (currentPhrase.trim().length >= minPhraseLength * 2) {
-                const words = currentPhrase.trim().split(/\s+/)
-                if (words.length > 5) {
-                  const midPoint = Math.floor(words.length / 2)
-                  const firstHalf = words.slice(0, midPoint).join(" ")
-                  const secondHalf = words.slice(midPoint).join(" ")
-                  if (firstHalf.length >= minPhraseLength) {
-                    phrases.push(firstHalf)
-                  }
-                  currentPhrase = secondHalf
-                }
-              }
+          for (let i = 0; i < words.length; i += 2) {
+            const phrase = words.slice(i, i + 2).join(" ").trim()
+            if (phrase.length > 0) {
+              phrases.push(phrase)
             }
           }
-          
-          if (currentPhrase.trim().length > 0) {
-            phrases.push(currentPhrase.trim())
-          }
-          
           return phrases.length > 0 ? phrases : [text]
         }
         
@@ -7446,23 +7419,23 @@ export default function LongformContentPage() {
           let cumulativeTime = 0
           for (const [sceneNum, lines] of sceneAudioMapping.entries()) {
             for (const line of lines) {
-              const audioDuration = audioDurations.find((d) => d.lineId === line.lineId)?.duration || 0
+              const audioDuration = Number.parseFloat((audioDurations.find((d) => d.lineId === line.lineId)?.duration || 0).toFixed(10)) // 소수점 10자리 정밀도
               if (audioDuration > 0) {
                 const phrases = splitIntoSemanticPhrases(line.text)
-                const phraseDuration = audioDuration / phrases.length
+                const phraseDuration = Number.parseFloat((audioDuration / phrases.length).toFixed(10)) // 소수점 10자리 정밀도
                 
                 for (let j = 0; j < phrases.length; j++) {
                   phraseMapping.push({
                     lineId: line.lineId,
                     phrase: phrases[j],
-                    startTime: cumulativeTime + (j * phraseDuration),
+                    startTime: Number.parseFloat((cumulativeTime + (j * phraseDuration)).toFixed(10)), // 소수점 10자리 정밀도
                     duration: phraseDuration,
                     sceneNum: sceneNum,
                   })
                   totalPhrases++
                 }
                 
-                cumulativeTime += audioDuration
+                cumulativeTime = Number.parseFloat((cumulativeTime + audioDuration).toFixed(10)) // 소수점 10자리 정밀도
               }
             }
           }
@@ -7508,15 +7481,40 @@ export default function LongformContentPage() {
                         currentPhraseIndex++
                         const phraseStartTime = cumulativeTime + (j * phraseDuration)
                         
+                      // Whisper align 재시도 로직 (최대 3회, 매우 디테일한 분석을 위해)
+                      let whisperSuccess = false
+                      let retryCount = 0
+                      const maxRetries = 3
+                      
+                      while (!whisperSuccess && retryCount < maxRetries) {
                         try {
-                          setRenderingStatusMessage(`STT 분석 중... (${currentPhraseIndex}/${totalPhrases})`)
-                          console.log(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}/${phrases.length} STT 분석 시작 (구간: ${phraseStartTime.toFixed(3)}초 ~ ${(phraseStartTime + phraseDuration).toFixed(3)}초)`)
+                          if (retryCount > 0) {
+                            console.log(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1} 재시도 ${retryCount}/${maxRetries}`)
+                            await new Promise(resolve => setTimeout(resolve, 1000 * retryCount)) // 지수 백오프
+                          }
                           
-                          const segmentBuffer = extractAudioSegment(mergedBuffer, phraseStartTime, phraseStartTime + phraseDuration)
+                          setRenderingStatusMessage(`STT 분석 중... (${currentPhraseIndex}/${totalPhrases}${retryCount > 0 ? ` - 재시도 ${retryCount}` : ""})`)
+                          // 소수점 10자리 정밀도로 로그 출력
+                          const phraseStartTimePrecise = Number.parseFloat(phraseStartTime.toFixed(10))
+                          const phraseDurationPrecise = Number.parseFloat(phraseDuration.toFixed(10))
+                          console.log(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}/${phrases.length} STT 분석 시작 (구간: ${phraseStartTimePrecise}초 ~ ${Number.parseFloat((phraseStartTimePrecise + phraseDurationPrecise).toFixed(10))}초, 텍스트: "${phrases[j]}")`)
+                          
+                          // 각 오디오 버퍼를 개별적으로 사용
+                          const lineAudioBuffer = audioBuffersMap.get(line.lineId)
+                          if (!lineAudioBuffer) {
+                            console.warn(`[Whisper] 오디오 버퍼를 찾을 수 없음 (줄 ${line.lineId})`)
+                            break
+                          }
+                          
+                          // 각 오디오 내에서 상대 시간으로 구간 추출 (더 넓은 범위로 추출하여 침묵 구간도 포함, 소수점 10자리 정밀도)
+                          // 여유 시간을 줄여서 오차를 최소화 (0.2초 → 0.1초)
+                          const relativeStartTime = Number.parseFloat(Math.max(0, (j * phraseDurationPrecise) - 0.1).toFixed(10)) // 0.1초 여유 (침묵 구간 포함, 오차 최소화)
+                          const relativeEndTime = Number.parseFloat(Math.min(lineAudioBuffer.duration, relativeStartTime + phraseDurationPrecise + 0.1).toFixed(10)) // 0.1초 여유
+                          const segmentBuffer = extractAudioSegment(lineAudioBuffer, relativeStartTime, relativeEndTime)
                           const audioBlob = await audioBufferToBlob(segmentBuffer)
                           
                           const formData = new FormData()
-                          formData.append("audio", audioBlob, `scene_${sceneNum}_line_${line.lineId}_phrase_${j}.wav`)
+                          formData.append("audio", audioBlob, `scene_${sceneNum}_line_${line.lineId}_phrase_${j}_retry${retryCount}.wav`)
                           formData.append("text", phrases[j])
                           
                           const whisperResponse = await fetch("/api/whisper-align", {
@@ -7527,38 +7525,199 @@ export default function LongformContentPage() {
                           if (whisperResponse.ok) {
                             const whisperData = await whisperResponse.json()
                             if (whisperData.wordTimings && whisperData.wordTimings.length > 0) {
+                              // 상대 시간을 절대 시간으로 변환 (올바른 계산)
+                              // wordTiming.start/end는 추출된 세그먼트 내의 상대 시간이므로,
+                              // 원본 오디오의 절대 시간으로 변환하려면 relativeStartTime에 더해야 함
                               for (const wordTiming of whisperData.wordTimings) {
+                                // "숨", "쉼" 같은 단어도 모두 포함, 소수점 10자리 정밀도
+                                const wordStartPrecise = Number.parseFloat(wordTiming.start.toFixed(10))
+                                const wordEndPrecise = Number.parseFloat(wordTiming.end.toFixed(10))
+                                // 올바른 계산: 추출된 세그먼트의 시작 시간(relativeStartTime) + 세그먼트 내 상대 시간
+                                const absoluteStart = Number.parseFloat((relativeStartTime + wordStartPrecise).toFixed(10))
+                                const absoluteEnd = Number.parseFloat((relativeStartTime + wordEndPrecise).toFixed(10))
                                 allWordTimings.push({
-                                  word: wordTiming.word,
-                                  start: phraseStartTime + wordTiming.start,
-                                  end: phraseStartTime + wordTiming.end,
+                                  word: wordTiming.word.trim(),
+                                  start: absoluteStart,
+                                  end: absoluteEnd,
                                   lineId: line.lineId,
                                 })
                               }
+                              console.log(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}: ${whisperData.wordTimings.length}개 단어 타이밍 추출 완료 (${phrases[j]}, 소수점 10자리 정밀도)`)
+                              whisperSuccess = true
+                              break
+                            } else {
+                              console.warn(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}: 단어 타이밍 없음 (재시도 필요)`)
                             }
+                          } else {
+                            const errorText = await whisperResponse.text()
+                            console.warn(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1} API 오류:`, errorText)
                           }
                         } catch (error) {
-                          console.warn(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1} STT 분석 오류:`, error)
+                          console.warn(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1} STT 분석 오류 (시도 ${retryCount + 1}/${maxRetries}):`, error)
                         }
+                        
+                        retryCount++
+                      }
+                      
+                      if (!whisperSuccess) {
+                        console.error(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}: ${maxRetries}회 재시도 후 실패`)
+                      }
                       }
                     }
                   } catch (error) {
                     console.error(`[자막 생성] alignment 사용 실패 (씬 ${sceneNum}, 줄 ${line.lineId}), Whisper 사용:`, error)
-                    // 에러 발생 시 Whisper 사용 (의미 단위로 세분화)
-                    const phrases = splitIntoSemanticPhrases(line.text)
+                    // 에러 발생 시 Whisper 사용 (단어 단위로 매우 세분화)
+                    const words = splitIntoWords(line.text)
+                    const phrases: string[] = []
+                    for (let i = 0; i < words.length; i += 2) {
+                      const phrase = words.slice(i, i + 2).join(" ").trim()
+                      if (phrase.length > 0) {
+                        phrases.push(phrase)
+                      }
+                    }
                     const phraseDuration = audioDuration / phrases.length
                     
                     for (let j = 0; j < phrases.length; j++) {
                       currentPhraseIndex++
                       const phraseStartTime = cumulativeTime + (j * phraseDuration)
                       
+                      // Whisper align 재시도 로직 (최대 3회, 매우 디테일한 분석을 위해)
+                      let whisperSuccess = false
+                      let retryCount = 0
+                      const maxRetries = 3
+                      
+                      while (!whisperSuccess && retryCount < maxRetries) {
+                        try {
+                          if (retryCount > 0) {
+                            console.log(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1} 재시도 ${retryCount}/${maxRetries}`)
+                            await new Promise(resolve => setTimeout(resolve, 1000 * retryCount)) // 지수 백오프
+                          }
+                          
+                          setRenderingStatusMessage(`STT 분석 중... (${currentPhraseIndex}/${totalPhrases}${retryCount > 0 ? ` - 재시도 ${retryCount}` : ""})`)
+                          // 소수점 10자리 정밀도로 로그 출력
+                          console.log(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}/${phrases.length} STT 분석 시작 (구간: ${Number.parseFloat(phraseStartTime.toFixed(10))}초 ~ ${Number.parseFloat((phraseStartTime + phraseDuration).toFixed(10))}초, 텍스트: "${phrases[j]}")`)
+                          
+                          // 각 오디오 버퍼를 개별적으로 사용
+                          const lineAudioBuffer = audioBuffersMap.get(line.lineId)
+                          if (!lineAudioBuffer) {
+                            console.warn(`[Whisper] 오디오 버퍼를 찾을 수 없음 (줄 ${line.lineId})`)
+                            break
+                          }
+                          
+                          // 각 오디오 내에서 상대 시간으로 구간 추출 (더 넓은 범위로 추출하여 침묵 구간도 포함, 소수점 10자리 정밀도)
+                          const phraseStartTimePrecise = Number.parseFloat(phraseStartTime.toFixed(10))
+                          const phraseDurationPrecise = Number.parseFloat(phraseDuration.toFixed(10))
+                          // 여유 시간을 줄여서 오차를 최소화 (0.2초 → 0.1초)
+                          const relativeStartTime = Number.parseFloat(Math.max(0, (j * phraseDurationPrecise) - 0.1).toFixed(10)) // 0.1초 여유 (침묵 구간 포함, 오차 최소화)
+                          const relativeEndTime = Number.parseFloat(Math.min(lineAudioBuffer.duration, relativeStartTime + phraseDurationPrecise + 0.1).toFixed(10)) // 0.1초 여유
+                          const segmentBuffer = extractAudioSegment(lineAudioBuffer, relativeStartTime, relativeEndTime)
+                          const audioBlob = await audioBufferToBlob(segmentBuffer)
+                          
+                          const formData = new FormData()
+                          formData.append("audio", audioBlob, `scene_${sceneNum}_line_${line.lineId}_phrase_${j}_retry${retryCount}.wav`)
+                          formData.append("text", phrases[j])
+                          
+                          const whisperResponse = await fetch("/api/whisper-align", {
+                            method: "POST",
+                            body: formData,
+                          })
+                          
+                          if (whisperResponse.ok) {
+                            const whisperData = await whisperResponse.json()
+                            if (whisperData.wordTimings && whisperData.wordTimings.length > 0) {
+                              // 상대 시간을 절대 시간으로 변환 (올바른 계산)
+                              // wordTiming.start/end는 추출된 세그먼트 내의 상대 시간이므로,
+                              // 원본 오디오의 절대 시간으로 변환하려면 relativeStartTime에 더해야 함
+                              for (const wordTiming of whisperData.wordTimings) {
+                                // "숨", "쉼" 같은 단어도 모두 포함, 소수점 10자리 정밀도
+                                const wordStartPrecise = Number.parseFloat(wordTiming.start.toFixed(10))
+                                const wordEndPrecise = Number.parseFloat(wordTiming.end.toFixed(10))
+                                // 올바른 계산: 추출된 세그먼트의 시작 시간(relativeStartTime) + 세그먼트 내 상대 시간
+                                const absoluteStart = Number.parseFloat((relativeStartTime + wordStartPrecise).toFixed(10))
+                                const absoluteEnd = Number.parseFloat((relativeStartTime + wordEndPrecise).toFixed(10))
+                                allWordTimings.push({
+                                  word: wordTiming.word.trim(),
+                                  start: absoluteStart,
+                                  end: absoluteEnd,
+                                  lineId: line.lineId,
+                                })
+                              }
+                              console.log(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}: ${whisperData.wordTimings.length}개 단어 타이밍 추출 완료 (${phrases[j]}, 소수점 10자리 정밀도)`)
+                              whisperSuccess = true
+                              break
+                            } else {
+                              console.warn(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}: 단어 타이밍 없음 (재시도 필요)`)
+                            }
+                          } else {
+                            const errorText = await whisperResponse.text()
+                            console.warn(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1} API 오류:`, errorText)
+                          }
+                        } catch (whisperError) {
+                          console.warn(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1} STT 분석 오류 (시도 ${retryCount + 1}/${maxRetries}):`, whisperError)
+                        }
+                        
+                        retryCount++
+                      }
+                      
+                      if (!whisperSuccess) {
+                        console.error(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}: ${maxRetries}회 재시도 후 실패`)
+                      }
+                    }
+                  }
+                } else {
+                  // alignment가 없으면 Whisper API를 사용하여 정확한 타이밍 추출 (단어 단위로 매우 세분화)
+                  // 각 단어를 개별적으로 분석하여 "숨", "쉼" 등도 모두 감지, 소수점 10자리 정밀도
+                  const words = splitIntoWords(line.text)
+                  
+                  // 각 단어를 1-2개씩 묶어서 분석 (너무 작으면 Whisper가 제대로 분석 못할 수 있음)
+                  const phrases: string[] = []
+                  for (let i = 0; i < words.length; i += 2) {
+                    const phrase = words.slice(i, i + 2).join(" ").trim()
+                    if (phrase.length > 0) {
+                      phrases.push(phrase)
+                    }
+                  }
+                  
+                  const audioDurationPrecise = Number.parseFloat(audioDuration.toFixed(10))
+                  const phraseDuration = Number.parseFloat((audioDurationPrecise / phrases.length).toFixed(10))
+                  
+                  for (let j = 0; j < phrases.length; j++) {
+                    currentPhraseIndex++
+                    const phraseStartTime = Number.parseFloat((cumulativeTime + (j * phraseDuration)).toFixed(10))
+                    
+                    // Whisper align 재시도 로직 (최대 3회, 매우 디테일한 분석을 위해)
+                    let whisperSuccess = false
+                    let retryCount = 0
+                    const maxRetries = 3
+                    
+                    while (!whisperSuccess && retryCount < maxRetries) {
                       try {
-                        setRenderingStatusMessage(`STT 분석 중... (${currentPhraseIndex}/${totalPhrases})`)
-                        const segmentBuffer = extractAudioSegment(mergedBuffer, phraseStartTime, phraseStartTime + phraseDuration)
+                        if (retryCount > 0) {
+                          console.log(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1} 재시도 ${retryCount}/${maxRetries}`)
+                          await new Promise(resolve => setTimeout(resolve, 1000 * retryCount)) // 지수 백오프
+                        }
+                        
+                        setRenderingStatusMessage(`STT 분석 중... (${currentPhraseIndex}/${totalPhrases}${retryCount > 0 ? ` - 재시도 ${retryCount}` : ""})`)
+                        // 소수점 10자리 정밀도로 로그 출력
+                        console.log(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}/${phrases.length} STT 분석 시작 (구간: ${phraseStartTime}초 ~ ${Number.parseFloat((phraseStartTime + phraseDuration).toFixed(10))}초, 텍스트: "${phrases[j]}")`)
+                        
+                        // 각 오디오 버퍼를 개별적으로 사용
+                        const lineAudioBuffer = audioBuffersMap.get(line.lineId)
+                        if (!lineAudioBuffer) {
+                          console.warn(`[Whisper] 오디오 버퍼를 찾을 수 없음 (줄 ${line.lineId})`)
+                          break
+                        }
+                        
+                        // 각 오디오 내에서 상대 시간으로 구간 추출 (더 넓은 범위로 추출하여 침묵 구간도 포함, 소수점 10자리 정밀도)
+                        const phraseStartTimePrecise = Number.parseFloat(phraseStartTime.toFixed(10))
+                        const phraseDurationPrecise = Number.parseFloat(phraseDuration.toFixed(10))
+                        const relativeStartTime = Number.parseFloat(Math.max(0, (j * phraseDurationPrecise) - 0.2).toFixed(10)) // 0.2초 여유 (침묵 구간 포함)
+                        const relativeEndTime = Number.parseFloat(Math.min(lineAudioBuffer.duration, relativeStartTime + phraseDurationPrecise + 0.2).toFixed(10)) // 0.2초 여유
+                        const segmentBuffer = extractAudioSegment(lineAudioBuffer, relativeStartTime, relativeEndTime)
                         const audioBlob = await audioBufferToBlob(segmentBuffer)
                         
                         const formData = new FormData()
-                        formData.append("audio", audioBlob, `scene_${sceneNum}_line_${line.lineId}_phrase_${j}.wav`)
+                        formData.append("audio", audioBlob, `scene_${sceneNum}_line_${line.lineId}_phrase_${j}_retry${retryCount}.wav`)
                         formData.append("text", phrases[j])
                         
                         const whisperResponse = await fetch("/api/whisper-align", {
@@ -7569,72 +7728,51 @@ export default function LongformContentPage() {
                         if (whisperResponse.ok) {
                           const whisperData = await whisperResponse.json()
                           if (whisperData.wordTimings && whisperData.wordTimings.length > 0) {
+                            // 상대 시간을 절대 시간으로 변환 (여유 시간 고려, 소수점 10자리 정밀도)
+                            const timeOffset = Number.parseFloat((phraseStartTimePrecise - relativeStartTime).toFixed(10))
                             for (const wordTiming of whisperData.wordTimings) {
+                              // "숨", "쉼" 같은 단어도 모두 포함, 소수점 10자리 정밀도
+                              const wordStartPrecise = Number.parseFloat(wordTiming.start.toFixed(10))
+                              const wordEndPrecise = Number.parseFloat(wordTiming.end.toFixed(10))
+                              const absoluteStart = Number.parseFloat((phraseStartTimePrecise + wordStartPrecise + timeOffset).toFixed(10))
+                              const absoluteEnd = Number.parseFloat((phraseStartTimePrecise + wordEndPrecise + timeOffset).toFixed(10))
                               allWordTimings.push({
-                                word: wordTiming.word,
-                                start: phraseStartTime + wordTiming.start,
-                                end: phraseStartTime + wordTiming.end,
+                                word: wordTiming.word.trim(),
+                                start: absoluteStart,
+                                end: absoluteEnd,
                                 lineId: line.lineId,
                               })
                             }
+                            console.log(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}: ${whisperData.wordTimings.length}개 단어 타이밍 추출 완료 (${phrases[j]}, 소수점 10자리 정밀도)`)
+                            whisperSuccess = true
+                            break
+                          } else {
+                            console.warn(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}: 단어 타이밍 없음 (재시도 필요)`)
                           }
+                        } else {
+                          const errorText = await whisperResponse.text()
+                          console.warn(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1} API 오류:`, errorText)
                         }
-                      } catch (whisperError) {
-                        console.warn(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1} STT 분석 오류:`, whisperError)
+                      } catch (error) {
+                        console.warn(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1} STT 분석 오류 (시도 ${retryCount + 1}/${maxRetries}):`, error)
                       }
+                      
+                      retryCount++
                     }
-                  }
-                } else {
-                  // alignment가 없으면 Whisper API를 사용하여 정확한 타이밍 추출 (의미 단위로 세분화)
-                  const phrases = splitIntoSemanticPhrases(line.text)
-                  const phraseDuration = audioDuration / phrases.length
-                  
-                  for (let j = 0; j < phrases.length; j++) {
-                    currentPhraseIndex++
-                    const phraseStartTime = cumulativeTime + (j * phraseDuration)
                     
-                    try {
-                      setRenderingStatusMessage(`STT 분석 중... (${currentPhraseIndex}/${totalPhrases})`)
-                      console.log(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}/${phrases.length} STT 분석 시작 (구간: ${phraseStartTime.toFixed(3)}초 ~ ${(phraseStartTime + phraseDuration).toFixed(3)}초)`)
-                      
-                      const segmentBuffer = extractAudioSegment(mergedBuffer, phraseStartTime, phraseStartTime + phraseDuration)
-                      const audioBlob = await audioBufferToBlob(segmentBuffer)
-                      
-                      const formData = new FormData()
-                      formData.append("audio", audioBlob, `scene_${sceneNum}_line_${line.lineId}_phrase_${j}.wav`)
-                      formData.append("text", phrases[j])
-                      
-                      const whisperResponse = await fetch("/api/whisper-align", {
-                        method: "POST",
-                        body: formData,
-                      })
-                      
-                      if (whisperResponse.ok) {
-                        const whisperData = await whisperResponse.json()
-                        if (whisperData.wordTimings && whisperData.wordTimings.length > 0) {
-                          for (const wordTiming of whisperData.wordTimings) {
-                            allWordTimings.push({
-                              word: wordTiming.word,
-                              start: phraseStartTime + wordTiming.start,
-                              end: phraseStartTime + wordTiming.end,
-                              lineId: line.lineId,
-                            })
-                          }
-                          console.log(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}: ${whisperData.wordTimings.length}개 단어 타이밍 추출 완료`)
-                        }
-                      }
-                    } catch (error) {
-                      console.warn(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1} STT 분석 오류:`, error)
+                    if (!whisperSuccess) {
+                      console.error(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}: ${maxRetries}회 재시도 후 실패`)
                     }
                   }
                 }
               }
               
-              cumulativeTime += audioDuration
+              // cumulativeTime도 소수점 10자리 정밀도로 유지
+              cumulativeTime = Number.parseFloat((cumulativeTime + audioDuration).toFixed(10))
             }
           }
           
-          console.log(`[Whisper] 씬별 전체 ${allWordTimings.length}개 단어 타이밍 추출 완료 (${totalPhrases}개 구간)`)
+          console.log(`[Whisper] 씬별 전체 ${allWordTimings.length}개 단어 타이밍 추출 완료 (${totalPhrases}개 구간, 소수점 10자리 정밀도)`)
         } else {
           console.warn(`[Whisper] OpenAI API 키 없음, Whisper API 건너뜀`)
         }
@@ -7698,41 +7836,67 @@ export default function LongformContentPage() {
           let lineStartTime = 0
           const maxChars = 20 // 공백 포함 20자까지
           
+          // 침묵 구간 감지 및 처리 (자막 밀림 방지, 소수점 10자리 정밀도)
           for (let i = 0; i < sortedWordTimings.length; i++) {
             const wordTiming = sortedWordTimings[i]
             const word = wordTiming.word
+            
+            // 이전 단어와의 간격 확인 (침묵 구간 감지, 소수점 10자리 정밀도)
+            if (i > 0) {
+              const prevWordEnd = Number.parseFloat(sortedWordTimings[i - 1].end.toFixed(10))
+              const currentWordStart = Number.parseFloat(wordTiming.start.toFixed(10))
+              const gap = Number.parseFloat((currentWordStart - prevWordEnd).toFixed(10))
+              
+              // 0.3초 이상 간격이 있으면 침묵 구간으로 간주하고 자막 타이밍 조정
+              if (gap > 0.3) {
+                // 침묵 구간을 나타내는 단어 추가 ("숨", "쉼" 등)
+                const silenceWord = gap > 0.5 ? "쉼" : "숨"
+                // 침묵 구간의 타이밍도 정확하게 기록 (밀림 방지, 소수점 10자리 정밀도)
+                // 이전 자막의 endTime을 조정하여 침묵 구간 반영
+                if (subtitles.length > 0) {
+                  subtitles[subtitles.length - 1].end = prevWordEnd
+                }
+                // 현재 자막의 startTime을 조정하여 침묵 구간 반영
+                lineStartTime = currentWordStart
+              }
+            }
+            
             const testLine = currentLine.length > 0 ? currentLine.join(" ") + " " + word : word
             
             if (testLine.length > maxChars && currentLine.length >= 1) {
               if (currentLine.length > 0) {
-                // 이전 줄의 마지막 단어 endTime 사용
-                const prevWordEnd = i > 0 ? sortedWordTimings[i - 1].end : wordTiming.start
+                // 이전 줄의 마지막 단어 endTime 사용 (소수점 10자리 정밀도)
+                const prevWordEnd = i > 0 ? Number.parseFloat(sortedWordTimings[i - 1].end.toFixed(10)) : Number.parseFloat(wordTiming.start.toFixed(10))
                 subtitles.push({
                   id: subtitleId++,
-                  start: Number.parseFloat(lineStartTime.toFixed(5)),
-                  end: Number.parseFloat(prevWordEnd.toFixed(5)),
+                  start: Number.parseFloat(lineStartTime.toFixed(10)), // 소수점 10자리 정밀도
+                  end: prevWordEnd,
                   text: currentLine.join(" "),
                 })
               }
               currentLine = [word]
-              lineStartTime = wordTiming.start
+              lineStartTime = Number.parseFloat(wordTiming.start.toFixed(10))
             } else {
               currentLine.push(word)
+              // 첫 단어인 경우 lineStartTime 설정 (소수점 10자리 정밀도)
+              if (currentLine.length === 1) {
+                lineStartTime = Number.parseFloat(wordTiming.start.toFixed(10))
+              }
             }
           }
           
-          // 마지막 줄 추가
+          // 마지막 줄 추가 (소수점 10자리 정밀도)
           if (currentLine.length > 0) {
-            const lastWordEnd = sortedWordTimings[sortedWordTimings.length - 1].end
+            const lastWordEnd = Number.parseFloat(sortedWordTimings[sortedWordTimings.length - 1].end.toFixed(10))
             subtitles.push({
               id: subtitleId++,
-              start: Number.parseFloat(lineStartTime.toFixed(5)),
-              end: Number.parseFloat(lastWordEnd.toFixed(5)),
+              start: Number.parseFloat(lineStartTime.toFixed(10)),
+              end: lastWordEnd,
               text: currentLine.join(" "),
             })
           }
           
-          console.log(`[v0] 씬별 Whisper 기반 자막 생성 완료: ${subtitles.length}개 자막 (${allWordTimings.length}개 단어 타이밍 사용)`)
+          console.log(`[v0] 씬별 Whisper 기반 자막 생성 완료: ${subtitles.length}개 자막 (${allWordTimings.length}개 단어 타이밍 사용, 침묵 구간 감지 및 타이밍 조정, 소수점 10자리 정밀도)`)
         } else {
           // Whisper 결과가 없으면 기존 방식 사용 (단어 길이 기반)
           console.log(`[v0] 씬별 Whisper 결과 없음, 기존 방식으로 자막 생성`)
@@ -7815,8 +7979,42 @@ export default function LongformContentPage() {
           }
         }
         
-        // 4. 합쳐진 오디오를 바로 사용 (이미 위에서 합침)
-        const calculatedTotalDuration = audioDurations.reduce((sum, d) => sum + d.duration, 0)
+        // 4. 각 오디오를 순차적으로 합쳐서 렌더링용 오디오 생성 (예전 방식 - 합치는 과정은 사용자에게 보여주지 않음)
+        const calculatedTotalDuration = calculatedTotalDurationForScene
+        
+        // 각 오디오를 순차적으로 합치기 (렌더링 API는 하나의 오디오만 받으므로)
+        const audioBuffersToMerge: AudioBuffer[] = []
+        for (const [sceneNum, lines] of sceneAudioMapping.entries()) {
+          for (const line of lines) {
+            const audioBuffer = audioBuffersMap.get(line.lineId)
+            if (audioBuffer) {
+              audioBuffersToMerge.push(audioBuffer)
+            }
+          }
+        }
+        
+        if (audioBuffersToMerge.length === 0) {
+          throw new Error("합칠 수 있는 오디오가 없습니다.")
+        }
+        
+        // 모든 오디오 버퍼를 하나로 합치기 (렌더링용)
+        const totalLength = audioBuffersToMerge.reduce((sum, buffer) => sum + buffer.length, 0)
+        const numberOfChannels = audioBuffersToMerge[0].numberOfChannels
+        const sampleRate = audioBuffersToMerge[0].sampleRate
+        
+        const mergedBuffer = audioContextForAnalysis.createBuffer(numberOfChannels, totalLength, sampleRate)
+        
+        let offset = 0
+        for (const buffer of audioBuffersToMerge) {
+          for (let channel = 0; channel < numberOfChannels; channel++) {
+            const mergedData = mergedBuffer.getChannelData(channel)
+            const bufferData = buffer.getChannelData(channel)
+            mergedData.set(bufferData, offset)
+          }
+          offset += buffer.length
+        }
+        
+        const actualMergedDuration = mergedBuffer.duration
         const totalDuration = actualMergedDuration
         
         const firstImage = autoImages[0]
@@ -7824,7 +8022,7 @@ export default function LongformContentPage() {
           throw new Error("이미지가 없습니다.")
         }
         
-        console.log(`[v0] 씬별 계산된 총 길이: ${calculatedTotalDuration.toFixed(3)}초, 실제 병합된 오디오 길이: ${actualMergedDuration.toFixed(3)}초`)
+        console.log(`[v0] 씬별 계산된 총 길이: ${calculatedTotalDuration.toFixed(3)}초, 실제 병합된 오디오 길이: ${actualMergedDuration.toFixed(3)}초 (개별 오디오 사용 후 합침)`)
         
         // 실제 병합된 오디오 길이와 계산된 길이의 비율 계산
         const durationRatio = actualMergedDuration > 0 && calculatedTotalDuration > 0 
@@ -7973,21 +8171,22 @@ export default function LongformContentPage() {
       // 기존 로직 (씬별 렌더링이 아닌 경우)
       console.log("[v0] 일반 렌더링 모드 사용")
 
-      // 1. 먼저 모든 TTS 오디오를 하나로 합치기 (빠른다운로드와 싱크 맞추기 위해)
-      setRenderingStatusMessage("오디오 합치는 중...")
-      const audioContextForMerge = new (window.AudioContext || (window as any).webkitAudioContext)()
-      const audioBuffersForMerge: AudioBuffer[] = []
-      const audioDurations: Array<{ lineId: number; duration: number }> = []
+      // 1. 각 TTS 오디오를 개별적으로 로드 (예전 방식 - 합치지 않음)
+      const audioContextForAnalysis = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const audioBuffersMap = new Map<number, AudioBuffer>() // 각 오디오 버퍼를 개별적으로 저장
+      const audioDurations: Array<{ lineId: number; duration: number; audioBuffer?: AudioBuffer }> = []
 
-      // 모든 오디오를 순서대로 로드
+      // 모든 오디오를 순서대로 로드 (개별적으로 저장)
       for (const line of scriptLines) {
         const audio = generatedAudios.find((a) => a.lineId === line.id)
         if (audio) {
           try {
             const audioResponse = await fetch(audio.audioUrl)
             const audioArrayBuffer = await audioResponse.arrayBuffer()
-            const audioBuffer = await audioContextForMerge.decodeAudioData(audioArrayBuffer)
-            audioBuffersForMerge.push(audioBuffer)
+            const audioBuffer = await audioContextForAnalysis.decodeAudioData(audioArrayBuffer)
+            
+            // 각 오디오 버퍼를 개별적으로 저장
+            audioBuffersMap.set(line.id, audioBuffer)
             
             // 각 오디오의 길이 저장 (이미지 매핑에 사용)
             const preciseDuration = audioBuffer.length / audioBuffer.sampleRate
@@ -7995,51 +8194,38 @@ export default function LongformContentPage() {
             audioDurations.push({
               lineId: line.id,
               duration: finalDuration,
+              audioBuffer: audioBuffer, // 개별 오디오 버퍼 저장
             })
             
-            console.log(`[v0] 오디오 ${line.id} 로드 완료: ${finalDuration.toFixed(6)}초`)
+            console.log(`[v0] 오디오 ${line.id} 로드 완료: ${finalDuration.toFixed(6)}초 (개별 저장)`)
           } catch (error) {
             console.error(`오디오 로드 실패 (줄 ${line.id}):`, error)
           }
         }
       }
 
-      if (audioBuffersForMerge.length === 0) {
-        throw new Error("합칠 수 있는 오디오가 없습니다.")
+      if (audioDurations.length === 0) {
+        throw new Error("로드할 수 있는 오디오가 없습니다.")
       }
 
-      // 모든 오디오 버퍼를 하나로 합치기
-      const totalLength = audioBuffersForMerge.reduce((sum, buffer) => sum + buffer.length, 0)
-      const numberOfChannels = audioBuffersForMerge[0].numberOfChannels
-      const sampleRate = audioBuffersForMerge[0].sampleRate
+      // 총 오디오 길이 계산 (합치지 않고 각 오디오의 duration 합계)
+      const calculatedTotalDurationForNormal = audioDurations.reduce((sum, d) => sum + d.duration, 0)
+      console.log(`[v0] 총 오디오 길이: ${calculatedTotalDurationForNormal.toFixed(3)}초 (개별 오디오 사용)`)
+      
+      // 렌더링용으로는 나중에 합쳐진 오디오를 사용하므로, 여기서는 calculatedTotalDuration 변수를 선언하지 않음
 
-      const mergedBuffer = audioContextForMerge.createBuffer(numberOfChannels, totalLength, sampleRate)
-
-      let offset = 0
-      for (const buffer of audioBuffersForMerge) {
-        for (let channel = 0; channel < numberOfChannels; channel++) {
-          const mergedData = mergedBuffer.getChannelData(channel)
-          const bufferData = buffer.getChannelData(channel)
-          mergedData.set(bufferData, offset)
-        }
-        offset += buffer.length
-      }
-
-      const actualMergedDuration = mergedBuffer.duration
-      console.log(`[v0] 오디오 합치기 완료: 실제 병합된 오디오 길이 ${actualMergedDuration.toFixed(3)}초`)
-
-      // 2. 합쳐진 오디오에서 각 문장별로 구간 추출하여 개별 STT 분석 수행
+      // 2. 각 오디오를 개별적으로 STT 분석 수행 (예전 방식)
       setRenderingStatusMessage("STT 분석 중...")
       const subtitles: Array<{ id: number; start: number; end: number; text: string }> = []
       
-      // AudioBuffer에서 특정 구간을 추출하는 헬퍼 함수
+      // 각 오디오 버퍼에서 특정 구간을 추출하는 헬퍼 함수 (개별 오디오 사용)
       const extractAudioSegment = (buffer: AudioBuffer, startTime: number, endTime: number): AudioBuffer => {
         const sampleRate = buffer.sampleRate
         const startSample = Math.floor(startTime * sampleRate)
         const endSample = Math.floor(endTime * sampleRate)
         const length = endSample - startSample
         
-        const extractedBuffer = audioContextForMerge.createBuffer(
+        const extractedBuffer = audioContextForAnalysis.createBuffer(
           buffer.numberOfChannels,
           length,
           sampleRate
@@ -8145,8 +8331,25 @@ export default function LongformContentPage() {
             setRenderingStatusMessage(`STT 분석 중... (${i + 1}/${totalPhrases})`)
             console.log(`[Whisper] 구간 ${i + 1} (문장 ${phraseInfo.lineId}) STT 분석 시작 (구간: ${phraseInfo.startTime.toFixed(3)}초 ~ ${(phraseInfo.startTime + phraseInfo.duration).toFixed(3)}초)`)
             
-            // 합쳐진 오디오에서 해당 구간만 추출
-            const segmentBuffer = extractAudioSegment(mergedBuffer, phraseInfo.startTime, phraseInfo.startTime + phraseInfo.duration)
+            // 각 오디오 버퍼를 개별적으로 사용
+            const lineAudioBuffer = audioBuffersMap.get(phraseInfo.lineId)
+            if (!lineAudioBuffer) {
+              console.warn(`[Whisper] 오디오 버퍼를 찾을 수 없음 (줄 ${phraseInfo.lineId})`)
+              continue
+            }
+            
+            // 각 오디오 내에서 상대 시간으로 구간 추출
+            // cumulativeTime을 계산하여 각 오디오의 시작 시간을 찾음
+            let lineStartTime = 0
+            for (const line of scriptLines) {
+              if (line.id === phraseInfo.lineId) break
+              const audioDuration = audioDurations.find((d) => d.lineId === line.id)?.duration || 0
+              lineStartTime += audioDuration
+            }
+            
+            const relativeStartTime = phraseInfo.startTime - lineStartTime
+            const relativeEndTime = relativeStartTime + phraseInfo.duration
+            const segmentBuffer = extractAudioSegment(lineAudioBuffer, Math.max(0, relativeStartTime), Math.min(lineAudioBuffer.duration, relativeEndTime))
             
             // 추출된 구간을 Blob으로 변환
             const audioBlob = await audioBufferToBlob(segmentBuffer)
@@ -8193,7 +8396,8 @@ export default function LongformContentPage() {
       
       // 전체 텍스트 합치기 (fallback용)
       const fullText = scriptLines.map(line => line.text).join(" ")
-      console.log(`[v0] 전체 텍스트 길이: ${fullText.length}자, 오디오 길이: ${actualMergedDuration.toFixed(3)}초`)
+      const calculatedTotalDurationForFallback = calculatedTotalDurationForNormal
+      console.log(`[v0] 전체 텍스트 길이: ${fullText.length}자, 계산된 오디오 길이: ${calculatedTotalDurationForFallback.toFixed(3)}초`)
       
       // splitIntoSubtitleLines 함수 (개선: 실제 오디오 웨이브폼 분석으로 침묵 구간 감지)
       const splitIntoSubtitleLines = (text: string, audioBuffer?: AudioBuffer, totalDuration: number = 0): Array<{ text: string; startTime: number; endTime: number }> => {
@@ -8420,7 +8624,7 @@ export default function LongformContentPage() {
       } else {
         // Whisper 결과가 없으면 기존 방식 사용 (단어 길이 기반)
         console.log(`[v0] Whisper 결과 없음, 기존 방식으로 자막 생성`)
-        const subtitleLines = splitIntoSubtitleLines(fullText, mergedBuffer, actualMergedDuration)
+        const subtitleLines = splitIntoSubtitleLines(fullText, undefined, calculatedTotalDurationForNormal)
         
         for (let j = 0; j < subtitleLines.length; j++) {
           const subtitleLine = subtitleLines[j]
@@ -8490,11 +8694,43 @@ export default function LongformContentPage() {
         }
       }
 
-      // 4. 합쳐진 오디오를 바로 사용 (이미 위에서 합침)
-      const calculatedTotalDuration = audioDurations.reduce((sum, d) => sum + d.duration, 0)
+      // 4. 각 오디오를 순차적으로 합쳐서 렌더링용 오디오 생성 (예전 방식 - 합치는 과정은 사용자에게 보여주지 않음)
+      const calculatedTotalDuration = calculatedTotalDurationForNormal
+      
+      // 각 오디오를 순차적으로 합치기 (렌더링 API는 하나의 오디오만 받으므로)
+      const audioBuffersToMerge: AudioBuffer[] = []
+      for (const line of scriptLines) {
+        const audioBuffer = audioBuffersMap.get(line.id)
+        if (audioBuffer) {
+          audioBuffersToMerge.push(audioBuffer)
+        }
+      }
+      
+      if (audioBuffersToMerge.length === 0) {
+        throw new Error("합칠 수 있는 오디오가 없습니다.")
+      }
+      
+      // 모든 오디오 버퍼를 하나로 합치기 (렌더링용)
+      const totalLength = audioBuffersToMerge.reduce((sum, buffer) => sum + buffer.length, 0)
+      const numberOfChannels = audioBuffersToMerge[0].numberOfChannels
+      const sampleRate = audioBuffersToMerge[0].sampleRate
+      
+      const mergedBuffer = audioContextForAnalysis.createBuffer(numberOfChannels, totalLength, sampleRate)
+      
+      let offset = 0
+      for (const buffer of audioBuffersToMerge) {
+        for (let channel = 0; channel < numberOfChannels; channel++) {
+          const mergedData = mergedBuffer.getChannelData(channel)
+          const bufferData = buffer.getChannelData(channel)
+          mergedData.set(bufferData, offset)
+        }
+        offset += buffer.length
+      }
+      
+      const actualMergedDuration = mergedBuffer.duration
       const totalDuration = actualMergedDuration
       
-      console.log(`[v0] 계산된 총 길이: ${calculatedTotalDuration.toFixed(3)}초, 실제 병합된 오디오 길이: ${actualMergedDuration.toFixed(3)}초`)
+      console.log(`[v0] 계산된 총 길이: ${calculatedTotalDuration.toFixed(3)}초, 실제 병합된 오디오 길이: ${actualMergedDuration.toFixed(3)}초 (개별 오디오 사용 후 합침)`)
       
       // 실제 병합된 오디오 길이와 계산된 길이의 비율 계산
       const durationRatio = actualMergedDuration > 0 && calculatedTotalDuration > 0 
