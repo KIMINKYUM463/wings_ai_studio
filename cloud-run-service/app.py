@@ -1001,7 +1001,6 @@ def execute_render_logic(audio_base64, audio_gcs_url, subtitles, show_subtitles,
     import requests
     import shutil
     import traceback
-    import uuid
     import os
     import glob
     
