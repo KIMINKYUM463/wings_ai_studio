@@ -62,7 +62,15 @@ def render_video():
     현재는 테스트용으로 간단한 응답만 반환
     """
     try:
-        data = request.json
+        # JSON 파싱 오류 처리
+        try:
+            data = request.json
+        except Exception as json_error:
+            print(f"[Render] JSON 파싱 오류: {str(json_error)}")
+            return jsonify({
+                "success": False,
+                "error": f"JSON 파싱 오류: {str(json_error)}"
+            }), 400
         
         if not data:
             return jsonify({
@@ -202,10 +210,13 @@ def render_video():
             }), 500
         
     except Exception as e:
-        print(f"[Render] 에러: {str(e)}")
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"[Render] 에러: {str(e)}\n{error_trace}")
         return jsonify({
             "success": False,
-            "error": f"오류 발생: {str(e)}"
+            "error": f"오류 발생: {str(e)}",
+            "details": error_trace[:500] if len(error_trace) > 500 else error_trace
         }), 500
 
 def execute_render_logic(audio_base64, audio_gcs_url, subtitles, show_subtitles,

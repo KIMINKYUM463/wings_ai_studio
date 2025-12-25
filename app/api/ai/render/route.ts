@@ -116,10 +116,25 @@ export async function POST(request: NextRequest) {
       })
       
       if (!startResponse.ok) {
-        const errorText = await startResponse.text()
-        console.error("[v0] 작업 시작 실패:", errorText)
+        let errorText = ""
+        try {
+          errorText = await startResponse.text()
+        } catch (e) {
+          errorText = `응답 읽기 실패: ${e instanceof Error ? e.message : String(e)}`
+        }
+        console.error("[v0] 작업 시작 실패:", startResponse.status, errorText)
+        
+        // JSON 응답인 경우 파싱 시도
+        let errorDetails = errorText.substring(0, 500)
+        try {
+          const errorJson = JSON.parse(errorText)
+          errorDetails = errorJson.error || errorJson.details || errorText.substring(0, 500)
+        } catch {
+          // JSON이 아니면 그대로 사용
+        }
+        
         return NextResponse.json(
-          { error: `작업 시작 실패: ${startResponse.status}`, details: errorText.substring(0, 200) },
+          { error: `작업 시작 실패: ${startResponse.status}`, details: errorDetails },
           { status: startResponse.status }
         )
       }
