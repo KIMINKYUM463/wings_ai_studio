@@ -996,22 +996,15 @@ def execute_render_logic(audio_base64, audio_gcs_url, subtitles, show_subtitles,
             'error': str(e),
             'details': error_trace[:500] if len(error_trace) > 500 else error_trace
         }
-        finally:
-            # 임시 파일 정리
-            if temp_dir and os.path.exists(temp_dir):
-                try:
-                    shutil.rmtree(temp_dir)
-                    print(f"[Render] Temp files cleaned up")
-                except Exception as e:
-                    print(f"[Render] 임시 파일 정리 오류: {str(e)}")
+    finally:
+        # 임시 파일 정리
+        if temp_dir and os.path.exists(temp_dir):
+            try:
+                shutil.rmtree(temp_dir)
+                print(f"[Render] Temp files cleaned up")
+            except Exception as e:
+                print(f"[Render] 임시 파일 정리 오류: {str(e)}")
         
-    except Exception as e:
-        print(f"[Render] 에러: {str(e)}")
-        return jsonify({
-            "success": False,
-            "error": f"오류 발생: {str(e)}"
-        }), 500
-
 @app.route('/status/<job_id>', methods=['GET', 'OPTIONS'])
 def get_job_status(job_id):
     """작업 상태 확인 엔드포인트"""
