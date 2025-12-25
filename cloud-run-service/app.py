@@ -241,9 +241,10 @@ def execute_render_logic(audio_base64, audio_gcs_url, subtitles, show_subtitles,
     import traceback
     import os
     import glob
+    import uuid as uuid_module  # uuid 모듈을 명시적으로 import
     
     # 고유 ID 생성
-    unique_id = str(uuid.uuid4()).replace('-', '')[:12]
+    unique_id = str(uuid_module.uuid4()).replace('-', '')[:12]
     temp_dir = None
     
     try:
