@@ -20,6 +20,6 @@ COPY app.py .
 ENV PORT=8080
 EXPOSE 8080
 
-# 애플리케이션 실행 (Gunicorn 사용)
-CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 app:app
+# 애플리케이션 실행
+CMD ["python", "app.py"]
 

@@ -2273,25 +2273,55 @@ export default function LongformContentPage() {
             }
 
             // Cloud Run 렌더링 API 호출
-            const renderResponse = await fetch("/api/ai/render", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
+            // 긴 영상(15분 이상)인 경우 Cloud Run에 직접 요청 (Vercel API Route 타임아웃 800초 제한 우회)
+            const estimatedDurationSeconds = finalDurationForAuto
+            const shouldUseDirectCloudRun = estimatedDurationSeconds > 900 // 15분 이상
+            
+            // Cloud Run URL 환경 변수
+            const cloudRunUrl = typeof window !== "undefined" 
+              ? (window as any).CLOUD_RUN_RENDER_URL || process.env.NEXT_PUBLIC_CLOUD_RUN_RENDER_URL
+              : null
+            
+            const renderRequestBody = {
+              // Cloud Storage URL이 있으면 사용, 없으면 base64 사용
+              ...(audioGcsUrl ? { audioGcsUrl } : { audioBase64 }),
+              subtitles: adjustedSubtitlesForAuto,
+              characterImage: firstImage.imageUrl,
+              autoImages: adjustedAutoImagesForAuto,
+              duration: finalDurationForAuto, // 실제 오디오 길이 사용
+              config: {
+                width: 1920,
+                height: 1080,
+                fps: 30,
               },
-              body: JSON.stringify({
-                // Cloud Storage URL이 있으면 사용, 없으면 base64 사용
-                ...(audioGcsUrl ? { audioGcsUrl } : { audioBase64 }),
-                subtitles: adjustedSubtitlesForAuto,
-                characterImage: firstImage.imageUrl,
-                autoImages: adjustedAutoImagesForAuto,
-                duration: finalDurationForAuto, // 실제 오디오 길이 사용
-                config: {
-                  width: 1920,
-                  height: 1080,
-                  fps: 30,
+            }
+            
+            let renderResponse: Response
+            
+            if (shouldUseDirectCloudRun && cloudRunUrl) {
+              // 긴 영상이고 Cloud Run URL이 설정된 경우 직접 요청
+              console.log(`[자동화] 렌더링 작업 시작 (${(estimatedDurationSeconds / 60).toFixed(1)}분) - Cloud Run 직접 요청 (타임아웃 우회)`)
+              renderResponse = await fetch(`${cloudRunUrl}/render`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
                 },
-              }),
-            })
+                body: JSON.stringify(renderRequestBody),
+              })
+            } else {
+              // 짧은 영상이거나 Cloud Run URL이 없는 경우 Vercel API Route 사용
+              if (shouldUseDirectCloudRun && !cloudRunUrl) {
+                console.warn(`[자동화] 긴 영상(${(estimatedDurationSeconds / 60).toFixed(1)}분)이지만 Cloud Run URL이 설정되지 않아 Vercel API Route 사용 (타임아웃 가능성 있음)`)
+              }
+              console.log(`[자동화] 렌더링 작업 시작 (${(estimatedDurationSeconds / 60).toFixed(1)}분) - Vercel API 라우트 사용`)
+              renderResponse = await fetch("/api/ai/render", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify(renderRequestBody),
+              })
+            }
 
             if (!renderResponse.ok) {
               const errorData = await renderResponse.json()
@@ -8396,7 +8426,7 @@ export default function LongformContentPage() {
     
     // 타임아웃 오류
     if (errorLower.includes("timeout") || errorLower.includes("time out") || errorLower.includes("60분")) {
-      return "타임아웃 오류: 렌더링 시간이 너무 오래 걸립니다. 영상 길이를 줄이거나 다시 시도해주세요."
+      return "타임아웃 오류: 렌더링 시간이 너무 오래 걸립니다. 영상 길이를 줄이거나 다시 시도해주세요.\n\n긴 영상(15분 이상)의 경우 Cloud Run URL을 설정하여 직접 요청하도록 하면 타임아웃을 피할 수 있습니다.\n환경 변수: NEXT_PUBLIC_CLOUD_RUN_RENDER_URL"
     }
     
     // CORS 오류
@@ -8430,16 +8460,6 @@ export default function LongformContentPage() {
 
   // 빠른다운로드: Cloud Run 사용
   const handleFastDownload = async () => {
-    // 안내 문구 표시
-    const userConfirmed = window.confirm(
-      "1시간 업데이트 처리로 약간의 오류가 있을 수 있습니다.\n\n계속 진행하시겠습니까?"
-    )
-    
-    if (!userConfirmed) {
-      console.log("[빠른다운로드] 사용자가 취소했습니다.")
-      return
-    }
-    
     // 씬별 이미지가 있는지 확인
     const hasSceneImages = sceneImagePrompts.length > 0 && sceneImagePrompts.some(scene => 
       scene.images.some(img => img.imageUrl)
@@ -8523,42 +8543,9 @@ export default function LongformContentPage() {
       
       // 예상 렌더링 시간 계산 (영상 1초 생성 시 0.5초 소요)
       estimatedTimeSeconds = Math.ceil(actualAudioDuration * 0.5)
-      
-      // 타임아웃 계산 (Vercel Pro 플랜 최대값: 800초)
-      // 렌더링 시간 = 영상 길이 * 0.5 + 여유 60초, 최대 800초
-      const maxTimeoutSeconds = Math.max(
-        300, // 최소 5분
-        Math.min(
-          800, // 최대 13분 (Vercel Pro 플랜 제한)
-          Math.ceil(actualAudioDuration * 0.5) + 60
-        )
-      )
-      
-      // 긴 영상 경고 (26분 이상)
-      if (actualAudioDuration > 26 * 60) {
-        const videoMinutes = (actualAudioDuration / 60).toFixed(1)
-        const timeoutMinutes = (maxTimeoutSeconds / 60).toFixed(1)
-        const warningMessage = 
-          `⚠️ 경고: 영상 길이가 ${videoMinutes}분으로 매우 깁니다.\n\n` +
-          `예상 렌더링 시간: 약 ${(estimatedTimeSeconds / 60).toFixed(1)}분\n` +
-          `타임아웃 제한: ${timeoutMinutes}분\n\n` +
-          `타임아웃 제한 내에 완료되지 않을 수 있습니다.\n\n` +
-          `권장 사항:\n` +
-          `1. 영상을 여러 개의 짧은 영상으로 나누어 렌더링\n` +
-          `2. Cloud Run 서버의 리소스(CPU/메모리) 증가\n` +
-          `3. 잠시 후 다시 시도 (서버 부하가 적을 때)\n\n` +
-          `계속 진행하시겠습니까?`
-        
-        const shouldContinue = window.confirm(warningMessage)
-        if (!shouldContinue) {
-          setIsExporting(false)
-          return
-        }
-      }
-      
       setEstimatedRenderTime(estimatedTimeSeconds)
       setRemainingRenderTime(estimatedTimeSeconds)
-      console.log(`[v0] 예상 렌더링 시간: ${estimatedTimeSeconds}초 (영상 길이: ${actualAudioDuration.toFixed(1)}초), 타임아웃 제한: ${maxTimeoutSeconds}초`)
+      console.log(`[v0] 예상 렌더링 시간: ${estimatedTimeSeconds}초 (영상 길이: ${actualAudioDuration.toFixed(1)}초)`)
       
       // 예상 시간을 사용자에게 표시
       const estimatedMinutes = Math.floor(estimatedTimeSeconds / 60)
@@ -9643,24 +9630,69 @@ export default function LongformContentPage() {
       })
       console.log("[v0] 최종 요청 본문 (일부):", JSON.stringify(finalRequestBody).substring(0, 500))
       
-      // CORS 문제 방지를 위해 항상 Vercel API 라우트를 통해 호출
-      // API 라우트가 서버 사이드에서 Cloud Run을 호출하므로 CORS 문제 없음
+      // 긴 영상(15분 이상)인 경우 Cloud Run에 직접 요청 (Vercel API Route 타임아웃 800초 제한 우회)
+      // 짧은 영상은 Vercel API Route를 통해 호출 (CORS 문제 방지)
       const estimatedDurationMinutes = finalRequestBody.duration / 60
+      const estimatedDurationSeconds = finalRequestBody.duration
+      const shouldUseDirectCloudRun = estimatedDurationSeconds > 900 // 15분 이상
       
-      console.log(`[v0] 렌더링 작업 시작 (${estimatedDurationMinutes.toFixed(1)}분) - Vercel API 라우트 사용`)
+      // Cloud Run URL 환경 변수 확인 (런타임에서 접근 가능한 방법)
+      // 1. window 객체에 설정된 값 (런타임 설정)
+      // 2. process.env.NEXT_PUBLIC_ 접두사 (빌드 타임에 주입됨, 클라이언트에서 접근 가능)
+      const cloudRunUrl = typeof window !== "undefined" 
+        ? ((window as any).CLOUD_RUN_RENDER_URL || 
+           (window as any).NEXT_PUBLIC_CLOUD_RUN_RENDER_URL ||
+           process.env.NEXT_PUBLIC_CLOUD_RUN_RENDER_URL ||
+           "https://my-project-350911437561.asia-northeast1.run.app") // 기본값
+        : null
       
-      // Vercel API 라우트 사용 (서버 사이드에서 Cloud Run 호출)
-      // 비동기 모드 활성화 (타임아웃 방지)
-      const renderResponse = await fetch("/api/ai/render", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          ...finalRequestBody,
-          asyncMode: true, // 비동기 모드 활성화
-        }),
+      // 디버깅: Cloud Run URL 및 영상 길이 확인
+      console.log("[v0] 렌더링 설정 확인:", {
+        estimatedDurationSeconds,
+        estimatedDurationMinutes: estimatedDurationMinutes.toFixed(1),
+        shouldUseDirectCloudRun,
+        cloudRunUrl,
+        hasCloudRunUrl: !!cloudRunUrl,
       })
+      
+      let renderResponse: Response
+      
+      if (shouldUseDirectCloudRun) {
+        // 긴 영상인 경우 Cloud Run에 직접 요청
+        if (!cloudRunUrl) {
+          const errorMsg = `긴 영상(${estimatedDurationMinutes.toFixed(1)}분)을 렌더링하려면 Cloud Run URL이 필요합니다.\n\n` +
+            `Vercel API Route는 최대 800초(약 13분)까지만 지원하므로 타임아웃이 발생할 수 있습니다.\n\n` +
+            `해결 방법:\n` +
+            `1. Vercel 대시보드 > Settings > Environment Variables에서\n` +
+            `   NEXT_PUBLIC_CLOUD_RUN_RENDER_URL을 설정하세요.\n` +
+            `2. 또는 영상 길이를 15분 미만으로 줄여주세요.`
+          alert(errorMsg)
+          throw new Error(errorMsg)
+        }
+        
+        console.log(`[v0] 렌더링 작업 시작 (${estimatedDurationMinutes.toFixed(1)}분) - Cloud Run 직접 요청 (타임아웃 우회)`)
+        console.log(`[v0] Cloud Run URL: ${cloudRunUrl}`)
+        
+        renderResponse = await fetch(`${cloudRunUrl}/render`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: requestBodyString,
+        })
+      } else {
+        // 짧은 영상인 경우 Vercel API Route 사용
+        console.log(`[v0] 렌더링 작업 시작 (${estimatedDurationMinutes.toFixed(1)}분) - Vercel API 라우트 사용`)
+        
+        // Vercel API 라우트 사용 (서버 사이드에서 Cloud Run 호출)
+        renderResponse = await fetch("/api/ai/render", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: requestBodyString,
+        })
+      }
 
       if (!renderResponse.ok) {
         // 413 오류 (요청 크기 초과) 처리
@@ -9669,49 +9701,6 @@ export default function LongformContentPage() {
             "요청 크기가 너무 큽니다. Cloud Storage 업로드를 다시 시도하거나 오디오 길이를 줄여주세요. " +
             "(Vercel 요청 크기 제한: 4.5MB)"
           )
-        }
-        
-        // 504 오류 (타임아웃) 처리
-        if (renderResponse.status === 504) {
-          const contentType = renderResponse.headers.get("content-type") || ""
-          let errorData: any = null
-          
-          if (contentType.includes("application/json")) {
-            try {
-              errorData = await renderResponse.json()
-            } catch (e) {
-              // JSON 파싱 실패 시 기본 메시지 사용
-            }
-          }
-          
-          // 타임아웃 오류 메시지 구성
-          let timeoutMessage = "⏱️ 렌더링 타임아웃 오류\n\n"
-          
-          if (errorData) {
-            if (errorData.details) {
-              timeoutMessage += `${errorData.details}\n\n`
-            }
-            if (errorData.suggestion) {
-              timeoutMessage += `💡 권장 사항:\n${errorData.suggestion}\n\n`
-            }
-          }
-          
-          timeoutMessage += "📋 해결 방법:\n"
-          timeoutMessage += "1. 영상을 여러 개의 짧은 영상으로 나누어 렌더링\n"
-          timeoutMessage += "2. Cloud Run 서버의 리소스(CPU/메모리) 증가\n"
-          timeoutMessage += "3. 잠시 후 다시 시도 (서버 부하가 적을 때)\n"
-          timeoutMessage += "4. 영상 길이를 줄여서 다시 시도\n\n"
-          
-          if (errorData?.timeoutSeconds && errorData?.videoDuration) {
-            const timeoutMinutes = (errorData.timeoutSeconds / 60).toFixed(1)
-            const videoMinutes = (errorData.videoDuration / 60).toFixed(1)
-            timeoutMessage += `📊 정보:\n`
-            timeoutMessage += `- 영상 길이: ${videoMinutes}분\n`
-            timeoutMessage += `- 타임아웃 제한: ${timeoutMinutes}분\n`
-            timeoutMessage += `- 예상 필요 시간: 약 ${(errorData.videoDuration * 0.5 / 60).toFixed(1)}분\n`
-          }
-          
-          throw new Error(timeoutMessage)
         }
         
         // 응답이 JSON인지 확인
@@ -9854,7 +9843,7 @@ export default function LongformContentPage() {
 
       // 응답이 JSON인지 확인
       const contentType = renderResponse.headers.get("content-type") || ""
-      let renderResult: any
+      let renderResult
       if (contentType.includes("application/json")) {
         try {
           renderResult = await renderResponse.json()
@@ -9865,109 +9854,6 @@ export default function LongformContentPage() {
       } else {
         const errorText = await renderResponse.text()
         throw new Error(`예상하지 못한 응답 형식: ${errorText.substring(0, 200)}`)
-      }
-
-      // 비동기 모드: jobId가 있으면 폴링 시작
-      if (renderResult.success && renderResult.jobId) {
-        console.log("[v0] 비동기 모드: 작업 시작됨, 폴링 시작", { jobId: renderResult.jobId })
-        setExportStatusMessage("렌더링 진행 중... (상태 확인 중)")
-        setExportProgress(30)
-        
-        // 폴링으로 작업 상태 확인
-        const pollInterval = 3000 // 3초마다 확인
-        const maxPollAttempts = 600 // 최대 30분 (600 * 3초)
-        let pollAttempts = 0
-        let pollIntervalId: NodeJS.Timeout | null = null
-        
-        const pollStatus = async (): Promise<any> => {
-          return new Promise((resolve, reject) => {
-            pollIntervalId = setInterval(async () => {
-              pollAttempts++
-              
-              try {
-                const statusResponse = await fetch(`/api/ai/render/status?jobId=${renderResult.jobId}`)
-                
-                if (!statusResponse.ok) {
-                  const errorData = await statusResponse.json().catch(() => ({}))
-                  throw new Error(errorData.error || `상태 확인 실패: ${statusResponse.status}`)
-                }
-                
-                const statusResult = await statusResponse.json().catch((parseError) => {
-                  console.error("[v0] JSON 파싱 오류:", parseError)
-                  return null
-                })
-                
-                if (!statusResult) {
-                  throw new Error("상태 응답을 파싱할 수 없습니다.")
-                }
-                
-                console.log(`[v0] 작업 상태 확인 (${pollAttempts}/${maxPollAttempts}):`, {
-                  status: statusResult.status,
-                  progress: statusResult.progress,
-                })
-                
-                // 진행률 업데이트
-                if (statusResult.progress !== undefined && statusResult.progress !== null) {
-                  setExportProgress(30 + Math.floor(statusResult.progress * 0.5)) // 30-80% 범위
-                }
-                
-                if (statusResult.status === "completed") {
-                  if (pollIntervalId) clearInterval(pollIntervalId)
-                  console.log("[v0] 렌더링 완료!")
-                  resolve(statusResult)
-                } else if (statusResult.status === "failed") {
-                  if (pollIntervalId) clearInterval(pollIntervalId)
-                  throw new Error(statusResult.error || statusResult.message || "렌더링 실패")
-                } else if (statusResult.status === "processing") {
-                  // 계속 폴링
-                  setExportStatusMessage(
-                    statusResult.progress !== undefined && statusResult.progress !== null
-                      ? `렌더링 진행 중... ${statusResult.progress}%`
-                      : "렌더링 진행 중..."
-                  )
-                  
-                  // 최대 시도 횟수 초과
-                  if (pollAttempts >= maxPollAttempts) {
-                    if (pollIntervalId) clearInterval(pollIntervalId)
-                    throw new Error("렌더링 시간이 너무 오래 걸립니다. 잠시 후 다시 시도해주세요.")
-                  }
-                } else {
-                  // 알 수 없는 상태
-                  console.warn("[v0] 알 수 없는 상태:", statusResult.status)
-                  if (pollAttempts >= maxPollAttempts) {
-                    if (pollIntervalId) clearInterval(pollIntervalId)
-                    throw new Error(`알 수 없는 작업 상태: ${statusResult.status}`)
-                  }
-                }
-              } catch (error) {
-                if (pollIntervalId) clearInterval(pollIntervalId)
-                reject(error)
-              }
-            }, pollInterval)
-          })
-        }
-        
-        try {
-          // 폴링 시작
-          const finalResult = await pollStatus()
-          
-          // finalResult가 null이거나 undefined인 경우 처리
-          if (!finalResult) {
-            throw new Error("렌더링 결과를 받을 수 없습니다.")
-          }
-          
-          // 최종 결과를 renderResult로 설정
-          renderResult = {
-            success: true,
-            videoUrl: finalResult.videoUrl || null,
-            downloadUrl: finalResult.downloadUrl || null,
-            videoBase64: finalResult.videoBase64 || null,
-            projectId: finalResult.projectId || `project_${Date.now()}`,
-          }
-        } catch (pollError) {
-          console.error("[v0] 폴링 오류:", pollError)
-          throw pollError
-        }
       }
 
       if (!renderResult.success) {

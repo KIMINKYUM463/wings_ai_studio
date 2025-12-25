@@ -17,7 +17,7 @@ gcloud run deploy my-project ^
   --region asia-northeast1 ^
   --allow-unauthenticated ^
   --port 8080 ^
-  --timeout 900 ^
+  --timeout 3600 ^
   --memory 4Gi ^
   --cpu 2 ^
   --set-env-vars GOOGLE_CLOUD_PROJECT_ID=test-ai-450613,GOOGLE_CLOUD_STORAGE_BUCKET=video-renderer-storage

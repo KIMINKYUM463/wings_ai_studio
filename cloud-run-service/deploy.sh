@@ -17,7 +17,11 @@ gcloud run deploy my-project \
   --platform managed \
   --region asia-northeast1 \
   --allow-unauthenticated \
-  --port 8080
+  --port 8080 \
+  --timeout 3600 \
+  --memory 4Gi \
+  --cpu 2 \
+  --set-env-vars GOOGLE_CLOUD_PROJECT_ID=test-ai-450613,GOOGLE_CLOUD_STORAGE_BUCKET=video-renderer-storage
 
 echo "=== 배포 완료 ==="
 echo "서비스 URL: https://my-project-350911437561.asia-northeast1.run.app"

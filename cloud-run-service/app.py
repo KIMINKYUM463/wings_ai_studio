@@ -7,17 +7,10 @@ from flask import Flask, request, jsonify
 import os
 import sys
 import datetime
-import time
 import ffmpeg
 import subprocess
-import threading
-import uuid
-from collections import defaultdict
 
 app = Flask(__name__)
-
-# 작업 상태 저장 (메모리 기반, 프로덕션에서는 Redis 등 사용 권장)
-job_status = defaultdict(dict)
 
 # Cloud Run의 요청 크기 제한은 32MB이지만, Flask 앱 레벨에서도 제한 설정
 app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 32MB
@@ -62,31 +55,13 @@ def render_video():
     현재는 테스트용으로 간단한 응답만 반환
     """
     try:
-        # JSON 파싱 오류 처리
-        try:
-            data = request.json
-        except Exception as json_error:
-            print(f"[Render] JSON 파싱 오류: {str(json_error)}")
-            return jsonify({
-                "success": False,
-                "error": f"JSON 파싱 오류: {str(json_error)}"
-            }), 400
+        data = request.json
         
         if not data:
             return jsonify({
                 "success": False,
                 "error": "요청 데이터가 없습니다."
             }), 400
-        
-        # data가 dict가 아닌 경우 처리
-        if not isinstance(data, dict):
-            return jsonify({
-                "success": False,
-                "error": f"요청 데이터 형식이 올바르지 않습니다. (type: {type(data).__name__})"
-            }), 400
-        
-        # 비동기 모드 확인
-        async_mode = data.get('asyncMode', False)
         
         # 요청 데이터 확인
         audio_base64 = data.get('audioBase64')
@@ -98,111 +73,6 @@ def render_video():
         character_image_url = data.get('characterImageUrl')  # 영상 URL
         auto_images = data.get('autoImages', [])  # 여러 이미지 배열
         duration = data.get('duration', 0)
-        
-        # 비동기 모드: 작업 시작 후 jobId 반환
-        if async_mode:
-            job_id = str(uuid.uuid4())
-            print(f"[Render] 비동기 모드: 작업 시작 - jobId: {job_id}")
-            
-            # 작업 상태 초기화
-            job_status[job_id] = {
-                'status': 'processing',
-                'progress': 0,
-                'videoUrl': None,
-                'downloadUrl': None,
-                'videoBase64': None,
-                'error': None,
-                'message': '렌더링 작업이 시작되었습니다.',
-            }
-            
-            # 백그라운드에서 렌더링 시작
-            def render_async():
-                result = None
-                try:
-                    job_status[job_id]['status'] = 'processing'
-                    job_status[job_id]['progress'] = 5
-                    job_status[job_id]['message'] = '렌더링 시작...'
-                    
-                    # 기존 렌더링 로직 실행 (execute_render_logic 함수 호출)
-                    try:
-                        result = execute_render_logic(
-                            audio_base64=audio_base64,
-                            audio_gcs_url=audio_gcs_url,
-                            subtitles=subtitles,
-                            show_subtitles=show_subtitles,
-                            character_image=character_image,
-                            character_image_gcs_url=character_image_gcs_url,
-                            character_image_url=character_image_url,
-                            auto_images=auto_images,
-                            duration=duration,
-                            job_id=job_id,
-                            job_status_dict=job_status
-                        )
-                    except Exception as render_error:
-                        import traceback
-                        error_trace = traceback.format_exc()
-                        print(f"[Render] execute_render_logic 호출 오류: {str(render_error)}\n{error_trace}")
-                        result = {
-                            'success': False,
-                            'videoUrl': None,
-                            'videoBase64': None,
-                            'downloadUrl': None,
-                            'projectId': None,
-                            'error': f'렌더링 함수 호출 실패: {str(render_error)}',
-                            'details': error_trace[:500] if len(error_trace) > 500 else error_trace
-                        }
-                    
-                    # 결과 저장 (result가 None인 경우 처리)
-                    if result is None:
-                        print(f"[Render] 경고: execute_render_logic이 None을 반환했습니다.")
-                        job_status[job_id]['status'] = 'failed'
-                        job_status[job_id]['error'] = '렌더링 결과가 None입니다.'
-                        job_status[job_id]['message'] = '렌더링 실패: 결과를 받을 수 없습니다.'
-                    elif not isinstance(result, dict):
-                        print(f"[Render] 경고: execute_render_logic이 dict가 아닌 값을 반환했습니다. (type: {type(result).__name__})")
-                        job_status[job_id]['status'] = 'failed'
-                        job_status[job_id]['error'] = f'렌더링 결과 형식이 올바르지 않습니다. (type: {type(result).__name__})'
-                        job_status[job_id]['message'] = '렌더링 실패: 결과 형식 오류'
-                    elif result.get('success'):
-                        job_status[job_id]['status'] = 'completed'
-                        job_status[job_id]['progress'] = 100
-                        job_status[job_id]['message'] = '렌더링 완료'
-                        job_status[job_id]['videoUrl'] = result.get('videoUrl')
-                        job_status[job_id]['videoBase64'] = result.get('videoBase64')
-                        job_status[job_id]['downloadUrl'] = result.get('downloadUrl')
-                    else:
-                        job_status[job_id]['status'] = 'failed'
-                        error_msg = result.get('error', '알 수 없는 오류')
-                        job_status[job_id]['error'] = error_msg
-                        job_status[job_id]['message'] = f'렌더링 실패: {error_msg}'
-                    
-                except Exception as e:
-                    import traceback
-                    error_trace = traceback.format_exc()
-                    print(f"[Render] 비동기 렌더링 오류: {str(e)}\n{error_trace}")
-                    job_status[job_id]['status'] = 'failed'
-                    job_status[job_id]['error'] = str(e)
-                    job_status[job_id]['message'] = f'렌더링 실패: {str(e)}'
-                finally:
-                    # 최종적으로 result가 None이면 실패로 표시
-                    if result is None and job_status[job_id].get('status') != 'failed':
-                        print(f"[Render] 최종 확인: result가 None입니다. 실패로 표시합니다.")
-                        job_status[job_id]['status'] = 'failed'
-                        job_status[job_id]['error'] = '렌더링 결과를 받을 수 없습니다.'
-                        job_status[job_id]['message'] = '렌더링 실패: 결과 없음'
-            
-            # 백그라운드 스레드 시작
-            thread = threading.Thread(target=render_async)
-            thread.daemon = True
-            thread.start()
-            
-            # 즉시 jobId 반환
-            return jsonify({
-                "success": True,
-                "jobId": job_id,
-                "status": "processing",
-                "message": "렌더링 작업이 시작되었습니다.",
-            }), 200
         
         if not audio_base64 and not audio_gcs_url:
             return jsonify({
@@ -216,189 +86,123 @@ def render_video():
                 "error": "characterImage, characterImageGcsUrl 또는 characterImageUrl이 필요합니다."
             }), 400
         
-        print(f"[Render] 동기 모드: 렌더링 시작 - duration: {duration}s, subtitles: {len(subtitles)}, autoImages: {len(auto_images)}")
-        
-        # 동기 모드: execute_render_logic 함수 호출
-        result = execute_render_logic(
-            audio_base64=audio_base64,
-            audio_gcs_url=audio_gcs_url,
-            subtitles=subtitles,
-            show_subtitles=show_subtitles,
-            character_image=character_image,
-            character_image_gcs_url=character_image_gcs_url,
-            character_image_url=character_image_url,
-            auto_images=auto_images,
-            duration=duration,
-            job_id=None,
-            job_status_dict=None
-        )
-        
-        # 결과를 jsonify로 변환하여 반환 (result가 None인 경우 처리)
-        if result is None:
-            return jsonify({
-                "success": False,
-                "error": "렌더링 결과가 None입니다.",
-                "details": "execute_render_logic 함수가 None을 반환했습니다."
-            }), 500
-        elif isinstance(result, dict) and result.get('success'):
-            return jsonify({
-                "success": True,
-                "videoUrl": result.get('videoUrl'),
-                "videoBase64": result.get('videoBase64'),
-                "downloadUrl": result.get('downloadUrl'),
-                "projectId": result.get('projectId', f"project_{int(time.time())}")
-            })
+        print(f"[Render] Request received - duration: {duration}s, subtitles: {len(subtitles)}, autoImages: {len(auto_images)}")
+        if audio_gcs_url:
+            print(f"[Render] Using Cloud Storage URL: {audio_gcs_url}")
+        elif audio_base64:
+            print(f"[Render] Using base64 audio (size: {len(audio_base64) / 1024:.2f} KB)")
         else:
-            error_msg = '알 수 없는 오류'
-            details_msg = ''
-            if isinstance(result, dict):
-                error_msg = result.get('error', '알 수 없는 오류')
-                details_msg = result.get('details', '')
-            return jsonify({
-                "success": False,
-                "error": error_msg,
-                "details": details_msg
-            }), 500
+            print(f"[Render] No audio data provided")
         
-    except Exception as e:
+        if character_image_gcs_url:
+            print(f"[Render] Using characterImage Cloud Storage URL: {character_image_gcs_url}")
+        elif character_image:
+            print(f"[Render] Using base64 characterImage (size: {len(character_image) / 1024:.2f} KB)")
+        else:
+            print(f"[Render] No characterImage data provided")
+        
+        # 실제 영상 렌더링 로직 구현
+        import subprocess
+        import tempfile
+        import base64
+        import time
+        import requests
+        import shutil
         import traceback
-        error_trace = traceback.format_exc()
-        print(f"[Render] 에러: {str(e)}\n{error_trace}")
-        return jsonify({
-            "success": False,
-            "error": f"오류 발생: {str(e)}",
-            "details": error_trace[:500] if len(error_trace) > 500 else error_trace
-        }), 500
-
-def execute_render_logic(audio_base64, audio_gcs_url, subtitles, show_subtitles,
-                        character_image, character_image_gcs_url, character_image_url,
-                        auto_images, duration, job_id=None, job_status_dict=None):
-    """
-    실제 렌더링 로직을 실행하는 함수
-    비동기 모드와 동기 모드 모두에서 사용
-    
-    Returns:
-        dict: {
-            'success': bool,
-            'videoUrl': str or None,
-            'videoBase64': str or None,
-            'downloadUrl': str or None,
-            'projectId': str or None,
-            'error': str or None,
-            'details': str or None
-        }
-    """
-    # 진행률 업데이트 함수 (비동기 모드일 때만)
-    def update_progress(progress, message):
-        if job_id and job_status_dict:
-            job_status_dict[job_id]['progress'] = progress
-            job_status_dict[job_id]['message'] = message
-    
-    import subprocess
-    import tempfile
-    import base64
-    import time
-    import requests
-    import shutil
-    import traceback
-    import os
-    import glob
-    import uuid as uuid_module  # uuid 모듈을 명시적으로 import
-    
-    # 고유 ID 생성
-    unique_id = str(uuid_module.uuid4()).replace('-', '')[:12]
-    temp_dir = None
-    
-    try:
-        update_progress(10, '오디오 처리 중...')
+        import uuid
         
-        if audio_base64:
-            print(f"[Render] 시작 - 오디오 크기: {len(audio_base64) / 1024:.2f} KB")
-        elif audio_gcs_url:
-            print(f"[Render] 시작 - Cloud Storage URL 사용: {audio_gcs_url}")
+        # 고유 ID 생성 (파일명 충돌 방지용)
+        unique_id = str(uuid.uuid4()).replace('-', '')[:12]  # UUID 앞 12자리만 사용
         
-        # 임시 파일 디렉토리 생성
-        temp_dir = tempfile.mkdtemp()
-        print(f"[Render] Temp directory created: {temp_dir}")
-        
-        # 자막 타이밍 조정을 위한 변수 초기화
-        duration_ratio = 1.0
-        actual_audio_duration = duration
-        
-        # 1. 오디오 다운로드/디코딩
+        temp_dir = None
         try:
-            if audio_gcs_url:
-                # Cloud Storage에서 다운로드
-                print(f"[Render] Downloading audio from Cloud Storage...")
-                audio_response = requests.get(audio_gcs_url, timeout=300)
-                audio_response.raise_for_status()
-                audio_data = audio_response.content
-                print(f"[Render] Audio downloaded from GCS: {len(audio_data) / 1024 / 1024:.2f} MB")
-            else:
-                # base64 디코딩
-                audio_data = base64.b64decode(audio_base64)
-                print(f"[Render] Audio decoded from base64: {len(audio_data) / 1024 / 1024:.2f} MB")
+            if audio_base64:
+                print(f"[Render] 시작 - 오디오 크기: {len(audio_base64) / 1024:.2f} KB")
+            elif audio_gcs_url:
+                print(f"[Render] 시작 - Cloud Storage URL 사용: {audio_gcs_url}")
             
-            # 오디오 형식 자동 감지 (WAV 또는 MP3)
-            # FFmpeg가 자동으로 형식을 감지하므로 확장자는 중요하지 않음
-            audio_path = f"{temp_dir}/audio.wav"
-            with open(audio_path, 'wb') as f:
-                f.write(audio_data)
-            print(f"[Render] Audio saved: {len(audio_data) / 1024 / 1024:.2f} MB")
+            # 임시 파일 디렉토리 생성
+            temp_dir = tempfile.mkdtemp()
+            print(f"[Render] Temp directory created: {temp_dir}")
             
-            # 실제 오디오 정보 측정 (ffprobe 사용) - 길이, 코덱, 비트레이트, 샘플레이트, 채널 수
-            audio_codec = None
-            audio_bitrate = None
-            audio_sample_rate = None
-            audio_channels = None
+            # 자막 타이밍 조정을 위한 변수 초기화
+            duration_ratio = 1.0
+            actual_audio_duration = duration
+            
+            # 1. 오디오 다운로드/디코딩
             try:
-                import json
-                probe_cmd = [
-                    'ffprobe',
-                    '-v', 'quiet',
-                    '-print_format', 'json',
-                    '-show_format',
-                    '-show_streams',
-                    audio_path
-                ]
-                probe_result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=30)
-                if probe_result.returncode == 0:
-                    probe_data = json.loads(probe_result.stdout)
-                    actual_audio_duration = float(probe_data.get('format', {}).get('duration', 0))
-                    print(f"[Render] Actual audio duration: {actual_audio_duration:.3f}s (requested: {duration}s)")
-                    
-                    # 오디오 스트림 정보 추출
-                    audio_streams = [s for s in probe_data.get('streams', []) if s.get('codec_type') == 'audio']
-                    if audio_streams:
-                        audio_stream = audio_streams[0]
-                        audio_codec = audio_stream.get('codec_name', '')
-                        audio_sample_rate = audio_stream.get('sample_rate', '')
-                        audio_channels = audio_stream.get('channels', '')
-                        
-                        # 비트레이트 추출 (format 또는 stream에서)
-                        audio_bitrate = probe_data.get('format', {}).get('bit_rate', '')
-                        if not audio_bitrate and audio_stream.get('bit_rate'):
-                            audio_bitrate = audio_stream.get('bit_rate')
-                        
-                        print(f"[Render] Original audio info - codec: {audio_codec}, bitrate: {audio_bitrate}, sample_rate: {audio_sample_rate}, channels: {audio_channels}")
-                    
-                    # 실제 오디오 길이와 요청된 duration이 다르면 자막 타이밍 조정
-                    if actual_audio_duration > 0 and duration > 0:
-                        duration_ratio = actual_audio_duration / duration
-                        print(f"[Render] Duration ratio: {duration_ratio:.4f} (will adjust subtitle timings)")
-                    else:
-                        duration_ratio = 1.0
+                if audio_gcs_url:
+                    # Cloud Storage에서 다운로드
+                    print(f"[Render] Downloading audio from Cloud Storage...")
+                    audio_response = requests.get(audio_gcs_url, timeout=300)
+                    audio_response.raise_for_status()
+                    audio_data = audio_response.content
+                    print(f"[Render] Audio downloaded from GCS: {len(audio_data) / 1024 / 1024:.2f} MB")
                 else:
-                    print(f"[Render] Warning: Could not probe audio duration, using requested duration")
+                    # base64 디코딩
+                    audio_data = base64.b64decode(audio_base64)
+                    print(f"[Render] Audio decoded from base64: {len(audio_data) / 1024 / 1024:.2f} MB")
+                
+                # 오디오 형식 자동 감지 (WAV 또는 MP3)
+                # FFmpeg가 자동으로 형식을 감지하므로 확장자는 중요하지 않음
+                audio_path = f"{temp_dir}/audio.wav"
+                with open(audio_path, 'wb') as f:
+                    f.write(audio_data)
+                print(f"[Render] Audio saved: {len(audio_data) / 1024 / 1024:.2f} MB")
+                
+                # 실제 오디오 정보 측정 (ffprobe 사용) - 길이, 코덱, 비트레이트, 샘플레이트, 채널 수
+                audio_codec = None
+                audio_bitrate = None
+                audio_sample_rate = None
+                audio_channels = None
+                try:
+                    import json
+                    probe_cmd = [
+                        'ffprobe',
+                        '-v', 'quiet',
+                        '-print_format', 'json',
+                        '-show_format',
+                        '-show_streams',
+                        audio_path
+                    ]
+                    probe_result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=30)
+                    if probe_result.returncode == 0:
+                        probe_data = json.loads(probe_result.stdout)
+                        actual_audio_duration = float(probe_data.get('format', {}).get('duration', 0))
+                        print(f"[Render] Actual audio duration: {actual_audio_duration:.3f}s (requested: {duration}s)")
+                        
+                        # 오디오 스트림 정보 추출
+                        audio_streams = [s for s in probe_data.get('streams', []) if s.get('codec_type') == 'audio']
+                        if audio_streams:
+                            audio_stream = audio_streams[0]
+                            audio_codec = audio_stream.get('codec_name', '')
+                            audio_sample_rate = audio_stream.get('sample_rate', '')
+                            audio_channels = audio_stream.get('channels', '')
+                            
+                            # 비트레이트 추출 (format 또는 stream에서)
+                            audio_bitrate = probe_data.get('format', {}).get('bit_rate', '')
+                            if not audio_bitrate and audio_stream.get('bit_rate'):
+                                audio_bitrate = audio_stream.get('bit_rate')
+                            
+                            print(f"[Render] Original audio info - codec: {audio_codec}, bitrate: {audio_bitrate}, sample_rate: {audio_sample_rate}, channels: {audio_channels}")
+                        
+                        # 실제 오디오 길이와 요청된 duration이 다르면 자막 타이밍 조정
+                        if actual_audio_duration > 0 and duration > 0:
+                            duration_ratio = actual_audio_duration / duration
+                            print(f"[Render] Duration ratio: {duration_ratio:.4f} (will adjust subtitle timings)")
+                        else:
+                            duration_ratio = 1.0
+                    else:
+                        print(f"[Render] Warning: Could not probe audio duration, using requested duration")
+                        duration_ratio = 1.0
+                        actual_audio_duration = duration
+                except Exception as probe_error:
+                    print(f"[Render] Warning: Audio probe failed: {str(probe_error)}, using requested duration")
                     duration_ratio = 1.0
                     actual_audio_duration = duration
-            except Exception as probe_error:
-                print(f"[Render] Warning: Audio probe failed: {str(probe_error)}, using requested duration")
-                duration_ratio = 1.0
-                actual_audio_duration = duration
-        except Exception as e:
-            print(f"[Render] 오디오 처리 오류: {str(e)}")
-            raise Exception(f"오디오 처리 실패: {str(e)}")
+            except Exception as e:
+                print(f"[Render] 오디오 처리 오류: {str(e)}")
+                raise Exception(f"오디오 처리 실패: {str(e)}")
             
             # 2. 이미지 처리 (여러 이미지 지원)
             def download_image(img_url, output_path):
@@ -1010,15 +814,11 @@ def execute_render_logic(audio_base64, audio_gcs_url, subtitles, show_subtitles,
                     
                     print(f"[Render] Video uploaded to GCS: {video_url}")
                     
-                    return {
-                        'success': True,
-                        'videoUrl': video_url,
-                        'videoBase64': None,
-                        'downloadUrl': video_url,
-                        'projectId': f"project_{int(time.time())}_{unique_id}",
-                        'error': None,
-                        'details': None
-                    }
+                    return jsonify({
+                        "success": True,
+                        "videoUrl": video_url,
+                        "projectId": f"project_{int(time.time())}_{unique_id}"
+                    })
                 except Exception as gcs_error:
                     error_msg = str(gcs_error)
                     print(f"[Render] GCS 업로드 실패: {error_msg}")
@@ -1037,108 +837,34 @@ def execute_render_logic(audio_base64, audio_gcs_url, subtitles, show_subtitles,
                     f"Cloud Storage를 설정해주세요. (GOOGLE_CLOUD_STORAGE_BUCKET, GOOGLE_CLOUD_PROJECT_ID 환경 변수 필요)"
                 )
             
-            # 결과 반환
-            print(f"[Render] execute_render_logic 성공: base64 크기 {base64_size_mb:.2f} MB")
-            result = {
-                'success': True,
-                'videoUrl': None,
-                'videoBase64': video_base64,
-                'downloadUrl': None,
-                'projectId': f"project_{int(time.time())}_{unique_id}",
-                'error': None,
-                'details': None
-            }
-            print(f"[Render] execute_render_logic 반환 준비 완료")
-            return result
+            return jsonify({
+                "success": True,
+                "videoBase64": video_base64,
+                "projectId": f"project_{int(time.time())}_{unique_id}"
+            })
             
-    except Exception as e:
-        error_trace = traceback.format_exc()
-        print(f"[Render] execute_render_logic Exception 오류: {str(e)}\n{error_trace}")
-        result = {
-            'success': False,
-            'videoUrl': None,
-            'videoBase64': None,
-            'downloadUrl': None,
-            'projectId': None,
-            'error': str(e),
-            'details': error_trace[:500] if len(error_trace) > 500 else error_trace
-        }
-        print(f"[Render] execute_render_logic 오류 결과 반환: {result.get('error', 'Unknown')}")
-        return result
-    except BaseException as e:
-        # SystemExit, KeyboardInterrupt 등도 처리
-        error_trace = traceback.format_exc()
-        print(f"[Render] execute_render_logic BaseException 오류: {str(e)}\n{error_trace}")
-        result = {
-            'success': False,
-            'videoUrl': None,
-            'videoBase64': None,
-            'downloadUrl': None,
-            'projectId': None,
-            'error': f'시스템 오류: {str(e)}',
-            'details': error_trace[:500] if len(error_trace) > 500 else error_trace
-        }
-        print(f"[Render] execute_render_logic BaseException 결과 반환: {result.get('error', 'Unknown')}")
-        return result
-    finally:
-        # 임시 파일 정리
-        print(f"[Render] execute_render_logic finally 블록 실행 시작")
-        if temp_dir and os.path.exists(temp_dir):
-            try:
-                shutil.rmtree(temp_dir)
-                print(f"[Render] Temp files cleaned up")
-            except Exception as e:
-                print(f"[Render] 임시 파일 정리 오류: {str(e)}")
-        print(f"[Render] execute_render_logic finally 블록 실행 완료")
-        
-@app.route('/status/<job_id>', methods=['GET', 'OPTIONS'])
-def get_job_status(job_id):
-    """작업 상태 확인 엔드포인트"""
-    if request.method == 'OPTIONS':
-        response = jsonify({})
-        return add_cors_headers(response), 200
-    
-    try:
-        if job_id not in job_status:
+        except Exception as e:
+            error_trace = traceback.format_exc()
+            print(f"[Render] Rendering error details:\n{error_trace}")
             return jsonify({
                 "success": False,
-                "error": f"작업을 찾을 수 없습니다: {job_id}"
-            }), 404
-        
-        status = job_status[job_id]
-        
-        # status가 None이거나 dict가 아닌 경우 처리
-        if status is None:
-            return jsonify({
-                "success": False,
-                "error": f"작업 상태가 초기화되지 않았습니다: {job_id}"
+                "error": f"렌더링 실패: {str(e)}",
+                "details": error_trace[:500] if len(error_trace) > 500 else error_trace
             }), 500
+        finally:
+            # 임시 파일 정리
+            if temp_dir and os.path.exists(temp_dir):
+                try:
+                    shutil.rmtree(temp_dir)
+                    print(f"[Render] Temp files cleaned up")
+                except Exception as e:
+                    print(f"[Render] 임시 파일 정리 오류: {str(e)}")
         
-        if not isinstance(status, dict):
-            return jsonify({
-                "success": False,
-                "error": f"작업 상태 형식이 올바르지 않습니다: {job_id}"
-            }), 500
-        
-        return jsonify({
-            "success": True,
-            "jobId": job_id,
-            "status": status.get('status', 'unknown') if status else 'unknown',
-            "progress": status.get('progress', 0) if status else 0,
-            "videoUrl": status.get('videoUrl') if status else None,
-            "downloadUrl": status.get('downloadUrl') if status else None,
-            "videoBase64": status.get('videoBase64') if status else None,
-            "error": status.get('error') if status else None,
-            "message": status.get('message', '') if status else '',
-        }), 200
     except Exception as e:
-        import traceback
-        error_trace = traceback.format_exc()
-        print(f"[Render] 상태 확인 오류: {str(e)}\n{error_trace}")
+        print(f"[Render] 에러: {str(e)}")
         return jsonify({
             "success": False,
-            "error": f"상태 확인 중 오류 발생: {str(e)}",
-            "details": error_trace[:500] if len(error_trace) > 500 else error_trace
+            "error": f"오류 발생: {str(e)}"
         }), 500
 
 @app.route('/', methods=['GET'])
@@ -1148,8 +874,7 @@ def health_check():
         "status": "running",
         "service": "video-renderer",
         "endpoints": {
-            "render": "POST /render",
-            "status": "GET /status/<job_id>"
+            "render": "POST /render"
         }
     })
 
