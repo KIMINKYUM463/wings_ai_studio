@@ -29,6 +29,9 @@ import {
   Pause,
   Home,
   Loader2,
+  Upload,
+  X,
+  GripVertical,
 } from "lucide-react"
 import Link from "next/link"
 import { generateShortsScript, generateShortsTopics, generateShortsHookingTitle } from "./actions"
@@ -78,7 +81,8 @@ export default function ShortsPage() {
   const [isGeneratingTitle, setIsGeneratingTitle] = useState(false)
   const [isGeneratingTopics, setIsGeneratingTopics] = useState(false)
   const [isGeneratingScript, setIsGeneratingScript] = useState(false)
-  const [generatedImages, setGeneratedImages] = useState<Array<{ lineId: number; imageUrl: string; prompt: string }>>([])
+  const [generatedImages, setGeneratedImages] = useState<Array<{ lineId: number; imageUrl: string; prompt: string; order: number; isUserUploaded?: boolean }>>([])
+  const [draggedImageIndex, setDraggedImageIndex] = useState<number | null>(null)
   const [isGeneratingImages, setIsGeneratingImages] = useState(false)
   const [ttsAudioUrl, setTtsAudioUrl] = useState<string>("")
   const [isGeneratingTts, setIsGeneratingTts] = useState(false)
@@ -392,14 +396,20 @@ export default function ShortsPage() {
           if (imageUrl) {
             console.log(`[Shorts] 이미지 생성 완료: ${imageUrl}`)
             
-            setGeneratedImages((prev) => [
-              ...prev,
-              {
-                lineId: line.id,
-                imageUrl,
-                prompt: imagePrompt,
-              },
-            ])
+            setGeneratedImages((prev) => {
+              const newImages = [
+                ...prev,
+                {
+                  lineId: line.id,
+                  imageUrl,
+                  prompt: imagePrompt,
+                  order: prev.length, // 순서 추가
+                  isUserUploaded: false,
+                },
+              ]
+              // order 기준으로 정렬
+              return newImages.sort((a, b) => a.order - b.order)
+            })
           } else {
             console.warn(`[Shorts] 이미지 생성 실패 (줄 ${line.id}): 이미지 URL을 받지 못함`)
           }
@@ -430,30 +440,107 @@ export default function ShortsPage() {
     setPreviewingVoiceId(voiceId)
     
     try {
-      const voiceName = voiceId.replace("ttsmaker-", "")
-      const pitch = voiceName === "남성5" ? 0.9 : 1.0
-      const ttsmakerApiKey = typeof window !== "undefined" ? localStorage.getItem("ttsmaker_api_key") || undefined : undefined
+      const isTTSMaker = voiceId?.startsWith("ttsmaker-")
+      const isSupertone = voiceId?.startsWith("supertone-")
+      const isElevenLabs = !isTTSMaker && !isSupertone
       
-      if (!ttsmakerApiKey) {
-        alert("TTSMaker API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
-        setPreviewingVoiceId(null)
-        return
+      let response: Response
+      let apiKey: string | undefined = undefined
+      let apiKeyName = ""
+      
+      if (isTTSMaker) {
+        const voiceName = voiceId.replace("ttsmaker-", "")
+        const pitch = voiceName === "남성5" ? 0.9 : 1.0
+        apiKey = typeof window !== "undefined" ? localStorage.getItem("ttsmaker_api_key") || undefined : undefined
+        apiKeyName = "TTSMaker API 키"
+        
+        if (!apiKey) {
+          alert(`${apiKeyName}가 필요합니다. 설정에서 API 키를 입력해주세요.`)
+          setPreviewingVoiceId(null)
+          return
+        }
+        
+        console.log(`[미리듣기] TTSMaker voice: ${voiceId} -> ${voiceName}, pitch: ${pitch}`)
+        response = await fetch("/api/ttsmaker", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            text: "여러분 환영합니다",
+            voice: voiceName,
+            speed: 1.0,
+            pitch: pitch,
+            apiKey: apiKey,
+          }),
+        })
+      } else if (isSupertone) {
+        const supertoneVoiceId = voiceId.replace("supertone-", "")
+        // 수퍼톤 API 키 가져오기
+        let supertoneApiKey = typeof window !== "undefined" 
+          ? (localStorage.getItem("supertone_api_key") || "").trim() 
+          : null
+        
+        if (!supertoneApiKey || supertoneApiKey.length === 0) {
+          const key = getApiKey("supertone_api_key")
+          supertoneApiKey = key !== undefined ? key : null
+        }
+        
+        apiKey = supertoneApiKey || undefined
+        apiKeyName = "수퍼톤 API 키"
+        
+        if (!apiKey) {
+          alert(`${apiKeyName}가 필요합니다. 설정에서 API 키를 입력해주세요.`)
+          setPreviewingVoiceId(null)
+          return
+        }
+        
+        console.log(`[미리듣기] 수퍼톤 voice: ${voiceId} -> ${supertoneVoiceId}`)
+        response = await fetch("/api/supertone-tts", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            text: "여러분 환영합니다",
+            voiceId: supertoneVoiceId,
+            apiKey: apiKey,
+            style: "neutral",
+            language: "ko",
+          }),
+        })
+      } else {
+        // ElevenLabs
+        let elevenlabsApiKey = getApiKey("elevenlabs_api_key") ?? null
+        
+        if (!elevenlabsApiKey || elevenlabsApiKey.length === 0) {
+          elevenlabsApiKey = typeof window !== "undefined" 
+            ? (localStorage.getItem("elevenlabs_api_key") || "").trim() || null
+            : null
+        }
+        
+        apiKey = elevenlabsApiKey || undefined
+        apiKeyName = "ElevenLabs API 키"
+        
+        if (!apiKey) {
+          alert(`${apiKeyName}가 필요합니다. 설정에서 API 키를 입력해주세요.`)
+          setPreviewingVoiceId(null)
+          return
+        }
+        
+        console.log(`[미리듣기] ElevenLabs voice: ${voiceId}`)
+        response = await fetch("/api/elevenlabs-tts", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            text: "여러분 환영합니다",
+            voiceId: voiceId,
+            apiKey: apiKey,
+          }),
+        })
       }
-      
-      console.log(`[미리듣기] TTSMaker voice: ${voiceId} -> ${voiceName}, pitch: ${pitch}`)
-      const response = await fetch("/api/ttsmaker", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          text: "여러분 환영합니다",
-          voice: voiceName,
-          speed: 1.0,
-          pitch: pitch,
-          apiKey: ttsmakerApiKey,
-        }),
-      })
 
       if (!response.ok) {
         let errorMessage = "미리듣기 실패"
@@ -512,22 +599,59 @@ export default function ShortsPage() {
     }
   }
 
-  // TTS 생성 (TTSMaker 방식)
+  // TTS 생성 (TTSMaker, 수퍼톤, ElevenLabs 지원)
   const handleGenerateTts = async () => {
     if (scriptLines.length === 0) {
       alert("생성된 문장 리스트가 없습니다. 먼저 대본을 생성해주세요.")
       return
     }
 
-    // TTSMaker API 키 가져오기
-    const ttsmakerApiKey = typeof window !== "undefined" ? localStorage.getItem("ttsmaker_api_key") || undefined : undefined
+    // 선택된 목소리 타입 확인
+    const isTTSMaker = selectedVoiceId?.startsWith("ttsmaker-")
+    const isSupertone = selectedVoiceId?.startsWith("supertone-")
+    const isElevenLabs = !isTTSMaker && !isSupertone
 
-    if (!ttsmakerApiKey) {
-      alert("TTSMaker API 키가 필요합니다. 메인 화면의 설정(톱니바퀴 아이콘)에서 API 키를 입력해주세요.")
+    // API 키 확인 및 가져오기
+    let apiKey: string | undefined = undefined
+    let apiKeyName = ""
+
+    if (isTTSMaker) {
+      apiKey = typeof window !== "undefined" ? localStorage.getItem("ttsmaker_api_key") || undefined : undefined
+      apiKeyName = "TTSMaker API 키"
+    } else if (isSupertone) {
+      // 수퍼톤 API 키 가져오기 (롱폼과 동일한 방식)
+      let supertoneApiKey = typeof window !== "undefined" 
+        ? (localStorage.getItem("supertone_api_key") || "").trim() 
+        : null
+      
+      if (!supertoneApiKey || supertoneApiKey.length === 0) {
+        const key = getApiKey("supertone_api_key")
+        supertoneApiKey = key !== undefined ? key : null
+      }
+      
+      apiKey = supertoneApiKey || undefined
+      apiKeyName = "수퍼톤 API 키"
+    } else {
+      // ElevenLabs
+      let elevenlabsApiKey = getApiKey("elevenlabs_api_key") ?? null
+      
+      if (!elevenlabsApiKey || elevenlabsApiKey.length === 0) {
+        elevenlabsApiKey = typeof window !== "undefined" 
+          ? (localStorage.getItem("elevenlabs_api_key") || "").trim() || null
+          : null
+      }
+      
+      apiKey = elevenlabsApiKey || undefined
+      apiKeyName = "ElevenLabs API 키"
+    }
+
+    if (!apiKey) {
+      alert(`${apiKeyName}가 필요합니다. 메인 화면의 설정(톱니바퀴 아이콘)에서 API 키를 입력해주세요.`)
       return
     }
 
-    console.log("[Shorts] TTSMaker API 키 확인:", ttsmakerApiKey ? "있음" : "없음")
+    console.log(`[Shorts] ${apiKeyName} 확인:`, apiKey ? "있음" : "없음")
+    console.log(`[Shorts] 선택된 목소리: ${selectedVoiceId} (타입: ${isTTSMaker ? "TTSMaker" : isSupertone ? "수퍼톤" : "ElevenLabs"})`)
 
     setIsGeneratingTts(true)
     setTtsGenerationProgress({ current: 0, total: scriptLines.length })
@@ -544,23 +668,61 @@ export default function ShortsPage() {
         setTtsGenerationProgress({ current: i + 1, total: scriptLines.length })
 
         try {
-          // TTSMaker API를 통해 TTS 생성
-          const voiceName = selectedVoiceId.replace("ttsmaker-", "")
-          const pitch = voiceName === "남성5" ? 0.9 : 1.0
-          console.log(`[Shorts] TTS 생성 중... (${i + 1}/${scriptLines.length})`)
-          const response = await fetch("/api/ttsmaker", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              text: line.text,
-              voice: voiceName,
-              speed: 1.0,
-              pitch: pitch,
-              apiKey: ttsmakerApiKey,
-            }),
-          })
+          let response: Response
+          
+          if (isTTSMaker) {
+            // TTSMaker API를 통해 TTS 생성
+            const voiceName = selectedVoiceId.replace("ttsmaker-", "")
+            const pitch = voiceName === "남성5" ? 0.9 : 1.0
+            console.log(`[Shorts] TTSMaker TTS 생성 중... (${i + 1}/${scriptLines.length})`)
+            
+            response = await fetch("/api/ttsmaker", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                text: line.text,
+                voice: voiceName,
+                speed: 1.0,
+                pitch: pitch,
+                apiKey: apiKey,
+              }),
+            })
+          } else if (isSupertone) {
+            // 수퍼톤 API를 통해 TTS 생성
+            const voiceId = selectedVoiceId.replace("supertone-", "")
+            console.log(`[Shorts] 수퍼톤 TTS 생성 중... (${i + 1}/${scriptLines.length})`)
+            
+            response = await fetch("/api/supertone-tts", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                text: line.text,
+                voiceId: voiceId,
+                apiKey: apiKey,
+                style: "neutral", // 기본 스타일
+                language: "ko", // 한국어
+              }),
+            })
+          } else {
+            // ElevenLabs API를 통해 TTS 생성
+            console.log(`[Shorts] ElevenLabs TTS 생성 중... (${i + 1}/${scriptLines.length})`)
+            
+            response = await fetch("/api/elevenlabs-tts", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                text: line.text,
+                voiceId: selectedVoiceId,
+                apiKey: apiKey,
+              }),
+            })
+          }
 
           if (!response.ok) {
             let errorMessage = "TTS 생성 실패"
@@ -941,7 +1103,13 @@ export default function ShortsPage() {
       })
 
       Promise.all(imagePromises).then((loadedImages) => {
-        images.push(...loadedImages)
+        // order 기준으로 정렬된 이미지 순서대로 로드
+        const sortedImages = [...generatedImages].sort((a, b) => a.order - b.order)
+        const sortedLoadedImages = sortedImages.map((img) => {
+          const originalIndex = generatedImages.findIndex((orig) => orig.lineId === img.lineId && orig.imageUrl === img.imageUrl)
+          return loadedImages[originalIndex]
+        })
+        images.push(...sortedLoadedImages)
 
         // 렌더링 함수 정의
         const renderFrame = () => {
@@ -1019,30 +1187,21 @@ export default function ShortsPage() {
             ctx.fillText(selectedTopic, canvas.width / 2, 50)
           }
 
-          // 현재 시간에 맞는 이미지 찾기
+          // 현재 시간에 맞는 이미지 찾기 (order 기준으로 순서대로 사용)
+          const sortedImages = [...generatedImages].sort((a, b) => a.order - b.order)
           const currentLine = scriptLines.find(
             (line) => elapsed >= line.startTime / 1000 && elapsed <= line.endTime / 1000
           ) || scriptLines[scriptLines.length - 1] // 없으면 마지막 라인 사용
 
           if (currentLine) {
-            let imageIndex = generatedImages.findIndex((img) => img.lineId === currentLine.id)
+            // 현재 라인의 인덱스 찾기
+            const currentLineIndex = scriptLines.findIndex((line) => line.id === currentLine.id)
             
-            // 현재 라인에 이미지가 없으면, 이전 이미지 중 가장 가까운 것을 찾기
-            if (imageIndex < 0) {
-              // 현재 라인보다 이전 라인 중 이미지가 있는 마지막 라인 찾기
-              const currentLineIndex = scriptLines.findIndex((line) => line.id === currentLine.id)
-              for (let i = currentLineIndex; i >= 0; i--) {
-                const prevLine = scriptLines[i]
-                const prevImageIndex = generatedImages.findIndex((img) => img.lineId === prevLine.id)
-                if (prevImageIndex >= 0) {
-                  imageIndex = prevImageIndex
-                  break
-                }
-              }
-            }
+            // 순서대로 이미지 사용: 라인 인덱스를 이미지 인덱스로 매핑 (순환)
+            let imageIndex = currentLineIndex % sortedImages.length
             
             // 이미지가 있으면 표시 (줌인 효과 제거)
-            if (imageIndex >= 0 && images[imageIndex]) {
+            if (imageIndex >= 0 && imageIndex < images.length && images[imageIndex]) {
               const img = images[imageIndex]
               // 좌우 공백 없이 꽉 차게 표시
               const imageWidth = canvas.width // 좌우 꽉 차게
@@ -1909,9 +2068,10 @@ export default function ShortsPage() {
         setIsRendering(false)
       }
 
-      // 이미지 미리 로드
+      // 이미지 미리 로드 (order 기준으로 정렬)
+      const sortedImages = [...generatedImages].sort((a, b) => a.order - b.order)
       const images: HTMLImageElement[] = []
-      for (const imgData of generatedImages) {
+      for (const imgData of sortedImages) {
         const img = new Image()
         img.crossOrigin = "anonymous"
         await new Promise<void>((resolve, reject) => {
@@ -2010,27 +2170,20 @@ export default function ShortsPage() {
           }
         }
 
-        // 현재 시간에 맞는 이미지 찾기 (미리보기와 동일)
+        // 현재 시간에 맞는 이미지 찾기 (order 기준으로 순서대로 사용)
+        const sortedImages = [...generatedImages].sort((a, b) => a.order - b.order)
         const currentLine = scriptLines.find(
           (line) => elapsed >= line.startTime / 1000 && elapsed <= line.endTime / 1000
         ) || scriptLines[scriptLines.length - 1]
 
         if (currentLine) {
-          let imageIndex = generatedImages.findIndex((img) => img.lineId === currentLine.id)
+          // 현재 라인의 인덱스 찾기
+          const currentLineIndex = scriptLines.findIndex((line) => line.id === currentLine.id)
           
-          if (imageIndex < 0) {
-            const currentLineIndex = scriptLines.findIndex((line) => line.id === currentLine.id)
-            for (let i = currentLineIndex; i >= 0; i--) {
-              const prevLine = scriptLines[i]
-              const prevImageIndex = generatedImages.findIndex((img) => img.lineId === prevLine.id)
-              if (prevImageIndex >= 0) {
-                imageIndex = prevImageIndex
-                break
-              }
-            }
-          }
+          // 순서대로 이미지 사용: 라인 인덱스를 이미지 인덱스로 매핑 (순환)
+          let imageIndex = currentLineIndex % sortedImages.length
           
-          if (imageIndex >= 0 && images[imageIndex]) {
+          if (imageIndex >= 0 && imageIndex < images.length && images[imageIndex]) {
             const img = images[imageIndex]
             const imageWidth = canvas.width
             const imageHeight = canvas.width
@@ -2275,24 +2428,48 @@ export default function ShortsPage() {
     switch (activeStep) {
       case "category":
     return (
-          <div className="space-y-6">
-            <h2 className="text-3xl font-bold mb-6">카테고리 선택</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="space-y-8">
+            <div className="text-center space-y-2 mb-8">
+              <h2 className="text-4xl font-bold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 bg-clip-text text-transparent">
+                카테고리 선택
+              </h2>
+              <p className="text-gray-500 text-sm">원하는 콘텐츠 카테고리를 선택해주세요</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {categoryOrder.map((category) => {
                 const info = categoryInfo[category]
     return (
                   <Card
                     key={category}
-                    className={`cursor-pointer transition-all hover:scale-105 ${
-                      selectedCategory === category ? "ring-2 ring-blue-500" : ""
+                    className={`group cursor-pointer transition-all duration-300 hover:scale-105 hover:shadow-2xl border-2 ${
+                      selectedCategory === category 
+                        ? "ring-4 ring-purple-500 ring-offset-2 shadow-xl border-purple-500 bg-gradient-to-br from-purple-50 to-pink-50" 
+                        : "border-gray-200 hover:border-purple-300 hover:shadow-lg"
                     }`}
                     onClick={() => setSelectedCategory(category)}
                   >
-                    <CardContent className="p-6 text-center">
-                      <div className={`text-4xl mb-2 bg-gradient-to-r ${info.gradient} bg-clip-text text-transparent`}>
+                    <CardContent className="p-8 text-center relative overflow-hidden">
+                      {/* 배경 그라데이션 효과 */}
+                      <div className={`absolute inset-0 opacity-0 group-hover:opacity-10 transition-opacity duration-300 bg-gradient-to-br ${info.gradient}`} />
+                      
+                      <div className={`text-5xl mb-4 transform transition-transform duration-300 group-hover:scale-110 group-hover:rotate-6`}>
                         {info.icon}
-      </div>
-                      <h3 className="text-xl font-semibold">{info.name}</h3>
+                      </div>
+                      <h3 className={`text-xl font-bold relative z-10 ${
+                        selectedCategory === category 
+                          ? "bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent" 
+                          : "text-gray-800"
+                      }`}>
+                        {info.name}
+                      </h3>
+                      {selectedCategory === category && (
+                        <div className="mt-3">
+                          <div className="inline-flex items-center gap-1 px-3 py-1 bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs font-semibold rounded-full">
+                            <Sparkles className="w-3 h-3" />
+                            선택됨
+                          </div>
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 )
@@ -2301,60 +2478,77 @@ export default function ShortsPage() {
             
             {/* 직접입력 선택 시 입력 칸 표시 */}
             {selectedCategory === "custom" && (
-              <Card className="border-2 border-blue-500">
-                <CardContent className="p-6">
-                  <Label htmlFor="customTopic" className="text-lg font-semibold mb-2 block">
-                    주제 직접 입력
-                  </Label>
+              <Card className="border-2 border-purple-500 shadow-xl bg-gradient-to-br from-purple-50 to-pink-50 animate-in fade-in-50 duration-300">
+                <CardContent className="p-8">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Sparkles className="w-5 h-5 text-purple-600" />
+                    <Label htmlFor="customTopic" className="text-xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
+                      주제 직접 입력
+                    </Label>
+                  </div>
                   <Textarea
                     id="customTopic"
                     value={customTopic}
                     onChange={(e) => setCustomTopic(e.target.value)}
                     placeholder="예: 인공지능의 미래, 건강한 식습관, 투자 초보자를 위한 팁 등..."
                     rows={4}
-                    className="w-full"
+                    className="w-full border-2 border-purple-200 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 transition-all"
                   />
-                  <p className="text-sm text-gray-500 mt-2">
+                  <p className="text-sm text-gray-600 mt-3 flex items-center gap-1">
+                    <Lightbulb className="w-4 h-4 text-yellow-500" />
                     입력한 주제를 바탕으로 대본이 생성됩니다.
                   </p>
                 </CardContent>
               </Card>
             )}
             
-            <div className="space-y-4">
-              <Label>영상 길이 선택</Label>
-              <div className="flex gap-4">
-                {[1, 2, 3].map((duration) => (
-                  <Button
-                    key={duration}
-                    variant={selectedDuration === duration ? "default" : "outline"}
-                    onClick={() => setSelectedDuration(duration as ShortsDuration)}
-                    className="flex-1"
-                  >
-                    {duration}분
-                  </Button>
-                ))}
-              </div>
-            </div>
+            <Card className="border-2 border-gray-200 shadow-lg">
+              <CardContent className="p-6">
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Clock className="w-5 h-5 text-purple-600" />
+                    <Label className="text-lg font-semibold">영상 길이 선택</Label>
+                  </div>
+                  <div className="flex gap-3">
+                    {[1, 2, 3].map((duration) => (
+                      <Button
+                        key={duration}
+                        variant={selectedDuration === duration ? "default" : "outline"}
+                        onClick={() => setSelectedDuration(duration as ShortsDuration)}
+                        className={`flex-1 transition-all duration-300 ${
+                          selectedDuration === duration
+                            ? "bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 shadow-lg scale-105"
+                            : "hover:border-purple-300 hover:scale-105"
+                        }`}
+                      >
+                        <Clock className="w-4 h-4 mr-2" />
+                        {duration}분
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            
             <Button
               onClick={handleGenerateTopics}
               disabled={!selectedCategory || isGeneratingTopics || (selectedCategory === "custom" && !customTopic.trim())}
-              className="w-full"
+              className="w-full h-14 text-lg font-semibold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 hover:from-purple-700 hover:via-pink-700 hover:to-blue-700 text-white shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
               size="lg"
             >
               {isGeneratingTopics ? (
                 <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                   주제 생성 중...
                 </>
               ) : selectedCategory === "custom" ? (
                 <>
-                  <Sparkles className="w-4 h-4 mr-2" />
+                  <Sparkles className="w-5 h-5 mr-2" />
                   주제 생성하기 (15개)
                 </>
               ) : (
                 <>
-                  <Sparkles className="w-4 h-4 mr-2" />
+                  <Sparkles className="w-5 h-5 mr-2" />
                   주제 생성하기
                 </>
               )}
@@ -2364,56 +2558,91 @@ export default function ShortsPage() {
 
       case "topic":
     return (
-          <div className="space-y-6">
-            <h2 className="text-3xl font-bold mb-6">주제 선택</h2>
+          <div className="space-y-8">
+            <div className="text-center space-y-2 mb-8">
+              <h2 className="text-4xl font-bold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 bg-clip-text text-transparent">
+                주제 선택
+              </h2>
+              <p className="text-gray-500 text-sm">마음에 드는 주제를 선택해주세요</p>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {topics.map((topic, index) => (
                 <Card
                   key={index}
-                  className={`cursor-pointer transition-all hover:scale-105 ${
-                    selectedTopic === topic ? "ring-2 ring-blue-500" : ""
+                  className={`group cursor-pointer transition-all duration-300 hover:scale-105 hover:shadow-xl border-2 ${
+                    selectedTopic === topic 
+                      ? "ring-4 ring-purple-500 ring-offset-2 shadow-xl border-purple-500 bg-gradient-to-br from-purple-50 to-pink-50" 
+                      : "border-gray-200 hover:border-purple-300 hover:shadow-lg"
                   }`}
                   onClick={() => setSelectedTopic(topic)}
                 >
-                  <CardContent className="p-4">
-                    <p className="text-sm">{topic}</p>
+                  <CardContent className="p-6 relative overflow-hidden">
+                    {/* 배경 그라데이션 효과 */}
+                    <div className="absolute inset-0 opacity-0 group-hover:opacity-5 transition-opacity duration-300 bg-gradient-to-br from-purple-500 to-pink-500" />
+                    
+                    <div className="flex items-start gap-3 relative z-10">
+                      <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm transition-all duration-300 ${
+                        selectedTopic === topic
+                          ? "bg-gradient-to-r from-purple-600 to-pink-600 text-white scale-110"
+                          : "bg-gray-100 text-gray-600 group-hover:bg-purple-100 group-hover:text-purple-600"
+                      }`}>
+                        {index + 1}
+                      </div>
+                      <p className={`text-base font-medium flex-1 leading-relaxed ${
+                        selectedTopic === topic ? "text-purple-900 font-semibold" : "text-gray-800"
+                      }`}>
+                        {topic}
+                      </p>
+                      {selectedTopic === topic && (
+                        <Sparkles className="w-5 h-5 text-purple-600 flex-shrink-0 animate-pulse" />
+                      )}
+                    </div>
                   </CardContent>
                 </Card>
               ))}
             </div>
             <div className="flex gap-4">
-              <Button variant="outline" onClick={() => setActiveStep("category")}>
+              <Button 
+                variant="outline" 
+                onClick={() => setActiveStep("category")}
+                className="border-2 hover:border-purple-300 hover:bg-purple-50 transition-all duration-300"
+              >
                 <ArrowLeft className="w-4 h-4 mr-2" />
-                  뒤로가기
-                </Button>
+                뒤로가기
+              </Button>
               <Button
                 onClick={handleGenerateScript}
                 disabled={!selectedTopic || isGeneratingScript}
-                className="flex-1"
+                className="flex-1 h-14 text-lg font-semibold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 hover:from-purple-700 hover:via-pink-700 hover:to-blue-700 text-white shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                 size="lg"
               >
                 {isGeneratingScript ? (
                   <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                     대본 생성 중...
                   </>
                 ) : (
                   <>
-                    <FileText className="w-4 h-4 mr-2" />
+                    <FileText className="w-5 h-5 mr-2" />
                     대본 생성하기
                   </>
                 )}
-                  </Button>
-              </div>
+              </Button>
+            </div>
             </div>
         )
 
       case "script":
         return (
-          <div className="space-y-6">
-            <h2 className="text-3xl font-bold mb-6">대본 확인</h2>
-            <Card>
-              <CardContent className="p-6">
+          <div className="space-y-8">
+            <div className="text-center space-y-2 mb-8">
+              <h2 className="text-4xl font-bold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 bg-clip-text text-transparent">
+                대본 확인
+              </h2>
+              <p className="text-gray-500 text-sm">생성된 대본을 확인하고 수정할 수 있습니다</p>
+            </div>
+            <Card className="border-2 border-gray-200 shadow-xl">
+              <CardContent className="p-8">
                 <Textarea
                   value={script}
                   onChange={(e) => setScript(e.target.value)}
@@ -2585,104 +2814,480 @@ export default function ShortsPage() {
               </Card>
 
             {/* 이미지 스타일 선택 */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">이미지 스타일 선택</CardTitle>
+            <Card className="border-2 border-gray-200 shadow-xl">
+              <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50 border-b-2 border-purple-100">
+                <CardTitle className="text-xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent flex items-center gap-2">
+                  <ImageIcon className="w-6 h-6 text-purple-600" />
+                  이미지 스타일 선택
+                </CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="p-6">
                 <div className="grid grid-cols-2 gap-3">
-                  <Button
-                    variant={imageStyle === "stickman-animation" ? "default" : "outline"}
-                    onClick={() => setImageStyle("stickman-animation")}
-                    className="flex-1"
-                  >
-                    스틱맨 애니메이션
-                  </Button>
-                  <Button
-                    variant={imageStyle === "realistic" ? "default" : "outline"}
-                    onClick={() => setImageStyle("realistic")}
-                    className="flex-1"
-                  >
-                    실사화
-                  </Button>
-                  <Button
-                    variant={imageStyle === "realistic2" ? "default" : "outline"}
-                    onClick={() => setImageStyle("realistic2")}
-                    className="flex-1"
-                  >
-                    실사화2
-                  </Button>
-                  <Button
-                    variant={imageStyle === "animation2" ? "default" : "outline"}
-                    onClick={() => setImageStyle("animation2")}
-                    className="flex-1"
-                  >
-                    애니메이션2
-                  </Button>
-                  <Button
-                    variant={imageStyle === "animation3" ? "default" : "outline"}
-                    onClick={() => setImageStyle("animation3")}
-                    className="flex-1"
-                  >
-                    유럽풍 그래픽 노블
-                  </Button>
+                  {[
+                    { id: "stickman-animation", label: "스틱맨 애니메이션", icon: "🎨" },
+                    { id: "realistic", label: "실사화", icon: "📸" },
+                    { id: "realistic2", label: "실사화2", icon: "🖼️" },
+                    { id: "animation2", label: "애니메이션2", icon: "✨" },
+                    { id: "animation3", label: "유럽풍 그래픽 노블", icon: "🎭" },
+                  ].map((style) => (
+                    <Button
+                      key={style.id}
+                      variant={imageStyle === style.id ? "default" : "outline"}
+                      onClick={() => setImageStyle(style.id)}
+                      className={`flex-1 h-14 transition-all duration-300 ${
+                        imageStyle === style.id
+                          ? "bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white shadow-lg scale-105"
+                          : "hover:border-purple-300 hover:scale-105 hover:shadow-md"
+                      }`}
+                    >
+                      <span className="mr-2 text-lg">{style.icon}</span>
+                      {style.label}
+                    </Button>
+                  ))}
                 </div>
               </CardContent>
             </Card>
 
+            {/* 사용자 이미지 업로드 (이미지 생성 전) */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">이미지 추가 (선택사항)</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-gray-600 mb-3">
+                  이미지 생성 전에 사용자 이미지를 미리 추가할 수 있습니다. 추가한 이미지는 생성된 이미지와 함께 사용됩니다.
+                </p>
+                <label
+                  htmlFor="pre-image-upload"
+                  className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors"
+                >
+                  <Upload className="w-8 h-8 text-gray-400 mb-2" />
+                  <p className="text-sm text-gray-600">클릭하거나 드래그하여 이미지 업로드</p>
+                  <p className="text-xs text-gray-400 mt-1">여러 이미지 선택 가능</p>
+                </label>
+                <input
+                  id="pre-image-upload"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={(event) => {
+                    const files = event.target.files
+                    if (!files || files.length === 0) return
+
+                    Array.from(files).forEach((file) => {
+                      if (!file.type.startsWith("image/")) {
+                        alert(`${file.name}은(는) 이미지 파일이 아닙니다.`)
+                        return
+                      }
+
+                      const reader = new FileReader()
+                      reader.onload = (e) => {
+                        const imageUrl = e.target?.result as string
+                        setGeneratedImages((prev) => {
+                          const newImages = [
+                            ...prev,
+                            {
+                              lineId: Date.now() + Math.random(), // 고유 ID
+                              imageUrl,
+                              prompt: "사용자 업로드 이미지",
+                              order: prev.length,
+                              isUserUploaded: true,
+                            },
+                          ]
+                          // order 기준으로 정렬
+                          return newImages.sort((a, b) => a.order - b.order)
+                        })
+                      }
+                      reader.readAsDataURL(file)
+                    })
+
+                    // input 초기화
+                    event.target.value = ""
+                  }}
+                  className="hidden"
+                />
+                
+                {/* 업로드된 이미지 미리보기 */}
+                {generatedImages.filter(img => img.isUserUploaded).length > 0 && (
+                  <div className="mt-4">
+                    <p className="text-sm font-medium mb-2">업로드된 이미지 ({generatedImages.filter(img => img.isUserUploaded).length}개)</p>
+                    <div className="grid grid-cols-3 gap-2">
+                      {generatedImages
+                        .filter(img => img.isUserUploaded)
+                        .map((img, index) => (
+                          <div key={`pre-${img.lineId}`} className="relative">
+                            <div className="aspect-square w-full bg-muted rounded-lg overflow-hidden">
+                              <img
+                                src={img.imageUrl}
+                                alt={`Uploaded ${index + 1}`}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              className="absolute top-1 right-1 h-5 w-5 p-0"
+                              onClick={() => {
+                                setGeneratedImages((prev) => {
+                                  const newImages = prev.filter((i) => i.lineId !== img.lineId)
+                                  return newImages.map((img, i) => ({ ...img, order: i }))
+                                })
+                              }}
+                            >
+                              <X className="w-3 h-3" />
+                            </Button>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
             <div className="flex gap-4">
-              <Button variant="outline" onClick={() => setActiveStep("topic")}>
+              <Button 
+                variant="outline" 
+                onClick={() => setActiveStep("topic")}
+                className="border-2 hover:border-purple-300 hover:bg-purple-50 transition-all duration-300"
+              >
                 <ArrowLeft className="w-4 h-4 mr-2" />
                 뒤로가기
               </Button>
               <Button
                 onClick={handleGenerateImages}
                 disabled={isGeneratingImages}
-                className="flex-1"
+                className="flex-1 h-14 text-lg font-semibold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 hover:from-purple-700 hover:via-pink-700 hover:to-blue-700 text-white shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                 size="lg"
               >
                 {isGeneratingImages ? (
                   <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                     이미지 생성 중... ({generatedImages.length}/{scriptLines.length})
                   </>
                 ) : (
                   <>
-                    <ImageIcon className="w-4 h-4 mr-2" />
+                    <ImageIcon className="w-5 h-5 mr-2" />
                     이미지 생성하기
                   </>
                 )}
               </Button>
-        </div>
+            </div>
       </div>
     )
 
       case "image":
-  return (
-          <div className="space-y-6">
-            <h2 className="text-3xl font-bold mb-6">이미지 확인</h2>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              {generatedImages.map((img) => (
-                <Card key={img.lineId}>
-                  <CardContent className="p-2">
-                    <div className="aspect-square w-full bg-muted rounded-lg overflow-hidden flex items-center justify-center">
-                      <img
-                        src={img.imageUrl}
-                        alt={`Image ${img.lineId}`}
-                        className="w-full h-full object-contain"
-                      />
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+        // 이미지 순서 변경 함수
+        const handleImageReorder = (fromIndex: number, toIndex: number) => {
+          setGeneratedImages((prev) => {
+            const newImages = [...prev]
+            const [movedImage] = newImages.splice(fromIndex, 1)
+            newImages.splice(toIndex, 0, movedImage)
+            // order 업데이트
+            return newImages.map((img, index) => ({ ...img, order: index }))
+          })
+        }
+
+        // 이미지 삭제 함수
+        const handleImageDelete = (index: number) => {
+          const sortedImages = [...generatedImages].sort((a, b) => a.order - b.order)
+          const imageToDelete = sortedImages[index]
+          
+          setGeneratedImages((prev) => {
+            const newImages = prev.filter((img) => img.lineId !== imageToDelete.lineId && img.imageUrl !== imageToDelete.imageUrl)
+            // order 재정렬
+            return newImages.map((img, i) => ({ ...img, order: i }))
+          })
+        }
+
+        // 사용자 이미지 업로드 함수
+        const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+          const files = event.target.files
+          if (!files || files.length === 0) return
+
+          Array.from(files).forEach((file) => {
+            if (!file.type.startsWith("image/")) {
+              alert(`${file.name}은(는) 이미지 파일이 아닙니다.`)
+              return
+            }
+
+            const reader = new FileReader()
+            reader.onload = (e) => {
+              const imageUrl = e.target?.result as string
+              setGeneratedImages((prev) => {
+                const newImages = [
+                  ...prev,
+                  {
+                    lineId: Date.now() + Math.random(), // 고유 ID
+                    imageUrl,
+                    prompt: "사용자 업로드 이미지",
+                    order: prev.length,
+                    isUserUploaded: true,
+                  },
+                ]
+                // order 기준으로 정렬
+                return newImages.sort((a, b) => a.order - b.order)
+              })
+            }
+            reader.readAsDataURL(file)
+          })
+
+          // input 초기화 (같은 파일 다시 선택 가능하도록)
+          event.target.value = ""
+        }
+
+        // 드래그 시작
+        const handleDragStart = (e: React.DragEvent, index: number) => {
+          console.log("[드래그] 시작:", index)
+          setDraggedImageIndex(index)
+          e.dataTransfer.effectAllowed = "move"
+          e.dataTransfer.setData("text/plain", index.toString())
+          e.dataTransfer.setData("application/json", JSON.stringify({ index }))
+          // 드래그 중 시각적 피드백
+          if (e.currentTarget instanceof HTMLElement) {
+            e.currentTarget.style.opacity = "0.5"
+          }
+        }
+
+        // 드래그 오버 (드롭 허용)
+        const handleDragOver = (e: React.DragEvent, index: number) => {
+          e.preventDefault()
+          e.stopPropagation()
+          e.dataTransfer.dropEffect = "move"
+          
+          // 드롭 대상 하이라이트
+          if (draggedImageIndex !== null && draggedImageIndex !== index) {
+            if (e.currentTarget instanceof HTMLElement) {
+              e.currentTarget.style.border = "2px solid #3b82f6"
+            }
+          }
+        }
+
+        // 드래그 리브 (하이라이트 제거)
+        const handleDragLeave = (e: React.DragEvent) => {
+          if (e.currentTarget instanceof HTMLElement) {
+            e.currentTarget.style.border = ""
+          }
+        }
+
+        // 드롭 처리
+        const handleDrop = (e: React.DragEvent, dropIndex: number) => {
+          e.preventDefault()
+          e.stopPropagation()
+          console.log("[드롭] 드롭 인덱스:", dropIndex, "드래그 인덱스:", draggedImageIndex)
+          
+          // 하이라이트 제거
+          if (e.currentTarget instanceof HTMLElement) {
+            e.currentTarget.style.border = ""
+            e.currentTarget.style.opacity = "1"
+          }
+          
+          if (draggedImageIndex === null || draggedImageIndex === dropIndex) {
+            setDraggedImageIndex(null)
+            return
+          }
+
+          // 정렬된 이미지 목록 가져오기
+          const sortedImages = [...generatedImages].sort((a, b) => a.order - b.order)
+          const newImages = [...sortedImages]
+          const draggedImage = newImages[draggedImageIndex]
+          
+          console.log("[드롭] 드래그된 이미지:", draggedImage)
+          
+          // 드래그된 이미지 제거
+          newImages.splice(draggedImageIndex, 1)
+          
+          // 드롭 위치에 삽입 (인덱스 조정)
+          let insertIndex = dropIndex
+          if (draggedImageIndex < dropIndex) {
+            // 뒤로 이동하는 경우: 제거 후 인덱스가 하나 줄어듦
+            insertIndex = dropIndex - 1
+          }
+          // 앞으로 이동하는 경우: 그대로 사용
+          newImages.splice(insertIndex, 0, draggedImage)
+
+          console.log("[드롭] 새 순서:", newImages.map((img, i) => ({ order: i, lineId: img.lineId })))
+
+          // order 업데이트
+          const reorderedImages = newImages.map((img, i) => ({ ...img, order: i }))
+          setGeneratedImages(reorderedImages)
+          setDraggedImageIndex(null)
+        }
+
+        // 드래그 종료
+        const handleDragEnd = (e: React.DragEvent) => {
+          console.log("[드래그] 종료")
+          // 스타일 복원
+          if (e.currentTarget instanceof HTMLElement) {
+            e.currentTarget.style.opacity = "1"
+            e.currentTarget.style.border = ""
+          }
+          setDraggedImageIndex(null)
+        }
+
+        // 정렬된 이미지 목록 (order 기준)
+        const sortedImages = [...generatedImages].sort((a, b) => a.order - b.order)
+
+        return (
+          <div className="space-y-8">
+            <div className="text-center space-y-2 mb-8">
+              <h2 className="text-4xl font-bold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 bg-clip-text text-transparent">
+                이미지 확인 및 순서 조정
+              </h2>
+              <p className="text-gray-500 text-sm">이미지를 확인하고 순서를 조정할 수 있습니다</p>
             </div>
-            {/* 목소리 선택 */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">목소리 선택</CardTitle>
+            
+            {/* 사용자 이미지 업로드 */}
+            <Card className="border-2 border-gray-200 shadow-xl">
+              <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50 border-b-2 border-purple-100">
+                <CardTitle className="text-xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent flex items-center gap-2">
+                  <Upload className="w-6 h-6 text-purple-600" />
+                  이미지 업로드
+                </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-h-[300px] overflow-y-auto p-2 border border-gray-200 rounded-lg">
+              <CardContent className="p-6">
+                <label
+                  htmlFor="image-upload"
+                  className="flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-purple-300 rounded-xl cursor-pointer bg-gradient-to-br from-purple-50 to-pink-50 hover:from-purple-100 hover:to-pink-100 transition-all duration-300 hover:border-purple-500 hover:shadow-lg group"
+                >
+                  <Upload className="w-10 h-10 text-purple-500 mb-3 group-hover:scale-110 transition-transform duration-300" />
+                  <p className="text-base font-semibold text-gray-700 group-hover:text-purple-600 transition-colors">클릭하거나 드래그하여 이미지 업로드</p>
+                  <p className="text-xs text-gray-500 mt-2">여러 이미지 선택 가능</p>
+                </label>
+                <input
+                  id="image-upload"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleImageUpload}
+                  className="hidden"
+                />
+              </CardContent>
+            </Card>
+
+            {/* 이미지 목록 (드래그 앤 드롭 가능) */}
+            <Card className="border-2 border-gray-200 shadow-xl">
+              <CardContent className="p-6">
+                <div className="flex items-center gap-2 mb-6 p-4 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg border border-blue-200">
+                  <Sparkles className="w-5 h-5 text-blue-600" />
+                  <p className="text-sm font-medium text-gray-700">
+                    💡 이미지를 드래그하여 순서를 변경할 수 있습니다. 순서대로 영상에 사용됩니다.
+                  </p>
+                </div>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
+                {sortedImages.map((img, index) => (
+                  <Card
+                    key={`${img.lineId}-${img.order}`}
+                    draggable={true}
+                    onDragStart={(e) => {
+                      e.stopPropagation()
+                      handleDragStart(e, index)
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      handleDragOver(e, index)
+                    }}
+                    onDragLeave={handleDragLeave}
+                    onDrop={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      handleDrop(e, index)
+                    }}
+                    onDragEnd={handleDragEnd}
+                    className={`group cursor-move transition-all duration-300 select-none border-2 ${
+                      draggedImageIndex === index 
+                        ? "opacity-50 scale-95 border-purple-400" 
+                        : "hover:shadow-2xl hover:scale-105 border-gray-200 hover:border-purple-300"
+                    }`}
+                    style={{
+                      userSelect: "none",
+                      WebkitUserSelect: "none",
+                    }}
+                  >
+                    <CardContent 
+                      className="p-3 relative overflow-hidden"
+                      onDragOver={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                      }}
+                    >
+                      {/* 배경 그라데이션 효과 */}
+                      <div className="absolute inset-0 opacity-0 group-hover:opacity-5 transition-opacity duration-300 bg-gradient-to-br from-purple-500 to-pink-500" />
+                      
+                      {/* 드래그 핸들 */}
+                      <div className="absolute top-2 left-2 z-10 bg-gradient-to-r from-purple-600 to-pink-600 rounded-lg p-1.5 shadow-lg opacity-80 group-hover:opacity-100 transition-opacity">
+                        <GripVertical className="w-4 h-4 text-white" />
+                      </div>
+                      
+                      {/* 삭제 버튼 */}
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        className="absolute top-2 right-2 z-10 h-7 w-7 p-0 rounded-full shadow-lg hover:scale-110 transition-transform"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleImageDelete(index)
+                        }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </Button>
+
+                      {/* 순서 번호 */}
+                      <div className="absolute top-2 left-1/2 transform -translate-x-1/2 z-10 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-full w-7 h-7 flex items-center justify-center text-xs font-bold shadow-lg">
+                        {index + 1}
+                      </div>
+
+                      {/* 이미지 */}
+                      <div className="aspect-square w-full bg-muted rounded-lg overflow-hidden flex items-center justify-center mt-6">
+                        <img
+                          src={img.imageUrl}
+                          alt={`Image ${index + 1}`}
+                          className="w-full h-full object-contain"
+                          draggable={false}
+                          onDragStart={(e) => e.preventDefault()}
+                        />
+                      </div>
+
+                      {/* 사용자 업로드 표시 */}
+                      {img.isUserUploaded && (
+                        <div className="mt-2 text-center">
+                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-gradient-to-r from-blue-500 to-purple-500 text-white text-xs font-semibold rounded-full shadow-md">
+                            <Upload className="w-3 h-3" />
+                            사용자 업로드
+                          </span>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+              
+              {sortedImages.length === 0 && (
+                <div className="text-center py-16">
+                  <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-gradient-to-br from-purple-100 to-pink-100 mb-4">
+                    <ImageIcon className="w-12 h-12 text-purple-400" />
+                  </div>
+                  <p className="text-gray-500 font-medium">이미지가 없습니다</p>
+                  <p className="text-sm text-gray-400 mt-1">이미지를 생성하거나 업로드해주세요</p>
+                </div>
+              )}
+              </CardContent>
+            </Card>
+            {/* 목소리 선택 */}
+            <Card className="border-2 border-gray-200 shadow-xl">
+              <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50 border-b-2 border-purple-100">
+                <CardTitle className="text-xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent flex items-center gap-2">
+                  <Volume2 className="w-6 h-6 text-purple-600" />
+                  목소리 선택
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-6">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 max-h-[400px] overflow-y-auto p-3 border-2 border-gray-100 rounded-xl bg-gradient-to-br from-gray-50 to-white">
                   {[
                     { id: "ttsmaker-여성1", name: "TTSMaker 여성1", note: "ID: 503", provider: "ttsmaker" },
                     { id: "ttsmaker-여성2", name: "TTSMaker 여성2", note: "ID: 509", provider: "ttsmaker" },
@@ -2693,32 +3298,45 @@ export default function ShortsPage() {
                   ].map((voice) => (
                     <div
                       key={voice.id}
-                      className={`p-3 border-2 rounded-lg transition-all ${
+                      className={`group p-4 border-2 rounded-xl transition-all duration-300 cursor-pointer ${
                         selectedVoiceId === voice.id
-                          ? "border-red-500 bg-red-50"
-                          : "border-gray-200 hover:border-gray-300"
+                          ? "border-purple-500 bg-gradient-to-br from-purple-50 to-pink-50 shadow-lg scale-105 ring-2 ring-purple-300"
+                          : "border-gray-200 hover:border-purple-300 hover:shadow-md hover:scale-105 bg-white"
                       }`}
+                      onClick={() => setSelectedVoiceId(voice.id)}
                     >
-                      <div className="flex items-center space-x-2 mb-2">
+                      <div className="flex items-center space-x-3 mb-3">
                         <div
-                          className={`w-4 h-4 rounded-full border-2 cursor-pointer ${
-                            selectedVoiceId === voice.id ? "border-red-500 bg-red-500" : "border-gray-300"
+                          className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${
+                            selectedVoiceId === voice.id 
+                              ? "border-purple-600 bg-gradient-to-r from-purple-600 to-pink-600 shadow-md" 
+                              : "border-gray-300 group-hover:border-purple-400"
                           }`}
-                          onClick={() => setSelectedVoiceId(voice.id)}
                         >
                           {selectedVoiceId === voice.id && (
-                            <div className="w-2 h-2 bg-white rounded-full mx-auto mt-0.5"></div>
+                            <div className="w-2.5 h-2.5 bg-white rounded-full"></div>
                           )}
                         </div>
-                        <div className="flex-1" onClick={() => setSelectedVoiceId(voice.id)}>
-                          <p className="text-sm font-medium">{voice.name}</p>
-                          <p className="text-xs text-gray-500">{voice.note}</p>
+                        <div className="flex-1">
+                          <p className={`text-sm font-semibold ${
+                            selectedVoiceId === voice.id ? "text-purple-900" : "text-gray-800"
+                          }`}>
+                            {voice.name}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-0.5">{voice.note}</p>
                         </div>
+                        {selectedVoiceId === voice.id && (
+                          <Sparkles className="w-4 h-4 text-purple-600 animate-pulse" />
+                        )}
                       </div>
                       <Button
-                        variant="outline"
+                        variant={selectedVoiceId === voice.id ? "default" : "outline"}
                         size="sm"
-                        className="w-full text-xs"
+                        className={`w-full text-xs transition-all duration-300 ${
+                          selectedVoiceId === voice.id
+                            ? "bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white shadow-md"
+                            : "hover:border-purple-300 hover:text-purple-600"
+                        }`}
                         onClick={(e) => {
                           e.stopPropagation()
                           handlePreviewVoice(voice.id)
@@ -2755,28 +3373,32 @@ export default function ShortsPage() {
             </Card>
 
             <div className="flex gap-4">
-              <Button variant="outline" onClick={() => setActiveStep("script")}>
+              <Button 
+                variant="outline" 
+                onClick={() => setActiveStep("script")}
+                className="border-2 hover:border-purple-300 hover:bg-purple-50 transition-all duration-300"
+              >
                 <ArrowLeft className="w-4 h-4 mr-2" />
-                  뒤로가기
-                </Button>
+                뒤로가기
+              </Button>
               <Button
                 onClick={handleGenerateTts}
                 disabled={isGeneratingTts}
-                className="flex-1"
+                className="flex-1 h-14 text-lg font-semibold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 hover:from-purple-700 hover:via-pink-700 hover:to-blue-700 text-white shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                 size="lg"
               >
                 {isGeneratingTts ? (
                   <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                     TTS 생성 중...
                   </>
                 ) : (
                   <>
-                    <Volume2 className="w-4 h-4 mr-2" />
+                    <Volume2 className="w-5 h-5 mr-2" />
                     TTS 생성하기
                   </>
                 )}
-                </Button>
+              </Button>
             </div>
           </div>
         )
@@ -2952,7 +3574,6 @@ export default function ShortsPage() {
                       {/* 제목 생성 버튼 */}
                       <div className="flex-1">
                       <Button
-                      variant="default"
                       onClick={async () => {
                         console.log("[Shorts] 후킹 제목 생성 버튼 클릭, script 상태:", script ? `길이: ${script.length}` : "없음")
                         if (!script || typeof script !== 'string' || script.trim().length === 0) {
@@ -2993,17 +3614,17 @@ export default function ShortsPage() {
                           setIsGeneratingTitle(false)
                         }
                       }}
-                      className="w-full !opacity-100 !pointer-events-auto cursor-pointer"
+                      className="w-full h-14 text-lg font-semibold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 hover:from-purple-700 hover:via-pink-700 hover:to-blue-700 text-white shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 !opacity-100 !pointer-events-auto cursor-pointer"
                       size="lg"
                     >
                       {isGeneratingTitle ? (
                         <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                           제목 생성 중...
                         </>
                       ) : (
                         <>
-                          <Sparkles className="w-4 h-4 mr-2" />
+                          <Sparkles className="w-5 h-5 mr-2" />
                           후킹 제목 생성하기
                         </>
                       )}
@@ -3174,16 +3795,34 @@ export default function ShortsPage() {
                 </div>
               </div>
 
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50">
       <div className="container mx-auto px-4 py-8">
-        <div className="max-w-4xl mx-auto">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Video className="w-6 h-6" />
-                쇼츠 영상 제작
-              </CardTitle>
+        <div className="max-w-5xl mx-auto">
+          <Card className="border-2 border-gray-200 shadow-2xl overflow-hidden">
+            <CardHeader className="bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-white pb-6">
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-3 text-2xl font-bold">
+                  <div className="p-2 bg-white/20 rounded-lg backdrop-blur-sm">
+                    <Video className="w-7 h-7" />
+                  </div>
+                  쇼츠 영상 제작
+                </CardTitle>
+                <Link href="/WingsAIStudio">
+                  <Button 
+                    variant="ghost" 
+                    size="sm"
+                    className="text-white hover:bg-white/20 hover:text-white"
+                  >
+                    <Home className="w-4 h-4 mr-2" />
+                    홈으로
+                  </Button>
+                </Link>
+              </div>
+              <p className="text-white/90 text-sm mt-2 ml-14">
+                AI로 쉽고 빠르게 쇼츠 영상을 만들어보세요
+              </p>
             </CardHeader>
-            <CardContent>{renderStepContent()}</CardContent>
+            <CardContent className="p-8 bg-white">{renderStepContent()}</CardContent>
           </Card>
         </div>
       </div>

@@ -1174,6 +1174,15 @@ export default function ShoppingPage() {
       const renderFrame = () => {
         const elapsed = audio.currentTime
 
+        // TTS 길이를 초과하면 즉시 중지
+        if (elapsed >= actualAudioDuration || audio.ended || isNaN(elapsed) || !isFinite(elapsed)) {
+          console.log(`[Shopping] 렌더링 종료: elapsed=${elapsed.toFixed(3)}초, actualAudioDuration=${actualAudioDuration.toFixed(3)}초, ended=${audio.ended}`)
+          mediaRecorder.stop()
+          audio.pause()
+          audio.currentTime = 0
+          return
+        }
+
         // 캔버스 초기화
         ctx.fillStyle = "black"
         ctx.fillRect(0, 0, canvas.width, canvas.height)
@@ -1249,11 +1258,8 @@ export default function ShoppingPage() {
           ctx.fillText(textToShow, canvas.width / 2, subtitleY)
         }
 
-        if (audio.ended) {
-          mediaRecorder.stop()
-        } else {
-          requestAnimationFrame(renderFrame)
-        }
+        // 다음 프레임 요청
+        requestAnimationFrame(renderFrame)
       }
 
       renderFrame()

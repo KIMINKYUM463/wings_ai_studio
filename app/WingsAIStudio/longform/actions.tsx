@@ -415,7 +415,7 @@ function getDefaultTopics(category: Category): string[] {
 }
 
 export async function generateTopics(
-  category: Category = "health",
+  category: Category | string | undefined = "health",
   keywords?: string,
   benchmarkUrl?: string,
   apiKey?: string,
@@ -428,16 +428,27 @@ export async function generateTopics(
     throw new Error("OpenAI API 키가 설정되지 않았습니다.")
   }
 
-  // ⚠️ 매우 중요: 직접입력 주제가 있으면 actions.ts의 generateTopicsFromCustomTopic 함수 호출
+  // ⚠️ 매우 중요: 직접입력 주제가 있으면 generateTopicsFromCustomTopic 함수 호출
   if (customTopic && typeof customTopic === 'string' && customTopic.trim().length > 0) {
     console.log("[actions.tsx] 직접입력 주제 모드 감지 - 주제:", customTopic.trim())
     console.log("[actions.tsx] generateTopicsFromCustomTopic 함수 호출 시작")
-    const result = await generateTopicsFromCustomTopic(customTopic.trim(), GPT_API_KEY)
-    console.log("[actions.tsx] generateTopicsFromCustomTopic 함수 완료, 결과:", result.length, "개")
-    return result
+    try {
+      const result = await generateTopicsFromCustomTopic(customTopic.trim(), GPT_API_KEY)
+      console.log("[actions.tsx] generateTopicsFromCustomTopic 함수 완료, 결과:", result.length, "개")
+      return result
+    } catch (error) {
+      console.error("[actions.tsx] generateTopicsFromCustomTopic 실패:", error)
+      const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류"
+      throw new Error(`주제 생성 실패: ${errorMessage}`)
+    }
   }
 
   try {
+    // category가 없거나 유효하지 않으면 기본값 사용
+    // categoryPrompts는 try 블록 내부에 정의되므로, 여기서는 간단한 타입 체크만 수행
+    const validCategory: Category = (category && typeof category === 'string') 
+      ? (category as Category)
+      : "health"
     // 공통 프롬프트
     const commonPrompt = `너는 유튜브 롱폼 콘텐츠 기획 전문가다.
 
