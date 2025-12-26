@@ -10920,16 +10920,26 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       // 응답이 JSON인지 확인
       const contentType = renderResponse.headers.get("content-type") || ""
       let renderResult
+      
+      // 응답 본문 읽기 (재시도 로직 포함)
+      let responseText = ""
+      try {
+        responseText = await renderResponse.text()
+      } catch (readError) {
+        console.error("[v0] 응답 본문 읽기 실패:", readError)
+        throw new Error(`렌더링 응답을 읽을 수 없습니다: ${readError instanceof Error ? readError.message : String(readError)}`)
+      }
+      
       if (contentType.includes("application/json")) {
         try {
-          renderResult = await renderResponse.json()
+          renderResult = JSON.parse(responseText)
         } catch (e) {
-          const errorText = await renderResponse.text()
-          throw new Error(`응답 파싱 실패: ${errorText.substring(0, 200)}`)
+          console.error("[v0] JSON 파싱 실패:", e, "응답 본문 (처음 500자):", responseText.substring(0, 500))
+          throw new Error(`응답 파싱 실패: ${responseText.substring(0, 200)}`)
         }
       } else {
-        const errorText = await renderResponse.text()
-        throw new Error(`예상하지 못한 응답 형식: ${errorText.substring(0, 200)}`)
+        console.error("[v0] 예상하지 못한 응답 형식:", contentType, "응답 본문 (처음 500자):", responseText.substring(0, 500))
+        throw new Error(`예상하지 못한 응답 형식: ${responseText.substring(0, 200)}`)
       }
 
       if (!renderResult.success) {
@@ -11004,7 +11014,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         videoUrl: renderResult.videoUrl,
       })
 
-      let videoBlob: Blob
+      let videoBlob: Blob | null = null
 
       // 방법 1: base64 데이터로 받은 경우
       if (renderResult.videoBase64) {
@@ -11020,50 +11030,95 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       // 방법 2: URL로 받은 경우
       else if (renderResult.videoUrl) {
         console.log("[v0] URL로 영상 다운로드 시작:", renderResult.videoUrl)
-        try {
-          const videoResponse = await fetch(renderResult.videoUrl, {
-            method: "GET",
-            mode: "cors",
-          })
-          console.log("[v0] fetch 응답 상태:", videoResponse.status, videoResponse.statusText)
-          
-          if (!videoResponse.ok) {
-            const errorText = await videoResponse.text()
-            console.error("[v0] 영상 다운로드 실패 응답:", errorText.substring(0, 200))
-            throw new Error(`영상 다운로드 실패: ${videoResponse.status} ${videoResponse.statusText}`)
+        
+        // 영상 다운로드 재시도 로직 (최대 3회)
+        let videoBlobDownloaded = false
+        let lastError: Error | null = null
+        
+        for (let retryCount = 0; retryCount < 3 && !videoBlobDownloaded; retryCount++) {
+          try {
+            if (retryCount > 0) {
+              console.log(`[v0] 영상 다운로드 재시도 ${retryCount}/3...`)
+              setExportStatusMessage(`영상 다운로드 재시도 중... (${retryCount}/3)`)
+              // 재시도 전 대기 (지수 백오프)
+              await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, retryCount - 1)))
+            }
+            
+            // 타임아웃 설정 (5분)
+            const controller = new AbortController()
+            const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000)
+            
+            const videoResponse = await fetch(renderResult.videoUrl, {
+              method: "GET",
+              mode: "cors",
+              signal: controller.signal,
+            })
+            clearTimeout(timeoutId)
+            
+            console.log("[v0] fetch 응답 상태:", videoResponse.status, videoResponse.statusText)
+            
+            if (!videoResponse.ok) {
+              const errorText = await videoResponse.text()
+              console.error("[v0] 영상 다운로드 실패 응답:", errorText.substring(0, 200))
+              throw new Error(`영상 다운로드 실패: ${videoResponse.status} ${videoResponse.statusText}`)
+            }
+            
+            videoBlob = await videoResponse.blob()
+            console.log("[v0] URL에서 Blob 생성 완료:", videoBlob.size, "bytes", "타입:", videoBlob.type)
+            videoBlobDownloaded = true
+          } catch (fetchError) {
+            console.error(`[v0] 영상 다운로드 시도 ${retryCount + 1} 실패:`, fetchError)
+            lastError = fetchError instanceof Error ? fetchError : new Error(String(fetchError))
+            
+            // 마지막 시도가 아니면 계속
+            if (retryCount < 2) {
+              continue
+            }
+            
+            // 모든 재시도 실패 시
+            console.error("[v0] 영상 다운로드 모든 재시도 실패")
+            
+            // CORS 문제일 수 있으므로 직접 다운로드 링크 제공
+            if (fetchError instanceof Error && (fetchError.message.includes("CORS") || fetchError.message.includes("Failed to fetch"))) {
+              console.log("[v0] CORS/네트워크 문제 감지, 직접 다운로드 링크 사용")
+              // 직접 다운로드 링크로 전환
+              const a = document.createElement("a")
+              a.href = renderResult.videoUrl
+              a.download = `longform-video-${Date.now()}.mp4`
+              a.target = "_blank"
+              document.body.appendChild(a)
+              a.click()
+              document.body.removeChild(a)
+              alert("영상 다운로드가 시작되었습니다. 브라우저에서 다운로드를 확인해주세요.")
+              setIsExporting(false)
+              return
+            }
+            
+            // CORS가 아닌 다른 오류인 경우
+            throw lastError || fetchError
           }
-          
-          videoBlob = await videoResponse.blob()
-          console.log("[v0] URL에서 Blob 생성 완료:", videoBlob.size, "bytes", "타입:", videoBlob.type)
-        } catch (fetchError) {
-          console.error("[v0] fetch 오류:", fetchError)
-          // CORS 문제일 수 있으므로 직접 다운로드 링크 제공
-          if (fetchError instanceof Error && fetchError.message.includes("CORS")) {
-            console.log("[v0] CORS 문제 감지, 직접 다운로드 링크 사용")
-            // 직접 다운로드 링크로 전환
-            const a = document.createElement("a")
-            a.href = renderResult.videoUrl
-            a.download = `longform-video-${Date.now()}.mp4`
-            a.target = "_blank"
-            document.body.appendChild(a)
-            a.click()
-            document.body.removeChild(a)
-            alert("영상 다운로드가 시작되었습니다. 브라우저에서 다운로드를 확인해주세요.")
-            setIsExporting(false)
-            return
-          }
-          throw fetchError
+        }
+        
+        // 재시도 실패로 videoBlob이 설정되지 않은 경우
+        if (!videoBlobDownloaded) {
+          throw lastError || new Error("영상 다운로드 실패: 모든 재시도가 실패했습니다.")
         }
       } else {
         console.error("[v0] 렌더링 결과에 videoBase64 또는 videoUrl이 없습니다:", renderResult)
         throw new Error("영상 데이터 또는 URL을 받을 수 없습니다.")
       }
 
+      // videoBlob이 null인 경우 오류
+      if (!videoBlob) {
+        throw new Error("영상 Blob을 생성할 수 없습니다.")
+      }
+
       // 다운로드 실행
       setExportProgress(95)
       setExportStatusMessage("다운로드 중...")
       console.log("[v0] 다운로드 실행 시작...")
-      const videoUrl = URL.createObjectURL(videoBlob)
+      // videoBlob은 위의 null 체크로 인해 여기서는 null이 아님을 보장
+      const videoUrl = URL.createObjectURL(videoBlob as Blob)
       console.log("[v0] Object URL 생성:", videoUrl)
       
       const a = document.createElement("a")
