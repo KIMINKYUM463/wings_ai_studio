@@ -570,6 +570,10 @@ export default function LongformContentPage() {
   const [imageModel, setImageModel] = useState<"prunaai/hidream-l1-fast" | "black-forest-labs/flux-schnell">("prunaai/hidream-l1-fast")
   const [selectedVoiceId, setSelectedVoiceId] = useState<string>("ttsmaker-여성1") // 기본: TTSMaker 여성1
   const [customElevenLabsVoices, setCustomElevenLabsVoices] = useState<Array<{ id: string; name: string }>>([]) // 사용자 추가 일레븐랩스 목소리
+  const [supertoneVoices, setSupertoneVoices] = useState<Array<{ voice_id: string; name: string; language: string[]; styles: string[]; thumbnail_image_url?: string }>>([]) // 수퍼톤 음성 목록
+  const [isLoadingSupertoneVoices, setIsLoadingSupertoneVoices] = useState(false) // 수퍼톤 음성 목록 로딩 중
+  const [selectedSupertoneVoiceId, setSelectedSupertoneVoiceId] = useState<string>("") // 선택된 수퍼톤 음성 ID
+  const [selectedSupertoneStyle, setSelectedSupertoneStyle] = useState<string>("neutral") // 선택된 수퍼톤 스타일
   const [showAddVoiceDialog, setShowAddVoiceDialog] = useState(false) // 목소리 추가 다이얼로그
   const [newVoiceId, setNewVoiceId] = useState("") // 새 목소리 ID
   const [newVoiceName, setNewVoiceName] = useState("") // 새 목소리 이름
@@ -1545,8 +1549,8 @@ export default function LongformContentPage() {
             while (!imageUrl) {
               try {
                 console.log(`[자동화] 이미지 생성 시도 ${attempt}...`)
-                // 모델 선택: 스틱맨 애니메이션, 애니메이션2, 유럽풍 그래픽 노블인 경우 사용자 선택 모델 사용
-                const selectedModel = (imageStyle === "stickman-animation" || imageStyle === "animation2" || imageStyle === "animation3") 
+                // 모델 선택: 스틱맨 애니메이션, 애니메이션2, 유럽풍 그래픽 노블, 실사화, 실사화2인 경우 사용자 선택 모델 사용
+                const selectedModel = (imageStyle === "stickman-animation" || imageStyle === "animation2" || imageStyle === "animation3" || imageStyle === "realistic" || imageStyle === "realistic2") 
                   ? imageModel 
                   : undefined
                 imageUrl = await generateImageWithReplicate(prompt, replicateApiKey, "16:9", imageStyle, undefined, selectedModel)
@@ -1609,14 +1613,27 @@ export default function LongformContentPage() {
               }
             }
           } catch (error) {
-            console.error(`[자동화] 이미지 생성 실패 (문장 ${line.id}):`, error)
+            const errorMessage = error instanceof Error ? error.message : String(error)
+            console.error(`[자동화] 이미지 생성 실패 (문장 ${line.id}):`, errorMessage)
+            
+            // API 키 관련 오류인지 확인
+            let apiKeyInfo = ""
+            if (errorMessage.toLowerCase().includes("replicate") || 
+                errorMessage.toLowerCase().includes("api key") ||
+                errorMessage.toLowerCase().includes("api 키")) {
+              apiKeyInfo = "\n\n❌ Replicate API 키 문제일 수 있습니다.\n해결 방법:\n1. 설정에서 Replicate API 키를 확인하세요\n2. API 키가 올바른지 확인하세요"
+            } else if (errorMessage.toLowerCase().includes("gemini") ||
+                       errorMessage.toLowerCase().includes("프롬프트")) {
+              apiKeyInfo = "\n\n❌ Gemini API 키 문제일 수 있습니다.\n해결 방법:\n1. 설정에서 Gemini API 키를 확인하세요\n2. API 키가 올바른지 확인하세요"
+            }
+            
             failCount++
             // 실패해도 계속 진행
             setAutoProgress({
               step: 4,
               totalSteps: 9,
               currentStepName: "이미지 생성",
-              message: `이미지 ${i + 1}번 생성 실패, 다음으로 진행... (성공: ${successCount}, 실패: ${failCount})`,
+              message: `이미지 ${i + 1}번 생성 실패${apiKeyInfo}, 다음으로 진행... (성공: ${successCount}, 실패: ${failCount})`,
               isComplete: false,
             })
           }
@@ -1643,8 +1660,9 @@ export default function LongformContentPage() {
       await new Promise(resolve => setTimeout(resolve, 1000))
 
       // Step 5: TTS 생성 (수동 모드와 동일하게 전체 문장에 대해 생성)
-      // TTSMaker는 API 키 필요, ElevenLabs인 경우만 필요
-      if (selectedVoiceId?.startsWith("ttsmaker-") || elevenlabsApiKey) {
+      // TTSMaker는 API 키 필요, ElevenLabs 또는 수퍼톤인 경우만 필요
+      const supertoneApiKey = localStorage.getItem("supertone_api_key") || undefined
+      if (selectedVoiceId?.startsWith("ttsmaker-") || selectedVoiceId?.startsWith("supertone-") || elevenlabsApiKey) {
         setAutoProgress({
           step: 5,
           totalSteps: 9,
@@ -2118,7 +2136,15 @@ export default function LongformContentPage() {
                       }
                     }
                   } catch (error) {
-                    console.warn(`[자막 생성] Whisper align 실패 (줄 ${line.id}), 기존 방식 사용:`, error)
+                    const errorMessage = error instanceof Error ? error.message : String(error)
+                    // OpenAI API 키 관련 오류인지 확인
+                    if (errorMessage.toLowerCase().includes("api key") ||
+                        errorMessage.toLowerCase().includes("openai api 키") ||
+                        errorMessage.toLowerCase().includes("unauthorized")) {
+                      console.warn(`[자막 생성] ❌ OpenAI API 키 오류 (줄 ${line.id}): ${errorMessage}\n\n해결 방법:\n1. 설정에서 OpenAI API 키를 확인하세요\n2. API 키가 올바른지 확인하세요\n\n기존 방식으로 자막을 생성합니다.`)
+                    } else {
+                      console.warn(`[자막 생성] Whisper align 실패 (줄 ${line.id}), 기존 방식 사용:`, errorMessage)
+                    }
                   }
                 }
                 
@@ -4267,7 +4293,15 @@ export default function LongformContentPage() {
                 console.warn(`[Shorts 렌더링] 문장 ${line.id} API 호출 실패:`, await whisperResponse.text())
               }
             } catch (error) {
-              console.warn(`[Shorts 렌더링] 문장 ${line.id} STT 분석 오류:`, error)
+              const errorMessage = error instanceof Error ? error.message : String(error)
+              // OpenAI API 키 관련 오류인지 확인
+              if (errorMessage.toLowerCase().includes("api key") ||
+                  errorMessage.toLowerCase().includes("openai api 키") ||
+                  errorMessage.toLowerCase().includes("unauthorized")) {
+                console.warn(`[Shorts 렌더링] ❌ OpenAI API 키 오류 (문장 ${line.id}): ${errorMessage}\n\n해결 방법:\n1. 설정에서 OpenAI API 키를 확인하세요\n2. API 키가 올바른지 확인하세요`)
+              } else {
+                console.warn(`[Shorts 렌더링] 문장 ${line.id} STT 분석 오류:`, errorMessage)
+              }
               // 개별 문장 실패해도 계속 진행
             }
           }
@@ -6285,6 +6319,83 @@ export default function LongformContentPage() {
     }
   }
 
+  // 수퍼톤 음성 목록 가져오기
+  const fetchSupertoneVoices = async () => {
+    setIsLoadingSupertoneVoices(true)
+    try {
+      const supertoneApiKey = getApiKey("supertone_api_key")
+      if (!supertoneApiKey) {
+        alert("수퍼톤 API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+        setIsLoadingSupertoneVoices(false)
+        return
+      }
+
+      const response = await fetch(`/api/supertone-voices?apiKey=${encodeURIComponent(supertoneApiKey)}`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "음성 목록을 가져오는데 실패했습니다.")
+      }
+
+      const data = await response.json()
+      if (data.success && data.voices) {
+        // 특정 음성 제외: "달팽이A", "기억의정령_알마냐", "틈새의정령_알마냐"
+        const excludedNames = ["달팽이A", "기억의정령_알마냐", "틈새의정령_알마냐"]
+        const filteredVoices = data.voices.filter((voice: { name: string }) => 
+          !excludedNames.some(excluded => voice.name.includes(excluded))
+        )
+        setSupertoneVoices(filteredVoices)
+        // 첫 번째 음성을 기본 선택
+        if (filteredVoices.length > 0 && !selectedSupertoneVoiceId) {
+          setSelectedSupertoneVoiceId(filteredVoices[0].voice_id)
+          setSelectedVoiceId(`supertone-${filteredVoices[0].voice_id}`)
+        }
+      } else {
+        throw new Error(data.error || "음성 목록을 가져오는데 실패했습니다.")
+      }
+    } catch (error) {
+      console.error("수퍼톤 음성 목록 가져오기 실패:", error)
+      alert(`수퍼톤 음성 목록을 가져오는데 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+    } finally {
+      setIsLoadingSupertoneVoices(false)
+    }
+  }
+
+  // 언어 코드를 한국어로 변환하는 함수
+  const languageCodeToKorean = (code: string): string => {
+    const languageMap: Record<string, string> = {
+      "ar": "아랍어",
+      "bg": "불가리아어",
+      "cs": "체코어",
+      "da": "덴마크어",
+      "de": "독일어",
+      "el": "그리스어",
+      "en": "영어",
+      "es": "스페인어",
+      "et": "에스토니아어",
+      "fi": "핀란드어",
+      "fr": "프랑스어",
+      "hi": "힌디어",
+      "hu": "헝가리어",
+      "id": "인도네시아어",
+      "it": "이탈리아어",
+      "ja": "일본어",
+      "ko": "한국어",
+      "nl": "네덜란드어",
+      "pl": "폴란드어",
+      "pt": "포르투갈어",
+      "ro": "루마니아어",
+      "ru": "러시아어",
+      "vi": "베트남어",
+    }
+    return languageMap[code.toLowerCase()] || code
+  }
+
   // 목소리 미리듣기 함수
   const handlePreviewVoice = async (voiceId: string) => {
     setPreviewingVoiceId(voiceId)
@@ -6292,8 +6403,31 @@ export default function LongformContentPage() {
     try {
       let response: Response
       
-      // Google TTS인 경우
-      if (voiceId?.startsWith("ttsmaker-")) {
+      // 수퍼톤인 경우
+      if (voiceId?.startsWith("supertone-")) {
+        const actualVoiceId = voiceId.replace("supertone-", "")
+        const supertoneApiKey = getApiKey("supertone_api_key")
+        
+        if (!supertoneApiKey) {
+          alert("수퍼톤 API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+          setPreviewingVoiceId(null)
+          return
+        }
+        
+        response = await fetch("/api/supertone-tts", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            text: "여러분 환영합니다",
+            voiceId: actualVoiceId,
+            apiKey: supertoneApiKey,
+            style: selectedSupertoneStyle || "neutral", // 사용자가 선택한 스타일
+            language: "ko", // 기본값: 한국어
+          }),
+        })
+      } else if (voiceId?.startsWith("ttsmaker-")) {
         // TTSMaker인 경우
         const voiceName = voiceId.replace("ttsmaker-", "")
         // 남성5는 음높이 -10% (pitch 0.9)
@@ -6466,9 +6600,18 @@ export default function LongformContentPage() {
         } else if (selectedVoiceId?.startsWith("supertone-")) {
           // 수퍼톤인 경우
           const voiceId = selectedVoiceId.replace("supertone-", "")
-          const supertoneApiKey = getApiKey("supertone")
+          // 미리듣기와 동일한 방식으로 API 키 가져오기
+          let supertoneApiKey = typeof window !== "undefined" 
+            ? (localStorage.getItem("supertone_api_key") || "").trim() 
+            : null
           
-          if (!supertoneApiKey) {
+          // localStorage에 없으면 getApiKey로 시도
+          if (!supertoneApiKey || supertoneApiKey.length === 0) {
+            const apiKey = getApiKey("supertone_api_key")
+            supertoneApiKey = apiKey !== undefined ? apiKey : null
+          }
+          
+          if (!supertoneApiKey || supertoneApiKey.length === 0) {
             throw new Error("수퍼톤 API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
           }
           
@@ -6481,25 +6624,27 @@ export default function LongformContentPage() {
               text: convertedText,
               voiceId: voiceId,
               apiKey: supertoneApiKey,
+              style: selectedSupertoneStyle || "neutral", // 사용자가 선택한 스타일
+              language: "ko", // 기본값: 한국어
             }),
           })
         } else {
           // ElevenLabs API를 통해 TTS 생성
-          // 직접 로컬스토리지에서 가져오기 (getApiKey가 작동하지 않을 수 있음)
-          let elevenlabsApiKey = typeof window !== "undefined" 
-            ? (localStorage.getItem("elevenlabs_api_key") || "").trim() 
-            : null
+          // 미리듣기와 동일한 방식으로 API 키 가져오기
+          let elevenlabsApiKey = getApiKey("elevenlabs_api_key") ?? null
           
-          console.log(`[TTS 생성] ElevenLabs API 키 확인 (localStorage) - 존재: ${!!elevenlabsApiKey}, 길이: ${elevenlabsApiKey?.length || 0}`)
+          console.log(`[TTS 생성] ElevenLabs API 키 확인 (getApiKey) - 존재: ${!!elevenlabsApiKey}, 길이: ${elevenlabsApiKey?.length || 0}`)
           
-          // localStorage에 없으면 getApiKey로 시도
+          // getApiKey로 못 찾으면 localStorage에서 직접 가져오기 (fallback)
           if (!elevenlabsApiKey || elevenlabsApiKey.length === 0) {
-            elevenlabsApiKey = getApiKey("elevenlabs") ?? null
-            console.log(`[TTS 생성] ElevenLabs API 키 확인 (getApiKey) - 존재: ${!!elevenlabsApiKey}, 길이: ${elevenlabsApiKey?.length || 0}`)
+            elevenlabsApiKey = typeof window !== "undefined" 
+              ? (localStorage.getItem("elevenlabs_api_key") || "").trim() || null
+              : null
+            console.log(`[TTS 생성] ElevenLabs API 키 확인 (localStorage 직접) - 존재: ${!!elevenlabsApiKey}, 길이: ${elevenlabsApiKey?.length || 0}`)
           }
           
           if (!elevenlabsApiKey || elevenlabsApiKey.length === 0) {
-            throw new Error("ElevenLabs API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+            throw new Error("❌ ElevenLabs API 키가 필요합니다.\n\n해결 방법:\n1. 설정에서 ElevenLabs API 키를 입력하세요\n2. API 키가 올바른지 확인하세요")
           }
           
           response = await fetch("/api/elevenlabs-tts", {
@@ -6517,12 +6662,43 @@ export default function LongformContentPage() {
 
         if (!response.ok) {
           let errorMessage = "TTS 생성 실패"
+          let apiKeyName = ""
+          
+          // 사용 중인 API 키 이름 확인
+          if (selectedVoiceId?.startsWith("ttsmaker-")) {
+            apiKeyName = "TTSMaker API 키"
+          } else if (selectedVoiceId?.startsWith("supertone-")) {
+            apiKeyName = "수퍼톤(SuperTone) API 키"
+          } else {
+            apiKeyName = "ElevenLabs API 키"
+          }
+          
           try {
             const errorData = await response.json()
-            errorMessage = errorData.error || errorData.message || `HTTP ${response.status}: ${response.statusText}`
+            const baseError = errorData.error || errorData.message || `HTTP ${response.status}: ${response.statusText}`
+            
+            // API 키 관련 오류인지 확인
+            if (response.status === 401 || response.status === 403 || 
+                baseError.toLowerCase().includes("api key") || 
+                baseError.toLowerCase().includes("unauthorized") ||
+                baseError.toLowerCase().includes("forbidden") ||
+                baseError.toLowerCase().includes("인증") ||
+                baseError.toLowerCase().includes("키")) {
+              errorMessage = `❌ ${apiKeyName} 오류\n\n${baseError}\n\n해결 방법:\n1. 설정에서 ${apiKeyName}를 확인하세요\n2. API 키가 올바른지 확인하세요\n3. API 키의 사용량이 초과되지 않았는지 확인하세요`
+            } else if (response.status === 429 || baseError.toLowerCase().includes("rate limit") || baseError.toLowerCase().includes("quota")) {
+              errorMessage = `❌ ${apiKeyName} 사용량 초과\n\n${baseError}\n\n해결 방법:\n1. API 키의 사용량 한도를 확인하세요\n2. 잠시 후 다시 시도하세요\n3. 다른 API 키를 사용하세요`
+            } else {
+              errorMessage = `❌ TTS 생성 실패 (${apiKeyName})\n\n${baseError}\n\n브라우저 콘솔(F12)에서 자세한 오류를 확인해주세요.`
+            }
           } catch (e) {
             const errorText = await response.text()
-            errorMessage = errorText || `HTTP ${response.status}: ${response.statusText}`
+            const baseError = errorText || `HTTP ${response.status}: ${response.statusText}`
+            
+            if (response.status === 401 || response.status === 403) {
+              errorMessage = `❌ ${apiKeyName} 인증 실패\n\n${baseError}\n\n해결 방법:\n1. 설정에서 ${apiKeyName}를 확인하세요\n2. API 키가 올바른지 확인하세요`
+            } else {
+              errorMessage = `❌ TTS 생성 실패 (${apiKeyName})\n\n${baseError}`
+            }
           }
           throw new Error(errorMessage)
         }
@@ -6563,10 +6739,26 @@ export default function LongformContentPage() {
                   console.log(`[Whisper Align] ${whisperData.wordTimings.length}개 단어 타이밍 추출 완료 (줄 ${line.id})`)
                 }
               } else {
-                console.warn(`[Whisper Align] API 호출 실패 (줄 ${line.id}):`, await whisperResponse.text())
+                const errorText = await whisperResponse.text()
+                let errorMessage = `Whisper Align API 호출 실패`
+                try {
+                  const errorData = JSON.parse(errorText)
+                  errorMessage = errorData.error || errorMessage
+                } catch (e) {
+                  errorMessage = errorText || errorMessage
+                }
+                
+                // API 키 관련 오류인지 확인
+                if (whisperResponse.status === 401 || whisperResponse.status === 403 ||
+                    errorMessage.toLowerCase().includes("api key") ||
+                    errorMessage.toLowerCase().includes("openai api 키")) {
+                  console.warn(`[Whisper Align] ❌ OpenAI API 키 오류 (줄 ${line.id}): ${errorMessage}\n\n해결 방법:\n1. 설정에서 OpenAI API 키를 확인하세요\n2. API 키가 올바른지 확인하세요`)
+                } else {
+                  console.warn(`[Whisper Align] API 호출 실패 (줄 ${line.id}):`, errorMessage)
+                }
               }
             } else {
-              console.warn(`[Whisper Align] OpenAI API 키 없음, word-level timing 건너뜀 (줄 ${line.id})`)
+              console.warn(`[Whisper Align] ❌ OpenAI API 키 없음, word-level timing 건너뜀 (줄 ${line.id})\n\n해결 방법: 설정에서 OpenAI API 키를 입력하세요`)
             }
           } catch (error) {
             console.warn(`[Whisper Align] 오류 (줄 ${line.id}):`, error)
@@ -6605,16 +6797,42 @@ export default function LongformContentPage() {
       return
     }
 
-    // TTSMaker와 ElevenLabs는 API 키 필요
+    // TTSMaker, ElevenLabs, 수퍼톤은 API 키 필요
     if (selectedVoiceId?.startsWith("ttsmaker-")) {
       const ttsmakerApiKey = getApiKey("ttsmaker_api_key")
       if (!ttsmakerApiKey) {
         alert("TTSMaker API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
         return
       }
+    } else if (selectedVoiceId?.startsWith("supertone-")) {
+      // 미리듣기와 동일한 방식으로 API 키 가져오기
+      let supertoneApiKey = typeof window !== "undefined" 
+        ? (localStorage.getItem("supertone_api_key") || "").trim() 
+        : null
+      
+      // localStorage에 없으면 getApiKey로 시도
+      if (!supertoneApiKey || supertoneApiKey.length === 0) {
+        const apiKey = getApiKey("supertone_api_key")
+        supertoneApiKey = apiKey !== undefined ? apiKey : null
+      }
+      
+      if (!supertoneApiKey || supertoneApiKey.length === 0) {
+        alert("수퍼톤 API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+        return
+      }
     } else {
-      const elevenlabsApiKey = getApiKey("elevenlabs")
-      if (!elevenlabsApiKey) {
+      // 미리듣기와 동일한 방식으로 API 키 가져오기
+      let elevenlabsApiKey = typeof window !== "undefined" 
+        ? (localStorage.getItem("elevenlabs_api_key") || "").trim() 
+        : null
+      
+      // localStorage에 없으면 getApiKey로 시도
+      if (!elevenlabsApiKey || elevenlabsApiKey.length === 0) {
+        const apiKey = getApiKey("elevenlabs")
+        elevenlabsApiKey = apiKey !== undefined ? apiKey : null
+      }
+      
+      if (!elevenlabsApiKey || elevenlabsApiKey.length === 0) {
         alert("ElevenLabs API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
         return
       }
@@ -6673,10 +6891,40 @@ export default function LongformContentPage() {
       return
     }
 
-    // TTSMaker와 ElevenLabs는 API 키 필요
-    if (!selectedVoiceId?.startsWith("ttsmaker-")) {
-      const elevenlabsApiKey = getApiKey("elevenlabs")
-      if (!elevenlabsApiKey) {
+    // TTSMaker, ElevenLabs, 수퍼톤은 API 키 필요
+    if (selectedVoiceId?.startsWith("supertone-")) {
+      // 미리듣기와 동일한 방식으로 API 키 가져오기
+      let supertoneApiKey = typeof window !== "undefined" 
+        ? (localStorage.getItem("supertone_api_key") || "").trim() 
+        : null
+      
+      // localStorage에 없으면 getApiKey로 시도
+      if (!supertoneApiKey || supertoneApiKey.length === 0) {
+        const apiKey = getApiKey("supertone_api_key")
+        supertoneApiKey = apiKey !== undefined ? apiKey : null
+      }
+      
+      if (!supertoneApiKey || supertoneApiKey.length === 0) {
+        alert("수퍼톤 API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+        if (isAutoMode) {
+          setIsAutoMode(false)
+          setAutoModeStep("")
+        }
+        return
+      }
+    } else if (!selectedVoiceId?.startsWith("ttsmaker-")) {
+      // 미리듣기와 동일한 방식으로 API 키 가져오기
+      let elevenlabsApiKey = typeof window !== "undefined" 
+        ? (localStorage.getItem("elevenlabs_api_key") || "").trim() 
+        : null
+      
+      // localStorage에 없으면 getApiKey로 시도
+      if (!elevenlabsApiKey || elevenlabsApiKey.length === 0) {
+        const apiKey = getApiKey("elevenlabs")
+        elevenlabsApiKey = apiKey !== undefined ? apiKey : null
+      }
+      
+      if (!elevenlabsApiKey || elevenlabsApiKey.length === 0) {
         alert("ElevenLabs API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
         if (isAutoMode) {
           setIsAutoMode(false)
@@ -6840,7 +7088,15 @@ export default function LongformContentPage() {
             setTimeout(() => handleRenderVideo(), 2000)
           }
         } else {
-          const errorMessage = "TTS 생성에 실패했습니다.\n\n가능한 원인:\n1. ElevenLabs API 키가 올바르지 않습니다\n2. API 키의 사용량이 초과되었습니다\n3. 네트워크 연결 문제\n\n브라우저 콘솔(F12)에서 자세한 오류를 확인해주세요."
+          // 사용 중인 TTS 서비스 확인
+          let apiKeyName = "ElevenLabs API 키"
+          if (selectedVoiceId?.startsWith("ttsmaker-")) {
+            apiKeyName = "TTSMaker API 키"
+          } else if (selectedVoiceId?.startsWith("supertone-")) {
+            apiKeyName = "수퍼톤(SuperTone) API 키"
+          }
+          
+          const errorMessage = `❌ TTS 생성에 실패했습니다.\n\n사용 중인 API: ${apiKeyName}\n\n가능한 원인:\n1. ${apiKeyName}가 올바르지 않습니다\n2. ${apiKeyName}의 사용량이 초과되었습니다\n3. 네트워크 연결 문제\n\n해결 방법:\n1. 설정에서 ${apiKeyName}를 확인하세요\n2. API 키가 올바른지 확인하세요\n3. 브라우저 콘솔(F12)에서 자세한 오류를 확인해주세요.`
           alert(errorMessage)
           if (isAutoMode) {
             setIsAutoMode(false)
@@ -6850,7 +7106,27 @@ export default function LongformContentPage() {
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error)
         console.error("TTS 생성 실패:", errorMessage, error)
-        alert(`TTS 생성 중 오류가 발생했습니다:\n\n${errorMessage}\n\n브라우저 콘솔(F12)에서 자세한 오류를 확인해주세요.`)
+        
+        // 사용 중인 TTS 서비스 확인
+        let apiKeyName = "ElevenLabs API 키"
+        if (selectedVoiceId?.startsWith("ttsmaker-")) {
+          apiKeyName = "TTSMaker API 키"
+        } else if (selectedVoiceId?.startsWith("supertone-")) {
+          apiKeyName = "수퍼톤(SuperTone) API 키"
+        }
+        
+        // 오류 메시지에 API 키 정보 포함
+        let finalErrorMessage = `❌ TTS 생성 중 오류가 발생했습니다.\n\n사용 중인 API: ${apiKeyName}\n\n오류 내용:\n${errorMessage}`
+        
+        // API 키 관련 오류인지 확인
+        if (errorMessage.toLowerCase().includes("api key") ||
+            errorMessage.toLowerCase().includes("api 키") ||
+            errorMessage.toLowerCase().includes("unauthorized") ||
+            errorMessage.toLowerCase().includes("인증")) {
+          finalErrorMessage += `\n\n해결 방법:\n1. 설정에서 ${apiKeyName}를 확인하세요\n2. API 키가 올바른지 확인하세요`
+        }
+        
+        alert(finalErrorMessage)
         if (isAutoMode) {
           setIsAutoMode(false)
           setAutoModeStep("")
@@ -6929,7 +7205,15 @@ export default function LongformContentPage() {
           setTimeout(() => handleRenderVideo(), 2000)
         }
       } else {
-        const errorMessage = "TTS 생성에 실패했습니다.\n\n가능한 원인:\n1. ElevenLabs API 키가 올바르지 않습니다\n2. API 키의 사용량이 초과되었습니다\n3. 네트워크 연결 문제\n\n브라우저 콘솔(F12)에서 자세한 오류를 확인해주세요."
+        // 사용 중인 TTS 서비스 확인
+        let apiKeyName = "ElevenLabs API 키"
+        if (selectedVoiceId?.startsWith("ttsmaker-")) {
+          apiKeyName = "TTSMaker API 키"
+        } else if (selectedVoiceId?.startsWith("supertone-")) {
+          apiKeyName = "수퍼톤(SuperTone) API 키"
+        }
+        
+        const errorMessage = `❌ TTS 생성에 실패했습니다.\n\n사용 중인 API: ${apiKeyName}\n\n가능한 원인:\n1. ${apiKeyName}가 올바르지 않습니다\n2. ${apiKeyName}의 사용량이 초과되었습니다\n3. 네트워크 연결 문제\n\n해결 방법:\n1. 설정에서 ${apiKeyName}를 확인하세요\n2. API 키가 올바른지 확인하세요\n3. 브라우저 콘솔(F12)에서 자세한 오류를 확인해주세요.`
         alert(errorMessage)
         if (isAutoMode) {
           setIsAutoMode(false)
@@ -6939,7 +7223,27 @@ export default function LongformContentPage() {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
       console.error("TTS 생성 실패:", errorMessage, error)
-      alert(`TTS 생성 중 오류가 발생했습니다:\n\n${errorMessage}\n\n브라우저 콘솔(F12)에서 자세한 오류를 확인해주세요.`)
+      
+      // 사용 중인 TTS 서비스 확인
+      let apiKeyName = "ElevenLabs API 키"
+      if (selectedVoiceId?.startsWith("ttsmaker-")) {
+        apiKeyName = "TTSMaker API 키"
+      } else if (selectedVoiceId?.startsWith("supertone-")) {
+        apiKeyName = "수퍼톤(SuperTone) API 키"
+      }
+      
+      // 오류 메시지에 API 키 정보 포함
+      let finalErrorMessage = `❌ TTS 생성 중 오류가 발생했습니다.\n\n사용 중인 API: ${apiKeyName}\n\n오류 내용:\n${errorMessage}`
+      
+      // API 키 관련 오류인지 확인
+      if (errorMessage.toLowerCase().includes("api key") ||
+          errorMessage.toLowerCase().includes("api 키") ||
+          errorMessage.toLowerCase().includes("unauthorized") ||
+          errorMessage.toLowerCase().includes("인증")) {
+        finalErrorMessage += `\n\n해결 방법:\n1. 설정에서 ${apiKeyName}를 확인하세요\n2. API 키가 올바른지 확인하세요`
+      }
+      
+      alert(finalErrorMessage)
       if (isAutoMode) {
         setIsAutoMode(false)
         setAutoModeStep("")
@@ -7550,22 +7854,54 @@ export default function LongformContentPage() {
                             }
                           } else {
                             const errorText = await whisperResponse.text()
-                            console.warn(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1} API 오류:`, errorText)
+                            let errorMessage = errorText
+                            try {
+                              const errorData = JSON.parse(errorText)
+                              errorMessage = errorData.error || errorMessage
+                            } catch (e) {
+                              // JSON 파싱 실패 시 원본 텍스트 사용
+                            }
+                            
+                            // API 키 관련 오류인지 확인
+                            if (whisperResponse.status === 401 || whisperResponse.status === 403 ||
+                                errorMessage.toLowerCase().includes("api key") ||
+                                errorMessage.toLowerCase().includes("openai api 키") ||
+                                errorMessage.toLowerCase().includes("unauthorized")) {
+                              console.warn(`[Whisper] ❌ OpenAI API 키 오류 (씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}): ${errorMessage}\n\n해결 방법:\n1. 설정에서 OpenAI API 키를 확인하세요\n2. API 키가 올바른지 확인하세요`)
+                            } else {
+                              console.warn(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1} API 오류:`, errorMessage)
+                            }
                           }
                         } catch (error) {
-                          console.warn(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1} STT 분석 오류 (시도 ${retryCount + 1}/${maxRetries}):`, error)
+                          const errorMessage = error instanceof Error ? error.message : String(error)
+                          // API 키 관련 오류인지 확인
+                          if (errorMessage.toLowerCase().includes("api key") ||
+                              errorMessage.toLowerCase().includes("openai api 키") ||
+                              errorMessage.toLowerCase().includes("unauthorized")) {
+                            console.warn(`[Whisper] ❌ OpenAI API 키 오류 (씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}, 시도 ${retryCount + 1}/${maxRetries}): ${errorMessage}\n\n해결 방법:\n1. 설정에서 OpenAI API 키를 확인하세요\n2. API 키가 올바른지 확인하세요`)
+                          } else {
+                            console.warn(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1} STT 분석 오류 (시도 ${retryCount + 1}/${maxRetries}):`, errorMessage)
+                          }
                         }
                         
                         retryCount++
                       }
                       
                       if (!whisperSuccess) {
-                        console.error(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}: ${maxRetries}회 재시도 후 실패`)
+                        console.error(`[Whisper] ❌ 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}: ${maxRetries}회 재시도 후 실패\n\n가능한 원인:\n1. OpenAI API 키 문제\n2. 네트워크 연결 문제\n3. 오디오 파일 문제\n\n해결 방법:\n1. 설정에서 OpenAI API 키를 확인하세요\n2. 브라우저 콘솔(F12)에서 자세한 오류를 확인해주세요`)
                       }
                       }
                     }
                   } catch (error) {
-                    console.error(`[자막 생성] alignment 사용 실패 (씬 ${sceneNum}, 줄 ${line.lineId}), Whisper 사용:`, error)
+                    const errorMessage = error instanceof Error ? error.message : String(error)
+                    // Gemini API 키 관련 오류인지 확인
+                    if (errorMessage.toLowerCase().includes("gemini api") ||
+                        errorMessage.toLowerCase().includes("gemini api 키") ||
+                        errorMessage.toLowerCase().includes("api key")) {
+                      console.error(`[자막 생성] ❌ Gemini API 키 오류 (씬 ${sceneNum}, 줄 ${line.lineId}): ${errorMessage}\n\n해결 방법:\n1. 설정에서 Gemini API 키를 확인하세요\n2. API 키가 올바른지 확인하세요\n\nWhisper를 사용하여 계속 진행합니다.`)
+                    } else {
+                      console.error(`[자막 생성] alignment 사용 실패 (씬 ${sceneNum}, 줄 ${line.lineId}), Whisper 사용:`, errorMessage)
+                    }
                     // 에러 발생 시 Whisper 사용 (단어 단위로 매우 세분화)
                     const words = splitIntoWords(line.text)
                     const phrases: string[] = []
@@ -7650,7 +7986,23 @@ export default function LongformContentPage() {
                             }
                           } else {
                             const errorText = await whisperResponse.text()
-                            console.warn(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1} API 오류:`, errorText)
+                            let errorMessage = errorText
+                            try {
+                              const errorData = JSON.parse(errorText)
+                              errorMessage = errorData.error || errorMessage
+                            } catch (e) {
+                              // JSON 파싱 실패 시 원본 텍스트 사용
+                            }
+                            
+                            // API 키 관련 오류인지 확인
+                            if (whisperResponse.status === 401 || whisperResponse.status === 403 ||
+                                errorMessage.toLowerCase().includes("api key") ||
+                                errorMessage.toLowerCase().includes("openai api 키") ||
+                                errorMessage.toLowerCase().includes("unauthorized")) {
+                              console.warn(`[Whisper] ❌ OpenAI API 키 오류 (씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}): ${errorMessage}\n\n해결 방법:\n1. 설정에서 OpenAI API 키를 확인하세요\n2. API 키가 올바른지 확인하세요`)
+                            } else {
+                              console.warn(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1} API 오류:`, errorMessage)
+                            }
                           }
                         } catch (whisperError) {
                           console.warn(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1} STT 분석 오류 (시도 ${retryCount + 1}/${maxRetries}):`, whisperError)
@@ -7660,7 +8012,7 @@ export default function LongformContentPage() {
                       }
                       
                       if (!whisperSuccess) {
-                        console.error(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}: ${maxRetries}회 재시도 후 실패`)
+                        console.error(`[Whisper] ❌ 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}: ${maxRetries}회 재시도 후 실패\n\n가능한 원인:\n1. OpenAI API 키 문제\n2. 네트워크 연결 문제\n3. 오디오 파일 문제\n\n해결 방법:\n1. 설정에서 OpenAI API 키를 확인하세요\n2. 브라우저 콘솔(F12)에서 자세한 오류를 확인해주세요`)
                       }
                     }
                   }
@@ -7774,7 +8126,7 @@ export default function LongformContentPage() {
           
           console.log(`[Whisper] 씬별 전체 ${allWordTimings.length}개 단어 타이밍 추출 완료 (${totalPhrases}개 구간, 소수점 10자리 정밀도)`)
         } else {
-          console.warn(`[Whisper] OpenAI API 키 없음, Whisper API 건너뜀`)
+          console.warn(`[Whisper] ❌ OpenAI API 키 없음, Whisper API 건너뜀\n\n해결 방법:\n1. 설정에서 OpenAI API 키를 입력하세요\n2. STT 분석 없이 자막이 생성됩니다 (정확도가 낮을 수 있음)`)
         }
         
         // splitIntoSubtitleLines 함수 (fallback용)
@@ -8391,7 +8743,7 @@ export default function LongformContentPage() {
         
         console.log(`[Whisper] 전체 ${allWordTimings.length}개 단어 타이밍 추출 완료 (${totalPhrases}개 구간, ${scriptLines.length}개 문장)`)
       } else {
-        console.warn(`[Whisper] OpenAI API 키 없음, Whisper API 건너뜀`)
+        console.warn(`[Whisper] ❌ OpenAI API 키 없음, Whisper API 건너뜀\n\n해결 방법:\n1. 설정에서 OpenAI API 키를 입력하세요\n2. STT 분석 없이 자막이 생성됩니다 (정확도가 낮을 수 있음)`)
       }
       
       // 전체 텍스트 합치기 (fallback용)
@@ -16018,27 +16370,46 @@ export default function LongformContentPage() {
                         </div>
                       </div>
                     )}
-                    {/* 실사화/실사화2 선택 시 인물 타입 선택 */}
+                    {/* 실사화/실사화2 선택 시 인물 타입 선택 및 AI 모델 선택 */}
                     {(imageStyle === "realistic" || imageStyle === "realistic2") && (
-                      <div className="mt-4 pt-4 border-t border-gray-200">
-                        <p className="text-sm font-medium text-gray-700 mb-2">인물 타입 선택</p>
-                        <div className="flex gap-2">
-                          <Button
-                            variant={realisticCharacterType === "korean" ? "default" : "outline"}
-                            onClick={() => setRealisticCharacterType("korean")}
-                            className="flex-1"
-                            size="sm"
-                          >
-                            한국인
-                          </Button>
-                          <Button
-                            variant={realisticCharacterType === "foreign" ? "default" : "outline"}
-                            onClick={() => setRealisticCharacterType("foreign")}
-                            className="flex-1"
-                            size="sm"
-                          >
-                            외국인
-                          </Button>
+                      <div className="mt-4 pt-4 border-t border-gray-200 space-y-4">
+                        <div>
+                          <p className="text-sm font-medium text-gray-700 mb-2">AI 모델 선택</p>
+                          <Select value={imageModel} onValueChange={(value: "prunaai/hidream-l1-fast" | "black-forest-labs/flux-schnell") => setImageModel(value)}>
+                            <SelectTrigger className="w-full">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="prunaai/hidream-l1-fast">prunaai/hidream-l1-fast (이미지 한장당 7원)</SelectItem>
+                              <SelectItem value="black-forest-labs/flux-schnell">black-forest-labs/flux-schnell (이미지 한장당 4원)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          {imageModel === "black-forest-labs/flux-schnell" && (
+                            <p className="text-xs text-gray-500 mt-1">
+                              Negative prompt는 자동으로 프롬프트에 결합됩니다. (16:9 비율 고정)
+                            </p>
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-700 mb-2">인물 타입 선택</p>
+                          <div className="flex gap-2">
+                            <Button
+                              variant={realisticCharacterType === "korean" ? "default" : "outline"}
+                              onClick={() => setRealisticCharacterType("korean")}
+                              className="flex-1"
+                              size="sm"
+                            >
+                              한국인
+                            </Button>
+                            <Button
+                              variant={realisticCharacterType === "foreign" ? "default" : "outline"}
+                              onClick={() => setRealisticCharacterType("foreign")}
+                              className="flex-1"
+                              size="sm"
+                            >
+                              외국인
+                            </Button>
+                          </div>
                         </div>
                       </div>
                     )}
@@ -16999,26 +17370,22 @@ export default function LongformContentPage() {
                         // 변환된 영상 데이터 초기화 (영상 제거)
                         setConvertedSceneVideos(new Map())
                         setConvertedVideos(new Map())
-                        // sceneImagePrompts의 imageUrl 제거 (기존 이미지 제거) - 단, 이미 생성된 이미지는 유지
-                        setSceneImagePrompts((prev) => {
-                          return prev.map((scene) => ({
-                            ...scene,
-                            images: scene.images.map((img) => {
-                              // 이미 생성된 이미지는 유지 (개별 생성 버튼으로 생성한 이미지 보존)
-                              if (img.imageUrl) {
-                                return img
-                              }
-                              return { ...img, imageUrl: undefined }
-                            })
+                        // sceneImagePrompts의 imageUrl 제거 (기존 이미지 모두 초기화 - 재생성을 위해)
+                        const resetPrompts = sceneImagePrompts.map((scene) => ({
+                          ...scene,
+                          images: scene.images.map((img) => ({
+                            ...img,
+                            imageUrl: undefined // 모든 이미지 URL 초기화
                           }))
-                        })
+                        }))
+                        setSceneImagePrompts(resetPrompts)
                         
-                        const totalImages = sceneImagePrompts.reduce((sum, scene) => sum + scene.images.length, 0)
+                        const totalImages = resetPrompts.reduce((sum, scene) => sum + scene.images.length, 0)
                         setSceneImageGenerationProgress({ current: 0, total: totalImages })
                         
                         try {
                           let currentIndex = 0
-                          const updatedPrompts = [...sceneImagePrompts]
+                          const updatedPrompts: Array<{ sceneNumber: number; images: Array<{ imageNumber: number; prompt: string; sceneText: string; visualInstruction?: string; imageUrl?: string; createdAt?: number }> }> = [...resetPrompts]
                           let hasGeneratedImages = false
                           shouldStopImageGeneration.current = false // 중단 플래그 초기화
                           
@@ -17047,8 +17414,8 @@ export default function LongformContentPage() {
                               
                               try {
                                 console.log(`[Scene Image] 이미지 생성 시도 ${attempt}/${maxRetries}...`)
-                                // 모델 선택: 스틱맨 애니메이션, 애니메이션2, 유럽풍 그래픽 노블인 경우 사용자 선택 모델 사용
-                                const selectedModel = (imageStyle === "stickman-animation" || imageStyle === "animation2" || imageStyle === "animation3") 
+                                // 모델 선택: 스틱맨 애니메이션, 애니메이션2, 유럽풍 그래픽 노블, 실사화, 실사화2인 경우 사용자 선택 모델 사용
+                                const selectedModel = (imageStyle === "stickman-animation" || imageStyle === "animation2" || imageStyle === "animation3" || imageStyle === "realistic" || imageStyle === "realistic2") 
                                   ? imageModel 
                                   : undefined
                                 const imageUrl = await generateImageWithReplicate(
@@ -17214,8 +17581,8 @@ export default function LongformContentPage() {
                                                 openaiApiKey
                                               )
                                               if (extractedRendering) {
-                                                renderingStyle = extractedRendering
-                                                console.log("[Scene Image] 애니메이션 그림체 스타일 추출 완료:", renderingStyle.substring(0, 100) + "...")
+                                                renderingStyle = extractedRendering ?? null
+                                                console.log("[Scene Image] 애니메이션 그림체 스타일 추출 완료:", renderingStyle?.substring(0, 100) + "...")
                                               }
                                             } catch (error) {
                                               console.warn("[Scene Image] 애니메이션 그림체 스타일 추출 실패:", error)
@@ -17234,8 +17601,14 @@ export default function LongformContentPage() {
                                   if (sceneIndex !== -1) {
                                     const imageIndex = updatedPrompts[sceneIndex].images.findIndex(img => img.imageNumber === image.imageNumber)
                                     if (imageIndex !== -1) {
-                                      updatedPrompts[sceneIndex].images[imageIndex].imageUrl = imageUrl
-                                      updatedPrompts[sceneIndex].images[imageIndex].createdAt = Date.now() // 이미지 생성 시간 저장
+                                      updatedPrompts[sceneIndex] = {
+                                        ...updatedPrompts[sceneIndex],
+                                        images: updatedPrompts[sceneIndex].images.map((img, idx) => 
+                                          idx === imageIndex 
+                                            ? { ...img, imageUrl: imageUrl as string, createdAt: Date.now() }
+                                            : img
+                                        )
+                                      }
                                       setSceneImagePrompts([...updatedPrompts])
                                       hasGeneratedImages = true
                                     }
@@ -17555,6 +17928,24 @@ export default function LongformContentPage() {
                                               // 로딩 시작
                                               setGeneratingImageIds((prev) => new Set(prev).add(imageId))
                                               
+                                              // 이미지 재생성 시 이전 이미지 URL 초기화
+                                              setSceneImagePrompts((prev) => {
+                                                return prev.map((s) => {
+                                                  if (s.sceneNumber === scene.sceneNumber) {
+                                                    return {
+                                                      ...s,
+                                                      images: s.images.map((img) => {
+                                                        if (img.imageNumber === image.imageNumber) {
+                                                          return { ...img, imageUrl: undefined }
+                                                        }
+                                                        return img
+                                                      }),
+                                                    }
+                                                  }
+                                                  return s
+                                                })
+                                              })
+                                              
                                               // 이미지 생성 시작 시 해당 이미지의 영상 데이터 초기화
                                               setConvertedSceneVideos((prev) => {
                                                 const newMap = new Map(prev)
@@ -17573,8 +17964,8 @@ export default function LongformContentPage() {
                                                 while (attempt <= maxRetries && !imageUrl) {
                                                   try {
                                                     console.log(`[Scene Image] 개별 이미지 생성 시도 ${attempt}/${maxRetries}...`)
-                                                    // 모델 선택: 스틱맨 애니메이션, 애니메이션2, 유럽풍 그래픽 노블인 경우 사용자 선택 모델 사용
-                                                    const selectedModel = (imageStyle === "stickman-animation" || imageStyle === "animation2" || imageStyle === "animation3") 
+                                                    // 모델 선택: 스틱맨 애니메이션, 애니메이션2, 유럽풍 그래픽 노블, 실사화, 실사화2인 경우 사용자 선택 모델 사용
+                                                    const selectedModel = (imageStyle === "stickman-animation" || imageStyle === "animation2" || imageStyle === "animation3" || imageStyle === "realistic" || imageStyle === "realistic2") 
                                                       ? imageModel 
                                                       : undefined
                                                     imageUrl = await generateImageWithReplicate(
@@ -17912,6 +18303,159 @@ export default function LongformContentPage() {
                     <CardTitle className="text-lg font-semibold text-slate-900">목소리 선택</CardTitle>
               </CardHeader>
               <CardContent className="pt-6 space-y-4">
+                    {/* 수퍼톤 음성 선택 */}
+                    <div className="mb-4 pb-4 border-b border-gray-200">
+                      <div className={`p-4 border-2 rounded-lg transition-all ${
+                        selectedVoiceId?.startsWith("supertone-")
+                          ? "border-purple-500 bg-purple-50"
+                          : "border-gray-200 bg-white"
+                      }`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center space-x-2">
+                            <div
+                              className={`w-4 h-4 rounded-full border-2 cursor-pointer ${
+                                selectedVoiceId?.startsWith("supertone-") ? "border-purple-500 bg-purple-500" : "border-gray-300"
+                              }`}
+                              onClick={() => {
+                                if (supertoneVoices.length > 0 && !selectedSupertoneVoiceId) {
+                                  // 음성 목록이 있으면 첫 번째 음성 선택
+                                  setSelectedSupertoneVoiceId(supertoneVoices[0].voice_id)
+                                  setSelectedVoiceId(`supertone-${supertoneVoices[0].voice_id}`)
+                                  const firstVoice = supertoneVoices[0]
+                                  if (firstVoice.styles && firstVoice.styles.length > 0) {
+                                    const neutralStyle = firstVoice.styles.find(s => s.toLowerCase().includes("neutral") || s === "중립")
+                                    setSelectedSupertoneStyle(neutralStyle || firstVoice.styles[0])
+                                  }
+                                } else if (selectedSupertoneVoiceId) {
+                                  // 이미 선택되어 있으면 해제
+                                  setSelectedSupertoneVoiceId("")
+                                  setSelectedVoiceId("ttsmaker-여성1") // 기본값으로 변경
+                                } else {
+                                  // 음성 목록이 없으면 가져오기
+                                  fetchSupertoneVoices()
+                                }
+                              }}
+                            >
+                              {selectedVoiceId?.startsWith("supertone-") && (
+                                <div className="w-2 h-2 bg-white rounded-full mx-auto mt-0.5"></div>
+                              )}
+                            </div>
+                            <p className={`text-sm font-medium ${selectedVoiceId?.startsWith("supertone-") ? "text-purple-900" : "text-gray-700"}`}>수퍼톤 (SuperTone)</p>
+                          </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={fetchSupertoneVoices}
+                          disabled={isLoadingSupertoneVoices}
+                          className={selectedVoiceId?.startsWith("supertone-") ? "border-purple-300 text-purple-700" : ""}
+                        >
+                          {isLoadingSupertoneVoices ? (
+                            <>
+                              <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                              로딩 중...
+                            </>
+                          ) : (
+                            <>
+                              <RefreshCw className="w-3 h-3 mr-1" />
+                              음성 목록 가져오기
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                      {supertoneVoices.length > 0 && (
+                        <Select
+                          value={selectedSupertoneVoiceId}
+                          onValueChange={(value) => {
+                            setSelectedSupertoneVoiceId(value)
+                            setSelectedVoiceId(`supertone-${value}`)
+                            // 선택한 음성의 첫 번째 스타일을 기본값으로 설정
+                            const selectedVoice = supertoneVoices.find(v => v.voice_id === value)
+                            if (selectedVoice && selectedVoice.styles && selectedVoice.styles.length > 0) {
+                              // "neutral" 또는 "중립"이 있으면 그것을, 없으면 첫 번째 스타일 사용
+                              const neutralStyle = selectedVoice.styles.find(s => s.toLowerCase().includes("neutral") || s === "중립")
+                              setSelectedSupertoneStyle(neutralStyle || selectedVoice.styles[0])
+                            } else {
+                              setSelectedSupertoneStyle("neutral")
+                            }
+                          }}
+                          disabled={!selectedVoiceId?.startsWith("supertone-")}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="수퍼톤 음성을 선택하세요" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {supertoneVoices.map((voice) => (
+                              <SelectItem key={voice.voice_id} value={voice.voice_id}>
+                                <div className="flex items-center gap-2">
+                                  {voice.thumbnail_image_url && (
+                                    <img
+                                      src={voice.thumbnail_image_url}
+                                      alt={voice.name}
+                                      className="w-6 h-6 rounded-full object-cover"
+                                    />
+                                  )}
+                                  <div>
+                                    <div className="font-medium">{voice.name}</div>
+                                    {voice.styles && voice.styles.length > 0 && (
+                                      <div className="text-xs text-gray-500">
+                                        스타일: {voice.styles.join(", ")}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                      {selectedSupertoneVoiceId && (() => {
+                        const selectedVoice = supertoneVoices.find(v => v.voice_id === selectedSupertoneVoiceId)
+                        const availableStyles = selectedVoice?.styles || []
+                        return availableStyles.length > 0 && (
+                          <div className="mt-2">
+                            <p className="text-sm font-medium text-gray-700 mb-2">스타일 선택</p>
+                            <Select
+                              value={selectedSupertoneStyle}
+                              onValueChange={setSelectedSupertoneStyle}
+                            >
+                              <SelectTrigger className="w-full">
+                                <SelectValue placeholder="스타일을 선택하세요" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {availableStyles.map((style) => (
+                                  <SelectItem key={style} value={style}>
+                                    {style}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )
+                      })()}
+                      {selectedSupertoneVoiceId && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full mt-2 border-purple-300 text-purple-700 hover:bg-purple-100"
+                          onClick={() => handlePreviewVoice(`supertone-${selectedSupertoneVoiceId}`)}
+                          disabled={previewingVoiceId === `supertone-${selectedSupertoneVoiceId}`}
+                        >
+                          {previewingVoiceId === `supertone-${selectedSupertoneVoiceId}` ? (
+                            <>
+                              <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                              재생 중...
+                            </>
+                          ) : (
+                            <>
+                              <Volume2 className="w-3 h-3 mr-1" />
+                              미리듣기
+                            </>
+                          )}
+                        </Button>
+                      )}
+                      </div>
+                    </div>
+
                     <div className="space-y-2">
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         {[
@@ -17930,21 +18474,44 @@ export default function LongformContentPage() {
                             className={`p-3 border-2 rounded-lg transition-all ${
                               selectedVoiceId === voice.id
                                 ? "border-red-500 bg-red-50"
+                                : selectedVoiceId?.startsWith("supertone-")
+                                ? "border-gray-200 bg-gray-50 opacity-50 cursor-not-allowed"
                                 : "border-gray-200 hover:border-gray-300"
                             }`}
                           >
                             <div className="flex items-center space-x-2 mb-2">
                               <div
-                                className={`w-4 h-4 rounded-full border-2 cursor-pointer ${
+                                className={`w-4 h-4 rounded-full border-2 ${
+                                  selectedVoiceId?.startsWith("supertone-") 
+                                    ? "border-gray-300 cursor-not-allowed" 
+                                    : "cursor-pointer"
+                                } ${
                                   selectedVoiceId === voice.id ? "border-red-500 bg-red-500" : "border-gray-300"
                                 }`}
-                                onClick={() => setSelectedVoiceId(voice.id)}
+                                onClick={() => {
+                                  if (selectedVoiceId?.startsWith("supertone-")) return
+                                  setSelectedVoiceId(voice.id)
+                                  // 다른 TTS 선택 시 수퍼톤 선택 해제
+                                  if (selectedSupertoneVoiceId) {
+                                    setSelectedSupertoneVoiceId("")
+                                  }
+                                }}
                               >
                                 {selectedVoiceId === voice.id && (
                                   <div className="w-2 h-2 bg-white rounded-full mx-auto mt-0.5"></div>
                                 )}
                               </div>
-                              <div className="flex-1" onClick={() => setSelectedVoiceId(voice.id)}>
+                              <div 
+                                className={`flex-1 ${selectedVoiceId?.startsWith("supertone-") ? "cursor-not-allowed" : "cursor-pointer"}`}
+                                onClick={() => {
+                                  if (selectedVoiceId?.startsWith("supertone-")) return
+                                  setSelectedVoiceId(voice.id)
+                                  // 다른 TTS 선택 시 수퍼톤 선택 해제
+                                  if (selectedSupertoneVoiceId) {
+                                    setSelectedSupertoneVoiceId("")
+                                  }
+                                }}
+                              >
                                 <p className="text-sm font-medium">{voice.name}</p>
                                 {voice.note && <p className="text-xs text-gray-500">{voice.note}</p>}
                               </div>
@@ -17955,9 +18522,10 @@ export default function LongformContentPage() {
                               className="w-full text-xs"
                               onClick={(e) => {
                                 e.stopPropagation()
+                                if (selectedVoiceId?.startsWith("supertone-")) return
                                 handlePreviewVoice(voice.id)
                               }}
-                              disabled={previewingVoiceId === voice.id}
+                              disabled={previewingVoiceId === voice.id || selectedVoiceId?.startsWith("supertone-")}
                             >
                               {previewingVoiceId === voice.id ? (
                                 <>
@@ -19477,13 +20045,17 @@ export default function LongformContentPage() {
                       </Button>
                       <Button
                         onClick={handleNormalDownload}
-                        disabled={isExporting}
+                        disabled={isExporting || (videoData?.duration ? videoData.duration > 1200 : false)}
                         variant="outline"
                         size="lg"
                         className="flex-1"
+                        title={videoData?.duration && videoData.duration > 1200 ? "20분 이상 영상은 보통다운로드를 사용할 수 없습니다. 빠른다운로드를 사용해주세요." : ""}
                       >
                         <Download className="w-4 h-4 mr-2" />
                         보통다운로드
+                        {videoData?.duration && videoData.duration > 1200 && (
+                          <span className="ml-2 text-xs opacity-80">(20분 이상 비활성화)</span>
+                        )}
                       </Button>
                     </div>
                     <p className="text-sm text-red-600 mt-1">

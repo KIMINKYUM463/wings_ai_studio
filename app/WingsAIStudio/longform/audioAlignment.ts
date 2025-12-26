@@ -101,31 +101,23 @@ export async function generateWordTimings(
   const duration = audioBuffer.duration
   let wordTimings: WordTiming[] = []
 
-  // 1. Whisper API 시도 (가장 정확함)
+  // 1. LemonFox.ai API 시도 (가장 정확함, API 키 불필요 - 서버에서 하드코딩됨)
   try {
     if (typeof window !== 'undefined') {
-      // 동적 import로 클라이언트 사이드에서만 로드
-      const { getApiKey } = await import('@/lib/api-keys')
-      const openaiApiKey = getApiKey("openai")
+      console.log("[Alignment] LemonFox.ai API 시도...")
+      const audioBlob = await audioBufferToBlob(audioBuffer)
+      wordTimings = await generateTimingsWithWhisper(audioBlob, text, '/api/whisper-align')
       
-      if (openaiApiKey) {
-        console.log("[Alignment] Whisper API 시도...")
-        const audioBlob = await audioBufferToBlob(audioBuffer)
-        wordTimings = await generateTimingsWithWhisper(audioBlob, text, '/api/whisper-align')
-        
-        if (wordTimings.length > 0 && wordTimings.length >= words.length * 0.8) {
-          // 80% 이상의 단어가 매칭되면 성공으로 간주
-          console.log("[Alignment] Whisper API 성공:", wordTimings.length, "단어")
-          return wordTimings
-        } else {
-          console.warn("[Alignment] Whisper API 결과 부족:", wordTimings.length, "/", words.length)
-        }
+      if (wordTimings.length > 0 && wordTimings.length >= words.length * 0.8) {
+        // 80% 이상의 단어가 매칭되면 성공으로 간주
+        console.log("[Alignment] LemonFox.ai API 성공:", wordTimings.length, "단어")
+        return wordTimings
       } else {
-        console.warn("[Alignment] OpenAI API 키 없음, Whisper API 건너뜀.")
+        console.warn("[Alignment] LemonFox.ai API 결과 부족:", wordTimings.length, "/", words.length)
       }
     }
   } catch (e) {
-    console.warn("[Alignment] Whisper API 실패:", e)
+    console.warn("[Alignment] LemonFox.ai API 실패:", e)
   }
 
   // 2. Web Speech API 시도 (클라이언트 측)
