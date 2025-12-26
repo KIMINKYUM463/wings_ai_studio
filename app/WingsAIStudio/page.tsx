@@ -77,16 +77,16 @@ const videoProductionServices = [
     hoverGradient: "from-blue-600 via-cyan-600 to-teal-600",
     featured: true, // 추천 배지 표시
   },
-  // 쿠팡파트너스 - 비공개 처리
-  // {
-  //   id: "shopping",
-  //   title: "쿠팡파트너스",
-  //   icon: ShoppingBag,
-  //   description: "쿠팡 상품으로 15초 쇼핑 영상을 빠르게 제작",
-  //   url: "/WingsAIStudio/shopping",
-  //   gradient: "from-orange-500 via-amber-500 to-yellow-500",
-  //   hoverGradient: "from-orange-600 via-amber-600 to-yellow-600",
-  // },
+  {
+    id: "shopping",
+    title: "쿠팡파트너스",
+    icon: ShoppingBag,
+    description: "쿠팡 상품으로 15초 쇼핑 영상을 빠르게 제작",
+    url: "/WingsAIStudio/shopping",
+    gradient: "from-orange-500 via-amber-500 to-yellow-500",
+    hoverGradient: "from-orange-600 via-amber-600 to-yellow-600",
+    locked: true, // 자물쇠 처리
+  },
 ]
 
 const analysisToolsServices = [

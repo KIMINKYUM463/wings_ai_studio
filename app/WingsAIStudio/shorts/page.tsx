@@ -3730,8 +3730,8 @@ export default function ShortsPage() {
                   </>
                 )}
               </Button>
-                    </div>
-                  </div>
+            </div>
+          </div>
         )
 
       case "render":
@@ -3761,8 +3761,8 @@ export default function ShortsPage() {
                 <Download className="w-4 h-4 mr-2" />
                 다운로드
               </Button>
-                    </div>
-                    </div>
+            </div>
+          </div>
         )
 
       default:
