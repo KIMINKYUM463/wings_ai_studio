@@ -28,6 +28,7 @@ import {
   Film,
   BarChart3,
   MessageSquare,
+  FileText,
   LineChart,
   ArrowRight,
   Settings,
@@ -37,7 +38,6 @@ import {
   User,
   BookOpen,
   CreditCard,
-  FileText,
   ImageIcon,
   Volume2,
   Sparkles,
@@ -861,6 +861,68 @@ export default function HomePage() {
     localStorage.setItem("youtube_client_secret", apiKeys.youtubeClientSecret)
     localStorage.setItem("wings_youtube_data_api_key", apiKeys.youtubeDataApiKey)
     
+    setSaved(true)
+    setTimeout(() => {
+      setSaved(false)
+    }, 2000)
+  }
+
+  // API 키를 메모장 파일로 저장
+  const handleSaveToNotepad = () => {
+    const apiKeysText = `WingsAIStudio API 키 백업
+생성일: ${new Date().toLocaleString("ko-KR")}
+
+========================================
+API 키 목록
+========================================
+
+1. OpenAI API Key
+${apiKeys.openai || "(미입력)"}
+
+2. ElevenLabs API Key
+${apiKeys.elevenlabs || "(미입력)"}
+
+3. Replicate API Key
+${apiKeys.replicate || "(미입력)"}
+
+4. Gemini API Key
+${apiKeys.gemini || "(미입력)"}
+
+5. TTSMaker API Key
+${apiKeys.ttsmaker || "(미입력)"}
+
+6. Supertone API Key
+${apiKeys.supertone || "(미입력)"}
+
+7. YouTube Client ID
+${apiKeys.youtubeClientId || "(미입력)"}
+
+8. YouTube Client Secret
+${apiKeys.youtubeClientSecret || "(미입력)"}
+
+9. YouTube Data API Key
+${apiKeys.youtubeDataApiKey || "(미입력)"}
+
+========================================
+주의사항
+========================================
+- 이 파일에는 중요한 API 키 정보가 포함되어 있습니다.
+- 안전한 곳에 보관하시고, 타인에게 공유하지 마세요.
+- API 키가 유출되면 즉시 재발급 받으세요.
+`
+
+    // Blob을 사용하여 텍스트 파일 생성
+    const blob = new Blob([apiKeysText], { type: "text/plain;charset=utf-8" })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = `WingsAIStudio_API_Keys_${new Date().toISOString().split("T")[0]}.txt`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+    
+    // 성공 메시지
     setSaved(true)
     setTimeout(() => {
       setSaved(false)
@@ -1766,9 +1828,19 @@ export default function HomePage() {
                 </>
               )}
             </div>
-            <Button onClick={handleSave} className="min-w-[100px]">
-              저장
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button 
+                onClick={handleSaveToNotepad} 
+                variant="outline"
+                className="min-w-[140px]"
+              >
+                <FileText className="w-4 h-4 mr-2" />
+                메모장으로 저장
+              </Button>
+              <Button onClick={handleSave} className="min-w-[100px]">
+                저장
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

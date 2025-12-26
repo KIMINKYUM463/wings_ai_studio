@@ -1035,6 +1035,62 @@ export default function LongformContentPage() {
       setSaved(false)
     }, 2000)
   }
+
+  // API 키를 메모장 파일로 저장
+  const handleSaveApiKeysToNotepad = () => {
+    const apiKeysText = `WingsAIStudio API 키 백업
+생성일: ${new Date().toLocaleString("ko-KR")}
+
+========================================
+API 키 목록
+========================================
+
+1. OpenAI API Key
+${apiKeys.openai || "(미입력)"}
+
+2. ElevenLabs API Key
+${apiKeys.elevenlabs || "(미입력)"}
+
+3. Replicate API Key
+${apiKeys.replicate || "(미입력)"}
+
+4. Gemini API Key
+${apiKeys.gemini || "(미입력)"}
+
+5. TTSMaker API Key
+${apiKeys.ttsmaker || "(미입력)"}
+
+6. Supertone API Key
+${apiKeys.supertone || "(미입력)"}
+
+7. YouTube Data API Key
+${apiKeys.youtubeDataApiKey || "(미입력)"}
+
+========================================
+주의사항
+========================================
+- 이 파일에는 중요한 API 키 정보가 포함되어 있습니다.
+- 안전한 곳에 보관하시고, 타인에게 공유하지 마세요.
+- API 키가 유출되면 즉시 재발급 받으세요.
+`
+
+    // Blob을 사용하여 텍스트 파일 생성
+    const blob = new Blob([apiKeysText], { type: "text/plain;charset=utf-8" })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = `WingsAIStudio_API_Keys_${new Date().toISOString().split("T")[0]}.txt`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+    
+    // 성공 메시지
+    setSaved(true)
+    setTimeout(() => {
+      setSaved(false)
+    }, 2000)
+  }
   const [testImageUrl, setTestImageUrl] = useState<string | null>(null) // 테스트용 이미지 URL
   const previewContainerRef = useRef<HTMLDivElement | null>(null)
   
@@ -9230,62 +9286,130 @@ export default function LongformContentPage() {
 
   // 이미지를 1920x1080으로 리사이즈하는 헬퍼 함수
   const resizeImageTo1920x1080 = async (imageUrl: string): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const img = new Image()
-      img.crossOrigin = "anonymous"
-      img.onload = () => {
-        try {
-          const canvas = document.createElement("canvas")
-          canvas.width = 1920
-          canvas.height = 1080
-          const ctx = canvas.getContext("2d")
-          if (!ctx) {
-            reject(new Error("Canvas context를 생성할 수 없습니다."))
-            return
-          }
+    // 이미지 URL 검증
+    if (!imageUrl || imageUrl.trim() === "") {
+      throw new Error("이미지 URL이 비어있습니다. 이미지를 다시 생성해주세요.")
+    }
 
-          // 이미지를 1920x1080에 맞게 중앙 크롭
-          const targetWidth = 1920
-          const targetHeight = 1080
-          const targetRatio = targetWidth / targetHeight
-          const imgRatio = img.width / img.height
+    // base64 이미지인 경우 바로 반환 (리사이즈 불필요)
+    if (imageUrl.startsWith("data:image/")) {
+      // base64 이미지는 이미 리사이즈된 것으로 가정하고 그대로 반환
+      return imageUrl
+    }
 
-          let sourceX = 0
-          let sourceY = 0
-          let sourceWidth = img.width
-          let sourceHeight = img.height
+    // 이미지 로드 함수 (CORS 재시도 포함)
+    const loadImageWithRetry = (useCors: boolean): Promise<HTMLImageElement> => {
+      return new Promise((resolveImg, rejectImg) => {
+        const img = new Image()
+        
+        // CORS 설정 (조건부)
+        if (useCors) {
+          img.crossOrigin = "anonymous"
+        }
+        
+        // 타임아웃 설정 (30초)
+        const timeoutId = setTimeout(() => {
+          rejectImg(new Error("타임아웃"))
+        }, 30000)
 
-          if (imgRatio > targetRatio) {
-            // 이미지가 더 넓은 경우: 높이 기준으로 크롭 (좌우 잘림)
-            sourceHeight = img.height
-            sourceWidth = img.height * targetRatio
-            sourceX = (img.width - sourceWidth) / 2
-            sourceY = 0
+        img.onload = () => {
+          clearTimeout(timeoutId)
+          resolveImg(img)
+        }
+        
+        img.onerror = (error) => {
+          clearTimeout(timeoutId)
+          rejectImg(error)
+        }
+        
+        img.src = imageUrl
+      })
+    }
+
+    let img: HTMLImageElement
+    
+    // 먼저 CORS를 사용하여 시도
+    try {
+      img = await loadImageWithRetry(true)
+    } catch (corsError) {
+      // CORS 실패 시 CORS 없이 재시도 (같은 도메인 이미지이거나 CORS가 필요 없는 경우)
+      console.warn("[v0] CORS로 이미지 로드 실패, CORS 없이 재시도:", imageUrl.substring(0, 100))
+      try {
+        img = await loadImageWithRetry(false)
+      } catch (retryError) {
+        const errorMessage = `이미지 로드 실패: ${imageUrl.substring(0, 100)}...`
+        console.error("[v0] 이미지 로드 실패 상세:", {
+          imageUrl: imageUrl.substring(0, 100),
+          corsError,
+          retryError,
+          isCorsIssue: imageUrl.startsWith("http") && !imageUrl.startsWith(window.location.origin),
+          isImageFX: imageUrl.includes("googleusercontent.com") || imageUrl.includes("imagefx"),
+        })
+        
+        // ImageFX 이미지인지 확인 (googleusercontent.com 도메인)
+        const isImageFX = imageUrl.includes("googleusercontent.com") || imageUrl.includes("imagefx")
+        
+        // CORS 문제 가능성 체크
+        if (imageUrl.startsWith("http") && !imageUrl.startsWith(window.location.origin)) {
+          if (isImageFX) {
+            throw new Error(`${errorMessage}\n\n가능한 원인:\n1. ImageFX 이미지 CORS 정책 문제: Google ImageFX 이미지는 CORS를 허용하지 않을 수 있습니다.\n2. 이미지 URL이 유효하지 않거나 삭제되었습니다.\n3. 네트워크 연결 문제입니다.\n\n해결 방법:\n- ImageFX 이미지를 다운로드하여 업로드하는 방식으로 변경해주세요.\n- 또는 다른 이미지 생성 도구를 사용해주세요.\n- 이미지를 다시 생성해주세요.`)
           } else {
-            // 이미지가 더 높은 경우: 너비 기준으로 크롭 (상하 잘림)
-            sourceWidth = img.width
-            sourceHeight = img.width / targetRatio
-            sourceX = 0
-            sourceY = (img.height - sourceHeight) / 2
+            throw new Error(`${errorMessage}\n\n가능한 원인:\n1. CORS 정책 문제: 이미지 서버에서 크로스 오리진 요청을 허용하지 않습니다.\n2. 이미지 URL이 유효하지 않거나 삭제되었습니다.\n3. 네트워크 연결 문제입니다.\n\n해결 방법:\n- 이미지를 다운로드하여 업로드하는 방식으로 변경해주세요.\n- 이미지를 다시 생성해주세요.\n- 다른 이미지로 시도해보세요.`)
           }
-
-          // 이미지를 1920x1080에 딱 맞게 그리기
-          ctx.drawImage(
-            img,
-            sourceX, sourceY, sourceWidth, sourceHeight,
-            0, 0, targetWidth, targetHeight
-          )
-
-          // base64로 변환
-          const base64 = canvas.toDataURL("image/png")
-          resolve(base64)
-        } catch (error) {
-          reject(error)
+        } else {
+          throw new Error(`${errorMessage}\n\n가능한 원인:\n1. 이미지 URL이 유효하지 않거나 삭제되었습니다.\n2. 네트워크 연결 문제입니다.\n3. 이미지 파일이 손상되었습니다.\n\n해결 방법:\n- 이미지를 다시 생성해주세요.\n- 다른 이미지로 시도해보세요.`)
         }
       }
-      img.onerror = () => reject(new Error("이미지 로드 실패"))
-      img.src = imageUrl
-    })
+    }
+
+    // 이미지 리사이즈 처리
+    try {
+      const canvas = document.createElement("canvas")
+      canvas.width = 1920
+      canvas.height = 1080
+      const ctx = canvas.getContext("2d")
+      if (!ctx) {
+        throw new Error("Canvas context를 생성할 수 없습니다.")
+      }
+
+      // 이미지를 1920x1080에 맞게 중앙 크롭
+      const targetWidth = 1920
+      const targetHeight = 1080
+      const targetRatio = targetWidth / targetHeight
+      const imgRatio = img.width / img.height
+
+      let sourceX = 0
+      let sourceY = 0
+      let sourceWidth = img.width
+      let sourceHeight = img.height
+
+      if (imgRatio > targetRatio) {
+        // 이미지가 더 넓은 경우: 높이 기준으로 크롭 (좌우 잘림)
+        sourceHeight = img.height
+        sourceWidth = img.height * targetRatio
+        sourceX = (img.width - sourceWidth) / 2
+        sourceY = 0
+      } else {
+        // 이미지가 더 높은 경우: 너비 기준으로 크롭 (상하 잘림)
+        sourceWidth = img.width
+        sourceHeight = img.width / targetRatio
+        sourceX = 0
+        sourceY = (img.height - sourceHeight) / 2
+      }
+
+      // 이미지를 1920x1080에 딱 맞게 그리기
+      ctx.drawImage(
+        img,
+        sourceX, sourceY, sourceWidth, sourceHeight,
+        0, 0, targetWidth, targetHeight
+      )
+
+      // base64로 변환
+      const base64 = canvas.toDataURL("image/png")
+      return base64
+    } catch (error) {
+      throw new Error(`이미지 리사이즈 실패: ${error instanceof Error ? error.message : String(error)}`)
+    }
   }
 
   // 오류 분석 함수
@@ -10536,7 +10660,7 @@ export default function LongformContentPage() {
         ? ((window as any).CLOUD_RUN_RENDER_URL || 
            (window as any).NEXT_PUBLIC_CLOUD_RUN_RENDER_URL ||
            process.env.NEXT_PUBLIC_CLOUD_RUN_RENDER_URL ||
-           "https://my-project-350911437561.asia-northeast1.run.app") // 기본값
+           "https://my-project-gs3pokkvsa-an.a.run.app") // 기본값
         : null
       
       // 디버깅: Cloud Run URL 및 영상 길이 확인
@@ -22991,6 +23115,14 @@ export default function LongformContentPage() {
             </div>
 
             <div className="flex justify-end gap-2 pt-4">
+              <Button 
+                onClick={handleSaveApiKeysToNotepad} 
+                variant="outline"
+                className="min-w-[140px]"
+              >
+                <FileText className="w-4 h-4 mr-2" />
+                메모장으로 저장
+              </Button>
               <Button onClick={handleSaveApiKeys} variant="default">
                 {saved ? (
                   <>

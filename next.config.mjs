@@ -25,9 +25,9 @@ const nextConfig = {
   },
   // 환경 변수 설정
   env: {
-    CLOUD_RUN_RENDER_URL: 'https://my-project-350911437561.asia-northeast1.run.app',
+    CLOUD_RUN_RENDER_URL: 'https://my-project-gs3pokkvsa-an.a.run.app',
     // 클라이언트에서 Cloud Run 직접 호출을 위한 환경 변수 (NEXT_PUBLIC_ 접두사 필요)
-    NEXT_PUBLIC_CLOUD_RUN_RENDER_URL: 'https://my-project-350911437561.asia-northeast1.run.app',
+    NEXT_PUBLIC_CLOUD_RUN_RENDER_URL: 'https://my-project-gs3pokkvsa-an.a.run.app',
     // CLOUD_RUN_AUTH_TOKEN: 'your-auth-token-here', // 인증이 필요한 경우 주석 해제
     // Cloud Storage 환경 변수 (next.config.mjs에서 직접 설정)
     GOOGLE_CLOUD_PROJECT_ID: 'test-ai-450613',

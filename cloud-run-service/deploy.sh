@@ -29,7 +29,7 @@ gcloud run deploy my-project \
 
 echo ""
 echo "=== 배포 완료 ==="
-echo "서비스 URL: https://my-project-350911437561.asia-northeast1.run.app"
+echo "서비스 URL: https://my-project-gs3pokkvsa-an.a.run.app"
 echo ""
 echo "안정성 설정:"
 echo "  - 최소 인스턴스: 1개 (항상 실행 중, 콜드 스타트 방지)"
