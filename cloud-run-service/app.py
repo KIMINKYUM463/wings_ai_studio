@@ -868,15 +868,19 @@ def render_video():
         }), 500
 
 @app.route('/', methods=['GET'])
+@app.route('/health', methods=['GET'])
 def health_check():
-    """헬스 체크"""
+    """헬스 체크 엔드포인트 (Cloud Run 자동 스케일링 및 모니터링용)"""
     return jsonify({
-        "status": "running",
+        "status": "healthy",
         "service": "video-renderer",
+        "timestamp": datetime.datetime.now().isoformat(),
+        "version": "1.0.0",
         "endpoints": {
-            "render": "POST /render"
+            "render": "POST /render",
+            "health": "GET /health"
         }
-    })
+    }), 200
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))

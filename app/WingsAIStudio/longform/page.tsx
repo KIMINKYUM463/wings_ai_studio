@@ -10550,41 +10550,94 @@ export default function LongformContentPage() {
       
       let renderResponse: Response
       
-      if (shouldUseDirectCloudRun) {
-        // 긴 영상인 경우 Cloud Run에 직접 요청
-        if (!cloudRunUrl) {
-          const errorMsg = `긴 영상(${estimatedDurationMinutes.toFixed(1)}분)을 렌더링하려면 Cloud Run URL이 필요합니다.\n\n` +
-            `Vercel API Route는 최대 800초(약 13분)까지만 지원하므로 타임아웃이 발생할 수 있습니다.\n\n` +
-            `해결 방법:\n` +
-            `1. Vercel 대시보드 > Settings > Environment Variables에서\n` +
-            `   NEXT_PUBLIC_CLOUD_RUN_RENDER_URL을 설정하세요.\n` +
-            `2. 또는 영상 길이를 15분 미만으로 줄여주세요.`
-          alert(errorMsg)
-          throw new Error(errorMsg)
+      try {
+        if (shouldUseDirectCloudRun) {
+          // 긴 영상인 경우 Cloud Run에 직접 요청
+          if (!cloudRunUrl) {
+            const errorMsg = `긴 영상(${estimatedDurationMinutes.toFixed(1)}분)을 렌더링하려면 Cloud Run URL이 필요합니다.\n\n` +
+              `Vercel API Route는 최대 800초(약 13분)까지만 지원하므로 타임아웃이 발생할 수 있습니다.\n\n` +
+              `해결 방법:\n` +
+              `1. Vercel 대시보드 > Settings > Environment Variables에서\n` +
+              `   NEXT_PUBLIC_CLOUD_RUN_RENDER_URL을 설정하세요.\n` +
+              `2. 또는 영상 길이를 15분 미만으로 줄여주세요.`
+            alert(errorMsg)
+            throw new Error(errorMsg)
+          }
+          
+          console.log(`[v0] 렌더링 작업 시작 (${estimatedDurationMinutes.toFixed(1)}분) - Cloud Run 직접 요청 (타임아웃 우회)`)
+          console.log(`[v0] Cloud Run URL: ${cloudRunUrl}`)
+          
+          renderResponse = await fetch(`${cloudRunUrl}/render`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: requestBodyString,
+          })
+        } else {
+          // 짧은 영상인 경우 Vercel API Route 사용
+          console.log(`[v0] 렌더링 작업 시작 (${estimatedDurationMinutes.toFixed(1)}분) - Vercel API 라우트 사용`)
+          
+          // Vercel API 라우트 사용 (서버 사이드에서 Cloud Run 호출)
+          renderResponse = await fetch("/api/ai/render", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: requestBodyString,
+          })
+        }
+      } catch (fetchError) {
+        // fetch 자체가 실패한 경우 (네트워크 오류, CORS 오류 등)
+        const errorMessage = fetchError instanceof Error ? fetchError.message : String(fetchError)
+        console.error("[v0] 렌더링 API 호출 실패:", errorMessage)
+        
+        let detailedError = "렌더링 실패: Video rendering failed: fetch failed"
+        let analysis = "네트워크 오류: 인터넷 연결을 확인하거나 서버 상태를 확인해주세요."
+        
+        // 더 구체적인 오류 메시지 제공
+        if (errorMessage.includes("Failed to fetch") || errorMessage.includes("fetch failed")) {
+          if (shouldUseDirectCloudRun) {
+            analysis = `네트워크 오류: Cloud Run 서버(${cloudRunUrl})에 연결할 수 없습니다.\n\n` +
+              `가능한 원인:\n` +
+              `1. Cloud Run URL이 올바르지 않거나 서버가 다운되었습니다\n` +
+              `2. 인터넷 연결이 불안정합니다\n` +
+              `3. 방화벽 또는 네트워크 설정 문제\n` +
+              `4. CORS 정책 문제 (브라우저에서 직접 호출하는 경우)\n\n` +
+              `해결 방법:\n` +
+              `1. Cloud Run URL이 올바른지 확인하세요\n` +
+              `2. 인터넷 연결을 확인하세요\n` +
+              `3. Vercel API Route를 사용하도록 영상 길이를 15분 미만으로 줄여보세요`
+          } else {
+            analysis = `네트워크 오류: Vercel API Route(/api/ai/render)에 연결할 수 없습니다.\n\n` +
+              `가능한 원인:\n` +
+              `1. Vercel 서버가 일시적으로 다운되었습니다\n` +
+              `2. 인터넷 연결이 불안정합니다\n` +
+              `3. API Route가 배포되지 않았거나 오류가 있습니다\n\n` +
+              `해결 방법:\n` +
+              `1. 잠시 후 다시 시도해주세요\n` +
+              `2. 인터넷 연결을 확인하세요\n` +
+              `3. 브라우저 콘솔(F12)에서 추가 오류 정보를 확인하세요`
+          }
+          detailedError = `렌더링 실패: Video rendering failed: ${errorMessage}`
+        } else if (errorMessage.includes("NetworkError") || errorMessage.includes("Network request failed")) {
+          analysis = "네트워크 요청 실패: 인터넷 연결을 확인하거나 서버 상태를 확인해주세요."
+          detailedError = `렌더링 실패: ${errorMessage}`
+        } else if (errorMessage.includes("CORS")) {
+          analysis = "CORS 오류: 서버에서 크로스 오리진 요청을 허용하지 않습니다.\n\n해결 방법: Cloud Run URL을 직접 사용하는 대신 Vercel API Route를 사용하세요."
+          detailedError = `렌더링 실패: ${errorMessage}`
+        } else {
+          detailedError = `렌더링 실패: ${errorMessage}`
         }
         
-        console.log(`[v0] 렌더링 작업 시작 (${estimatedDurationMinutes.toFixed(1)}분) - Cloud Run 직접 요청 (타임아웃 우회)`)
-        console.log(`[v0] Cloud Run URL: ${cloudRunUrl}`)
-        
-        renderResponse = await fetch(`${cloudRunUrl}/render`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: requestBodyString,
+        // 오류 로그 저장
+        setExportErrorLog({
+          message: detailedError,
+          analysis: analysis,
+          timestamp: new Date().toLocaleString("ko-KR"),
         })
-      } else {
-        // 짧은 영상인 경우 Vercel API Route 사용
-        console.log(`[v0] 렌더링 작업 시작 (${estimatedDurationMinutes.toFixed(1)}분) - Vercel API 라우트 사용`)
         
-        // Vercel API 라우트 사용 (서버 사이드에서 Cloud Run 호출)
-        renderResponse = await fetch("/api/ai/render", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: requestBodyString,
-        })
+        throw new Error(detailedError)
       }
 
       if (!renderResponse.ok) {
@@ -10634,12 +10687,18 @@ export default function LongformContentPage() {
           }
           
           if (errorData.error) {
-            errorMessage = errorData.error
+            // error가 문자열이 아닐 수 있으므로 문자열로 변환
+            const errorString = typeof errorData.error === 'string' 
+              ? errorData.error 
+              : String(errorData.error)
+            errorMessage = errorString
             
-            // FFmpeg 오류인지 확인
-            const isFFmpegError = errorData.error.includes("ffmpeg") || 
-                                 errorData.error.includes("Segment") ||
-                                 (errorData.details && errorData.details.includes("ffmpeg"))
+            // FFmpeg 오류인지 확인 (문자열인 경우에만 includes 사용)
+            const isFFmpegError = typeof errorString === 'string' && (
+              errorString.includes("ffmpeg") || 
+              errorString.includes("Segment") ||
+              (errorData.details && typeof errorData.details === 'string' && errorData.details.includes("ffmpeg"))
+            )
             
             if (isFFmpegError) {
               errorMessage = "FFmpeg 렌더링 오류가 발생했습니다.\n\n"
@@ -18378,7 +18437,6 @@ export default function LongformContentPage() {
                               setSelectedSupertoneStyle("neutral")
                             }
                           }}
-                          disabled={!selectedVoiceId?.startsWith("supertone-")}
                         >
                           <SelectTrigger className="w-full">
                             <SelectValue placeholder="수퍼톤 음성을 선택하세요" />
@@ -18471,25 +18529,18 @@ export default function LongformContentPage() {
                         ].map((voice) => (
                           <div
                             key={voice.id}
-                            className={`p-3 border-2 rounded-lg transition-all ${
+                            className={`p-3 border-2 rounded-lg transition-all cursor-pointer ${
                               selectedVoiceId === voice.id
                                 ? "border-red-500 bg-red-50"
-                                : selectedVoiceId?.startsWith("supertone-")
-                                ? "border-gray-200 bg-gray-50 opacity-50 cursor-not-allowed"
                                 : "border-gray-200 hover:border-gray-300"
                             }`}
                           >
                             <div className="flex items-center space-x-2 mb-2">
                               <div
-                                className={`w-4 h-4 rounded-full border-2 ${
-                                  selectedVoiceId?.startsWith("supertone-") 
-                                    ? "border-gray-300 cursor-not-allowed" 
-                                    : "cursor-pointer"
-                                } ${
+                                className={`w-4 h-4 rounded-full border-2 cursor-pointer ${
                                   selectedVoiceId === voice.id ? "border-red-500 bg-red-500" : "border-gray-300"
                                 }`}
                                 onClick={() => {
-                                  if (selectedVoiceId?.startsWith("supertone-")) return
                                   setSelectedVoiceId(voice.id)
                                   // 다른 TTS 선택 시 수퍼톤 선택 해제
                                   if (selectedSupertoneVoiceId) {
@@ -18502,9 +18553,8 @@ export default function LongformContentPage() {
                                 )}
                               </div>
                               <div 
-                                className={`flex-1 ${selectedVoiceId?.startsWith("supertone-") ? "cursor-not-allowed" : "cursor-pointer"}`}
+                                className="flex-1 cursor-pointer"
                                 onClick={() => {
-                                  if (selectedVoiceId?.startsWith("supertone-")) return
                                   setSelectedVoiceId(voice.id)
                                   // 다른 TTS 선택 시 수퍼톤 선택 해제
                                   if (selectedSupertoneVoiceId) {
@@ -18522,10 +18572,9 @@ export default function LongformContentPage() {
                               className="w-full text-xs"
                               onClick={(e) => {
                                 e.stopPropagation()
-                                if (selectedVoiceId?.startsWith("supertone-")) return
                                 handlePreviewVoice(voice.id)
                               }}
-                              disabled={previewingVoiceId === voice.id || selectedVoiceId?.startsWith("supertone-")}
+                              disabled={previewingVoiceId === voice.id}
                             >
                               {previewingVoiceId === voice.id ? (
                                 <>
