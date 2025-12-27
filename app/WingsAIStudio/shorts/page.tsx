@@ -2557,7 +2557,7 @@ export default function ShortsPage() {
         )
 
       case "topic":
-    return (
+        return (
           <div className="space-y-8">
             <div className="text-center space-y-2 mb-8">
               <h2 className="text-4xl font-bold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 bg-clip-text text-transparent">
@@ -2975,7 +2975,7 @@ export default function ShortsPage() {
           </div>
         )
 
-      case "image":
+      case "image": {
         // 이미지 순서 변경 함수
         const handleImageReorder = (fromIndex: number, toIndex: number) => {
           setGeneratedImages((prev) => {
@@ -3402,6 +3402,7 @@ export default function ShortsPage() {
             </div>
           </div>
         )
+      }
 
       case "tts":
         return (
