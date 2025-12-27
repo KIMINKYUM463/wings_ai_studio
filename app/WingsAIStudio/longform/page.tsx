@@ -16819,8 +16819,10 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                       }
                       
                       // 최대 2개 이상일 때는 기존 AI 호출 로직 사용
-                      // 씬당 약 15-20초 소요 가정
-                      const estimatedSeconds = Math.max(30, totalScenes * 18)
+                      // OpenAI API 사용 시 씬당 약 5-10초 소요 가정 (병렬 처리 고려)
+                      // 배치 크기 5개, 배치당 약 10-15초 소요
+                      const batches = Math.ceil(totalScenes / 5)
+                      const estimatedSeconds = Math.max(30, batches * 12) // 배치당 약 12초
                       const estimatedTime = estimatedSeconds * 1000
                       
                       // 진행률 초기화
@@ -16857,74 +16859,121 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                       }, 500) // 0.5초마다 업데이트
                       
                       try {
-                        console.log("[장면 분해 버튼] Gemini API 키 확인 중...")
-                        const geminiApiKey = getGeminiApiKey()
-                        if (!geminiApiKey) {
+                        console.log("[장면 분해 버튼] OpenAI API 키 확인 중...")
+                        const openaiApiKey = getApiKey("openai_api_key") || getApiKey("openai") || getApiKey("gpt_api_key") || getApiKey("chatgpt_api_key")
+                        
+                        if (!openaiApiKey) {
                           clearInterval(progressInterval)
                           setSceneDecompositionProgress(null)
-                          console.error("[장면 분해 버튼] Gemini API 키 없음")
-                          alert("Gemini API 키를 설정해주세요. 설정 페이지에서 API 키를 입력하고 저장해주세요.")
+                          console.error("[장면 분해 버튼] OpenAI API 키 없음")
+                          alert("OpenAI API 키를 설정해주세요. 설정 페이지에서 API 키를 입력하고 저장해주세요.")
                           setIsDecomposingScenes(false)
                           return
                         }
-                        console.log("[장면 분해 버튼] API 키 확인 완료, 씬별 순차 처리 시작")
-                        console.log(`[장면 분해 버튼] 총 ${totalScenes}개 씬 처리 예정`)
                         
-                        // 씬별로 순차 처리하면서 결과를 실시간으로 업데이트
+                        console.log("[장면 분해 버튼] ✅ OpenAI GPT-4o-mini API 사용")
+                        console.log("[장면 분해 버튼] API 키 확인 완료, 씬별 병렬 처리 시작")
+                        console.log(`[장면 분해 버튼] 총 ${totalScenes}개 씬 처리 예정 (배치 크기: 5개, 병렬 처리)`)
+                        
+                        // 씬별로 병렬 처리 (배치 처리: 5개씩 동시 처리)
                         const allResults: string[] = []
+                        const BATCH_SIZE = 5 // 한 번에 처리할 씬 개수
                         
-                        for (let i = 0; i < splitScenes.length; i++) {
-                          const sceneText = splitScenes[i]
-                          const sceneNumber = i + 1
+                        for (let batchStart = 0; batchStart < splitScenes.length; batchStart += BATCH_SIZE) {
+                          const batchEnd = Math.min(batchStart + BATCH_SIZE, splitScenes.length)
+                          const batch = splitScenes.slice(batchStart, batchEnd)
                           
-                          console.log(`[장면 분해] 씬 ${sceneNumber} 처리 시작 (${i + 1}/${totalScenes})`)
+                          console.log(`[장면 분해] 배치 ${Math.floor(batchStart / BATCH_SIZE) + 1} 처리 시작 (${batchStart + 1}-${batchEnd}/${totalScenes})`)
+                          
+                          // 배치 내 씬들을 병렬로 처리
+                          const batchPromises = batch.map(async (sceneText, batchIndex) => {
+                            const sceneNumber = batchStart + batchIndex + 1
+                            
+                            // 각 씬 처리 시작 시점에 진행률 즉시 업데이트
+                            setSceneDecompositionProgress(prev => {
+                              if (!prev) {
+                                return {
+                                  current: sceneNumber,
+                                  total: totalScenes,
+                                  progress: Math.floor((sceneNumber / totalScenes) * 100),
+                                  elapsedTime: Math.floor((Date.now() - startTime) / 1000),
+                                  estimatedTime: estimatedSeconds
+                                }
+                              }
+                              // 현재 씬 번호가 더 크면 업데이트 (병렬 처리 시 가장 큰 번호 표시)
+                              return {
+                                ...prev,
+                                current: Math.max(prev.current, sceneNumber),
+                                progress: Math.floor((Math.max(prev.current, sceneNumber) / prev.total) * 100),
+                                elapsedTime: Math.floor((Date.now() - startTime) / 1000)
+                              }
+                            })
+                            
+                            console.log(`[장면 분해] 씬 ${sceneNumber} 처리 시작 (진행률 업데이트)`)
+                            
+                            try {
+                              console.log(`[장면 분해] 씬 ${sceneNumber} 처리 시작`)
+                              const sceneResult = await decomposeSingleScene(sceneText, sceneNumber, openaiApiKey, maxScenesPerScene, true)
+                              
+                              if (sceneResult && sceneResult.trim().length > 0) {
+                                console.log(`[장면 분해] 씬 ${sceneNumber} 처리 완료`)
+                                return { sceneNumber, result: sceneResult, success: true }
+                              } else {
+                                console.warn(`[장면 분해] 씬 ${sceneNumber} 결과가 비어있음, 기본 형식 사용`)
+                                return { 
+                                  sceneNumber, 
+                                  result: `씬 ${sceneNumber}\n\n[장면 1]\n\n${sceneText.trim()}`, 
+                                  success: false 
+                                }
+                              }
+                            } catch (sceneError) {
+                              console.error(`[장면 분해] 씬 ${sceneNumber} 처리 실패:`, sceneError)
+                              return { 
+                                sceneNumber, 
+                                result: `씬 ${sceneNumber}\n\n[장면 1]\n\n${sceneText.trim()}`, 
+                                success: false 
+                              }
+                            }
+                          })
+                          
+                          // 배치 처리 완료 대기
+                          const batchResults = await Promise.all(batchPromises)
+                          
+                          // 결과를 씬 번호 순서대로 정렬하여 추가
+                          batchResults.sort((a, b) => a.sceneNumber - b.sceneNumber)
+                          for (const { result } of batchResults) {
+                            allResults.push(result)
+                          }
                           
                           // 진행률 업데이트
+                          const processedCount = Math.min(batchEnd, totalScenes)
                           setSceneDecompositionProgress({
-                            current: i,
+                            current: processedCount,
                             total: totalScenes,
-                            progress: Math.floor((i / totalScenes) * 100),
+                            progress: Math.floor((processedCount / totalScenes) * 100),
                             elapsedTime: Math.floor((Date.now() - startTime) / 1000),
                             estimatedTime: estimatedSeconds
                           })
                           
+                          // 실시간으로 결과 업데이트 (부분 결과)
+                          const partialResult = allResults.join("\n\n")
+                          setDecomposedScenes(partialResult)
+                          
+                          // 부분 결과를 파싱하여 scriptLines 업데이트
                           try {
-                            // 단일 씬 처리 (API 키 및 최대 장면 개수 전달)
-                            const sceneResult = await decomposeSingleScene(sceneText, sceneNumber, geminiApiKey, maxScenesPerScene)
-                            
-                            if (sceneResult && sceneResult.trim().length > 0) {
-                              allResults.push(sceneResult)
-                              console.log(`[장면 분해] 씬 ${sceneNumber} 처리 완료 (${allResults.length}/${totalScenes})`)
-                              
-                              // 실시간으로 결과 업데이트 (부분 결과)
-                              const partialResult = allResults.join("\n\n")
-                              setDecomposedScenes(partialResult)
-                              
-                              // 부분 결과를 파싱하여 scriptLines 업데이트
-                              try {
-                                const partialScenes = parseSceneBlocks(partialResult)
-                                if (partialScenes && Array.isArray(partialScenes) && partialScenes.length > 0) {
-                                  setScriptLines(partialScenes)
-                                }
-                              } catch (parseError) {
-                                console.warn(`[장면 분해] 씬 ${sceneNumber} 부분 파싱 실패 (무시):`, parseError)
-                              }
-                            } else {
-                              console.warn(`[장면 분해] 씬 ${sceneNumber} 결과가 비어있음, 기본 형식 사용`)
-                              const defaultResult = `씬 ${sceneNumber}\n\n[장면 1]\n\n${sceneText.trim()}`
-                              allResults.push(defaultResult)
+                            const partialScenes = parseSceneBlocks(partialResult)
+                            if (partialScenes && Array.isArray(partialScenes) && partialScenes.length > 0) {
+                              setScriptLines(partialScenes)
                             }
-                          } catch (sceneError) {
-                            console.error(`[장면 분해] 씬 ${sceneNumber} 처리 실패:`, sceneError)
-                            // 실패한 씬은 기본 형식으로 추가
-                            const defaultResult = `씬 ${sceneNumber}\n\n[장면 1]\n\n${sceneText.trim()}`
-                            allResults.push(defaultResult)
-                            console.log(`[장면 분해] 씬 ${sceneNumber} 기본 형식으로 추가됨`)
+                          } catch (parseError) {
+                            console.warn(`[장면 분해] 부분 파싱 실패 (무시):`, parseError)
                           }
                           
-                          // 씬 처리 간 딜레이 (API 제한 방지)
-                          if (i < splitScenes.length - 1) {
-                            await new Promise(resolve => setTimeout(resolve, 2000)) // 2초 대기
+                          console.log(`[장면 분해] 배치 ${Math.floor(batchStart / BATCH_SIZE) + 1} 완료 (${processedCount}/${totalScenes})`)
+                          
+                          // 배치 간 짧은 딜레이 (API 제한 방지, OpenAI는 rate limit이 있으므로)
+                          if (batchEnd < splitScenes.length) {
+                            await new Promise(resolve => setTimeout(resolve, 500)) // 0.5초 대기 (2초에서 0.5초로 단축)
                           }
                         }
                         
