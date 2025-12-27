@@ -1818,8 +1818,21 @@ export async function generateScriptDraft(
     throw new Error("OpenAI API 키가 설정되지 않았습니다.")
   }
 
-  try {
-    console.log("[v0] 대본 초안 생성 시작")
+  // 재시도 함수
+  const tryGenerate = async (): Promise<string> => {
+    const maxRetries = 3
+    const baseDelay = 2000 // 2초
+    let lastError: Error | null = null
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        if (attempt > 0) {
+          const delay = baseDelay * Math.pow(2, attempt - 1) // 2초, 4초, 8초
+          console.log(`[v0] 대본 초안 생성 재시도 ${attempt}/${maxRetries - 1} - ${delay}ms 후 재시도...`)
+          await new Promise((resolve) => setTimeout(resolve, delay))
+        }
+
+        console.log(`[v0] 대본 초안 생성 시작 (시도 ${attempt + 1}/${maxRetries})`)
 
     const systemPrompt = `너는 지금부터 유튜브 대본 전문가야. 사람들의 공감을 불러일으켜야 하고 친절하며 사람들이 너의 이야기를 듣고 싶도록 설명을 해야해.
 
@@ -1862,61 +1875,102 @@ ${scriptPlan}
 
 대본 초안은 3,000자~5,000자 정도로 작성하세요.`
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${GPT_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "o4-mini",
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt,
+        const response = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${GPT_API_KEY}`,
+            "Content-Type": "application/json",
           },
-          {
-            role: "user",
-            content: userPrompt,
-          },
-        ],
-        // 5,000자 × 2.3 토큰 × 1.1 여유 = 약 12,650 토큰
-        max_completion_tokens: Math.min(100000, Math.ceil(5000 * 2.3 * 1.1)),
-      }),
-    })
+          body: JSON.stringify({
+            model: "o4-mini",
+            messages: [
+              {
+                role: "system",
+                content: systemPrompt,
+              },
+              {
+                role: "user",
+                content: userPrompt,
+              },
+            ],
+            // 5,000자 × 2.3 토큰 × 1.1 여유 = 약 12,650 토큰
+            max_completion_tokens: Math.min(100000, Math.ceil(5000 * 2.3 * 1.1)),
+          }),
+        })
 
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.log("[v0] API 오류 응답:", errorText)
-      throw new Error(`API 호출 실패: ${response.status} - ${errorText}`)
-    }
+        if (!response.ok) {
+          const errorText = await response.text()
+          console.log("[v0] API 오류 응답:", errorText)
+          
+          // 재시도 가능한 에러인 경우
+          if ((response.status === 429 || response.status === 503 || response.status >= 500) && attempt < maxRetries - 1) {
+            lastError = new Error(`API 호출 실패: ${response.status} - 재시도 중...`)
+            continue
+          }
+          
+          throw new Error(`API 호출 실패: ${response.status} - ${errorText}`)
+        }
 
-    const data = await response.json()
-    const content = data.choices?.[0]?.message?.content
+        const data = await response.json()
+        const content = data.choices?.[0]?.message?.content
 
-    if (!content) {
-      throw new Error("대본 초안 생성에 실패했습니다. 응답 내용이 없습니다.")
-    }
+        if (!content) {
+          // 빈 응답인 경우 재시도
+          if (attempt < maxRetries - 1) {
+            lastError = new Error("대본 초안 생성에 실패했습니다. 응답 내용이 없습니다. 재시도 중...")
+            continue
+          }
+          throw new Error("대본 초안 생성에 실패했습니다. 응답 내용이 없습니다.")
+        }
 
-    // 대본 초안 길이 제한 (5,000자 초과 시 자르기)
-    let draftScript = content
-    if (draftScript.length > 5000) {
-      console.warn(`[v0] ⚠️ 대본 초안이 5,000자를 초과합니다. (${draftScript.length.toLocaleString()}자) 자동으로 자릅니다.`)
-      draftScript = draftScript.substring(0, 5000)
-      // 마지막 문장이 잘리지 않도록 문장 끝까지 찾기
-      const lastPeriod = draftScript.lastIndexOf(".")
-      const lastQuestion = draftScript.lastIndexOf("?")
-      const lastExclamation = draftScript.lastIndexOf("!")
-      const lastSentenceEnd = Math.max(lastPeriod, lastQuestion, lastExclamation)
-      if (lastSentenceEnd > 4500) {
-        draftScript = draftScript.substring(0, lastSentenceEnd + 1)
+        // 대본 초안 길이 제한 (5,000자 초과 시 자르기)
+        let draftScript = content
+        if (draftScript.length > 5000) {
+          console.warn(`[v0] ⚠️ 대본 초안이 5,000자를 초과합니다. (${draftScript.length.toLocaleString()}자) 자동으로 자릅니다.`)
+          draftScript = draftScript.substring(0, 5000)
+          // 마지막 문장이 잘리지 않도록 문장 끝까지 찾기
+          const lastPeriod = draftScript.lastIndexOf(".")
+          const lastQuestion = draftScript.lastIndexOf("?")
+          const lastExclamation = draftScript.lastIndexOf("!")
+          const lastSentenceEnd = Math.max(lastPeriod, lastQuestion, lastExclamation)
+          if (lastSentenceEnd > 4500) {
+            draftScript = draftScript.substring(0, lastSentenceEnd + 1)
+          }
+        }
+        
+        // 대본이 너무 짧은 경우 재시도 (최소 2,000자 이상)
+        if (draftScript.length < 2000) {
+          console.warn(`[v0] 경고: 대본 초안이 너무 짧습니다 (${draftScript.length}자). 재시도 중...`)
+          if (attempt < maxRetries - 1) {
+            lastError = new Error(`대본 초안이 너무 짧습니다 (${draftScript.length}자). 재시도 중...`)
+            continue
+          }
+        }
+        
+        console.log(`[v0] ✅ 대본 초안 생성 완료 (시도 ${attempt + 1}/${maxRetries}), 길이:`, draftScript.length)
+        return draftScript
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error))
+        console.error(`[v0] 대본 초안 생성 실패 (시도 ${attempt + 1}/${maxRetries}):`, lastError.message)
+        
+        // 마지막 시도가 아니면 재시도
+        if (attempt < maxRetries - 1) {
+          continue
+        }
+        
+        // 모든 재시도 실패
+        throw lastError
       }
     }
-    
-    console.log("[v0] 대본 초안 생성 완료, 길이:", draftScript.length)
-    return draftScript
+
+    // 모든 재시도 실패
+    throw lastError || new Error("대본 초안 생성에 실패했습니다.")
+  }
+
+  try {
+    return await tryGenerate()
   } catch (error) {
-    console.error("대본 초안 생성 실패:", error)
+    console.error("대본 초안 생성 최종 실패:", error)
     throw error
   }
 }
@@ -2512,157 +2566,176 @@ ${durationMinutes && durationMinutes > 20 ? `⚠️ 이 영상은 ${durationMinu
   // 최대값은 16384로 설정 (gpt-4o-mini의 일반적인 최대값)
   const maxTokens = Math.min(16384, Math.max(minTokens, calculatedTokens))
 
-  console.log(`[v0] 📝 ${partName} 생성 시작 (목표: ${partTargetChars.toLocaleString()}자, 토큰: ${maxTokens.toLocaleString()})`)
+  // 재시도 함수
+  const tryGenerate = async (currentMaxTokens: number, attempt: number = 0): Promise<string> => {
+    const maxRetries = 3
+    const baseDelay = 2000 // 2초
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${GPT_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt },
-          ],
-          max_completion_tokens: maxTokens,
-        }),
-  })
+    if (attempt > 0) {
+      const delay = baseDelay * Math.pow(2, attempt - 1) // 2초, 4초, 8초
+      console.log(`[v0] 🔄 ${partName} 재시도 ${attempt}/${maxRetries - 1} - ${delay}ms 후 재시도...`)
+      await new Promise((resolve) => setTimeout(resolve, delay))
+    }
 
-  if (!response.ok) {
-    const errorText = await response.text()
-    console.error(`[v0] ❌ ${partName} API 오류: ${response.status}`, errorText)
-    throw new Error(`${partName} 생성 실패: ${response.status} - ${errorText}`)
-  }
+    console.log(`[v0] 📝 ${partName} 생성 시작 (시도 ${attempt + 1}/${maxRetries}, 목표: ${partTargetChars.toLocaleString()}자, 토큰: ${currentMaxTokens.toLocaleString()})`)
 
-  const data = await response.json()
-  console.log(`[v0] 📦 ${partName} API 응답 수신:`, {
-    hasChoices: !!data.choices,
-    choicesLength: data.choices?.length,
-    hasMessage: !!data.choices?.[0]?.message,
-    hasContent: !!data.choices?.[0]?.message?.content,
-    contentLength: data.choices?.[0]?.message?.content?.length,
-    finishReason: data.choices?.[0]?.finish_reason,
-  })
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${GPT_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        max_completion_tokens: currentMaxTokens,
+      }),
+    })
 
-  const content = data.choices?.[0]?.message?.content
-
-  if (!content) {
-    console.error(`[v0] ❌ ${partName} 응답 내용 없음:`, JSON.stringify(data, null, 2))
-    
-    // finish_reason이 'length'인 경우 재시도
-    if (data.choices?.[0]?.finish_reason === 'length') {
-      console.warn(`[v0] ⚠️ ${partName} 토큰 제한으로 인해 잘렸습니다. 토큰을 늘려 재시도합니다.`)
-      // 토큰을 늘려서 재시도
-      const retryMaxTokens = Math.min(100000, Math.ceil(maxTokens * 1.5))
-      console.log(`[v0] 🔄 ${partName} 재시도 (토큰: ${retryMaxTokens.toLocaleString()})`)
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error(`[v0] ❌ ${partName} API 오류: ${response.status}`, errorText)
       
-      const retryResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${GPT_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt },
-          ],
-          max_completion_tokens: retryMaxTokens,
-        }),
-      })
-      
-      if (!retryResponse.ok) {
-        const retryErrorText = await retryResponse.text()
-        console.error(`[v0] ❌ ${partName} 재시도 실패:`, retryErrorText)
-        throw new Error(`${partName} 재시도 실패: ${retryResponse.status} - ${retryErrorText}`)
+      // 재시도 가능한 에러인 경우
+      if ((response.status === 429 || response.status === 503 || response.status >= 500) && attempt < maxRetries - 1) {
+        throw new Error(`API 호출 실패: ${response.status} - 재시도 중...`)
       }
       
-      const retryData = await retryResponse.json()
-      console.log(`[v0] 📦 ${partName} 재시도 응답:`, {
-        hasContent: !!retryData.choices?.[0]?.message?.content,
-        contentLength: retryData.choices?.[0]?.message?.content?.length,
-        finishReason: retryData.choices?.[0]?.finish_reason,
-      })
+      throw new Error(`${partName} 생성 실패: ${response.status} - ${errorText}`)
+    }
+
+    const data = await response.json()
+    console.log(`[v0] 📦 ${partName} API 응답 수신:`, {
+      hasChoices: !!data.choices,
+      choicesLength: data.choices?.length,
+      hasMessage: !!data.choices?.[0]?.message,
+      hasContent: !!data.choices?.[0]?.message?.content,
+      contentLength: data.choices?.[0]?.message?.content?.length,
+      finishReason: data.choices?.[0]?.finish_reason,
+    })
+
+    const content = data.choices?.[0]?.message?.content
+    const finishReason = data.choices?.[0]?.finish_reason
+
+    if (!content) {
+      console.error(`[v0] ❌ ${partName} 응답 내용 없음:`, JSON.stringify(data, null, 2))
       
-      const retryContent = retryData.choices?.[0]?.message?.content
-      
-      if (!retryContent) {
-        console.error(`[v0] ❌ ${partName} 재시도 후에도 응답 내용 없음:`, JSON.stringify(retryData, null, 2))
-        throw new Error(`${partName} 생성에 실패했습니다. 재시도 후에도 응답 내용이 없습니다.`)
+      // finish_reason이 'length'인 경우 토큰을 늘려서 재시도
+      if (finishReason === 'length') {
+        console.warn(`[v0] ⚠️ ${partName} 토큰 제한으로 인해 잘렸습니다. 토큰을 늘려 재시도합니다.`)
+        const retryMaxTokens = Math.min(100000, Math.ceil(currentMaxTokens * 1.5))
+        if (attempt < maxRetries - 1) {
+          return await tryGenerate(retryMaxTokens, attempt + 1)
+        }
       }
       
-      console.log(`[v0] ✅ ${partName} 재시도 성공: ${retryContent.length.toLocaleString()}자`)
-      return retryContent.trim()
+      // 빈 응답인 경우 재시도
+      if (attempt < maxRetries - 1) {
+        throw new Error(`응답 내용이 없습니다. 재시도 중...`)
+      }
+      
+      // 모든 재시도 실패
+      const errorReason = finishReason || 'unknown'
+      throw new Error(`${partName} 생성에 실패했습니다. 응답 내용이 없습니다. (finish_reason: ${errorReason})`)
     }
     
-    // 다른 finish_reason인 경우 (stop, content_filter 등)
-    const finishReason = data.choices?.[0]?.finish_reason || 'unknown'
-    console.error(`[v0] ❌ ${partName} 생성 실패 (finish_reason: ${finishReason})`)
-    throw new Error(`${partName} 생성에 실패했습니다. 응답 내용이 없습니다. (finish_reason: ${finishReason})`)
-  }
-  
-  console.log(`[v0] ✅ ${partName} 응답 수신 성공: ${content.length.toLocaleString()}자`)
-
-  // 제작자 노트 제거
-  let cleanedContent = content
-  const producerNoteIndex = cleanedContent.indexOf("제작자 노트")
-  if (producerNoteIndex !== -1) {
-    cleanedContent = cleanedContent.substring(0, producerNoteIndex).trim()
-  }
-  
-  // 구조적 단어 제거 (개요, 서론, 본론, 챕터, 1부, 2부, 3부, 4부, 5부, 결론 등)
-  const structuralWords = [
-    /^개요\s*:?/gim,
-    /^서론\s*:?/gim,
-    /^본론\s*:?/gim,
-    /^결론\s*:?/gim,
-    /^챕터\s*\d+\s*:?/gim,
-    /^\d+부\s*:?/gim,
-    /^제?\s*\d+장\s*:?/gim,
-    /^제?\s*\d+편\s*:?/gim,
-    /^제?\s*\d+절\s*:?/gim,
-    /^Part\s*\d+\s*:?/gim,
-    /^Chapter\s*\d+\s*:?/gim,
-    /^Section\s*\d+\s*:?/gim,
-  ]
-  
-  for (const pattern of structuralWords) {
-    cleanedContent = cleanedContent.replace(pattern, "")
-  }
-  
-  // 줄 시작 부분의 구조적 단어 제거
-  const lines = cleanedContent.split("\n")
-  cleanedContent = lines.map(line => {
-    let cleaned = line.trim()
-    // 줄 시작 부분의 구조적 단어 제거
-    cleaned = cleaned.replace(/^(개요|서론|본론|결론|챕터\s*\d+|\d+부|제?\s*\d+장|제?\s*\d+편|제?\s*\d+절|Part\s*\d+|Chapter\s*\d+|Section\s*\d+)\s*[:-]?\s*/i, "")
-    return cleaned
-  }).filter(line => line.trim().length > 0).join("\n")
-  
-  // 목표 길이 조정 (±5% 범위 내로)
-  // minChars와 maxChars는 이미 함수 시작 부분에서 선언됨
-  
-  if (cleanedContent.length > maxChars) {
-    console.warn(`[v0] ⚠️ ${partName}이 목표 길이의 105%를 초과합니다. (${cleanedContent.length.toLocaleString()}자 / 목표: ${partTargetChars.toLocaleString()}자) 자동으로 조정합니다.`)
-    cleanedContent = cleanedContent.substring(0, maxChars)
-    // 마지막 문장이 잘리지 않도록 문장 끝까지 찾기
-    const lastPeriod = cleanedContent.lastIndexOf(".")
-    const lastQuestion = cleanedContent.lastIndexOf("?")
-    const lastExclamation = cleanedContent.lastIndexOf("!")
-    const lastSentenceEnd = Math.max(lastPeriod, lastQuestion, lastExclamation)
-    if (lastSentenceEnd > minChars) {
-      cleanedContent = cleanedContent.substring(0, lastSentenceEnd + 1)
+    // 대본이 너무 짧은 경우 재시도 (최소 글자수의 80% 미만)
+    const minRequiredChars = Math.floor(minChars * 0.8)
+    if (content.length < minRequiredChars) {
+      console.warn(`[v0] ⚠️ ${partName}이 너무 짧습니다 (${content.length}자 / 최소: ${minRequiredChars}자). 재시도 중...`)
+      if (attempt < maxRetries - 1) {
+        throw new Error(`생성된 대본이 너무 짧습니다 (${content.length}자). 재시도 중...`)
+      }
     }
-  } else if (cleanedContent.length < minChars) {
-    console.warn(`[v0] ⚠️ ${partName}이 목표 길이의 95% 미만입니다. (${cleanedContent.length.toLocaleString()}자 / 목표: ${partTargetChars.toLocaleString()}자)`)
-    console.warn(`[v0] ⚠️ 부족한 글자수: ${(minChars - cleanedContent.length).toLocaleString()}자`)
+    
+    console.log(`[v0] ✅ ${partName} 응답 수신 성공 (시도 ${attempt + 1}/${maxRetries}): ${content.length.toLocaleString()}자`)
+    return content
   }
 
-  console.log(`[v0] ✅ ${partName} 생성 완료: ${cleanedContent.length.toLocaleString()}자 (목표: ${partTargetChars.toLocaleString()}자)`)
-  return cleanedContent.trim()
+  // 재시도 로직 실행
+  let lastError: Error | null = null
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const content = await tryGenerate(maxTokens, attempt)
+      
+      // 성공한 경우 후처리
+
+      // 제작자 노트 제거
+      let cleanedContent = content
+      const producerNoteIndex = cleanedContent.indexOf("제작자 노트")
+      if (producerNoteIndex !== -1) {
+        cleanedContent = cleanedContent.substring(0, producerNoteIndex).trim()
+      }
+      
+      // 구조적 단어 제거 (개요, 서론, 본론, 챕터, 1부, 2부, 3부, 4부, 5부, 결론 등)
+      const structuralWords = [
+        /^개요\s*:?/gim,
+        /^서론\s*:?/gim,
+        /^본론\s*:?/gim,
+        /^결론\s*:?/gim,
+        /^챕터\s*\d+\s*:?/gim,
+        /^\d+부\s*:?/gim,
+        /^제?\s*\d+장\s*:?/gim,
+        /^제?\s*\d+편\s*:?/gim,
+        /^제?\s*\d+절\s*:?/gim,
+        /^Part\s*\d+\s*:?/gim,
+        /^Chapter\s*\d+\s*:?/gim,
+        /^Section\s*\d+\s*:?/gim,
+      ]
+      
+      for (const pattern of structuralWords) {
+        cleanedContent = cleanedContent.replace(pattern, "")
+      }
+      
+      // 줄 시작 부분의 구조적 단어 제거
+      const lines = cleanedContent.split("\n")
+      cleanedContent = lines.map(line => {
+        let cleaned = line.trim()
+        // 줄 시작 부분의 구조적 단어 제거
+        cleaned = cleaned.replace(/^(개요|서론|본론|결론|챕터\s*\d+|\d+부|제?\s*\d+장|제?\s*\d+편|제?\s*\d+절|Part\s*\d+|Chapter\s*\d+|Section\s*\d+)\s*[:-]?\s*/i, "")
+        return cleaned
+      }).filter(line => line.trim().length > 0).join("\n")
+      
+      // 목표 길이 조정 (±5% 범위 내로)
+      // minChars와 maxChars는 이미 함수 시작 부분에서 선언됨
+      
+      if (cleanedContent.length > maxChars) {
+        console.warn(`[v0] ⚠️ ${partName}이 목표 길이의 105%를 초과합니다. (${cleanedContent.length.toLocaleString()}자 / 목표: ${partTargetChars.toLocaleString()}자) 자동으로 조정합니다.`)
+        cleanedContent = cleanedContent.substring(0, maxChars)
+        // 마지막 문장이 잘리지 않도록 문장 끝까지 찾기
+        const lastPeriod = cleanedContent.lastIndexOf(".")
+        const lastQuestion = cleanedContent.lastIndexOf("?")
+        const lastExclamation = cleanedContent.lastIndexOf("!")
+        const lastSentenceEnd = Math.max(lastPeriod, lastQuestion, lastExclamation)
+        if (lastSentenceEnd > minChars) {
+          cleanedContent = cleanedContent.substring(0, lastSentenceEnd + 1)
+        }
+      } else if (cleanedContent.length < minChars) {
+        console.warn(`[v0] ⚠️ ${partName}이 목표 길이의 95% 미만입니다. (${cleanedContent.length.toLocaleString()}자 / 목표: ${partTargetChars.toLocaleString()}자)`)
+        console.warn(`[v0] ⚠️ 부족한 글자수: ${(minChars - cleanedContent.length).toLocaleString()}자`)
+      }
+
+      console.log(`[v0] ✅ ${partName} 생성 완료: ${cleanedContent.length.toLocaleString()}자 (목표: ${partTargetChars.toLocaleString()}자)`)
+      return cleanedContent.trim()
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error))
+      console.error(`[v0] ${partName} 생성 실패 (시도 ${attempt + 1}/3):`, lastError.message)
+      
+      // 마지막 시도가 아니면 재시도
+      if (attempt < 2) {
+        continue
+      }
+      
+      // 모든 재시도 실패
+      throw lastError
+    }
+  }
+
+  // 모든 재시도 실패
+  throw lastError || new Error(`${partName} 생성에 실패했습니다.`)
 }
 
 export async function generateFinalScript(
@@ -2855,8 +2928,21 @@ export async function generateFullScript(
     throw new Error("OpenAI API 키가 설정되지 않았습니다.")
   }
 
-  try {
-    console.log("[v0] GPT-4o-mini API로 대본 생성 시작")
+  // 재시도 함수
+  const tryGenerate = async (isRetry: boolean = false): Promise<string> => {
+    const maxRetries = 3
+    const baseDelay = 2000 // 2초
+    let lastError: Error | null = null
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        if (attempt > 0) {
+          const delay = baseDelay * Math.pow(2, attempt - 1) // 2초, 4초, 8초
+          console.log(`[v0] 대본 생성 재시도 ${attempt}/${maxRetries - 1} - ${delay}ms 후 재시도...`)
+          await new Promise((resolve) => setTimeout(resolve, delay))
+        }
+
+        console.log(`[v0] GPT-4o-mini API로 대본 생성 시작 (시도 ${attempt + 1}/${maxRetries})`)
 
     const exactPrompt = `🚨🚨🚨 매우 중요한 지시사항 🚨🚨🚨
 
@@ -3056,43 +3142,80 @@ ${scriptPlan}
       }),
     })
 
-    console.log("[v0] GPT-4o-mini API 응답 상태:", response.status)
+        console.log("[v0] GPT-4o-mini API 응답 상태:", response.status)
 
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.log("[v0] GPT-4o-mini API 오류:", errorText)
-      throw new Error(`GPT-4o-mini API 호출 실패: ${response.status}`)
+        if (!response.ok) {
+          const errorText = await response.text()
+          console.log("[v0] GPT-4o-mini API 오류:", errorText)
+          
+          // 재시도 가능한 에러인 경우
+          if ((response.status === 429 || response.status === 503 || response.status >= 500) && attempt < maxRetries - 1) {
+            lastError = new Error(`GPT-4o-mini API 호출 실패: ${response.status} - 재시도 중...`)
+            continue
+          }
+          
+          throw new Error(`GPT-4o-mini API 호출 실패: ${response.status}`)
+        }
+
+        const data = await response.json()
+        let generatedScript = data.choices?.[0]?.message?.content
+
+        if (!generatedScript) {
+          // 빈 응답인 경우 재시도
+          if (attempt < maxRetries - 1) {
+            lastError = new Error("GPT-4o-mini API에서 대본을 생성할 수 없습니다. 재시도 중...")
+            continue
+          }
+          throw new Error("GPT-4o-mini API에서 대본을 생성할 수 없습니다.")
+        }
+
+        // 메타 정보 제거
+        generatedScript = generatedScript
+          .replace(/\[공백 포함 글자수.*?\]/gi, "")
+          .replace(/실제 글자 수:.*?자/gi, "")
+          .replace(/글자 수:.*?자/gi, "")
+          .trim()
+
+        console.log("[v0] 생성된 대본 길이:", generatedScript.length)
+
+        // 대본이 너무 짧은 경우 재시도
+        if (generatedScript.length < 10000) {
+          console.log("[v0] 경고: 생성된 대본이 10,000자 미만입니다:", generatedScript.length)
+          if (attempt < maxRetries - 1) {
+            lastError = new Error(`생성된 대본이 너무 짧습니다 (${generatedScript.length}자). 재시도 중...`)
+            continue
+          }
+        }
+
+        // 대본 마지막에 CTA 추가 (이미 CTA가 있으면 추가하지 않음)
+        const ctaText = "\n\n이 영상이 도움이 되셨다면 좋아요와 구독 부탁드립니다. 여러분의 응원이 제게 큰 힘이 됩니다. 다음 영상에서도 더 유용한 정보를 공유하겠습니다. 감사합니다."
+        const hasCTA = generatedScript.includes("좋아요와 구독") || generatedScript.includes("좋아요") && generatedScript.includes("구독")
+        const finalScript = hasCTA ? generatedScript : generatedScript.trim() + ctaText
+
+        console.log(`[v0] ✅ 대본 생성 성공 (시도 ${attempt + 1}/${maxRetries})`)
+        return finalScript
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error))
+        console.error(`[v0] 대본 생성 실패 (시도 ${attempt + 1}/${maxRetries}):`, lastError.message)
+        
+        // 마지막 시도가 아니면 재시도
+        if (attempt < maxRetries - 1) {
+          continue
+        }
+        
+        // 모든 재시도 실패
+        throw lastError
+      }
     }
 
-    const data = await response.json()
-    let generatedScript = data.choices?.[0]?.message?.content
+    // 모든 재시도 실패
+    throw lastError || new Error("대본 생성에 실패했습니다.")
+  }
 
-    if (!generatedScript) {
-      throw new Error("GPT-4o-mini API에서 대본을 생성할 수 없습니다.")
-    }
-
-    // 메타 정보 제거
-    generatedScript = generatedScript
-      .replace(/\[공백 포함 글자수.*?\]/gi, "")
-      .replace(/실제 글자 수:.*?자/gi, "")
-      .replace(/글자 수:.*?자/gi, "")
-      .trim()
-
-    console.log("[v0] 생성된 대본 길이:", generatedScript.length)
-
-    if (generatedScript.length < 10000) {
-      console.log("[v0] 경고: 생성된 대본이 10,000자 미만입니다:", generatedScript.length)
-    }
-
-    // 대본 마지막에 CTA 추가 (이미 CTA가 있으면 추가하지 않음)
-    const ctaText = "\n\n이 영상이 도움이 되셨다면 좋아요와 구독 부탁드립니다. 여러분의 응원이 제게 큰 힘이 됩니다. 다음 영상에서도 더 유용한 정보를 공유하겠습니다. 감사합니다."
-    const hasCTA = generatedScript.includes("좋아요와 구독") || generatedScript.includes("좋아요") && generatedScript.includes("구독")
-    const finalScript = hasCTA ? generatedScript : generatedScript.trim() + ctaText
-
-    return finalScript
+  try {
+    return await tryGenerate(false)
   } catch (error) {
-    console.error("GPT-4o-mini 대본 생성 실패:", error)
-
+    console.error("GPT-4o-mini 대본 생성 최종 실패, fallback 사용:", error)
     return generateFallbackFullScript(topic)
   }
 }

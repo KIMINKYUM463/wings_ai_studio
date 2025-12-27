@@ -5873,14 +5873,113 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       }
       // folktale 카테고리 또는 Type D 선택 시 자동으로 스토리 모드로 설정
       const shouldUseStoryMode = isStoryMode || selectedCategory === "folktale" || selectedContentType === "D"
-      const fullScript = await generateRefinedScript(
-        scriptPlan, 
-        topic || "", 
-        scriptDuration, 
-        targetChars, 
-        shouldUseStoryMode, 
-        geminiApiKey
-      )
+      
+      // 분할 수 계산 (10분 이상일 때만 분할)
+      const shouldSplit = scriptDuration && scriptDuration >= 10
+      let totalParts = 1
+      if (scriptDuration === 10) totalParts = 2
+      else if (scriptDuration === 15) totalParts = 3
+      else if (scriptDuration === 20) totalParts = 4
+      else if (scriptDuration === 25) totalParts = 5
+      else if (scriptDuration === 30) totalParts = 6
+      else if (scriptDuration === 35) totalParts = 7
+      else if (scriptDuration === 40) totalParts = 8
+
+      let fullScript = ""
+
+      if (!shouldSplit) {
+        // 5분: 한 번에 생성
+        const response = await fetch("/api/generate-refined-script", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            scriptPlan,
+            topic: topic || "",
+            duration: scriptDuration,
+            targetChars,
+            isStoryMode: shouldUseStoryMode,
+            apiKey: geminiApiKey
+          })
+        })
+
+        if (!response.ok) {
+          let errorData
+          try {
+            errorData = await response.json()
+          } catch (e) {
+            if (response.status === 504 || response.status === 408) {
+              throw new Error("대본 생성 시간이 너무 오래 걸립니다. Vercel의 타임아웃 제한(5분)을 초과했습니다.")
+            }
+            throw new Error(`대본 생성 실패: ${response.status}`)
+          }
+          throw new Error(errorData.error || `대본 생성 실패: ${response.status}`)
+        }
+
+        const result = await response.json()
+        if (!result || !result.script) {
+          throw new Error("대본 생성 응답이 올바르지 않습니다.")
+        }
+        fullScript = result.script
+      } else {
+        // 10분 이상: 각 분할을 순차적으로 호출
+        const parts: string[] = []
+        
+        for (let partNumber = 1; partNumber <= totalParts; partNumber++) {
+          // 진행률 업데이트
+          const progress = Math.floor((partNumber - 1) / totalParts * 100)
+          setScriptGenerationProgress({
+            progress,
+            elapsedTime: Math.floor((Date.now() - startTime) / 1000),
+            estimatedTime: Math.floor(estimatedTime / 1000),
+            currentPart: partNumber,
+            totalParts
+          })
+
+          console.log(`[v0] ${partNumber}/${totalParts} 분할 생성 시작`)
+          
+          const response = await fetch("/api/generate-refined-script-part", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              scriptPlan,
+              topic: topic || "",
+              duration: scriptDuration,
+              partNumber,
+              totalParts,
+              targetChars,
+              previousParts: parts.join("\n\n"),
+              isStoryMode: shouldUseStoryMode,
+              apiKey: geminiApiKey
+            })
+          })
+
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}))
+            throw new Error(errorData.error || `${partNumber}회차 생성 실패: ${response.status}`)
+          }
+
+          const result = await response.json()
+          if (!result || !result.script) {
+            throw new Error(`${partNumber}회차 생성 응답이 올바르지 않습니다.`)
+          }
+
+          parts.push(result.script)
+          console.log(`[v0] ${partNumber}/${totalParts} 분할 생성 완료: ${result.script.length}자`)
+        }
+
+        // 모든 분할 합치기
+        fullScript = parts.join("\n\n")
+      }
+      
+      // 대본이 비어있는지 확인
+      if (!fullScript || typeof fullScript !== 'string' || fullScript.trim().length === 0) {
+        throw new Error("생성된 대본이 비어있습니다. 다시 시도해주세요.")
+      }
+      
       // 대본 마지막에 CTA 추가 (이미 CTA가 있으면 추가하지 않음)
       const ctaText = "\n\n이 영상이 도움이 되셨다면 좋아요와 구독 부탁드립니다. 여러분의 응원이 제게 큰 힘이 됩니다. 다음 영상에서도 더 유용한 정보를 공유하겠습니다. 감사합니다."
       // CTA 중복 체크: 대본 끝부분에 이미 CTA가 있는지 확인
@@ -5906,7 +6005,34 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       })
     } catch (error) {
       console.error("정교한 대본 생성 실패:", error)
-      const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다."
+      
+      // 오류 메시지 추출 및 개선
+      let errorMessage = "알 수 없는 오류가 발생했습니다."
+      
+      if (error instanceof Error) {
+        errorMessage = error.message
+        
+        // Next.js Server Components 오류인 경우 더 친절한 메시지 제공
+        if (errorMessage.includes("Server Components render") || errorMessage.includes("digest")) {
+          errorMessage = "서버에서 대본 생성 중 오류가 발생했습니다. 가능한 원인:\n\n" +
+            "1. Gemini API 호출 실패 (API 키 확인 필요)\n" +
+            "2. 네트워크 연결 문제\n" +
+            "3. 서버 타임아웃 (생성 시간이 너무 길어짐)\n" +
+            "4. 메모리 부족\n\n" +
+            "개발자 도구 콘솔에서 자세한 오류 정보를 확인하세요."
+        }
+        
+        // 구체적인 오류 메시지가 있는 경우 그대로 사용
+        if (errorMessage.includes("API 키") || errorMessage.includes("SAFETY") || errorMessage.includes("RECITATION")) {
+          // 이미 구체적인 메시지가 있음
+        }
+      }
+      
+      // 오류 상세 정보를 콘솔에 출력 (디버깅용)
+      if (error instanceof Error && error.stack) {
+        console.error("오류 스택 트레이스:", error.stack)
+      }
+      
       alert(`정교한 대본 생성에 실패했습니다: ${errorMessage}\n\n한번더 생성해주세요.`)
     } finally {
       clearInterval(progressInterval)

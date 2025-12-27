@@ -5437,6 +5437,558 @@ ${lastContentSentences}
 }
 
 /**
+ * 정교한 대본의 특정 분할만 생성하는 함수
+ * 각 분할을 별도 API 호출로 처리하여 타임아웃을 피함
+ */
+export async function generateRefinedScriptPart(
+  scriptPlan: string,
+  topic: string,
+  duration: number,
+  partNumber: number,
+  totalParts: number,
+  targetChars?: number,
+  previousParts: string = "",
+  isStoryMode: boolean = false,
+  apiKey?: string
+): Promise<string> {
+  // 사용자가 제공한 API 키 사용 (없으면 환경 변수에서 가져오기)
+  const GEMINI_API_KEY = apiKey || process.env.GEMINI_API_KEY
+
+  if (!GEMINI_API_KEY) {
+    throw new Error("Gemini API 키가 설정되지 않았습니다.")
+  }
+
+  // 분할 정보 계산
+  const getPartInfo = (partNum: number): { startTime: string; endTime: string; targetChars: number; minChars: number; maxChars: number } => {
+    const partDuration = duration / totalParts
+    const startMinutes = (partNum - 1) * partDuration
+    const endMinutes = partNum * partDuration
+
+    const formatTime = (minutes: number): string => {
+      const mins = Math.floor(minutes)
+      const secs = Math.floor((minutes - mins) * 60)
+      return `${mins}:${secs.toString().padStart(2, '0')}`
+    }
+
+    let partTargetChars: number
+    if (duration === 10) {
+      partTargetChars = targetChars ? Math.floor(targetChars / totalParts) : 2150
+    } else if (duration === 15) {
+      partTargetChars = partNum <= 2 ? 2150 : 2250
+    } else if (duration === 20) {
+      partTargetChars = partNum <= 3 ? 2150 : 2250
+    } else if (duration === 25) {
+      partTargetChars = partNum <= 4 ? 2150 : 2250
+    } else if (duration === 30) {
+      partTargetChars = partNum <= 5 ? 2150 : 2250
+    } else if (duration === 35) {
+      partTargetChars = partNum <= 6 ? 2150 : 2350
+    } else if (duration === 40) {
+      partTargetChars = partNum <= 7 ? 2150 : 2450
+    } else {
+      partTargetChars = targetChars ? Math.floor(targetChars / totalParts) : 2150
+    }
+
+    return {
+      startTime: formatTime(startMinutes),
+      endTime: formatTime(endMinutes),
+      targetChars: partTargetChars,
+      minChars: Math.floor(partTargetChars * 0.95),
+      maxChars: Math.floor(partTargetChars * 1.1)
+    }
+  }
+
+  const partInfo = getPartInfo(partNumber)
+
+  // 기본 systemPrompt 생성 (기존 로직 재사용)
+  let systemPrompt = ""
+  if (duration === 5) {
+    systemPrompt = `당신은 '대본 기획안을 정확히 구현하는 전문 내레이션 작가'입니다.`
+  } else if (duration >= 10 && duration <= 40) {
+    systemPrompt = `당신은 '대본 기획안을 정확히 구현하는 전문 내레이션 작가'입니다.
+
+당신의 역할은 아래에 제공되는 '대본 기획안'을
+의미, 구조, 순서, 감정 흐름, 장면 설계를 절대 변경하지 않고
+오직 TTS 전용 내레이션 스크립트로 변환하는 것입니다.
+
+당신은 창작자가 아니라 구현자입니다.
+기획안을 해석하거나 재구성하지 말고,
+설계도를 가장 자연스럽고 몰입도 높은 말로 풀어내십시오.
+
+────────────────────────
+[절대 준수 원칙]
+────────────────────────
+1) 기획안의 구조, 전개 순서, 핵심 메시지는 절대 변경하지 마십시오.
+2) 기획안에 없는 관점, 주장, 결론을 추가하지 마십시오.
+3) 주제의 성격은 이미 기획안에 반영되어 있으므로
+   주제를 분석하거나 판단하지 마십시오.
+4) 모든 문장은 존댓말로 작성하십시오.
+5) 설명, 해설, 제목, 소제목 없이 오직 스크립트만 출력하십시오.
+
+────────────────────────
+[문체 및 말투 규칙]
+────────────────────────
+- "~죠", "~습니다", "~일까요?", "문제는", "놀랍게도", "그 순간"
+  같은 구어적 존댓말 어투를 자연스럽게 섞어 사용하십시오.
+- 말투는 친근하지만 가볍지 않아야 하며,
+  설명하는 사람이 아닌 이야기꾼의 흐름을 유지하십시오.
+- 질문형 문장은 초반과 전환부에서만 제한적으로 사용하십시오.
+
+────────────────────────
+[원본 차단 및 재구성 규칙]
+────────────────────────
+- 원본의 문장 구조, 어순, 표현을 그대로 사용하지 마십시오.
+- 동일한 내용을 다루더라도
+  예시, 비유, 설명 방식은 완전히 다르게 구성하십시오.
+- 원본 문장과의 표현 유사도는 30%를 초과해서는 안 됩니다.
+- 팩트는 유지하되, 전달 순서와 이야기 흐름은 재배치하십시오.
+
+────────────────────────
+[스토리 전개 규칙]
+────────────────────────
+- 전체 이야기를 파악한 뒤,
+  초반에는 자극적이되 대중적인 넓은 화두로 시작하십시오.
+- 본격적인 이야기 시작을 알리는 문장은
+  전체 초반 4~6줄 사이에 자연스럽게 삽입하십시오.
+- 이후 본론으로 부드럽게 진입하십시오.
+
+────────────────────────
+[표현 다양화 / 개념 설명 / 출력 제한]
+────────────────────────
+※ 네가 고정으로 정의한 모든 가이드라인을 동일하게 적용하십시오.`
+  } else {
+    systemPrompt = `당신은 '지식 스토리텔링 전문 유튜브 대본 작가'입니다.`
+  }
+
+  // 분할별 프롬프트 생성
+  const partSystemPrompt = `${systemPrompt}
+
+────────────────────────
+[분량 및 형식 강제 규칙 – ${duration}분 / ${partNumber}회차]
+────────────────────────
+⚠️⚠️⚠️ 절대적 필수 조건: 공백 포함 **무조건 ${partInfo.minChars}자 이상 ${partInfo.maxChars}자 이내** 작성하십시오. ⚠️⚠️⚠️
+⚠️⚠️⚠️ 글자수가 부족하면 절대 실패입니다. 반드시 최소 ${partInfo.minChars}자를 채워야 합니다. ⚠️⚠️⚠️
+- 전체 분량은 반드시 ${partInfo.minChars}자 이상 ${partInfo.maxChars}자 이내여야 합니다. (절대 필수)
+- 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
+- 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
+- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 ${partInfo.minChars}자 이상인지 검증하십시오.
+
+────────────────────────
+[전체 기획안 흐름 이해 (매우 중요)]
+────────────────────────
+⚠️⚠️⚠️ 반드시 먼저 전체 기획안을 읽고 전체 스토리의 흐름을 완전히 파악하세요. ⚠️⚠️⚠️
+- 전체 기획안의 구조, 전개 순서, 핵심 메시지를 먼저 이해하세요.
+- 이 ${partNumber}회차가 전체 스토리의 어느 위치에 있는지 파악하세요.
+- 앞부분(${partNumber > 1 ? '이미 생성된 부분' : '아직 생성되지 않은 부분'})과 뒷부분(아직 생성되지 않은 부분)의 맥락을 고려하세요.
+- 전체 스토리의 흐름 속에서 이 구간의 역할을 이해하고 작성하세요.
+
+────────────────────────
+[시간 구간 지시 – ${duration}분 / ${partNumber}회차]
+────────────────────────
+${partNumber === 1 
+  ? `아래 기획안을 바탕으로
+전체 영상 중 ${partInfo.startTime}부터 ${partInfo.endTime} 구간에 해당하는
+대본만 작성하십시오.
+
+⚠️ 중요: 전체 기획안을 먼저 읽고 전체 스토리 흐름을 파악한 후, 그 흐름에 맞춰 이 구간의 대본을 작성하세요.
+이 구간은 전체 스토리의 시작 부분이므로, 전체 기획안의 도입부와 초반 전개를 다루되, 뒷부분으로 자연스럽게 이어질 수 있도록 작성하세요.`
+  : `이전 대본의 흐름을 그대로 이어서,
+${partInfo.startTime}부터 ${partInfo.endTime} 구간에 해당하는
+대본만 작성하십시오.
+
+⚠️ 중요: 
+1. 먼저 전체 기획안을 읽고 전체 스토리 흐름을 파악하세요.
+2. 이 ${partNumber}회차가 전체 스토리의 어느 위치인지 이해하세요.
+3. 앞부분(이미 생성된 부분)의 맥락과 뒷부분(아직 생성되지 않은 부분)의 맥락을 모두 고려하세요.
+4. 전체 기획안의 흐름에 맞춰 이 구간을 작성하되, 이전 부분과 자연스럽게 연결되고 뒷부분으로 자연스럽게 이어지도록 하세요.
+5. 요약하거나 반복하지 마십시오.`}`
+
+  // 이전 분할의 마지막 부분 추출 (더 많은 컨텍스트 제공)
+  let previousContext = ""
+  if (previousParts && previousParts.trim().length > 0) {
+    // 방법 1: 마지막 5-10문장 추출 (더 많은 컨텍스트)
+    const sentences = previousParts.split(/[.!?。！？]+/).filter((s: string) => s.trim().length > 0)
+    const lastSentences = sentences.slice(-8).join('. ') + (sentences.length > 0 ? '.' : '')
+    
+    // 방법 2: 마지막 300자 추출 (문장 단위가 아닌 글자 단위)
+    const lastChars = previousParts.trim().slice(-300)
+    
+    // 두 방법 중 더 긴 것을 사용 (더 많은 컨텍스트 제공)
+    const contextToUse = lastSentences.length > lastChars.length ? lastSentences : lastChars
+    
+    previousContext = `[${partNumber - 1}회차 대본의 마지막 부분 (참고용 - 반드시 이어서 작성하세요)]:
+${contextToUse}
+
+⚠️ 매우 중요: 위 ${partNumber - 1}회차 대본의 마지막 부분을 반드시 읽고, 그 흐름과 문맥을 완벽하게 이어받아서 작성하세요.
+- 위 대본의 마지막 문장 이후에 자연스럽게 연결되는 문장으로 시작하세요.
+- 문맥, 톤, 스타일이 완전히 일치하도록 작성하세요.
+- 갑자기 다른 주제로 전환하지 마세요.
+
+`
+  }
+
+  // User Prompt 생성
+  const userPrompt = `${partSystemPrompt}
+
+${previousContext}────────────────────────
+[대본 기획안 (전체 - 반드시 먼저 읽고 전체 흐름 파악)]
+────────────────────────
+${scriptPlan}
+
+⚠️⚠️⚠️ 매우 중요: 위 기획안을 먼저 전체적으로 읽고 다음을 파악하세요:
+1. 전체 스토리의 구조와 전개 순서
+2. 이 ${partNumber}회차(${partInfo.startTime}~${partInfo.endTime})가 전체 스토리의 어느 위치인지
+3. 앞부분의 맥락과 뒷부분의 맥락
+4. 전체 기획안의 핵심 메시지와 감정 흐름
+
+────────────────────────
+[작성 지시사항]
+────────────────────────
+${partNumber > 1 ? `🚫🚫🚫 절대 금지 사항 (반드시 준수하세요) 🚫🚫🚫
+- 이전 회차 대본의 내용을 절대 반복하거나 중복해서 작성하지 마세요.
+- 이전 회차에서 이미 다룬 내용을 다시 설명하거나 반복하지 마세요.
+- 요약하거나 반복하지 마세요.
+- 오직 새로운 내용만 작성하세요.
+
+⚠️⚠️⚠️ 연결 및 연속성 (매우 중요) ⚠️⚠️⚠️
+- 위에 제공된 ${partNumber - 1}회차 대본의 마지막 부분을 반드시 읽고 이해하세요.
+- 그 마지막 문장의 흐름, 문맥, 톤을 완벽하게 이어받아서 작성하세요.
+- 갑자기 다른 주제나 다른 톤으로 시작하지 마세요.
+- 자연스러운 전환 문구를 사용하여 이어지도록 하세요.
+- 예: "그런데", "하지만", "그리고", "이제", "그때", "그런 과정에서" 등의 연결어를 적절히 사용하세요.
+
+⚠️⚠️⚠️ 전체 기획안 흐름 준수 (매우 중요) ⚠️⚠️⚠️
+- 전체 기획안의 구조와 전개 순서를 절대 변경하지 마세요.
+- 기획안에 명시된 순서대로 내용을 전개하세요.
+- 이 ${partNumber}회차 구간에 해당하는 기획안 내용을 정확히 구현하세요.
+- 전체 스토리의 흐름 속에서 이 구간의 역할을 정확히 수행하세요.
+- 앞부분과 뒷부분의 맥락을 고려하여 자연스러운 전환을 만들어내세요.
+
+⚠️ 중요 지시사항:
+- 이전 회차에서 이미 다룬 주제나 내용을 다시 다루지 마세요.
+- 기획안의 해당 구간(${partInfo.startTime}~${partInfo.endTime}) 내용을 정확히 구현하세요.
+- 이전 회차 대본과 중복되지 않는 완전히 새로운 내용만 작성하세요.
+- 하지만 문맥과 흐름은 반드시 자연스럽게 연결되도록 하세요.
+- 전체 기획안의 흐름을 절대 벗어나지 마세요.
+- ` : `⚠️⚠️⚠️ 전체 기획안 흐름 준수 (매우 중요) ⚠️⚠️⚠️
+- 전체 기획안의 구조와 전개 순서를 절대 변경하지 마세요.
+- 기획안에 명시된 순서대로 내용을 전개하세요.
+- 이 ${partNumber}회차 구간에 해당하는 기획안 내용을 정확히 구현하세요.
+- 전체 스토리의 흐름 속에서 이 구간의 역할을 정확히 수행하세요.
+- 뒷부분으로 자연스럽게 이어질 수 있도록 작성하세요.
+
+⚠️⚠️⚠️ 기획안 내용 구현 (매우 중요) ⚠️⚠️⚠️
+- 기획안의 해당 구간(${partInfo.startTime}~${partInfo.endTime})에 해당하는 모든 내용을 빠짐없이 구현하세요.
+- 기획안에 명시된 모든 파트, 모든 내용을 다뤄야 합니다.
+- 기획안의 순서와 구조를 절대 변경하지 마세요.
+- 기획안의 내용을 생략하거나 건너뛰지 마세요.
+- 전체 기획안의 흐름을 절대 벗어나지 마세요.
+
+⚠️ 중요 지시사항:
+- 기획안의 해당 구간(${partInfo.startTime}~${partInfo.endTime}) 내용을 정확히 구현하세요.
+- 기획안의 모든 내용을 빠짐없이 다루되, 시간 구간에 맞춰 작성하세요.
+- 전체 기획안의 흐름을 절대 벗어나지 마세요.
+- `}정확히 ${partInfo.startTime}부터 ${partInfo.endTime} 구간(${partInfo.minChars}자 이상 ${partInfo.maxChars}자 이내)의 대본을 작성해주세요. 
+기획안의 모든 내용을 빠짐없이 구현하되, 시간 구간에 맞춰 작성하세요. 대본만 작성하고 다른 설명은 하지 마세요.`
+
+  // Gemini API 호출
+  const maxRetries = 5 // 글자수 부족 시 재시도를 위해 5회로 증가
+  const baseDelay = 1000
+  let lastError: Error | null = null
+  let currentPrompt = userPrompt // 재시도 시 프롬프트 업데이트를 위해 변수로 관리
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      if (attempt > 0) {
+        const delay = baseDelay * Math.pow(2, attempt - 1)
+        console.log(`[v0] ${partNumber}회차 재시도 ${attempt}/${maxRetries - 1} - ${delay}ms 후 재시도...`)
+        await new Promise((resolve) => setTimeout(resolve, delay))
+      }
+
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${GEMINI_API_KEY}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  {
+                    text: currentPrompt, // 업데이트된 프롬프트 사용
+                  },
+                ],
+              },
+            ],
+            generationConfig: {
+              temperature: (duration >= 10 && duration <= 40) ? 0.7 : 1,
+              topK: 40,
+              topP: 0.95,
+              maxOutputTokens: 8192,
+            },
+          }),
+        }
+      )
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        lastError = new Error(`${partNumber}회차 생성 실패: ${response.status} - ${errorText}`)
+        
+        if (response.status === 503 && attempt < maxRetries - 1) {
+          try {
+            const errorData = JSON.parse(errorText)
+            if (errorData.error?.message?.includes("overloaded") || errorData.error?.status === "UNAVAILABLE") {
+              console.warn(`[v0] ${partNumber}회차 API 서버 과부하, 재시도 중... (${attempt + 1}/${maxRetries})`)
+              continue
+            }
+          } catch (parseError) {
+            if (attempt < maxRetries - 1) {
+              console.warn(`[v0] ${partNumber}회차 API 서버 과부하, 재시도 중... (${attempt + 1}/${maxRetries})`)
+              continue
+            }
+          }
+        }
+        
+        if (attempt < maxRetries - 1) {
+          continue
+        }
+        throw lastError
+      }
+
+      const data = await response.json()
+      
+      if (!data.candidates || data.candidates.length === 0) {
+        lastError = new Error(`${partNumber}회차를 생성할 수 없습니다. API 응답에 candidates가 없습니다.`)
+        if (attempt < maxRetries - 1) {
+          console.warn(`[v0] ${partNumber}회차 candidates 없음, 재시도 중... (${attempt + 1}/${maxRetries})`)
+          continue
+        }
+        throw lastError
+      }
+      
+      const candidate = data.candidates[0]
+      const finishReason = candidate.finishReason
+      
+      if (finishReason) {
+        console.log(`[v0] ${partNumber}회차 finishReason: ${finishReason}`)
+        
+        if (finishReason === "SAFETY" || finishReason === "RECITATION" || finishReason === "OTHER") {
+          throw new Error(`${partNumber}회차를 생성할 수 없습니다. 필터에 의해 차단되었습니다. (finishReason: ${finishReason})`)
+        }
+      }
+      
+      const content = candidate.content?.parts?.[0]?.text
+
+      if (!content) {
+        lastError = new Error(`${partNumber}회차를 생성할 수 없습니다. 응답 내용이 없습니다. (finishReason: ${finishReason || "N/A"})`)
+        if (finishReason !== "MAX_TOKENS" && attempt < maxRetries - 1) {
+          console.warn(`[v0] ${partNumber}회차 응답 내용 없음, 재시도 중... (${attempt + 1}/${maxRetries})`)
+          continue
+        }
+        throw lastError
+      }
+      
+      const trimmedContent = content.trim()
+      const actualLength = trimmedContent.length
+      
+      // 목표 글자수 확인 (최소 95% 이상이어야 함)
+      const minRequiredLength = partInfo.minChars // 목표의 95%
+      const targetLength = partInfo.targetChars
+      
+      console.log(`[v0] ${partNumber}회차 생성 완료 (시도 ${attempt + 1}/${maxRetries}): ${actualLength}자 (목표: ${targetLength}자, 최소: ${minRequiredLength}자)`)
+      
+      // 목표 글자수에 근접했는지 확인
+      if (actualLength >= minRequiredLength) {
+        // 목표 달성 또는 근접
+        if (actualLength >= targetLength) {
+          console.log(`[v0] ✅ ${partNumber}회차 목표 달성: ${actualLength}자 (목표: ${targetLength}자)`)
+        } else {
+          console.log(`[v0] ⚠️ ${partNumber}회차 목표 근접: ${actualLength}자 (목표: ${targetLength}자, 부족: ${targetLength - actualLength}자)`)
+        }
+        return trimmedContent
+      } else {
+        // 목표 글자수에 미달 - 이미 생성된 내용을 기반으로 이어서 추가 생성
+        const shortage = minRequiredLength - actualLength
+        console.warn(`[v0] ⚠️ ${partNumber}회차 글자수 부족: ${actualLength}자 (최소 필요: ${minRequiredLength}자, 부족: ${shortage}자)`)
+        console.log(`[v0] ${partNumber}회차 부족한 부분을 이어서 추가 생성합니다...`)
+        
+        if (attempt < maxRetries - 1) {
+          // 이미 생성된 내용을 기반으로 이어서 작성하는 프롬프트
+          const continuationPrompt = `${partSystemPrompt}
+
+[이미 생성된 ${partNumber}회차 대본 (이어서 작성하세요)]:
+${trimmedContent}
+
+⚠️⚠️⚠️ 이어서 작성 지시사항 (매우 중요) ⚠️⚠️⚠️
+위 대본은 ${actualLength}자로 목표 글자수(${targetLength}자)에 부족합니다.
+부족한 ${shortage}자 이상을 이어서 작성하세요.
+
+⚠️ 매우 중요:
+1. 위 대본의 마지막 문장을 반드시 읽고 이해하세요.
+2. 그 마지막 문장 이후에 자연스럽게 이어지는 내용을 작성하세요.
+3. 위 대본의 문맥, 톤, 스타일을 완벽하게 유지하세요.
+4. 갑자기 다른 주제로 전환하지 마세요.
+5. 전체 기획안의 흐름을 계속 이어가세요.
+
+글자수를 늘리기 위해:
+- 각 문장을 더 길고 상세하게 작성하세요.
+- 예시, 비유, 설명을 더 많이 추가하세요.
+- 배경 설명, 인물 심리, 상황 묘사를 풍부하게 추가하세요.
+- 같은 내용을 다른 표현으로 확장하여 설명하세요.
+- 각 장면을 더 상세하게 묘사하세요.
+
+⚠️⚠️⚠️ 절대적 필수: 
+- 위 대본의 마지막 문장 이후에 자연스럽게 이어지는 내용만 작성하세요.
+- 반드시 ${shortage}자 이상 추가하세요.
+- 전체 대본이 ${minRequiredLength}자 이상이 되도록 작성하세요.
+- 오직 이어서 작성하는 내용만 출력하세요. 위 대본을 반복하지 마세요.
+
+${previousContext}────────────────────────
+[대본 기획안 (전체 - 반드시 먼저 읽고 전체 흐름 파악)]
+────────────────────────
+${scriptPlan}
+
+⚠️⚠️⚠️ 매우 중요: 위 기획안을 먼저 전체적으로 읽고 다음을 파악하세요:
+1. 전체 스토리의 구조와 전개 순서
+2. 이 ${partNumber}회차(${partInfo.startTime}~${partInfo.endTime})가 전체 스토리의 어느 위치인지
+3. 앞부분의 맥락과 뒷부분의 맥락
+4. 전체 기획안의 핵심 메시지와 감정 흐름
+
+────────────────────────
+[작성 지시사항]
+────────────────────────
+⚠️⚠️⚠️ 매우 중요: 기획안의 모든 내용을 빠짐없이 구현하세요 ⚠️⚠️⚠️
+
+1. 위에 제공된 "이미 생성된 ${partNumber}회차 대본"을 먼저 확인하세요.
+2. 기획안을 다시 읽고, 위 대본에서 아직 다루지 않은 기획안 내용이 있는지 확인하세요.
+3. 기획안의 모든 내용을 빠짐없이 다뤄야 합니다:
+   - 위 대본에서 이미 다룬 기획안 내용은 반복하지 마세요.
+   - 하지만 기획안에 있는데 위 대본에서 아직 다루지 않은 내용이 있다면 반드시 포함하세요.
+   - 기획안의 해당 구간(${partInfo.startTime}~${partInfo.endTime})에 해당하는 모든 내용을 구현하세요.
+
+4. 위 대본의 마지막 문장 이후에 자연스럽게 이어지는 내용을 작성하세요.
+5. 기획안의 순서와 구조를 절대 변경하지 마세요.
+6. 전체 기획안의 흐름을 절대 벗어나지 마세요.
+7. 오직 이어서 작성하는 내용만 출력하세요. 위 대본을 반복하거나 요약하지 마세요.
+
+⚠️ 목표:
+- 부족한 ${shortage}자 이상을 추가하세요.
+- 기획안의 모든 내용을 빠짐없이 구현하세요.
+- 전체 대본이 ${minRequiredLength}자 이상이 되도록 작성하세요.`
+          
+          // 이어서 작성하는 API 호출
+          try {
+            const continuationResponse = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${GEMINI_API_KEY}`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  contents: [
+                    {
+                      parts: [
+                        {
+                          text: continuationPrompt,
+                        },
+                      ],
+                    },
+                  ],
+                  generationConfig: {
+                    temperature: (duration >= 10 && duration <= 40) ? 0.7 : 1,
+                    topK: 40,
+                    topP: 0.95,
+                    maxOutputTokens: 8192,
+                  },
+                }),
+              }
+            )
+
+            if (!continuationResponse.ok) {
+              const errorText = await continuationResponse.text()
+              console.warn(`[v0] ${partNumber}회차 이어서 작성 실패: ${continuationResponse.status} - ${errorText}`)
+              // 이어서 작성 실패 시 기존 내용 반환
+              return trimmedContent
+            }
+
+            const continuationData = await continuationResponse.json()
+            const continuationContent = continuationData.candidates?.[0]?.content?.parts?.[0]?.text
+
+            if (continuationContent && continuationContent.trim().length > 0) {
+              const continuationText = continuationContent.trim()
+              const combinedContent = trimmedContent + "\n\n" + continuationText
+              const combinedLength = combinedContent.length
+              
+              console.log(`[v0] ${partNumber}회차 이어서 작성 완료: 기존 ${actualLength}자 + 추가 ${continuationText.length}자 = 총 ${combinedLength}자`)
+              
+              // 목표 달성 여부 확인
+              if (combinedLength >= minRequiredLength) {
+                if (combinedLength >= targetLength) {
+                  console.log(`[v0] ✅ ${partNumber}회차 목표 달성 (이어서 작성 후): ${combinedLength}자 (목표: ${targetLength}자)`)
+                } else {
+                  console.log(`[v0] ⚠️ ${partNumber}회차 목표 근접 (이어서 작성 후): ${combinedLength}자 (목표: ${targetLength}자, 부족: ${targetLength - combinedLength}자)`)
+                }
+                return combinedContent
+              } else {
+                // 여전히 부족하면 한 번 더 시도
+                console.warn(`[v0] ⚠️ ${partNumber}회차 여전히 부족: ${combinedLength}자 (최소 필요: ${minRequiredLength}자)`)
+                if (attempt < maxRetries - 2) {
+                  // 기존 내용을 업데이트하고 재시도
+                  currentPrompt = continuationPrompt.replace(
+                    `[이미 생성된 ${partNumber}회차 대본 (이어서 작성하세요)]:\n${trimmedContent}`,
+                    `[이미 생성된 ${partNumber}회차 대본 (이어서 작성하세요)]:\n${combinedContent}`
+                  ).replace(
+                    `부족한 ${shortage}자 이상을 이어서 작성하세요.`,
+                    `부족한 ${minRequiredLength - combinedLength}자 이상을 이어서 작성하세요.`
+                  )
+                  continue
+                } else {
+                  // 최대 재시도 횟수 도달 - 현재까지 생성된 내용 반환
+                  console.warn(`[v0] ⚠️ ${partNumber}회차 최대 재시도 횟수 도달. 현재까지 생성된 내용 반환: ${combinedLength}자`)
+                  return combinedContent
+                }
+              }
+            } else {
+              // 이어서 작성 실패 - 기존 내용 반환
+              console.warn(`[v0] ⚠️ ${partNumber}회차 이어서 작성 응답이 비어있습니다. 기존 내용 반환: ${actualLength}자`)
+              return trimmedContent
+            }
+          } catch (continuationError) {
+            console.error(`[v0] ${partNumber}회차 이어서 작성 중 오류:`, continuationError)
+            // 오류 발생 시 기존 내용 반환
+            return trimmedContent
+          }
+        } else {
+          // 모든 재시도 실패 - 경고하고 반환
+          console.error(`[v0] ❌ ${partNumber}회차 최종 글자수 부족: ${actualLength}자 (최소 필요: ${minRequiredLength}자, 부족: ${shortage}자)`)
+          console.warn(`[v0] ⚠️ ${partNumber}회차가 목표 글자수에 미달하지만 계속 진행합니다. 전체 목표 달성을 위해 다음 회차에서 보완될 수 있습니다.`)
+          return trimmedContent
+        }
+      }
+      
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error))
+      
+      if (attempt < maxRetries - 1) {
+        const errorMessage = lastError.message
+        if (errorMessage.includes("SAFETY") || errorMessage.includes("RECITATION") || errorMessage.includes("OTHER")) {
+          throw lastError
+        }
+        console.warn(`[v0] ${partNumber}회차 생성 실패, 재시도 중... (${attempt + 1}/${maxRetries}):`, errorMessage)
+        continue
+      }
+      
+      throw lastError
+    }
+  }
+  
+  throw lastError || new Error(`${partNumber}회차를 생성할 수 없습니다.`)
+}
+
+/**
  * 단일 씬을 장면으로 분해하는 함수
  * @param sceneText - 씬 텍스트
  * @param sceneNumber - 씬 번호
