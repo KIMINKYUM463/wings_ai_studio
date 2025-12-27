@@ -776,23 +776,33 @@ ${shouldUseStoryMode ? `
 
       let userPrompt = ""
       
+      // 5분 통합 생성: 초기 기획안 길이 확인 및 축약 (3000자 이상이면 축약 - 입력 토큰 절감)
+      let currentScriptPlan = scriptPlan
+      if (duration === 5 && scriptPlan.length > 3000) {
+        console.log(`[v0] 대본 통합 생성: 기획안이 ${scriptPlan.length}자로 길어 초기 축약합니다...`)
+        const scriptPlanLines = scriptPlan.split('\n')
+        const planLength = scriptPlanLines.length
+        const keepLines = Math.floor(planLength * 0.6) // 70% → 60%로 더 축약
+        const frontLines = Math.floor(keepLines * 0.4) // 앞부분 40%
+        const backLines = keepLines - frontLines // 뒷부분 60%
+        currentScriptPlan = [
+          ...scriptPlanLines.slice(0, frontLines),
+          `\n[... 중간 부분 생략 (입력 토큰 절감) ...]\n`,
+          ...scriptPlanLines.slice(-backLines)
+        ].join('\n')
+        console.log(`[v0] 대본 통합 생성: 기획안을 ${currentScriptPlan.length}자로 축약했습니다.`)
+      }
+      
       if (duration === 5) {
-        // 5분일 때는 제공된 프롬프트 형식 사용
+        // 5분일 때는 간소화된 프롬프트 사용 (입력 토큰 절감)
         userPrompt = `${systemPrompt}
 
 [대본 기획안]:
-${scriptPlan}
+${currentScriptPlan}
 
-위 기획안을 바탕으로 정확히 5분 분량(목표: 2,570자, 최소: 2,070자 이상, 최대: 3,000자 이내)의 완성도 높은 대본을 작성해주세요.
+5분 분량 대본 작성 (목표: 2,570자, 최소: 2,070자 이상).
 
-🚫🚫🚫 절대 금지 사항 (반드시 준수하세요) 🚫🚫🚫
-- **절대 금지**: 대본에 "(글자수: XXX자)", "(공백 포함 글자수: XXX자)", "(글자수: 2297자)" 등 숫자가 포함된 글자수 관련 메타데이터를 절대 포함하지 마세요.
-- **절대 금지**: "글자수 확인", "글자 수", "글자수: XXX", "글자수 확인: XXX" 등 어떤 형태의 글자수 관련 표현도 대본에 포함하지 마세요.
-- **절대 금지**: 대본 내용 외의 설명, 주석, 메모, 확인 문구, 검증 문구를 포함하지 마세요.
-- **절대 금지**: 괄호 안에 숫자나 글자수 관련 정보를 포함하지 마세요.
-- 오직 순수한 대본 내용만 출력하세요.
-- 대본만 작성하고 다른 설명은 하지 마세요.
-- 글자수 조건을 절대적으로 준수하되, 대본에 글자수 정보를 표시하지 마세요.`
+🚫 금지: "(글자수: XXX자)", "(공백 포함 XXX자)" 등 메타데이터. 오직 대본 내용만 출력.`
       } else {
         // 다른 duration일 때는 기존 형식 사용
         userPrompt = `${systemPrompt}
@@ -865,9 +875,9 @@ ${scriptPlan}
               temperature: 1,
               topK: 40,
               topP: 0.95,
-              // 목표 글자수에 맞게 maxOutputTokens 계산 (한글 1자당 약 2-3토큰, 여유있게 4배 + 최소 16384)
+              // 목표 글자수에 맞게 maxOutputTokens 계산 (한글 1자당 약 2-3토큰, 여유있게 5배 + 최소 16384)
               // 프롬프트가 길어도 충분한 출력 토큰 확보를 위해 최소값을 높임
-              maxOutputTokens: targetChars ? Math.min(65536, Math.max(16384, Math.ceil(targetChars * 4))) : 16384, // 최대 65536
+              maxOutputTokens: targetChars ? Math.min(65536, Math.max(16384, Math.ceil(targetChars * 5))) : 16384, // 최대 65536
             },
           }),
         }
@@ -940,10 +950,10 @@ ${scriptPlan}
             if (fullFinishReason === "MAX_TOKENS" && attempt < maxRetriesFull - 1) {
               console.warn(`[v0] 대본 통합 생성 MAX_TOKENS 발생 - 입력 토큰을 줄여서 재시도합니다...`)
               
-              // 기획안을 축약 (전체의 70%만 사용 - 앞부분과 뒷부분 유지)
-              const scriptPlanLines = scriptPlan.split('\n')
+              // 기획안을 더 축약 (현재 기획안의 50%만 사용 - 앞부분과 뒷부분 유지, 더 적극적으로 축약)
+              const scriptPlanLines = currentScriptPlan.split('\n')
               const planLength = scriptPlanLines.length
-              const keepLines = Math.floor(planLength * 0.7)
+              const keepLines = Math.floor(planLength * 0.5) // 70% → 50%로 더 축약
               const frontLines = Math.floor(keepLines * 0.4) // 앞부분 40%
               const backLines = keepLines - frontLines // 뒷부분 60%
               const reducedScriptPlan = [
@@ -951,6 +961,19 @@ ${scriptPlan}
                 `\n[... 중간 부분 생략 (입력 토큰 절감) ...]\n`,
                 ...scriptPlanLines.slice(-backLines)
               ].join('\n')
+              
+              // 축약된 기획안을 currentScriptPlan에 반영
+              currentScriptPlan = reducedScriptPlan
+              
+              // 프롬프트도 더 간소화
+              currentUserPrompt = `${systemPrompt}
+
+[대본 기획안]:
+${reducedScriptPlan}
+
+5분 분량 대본 작성 (목표: 2,570자, 최소: 2,070자 이상).
+
+🚫 금지: 메타데이터. 오직 대본 내용만 출력.`
               
               // 입력 토큰을 줄인 프롬프트 생성 (핵심 지시사항만 유지)
               // userPrompt에서 기획안 부분만 교체
