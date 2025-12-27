@@ -8,6 +8,9 @@
     },
     "app/api/generate-refined-script/route.ts": {
       "maxDuration": 300
+    },
+    "app/api/generate-refined-script-part/route.ts": {
+      "maxDuration": 180
     }
   },
   "headers": [

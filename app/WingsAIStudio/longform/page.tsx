@@ -5939,36 +5939,109 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
 
           console.log(`[v0] ${partNumber}/${totalParts} 분할 생성 시작`)
           
-          const response = await fetch("/api/generate-refined-script-part", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              scriptPlan,
-              topic: topic || "",
-              duration: scriptDuration,
-              partNumber,
-              totalParts,
-              targetChars,
-              previousParts: parts.join("\n\n"),
-              isStoryMode: shouldUseStoryMode,
-              apiKey: geminiApiKey
-            })
-          })
+          // 타임아웃 시 자동 재시도 로직
+          const maxRetries = 3
+          let partScript: string | null = null
+          let lastError: Error | null = null
+          
+          for (let retryAttempt = 0; retryAttempt < maxRetries; retryAttempt++) {
+            try {
+              if (retryAttempt > 0) {
+                const retryDelay = 2000 * retryAttempt // 2초, 4초, 6초
+                console.log(`[v0] ${partNumber}회차 재시도 ${retryAttempt}/${maxRetries - 1} - ${retryDelay}ms 후 재시도...`)
+                await new Promise((resolve) => setTimeout(resolve, retryDelay))
+              }
+              
+              const response = await fetch("/api/generate-refined-script-part", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  scriptPlan,
+                  topic: topic || "",
+                  duration: scriptDuration,
+                  partNumber,
+                  totalParts,
+                  targetChars,
+                  previousParts: parts.join("\n\n"),
+                  isStoryMode: shouldUseStoryMode,
+                  apiKey: geminiApiKey
+                })
+              })
 
-          if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}))
-            throw new Error(errorData.error || `${partNumber}회차 생성 실패: ${response.status}`)
+              if (!response.ok) {
+                let errorData
+                try {
+                  errorData = await response.json()
+                } catch (e) {
+                  // JSON 파싱 실패 시 (타임아웃 등)
+                  if (response.status === 504 || response.status === 408) {
+                    if (retryAttempt < maxRetries - 1) {
+                      console.warn(`[v0] ${partNumber}회차 타임아웃 발생, 재시도 중... (${retryAttempt + 1}/${maxRetries})`)
+                      lastError = new Error(`타임아웃 (재시도 ${retryAttempt + 1}/${maxRetries})`)
+                      continue
+                    }
+                    throw new Error(`${partNumber}회차 생성 시간이 너무 오래 걸립니다. 타임아웃이 발생했습니다.`)
+                  }
+                  throw new Error(`${partNumber}회차 생성 실패: ${response.status}`)
+                }
+                
+                // 타임아웃 오류인 경우 재시도
+                if (response.status === 504 || response.status === 408) {
+                  if (retryAttempt < maxRetries - 1) {
+                    console.warn(`[v0] ${partNumber}회차 타임아웃 발생, 재시도 중... (${retryAttempt + 1}/${maxRetries})`)
+                    lastError = new Error(`타임아웃: ${errorData.error || '서버 응답 시간 초과'} (재시도 ${retryAttempt + 1}/${maxRetries})`)
+                    continue
+                  }
+                  throw new Error(`${partNumber}회차 생성 시간이 너무 오래 걸립니다. 타임아웃이 발생했습니다.`)
+                }
+                
+                // 다른 오류는 재시도하지 않고 바로 throw
+                throw new Error(errorData.error || `${partNumber}회차 생성 실패: ${response.status}`)
+              }
+
+              const result = await response.json()
+              if (!result || !result.script) {
+                if (retryAttempt < maxRetries - 1) {
+                  console.warn(`[v0] ${partNumber}회차 응답이 올바르지 않음, 재시도 중... (${retryAttempt + 1}/${maxRetries})`)
+                  lastError = new Error(`${partNumber}회차 생성 응답이 올바르지 않습니다.`)
+                  continue
+                }
+                throw new Error(`${partNumber}회차 생성 응답이 올바르지 않습니다.`)
+              }
+
+              // 성공
+              partScript = result.script
+              console.log(`[v0] ${partNumber}/${totalParts} 분할 생성 완료: ${result.script.length}자`)
+              break // 성공 시 루프 탈출
+              
+            } catch (error) {
+              lastError = error instanceof Error ? error : new Error(String(error))
+              
+              // 타임아웃 관련 오류가 아니면 재시도하지 않음
+              const errorMessage = lastError.message
+              if (!errorMessage.includes("타임아웃") && !errorMessage.includes("504") && !errorMessage.includes("408") && !errorMessage.includes("timeout")) {
+                throw lastError
+              }
+              
+              // 타임아웃 오류이고 재시도 가능한 경우
+              if (retryAttempt < maxRetries - 1) {
+                console.warn(`[v0] ${partNumber}회차 오류 발생, 재시도 중... (${retryAttempt + 1}/${maxRetries}):`, errorMessage)
+                continue
+              }
+              
+              // 모든 재시도 실패
+              throw lastError
+            }
           }
-
-          const result = await response.json()
-          if (!result || !result.script) {
-            throw new Error(`${partNumber}회차 생성 응답이 올바르지 않습니다.`)
+          
+          // 재시도 후에도 실패한 경우
+          if (!partScript) {
+            throw lastError || new Error(`${partNumber}회차 생성에 실패했습니다.`)
           }
-
-          parts.push(result.script)
-          console.log(`[v0] ${partNumber}/${totalParts} 분할 생성 완료: ${result.script.length}자`)
+          
+          parts.push(partScript)
         }
 
         // 모든 분할 합치기

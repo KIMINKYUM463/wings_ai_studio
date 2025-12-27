@@ -1,8 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { generateRefinedScriptPart } from "@/app/WingsAIStudio/longform/refined-script-actions"
 
-// 각 분할은 짧으므로 60초면 충분
-export const maxDuration = 60 // 60초
+// 각 분할 생성 + 재시도 + 이어서 작성까지 고려하여 180초로 설정
+export const maxDuration = 180 // 180초 (3분) - 재시도 및 이어서 작성 고려
 export const runtime = 'nodejs' // Node.js 런타임 사용
 
 /**
