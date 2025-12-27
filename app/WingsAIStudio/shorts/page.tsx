@@ -32,6 +32,7 @@ import {
   Upload,
   X,
   GripVertical,
+  RefreshCw,
 } from "lucide-react"
 import Link from "next/link"
 import { generateShortsScript, generateShortsTopics, generateShortsHookingTitle } from "./actions"
@@ -91,6 +92,9 @@ export default function ShortsPage() {
   const [selectedVoiceId, setSelectedVoiceId] = useState<string>("ttsmaker-여성1") // 기본: TTSMaker 여성1
   const [previewingVoiceId, setPreviewingVoiceId] = useState<string | null>(null)
   const [previewAudioUrl, setPreviewAudioUrl] = useState<string | null>(null)
+  const [supertoneVoices, setSupertoneVoices] = useState<Array<{ voice_id: string; name: string; language: string[]; styles: string[]; thumbnail_image_url?: string }>>([]) // 수퍼톤 음성 목록
+  const [isLoadingSupertoneVoices, setIsLoadingSupertoneVoices] = useState(false) // 수퍼톤 음성 목록 로딩 중
+  const [selectedSupertoneVoiceId, setSelectedSupertoneVoiceId] = useState<string>("") // 선택된 수퍼톤 음성 ID
   // 이미지 스타일 선택
   const [imageStyle, setImageStyle] = useState<string>("stickman-animation")
   const [videoUrl, setVideoUrl] = useState<string>("")
@@ -596,6 +600,53 @@ export default function ShortsPage() {
       alert(`미리듣기에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
       setPreviewingVoiceId(null)
       setPreviewAudioUrl(null)
+    }
+  }
+
+  // 수퍼톤 목소리 목록 가져오기
+  const fetchSupertoneVoices = async () => {
+    setIsLoadingSupertoneVoices(true)
+    try {
+      const supertoneApiKey = getApiKey("supertone_api_key")
+      if (!supertoneApiKey) {
+        alert("수퍼톤 API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+        setIsLoadingSupertoneVoices(false)
+        return
+      }
+
+      const response = await fetch(`/api/supertone-voices?apiKey=${encodeURIComponent(supertoneApiKey)}`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "음성 목록을 가져오는데 실패했습니다.")
+      }
+
+      const data = await response.json()
+      if (data.success && data.voices) {
+        // 특정 음성 제외: "달팽이A", "기억의정령_알마냐", "틈새의정령_알마냐"
+        const excludedNames = ["달팽이A", "기억의정령_알마냐", "틈새의정령_알마냐"]
+        const filteredVoices = data.voices.filter((voice: { name: string }) => 
+          !excludedNames.some(excluded => voice.name.includes(excluded))
+        )
+        setSupertoneVoices(filteredVoices)
+        // 첫 번째 음성을 기본 선택
+        if (filteredVoices.length > 0 && !selectedSupertoneVoiceId) {
+          setSelectedSupertoneVoiceId(filteredVoices[0].voice_id)
+          setSelectedVoiceId(`supertone-${filteredVoices[0].voice_id}`)
+        }
+      } else {
+        throw new Error(data.error || "음성 목록을 가져오는데 실패했습니다.")
+      }
+    } catch (error) {
+      console.error("수퍼톤 음성 목록 가져오기 실패:", error)
+      alert(`수퍼톤 음성 목록을 가져오는데 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+    } finally {
+      setIsLoadingSupertoneVoices(false)
     }
   }
 
@@ -3358,6 +3409,93 @@ export default function ShortsPage() {
                     </div>
                   ))}
                 </div>
+                
+                {/* 수퍼톤 목소리 선택 */}
+                <div className="mt-6 pt-6 border-t-2 border-gray-200">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-lg font-semibold text-gray-800">수퍼톤 목소리</h3>
+                      <Badge variant="outline" className="text-xs">고품질</Badge>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={fetchSupertoneVoices}
+                      disabled={isLoadingSupertoneVoices}
+                      className={selectedVoiceId?.startsWith("supertone-") ? "border-purple-300 text-purple-700" : ""}
+                    >
+                      {isLoadingSupertoneVoices ? (
+                        <>
+                          <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                          로딩 중...
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="w-3 h-3 mr-1" />
+                          음성 목록 가져오기
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                  {supertoneVoices.length > 0 && (
+                    <Select
+                      value={selectedSupertoneVoiceId}
+                      onValueChange={(value) => {
+                        setSelectedSupertoneVoiceId(value)
+                        setSelectedVoiceId(`supertone-${value}`)
+                      }}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="수퍼톤 음성을 선택하세요" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {supertoneVoices.map((voice) => (
+                          <SelectItem key={voice.voice_id} value={voice.voice_id}>
+                            <div className="flex items-center gap-2">
+                              {voice.thumbnail_image_url && (
+                                <img
+                                  src={voice.thumbnail_image_url}
+                                  alt={voice.name}
+                                  className="w-6 h-6 rounded-full object-cover"
+                                />
+                              )}
+                              <div>
+                                <div className="font-medium">{voice.name}</div>
+                                {voice.styles && voice.styles.length > 0 && (
+                                  <div className="text-xs text-gray-500">
+                                    스타일: {voice.styles.join(", ")}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  {selectedSupertoneVoiceId && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full mt-2 border-purple-300 text-purple-700 hover:bg-purple-100"
+                      onClick={() => handlePreviewVoice(`supertone-${selectedSupertoneVoiceId}`)}
+                      disabled={previewingVoiceId === `supertone-${selectedSupertoneVoiceId}`}
+                    >
+                      {previewingVoiceId === `supertone-${selectedSupertoneVoiceId}` ? (
+                        <>
+                          <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                          재생 중...
+                        </>
+                      ) : (
+                        <>
+                          <Volume2 className="w-3 h-3 mr-1" />
+                          미리듣기
+                        </>
+                      )}
+                    </Button>
+                  )}
+                </div>
+                
                 {previewAudioUrl && (
                   <audio
                     src={previewAudioUrl}
