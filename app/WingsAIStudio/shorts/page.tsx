@@ -3415,7 +3415,7 @@ export default function ShortsPage() {
                     <div className="flex justify-between text-sm">
                       <span>TTS 생성 중...</span>
                       <span>{ttsGenerationProgress.current}/{ttsGenerationProgress.total}</span>
-        </div>
+                    </div>
                     <div className="w-full bg-gray-200 rounded-full h-2.5">
                       <div
                         className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
@@ -3423,7 +3423,7 @@ export default function ShortsPage() {
                           width: `${(ttsGenerationProgress.current / ttsGenerationProgress.total) * 100}%`,
                         }}
                       />
-      </div>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -3772,31 +3772,7 @@ export default function ShortsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100">
-      <div className="border-b bg-background/95 backdrop-blur sticky top-0 z-50">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Link href="/WingsAIStudio">
-                <Button variant="ghost" size="sm" className="gap-2">
-                  <ArrowLeft className="w-4 h-4" />
-                  뒤로가기
-                </Button>
-              </Link>
-              <Link href="/WingsAIStudio">
-                <Button variant="ghost" size="sm" className="gap-2">
-                  <Home className="w-4 h-4" />
-                  홈으로
-                </Button>
-              </Link>
-                    </div>
-            <h1 className="text-2xl font-bold">쇼츠 제작 (9:16)</h1>
-            <div className="w-32" />
-                  </div>
-                </div>
-              </div>
-
-      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50">
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50">
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-5xl mx-auto">
           <Card className="border-2 border-gray-200 shadow-2xl overflow-hidden">
