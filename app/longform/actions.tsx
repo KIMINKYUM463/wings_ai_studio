@@ -804,8 +804,10 @@ export async function generateScript(topic: string, customScript?: string) {
 export async function generateScriptPlan(
   topic: string,
   category: Category = "health",
-  benchmarkScript?: string,
-  apiKey?: string
+  keywords?: string,
+  apiKey?: string,
+  videoDurationMinutes?: number,
+  benchmarkScript?: string
 ) {
   // 전달받은 API 키 우선 사용, 없으면 환경 변수
   const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
@@ -814,21 +816,25 @@ export async function generateScriptPlan(
     throw new Error("GPT API 키가 설정되지 않았습니다. 설정에서 API 키를 입력해주세요.")
   }
 
+  const duration = videoDurationMinutes || 5 // 기본값 5분
+
   try {
-    const systemPrompt = `당신은 유튜브 기획 전문가입니다. 50~70대 시니어층을 위한 유튜브 대본을 기획합니다.
+    const systemPrompt = `당신은 유튜브 기획 전문가입니다. 50~70대 시니어층을 위한 유튜브 대본을 기획합니다.${duration ? ` 정확히 ${duration}분 길이의 롱폼 비디오에 최적화된 대본 기획안을 작성해주세요.` : ''}
 
 당신의 역할:
 - 창의적이고 독창적인 대본 개요 작성
 - 저작권을 절대 위반하지 않음
 - 공신력 있는 데이터와 사실을 활용
-- 시청자의 공감을 불러일으키는 구성
+- 시청자의 공감을 불러일으키는 구성${duration ? `
+- 총 영상 길이: 정확히 ${duration}분` : ''}
 
 작성 원칙:
 1. 시,분,초 같은 시간 정보는 포함하지 않고 전체적인 흐름만 작성
 2. 기존 영상과 차별화된 새로운 전개 방식 창작
 3. 저작권 위반 요소 절대 금지 (구성, 스토리텔링, 문장, 표현 복사 금지)
 4. 공신력 있는 데이터와 연구 결과 인용
-5. 공감을 불러일으키는 익숙한 사례와 예시 포함`
+5. 공감을 불러일으키는 익숙한 사례와 예시 포함${duration ? `
+6. 영상 길이에 맞춰 적절한 분량의 기획안 작성 (${duration}분 영상용)` : ''}`
 
     const userPrompt = `*(1) 주제, 개요작성
 
@@ -877,10 +883,11 @@ ${benchmarkScript}
 
 주제: ${topic}
 카테고리: ${categoryDescriptions[category]}
-
-위 주제와 카테고리를 기반으로 50~70대 시니어층을 위한 새로운 유튜브 대본 개요를 작성해주세요.`
+${keywords ? `키워드: ${keywords}\n` : ''}${duration ? `영상 길이: ${duration}분\n` : ''}
+위 주제와 카테고리를 기반으로 50~70대 시니어층을 위한 새로운 유튜브 대본 개요를 작성해주세요.${duration ? ` 총 ${duration}분 분량의 영상에 맞는 기획안으로 작성해주세요.` : ''}`
 
     console.log("[v0] 대본 기획 API 호출 시작")
+    console.log("[v0] 대본 기획 파라미터:", { topic, category, keywords, duration, hasBenchmark: !!benchmarkScript })
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",

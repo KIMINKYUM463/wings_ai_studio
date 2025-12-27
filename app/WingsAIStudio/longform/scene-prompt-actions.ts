@@ -477,6 +477,7 @@ ${imageStyle === "realistic" || imageStyle === "realistic2" ? "Inference Steps�
         const stickmanMainPrompt = "ABSOLUTE STICKMAN-ONLY ILLUSTRATION. This image must contain ONLY 2D stickman figures. Stickman is a symbolic drawing, NOT a human, NOT a character, NOT a person."
         const stickmanBasePrompt = "Stickman rules (must follow): Perfectly round white head, dot eyes and simple curved smile ONLY, no nose, no ears, no hair, no facial details, ultra-thin black line limbs with uniform stroke width, no body volume, no torso shape, no muscles, simple mitten hands, no fingers, flat 2D vector drawing ONLY"
         const stickmanAnatomyRules = "STRICT ANATOMY RULES FOR STICKMAN: Exactly TWO arms only, Exactly TWO hands only, Exactly TWO legs only, No extra arms, no extra hands, no duplicated limbs, Each arm is drawn once, clearly connected to the body, One head, one body, two arms, two hands, two legs, No duplicates, no extra parts. Stickman body constraints: One head, One body, Two arms only, Two hands only, Two legs only, No duplicates, no extra parts. If any extra limbs appear, the result is incorrect."
+        const stickmanBodyVisibility = "MANDATORY BODY VISIBILITY: The stickman character MUST show the full body including both head and torso, not just torso alone. Full body visible: head, torso, and limbs all must be visible in the image. No partial body, no torso-only, no head-only. Complete stickman figure required. Both arms must be clearly visible and shown."
         const stickmanStylePhrase = "Scene is illustrated in a simple cartoon style: flat colors, bold black outlines, minimal details, no depth, no lighting effects, no textures. Background must be fully illustrated (cartoon), simple shapes only, no realistic environment. Educational explainer illustration style. Use calm pose, simple gesture, neutral stance, minimal movement instead of animated gestures or dynamic action"
         const stickmanNoText = "NO TEXT ALLOWED IN IMAGE. Do NOT include speech bubbles, captions, labels, words, letters, logos, symbols, numbers, or any readable text. This is NOT a comic, NOT a poster, NOT an advertisement. Pure visual illustration only."
         const stickmanFinalCheck = "If the result looks realistic, 3D, or human-like, it is WRONG. If the image contains text, speech bubbles, or readable symbols, the result is incorrect. If any extra limbs appear, the result is incorrect."
@@ -489,6 +490,9 @@ ${imageStyle === "realistic" || imageStyle === "realistic2" ? "Inference Steps�
         }
         if (!promptLower.includes("exactly two arms") || !promptLower.includes("exactly two hands") || !promptLower.includes("no extra arms") || !promptLower.includes("no extra hands")) {
           prompt = `${prompt}, ${stickmanAnatomyRules}`
+        }
+        if (!promptLower.includes("full body visible") || !promptLower.includes("head and torso") || !promptLower.includes("complete stickman figure")) {
+          prompt = `${prompt}, ${stickmanBodyVisibility}`
         }
         if (!promptLower.includes("flat 2d vector drawing") || !promptLower.includes("simple cartoon style") || !promptLower.includes("educational explainer")) {
           prompt = `${prompt}, ${stickmanStylePhrase}`
@@ -544,20 +548,35 @@ ${imageStyle === "realistic" || imageStyle === "realistic2" ? "Inference Steps�
         })
         prompt = cleanedPrompt.replace(/\s+/g, ' ').trim()
         
-        // 애니메이션2 스타일 BASE_PROMPT 강제 추가 (모든 씬에 일관되게) - 고도화된 일관성
-        const animation2BasePrompt = "Flat 2D vector illustration, minimal vector art, stylized cartoon character, thick bold black outlines, unshaded, flat solid colors, cel-shaded, simple line art, comic book inking style, completely flat, no shadows, no gradients, no depth, consistent cartoon style, bold clean lines, vibrant colors, simplified shapes, graphic design aesthetic"
-        const animation2CharacterDetails = "expressive dynamic pose, stylized cartoon clothing, simple bold-line cartoon aesthetic, consistent character design"
-        const animation2Environment = "rich detailed colorful stylized cartoon environment, filled frame, no blank background, dynamic dramatic lighting, 2D cartoon feel"
-        const promptLower = prompt.toLowerCase()
-        if (!promptLower.includes("flat 2d vector") || !promptLower.includes("stylized cartoon character") || !promptLower.includes("thick bold black outlines") || !promptLower.includes("cel-shaded") || !promptLower.includes("consistent cartoon style")) {
-          prompt = `${prompt}, ${animation2BasePrompt}`
-        }
-        if (!promptLower.includes("consistent character design") || !promptLower.includes("bold clean lines")) {
-          prompt = `${prompt}, ${animation2CharacterDetails}, ${animation2Environment}`
-        }
-        if (!promptLower.includes("no stickman")) {
-          prompt = `${prompt}, no stickman, no stick figure, no realistic photography, no mixed art styles, no inconsistent style`
-        }
+        // 애니메이션2 프롬프트 구조 (제공된 구조 사용 - 간결한 버전)
+        // 주의: animation2는 스틱맨이 아닌 일반 카툰 캐릭터를 사용하므로 "stylized cartoon character"로 변경
+        const baseStyle = (
+          "Flat 2D vector illustration, minimal vector art, stylized cartoon character with simple circular head, " +
+          "minimalist black dot eyes, thick bold black outlines, unshaded, flat solid colors, cel-shaded, " +
+          "simple line art, comic book inking style, completely flat, no shadows, no gradients, no depth."
+        )
+        
+        const characterDetails = (
+          "The character is in an expressive, dynamic pose appropriate for the scene. " +
+          "The character can be wearing stylized cartoon clothing, costumes, or accessories that fit the theme of the environment. " +
+          "Any clothing must match the simple, bold-line cartoon aesthetic of the stickman, avoiding overly complex or realistic textures."
+        )
+        
+        const environmentLighting = (
+          "The background is a rich, detailed, and colorful stylized cartoon environment " +
+          "(e.g., a bustling futuristic market, a pirate ship deck, a magical forest) filled with relevant objects. " +
+          "The entire frame is filled, with NO blank or simple background regions. " +
+          "The scene features dynamic, dramatic lighting with strong highlights and shadows that enhance the 2D cartoon feel."
+        )
+        
+        const constraints = (
+          "Base Character Consistency: The underlying character form (head shape, eyes, body type) must match the reference style. " +
+          "No Realistic Anatomy: Do not add realistic human features, muscles, or photorealistic clothing textures. " +
+          "Stick to the simple cartoon style."
+        )
+        
+        // 최종 프롬프트 조합
+        prompt = `${prompt}, ${baseStyle}, ${characterDetails}, ${environmentLighting}, ${constraints}`
       } else if (imageStyle === "animation3") {
         // 애니메이션3 스타일 BASE_PROMPT 강제 추가 (모든 씬에 일관되게)
         const animation3BasePrompt = "European graphic novel style, bande dessinée aesthetic, highly detailed traditional illustration, hand-drawn ink lines with cross-hatching shadows, sophisticated and muted color palette, atmospheric, cinematic frame"
@@ -1285,12 +1304,16 @@ ${imageStyle === "realistic" || imageStyle === "realistic2" ? "Inference Steps�
           const stickmanBasePrompt = "STRICT STICKMAN STYLE. A single stickman character (round white face only). Pure stickman anatomy: round white head, dot eyes + simple curved smile only. No hair, no ears, no nose, no cheeks, no detailed facial features. Ultra-thin black limbs with uniform stroke width, simple mitten hands, no fingers, no body volume, no muscles, no realistic proportions"
           const stickmanStylePhrase = "Flat 2D vector illustration, bold clean outline, solid color fills, minimal cel shading, playful explainer-video aesthetic"
           const stickmanExtra = "Simple background with clean shapes and a few colorful details (buildings/windows/signs), no realistic textures, no painterly rendering. Keep the stickman centered, full body visible, clear readable silhouette, bright and friendly mood"
+          const stickmanBodyVisibility = "MANDATORY BODY VISIBILITY: The stickman character MUST show the full body including both head and torso, not just torso alone. Full body visible: head, torso, and limbs all must be visible in the image. No partial body, no torso-only, no head-only. Complete stickman figure required. The stickman character MUST have exactly two arms visible, both arms must be clearly shown."
           const promptLower = prompt.toLowerCase()
           if (!promptLower.includes("strict stickman style") || !promptLower.includes("round white head") || !promptLower.includes("dot eyes") || !promptLower.includes("ultra-thin black limbs")) {
-            prompt = `${prompt}, ${stickmanBasePrompt}, ${stickmanStylePhrase}, ${stickmanExtra}`
+            prompt = `${prompt}, ${stickmanBasePrompt}, ${stickmanStylePhrase}, ${stickmanExtra}, ${stickmanBodyVisibility}`
           }
           if (!promptLower.includes("no hair") || !promptLower.includes("no ears") || !promptLower.includes("no nose")) {
             prompt = `${prompt}, no hair, no ears, no nose, no cheeks, no detailed facial features, no realistic human anatomy, no person, no man, no woman, only stickman`
+          }
+          if (!promptLower.includes("full body visible") || !promptLower.includes("head and torso") || !promptLower.includes("exactly two arms")) {
+            prompt = `${prompt}, ${stickmanBodyVisibility}`
           }
         } else if (imageStyle === "realistic" || imageStyle === "realistic2") {
           // 실사화: 애니메이션/카툰 키워드 제거

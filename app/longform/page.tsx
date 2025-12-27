@@ -50,6 +50,7 @@ import {
   Settings,
   Youtube,
   Calendar,
+  Lock,
 } from "lucide-react"
 import Link from "next/link"
 import {
@@ -1437,6 +1438,10 @@ export default function LongformContentPage() {
 
   // 모드 선택 후 진행 함수
   const handleModeSelection = (mode: "auto" | "manual") => {
+    // 자동 모드는 잠금 상태이므로 선택 불가
+    if (mode === "auto") {
+      return
+    }
     setWorkflowMode(mode)
     if (mode === "auto") {
       // 자동화 모드: 업로드 일자 선택 UI 표시
@@ -6292,26 +6297,34 @@ export default function LongformContentPage() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {/* 자동화 모드 */}
                       <div
-                        className={`p-6 rounded-xl border-2 cursor-pointer transition-all duration-300 hover:shadow-lg ${
-                          workflowMode === "auto"
-                            ? "border-red-500 bg-red-50 shadow-md"
-                            : "border-gray-200 bg-white hover:border-red-300"
+                        className={`p-6 rounded-xl border-2 transition-all duration-300 relative ${
+                          "border-gray-300 bg-gray-50 opacity-75 cursor-not-allowed"
                         }`}
-                        onClick={() => handleModeSelection("auto")}
                       >
+                        <div className="absolute top-4 right-4">
+                          <Lock className="w-5 h-5 text-gray-400" />
+                        </div>
                         <div className="flex items-center gap-3 mb-3">
-                          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-red-500 to-orange-500 flex items-center justify-center">
+                          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-gray-400 to-gray-500 flex items-center justify-center">
                             <Zap className="w-6 h-6 text-white" />
                           </div>
                           <div>
-                            <h3 className="font-bold text-lg text-gray-900">🚀 자동화 모드</h3>
+                            <h3 className="font-bold text-lg text-gray-700">🚀 자동화 모드</h3>
                             <p className="text-xs text-gray-500">원클릭으로 모든 작업 완료</p>
                           </div>
                         </div>
-                        <p className="text-sm text-gray-600 mb-4">
+                        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+                          <p className="text-sm font-semibold text-amber-800 mb-1">
+                            🔒 1월 초 오픈 예정
+                          </p>
+                          <p className="text-xs text-amber-700">
+                            추가 개발 요청건이 너무 많아 그 기능까지 탑재 후 자동 모드 오픈
+                          </p>
+                        </div>
+                        <p className="text-sm text-gray-500 mb-4">
                           대본 기획부터 썸네일 생성까지 모든 과정을 AI가 자동으로 처리합니다.
                         </p>
-                        <ul className="text-xs text-gray-500 space-y-1">
+                        <ul className="text-xs text-gray-400 space-y-1">
                           <li>✓ 대본 기획 → 초안 → 완성</li>
                           <li>✓ AI 이미지 자동 생성</li>
                           <li>✓ TTS 음성 자동 생성</li>

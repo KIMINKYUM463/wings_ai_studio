@@ -3233,53 +3233,190 @@ export async function generateVideoWithTTS(
 
       audioChunks.push(audioBlob)
 
-      for (let j = 0; j < subtitleLines.length; j++) {
-        const markName = `subtitle_${globalSubtitleIndex + j}`
-        const timepoint = timepoints.find((tp: any) => tp.markName === markName)
-
-        let start: number
-        let end: number
-
-        if (timepoint && timepoint.timeSeconds !== undefined) {
-          start = currentTime + timepoint.timeSeconds
-
-          const nextTimepoint = timepoints.find((tp: any) => tp.markName === `subtitle_${globalSubtitleIndex + j + 1}`)
-          if (nextTimepoint && nextTimepoint.timeSeconds !== undefined) {
-            end = currentTime + nextTimepoint.timeSeconds
-          } else {
-            end = currentTime + sentenceDuration
+      // STT를 사용하여 정확한 단어/문장 타이밍 추출
+      let wordTimings: Array<{ word: string; start: number; end: number }> = []
+      try {
+        console.log(`[v0] STT 분석 시작: "${convertedSentence.substring(0, 50)}..."`)
+        
+        // 오디오를 AudioBuffer로 변환
+        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+        const arrayBuffer = await audioBlob.arrayBuffer()
+        const audioBufferForSTT = await audioContext.decodeAudioData(arrayBuffer)
+        
+        // STT API 호출 (Whisper 사용)
+        const formData = new FormData()
+        const wavBlob = await convertAudioBlobToWav(audioBlob)
+        formData.append("audio", wavBlob, "audio.wav")
+        formData.append("text", convertedSentence)
+        
+        const sttResponse = await fetch("/api/whisper-align", {
+          method: "POST",
+          body: formData,
+        })
+        
+        if (sttResponse.ok) {
+          const sttData = await sttResponse.json()
+          if (sttData.wordTimings && Array.isArray(sttData.wordTimings)) {
+            wordTimings = sttData.wordTimings
+            console.log(`[v0] STT 분석 완료: ${wordTimings.length}개 단어 타이밍 추출`)
           }
         } else {
-          const timePerSubtitle = sentenceDuration / subtitleLines.length
-          start = currentTime + j * timePerSubtitle
-          end = currentTime + (j + 1) * timePerSubtitle
+          console.warn(`[v0] STT 분석 실패, fallback 사용: ${sttResponse.status}`)
         }
+      } catch (error) {
+        console.warn(`[v0] STT 분석 오류, fallback 사용:`, error)
+      }
 
-        subtitles.push({
-          id: subtitles.length,
-          start: Number.parseFloat(start.toFixed(3)),
-          end: Number.parseFloat(end.toFixed(3)),
-          text: subtitleLines[j],
-        })
+      // STT 결과를 사용하여 자막 타이밍 정확하게 계산
+      if (wordTimings.length > 0) {
+        // STT 단어 타이밍을 자막 라인과 매칭
+        let wordIndex = 0
+        for (let j = 0; j < subtitleLines.length; j++) {
+          const subtitleText = subtitleLines[j]
+          const subtitleWords = subtitleText.split(/\s+/).filter(w => w.trim().length > 0)
+          
+          // 이 자막 라인에 해당하는 단어들 찾기
+          const lineStartWordIndex = wordIndex
+          let lineEndWordIndex = wordIndex
+          let matchedText = ""
+          
+          for (let k = 0; k < subtitleWords.length && wordIndex < wordTimings.length; k++) {
+            // 단어 매칭 (유사도 기반)
+            let bestMatch = wordIndex
+            let bestScore = 0
+            
+            // 앞에서부터 최대 5개 단어 범위에서 매칭 시도
+            for (let w = wordIndex; w < Math.min(wordIndex + 5, wordTimings.length); w++) {
+              const sttWord = wordTimings[w].word.trim()
+              const targetWord = subtitleWords[k].trim()
+              const similarity = calculateWordSimilarity(sttWord, targetWord)
+              
+              if (similarity > bestScore) {
+                bestScore = similarity
+                bestMatch = w
+              }
+            }
+            
+            if (bestScore > 0.5) { // 50% 이상 유사하면 매칭
+              wordIndex = bestMatch + 1
+              lineEndWordIndex = bestMatch
+              matchedText += wordTimings[bestMatch].word + " "
+            } else {
+              // 매칭 실패 시 다음 단어로
+              wordIndex++
+            }
+          }
+          
+          // 자막 타이밍 계산
+          let start: number
+          let end: number
+          
+          if (lineStartWordIndex < wordTimings.length && lineEndWordIndex < wordTimings.length) {
+            start = currentTime + wordTimings[lineStartWordIndex].start
+            end = currentTime + wordTimings[lineEndWordIndex].end
+          } else if (lineStartWordIndex < wordTimings.length) {
+            start = currentTime + wordTimings[lineStartWordIndex].start
+            end = currentTime + sentenceDuration
+          } else {
+            // fallback: 균등 분배
+            const timePerSubtitle = sentenceDuration / subtitleLines.length
+            start = currentTime + j * timePerSubtitle
+            end = currentTime + (j + 1) * timePerSubtitle
+          }
+          
+          subtitles.push({
+            id: subtitles.length,
+            start: Number.parseFloat(start.toFixed(3)),
+            end: Number.parseFloat(end.toFixed(3)),
+            text: subtitleLines[j],
+          })
+          
+          console.log(`[v0] 자막 ${subtitles.length} (STT): "${subtitleLines[j]}" (${start.toFixed(3)}s - ${end.toFixed(3)}s)`)
+        }
+      } else {
+        // STT 실패 시 기존 방식 사용 (timepoints 기반)
+        for (let j = 0; j < subtitleLines.length; j++) {
+          const markName = `subtitle_${globalSubtitleIndex + j}`
+          const timepoint = timepoints.find((tp: any) => tp.markName === markName)
 
-        console.log(`[v0] 자막 ${subtitles.length}: "${subtitleLines[j]}" (${start.toFixed(3)}s - ${end.toFixed(3)}s)`)
+          let start: number
+          let end: number
+
+          if (timepoint && timepoint.timeSeconds !== undefined) {
+            start = currentTime + timepoint.timeSeconds
+
+            const nextTimepoint = timepoints.find((tp: any) => tp.markName === `subtitle_${globalSubtitleIndex + j + 1}`)
+            if (nextTimepoint && nextTimepoint.timeSeconds !== undefined) {
+              end = currentTime + nextTimepoint.timeSeconds
+            } else {
+              end = currentTime + sentenceDuration
+            }
+          } else {
+            const timePerSubtitle = sentenceDuration / subtitleLines.length
+            start = currentTime + j * timePerSubtitle
+            end = currentTime + (j + 1) * timePerSubtitle
+          }
+
+          subtitles.push({
+            id: subtitles.length,
+            start: Number.parseFloat(start.toFixed(3)),
+            end: Number.parseFloat(end.toFixed(3)),
+            text: subtitleLines[j],
+          })
+
+          console.log(`[v0] 자막 ${subtitles.length} (fallback): "${subtitleLines[j]}" (${start.toFixed(3)}s - ${end.toFixed(3)}s)`)
+        }
       }
 
       globalSubtitleIndex += subtitleLines.length
-      currentTime += sentenceDuration
+      
+      // 누적 오차 방지: 실제 오디오 길이를 기준으로 currentTime 업데이트
+      // STT 결과가 있으면 마지막 단어의 end 시간을 사용, 없으면 실제 오디오 길이 사용
+      if (wordTimings.length > 0) {
+        const lastWordEnd = wordTimings[wordTimings.length - 1].end
+        currentTime += lastWordEnd // STT 기반 정확한 시간 사용
+      } else {
+        currentTime += sentenceDuration // 실제 오디오 길이 사용
+      }
 
       console.log(
-        `[v0] TTS 완료 ${i + 1}/${sentenceChunks.length}, 길이: ${sentenceDuration.toFixed(3)}초, 자막: ${subtitleLines.length}개`,
+        `[v0] TTS 완료 ${i + 1}/${sentenceChunks.length}, 길이: ${sentenceDuration.toFixed(3)}초, 자막: ${subtitleLines.length}개, 누적 시간: ${currentTime.toFixed(3)}초`,
       )
     }
 
     console.log("[v0] 모든 TTS 생성 완료, 오디오 병합 시작")
-
+    
+    // 오디오 병합
     const mergedAudioBlob = await mergeAudioBlobs(audioChunks)
     const arrayBuffer = await mergedAudioBlob.arrayBuffer()
     const base64Audio = Buffer.from(arrayBuffer).toString("base64")
 
-    const totalDuration = currentTime
+    // 실제 병합된 오디오 길이 측정
+    const actualTotalDuration = await getAudioDuration(mergedAudioBlob)
+    const subtitleBasedDuration = subtitles.length > 0 ? subtitles[subtitles.length - 1].end : 0
+    
+    console.log("[v0] 오디오 길이 검증:")
+    console.log(`  - 실제 병합 오디오: ${actualTotalDuration.toFixed(3)}초`)
+    console.log(`  - 자막 기반 길이: ${subtitleBasedDuration.toFixed(3)}초`)
+    console.log(`  - 누적 시간(currentTime): ${currentTime.toFixed(3)}초`)
+    
+    // 오차가 0.1초 이상이면 자막 타이밍을 실제 오디오 길이에 맞춰 조정
+    const durationDiff = Math.abs(actualTotalDuration - subtitleBasedDuration)
+    if (durationDiff > 0.1 && subtitleBasedDuration > 0) {
+      console.warn(`[v0] ⚠️ 자막 타이밍 오차 감지: ${durationDiff.toFixed(3)}초, 조정 중...`)
+      const scaleFactor = actualTotalDuration / subtitleBasedDuration
+      
+      // 모든 자막 타이밍을 실제 오디오 길이에 맞춰 스케일 조정
+      for (let i = 0; i < subtitles.length; i++) {
+        subtitles[i].start = Number.parseFloat((subtitles[i].start * scaleFactor).toFixed(3))
+        subtitles[i].end = Number.parseFloat((subtitles[i].end * scaleFactor).toFixed(3))
+      }
+      
+      console.log(`[v0] ✅ 자막 타이밍 조정 완료 (스케일 팩터: ${scaleFactor.toFixed(4)})`)
+      console.log(`[v0] 조정 후 마지막 자막 끝 시간: ${subtitles[subtitles.length - 1].end.toFixed(3)}초`)
+    }
+
+    const totalDuration = actualTotalDuration // 실제 오디오 길이 사용
     console.log("[v0] 최종 오디오 길이:", totalDuration, "초")
     console.log("[v0] 생성된 자막 개수:", subtitles.length)
     console.log("[v0] Base64 오디오 크기:", Math.round(base64Audio.length / 1024), "KB")
@@ -3335,6 +3472,100 @@ function splitIntoSubtitleLines(text: string): string[] {
   }
 
   return lines
+}
+
+/**
+ * 단어 유사도 계산 함수 (STT 결과와 자막 텍스트 매칭용)
+ */
+function calculateWordSimilarity(word1: string, word2: string): number {
+  if (word1 === word2) return 1.0
+  if (word1.includes(word2) || word2.includes(word1)) return 0.8
+  
+  // 간단한 편집 거리 계산
+  const len1 = word1.length
+  const len2 = word2.length
+  const maxLen = Math.max(len1, len2)
+  if (maxLen === 0) return 1.0
+  
+  let matches = 0
+  const minLen = Math.min(len1, len2)
+  for (let i = 0; i < minLen; i++) {
+    if (word1[i] === word2[i]) matches++
+  }
+  
+  return matches / maxLen
+}
+
+/**
+ * 오디오 Blob을 WAV 형식으로 변환 (STT API용)
+ */
+async function convertAudioBlobToWav(audioBlob: Blob): Promise<Blob> {
+  try {
+    // AudioContext를 사용하여 오디오 디코딩
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+    const arrayBuffer = await audioBlob.arrayBuffer()
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
+    
+    // WAV 형식으로 인코딩
+    const numberOfChannels = audioBuffer.numberOfChannels
+    const sampleRate = audioBuffer.sampleRate
+    const length = audioBuffer.length
+    
+    // 인터리브된 데이터 생성
+    const resultBuffer = new Float32Array(length * numberOfChannels)
+    let offset = 0
+    for (let channel = 0; channel < numberOfChannels; channel++) {
+      resultBuffer.set(audioBuffer.getChannelData(channel), offset)
+      offset += length
+    }
+    
+    // WAV 인코딩
+    const wavBuffer = encodeWAV(resultBuffer, numberOfChannels, sampleRate)
+    return new Blob([wavBuffer], { type: 'audio/wav' })
+  } catch (error) {
+    console.warn("[convertAudioBlobToWav] 변환 실패, 원본 반환:", error)
+    return audioBlob // 변환 실패 시 원본 반환
+  }
+}
+
+/**
+ * Float32Array를 WAV 형식으로 인코딩
+ */
+function encodeWAV(samples: Float32Array, numChannels: number, sampleRate: number): ArrayBuffer {
+  const length = samples.length
+  const buffer = new ArrayBuffer(44 + length * 2)
+  const view = new DataView(buffer)
+  
+  // WAV 헤더 작성
+  const writeString = (offset: number, string: string) => {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i))
+    }
+  }
+  
+  writeString(0, 'RIFF')
+  view.setUint32(4, 36 + length * 2, true)
+  writeString(8, 'WAVE')
+  writeString(12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, numChannels, true)
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, sampleRate * numChannels * 2, true)
+  view.setUint16(32, numChannels * 2, true)
+  view.setUint16(34, 16, true)
+  writeString(36, 'data')
+  view.setUint32(40, length * 2, true)
+  
+  // 샘플 데이터 변환 (Float32 -> Int16)
+  let offset = 44
+  for (let i = 0; i < length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]))
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true)
+    offset += 2
+  }
+  
+  return buffer
 }
 
 function splitScriptIntoNaturalChunks(script: string): string[] {
@@ -4170,46 +4401,39 @@ export async function convertImageToVideo(
  * prunaai/hidream-l1-fast 모델용 프롬프트 생성
  * 샘플 형식: "stickman character A detective looking at evidence, a vibrant 2D cartoon, ..."
  */
-function enforceStickmanPrompt(prompt: string, sceneDescription?: string): string {
-  // 1. 장면 정보 추출 (프롬프트에서 장면 관련 부분 찾기)
-  let scenePart = ""
-  if (sceneDescription && sceneDescription.trim()) {
-    // 장면 설명이 제공되면 사용
-    scenePart = sceneDescription.trim()
-  } else {
-    // 프롬프트에서 장면 관련 부분 추출 시도 (예: "A detective looking at evidence" 같은 패턴)
-    const sceneMatch = prompt.match(/(?:a|an|the)\s+[^,]+(?:looking|standing|sitting|walking|doing|working|holding|examining|investigating|analyzing)/i)
-    if (sceneMatch) {
-      scenePart = sceneMatch[0].trim()
-    }
-  }
-
-  // 2. stickman character로 시작하는 프롬프트 구성
-  let finalPrompt = ""
-  if (scenePart) {
-    // 장면 정보가 있으면: "stickman character [장면], [원본 프롬프트]"
-    finalPrompt = `stickman character ${scenePart}, ${prompt}`.replace(/,\s*,/g, ",").trim()
-  } else if (!prompt.toLowerCase().includes("stickman")) {
-    // stickman이 없으면 추가
-    finalPrompt = `stickman character ${prompt}`
-  } else {
-    finalPrompt = prompt
-  }
-
-  // 3. base (기본 캐릭터 묘사) - 샘플 형식과 동일
-  const base = "a vibrant 2D cartoon, fully rendered illustration featuring a stickman with a white circular face, simple black outline, dot eyes, curved mouth, thin black limbs, expressive pose"
-
-  // 4. style_phrase (스타일 묘사) - 샘플 형식과 동일
-  const stylePhrase = "Consistent stick-figure illustration style, clean bold lines, solid colors, explainer video aesthetic, simplified background"
-
-  // 5. extra (추가 요소) - 샘플 형식과 동일
+function enforceStickmanPrompt(prompt: string, fallbackContext: string = ""): string {
+  // Base: 기본 스틱맨 캐릭터 묘사
+  const base = (
+    "a vibrant 2D cartoon, fully rendered illustration featuring a stickman with a white circular face, " +
+    "simple black outline, dot eyes, curved mouth, thin black limbs, expressive pose"
+  )
+  
+  // Style phrase: 스타일 묘사
+  const stylePhrase = (
+    "Consistent stick-figure illustration style, clean bold lines, solid colors, explainer video aesthetic, simplified background"
+  )
+  
+  // Extra: 추가 요소
   const extra = "colorful detailed drawing, rich environment, dynamic lighting, no realistic human anatomy, no blank background"
-
-  // 6. 스틱맨 강화 규칙 추가
-  const stickmanRules = "EVERY person is a stickman, no exceptions. Bride is a stickman. Groom is a stickman. All guests and guards are stickmen. stickman style rules: white circular face, dot eyes, curved mouth only, no hair, no ears, no nose, no blush, no eyelashes, black thin outline body, ultra-thin limbs, uniform stroke width, no body volume, mitten hands, no fingers. 2D vector cartoon, flat cel shading, thick bold outlines, solid color fills, crisp edges, minimal texture. wide shot / medium-wide shot, full bodies visible, at least 8–15 stickman people visible, palace hall background, wedding ceremony handshake scene, background crowd also stickmen, consistent stickman design for every character"
-
-  // 7. 모든 요소 결합 (샘플 형식과 동일한 순서)
-  return `${finalPrompt}, ${base}, ${stylePhrase}, ${extra}, ${stickmanRules}`
+  
+  // 필수 요구사항: 팔 두 개, 전체 몸 표시
+  const mandatoryRequirements = (
+    "MANDATORY REQUIREMENTS: The stickman character MUST have exactly two arms visible, both arms must be clearly shown. " +
+    "The stickman character MUST show the full body including both head and torso, not just torso alone. " +
+    "Full body visible: head, torso, and limbs all must be visible in the image. " +
+    "No partial body, no torso-only, no head-only. Complete stickman figure required."
+  )
+  
+  // 프롬프트 정리
+  prompt = (prompt || "").trim()
+  
+  // stickman이 없으면 추가
+  if (!prompt.toLowerCase().includes("stickman")) {
+    prompt = `stickman character ${fallbackContext}, ${prompt}`.trim().replace(/^,\s*|,\s*$/g, "")
+  }
+  
+  // 최종 프롬프트 조합
+  return `${prompt}, ${base}, ${stylePhrase}, ${extra}, ${mandatoryRequirements}`
 }
 
 export async function generateImageWithReplicate(
@@ -4262,37 +4486,8 @@ export async function generateImageWithReplicate(
       })
       finalPrompt = cleanedPrompt.replace(/\s+/g, ' ').trim()
       
-      // 스틱맨 전용 이미지 강화 (텍스트 제거)
-      const promptLower = finalPrompt.toLowerCase()
-      const stickmanMainPrompt = "This image must contain only 2D stickman figures. Stickman is a symbolic drawing, not a human, not a character, not a person. Every figure in the image must be a stickman."
-      const stickmanBasePrompt = "Stickman rules: perfectly round white head, dot eyes and simple curved smile only, no nose, no ears, no hair, no facial details, ultra-thin black line limbs with uniform stroke width, no body volume, no torso shape, no muscles, simple mitten hands, no fingers, flat 2D vector drawing only"
-      const stickmanAnatomyRules = "Strict anatomy rules for stickman: exactly two arms only, exactly two hands only, exactly two legs only, no extra arms, no extra hands, no duplicated limbs, each arm is drawn once, clearly connected to the body, one head, one body, two arms, two hands, two legs, no duplicates, no extra parts. Stickman body constraints: one head, one body, two arms only, two hands only, two legs only, no duplicates, no extra parts. If any extra limbs appear, the result is incorrect."
-      const stickmanStylePhrase = "Scene is illustrated in a simple cartoon style: flat colors, bold black outlines, minimal details, no depth, no lighting effects, no textures. Background must be fully illustrated (cartoon), simple shapes only, no realistic environment. Educational explainer illustration style. Use calm pose, simple gesture, neutral stance, minimal movement instead of animated gestures or dynamic action"
-      const stickmanNoText = "No text allowed in image. Do not include speech bubbles, captions, labels, words, letters, logos, symbols, numbers, or any readable text. This is not a comic, not a poster, not an advertisement. Pure visual illustration only. Absolutely no text or words visible in the image."
-      const stickmanFinalCheck = "If the result looks realistic, 3D, or human-like, it is wrong. If the image contains text, speech bubbles, or readable symbols, the result is incorrect. If any extra limbs appear, the result is incorrect."
-      
-      if (!promptLower.includes("only 2d stickman") || !promptLower.includes("symbolic drawing")) {
-        finalPrompt = `${stickmanMainPrompt} ${finalPrompt}`
-      }
-      if (!promptLower.includes("perfectly round white head") || !promptLower.includes("dot eyes") || !promptLower.includes("ultra-thin black line limbs")) {
-        finalPrompt = `${finalPrompt}, ${stickmanBasePrompt}`
-      }
-      if (!promptLower.includes("exactly two arms") || !promptLower.includes("exactly two hands") || !promptLower.includes("no extra arms") || !promptLower.includes("no extra hands")) {
-        finalPrompt = `${finalPrompt}, ${stickmanAnatomyRules}`
-      }
-      if (!promptLower.includes("flat 2d vector drawing") || !promptLower.includes("simple cartoon style") || !promptLower.includes("educational explainer")) {
-        finalPrompt = `${finalPrompt}, ${stickmanStylePhrase}`
-      }
-      if (!promptLower.includes("no text allowed") || !promptLower.includes("no speech bubbles")) {
-        finalPrompt = `${finalPrompt}, ${stickmanNoText}`
-      }
-      if (!promptLower.includes("no hair") || !promptLower.includes("no ears") || !promptLower.includes("no nose")) {
-        finalPrompt = `${finalPrompt}, no hair, no ears, no nose, no cheeks, no detailed facial features, no realistic human anatomy, no person, no man, no woman, only stickman, no saying, no explaining, no talking, use gesturing or pointing instead, no explaining with both hands, no animated gestures, no expressive movement, no dynamic action, use calm pose, simple gesture, neutral stance, minimal movement instead`
-      }
-      // 최종 확인 문구 추가
-      if (!promptLower.includes("if the result looks realistic") && !promptLower.includes("it is wrong")) {
-        finalPrompt = `${finalPrompt}. ${stickmanFinalCheck}`
-      }
+      // enforceStickmanPrompt 함수 사용 (간결한 프롬프트 구조)
+      finalPrompt = enforceStickmanPrompt(finalPrompt, sceneDescription || "")
     } else if (imageStyle === "realistic" || imageStyle === "realistic2") {
       // 실사화: 애니메이션/카툰 키워드 제거
       const nonRealisticTerms = ["stickman", "stick figure", "stick man", "animation style", "animated", "cel-shaded", "vector art", "flat design", "stylized character", "cartoon character", "illustrated", "graphic novel", "comic book", "hand-drawn", "digital art", "2D animation", "animated character", "cartoon style"]
@@ -4320,20 +4515,35 @@ export async function generateImageWithReplicate(
         })
         finalPrompt = cleanedPrompt.replace(/\s+/g, ' ').trim()
         
-        // 애니메이션2 스타일 BASE_PROMPT 강제 추가 (모든 씬에 일관되게) - 고도화된 일관성
-        const animation2BasePrompt = "Flat 2D vector illustration, minimal vector art, stylized cartoon character, thick bold black outlines, unshaded, flat solid colors, cel-shaded, simple line art, comic book inking style, completely flat, no shadows, no gradients, no depth, consistent cartoon style, bold clean lines, vibrant colors, simplified shapes, graphic design aesthetic"
-        const animation2CharacterDetails = "expressive dynamic pose, stylized cartoon clothing, simple bold-line cartoon aesthetic, consistent character design"
-        const animation2Environment = "rich detailed colorful stylized cartoon environment, filled frame, no blank background, dynamic dramatic lighting, 2D cartoon feel"
-        const promptLower = finalPrompt.toLowerCase()
-        if (!promptLower.includes("flat 2d vector") || !promptLower.includes("stylized cartoon character") || !promptLower.includes("thick bold black outlines") || !promptLower.includes("cel-shaded") || !promptLower.includes("consistent cartoon style")) {
-          finalPrompt = `${finalPrompt}, ${animation2BasePrompt}`
-        }
-        if (!promptLower.includes("consistent character design") || !promptLower.includes("bold clean lines")) {
-          finalPrompt = `${finalPrompt}, ${animation2CharacterDetails}, ${animation2Environment}`
-        }
-        if (!promptLower.includes("no stickman")) {
-          finalPrompt = `${finalPrompt}, no stickman, no stick figure, no realistic photography, no mixed art styles, no inconsistent style`
-        }
+        // 애니메이션2 프롬프트 구조 (제공된 구조 사용)
+        // 주의: animation2는 스틱맨이 아닌 일반 카툰 캐릭터를 사용
+        const baseStyle = (
+          "Flat 2D vector illustration, minimal vector art, stylized cartoon character with simple circular head, " +
+          "minimalist black dot eyes, thick bold black outlines, unshaded, flat solid colors, cel-shaded, " +
+          "simple line art, comic book inking style, completely flat, no shadows, no gradients, no depth."
+        )
+        
+        const characterDetails = (
+          "The character is in an expressive, dynamic pose appropriate for the scene. " +
+          "The character can be wearing stylized cartoon clothing, costumes, or accessories that fit the theme of the environment. " +
+          "Any clothing must match the simple, bold-line cartoon aesthetic, avoiding overly complex or realistic textures."
+        )
+        
+        const environmentLighting = (
+          "The background is a rich, detailed, and colorful stylized cartoon environment " +
+          "(e.g., a bustling futuristic market, a pirate ship deck, a magical forest) filled with relevant objects. " +
+          "The entire frame is filled, with NO blank or simple background regions. " +
+          "The scene features dynamic, dramatic lighting with strong highlights and shadows that enhance the 2D cartoon feel."
+        )
+        
+        const constraints = (
+          "Base Character Consistency: The underlying character form (head shape, eyes, body type) must match the reference style. " +
+          "No Realistic Anatomy: Do not add realistic human features, muscles, or photorealistic clothing textures. " +
+          "Stick to the simple cartoon style."
+        )
+        
+        // 최종 프롬프트 조합
+        finalPrompt = `${finalPrompt}, ${baseStyle}, ${characterDetails}, ${environmentLighting}, ${constraints}`
     }
     
     console.log(`[v0] 프롬프트 사용: ${finalPrompt.substring(0, 100)}...`)

@@ -863,30 +863,54 @@ ACTION: ${category === "health" ? "practicing wellness" : category === "wisdom" 
       
       switch (historyStyle) {
         case "stickman-animation":
-          stylePrompt = `STICKMAN ANIMATION STYLE — clean 2D vector line art, bold black outline, pure white stickman body, round head, thick limbs, full-body visible, centered composition, high contrast, minimal shading, flat colors only, simple geometry, no gradients.
-
-CHARACTER ANCHOR (MUST BE IDENTICAL IN EVERY IMAGE):
-Same head size and shape, same facial feature placement, same outline thickness, same body proportions, same limb thickness, same posture style, same signature accessory: red scarf (must appear clearly in every image). Keep the stickman design extremely consistent across scenes. Do not change the character's style, proportions, or accessory.
-
-SCENE SETUP:
-Time period: ${historicalPeriod || "relevant historical period"}.
-Location: ${elements.setting}${periodContext}${categoryContext}.
-Mood: appropriate to the scene context.
-Background: plain, uncluttered, minimal props only (1–3 simple props). Keep background simple and readable.
-
-ACTION (CLEAR & READABLE):
-Main action: ${elements.action}. Pose must be easy to understand at a glance. Avoid complex motion blur or extreme foreshortening.
-
-CAMERA & FRAMING (YOUTUBE SAFE):
-Wide shot, eye-level camera, subject centered. Leave generous safe margins on all sides for 16:9 cropping (no limbs cut off). Keep the character fully inside frame, full body visible, feet visible.
-
-QUALITY & OUTPUT RULES:
-Crisp vector edges, clean lines, consistent stroke weight. No text, no captions, no speech bubbles, no logos, no watermark, no photorealism. No extra characters unless explicitly specified.${characterInfo.type === "korean" ? " Character must be Korean person with Korean features. Do not confuse with Chinese or Japanese." : characterInfo.type === "foreign" ? " Character must be Western/Caucasian person." : ""}`
+          // 간결한 스틱맨 프롬프트 구조 (제공된 구조 사용)
+          const stickmanBase = (
+            "a vibrant 2D cartoon, fully rendered illustration featuring a stickman with a white circular face, " +
+            "simple black outline, dot eyes, curved mouth, thin black limbs, expressive pose"
+          )
+          const stickmanStylePhrase = (
+            "Consistent stick-figure illustration style, clean bold lines, solid colors, explainer video aesthetic, simplified background"
+          )
+          const stickmanExtra = "colorful detailed drawing, rich environment, dynamic lighting, no realistic human anatomy, no blank background"
+          
+          // 필수 요구사항: 팔 두 개, 전체 몸 표시
+          const stickmanMandatoryRequirements = (
+            "MANDATORY REQUIREMENTS: The stickman character MUST have exactly two arms visible, both arms must be clearly shown. " +
+            "The stickman character MUST show the full body including both head and torso, not just torso alone. " +
+            "Full body visible: head, torso, and limbs all must be visible in the image. " +
+            "No partial body, no torso-only, no head-only. Complete stickman figure required."
+          )
+          
+          stylePrompt = `A stickman character ${elements.action} in ${elements.setting}${periodContext}${categoryContext}. ${stickmanBase}, ${stickmanStylePhrase}, ${stickmanExtra}, ${stickmanMandatoryRequirements}. No text, no captions, no speech bubbles, no logos, no watermark.${characterInfo.type === "korean" ? " Character must be Korean person with Korean features. Do not confuse with Chinese or Japanese." : characterInfo.type === "foreign" ? " Character must be Western/Caucasian person." : ""}`
           break
           
         case "flat-2d-illustration":
         case "animation2":
-          stylePrompt = `A ${elements.subject}${characterContext} in a ${elements.setting}${periodContext}${categoryContext}, ${elements.action}. flat 2D vector illustration, minimal vector art, stylized cartoon character, thick bold black outlines, unshaded, flat solid colors, cel-shaded, simple line art, comic book inking style, completely flat, no shadows, no gradients, no depth, vibrant color palette, 16:9 aspect ratio. NEGATIVE: 3D rendering, realistic textures, depth, shadows, gradients, photorealistic, detailed rendering, stickman, stick figure, text, letters, words, typography, English text, Korean text, Chinese text, numbers, logos, watermarks, signs, labels${characterInfo.type === "korean" ? ", Chinese person, Japanese person, wrong ethnicity" : ""}.`
+          // 애니메이션2 프롬프트 구조 (제공된 구조 사용)
+          // 주의: animation2는 스틱맨이 아닌 일반 카툰 캐릭터를 사용
+          const animation2BaseStyle = (
+            "Flat 2D vector illustration, minimal vector art, stylized cartoon character with simple circular head, " +
+            "minimalist black dot eyes, thick bold black outlines, unshaded, flat solid colors, cel-shaded, " +
+            "simple line art, comic book inking style, completely flat, no shadows, no gradients, no depth."
+          )
+          const animation2CharacterDetails = (
+            "The character is in an expressive, dynamic pose appropriate for the scene. " +
+            "The character can be wearing stylized cartoon clothing, costumes, or accessories that fit the theme of the environment. " +
+            "Any clothing must match the simple, bold-line cartoon aesthetic, avoiding overly complex or realistic textures."
+          )
+          const animation2EnvironmentLighting = (
+            "The background is a rich, detailed, and colorful stylized cartoon environment " +
+            "(e.g., a bustling futuristic market, a pirate ship deck, a magical forest) filled with relevant objects. " +
+            "The entire frame is filled, with NO blank or simple background regions. " +
+            "The scene features dynamic, dramatic lighting with strong highlights and shadows that enhance the 2D cartoon feel."
+          )
+          const animation2Constraints = (
+            "Base Character Consistency: The underlying character form (head shape, eyes, body type) must match the reference style. " +
+            "No Realistic Anatomy: Do not add realistic human features, muscles, or photorealistic clothing textures. " +
+            "Stick to the simple cartoon style."
+          )
+          
+          stylePrompt = `A ${elements.subject}${characterContext} ${elements.action} in ${elements.setting}${periodContext}${categoryContext}. ${animation2BaseStyle}, ${animation2CharacterDetails}, ${animation2EnvironmentLighting}, ${animation2Constraints}. No text, no letters, no words, no writing, no labels, no signs, no watermark${characterInfo.type === "korean" ? ", Chinese person, Japanese person, wrong ethnicity" : ""}.`
           break
           
         case "animation3":
@@ -1125,11 +1149,19 @@ function enforceStickmanPrompt(prompt: string, sceneDescription?: string): strin
   // 5. extra (추가 요소) - 샘플 형식과 동일
   const extra = "colorful detailed drawing, rich environment, dynamic lighting, no realistic human anatomy, no blank background"
 
-  // 6. 스틱맨 강화 규칙 추가
+  // 6. 필수 요구사항: 팔 두 개, 전체 몸 표시
+  const mandatoryRequirements = (
+    "MANDATORY REQUIREMENTS: The stickman character MUST have exactly two arms visible, both arms must be clearly shown. " +
+    "The stickman character MUST show the full body including both head and torso, not just torso alone. " +
+    "Full body visible: head, torso, and limbs all must be visible in the image. " +
+    "No partial body, no torso-only, no head-only. Complete stickman figure required."
+  )
+
+  // 7. 스틱맨 강화 규칙 추가
   const stickmanRules = "EVERY person is a stickman, no exceptions. Bride is a stickman. Groom is a stickman. All guests and guards are stickmen. stickman style rules: white circular face, dot eyes, curved mouth only, no hair, no ears, no nose, no blush, no eyelashes, black thin outline body, ultra-thin limbs, uniform stroke width, no body volume, mitten hands, no fingers. 2D vector cartoon, flat cel shading, thick bold outlines, solid color fills, crisp edges, minimal texture. wide shot / medium-wide shot, full bodies visible, at least 8–15 stickman people visible, palace hall background, wedding ceremony handshake scene, background crowd also stickmen, consistent stickman design for every character"
 
-  // 7. 모든 요소 결합 (샘플 형식과 동일한 순서)
-  return `${finalPrompt}, ${base}, ${stylePhrase}, ${extra}, ${stickmanRules}`
+  // 8. 모든 요소 결합 (샘플 형식과 동일한 순서)
+  return `${finalPrompt}, ${base}, ${stylePhrase}, ${extra}, ${mandatoryRequirements}, ${stickmanRules}`
 }
 
 /**
