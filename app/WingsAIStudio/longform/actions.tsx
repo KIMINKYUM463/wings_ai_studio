@@ -428,6 +428,12 @@ export async function generateTopics(
     throw new Error("OpenAI API 키가 설정되지 않았습니다.")
   }
 
+  // category가 없거나 유효하지 않으면 기본값 사용
+  // Category 타입으로 변환하여 함수 전체에서 사용
+  const validCategory: Category = (category && typeof category === 'string') 
+    ? (category as Category)
+    : "health"
+
   // ⚠️ 매우 중요: 직접입력 주제가 있으면 generateTopicsFromCustomTopic 함수 호출
   if (customTopic && typeof customTopic === 'string' && customTopic.trim().length > 0) {
     console.log("[actions.tsx] 직접입력 주제 모드 감지 - 주제:", customTopic.trim())
@@ -444,11 +450,6 @@ export async function generateTopics(
   }
 
   try {
-    // category가 없거나 유효하지 않으면 기본값 사용
-    // categoryPrompts는 try 블록 내부에 정의되므로, 여기서는 간단한 타입 체크만 수행
-    const validCategory: Category = (category && typeof category === 'string') 
-      ? (category as Category)
-      : "health"
     // 공통 프롬프트
     const commonPrompt = `너는 유튜브 롱폼 콘텐츠 기획 전문가다.
 
@@ -516,6 +517,11 @@ export async function generateTopics(
 특히 '나이 들수록도 성장할 수 있다', '은퇴 후 새로운 도전', '습관의 힘', '목표 설정과 달성', '긍정적 마인드셋' 등을 강조해줘.
 
 시니어가 공감할 수 있는 실용적이고 실행 가능한 자기계발 방법을 중심으로 작성해줘.`,
+      economy: `경제, 재테크, 투자, 금융, 부동산, 연금, 노후 자금 관리 등을 중심으로 작성해줘.
+
+특히 '시니어를 위한 안전한 재테크 방법', '연금과 노후 자금 관리', '부동산 투자의 현실', '경제 동향이 시니어에게 미치는 영향', '은퇴 후 경제적 안정을 위한 조언', '경제 위기 속에서 지켜야 할 원칙' 등을 강조해 흥미롭고 실용적으로 작성해줘.
+
+시니어층이 이해하기 쉽고 실제로 도움이 되는 경제·재테크 정보를 중심으로 구성해줘.`,
       domestic_story: `한국에서 실제로 일어난 감동사연, 선행, 사건·사고, 미담, 가족 이야기, 성공·회복 스토리 중심으로 작성해줘.
 
 시청자의 감정을 건드리는 '스토리 기반' 주제를 강조해.`,
@@ -630,8 +636,8 @@ export async function generateTopics(
     }
 
     // 사용자 프롬프트 구성
-    let userPrompt = `카테고리: ${categoryDescriptions[category]}\n\n`
-    userPrompt += `[카테고리별 프롬프트]\n${categoryPrompts[category]}\n\n`
+    let userPrompt = `카테고리: ${categoryDescriptions[validCategory]}\n\n`
+    userPrompt += `[카테고리별 프롬프트]\n${categoryPrompts[validCategory]}\n\n`
 
     if (keywords && keywords.trim()) {
       userPrompt += `키워드: ${keywords}\n\n`
@@ -691,11 +697,11 @@ export async function generateTopics(
       .filter((line: string) => line.length > 0)
       .slice(0, 15)
 
-    return topics.length > 0 ? topics : getDefaultTopics(category)
+    return topics.length > 0 ? topics : getDefaultTopics(validCategory)
   } catch (error) {
     console.error("주제 생성 실패:", error)
 
-    return getDefaultTopics(category)
+    return getDefaultTopics(validCategory)
   }
 }
 
@@ -1443,7 +1449,7 @@ ${customContentTypeDescription}
 - 다른 타입(A, B, C, D)의 구조나 형식을 사용하지 마세요.
 - 주제는 기획안을 작성할 때 사용하는 정보일 뿐입니다. 주제를 분석하거나 타입을 선택하지 마세요.`
 
-    } else if (!contentType || contentType === null || contentType === undefined || contentType === "") {
+    } else if (!contentType || contentType === null || contentType === undefined) {
       // 타입이 선택되지 않은 경우 - AI가 자동으로 타입을 결정하도록 함
       console.log("[generateScriptPlan - actions.tsx] ⚠️ 타입이 선택되지 않았습니다. AI가 자동으로 타입을 결정합니다.")
       console.log("[generateScriptPlan - actions.tsx] contentType 값:", contentType)
@@ -3157,7 +3163,7 @@ export async function generateVideoWithTTS(
 
     console.log("[v0] 개별 TTS 생성 시작")
 
-    const subtitles = []
+    const subtitles: Array<{ id: number; start: number; end: number; text: string }> = []
     let currentTime = 0
     let globalSubtitleIndex = 0
 
@@ -3167,7 +3173,7 @@ export async function generateVideoWithTTS(
       throw new Error("Google TTS API 키가 설정되지 않았습니다. API 키를 입력해주세요.")
     }
 
-    const audioChunks = []
+    const audioChunks: Blob[] = []
 
     for (let i = 0; i < sentenceChunks.length; i++) {
       const sentence = sentenceChunks[i]
@@ -3449,7 +3455,7 @@ export async function generateVideoWithTTS(
 }
 
 function splitIntoSubtitleLines(text: string): string[] {
-  const lines = []
+  const lines: string[] = []
   const maxLength = 20 // 최대 20자
   const minLength = 15 // 최소 15자
 
@@ -3569,7 +3575,7 @@ function encodeWAV(samples: Float32Array, numChannels: number, sampleRate: numbe
 }
 
 function splitScriptIntoNaturalChunks(script: string): string[] {
-  const chunks = []
+  const chunks: string[] = []
 
   // 문장 부호로 먼저 나누기 (마침표, 느낌표, 물음표)
   const sentences = script.split(/([.!?]\s+)/).filter((s) => s.trim().length > 0)
@@ -4270,13 +4276,19 @@ export async function generateImagePrompt(
     return await tryGenerate(GPT_API_KEY, false)
   } catch (error) {
     // 실패 시 백업 API 키로 재시도 (오류 메시지 표시하지 않음)
-    console.log("[v0] 사용자 API 키 실패, 백업 API 키로 재시도...")
-    try {
-      return await tryGenerate(BACKUP_OPENAI_API_KEY, true)
-    } catch (retryError) {
-      // 백업 API 키로도 실패한 경우에만 오류 발생
-      console.error("[v0] 백업 API 키로도 실패:", retryError)
-      throw retryError
+    const BACKUP_OPENAI_API_KEY = process.env.BACKUP_OPENAI_API_KEY || process.env.BACKUP_GPT_API_KEY
+    if (BACKUP_OPENAI_API_KEY) {
+      console.log("[v0] 사용자 API 키 실패, 백업 API 키로 재시도...")
+      try {
+        return await tryGenerate(BACKUP_OPENAI_API_KEY, true)
+      } catch (retryError) {
+        // 백업 API 키로도 실패한 경우에만 오류 발생
+        console.error("[v0] 백업 API 키로도 실패:", retryError)
+        throw retryError
+      }
+    } else {
+      // 백업 키가 없으면 원래 오류를 그대로 throw
+      throw error
     }
   }
 }

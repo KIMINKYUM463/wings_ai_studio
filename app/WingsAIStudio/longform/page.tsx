@@ -14565,7 +14565,12 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                           <li>✓ 제목/설명/썸네일 자동 생성</li>
                         </ul>
                         <div className="absolute top-4 right-4 bg-orange-500 text-white px-3 py-1 rounded-full text-xs font-bold">
-                          12월 28일 오픈예정
+                          1월 초 오픈예정
+                        </div>
+                        <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                          <p className="text-xs text-yellow-800 font-medium">
+                            🔒 추가 개발 요청건이 너무 많아 그 기능까지 탑재 후 자동 모드 오픈
+                          </p>
                         </div>
                       </div>
 
