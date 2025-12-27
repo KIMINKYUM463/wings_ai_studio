@@ -867,7 +867,7 @@ ${scriptPlan}
               topP: 0.95,
               // 목표 글자수에 맞게 maxOutputTokens 계산 (한글 1자당 약 2-3토큰, 여유있게 4배 + 최소 16384)
               // 프롬프트가 길어도 충분한 출력 토큰 확보를 위해 최소값을 높임
-              maxOutputTokens: targetChars ? Math.min(32768, Math.max(16384, Math.ceil(targetChars * 4))) : 16384,
+              maxOutputTokens: targetChars ? Math.min(65536, Math.max(16384, Math.ceil(targetChars * 4))) : 16384, // 최대 65536
             },
           }),
         }
@@ -1450,7 +1450,7 @@ ${scriptPlan}
                     temperature: (duration === 10 || duration === 15 || duration === 20 || duration === 25 || duration === 30 || duration === 35 || duration === 40) ? 0.7 : 1,
               topK: 40,
               topP: 0.95,
-                    maxOutputTokens: (duration === 10 || duration === 15 || duration === 20 || duration === 25 || duration === 30 || duration === 35 || duration === 40) ? 8192 : (baseTargetChars ? Math.min(32768, Math.max(8192, Math.ceil(baseTargetChars * 2.5))) : 16384),
+                    maxOutputTokens: (duration === 10 || duration === 15 || duration === 20 || duration === 25 || duration === 30 || duration === 35 || duration === 40) ? 65536 : (baseTargetChars ? Math.min(65536, Math.max(16384, Math.ceil(baseTargetChars * 2.5))) : 16384), // 최대 65536
             },
           }),
         }
@@ -1982,7 +1982,7 @@ ${scriptPlan}
                   temperature: (duration === 10 || duration === 15 || duration === 20 || duration === 25 || duration === 30 || duration === 35 || duration === 40) ? 0.7 : 1,
               topK: 40,
               topP: 0.95,
-                  maxOutputTokens: (duration === 10 || duration === 15 || duration === 20 || duration === 25 || duration === 30 || duration === 35 || duration === 40) ? 8192 : (climaxTargetChars ? Math.min(32768, Math.max(8192, Math.ceil(climaxTargetChars * 2.5))) : 16384),
+                  maxOutputTokens: (duration === 10 || duration === 15 || duration === 20 || duration === 25 || duration === 30 || duration === 35 || duration === 40) ? 65536 : (climaxTargetChars ? Math.min(65536, Math.max(16384, Math.ceil(climaxTargetChars * 2.5))) : 16384), // 최대 65536
             },
           }),
         }
@@ -5534,7 +5534,7 @@ ${lastContentSentences}
                     temperature: 1.0,
                     topK: 40,
                     topP: 0.95,
-                    maxOutputTokens: Math.min(8192, Math.ceil(additionalTarget * 2.5)), // 추가 분량에 맞춰 토큰 할당
+                    maxOutputTokens: Math.min(65536, Math.ceil(additionalTarget * 2.5)), // 추가 분량에 맞춰 토큰 할당 (최대 65536)
                   },
                 }),
               }
@@ -5694,12 +5694,13 @@ export async function generateRefinedScriptPart(
   const partInfo = getPartInfo(partNumber)
 
   // 초기 입력 토큰 확인: 기획안이 너무 길면 미리 축약
-  // 한글 1자당 약 1.5토큰, 기획안이 5000자 이상이면 축약 (약 7500 토큰)
+  // 1회차: 5000자 이상이면 축약
+  // 2회차 이상: 이전 분할이 포함되므로 4000자 이상이면 축약
   let currentScriptPlan = scriptPlan
   const scriptPlanLength = scriptPlan.length
-  const SCRIPT_PLAN_THRESHOLD = 5000 // 5000자 이상이면 축약
+  const SCRIPT_PLAN_THRESHOLD = partNumber === 1 ? 5000 : 4000 // 2회차 이상은 더 낮은 임계값
   
-  if (scriptPlanLength > SCRIPT_PLAN_THRESHOLD && partNumber === 1) {
+  if (scriptPlanLength > SCRIPT_PLAN_THRESHOLD) {
     console.log(`[v0] ${partNumber}회차 기획안이 너무 깁니다 (${scriptPlanLength}자). 초기부터 축약된 버전으로 시작합니다.`)
     // 기획안을 70%로 축약 (앞부분 40% + 뒷부분 60%)
     const scriptPlanLines = scriptPlan.split('\n')
@@ -5877,10 +5878,13 @@ ${partInfo.startTime}~${partInfo.endTime} 구간 대본 작성. ${partInfo.minCh
               temperature: (duration >= 10 && duration <= 40) ? 0.7 : 1,
               topK: 40,
               topP: 0.95,
-              // 분할당 목표 글자수에 맞게 maxOutputTokens 계산 (한글 1자당 약 2-3토큰, 여유있게 5배 + 최소 16384)
-              // 기획안이 길거나 이전 분할이 있으면 더 많은 출력 토큰 필요
-              // 1회차에서도 MAX_TOKENS 발생 가능하므로 더 여유있게 설정
-              maxOutputTokens: Math.min(32768, Math.max(16384, Math.ceil(partInfo.targetChars * 5))),
+              // 분할당 목표 글자수에 맞게 maxOutputTokens 계산 (최대치 65536 사용)
+              // 2회차 이상은 이전 분할 내용이 포함되어 입력 토큰이 많아지므로 출력 토큰을 더 많이 할당
+              maxOutputTokens: (() => {
+                const baseOutputTokens = Math.ceil(partInfo.targetChars * 5)
+                const outputTokensMultiplier = partNumber > 1 ? 1.3 : 1.0 // 2회차 이상은 30% 더 할당
+                return Math.min(65536, Math.max(16384, Math.ceil(baseOutputTokens * outputTokensMultiplier))) // 최대 65536
+              })(),
             },
           }),
         }
@@ -6780,7 +6784,7 @@ ${script}`
             temperature: 0.3, // 낮은 온도로 정확한 분석
             topK: 40,
             topP: 0.95,
-            maxOutputTokens: Math.min(32768, Math.ceil(script.length * 1.5)), // 원본보다 약간 더 긴 토큰 할당
+            maxOutputTokens: Math.min(65536, Math.ceil(script.length * 1.5)), // 원본보다 약간 더 긴 토큰 할당 (최대 65536)
           },
         }),
       }
