@@ -5846,7 +5846,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     
     // 목표 글자수 기반 예상 시간 계산 (1000자당 약 10-15초 소요 가정)
     const topic = isCustomTopicSelected ? customTopic : selectedTopic
-    const targetChars = Math.floor(scriptDuration * 60 * 6.9) // 1초당 6.9자 (목표 글자수 계산)
+    // 목표 글자수 계산: 기본 계산 + 여유분 500자 (AI가 더 많이 작성하도록 유도)
+    const baseTargetChars = Math.floor(scriptDuration * 60 * 6.9) // 1초당 6.9자
+    const targetChars = baseTargetChars + 500 // 여유분 500자 추가
     const estimatedSeconds = Math.max(30, Math.ceil(targetChars / 1000 * 12)) // 최소 30초, 1000자당 12초
     const estimatedTime = estimatedSeconds * 1000 // 밀리초로 변환
     

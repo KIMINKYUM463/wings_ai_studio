@@ -47,9 +47,9 @@ function calculateTextSimilarity(text1: string, text2: string): number {
 }
 
 /**
- * 정교한 대본 생성 함수 (Gemini 2.5 Pro 사용)
+ * 정교한 대본 생성 함수 (Gemini 2.5 Flash 사용)
  * 초안을 바탕으로 매우 정교하고 완성도 높은 최종 대본을 생성합니다.
- * Gemini API를 사용하여 gemini-3-flash-preview 모델로 생성합니다. (속도 최적화)
+ * Gemini API를 사용하여 gemini-2.5-flash 모델로 생성합니다. (속도 최적화)
  */
 export async function generateRefinedScript(
   scriptPlan: string,
@@ -95,7 +95,7 @@ export async function generateRefinedScript(
 - 각 파트마다 '상세한 미니 장면' 3~5개를 포함하십시오.
 - 각 장면은 최소 100자 이상으로 상세히 묘사하십시오.
 - 예시, 비유, 배경 설명, 인물 심리 등을 풍부하게 추가하십시오.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 ${minLength}자 이상인지 검증하십시오.`
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.`
     } else {
       lengthRulePrompt = `────────────────────────
 [1) 분량 규칙: 대본 시간 선택에서 정한 글자 이상]
@@ -137,13 +137,16 @@ export async function generateRefinedScript(
 ────────────────────────
 [분량 및 형식 강제 규칙 – 5분]
 ────────────────────────
-⚠️⚠️⚠️ 절대적 필수 조건: 공백 포함 **무조건 2,070자 이상 2,300자 이내** 작성하십시오. ⚠️⚠️⚠️
+⚠️⚠️⚠️ 절대적 필수 조건: 공백 포함 **무조건 2,070자 이상 3,000자 이내** 작성하십시오. ⚠️⚠️⚠️
 ⚠️⚠️⚠️ 글자수가 부족하면 절대 실패입니다. 반드시 최소 2,070자를 채워야 합니다. ⚠️⚠️⚠️
-- 전체 분량은 반드시 2,070자 이상 2,300자 이내여야 합니다. (절대 필수)
+- 목표 글자수: **2,570자** (2,070자 + 여유분 500자)
+- 최소 글자수: **2,070자** (절대 필수)
+- 최대 글자수: **3,000자** (이를 초과하지 마세요)
+- 전체 분량은 반드시 2,070자 이상 3,000자 이내여야 합니다. (절대 필수)
 - 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
 - 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
 - 위 조건 중 하나라도 어기면 실패입니다.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 2,070자 이상인지 검증하십시오.
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.
 
 ────────────────────────
 [문체 및 말투 규칙]
@@ -770,7 +773,7 @@ ${shouldUseStoryMode ? `
 [대본 기획안]:
 ${scriptPlan}
 
-위 기획안을 바탕으로 정확히 5분 분량(2,070자 이상 2,300자 이내)의 완성도 높은 대본을 작성해주세요. 대본만 작성하고 다른 설명은 하지 마세요.`
+위 기획안을 바탕으로 정확히 5분 분량(목표: 2,570자, 최소: 2,070자 이상, 최대: 3,000자 이내)의 완성도 높은 대본을 작성해주세요. 대본만 작성하고 다른 설명은 하지 마세요.`
       } else {
         // 다른 duration일 때는 기존 형식 사용
         userPrompt = `${systemPrompt}
@@ -822,7 +825,7 @@ ${scriptPlan}
           }
       
       const fullResponse = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
         {
           method: "POST",
           headers: {
@@ -842,7 +845,9 @@ ${scriptPlan}
               temperature: 1,
               topK: 40,
               topP: 0.95,
-              maxOutputTokens: targetChars ? Math.min(32768, Math.max(8192, Math.ceil(targetChars * 2.5))) : 16384,
+              // 목표 글자수에 맞게 maxOutputTokens 계산 (한글 1자당 약 2-3토큰, 여유있게 4배 + 최소 16384)
+              // 프롬프트가 길어도 충분한 출력 토큰 확보를 위해 최소값을 높임
+              maxOutputTokens: targetChars ? Math.min(32768, Math.max(16384, Math.ceil(targetChars * 4))) : 16384,
             },
           }),
         }
@@ -1041,7 +1046,7 @@ ${scriptPlan}
 - 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
 - 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
 - 위 조건 중 하나라도 어기면 실패입니다.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 2,000자 이상인지 검증하십시오.
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.
 
 ────────────────────────
 [시간 구간 지시 – 10분 / 1회차]
@@ -1061,7 +1066,7 @@ ${scriptPlan}
 - 전체 분량은 반드시 2,000자 이상 2,300자 이내여야 합니다. (절대 필수)
 - 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
 - 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 2,000자 이상인지 검증하십시오.
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.
 
 ────────────────────────
 [문체 · 전개 · 표현 · 출력 제한]
@@ -1087,7 +1092,7 @@ ${scriptPlan}
 - 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
 - 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
 - 위 조건 중 하나라도 어기면 실패입니다.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 2,000자 이상인지 검증하십시오.
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.
 
 ────────────────────────
 [시간 구간 지시 – 20분 / 1회차]
@@ -1107,7 +1112,7 @@ ${scriptPlan}
 - 전체 분량은 반드시 2,000자 이상 2,300자 이내여야 합니다. (절대 필수)
 - 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
 - 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 2,000자 이상인지 검증하십시오.
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.
 
 ────────────────────────
 [문체 · 전개 · 표현 · 출력 제한]
@@ -1132,7 +1137,7 @@ ${scriptPlan}
 - 전체 분량은 반드시 2,000자 이상 2,300자 이내여야 합니다. (절대 필수)
 - 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
 - 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 2,000자 이상인지 검증하십시오.
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.
 
 ────────────────────────
 [문체 · 전개 · 표현 · 출력 제한]
@@ -1157,7 +1162,7 @@ ${scriptPlan}
 - 전체 분량은 반드시 2,000자 이상 2,300자 이내여야 합니다. (절대 필수)
 - 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
 - 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 2,000자 이상인지 검증하십시오.
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.
 
 ────────────────────────
 [문체 · 전개 · 표현 · 출력 제한]
@@ -1182,7 +1187,7 @@ ${scriptPlan}
 - 전체 분량은 반드시 2,000자 이상 2,300자 이내여야 합니다. (절대 필수)
 - 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
 - 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 2,000자 이상인지 검증하십시오.
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.
 
 ────────────────────────
 [문체 · 전개 · 표현 · 출력 제한]
@@ -1209,7 +1214,7 @@ ${scriptPlan}
 - 전체 분량은 반드시 ${baseMinChars}자 이상 ${baseMaxChars}자 이내여야 합니다. (절대 필수)
 - 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
 - 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 ${baseMinChars}자 이상인지 검증하십시오.
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.
 
 ────────────────────────
 [6) 기본 대본 작성 규칙]
@@ -1302,7 +1307,7 @@ ${scriptPlan}
           }
       
       const baseResponse = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
         {
           method: "POST",
           headers: {
@@ -1454,7 +1459,7 @@ ${scriptPlan}
 - 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
 - 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
 - 위 조건 중 하나라도 어기면 실패입니다.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 2,000자 이상인지 검증하십시오.
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.
 
 ────────────────────────
 [시간 구간 지시 – 10분 / 2회차]
@@ -1475,7 +1480,7 @@ ${scriptPlan}
 - 전체 분량은 반드시 2,000자 이상 2,300자 이내여야 합니다. (절대 필수)
 - 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
 - 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 2,000자 이상인지 검증하십시오.
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.
 
 ────────────────────────
 [시간 구간 지시 – 15분 / 2회차]
@@ -1496,7 +1501,7 @@ ${scriptPlan}
 - 전체 분량은 반드시 2,000자 이상 2,300자 이내여야 합니다. (절대 필수)
 - 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
 - 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 2,000자 이상인지 검증하십시오.
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.
 
 ────────────────────────
 [시간 구간 지시 – 20분 / 2회차]
@@ -1517,7 +1522,7 @@ ${scriptPlan}
 - 전체 분량은 반드시 2,000자 이상 2,300자 이내여야 합니다. (절대 필수)
 - 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
 - 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 2,000자 이상인지 검증하십시오.
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.
 
 ────────────────────────
 [시간 구간 지시 – 25분 / 2회차]
@@ -1538,7 +1543,7 @@ ${scriptPlan}
 - 전체 분량은 반드시 2,000자 이상 2,300자 이내여야 합니다. (절대 필수)
 - 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
 - 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 2,000자 이상인지 검증하십시오.
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.
 
 ────────────────────────
 [시간 구간 지시 – 30분 / 2회차]
@@ -1559,7 +1564,7 @@ ${scriptPlan}
 - 전체 분량은 반드시 2,000자 이상 2,300자 이내여야 합니다. (절대 필수)
 - 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
 - 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 2,000자 이상인지 검증하십시오.
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.
 
 ────────────────────────
 [시간 구간 지시 – 35분 / 2회차]
@@ -1580,7 +1585,7 @@ ${scriptPlan}
 - 전체 분량은 반드시 2,000자 이상 2,300자 이내여야 합니다. (절대 필수)
 - 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
 - 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 2,000자 이상인지 검증하십시오.
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.
 
 ────────────────────────
 [시간 구간 지시 – 40분 / 2회차]
@@ -1818,7 +1823,7 @@ ${scriptPlan}
           }
       
       const climaxResponse = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
         {
           method: "POST",
           headers: {
@@ -2041,7 +2046,7 @@ ${scriptPlan}
             }
 
             const thirdPartResponse = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
               {
                 method: "POST",
                 headers: {
@@ -2201,7 +2206,7 @@ ${scriptPlan}
 - 전체 분량은 반드시 2,000자 이상 2,300자 이내여야 합니다. (절대 필수)
 - 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
 - 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 2,000자 이상인지 검증하십시오.
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.
 
 ────────────────────────
 [시간 구간 지시 – 20분 / 3회차]
@@ -2253,7 +2258,7 @@ ${scriptPlan}
             }
 
             const thirdPartResponse = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
               {
                 method: "POST",
                 headers: {
@@ -2454,7 +2459,7 @@ ${scriptPlan}
             }
 
             const fourthPartResponse = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
               {
                 method: "POST",
                 headers: {
@@ -2622,7 +2627,7 @@ ${scriptPlan}
 - 전체 분량은 반드시 2,000자 이상 2,300자 이내여야 합니다. (절대 필수)
 - 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
 - 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 2,000자 이상인지 검증하십시오.
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.
 
 ────────────────────────
 [시간 구간 지시 – 25분 / 3회차]
@@ -2674,7 +2679,7 @@ ${scriptPlan}
             }
 
             const thirdPartResponse = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
               {
                 method: "POST",
                 headers: {
@@ -2822,7 +2827,7 @@ ${scriptPlan}
 - 전체 분량은 반드시 2,000자 이상 2,300자 이내여야 합니다. (절대 필수)
 - 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
 - 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 2,000자 이상인지 검증하십시오.
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.
 
 ────────────────────────
 [시간 구간 지시 – 25분 / 4회차]
@@ -2874,7 +2879,7 @@ ${scriptPlan}
             }
 
             const fourthPartResponse = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
               {
                 method: "POST",
                 headers: {
@@ -3075,7 +3080,7 @@ ${scriptPlan}
             }
 
             const fifthPartResponse = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
               {
                 method: "POST",
                 headers: {
@@ -3249,7 +3254,7 @@ ${scriptPlan}
 - 전체 분량은 반드시 2,000자 이상 2,300자 이내여야 합니다. (절대 필수)
 - 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
 - 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 2,000자 이상인지 검증하십시오.
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.
 
 ────────────────────────
 [시간 구간 지시 – 30분 / 3회차]
@@ -3301,7 +3306,7 @@ ${scriptPlan}
             }
 
             const thirdPartResponse = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
               {
                 method: "POST",
                 headers: {
@@ -3449,7 +3454,7 @@ ${scriptPlan}
 - 전체 분량은 반드시 2,000자 이상 2,300자 이내여야 합니다. (절대 필수)
 - 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
 - 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 2,000자 이상인지 검증하십시오.
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.
 
 ────────────────────────
 [시간 구간 지시 – 30분 / 4회차]
@@ -3501,7 +3506,7 @@ ${scriptPlan}
             }
 
             const fourthPartResponse = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
               {
                 method: "POST",
                 headers: {
@@ -3649,7 +3654,7 @@ ${scriptPlan}
 - 전체 분량은 반드시 2,000자 이상 2,300자 이내여야 합니다. (절대 필수)
 - 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
 - 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 2,000자 이상인지 검증하십시오.
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.
 
 ────────────────────────
 [시간 구간 지시 – 30분 / 5회차]
@@ -3701,7 +3706,7 @@ ${scriptPlan}
             }
 
             const fifthPartResponse = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
               {
                 method: "POST",
                 headers: {
@@ -3902,7 +3907,7 @@ ${scriptPlan}
             }
 
             const sixthPartResponse = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
               {
                 method: "POST",
                 headers: {
@@ -4083,7 +4088,7 @@ ${scriptPlan}
 - 전체 분량은 반드시 2,000자 이상 2,300자 이내여야 합니다. (절대 필수)
 - 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
 - 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 2,000자 이상인지 검증하십시오.
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.
 
 ────────────────────────
 [시간 구간 지시 – 35분 / 3회차]
@@ -4121,7 +4126,7 @@ ${scriptPlan}
         console.log(`[v0] 3회차 대본 생성 시작 (3/${totalParts} 진행 중, 9:00~13:30, 목표: 2,000~2,300자)`)
         
         const thirdPartResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: {
@@ -4173,7 +4178,7 @@ ${scriptPlan}
 - 전체 분량은 반드시 2,000자 이상 2,300자 이내여야 합니다. (절대 필수)
 - 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
 - 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 2,000자 이상인지 검증하십시오.
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.
 
 ────────────────────────
 [시간 구간 지시 – 35분 / 4회차]
@@ -4211,7 +4216,7 @@ ${scriptPlan}
         console.log(`[v0] 4회차 대본 생성 시작 (4/${totalParts} 진행 중, 13:30~18:00, 목표: 2,000~2,300자)`)
         
         const fourthPartResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: {
@@ -4263,7 +4268,7 @@ ${scriptPlan}
 - 전체 분량은 반드시 2,000자 이상 2,300자 이내여야 합니다. (절대 필수)
 - 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
 - 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 2,000자 이상인지 검증하십시오.
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.
 
 ────────────────────────
 [시간 구간 지시 – 35분 / 5회차]
@@ -4301,7 +4306,7 @@ ${scriptPlan}
         console.log(`[v0] 5회차 대본 생성 시작 (5/${totalParts} 진행 중, 18:00~22:30, 목표: 2,000~2,300자)`)
         
         const fifthPartResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: {
@@ -4353,7 +4358,7 @@ ${scriptPlan}
 - 전체 분량은 반드시 2,000자 이상 2,300자 이내여야 합니다. (절대 필수)
 - 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
 - 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 2,000자 이상인지 검증하십시오.
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.
 
 ────────────────────────
 [시간 구간 지시 – 35분 / 6회차]
@@ -4391,7 +4396,7 @@ ${scriptPlan}
         console.log(`[v0] 6회차 대본 생성 시작 (6/${totalParts} 진행 중, 22:30~27:00, 목표: 2,000~2,300자)`)
         
         const sixthPartResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: {
@@ -4482,7 +4487,7 @@ ${scriptPlan}
         console.log(`[v0] 7회차 대본 생성 시작 (7/${totalParts} 진행 중, 27:00~35:00, 목표: 2,200~2,500자)`)
         
         const seventhPartResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: {
@@ -4574,7 +4579,7 @@ ${scriptPlan}
 - 전체 분량은 반드시 2,000자 이상 2,300자 이내여야 합니다. (절대 필수)
 - 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
 - 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 2,000자 이상인지 검증하십시오.
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.
 
 ────────────────────────
 [시간 구간 지시 – 40분 / 3회차]
@@ -4612,7 +4617,7 @@ ${scriptPlan}
         console.log(`[v0] 3회차 대본 생성 시작 (3/${totalParts} 진행 중, 9:00~13:30, 목표: 2,000~2,300자)`)
         
         const thirdPartResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: {
@@ -4664,7 +4669,7 @@ ${scriptPlan}
 - 전체 분량은 반드시 2,000자 이상 2,300자 이내여야 합니다. (절대 필수)
 - 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
 - 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 2,000자 이상인지 검증하십시오.
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.
 
 ────────────────────────
 [시간 구간 지시 – 40분 / 4회차]
@@ -4702,7 +4707,7 @@ ${scriptPlan}
         console.log(`[v0] 4회차 대본 생성 시작 (4/${totalParts} 진행 중, 13:30~18:00, 목표: 2,000~2,300자)`)
         
         const fourthPartResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: {
@@ -4754,7 +4759,7 @@ ${scriptPlan}
 - 전체 분량은 반드시 2,000자 이상 2,300자 이내여야 합니다. (절대 필수)
 - 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
 - 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 2,000자 이상인지 검증하십시오.
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.
 
 ────────────────────────
 [시간 구간 지시 – 40분 / 5회차]
@@ -4792,7 +4797,7 @@ ${scriptPlan}
         console.log(`[v0] 5회차 대본 생성 시작 (5/${totalParts} 진행 중, 18:00~22:30, 목표: 2,000~2,300자)`)
         
         const fifthPartResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: {
@@ -4844,7 +4849,7 @@ ${scriptPlan}
 - 전체 분량은 반드시 2,000자 이상 2,300자 이내여야 합니다. (절대 필수)
 - 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
 - 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 2,000자 이상인지 검증하십시오.
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.
 
 ────────────────────────
 [시간 구간 지시 – 40분 / 6회차]
@@ -4882,7 +4887,7 @@ ${scriptPlan}
         console.log(`[v0] 6회차 대본 생성 시작 (6/${totalParts} 진행 중, 22:30~27:00, 목표: 2,000~2,300자)`)
         
         const sixthPartResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: {
@@ -4934,7 +4939,7 @@ ${scriptPlan}
 - 전체 분량은 반드시 2,000자 이상 2,300자 이내여야 합니다. (절대 필수)
 - 줄바꿈 개수는 18줄 이상 22줄 이내로 제한합니다.
 - 한 줄당 글자 수는 반드시 130자 이상 220자 이내여야 합니다.
-- 대본을 완성한 후, 반드시 글자수를 확인하여 최소 2,000자 이상인지 검증하십시오.
+- 오직 대본 내용만 작성하십시오. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마십시오.
 
 ────────────────────────
 [시간 구간 지시 – 40분 / 7회차]
@@ -4972,7 +4977,7 @@ ${scriptPlan}
         console.log(`[v0] 7회차 대본 생성 시작 (7/${totalParts} 진행 중, 27:00~31:30, 목표: 2,000~2,300자)`)
         
         const seventhPartResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: {
@@ -5063,7 +5068,7 @@ ${scriptPlan}
         console.log(`[v0] 8회차 대본 생성 시작 (8/${totalParts} 진행 중, 31:30~40:00, 목표: 2,300~2,600자)`)
         
         const eighthPartResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: {
@@ -5328,7 +5333,7 @@ ${lastContentSentences}
 (위 대본의 마지막 문장 이후에 자연스럽게 이어지는 완전히 새로운 내용을 ${additionalTarget}자 이상 작성하세요. 기존 내용을 반복하거나 중복하지 마세요.)`
             
             const retryResponse = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
               {
                 method: "POST",
                 headers: {
@@ -5471,22 +5476,29 @@ export async function generateRefinedScriptPart(
     }
 
     let partTargetChars: number
-    if (duration === 10) {
-      partTargetChars = targetChars ? Math.floor(targetChars / totalParts) : 2150
-    } else if (duration === 15) {
-      partTargetChars = partNum <= 2 ? 2150 : 2250
-    } else if (duration === 20) {
-      partTargetChars = partNum <= 3 ? 2150 : 2250
-    } else if (duration === 25) {
-      partTargetChars = partNum <= 4 ? 2150 : 2250
-    } else if (duration === 30) {
-      partTargetChars = partNum <= 5 ? 2150 : 2250
-    } else if (duration === 35) {
-      partTargetChars = partNum <= 6 ? 2150 : 2350
-    } else if (duration === 40) {
-      partTargetChars = partNum <= 7 ? 2150 : 2450
+    // targetChars는 이미 +500이 추가된 값이므로 그대로 사용하여 각 분할에 분배
+    if (targetChars) {
+      // targetChars를 totalParts로 나누어 각 분할의 목표 글자수 계산
+      partTargetChars = Math.floor(targetChars / totalParts)
     } else {
-      partTargetChars = targetChars ? Math.floor(targetChars / totalParts) : 2150
+      // targetChars가 없는 경우 기본값 사용 (각 분할에 +250 여유분 포함)
+      if (duration === 10) {
+        partTargetChars = 2400 // (4140 + 500) / 2 = 2320, 반올림하여 2400
+      } else if (duration === 15) {
+        partTargetChars = partNum <= 2 ? 2400 : 2500 // 2150 + 250, 2250 + 250
+      } else if (duration === 20) {
+        partTargetChars = partNum <= 3 ? 2400 : 2500
+      } else if (duration === 25) {
+        partTargetChars = partNum <= 4 ? 2400 : 2500
+      } else if (duration === 30) {
+        partTargetChars = partNum <= 5 ? 2400 : 2500
+      } else if (duration === 35) {
+        partTargetChars = partNum <= 6 ? 2400 : 2600 // 2150 + 250, 2350 + 250
+      } else if (duration === 40) {
+        partTargetChars = partNum <= 7 ? 2400 : 2700 // 2150 + 250, 2450 + 250
+      } else {
+        partTargetChars = 2400
+      }
     }
 
     return {
@@ -5669,13 +5681,12 @@ ${partNumber > 1 ? `🚫🚫🚫 절대 금지 사항 (반드시 준수하세요
 - 기획안의 해당 구간(${partInfo.startTime}~${partInfo.endTime}) 내용을 정확히 구현하세요.
 - 이전 회차 대본과 중복되지 않는 완전히 새로운 내용만 작성하세요.
 - 하지만 문맥과 흐름은 반드시 자연스럽게 연결되도록 하세요.
-- 전체 기획안의 흐름을 절대 벗어나지 마세요.
-- ` : `⚠️⚠️⚠️ 전체 기획안 흐름 준수 (매우 중요) ⚠️⚠️⚠️
+- 전체 기획안의 흐름을 절대 벗어나지 마세요.` : `⚠️⚠️⚠️ 전체 기획안 흐름 준수 (매우 중요) ⚠️⚠️⚠️
 - 전체 기획안의 구조와 전개 순서를 절대 변경하지 마세요.
 - 기획안에 명시된 순서대로 내용을 전개하세요.
 - 이 ${partNumber}회차 구간에 해당하는 기획안 내용을 정확히 구현하세요.
 - 전체 스토리의 흐름 속에서 이 구간의 역할을 정확히 수행하세요.
-- 뒷부분으로 자연스럽게 이어질 수 있도록 작성하세요.
+- 뒷부분으로 자연스럽게 이어질 수 있도록 작성하세요.`}
 
 ⚠️⚠️⚠️ 기획안 내용 구현 (매우 중요) ⚠️⚠️⚠️
 - 기획안의 해당 구간(${partInfo.startTime}~${partInfo.endTime})에 해당하는 모든 내용을 빠짐없이 구현하세요.
@@ -5688,14 +5699,43 @@ ${partNumber > 1 ? `🚫🚫🚫 절대 금지 사항 (반드시 준수하세요
 - 기획안의 해당 구간(${partInfo.startTime}~${partInfo.endTime}) 내용을 정확히 구현하세요.
 - 기획안의 모든 내용을 빠짐없이 다루되, 시간 구간에 맞춰 작성하세요.
 - 전체 기획안의 흐름을 절대 벗어나지 마세요.
-- `}정확히 ${partInfo.startTime}부터 ${partInfo.endTime} 구간(${partInfo.minChars}자 이상 ${partInfo.maxChars}자 이내)의 대본을 작성해주세요. 
-기획안의 모든 내용을 빠짐없이 구현하되, 시간 구간에 맞춰 작성하세요. 대본만 작성하고 다른 설명은 하지 마세요.`
+
+🚨🚨🚨 글자수 요구사항 (절대적 필수 - 최우선 중요) 🚨🚨🚨
+⚠️⚠️⚠️ 이 시간 구간(${partInfo.startTime}~${partInfo.endTime})에 해당하는 대본은 반드시 다음 글자수 조건을 충족해야 합니다:
+
+1. 최소 글자수: ${partInfo.minChars}자 이상 (절대 필수 - 이보다 적으면 실패)
+2. 목표 글자수: ${partInfo.targetChars}자 (반드시 달성해야 함)
+3. 최대 글자수: ${partInfo.maxChars}자 이내 (이를 초과하지 마세요)
+
+⚠️⚠️⚠️ 절대적 필수 조건 ⚠️⚠️⚠️
+- 공백 포함 반드시 ${partInfo.minChars}자 이상 작성하세요.
+- ${partInfo.minChars}자 미만이면 대본이 사용 불가능합니다.
+- 시간 구간(${partInfo.startTime}~${partInfo.endTime})에 해당하는 분량이므로 반드시 ${partInfo.minChars}자 이상이어야 합니다.
+- 글자수가 부족하면 이 시간 구간의 대본이 완성되지 않은 것으로 간주됩니다.
+
+⚠️ 글자수를 늘리는 방법:
+- 각 문장을 더 길고 상세하게 작성하세요.
+- 예시, 비유, 설명을 더 많이 추가하세요.
+- 배경 설명, 인물 심리, 상황 묘사를 풍부하게 추가하세요.
+- 각 장면을 더 상세하게 묘사하세요.
+- 같은 내용을 다른 표현으로 확장하여 설명하세요.
+
+────────────────────────
+[최종 작성 지시사항]
+────────────────────────
+정확히 ${partInfo.startTime}부터 ${partInfo.endTime} 구간의 대본을 작성해주세요.
+- 반드시 ${partInfo.minChars}자 이상 ${partInfo.maxChars}자 이내로 작성하세요.
+- 기획안의 모든 내용을 빠짐없이 구현하되, 시간 구간에 맞춰 작성하세요.
+- 오직 대본 내용만 작성하세요. 제목, 설명, 메타데이터, 글자수 확인 등의 내용은 절대 포함하지 마세요.
+- 대본만 작성하고 다른 설명은 하지 마세요.
+- 글자수 조건을 절대적으로 준수하세요.`
 
   // Gemini API 호출
   const maxRetries = 3 // 기본 재시도 3회 (글자수 부족 시 이어서 작성으로 처리)
   const baseDelay = 500 // 재시도 간격을 500ms로 단축
   let lastError: Error | null = null
   let currentPrompt = userPrompt // 재시도 시 프롬프트 업데이트를 위해 변수로 관리
+  let shouldReduceInputTokens = false // MAX_TOKENS 발생 시 입력 토큰을 줄일지 여부
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
@@ -5706,7 +5746,7 @@ ${partNumber > 1 ? `🚫🚫🚫 절대 금지 사항 (반드시 준수하세요
       }
 
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${GEMINI_API_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
         {
           method: "POST",
           headers: {
@@ -5726,7 +5766,9 @@ ${partNumber > 1 ? `🚫🚫🚫 절대 금지 사항 (반드시 준수하세요
               temperature: (duration >= 10 && duration <= 40) ? 0.7 : 1,
               topK: 40,
               topP: 0.95,
-              maxOutputTokens: 8192,
+              // 분할당 목표 글자수에 맞게 maxOutputTokens 계산 (한글 1자당 약 2-3토큰, 여유있게 4배 + 최소 16384)
+              // 2회차 이상은 이전 분할 내용이 프롬프트에 포함되어 입력 토큰이 많아지므로 더 많은 출력 토큰 필요
+              maxOutputTokens: Math.min(32768, Math.max(16384, Math.ceil(partInfo.targetChars * 4))),
             },
           }),
         }
@@ -5777,6 +5819,113 @@ ${partNumber > 1 ? `🚫🚫🚫 절대 금지 사항 (반드시 준수하세요
         if (finishReason === "SAFETY" || finishReason === "RECITATION" || finishReason === "OTHER") {
           throw new Error(`${partNumber}회차를 생성할 수 없습니다. 필터에 의해 차단되었습니다. (finishReason: ${finishReason})`)
         }
+        
+        // MAX_TOKENS 발생 시 입력 토큰을 줄여서 재시도
+        if (finishReason === "MAX_TOKENS" && attempt < maxRetries - 1) {
+          console.warn(`[v0] ${partNumber}회차 MAX_TOKENS 발생 - 입력 토큰을 줄여서 재시도합니다...`)
+          shouldReduceInputTokens = true
+          
+          // 입력 토큰을 줄인 프롬프트 생성
+          let reducedPreviousContext = ""
+          if (previousParts && previousParts.trim().length > 0) {
+            // 이전 분할 내용을 300자 → 150자로 줄임
+            const reducedChars = previousParts.trim().slice(-150)
+            const sentences = previousParts.split(/[.!?。！？]+/).filter((s: string) => s.trim().length > 0)
+            const reducedSentences = sentences.slice(-4).join('. ') + (sentences.length > 0 ? '.' : '')
+            const contextToUse = reducedSentences.length > reducedChars.length ? reducedSentences : reducedChars
+            
+            reducedPreviousContext = `[${partNumber - 1}회차 대본의 마지막 부분 (참고용 - 반드시 이어서 작성하세요)]:
+${contextToUse}
+
+⚠️ 매우 중요: 위 ${partNumber - 1}회차 대본의 마지막 부분을 반드시 읽고, 그 흐름과 문맥을 완벽하게 이어받아서 작성하세요.
+- 위 대본의 마지막 문장 이후에 자연스럽게 연결되는 문장으로 시작하세요.
+- 문맥, 톤, 스타일이 완전히 일치하도록 작성하세요.
+
+`
+          }
+          
+          // 기획안을 축약 (전체의 70%만 사용 - 앞부분과 뒷부분 유지)
+          const scriptPlanLines = scriptPlan.split('\n')
+          const planLength = scriptPlanLines.length
+          const keepLines = Math.floor(planLength * 0.7)
+          const frontLines = Math.floor(keepLines * 0.4) // 앞부분 40%
+          const backLines = keepLines - frontLines // 뒷부분 60%
+          const reducedScriptPlan = [
+            ...scriptPlanLines.slice(0, frontLines),
+            `\n[... 중간 부분 생략 (입력 토큰 절감) ...]\n`,
+            ...scriptPlanLines.slice(-backLines)
+          ].join('\n')
+          
+          // 입력 토큰을 줄인 프롬프트 생성 (핵심 지시사항만 유지)
+          currentPrompt = `${partSystemPrompt}
+
+${reducedPreviousContext}────────────────────────
+[대본 기획안 (요약 - 전체 흐름 파악)]
+────────────────────────
+${reducedScriptPlan}
+
+⚠️⚠️⚠️ 매우 중요: 위 기획안을 읽고 전체 스토리 흐름을 파악하세요.
+
+────────────────────────
+[작성 지시사항]
+────────────────────────
+${partNumber > 1 ? `⚠️⚠️⚠️ 연결 및 연속성 (매우 중요) ⚠️⚠️⚠️
+- 위에 제공된 ${partNumber - 1}회차 대본의 마지막 부분을 반드시 읽고 이해하세요.
+- 그 마지막 문장의 흐름, 문맥, 톤을 완벽하게 이어받아서 작성하세요.
+
+⚠️⚠️⚠️ 전체 기획안 흐름 준수 (매우 중요) ⚠️⚠️⚠️
+- 전체 기획안의 구조와 전개 순서를 절대 변경하지 마세요.
+- 기획안에 명시된 순서대로 내용을 전개하세요.
+- 이 ${partNumber}회차 구간에 해당하는 기획안 내용을 정확히 구현하세요.
+- 전체 스토리의 흐름 속에서 이 구간의 역할을 정확히 수행하세요.
+
+⚠️ 중요 지시사항:
+- 기획안의 해당 구간(${partInfo.startTime}~${partInfo.endTime}) 내용을 정확히 구현하세요.
+- 기획안의 모든 내용을 빠짐없이 다루되, 시간 구간에 맞춰 작성하세요.
+- 전체 기획안의 흐름을 절대 벗어나지 마세요.
+` : `⚠️⚠️⚠️ 전체 기획안 흐름 준수 (매우 중요) ⚠️⚠️⚠️
+- 전체 기획안의 구조와 전개 순서를 절대 변경하지 마세요.
+- 기획안에 명시된 순서대로 내용을 전개하세요.
+- 이 ${partNumber}회차 구간에 해당하는 기획안 내용을 정확히 구현하세요.
+- 전체 스토리의 흐름 속에서 이 구간의 역할을 정확히 수행하세요.
+
+⚠️ 중요 지시사항:
+- 기획안의 해당 구간(${partInfo.startTime}~${partInfo.endTime}) 내용을 정확히 구현하세요.
+- 기획안의 모든 내용을 빠짐없이 다루되, 시간 구간에 맞춰 작성하세요.
+- 전체 기획안의 흐름을 절대 벗어나지 마세요.
+`}
+
+🚨🚨🚨 글자수 요구사항 (절대적 필수 - 최우선 중요) 🚨🚨🚨
+⚠️⚠️⚠️ 이 시간 구간(${partInfo.startTime}~${partInfo.endTime})에 해당하는 대본은 반드시 다음 글자수 조건을 충족해야 합니다:
+
+1. 최소 글자수: ${partInfo.minChars}자 이상 (절대 필수 - 이보다 적으면 실패)
+2. 목표 글자수: ${partInfo.targetChars}자 (반드시 달성해야 함)
+3. 최대 글자수: ${partInfo.maxChars}자 이내 (이를 초과하지 마세요)
+
+⚠️⚠️⚠️ 절대적 필수 조건 ⚠️⚠️⚠️
+- 공백 포함 반드시 ${partInfo.minChars}자 이상 작성하세요.
+- ${partInfo.minChars}자 미만이면 대본이 사용 불가능합니다.
+- 시간 구간(${partInfo.startTime}~${partInfo.endTime})에 해당하는 분량이므로 반드시 ${partInfo.minChars}자 이상이어야 합니다.
+
+⚠️ 글자수를 늘리는 방법:
+- 각 문장을 더 길고 상세하게 작성하세요.
+- 예시, 비유, 설명을 더 많이 추가하세요.
+- 배경 설명, 인물 심리, 상황 묘사를 풍부하게 추가하세요.
+- 각 장면을 더 상세하게 묘사하세요.
+- 같은 내용을 다른 표현으로 확장하여 설명하세요.
+
+────────────────────────
+[최종 작성 지시사항]
+────────────────────────
+정확히 ${partInfo.startTime}부터 ${partInfo.endTime} 구간의 대본을 작성해주세요.
+- 반드시 ${partInfo.minChars}자 이상 ${partInfo.maxChars}자 이내로 작성하세요.
+- 기획안의 모든 내용을 빠짐없이 구현하되, 시간 구간에 맞춰 작성하세요.
+- 대본만 작성하고 다른 설명은 하지 마세요.
+- 글자수 조건을 절대적으로 준수하세요.`
+          
+          console.log(`[v0] ${partNumber}회차 입력 토큰을 줄인 프롬프트로 재시도합니다...`)
+          continue
+        }
       }
       
       const content = candidate.content?.parts?.[0]?.text
@@ -5809,165 +5958,13 @@ ${partNumber > 1 ? `🚫🚫🚫 절대 금지 사항 (반드시 준수하세요
         }
         return trimmedContent
       } else {
-        // 목표 글자수에 미달 - 이미 생성된 내용을 기반으로 이어서 추가 생성
+        // 목표 글자수에 미달 - 경고하고 현재 내용 반환 (이어서 작성 기능 제거)
         const shortage = minRequiredLength - actualLength
         console.warn(`[v0] ⚠️ ${partNumber}회차 글자수 부족: ${actualLength}자 (최소 필요: ${minRequiredLength}자, 부족: ${shortage}자)`)
-        console.log(`[v0] ${partNumber}회차 부족한 부분을 이어서 추가 생성합니다...`)
+        console.warn(`[v0] ⚠️ ${partNumber}회차가 목표 글자수에 미달하지만 계속 진행합니다.`)
         
-        // 글자수 부족 시 이어서 작성 (1회만 시도, attempt === 0일 때만)
-        if (attempt === 0) {
-          // 이미 생성된 내용을 기반으로 이어서 작성하는 프롬프트
-          const continuationPrompt = `${partSystemPrompt}
-
-[이미 생성된 ${partNumber}회차 대본 (이어서 작성하세요)]:
-${trimmedContent}
-
-⚠️⚠️⚠️ 이어서 작성 지시사항 (매우 중요) ⚠️⚠️⚠️
-위 대본은 ${actualLength}자로 목표 글자수(${targetLength}자)에 부족합니다.
-부족한 ${shortage}자 이상을 이어서 작성하세요.
-
-⚠️ 매우 중요:
-1. 위 대본의 마지막 문장을 반드시 읽고 이해하세요.
-2. 그 마지막 문장 이후에 자연스럽게 이어지는 내용을 작성하세요.
-3. 위 대본의 문맥, 톤, 스타일을 완벽하게 유지하세요.
-4. 갑자기 다른 주제로 전환하지 마세요.
-5. 전체 기획안의 흐름을 계속 이어가세요.
-
-글자수를 늘리기 위해:
-- 각 문장을 더 길고 상세하게 작성하세요.
-- 예시, 비유, 설명을 더 많이 추가하세요.
-- 배경 설명, 인물 심리, 상황 묘사를 풍부하게 추가하세요.
-- 같은 내용을 다른 표현으로 확장하여 설명하세요.
-- 각 장면을 더 상세하게 묘사하세요.
-
-⚠️⚠️⚠️ 절대적 필수: 
-- 위 대본의 마지막 문장 이후에 자연스럽게 이어지는 내용만 작성하세요.
-- 반드시 ${shortage}자 이상 추가하세요.
-- 전체 대본이 ${minRequiredLength}자 이상이 되도록 작성하세요.
-- 오직 이어서 작성하는 내용만 출력하세요. 위 대본을 반복하지 마세요.
-
-${previousContext}────────────────────────
-[대본 기획안 (전체 - 반드시 먼저 읽고 전체 흐름 파악)]
-────────────────────────
-${scriptPlan}
-
-⚠️⚠️⚠️ 매우 중요: 위 기획안을 먼저 전체적으로 읽고 다음을 파악하세요:
-1. 전체 스토리의 구조와 전개 순서
-2. 이 ${partNumber}회차(${partInfo.startTime}~${partInfo.endTime})가 전체 스토리의 어느 위치인지
-3. 앞부분의 맥락과 뒷부분의 맥락
-4. 전체 기획안의 핵심 메시지와 감정 흐름
-
-────────────────────────
-[작성 지시사항]
-────────────────────────
-⚠️⚠️⚠️ 매우 중요: 기획안의 모든 내용을 빠짐없이 구현하세요 ⚠️⚠️⚠️
-
-1. 위에 제공된 "이미 생성된 ${partNumber}회차 대본"을 먼저 확인하세요.
-2. 기획안을 다시 읽고, 위 대본에서 아직 다루지 않은 기획안 내용이 있는지 확인하세요.
-3. 기획안의 모든 내용을 빠짐없이 다뤄야 합니다:
-   - 위 대본에서 이미 다룬 기획안 내용은 반복하지 마세요.
-   - 하지만 기획안에 있는데 위 대본에서 아직 다루지 않은 내용이 있다면 반드시 포함하세요.
-   - 기획안의 해당 구간(${partInfo.startTime}~${partInfo.endTime})에 해당하는 모든 내용을 구현하세요.
-
-4. 위 대본의 마지막 문장 이후에 자연스럽게 이어지는 내용을 작성하세요.
-5. 기획안의 순서와 구조를 절대 변경하지 마세요.
-6. 전체 기획안의 흐름을 절대 벗어나지 마세요.
-7. 오직 이어서 작성하는 내용만 출력하세요. 위 대본을 반복하거나 요약하지 마세요.
-
-⚠️ 목표:
-- 부족한 ${shortage}자 이상을 추가하세요.
-- 기획안의 모든 내용을 빠짐없이 구현하세요.
-- 전체 대본이 ${minRequiredLength}자 이상이 되도록 작성하세요.`
-          
-          // 이어서 작성하는 API 호출
-          try {
-            const continuationResponse = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${GEMINI_API_KEY}`,
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                  contents: [
-                    {
-                      parts: [
-                        {
-                          text: continuationPrompt,
-                        },
-                      ],
-                    },
-                  ],
-                  generationConfig: {
-                    temperature: (duration >= 10 && duration <= 40) ? 0.7 : 1,
-                    topK: 40,
-                    topP: 0.95,
-                    maxOutputTokens: 8192,
-                  },
-                }),
-              }
-            )
-
-            if (!continuationResponse.ok) {
-              const errorText = await continuationResponse.text()
-              console.warn(`[v0] ${partNumber}회차 이어서 작성 실패: ${continuationResponse.status} - ${errorText}`)
-              // 이어서 작성 실패 시 기존 내용 반환
-              return trimmedContent
-            }
-
-            const continuationData = await continuationResponse.json()
-            const continuationContent = continuationData.candidates?.[0]?.content?.parts?.[0]?.text
-
-            if (continuationContent && continuationContent.trim().length > 0) {
-              const continuationText = continuationContent.trim()
-              const combinedContent = trimmedContent + "\n\n" + continuationText
-              const combinedLength = combinedContent.length
-              
-              console.log(`[v0] ${partNumber}회차 이어서 작성 완료: 기존 ${actualLength}자 + 추가 ${continuationText.length}자 = 총 ${combinedLength}자`)
-              
-              // 목표 달성 여부 확인
-              if (combinedLength >= minRequiredLength) {
-                if (combinedLength >= targetLength) {
-                  console.log(`[v0] ✅ ${partNumber}회차 목표 달성 (이어서 작성 후): ${combinedLength}자 (목표: ${targetLength}자)`)
-                } else {
-                  console.log(`[v0] ⚠️ ${partNumber}회차 목표 근접 (이어서 작성 후): ${combinedLength}자 (목표: ${targetLength}자, 부족: ${targetLength - combinedLength}자)`)
-                }
-                return combinedContent
-              } else {
-                // 여전히 부족하면 한 번 더 시도
-                console.warn(`[v0] ⚠️ ${partNumber}회차 여전히 부족: ${combinedLength}자 (최소 필요: ${minRequiredLength}자)`)
-                if (attempt < maxRetries - 2) {
-                  // 기존 내용을 업데이트하고 재시도
-                  currentPrompt = continuationPrompt.replace(
-                    `[이미 생성된 ${partNumber}회차 대본 (이어서 작성하세요)]:\n${trimmedContent}`,
-                    `[이미 생성된 ${partNumber}회차 대본 (이어서 작성하세요)]:\n${combinedContent}`
-                  ).replace(
-                    `부족한 ${shortage}자 이상을 이어서 작성하세요.`,
-                    `부족한 ${minRequiredLength - combinedLength}자 이상을 이어서 작성하세요.`
-                  )
-                  continue
-                } else {
-                  // 최대 재시도 횟수 도달 - 현재까지 생성된 내용 반환
-                  console.warn(`[v0] ⚠️ ${partNumber}회차 최대 재시도 횟수 도달. 현재까지 생성된 내용 반환: ${combinedLength}자`)
-                  return combinedContent
-                }
-              }
-            } else {
-              // 이어서 작성 실패 - 기존 내용 반환
-              console.warn(`[v0] ⚠️ ${partNumber}회차 이어서 작성 응답이 비어있습니다. 기존 내용 반환: ${actualLength}자`)
-              return trimmedContent
-            }
-          } catch (continuationError) {
-            console.error(`[v0] ${partNumber}회차 이어서 작성 중 오류:`, continuationError)
-            // 오류 발생 시 기존 내용 반환
-            return trimmedContent
-          }
-        } else {
-          // 모든 재시도 실패 - 경고하고 반환
-          console.error(`[v0] ❌ ${partNumber}회차 최종 글자수 부족: ${actualLength}자 (최소 필요: ${minRequiredLength}자, 부족: ${shortage}자)`)
-          console.warn(`[v0] ⚠️ ${partNumber}회차가 목표 글자수에 미달하지만 계속 진행합니다. 전체 목표 달성을 위해 다음 회차에서 보완될 수 있습니다.`)
-          return trimmedContent
-        }
+        // 이어서 작성 기능 제거 - 현재 생성된 내용 반환
+        return trimmedContent
       }
       
     } catch (error) {
