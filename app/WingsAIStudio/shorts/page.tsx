@@ -3568,12 +3568,12 @@ export default function ShortsPage() {
                       <h3 className="text-lg font-semibold mb-2">제목 생성</h3>
                       <p className="text-sm text-muted-foreground mb-4">
                         AI가 후킹될만한 제목을 두 줄로 생성합니다. 대본 요약을 기반으로 제목이 생성됩니다.
-                </p>
-              </div>
+                      </p>
+                    </div>
                     <div className="flex gap-4 items-start">
                       {/* 제목 생성 버튼 */}
                       <div className="flex-1">
-                      <Button
+                        <Button
                       onClick={async () => {
                         console.log("[Shorts] 후킹 제목 생성 버튼 클릭, script 상태:", script ? `길이: ${script.length}` : "없음")
                         if (!script || typeof script !== 'string' || script.trim().length === 0) {
@@ -3614,21 +3614,21 @@ export default function ShortsPage() {
                           setIsGeneratingTitle(false)
                         }
                       }}
-                      className="w-full h-14 text-lg font-semibold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 hover:from-purple-700 hover:via-pink-700 hover:to-blue-700 text-white shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 !opacity-100 !pointer-events-auto cursor-pointer"
-                      size="lg"
-                    >
-                      {isGeneratingTitle ? (
-                        <>
-                          <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                          제목 생성 중...
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="w-5 h-5 mr-2" />
-                          후킹 제목 생성하기
-                        </>
-                      )}
-                    </Button>
+                        className="w-full h-14 text-lg font-semibold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 hover:from-purple-700 hover:via-pink-700 hover:to-blue-700 text-white shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 !opacity-100 !pointer-events-auto cursor-pointer"
+                        size="lg"
+                      >
+                        {isGeneratingTitle ? (
+                          <>
+                            <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                            제목 생성 중...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-5 h-5 mr-2" />
+                            후킹 제목 생성하기
+                          </>
+                        )}
+                      </Button>
                       </div>
                       
                       {/* 제목 배치 샘플 시뮬레이션 */}
