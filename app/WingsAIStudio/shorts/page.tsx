@@ -2427,7 +2427,7 @@ export default function ShortsPage() {
   const renderStepContent = () => {
     switch (activeStep) {
       case "category":
-    return (
+        return (
           <div className="space-y-8">
             <div className="text-center space-y-2 mb-8">
               <h2 className="text-4xl font-bold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 bg-clip-text text-transparent">
@@ -2438,7 +2438,7 @@ export default function ShortsPage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {categoryOrder.map((category) => {
                 const info = categoryInfo[category]
-    return (
+                return (
                   <Card
                     key={category}
                     className={`group cursor-pointer transition-all duration-300 hover:scale-105 hover:shadow-2xl border-2 ${
@@ -2972,8 +2972,8 @@ export default function ShortsPage() {
                 )}
               </Button>
             </div>
-      </div>
-    )
+          </div>
+        )
 
       case "image":
         // 이미지 순서 변경 함수
@@ -3470,8 +3470,8 @@ export default function ShortsPage() {
                         className="w-full h-full border-2 border-gray-300 rounded-lg"
                         style={{ aspectRatio: "9/16" }}
                       />
+                    </div>
                   </div>
-                </div>
 
                   {/* 재생 컨트롤 */}
                   <div className="space-y-4">
@@ -3501,8 +3501,8 @@ export default function ShortsPage() {
                         <span className="text-sm text-muted-foreground w-16">
                           {Math.floor((scriptLines[scriptLines.length - 1]?.endTime / 1000 || 0) / 60)}:{(Math.floor((scriptLines[scriptLines.length - 1]?.endTime / 1000 || 0) % 60)).toString().padStart(2, "0")}
                         </span>
-                </div>
-              </div>
+                      </div>
+                    </div>
 
                     {/* 재생 컨트롤 버튼 및 볼륨 */}
                     <div className="flex items-center justify-center gap-4">
@@ -3532,7 +3532,7 @@ export default function ShortsPage() {
                             재생
                           </>
                         )}
-                </Button>
+                      </Button>
                       
                       {/* 볼륨 조절 */}
                       <div className="flex items-center gap-2 w-40">
