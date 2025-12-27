@@ -217,6 +217,22 @@ export default function LongformContentPage() {
   const [trendingTopics, setTrendingTopics] = useState<Array<{ title: string; videoId: string }>>([])
   const [isLoadingTrending, setIsLoadingTrending] = useState(false)
   const [selectedTrendingVideoId, setSelectedTrendingVideoId] = useState<string | null>(null)
+  const [youtubeUrl, setYoutubeUrl] = useState("")
+  const [isAnalyzingTopic, setIsAnalyzingTopic] = useState(false)
+  const [topicAnalysisResult, setTopicAnalysisResult] = useState<{
+    videoInfo: {
+      title: string
+      description: string
+      viewCount: string
+      likeCount: string
+      videoId: string
+      thumbnailUrl: string
+    }
+    analysis: {
+      mainTopic: string
+      recommendedTopics: string[]
+    }
+  } | null>(null)
   const [crawledNews, setCrawledNews] = useState<Array<{ title: string; link: string; description: string }>>([])
   const [isCrawlingNews, setIsCrawlingNews] = useState(false)
   const [customTopic, setCustomTopic] = useState("")
@@ -6630,6 +6646,160 @@ export default function LongformContentPage() {
                       </a>
                     </div>
                   )}
+                </Card>
+
+                {/* 잘뜨는 주제 URL 넣어 주제 분석 */}
+                <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white sticky top-4 mt-4">
+                  <CardHeader className="pb-4 border-b border-gray-100">
+                    <div className="flex items-center gap-2">
+                      <Youtube className="w-4 h-4 text-gray-600" />
+                      <CardTitle className="text-sm md:text-base font-semibold text-gray-700">
+                        잘뜨는 주제 URL 넣어 주제 분석
+                      </CardTitle>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      YouTube 영상 URL을 입력하면 주제를 분석하고 유사 주제를 추천합니다
+                    </p>
+                  </CardHeader>
+                  <CardContent className="p-4 space-y-4">
+                    <div className="space-y-2">
+                      <Input
+                        type="text"
+                        placeholder="https://www.youtube.com/watch?v=..."
+                        value={youtubeUrl}
+                        onChange={(e) => setYoutubeUrl(e.target.value)}
+                        className="w-full"
+                        disabled={isAnalyzingTopic}
+                      />
+                      <Button
+                        onClick={async () => {
+                          if (!youtubeUrl.trim()) {
+                            alert("YouTube URL을 입력해주세요.")
+                            return
+                          }
+
+                          setIsAnalyzingTopic(true)
+                          setTopicAnalysisResult(null)
+
+                          try {
+                            const youtubeApiKey = localStorage.getItem("youtube_api_key") || undefined
+                            const openaiApiKey = getApiKey()
+
+                            const response = await fetch("/api/youtube-analyze-topic", {
+                              method: "POST",
+                              headers: {
+                                "Content-Type": "application/json",
+                              },
+                              body: JSON.stringify({
+                                url: youtubeUrl.trim(),
+                                youtubeApiKey,
+                                openaiApiKey,
+                              }),
+                            })
+
+                            if (!response.ok) {
+                              const errorData = await response.json().catch(() => ({}))
+                              throw new Error(errorData.error || `분석 실패: ${response.status}`)
+                            }
+
+                            const data = await response.json()
+                            
+                            if (data.success) {
+                              setTopicAnalysisResult(data)
+                            } else {
+                              throw new Error(data.error || "분석에 실패했습니다.")
+                            }
+                          } catch (error) {
+                            console.error("주제 분석 오류:", error)
+                            alert(`주제 분석에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+                          } finally {
+                            setIsAnalyzingTopic(false)
+                          }
+                        }}
+                        disabled={isAnalyzingTopic || !youtubeUrl.trim()}
+                        className="w-full"
+                        variant="outline"
+                      >
+                        {isAnalyzingTopic ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            분석 중...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-4 h-4 mr-2" />
+                            주제 분석하기
+                          </>
+                        )}
+                      </Button>
+                    </div>
+
+                    {/* 분석 결과 표시 */}
+                    {topicAnalysisResult && (
+                      <div className="space-y-4 pt-4 border-t border-gray-100">
+                        {/* 영상 정보 */}
+                        <div className="space-y-2">
+                          <h4 className="text-sm font-semibold text-gray-700">영상 정보</h4>
+                          <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+                            {topicAnalysisResult.videoInfo.thumbnailUrl && (
+                              <img
+                                src={topicAnalysisResult.videoInfo.thumbnailUrl}
+                                alt={topicAnalysisResult.videoInfo.title}
+                                className="w-full rounded-lg"
+                              />
+                            )}
+                            <h5 className="text-sm font-medium text-gray-900 line-clamp-2">
+                              {topicAnalysisResult.videoInfo.title}
+                            </h5>
+                            <div className="flex items-center gap-4 text-xs text-gray-600">
+                              <span>조회수: {Number.parseInt(topicAnalysisResult.videoInfo.viewCount).toLocaleString()}</span>
+                              <span>좋아요: {Number.parseInt(topicAnalysisResult.videoInfo.likeCount).toLocaleString()}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 핵심 주제 */}
+                        <div className="space-y-2">
+                          <h4 className="text-sm font-semibold text-gray-700">핵심 주제</h4>
+                          <div className="bg-blue-50 rounded-lg p-3">
+                            <p className="text-sm text-gray-800">{topicAnalysisResult.analysis.mainTopic}</p>
+                          </div>
+                        </div>
+
+                        {/* 추천 주제 */}
+                        <div className="space-y-2">
+                          <h4 className="text-sm font-semibold text-gray-700">추천 주제 (5개)</h4>
+                          <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                            {topicAnalysisResult.analysis.recommendedTopics.map((topic, index) => (
+                              <div
+                                key={index}
+                                className="group p-3 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 hover:border-gray-300 transition-all cursor-pointer"
+                                onClick={() => {
+                                  setSelectedTopic(topic)
+                                  setIsCustomTopicSelected(false)
+                                  setCompletedSteps((prev) => {
+                                    if (!prev.includes("topic")) {
+                                      return [...prev, "topic"]
+                                    }
+                                    return prev
+                                  })
+                                }}
+                              >
+                                <div className="flex items-start gap-3">
+                                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-xs font-semibold mt-0.5">
+                                    {index + 1}
+                                  </div>
+                                  <p className="text-sm font-medium text-gray-800 leading-relaxed flex-1">
+                                    {topic}
+                                  </p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
                 </Card>
               </div>
             )}

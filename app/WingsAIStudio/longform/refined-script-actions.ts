@@ -5217,15 +5217,88 @@ ${scriptPlan}
         const shortage = minLength - currentLength // 부족한 글자수
         const additionalTarget = Math.ceil(shortage * 1.2) // 여유있게 20% 더 생성
         
-        // 클라이맥스 확장 시도 (최대 2회)
-        for (let retry = 0; retry < 2; retry++) {
+        // 중복 검사 함수: 두 문장의 유사도를 계산 (0~1, 1에 가까울수록 유사)
+        const calculateSimilarity = (sentence1: string, sentence2: string): number => {
+          // 공백 제거 및 소문자 변환 (한글은 그대로)
+          const normalize = (text: string) => text.replace(/\s+/g, '').toLowerCase()
+          const norm1 = normalize(sentence1)
+          const norm2 = normalize(sentence2)
+          
+          if (norm1 === norm2) return 1.0
+          if (norm1.length === 0 || norm2.length === 0) return 0.0
+          
+          // 단어 단위로 분리 (한글과 영문 모두 고려)
+          const words1 = norm1.match(/[\w가-힣]+/g) || []
+          const words2 = norm2.match(/[\w가-힣]+/g) || []
+          
+          // 공통 단어 개수 계산
+          const set1 = new Set(words1)
+          const set2 = new Set(words2)
+          let commonCount = 0
+          for (const word of set1) {
+            if (set2.has(word)) commonCount++
+          }
+          
+          // Jaccard 유사도 계산 (공통 단어 / 전체 고유 단어)
+          const totalUniqueWords = set1.size + set2.size - commonCount
+          if (totalUniqueWords === 0) return 0.0
+          
+          const jaccardSimilarity = commonCount / totalUniqueWords
+          
+          // 문자열 길이 기반 유사도 (Levenshtein distance 기반 근사)
+          const maxLen = Math.max(norm1.length, norm2.length)
+          const minLen = Math.min(norm1.length, norm2.length)
+          const lengthSimilarity = minLen / maxLen
+          
+          // 두 유사도의 가중 평균 (단어 유사도 70%, 길이 유사도 30%)
+          return jaccardSimilarity * 0.7 + lengthSimilarity * 0.3
+        }
+        
+        // 중복 검사: 추가 내용이 기존 대본과 중복되는지 확인
+        const checkDuplication = (newContent: string, existingContent: string): { hasDuplication: boolean; duplicateSentences: string[] } => {
+          // 문장 단위로 분리
+          const newSentences = newContent.split(/[.!?。！？]+/).filter((s: string) => s.trim().length > 10) // 최소 10자 이상인 문장만
+          const existingSentences = existingContent.split(/[.!?。！？]+/).filter((s: string) => s.trim().length > 10)
+          
+          const duplicateSentences: string[] = []
+          const SIMILARITY_THRESHOLD = 0.65 // 65% 이상 유사하면 중복으로 판단
+          
+          for (const newSentence of newSentences) {
+            const trimmedNew = newSentence.trim()
+            if (trimmedNew.length < 10) continue // 너무 짧은 문장은 제외
+            
+            for (const existingSentence of existingSentences) {
+              const trimmedExisting = existingSentence.trim()
+              if (trimmedExisting.length < 10) continue
+              
+              const similarity = calculateSimilarity(trimmedNew, trimmedExisting)
+              if (similarity >= SIMILARITY_THRESHOLD) {
+                duplicateSentences.push(trimmedNew)
+                console.warn(`[v0] 중복 문장 발견 (유사도: ${(similarity * 100).toFixed(1)}%): "${trimmedNew.substring(0, 50)}..."`)
+                break // 한 문장이 중복되면 더 이상 비교하지 않음
+              }
+            }
+          }
+          
+          return {
+            hasDuplication: duplicateSentences.length > 0,
+            duplicateSentences
+          }
+        }
+        
+        // 클라이맥스 확장 시도 (최대 3회, 중복 발견 시 재생성)
+        let lastDuplicateInfo: string = '' // 마지막 중복 정보 저장
+        for (let retry = 0; retry < 3; retry++) {
           try {
-            console.log(`[v0] 클라이맥스 확장 시도 ${retry + 1}/2 (부족: ${shortage}자, 목표 추가: ${additionalTarget}자)`)
+            console.log(`[v0] 클라이맥스 확장 시도 ${retry + 1}/3 (부족: ${shortage}자, 목표 추가: ${additionalTarget}자)`)
             
             // 기존 대본을 유지하고 클라이맥스 부분만 확장하는 프롬프트
             // 기존 대본의 마지막 부분만 추출하여 참고용으로 제공 (중복 방지)
             const contentSentences = content.split(/[.!?。！？]+/).filter((s: string) => s.trim().length > 0)
             const lastContentSentences = contentSentences.slice(-5).join('. ') + (contentSentences.length > 0 ? '.' : '')
+            
+            // 중복이 발견된 경우, 더 강력한 중복 방지 지시 추가
+            const duplicationWarning = lastDuplicateInfo ? `\n\n⚠️⚠️⚠️ 이전 생성에서 중복이 발견되었습니다. 다음 내용과 절대 유사하거나 중복되지 않는 완전히 새로운 내용만 작성하세요:\n${lastDuplicateInfo}\n\n위 내용과 유사한 표현, 문장, 주제를 절대 사용하지 마세요. 완전히 다른 각도와 표현으로 작성하세요.` : ''
             
             const additionalPrompt = `다음은 이미 생성된 대본의 마지막 부분입니다. 이 대본의 기본 부분(전반부)은 절대 변경하지 말고, 클라이맥스 부분(후반부)만 자연스럽게 확장하여 추가 내용을 작성해주세요.
 
@@ -5236,6 +5309,7 @@ ${scriptPlan}
 - 기존 대본의 앞부분 내용을 다시 설명하지 마세요.
 - 같은 표현이나 비슷한 내용을 반복하지 마세요.
 - 도입부와 같은 내용으로 시작하지 마세요.
+${duplicationWarning}
 
 ⚠️⚠️⚠️ 매우 중요한 지시사항 ⚠️⚠️⚠️
 - 클라이맥스 부분(후반부)만 확장하여 추가 내용을 작성하세요.
@@ -5295,6 +5369,18 @@ ${lastContentSentences}
             }
             
             additionalContent = additionalContent.trim()
+            
+            // 중복 검사 수행
+            const duplicationCheck = checkDuplication(additionalContent, content)
+            
+            if (duplicationCheck.hasDuplication) {
+              console.warn(`[v0] ⚠️ 중복 문장 ${duplicationCheck.duplicateSentences.length}개 발견. 재생성 시도...`)
+              lastDuplicateInfo = duplicationCheck.duplicateSentences.slice(0, 3).join('\n') // 최대 3개만 저장
+              continue // 다음 재시도로 넘어감
+            }
+            
+            // 중복이 없으면 정상 처리
+            console.log(`[v0] ✅ 중복 검사 통과: 추가 내용이 기존 대본과 중복되지 않습니다.`)
             
             // 추가 내용이 기존 대본과 자연스럽게 이어지도록 처리
             // 기존 대본의 마지막 문장 부호 확인

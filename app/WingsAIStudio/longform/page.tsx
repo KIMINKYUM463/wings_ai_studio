@@ -533,6 +533,22 @@ export default function LongformContentPage() {
   const [selectedTrendingVideoId, setSelectedTrendingVideoId] = useState<string | null>(null)
   const [crawledNews, setCrawledNews] = useState<Array<{ title: string; link: string; description: string }>>([])
   const [isCrawlingNews, setIsCrawlingNews] = useState(false)
+  const [youtubeUrl, setYoutubeUrl] = useState("")
+  const [isAnalyzingTopic, setIsAnalyzingTopic] = useState(false)
+  const [topicAnalysisResult, setTopicAnalysisResult] = useState<{
+    videoInfo: {
+      title: string
+      description: string
+      viewCount: string
+      likeCount: string
+      videoId: string
+      thumbnailUrl: string
+    }
+    analysis: {
+      mainTopic: string
+      recommendedTopics: string[]
+    }
+  } | null>(null)
   const [customTopic, setCustomTopic] = useState("")
   const [isCustomTopicSelected, setIsCustomTopicSelected] = useState(false)
   const [isDirectInputSelected, setIsDirectInputSelected] = useState(false) // 직접입력 선택 여부
@@ -1545,7 +1561,11 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         selectedCategory,
         isStoryMode
       )
-      setScript(scriptResult)
+      // 대본 마지막에 CTA 추가
+      const ctaText = "\n\n이 영상이 도움이 되셨다면 좋아요와 구독 부탁드립니다. 여러분의 응원이 제게 큰 힘이 됩니다. 다음 영상에서도 더 유용한 정보를 공유하겠습니다. 감사합니다."
+      const scriptWithCTA = scriptResult.trim() + ctaText
+      
+      setScript(scriptWithCTA)
       
       // 문장 라인 파싱 (수동 모드와 동일하게 splitScriptIntoLines 함수 사용)
       const sentences = splitScriptIntoLines(scriptResult)
@@ -3482,7 +3502,12 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     try {
       // generateScript 함수는 action 파일에 존재하므로, 이를 호출하도록 수정
       const generatedScript = await generateFullScript(scriptPlan, selectedTopic, selectedCategory, getApiKey()) // scriptPlan 사용
-      setScript(generatedScript)
+      
+      // 대본 마지막에 CTA 추가
+      const ctaText = "\n\n이 영상이 도움이 되셨다면 좋아요와 구독 부탁드립니다. 여러분의 응원이 제게 큰 힘이 됩니다. 다음 영상에서도 더 유용한 정보를 공유하겠습니다. 감사합니다."
+      const scriptWithCTA = generatedScript.trim() + ctaText
+      
+      setScript(scriptWithCTA)
       setCompletedSteps((prev) => [...prev, "script"])
       
       // 자동화 모드일 때 다음 단계 자동 진행 (이미지 생성)
@@ -5785,7 +5810,12 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       // folktale 카테고리 또는 Type D 선택 시 자동으로 스토리 모드로 설정
       const shouldUseStoryMode = isStoryMode || selectedCategory === "folktale" || selectedContentType === "D"
       const fullScript = await generateFinalScript(scriptPlan, topic || "", getApiKey(), scriptDuration, targetChars, selectedCategory, shouldUseStoryMode)
-      setScript(fullScript)
+      
+      // 대본 마지막에 CTA 추가
+      const ctaText = "\n\n이 영상이 도움이 되셨다면 좋아요와 구독 부탁드립니다. 여러분의 응원이 제게 큰 힘이 됩니다. 다음 영상에서도 더 유용한 정보를 공유하겠습니다. 감사합니다."
+      const scriptWithCTA = fullScript.trim() + ctaText
+      
+      setScript(scriptWithCTA)
       
       // 대본을 문장 단위로 분리하고 적절한 길이로 묶기
       const groupedLines = splitScriptIntoLines(fullScript)
@@ -5851,10 +5881,17 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         shouldUseStoryMode, 
         geminiApiKey
       )
-      setScript(fullScript)
+      // 대본 마지막에 CTA 추가 (이미 CTA가 있으면 추가하지 않음)
+      const ctaText = "\n\n이 영상이 도움이 되셨다면 좋아요와 구독 부탁드립니다. 여러분의 응원이 제게 큰 힘이 됩니다. 다음 영상에서도 더 유용한 정보를 공유하겠습니다. 감사합니다."
+      // CTA 중복 체크: 대본 끝부분에 이미 CTA가 있는지 확인
+      const scriptEnd = fullScript.trim().slice(-200) // 마지막 200자만 확인
+      const hasCTA = scriptEnd.includes("좋아요와 구독") || (scriptEnd.includes("좋아요") && scriptEnd.includes("구독")) || scriptEnd.includes("구독 부탁드립니다")
+      const scriptWithCTA = hasCTA ? fullScript : fullScript.trim() + ctaText
+      
+      setScript(scriptWithCTA)
       
       // 정교한 대본은 의미/장면 기반으로 나누기
-      const groupedLines = splitScriptIntoLines(fullScript, true)
+      const groupedLines = splitScriptIntoLines(scriptWithCTA, true)
       
       setScriptLines(groupedLines)
       setCompletedSteps((prev) => [...prev, "script"])
@@ -15082,6 +15119,160 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                     </div>
                   )}
                 </Card>
+
+                {/* 잘뜨는 주제 URL 넣어 주제 분석 */}
+                <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white sticky top-4 mt-4">
+                  <CardHeader className="pb-4 border-b border-gray-100">
+                    <div className="flex items-center gap-2">
+                      <Youtube className="w-4 h-4 text-gray-600" />
+                      <CardTitle className="text-sm md:text-base font-semibold text-gray-700">
+                        잘뜨는 주제 URL 넣어 주제 분석
+                      </CardTitle>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      YouTube 영상 URL을 입력하면 주제를 분석하고 유사 주제를 추천합니다
+                    </p>
+                  </CardHeader>
+                  <CardContent className="p-4 space-y-4">
+                    <div className="space-y-2">
+                      <Input
+                        type="text"
+                        placeholder="https://www.youtube.com/watch?v=..."
+                        value={youtubeUrl}
+                        onChange={(e) => setYoutubeUrl(e.target.value)}
+                        className="w-full"
+                        disabled={isAnalyzingTopic}
+                      />
+                      <Button
+                        onClick={async () => {
+                          if (!youtubeUrl.trim()) {
+                            alert("YouTube URL을 입력해주세요.")
+                            return
+                          }
+
+                          setIsAnalyzingTopic(true)
+                          setTopicAnalysisResult(null)
+
+                          try {
+                            const youtubeApiKey = getApiKey("wings_youtube_data_api_key") || undefined
+                            const openaiApiKey = getApiKey("openai_api_key") || getApiKey() || undefined
+
+                            const response = await fetch("/api/youtube-analyze-topic", {
+                              method: "POST",
+                              headers: {
+                                "Content-Type": "application/json",
+                              },
+                              body: JSON.stringify({
+                                url: youtubeUrl.trim(),
+                                youtubeApiKey,
+                                openaiApiKey,
+                              }),
+                            })
+
+                            if (!response.ok) {
+                              const errorData = await response.json().catch(() => ({}))
+                              throw new Error(errorData.error || `분석 실패: ${response.status}`)
+                            }
+
+                            const data = await response.json()
+                            
+                            if (data.success) {
+                              setTopicAnalysisResult(data)
+                            } else {
+                              throw new Error(data.error || "분석에 실패했습니다.")
+                            }
+                          } catch (error) {
+                            console.error("주제 분석 오류:", error)
+                            alert(`주제 분석에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+                          } finally {
+                            setIsAnalyzingTopic(false)
+                          }
+                        }}
+                        disabled={isAnalyzingTopic || !youtubeUrl.trim()}
+                        className="w-full"
+                        variant="outline"
+                      >
+                        {isAnalyzingTopic ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            분석 중...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-4 h-4 mr-2" />
+                            주제 분석하기
+                          </>
+                        )}
+                      </Button>
+                    </div>
+
+                    {/* 분석 결과 표시 */}
+                    {topicAnalysisResult && (
+                      <div className="space-y-4 pt-4 border-t border-gray-100">
+                        {/* 영상 정보 */}
+                        <div className="space-y-2">
+                          <h4 className="text-sm font-semibold text-gray-700">영상 정보</h4>
+                          <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+                            {topicAnalysisResult.videoInfo.thumbnailUrl && (
+                              <img
+                                src={topicAnalysisResult.videoInfo.thumbnailUrl}
+                                alt={topicAnalysisResult.videoInfo.title}
+                                className="w-full rounded-lg"
+                              />
+                            )}
+                            <h5 className="text-sm font-medium text-gray-900 line-clamp-2">
+                              {topicAnalysisResult.videoInfo.title}
+                            </h5>
+                            <div className="flex items-center gap-4 text-xs text-gray-600">
+                              <span>조회수: {Number.parseInt(topicAnalysisResult.videoInfo.viewCount).toLocaleString()}</span>
+                              <span>좋아요: {Number.parseInt(topicAnalysisResult.videoInfo.likeCount).toLocaleString()}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 핵심 주제 */}
+                        <div className="space-y-2">
+                          <h4 className="text-sm font-semibold text-gray-700">핵심 주제</h4>
+                          <div className="bg-blue-50 rounded-lg p-3">
+                            <p className="text-sm text-gray-800">{topicAnalysisResult.analysis.mainTopic}</p>
+                          </div>
+                        </div>
+
+                        {/* 추천 주제 */}
+                        <div className="space-y-2">
+                          <h4 className="text-sm font-semibold text-gray-700">추천 주제 (5개)</h4>
+                          <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                            {topicAnalysisResult.analysis.recommendedTopics.map((topic, index) => (
+                              <div
+                                key={index}
+                                className="group p-3 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 hover:border-gray-300 transition-all cursor-pointer"
+                                onClick={() => {
+                                  setSelectedTopic(topic)
+                                  setIsCustomTopicSelected(false)
+                                  setCompletedSteps((prev) => {
+                                    if (!prev.includes("topic")) {
+                                      return [...prev, "topic"]
+                                    }
+                                    return prev
+                                  })
+                                }}
+                              >
+                                <div className="flex items-start gap-3">
+                                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-xs font-semibold mt-0.5">
+                                    {index + 1}
+                                  </div>
+                                  <p className="text-sm font-medium text-gray-800 leading-relaxed flex-1">
+                                    {topic}
+                                  </p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
               </div>
             )}
             {isGenerating && <AIGeneratingAnimation type="맞춤 주제" />}
@@ -16171,7 +16362,13 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                         
                         console.log("[대본 재생성] 시작...")
                         const regeneratedScript = await regenerateScript(script, topicToUse, geminiApiKey, selectedCategory)
-                        setScript(regeneratedScript)
+                        
+                        // 대본 마지막에 CTA 추가 (이미 CTA가 있으면 추가하지 않음)
+                        const ctaText = "\n\n이 영상이 도움이 되셨다면 좋아요와 구독 부탁드립니다. 여러분의 응원이 제게 큰 힘이 됩니다. 다음 영상에서도 더 유용한 정보를 공유하겠습니다. 감사합니다."
+                        const hasCTA = regeneratedScript.includes("좋아요와 구독") || regeneratedScript.includes("좋아요와 구독")
+                        const scriptWithCTA = hasCTA ? regeneratedScript : regeneratedScript.trim() + ctaText
+                        
+                        setScript(scriptWithCTA)
                         console.log("[대본 재생성] 완료")
                       } catch (error) {
                         console.error("[대본 재생성] 에러:", error)

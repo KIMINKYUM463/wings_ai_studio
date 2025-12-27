@@ -2757,6 +2757,13 @@ export async function generateFinalScript(
     // 모든 부분 합치기
     let finalScript = parts.join("\n\n")
 
+    // 대본 마지막에 CTA 추가 (이미 CTA가 있으면 추가하지 않음)
+    const ctaText = "\n\n이 영상이 도움이 되셨다면 좋아요와 구독 부탁드립니다. 여러분의 응원이 제게 큰 힘이 됩니다. 다음 영상에서도 더 유용한 정보를 공유하겠습니다. 감사합니다."
+    const hasCTA = finalScript.includes("좋아요와 구독") || (finalScript.includes("좋아요") && finalScript.includes("구독"))
+    if (!hasCTA) {
+      finalScript = finalScript.trim() + ctaText
+    }
+
     // 구조적 단어 제거 (개요, 서론, 본론, 챕터, 1부, 2부, 3부, 4부, 5부, 결론 등)
     const structuralWords = [
       /^개요\s*:?/gim,
@@ -3071,7 +3078,12 @@ ${scriptPlan}
       console.log("[v0] 경고: 생성된 대본이 10,000자 미만입니다:", generatedScript.length)
     }
 
-    return generatedScript
+    // 대본 마지막에 CTA 추가 (이미 CTA가 있으면 추가하지 않음)
+    const ctaText = "\n\n이 영상이 도움이 되셨다면 좋아요와 구독 부탁드립니다. 여러분의 응원이 제게 큰 힘이 됩니다. 다음 영상에서도 더 유용한 정보를 공유하겠습니다. 감사합니다."
+    const hasCTA = generatedScript.includes("좋아요와 구독") || generatedScript.includes("좋아요") && generatedScript.includes("구독")
+    const finalScript = hasCTA ? generatedScript : generatedScript.trim() + ctaText
+
+    return finalScript
   } catch (error) {
     console.error("GPT-4o-mini 대본 생성 실패:", error)
 
