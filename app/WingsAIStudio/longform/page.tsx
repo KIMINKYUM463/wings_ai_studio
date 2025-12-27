@@ -5850,16 +5850,21 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     const estimatedSeconds = Math.max(30, Math.ceil(targetChars / 1000 * 12)) // 최소 30초, 1000자당 12초
     const estimatedTime = estimatedSeconds * 1000 // 밀리초로 변환
     
-    // 진행률 업데이트 인터벌 시작
+    // 진행률 업데이트 인터벌 시작 (분할이 없는 경우에만 시간 기반 진행률 표시)
     const progressInterval = setInterval(() => {
       const elapsedTime = Date.now() - startTime
-      // 진행률 계산: 경과 시간 / 예상 시간 (최대 95%까지, 실제 완료 전까지는 100%로 표시하지 않음)
-      const progress = Math.min(95, Math.floor((elapsedTime / estimatedTime) * 100))
-      setScriptGenerationProgress({
-        progress,
-        elapsedTime: Math.floor(elapsedTime / 1000), // 초 단위
-        estimatedTime: Math.floor(estimatedTime / 1000) // 초 단위
-      })
+      // 분할이 없는 경우에만 시간 기반 진행률 계산
+      const shouldSplit = scriptDuration && scriptDuration >= 10
+      if (!shouldSplit) {
+        // 분할이 없는 경우: 시간 기반 진행률
+        const progress = Math.min(95, Math.floor((elapsedTime / estimatedTime) * 100))
+        setScriptGenerationProgress({
+          progress,
+          elapsedTime: Math.floor(elapsedTime / 1000), // 초 단위
+          estimatedTime: Math.floor(estimatedTime / 1000) // 초 단위
+        })
+      }
+      // 분할이 있는 경우는 분할별로 진행률이 업데이트되므로 인터벌에서는 업데이트하지 않음
     }, 500) // 0.5초마다 업데이트
     
     try {
@@ -5927,8 +5932,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         const parts: string[] = []
         
         for (let partNumber = 1; partNumber <= totalParts; partNumber++) {
-          // 진행률 업데이트
-          const progress = Math.floor((partNumber - 1) / totalParts * 100)
+          // 진행률 업데이트 (분할 기반)
+          const progress = Math.floor(((partNumber - 1) / totalParts) * 100)
           setScriptGenerationProgress({
             progress,
             elapsedTime: Math.floor((Date.now() - startTime) / 1000),
@@ -6042,10 +6047,29 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           }
           
           parts.push(partScript)
+          
+          // 분할 완료 후 진행률 업데이트
+          const completedProgress = Math.floor((partNumber / totalParts) * 100)
+          setScriptGenerationProgress({
+            progress: completedProgress,
+            elapsedTime: Math.floor((Date.now() - startTime) / 1000),
+            estimatedTime: Math.floor(estimatedTime / 1000),
+            currentPart: partNumber,
+            totalParts
+          })
         }
 
         // 모든 분할 합치기
         fullScript = parts.join("\n\n")
+        
+        // 최종 진행률 100%로 업데이트
+        setScriptGenerationProgress({
+          progress: 100,
+          elapsedTime: Math.floor((Date.now() - startTime) / 1000),
+          estimatedTime: Math.floor(estimatedTime / 1000),
+          currentPart: totalParts,
+          totalParts
+        })
       }
       
       // 대본이 비어있는지 확인
@@ -16405,7 +16429,13 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                           <div className="space-y-2">
                             <div className="flex justify-between items-center text-sm">
                               <span className="font-medium">진행률</span>
-                              <span className="text-blue-600 font-semibold">{scriptGenerationProgress.progress}%</span>
+                              {scriptGenerationProgress.currentPart && scriptGenerationProgress.totalParts ? (
+                                <span className="text-blue-600 font-semibold">
+                                  {scriptGenerationProgress.currentPart}/{scriptGenerationProgress.totalParts}회차 ({scriptGenerationProgress.progress}%)
+                                </span>
+                              ) : (
+                                <span className="text-blue-600 font-semibold">{scriptGenerationProgress.progress}%</span>
+                              )}
                             </div>
                             <div className="w-full bg-slate-200 rounded-full h-3 overflow-hidden">
                               <div 
@@ -16418,31 +16448,6 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                               </div>
                             </div>
                           </div>
-                          
-                          {/* 시간 정보 */}
-                          <div className="grid grid-cols-2 gap-4 text-sm">
-                            <div className="space-y-1">
-                              <p className="text-muted-foreground">경과 시간</p>
-                              <p className="font-semibold">
-                                {Math.floor(scriptGenerationProgress.elapsedTime / 60)}분 {scriptGenerationProgress.elapsedTime % 60}초
-                              </p>
-                            </div>
-                            {scriptGenerationProgress.progress < 95 && (
-                              <div className="space-y-1">
-                                <p className="text-muted-foreground">예상 시간</p>
-                                <p className="font-semibold">
-                                  {Math.floor(scriptGenerationProgress.estimatedTime / 60)}분 {scriptGenerationProgress.estimatedTime % 60}초
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                          
-                          {/* 남은 시간 (예상) */}
-                          {scriptGenerationProgress.progress < 95 && scriptGenerationProgress.estimatedTime > scriptGenerationProgress.elapsedTime && (
-                            <div className="text-center text-sm text-muted-foreground">
-                              예상 남은 시간: 약 {Math.floor((scriptGenerationProgress.estimatedTime - scriptGenerationProgress.elapsedTime) / 60)}분 {(scriptGenerationProgress.estimatedTime - scriptGenerationProgress.elapsedTime) % 60}초
-                            </div>
-                          )}
                         </div>
                       )}
                     </DialogContent>

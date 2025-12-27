@@ -49,7 +49,7 @@ function calculateTextSimilarity(text1: string, text2: string): number {
 /**
  * 정교한 대본 생성 함수 (Gemini 2.5 Pro 사용)
  * 초안을 바탕으로 매우 정교하고 완성도 높은 최종 대본을 생성합니다.
- * Gemini API를 사용하여 gemini-2.5-pro 모델로 생성합니다.
+ * Gemini API를 사용하여 gemini-3-flash-preview 모델로 생성합니다. (속도 최적화)
  */
 export async function generateRefinedScript(
   scriptPlan: string,
@@ -822,7 +822,7 @@ ${scriptPlan}
           }
       
       const fullResponse = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
         {
           method: "POST",
           headers: {
@@ -1302,7 +1302,7 @@ ${scriptPlan}
           }
       
       const baseResponse = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
         {
           method: "POST",
           headers: {
@@ -1818,7 +1818,7 @@ ${scriptPlan}
           }
       
       const climaxResponse = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
         {
           method: "POST",
           headers: {
@@ -2041,7 +2041,7 @@ ${scriptPlan}
             }
 
             const thirdPartResponse = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
               {
                 method: "POST",
                 headers: {
@@ -2253,7 +2253,7 @@ ${scriptPlan}
             }
 
             const thirdPartResponse = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
               {
                 method: "POST",
                 headers: {
@@ -2454,7 +2454,7 @@ ${scriptPlan}
             }
 
             const fourthPartResponse = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
               {
                 method: "POST",
                 headers: {
@@ -2674,7 +2674,7 @@ ${scriptPlan}
             }
 
             const thirdPartResponse = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
               {
                 method: "POST",
                 headers: {
@@ -2874,7 +2874,7 @@ ${scriptPlan}
             }
 
             const fourthPartResponse = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
               {
                 method: "POST",
                 headers: {
@@ -3075,7 +3075,7 @@ ${scriptPlan}
             }
 
             const fifthPartResponse = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
               {
                 method: "POST",
                 headers: {
@@ -3301,7 +3301,7 @@ ${scriptPlan}
             }
 
             const thirdPartResponse = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
               {
                 method: "POST",
                 headers: {
@@ -3501,7 +3501,7 @@ ${scriptPlan}
             }
 
             const fourthPartResponse = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
               {
                 method: "POST",
                 headers: {
@@ -3701,7 +3701,7 @@ ${scriptPlan}
             }
 
             const fifthPartResponse = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
               {
                 method: "POST",
                 headers: {
@@ -3902,7 +3902,7 @@ ${scriptPlan}
             }
 
             const sixthPartResponse = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
               {
                 method: "POST",
                 headers: {
@@ -4121,7 +4121,7 @@ ${scriptPlan}
         console.log(`[v0] 3회차 대본 생성 시작 (3/${totalParts} 진행 중, 9:00~13:30, 목표: 2,000~2,300자)`)
         
         const thirdPartResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: {
@@ -4211,7 +4211,7 @@ ${scriptPlan}
         console.log(`[v0] 4회차 대본 생성 시작 (4/${totalParts} 진행 중, 13:30~18:00, 목표: 2,000~2,300자)`)
         
         const fourthPartResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: {
@@ -4301,7 +4301,7 @@ ${scriptPlan}
         console.log(`[v0] 5회차 대본 생성 시작 (5/${totalParts} 진행 중, 18:00~22:30, 목표: 2,000~2,300자)`)
         
         const fifthPartResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: {
@@ -4391,7 +4391,7 @@ ${scriptPlan}
         console.log(`[v0] 6회차 대본 생성 시작 (6/${totalParts} 진행 중, 22:30~27:00, 목표: 2,000~2,300자)`)
         
         const sixthPartResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: {
@@ -4482,7 +4482,7 @@ ${scriptPlan}
         console.log(`[v0] 7회차 대본 생성 시작 (7/${totalParts} 진행 중, 27:00~35:00, 목표: 2,200~2,500자)`)
         
         const seventhPartResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: {
@@ -4612,7 +4612,7 @@ ${scriptPlan}
         console.log(`[v0] 3회차 대본 생성 시작 (3/${totalParts} 진행 중, 9:00~13:30, 목표: 2,000~2,300자)`)
         
         const thirdPartResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: {
@@ -4702,7 +4702,7 @@ ${scriptPlan}
         console.log(`[v0] 4회차 대본 생성 시작 (4/${totalParts} 진행 중, 13:30~18:00, 목표: 2,000~2,300자)`)
         
         const fourthPartResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: {
@@ -4792,7 +4792,7 @@ ${scriptPlan}
         console.log(`[v0] 5회차 대본 생성 시작 (5/${totalParts} 진행 중, 18:00~22:30, 목표: 2,000~2,300자)`)
         
         const fifthPartResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: {
@@ -4882,7 +4882,7 @@ ${scriptPlan}
         console.log(`[v0] 6회차 대본 생성 시작 (6/${totalParts} 진행 중, 22:30~27:00, 목표: 2,000~2,300자)`)
         
         const sixthPartResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: {
@@ -4972,7 +4972,7 @@ ${scriptPlan}
         console.log(`[v0] 7회차 대본 생성 시작 (7/${totalParts} 진행 중, 27:00~31:30, 목표: 2,000~2,300자)`)
         
         const seventhPartResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: {
@@ -5063,7 +5063,7 @@ ${scriptPlan}
         console.log(`[v0] 8회차 대본 생성 시작 (8/${totalParts} 진행 중, 31:30~40:00, 목표: 2,300~2,600자)`)
         
         const eighthPartResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: {
@@ -5328,7 +5328,7 @@ ${lastContentSentences}
 (위 대본의 마지막 문장 이후에 자연스럽게 이어지는 완전히 새로운 내용을 ${additionalTarget}자 이상 작성하세요. 기존 내용을 반복하거나 중복하지 마세요.)`
             
             const retryResponse = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiKey}`,
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiKey}`,
               {
                 method: "POST",
                 headers: {
@@ -5692,21 +5692,21 @@ ${partNumber > 1 ? `🚫🚫🚫 절대 금지 사항 (반드시 준수하세요
 기획안의 모든 내용을 빠짐없이 구현하되, 시간 구간에 맞춰 작성하세요. 대본만 작성하고 다른 설명은 하지 마세요.`
 
   // Gemini API 호출
-  const maxRetries = 5 // 글자수 부족 시 재시도를 위해 5회로 증가
-  const baseDelay = 1000
+  const maxRetries = 3 // 기본 재시도 3회 (글자수 부족 시 이어서 작성으로 처리)
+  const baseDelay = 500 // 재시도 간격을 500ms로 단축
   let lastError: Error | null = null
   let currentPrompt = userPrompt // 재시도 시 프롬프트 업데이트를 위해 변수로 관리
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       if (attempt > 0) {
-        const delay = baseDelay * Math.pow(2, attempt - 1)
+        const delay = baseDelay * attempt // 500ms, 1000ms, 1500ms (지수 백오프 대신 선형 증가로 단축)
         console.log(`[v0] ${partNumber}회차 재시도 ${attempt}/${maxRetries - 1} - ${delay}ms 후 재시도...`)
         await new Promise((resolve) => setTimeout(resolve, delay))
       }
 
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${GEMINI_API_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${GEMINI_API_KEY}`,
         {
           method: "POST",
           headers: {
@@ -5814,7 +5814,8 @@ ${partNumber > 1 ? `🚫🚫🚫 절대 금지 사항 (반드시 준수하세요
         console.warn(`[v0] ⚠️ ${partNumber}회차 글자수 부족: ${actualLength}자 (최소 필요: ${minRequiredLength}자, 부족: ${shortage}자)`)
         console.log(`[v0] ${partNumber}회차 부족한 부분을 이어서 추가 생성합니다...`)
         
-        if (attempt < maxRetries - 1) {
+        // 글자수 부족 시 이어서 작성 (1회만 시도, attempt === 0일 때만)
+        if (attempt === 0) {
           // 이미 생성된 내용을 기반으로 이어서 작성하는 프롬프트
           const continuationPrompt = `${partSystemPrompt}
 
@@ -5881,7 +5882,7 @@ ${scriptPlan}
           // 이어서 작성하는 API 호출
           try {
             const continuationResponse = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${GEMINI_API_KEY}`,
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${GEMINI_API_KEY}`,
               {
                 method: "POST",
                 headers: {
