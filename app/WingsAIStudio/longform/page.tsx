@@ -679,6 +679,8 @@ export default function LongformContentPage() {
   const [selectedThumbnailTemplate, setSelectedThumbnailTemplate] = useState<string | null>(null) // 선택된 썸네일 템플릿
   const [thumbnailCustomText, setThumbnailCustomText] = useState<string>("") // 썸네일 커스텀 문구
   const [thumbnailWithoutText, setThumbnailWithoutText] = useState<boolean>(false) // 썸네일 문구 없이 그림만 생성
+  const [thumbnailTextSuggestions, setThumbnailTextSuggestions] = useState<string[]>([]) // 썸네일 문구 추천 목록
+  const [isGeneratingThumbnailSuggestions, setIsGeneratingThumbnailSuggestions] = useState<boolean>(false) // 썸네일 문구 추천 생성 중
   const [thumbnailBackgroundImage, setThumbnailBackgroundImage] = useState<string | null>(null) // 썸네일 배경 이미지
   const [thumbnailOverlayImage, setThumbnailOverlayImage] = useState<string | null>(null) // 썸네일 오버레이 이미지 (선택 가능한 이미지)
   const [benchmarkThumbnailUrl, setBenchmarkThumbnailUrl] = useState<string | null>(null) // 벤치마킹 썸네일 URL
@@ -3728,6 +3730,129 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       alert("AI 생성에 실패했지만 기본 썸네일 텍스트를 제공했습니다. 직접 편집하여 사용하세요.")
     } finally {
       setIsGeneratingThumbnail(false)
+    }
+  }
+
+  // 썸네일 문구 추천 생성 함수
+  const handleGenerateThumbnailSuggestions = async () => {
+    if (!script) {
+      alert("먼저 대본을 생성해주세요.")
+      return
+    }
+
+    setIsGeneratingThumbnailSuggestions(true)
+    try {
+      console.log("[v0] 썸네일 문구 추천 생성 요청 시작")
+      
+      const openaiApiKey = getApiKey("openai_api_key")
+      if (!openaiApiKey) {
+        alert("OpenAI API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+        setIsGeneratingThumbnailSuggestions(false)
+        return
+      }
+
+      // 대본에서 주제 추출 (대본의 앞부분 요약)
+      const scriptSummary = script.substring(0, 500).replace(/\n/g, " ").trim()
+      
+      // 새로운 프롬프트 사용
+      const systemPrompt = `너는 유튜브에서 클릭률(CTR)이 매우 높은 썸네일 문구를 만드는 전문가다.
+
+[조건]
+- 강한 감정 유발 (충격, 위기감, 호기심, 반전)
+- 설명 금지, 질문형 또는 단정형 위주
+- 숫자, 대비, 부정적 표현 적극 활용
+- 절대 문장형 설명처럼 쓰지 말 것
+- 썸네일에 바로 얹을 수 있는 말만 출력
+- 길이는 상관없이 유튜브 썸네일 문구로 쓸 만한 것으로 생성
+
+[출력 형식]
+- 썸네일 문구 5개만 출력
+- 각 문구는 줄바꿈으로 구분
+- 설명이나 번호 없이 문구만 출력`
+
+      const userPrompt = `아래 내용을 바탕으로 **유튜브 썸네일에 들어갈 문구**를 추천해줘.
+
+[콘텐츠 주제]
+: ${scriptSummary}
+
+[타겟 시청자]
+: 주제에 맞게... 근데 대부분 일반 대중 또는 시니어
+
+썸네일 문구 5개만 출력해줘. 각 문구는 줄바꿈으로 구분하고, 설명 없이 문구만 출력해줘.`
+
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${openaiApiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content: systemPrompt,
+            },
+            {
+              role: "user",
+              content: userPrompt,
+            },
+          ],
+          max_tokens: 200,
+          temperature: 0.9,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`API 호출 실패: ${response.status}`)
+      }
+
+      const data = await response.json()
+      const content = data.choices?.[0]?.message?.content
+
+      if (!content) {
+        throw new Error("응답 내용이 없습니다.")
+      }
+
+      // 결과 파싱 (줄바꿈으로 분리)
+      let suggestions = content
+        .split("\n")
+        .map((line: string) => line.trim())
+        .filter((line: string) => {
+          // 번호나 불릿 제거
+          const cleaned = line.replace(/^[0-9.\-•]\s*/, "").trim()
+          return cleaned.length > 0
+        })
+        .map((line: string) => line.replace(/^[0-9.\-•]\s*/, "").trim())
+        .filter((line: string) => line.length > 0)
+        .slice(0, 5) // 최대 5개
+
+      if (suggestions.length === 0) {
+        // 기본 추천 문구 제공
+        suggestions = [
+          "충격적인 진실",
+          "꼭 알아야 할 사실",
+          "당신이 모르는 비밀",
+          "지금 바로 확인하세요",
+          "놓치면 후회하는 정보"
+        ]
+      }
+
+      setThumbnailTextSuggestions(suggestions)
+      console.log("[v0] 썸네일 문구 추천 생성 완료:", suggestions)
+    } catch (error) {
+      console.error("[v0] 썸네일 문구 추천 생성 실패:", error)
+      // 에러 발생 시에도 기본 추천 문구 제공
+      setThumbnailTextSuggestions([
+        "충격적인 진실",
+        "꼭 알아야 할 사실",
+        "당신이 모르는 비밀",
+        "지금 바로 확인하세요",
+        "놓치면 후회하는 정보"
+      ])
+      alert(`AI 생성에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+    } finally {
+      setIsGeneratingThumbnailSuggestions(false)
     }
   }
 
@@ -21942,9 +22067,31 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                     <CardContent className="space-y-6">
                       {/* 썸네일 커스텀 문구 입력 */}
                       <div className="space-y-2">
-                        <Label htmlFor="thumbnail-custom-text" className="text-sm font-semibold">
-                          썸네일 문구 (선택사항)
-                        </Label>
+                        <div className="flex items-center justify-between">
+                          <Label htmlFor="thumbnail-custom-text" className="text-sm font-semibold">
+                            썸네일 문구 (선택사항)
+                          </Label>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={handleGenerateThumbnailSuggestions}
+                            disabled={isGeneratingThumbnailSuggestions || thumbnailWithoutText || !script}
+                            className="h-8 text-xs"
+                          >
+                            {isGeneratingThumbnailSuggestions ? (
+                              <>
+                                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                생성 중...
+                              </>
+                            ) : (
+                              <>
+                                <Sparkles className="w-3 h-3 mr-1" />
+                                썸네일 문구 추천
+                              </>
+                            )}
+                          </Button>
+                        </div>
                         <Textarea
                           id="thumbnail-custom-text"
                           value={thumbnailCustomText}
@@ -21956,6 +22103,39 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                         <p className="text-xs text-muted-foreground">
                           💡 입력한 문구가 썸네일 생성 프롬프트에 포함됩니다.
                         </p>
+                        
+                        {/* 추천 문구 표시 */}
+                        {thumbnailTextSuggestions.length > 0 && (
+                          <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                            <p className="text-xs font-semibold text-blue-900 mb-2">✨ 추천 문구:</p>
+                            <div className="flex flex-wrap gap-2">
+                              {thumbnailTextSuggestions.map((suggestion, index) => (
+                                <Button
+                                  key={index}
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    setThumbnailCustomText(suggestion)
+                                    setThumbnailTextSuggestions([]) // 선택 후 추천 목록 초기화
+                                  }}
+                                  className="h-7 text-xs bg-white hover:bg-blue-100 border-blue-300 text-blue-700"
+                                >
+                                  {suggestion}
+                                </Button>
+                              ))}
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setThumbnailTextSuggestions([])}
+                              className="mt-2 h-6 text-xs text-blue-600 hover:text-blue-800"
+                            >
+                              닫기
+                            </Button>
+                          </div>
+                        )}
                       </div>
 
                       {/* 문구 없이 그림만 생성 체크박스 */}

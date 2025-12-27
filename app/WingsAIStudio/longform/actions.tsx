@@ -4641,7 +4641,10 @@ export async function generateAIThumbnail(
   imageStyle?: string,
   customText?: string,
   customStylePrompt?: string,
-  characterDescription?: string
+  characterDescription?: string,
+  thumbnailWithoutText?: boolean,
+  benchmarkThumbnailUrl?: string,
+  openaiApiKey?: string
 ): Promise<string> {
   if (!replicateApiKey) {
     throw new Error("Replicate API 키가 필요합니다.")
@@ -4666,19 +4669,58 @@ export async function generateAIThumbnail(
     }
 
     // 유튜브 썸네일용 프롬프트 생성
-    let basePrompt = `YouTube thumbnail for video about: ${topic}. High quality, eye-catching, professional thumbnail design. Bright colors, clear text area, engaging composition. 16:9 aspect ratio.`
+    let basePrompt = ""
+    
+    // 문구 없이 그림만 생성 옵션이 체크된 경우 - 프롬프트 시작 부분에 최우선으로 강조
+    if (thumbnailWithoutText) {
+      // 프롬프트 맨 앞에 문구 금지 지시를 최우선으로 배치 (모델이 가장 먼저 읽는 부분)
+      const textProhibitionPrefix = `CRITICAL MANDATORY REQUIREMENT - THIS IS THE HIGHEST PRIORITY: ABSOLUTELY NO TEXT, NO LETTERS, NO WORDS, NO WRITING, NO LABELS, NO SIGNS, NO NUMBERS, NO SYMBOLS, NO TYPOGRAPHY, NO CAPTIONS, NO SUBTITLES, NO WATERMARKS, NO TEXT OVERLAYS, NO TEXT ELEMENTS, NO ALPHABET, NO CHARACTERS, NO GLYPHS, NO INSCRIPTIONS, NO MARKINGS, NO NOTATIONS, NO ANNOTATIONS, NO DECORATIVE TEXT, NO EMBEDDED TEXT, NO HIDDEN TEXT, NO BACKGROUND TEXT, NO FOREGROUND TEXT, NO TEXT IN ANY POSITION, NO TEXT IN ANY SIZE, NO TEXT IN ANY COLOR, NO TEXT IN ANY FONT, NO TEXT IN ANY STYLE. Pure visual image only, completely text-free, zero text elements, no text in any form, no text anywhere in the image, text is strictly forbidden and must be completely absent. The image must be 100% text-free with absolutely no exceptions.`
+      basePrompt = `${textProhibitionPrefix} YouTube thumbnail for video about: ${topic}. High quality, eye-catching, professional thumbnail design. Bright colors, engaging composition. 16:9 aspect ratio. NO YouTube logo, NO YouTube branding, NO YouTube icon, NO YouTube play button, NO YouTube elements, NO platform logos, NO service logos, NO brand logos.`
+    } else {
+      // 문구 없이 옵션이 체크되지 않은 경우
+      basePrompt = `YouTube thumbnail for video about: ${topic}. High quality, eye-catching, professional thumbnail design. Bright colors, clear text area, engaging composition. 16:9 aspect ratio. NO YouTube logo, NO YouTube branding, NO YouTube icon, NO YouTube play button, NO YouTube elements, NO platform logos, NO service logos, NO brand logos.`
+    }
     
     // 캐릭터 설명이 있으면 추가
     if (characterDescription && characterDescription.trim()) {
       basePrompt = `${basePrompt} The thumbnail should feature the main character: ${characterDescription.trim()}.`
     }
     
-    // 커스텀 문구가 있으면 프롬프트에 추가
-    if (customText && customText.trim()) {
-      basePrompt = `${basePrompt} Include text or visual elements related to: "${customText.trim()}".`
+    // 커스텀 문구가 있고 문구 없이 옵션이 체크되지 않은 경우에만 추가
+    if (customText && customText.trim() && !thumbnailWithoutText) {
+      // 썸네일에 반드시 포함되어야 할 문구를 명확하게 지시
+      basePrompt = `${basePrompt} The thumbnail MUST prominently display the following text: "${customText.trim()}". This text should be clearly visible, readable, and be a central element of the thumbnail design. The text should be styled to be eye-catching and attention-grabbing.`
     }
     
-    const prompt = stylePrompt ? `${basePrompt} ${stylePrompt}` : basePrompt
+    // 문구 없이 옵션이 체크된 경우 프롬프트 끝에 다시 한 번 극도로 강조
+    let finalPrompt = stylePrompt ? `${basePrompt} ${stylePrompt}` : basePrompt
+    if (thumbnailWithoutText) {
+      // 프롬프트 끝에 최종 경고 추가 (가장 강력한 형태) - 여러 번 반복하여 강조
+      const finalWarning = `FINAL CRITICAL REQUIREMENT - THIS IS ABSOLUTELY MANDATORY AND NON-NEGOTIABLE: The generated image MUST contain ZERO text elements. Any text, letters, words, numbers, symbols, typography, or written content in the generated image is a COMPLETE FAILURE and violates the core requirement. The image must be 100% text-free with absolutely no text visible anywhere. Text generation is STRICTLY PROHIBITED. The model must generate a pure visual image with NO TEXT WHATSOEVER. This is not optional - text must be completely absent. REMEMBER: NO TEXT AT ALL. NO TEXT. NO TEXT. NO TEXT.`
+      finalPrompt = `${finalPrompt}. ${finalWarning}`
+    }
+    
+    const prompt = finalPrompt
+
+    // 문구 없이 옵션이 체크된 경우 강력한 negative prompt 생성
+    const negativePrompt = thumbnailWithoutText 
+      ? "text, letters, words, typography, English text, Korean text, Chinese text, Japanese text, numbers, logos, watermarks, signs, labels, captions, subtitles, written text, text overlay, any text elements, any written content, any letters, any numbers, any symbols that form text, text on image, text in background, floating text, alphabet, characters, fonts, typeface, lettering, inscription, writing, script, calligraphy, text box, text area, text banner, text label, text sign, text poster, text display, text graphics, text design, text art, text illustration, any form of text, any form of writing, any form of letters, any form of numbers, any readable text, any visible text, any text content, YouTube logo, YouTube branding, YouTube icon, YouTube play button, YouTube elements, platform logos, service logos, brand logos, company logos, social media logos, video platform logos, text elements, text objects, text layers, text decorations, text patterns, text shapes, text outlines, text fills, text strokes, text effects, text shadows, text glows, text borders, text frames, text containers, text blocks, text lines, text strings, text sequences, text arrays, text grids, text layouts, text compositions, text arrangements, text structures, text formations, text configurations, text organizations, text systems, text networks, text hierarchies, text relationships, text connections, text links, text associations, text references, text citations, text quotes, text excerpts, text passages, text segments, text portions, text sections, text parts, text components, text modules, text units, text items, text pieces, text fragments, text chunks, text blocks, text segments, text divisions, text subdivisions, text categories, text classifications, text types, text kinds, text varieties, text styles, text formats, text modes, text states, text conditions, text situations, text contexts, text environments, text settings, text scenarios, text circumstances, text cases, text instances, text examples, text samples, text specimens, text models, text patterns, text templates, text frameworks, text structures, text architectures, text designs, text plans, text schemes, text strategies, text approaches, text methods, text techniques, text procedures, text processes, text operations, text actions, text activities, text functions, text behaviors, text performances, text executions, text implementations, text applications, text usages, text utilizations, text employments, text deployments, text installations, text establishments, text creations, text generations, text productions, text constructions, text formations, text developments, text evolutions, text progressions, text advancements, text improvements, text enhancements, text refinements, text optimizations, text perfections, text completions, text finalizations, text conclusions, text terminations, text endings, text closures, text finishes, text completions, text achievements, text accomplishments, text successes, text victories, text triumphs, text wins, text gains, text profits, text benefits, text advantages, text merits, text values, text worths, text importances, text significances, text meanings, text purposes, text intents, text intentions, text goals, text objectives, text aims, text targets, text destinations, text directions, text orientations, text positions, text locations, text placements, text arrangements, text organizations, text structures, text frameworks, text architectures, text designs, text plans, text schemes, text strategies, text approaches, text methods, text techniques, text procedures, text processes, text operations, text actions, text activities, text functions, text behaviors, text performances, text executions, text implementations, text applications, text usages, text utilizations, text employments, text deployments, text installations, text establishments, text creations, text generations, text productions, text constructions, text formations, text developments, text evolutions, text progressions, text advancements, text improvements, text enhancements, text refinements, text optimizations, text perfections, text completions, text finalizations, text conclusions, text terminations, text endings, text closures, text finishes"
+      : "YouTube logo, YouTube branding, YouTube icon, YouTube play button, YouTube elements, platform logos, service logos, brand logos, company logos, social media logos, video platform logos"
+
+    // API 요청 본문 구성
+    const requestBody: any = {
+      input: {
+        prompt: prompt,
+        aspect_ratio: "16:9",
+        output_format: "png",
+      },
+    }
+    
+    // negative_prompt가 있으면 추가 (nano-banana-pro 모델이 지원하는 경우)
+    if (negativePrompt) {
+      requestBody.input.negative_prompt = negativePrompt
+      console.log("[Longform] negative_prompt 추가됨 (문구 금지 모드)")
+    }
 
     const response = await fetch("https://api.replicate.com/v1/models/google/nano-banana-pro/predictions", {
       method: "POST",
@@ -4686,13 +4728,7 @@ export async function generateAIThumbnail(
         "Content-Type": "application/json",
         Authorization: `Token ${replicateApiKey}`,
       },
-      body: JSON.stringify({
-        input: {
-          prompt: prompt,
-          aspect_ratio: "16:9",
-          output_format: "png",
-        },
-      }),
+      body: JSON.stringify(requestBody),
     })
 
     if (!response.ok) {
@@ -4702,53 +4738,101 @@ export async function generateAIThumbnail(
     }
 
     const data = await response.json()
-    const predictionId = data.id
+    let predictionId = data.id
 
     console.log(`[Longform] Replicate 예측 생성됨, ID: ${predictionId}`)
 
-    // 폴링하여 결과 대기
+    // 문구 없이 옵션이 체크된 경우 여러 번 시도 (최대 3번)
+    const maxRetries = thumbnailWithoutText ? 3 : 1
     let imageUrl: string | null = null
-    let attempts = 0
-    const maxAttempts = 60 // 최대 5분 대기 (5초 간격)
+    let retryCount = 0
 
-    while (!imageUrl && attempts < maxAttempts) {
-      await new Promise((resolve) => setTimeout(resolve, 5000)) // 5초 대기
-
-      const statusResponse = await fetch(
-        `https://api.replicate.com/v1/predictions/${predictionId}`,
-        {
-          headers: {
-            Authorization: `Token ${replicateApiKey}`,
+    while (retryCount < maxRetries && !imageUrl) {
+      if (retryCount > 0) {
+        console.log(`[Longform] 문구 없이 생성 모드 - 재시도 ${retryCount}/${maxRetries - 1}`)
+        // 재시도 시 프롬프트를 더 강화
+        const retryPrompt = `ABSOLUTELY NO TEXT. NO TEXT AT ALL. NO TEXT WHATSOEVER. ${prompt}`
+        const retryRequestBody: any = {
+          input: {
+            prompt: retryPrompt,
+            aspect_ratio: "16:9",
+            output_format: "png",
           },
         }
-      )
-
-      if (!statusResponse.ok) {
-        throw new Error(`상태 확인 실패: ${statusResponse.status}`)
-      }
-
-      const statusData = await statusResponse.json()
-
-      if (statusData.status === "succeeded") {
-        // nano-banana-pro 모델의 출력 형식에 맞게 처리
-        if (statusData.output && typeof statusData.output === "string") {
-          imageUrl = statusData.output
-        } else if (statusData.output && Array.isArray(statusData.output) && statusData.output.length > 0) {
-          imageUrl = statusData.output[0]
-        } else if (statusData.output?.url) {
-          imageUrl = statusData.output.url
+        if (negativePrompt) {
+          retryRequestBody.input.negative_prompt = negativePrompt
         }
-        console.log("[Longform] AI 썸네일 생성 완료:", imageUrl)
-        break
-      } else if (statusData.status === "failed") {
-        throw new Error(`이미지 생성 실패: ${statusData.error || "알 수 없는 오류"}`)
+
+        const retryResponse = await fetch("https://api.replicate.com/v1/models/google/nano-banana-pro/predictions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Token ${replicateApiKey}`,
+          },
+          body: JSON.stringify(retryRequestBody),
+        })
+
+        if (!retryResponse.ok) {
+          const errorText = await retryResponse.text()
+          console.error("[Longform] Replicate API 오류 (재시도):", errorText)
+          retryCount++
+          continue
+        }
+
+        const retryData = await retryResponse.json()
+        predictionId = retryData.id
+        console.log(`[Longform] Replicate 예측 재생성됨, ID: ${predictionId}`)
       }
 
-      attempts++
+      // 폴링하여 결과 대기
+      let attempts = 0
+      const maxAttempts = 60 // 최대 5분 대기 (5초 간격)
+
+      while (!imageUrl && attempts < maxAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, 5000)) // 5초 대기
+
+        const statusResponse = await fetch(
+          `https://api.replicate.com/v1/predictions/${predictionId}`,
+          {
+            headers: {
+              Authorization: `Token ${replicateApiKey}`,
+            },
+          }
+        )
+
+        if (!statusResponse.ok) {
+          throw new Error(`상태 확인 실패: ${statusResponse.status}`)
+        }
+
+        const statusData = await statusResponse.json()
+
+        if (statusData.status === "succeeded") {
+          // nano-banana-pro 모델의 출력 형식에 맞게 처리
+          if (statusData.output && typeof statusData.output === "string") {
+            imageUrl = statusData.output
+          } else if (statusData.output && Array.isArray(statusData.output) && statusData.output.length > 0) {
+            imageUrl = statusData.output[0]
+          } else if (statusData.output?.url) {
+            imageUrl = statusData.output.url
+          }
+          console.log(`[Longform] AI 썸네일 생성 완료 (시도 ${retryCount + 1}):`, imageUrl)
+          break
+        } else if (statusData.status === "failed") {
+          throw new Error(`이미지 생성 실패: ${statusData.error || "알 수 없는 오류"}`)
+        }
+
+        attempts++
+      }
+
+      if (!imageUrl) {
+        console.log(`[Longform] 이미지 생성 시간 초과 (시도 ${retryCount + 1})`)
+      }
+
+      retryCount++
     }
 
     if (!imageUrl) {
-      throw new Error("이미지 생성 시간 초과")
+      throw new Error("이미지 생성 시간 초과 (모든 재시도 실패)")
     }
 
     return imageUrl
