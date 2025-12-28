@@ -18985,6 +18985,35 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                                 )
                                               })()}
                                               <div className="p-2 flex items-center justify-center gap-2 bg-gray-50 border-t">
+                                                <Button
+                                                  size="sm"
+                                                  variant="outline"
+                                                  className="bg-white hover:bg-gray-100"
+                                                  onClick={async (e) => {
+                                                    e.stopPropagation()
+                                                    if (image.imageUrl) {
+                                                      try {
+                                                        // 이미지를 blob으로 변환하여 다운로드
+                                                        const response = await fetch(image.imageUrl)
+                                                        const blob = await response.blob()
+                                                        const url = window.URL.createObjectURL(blob)
+                                                        const link = document.createElement('a')
+                                                        link.href = url
+                                                        link.download = `scene-${scene.sceneNumber}-image-${image.imageNumber}.jpg`
+                                                        document.body.appendChild(link)
+                                                        link.click()
+                                                        document.body.removeChild(link)
+                                                        window.URL.revokeObjectURL(url)
+                                                      } catch (error) {
+                                                        console.error("이미지 다운로드 실패:", error)
+                                                        alert("이미지 다운로드에 실패했습니다.")
+                                                      }
+                                                    }
+                                                  }}
+                                                >
+                                                  <Download className="w-4 h-4 mr-1" />
+                                                  다운로드
+                                                </Button>
                                                 <label className="cursor-pointer">
                                                 <input
                                                   type="file"
