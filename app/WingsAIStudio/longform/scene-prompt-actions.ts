@@ -256,6 +256,10 @@ export async function generateSingleSceneImagePrompts(
 - 이미지 스타일에 맞는 표현을 사용한다.
 - ⚠️ 반드시 "no text", "no letters", "no words", "no writing", "no labels", "no signs", "no watermark"를 포함하세요.
 - ⚠️ 애니메이션2 스타일인 경우 "stickman", "stick figure" 등을 절대 사용하지 마세요.
+- ⚠️ 실사화/실사화2 스타일이고 배경이 한국인 경우:
+  * 반드시 "Korean", "Korean architecture", "Korean setting" 등을 포함하세요.
+  * "NOT Chinese", "NOT Chinese style" 등을 포함하여 중국풍과 명확히 구분하세요.
+  * 한국 전통 건축, 한국 풍경, 한국적 색감 등을 구체적으로 묘사하세요.
 
 [STEP 3] 출력 형식
 각 장면마다 다음 형식으로 출력한다:
@@ -275,7 +279,15 @@ ${sceneTexts}
 이미지 스타일: ${imageStyle}
 ${historicalContext ? `시대적 배경: ${historicalContext}` : ""}
 ${customStylePrompt ? `커스텀 스타일: ${customStylePrompt}` : ""}
-${imageStyle === "realistic" || imageStyle === "realistic2" ? "Inference Steps는 4입니다." : imageStyle === "animation2" || imageStyle === "animation3" || imageStyle === "stickman-animation" ? "Inference Steps는 16입니다." : ""}`
+${imageStyle === "realistic" || imageStyle === "realistic2" ? "Inference Steps는 4입니다." : imageStyle === "animation2" || imageStyle === "animation3" || imageStyle === "stickman-animation" ? "Inference Steps는 16입니다." : ""}
+${(imageStyle === "realistic" || imageStyle === "realistic2") && realisticCharacterType === "korean" ? `
+⚠️ 매우 중요 - 한국 배경 구분:
+- 배경이 한국인 경우 반드시 "Korean", "Korean architecture", "Korean setting", "Korea" 등을 명시적으로 포함하세요.
+- 중국풍과 구분하기 위해 "NOT Chinese", "NOT Chinese style", "Korean setting, NOT Chinese" 등을 포함하세요.
+- 한국 전통 건축: "Korean hanok", "Korean traditional architecture", "Korean palace (Gyeongbokgung style)", "Korean temple" 등 구체적으로 명시하세요.
+- 한국 풍경: "Korean landscape", "Korean countryside", "Korean mountains", "Korean rivers" 등 구체적으로 명시하세요.
+- 절대 사용하지 말 것: "Chinese architecture", "Chinese style", "Chinese traditional", "China", "Beijing", "Shanghai", "Forbidden City", "Chinese palace", "Chinese temple"
+- 프롬프트에 한국임을 명확히 구분하는 키워드를 반드시 포함하세요.` : ""}`
 
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 60000) // 60초 타임아웃

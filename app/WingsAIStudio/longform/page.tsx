@@ -146,6 +146,7 @@ import {
   Upload,
   Home,
   TrendingUp,
+  Plus,
   ExternalLink,
   Zap,
   Newspaper,
@@ -156,7 +157,6 @@ import {
   Calendar,
   Search,
   RefreshCw,
-  Plus,
   Key,
   Eye,
   EyeOff,
@@ -191,6 +191,7 @@ import {
   extractTopicFromScript, // 대본에서 주제 추출 함수 import 추가
   regenerateScript, // 대본 재생성 함수 import 추가
   analyzeBenchmarkScript, // 벤치마킹 대본 분석 함수 import 추가
+  generateCustomPrompt, // 커스텀 프롬프트 생성 함수 import 추가
   // generateCommonStylePrompt, // 공통 스타일 프롬프트 생성 함수 import 추가 (임시 주석 처리)
 } from "./actions"
 import { generateRefinedScript, decomposeScriptIntoScenes, decomposeSingleScene, autoSplitScriptByMeaning } from "./refined-script-actions"
@@ -572,6 +573,8 @@ export default function LongformContentPage() {
   const [sceneImageGenerationProgress, setSceneImageGenerationProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 }) // Scene 이미지 생성 진행도
   const [generatingImageIds, setGeneratingImageIds] = useState<Set<string>>(new Set()) // 개별 이미지 생성 중인 ID들 (형식: "sceneNumber-imageNumber")
   const shouldStopImageGeneration = useRef(false) // 이미지 생성 중단 플래그
+  const [promptDialogOpen, setPromptDialogOpen] = useState<{ sceneNumber: number; imageNumber: number } | null>(null) // 프롬프트 추가 다이얼로그 열림 상태
+  const [additionalPromptText, setAdditionalPromptText] = useState("") // 추가할 프롬프트 텍스트
   const [selectedLineIds, setSelectedLineIds] = useState<Set<number>>(new Set())
   const [scriptDuration, setScriptDuration] = useState<number>(20) // 대본 시간 (분)
   const [generatedImages, setGeneratedImages] = useState<Array<{ lineId: number; imageUrl: string; prompt: string; createdAt?: number }>>([])
@@ -582,8 +585,8 @@ export default function LongformContentPage() {
   const [hoveredStyle, setHoveredStyle] = useState<string | null>(null)
   // 실사화 인물 타입 선택 (한국인/외국인)
   const [realisticCharacterType, setRealisticCharacterType] = useState<"korean" | "foreign" | null>(null)
-  // 이미지 생성 모델 선택 (스틱맨 애니메이션, 애니메이션2, 유럽풍 그래픽 노블용)
-  const [imageModel, setImageModel] = useState<"prunaai/hidream-l1-fast" | "black-forest-labs/flux-schnell">("prunaai/hidream-l1-fast")
+  // 이미지 생성 모델 선택 (모든 스타일 공통)
+  const [imageModel, setImageModel] = useState<"prunaai/hidream-l1-fast" | "black-forest-labs/flux-schnell" | "google/imagen-4-fast">("prunaai/hidream-l1-fast")
   const [selectedVoiceId, setSelectedVoiceId] = useState<string>("ttsmaker-여성1") // 기본: TTSMaker 여성1
   const [customElevenLabsVoices, setCustomElevenLabsVoices] = useState<Array<{ id: string; name: string }>>([]) // 사용자 추가 일레븐랩스 목소리
   const [supertoneVoices, setSupertoneVoices] = useState<Array<{ voice_id: string; name: string; language: string[]; styles: string[]; thumbnail_image_url?: string }>>([]) // 수퍼톤 음성 목록
@@ -1632,10 +1635,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             while (!imageUrl) {
               try {
                 console.log(`[자동화] 이미지 생성 시도 ${attempt}...`)
-                // 모델 선택: 스틱맨 애니메이션, 애니메이션2, 유럽풍 그래픽 노블, 실사화, 실사화2인 경우 사용자 선택 모델 사용
-                const selectedModel = (imageStyle === "stickman-animation" || imageStyle === "animation2" || imageStyle === "animation3" || imageStyle === "realistic" || imageStyle === "realistic2") 
-                  ? imageModel 
-                  : undefined
+                // 모델 선택: 모든 스타일에서 사용자 선택 모델 사용
+                const selectedModel = imageModel
                 imageUrl = await generateImageWithReplicate(prompt, replicateApiKey, "16:9", imageStyle, undefined, selectedModel)
                 console.log(`[자동화] 이미지 생성 완료 (시도 ${attempt}): ${imageUrl.substring(0, 50)}...`)
                 break // 성공하면 루프 종료
@@ -17172,6 +17173,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                 <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white">
               <CardHeader className="pb-4 border-b border-gray-100">
                 <CardTitle className="text-lg font-semibold text-slate-900">이미지 스타일 선택</CardTitle>
+                <p className="text-xs text-gray-500 mt-1">AI 모델을 선택하셔야 합니다</p>
               </CardHeader>
               <CardContent>
                     <div className="grid grid-cols-2 gap-3">
@@ -17236,48 +17238,35 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                         유럽풍 그래픽 노블
                   </Button>
                     </div>
-                    {/* 스틱맨 애니메이션, 애니메이션2, 유럽풍 그래픽 노블 선택 시 모델 선택 */}
-                    {(imageStyle === "stickman-animation" || imageStyle === "animation2" || imageStyle === "animation3") && (
-                      <div className="mt-4 pt-4 border-t border-gray-200">
-                        <div>
-                          <p className="text-sm font-medium text-gray-700 mb-2">AI 모델 선택</p>
-                          <Select value={imageModel} onValueChange={(value: "prunaai/hidream-l1-fast" | "black-forest-labs/flux-schnell") => setImageModel(value)}>
-                            <SelectTrigger className="w-full">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="prunaai/hidream-l1-fast">prunaai/hidream-l1-fast (이미지 한장당 7원)</SelectItem>
-                              <SelectItem value="black-forest-labs/flux-schnell">black-forest-labs/flux-schnell (이미지 한장당 4원)</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          {imageModel === "black-forest-labs/flux-schnell" && (
-                            <p className="text-xs text-gray-500 mt-1">
-                              Negative prompt는 자동으로 프롬프트에 결합됩니다. (16:9 비율 고정)
-                            </p>
-                          )}
-                        </div>
+                    {/* 모든 스타일에서 공통으로 AI 모델 선택 */}
+                    <div className="mt-4 pt-4 border-t border-gray-200">
+                      <div>
+                        <p className="text-sm font-medium text-gray-700 mb-2">AI 모델 선택</p>
+                        <Select value={imageModel} onValueChange={(value: "prunaai/hidream-l1-fast" | "black-forest-labs/flux-schnell" | "google/imagen-4-fast") => setImageModel(value)}>
+                          <SelectTrigger className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="prunaai/hidream-l1-fast">prunaai/hidream-l1-fast (이미지 한장당 7원)</SelectItem>
+                            <SelectItem value="black-forest-labs/flux-schnell">black-forest-labs/flux-schnell (이미지 한장당 4원)</SelectItem>
+                            <SelectItem value="google/imagen-4-fast">google/imagen-4-fast (이미지 한장당 28원)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {imageModel === "black-forest-labs/flux-schnell" && (
+                          <p className="text-xs text-gray-500 mt-1">
+                            Negative prompt는 자동으로 프롬프트에 결합됩니다. (16:9 비율 고정)
+                          </p>
+                        )}
+                        {imageModel === "google/imagen-4-fast" && (
+                          <p className="text-xs text-gray-500 mt-1">
+                            실사화 스타일에 최적화된 모델입니다. (16:9 비율 고정)
+                          </p>
+                        )}
                       </div>
-                    )}
-                    {/* 실사화/실사화2 선택 시 인물 타입 선택 및 AI 모델 선택 */}
+                    </div>
+                    {/* 실사화/실사화2 선택 시 인물 타입 선택 */}
                     {(imageStyle === "realistic" || imageStyle === "realistic2") && (
                       <div className="mt-4 pt-4 border-t border-gray-200 space-y-4">
-                        <div>
-                          <p className="text-sm font-medium text-gray-700 mb-2">AI 모델 선택</p>
-                          <Select value={imageModel} onValueChange={(value: "prunaai/hidream-l1-fast" | "black-forest-labs/flux-schnell") => setImageModel(value)}>
-                            <SelectTrigger className="w-full">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="prunaai/hidream-l1-fast">prunaai/hidream-l1-fast (이미지 한장당 7원)</SelectItem>
-                              <SelectItem value="black-forest-labs/flux-schnell">black-forest-labs/flux-schnell (이미지 한장당 4원)</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          {imageModel === "black-forest-labs/flux-schnell" && (
-                            <p className="text-xs text-gray-500 mt-1">
-                              Negative prompt는 자동으로 프롬프트에 결합됩니다. (16:9 비율 고정)
-                            </p>
-                          )}
-                        </div>
                         <div>
                           <p className="text-sm font-medium text-gray-700 mb-2">인물 타입 선택</p>
                           <div className="flex gap-2">
@@ -17434,11 +17423,13 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                     >
                       {customStyleCharacterImage ? (
                         <div className="space-y-2">
-                          <img 
-                            src={customStyleCharacterImage} 
-                            alt="캐릭터 사진" 
-                            className="w-full h-48 object-cover rounded-lg"
-                          />
+                          <div className="w-full h-48 rounded-lg overflow-hidden relative group cursor-zoom-in">
+                            <img 
+                              src={customStyleCharacterImage} 
+                              alt="캐릭터 사진" 
+                              className="w-full h-full object-cover transition-transform duration-300 ease-in-out group-hover:scale-150"
+                            />
+                          </div>
                   <Button
                             variant="outline"
                             size="sm"
@@ -17553,11 +17544,13 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                     >
                       {customStyleBackgroundImage ? (
                         <div className="space-y-2">
-                          <img 
-                            src={customStyleBackgroundImage} 
-                            alt="그림체" 
-                            className="w-full h-48 object-cover rounded-lg"
-                          />
+                          <div className="w-full h-48 rounded-lg overflow-hidden relative group cursor-zoom-in">
+                            <img 
+                              src={customStyleBackgroundImage} 
+                              alt="그림체" 
+                              className="w-full h-full object-cover transition-transform duration-300 ease-in-out group-hover:scale-150"
+                            />
+                          </div>
                   <Button
                             variant="outline"
                             size="sm"
@@ -18303,9 +18296,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                               try {
                                 console.log(`[Scene Image] 이미지 생성 시도 ${attempt}/${maxRetries}...`)
                                 // 모델 선택: 스틱맨 애니메이션, 애니메이션2, 유럽풍 그래픽 노블, 실사화, 실사화2인 경우 사용자 선택 모델 사용
-                                const selectedModel = (imageStyle === "stickman-animation" || imageStyle === "animation2" || imageStyle === "animation3" || imageStyle === "realistic" || imageStyle === "realistic2") 
-                                  ? imageModel 
-                                  : undefined
+                                // 모델 선택: 모든 스타일에서 사용자 선택 모델 사용
+                                const selectedModel = imageModel
                                 const imageUrl = await generateImageWithReplicate(
                                   prompt,
                                   replicateApiKey,
@@ -18959,11 +18951,13 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                                   )
                                                 } else if (image.imageUrl) {
                                                   return (
-                                                    <img
-                                                      src={image.imageUrl}
-                                                      alt={`Scene ${scene.sceneNumber} Image ${image.imageNumber}`}
-                                                      className="w-full h-full object-cover"
-                                                    />
+                                                    <div className="w-full h-full overflow-hidden relative group cursor-zoom-in">
+                                                      <img
+                                                        src={image.imageUrl}
+                                                        alt={`Scene ${scene.sceneNumber} Image ${image.imageNumber}`}
+                                                        className="w-full h-full object-cover transition-transform duration-300 ease-in-out group-hover:scale-150"
+                                                      />
+                                                    </div>
                                                   )
                                                 }
                                                 return null
@@ -19150,11 +19144,11 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    <div className="aspect-video bg-muted rounded-lg overflow-hidden">
+                    <div className="aspect-video bg-muted rounded-lg overflow-hidden relative group cursor-zoom-in">
                       <img
                         src={generatedImage || "/placeholder.svg"}
                         alt="생성된 한국 인물 이미지"
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-cover transition-transform duration-300 ease-in-out group-hover:scale-150"
                       />
                     </div>
                     <div className="flex gap-2">

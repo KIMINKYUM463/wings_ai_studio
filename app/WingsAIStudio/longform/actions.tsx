@@ -4577,7 +4577,7 @@ export async function generateImageWithReplicate(
   aspectRatio: "16:9" | "9:16" | "1:1" | "21:9" = "16:9",
   imageStyle?: string,
   sceneDescription?: string,
-  selectedModel?: "prunaai/hidream-l1-fast" | "black-forest-labs/flux-schnell"
+  selectedModel?: "prunaai/hidream-l1-fast" | "black-forest-labs/flux-schnell" | "google/imagen-4-fast"
 ): Promise<string> {
   try {
     const REPLICATE_API_TOKEN = replicateApiKey || process.env.REPLICATE_API_TOKEN
