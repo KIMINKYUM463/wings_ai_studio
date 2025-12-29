@@ -165,6 +165,7 @@ import {
   Bot,
   ArrowRight,
   ArrowDown,
+  ArrowUp,
   AlertCircle,
 } from "lucide-react"
 import Link from "next/link"
@@ -575,6 +576,7 @@ export default function LongformContentPage() {
   const shouldStopImageGeneration = useRef(false) // 이미지 생성 중단 플래그
   const [promptDialogOpen, setPromptDialogOpen] = useState<{ sceneNumber: number; imageNumber: number } | null>(null) // 프롬프트 추가 다이얼로그 열림 상태
   const [additionalPromptText, setAdditionalPromptText] = useState("") // 추가할 프롬프트 텍스트
+  const [showScrollToTop, setShowScrollToTop] = useState(false) // 맨 위로 가기 버튼 표시 여부
   const [selectedLineIds, setSelectedLineIds] = useState<Set<number>>(new Set())
   const [scriptDuration, setScriptDuration] = useState<number>(20) // 대본 시간 (분)
   const [generatedImages, setGeneratedImages] = useState<Array<{ lineId: number; imageUrl: string; prompt: string; createdAt?: number }>>([])
@@ -1337,6 +1339,17 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     if (savedApiKey) {
       setUserTtsApiKey(savedApiKey)
     }
+  }, [])
+
+  // 스크롤 위치 추적하여 맨 위로 가기 버튼 표시/숨김
+  useEffect(() => {
+    const handleScroll = () => {
+      const scrollTop = window.pageYOffset || document.documentElement.scrollTop
+      setShowScrollToTop(scrollTop > 300) // 300px 이상 스크롤 시 버튼 표시
+    }
+
+    window.addEventListener('scroll', handleScroll)
+    return () => window.removeEventListener('scroll', handleScroll)
   }, [])
 
   // 자막 동기화 개선: requestAnimationFrame을 사용하여 더 정확한 타이밍
@@ -24613,6 +24626,19 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             )}
           </div>
         </div>
+      )}
+
+      {/* 맨 위로 가기 버튼 */}
+      {showScrollToTop && (
+        <Button
+          onClick={() => {
+            window.scrollTo({ top: 0, behavior: 'smooth' })
+          }}
+          className="fixed bottom-6 right-6 z-50 rounded-full w-12 h-12 shadow-lg hover:shadow-xl transition-all"
+          size="icon"
+        >
+          <ArrowUp className="w-5 h-5" />
+        </Button>
       )}
     </div>
   )
