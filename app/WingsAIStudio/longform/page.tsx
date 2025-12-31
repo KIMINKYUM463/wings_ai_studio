@@ -193,8 +193,10 @@ import {
   regenerateScript, // 대본 재생성 함수 import 추가
   analyzeBenchmarkScript, // 벤치마킹 대본 분석 함수 import 추가
   generateCustomPrompt, // 커스텀 프롬프트 생성 함수 import 추가
+  translatePromptToKorean, // 영어 프롬프트 한글 번역 함수 import 추가
   // generateCommonStylePrompt, // 공통 스타일 프롬프트 생성 함수 import 추가 (임시 주석 처리)
 } from "./actions"
+import { generateCustomImagePromptFromKorean } from "./actions.ts" // 한글 프롬프트를 이미지 스타일에 맞게 영어로 변환하는 함수 import 추가
 import { generateRefinedScript, decomposeScriptIntoScenes, decomposeSingleScene, autoSplitScriptByMeaning } from "./refined-script-actions"
 import { generateSceneImagePrompts, generateSingleSceneImagePrompts, extractHistoricalContext } from "./scene-prompt-actions"
 import { Label } from "@/components/ui/label"
@@ -577,6 +579,9 @@ export default function LongformContentPage() {
   const [promptDialogOpen, setPromptDialogOpen] = useState<{ sceneNumber: number; imageNumber: number } | null>(null) // 프롬프트 추가 다이얼로그 열림 상태
   const [additionalPromptText, setAdditionalPromptText] = useState("") // 추가할 프롬프트 텍스트
   const [showScrollToTop, setShowScrollToTop] = useState(false) // 맨 위로 가기 버튼 표시 여부
+  const [customPromptDialogOpen, setCustomPromptDialogOpen] = useState<{ sceneNumber: number; imageNumber: number } | null>(null) // 프롬프트 커스텀 다이얼로그 열림 상태
+  const [customKoreanPrompt, setCustomKoreanPrompt] = useState("") // 커스텀 한글 프롬프트
+  const [isTranslatingPrompt, setIsTranslatingPrompt] = useState(false) // 프롬프트 번역 중
   const [selectedLineIds, setSelectedLineIds] = useState<Set<number>>(new Set())
   const [scriptDuration, setScriptDuration] = useState<number>(20) // 대본 시간 (분)
   const [generatedImages, setGeneratedImages] = useState<Array<{ lineId: number; imageUrl: string; prompt: string; createdAt?: number }>>([])
@@ -18779,6 +18784,158 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                             <RefreshCw className={`w-3 h-3 mr-1 ${isGeneratingScenePrompts ? 'animate-spin' : ''}`} />
                                             재생성
                                           </Button>
+                                          <Dialog
+                                            open={customPromptDialogOpen?.sceneNumber === scene.sceneNumber && customPromptDialogOpen?.imageNumber === image.imageNumber}
+                                            onOpenChange={(open) => {
+                                              if (!open) {
+                                                setCustomPromptDialogOpen(null)
+                                                setCustomKoreanPrompt("")
+                                              } else {
+                                                setCustomPromptDialogOpen({ sceneNumber: scene.sceneNumber, imageNumber: image.imageNumber })
+                                              }
+                                            }}
+                                          >
+                                            <DialogTrigger asChild>
+                                              <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-7 px-2"
+                                                onClick={async () => {
+                                                  const openaiApiKey = getApiKey("openai_api_key")
+                                                  if (!openaiApiKey) {
+                                                    alert("OpenAI API 키를 설정해주세요.")
+                                                    return
+                                                  }
+                                                  
+                                                  setCustomPromptDialogOpen({ sceneNumber: scene.sceneNumber, imageNumber: image.imageNumber })
+                                                  
+                                                  // visualInstruction이 있으면 그것을 사용, 없으면 영어 프롬프트를 한글로 번역
+                                                  if (image.visualInstruction) {
+                                                    setCustomKoreanPrompt(image.visualInstruction)
+                                                  } else {
+                                                    try {
+                                                      setIsTranslatingPrompt(true)
+                                                      const koreanPrompt = await translatePromptToKorean(image.prompt, openaiApiKey)
+                                                      setCustomKoreanPrompt(koreanPrompt)
+                                                    } catch (error) {
+                                                      console.error("프롬프트 번역 실패:", error)
+                                                      alert("프롬프트를 한글로 번역하는데 실패했습니다.")
+                                                      setCustomPromptDialogOpen(null)
+                                                    } finally {
+                                                      setIsTranslatingPrompt(false)
+                                                    }
+                                                  }
+                                                }}
+                                              >
+                                                <Pencil className="w-3 h-3 mr-1" />
+                                                프롬프트 커스텀
+                                              </Button>
+                                            </DialogTrigger>
+                                            <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+                                              <DialogHeader>
+                                                <DialogTitle>이미지 프롬프트 커스텀</DialogTitle>
+                                                <DialogDescription>
+                                                  한글 프롬프트를 수정한 후 '재생성' 버튼을 눌러 영어 프롬프트로 변환하세요.
+                                                </DialogDescription>
+                                              </DialogHeader>
+                                              <div className="space-y-4 py-4">
+                                                <div>
+                                                  <Label htmlFor="custom-korean-prompt">한글 프롬프트</Label>
+                                                  {isTranslatingPrompt ? (
+                                                    <div className="mt-2 p-4 border rounded-lg bg-gray-50 flex items-center justify-center">
+                                                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                                      <span className="text-sm text-gray-600">프롬프트를 한글로 번역하는 중...</span>
+                                                    </div>
+                                                  ) : (
+                                                    <Textarea
+                                                      id="custom-korean-prompt"
+                                                      placeholder="한글 프롬프트를 입력하세요..."
+                                                      className="mt-2 min-h-[200px]"
+                                                      value={customKoreanPrompt}
+                                                      onChange={(e) => {
+                                                        setCustomKoreanPrompt(e.target.value)
+                                                      }}
+                                                    />
+                                                  )}
+                                                </div>
+                                                <div className="flex justify-end gap-2">
+                                                  <Button
+                                                    variant="outline"
+                                                    onClick={() => {
+                                                      setCustomPromptDialogOpen(null)
+                                                      setCustomKoreanPrompt("")
+                                                    }}
+                                                  >
+                                                    취소
+                                                  </Button>
+                                                  <Button
+                                                    onClick={async () => {
+                                                      const openaiApiKey = getApiKey("openai_api_key")
+                                                      if (!openaiApiKey) {
+                                                        alert("OpenAI API 키를 설정해주세요.")
+                                                        return
+                                                      }
+                                                      
+                                                      if (!customKoreanPrompt.trim()) {
+                                                        alert("한글 프롬프트를 입력해주세요.")
+                                                        return
+                                                      }
+                                                      
+                                                      try {
+                                                        // 시대적 배경 추출 (필요한 경우)
+                                                        const historicalContext = await extractHistoricalContext(selectedTopic || undefined, script || undefined, openaiApiKey).catch(() => null)
+                                                        
+                                                        // 한글 프롬프트를 이미지 스타일에 맞는 영어 프롬프트로 변환
+                                                        // 이미지 스타일, 커스텀 스타일 프롬프트, 시대적 배경 등을 모두 반영
+                                                        const englishPrompt = await generateCustomImagePromptFromKorean(
+                                                          customKoreanPrompt,
+                                                          openaiApiKey,
+                                                          imageStyle,
+                                                          customStylePrompt || undefined,
+                                                          historicalContext || undefined,
+                                                          realisticCharacterType || undefined
+                                                        )
+                                                        
+                                                        // 프롬프트 업데이트
+                                                        setSceneImagePrompts((prev) => {
+                                                          return prev.map((s) => {
+                                                            if (s.sceneNumber === scene.sceneNumber) {
+                                                              return {
+                                                                ...s,
+                                                                images: s.images.map((img) => {
+                                                                  if (img.imageNumber === image.imageNumber) {
+                                                                    return {
+                                                                      ...img,
+                                                                      prompt: englishPrompt,
+                                                                      visualInstruction: customKoreanPrompt, // 수정된 한글 프롬프트 저장
+                                                                    }
+                                                                  }
+                                                                  return img
+                                                                }),
+                                                              }
+                                                            }
+                                                            return s
+                                                          })
+                                                        })
+                                                        
+                                                        alert("프롬프트가 업데이트되었습니다.")
+                                                        
+                                                        // 다이얼로그 닫기
+                                                        setCustomPromptDialogOpen(null)
+                                                        setCustomKoreanPrompt("")
+                                                      } catch (error) {
+                                                        console.error("프롬프트 변환 실패:", error)
+                                                        alert(`프롬프트 변환에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+                                                      }
+                                                    }}
+                                                    disabled={isTranslatingPrompt || !customKoreanPrompt.trim()}
+                                                  >
+                                                    재생성
+                                                  </Button>
+                                                </div>
+                                              </div>
+                                            </DialogContent>
+                                          </Dialog>
                                           <Button
                                             variant="outline"
                                             size="sm"
