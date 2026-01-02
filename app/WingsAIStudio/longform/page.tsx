@@ -587,6 +587,8 @@ export default function LongformContentPage() {
   const [sceneImageGenerationProgress, setSceneImageGenerationProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 }) // Scene 이미지 생성 진행도
   const [generatingImageIds, setGeneratingImageIds] = useState<Set<string>>(new Set()) // 개별 이미지 생성 중인 ID들 (형식: "sceneNumber-imageNumber")
   const shouldStopImageGeneration = useRef(false) // 이미지 생성 중단 플래그
+  const shouldStopTTSGeneration = useRef(false) // TTS 생성 중단 플래그
+  const ttsAbortControllerRef = useRef<AbortController | null>(null) // TTS 요청 취소용 AbortController
   const [promptDialogOpen, setPromptDialogOpen] = useState<{ sceneNumber: number; imageNumber: number } | null>(null) // 프롬프트 추가 다이얼로그 열림 상태
   const [additionalPromptText, setAdditionalPromptText] = useState("") // 추가할 프롬프트 텍스트
   const [showScrollToTop, setShowScrollToTop] = useState(false) // 맨 위로 가기 버튼 표시 여부
@@ -7215,7 +7217,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
   const generateTTSWithRetry = async (
     line: { id: number; text: string },
     selectedVoiceId: string,
-    maxRetries: number = 5
+    maxRetries: number = 5,
+    abortSignal?: AbortSignal
   ): Promise<{ audioUrl: string; audioBase64: string; alignment?: any }> => {
     let lastError: Error | null = null
     
@@ -7223,6 +7226,11 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     const convertedText = convertNumbersToKorean(line.text)
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      // 중지 요청 확인
+      if (abortSignal?.aborted || shouldStopTTSGeneration.current) {
+        throw new Error("TTS 생성이 중지되었습니다.")
+      }
+      
       try {
         let response: Response
         
@@ -7249,6 +7257,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               pitch: pitch,
               apiKey: ttsmakerApiKey,
             }),
+            signal: abortSignal, // AbortSignal 전달
           })
         } else if (selectedVoiceId?.startsWith("supertone-")) {
           // 수퍼톤인 경우
@@ -7280,6 +7289,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               style: selectedSupertoneStyle || "neutral", // 사용자가 선택한 스타일
               language: "ko", // 기본값: 한국어
             }),
+            signal: abortSignal, // AbortSignal 전달
           })
         } else {
           // ElevenLabs API를 통해 TTS 생성
@@ -7310,6 +7320,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               voiceId: selectedVoiceId,
               apiKey: elevenlabsApiKey,
             }),
+            signal: abortSignal, // AbortSignal 전달
           })
         }
 
@@ -7535,6 +7546,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     }
 
     setIsGeneratingTTS(true)
+    shouldStopTTSGeneration.current = false // 중단 플래그 초기화
+    ttsAbortControllerRef.current = new AbortController() // 새로운 AbortController 생성
     if (isAutoMode) {
       setAutoModeStep("TTS 생성 중...")
       setAutoModeProgress({ current: "5/7", total: 7 })
@@ -7631,6 +7644,12 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         }, {} as Record<string, number>))
         
         for (let i = 0; i < sceneTextsForTTS.length; i++) {
+          // 중지 요청 확인
+          if (shouldStopTTSGeneration.current) {
+            console.log("[TTS] 사용자가 TTS 생성을 중지했습니다.")
+            break
+          }
+          
           const sceneText = sceneTextsForTTS[i]
           currentProgress++
           setTtsGenerationProgress({ current: currentProgress, total: sceneTextsForTTS.length })
@@ -7638,7 +7657,12 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           try {
             console.log(`[TTS] [${i + 1}/${sceneTextsForTTS.length}] 씬 ${sceneText.sceneNumber} 장면 ${sceneText.imageNumber} TTS 생성 시작: "${sceneText.text.substring(0, 50)}..."`)
             
-            const data = await generateTTSWithRetry({ id: sceneText.lineId, text: sceneText.text }, selectedVoiceId)
+            const data = await generateTTSWithRetry(
+              { id: sceneText.lineId, text: sceneText.text },
+              selectedVoiceId,
+              5,
+              ttsAbortControllerRef.current?.signal
+            )
             
             console.log(`[TTS] [${i + 1}/${sceneTextsForTTS.length}] 씬 ${sceneText.sceneNumber} 장면 ${sceneText.imageNumber} TTS 생성 완료`)
             
@@ -7734,6 +7758,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       } finally {
         setIsGeneratingTTS(false)
         setTtsGenerationProgress({ current: 0, total: 0 })
+        shouldStopTTSGeneration.current = false // 중단 플래그 초기화
       }
       
       return
@@ -7748,6 +7773,12 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
 
     try {
       for (let i = 0; i < scriptLines.length; i++) {
+        // 중지 요청 확인
+        if (shouldStopTTSGeneration.current) {
+          console.log("[TTS] 사용자가 TTS 생성을 중지했습니다.")
+          break
+        }
+        
         const line = scriptLines[i]
         setTtsGenerationProgress({ current: i + 1, total: scriptLines.length })
 
@@ -7755,7 +7786,12 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           console.log(`[v0] TTS 생성 시작 (${i + 1}/${scriptLines.length}): ${line.text.substring(0, 30)}...`)
           
           // 재시도 로직이 포함된 TTS 생성
-          const data = await generateTTSWithRetry(line, selectedVoiceId)
+          const data = await generateTTSWithRetry(
+            line,
+            selectedVoiceId,
+            5,
+            ttsAbortControllerRef.current?.signal
+          )
           
           console.log(`[v0] TTS 생성 완료 (줄 ${line.id}):`, data.audioUrl ? "URL 있음" : "URL 없음", data.audioBase64 ? "Base64 있음" : "Base64 없음")
 
@@ -8272,8 +8308,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         // 렌더링용으로는 나중에 합쳐진 오디오를 사용하므로, 여기서는 calculatedTotalDuration 변수를 선언하지 않음
         
         // 2. 각 오디오를 개별적으로 STT 분석 수행 (예전 방식)
-        // 배치 진행률 표시를 위해 초기 메시지 설정
+        // 배치 진행률 표시를 위해 초기 메시지 설정 (총 작업 수는 나중에 계산됨)
         setRenderingStatusMessage("TTS랑 자막 싱크 맞추는 중...")
+        setGeneratingVideoProgress(0) // TTS/자막 싱크 단계 시작 (0%)
         const subtitles: Array<{ id: number; start: number; end: number; text: string }> = []
         
         // 각 오디오 버퍼에서 특정 구간을 추출하는 헬퍼 함수 (개별 오디오 사용, 소수점 10자리 정밀도)
@@ -8405,12 +8442,21 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           
           // 배치 병렬 처리 (5개씩 동시 처리, 순서 보장)
           const BATCH_SIZE = 5
+          const totalBatches = Math.ceil(sttTasks.length / BATCH_SIZE)
+          
+          // 초기 메시지에 총 배치 수 표시
+          setRenderingStatusMessage(`TTS랑 자막 싱크 맞추는 중... (총 ${sttTasks.length}개 장면, ${totalBatches}개 배치)`)
+          
           for (let batchStart = 0; batchStart < sttTasks.length; batchStart += BATCH_SIZE) {
             const batch = sttTasks.slice(batchStart, batchStart + BATCH_SIZE)
             const batchNumber = Math.floor(batchStart / BATCH_SIZE) + 1
-            const totalBatches = Math.ceil(sttTasks.length / BATCH_SIZE)
+            const processedItems = Math.min(batchStart + BATCH_SIZE, sttTasks.length)
+            const progressPercent = Math.round((processedItems / sttTasks.length) * 100)
             
-            setRenderingStatusMessage(`TTS랑 자막 싱크 맞추는 중... (배치 ${batchNumber}/${totalBatches})`)
+            // STT 분석 진행률을 그대로 진행률 바에 반영
+            setGeneratingVideoProgress(progressPercent)
+            
+            setRenderingStatusMessage(`TTS랑 자막 싱크 맞추는 중... (${processedItems}/${sttTasks.length}개 장면 처리 중, 배치 ${batchNumber}/${totalBatches}, ${progressPercent}%)`)
             console.log(`[Whisper] 배치 ${batchNumber}/${totalBatches} 처리 시작: ${batch.length}개 장면 병렬 처리`)
             
             // 배치 내 병렬 처리
@@ -8506,6 +8552,14 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               }
             }
             
+            const completedItems = Math.min(batchStart + BATCH_SIZE, sttTasks.length)
+            const completedProgressPercent = Math.round((completedItems / sttTasks.length) * 100)
+            
+            // STT 분석 진행률을 그대로 진행률 바에 반영
+            setGeneratingVideoProgress(completedProgressPercent)
+            
+            setRenderingStatusMessage(`TTS랑 자막 싱크 맞추는 중... (${completedItems}/${sttTasks.length}개 장면 완료, 배치 ${batchNumber}/${totalBatches}, ${completedProgressPercent}%)`)
+            
             console.log(`[Whisper] 배치 ${batchNumber}/${totalBatches} 처리 완료`)
             
             // 배치 간 짧은 딜레이 (API Rate Limit 방지)
@@ -8515,6 +8569,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           }
             
             console.log(`[Whisper] 씬별 전체 ${allWordTimings.length}개 단어 타이밍 추출 완료 (${allWordTimings.length}개 단어, 소수점 10자리 정밀도)`)
+            // STT 분석 완료 시 진행률 100%로 설정
+            setGeneratingVideoProgress(100)
           } else {
             if (!useWhisper) {
               console.log(`[v0] Whisper API 미사용 모드: 텍스트 길이 비율로 자막 생성`)
@@ -9306,12 +9362,21 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         
         // 배치 병렬 처리 (5개씩 동시 처리, 순서 보장)
         const BATCH_SIZE = 5
+        const totalBatches = Math.ceil(phraseSttTasks.length / BATCH_SIZE)
+        
+        // 초기 메시지에 총 구간 수 표시
+        setRenderingStatusMessage(`TTS랑 자막 싱크 맞추는 중... (총 ${phraseSttTasks.length}개 구간, ${totalBatches}개 배치)`)
+        
         for (let batchStart = 0; batchStart < phraseSttTasks.length; batchStart += BATCH_SIZE) {
           const batch = phraseSttTasks.slice(batchStart, batchStart + BATCH_SIZE)
           const batchNumber = Math.floor(batchStart / BATCH_SIZE) + 1
-          const totalBatches = Math.ceil(phraseSttTasks.length / BATCH_SIZE)
+          const processedItems = Math.min(batchStart + BATCH_SIZE, phraseSttTasks.length)
+          const progressPercent = Math.round((processedItems / phraseSttTasks.length) * 100)
           
-          setRenderingStatusMessage(`TTS랑 자막 싱크 맞추는 중... (배치 ${batchNumber}/${totalBatches})`)
+          // STT 분석 진행률을 그대로 진행률 바에 반영
+          setGeneratingVideoProgress(progressPercent)
+          
+          setRenderingStatusMessage(`TTS랑 자막 싱크 맞추는 중... (${processedItems}/${phraseSttTasks.length}개 구간 처리 중, 배치 ${batchNumber}/${totalBatches}, ${progressPercent}%)`)
           console.log(`[Whisper] 배치 ${batchNumber}/${totalBatches} 처리 시작: ${batch.length}개 구간 병렬 처리`)
           
           // 배치 내 병렬 처리
@@ -9404,6 +9469,14 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             }
           }
           
+          const completedItems = Math.min(batchStart + BATCH_SIZE, phraseSttTasks.length)
+          const completedProgressPercent = Math.round((completedItems / phraseSttTasks.length) * 100)
+          
+          // STT 분석 진행률을 그대로 진행률 바에 반영
+          setGeneratingVideoProgress(completedProgressPercent)
+          
+          setRenderingStatusMessage(`TTS랑 자막 싱크 맞추는 중... (${completedItems}/${phraseSttTasks.length}개 구간 완료, 배치 ${batchNumber}/${totalBatches}, ${completedProgressPercent}%)`)
+          
           console.log(`[Whisper] 배치 ${batchNumber}/${totalBatches} 처리 완료`)
           
           // 배치 간 짧은 딜레이 (API Rate Limit 방지)
@@ -9413,6 +9486,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         }
         
         console.log(`[Whisper] 전체 ${allWordTimings.length}개 단어 타이밍 추출 완료 (${totalPhrases}개 구간, ${scriptLines.length}개 문장)`)
+        // STT 분석 완료 시 진행률 100%로 설정
+        setGeneratingVideoProgress(100)
       } else {
         if (!useWhisper) {
           console.log(`[v0] Whisper API 미사용 모드: 텍스트 길이 비율로 자막 생성`)
@@ -20053,24 +20128,36 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                         </div>
 
                         <div className="space-y-3">
-                        <Button
-                      onClick={handleGenerateTTSForLines}
-                      disabled={isGeneratingTTS || scriptLines.length === 0}
-                      className="w-full bg-red-600 hover:bg-red-700 text-white"
-                      size="lg"
-                    >
-                      {isGeneratingTTS ? (
-                        <>
-                          <Sparkles className="w-4 h-4 mr-2 animate-spin" />
-                          TTS 생성 중... ({ttsGenerationProgress.current}/{ttsGenerationProgress.total})
-                            </>
-                          ) : (
-                              <>
-                          <Volume2 className="w-4 h-4 mr-2" />
-                          모든 문장에 TTS 생성하기
-                              </>
-                          )}
-                        </Button>
+                        {isGeneratingTTS ? (
+                          <Button
+                            onClick={() => {
+                              shouldStopTTSGeneration.current = true
+                              // 진행 중인 모든 TTS 요청 취소
+                              if (ttsAbortControllerRef.current) {
+                                ttsAbortControllerRef.current.abort()
+                                console.log("[TTS] 진행 중인 TTS 요청을 취소했습니다.")
+                              }
+                              setIsGeneratingTTS(false)
+                              setTtsGenerationProgress({ current: 0, total: 0 })
+                              console.log("[TTS] 사용자가 TTS 생성을 중지했습니다.")
+                            }}
+                            className="w-full bg-gray-600 hover:bg-gray-700 text-white"
+                            size="lg"
+                          >
+                            <X className="w-4 h-4 mr-2" />
+                            TTS 생성 중지
+                          </Button>
+                        ) : (
+                          <Button
+                            onClick={handleGenerateTTSForLines}
+                            disabled={scriptLines.length === 0}
+                            className="w-full bg-red-600 hover:bg-red-700 text-white"
+                            size="lg"
+                          >
+                            <Volume2 className="w-4 h-4 mr-2" />
+                            모든 문장에 TTS 생성하기
+                          </Button>
+                        )}
 
                           {/* 음성 파일 일괄 업로드 */}
                           <label className="cursor-pointer">
