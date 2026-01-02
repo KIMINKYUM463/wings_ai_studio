@@ -4443,14 +4443,59 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         audio.onerror = reject
       })
 
-      const actualAudioDuration = audio.duration
-      
       // STT 분석을 위해 오디오를 AudioBuffer로 로드 (audioBlob에서 arrayBuffer 읽기)
       const audioArrayBuffer = await audioBlob.arrayBuffer()
       const audioContextForSTT = new (window.AudioContext || (window as any).webkitAudioContext)()
       const mergedAudioBuffer = await audioContextForSTT.decodeAudioData(audioArrayBuffer)
       
-      console.log(`[Shorts 렌더링] 오디오 로드 완료: ${actualAudioDuration.toFixed(3)}초`)
+      // 실제 오디오 길이를 AudioBuffer에서 계산 (audio.duration보다 정확함)
+      // audio.duration은 메타데이터 기반이라 부정확할 수 있음
+      const calculatedDuration = mergedAudioBuffer.length / mergedAudioBuffer.sampleRate
+      
+      // 실제 오디오 데이터의 끝부분 확인 (침묵 구간 제외)
+      let actualEndSample = mergedAudioBuffer.length
+      const silenceThreshold = 0.001
+      const lookbackSamples = Math.floor(mergedAudioBuffer.sampleRate * 0.1)
+      
+      for (let channel = 0; channel < mergedAudioBuffer.numberOfChannels; channel++) {
+        const channelData = mergedAudioBuffer.getChannelData(channel)
+        for (let i = mergedAudioBuffer.length - 1; i >= Math.max(0, mergedAudioBuffer.length - lookbackSamples); i--) {
+          if (Math.abs(channelData[i]) > silenceThreshold) {
+            actualEndSample = Math.max(actualEndSample, i + 1)
+            break
+          }
+        }
+      }
+      
+      const actualDurationFromBuffer = Math.max(
+        calculatedDuration,
+        actualEndSample / mergedAudioBuffer.sampleRate
+      )
+      
+      // shortsScriptLines의 마지막 endTime도 확인 (더 정확할 수 있음)
+      const lastLineEndTime = scriptLinesToUse.length > 0 
+        ? scriptLinesToUse[scriptLinesToUse.length - 1].endTime / 1000 // 밀리초를 초로 변환
+        : 0
+      
+      // audio.duration, 실제 버퍼 길이, 마지막 라인 endTime 중 가장 작은 값 사용 (안전하게)
+      // 이렇게 하면 오디오 메타데이터 오류로 인한 문제를 방지할 수 있음
+      const audioDurationFromMetadata = audio.duration || 0
+      const actualAudioDuration = Math.min(
+        actualDurationFromBuffer,
+        lastLineEndTime > 0 ? lastLineEndTime : actualDurationFromBuffer,
+        audioDurationFromMetadata > 0 ? audioDurationFromMetadata : actualDurationFromBuffer
+      )
+      
+      console.log(`[Shorts 렌더링] 오디오 길이 확인:`)
+      console.log(`  - audio.duration (메타데이터): ${audioDurationFromMetadata.toFixed(3)}초`)
+      console.log(`  - 실제 버퍼 길이: ${actualDurationFromBuffer.toFixed(3)}초`)
+      console.log(`  - 마지막 라인 endTime: ${lastLineEndTime.toFixed(3)}초`)
+      console.log(`  - 최종 사용 길이: ${actualAudioDuration.toFixed(3)}초`)
+      
+      // 경고: 길이 차이가 크면 경고
+      if (Math.abs(audioDurationFromMetadata - actualDurationFromBuffer) > 1.0) {
+        console.warn(`[Shorts 렌더링] ⚠️ 오디오 길이 불일치 감지! 메타데이터(${audioDurationFromMetadata.toFixed(3)}초)와 실제 버퍼(${actualDurationFromBuffer.toFixed(3)}초) 차이가 큽니다. 실제 버퍼 길이를 사용합니다.`)
+      }
       
       // STT 분석으로 정확한 타이밍 추출
       const openaiApiKey = getApiKey("openai_api_key") || getApiKey("openai") || getApiKey("gpt_api_key") || getApiKey("chatgpt_api_key")
@@ -4596,12 +4641,20 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         }
       }
 
+      // 오디오 종료 이벤트 핸들러 (렌더링 시작 전에 정의)
+      let handleAudioEnded: (() => void) | null = null
+
       mediaRecorder.onstop = () => {
         const videoBlob = new Blob(chunks, { type: "video/webm" })
         const videoUrl = URL.createObjectURL(videoBlob)
         setShortsVideoUrl(videoUrl)
         URL.revokeObjectURL(audioUrl)
         setIsRenderingShorts(false)
+        // 이벤트 리스너 정리
+        if (handleAudioEnded) {
+          audio.removeEventListener("ended", handleAudioEnded)
+        }
+        console.log(`[Shorts 렌더링] 렌더링 완료: 영상 크기 ${(videoBlob.size / 1024 / 1024).toFixed(2)}MB`)
         // alert("쇼츠 영상 렌더링이 완료되었습니다!") // 완료 알림 제거
       }
 
@@ -4694,6 +4747,16 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       // 렌더링 시작
       mediaRecorder.start()
       audio.play()
+      
+      // 오디오 종료 이벤트 리스너 추가 (안전장치)
+      handleAudioEnded = () => {
+        console.log(`[Shorts 렌더링] 오디오 종료 이벤트 발생`)
+        if (mediaRecorder.state === "recording") {
+          mediaRecorder.stop()
+        }
+        audio.pause()
+      }
+      audio.addEventListener("ended", handleAudioEnded)
 
       const renderFrame = () => {
         const elapsed = audio.currentTime
@@ -5011,11 +5074,37 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           }
         }
 
-        if (!audio.paused && elapsed < actualAudioDuration) {
+        // 렌더링 종료 조건:
+        // 1. 오디오가 일시정지되었거나
+        // 2. 경과 시간이 실제 오디오 길이를 초과했거나
+        // 3. 마지막 라인의 endTime을 초과했거나
+        // 4. 오디오가 끝났는지 확인 (ended 이벤트)
+        const lastLineEndTime = scriptLinesToUse.length > 0 
+          ? scriptLinesToUse[scriptLinesToUse.length - 1].endTime / 1000 
+          : actualAudioDuration
+        const maxDuration = Math.min(actualAudioDuration, lastLineEndTime)
+        
+        // 안전장치: elapsed가 maxDuration을 초과하면 무조건 종료
+        // audio.currentTime이 계속 증가하거나 오디오가 반복 재생되는 경우 방지
+        if (elapsed >= maxDuration) {
+          console.log(`[Shorts 렌더링] ⚠️ 경과 시간이 최대 길이를 초과했습니다. 강제 종료: elapsed=${elapsed.toFixed(3)}초, maxDuration=${maxDuration.toFixed(3)}초`)
+          if (mediaRecorder.state === "recording") {
+            mediaRecorder.stop()
+          }
+          audio.pause()
+          audio.removeEventListener("ended", handleAudioEnded)
+          return
+        }
+        
+        if (!audio.paused && elapsed < maxDuration && !audio.ended) {
           requestAnimationFrame(renderFrame)
         } else {
-          mediaRecorder.stop()
+          console.log(`[Shorts 렌더링] 렌더링 종료: elapsed=${elapsed.toFixed(3)}초, maxDuration=${maxDuration.toFixed(3)}초, audio.ended=${audio.ended}, paused=${audio.paused}`)
+          if (mediaRecorder.state === "recording") {
+            mediaRecorder.stop()
+          }
           audio.pause()
+          audio.removeEventListener("ended", handleAudioEnded)
         }
       }
 
