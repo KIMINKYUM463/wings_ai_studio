@@ -5106,13 +5106,17 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             }
             
             // 현재 시간에 맞는 자막 라인 찾기 (현재 라인 내에서만)
-            // 중요: 현재 라인의 자막만 표시 (이전/다음 라인 자막 표시 방지)
+            // 중요: 자막이 멈추지 않도록 항상 자막 표시
             const timeInLine = Math.max(0, elapsed - lineStartTime)
             
             // 현재 라인 시간 범위 내에서만 자막 표시
             if (elapsed >= lineStartTime && elapsed < lineEndTime) {
               let currentSubtitleLine = subtitleLines.find(
                 (line) => {
+                  // 유효성 검증: start < end인 자막만 사용
+                  if (line.startTime >= line.endTime) {
+                    return false
+                  }
                   // 첫 번째 자막 라인의 경우 startTime이 0이면 timeInLine이 0일 때도 매칭
                   if (line.startTime === 0 && timeInLine === 0) {
                     return true
@@ -5122,9 +5126,38 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                 }
               )
               
-              // 현재 자막 라인을 찾지 못한 경우 첫 번째 자막 라인 사용
-              if (!currentSubtitleLine && subtitleLines.length > 0) {
-                currentSubtitleLine = subtitleLines[0]
+              // 현재 자막 라인을 찾지 못한 경우
+              if (!currentSubtitleLine) {
+                // 다음 자막 라인이 곧 시작되는지 확인 (0.1초 이내)
+                const upcomingSubtitleLine = subtitleLines.find(
+                  (line) => {
+                    if (line.startTime >= line.endTime) {
+                      return false
+                    }
+                    const timeUntilNext = line.startTime - timeInLine
+                    return timeUntilNext > 0 && timeUntilNext <= 0.1
+                  }
+                )
+                
+                if (upcomingSubtitleLine) {
+                  currentSubtitleLine = upcomingSubtitleLine
+                } else {
+                  // 가장 가까운 자막 라인 찾기
+                  const validSubtitleLines = subtitleLines.filter((line) => line.startTime < line.endTime)
+                  
+                  if (validSubtitleLines.length > 0) {
+                    const closestLine = validSubtitleLines.reduce((closest, line) => {
+                      const closestDistance = Math.abs(closest.startTime - timeInLine)
+                      const currentDistance = Math.abs(line.startTime - timeInLine)
+                      return currentDistance < closestDistance ? line : closest
+                    }, validSubtitleLines[0])
+                    
+                    currentSubtitleLine = closestLine
+                  } else if (subtitleLines.length > 0) {
+                    // 유효한 자막이 없어도 첫 번째 자막 사용
+                    currentSubtitleLine = subtitleLines[0]
+                  }
+                }
               }
               
               // 여전히 찾지 못한 경우 기본값 사용
