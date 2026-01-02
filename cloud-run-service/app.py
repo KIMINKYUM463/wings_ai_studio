@@ -465,9 +465,26 @@ def render_video():
                             last_subtitle_index = len(subtitles) - 1
                             
                             for sub_idx, sub in enumerate(subtitles):
-                                # 미리보기에서 보낸 정확한 시간 그대로 사용
+                                # 미리보기에서 보낸 정확한 시간 그대로 사용 (이미 startTime이 앞당겨져 있음)
                                 sub_start = float(sub.get('start', sub.get('startTime', 0)))
                                 sub_end = float(sub.get('end', sub.get('endTime', sub_start + 2)))
+                                
+                                # 다음 자막이 있으면 endTime을 다음 자막의 startTime까지 확장 (미리보기와 동일)
+                                if sub_idx < last_subtitle_index:
+                                    next_sub = subtitles[sub_idx + 1]
+                                    next_sub_start = float(next_sub.get('start', next_sub.get('startTime', 0)))
+                                    
+                                    # 항상 다음 자막의 startTime까지 확장 (겹침 방지)
+                                    if sub_end != next_sub_start:
+                                        # 현재 자막의 endTime이 다음 자막의 startTime보다 크면 겹침 발생
+                                        if sub_end > next_sub_start:
+                                            # 겹침 방지: 이전 자막의 endTime을 다음 자막의 startTime 직전으로 조정
+                                            sub_end = next_sub_start - 0.01  # 0.01초 여유
+                                            print(f"[Render] 자막 {sub_idx+1} endTime 겹침 방지: {sub_end:.3f}초 (다음 자막 start={next_sub_start:.3f}초)")
+                                        else:
+                                            # 확장: 다음 자막의 startTime까지
+                                            sub_end = next_sub_start
+                                            print(f"[Render] 자막 {sub_idx+1} endTime 확장: {sub_end:.3f}초 (다음 자막 start={next_sub_start:.3f}초까지)")
                                 
                                 # 마지막 자막인 경우, 실제 오디오 길이 + 3초 여유에 맞춰 endTime 조정
                                 is_last_subtitle = (sub_idx == last_subtitle_index)
@@ -475,6 +492,13 @@ def render_video():
                                     target_end_time = actual_audio_duration + 3
                                     if sub_end < target_end_time:
                                         sub_end = target_end_time
+                                        print(f"[Render] 마지막 자막 endTime 조정: {sub_end:.3f}초 (실제 오디오 길이: {actual_audio_duration:.3f}초 + 3초 여유)")
+                                
+                                # 자막 타이밍 유효성 검증 (원본 시간 확인)
+                                # 최소 길이: 0.01초 (10ms) - 너무 짧은 자막은 스킵
+                                if sub_end <= sub_start or sub_end - sub_start < 0.01:
+                                    print(f"[Render] 자막 {sub_idx+1} 타이밍 무효 (너무 짧음): start={sub_start:.3f}초, end={sub_end:.3f}초, 길이={sub_end - sub_start:.3f}초 (스킵)")
+                                    continue
                                 
                                 # 자막이 세그먼트 범위와 겹치면 포함
                                 if sub_end < seg_start_time or sub_start > seg_end_time:
@@ -488,8 +512,29 @@ def render_video():
                                 adjusted_start = max(0.0, adjusted_start)
                                 adjusted_end = min(segment_duration_precise, adjusted_end)
                                 
-                                # 유효한 시간 범위인지 확인
-                                if adjusted_end <= adjusted_start or adjusted_end - adjusted_start < 0.001:
+                                # 세그먼트 범위 제한 후 최소 길이 보장 (0.1초)
+                                # 자막이 세그먼트 경계에 걸쳐 있어도 최소한 표시되도록
+                                min_duration = 0.1  # 최소 0.1초 (100ms)
+                                if adjusted_end <= adjusted_start:
+                                    # 자막이 세그먼트 경계에 걸려서 길이가 0이 된 경우
+                                    # 최소 길이로 확장 (세그먼트 범위 내에서)
+                                    if adjusted_start + min_duration <= segment_duration_precise:
+                                        adjusted_end = adjusted_start + min_duration
+                                        print(f"[Render] 자막 {sub_idx+1} 세그먼트 경계 처리: 최소 길이로 확장 (start={adjusted_start:.3f}초, end={adjusted_end:.3f}초)")
+                                    else:
+                                        # 세그먼트 끝에 걸려있으면 스킵
+                                        print(f"[Render] 자막 {sub_idx+1} 세그먼트 끝에 걸림: start={adjusted_start:.3f}초, 세그먼트 길이={segment_duration_precise:.3f}초 (스킵)")
+                                        continue
+                                elif adjusted_end - adjusted_start < min_duration:
+                                    # 자막이 너무 짧으면 최소 길이로 확장 (세그먼트 범위 내에서)
+                                    new_end = min(adjusted_start + min_duration, segment_duration_precise)
+                                    if new_end > adjusted_end:
+                                        adjusted_end = new_end
+                                        print(f"[Render] 자막 {sub_idx+1} 최소 길이 보장: {adjusted_end - adjusted_start:.3f}초 -> {min_duration:.3f}초 (start={adjusted_start:.3f}초, end={adjusted_end:.3f}초)")
+                                
+                                # 최종 유효성 검증 (최소 길이 0.01초)
+                                if adjusted_end - adjusted_start < 0.01:
+                                    print(f"[Render] 자막 {sub_idx+1} 최종 검증 실패 (너무 짧음): start={adjusted_start:.3f}초, end={adjusted_end:.3f}초, 길이={adjusted_end - adjusted_start:.3f}초 (스킵)")
                                     continue
                                 
                                 text = sub.get('text', '').strip()

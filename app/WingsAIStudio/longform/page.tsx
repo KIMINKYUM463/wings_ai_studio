@@ -5,6 +5,17 @@ import type React from "react"
 import { useState, useEffect, useRef } from "react"
 import JSZip from "jszip"
 
+// 프레임 정렬 상수 및 함수 (벤치마킹 코드 방식 - 전체 파일에서 공유)
+const VIDEO_FPS = 25
+const FRAME_DURATION = 1.0 / VIDEO_FPS // 0.04초
+const SUBTITLE_SAFETY_MARGIN = 0.02 // 20ms 안전 마진 (장면 전환 시 자막 잘림 방지)
+
+// 프레임 정렬 함수: 시간을 0.04초 단위로 올림 처리
+const alignToFrame = (time: number): number => {
+  // 아주 미세한 오차(1ms 미만)는 무시하고 올림 처리
+  return Math.ceil((time - 0.0001) / FRAME_DURATION) * FRAME_DURATION
+}
+
 // 커스텀 애니메이션 스타일 추가
 const customStyles = `
   @keyframes fade-in {
@@ -605,7 +616,13 @@ export default function LongformContentPage() {
   const [newVoiceName, setNewVoiceName] = useState("") // 새 목소리 이름
   const [previewingVoiceId, setPreviewingVoiceId] = useState<string | null>(null)
   const [previewAudioUrl, setPreviewAudioUrl] = useState<string | null>(null)
-  const [generatedAudios, setGeneratedAudios] = useState<Array<{ lineId: number; audioUrl: string; audioBase64: string; alignment?: any }>>([])
+  const [generatedAudios, setGeneratedAudios] = useState<Array<{ 
+    lineId: number; 
+    audioUrl: string; 
+    audioBase64: string; 
+    alignment?: any;
+    originalLineId?: number; // 원본 문장 ID
+  }>>([])
   const [isGeneratingTTS, setIsGeneratingTTS] = useState(false)
   const [generatingTTSForLine, setGeneratingTTSForLine] = useState<Set<number>>(new Set()) // 개별 문장 TTS 생성 중인 문장 ID 추적
   const [ttsGenerationProgress, setTtsGenerationProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 })
@@ -1598,7 +1615,13 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
 
       // 로컬 변수로 이미지와 오디오 결과를 추적 (React state는 비동기라서 바로 반영 안됨)
       let localImageResults: Array<{ lineId: number; imageUrl: string; prompt: string }> = []
-      let localAudioResults: Array<{ lineId: number; audioUrl: string; audioBase64: string; alignment?: any }> = []
+      let localAudioResults: Array<{ 
+        lineId: number; 
+        audioUrl: string; 
+        audioBase64: string; 
+        alignment?: any;
+        originalLineId?: number; // 원본 문장 ID
+      }> = []
 
       // Step 4: 이미지 생성 (수동 모드와 동일하게 전체 문장에 대해 생성)
       if (replicateApiKey) {
@@ -1777,9 +1800,12 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         let ttsSuccessCount = 0
         let ttsFailCount = 0
         
-        // 수동 모드와 동일하게 전체 문장에 대해 TTS 생성
+        // 장면별로 TTS 생성 (전체 텍스트로 하나의 오디오 생성 - 자연스러운 목소리 연결)
+        // 15~20자 나누기는 영상 렌더링 시점에 처리 (STT 불필요)
+        
         for (let i = 0; i < sentences.length; i++) {
           const line = sentences[i]
+          
           setAutoProgress({
             step: 5,
             totalSteps: 9,
@@ -1789,21 +1815,22 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           })
           
           try {
-            console.log(`[자동화] TTS 생성 시작 (${i + 1}/${sentences.length}): ${line.text.substring(0, 30)}...`)
+            console.log(`[자동화] TTS 생성 시작 (문장 ${line.id}): ${line.text.substring(0, 30)}...`)
             
-            // 재시도 로직이 포함된 TTS 생성
+            // 전체 텍스트로 TTS 생성 (자연스러운 목소리 연결)
             const data = await generateTTSWithRetry(line, selectedVoiceId)
             
             localAudioResults.push({
               lineId: line.id,
               audioUrl: data.audioUrl,
               audioBase64: data.audioBase64 || "",
+              originalLineId: line.id,
             })
             setGeneratedAudios([...localAudioResults])
             ttsSuccessCount++
-            console.log(`[자동화] TTS 생성 완료 (${i + 1}/${sentences.length})`)
+            console.log(`[자동화] TTS 생성 완료 (문장 ${line.id})`)
           } catch (error) {
-            console.error(`[자동화] TTS 생성 최종 실패 (문장 ${line.id}):`, error)
+            console.error(`[자동화] TTS 생성 실패 (문장 ${line.id}):`, error)
             ttsFailCount++
           }
           
@@ -1868,13 +1895,16 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           // ===== 수동 모드의 handleRenderVideo와 완전히 동일한 로직 =====
           
           // 1. 각 TTS 오디오의 정확한 길이 측정 (수동 모드와 동일)
+          // 프레임 정렬: 25fps 기준 0.04초 단위로 정렬 (영상/자막 싱크 오차 원천 차단)
+          // VIDEO_FPS, FRAME_DURATION, alignToFrame은 파일 상단에 정의됨
           const audioDurations: Array<{ lineId: number; duration: number; audioBuffer?: AudioBuffer; alignment?: any }> = []
           const audioContextForAnalysis = new (window.AudioContext || (window as any).webkitAudioContext)()
 
+          // 장면별 오디오 길이 측정 (전체 텍스트로 생성된 TTS)
           for (let i = 0; i < sentences.length; i++) {
             const line = sentences[i]
             const audio = localAudioResults.find((a) => a.lineId === line.id)
-            if (audio) {
+            if (audio && audio.audioUrl) {
               try {
                 setAutoProgress({
                   step: 6,
@@ -1910,7 +1940,11 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                   preciseDuration,
                   actualEndSample / audioBuffer.sampleRate
                 )
-                const finalDuration = Number.parseFloat(actualDuration.toFixed(6))
+                // 프레임 정렬: 오디오 길이를 프레임 단위로 올림 처리 (벤치마킹 코드 방식)
+                const alignedDuration = alignToFrame(actualDuration)
+                const finalDuration = Number.parseFloat(alignedDuration.toFixed(6))
+                
+                console.log(`[오디오 길이] 문장 ${line.id}: 원본=${actualDuration.toFixed(6)}초, 프레임 정렬=${finalDuration.toFixed(6)}초`)
                 
                 audioDurations.push({ 
                   lineId: line.id, 
@@ -1925,8 +1959,59 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             }
           }
 
-          // 2. 자막 생성 (각 문장을 여러 줄로 나누어 정확한 타이밍 계산) - 수동 모드와 완전히 동일
+          // 2. 자막 생성 (장면별 TTS 생성, 15~20자씩 나눈 청크로 자막 생성 - STT 불필요)
+          // 텍스트 길이 비율로 타이밍 계산 (실제 오디오 길이 측정 후 비율 적용)
           const subtitles: Array<{ id: number; start: number; end: number; text: string }> = []
+          
+          // 텍스트를 15~20자씩 나누는 함수 (자막용, 영상 렌더링 시점에만 사용)
+          const splitTextForSubtitles = (text: string, minChars: number = 15, maxChars: number = 20): Array<{ text: string; startChar: number; endChar: number }> => {
+            const chunks: Array<{ text: string; startChar: number; endChar: number }> = []
+            let currentChunk = ""
+            let startChar = 0
+            
+            // 공백과 구두점을 기준으로 단어 단위로 분할
+            const words = text.split(/(\s+)/)
+            
+            for (let i = 0; i < words.length; i++) {
+              const word = words[i]
+              const testChunk = currentChunk + word
+              
+              // 최소 길이 이상이고 최대 길이를 초과하면 현재 청크 저장
+              if (testChunk.length >= minChars && testChunk.length > maxChars && currentChunk.length >= minChars) {
+                chunks.push({
+                  text: currentChunk.trim(),
+                  startChar: startChar,
+                  endChar: startChar + currentChunk.length
+                })
+                startChar += currentChunk.length
+                currentChunk = word
+              } else {
+                currentChunk = testChunk
+              }
+              
+              // 구두점(., !, ?)이 있으면 강제로 나누기
+              if (/[.!?。！？]$/.test(word) && currentChunk.length >= minChars) {
+                chunks.push({
+                  text: currentChunk.trim(),
+                  startChar: startChar,
+                  endChar: startChar + currentChunk.length
+                })
+                startChar += currentChunk.length
+                currentChunk = ""
+              }
+            }
+            
+            // 마지막 청크 추가
+            if (currentChunk.trim().length > 0) {
+              chunks.push({
+                text: currentChunk.trim(),
+                startChar: startChar,
+                endChar: startChar + currentChunk.length
+              })
+            }
+            
+            return chunks.length > 0 ? chunks : [{ text: text, startChar: 0, endChar: text.length }]
+          }
           
           // splitIntoSubtitleLines 함수 (개선: 실제 오디오 웨이브폼 분석으로 침묵 구간 감지)
           const splitIntoSubtitleLines = (text: string, audioBuffer?: AudioBuffer, totalDuration: number = 0): Array<{ text: string; startTime: number; endTime: number }> => {
@@ -2107,167 +2192,97 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           let subtitleTime = 0
           let subtitleId = 1
 
+          // 장면별 TTS 생성, 15~20자씩 나눈 청크로 자막 생성 (STT 불필요)
           for (const line of sentences) {
             const audioData = audioDurations.find((d) => d.lineId === line.id)
             const audioDuration = audioData?.duration || 0
-            const audioBuffer = audioData?.audioBuffer
-            const alignment = audioData?.alignment
             
             if (audioDuration > 0) {
-              // STT(Whisper align)를 우선 사용하여 정확한 자막 타이밍 계산
-              // TTS 생성 후 실제 오디오를 STT로 분석하여 완벽한 싱크 확보
-              const openaiApiKey = getApiKey("openai") || getApiKey("gpt_api_key") || getApiKey("chatgpt_api_key")
+              // 영상 렌더링 시점에 15~20자씩 나누기
+              const subtitleChunks = splitTextForSubtitles(line.text, 15, 20)
+              console.log(`[자막 생성] 청크별 자막 생성 (문장 ${line.id}, ${subtitleChunks.length}개 청크, 전체 오디오: ${audioDuration.toFixed(3)}초)`)
               
-              if (openaiApiKey && audioBuffer) {
-                try {
-                  console.log(`[자막 생성] STT(Whisper align) 사용하여 정확한 타이밍 계산 (줄 ${line.id})`)
-                  
-                  // AudioBuffer를 Blob으로 변환
-                  const audioBlob = await audioBufferToBlob(audioBuffer)
-                  
-                  // Whisper align API 호출 (STT로 실제 오디오 분석)
-                  const formData = new FormData()
-                  formData.append("audio", audioBlob, `line_${line.id}.wav`)
-                  formData.append("text", line.text)
-                  
-                  const whisperResponse = await fetch("/api/whisper-align", {
-                    method: "POST",
-                    body: formData,
-                  })
-                  
-                  if (whisperResponse.ok) {
-                    const whisperData = await whisperResponse.json()
-                    if (whisperData.wordTimings && whisperData.wordTimings.length > 0) {
-                      console.log(`[자막 생성] ✅ STT(Whisper align) 성공 (줄 ${line.id}): ${whisperData.wordTimings.length}개 단어 타이밍`)
-                      
-                      // Whisper 단어 타이밍을 사용하여 자막 생성 (STT 기반 정확한 타이밍)
-                      const sortedWordTimings = whisperData.wordTimings.sort((a: any, b: any) => a.start - b.start)
-                      let currentLine: string[] = []
-                      let lineStartTime = 0
-                      const maxChars = 20
-                      
-                      for (let j = 0; j < sortedWordTimings.length; j++) {
-                        const wordTiming = sortedWordTimings[j]
-                        const word = wordTiming.word
-                        const testLine = currentLine.length > 0 ? currentLine.join(" ") + " " + word : word
-                        
-                        if (testLine.length > maxChars && currentLine.length >= 1) {
-                          if (currentLine.length > 0) {
-                            const prevWordEnd = j > 0 ? sortedWordTimings[j - 1].end : wordTiming.start
+              const totalTextLength = line.text.length
+              
+              for (let j = 0; j < subtitleChunks.length; j++) {
+                const chunk = subtitleChunks[j]
+                
+                // 텍스트 길이 비율로 타이밍 계산
+                const chunkStartRatio = chunk.startChar / totalTextLength
+                const chunkEndRatio = chunk.endChar / totalTextLength
+                
+                const chunkStart = subtitleTime + (audioDuration * chunkStartRatio)
+                const chunkEnd = subtitleTime + (audioDuration * chunkEndRatio)
+                
                             subtitles.push({
                               id: subtitleId++,
-                              start: Number.parseFloat((subtitleTime + lineStartTime).toFixed(5)),
-                              end: Number.parseFloat((subtitleTime + prevWordEnd).toFixed(5)),
-                              text: currentLine.join(" ")
-                            })
-                          }
-                          currentLine = [word]
-                          lineStartTime = wordTiming.start
-                        } else {
-                          currentLine.push(word)
-                        }
-                      }
-                      
-                      // 마지막 줄 추가
-                      if (currentLine.length > 0) {
-                        const lastWordEnd = sortedWordTimings[sortedWordTimings.length - 1].end
-                        subtitles.push({
-                          id: subtitleId++,
-                          start: Number.parseFloat((subtitleTime + lineStartTime).toFixed(5)),
-                          end: Number.parseFloat((subtitleTime + lastWordEnd).toFixed(5)),
-                          text: currentLine.join(" ")
-                        })
-                      }
-                      
-                      continue // STT(Whisper align) 성공 시 다음 문장으로
-                    }
-                  } else {
-                    const errorText = await whisperResponse.text()
-                    console.warn(`[자막 생성] STT(Whisper align) API 오류 (줄 ${line.id}): ${whisperResponse.status} ${errorText}`)
-                  }
-                } catch (error) {
-                  const errorMessage = error instanceof Error ? error.message : String(error)
-                  // OpenAI API 키 관련 오류인지 확인
-                  if (errorMessage.toLowerCase().includes("api key") ||
-                      errorMessage.toLowerCase().includes("openai api 키") ||
-                      errorMessage.toLowerCase().includes("unauthorized")) {
-                    console.warn(`[자막 생성] ❌ OpenAI API 키 오류 (줄 ${line.id}): ${errorMessage}\n\n해결 방법:\n1. 설정에서 OpenAI API 키를 확인하세요\n2. API 키가 올바른지 확인하세요\n\n대체 방식으로 자막을 생성합니다.`)
-                  } else {
-                    console.warn(`[자막 생성] STT(Whisper align) 실패 (줄 ${line.id}), 대체 방식 사용:`, errorMessage)
-                  }
-                }
-              } else {
-                if (!openaiApiKey) {
-                  console.warn(`[자막 생성] OpenAI API 키가 없어 STT(Whisper align)를 사용할 수 없습니다 (줄 ${line.id}). 대체 방식 사용.`)
-                }
-                if (!audioBuffer) {
-                  console.warn(`[자막 생성] 오디오 버퍼가 없어 STT(Whisper align)를 사용할 수 없습니다 (줄 ${line.id}). 대체 방식 사용.`)
-                }
-              }
-              
-              // STT(Whisper align) 실패하거나 사용할 수 없으면 대체 방식 사용
-              // 1순위: ElevenLabs alignment (있을 경우)
-              // 2순위: 웨이브폼 분석
-              
-              if (alignment && selectedVoiceId && !selectedVoiceId.startsWith("ttsmaker-")) {
-                try {
-                  const geminiApiKey = getGeminiApiKey()
-                  if (geminiApiKey) {
-                    console.log(`[자막 생성] STT 실패, ElevenLabs alignment 사용 (줄 ${line.id})`)
-                    // 의미 단위 세그먼트 생성
-                    const semanticSegments = await generateSemanticSegments(line.text, geminiApiKey)
-                    // alignment와 세그먼트 매칭하여 정확한 타이밍 계산
-                    const phrases = alignmentToPhrases(alignment, 20, semanticSegments)
-                    
-                    // 각 자막 생성 (alignment 기반 정확한 타이밍)
-                    for (const phrase of phrases) {
-                      const start = subtitleTime + phrase.start
-                      const end = subtitleTime + phrase.end
-
-                      subtitles.push({
-                        id: subtitleId++,
-                        start: Number.parseFloat(start.toFixed(5)), // 소수점 5자리까지 정확하게
-                        end: Number.parseFloat(end.toFixed(5)),
-                        text: phrase.text
-                      })
-                    }
-                    continue // alignment 성공 시 다음 문장으로
-                  }
-                } catch (error) {
-                  console.error(`[자막 생성] alignment 사용 실패 (줄 ${line.id}):`, error)
-                }
-              }
-              
-              // 최종 대체: 웨이브폼 분석 사용
-              console.log(`[자막 생성] 웨이브폼 분석 사용 (줄 ${line.id})`)
-              const subtitleLines = splitIntoSubtitleLines(line.text, audioBuffer, audioDuration)
-              
-              for (let j = 0; j < subtitleLines.length; j++) {
-                const subtitleLine = subtitleLines[j]
-                const start = subtitleTime + subtitleLine.startTime
-                const end = subtitleTime + subtitleLine.endTime
-
-                subtitles.push({
-                  id: subtitleId++,
-                  start: Number.parseFloat(start.toFixed(5)), // 소수점 5자리로 정밀도 향상
-                  end: Number.parseFloat(end.toFixed(5)),
-                  text: subtitleLine.text
+                  start: Number.parseFloat(alignToFrame(chunkStart).toFixed(10)),
+                  end: Number.parseFloat(alignToFrame(chunkEnd).toFixed(10)),
+                  text: chunk.text
                 })
+                
+                console.log(`[자막 생성] 청크 ${j + 1}/${subtitleChunks.length}: "${chunk.text}" (${chunkStart.toFixed(3)}초 ~ ${chunkEnd.toFixed(3)}초, ${chunk.text.length}자)`)
               }
+              
+              subtitleTime += audioDuration
             } else {
               // 오디오가 없으면 기본값 사용 (3초)
-              subtitles.push({
-                id: subtitleId++,
-                start: subtitleTime,
-                end: subtitleTime + 3,
+                        subtitles.push({
+                          id: subtitleId++,
+                start: Number.parseFloat(alignToFrame(subtitleTime).toFixed(10)),
+                end: Number.parseFloat(alignToFrame(subtitleTime + 3).toFixed(10)),
                 text: line.text
               })
+              subtitleTime += 3
             }
-            
-            subtitleTime += audioDuration > 0 ? audioDuration : 3
           }
 
           const totalDuration = subtitleTime
+          
+          // 자막 타이밍 정리 및 프레임 정렬 (벤치마킹 코드 방식 적용)
+          // 프레임 정렬: 25fps 기준 0.04초 단위로 정렬 (영상/자막 싱크 오차 원천 차단)
+          // VIDEO_FPS, FRAME_DURATION, SUBTITLE_SAFETY_MARGIN, alignToFrame은 파일 상단에 정의됨
+          if (subtitles.length > 1) {
+            // start 시간 순으로 정렬
+            subtitles.sort((a, b) => a.start - b.start)
+            
+            // 1. 프레임 정렬 적용: 모든 자막의 start/end 시간을 프레임 단위로 정렬
+            for (let i = 0; i < subtitles.length; i++) {
+              subtitles[i].start = Number.parseFloat(alignToFrame(subtitles[i].start).toFixed(10))
+              subtitles[i].end = Number.parseFloat(alignToFrame(subtitles[i].end).toFixed(10))
+            }
+            
+            // 2. 자막 endTime 확장: 각 자막의 endTime을 다음 자막의 startTime까지 확장
+            // 자막은 다음 자막이 나오기 전까지 끝까지 표시되어야 함 (TTS가 끝날 때까지)
+            for (let i = 0; i < subtitles.length - 1; i++) {
+              const currentSubtitle = subtitles[i]
+              const nextSubtitle = subtitles[i + 1]
+              
+              // 타이밍 겹침 방지: 다음 자막의 startTime이 이전 자막의 endTime보다 작거나 같으면 조정
+              if (nextSubtitle.start <= currentSubtitle.end) {
+                // 다음 자막의 startTime을 이전 자막의 endTime + 1프레임(0.04초)으로 설정
+                nextSubtitle.start = Number.parseFloat(alignToFrame(currentSubtitle.end + FRAME_DURATION).toFixed(10))
+                console.log(`[자막 타이밍] 겹침 방지: 자막 ${i + 1} end=${currentSubtitle.end.toFixed(3)}초, 자막 ${i + 2} start=${nextSubtitle.start.toFixed(3)}초로 조정`)
+              } else {
+                // 간격이 있으면 현재 자막의 endTime을 다음 자막의 startTime까지 확장
+                // 자막이 다음 자막이 나오기 전까지 끝까지 표시되도록
+                currentSubtitle.end = Number.parseFloat(nextSubtitle.start.toFixed(10))
+                console.log(`[자막 타이밍] 자막 ${i + 1} endTime 확장: ${currentSubtitle.end.toFixed(3)}초 (다음 자막 start=${nextSubtitle.start.toFixed(3)}초까지)`)
+              }
+            }
+            
+            // 4. 모든 자막의 endTime이 startTime보다 큰지 확인
+            for (let i = 0; i < subtitles.length; i++) {
+              if (subtitles[i].end <= subtitles[i].start) {
+                // endTime이 startTime보다 작거나 같으면 최소 1프레임(0.04초) 길이로 설정
+                subtitles[i].end = Number.parseFloat((subtitles[i].start + FRAME_DURATION).toFixed(10))
+                console.log(`[자막 타이밍] 자막 ${i + 1} 길이 보정: start=${subtitles[i].start.toFixed(3)}초, end=${subtitles[i].end.toFixed(3)}초`)
+              }
+            }
+            
+            console.log(`[자막 타이밍] 프레임 정렬 완료 (${VIDEO_FPS}fps, ${FRAME_DURATION.toFixed(3)}초 단위, 안전 마진 ${SUBTITLE_SAFETY_MARGIN.toFixed(3)}초)`)
+          }
+          
           console.log(`[자동화] 자막 ${subtitles.length}개 생성 완료 (수동 모드와 동일한 분할 방식)`)
           console.log(`[자동화] 총 영상 길이: ${totalDuration.toFixed(2)}초`)
           setRenderingStatusMessage(`자막 생성 완료 (${subtitles.length}개)`)
@@ -2536,17 +2551,18 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               
               return {
                 id: s.id,
-                // 자막 타이밍을 0.5초 앞당겨서 전달 (TTS와 동기화 개선)
-                start: Math.max(0, s.start - 0.5),
-                end: Math.max(0, endTime - 0.5), // 조정된 endTime에서 0.5초 빼기
+                // 미리보기와 동일한 타이밍 적용: timingOffset (0.4초)를 startTime에서 빼서 자막을 앞당김
+                // 미리보기에서는 표시 시점에만 offset을 적용하지만, 빠른다운로드에서는 데이터 자체를 조정
+                start: Math.max(0, s.start - 0.4),
+                end: Math.max(Math.max(0, s.start - 0.4) + 0.01, endTime - 0.4), // 최소 길이 보장
                 text: s.text,
               }
             })
             
-            // 마지막 자막의 endTime이 실제 오디오 길이 + 여유(0.5초 앞당김 후)보다 짧으면 다시 조정
+            // 마지막 자막의 endTime이 실제 오디오 길이 + 여유(0.4초 앞당김 후)보다 짧으면 다시 조정
             if (adjustedSubtitlesForAuto.length > 0 && actualAudioDurationForAuto > 0) {
               const lastSubtitle = adjustedSubtitlesForAuto[adjustedSubtitlesForAuto.length - 1]
-              const adjustedAudioDurationWithPaddingForAuto = Math.max(0, audioDurationWithPaddingForAuto - 0.5) // 0.5초 앞당김 반영
+              const adjustedAudioDurationWithPaddingForAuto = Math.max(0, audioDurationWithPaddingForAuto - 0.4) // 0.4초 앞당김 반영
               if (lastSubtitle.end < adjustedAudioDurationWithPaddingForAuto) {
                 console.log(`[자동화] 마지막 자막 endTime 최종 조정: ${lastSubtitle.end.toFixed(3)}초 -> ${adjustedAudioDurationWithPaddingForAuto.toFixed(3)}초`)
                 lastSubtitle.end = Number.parseFloat(adjustedAudioDurationWithPaddingForAuto.toFixed(3))
@@ -4437,7 +4453,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       console.log(`[Shorts 렌더링] 오디오 로드 완료: ${actualAudioDuration.toFixed(3)}초`)
       
       // STT 분석으로 정확한 타이밍 추출
-      const openaiApiKey = getApiKey("openai") || getApiKey("gpt_api_key") || getApiKey("chatgpt_api_key")
+      const openaiApiKey = getApiKey("openai_api_key") || getApiKey("openai") || getApiKey("gpt_api_key") || getApiKey("chatgpt_api_key")
       const allWordTimings: Array<{ word: string; start: number; end: number; lineId: number }> = []
       
       // AudioBuffer에서 특정 구간을 추출하는 헬퍼 함수
@@ -4485,6 +4501,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               const formData = new FormData()
               formData.append("audio", audioBlobForSTT, `shorts_sentence_${line.id}.wav`)
               formData.append("text", line.text)
+              if (openaiApiKey) {
+                formData.append("apiKey", openaiApiKey)
+              }
               
               const whisperResponse = await fetch("/api/whisper-align", {
                 method: "POST",
@@ -5878,12 +5897,12 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       const shouldSplit = scriptDuration && scriptDuration >= 10
       if (!shouldSplit) {
         // 분할이 없는 경우: 시간 기반 진행률
-        const progress = Math.min(95, Math.floor((elapsedTime / estimatedTime) * 100))
-        setScriptGenerationProgress({
-          progress,
-          elapsedTime: Math.floor(elapsedTime / 1000), // 초 단위
-          estimatedTime: Math.floor(estimatedTime / 1000) // 초 단위
-        })
+      const progress = Math.min(95, Math.floor((elapsedTime / estimatedTime) * 100))
+      setScriptGenerationProgress({
+        progress,
+        elapsedTime: Math.floor(elapsedTime / 1000), // 초 단위
+        estimatedTime: Math.floor(estimatedTime / 1000) // 초 단위
+      })
       }
       // 분할이 있는 경우는 분할별로 진행률이 업데이트되므로 인터벌에서는 업데이트하지 않음
     }, 500) // 0.5초마다 업데이트
@@ -5921,10 +5940,10 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            scriptPlan,
+        scriptPlan, 
             topic: topic || "",
             duration: scriptDuration,
-            targetChars,
+        targetChars, 
             isStoryMode: shouldUseStoryMode,
             apiKey: geminiApiKey
           })
@@ -7166,62 +7185,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           throw new Error("TTS 응답에 오디오 데이터가 없습니다.")
         }
         
-        // ElevenLabs alignment가 없으면 Whisper align API를 호출하여 word-level timing 받기
-        let alignment = data.alignment
-        if (!alignment) {
-          try {
-            console.log(`[Whisper Align] TTS 생성 후 word-level timing 분석 시작 (줄 ${line.id})`)
-            const openaiApiKey = getApiKey("openai") || getApiKey("gpt_api_key") || getApiKey("chatgpt_api_key")
-            
-            if (openaiApiKey) {
-              // 오디오 URL에서 오디오 데이터 가져오기
-              const audioResponse = await fetch(data.audioUrl)
-              const audioBlob = await audioResponse.blob()
-              
-              // Whisper align API 호출
-              const formData = new FormData()
-              formData.append("audio", audioBlob, "audio.wav")
-              formData.append("text", convertedText)
-              
-              const whisperResponse = await fetch("/api/whisper-align", {
-                method: "POST",
-                body: formData,
-              })
-              
-              if (whisperResponse.ok) {
-                const whisperData = await whisperResponse.json()
-                if (whisperData.wordTimings && whisperData.wordTimings.length > 0) {
-                  // wordTimings를 alignment 형식으로 변환
-                  alignment = convertWordTimingsToAlignment(whisperData.wordTimings, convertedText)
-                  console.log(`[Whisper Align] ${whisperData.wordTimings.length}개 단어 타이밍 추출 완료 (줄 ${line.id})`)
-                }
-              } else {
-                const errorText = await whisperResponse.text()
-                let errorMessage = `Whisper Align API 호출 실패`
-                try {
-                  const errorData = JSON.parse(errorText)
-                  errorMessage = errorData.error || errorMessage
-                } catch (e) {
-                  errorMessage = errorText || errorMessage
-                }
-                
-                // API 키 관련 오류인지 확인
-                if (whisperResponse.status === 401 || whisperResponse.status === 403 ||
-                    errorMessage.toLowerCase().includes("api key") ||
-                    errorMessage.toLowerCase().includes("openai api 키")) {
-                  console.warn(`[Whisper Align] ❌ OpenAI API 키 오류 (줄 ${line.id}): ${errorMessage}\n\n해결 방법:\n1. 설정에서 OpenAI API 키를 확인하세요\n2. API 키가 올바른지 확인하세요`)
-                } else {
-                  console.warn(`[Whisper Align] API 호출 실패 (줄 ${line.id}):`, errorMessage)
-                }
-              }
-            } else {
-              console.warn(`[Whisper Align] ❌ OpenAI API 키 없음, word-level timing 건너뜀 (줄 ${line.id})\n\n해결 방법: 설정에서 OpenAI API 키를 입력하세요`)
-            }
-          } catch (error) {
-            console.warn(`[Whisper Align] 오류 (줄 ${line.id}):`, error)
-            // Whisper align 실패해도 계속 진행
-          }
-        }
+        // Whisper align API 호출 제거 (STT 불필요, 텍스트 길이 비율로 타이밍 계산)
+        // ElevenLabs alignment만 사용 (있는 경우)
+        const alignment = data.alignment
         
         // 성공 시 반환 (alignment 데이터 포함)
         return {
@@ -7970,7 +7936,13 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
   }
 
   // 영상 미리보기 생성 핸들러 (클라이언트 사이드에서 오디오 합치고 자막 생성)
-  const handleRenderVideo = async () => {
+  // Whisper API를 사용하지 않는 영상 생성 함수
+  const handleRenderVideoWithoutWhisper = async () => {
+    // 기존 함수를 호출하되 useWhisper=false로 설정
+    await handleRenderVideo(false)
+  }
+
+  const handleRenderVideo = async (useWhisper: boolean = true) => {
     if (scriptLines.length === 0 || generatedAudios.length === 0) {
       alert("TTS와 대본이 모두 준비되어야 합니다.")
       return
@@ -8068,6 +8040,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         }
         
         // 1. 각 TTS 오디오를 개별적으로 로드 (예전 방식 - 합치지 않음)
+        // 프레임 정렬: 25fps 기준 0.04초 단위로 정렬 (영상/자막 싱크 오차 원천 차단)
+        // VIDEO_FPS, FRAME_DURATION, alignToFrame은 파일 상단에 정의됨
         const audioContextForAnalysis = new (window.AudioContext || (window as any).webkitAudioContext)()
         const audioBuffersMap = new Map<number, AudioBuffer>() // 각 오디오 버퍼를 개별적으로 저장
         const audioDurations: Array<{ lineId: number; duration: number; alignment?: any; audioBuffer?: AudioBuffer }> = []
@@ -8087,7 +8061,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                 
                 // 각 오디오의 길이 저장 (소수점 10자리 정밀도)
                 const preciseDuration = audioBuffer.length / audioBuffer.sampleRate
-                const finalDuration = Number.parseFloat(preciseDuration.toFixed(10)) // 소수점 10자리 정밀도
+                // 프레임 정렬: 오디오 길이를 프레임 단위로 올림 처리 (벤치마킹 코드 방식)
+                const alignedDuration = alignToFrame(preciseDuration)
+                const finalDuration = Number.parseFloat(alignedDuration.toFixed(10)) // 소수점 10자리 정밀도
                 audioDurations.push({
                   lineId: line.lineId,
                   duration: finalDuration,
@@ -8095,7 +8071,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                   audioBuffer: audioBuffer, // 개별 오디오 버퍼 저장
                 })
                 
-                console.log(`[v0] 씬 ${sceneNum} 오디오 ${line.lineId} 로드 완료: ${finalDuration.toFixed(10)}초 (개별 저장, 소수점 10자리 정밀도)`)
+                console.log(`[v0] 씬 ${sceneNum} 오디오 ${line.lineId} 로드 완료: 원본=${preciseDuration.toFixed(10)}초, 프레임 정렬=${finalDuration.toFixed(10)}초 (개별 저장, 소수점 10자리 정밀도)`)
               } catch (error) {
                 console.error(`오디오 로드 실패 (씬 ${sceneNum}, 줄 ${line.lineId}):`, error)
                 // 실패한 오디오는 duration만 저장
@@ -8119,7 +8095,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         // 렌더링용으로는 나중에 합쳐진 오디오를 사용하므로, 여기서는 calculatedTotalDuration 변수를 선언하지 않음
         
         // 2. 각 오디오를 개별적으로 STT 분석 수행 (예전 방식)
-        setRenderingStatusMessage("STT 분석 중...")
+        setRenderingStatusMessage("TTS랑 자막 싱크 맞추는 중...")
         const subtitles: Array<{ id: number; start: number; end: number; text: string }> = []
         
         // 각 오디오 버퍼에서 특정 구간을 추출하는 헬퍼 함수 (개별 오디오 사용, 소수점 10자리 정밀도)
@@ -8169,10 +8145,11 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         }
         
         // 각 장면을 의미 단위로 나눠서 개별 STT 분석 수행
-        const openaiApiKey = getApiKey("openai") || getApiKey("gpt_api_key") || getApiKey("chatgpt_api_key")
+        const openaiApiKey = getApiKey("openai_api_key") || getApiKey("openai") || getApiKey("gpt_api_key") || getApiKey("chatgpt_api_key")
         const allWordTimings: Array<{ word: string; start: number; end: number; lineId: number }> = []
         
-        if (openaiApiKey) {
+        // Whisper API 사용 여부에 따라 STT 분석 수행
+        if (useWhisper && openaiApiKey) {
           // 전체 구간 수 계산 (장면별 의미 단위 합계)
           let totalPhrases = 0
           const phraseMapping: Array<{ lineId: number; phrase: string; startTime: number; duration: number; sceneNum: number }> = []
@@ -8205,386 +8182,168 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           
           let currentPhraseIndex = 0
           
+          // 장면 단위로 STT 분석 (각 라인별로 개별 분석)
+          // cumulativeTime은 위에서 이미 정의되어 있으므로 재사용
+          cumulativeTime = 0 // STT 분석을 위해 초기화
+          
+          // Whisper API를 사용하여 STT 분석 수행
+          // (이미 if (useWhisper && openaiApiKey) 블록 안에 있음)
+          // 모든 씬의 모든 라인을 수집하여 배치 병렬 처리 (순서 보장)
+          const sttTasks: Array<{
+            index: number
+            sceneNum: number
+            line: { lineId: number; imageNumber: number; text: string }
+            lineAudioBuffer: AudioBuffer
+            audioDuration: number
+            cumulativeTime: number
+          }> = []
+          
+          let tempCumulativeTime = 0
+          let taskIndex = 0
           for (const [sceneNum, lines] of sceneAudioMapping.entries()) {
             for (const line of lines) {
-              const audioDuration = audioDurations.find((d) => d.lineId === line.lineId)?.duration || 0
-              const alignment = audioDurations.find((d) => d.lineId === line.lineId)?.alignment
+              const lineAudioBuffer = audioBuffersMap.get(line.lineId)
+              const audioDuration = Number.parseFloat((audioDurations.find((d) => d.lineId === line.lineId)?.duration || 0).toFixed(10))
               
-              if (audioDuration > 0) {
-                // ElevenLabs alignment가 있으면 정확한 타이밍 사용 (의미 단위 세분화 없이)
-                if (alignment && selectedVoiceId && !selectedVoiceId.startsWith("ttsmaker-")) {
-                  try {
-                    const geminiApiKey = getGeminiApiKey()
-                    if (geminiApiKey) {
-                      // 의미 단위 세그먼트 생성
-                      const semanticSegments = await generateSemanticSegments(line.text, geminiApiKey)
-                      // alignment와 세그먼트 매칭하여 정확한 타이밍 계산
-                      const phrases = alignmentToPhrases(alignment, 20, semanticSegments)
-                      
-                      // 각 자막 생성 (alignment 기반 정확한 타이밍, 절대 시간으로 변환)
-                      for (const phrase of phrases) {
-                        const start = cumulativeTime + phrase.start
-                        const end = cumulativeTime + phrase.end
-
-                        subtitles.push({
-                          id: subtitles.length + 1,
-                          start: Number.parseFloat(start.toFixed(5)),
-                          end: Number.parseFloat(end.toFixed(5)),
-                          text: phrase.text
-                        })
-                      }
-                    } else {
-                      // Gemini API 키가 없으면 Whisper 사용 (의미 단위로 세분화)
-                      const phrases = splitIntoSemanticPhrases(line.text)
-                      const phraseDuration = audioDuration / phrases.length
-                      
-                      for (let j = 0; j < phrases.length; j++) {
-                        currentPhraseIndex++
-                        const phraseStartTime = cumulativeTime + (j * phraseDuration)
-                        
-                      // Whisper align 재시도 로직 (최대 3회, 매우 디테일한 분석을 위해)
-                      let whisperSuccess = false
-                      let retryCount = 0
-                      const maxRetries = 3
-                      
-                      while (!whisperSuccess && retryCount < maxRetries) {
-                        try {
-                          if (retryCount > 0) {
-                            console.log(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1} 재시도 ${retryCount}/${maxRetries}`)
-                            await new Promise(resolve => setTimeout(resolve, 1000 * retryCount)) // 지수 백오프
-                          }
-                          
-                          setRenderingStatusMessage(`STT 분석 중... (${currentPhraseIndex}/${totalPhrases}${retryCount > 0 ? ` - 재시도 ${retryCount}` : ""})`)
-                          // 소수점 10자리 정밀도로 로그 출력
-                          const phraseStartTimePrecise = Number.parseFloat(phraseStartTime.toFixed(10))
-                          const phraseDurationPrecise = Number.parseFloat(phraseDuration.toFixed(10))
-                          console.log(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}/${phrases.length} STT 분석 시작 (구간: ${phraseStartTimePrecise}초 ~ ${Number.parseFloat((phraseStartTimePrecise + phraseDurationPrecise).toFixed(10))}초, 텍스트: "${phrases[j]}")`)
-                          
-                          // 각 오디오 버퍼를 개별적으로 사용
-                          const lineAudioBuffer = audioBuffersMap.get(line.lineId)
-                          if (!lineAudioBuffer) {
-                            console.warn(`[Whisper] 오디오 버퍼를 찾을 수 없음 (줄 ${line.lineId})`)
-                            break
-                          }
-                          
-                          // 각 오디오 내에서 상대 시간으로 구간 추출 (더 넓은 범위로 추출하여 침묵 구간도 포함, 소수점 10자리 정밀도)
-                          // 여유 시간을 줄여서 오차를 최소화 (0.2초 → 0.1초)
-                          const relativeStartTime = Number.parseFloat(Math.max(0, (j * phraseDurationPrecise) - 0.1).toFixed(10)) // 0.1초 여유 (침묵 구간 포함, 오차 최소화)
-                          const relativeEndTime = Number.parseFloat(Math.min(lineAudioBuffer.duration, relativeStartTime + phraseDurationPrecise + 0.1).toFixed(10)) // 0.1초 여유
-                          const segmentBuffer = extractAudioSegment(lineAudioBuffer, relativeStartTime, relativeEndTime)
-                          const audioBlob = await audioBufferToBlob(segmentBuffer)
-                          
-                          const formData = new FormData()
-                          formData.append("audio", audioBlob, `scene_${sceneNum}_line_${line.lineId}_phrase_${j}_retry${retryCount}.wav`)
-                          formData.append("text", phrases[j])
-                          
-                          const whisperResponse = await fetch("/api/whisper-align", {
-                            method: "POST",
-                            body: formData,
-                          })
-                          
-                          if (whisperResponse.ok) {
-                            const whisperData = await whisperResponse.json()
-                            if (whisperData.wordTimings && whisperData.wordTimings.length > 0) {
-                              // 상대 시간을 절대 시간으로 변환 (올바른 계산)
-                              // wordTiming.start/end는 추출된 세그먼트 내의 상대 시간이므로,
-                              // 원본 오디오의 절대 시간으로 변환하려면 relativeStartTime에 더해야 함
-                              for (const wordTiming of whisperData.wordTimings) {
-                                // "숨", "쉼" 같은 단어도 모두 포함, 소수점 10자리 정밀도
-                                const wordStartPrecise = Number.parseFloat(wordTiming.start.toFixed(10))
-                                const wordEndPrecise = Number.parseFloat(wordTiming.end.toFixed(10))
-                                // 올바른 계산: 추출된 세그먼트의 시작 시간(relativeStartTime) + 세그먼트 내 상대 시간
-                                const absoluteStart = Number.parseFloat((relativeStartTime + wordStartPrecise).toFixed(10))
-                                const absoluteEnd = Number.parseFloat((relativeStartTime + wordEndPrecise).toFixed(10))
-                                allWordTimings.push({
-                                  word: wordTiming.word.trim(),
-                                  start: absoluteStart,
-                                  end: absoluteEnd,
-                                  lineId: line.lineId,
-                                })
-                              }
-                              console.log(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}: ${whisperData.wordTimings.length}개 단어 타이밍 추출 완료 (${phrases[j]}, 소수점 10자리 정밀도)`)
-                              whisperSuccess = true
-                              break
-                            } else {
-                              console.warn(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}: 단어 타이밍 없음 (재시도 필요)`)
-                            }
-                          } else {
-                            const errorText = await whisperResponse.text()
-                            let errorMessage = errorText
-                            try {
-                              const errorData = JSON.parse(errorText)
-                              errorMessage = errorData.error || errorMessage
-                            } catch (e) {
-                              // JSON 파싱 실패 시 원본 텍스트 사용
-                            }
-                            
-                            // API 키 관련 오류인지 확인
-                            if (whisperResponse.status === 401 || whisperResponse.status === 403 ||
-                                errorMessage.toLowerCase().includes("api key") ||
-                                errorMessage.toLowerCase().includes("openai api 키") ||
-                                errorMessage.toLowerCase().includes("unauthorized")) {
-                              console.warn(`[Whisper] ❌ OpenAI API 키 오류 (씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}): ${errorMessage}\n\n해결 방법:\n1. 설정에서 OpenAI API 키를 확인하세요\n2. API 키가 올바른지 확인하세요`)
-                            } else {
-                              console.warn(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1} API 오류:`, errorMessage)
-                            }
-                          }
-                        } catch (error) {
-                          const errorMessage = error instanceof Error ? error.message : String(error)
-                          // API 키 관련 오류인지 확인
-                          if (errorMessage.toLowerCase().includes("api key") ||
-                              errorMessage.toLowerCase().includes("openai api 키") ||
-                              errorMessage.toLowerCase().includes("unauthorized")) {
-                            console.warn(`[Whisper] ❌ OpenAI API 키 오류 (씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}, 시도 ${retryCount + 1}/${maxRetries}): ${errorMessage}\n\n해결 방법:\n1. 설정에서 OpenAI API 키를 확인하세요\n2. API 키가 올바른지 확인하세요`)
-                          } else {
-                            console.warn(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1} STT 분석 오류 (시도 ${retryCount + 1}/${maxRetries}):`, errorMessage)
-                          }
-                        }
-                        
-                        retryCount++
-                      }
-                      
-                      if (!whisperSuccess) {
-                        console.error(`[Whisper] ❌ 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}: ${maxRetries}회 재시도 후 실패\n\n가능한 원인:\n1. OpenAI API 키 문제\n2. 네트워크 연결 문제\n3. 오디오 파일 문제\n\n해결 방법:\n1. 설정에서 OpenAI API 키를 확인하세요\n2. 브라우저 콘솔(F12)에서 자세한 오류를 확인해주세요`)
-                      }
-                      }
-                    }
-                  } catch (error) {
-                    const errorMessage = error instanceof Error ? error.message : String(error)
-                    // Gemini API 키 관련 오류인지 확인
-                    if (errorMessage.toLowerCase().includes("gemini api") ||
-                        errorMessage.toLowerCase().includes("gemini api 키") ||
-                        errorMessage.toLowerCase().includes("api key")) {
-                      console.error(`[자막 생성] ❌ Gemini API 키 오류 (씬 ${sceneNum}, 줄 ${line.lineId}): ${errorMessage}\n\n해결 방법:\n1. 설정에서 Gemini API 키를 확인하세요\n2. API 키가 올바른지 확인하세요\n\nWhisper를 사용하여 계속 진행합니다.`)
-                    } else {
-                      console.error(`[자막 생성] alignment 사용 실패 (씬 ${sceneNum}, 줄 ${line.lineId}), Whisper 사용:`, errorMessage)
-                    }
-                    // 에러 발생 시 Whisper 사용 (단어 단위로 매우 세분화)
-                    const words = splitIntoWords(line.text)
-                    const phrases: string[] = []
-                    for (let i = 0; i < words.length; i += 2) {
-                      const phrase = words.slice(i, i + 2).join(" ").trim()
-                      if (phrase.length > 0) {
-                        phrases.push(phrase)
-                      }
-                    }
-                    const phraseDuration = audioDuration / phrases.length
-                    
-                    for (let j = 0; j < phrases.length; j++) {
-                      currentPhraseIndex++
-                      const phraseStartTime = cumulativeTime + (j * phraseDuration)
-                      
-                      // Whisper align 재시도 로직 (최대 3회, 매우 디테일한 분석을 위해)
-                      let whisperSuccess = false
-                      let retryCount = 0
-                      const maxRetries = 3
-                      
-                      while (!whisperSuccess && retryCount < maxRetries) {
-                        try {
-                          if (retryCount > 0) {
-                            console.log(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1} 재시도 ${retryCount}/${maxRetries}`)
-                            await new Promise(resolve => setTimeout(resolve, 1000 * retryCount)) // 지수 백오프
-                          }
-                          
-                          setRenderingStatusMessage(`STT 분석 중... (${currentPhraseIndex}/${totalPhrases}${retryCount > 0 ? ` - 재시도 ${retryCount}` : ""})`)
-                          // 소수점 10자리 정밀도로 로그 출력
-                          console.log(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}/${phrases.length} STT 분석 시작 (구간: ${Number.parseFloat(phraseStartTime.toFixed(10))}초 ~ ${Number.parseFloat((phraseStartTime + phraseDuration).toFixed(10))}초, 텍스트: "${phrases[j]}")`)
-                          
-                          // 각 오디오 버퍼를 개별적으로 사용
-                          const lineAudioBuffer = audioBuffersMap.get(line.lineId)
-                          if (!lineAudioBuffer) {
-                            console.warn(`[Whisper] 오디오 버퍼를 찾을 수 없음 (줄 ${line.lineId})`)
-                            break
-                          }
-                          
-                          // 각 오디오 내에서 상대 시간으로 구간 추출 (더 넓은 범위로 추출하여 침묵 구간도 포함, 소수점 10자리 정밀도)
-                          const phraseStartTimePrecise = Number.parseFloat(phraseStartTime.toFixed(10))
-                          const phraseDurationPrecise = Number.parseFloat(phraseDuration.toFixed(10))
-                          // 여유 시간을 줄여서 오차를 최소화 (0.2초 → 0.1초)
-                          const relativeStartTime = Number.parseFloat(Math.max(0, (j * phraseDurationPrecise) - 0.1).toFixed(10)) // 0.1초 여유 (침묵 구간 포함, 오차 최소화)
-                          const relativeEndTime = Number.parseFloat(Math.min(lineAudioBuffer.duration, relativeStartTime + phraseDurationPrecise + 0.1).toFixed(10)) // 0.1초 여유
-                          const segmentBuffer = extractAudioSegment(lineAudioBuffer, relativeStartTime, relativeEndTime)
-                          const audioBlob = await audioBufferToBlob(segmentBuffer)
-                          
-                          const formData = new FormData()
-                          formData.append("audio", audioBlob, `scene_${sceneNum}_line_${line.lineId}_phrase_${j}_retry${retryCount}.wav`)
-                          formData.append("text", phrases[j])
-                          
-                          const whisperResponse = await fetch("/api/whisper-align", {
-                            method: "POST",
-                            body: formData,
-                          })
-                          
-                          if (whisperResponse.ok) {
-                            const whisperData = await whisperResponse.json()
-                            if (whisperData.wordTimings && whisperData.wordTimings.length > 0) {
-                              // 상대 시간을 절대 시간으로 변환 (올바른 계산)
-                              // wordTiming.start/end는 추출된 세그먼트 내의 상대 시간이므로,
-                              // 원본 오디오의 절대 시간으로 변환하려면 relativeStartTime에 더해야 함
-                              for (const wordTiming of whisperData.wordTimings) {
-                                // "숨", "쉼" 같은 단어도 모두 포함, 소수점 10자리 정밀도
-                                const wordStartPrecise = Number.parseFloat(wordTiming.start.toFixed(10))
-                                const wordEndPrecise = Number.parseFloat(wordTiming.end.toFixed(10))
-                                // 올바른 계산: 추출된 세그먼트의 시작 시간(relativeStartTime) + 세그먼트 내 상대 시간
-                                const absoluteStart = Number.parseFloat((relativeStartTime + wordStartPrecise).toFixed(10))
-                                const absoluteEnd = Number.parseFloat((relativeStartTime + wordEndPrecise).toFixed(10))
-                                allWordTimings.push({
-                                  word: wordTiming.word.trim(),
-                                  start: absoluteStart,
-                                  end: absoluteEnd,
-                                  lineId: line.lineId,
-                                })
-                              }
-                              console.log(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}: ${whisperData.wordTimings.length}개 단어 타이밍 추출 완료 (${phrases[j]}, 소수점 10자리 정밀도)`)
-                              whisperSuccess = true
-                              break
-                            } else {
-                              console.warn(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}: 단어 타이밍 없음 (재시도 필요)`)
-                            }
-                          } else {
-                            const errorText = await whisperResponse.text()
-                            let errorMessage = errorText
-                            try {
-                              const errorData = JSON.parse(errorText)
-                              errorMessage = errorData.error || errorMessage
-                            } catch (e) {
-                              // JSON 파싱 실패 시 원본 텍스트 사용
-                            }
-                            
-                            // API 키 관련 오류인지 확인
-                            if (whisperResponse.status === 401 || whisperResponse.status === 403 ||
-                                errorMessage.toLowerCase().includes("api key") ||
-                                errorMessage.toLowerCase().includes("openai api 키") ||
-                                errorMessage.toLowerCase().includes("unauthorized")) {
-                              console.warn(`[Whisper] ❌ OpenAI API 키 오류 (씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}): ${errorMessage}\n\n해결 방법:\n1. 설정에서 OpenAI API 키를 확인하세요\n2. API 키가 올바른지 확인하세요`)
-                            } else {
-                              console.warn(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1} API 오류:`, errorMessage)
-                            }
-                          }
-                        } catch (whisperError) {
-                          console.warn(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1} STT 분석 오류 (시도 ${retryCount + 1}/${maxRetries}):`, whisperError)
-                        }
-                        
-                        retryCount++
-                      }
-                      
-                      if (!whisperSuccess) {
-                        console.error(`[Whisper] ❌ 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}: ${maxRetries}회 재시도 후 실패\n\n가능한 원인:\n1. OpenAI API 키 문제\n2. 네트워크 연결 문제\n3. 오디오 파일 문제\n\n해결 방법:\n1. 설정에서 OpenAI API 키를 확인하세요\n2. 브라우저 콘솔(F12)에서 자세한 오류를 확인해주세요`)
-                      }
-                    }
-                  }
-                } else {
-                  // alignment가 없으면 Whisper API를 사용하여 정확한 타이밍 추출 (단어 단위로 매우 세분화)
-                  // 각 단어를 개별적으로 분석하여 "숨", "쉼" 등도 모두 감지, 소수점 10자리 정밀도
-                  const words = splitIntoWords(line.text)
-                  
-                  // 각 단어를 1-2개씩 묶어서 분석 (너무 작으면 Whisper가 제대로 분석 못할 수 있음)
-                  const phrases: string[] = []
-                  for (let i = 0; i < words.length; i += 2) {
-                    const phrase = words.slice(i, i + 2).join(" ").trim()
-                    if (phrase.length > 0) {
-                      phrases.push(phrase)
-                    }
-                  }
-                  
-                  const audioDurationPrecise = Number.parseFloat(audioDuration.toFixed(10))
-                  const phraseDuration = Number.parseFloat((audioDurationPrecise / phrases.length).toFixed(10))
-                  
-                  for (let j = 0; j < phrases.length; j++) {
-                    currentPhraseIndex++
-                    const phraseStartTime = Number.parseFloat((cumulativeTime + (j * phraseDuration)).toFixed(10))
-                    
-                    // Whisper align 재시도 로직 (최대 3회, 매우 디테일한 분석을 위해)
-                    let whisperSuccess = false
-                    let retryCount = 0
-                    const maxRetries = 3
-                    
-                    while (!whisperSuccess && retryCount < maxRetries) {
-                      try {
-                        if (retryCount > 0) {
-                          console.log(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1} 재시도 ${retryCount}/${maxRetries}`)
-                          await new Promise(resolve => setTimeout(resolve, 1000 * retryCount)) // 지수 백오프
-                        }
-                        
-                        setRenderingStatusMessage(`STT 분석 중... (${currentPhraseIndex}/${totalPhrases}${retryCount > 0 ? ` - 재시도 ${retryCount}` : ""})`)
-                        // 소수점 10자리 정밀도로 로그 출력
-                        console.log(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}/${phrases.length} STT 분석 시작 (구간: ${phraseStartTime}초 ~ ${Number.parseFloat((phraseStartTime + phraseDuration).toFixed(10))}초, 텍스트: "${phrases[j]}")`)
-                        
-                        // 각 오디오 버퍼를 개별적으로 사용
-                        const lineAudioBuffer = audioBuffersMap.get(line.lineId)
-                        if (!lineAudioBuffer) {
-                          console.warn(`[Whisper] 오디오 버퍼를 찾을 수 없음 (줄 ${line.lineId})`)
-                          break
-                        }
-                        
-                        // 각 오디오 내에서 상대 시간으로 구간 추출 (더 넓은 범위로 추출하여 침묵 구간도 포함, 소수점 10자리 정밀도)
-                        const phraseStartTimePrecise = Number.parseFloat(phraseStartTime.toFixed(10))
-                        const phraseDurationPrecise = Number.parseFloat(phraseDuration.toFixed(10))
-                        const relativeStartTime = Number.parseFloat(Math.max(0, (j * phraseDurationPrecise) - 0.2).toFixed(10)) // 0.2초 여유 (침묵 구간 포함)
-                        const relativeEndTime = Number.parseFloat(Math.min(lineAudioBuffer.duration, relativeStartTime + phraseDurationPrecise + 0.2).toFixed(10)) // 0.2초 여유
-                        const segmentBuffer = extractAudioSegment(lineAudioBuffer, relativeStartTime, relativeEndTime)
-                        const audioBlob = await audioBufferToBlob(segmentBuffer)
-                        
-                        const formData = new FormData()
-                        formData.append("audio", audioBlob, `scene_${sceneNum}_line_${line.lineId}_phrase_${j}_retry${retryCount}.wav`)
-                        formData.append("text", phrases[j])
-                        
-                        const whisperResponse = await fetch("/api/whisper-align", {
-                          method: "POST",
-                          body: formData,
-                        })
-                        
-                        if (whisperResponse.ok) {
-                          const whisperData = await whisperResponse.json()
-                          if (whisperData.wordTimings && whisperData.wordTimings.length > 0) {
-                            // 상대 시간을 절대 시간으로 변환 (여유 시간 고려, 소수점 10자리 정밀도)
-                            const timeOffset = Number.parseFloat((phraseStartTimePrecise - relativeStartTime).toFixed(10))
-                            for (const wordTiming of whisperData.wordTimings) {
-                              // "숨", "쉼" 같은 단어도 모두 포함, 소수점 10자리 정밀도
-                              const wordStartPrecise = Number.parseFloat(wordTiming.start.toFixed(10))
-                              const wordEndPrecise = Number.parseFloat(wordTiming.end.toFixed(10))
-                              const absoluteStart = Number.parseFloat((phraseStartTimePrecise + wordStartPrecise + timeOffset).toFixed(10))
-                              const absoluteEnd = Number.parseFloat((phraseStartTimePrecise + wordEndPrecise + timeOffset).toFixed(10))
-                              allWordTimings.push({
-                                word: wordTiming.word.trim(),
-                                start: absoluteStart,
-                                end: absoluteEnd,
-                                lineId: line.lineId,
-                              })
-                            }
-                            console.log(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}: ${whisperData.wordTimings.length}개 단어 타이밍 추출 완료 (${phrases[j]}, 소수점 10자리 정밀도)`)
-                            whisperSuccess = true
-                            break
-                          } else {
-                            console.warn(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}: 단어 타이밍 없음 (재시도 필요)`)
-                          }
-                        } else {
-                          const errorText = await whisperResponse.text()
-                          console.warn(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1} API 오류:`, errorText)
-                        }
-                      } catch (error) {
-                        console.warn(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1} STT 분석 오류 (시도 ${retryCount + 1}/${maxRetries}):`, error)
-                      }
-                      
-                      retryCount++
-                    }
-                    
-                    if (!whisperSuccess) {
-                      console.error(`[Whisper] 씬 ${sceneNum} 장면 ${line.lineId} 구간 ${j + 1}: ${maxRetries}회 재시도 후 실패`)
-                    }
-                  }
-                }
+              if (!lineAudioBuffer || audioDuration <= 0) {
+                tempCumulativeTime += audioDuration
+                continue
               }
               
-              // cumulativeTime도 소수점 10자리 정밀도로 유지
-              cumulativeTime = Number.parseFloat((cumulativeTime + audioDuration).toFixed(10))
+              sttTasks.push({
+                index: taskIndex++,
+                sceneNum,
+                line,
+                lineAudioBuffer,
+                audioDuration,
+                cumulativeTime: tempCumulativeTime,
+              })
+              
+              tempCumulativeTime += audioDuration
             }
           }
           
-          console.log(`[Whisper] 씬별 전체 ${allWordTimings.length}개 단어 타이밍 추출 완료 (${totalPhrases}개 구간, 소수점 10자리 정밀도)`)
-        } else {
-          console.warn(`[Whisper] ❌ OpenAI API 키 없음, Whisper API 건너뜀\n\n해결 방법:\n1. 설정에서 OpenAI API 키를 입력하세요\n2. STT 분석 없이 자막이 생성됩니다 (정확도가 낮을 수 있음)`)
-        }
+          console.log(`[Whisper] 씬별 STT 분석 배치 병렬 처리 시작: 총 ${sttTasks.length}개 장면 (5개씩 배치)`)
+          
+          // 배치 병렬 처리 (5개씩 동시 처리, 순서 보장)
+          const BATCH_SIZE = 5
+          for (let batchStart = 0; batchStart < sttTasks.length; batchStart += BATCH_SIZE) {
+            const batch = sttTasks.slice(batchStart, batchStart + BATCH_SIZE)
+            const batchNumber = Math.floor(batchStart / BATCH_SIZE) + 1
+            const totalBatches = Math.ceil(sttTasks.length / BATCH_SIZE)
+            
+            setRenderingStatusMessage(`TTS랑 자막 싱크 맞추는 중... (배치 ${batchNumber}/${totalBatches})`)
+            console.log(`[Whisper] 배치 ${batchNumber}/${totalBatches} 처리 시작: ${batch.length}개 장면 병렬 처리`)
+            
+            // 배치 내 병렬 처리
+            const batchResults = await Promise.all(
+              batch.map(async (task) => {
+                try {
+                  console.log(`[Whisper] 장면 단위 STT 분석 시작 (씬 ${task.sceneNum}, 장면 ${task.line.imageNumber}, lineId: ${task.line.lineId}, 텍스트: "${task.line.text.substring(0, 50)}...")`)
+                  
+                  const audioBlob = await audioBufferToBlob(task.lineAudioBuffer)
+                  const formData = new FormData()
+                  formData.append("audio", audioBlob, `scene_${task.sceneNum}_image_${task.line.imageNumber}_line_${task.line.lineId}.wav`)
+                  formData.append("text", task.line.text)
+                  if (openaiApiKey) {
+                    formData.append("apiKey", openaiApiKey)
+                  }
+                  
+                  const whisperResponse = await fetch("/api/whisper-align", {
+                    method: "POST",
+                    body: formData,
+                  })
+                  
+                  if (whisperResponse.ok) {
+                    const whisperData = await whisperResponse.json()
+                    return {
+                      index: task.index,
+                      sceneNum: task.sceneNum,
+                      imageNumber: task.line.imageNumber,
+                      lineId: task.line.lineId,
+                      cumulativeTime: task.cumulativeTime,
+                      wordTimings: whisperData.wordTimings || [],
+                      success: true,
+                    }
+                  } else {
+                    const errorText = await whisperResponse.text()
+                    console.warn(`[Whisper] 장면 단위 STT 분석 API 오류 (씬 ${task.sceneNum}, 장면 ${task.line.imageNumber}):`, errorText)
+                    return {
+                      index: task.index,
+                      sceneNum: task.sceneNum,
+                      imageNumber: task.line.imageNumber,
+                      lineId: task.line.lineId,
+                      cumulativeTime: task.cumulativeTime,
+                      wordTimings: [],
+                      success: false,
+                    }
+                  }
+                } catch (whisperError) {
+                  console.warn(`[Whisper] 장면 단위 STT 분석 오류 (씬 ${task.sceneNum}, 장면 ${task.line.imageNumber}):`, whisperError)
+                  return {
+                    index: task.index,
+                    sceneNum: task.sceneNum,
+                    imageNumber: task.line.imageNumber,
+                    lineId: task.line.lineId,
+                    cumulativeTime: task.cumulativeTime,
+                    wordTimings: [],
+                    success: false,
+                  }
+                }
+              })
+            )
+            
+            // 결과를 인덱스 순으로 정렬하여 순서 보장
+            batchResults.sort((a, b) => a.index - b.index)
+            
+            // 정렬된 결과를 순서대로 처리 (cumulativeTime 계산을 위해)
+            for (const result of batchResults) {
+              if (result.success && result.wordTimings && result.wordTimings.length > 0) {
+                // STT 결과를 절대 시간으로 변환
+                const preciseCumulativeTime = Number.parseFloat(result.cumulativeTime.toFixed(10))
+                
+                for (const wordTiming of result.wordTimings) {
+                  // 더 정밀한 시간 계산 (소수점 10자리 유지)
+                  const wordStartPrecise = Number.parseFloat(Number(wordTiming.start).toFixed(10))
+                  const wordEndPrecise = Number.parseFloat(Number(wordTiming.end).toFixed(10))
+                  
+                  // 절대 시간 = 이전 장면들의 누적 시간 + 현재 장면 내 상대 시간
+                  const absoluteStart = Number.parseFloat((preciseCumulativeTime + wordStartPrecise).toFixed(10))
+                  const absoluteEnd = Number.parseFloat((preciseCumulativeTime + wordEndPrecise).toFixed(10))
+                  
+                  // 단어가 비어있지 않은 경우만 추가
+                  const trimmedWord = wordTiming.word.trim()
+                  if (trimmedWord.length > 0) {
+                    allWordTimings.push({
+                      word: trimmedWord,
+                      start: absoluteStart,
+                      end: absoluteEnd,
+                      lineId: result.lineId,
+                    })
+                  }
+                }
+                console.log(`[Whisper] 장면 단위 STT 분석 완료 (씬 ${result.sceneNum}, 장면 ${result.imageNumber}): ${result.wordTimings.length}개 단어 타이밍 추출`)
+              } else {
+                console.warn(`[Whisper] 장면 단위 STT 분석: 단어 타이밍 없음 (씬 ${result.sceneNum}, 장면 ${result.imageNumber})`)
+              }
+            }
+            
+            console.log(`[Whisper] 배치 ${batchNumber}/${totalBatches} 처리 완료`)
+            
+            // 배치 간 짧은 딜레이 (API Rate Limit 방지)
+            if (batchStart + BATCH_SIZE < sttTasks.length) {
+              await new Promise(resolve => setTimeout(resolve, 200))
+            }
+          }
+            
+            console.log(`[Whisper] 씬별 전체 ${allWordTimings.length}개 단어 타이밍 추출 완료 (${allWordTimings.length}개 단어, 소수점 10자리 정밀도)`)
+          } else {
+            if (!useWhisper) {
+              console.log(`[v0] Whisper API 미사용 모드: 텍스트 길이 비율로 자막 생성`)
+            } else {
+              console.warn(`[Whisper] ❌ OpenAI API 키 없음, Whisper API 건너뜀\n\n해결 방법:\n1. 설정에서 OpenAI API 키를 입력하세요\n2. 대체 방식(웨이브폼 분석, ElevenLabs alignment 등)으로 자막이 생성됩니다 (정확도가 낮을 수 있음)`)
+            }
+          }
         
         // splitIntoSubtitleLines 함수 (fallback용)
         const splitIntoSubtitleLines = (text: string, totalDuration: number = 0): Array<{ text: string; startTime: number; endTime: number }> => {
@@ -8640,69 +8399,249 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         
         if (allWordTimings && allWordTimings.length > 0) {
           // 각 장면별로 정렬된 단어 타이밍을 사용하여 정확한 자막 생성
-          const sortedWordTimings = allWordTimings.sort((a, b) => a.start - b.start)
-          let currentLine: string[] = []
-          let lineStartTime = 0
-          const maxChars = 20 // 공백 포함 20자까지
+          let sortedWordTimings = allWordTimings.sort((a, b) => a.start - b.start)
+          
+          // STT 타이밍 검증 및 보정 (고도화: 더 정확한 타이밍 보정)
+          // 1. end가 start보다 작거나 같으면 보정 (논리적 오류만 수정)
+          for (let i = 0; i < sortedWordTimings.length; i++) {
+            const word = sortedWordTimings[i]
+            if (word.end <= word.start) {
+              // end가 start보다 작거나 같으면 최소 0.05초 길이로 설정 (더 정밀하게)
+              word.end = Number.parseFloat((word.start + 0.05).toFixed(10))
+              console.log(`[STT 타이밍 보정] 단어 "${word.word}" end 시간 보정: ${word.end.toFixed(3)}초`)
+            }
+          }
+          
+          // 2. 타이밍 순서 검증: 겹침 방지 및 간격 보정 (고도화)
+          for (let i = 1; i < sortedWordTimings.length; i++) {
+            const prevWord = sortedWordTimings[i - 1]
+            const currentWord = sortedWordTimings[i]
+            
+            // 현재 단어의 start가 이전 단어의 end보다 작으면 보정
+            if (currentWord.start < prevWord.end) {
+              // 겹침 방지: 이전 단어의 end와 현재 단어의 start 중 더 큰 값 사용
+              const correctedStart = Math.max(prevWord.end, currentWord.start)
+              // 원본과 차이가 0.2초 이하일 때만 보정 (더 관대하게 허용)
+              if (Math.abs(correctedStart - currentWord.start) <= 0.2) {
+                console.log(`[STT 타이밍 보정] 단어 "${currentWord.word}" start ${currentWord.start.toFixed(3)}초 -> ${correctedStart.toFixed(3)}초로 조정 (겹침 방지)`)
+                currentWord.start = Number.parseFloat(correctedStart.toFixed(10))
+              } else {
+                console.warn(`[STT 타이밍] 단어 "${currentWord.word}" start ${currentWord.start.toFixed(3)}초가 이전 단어 end ${prevWord.end.toFixed(3)}초보다 크게 앞서 있음 (STT 오류 가능성, 원본 유지)`)
+              }
+            }
+            
+            // 단어 간격이 너무 크면 (1초 이상) 보정 (침묵 구간이 아닐 수 있음)
+            const gap = currentWord.start - prevWord.end
+            if (gap > 1.0 && gap < 3.0) {
+              // 1~3초 간격은 STT 오류일 가능성이 높으므로 보정
+              const adjustedStart = Number.parseFloat((prevWord.end + 0.1).toFixed(10))
+              console.log(`[STT 타이밍 보정] 단어 "${currentWord.word}" 간격 보정: ${gap.toFixed(3)}초 -> 0.1초 (start ${currentWord.start.toFixed(3)}초 -> ${adjustedStart.toFixed(3)}초)`)
+              currentWord.start = adjustedStart
+            }
+          }
+          
+          // 3. 단어 길이 기반 endTime 보정 (더 정확한 타이밍)
+          for (let i = 0; i < sortedWordTimings.length; i++) {
+            const word = sortedWordTimings[i]
+            const wordLength = word.word.length
+            
+            // 단어가 너무 짧은데 endTime이 너무 길면 보정
+            if (wordLength <= 2 && (word.end - word.start) > 0.5) {
+              const adjustedEnd = Number.parseFloat((word.start + 0.2).toFixed(10))
+              console.log(`[STT 타이밍 보정] 짧은 단어 "${word.word}" endTime 보정: ${word.end.toFixed(3)}초 -> ${adjustedEnd.toFixed(3)}초`)
+              word.end = adjustedEnd
+            }
+            
+            // 단어가 너무 긴데 endTime이 너무 짧으면 보정
+            if (wordLength > 5 && (word.end - word.start) < 0.1) {
+              const adjustedEnd = Number.parseFloat((word.start + 0.3).toFixed(10))
+              console.log(`[STT 타이밍 보정] 긴 단어 "${word.word}" endTime 보정: ${word.end.toFixed(3)}초 -> ${adjustedEnd.toFixed(3)}초`)
+              word.end = adjustedEnd
+            }
+          }
+          
+          // 첫 번째 단어 오프셋 조정 제거 (각 장면별로 이미 절대 시간으로 변환되었으므로 불필요)
+          
+          // STT 결과를 사용하여 TTS와 100% 싱크
+          // 자막의 startTime은 항상 그 자막의 첫 번째 단어의 start 시간과 일치해야 함
+          // 더 세분화된 자막 분할을 위해 단어 개수와 시간 간격도 고려
+          
+          // currentLine을 단어와 타이밍 정보를 함께 저장하는 배열로 변경 (start 시간 포함)
+          let currentLine: Array<{ word: string; start: number; end: number }> = []
+          const minChars = 15 // 공백 포함 최소 15자
+          const maxChars = 20 // 공백 포함 최대 20자까지 (무조건 15~20자로 제한)
           
           // 침묵 구간 감지 및 처리 (자막 밀림 방지, 소수점 10자리 정밀도)
           for (let i = 0; i < sortedWordTimings.length; i++) {
             const wordTiming = sortedWordTimings[i]
-            const word = wordTiming.word
+            const word = wordTiming.word.trim()
+            const wordStart = Number.parseFloat(wordTiming.start.toFixed(10))
+            const wordEnd = Number.parseFloat(wordTiming.end.toFixed(10))
             
-            // 이전 단어와의 간격 확인 (침묵 구간 감지, 소수점 10자리 정밀도)
+            // 이전 단어와의 간격 확인 (침묵 구간 감지, 소수점 10자리 정밀도) - 고도화
             if (i > 0) {
               const prevWordEnd = Number.parseFloat(sortedWordTimings[i - 1].end.toFixed(10))
-              const currentWordStart = Number.parseFloat(wordTiming.start.toFixed(10))
-              const gap = Number.parseFloat((currentWordStart - prevWordEnd).toFixed(10))
+              const gap = Number.parseFloat((wordStart - prevWordEnd).toFixed(10))
               
-              // 0.3초 이상 간격이 있으면 침묵 구간으로 간주하고 자막 타이밍 조정
-              if (gap > 0.3) {
-                // 침묵 구간을 나타내는 단어 추가 ("숨", "쉼" 등)
-                const silenceWord = gap > 0.5 ? "쉼" : "숨"
-                // 침묵 구간의 타이밍도 정확하게 기록 (밀림 방지, 소수점 10자리 정밀도)
+              // 0.2초 이상 간격이 있으면 침묵 구간으로 간주하고 자막 타이밍 조정 (더 민감하게)
+              if (gap > 0.2) {
                 // 이전 자막의 endTime을 조정하여 침묵 구간 반영
-                if (subtitles.length > 0) {
-                  subtitles[subtitles.length - 1].end = prevWordEnd
+                if (subtitles.length > 0 && currentLine.length > 0) {
+                  // currentLine의 마지막 단어 endTime 사용 (침묵 구간 시작 직전까지)
+                  const lastLineWordEnd = Number.parseFloat(currentLine[currentLine.length - 1].end.toFixed(10))
+                  // 침묵 구간의 시작 직전까지 확장 (최대 0.1초 전까지)
+                  const silenceStart = Math.max(lastLineWordEnd, wordStart - 0.1)
+                  subtitles[subtitles.length - 1].end = Number.parseFloat(silenceStart.toFixed(10))
                 }
-                // 현재 자막의 startTime을 조정하여 침묵 구간 반영
-                lineStartTime = currentWordStart
+                // 침묵 구간이 있으면 무조건 줄바꿈 (더 세분화)
+                if (currentLine.length > 0) {
+                  const lineStartTime = currentLine[0].start
+                  const lastLineWordEnd = Number.parseFloat(currentLine[currentLine.length - 1].end.toFixed(10))
+                  const currentLineText = currentLine.map(w => w.word).join(" ")
+                  subtitles.push({
+                    id: subtitleId++,
+                    start: lineStartTime,
+                    end: lastLineWordEnd,
+                    text: currentLineText,
+                  })
+                  currentLine = []
+                }
               }
             }
             
-            const testLine = currentLine.length > 0 ? currentLine.join(" ") + " " + word : word
+            // 현재 줄의 텍스트 길이 계산 (공백 포함)
+            const currentLineText = currentLine.map(w => w.word).join(" ")
+            const testLine = currentLineText.length > 0 ? currentLineText + " " + word : word
+            const testLineLength = testLine.length
             
-            if (testLine.length > maxChars && currentLine.length >= 1) {
-              if (currentLine.length > 0) {
-                // 이전 줄의 마지막 단어 endTime 사용 (소수점 10자리 정밀도)
-                const prevWordEnd = i > 0 ? Number.parseFloat(sortedWordTimings[i - 1].end.toFixed(10)) : Number.parseFloat(wordTiming.start.toFixed(10))
+            // 현재 줄의 시간 길이 계산 (첫 단어부터 현재 단어까지)
+            const currentLineDuration = currentLine.length > 0 
+              ? Number.parseFloat((wordEnd - currentLine[0].start).toFixed(10))
+              : 0
+            
+            // 이전 줄의 마지막 단어가 문장 부호로 끝나는지 확인 (?, !, .)
+            const prevLineEndsWithPunctuation = currentLine.length > 0 && 
+              /[?!.。！？]$/.test(currentLine[currentLine.length - 1].word)
+            
+            // 줄바꿈 조건 (무조건 15~20자로 제한):
+            // 1. 이전 줄이 문장 부호로 끝남 -> 무조건 줄바꿈
+            // 2. 길이가 20자 초과 -> 줄바꿈 (15자 이상이어야 함)
+            const shouldBreakLine = prevLineEndsWithPunctuation || 
+              (testLineLength > maxChars && currentLine.length >= 1 && currentLine.map(w => w.word).join(" ").length >= minChars)
+            
+            if (shouldBreakLine && currentLine.length > 0) {
+              // 현재 줄의 첫 번째 단어의 start 시간을 자막의 startTime으로 사용 (중요!)
+              const lineStartTime = currentLine[0].start
+              const lastLineWordEnd = Number.parseFloat(currentLine[currentLine.length - 1].end.toFixed(10))
                 subtitles.push({
                   id: subtitleId++,
-                  start: Number.parseFloat(lineStartTime.toFixed(10)), // 소수점 10자리 정밀도
-                  end: prevWordEnd,
-                  text: currentLine.join(" "),
-                })
-              }
-              currentLine = [word]
-              lineStartTime = Number.parseFloat(wordTiming.start.toFixed(10))
+                start: lineStartTime, // 첫 번째 단어의 start 시간 사용
+                end: lastLineWordEnd,
+                text: currentLineText,
+              })
+              
+              // 새 줄 시작: 현재 단어부터 시작
+              currentLine = [{ word, start: wordStart, end: wordEnd }]
             } else {
-              currentLine.push(word)
-              // 첫 단어인 경우 lineStartTime 설정 (소수점 10자리 정밀도)
-              if (currentLine.length === 1) {
-                lineStartTime = Number.parseFloat(wordTiming.start.toFixed(10))
+              // 현재 줄에 단어 추가
+              if (currentLine.length === 0) {
+                // 첫 번째 단어: start 시간 저장
+                currentLine.push({ word, start: wordStart, end: wordEnd })
+              } else {
+                // 추가 단어: 첫 번째 단어의 start 시간 유지
+                currentLine.push({ word, start: currentLine[0].start, end: wordEnd })
               }
             }
           }
           
           // 마지막 줄 추가 (소수점 10자리 정밀도)
           if (currentLine.length > 0) {
-            const lastWordEnd = Number.parseFloat(sortedWordTimings[sortedWordTimings.length - 1].end.toFixed(10))
+            // 현재 줄의 첫 번째 단어의 start 시간을 자막의 startTime으로 사용 (중요!)
+            const lineStartTime = currentLine[0].start
+            const lastLineWordEnd = Number.parseFloat(currentLine[currentLine.length - 1].end.toFixed(10))
+            const lastLineText = currentLine.map(w => w.word).join(" ")
             subtitles.push({
               id: subtitleId++,
-              start: Number.parseFloat(lineStartTime.toFixed(10)),
-              end: lastWordEnd,
-              text: currentLine.join(" "),
+              start: lineStartTime, // 첫 번째 단어의 start 시간 사용
+              end: lastLineWordEnd,
+              text: lastLineText,
             })
+          }
+          
+          // 자막 타이밍 정리 및 겹침 방지 (벤치마킹 코드 방식 적용)
+          // 프레임 정렬: 25fps 기준 0.04초 단위로 정렬 (영상/자막 싱크 오차 원천 차단)
+          // VIDEO_FPS, FRAME_DURATION, SUBTITLE_SAFETY_MARGIN, alignToFrame은 파일 상단에 정의됨
+          if (subtitles.length > 1) {
+            // start 시간 순으로 정렬
+            subtitles.sort((a, b) => a.start - b.start)
+            
+            // 1. 프레임 정렬 적용: endTime만 프레임 단위로 정렬 (startTime은 원본 STT 타이밍 보존)
+            // startTime은 STT 결과를 그대로 사용하여 정확한 싱크 유지
+            for (let i = 0; i < subtitles.length; i++) {
+              // startTime은 원본 유지 (STT 정확도 보존)
+              // endTime만 프레임 정렬 (영상 프레임과의 싱크)
+              subtitles[i].end = Number.parseFloat(alignToFrame(subtitles[i].end).toFixed(10))
+            }
+            
+            // 2. 자막 endTime 확장: 각 자막의 endTime을 다음 자막의 startTime까지 확장 (고도화)
+            // 자막은 다음 자막이 나오기 전까지 끝까지 표시되어야 함 (TTS가 끝날 때까지)
+            for (let i = 0; i < subtitles.length - 1; i++) {
+              const currentSubtitle = subtitles[i]
+              const nextSubtitle = subtitles[i + 1]
+              
+              // 타이밍 겹침 방지: 다음 자막의 startTime이 이전 자막의 endTime보다 작거나 같으면
+              // endTime만 조정 (startTime은 STT 결과 보존하여 정확한 싱크 유지)
+              if (nextSubtitle.start <= currentSubtitle.end) {
+                // 이전 자막의 endTime을 다음 자막의 startTime 직전으로 조정 (startTime은 변경하지 않음)
+                const adjustedEnd = Number.parseFloat((nextSubtitle.start - 0.01).toFixed(10))
+                if (adjustedEnd > currentSubtitle.start) {
+                  currentSubtitle.end = adjustedEnd
+                  console.log(`[자막 타이밍] 겹침 방지: 자막 ${i + 1} end=${currentSubtitle.end.toFixed(3)}초로 조정 (자막 ${i + 2} start=${nextSubtitle.start.toFixed(3)}초 보존)`)
+                } else {
+                  // endTime 조정이 불가능하면 최소한의 간격만 확보
+                  currentSubtitle.end = Number.parseFloat((currentSubtitle.start + 0.1).toFixed(10))
+                  console.log(`[자막 타이밍] 겹침 방지: 자막 ${i + 1} end=${currentSubtitle.end.toFixed(3)}초로 조정 (최소 길이)`)
+                }
+              } else {
+                // 간격이 있으면 현재 자막의 endTime을 다음 자막의 startTime까지 확장
+                // 자막이 다음 자막이 나오기 전까지 끝까지 표시되도록
+                // 단, 간격이 너무 크면 (1초 이상) 다음 자막 시작 직전까지만 확장
+                const gap = nextSubtitle.start - currentSubtitle.end
+                if (gap > 1.0) {
+                  // 간격이 크면 다음 자막 시작 0.1초 전까지만 확장 (너무 길게 표시하지 않음)
+                  currentSubtitle.end = Number.parseFloat((nextSubtitle.start - 0.1).toFixed(10))
+                  console.log(`[자막 타이밍] 자막 ${i + 1} endTime 확장 (간격 ${gap.toFixed(3)}초): ${currentSubtitle.end.toFixed(3)}초 (다음 자막 start=${nextSubtitle.start.toFixed(3)}초 직전)`)
+                } else {
+                  // 간격이 작으면 다음 자막 시작까지 확장
+                  currentSubtitle.end = Number.parseFloat(nextSubtitle.start.toFixed(10))
+                  console.log(`[자막 타이밍] 자막 ${i + 1} endTime 확장: ${currentSubtitle.end.toFixed(3)}초 (다음 자막 start=${nextSubtitle.start.toFixed(3)}초까지)`)
+                }
+              }
+            }
+            
+            // 마지막 자막의 endTime을 오디오 끝까지 확장 (영상 잘림 방지)
+            if (subtitles.length > 0) {
+              const lastSubtitle = subtitles[subtitles.length - 1]
+              // totalDuration은 나중에 계산되므로, 일단 마지막 단어의 endTime + 여유 시간으로 설정
+              // 실제 totalDuration이 계산되면 다시 조정됨
+              const lastWordEnd = sortedWordTimings.length > 0 
+                ? sortedWordTimings[sortedWordTimings.length - 1].end 
+                : lastSubtitle.end
+              // 마지막 단어 끝에서 0.2초 여유를 두고 확장 (나중에 totalDuration으로 재조정됨)
+              lastSubtitle.end = Number.parseFloat((lastWordEnd + 0.2).toFixed(10))
+              console.log(`[자막 타이밍] 마지막 자막 endTime 확장: ${lastSubtitle.end.toFixed(3)}초 (나중에 totalDuration으로 재조정됨)`)
+            }
+            
+            // 4. 모든 자막의 endTime이 startTime보다 큰지 확인
+            for (let i = 0; i < subtitles.length; i++) {
+              if (subtitles[i].end <= subtitles[i].start) {
+                // endTime이 startTime보다 작거나 같으면 최소 1프레임(0.04초) 길이로 설정
+                subtitles[i].end = Number.parseFloat((subtitles[i].start + FRAME_DURATION).toFixed(10))
+                console.log(`[자막 타이밍] 자막 ${i + 1} 길이 보정: start=${subtitles[i].start.toFixed(3)}초, end=${subtitles[i].end.toFixed(3)}초`)
+              }
+            }
+            
+            console.log(`[자막 타이밍] 프레임 정렬 완료 (${VIDEO_FPS}fps, ${FRAME_DURATION.toFixed(3)}초 단위, 안전 마진 ${SUBTITLE_SAFETY_MARGIN.toFixed(3)}초)`)
           }
           
           console.log(`[v0] 씬별 Whisper 기반 자막 생성 완료: ${subtitles.length}개 자막 (${allWordTimings.length}개 단어 타이밍 사용, 침묵 구간 감지 및 타이밍 조정, 소수점 10자리 정밀도)`)
@@ -8860,37 +8799,55 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           console.log(`[v0] 씬별 자막 및 이미지 타이밍 조정 완료`)
         }
         
-        // 마지막 자막과 이미지의 endTime을 오디오의 실제 마지막 시간과 일치시키기
+        // 마지막 자막과 이미지의 endTime을 오디오의 실제 마지막 시간과 정확히 일치시키기 (영상 잘림 방지 - 고도화)
+        // 실제 병합된 오디오 길이를 기준으로 정확히 조정
+        const preciseTotalDuration = Number.parseFloat(actualMergedDuration.toFixed(10))
+        
         if (subtitles.length > 0) {
           const lastSubtitle = subtitles[subtitles.length - 1]
-          if (lastSubtitle.end < totalDuration) {
-            console.log(`[v0] 씬별 마지막 자막 endTime 조정: ${lastSubtitle.end.toFixed(3)}초 -> ${totalDuration.toFixed(3)}초`)
-            lastSubtitle.end = Number.parseFloat(totalDuration.toFixed(3))
+          // 마지막 자막의 endTime을 오디오 끝까지 정확히 확장
+          if (lastSubtitle.end < preciseTotalDuration) {
+            console.log(`[v0] 씬별 마지막 자막 endTime 조정: ${lastSubtitle.end.toFixed(3)}초 -> ${preciseTotalDuration.toFixed(3)}초 (영상 잘림 방지)`)
+            lastSubtitle.end = preciseTotalDuration
+          } else if (lastSubtitle.end > preciseTotalDuration) {
+            // endTime이 오디오 길이를 초과하면 오디오 길이로 제한
+            console.log(`[v0] 씬별 마지막 자막 endTime 조정: ${lastSubtitle.end.toFixed(3)}초 -> ${preciseTotalDuration.toFixed(3)}초 (오디오 길이 초과 방지)`)
+            lastSubtitle.end = preciseTotalDuration
+          }
+          
+          // 마지막 자막의 startTime도 확인 (오디오 길이를 초과하지 않도록)
+          if (lastSubtitle.start >= preciseTotalDuration) {
+            // startTime이 오디오 길이를 초과하면 이전 자막의 endTime을 사용
+            if (subtitles.length > 1) {
+              const prevSubtitle = subtitles[subtitles.length - 2]
+              lastSubtitle.start = Number.parseFloat(prevSubtitle.end.toFixed(10))
+              lastSubtitle.end = preciseTotalDuration
+              console.log(`[v0] 씬별 마지막 자막 startTime 조정: 오디오 길이 초과 방지, endTime=${preciseTotalDuration.toFixed(3)}초`)
+            }
           }
         }
         
         if (autoImages.length > 0) {
           const lastImage = autoImages[autoImages.length - 1]
-          if (lastImage.endTime < totalDuration) {
-            console.log(`[v0] 씬별 마지막 이미지 endTime 조정: ${lastImage.endTime.toFixed(3)}초 -> ${totalDuration.toFixed(3)}초`)
-            lastImage.endTime = Number.parseFloat(totalDuration.toFixed(3))
+          // 마지막 이미지의 endTime을 오디오 끝까지 정확히 확장
+          if (lastImage.endTime < preciseTotalDuration) {
+            console.log(`[v0] 씬별 마지막 이미지 endTime 조정: ${lastImage.endTime.toFixed(3)}초 -> ${preciseTotalDuration.toFixed(3)}초 (영상 잘림 방지)`)
+            lastImage.endTime = preciseTotalDuration
+          } else if (lastImage.endTime > preciseTotalDuration) {
+            // endTime이 오디오 길이를 초과하면 오디오 길이로 제한
+            console.log(`[v0] 씬별 마지막 이미지 endTime 조정: ${lastImage.endTime.toFixed(3)}초 -> ${preciseTotalDuration.toFixed(3)}초 (오디오 길이 초과 방지)`)
+            lastImage.endTime = preciseTotalDuration
           }
-        }
-        
-        // 마지막 자막과 이미지의 endTime을 오디오의 실제 마지막 시간과 일치시키기 (음성 잘림 방지)
-        if (subtitles.length > 0) {
-          const lastSubtitle = subtitles[subtitles.length - 1]
-          if (lastSubtitle.end < totalDuration) {
-            console.log(`[v0] 마지막 자막 endTime 조정: ${lastSubtitle.end.toFixed(3)}초 -> ${totalDuration.toFixed(3)}초`)
-            lastSubtitle.end = Number.parseFloat(totalDuration.toFixed(3))
-          }
-        }
-        
-        if (autoImages.length > 0) {
-          const lastImage = autoImages[autoImages.length - 1]
-          if (lastImage.endTime < totalDuration) {
-            console.log(`[v0] 마지막 이미지 endTime 조정: ${lastImage.endTime.toFixed(3)}초 -> ${totalDuration.toFixed(3)}초`)
-            lastImage.endTime = Number.parseFloat(totalDuration.toFixed(3))
+          
+          // 마지막 이미지의 startTime도 확인 (오디오 길이를 초과하지 않도록)
+          if (lastImage.startTime >= preciseTotalDuration) {
+            // startTime이 오디오 길이를 초과하면 이전 이미지의 endTime을 사용
+            if (autoImages.length > 1) {
+              const prevImage = autoImages[autoImages.length - 2]
+              lastImage.startTime = Number.parseFloat(prevImage.endTime.toFixed(10))
+              lastImage.endTime = preciseTotalDuration
+              console.log(`[v0] 씬별 마지막 이미지 startTime 조정: 오디오 길이 초과 방지, endTime=${preciseTotalDuration.toFixed(3)}초`)
+            }
           }
         }
         
@@ -8974,7 +8931,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           setTimeout(() => handleFastDownload(), 2000)
         }
         
-        return
+        return;
       }
       
       // 기존 로직 (씬별 렌더링이 아닌 경우)
@@ -9102,10 +9059,11 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       }
       
       // 각 문장을 의미 단위로 나눠서 개별 STT 분석 수행
-      const openaiApiKey = getApiKey("openai") || getApiKey("gpt_api_key") || getApiKey("chatgpt_api_key")
+      const openaiApiKey = getApiKey("openai_api_key") || getApiKey("openai") || getApiKey("gpt_api_key") || getApiKey("chatgpt_api_key")
       const allWordTimings: Array<{ word: string; start: number; end: number; lineId: number }> = []
       
-      if (openaiApiKey) {
+      // Whisper API 사용 여부에 따라 STT 분석 수행
+      if (useWhisper && openaiApiKey) {
         // 전체 구간 수 계산 (문장별 의미 단위 합계)
         let totalPhrases = 0
         const phraseMapping: Array<{ lineId: number; phrase: string; startTime: number; duration: number }> = []
@@ -9131,76 +9089,158 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           }
         }
         
-        console.log(`[Whisper] 각 의미 단위별 개별 STT 분석 시작 (${totalPhrases}개 구간, ${scriptLines.length}개 문장)`)
+        console.log(`[Whisper] 각 의미 단위별 개별 STT 분석 시작 (${totalPhrases}개 구간, ${scriptLines.length}개 문장) - 배치 병렬 처리`)
+        
+        // 모든 구간을 수집하여 배치 병렬 처리 (순서 보장)
+        const phraseSttTasks: Array<{
+          index: number
+          phraseInfo: { lineId: number; phrase: string; startTime: number; duration: number }
+          lineAudioBuffer: AudioBuffer
+          lineStartTime: number
+        }> = []
         
         for (let i = 0; i < phraseMapping.length; i++) {
           const phraseInfo = phraseMapping[i]
           
-          try {
-            setRenderingStatusMessage(`STT 분석 중... (${i + 1}/${totalPhrases})`)
-            console.log(`[Whisper] 구간 ${i + 1} (문장 ${phraseInfo.lineId}) STT 분석 시작 (구간: ${phraseInfo.startTime.toFixed(3)}초 ~ ${(phraseInfo.startTime + phraseInfo.duration).toFixed(3)}초)`)
-            
-            // 각 오디오 버퍼를 개별적으로 사용
-            const lineAudioBuffer = audioBuffersMap.get(phraseInfo.lineId)
-            if (!lineAudioBuffer) {
-              console.warn(`[Whisper] 오디오 버퍼를 찾을 수 없음 (줄 ${phraseInfo.lineId})`)
-              continue
-            }
-            
-            // 각 오디오 내에서 상대 시간으로 구간 추출
-            // cumulativeTime을 계산하여 각 오디오의 시작 시간을 찾음
-            let lineStartTime = 0
-            for (const line of scriptLines) {
-              if (line.id === phraseInfo.lineId) break
-              const audioDuration = audioDurations.find((d) => d.lineId === line.id)?.duration || 0
-              lineStartTime += audioDuration
-            }
-            
-            const relativeStartTime = phraseInfo.startTime - lineStartTime
-            const relativeEndTime = relativeStartTime + phraseInfo.duration
-            const segmentBuffer = extractAudioSegment(lineAudioBuffer, Math.max(0, relativeStartTime), Math.min(lineAudioBuffer.duration, relativeEndTime))
-            
-            // 추출된 구간을 Blob으로 변환
-            const audioBlob = await audioBufferToBlob(segmentBuffer)
-            
-            // Whisper align API 호출 (해당 의미 단위만)
-            const formData = new FormData()
-            formData.append("audio", audioBlob, `phrase_${phraseInfo.lineId}_${i}.wav`)
-            formData.append("text", phraseInfo.phrase)
-            
-            const whisperResponse = await fetch("/api/whisper-align", {
-              method: "POST",
-              body: formData,
+          // 각 오디오 버퍼를 개별적으로 사용
+          const lineAudioBuffer = audioBuffersMap.get(phraseInfo.lineId)
+          if (!lineAudioBuffer) {
+            console.warn(`[Whisper] 오디오 버퍼를 찾을 수 없음 (줄 ${phraseInfo.lineId})`)
+            continue
+          }
+          
+          // 각 오디오 내에서 상대 시간으로 구간 추출
+          // cumulativeTime을 계산하여 각 오디오의 시작 시간을 찾음
+          let lineStartTime = 0
+          for (const line of scriptLines) {
+            if (line.id === phraseInfo.lineId) break
+            const audioDuration = audioDurations.find((d) => d.lineId === line.id)?.duration || 0
+            lineStartTime += audioDuration
+          }
+          
+          phraseSttTasks.push({
+            index: i,
+            phraseInfo,
+            lineAudioBuffer,
+            lineStartTime,
+          })
+        }
+        
+        // 배치 병렬 처리 (5개씩 동시 처리, 순서 보장)
+        const BATCH_SIZE = 5
+        for (let batchStart = 0; batchStart < phraseSttTasks.length; batchStart += BATCH_SIZE) {
+          const batch = phraseSttTasks.slice(batchStart, batchStart + BATCH_SIZE)
+          const batchNumber = Math.floor(batchStart / BATCH_SIZE) + 1
+          const totalBatches = Math.ceil(phraseSttTasks.length / BATCH_SIZE)
+          
+          setRenderingStatusMessage(`TTS랑 자막 싱크 맞추는 중... (배치 ${batchNumber}/${totalBatches})`)
+          console.log(`[Whisper] 배치 ${batchNumber}/${totalBatches} 처리 시작: ${batch.length}개 구간 병렬 처리`)
+          
+          // 배치 내 병렬 처리
+          const batchResults = await Promise.all(
+            batch.map(async (task) => {
+              try {
+                console.log(`[Whisper] 구간 ${task.index + 1} (문장 ${task.phraseInfo.lineId}) STT 분석 시작 (구간: ${task.phraseInfo.startTime.toFixed(3)}초 ~ ${(task.phraseInfo.startTime + task.phraseInfo.duration).toFixed(3)}초)`)
+                
+                const relativeStartTime = task.phraseInfo.startTime - task.lineStartTime
+                const relativeEndTime = relativeStartTime + task.phraseInfo.duration
+                const segmentBuffer = extractAudioSegment(task.lineAudioBuffer, Math.max(0, relativeStartTime), Math.min(task.lineAudioBuffer.duration, relativeEndTime))
+                
+                // 추출된 구간을 Blob으로 변환
+                const audioBlob = await audioBufferToBlob(segmentBuffer)
+                
+                // Whisper align API 호출 (해당 의미 단위만)
+                const formData = new FormData()
+                formData.append("audio", audioBlob, `phrase_${task.phraseInfo.lineId}_${task.index}.wav`)
+                formData.append("text", task.phraseInfo.phrase)
+                if (openaiApiKey) {
+                  formData.append("apiKey", openaiApiKey)
+                }
+                
+                const whisperResponse = await fetch("/api/whisper-align", {
+                  method: "POST",
+                  body: formData,
+                })
+                
+                if (whisperResponse.ok) {
+                  const whisperData = await whisperResponse.json()
+                  return {
+                    index: task.index,
+                    phraseInfo: task.phraseInfo,
+                    wordTimings: whisperData.wordTimings || [],
+                    success: true,
+                  }
+                } else {
+                  const errorText = await whisperResponse.text()
+                  console.warn(`[Whisper] 구간 ${task.index + 1} (문장 ${task.phraseInfo.lineId}) API 호출 실패:`, errorText)
+                  return {
+                    index: task.index,
+                    phraseInfo: task.phraseInfo,
+                    wordTimings: [],
+                    success: false,
+                  }
+                }
+              } catch (error) {
+                console.warn(`[Whisper] 구간 ${task.index + 1} (문장 ${task.phraseInfo.lineId}) STT 분석 오류:`, error)
+                return {
+                  index: task.index,
+                  phraseInfo: task.phraseInfo,
+                  wordTimings: [],
+                  success: false,
+                }
+              }
             })
-            
-            if (whisperResponse.ok) {
-              const whisperData = await whisperResponse.json()
-              if (whisperData.wordTimings && whisperData.wordTimings.length > 0) {
-                // 각 단어의 타이밍을 합쳐진 오디오의 절대 시간으로 변환
-                for (const wordTiming of whisperData.wordTimings) {
+          )
+          
+          // 결과를 인덱스 순으로 정렬하여 순서 보장
+          batchResults.sort((a, b) => a.index - b.index)
+          
+          // 정렬된 결과를 순서대로 처리
+          for (const result of batchResults) {
+            if (result.success && result.wordTimings && result.wordTimings.length > 0) {
+              // 각 단어의 타이밍을 합쳐진 오디오의 절대 시간으로 변환 (고도화: 더 정밀한 계산)
+              const phraseStartPrecise = Number.parseFloat(result.phraseInfo.startTime.toFixed(10))
+              
+              for (const wordTiming of result.wordTimings) {
+                // 더 정밀한 시간 계산 (소수점 10자리 유지)
+                const wordStartPrecise = Number.parseFloat(Number(wordTiming.start).toFixed(10))
+                const wordEndPrecise = Number.parseFloat(Number(wordTiming.end).toFixed(10))
+                
+                const absoluteStart = Number.parseFloat((phraseStartPrecise + wordStartPrecise).toFixed(10))
+                const absoluteEnd = Number.parseFloat((phraseStartPrecise + wordEndPrecise).toFixed(10))
+                
+                // 단어가 비어있지 않은 경우만 추가
+                const trimmedWord = wordTiming.word.trim()
+                if (trimmedWord.length > 0) {
                   allWordTimings.push({
-                    word: wordTiming.word,
-                    start: phraseInfo.startTime + wordTiming.start, // 절대 시간으로 변환
-                    end: phraseInfo.startTime + wordTiming.end, // 절대 시간으로 변환
-                    lineId: phraseInfo.lineId,
+                    word: trimmedWord,
+                    start: absoluteStart, // 절대 시간으로 변환
+                    end: absoluteEnd, // 절대 시간으로 변환
+                    lineId: result.phraseInfo.lineId,
                   })
                 }
-                console.log(`[Whisper] 구간 ${i + 1} (문장 ${phraseInfo.lineId}): ${whisperData.wordTimings.length}개 단어 타이밍 추출 완료`)
-              } else {
-                console.warn(`[Whisper] 구간 ${i + 1} (문장 ${phraseInfo.lineId}): 단어 타이밍 없음`)
               }
+              console.log(`[Whisper] 구간 ${result.index + 1} (문장 ${result.phraseInfo.lineId}): ${result.wordTimings.length}개 단어 타이밍 추출 완료`)
             } else {
-              console.warn(`[Whisper] 구간 ${i + 1} (문장 ${phraseInfo.lineId}) API 호출 실패:`, await whisperResponse.text())
+              console.warn(`[Whisper] 구간 ${result.index + 1} (문장 ${result.phraseInfo.lineId}): 단어 타이밍 없음`)
             }
-          } catch (error) {
-            console.warn(`[Whisper] 구간 ${i + 1} (문장 ${phraseInfo.lineId}) STT 분석 오류:`, error)
-            // 개별 구간 실패해도 계속 진행
+          }
+          
+          console.log(`[Whisper] 배치 ${batchNumber}/${totalBatches} 처리 완료`)
+          
+          // 배치 간 짧은 딜레이 (API Rate Limit 방지)
+          if (batchStart + BATCH_SIZE < phraseSttTasks.length) {
+            await new Promise(resolve => setTimeout(resolve, 200))
           }
         }
         
         console.log(`[Whisper] 전체 ${allWordTimings.length}개 단어 타이밍 추출 완료 (${totalPhrases}개 구간, ${scriptLines.length}개 문장)`)
       } else {
-        console.warn(`[Whisper] ❌ OpenAI API 키 없음, Whisper API 건너뜀\n\n해결 방법:\n1. 설정에서 OpenAI API 키를 입력하세요\n2. STT 분석 없이 자막이 생성됩니다 (정확도가 낮을 수 있음)`)
+        if (!useWhisper) {
+          console.log(`[v0] Whisper API 미사용 모드: 텍스트 길이 비율로 자막 생성`)
+        } else {
+          console.warn(`[Whisper] ❌ OpenAI API 키 없음, Whisper API 건너뜀\n\n해결 방법:\n1. 설정에서 OpenAI API 키를 입력하세요\n2. 대체 방식(웨이브폼 분석, ElevenLabs alignment 등)으로 자막이 생성됩니다 (정확도가 낮을 수 있음)`)
+        }
       }
       
       // 전체 텍스트 합치기 (fallback용)
@@ -9568,20 +9608,55 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         console.log(`[v0] 자막 및 이미지 타이밍 조정 완료`)
       }
       
-      // 마지막 자막과 이미지의 endTime을 오디오의 실제 마지막 시간과 일치시키기 (음성 잘림 방지)
+      // 마지막 자막과 이미지의 endTime을 오디오의 실제 마지막 시간과 정확히 일치시키기 (영상 잘림 방지 - 고도화)
+      // 실제 병합된 오디오 길이를 기준으로 정확히 조정
+      const preciseTotalDurationForNormal = Number.parseFloat(actualMergedDuration.toFixed(10))
+      
       if (subtitles.length > 0) {
         const lastSubtitle = subtitles[subtitles.length - 1]
-        if (lastSubtitle.end < totalDuration) {
-          console.log(`[v0] 마지막 자막 endTime 조정: ${lastSubtitle.end.toFixed(3)}초 -> ${totalDuration.toFixed(3)}초`)
-          lastSubtitle.end = Number.parseFloat(totalDuration.toFixed(3))
+        // 마지막 자막의 endTime을 오디오 끝까지 정확히 확장
+        if (lastSubtitle.end < preciseTotalDurationForNormal) {
+          console.log(`[v0] 일반 렌더링 마지막 자막 endTime 조정: ${lastSubtitle.end.toFixed(3)}초 -> ${preciseTotalDurationForNormal.toFixed(3)}초 (영상 잘림 방지)`)
+          lastSubtitle.end = preciseTotalDurationForNormal
+        } else if (lastSubtitle.end > preciseTotalDurationForNormal) {
+          // endTime이 오디오 길이를 초과하면 오디오 길이로 제한
+          console.log(`[v0] 일반 렌더링 마지막 자막 endTime 조정: ${lastSubtitle.end.toFixed(3)}초 -> ${preciseTotalDurationForNormal.toFixed(3)}초 (오디오 길이 초과 방지)`)
+          lastSubtitle.end = preciseTotalDurationForNormal
+        }
+        
+        // 마지막 자막의 startTime도 확인 (오디오 길이를 초과하지 않도록)
+        if (lastSubtitle.start >= preciseTotalDurationForNormal) {
+          // startTime이 오디오 길이를 초과하면 이전 자막의 endTime을 사용
+          if (subtitles.length > 1) {
+            const prevSubtitle = subtitles[subtitles.length - 2]
+            lastSubtitle.start = Number.parseFloat(prevSubtitle.end.toFixed(10))
+            lastSubtitle.end = preciseTotalDurationForNormal
+            console.log(`[v0] 일반 렌더링 마지막 자막 startTime 조정: 오디오 길이 초과 방지, endTime=${preciseTotalDurationForNormal.toFixed(3)}초`)
+          }
         }
       }
       
       if (autoImages.length > 0) {
         const lastImage = autoImages[autoImages.length - 1]
-        if (lastImage.endTime < totalDuration) {
-          console.log(`[v0] 마지막 이미지 endTime 조정: ${lastImage.endTime.toFixed(3)}초 -> ${totalDuration.toFixed(3)}초`)
-          lastImage.endTime = Number.parseFloat(totalDuration.toFixed(3))
+        // 마지막 이미지의 endTime을 오디오 끝까지 정확히 확장
+        if (lastImage.endTime < preciseTotalDurationForNormal) {
+          console.log(`[v0] 일반 렌더링 마지막 이미지 endTime 조정: ${lastImage.endTime.toFixed(3)}초 -> ${preciseTotalDurationForNormal.toFixed(3)}초 (영상 잘림 방지)`)
+          lastImage.endTime = preciseTotalDurationForNormal
+        } else if (lastImage.endTime > preciseTotalDurationForNormal) {
+          // endTime이 오디오 길이를 초과하면 오디오 길이로 제한
+          console.log(`[v0] 일반 렌더링 마지막 이미지 endTime 조정: ${lastImage.endTime.toFixed(3)}초 -> ${preciseTotalDurationForNormal.toFixed(3)}초 (오디오 길이 초과 방지)`)
+          lastImage.endTime = preciseTotalDurationForNormal
+        }
+        
+        // 마지막 이미지의 startTime도 확인 (오디오 길이를 초과하지 않도록)
+        if (lastImage.startTime >= preciseTotalDurationForNormal) {
+          // startTime이 오디오 길이를 초과하면 이전 이미지의 endTime을 사용
+          if (autoImages.length > 1) {
+            const prevImage = autoImages[autoImages.length - 2]
+            lastImage.startTime = Number.parseFloat(prevImage.endTime.toFixed(10))
+            lastImage.endTime = preciseTotalDurationForNormal
+            console.log(`[v0] 일반 렌더링 마지막 이미지 startTime 조정: 오디오 길이 초과 방지, endTime=${preciseTotalDurationForNormal.toFixed(3)}초`)
+          }
         }
       }
 
@@ -9958,6 +10033,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       )
       actualAudioDuration = Number.parseFloat(actualDuration.toFixed(6))
       console.log(`[v0] 실제 오디오 길이: ${actualAudioDuration.toFixed(6)}초 (videoData.duration: ${videoData.duration?.toFixed(3)}초)`)
+      
+      // 빠른다운로드에서는 videoData.subtitles를 그대로 사용 (미리보기와 동일한 타이밍)
+      // durationRatio 재계산하지 않음 (이미 미리보기에서 조정됨)
       
       // 예상 렌더링 시간 계산 (영상 1초 생성 시 0.5초 소요)
       estimatedTimeSeconds = Math.ceil(actualAudioDuration * 0.5)
@@ -10457,13 +10535,31 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       const requestBodyForSizeEstimate = {
           // Cloud Storage URL이 있으면 사용, 없으면 base64 사용
         ...(audioGcsUrl ? { audioGcsUrl: audioGcsUrl } : { audioBase64: audioBase64 }),
-          subtitles: videoData.subtitles.map((s) => ({
-            id: s.id,
-            // 자막 타이밍을 0.5초 앞당겨서 전달 (TTS와 동기화 개선)
-            start: Math.max(0, s.start - 0.5),
-            end: Math.max(0, s.end - 0.5),
-            text: s.text,
-          })),
+          subtitles: videoData.subtitles.map((s, index) => {
+            // 미리보기와 동일한 타이밍 적용: timingOffset (0.4초)를 startTime에서 빼서 자막을 앞당김
+            // 미리보기에서는 표시 시점에만 offset을 적용하지만, 빠른다운로드에서는 데이터 자체를 조정
+            const timingOffset = 0.4 // 미리보기와 동일한 offset (playbackRate > 1.0이 아닌 경우)
+            const adjustedStart = Math.max(0, s.start - timingOffset)
+            
+            // 마지막 자막은 endTime을 실제 오디오 길이에 맞춰 조정 (영상 길이 유지)
+            const isLastSubtitle = index === videoData.subtitles.length - 1
+            let adjustedEnd: number
+            if (isLastSubtitle) {
+              // 마지막 자막은 실제 오디오 길이 + 3초 여유를 사용 (영상 길이 유지)
+              const targetEndTime = actualAudioDuration > 0 ? actualAudioDuration + 3 : (videoData.duration || 0) + 3
+              adjustedEnd = Math.max(adjustedStart + 0.01, targetEndTime)
+            } else {
+              // 마지막 자막이 아닌 경우에만 endTime도 앞당김
+              adjustedEnd = Math.max(adjustedStart + 0.01, s.end - timingOffset)
+            }
+            
+            return {
+              id: s.id,
+              start: adjustedStart,
+              end: adjustedEnd,
+              text: s.text,
+            }
+          }),
         // 이미지: Cloud Storage URL이 있으면 base64 전송하지 않음
         // 영상인 경우 URL만 전송 (크기 작음)
         ...(characterImageGcsUrl 
@@ -10959,25 +11055,52 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       
       console.log(`[v0] 영상 길이 설정: 실제 오디오=${actualAudioDuration.toFixed(3)}초, 여유 포함=${audioDurationWithPadding.toFixed(3)}초`)
       
-      // 미리보기에서 사용하는 자막을 그대로 전달 (0.5초 앞당김 제거)
-      // 마지막 자막의 endTime만 실제 오디오 길이 + 3초로 조정
+      // 미리보기에서 사용하는 자막을 Cloud Run에 전달하기 전 조정
+      // 1. 자막 startTime을 0.4초 앞당김 (미리보기의 timingOffset과 동일)
+      // 2. 마지막 자막의 endTime만 실제 오디오 길이 + 3초로 조정 (영상 길이 유지)
       const finalSubtitles = showSubtitles ? videoData.subtitles.map((s, index) => {
         const isLastSubtitle = index === videoData.subtitles.length - 1
         let endTime = s.end
+        let startTime = s.start
         
-        // 마지막 자막의 경우, 실제 오디오 길이 + 3초 여유에 맞춰 조정
+        // 자막 startTime을 0.4초 앞당김 (미리보기와 동일한 offset)
+        // 미리보기에서는 표시 타이밍만 조정하지만, Cloud Run에서는 자막 데이터 자체를 조정
+        const timingOffset = 0.4 // 미리보기와 동일한 offset
+        startTime = Math.max(0, s.start - timingOffset) // 0보다 작아지지 않도록
+        if (s.start !== startTime) {
+          console.log(`[v0] 자막 ${index + 1} startTime 앞당김: ${s.start.toFixed(3)}초 -> ${startTime.toFixed(3)}초 (offset: ${timingOffset}초)`)
+        }
+        
+        // 마지막 자막의 경우, 실제 오디오 길이 + 3초 여유에 맞춰 조정 (영상 길이 유지)
+        // startTime은 앞당겼지만, endTime은 원본 오디오 길이를 유지하여 영상 길이가 짧아지지 않도록 함
         if (isLastSubtitle && actualAudioDuration > 0) {
           const targetEndTime = actualAudioDuration + 3
+          // 원본 endTime이 targetEndTime보다 작으면 targetEndTime으로 조정
+          // 원본 endTime이 targetEndTime보다 크면 원본 endTime 유지 (단, startTime 앞당김 반영)
           if (s.end < targetEndTime) {
             console.log(`[v0] 마지막 자막 endTime 조정: ${s.end.toFixed(3)}초 -> ${targetEndTime.toFixed(3)}초 (실제 오디오 길이: ${actualAudioDuration.toFixed(3)}초 + 3초 여유)`)
             endTime = targetEndTime
+          } else {
+            // 원본 endTime이 더 크면 원본 유지 (startTime 앞당김은 이미 적용됨)
+            endTime = s.end
           }
+        } else if (isLastSubtitle) {
+          // actualAudioDuration이 없으면 videoData.duration + 3초 사용
+          const targetEndTime = (videoData.duration || 0) + 3
+          if (s.end < targetEndTime) {
+            console.log(`[v0] 마지막 자막 endTime 조정: ${s.end.toFixed(3)}초 -> ${targetEndTime.toFixed(3)}초 (videoData.duration: ${videoData.duration?.toFixed(3)}초 + 3초 여유)`)
+            endTime = targetEndTime
+          } else {
+            endTime = s.end
+          }
+        } else {
+          // 마지막 자막이 아닌 경우에만 endTime도 앞당김
+          endTime = Math.max(startTime + 0.01, s.end - timingOffset)
         }
         
-        // 미리보기에서 사용하는 자막 시간을 그대로 사용 (0.5초 앞당김 제거)
         return {
           id: s.id,
-          start: s.start,
+          start: startTime, // 앞당겨진 startTime 사용
           end: endTime,
           text: s.text,
         }
@@ -12489,8 +12612,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         }
         
         // 자막 타이밍을 정확히 매칭 (미리보기와 동일: videoData.subtitles의 start/end를 그대로 사용)
+        // 작은 오차 허용 (0.05초)하여 자막 간 간격에서도 자막이 표시되도록 함
         const currentSubtitles = videoData.subtitles.filter(
-          (s) => adjustedTimeForSubtitles >= s.start && adjustedTimeForSubtitles <= s.end
+          (s) => adjustedTimeForSubtitles >= s.start - 0.05 && adjustedTimeForSubtitles <= s.end + 0.05
         )
 
         // 자막 표시 여부 확인
@@ -16455,7 +16579,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                   {scriptGenerationProgress.currentPart}/{scriptGenerationProgress.totalParts}회차 ({scriptGenerationProgress.progress}%)
                                 </span>
                               ) : (
-                                <span className="text-blue-600 font-semibold">{scriptGenerationProgress.progress}%</span>
+                              <span className="text-blue-600 font-semibold">{scriptGenerationProgress.progress}%</span>
                               )}
                             </div>
                             <div className="w-full bg-slate-200 rounded-full h-3 overflow-hidden">
@@ -16913,10 +17037,10 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                               if (!prev) {
                                 return {
                                   current: sceneNumber,
-                                  total: totalScenes,
+                            total: totalScenes,
                                   progress: Math.floor((sceneNumber / totalScenes) * 100),
-                                  elapsedTime: Math.floor((Date.now() - startTime) / 1000),
-                                  estimatedTime: estimatedSeconds
+                            elapsedTime: Math.floor((Date.now() - startTime) / 1000),
+                            estimatedTime: estimatedSeconds
                                 }
                               }
                               // 현재 씬 번호가 더 크면 업데이트 (병렬 처리 시 가장 큰 번호 표시)
@@ -16933,8 +17057,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                             try {
                               console.log(`[장면 분해] 씬 ${sceneNumber} 처리 시작`)
                               const sceneResult = await decomposeSingleScene(sceneText, sceneNumber, openaiApiKey, maxScenesPerScene, true)
-                              
-                              if (sceneResult && sceneResult.trim().length > 0) {
+                            
+                            if (sceneResult && sceneResult.trim().length > 0) {
                                 console.log(`[장면 분해] 씬 ${sceneNumber} 처리 완료`)
                                 return { sceneNumber, result: sceneResult, success: true }
                               } else {
@@ -16973,18 +17097,18 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                             elapsedTime: Math.floor((Date.now() - startTime) / 1000),
                             estimatedTime: estimatedSeconds
                           })
-                          
-                          // 실시간으로 결과 업데이트 (부분 결과)
-                          const partialResult = allResults.join("\n\n")
-                          setDecomposedScenes(partialResult)
-                          
-                          // 부분 결과를 파싱하여 scriptLines 업데이트
-                          try {
-                            const partialScenes = parseSceneBlocks(partialResult)
-                            if (partialScenes && Array.isArray(partialScenes) && partialScenes.length > 0) {
-                              setScriptLines(partialScenes)
-                            }
-                          } catch (parseError) {
+                              
+                              // 실시간으로 결과 업데이트 (부분 결과)
+                              const partialResult = allResults.join("\n\n")
+                              setDecomposedScenes(partialResult)
+                              
+                              // 부분 결과를 파싱하여 scriptLines 업데이트
+                              try {
+                                const partialScenes = parseSceneBlocks(partialResult)
+                                if (partialScenes && Array.isArray(partialScenes) && partialScenes.length > 0) {
+                                  setScriptLines(partialScenes)
+                                }
+                              } catch (parseError) {
                             console.warn(`[장면 분해] 부분 파싱 실패 (무시):`, parseError)
                           }
                           
@@ -17257,31 +17381,31 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                   </Button>
                     </div>
                     {/* 모든 스타일에서 공통으로 AI 모델 선택 */}
-                    <div className="mt-4 pt-4 border-t border-gray-200">
-                      <div>
-                        <p className="text-sm font-medium text-gray-700 mb-2">AI 모델 선택</p>
+                      <div className="mt-4 pt-4 border-t border-gray-200">
+                        <div>
+                          <p className="text-sm font-medium text-gray-700 mb-2">AI 모델 선택</p>
                         <Select value={imageModel} onValueChange={(value: "prunaai/hidream-l1-fast" | "black-forest-labs/flux-schnell" | "google/imagen-4-fast") => setImageModel(value)}>
-                          <SelectTrigger className="w-full">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="prunaai/hidream-l1-fast">prunaai/hidream-l1-fast (이미지 한장당 7원)</SelectItem>
-                            <SelectItem value="black-forest-labs/flux-schnell">black-forest-labs/flux-schnell (이미지 한장당 4원)</SelectItem>
+                            <SelectTrigger className="w-full">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="prunaai/hidream-l1-fast">prunaai/hidream-l1-fast (이미지 한장당 7원)</SelectItem>
+                              <SelectItem value="black-forest-labs/flux-schnell">black-forest-labs/flux-schnell (이미지 한장당 4원)</SelectItem>
                             <SelectItem value="google/imagen-4-fast">google/imagen-4-fast (이미지 한장당 28원)</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        {imageModel === "black-forest-labs/flux-schnell" && (
-                          <p className="text-xs text-gray-500 mt-1">
-                            Negative prompt는 자동으로 프롬프트에 결합됩니다. (16:9 비율 고정)
-                          </p>
-                        )}
+                            </SelectContent>
+                          </Select>
+                          {imageModel === "black-forest-labs/flux-schnell" && (
+                            <p className="text-xs text-gray-500 mt-1">
+                              Negative prompt는 자동으로 프롬프트에 결합됩니다. (16:9 비율 고정)
+                            </p>
+                          )}
                         {imageModel === "google/imagen-4-fast" && (
                           <p className="text-xs text-gray-500 mt-1">
                             실사화 스타일에 최적화된 모델입니다. (16:9 비율 고정)
                           </p>
                         )}
+                        </div>
                       </div>
-                    </div>
                     {/* 실사화/실사화2 선택 시 인물 타입 선택 */}
                     {(imageStyle === "realistic" || imageStyle === "realistic2") && (
                       <div className="mt-4 pt-4 border-t border-gray-200 space-y-4">
@@ -17442,11 +17566,11 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                       {customStyleCharacterImage ? (
                         <div className="space-y-2">
                           <div className="w-full h-48 rounded-lg overflow-hidden relative group cursor-zoom-in">
-                            <img 
-                              src={customStyleCharacterImage} 
-                              alt="캐릭터 사진" 
+                          <img 
+                            src={customStyleCharacterImage} 
+                            alt="캐릭터 사진" 
                               className="w-full h-full object-cover transition-transform duration-300 ease-in-out group-hover:scale-150"
-                            />
+                          />
                           </div>
                   <Button
                             variant="outline"
@@ -17563,11 +17687,11 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                       {customStyleBackgroundImage ? (
                         <div className="space-y-2">
                           <div className="w-full h-48 rounded-lg overflow-hidden relative group cursor-zoom-in">
-                            <img 
-                              src={customStyleBackgroundImage} 
-                              alt="그림체" 
+                          <img 
+                            src={customStyleBackgroundImage} 
+                            alt="그림체" 
                               className="w-full h-full object-cover transition-transform duration-300 ease-in-out group-hover:scale-150"
-                            />
+                          />
                           </div>
                   <Button
                             variant="outline"
@@ -17991,69 +18115,177 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                   
                                   alert(`이미지 ${fileIndex}개가 일괄 등록되었습니다. (씬별 장면 기준)`)
                                 } else {
-                                  // 일반 이미지인 경우: scriptLines 기준으로 할당
-                                  const selectedImageFiles = imageFiles.slice(0, scriptLines.length)
-                                  
-                                  if (imageFiles.length > scriptLines.length) {
-                                    alert(`선택한 이미지가 ${imageFiles.length}개인데 문장이 ${scriptLines.length}개입니다. 처음 ${selectedImageFiles.length}개만 사용됩니다.`)
-                                  }
-                                  
-                                  // 각 이미지를 순차적으로 처리
-                                  const newImages: Array<{ lineId: number; imageUrl: string; prompt: string }> = []
-                                  
-                                  for (let i = 0; i < selectedImageFiles.length && i < scriptLines.length; i++) {
-                                    const file = selectedImageFiles[i]
-                                    const line = scriptLines[i]
+                                  // 프롬프트 생성 없이 일괄 등록: decomposedScenes를 파싱하여 장면 구조 생성
+                                  if (decomposedScenes && decomposedScenes.trim().length > 0) {
+                                    // decomposedScenes 파싱하여 장면 구조 생성
+                                    const sceneRegex = /씬\s+(\d+)\s*\n\[장면\s+(\d+)\]\s*\n([^[]+?)(?=\[장면\s+\d+\]|씬\s+\d+|$)/g
+                                    const sceneBlocks: Array<{ sceneNumber: number; imageNumber: number; text: string }> = []
+                                    let match
                                     
-                                    try {
-                                      // 이미지 파일만 처리 (동영상은 이미 필터링됨)
-                                      // 16:9 비율로 리사이즈
-                                      const resizedImage = await resizeImageTo16_9(file)
-                                      const imageUrl = await new Promise<string>((resolve, reject) => {
-                                        const reader = new FileReader()
-                                        reader.onloadend = () => resolve(reader.result as string)
-                                        reader.onerror = reject
-                                        reader.readAsDataURL(resizedImage)
+                                    while ((match = sceneRegex.exec(decomposedScenes)) !== null) {
+                                      sceneBlocks.push({
+                                        sceneNumber: parseInt(match[1]),
+                                        imageNumber: parseInt(match[2]),
+                                        text: match[3].trim(),
                                       })
-                                      
-                                      // 이미지로 교체했으므로 변환된 영상 제거
-                                      setConvertedVideos((prev) => {
-                                        const newMap = new Map(prev)
-                                        newMap.delete(line.id)
-                                        return newMap
-                                      })
-                                      
-                                      newImages.push({
-                                        lineId: line.id,
-                                        imageUrl: imageUrl,
-                                        prompt: "사용자 업로드 이미지",
-                                      })
-                                    } catch (error) {
-                                      console.error(`[일괄 등록] 이미지 ${i + 1} 업로드 실패:`, error)
                                     }
-                                  }
-                                  
-                                  // 기존 이미지와 병합 (같은 lineId는 새 이미지로 교체)
-                                  setGeneratedImages((prev) => {
-                                    const filtered = prev.filter((img) => !newImages.some(newImg => newImg.lineId === img.lineId))
-                                    return [...filtered, ...newImages]
-                                  })
-                                  
-                                  // 이미지 변경 시 videoData 초기화
-                                  setVideoData(null)
-                                  setAutoImages([])
-                                  
-                                  // 완료 표시 업데이트
-                                  if (newImages.length > 0) {
-                                    setCompletedSteps((prev) => {
-                                      if (!prev.includes("image")) {
-                                        return [...prev, "image"]
+                                    
+                                    // 씬별로 그룹화
+                                    const sceneMap = new Map<number, Array<{ imageNumber: number; text: string }>>()
+                                    for (const block of sceneBlocks) {
+                                      if (!sceneMap.has(block.sceneNumber)) {
+                                        sceneMap.set(block.sceneNumber, [])
                                       }
-                                      return prev
+                                      sceneMap.get(block.sceneNumber)!.push({
+                                        imageNumber: block.imageNumber,
+                                        text: block.text,
+                                      })
+                                    }
+                                    
+                                    // 총 장면 수 계산
+                                    const totalImages = sceneBlocks.length
+                                    const selectedImageFiles = imageFiles.slice(0, totalImages)
+                                    
+                                    if (imageFiles.length > totalImages) {
+                                      alert(`선택한 이미지가 ${imageFiles.length}개인데 총 장면이 ${totalImages}개입니다. 처음 ${selectedImageFiles.length}개만 사용됩니다.`)
+                                    }
+                                    
+                                    // sceneImagePrompts 구조 생성
+                                    const newSceneImagePrompts: Array<{ sceneNumber: number; images: Array<{ imageNumber: number; prompt: string; sceneText: string; visualInstruction?: string; imageUrl?: string; createdAt?: number }> }> = []
+                                    
+                                    let fileIndex = 0
+                                    for (const [sceneNumber, images] of Array.from(sceneMap.entries()).sort((a, b) => a[0] - b[0])) {
+                                      const sceneImages: Array<{ imageNumber: number; prompt: string; sceneText: string; visualInstruction?: string; imageUrl?: string; createdAt?: number }> = []
+                                      
+                                      for (const image of images.sort((a, b) => a.imageNumber - b.imageNumber)) {
+                                        let imageUrl: string | undefined = undefined
+                                        
+                                        if (fileIndex < selectedImageFiles.length) {
+                                          const file = selectedImageFiles[fileIndex]
+                                          
+                                          try {
+                                            // 이미지 파일만 처리 (동영상은 이미 필터링됨)
+                                            // 16:9 비율로 리사이즈
+                                            const resizedImage = await resizeImageTo16_9(file)
+                                            imageUrl = await new Promise<string>((resolve, reject) => {
+                                              const reader = new FileReader()
+                                              reader.onloadend = () => resolve(reader.result as string)
+                                              reader.onerror = reject
+                                              reader.readAsDataURL(resizedImage)
+                                            })
+                                            
+                                            // 이미지로 교체했으므로 변환된 영상 제거
+                                            setConvertedSceneVideos((prev) => {
+                                              const newMap = new Map(prev)
+                                              newMap.delete(`${sceneNumber}-${image.imageNumber}`)
+                                              return newMap
+                                            })
+                                            
+                                            fileIndex++
+                                          } catch (error) {
+                                            console.error(`[일괄 등록] 씬 ${sceneNumber} 장면 ${image.imageNumber} 이미지 업로드 실패:`, error)
+                                            fileIndex++
+                                          }
+                                        }
+                                        
+                                        sceneImages.push({
+                                          imageNumber: image.imageNumber,
+                                          prompt: "사용자 업로드 이미지",
+                                          sceneText: image.text,
+                                          imageUrl: imageUrl,
+                                          createdAt: imageUrl ? Date.now() : undefined,
+                                        })
+                                      }
+                                      
+                                      newSceneImagePrompts.push({
+                                        sceneNumber: sceneNumber,
+                                        images: sceneImages,
+                                      })
+                                    }
+                                    
+                                    // sceneImagePrompts 업데이트
+                                    setSceneImagePrompts(newSceneImagePrompts)
+                                    
+                                    // 이미지 변경 시 videoData 초기화
+                                    setVideoData(null)
+                                    setAutoImages([])
+                                    
+                                    // 완료 표시 업데이트
+                                    if (fileIndex > 0) {
+                                      setCompletedSteps((prev) => {
+                                        if (!prev.includes("image")) {
+                                          return [...prev, "image"]
+                                        }
+                                        return prev
+                                      })
+                                    }
+                                    
+                                    alert(`이미지 ${fileIndex}개가 일괄 등록되었습니다. (씬별 장면 기준)`)
+                                  } else {
+                                    // decomposedScenes가 없는 경우: scriptLines 기준으로 할당
+                                    const selectedImageFiles = imageFiles.slice(0, scriptLines.length)
+                                    
+                                    if (imageFiles.length > scriptLines.length) {
+                                      alert(`선택한 이미지가 ${imageFiles.length}개인데 문장이 ${scriptLines.length}개입니다. 처음 ${selectedImageFiles.length}개만 사용됩니다.`)
+                                    }
+                                    
+                                    // 각 이미지를 순차적으로 처리
+                                    const newImages: Array<{ lineId: number; imageUrl: string; prompt: string }> = []
+                                    
+                                    for (let i = 0; i < selectedImageFiles.length && i < scriptLines.length; i++) {
+                                      const file = selectedImageFiles[i]
+                                      const line = scriptLines[i]
+                                      
+                                      try {
+                                        // 이미지 파일만 처리 (동영상은 이미 필터링됨)
+                                        // 16:9 비율로 리사이즈
+                                        const resizedImage = await resizeImageTo16_9(file)
+                                        const imageUrl = await new Promise<string>((resolve, reject) => {
+                                          const reader = new FileReader()
+                                          reader.onloadend = () => resolve(reader.result as string)
+                                          reader.onerror = reject
+                                          reader.readAsDataURL(resizedImage)
+                                        })
+                                        
+                                        // 이미지로 교체했으므로 변환된 영상 제거
+                                        setConvertedVideos((prev) => {
+                                          const newMap = new Map(prev)
+                                          newMap.delete(line.id)
+                                          return newMap
+                                        })
+                                        
+                                        newImages.push({
+                                          lineId: line.id,
+                                          imageUrl: imageUrl,
+                                          prompt: "사용자 업로드 이미지",
+                                        })
+                                      } catch (error) {
+                                        console.error(`[일괄 등록] 이미지 ${i + 1} 업로드 실패:`, error)
+                                      }
+                                    }
+                                    
+                                    // 기존 이미지와 병합 (같은 lineId는 새 이미지로 교체)
+                                    setGeneratedImages((prev) => {
+                                      const filtered = prev.filter((img) => !newImages.some(newImg => newImg.lineId === img.lineId))
+                                      return [...filtered, ...newImages]
                                     })
+                                    
+                                    // 이미지 변경 시 videoData 초기화
+                                    setVideoData(null)
+                                    setAutoImages([])
+                                    
+                                    // 완료 표시 업데이트
+                                    if (newImages.length > 0) {
+                                      setCompletedSteps((prev) => {
+                                        if (!prev.includes("image")) {
+                                          return [...prev, "image"]
+                                        }
+                                        return prev
+                                      })
+                                    }
+                                    
+                                    alert(`이미지 ${newImages.length}개가 일괄 등록되었습니다.`)
                                   }
-                                  
-                                  alert(`이미지 ${newImages.length}개가 일괄 등록되었습니다.`)
                                 }
                                 
                                 // input 초기화
@@ -18640,7 +18872,11 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                       <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white mt-6">
                         <CardHeader className="pb-4 border-b border-gray-100">
                           <div className="flex items-center justify-between">
-                            <CardTitle className="text-lg font-semibold text-slate-900">생성된 이미지 프롬프트 (트리 구조)</CardTitle>
+                            <CardTitle className="text-lg font-semibold text-slate-900">
+                              {sceneImagePrompts.some(scene => scene.images.some(img => img.imageUrl)) 
+                                ? "장면별 이미지" 
+                                : "생성된 이미지 프롬프트 (트리 구조)"}
+                            </CardTitle>
                             <Button
                               variant="outline"
                               size="sm"
@@ -18666,10 +18902,15 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                 </div>
                                 <div className="space-y-3 ml-4">
                                   {scene.images.map((image) => (
-                                    <div key={image.imageNumber} className="border-l-2 border-blue-300 pl-4 py-2 bg-white rounded">
-                                      <div className="flex items-center justify-between mb-1">
-                                        <div className="font-medium text-sm text-gray-600">
-                                          Image {image.imageNumber}:
+                                    <div key={image.imageNumber} className={`border-l-2 pl-4 py-3 rounded ${image.imageUrl ? 'border-green-500 bg-green-50' : 'border-blue-300 bg-white'}`}>
+                                      <div className="flex items-center justify-between mb-2">
+                                        <div className="font-medium text-sm flex items-center gap-2">
+                                          <span className={image.imageUrl ? 'text-green-700 font-bold' : 'text-gray-600'}>
+                                            장면 {image.imageNumber}:
+                                          </span>
+                                          {image.imageUrl && (
+                                            <span className="text-xs bg-green-200 text-green-800 px-2 py-0.5 rounded font-semibold">✓ 이미지 등록됨</span>
+                                          )}
                                         </div>
                                         <div className="flex gap-2">
                                           <Button
@@ -18950,14 +19191,25 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                           </Button>
                                         </div>
                                       </div>
+                                      {/* 이미지 미리보기 */}
+                                      {image.imageUrl && (
+                                        <div className="mb-3">
+                                          <img 
+                                            src={image.imageUrl} 
+                                            alt={`씬 ${scene.sceneNumber} 장면 ${image.imageNumber}`}
+                                            className="w-full max-w-md rounded-lg border-2 border-green-300 shadow-md"
+                                          />
+                                        </div>
+                                      )}
                                       <div className="text-xs text-gray-500 mb-2 italic">
                                         {image.visualInstruction || image.sceneText.substring(0, 100)}{(!image.visualInstruction && image.sceneText.length > 100) ? "..." : ""}
                                       </div>
-                                      <div className="flex gap-3">
-                                        <div className="flex-1 text-sm font-mono bg-gray-50 p-2 rounded border">
-                                          {image.prompt}
-                                        </div>
-                                        <div className="flex flex-col gap-2">
+                                      {image.prompt && (
+                                        <div className="flex gap-3">
+                                          <div className="flex-1 text-sm font-mono bg-gray-50 p-2 rounded border">
+                                            {image.prompt}
+                                          </div>
+                                          <div className="flex flex-col gap-2">
                                           <Button
                                             size="sm"
                                             variant="default"
@@ -19122,11 +19374,11 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                                 } else if (image.imageUrl) {
                                                   return (
                                                     <div className="w-full h-full overflow-hidden relative group cursor-zoom-in">
-                                                      <img
-                                                        src={image.imageUrl}
-                                                        alt={`Scene ${scene.sceneNumber} Image ${image.imageNumber}`}
+                                                    <img
+                                                      src={image.imageUrl}
+                                                      alt={`Scene ${scene.sceneNumber} Image ${image.imageNumber}`}
                                                         className="w-full h-full object-cover transition-transform duration-300 ease-in-out group-hover:scale-150"
-                                                      />
+                                                    />
                                                     </div>
                                                   )
                                                 }
@@ -19279,6 +19531,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                           )}
                                         </div>
                                       </div>
+                                      )}
                                     </div>
                                   ))}
                                 </div>
@@ -19621,24 +19874,160 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                           </p>
                         </div>
 
-                        <Button
-                      onClick={handleGenerateTTSForLines}
-                      disabled={isGeneratingTTS || scriptLines.length === 0}
-                      className="w-full bg-red-600 hover:bg-red-700 text-white"
-                      size="lg"
-                    >
-                      {isGeneratingTTS ? (
-                        <>
-                          <Sparkles className="w-4 h-4 mr-2 animate-spin" />
-                          TTS 생성 중... ({ttsGenerationProgress.current}/{ttsGenerationProgress.total})
-                            </>
-                          ) : (
+                        <div className="space-y-3">
+                          <Button
+                            onClick={handleGenerateTTSForLines}
+                            disabled={isGeneratingTTS || scriptLines.length === 0}
+                            className="w-full bg-red-600 hover:bg-red-700 text-white"
+                            size="lg"
+                          >
+                            {isGeneratingTTS ? (
                               <>
-                          <Volume2 className="w-4 h-4 mr-2" />
-                          모든 문장에 TTS 생성하기
+                                <Sparkles className="w-4 h-4 mr-2 animate-spin" />
+                                TTS 생성 중... ({ttsGenerationProgress.current}/{ttsGenerationProgress.total})
                               </>
-                          )}
-                        </Button>
+                            ) : (
+                              <>
+                                <Volume2 className="w-4 h-4 mr-2" />
+                                모든 문장에 TTS 생성하기
+                              </>
+                            )}
+                          </Button>
+
+                          {/* 음성 파일 일괄 업로드 */}
+                          <label className="cursor-pointer">
+                            <input
+                              type="file"
+                              accept="audio/*"
+                              multiple
+                              className="hidden"
+                              onChange={async (e) => {
+                                const files = Array.from(e.target.files || [])
+                                if (files.length === 0) return
+
+                                // 장면 분해 결과가 있으면 그것을 사용, 없으면 scriptLines 사용
+                                let displayLines: Array<{ id: number; text: string; sceneNumber?: number; imageNumber?: number }> = []
+                                
+                                if (decomposedScenes && decomposedScenes.trim().length > 0) {
+                                  // 장면 분해 결과 파싱
+                                  const sceneBlocks = decomposedScenes.split(/(?=씬\s+\d+)/).filter(block => block.trim().length > 0)
+                                  let globalLineId = 1
+                                  
+                                  for (const sceneBlock of sceneBlocks) {
+                                    const sceneNumMatch = sceneBlock.match(/씬\s+(\d+)/)
+                                    if (!sceneNumMatch) continue
+                                    
+                                    const sceneNum = parseInt(sceneNumMatch[1])
+                                    const imageRegex = /\[장면\s+(\d+)\]\s*\n([\s\S]*?)(?=\[장면\s+\d+\]|씬\s+\d+|$)/g
+                                    let imageMatch
+                                    
+                                    while ((imageMatch = imageRegex.exec(sceneBlock)) !== null) {
+                                      const imageNum = parseInt(imageMatch[1])
+                                      const imageText = imageMatch[2].trim()
+                                      
+                                      if (imageText) {
+                                        displayLines.push({
+                                          id: globalLineId++,
+                                          text: imageText,
+                                          sceneNumber: sceneNum,
+                                          imageNumber: imageNum,
+                                        })
+                                      }
+                                    }
+                                  }
+                                } else {
+                                  // 기존 scriptLines 사용
+                                  displayLines = scriptLines.map(line => ({ id: line.id, text: line.text }))
+                                }
+
+                                const totalLines = displayLines.length
+                                const selectedAudioFiles = files.slice(0, totalLines)
+                                
+                                if (files.length > totalLines) {
+                                  alert(`선택한 음성 파일이 ${files.length}개인데 문장이 ${totalLines}개입니다. 처음 ${selectedAudioFiles.length}개만 사용됩니다.`)
+                                }
+
+                                const newAudios: Array<{ 
+                                  lineId: number; 
+                                  audioUrl: string; 
+                                  audioBase64: string; 
+                                  alignment?: any;
+                                  originalLineId?: number;
+                                }> = []
+
+                                for (let i = 0; i < selectedAudioFiles.length && i < displayLines.length; i++) {
+                                  const file = selectedAudioFiles[i]
+                                  const line = displayLines[i]
+                                  
+                                  try {
+                                    // 음성 파일을 base64로 변환
+                                    const audioUrl = await new Promise<string>((resolve, reject) => {
+                                      const reader = new FileReader()
+                                      reader.onloadend = () => resolve(reader.result as string)
+                                      reader.onerror = reject
+                                      reader.readAsDataURL(file)
+                                    })
+
+                                    newAudios.push({
+                                      lineId: line.id,
+                                      audioUrl: audioUrl,
+                                      audioBase64: audioUrl,
+                                      originalLineId: line.id,
+                                    })
+                                  } catch (error) {
+                                    console.error(`[음성 파일 업로드] 파일 ${i + 1} 업로드 실패:`, error)
+                                  }
+                                }
+
+                                // 기존 오디오와 병합 (같은 lineId는 새 오디오로 교체)
+                                setGeneratedAudios((prev) => {
+                                  const filtered = prev.filter((audio) => !newAudios.some(newAudio => newAudio.lineId === audio.lineId))
+                                  return [...filtered, ...newAudios]
+                                })
+
+                                // 완료 표시 업데이트
+                                if (newAudios.length > 0) {
+                                  setCompletedSteps((prev) => {
+                                    if (!prev.includes("video")) {
+                                      return [...prev, "video"]
+                                    }
+                                    return prev
+                                  })
+                                }
+
+                                alert(`음성 파일 ${newAudios.length}개가 업로드되었습니다.`)
+
+                                // input 초기화
+                                e.target.value = ""
+                              }}
+                            />
+                            <Button
+                              variant="outline"
+                              size="lg"
+                              className="w-full border-blue-500 text-blue-600 hover:bg-blue-50"
+                              asChild
+                            >
+                              <span>
+                                <Upload className="w-4 h-4 mr-2" />
+                                음성 파일 일괄 업로드 ({(() => {
+                                  if (decomposedScenes && decomposedScenes.trim().length > 0) {
+                                    const sceneBlocks = decomposedScenes.split(/(?=씬\s+\d+)/).filter(block => block.trim().length > 0)
+                                    let count = 0
+                                    for (const sceneBlock of sceneBlocks) {
+                                      const imageRegex = /\[장면\s+(\d+)\]\s*\n([\s\S]*?)(?=\[장면\s+\d+\]|씬\s+\d+|$)/g
+                                      let imageMatch
+                                      while ((imageMatch = imageRegex.exec(sceneBlock)) !== null) {
+                                        if (imageMatch[2].trim()) count++
+                                      }
+                                    }
+                                    return count
+                                  }
+                                  return scriptLines.length
+                                })()}개)
+                              </span>
+                            </Button>
+                          </label>
+                        </div>
 
                     {ttsGenerationProgress.total > 0 && (
                       <div className="w-full bg-gray-200 rounded-full h-2.5">
@@ -21074,30 +21463,62 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                 </Card>
 
                 {/* 영상 미리보기 생성 버튼 */}
-                <Button
-                  onClick={handleRenderVideo}
-                  disabled={
-                    activeStep !== "render" || 
-                    isExporting || 
-                    isGeneratingVideo ||
-                    scriptLines.length === 0 || 
-                    (!sceneImagePrompts.some(s => s.images.some(img => img.imageUrl)) && generatedImages.length === 0) || 
-                    generatedAudios.length === 0
-                  }
-                  className="w-full bg-red-600 hover:bg-red-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isExporting || isGeneratingVideo ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      미리보기 생성 중... ({generatingVideoProgress}%)
-                    </>
-                  ) : (
-                    <>
-                      <Play className="mr-2 h-4 w-4" />
-                      영상 생성
-                    </>
-                  )}
-                </Button>
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <Button
+                      onClick={() => handleRenderVideo(true)}
+                      disabled={
+                        activeStep !== "render" || 
+                        isExporting || 
+                        isGeneratingVideo ||
+                        scriptLines.length === 0 || 
+                        (!sceneImagePrompts.some(s => s.images.some(img => img.imageUrl)) && generatedImages.length === 0) || 
+                        generatedAudios.length === 0
+                      }
+                      className="w-full bg-red-600 hover:bg-red-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isExporting || isGeneratingVideo ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          미리보기 생성 중... ({generatingVideoProgress}%)
+                        </>
+                      ) : (
+                        <>
+                          <Play className="mr-2 h-4 w-4" />
+                          영상 생성 (정밀한 버전)
+                        </>
+                      )}
+                    </Button>
+                    <p className="text-xs text-muted-foreground mt-1 text-center">음성과 자막 일치하는 과정으로 시간이 조금 걸릴 수 있음</p>
+                  </div>
+                  <div className="flex-1">
+                    <Button
+                      onClick={handleRenderVideoWithoutWhisper}
+                      disabled={
+                        activeStep !== "render" || 
+                        isExporting || 
+                        isGeneratingVideo ||
+                        scriptLines.length === 0 || 
+                        (!sceneImagePrompts.some(s => s.images.some(img => img.imageUrl)) && generatedImages.length === 0) || 
+                        generatedAudios.length === 0
+                      }
+                      className="w-full bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isExporting || isGeneratingVideo ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          미리보기 생성 중... ({generatingVideoProgress}%)
+                        </>
+                      ) : (
+                        <>
+                          <Play className="mr-2 h-4 w-4" />
+                          영상 생성 (빠름)
+                        </>
+                      )}
+                    </Button>
+                    <p className="text-xs text-muted-foreground mt-1 text-center">자막을 빠르게 만들어 조금 안맞을 수 있음</p>
+                  </div>
+                </div>
 
                 {/* 영상 미리보기 생성 중 애니메이션 - 우측 상단 진행 상황 표시로 대체 */}
 
@@ -21342,30 +21763,62 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                   </p>
                 </div>
 
-                    <Button
-                      onClick={handleRenderVideo}
-                      disabled={
-                        activeStep !== "render" || 
-                        isExporting || 
-                        scriptLines.length === 0 || 
-                        (!sceneImagePrompts.some(s => s.images.some(img => img.imageUrl)) && generatedImages.length === 0) || 
-                        generatedAudios.length === 0
-                      }
-                      className="w-full bg-red-600 hover:bg-red-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                      size="lg"
-                    >
-                      {isExporting ? (
-                        <>
-                          <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                          영상 렌더링 중...
-                        </>
-                      ) : (
-                        <>
-                          <Video className="mr-2 h-5 w-5" />
-                          영상 렌더링 시작
-                        </>
-                      )}
-                    </Button>
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <Button
+                          onClick={() => handleRenderVideo(true)}
+                          disabled={
+                            activeStep !== "render" || 
+                            isExporting || 
+                            isGeneratingVideo ||
+                            scriptLines.length === 0 || 
+                            (!sceneImagePrompts.some(s => s.images.some(img => img.imageUrl)) && generatedImages.length === 0) || 
+                            generatedAudios.length === 0
+                          }
+                          className="w-full bg-red-600 hover:bg-red-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isExporting || isGeneratingVideo ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              생성 중... ({generatingVideoProgress}%)
+                            </>
+                          ) : (
+                            <>
+                              <Play className="mr-2 h-4 w-4" />
+                              영상 생성 (정밀한 버전)
+                            </>
+                          )}
+                        </Button>
+                        <p className="text-xs text-muted-foreground mt-1 text-center">음성과 자막 일치하는 과정으로 시간이 조금 걸릴 수 있음</p>
+                      </div>
+                      <div className="flex-1">
+                        <Button
+                          onClick={handleRenderVideoWithoutWhisper}
+                          disabled={
+                            activeStep !== "render" || 
+                            isExporting || 
+                            isGeneratingVideo ||
+                            scriptLines.length === 0 || 
+                            (!sceneImagePrompts.some(s => s.images.some(img => img.imageUrl)) && generatedImages.length === 0) || 
+                            generatedAudios.length === 0
+                          }
+                          className="w-full bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isExporting || isGeneratingVideo ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              생성 중... ({generatingVideoProgress}%)
+                            </>
+                          ) : (
+                            <>
+                              <Play className="mr-2 h-4 w-4" />
+                              영상 생성 (빠름)
+                            </>
+                          )}
+                        </Button>
+                        <p className="text-xs text-muted-foreground mt-1 text-center">자막을 빠르게 만들어 조금 안맞을 수 있음</p>
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
             </>

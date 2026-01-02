@@ -42,8 +42,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "텍스트가 필요합니다." }, { status: 400 })
     }
 
-    // OpenAI API 키 확인 (환경 변수 또는 요청에서)
-    const openaiApiKey = process.env.OPENAI_API_KEY || process.env.GPT_API_KEY || process.env.CHATGPT_API_KEY
+    // OpenAI API 키 확인 (요청에서 우선, 없으면 환경 변수)
+    const apiKeyFromRequest = formData.get("apiKey") as string
+    const openaiApiKey = apiKeyFromRequest?.trim() || process.env.OPENAI_API_KEY || process.env.GPT_API_KEY || process.env.CHATGPT_API_KEY
     if (!openaiApiKey) {
       return NextResponse.json({ error: "OpenAI API 키가 설정되지 않았습니다." }, { status: 500 })
     }
