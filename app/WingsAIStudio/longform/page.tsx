@@ -1403,26 +1403,71 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       const adjustedTimeForSubtitles = Number.parseFloat((audioCurrentTime + timingOffset).toFixed(5))
       
       // 현재 시간에 맞는 자막 찾기 (소수점 5자리 정밀도로 비교)
-      const subtitle = videoData.subtitles.find((s) => {
-        const start = Number.parseFloat(s.start.toFixed(5))
-        const end = Number.parseFloat(s.end.toFixed(5))
-        return adjustedTimeForSubtitles >= start && adjustedTimeForSubtitles < end
-      })
-      
-      // 자막이 없으면 다음 자막이 곧 시작되는지 확인 (0.5초 이내면 미리 표시 - 더 빠른 표시)
+      // 중요: 자막이 무조건 나와야 하므로 여러 조건 확인
       let subtitleText = ""
-      if (subtitle) {
-        subtitleText = subtitle.text
-      } else {
-        // 소수점 5자리 정밀도로 다음 자막 찾기 (미리 표시 시간을 0.3초 → 0.5초로 증가)
-        const currentTimePrecise = Number.parseFloat(audioCurrentTime.toFixed(5))
-        const upcomingSubtitle = videoData.subtitles.find((s) => {
-          const startPrecise = Number.parseFloat(s.start.toFixed(5))
-          // 0.5초 이내면 미리 표시하여 자막이 늦는 문제 해결
-          return startPrecise > currentTimePrecise && startPrecise <= currentTimePrecise + 0.5
+      
+      if (videoData.subtitles && videoData.subtitles.length > 0) {
+        // 1. 현재 시간 범위 내의 자막 찾기
+        const subtitle = videoData.subtitles.find((s) => {
+          const start = Number.parseFloat(s.start.toFixed(5))
+          const end = Number.parseFloat(s.end.toFixed(5))
+          // start >= end인 경우는 무효한 자막이므로 제외
+          if (start >= end) {
+            return false
+          }
+          return adjustedTimeForSubtitles >= start && adjustedTimeForSubtitles < end
         })
-        if (upcomingSubtitle) {
-          subtitleText = upcomingSubtitle.text
+        
+        if (subtitle) {
+          subtitleText = subtitle.text
+        } else {
+          // 2. 다음 자막이 곧 시작되는지 확인 (0.5초 이내면 미리 표시)
+          const currentTimePrecise = Number.parseFloat(audioCurrentTime.toFixed(5))
+          const upcomingSubtitle = videoData.subtitles.find((s) => {
+            const startPrecise = Number.parseFloat(s.start.toFixed(5))
+            const endPrecise = Number.parseFloat(s.end.toFixed(5))
+            // start >= end인 경우는 무효한 자막이므로 제외
+            if (startPrecise >= endPrecise) {
+              return false
+            }
+            // 0.5초 이내면 미리 표시하여 자막이 늦는 문제 해결
+            return startPrecise > currentTimePrecise && startPrecise <= currentTimePrecise + 0.5
+          })
+          
+          if (upcomingSubtitle) {
+            subtitleText = upcomingSubtitle.text
+          } else {
+            // 3. 가장 가까운 자막 찾기 (과거 또는 미래)
+            const validSubtitles = videoData.subtitles.filter((s) => {
+              const start = Number.parseFloat(s.start.toFixed(5))
+              const end = Number.parseFloat(s.end.toFixed(5))
+              return start < end // 유효한 자막만
+            })
+            
+            if (validSubtitles.length > 0) {
+              // 현재 시간과 가장 가까운 자막 찾기
+              const closestSubtitle = validSubtitles.reduce((closest, s) => {
+                const start = Number.parseFloat(s.start.toFixed(5))
+                const end = Number.parseFloat(s.end.toFixed(5))
+                const currentTimePrecise = Number.parseFloat(audioCurrentTime.toFixed(5))
+                
+                // 현재 시간이 자막 범위 내에 있으면 우선 선택
+                if (currentTimePrecise >= start && currentTimePrecise < end) {
+                  return s
+                }
+                
+                // 가장 가까운 자막 찾기
+                const closestDistance = Math.abs(Number.parseFloat(closest.start.toFixed(5)) - currentTimePrecise)
+                const currentDistance = Math.abs(start - currentTimePrecise)
+                return currentDistance < closestDistance ? s : closest
+              }, validSubtitles[0])
+              
+              subtitleText = closestSubtitle.text
+            } else if (videoData.subtitles.length > 0) {
+              // 유효한 자막이 없어도 첫 번째 자막 표시 (최소한 뭔가 보이도록)
+              subtitleText = videoData.subtitles[0].text
+            }
+          }
         }
       }
       
@@ -8194,6 +8239,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         // 렌더링용으로는 나중에 합쳐진 오디오를 사용하므로, 여기서는 calculatedTotalDuration 변수를 선언하지 않음
         
         // 2. 각 오디오를 개별적으로 STT 분석 수행 (예전 방식)
+        // 배치 진행률 표시를 위해 초기 메시지 설정
         setRenderingStatusMessage("TTS랑 자막 싱크 맞추는 중...")
         const subtitles: Array<{ id: number; start: number; end: number; text: string }> = []
         
