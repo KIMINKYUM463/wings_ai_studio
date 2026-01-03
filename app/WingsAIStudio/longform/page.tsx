@@ -462,6 +462,8 @@ export default function LongformContentPage() {
   // 프로젝트 관리 상태
   const [projects, setProjects] = useState<LongformProject[]>([])
   const [currentProject, setCurrentProject] = useState<LongformProject | null>(null)
+  const [isEditingProjectName, setIsEditingProjectName] = useState(false)
+  const [editingProjectName, setEditingProjectName] = useState("")
   const [showProjectList, setShowProjectList] = useState(true) // 프로젝트 목록 화면 표시 여부
   const [isLoadingProjects, setIsLoadingProjects] = useState(false)
   const [isSavingProject, setIsSavingProject] = useState(false)
@@ -14166,6 +14168,36 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     }
   }
 
+  // 프로젝트 이름 업데이트
+  const handleUpdateProjectName = async () => {
+    if (!currentProject || !editingProjectName.trim()) {
+      return
+    }
+
+    if (editingProjectName.trim() === currentProject.name) {
+      setIsEditingProjectName(false)
+      return
+    }
+
+    try {
+      const updatedProject = await updateProject(currentProject.id, {
+        name: editingProjectName.trim(),
+      })
+      
+      setCurrentProject(updatedProject)
+      setIsEditingProjectName(false)
+      
+      // 프로젝트 목록 업데이트
+      await loadProjects()
+      
+      console.log("[Projects] 프로젝트 이름 업데이트 완료:", updatedProject.name)
+    } catch (error) {
+      console.error("[Projects] 프로젝트 이름 업데이트 실패:", error)
+      alert("프로젝트 이름 변경에 실패했습니다.")
+      setEditingProjectName(currentProject.name)
+    }
+  }
+
   // 프로젝트 삭제
   const handleDeleteProject = async (projectId: string, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -25438,7 +25470,59 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               <div className="mb-6 space-y-2">
                 <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
                   <p className="text-xs text-gray-600 mb-1">현재 프로젝트</p>
-                  <p className="text-sm font-semibold text-gray-900 truncate">{currentProject.name}</p>
+                  {isEditingProjectName ? (
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={editingProjectName}
+                        onChange={(e) => setEditingProjectName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            handleUpdateProjectName()
+                          } else if (e.key === "Escape") {
+                            setIsEditingProjectName(false)
+                            setEditingProjectName(currentProject.name)
+                          }
+                        }}
+                        className="flex-1 h-8 text-sm"
+                        autoFocus
+                      />
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={handleUpdateProjectName}
+                        disabled={!editingProjectName.trim() || editingProjectName.trim() === currentProject.name}
+                        className="h-8 px-2"
+                      >
+                        <Check className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setIsEditingProjectName(false)
+                          setEditingProjectName(currentProject.name)
+                        }}
+                        className="h-8 px-2"
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-semibold text-gray-900 truncate flex-1">{currentProject.name}</p>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setEditingProjectName(currentProject.name)
+                          setIsEditingProjectName(true)
+                        }}
+                        className="h-6 w-6 p-0"
+                      >
+                        <Pencil className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  )}
                 </div>
                 <Button
                   onClick={handleSaveProject}
