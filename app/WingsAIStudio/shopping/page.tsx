@@ -20,7 +20,16 @@ import {
   X,
   Play,
   Pause,
+  Volume2,
+  RefreshCw,
 } from "lucide-react"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Slider } from "@/components/ui/slider"
 import Link from "next/link"
 import { generateShoppingScript, generateVideoWithSora2, generateImagesWith3Scenes, splitScriptIntoScenes, convertImageToVideoWithWan, generateImage, generateVideoWithSeedance, generateShortsThumbnail, generateThumbnailHookingText } from "./actions"
@@ -122,12 +131,24 @@ export default function ShoppingPage() {
   const [isGeneratingTTS, setIsGeneratingTTS] = useState(false)
   const [ttsProgress, setTtsProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 })
   const [isRendering, setIsRendering] = useState(false)
+  const [isGeneratingPreview, setIsGeneratingPreview] = useState(false) // 미리보기 생성 중 상태
+  const [previewGenerated, setPreviewGenerated] = useState(false) // 미리보기 생성 완료 여부
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
-  const [selectedVoiceId, setSelectedVoiceId] = useState("8jHHF8rMqMlg8if2mOUe") // 기본 목소리 (ElevenLabs 여성)
+  const [selectedVoiceId, setSelectedVoiceId] = useState<string>("ttsmaker-여성1") // 기본: TTSMaker 여성1
+  const [customElevenLabsVoices, setCustomElevenLabsVoices] = useState<Array<{ id: string; name: string }>>([]) // 사용자 추가 일레븐랩스 목소리
+  const [supertoneVoices, setSupertoneVoices] = useState<Array<{ voice_id: string; name: string; language: string[]; styles: string[]; thumbnail_image_url?: string }>>([]) // 수퍼톤 음성 목록
+  const [isLoadingSupertoneVoices, setIsLoadingSupertoneVoices] = useState(false) // 수퍼톤 음성 목록 로딩 중
+  const [selectedSupertoneVoiceId, setSelectedSupertoneVoiceId] = useState<string>("") // 선택된 수퍼톤 음성 ID
+  const [selectedSupertoneStyle, setSelectedSupertoneStyle] = useState<string>("neutral") // 선택된 수퍼톤 스타일
+  const [previewingVoiceId, setPreviewingVoiceId] = useState<string | null>(null)
+  const [previewAudioUrl, setPreviewAudioUrl] = useState<string | null>(null)
   const [previewVideoElements, setPreviewVideoElements] = useState<HTMLVideoElement[]>([]) // 미리보기용 비디오 엘리먼트
   const [previewAudio, setPreviewAudio] = useState<HTMLAudioElement | null>(null) // 미리보기용 오디오
-  const [previewAnimationFrame, setPreviewAnimationFrame] = useState<number | null>(null) // 미리보기 애니메이션 프레임
+  const [previewAnimationFrame, setPreviewAnimationFrame] = useState<number | null>(null) // 미리보기 애니메이션 프레임 (사용 안 함, 롱폼 방식)
+  const [previewThumbnailImage, setPreviewThumbnailImage] = useState<HTMLImageElement | null>(null) // 미리보기용 썸네일 이미지
+  const [currentSubtitle, setCurrentSubtitle] = useState<string>("") // 현재 자막 (롱폼 방식)
+  const previewVideoRef = useRef<HTMLVideoElement | null>(null) // 미리보기용 비디오 ref (롱폼 방식)
   
   // Canvas 및 미리보기 관련
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -139,12 +160,10 @@ export default function ShoppingPage() {
   const [isGeneratingThumbnail, setIsGeneratingThumbnail] = useState(false)
   const [thumbnailHookingText, setThumbnailHookingText] = useState<{ line1: string; line2: string }>({ line1: "", line2: "" })
   const thumbnailCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
 
-  // 이미지 업로드 처리
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-
+  // 파일 처리 공통 함수
+  const processImageFile = (file: File) => {
     // 이미지 파일인지 확인
     if (!file.type.startsWith("image/")) {
       alert("이미지 파일만 업로드 가능합니다.")
@@ -165,6 +184,36 @@ export default function ShoppingPage() {
       setProductImage(reader.result as string)
     }
     reader.readAsDataURL(file)
+  }
+
+  // 이미지 업로드 처리
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    processImageFile(file)
+  }
+
+  // 드래그 앤 드롭 처리
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+  }
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+
+    const file = e.dataTransfer.files?.[0]
+    if (!file) return
+    processImageFile(file)
   }
 
   // 이미지 제거
@@ -191,9 +240,14 @@ export default function ShoppingPage() {
     setError("")
 
     try {
+      // 제품 설명이 있으면 그것을 기반으로, 없으면 제품명만 사용
+      const scriptPrompt = productDescription.trim() 
+        ? `${productName}. ${productDescription}` 
+        : productName
+      
       const generatedScript = await generateShoppingScript(
         productName,
-        productDescription || productName,
+        scriptPrompt,
         openaiApiKey
       )
       setScript(generatedScript)
@@ -206,17 +260,195 @@ export default function ShoppingPage() {
     }
   }
 
+  // 수퍼톤 음성 목록 가져오기
+  const fetchSupertoneVoices = async () => {
+    setIsLoadingSupertoneVoices(true)
+    try {
+      const supertoneApiKey = typeof window !== "undefined" ? localStorage.getItem("supertone_api_key") || undefined : undefined
+      if (!supertoneApiKey) {
+        alert("수퍼톤 API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+        setIsLoadingSupertoneVoices(false)
+        return
+      }
+
+      const response = await fetch(`/api/supertone-voices?apiKey=${encodeURIComponent(supertoneApiKey)}`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "음성 목록을 가져오는데 실패했습니다.")
+      }
+
+      const data = await response.json()
+      if (data.success && data.voices) {
+        const excludedNames = ["달팽이A", "기억의정령_알마냐", "틈새의정령_알마냐"]
+        const filteredVoices = data.voices.filter((voice: { name: string }) => 
+          !excludedNames.some(excluded => voice.name.includes(excluded))
+        )
+        setSupertoneVoices(filteredVoices)
+        if (filteredVoices.length > 0 && !selectedSupertoneVoiceId) {
+          setSelectedSupertoneVoiceId(filteredVoices[0].voice_id)
+          setSelectedVoiceId(`supertone-${filteredVoices[0].voice_id}`)
+        }
+      } else {
+        throw new Error(data.error || "음성 목록을 가져오는데 실패했습니다.")
+      }
+    } catch (error) {
+      console.error("수퍼톤 음성 목록 가져오기 실패:", error)
+      alert(`수퍼톤 음성 목록을 가져오는데 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+    } finally {
+      setIsLoadingSupertoneVoices(false)
+    }
+  }
+
+  // 목소리 미리듣기 함수
+  const handlePreviewVoice = async (voiceId: string) => {
+    setPreviewingVoiceId(voiceId)
+    
+    try {
+      let response: Response
+      
+      if (voiceId?.startsWith("supertone-")) {
+        const actualVoiceId = voiceId.replace("supertone-", "")
+        const supertoneApiKey = typeof window !== "undefined" ? localStorage.getItem("supertone_api_key") || undefined : undefined
+        
+        if (!supertoneApiKey) {
+          alert("수퍼톤 API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+          setPreviewingVoiceId(null)
+          return
+        }
+        
+        response = await fetch("/api/supertone-tts", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            text: "여러분 환영합니다",
+            voiceId: actualVoiceId,
+            apiKey: supertoneApiKey,
+            style: selectedSupertoneStyle || "neutral",
+            language: "ko",
+          }),
+        })
+      } else if (voiceId?.startsWith("ttsmaker-")) {
+        const voiceName = voiceId.replace("ttsmaker-", "")
+        const pitch = voiceName === "남성5" ? 0.9 : 1.0
+        const ttsmakerApiKey = typeof window !== "undefined" ? localStorage.getItem("ttsmaker_api_key") || undefined : undefined
+        
+        if (!ttsmakerApiKey) {
+          alert("TTSMaker API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+          setPreviewingVoiceId(null)
+          return
+        }
+        
+        response = await fetch("/api/ttsmaker", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            text: "여러분 환영합니다",
+            voice: voiceName,
+            speed: 1.0,
+            pitch: pitch,
+            apiKey: ttsmakerApiKey,
+          }),
+        })
+      } else {
+        let elevenlabsApiKey = typeof window !== "undefined" 
+          ? (localStorage.getItem("elevenlabs_api_key") || "").trim() 
+          : null
+        
+        if (!elevenlabsApiKey || elevenlabsApiKey.length === 0) {
+          alert("ElevenLabs API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+          setPreviewingVoiceId(null)
+          return
+        }
+        
+        response = await fetch("/api/elevenlabs-tts", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            text: "여러분 환영합니다",
+            voiceId: voiceId,
+            apiKey: elevenlabsApiKey,
+          }),
+        })
+      }
+
+      if (!response.ok) {
+        let errorMessage = "미리듣기 실패"
+        try {
+          const clonedResponse = response.clone()
+          const errorData = await clonedResponse.json()
+          errorMessage = errorData.error || errorData.message || `HTTP ${response.status}: ${response.statusText}`
+        } catch (e) {
+          try {
+            const errorText = await response.text()
+            errorMessage = errorText || `HTTP ${response.status}: ${response.statusText}`
+          } catch (textError) {
+            errorMessage = `HTTP ${response.status}: ${response.statusText}`
+          }
+        }
+        throw new Error(errorMessage)
+      }
+
+      const data = await response.json()
+      
+      if (data.audioUrl) {
+        setPreviewAudioUrl(data.audioUrl)
+        const audio = new Audio(data.audioUrl)
+        audio.play()
+        audio.onended = () => {
+          setPreviewingVoiceId(null)
+          setPreviewAudioUrl(null)
+        }
+        audio.onerror = () => {
+          setPreviewingVoiceId(null)
+          setPreviewAudioUrl(null)
+        }
+      } else if (data.audioBase64) {
+        const binaryString = atob(data.audioBase64)
+        const bytes = new Uint8Array(binaryString.length)
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i)
+        }
+        const blob = new Blob([bytes], { type: "audio/mpeg" })
+        const audioUrl = URL.createObjectURL(blob)
+        setPreviewAudioUrl(audioUrl)
+        
+        const audio = new Audio(audioUrl)
+        audio.play()
+        audio.onended = () => {
+          URL.revokeObjectURL(audioUrl)
+          setPreviewingVoiceId(null)
+          setPreviewAudioUrl(null)
+        }
+        audio.onerror = () => {
+          URL.revokeObjectURL(audioUrl)
+          setPreviewingVoiceId(null)
+          setPreviewAudioUrl(null)
+        }
+      }
+    } catch (error) {
+      console.error("미리듣기 실패:", error)
+      alert(`미리듣기에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+      setPreviewingVoiceId(null)
+      setPreviewAudioUrl(null)
+    }
+  }
+
   // TTS 생성 (3개 장면 전체 대본) - 이미지 생성보다 먼저
   const handleGenerateTTS = async () => {
     if (!script.trim()) {
       alert("대본이 없습니다.")
-      return
-    }
-
-    const elevenlabsApiKey = typeof window !== "undefined" ? localStorage.getItem("elevenlabs_api_key") || undefined : undefined
-
-    if (!elevenlabsApiKey) {
-      alert("ElevenLabs API 키가 필요합니다. 메인 화면의 설정(톱니바퀴 아이콘)에서 API 키를 입력해주세요.")
       return
     }
 
@@ -226,7 +458,7 @@ export default function ShoppingPage() {
 
     try {
       // 전체 대본을 한 번에 TTS 생성 (대본 그대로 사용 - 절대 끊기면 안됨)
-      console.log("[Shopping] TTS 생성 중... (ElevenLabs 여성 목소리:", selectedVoiceId, ")")
+      console.log("[Shopping] TTS 생성 중... (목소리:", selectedVoiceId, ")")
       console.log("[Shopping] 대본 전체 길이:", script.length, "자")
       console.log("[Shopping] 대본 전체 내용:", script)
       
@@ -237,17 +469,81 @@ export default function ShoppingPage() {
       console.log("[Shopping] TTS에 전달할 대본 길이:", ttsText.length, "자")
       console.log("[Shopping] TTS에 전달할 대본 내용:", ttsText)
       
-      const response = await fetch("/api/elevenlabs-tts", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          text: ttsText, // 원본 대본 그대로 사용 (절대 수정하지 않음)
-          voiceId: selectedVoiceId, // 8jHHF8rMqMlg8if2mOUe (ElevenLabs 여성 목소리)
-          apiKey: elevenlabsApiKey,
-        }),
-      })
+      let response: Response
+      
+      // TTSMaker인 경우
+      if (selectedVoiceId?.startsWith("ttsmaker-")) {
+        const voiceName = selectedVoiceId.replace("ttsmaker-", "")
+        const pitch = voiceName === "남성5" ? 0.9 : 1.0
+        const ttsmakerApiKey = typeof window !== "undefined" ? localStorage.getItem("ttsmaker_api_key") || undefined : undefined
+        
+        if (!ttsmakerApiKey) {
+          alert("TTSMaker API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+          setIsGeneratingTTS(false)
+          return
+        }
+        
+        response = await fetch("/api/ttsmaker", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            text: ttsText,
+            voice: voiceName,
+            speed: 1.0,
+            pitch: pitch,
+            apiKey: ttsmakerApiKey,
+          }),
+        })
+      } else if (selectedVoiceId?.startsWith("supertone-")) {
+        // 수퍼톤인 경우
+        const voiceId = selectedVoiceId.replace("supertone-", "")
+        let supertoneApiKey = typeof window !== "undefined" 
+          ? (localStorage.getItem("supertone_api_key") || "").trim() 
+          : null
+        
+        if (!supertoneApiKey || supertoneApiKey.length === 0) {
+          alert("수퍼톤 API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+          setIsGeneratingTTS(false)
+          return
+        }
+        
+        response = await fetch("/api/supertone-tts", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            text: ttsText,
+            voiceId: voiceId,
+            apiKey: supertoneApiKey,
+            style: selectedSupertoneStyle || "neutral",
+            language: "ko",
+          }),
+        })
+      } else {
+        // ElevenLabs인 경우
+        const elevenlabsApiKey = typeof window !== "undefined" ? localStorage.getItem("elevenlabs_api_key") || undefined : undefined
+
+        if (!elevenlabsApiKey) {
+          alert("ElevenLabs API 키가 필요합니다. 메인 화면의 설정(톱니바퀴 아이콘)에서 API 키를 입력해주세요.")
+          setIsGeneratingTTS(false)
+          return
+        }
+        
+        response = await fetch("/api/elevenlabs-tts", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            text: ttsText, // 원본 대본 그대로 사용 (절대 수정하지 않음)
+            voiceId: selectedVoiceId,
+            apiKey: elevenlabsApiKey,
+          }),
+        })
+      }
 
       if (!response.ok) {
         let errorMessage = "TTS 생성 실패"
@@ -793,8 +1089,34 @@ export default function ShoppingPage() {
 
       console.log("[Shopping] 각 영상의 시작 시간:", videoStartTimes.map(t => t.toFixed(2) + "초"))
 
-      // 미리보기 렌더링 함수 (단순하게 - 비디오를 그냥 이어붙이기)
+      // 썸네일 이미지 로드 (있는 경우)
+      let thumbnailImage: HTMLImageElement | null = null
+      if (thumbnailCanvasRef.current) {
+        try {
+          const thumbnailCanvas = thumbnailCanvasRef.current
+          const thumbnailDataUrl = thumbnailCanvas.toDataURL("image/png")
+          thumbnailImage = new Image()
+          thumbnailImage.crossOrigin = "anonymous"
+          thumbnailImage.src = thumbnailDataUrl
+          await new Promise<void>((resolve, reject) => {
+            thumbnailImage!.onload = () => resolve()
+            thumbnailImage!.onerror = reject
+            // 타임아웃 설정
+            setTimeout(() => {
+              if (!thumbnailImage!.complete) {
+                reject(new Error("썸네일 로드 타임아웃"))
+              }
+            }, 5000)
+          })
+          console.log("[Shopping] 썸네일 이미지 로드 완료")
+        } catch (error) {
+          console.warn("[Shopping] 썸네일 이미지 로드 실패, 계속 진행:", error)
+        }
+      }
+
+      // 미리보기 렌더링 함수 (썸네일 포함)
       let lastVideoIndex = -1
+      const THUMBNAIL_DURATION = 0.0001
       
       const renderPreview = () => {
         const elapsed = audio.paused ? currentTime : audio.currentTime
@@ -806,56 +1128,104 @@ export default function ShoppingPage() {
         ctx.fillStyle = "black"
         ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-        // 현재 시간에 맞는 영상 찾기
-        let currentVideoIndex = -1
-        for (let i = 0; i < videoStartTimes.length; i++) {
-          const startTime = videoStartTimes[i]
-          const endTime = i < videoStartTimes.length - 1 ? videoStartTimes[i + 1] : startTime + videoDurations[i]
-          
-          if (elapsed >= startTime && elapsed < endTime) {
-            currentVideoIndex = i
-            break
+        // 썸네일이 있고 0.0001초 이하일 때 썸네일 표시
+        const adjustedElapsed = Math.max(0, elapsed - THUMBNAIL_DURATION)
+        
+        if (thumbnailImage && elapsed < THUMBNAIL_DURATION) {
+          ctx.drawImage(thumbnailImage, 0, 0, canvas.width, canvas.height)
+        } else {
+          // 썸네일 시간이 지나면 기존 영상 표시
+          // 현재 시간에 맞는 영상 찾기 (썸네일 시간 제외)
+          let currentVideoIndex = -1
+          for (let i = 0; i < videoStartTimes.length; i++) {
+            const startTime = videoStartTimes[i]
+            const endTime = i < videoStartTimes.length - 1 ? videoStartTimes[i + 1] : startTime + videoDurations[i]
+            
+            if (adjustedElapsed >= startTime && adjustedElapsed < endTime) {
+              currentVideoIndex = i
+              break
+            }
           }
-        }
 
-        // 비디오 전환 시에만 처리
-        if (currentVideoIndex !== lastVideoIndex) {
-          // 이전 비디오 일시정지
-          if (lastVideoIndex >= 0 && videoElements[lastVideoIndex]) {
-            videoElements[lastVideoIndex].pause()
-            videoElements[lastVideoIndex].currentTime = 0
+          // 비디오 전환 시에만 처리
+          if (currentVideoIndex !== lastVideoIndex) {
+            // 이전 비디오 일시정지
+            if (lastVideoIndex >= 0 && videoElements[lastVideoIndex]) {
+              videoElements[lastVideoIndex].pause()
+              videoElements[lastVideoIndex].currentTime = 0
+            }
+            
+            // 새 비디오 재생 시작
+            if (currentVideoIndex >= 0 && videoElements[currentVideoIndex]) {
+              const video = videoElements[currentVideoIndex]
+              const videoStartTime = videoStartTimes[currentVideoIndex]
+              const videoElapsed = adjustedElapsed - videoStartTime
+              
+              if (video && !isNaN(video.duration) && video.duration > 0) {
+                // 시작 시간 설정
+                video.currentTime = Math.max(0, Math.min(videoElapsed, video.duration))
+                // 비디오 재생 (자체적으로 재생되도록)
+                video.play().catch(() => {})
+              }
+            }
+            
+            lastVideoIndex = currentVideoIndex
           }
-          
-          // 새 비디오 재생 시작
+
+          // 현재 영상을 캔버스에 그리기 (매 프레임마다)
           if (currentVideoIndex >= 0 && videoElements[currentVideoIndex]) {
             const video = videoElements[currentVideoIndex]
-            const videoStartTime = videoStartTimes[currentVideoIndex]
-            const videoElapsed = elapsed - videoStartTime
-            
-            if (video && !isNaN(video.duration) && video.duration > 0) {
-              // 시작 시간 설정
-              video.currentTime = Math.max(0, Math.min(videoElapsed, video.duration))
-              // 비디오 재생 (자체적으로 재생되도록)
-              video.play().catch(() => {})
+            try {
+              if (video.readyState >= 2 || (video.videoWidth > 0 && video.videoHeight > 0)) {
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+              }
+            } catch (e) {
+              // 그리기 실패 시 무시
             }
           }
+        }
+
+        // 자막 그리기 (썸네일 시간 동안에는 표시하지 않음)
+        if (scriptLines.length > 0 && (!thumbnailImage || elapsed >= THUMBNAIL_DURATION)) {
+          const elapsedMs = adjustedElapsed * 1000
+          const currentLine = scriptLines.find(
+            line => elapsedMs >= line.startTime && elapsedMs < line.endTime
+          )
           
-          lastVideoIndex = currentVideoIndex
-        }
-
-        // 현재 영상을 캔버스에 그리기 (매 프레임마다)
-        if (currentVideoIndex >= 0 && videoElements[currentVideoIndex]) {
-          const video = videoElements[currentVideoIndex]
-          try {
-            if (video.readyState >= 2 || (video.videoWidth > 0 && video.videoHeight > 0)) {
-              ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+          if (currentLine) {
+            // 텍스트를 10자씩 나누기
+            const fullText = currentLine.text
+            const chunkSize = 10
+            const chunks: string[] = []
+            for (let i = 0; i < fullText.length; i += chunkSize) {
+              chunks.push(fullText.slice(i, i + chunkSize))
             }
-          } catch (e) {
-            // 그리기 실패 시 무시
+            
+            // 현재 시간 기준으로 몇 번째 청크를 보여줄지 계산
+            const lineDuration = currentLine.endTime - currentLine.startTime
+            const chunkDuration = lineDuration / chunks.length
+            const timeInLine = elapsedMs - currentLine.startTime
+            const currentChunkIndex = Math.min(Math.floor(timeInLine / chunkDuration), chunks.length - 1)
+            const textToShow = chunks[currentChunkIndex] || chunks[0]
+            
+            const subtitleY = canvas.height * 0.38
+            
+            // 자막 텍스트 (배경 없음, 검정 테두리)
+            ctx.font = "bold 100px 'Noto Sans KR', sans-serif"
+            ctx.textAlign = "center"
+            ctx.textBaseline = "middle"
+            
+            // 검정색 테두리
+            ctx.strokeStyle = "black"
+            ctx.lineWidth = 12
+            ctx.lineJoin = "round"
+            ctx.strokeText(textToShow, canvas.width / 2, subtitleY)
+            
+            // 흰색 글씨
+            ctx.fillStyle = "white"
+            ctx.fillText(textToShow, canvas.width / 2, subtitleY)
           }
         }
-
-        // 자막 제거 (테스트용 - TTS와 영상만 재생)
 
         if (!audio.ended && !audio.paused) {
           const frameId = requestAnimationFrame(renderPreview)
@@ -878,13 +1248,16 @@ export default function ShoppingPage() {
       
       // 초기 프레임 렌더링 (시간 0으로 설정)
       const initialElapsed = 0
+      const THUMBNAIL_DURATION_INIT = 0.0001
       
       // 캔버스 초기화
       ctx.fillStyle = "black"
       ctx.fillRect(0, 0, canvas.width, canvas.height)
       
-      // 첫 번째 영상 표시
-      if (videoElements[0]) {
+      // 썸네일이 있으면 먼저 표시, 없으면 첫 번째 영상 표시
+      if (thumbnailImage && initialElapsed < THUMBNAIL_DURATION_INIT) {
+        ctx.drawImage(thumbnailImage, 0, 0, canvas.width, canvas.height)
+      } else if (videoElements[0]) {
         const video = videoElements[0]
         video.currentTime = 0
         try {
@@ -903,76 +1276,106 @@ export default function ShoppingPage() {
     }
   }
 
-  // 미리보기 재생/일시정지
-  const handlePreviewPlayPause = () => {
-    if (!previewAudio) return
+  // 미리보기 생성 (롱폼 방식: HTML video 엘리먼트 사용)
+  const handleGeneratePreview = async () => {
+    if (!videoUrl || !ttsAudioUrl) {
+      alert("영상과 TTS가 모두 준비되어야 합니다.")
+      return
+    }
 
-    if (isPlaying) {
-      previewAudio.pause()
-      // 비디오도 일시정지
-      if (previewVideoElements.length > 0 && previewVideoElements[0]) {
-        previewVideoElements[0].pause()
-      }
-      setIsPlaying(false)
-      if (previewAnimationFrame) {
-        cancelAnimationFrame(previewAnimationFrame)
-        setPreviewAnimationFrame(null)
-      }
-    } else {
-      previewAudio.play()
-      setIsPlaying(true)
-      
-      // 재생 시작 시 렌더링 재개
-      const canvas = canvasRef.current
-      const ctx = canvas?.getContext("2d")
-      if (!canvas || !ctx || !previewVideoElements.length) return
+    setIsGeneratingPreview(true)
+    setError("")
+    
+    try {
+      console.log("[Shopping] 미리보기 생성 시작 (롱폼 방식)")
 
-      const video = previewVideoElements[0]
-      if (!video) return
+      // 오디오 로드
+      const audioResponse = await fetch(ttsAudioUrl)
+      const audioBlob = await audioResponse.blob()
+      const audioUrl = URL.createObjectURL(audioBlob)
+      const audio = new Audio(audioUrl)
+      audio.volume = 1.0
+
+      await new Promise<void>((resolve, reject) => {
+        audio.onloadeddata = () => resolve()
+        audio.onerror = reject
+      })
+
+      const actualAudioDuration = audio.duration
+      console.log("[Shopping] 실제 오디오 길이:", actualAudioDuration.toFixed(3), "초")
+
+      // 영상 로드 (롱폼 방식: HTML video 엘리먼트로 직접 사용)
+      const video = document.createElement("video")
+      video.crossOrigin = "anonymous"
+      video.src = videoUrl
+      video.muted = true
+      video.playsInline = true
+      video.preload = "auto"
+      video.loop = true
       
-      // 비디오 재생 시작 (TTS와 동기화)
-      video.currentTime = previewAudio.currentTime
-      video.play().catch(() => {})
-      
-      const renderPreview = () => {
-        const elapsed = previewAudio.currentTime
+      await new Promise<void>((resolve, reject) => {
+        video.oncanplaythrough = () => {
+          video.currentTime = 0
+          resolve()
+        }
+        video.onerror = reject
+        video.load()
+        
+        setTimeout(() => {
+          if (video.readyState < 3) {
+            console.warn("비디오 로드 타임아웃, 계속 진행")
+            resolve()
+          }
+        }, 10000)
+      })
+
+      // 썸네일 이미지 로드 (있는 경우) - 미리 로드하여 상태로 저장
+      let thumbnailImage: HTMLImageElement | null = null
+      if (thumbnailCanvasRef.current) {
+        try {
+          const thumbnailCanvas = thumbnailCanvasRef.current
+          const thumbnailDataUrl = thumbnailCanvas.toDataURL("image/png")
+          thumbnailImage = new Image()
+          thumbnailImage.crossOrigin = "anonymous"
+          await new Promise<void>((resolve, reject) => {
+            thumbnailImage!.onload = () => resolve()
+            thumbnailImage!.onerror = reject
+            thumbnailImage!.src = thumbnailDataUrl
+          })
+          console.log("[Shopping] 썸네일 이미지 로드 완료")
+          setPreviewThumbnailImage(thumbnailImage)
+        } catch (error) {
+          console.warn("[Shopping] 썸네일 이미지 로드 실패, 계속 진행:", error)
+          setPreviewThumbnailImage(null)
+        }
+      } else {
+        setPreviewThumbnailImage(null)
+      }
+
+      // 롱폼 방식: onTimeUpdate 이벤트로 자막 동기화
+      audio.addEventListener("timeupdate", () => {
+        const elapsed = audio.currentTime
         setCurrentTime(elapsed)
-
-        // 캔버스 초기화
-        ctx.fillStyle = "black"
-        ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-        // 비디오 동기화 (TTS와 비디오 시간 맞추기)
-        if (video && !isNaN(video.duration) && video.duration > 0) {
-          // 비디오가 TTS보다 짧으면 루프
-          const videoDuration = video.duration
-          const videoTime = elapsed % videoDuration
-          
-          // 시간 차이가 크면 동기화
-          if (Math.abs(video.currentTime - videoTime) > 0.5) {
+        
+        // 썸네일 시간 체크
+        const THUMBNAIL_DURATION = 0.0001
+        const adjustedElapsed = Math.max(0, elapsed - THUMBNAIL_DURATION)
+        const elapsedMs = adjustedElapsed * 1000
+        
+        // 비디오 동기화 (루프) - 롱폼 방식
+        if (previewVideoRef.current && !isNaN(previewVideoRef.current.duration) && previewVideoRef.current.duration > 0) {
+          const video = previewVideoRef.current
+          const videoTime = adjustedElapsed % video.duration
+          if (Math.abs(video.currentTime - videoTime) > 0.3) {
             video.currentTime = videoTime
           }
-          
-          // 비디오 재생 보장
-          if (video.paused && !previewAudio.paused) {
+          if (video.paused && !audio.paused) {
             video.play().catch(() => {})
           }
         }
-
-        // 영상을 캔버스에 그리기
-        try {
-          if (video.readyState >= 2 || (video.videoWidth > 0 && video.videoHeight > 0)) {
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-          }
-        } catch (e) {
-          // 그리기 실패 시 무시
-        }
-
-        // 자막 그리기 (6~7자씩 나누기, 중간에서 조금 위)
-        if (scriptLines.length > 0) {
-          const elapsedMs = elapsed * 1000
-          
-          // 현재 시간에 맞는 자막 찾기
+        
+        // 자막 업데이트 (롱폼 방식)
+        if (scriptLines.length > 0 && (!previewThumbnailImage || elapsed >= THUMBNAIL_DURATION)) {
           const currentLine = scriptLines.find(
             line => elapsedMs >= line.startTime && elapsedMs < line.endTime
           )
@@ -980,64 +1383,94 @@ export default function ShoppingPage() {
           if (currentLine) {
             // 텍스트를 10자씩 나누기
             const fullText = currentLine.text
-            const chunkSize = 10 // 10자씩 나누기
+            const chunkSize = 10
             const chunks: string[] = []
             for (let i = 0; i < fullText.length; i += chunkSize) {
               chunks.push(fullText.slice(i, i + chunkSize))
             }
             
-            // 현재 시간 기준으로 몇 번째 청크를 보여줄지 계산
             const lineDuration = currentLine.endTime - currentLine.startTime
             const chunkDuration = lineDuration / chunks.length
             const timeInLine = elapsedMs - currentLine.startTime
             const currentChunkIndex = Math.min(Math.floor(timeInLine / chunkDuration), chunks.length - 1)
             const textToShow = chunks[currentChunkIndex] || chunks[0]
             
-            const subtitleY = canvas.height * 0.38 // 화면 38% 위치 (중간에서 조금 위)
-            
-            // 자막 텍스트 (배경 없음, 검정 테두리)
-            ctx.font = "bold 100px 'Noto Sans KR', sans-serif"
-            ctx.textAlign = "center"
-            ctx.textBaseline = "middle"
-            
-            // 검정색 테두리
-            ctx.strokeStyle = "black"
-            ctx.lineWidth = 12
-            ctx.lineJoin = "round"
-            ctx.strokeText(textToShow, canvas.width / 2, subtitleY)
-            
-            // 흰색 글씨
-            ctx.fillStyle = "white"
-            ctx.fillText(textToShow, canvas.width / 2, subtitleY)
+            setCurrentSubtitle(textToShow)
+          } else {
+            setCurrentSubtitle("")
           }
-        }
-
-        if (!previewAudio.ended && !previewAudio.paused) {
-          const frameId = requestAnimationFrame(renderPreview)
-          setPreviewAnimationFrame(frameId)
         } else {
-          setIsPlaying(false)
-          video.pause()
+          setCurrentSubtitle("")
         }
+      })
+
+      // 미리보기용 오디오 및 비디오 설정 (롱폼 방식)
+      setPreviewAudio(audio)
+      setPreviewVideoElements([video])
+      
+      // video ref에 직접 설정
+      if (previewVideoRef.current) {
+        previewVideoRef.current.src = video.src
+        previewVideoRef.current.crossOrigin = video.crossOrigin
+        previewVideoRef.current.muted = video.muted
+        previewVideoRef.current.playsInline = video.playsInline
+        previewVideoRef.current.loop = video.loop
+        previewVideoRef.current.load()
       }
 
-      renderPreview()
+      setPreviewGenerated(true)
+      setCurrentTime(0)
+      setCurrentSubtitle("")
+      console.log("[Shopping] 미리보기 생성 완료 (롱폼 방식)")
+      alert("미리보기가 생성되었습니다! 재생 버튼을 눌러 확인하세요.")
+    } catch (error) {
+      console.error("미리보기 생성 실패:", error)
+      setError(`미리보기 생성에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+    } finally {
+      setIsGeneratingPreview(false)
     }
   }
 
-  // 최종 영상 렌더링 (영상 + TTS + 자막)
+  // 미리보기 재생/일시정지 (롱폼 방식: onTimeUpdate 사용)
+  const handlePreviewPlayPause = () => {
+    if (!previewAudio) return
+
+    if (isPlaying) {
+      previewAudio.pause()
+      // 비디오도 일시정지
+      if (previewVideoRef.current) {
+        previewVideoRef.current.pause()
+      }
+      setIsPlaying(false)
+    } else {
+      previewAudio.play()
+      setIsPlaying(true)
+      
+      // 비디오 재생 시작 (롱폼 방식: 단순하게)
+      if (previewVideoRef.current) {
+        previewVideoRef.current.loop = true
+        previewVideoRef.current.currentTime = 0
+        previewVideoRef.current.play().catch(() => {})
+      }
+    }
+  }
+
+  // 최종 영상 렌더링 (미리보기와 동일: 롱폼 쇼츠 생성기 방식)
   const handleRenderVideo = async () => {
     if (!videoUrl || !ttsAudioUrl || !canvasRef.current) {
       alert("영상과 TTS가 모두 준비되어야 합니다.")
       return
     }
     
-    const videoUrlsArray = [videoUrl] // 단일 영상 사용
+    if (!previewGenerated || !previewAudio || !previewVideoRef.current) {
+      alert("먼저 미리보기를 생성해주세요.")
+      return
+    }
 
     setIsRendering(true)
     setError("")
     try {
-      console.log("[Shopping] 최종 영상 렌더링 시작 (Canvas + MediaRecorder)")
+      console.log("[Shopping] 최종 영상 렌더링 시작 (미리보기와 동일한 방식)")
 
       const canvas = canvasRef.current
       const ctx = canvas.getContext("2d")
@@ -1049,51 +1482,20 @@ export default function ShoppingPage() {
       canvas.width = 1080
       canvas.height = 1920
 
-      // 오디오 로드
-      const audioResponse = await fetch(ttsAudioUrl)
-      const audioBlob = await audioResponse.blob()
-      const audioUrl = URL.createObjectURL(audioBlob)
-      const audio = new Audio(audioUrl)
-
-      await new Promise<void>((resolve, reject) => {
-        audio.onloadeddata = () => resolve()
-        audio.onerror = reject
-      })
-
+      // 미리보기에서 사용하는 오디오와 비디오 재사용 (롱폼 쇼츠 생성기 방식)
+      const audio = previewAudio
+      const video = previewVideoRef.current
+      
+      // 오디오 시간 초기화
+      audio.currentTime = 0
       const actualAudioDuration = audio.duration
       console.log("[Shopping] 실제 오디오 길이:", actualAudioDuration.toFixed(3), "초")
 
-      // 각 영상을 비디오 엘리먼트로 로드
-      const videoElements: HTMLVideoElement[] = []
-      for (const videoUrl of videoUrlsArray) {
-        const video = document.createElement("video")
-        video.crossOrigin = "anonymous"
-        video.src = videoUrl
-        video.muted = true
-        video.playsInline = true
-        video.preload = "auto" // 미리 로드
-        
-        await new Promise<void>((resolve, reject) => {
-          // canplaythrough 이벤트 사용 (더 완전한 로드 확인)
-          video.oncanplaythrough = () => {
-            video.currentTime = 0 // 시작 위치로 초기화
-            resolve()
-          }
-          video.onerror = reject
-          video.load()
-          
-          // 타임아웃 설정 (10초)
-          setTimeout(() => {
-            if (video.readyState < 3) {
-              console.warn("비디오 로드 타임아웃, 계속 진행")
-              resolve() // 타임아웃이어도 계속 진행
-            }
-          }, 10000)
-        })
-        videoElements.push(video)
-      }
+      // 비디오 시간 초기화
+      video.currentTime = 0
+      video.loop = true
 
-      console.log("[Shopping] 모든 영상 로드 완료, 렌더링 시작...")
+      console.log("[Shopping] 미리보기 영상/오디오 재사용, 렌더링 시작...")
 
       // TTS 시간을 기반으로 각 장면의 영상 길이 계산
       let sceneDurations: number[] = []
@@ -1121,8 +1523,8 @@ export default function ShoppingPage() {
 
       console.log("[Shopping] 각 장면의 영상 길이:", sceneDurations.map(d => d.toFixed(2) + "초"))
 
-      // MediaRecorder 설정
-      const stream = canvas.captureStream(30) // 30fps
+      // MediaRecorder 설정 (롱폼 쇼츠 생성기 방식)
+      const stream = canvas.captureStream(30)
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
       const source = audioContext.createMediaElementSource(audio)
       const destination = audioContext.createMediaStreamDestination()
@@ -1146,117 +1548,130 @@ export default function ShoppingPage() {
 
       mediaRecorder.onstop = () => {
         const videoBlob = new Blob(chunks, { type: "video/webm" })
-        const finalVideoUrl = URL.createObjectURL(videoBlob)
-        setVideoUrl(finalVideoUrl)
-        URL.revokeObjectURL(audioUrl)
+        const videoUrl = URL.createObjectURL(videoBlob)
+        
+        // 자동 다운로드 (롱폼 쇼츠 생성기 방식)
+        const a = document.createElement("a")
+        a.href = videoUrl
+        a.download = `${productName || "shopping"}_video_${Date.now()}.webm`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        
+        // URL 정리
+        URL.revokeObjectURL(videoUrl)
 
-        console.log("[Shopping] 영상 렌더링 완료")
-        alert("영상 렌더링이 완료되었습니다!")
-        setActiveStep("preview") // 최종 완료 단계로 이동
+        console.log("[Shopping] 영상 렌더링 및 다운로드 완료")
         setIsRendering(false)
+        // alert 제거 (롱폼 쇼츠 생성기 방식)
       }
 
-      // 렌더링 시작
+      // 썸네일 이미지 로드 (있는 경우) - 미리보기에서 사용한 것 재사용
+      let thumbnailImage: HTMLImageElement | null = previewThumbnailImage
+
+      // 렌더링 시작 (롱폼 쇼츠 생성기 방식)
       mediaRecorder.start()
       audio.play()
 
-      // 각 영상의 시작 시간 계산
-      let accumulatedTime = 0
-      const videoStartTimes: number[] = []
-      for (let i = 0; i < sceneDurations.length; i++) {
-        videoStartTimes.push(accumulatedTime)
-        accumulatedTime += sceneDurations[i]
-      }
+      // 롱폼 쇼츠 생성기 방식으로 렌더링 (미리보기와 동일)
+      const THUMBNAIL_DURATION = 0.0001
+      let scriptLinesToUse = scriptLines
 
       const renderFrame = () => {
         const elapsed = audio.currentTime
-
-        // TTS 길이를 초과하면 즉시 중지
-        if (elapsed >= actualAudioDuration || audio.ended || isNaN(elapsed) || !isFinite(elapsed)) {
-          console.log(`[Shopping] 렌더링 종료: elapsed=${elapsed.toFixed(3)}초, actualAudioDuration=${actualAudioDuration.toFixed(3)}초, ended=${audio.ended}`)
-          mediaRecorder.stop()
-          audio.pause()
-          audio.currentTime = 0
-          return
-        }
 
         // 캔버스 초기화
         ctx.fillStyle = "black"
         ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-        // 현재 시간에 맞는 영상 찾기
-        let currentVideoIndex = 0
-        for (let i = 0; i < videoStartTimes.length; i++) {
-          if (elapsed >= videoStartTimes[i] && (i === videoStartTimes.length - 1 || elapsed < videoStartTimes[i + 1])) {
-            currentVideoIndex = i
-            break
-          }
-        }
-
-        // 현재 영상 재생
-        if (videoElements[currentVideoIndex]) {
-          const video = videoElements[currentVideoIndex]
-          const videoStartTime = videoStartTimes[currentVideoIndex]
-          const videoElapsed = elapsed - videoStartTime
-
-          // 영상 시간 설정 (루프)
-          if (videoElapsed >= 0 && videoElapsed < video.duration) {
-            video.currentTime = videoElapsed % video.duration
+        // 썸네일이 있고 0.0001초 이하일 때 썸네일 표시
+        const adjustedElapsed = Math.max(0, elapsed - THUMBNAIL_DURATION)
+        
+        if (thumbnailImage && elapsed < THUMBNAIL_DURATION) {
+          ctx.drawImage(thumbnailImage, 0, 0, canvas.width, canvas.height)
+        } else {
+          // 썸네일 시간이 지나면 영상 표시 (미리보기와 동일한 방식)
+          if (video && !isNaN(video.duration) && video.duration > 0) {
+            // 비디오가 TTS보다 짧으면 루프 (썸네일 시간 제외)
+            const videoDuration = video.duration
+            const videoTime = adjustedElapsed % videoDuration
+            
+            // 시간 차이가 크면 동기화 (미리보기와 동일: 0.3초 이상 차이날 때만)
+            if (Math.abs(video.currentTime - videoTime) > 0.3) {
+              video.currentTime = videoTime
+            }
+            
+            // 비디오 재생 보장
             if (video.paused) {
-              video.play()
+              video.play().catch(() => {})
             }
           }
 
-          // 영상을 캔버스에 그리기 (1080x1920 쇼츠 크기)
-          const imageWidth = 1080
-          const imageHeight = 1920
-          const imageX = 0
-          const imageY = 0
-
-          ctx.drawImage(video, imageX, imageY, imageWidth, imageHeight)
-        }
-
-        // 현재 자막 찾기 (6~7자씩 나누기)
-        const currentLine = scriptLines.find(
-          (line) => elapsed >= line.startTime / 1000 && elapsed <= line.endTime / 1000
-        )
-
-        if (currentLine) {
-          // 텍스트를 10자씩 나누기
-          const fullText = currentLine.text
-          const chunkSize = 10
-          const chunks: string[] = []
-          for (let i = 0; i < fullText.length; i += chunkSize) {
-            chunks.push(fullText.slice(i, i + chunkSize))
+          // 영상을 캔버스에 그리기
+          try {
+            if (video && (video.readyState >= 2 || (video.videoWidth > 0 && video.videoHeight > 0))) {
+              ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+            }
+          } catch (e) {
+            // 그리기 실패 시 무시
           }
-          
-          // 현재 시간 기준으로 몇 번째 청크를 보여줄지 계산
-          const lineDuration = (currentLine.endTime - currentLine.startTime) / 1000
-          const chunkDuration = lineDuration / chunks.length
-          const timeInLine = elapsed - currentLine.startTime / 1000
-          const currentChunkIndex = Math.min(Math.floor(timeInLine / chunkDuration), chunks.length - 1)
-          const textToShow = chunks[currentChunkIndex] || chunks[0]
-          
-          const subtitleY = canvas.height * 0.38 // 38% 위치 (중간에서 조금 위)
-
-          // 자막 텍스트 (배경 없음, 검정 테두리)
-          ctx.font = "bold 120px 'Noto Sans KR', Arial"
-          ctx.textAlign = "center"
-          ctx.textBaseline = "middle"
-
-          // 검정색 테두리
-          ctx.strokeStyle = "black"
-          ctx.lineWidth = 14
-          ctx.lineJoin = "round"
-          ctx.strokeText(textToShow, canvas.width / 2, subtitleY)
-          
-          // 흰색 글씨
-          ctx.fillStyle = "white"
-          ctx.fillText(textToShow, canvas.width / 2, subtitleY)
         }
 
-        // 다음 프레임 요청
-        requestAnimationFrame(renderFrame)
+        // 자막 그리기 (미리보기와 동일한 방식: 단순하게)
+        if (scriptLinesToUse.length > 0 && (!thumbnailImage || elapsed >= THUMBNAIL_DURATION)) {
+          const elapsedMs = adjustedElapsed * 1000
+          
+          // 현재 시간에 맞는 자막 찾기 (미리보기와 동일)
+          const currentLine = scriptLinesToUse.find(
+            line => elapsedMs >= line.startTime && elapsedMs < line.endTime
+          )
+          
+          if (currentLine) {
+            // 텍스트를 10자씩 나누기 (미리보기와 동일)
+            const fullText = currentLine.text
+            const chunkSize = 10
+            const chunks: string[] = []
+            for (let i = 0; i < fullText.length; i += chunkSize) {
+              chunks.push(fullText.slice(i, i + chunkSize))
+            }
+            
+            // 현재 시간 기준으로 몇 번째 청크를 보여줄지 계산 (미리보기와 동일)
+            const lineDuration = currentLine.endTime - currentLine.startTime
+            const chunkDuration = lineDuration / chunks.length
+            const timeInLine = elapsedMs - currentLine.startTime
+            const currentChunkIndex = Math.min(Math.floor(timeInLine / chunkDuration), chunks.length - 1)
+            const textToShow = chunks[currentChunkIndex] || chunks[0]
+            
+            // 미리보기와 동일한 위치: 중간에서 살짝 위 (38%)
+            const subtitleY = canvas.height * 0.38
+            
+            // 자막 텍스트 (미리보기와 동일한 스타일)
+            // 미리보기: text-2xl (24px) + font-bold
+            // Canvas에서는 더 크게 표시해야 하므로 비율 조정
+            const fontSize = 100 // 미리보기와 동일한 크기 (Canvas 해상도 고려)
+            ctx.font = `bold ${fontSize}px 'Noto Sans KR', sans-serif`
+            ctx.textAlign = "center"
+            ctx.textBaseline = "middle" // 중간 기준
+            
+            // 검정색 테두리
+            ctx.strokeStyle = "black"
+            ctx.lineWidth = 12
+            ctx.lineJoin = "round"
+            ctx.strokeText(textToShow, canvas.width / 2, subtitleY)
+            
+            // 흰색 글씨
+            ctx.fillStyle = "white"
+            ctx.fillText(textToShow, canvas.width / 2, subtitleY)
+          }
+        }
+
+        // 다음 프레임 요청 (롱폼 쇼츠 생성기 방식)
+        if (!audio.paused && elapsed < actualAudioDuration) {
+          requestAnimationFrame(renderFrame)
+        } else {
+          mediaRecorder.stop()
+          audio.pause()
+        }
       }
 
       renderFrame()
@@ -1381,10 +1796,19 @@ export default function ShoppingPage() {
 
                 <div className="space-y-2">
                   <Label htmlFor="product-image" className="text-sm font-medium text-gray-800">
-                    제품 이미지 (선택사항)
+                    제품 이미지 <span className="text-red-500">*</span>
                   </Label>
                   {!productImage ? (
-                    <div className="border-dashed border-gray-300 rounded-xl bg-gray-50 p-8 md:p-12 text-center hover:border-orange-400 transition-colors">
+                    <div
+                      className={`border-dashed border-2 rounded-xl p-8 md:p-12 text-center transition-colors ${
+                        isDragging
+                          ? "border-orange-500 bg-orange-100"
+                          : "border-orange-300 bg-orange-50 hover:border-orange-400"
+                      }`}
+                      onDragOver={handleDragOver}
+                      onDragLeave={handleDragLeave}
+                      onDrop={handleDrop}
+                    >
                       <input
                         type="file"
                         id="product-image"
@@ -1396,12 +1820,15 @@ export default function ShoppingPage() {
                         htmlFor="product-image"
                         className="cursor-pointer flex flex-col items-center gap-3"
                       >
-                        <ImageIcon className="w-10 h-10 text-gray-400" />
+                        <ImageIcon className={`w-10 h-10 ${isDragging ? "text-orange-600" : "text-orange-400"}`} />
                         <div className="space-y-1">
-                          <span className="text-xs md:text-sm text-gray-500 block">
+                          <span className={`text-xs md:text-sm font-medium block ${isDragging ? "text-orange-800" : "text-orange-700"}`}>
+                            {isDragging ? "여기에 이미지를 놓아주세요" : "제품 이미지를 업로드해주세요 (필수)"}
+                          </span>
+                          <span className="text-xs text-orange-600 block">
                             이미지를 클릭하거나 드래그하여 업로드
                           </span>
-                          <span className="text-xs text-gray-400 block">
+                          <span className="text-xs text-orange-500 block">
                             PNG, JPG, GIF (최대 10MB)
                           </span>
                         </div>
@@ -1439,7 +1866,7 @@ export default function ShoppingPage() {
 
                 <Button
                   onClick={handleGenerateScript}
-                  disabled={!productName.trim() || isGeneratingScript}
+                  disabled={!productName.trim() || !productImage || isGeneratingScript}
                   className="w-full h-12 md:h-14 bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white font-semibold rounded-xl disabled:bg-orange-300 disabled:cursor-not-allowed transition-colors"
                   size="lg"
                 >
@@ -1541,6 +1968,232 @@ export default function ShoppingPage() {
                           </>
                         )}
                       </Button>
+                    </div>
+
+                    {/* 목소리 선택 UI */}
+                    <div className="space-y-4 pt-4 border-t border-gray-200">
+                      <div className="space-y-2">
+                        <Label className="text-sm font-medium text-gray-700">목소리 선택</Label>
+                        
+                        {/* 수퍼톤 선택 */}
+                        <div className="space-y-2 p-3 border border-gray-200 rounded-lg bg-white">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                              <div
+                                className={`w-4 h-4 rounded-full border-2 cursor-pointer ${
+                                  selectedVoiceId?.startsWith("supertone-") ? "border-purple-500 bg-purple-500" : "border-gray-300"
+                                }`}
+                                onClick={() => {
+                                  if (supertoneVoices.length > 0 && !selectedSupertoneVoiceId) {
+                                    setSelectedSupertoneVoiceId(supertoneVoices[0].voice_id)
+                                    setSelectedVoiceId(`supertone-${supertoneVoices[0].voice_id}`)
+                                    const firstVoice = supertoneVoices[0]
+                                    if (firstVoice.styles && firstVoice.styles.length > 0) {
+                                      const neutralStyle = firstVoice.styles.find(s => s.toLowerCase().includes("neutral") || s === "중립")
+                                      setSelectedSupertoneStyle(neutralStyle || firstVoice.styles[0])
+                                    }
+                                  } else if (selectedSupertoneVoiceId) {
+                                    setSelectedSupertoneVoiceId("")
+                                    setSelectedVoiceId("ttsmaker-여성1")
+                                  } else {
+                                    fetchSupertoneVoices()
+                                  }
+                                }}
+                              >
+                                {selectedVoiceId?.startsWith("supertone-") && (
+                                  <div className="w-2 h-2 bg-white rounded-full mx-auto mt-0.5"></div>
+                                )}
+                              </div>
+                              <p className={`text-sm font-medium ${selectedVoiceId?.startsWith("supertone-") ? "text-purple-900" : "text-gray-700"}`}>수퍼톤 (SuperTone)</p>
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={fetchSupertoneVoices}
+                              disabled={isLoadingSupertoneVoices}
+                              className={selectedVoiceId?.startsWith("supertone-") ? "border-purple-300 text-purple-700" : ""}
+                            >
+                              {isLoadingSupertoneVoices ? (
+                                <>
+                                  <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                  로딩 중...
+                                </>
+                              ) : (
+                                <>
+                                  <RefreshCw className="w-3 h-3 mr-1" />
+                                  음성 목록 가져오기
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                          {supertoneVoices.length > 0 && (
+                            <Select
+                              value={selectedSupertoneVoiceId}
+                              onValueChange={(value) => {
+                                setSelectedSupertoneVoiceId(value)
+                                setSelectedVoiceId(`supertone-${value}`)
+                                const selectedVoice = supertoneVoices.find(v => v.voice_id === value)
+                                if (selectedVoice && selectedVoice.styles && selectedVoice.styles.length > 0) {
+                                  const neutralStyle = selectedVoice.styles.find(s => s.toLowerCase().includes("neutral") || s === "중립")
+                                  setSelectedSupertoneStyle(neutralStyle || selectedVoice.styles[0])
+                                } else {
+                                  setSelectedSupertoneStyle("neutral")
+                                }
+                              }}
+                            >
+                              <SelectTrigger className="w-full">
+                                <SelectValue placeholder="수퍼톤 음성을 선택하세요" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {supertoneVoices.map((voice) => (
+                                  <SelectItem key={voice.voice_id} value={voice.voice_id}>
+                                    <div className="flex items-center gap-2">
+                                      {voice.thumbnail_image_url && (
+                                        <img
+                                          src={voice.thumbnail_image_url}
+                                          alt={voice.name}
+                                          className="w-6 h-6 rounded-full object-cover"
+                                        />
+                                      )}
+                                      <div>
+                                        <div className="font-medium">{voice.name}</div>
+                                        {voice.styles && voice.styles.length > 0 && (
+                                          <div className="text-xs text-gray-500">
+                                            스타일: {voice.styles.join(", ")}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
+                          {selectedSupertoneVoiceId && (() => {
+                            const selectedVoice = supertoneVoices.find(v => v.voice_id === selectedSupertoneVoiceId)
+                            const availableStyles = selectedVoice?.styles || []
+                            return availableStyles.length > 0 && (
+                              <div className="mt-2">
+                                <p className="text-sm font-medium text-gray-700 mb-2">스타일 선택</p>
+                                <Select
+                                  value={selectedSupertoneStyle}
+                                  onValueChange={setSelectedSupertoneStyle}
+                                >
+                                  <SelectTrigger className="w-full">
+                                    <SelectValue placeholder="스타일을 선택하세요" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {availableStyles.map((style) => (
+                                      <SelectItem key={style} value={style}>
+                                        {style}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            )
+                          })()}
+                          {selectedSupertoneVoiceId && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="w-full mt-2 border-purple-300 text-purple-700 hover:bg-purple-100"
+                              onClick={() => handlePreviewVoice(`supertone-${selectedSupertoneVoiceId}`)}
+                              disabled={previewingVoiceId === `supertone-${selectedSupertoneVoiceId}`}
+                            >
+                              {previewingVoiceId === `supertone-${selectedSupertoneVoiceId}` ? (
+                                <>
+                                  <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                  재생 중...
+                                </>
+                              ) : (
+                                <>
+                                  <Volume2 className="w-3 h-3 mr-1" />
+                                  미리듣기
+                                </>
+                              )}
+                            </Button>
+                          )}
+                        </div>
+
+                        {/* TTSMaker 및 ElevenLabs 목소리 선택 */}
+                        <div className="space-y-2">
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                            {[
+                              { id: "ttsmaker-여성1", name: "TTSMaker 여성1", note: "ID: 503", provider: "ttsmaker" },
+                              { id: "ttsmaker-여성2", name: "TTSMaker 여성2", note: "ID: 509", provider: "ttsmaker" },
+                              { id: "ttsmaker-여성6", name: "TTSMaker 여성3", note: "ID: 5802", provider: "ttsmaker" },
+                              { id: "ttsmaker-남성1", name: "TTSMaker 남성1", note: "ID: 5501", provider: "ttsmaker" },
+                              { id: "ttsmaker-남성4", name: "TTSMaker 남성2", note: "ID: 5888", provider: "ttsmaker" },
+                              { id: "ttsmaker-남성5", name: "TTSMaker 남성3", note: "ID: 5888 (음높이 -10%)", provider: "ttsmaker" },
+                              { id: "jB1Cifc2UQbq1gR3wnb0", name: "ElevenLabs Rachel", note: "기본(Default)", provider: "elevenlabs" },
+                              { id: "8jHHF8rMqMlg8if2mOUe", name: "ElevenLabs Voice 2", note: "사용자 선택형", provider: "elevenlabs" },
+                              { id: "uyVNoMrnUku1dZyVEXwD", name: "ElevenLabs Voice 3", note: "", provider: "elevenlabs" },
+                            ].map((voice) => (
+                              <div
+                                key={voice.id}
+                                className={`p-3 border-2 rounded-lg transition-all cursor-pointer ${
+                                  selectedVoiceId === voice.id
+                                    ? "border-red-500 bg-red-50"
+                                    : "border-gray-200 hover:border-gray-300"
+                                }`}
+                              >
+                                <div className="flex items-center space-x-2 mb-2">
+                                  <div
+                                    className={`w-4 h-4 rounded-full border-2 cursor-pointer ${
+                                      selectedVoiceId === voice.id ? "border-red-500 bg-red-500" : "border-gray-300"
+                                    }`}
+                                    onClick={() => {
+                                      setSelectedVoiceId(voice.id)
+                                      if (selectedSupertoneVoiceId) {
+                                        setSelectedSupertoneVoiceId("")
+                                      }
+                                    }}
+                                  >
+                                    {selectedVoiceId === voice.id && (
+                                      <div className="w-2 h-2 bg-white rounded-full mx-auto mt-0.5"></div>
+                                    )}
+                                  </div>
+                                  <div 
+                                    className="flex-1 cursor-pointer"
+                                    onClick={() => {
+                                      setSelectedVoiceId(voice.id)
+                                      if (selectedSupertoneVoiceId) {
+                                        setSelectedSupertoneVoiceId("")
+                                      }
+                                    }}
+                                  >
+                                    <p className="text-sm font-medium">{voice.name}</p>
+                                    {voice.note && <p className="text-xs text-gray-500">{voice.note}</p>}
+                                  </div>
+                                </div>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="w-full text-xs"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handlePreviewVoice(voice.id)
+                                  }}
+                                  disabled={previewingVoiceId === voice.id}
+                                >
+                                  {previewingVoiceId === voice.id ? (
+                                    <>
+                                      <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                      재생 중...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Volume2 className="w-3 h-3 mr-1" />
+                                      미리듣기
+                                    </>
+                                  )}
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
                     </div>
                     {ttsProgress.total > 0 && (
                       <div className="space-y-2">
@@ -1672,13 +2325,9 @@ export default function ShoppingPage() {
                 <div className="text-center space-y-4">
                   <Loader2 className="w-12 h-12 animate-spin mx-auto text-orange-500" />
                   <div>
-                    <h3 className="text-xl font-semibold mb-2">영상 생성 중...</h3>
+                    <h3 className="text-xl font-semibold mb-2">이미지 생성 중...</h3>
                     <p className="text-muted-foreground mb-4">
-                      대본을 3개 장면으로 나누고 있습니다.
-                      <br />
-                      각 장면에 대해 나노바나나로 이미지를 생성합니다.
-                      <br />
-                      이 작업은 몇 분 정도 소요될 수 있습니다.
+                      AI가 이미지를 재생성 하고있습니다
                     </p>
                     <div className="space-y-2">
                       <div className="flex items-center justify-between text-sm text-gray-600">
@@ -1720,16 +2369,55 @@ export default function ShoppingPage() {
                   <div className="space-y-4">
                   {/* 영상 미리보기 + 썸네일 생성기 */}
                   <div className="flex justify-center gap-6 flex-wrap">
-                    {/* 캔버스 미리보기 */}
+                    {/* 비디오 미리보기 (롱폼 방식: HTML video 엘리먼트) */}
                     <div className="space-y-2">
                       <h3 className="text-sm font-medium text-center text-gray-600">영상 미리보기</h3>
                       <div className="relative" style={{ width: "300px", height: "533px" }}>
-                        <canvas
-                          ref={canvasRef}
-                          className="w-full h-full border-2 border-gray-300 rounded-lg"
-                          style={{ aspectRatio: "9/16" }}
-                      />
-                    </div>
+                        {previewGenerated && videoUrl ? (
+                          <>
+                            <video
+                              ref={previewVideoRef}
+                              src={videoUrl}
+                              crossOrigin="anonymous"
+                              muted
+                              playsInline
+                              loop
+                              className="w-full h-full border-2 border-gray-300 rounded-lg object-cover"
+                              style={{ aspectRatio: "9/16" }}
+                            />
+                            {/* 썸네일 오버레이 (0.0001초 동안) */}
+                            {previewThumbnailImage && currentTime < 0.0001 && (
+                              <img
+                                src={previewThumbnailImage.src}
+                                alt="썸네일"
+                                className="absolute top-0 left-0 w-full h-full object-cover border-2 border-gray-300 rounded-lg"
+                                style={{ aspectRatio: "9/16" }}
+                              />
+                            )}
+                            {/* 자막 오버레이 (미리보기 크기에 맞춤) */}
+                            {currentSubtitle && currentTime >= 0.0001 && (
+                              <div className="absolute left-0 right-0 flex items-center justify-center pointer-events-none" style={{ top: "38%" }}>
+                                <div
+                                  style={{
+                                    fontFamily: "'Noto Sans KR', sans-serif",
+                                    fontSize: "28px", // 미리보기 비디오 크기(300px)에 맞춰 조정 (렌더링 100px의 약 28%)
+                                    fontWeight: "bold",
+                                    textAlign: "center",
+                                    color: "white",
+                                    lineHeight: "1",
+                                  }}
+                                >
+                                  {currentSubtitle}
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <div className="w-full h-full border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center bg-gray-50">
+                            <span className="text-gray-400 text-sm">미리보기를 생성해주세요</span>
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     {/* 썸네일 생성기 */}
@@ -1816,70 +2504,15 @@ export default function ShoppingPage() {
                               previewAudio.currentTime = newTime
                               setCurrentTime(newTime)
                               
-                              // 시간 변경 시 프레임 업데이트
-                              const canvas = canvasRef.current
-                              const ctx = canvas?.getContext("2d")
-                              if (canvas && ctx && previewVideoElements.length > 0) {
-                                const video = previewVideoElements[0]
-                                const elapsed = newTime
+                              // 비디오 시간 동기화 (롱폼 방식)
+                              if (previewVideoRef.current) {
+                                const video = previewVideoRef.current
+                                const THUMBNAIL_DURATION = 0.0001
+                                const adjustedElapsed = Math.max(0, newTime - THUMBNAIL_DURATION)
                                 
-                                // 캔버스 초기화
-                                ctx.fillStyle = "black"
-                                ctx.fillRect(0, 0, canvas.width, canvas.height)
-                                
-                                // 비디오 시간 설정 (루프)
-                                if (video && !isNaN(video.duration) && video.duration > 0) {
-                                  const videoTime = elapsed % video.duration
+                                if (!isNaN(video.duration) && video.duration > 0) {
+                                  const videoTime = adjustedElapsed % video.duration
                                   video.currentTime = videoTime
-                                  
-                                  try {
-                                    if (video.readyState >= 1 || (video.videoWidth > 0 && video.videoHeight > 0)) {
-                                      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-                                    }
-                                  } catch (e) {
-                                    console.warn("비디오 그리기 실패:", e)
-                                  }
-                                }
-                                
-                                // 자막 그리기 (6~7자씩 나누기, 중간에서 조금 위)
-                                if (scriptLines.length > 0) {
-                                  const elapsedMs = elapsed * 1000
-                                  const currentLine = scriptLines.find(
-                                    line => elapsedMs >= line.startTime && elapsedMs < line.endTime
-                                  )
-                                  
-                                  if (currentLine) {
-                                    // 텍스트를 10자씩 나누기
-                                    const fullText = currentLine.text
-                                    const chunkSize = 10
-                                    const chunks: string[] = []
-                                    for (let i = 0; i < fullText.length; i += chunkSize) {
-                                      chunks.push(fullText.slice(i, i + chunkSize))
-                                    }
-                                    
-                                    const lineDuration = currentLine.endTime - currentLine.startTime
-                                    const chunkDuration = lineDuration / chunks.length
-                                    const timeInLine = elapsedMs - currentLine.startTime
-                                    const currentChunkIndex = Math.min(Math.floor(timeInLine / chunkDuration), chunks.length - 1)
-                                    const textToShow = chunks[currentChunkIndex] || chunks[0]
-                                    
-                                    const subtitleY = canvas.height * 0.38
-                                    
-                                    // 자막 텍스트 (배경 없음, 검정 테두리)
-                                    ctx.font = "bold 100px 'Noto Sans KR', sans-serif"
-                                    ctx.textAlign = "center"
-                                    ctx.textBaseline = "middle"
-                                    
-                                    // 검정색 테두리
-                                    ctx.strokeStyle = "black"
-                                    ctx.lineWidth = 12
-                                    ctx.lineJoin = "round"
-                                    ctx.strokeText(textToShow, canvas.width / 2, subtitleY)
-                                    
-                                    // 흰색 글씨
-                                    ctx.fillStyle = "white"
-                                    ctx.fillText(textToShow, canvas.width / 2, subtitleY)
-                                  }
                                 }
                               }
                             }
@@ -1894,12 +2527,33 @@ export default function ShoppingPage() {
                     )}
                   </div>
 
-                  {/* 다운로드 버튼 */}
-                  <div className="flex gap-2">
+                  {/* 미리보기 생성 및 다운로드 버튼 */}
+                  <div className="space-y-3">
+                    {/* 미리보기 생성 버튼 */}
+                    <Button
+                      onClick={handleGeneratePreview}
+                      disabled={isGeneratingPreview || !videoUrl || !ttsAudioUrl}
+                      className="w-full bg-blue-500 hover:bg-blue-600 text-white disabled:bg-gray-300 disabled:cursor-not-allowed"
+                      size="lg"
+                    >
+                      {isGeneratingPreview ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          미리보기 생성 중...
+                        </>
+                      ) : (
+                        <>
+                          <Play className="w-4 h-4 mr-2" />
+                          미리보기 생성
+                        </>
+                      )}
+                    </Button>
+
+                    {/* 다운로드 버튼 */}
                     <Button
                       onClick={handleRenderVideo}
-                      disabled={isRendering}
-                      className="flex-1 bg-orange-500 hover:bg-orange-600 text-white disabled:bg-gray-300 disabled:cursor-not-allowed"
+                      disabled={isRendering || !previewGenerated}
+                      className="w-full bg-orange-500 hover:bg-orange-600 text-white disabled:bg-gray-300 disabled:cursor-not-allowed"
                       size="lg"
                     >
                       {isRendering ? (
@@ -1909,12 +2563,17 @@ export default function ShoppingPage() {
                         </>
                       ) : (
                         <>
-                        <Download className="w-4 h-4 mr-2" />
+                          <Download className="w-4 h-4 mr-2" />
                           영상 다운로드 (렌더링)
                         </>
                       )}
-                      </Button>
-                    </div>
+                    </Button>
+                    {!previewGenerated && (
+                      <p className="text-sm text-gray-500 text-center">
+                        먼저 미리보기를 생성해주세요
+                      </p>
+                    )}
+                  </div>
 
                   {/* 다운로드된 영상이 있으면 표시 */}
                     <div className="flex gap-2">
