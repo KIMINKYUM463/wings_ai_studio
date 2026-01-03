@@ -190,14 +190,21 @@ export async function POST(request: NextRequest) {
     // 단어 분리 방식을 개선: 공백과 문장부호를 모두 포함하되, 빈 문자열은 제거
     const originalWords = text.split(/(\s+|[,，.。!！?？;；:：])/).filter((w: string) => w.trim().length > 0)
     // Whisper가 인식하기 어려운 문장부호만 있는 단어는 제거하고 인접 단어와 결합
+    // 한 글자 단어도 이전 단어와 결합하여 자막 분할 시 한 글자만 나오는 문제 방지
     const cleanedOriginalWords: string[] = []
     for (let i = 0; i < originalWords.length; i++) {
       const word = originalWords[i].trim()
       if (word.length === 0) continue
+      
       // 문장부호만 있는 경우 이전 단어와 결합
       if (/^[,，.。!！?？;；:：]+$/.test(word) && cleanedOriginalWords.length > 0) {
         cleanedOriginalWords[cleanedOriginalWords.length - 1] += word
-      } else {
+      } 
+      // 한 글자 단어인 경우 이전 단어와 결합 (단, 이전 단어가 없으면 그대로 추가)
+      else if (word.length === 1 && cleanedOriginalWords.length > 0) {
+        cleanedOriginalWords[cleanedOriginalWords.length - 1] += " " + word
+      } 
+      else {
         cleanedOriginalWords.push(word)
       }
     }

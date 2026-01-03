@@ -729,6 +729,7 @@ export default function LongformContentPage() {
   const [thumbnailBackgroundImage, setThumbnailBackgroundImage] = useState<string | null>(null) // 썸네일 배경 이미지
   const [thumbnailOverlayImage, setThumbnailOverlayImage] = useState<string | null>(null) // 썸네일 오버레이 이미지 (선택 가능한 이미지)
   const [benchmarkThumbnailUrl, setBenchmarkThumbnailUrl] = useState<string | null>(null) // 벤치마킹 썸네일 URL
+  const [thumbnailStyle, setThumbnailStyle] = useState<"realistic" | "animation" | null>(null) // 썸네일 스타일 (실사화/애니메이션화)
   const [overlayImageSize, setOverlayImageSize] = useState({ width: 50, height: 50 }) // 오버레이 이미지 크기 (%)
   const [overlayImagePosition, setOverlayImagePosition] = useState({ x: 50, y: 50 }) // 오버레이 이미지 위치 (%)
   const [selectedTextIndex, setSelectedTextIndex] = useState<number | null>(null)
@@ -4071,14 +4072,22 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         }
       }
       
-      console.log("[v0] AI 썸네일 생성 시작, 주제:", topicToUse, "이미지 스타일:", imageStyle, "커스텀 문구:", thumbnailCustomText, "문구 없이:", thumbnailWithoutText, "캐릭터:", characterDescription)
+      // 썸네일 스타일 프롬프트 생성 (실사화/애니메이션화)
+      let thumbnailStylePrompt: string | undefined = undefined
+      if (thumbnailStyle === "realistic") {
+        thumbnailStylePrompt = "hyperrealistic, photorealistic masterpiece, 8K, ultra-detailed, sharp focus, cinematic lighting, shot on a professional DSLR camera with a 50mm lens, realistic textures, natural lighting, professional photography"
+      } else if (thumbnailStyle === "animation") {
+        thumbnailStylePrompt = "2D animation style, cartoon illustration, vibrant colors, stylized art, flat design, cel-shaded, animated character design, colorful and playful, animated movie style, Disney animation style"
+      }
+      
+      console.log("[v0] AI 썸네일 생성 시작, 주제:", topicToUse, "이미지 스타일:", imageStyle, "커스텀 문구:", thumbnailCustomText, "문구 없이:", thumbnailWithoutText, "썸네일 스타일:", thumbnailStyle, "캐릭터:", characterDescription)
       const openaiApiKey = getApiKey("openai_api_key")
       const imageUrl = await generateAIThumbnail(
         topicToUse, 
         replicateApiKey, 
         imageStyle, 
         thumbnailCustomText.trim() || undefined,
-        customStylePrompt || undefined,
+        thumbnailStylePrompt || customStylePrompt || undefined, // 썸네일 스타일 프롬프트 우선 사용
         characterDescription,
         thumbnailWithoutText,
         benchmarkThumbnailUrl || undefined,
@@ -4642,12 +4651,26 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       // STT 결과를 기반으로 scriptLinesToUse 업데이트 (단어 단위 정밀도 향상)
       if (allWordTimings.length > 0) {
         // 각 문장별로 정확한 시작/끝 시간 계산 (STT 기반)
-        const updatedScriptLines = scriptLinesToUse.map(line => {
+        const updatedScriptLines = scriptLinesToUse.map((line, index) => {
           const lineWordTimings = allWordTimings.filter(wt => wt.lineId === line.id)
           if (lineWordTimings.length > 0) {
             // STT 결과의 첫 단어 시작 시간과 마지막 단어 끝 시간 사용
             const startTime = Math.min(...lineWordTimings.map(wt => wt.start)) * 1000 // 초를 밀리초로 변환
-            const endTime = Math.max(...lineWordTimings.map(wt => wt.end)) * 1000
+            let endTime = Math.max(...lineWordTimings.map(wt => wt.end)) * 1000
+            
+            // 다음 문장이 있으면 endTime을 다음 문장의 startTime까지 확장 (공백 방지)
+            if (index < scriptLinesToUse.length - 1) {
+              const nextLine = scriptLinesToUse[index + 1]
+              const nextLineWordTimings = allWordTimings.filter(wt => wt.lineId === nextLine.id)
+              if (nextLineWordTimings.length > 0) {
+                const nextStartTime = Math.min(...nextLineWordTimings.map(wt => wt.start)) * 1000
+                endTime = nextStartTime // 다음 문장 시작 시점까지 확장
+              }
+            } else {
+              // 마지막 문장의 endTime을 오디오 전체 길이까지 확장 (공백 방지)
+              endTime = actualAudioDuration * 1000
+            }
+            
             console.log(`[Shorts 렌더링] 문장 ${line.id} 타이밍 업데이트: ${(startTime/1000).toFixed(3)}초 ~ ${(endTime/1000).toFixed(3)}초 (기존: ${(line.startTime/1000).toFixed(3)}초 ~ ${(line.endTime/1000).toFixed(3)}초)`)
             return {
               ...line,
@@ -4658,9 +4681,27 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           return line
         })
         scriptLinesToUse = updatedScriptLines
-        console.log(`[Shorts 렌더링] STT 기반 타이밍으로 scriptLines 업데이트 완료 (${allWordTimings.length}개 단어 타이밍 사용)`)
+        console.log(`[Shorts 렌더링] STT 기반 타이밍으로 scriptLines 업데이트 완료 (${allWordTimings.length}개 단어 타이밍 사용, 문장 간 공백 제거)`)
       } else {
-        console.log(`[Shorts 렌더링] STT 결과 없음, 실제 오디오 길이 기반 타이밍 사용 (${scriptLinesToUse.length}개 문장)`)
+        // STT 결과가 없어도 문장 간 공백 제거
+        const updatedScriptLines = scriptLinesToUse.map((line, index) => {
+          if (index < scriptLinesToUse.length - 1) {
+            // 다음 문장이 있으면 endTime을 다음 문장의 startTime까지 확장
+            const nextLine = scriptLinesToUse[index + 1]
+            return {
+              ...line,
+              endTime: nextLine.startTime,
+            }
+          } else {
+            // 마지막 문장의 endTime을 오디오 전체 길이까지 확장
+            return {
+              ...line,
+              endTime: actualAudioDuration * 1000,
+            }
+          }
+        })
+        scriptLinesToUse = updatedScriptLines
+        console.log(`[Shorts 렌더링] STT 결과 없음, 실제 오디오 길이 기반 타이밍 사용 (${scriptLinesToUse.length}개 문장, 문장 간 공백 제거)`)
       }
 
       // MediaRecorder 설정
@@ -4887,8 +4928,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           const startTime = line.startTime / 1000
           const endTime = line.endTime / 1000
           
-          // 현재 시간이 라인 시간 범위 내에 있으면
-          if (elapsed >= startTime && elapsed < endTime) {
+          // 현재 시간이 라인 시간 범위 내에 있으면 (endTime 포함하여 공백 방지)
+          if (elapsed >= startTime && elapsed <= endTime) {
             currentLine = line
             currentLineIndex = i
             break
@@ -5154,8 +5195,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             // 중요: 자막이 멈추지 않도록 항상 자막 표시
             const timeInLine = Math.max(0, elapsed - lineStartTime)
             
-            // 현재 라인 시간 범위 내에서만 자막 표시
-            if (elapsed >= lineStartTime && elapsed < lineEndTime) {
+            // 현재 라인 시간 범위 내에서 자막 표시 (endTime 포함하여 공백 방지)
+            if (elapsed >= lineStartTime && elapsed <= lineEndTime) {
               let currentSubtitleLine = subtitleLines.find(
                 (line) => {
                   // 유효성 검증: start < end인 자막만 사용
@@ -5230,6 +5271,31 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               finalText = finalText + "..."
             }
             ctx.fillText(finalText, canvas.width / 2, canvas.height - subtitleBottomOffset - 50)
+          } else {
+            // 현재 라인 시간 범위 밖이지만, 자막이 표시되어야 하는 경우 (fallback)
+            // 마지막 자막 유지 또는 가장 가까운 자막 표시
+            if (subtitleLines.length > 0) {
+              // 가장 최근 자막 또는 첫 번째 자막 표시
+              const lastSubtitleLine = subtitleLines[subtitleLines.length - 1]
+              const displayLine = lastSubtitleLine.text
+              
+              // 자막 배경
+              const subtitleHeight = 100
+              const subtitleBottomOffset = 400
+              ctx.fillStyle = "rgba(0, 0, 0, 0.75)"
+              ctx.fillRect(0, canvas.height - subtitleHeight - subtitleBottomOffset, canvas.width, subtitleHeight)
+              
+              // 자막 텍스트
+              ctx.fillStyle = "white"
+              let finalText = displayLine
+              if (ctx.measureText(finalText).width > maxWidth) {
+                while (ctx.measureText(finalText + "...").width > maxWidth && finalText.length > 0) {
+                  finalText = finalText.slice(0, -1)
+                }
+                finalText = finalText + "..."
+              }
+              ctx.fillText(finalText, canvas.width / 2, canvas.height - subtitleBottomOffset - 50)
+            }
           }
         }
 
@@ -9727,13 +9793,25 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         let currentLine: string[] = []
         let lineStartTime = 0
         const maxChars = 20 // 공백 포함 20자까지
+        const minChars = 5 // 최소 5자 이상이어야 줄 분리 (한 글자만 나오는 문제 방지)
         
         for (let i = 0; i < sortedWordTimings.length; i++) {
           const wordTiming = sortedWordTimings[i]
-          const word = wordTiming.word
+          const word = wordTiming.word.trim()
+          
+          // 빈 단어는 건너뛰기
+          if (word.length === 0) continue
+          
+          // 한 글자 단어는 이전 단어와 결합 (단, 현재 줄이 비어있으면 그대로 추가)
+          if (word.length === 1 && currentLine.length > 0) {
+            currentLine[currentLine.length - 1] += " " + word
+            continue
+          }
+          
           const testLine = currentLine.length > 0 ? currentLine.join(" ") + " " + word : word
           
-          if (testLine.length > maxChars && currentLine.length >= 1) {
+          // 20자를 초과하고, 현재 줄이 최소 5자 이상이어야 줄 분리
+          if (testLine.length > maxChars && currentLine.join(" ").length >= minChars) {
             if (currentLine.length > 0) {
               // 이전 줄의 마지막 단어 endTime 사용
               const prevWordEnd = i > 0 ? sortedWordTimings[i - 1].end : wordTiming.start
@@ -9751,8 +9829,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           }
         }
         
-        // 마지막 줄 추가
-        if (currentLine.length > 0) {
+        // 마지막 줄 추가 (최소 1자 이상이어야 추가)
+        if (currentLine.length > 0 && currentLine.join(" ").trim().length > 0) {
           const lastWordEnd = sortedWordTimings[sortedWordTimings.length - 1].end
           subtitles.push({
             id: subtitleId++,
@@ -13647,6 +13725,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     setThumbnailBackgroundImage(null)
     setThumbnailOverlayImage(null)
     setSelectedThumbnailTemplate(null)
+    setThumbnailStyle(null)
     
     // 기타
     setCompletedSteps([])
@@ -13777,6 +13856,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       if (projectData.aiThumbnailUrl !== undefined) setAiThumbnailUrl(projectData.aiThumbnailUrl)
       if (projectData.thumbnailCustomText) setThumbnailCustomText(projectData.thumbnailCustomText)
       if (projectData.thumbnailText) setThumbnailText(projectData.thumbnailText)
+      if (projectData.thumbnailStyle) setThumbnailStyle(projectData.thumbnailStyle as "realistic" | "animation" | null)
       
       // 기타
       if (projectData.completedSteps) setCompletedSteps(projectData.completedSteps)
@@ -13888,6 +13968,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         aiThumbnailUrl,
         thumbnailCustomText,
         thumbnailText,
+        thumbnailStyle,
         
         // 기타
         completedSteps,
@@ -14034,6 +14115,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         aiThumbnailUrl,
         thumbnailCustomText,
         thumbnailText,
+        thumbnailStyle,
         
         // 쇼츠 관련
         summarizedScript,
@@ -23643,6 +23725,42 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                           문구 없이 그림만 생성
                         </Label>
                       </div>
+
+                      {/* 실사화/애니메이션화 선택 (선택사항) */}
+                      <div className="space-y-2">
+                        <Label className="text-sm font-semibold">
+                          스타일 선택 (선택사항)
+                        </Label>
+                        <div className="flex gap-3">
+                          <Button
+                            type="button"
+                            variant={thumbnailStyle === "realistic" ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => {
+                              setThumbnailStyle(thumbnailStyle === "realistic" ? null : "realistic")
+                            }}
+                            className="flex-1"
+                          >
+                            {thumbnailStyle === "realistic" && "✓ "}
+                            실사화
+                          </Button>
+                          <Button
+                            type="button"
+                            variant={thumbnailStyle === "animation" ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => {
+                              setThumbnailStyle(thumbnailStyle === "animation" ? null : "animation")
+                            }}
+                            className="flex-1"
+                          >
+                            {thumbnailStyle === "animation" && "✓ "}
+                            애니메이션화
+                          </Button>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          💡 선택한 스타일이 썸네일 생성 프롬프트에 반영됩니다.
+                        </p>
+                      </div>
                     </CardContent>
                   </Card>
 
@@ -24155,9 +24273,10 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               }
               
               // 선택된 이미지 순서 배열 업데이트 (selectedImagesForShorts와 동기화)
+              // 기본 이미지는 유지하면서 추가 선택 가능 (제한 없음)
               const currentOrder = selectedImagesOrderForShorts.filter(url => selectedImagesForShorts.has(url))
               const newUrls = Array.from(selectedImagesForShorts).filter(url => !currentOrder.includes(url))
-              const finalOrder = [...currentOrder, ...newUrls].slice(0, requiredImageCount)
+              const finalOrder = [...currentOrder, ...newUrls] // 제한 제거: 추가 선택 가능
               
               // 사용자 업로드 이미지 포함
               const allAvailableImages = [...allImageUrls, ...userUploadedImagesForShorts]
@@ -24242,13 +24361,11 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                     const imageUrl = e.target?.result as string
                     setUserUploadedImagesForShorts((prev) => [...prev, imageUrl])
                     
-                    // 자동으로 선택에 추가 (공간이 있으면)
-                    if (selectedImagesForShorts.size < requiredImageCount) {
-                      const newSelection = new Set(selectedImagesForShorts)
-                      newSelection.add(imageUrl)
-                      setSelectedImagesForShorts(newSelection)
-                      setSelectedImagesOrderForShorts((prev) => [...prev, imageUrl])
-                    }
+                    // 자동으로 선택에 추가 (제한 없음)
+                    const newSelection = new Set(selectedImagesForShorts)
+                    newSelection.add(imageUrl)
+                    setSelectedImagesForShorts(newSelection)
+                    setSelectedImagesOrderForShorts((prev) => [...prev, imageUrl])
                   }
                   reader.readAsDataURL(file)
                 })
@@ -24312,14 +24429,14 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                         <div className="flex items-center gap-2 p-4 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg border border-blue-200">
                           <Sparkles className="w-5 h-5 text-blue-600" />
                           <p className="text-sm font-medium text-gray-700">
-                            {shortsDuration === 0.5 ? "30초" : `${shortsDuration}분`} 쇼츠에 맞게 <span className="font-semibold text-purple-600">{requiredImageCount}개</span>의 이미지를 선택하고 순서를 조정해주세요.
+                            기본적으로 <span className="font-semibold text-purple-600">{requiredImageCount}개</span>의 이미지가 선택되어 있습니다. 추가로 더 선택할 수 있습니다.
                           </p>
                         </div>
                         <div className="text-right">
                           <p className="text-sm font-semibold">
-                            선택된 이미지: <span className={finalOrder.length === requiredImageCount ? "text-green-600" : "text-orange-600"}>
+                            선택된 이미지: <span className={finalOrder.length >= requiredImageCount ? "text-green-600" : "text-orange-600"}>
                               {finalOrder.length}개
-                            </span> / {requiredImageCount}개
+                            </span> {finalOrder.length >= requiredImageCount && <span className="text-gray-500">(기본 {requiredImageCount}개 + 추가 {finalOrder.length - requiredImageCount}개)</span>}
                           </p>
                         </div>
                       </div>
@@ -24330,8 +24447,11 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                         <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 max-h-[300px] overflow-y-auto p-3 border-2 border-gray-100 rounded-xl bg-gradient-to-br from-gray-50 to-white">
                           {allAvailableImages.map((imageUrl, index) => {
                             const isSelected = selectedImagesForShorts.has(imageUrl)
-                            const canSelect = selectedImagesForShorts.size < requiredImageCount || isSelected
                             const isUserUploaded = userUploadedImagesForShorts.includes(imageUrl)
+                            // 현재 순서 배열에서 인덱스 확인 (기본 이미지 표시용)
+                            const currentOrderForLabel = selectedImagesOrderForShorts.filter(url => selectedImagesForShorts.has(url))
+                            const imageIndexInOrder = currentOrderForLabel.indexOf(imageUrl)
+                            const isBasicImage = isSelected && imageIndexInOrder >= 0 && imageIndexInOrder < requiredImageCount
                             
                             return (
                               <div
@@ -24339,22 +24459,33 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                 className={`group relative border-2 rounded-xl overflow-hidden cursor-pointer transition-all duration-300 ${
                                   isSelected
                                     ? "border-purple-500 ring-2 ring-purple-300 shadow-lg scale-105"
-                                    : canSelect
-                                    ? "border-gray-300 hover:border-purple-400 hover:shadow-md hover:scale-105"
-                                    : "border-gray-200 opacity-50 cursor-not-allowed"
+                                    : "border-gray-300 hover:border-purple-400 hover:shadow-md hover:scale-105"
                                 }`}
                                 onClick={() => {
-                                  if (!canSelect) return
-                                  
                                   const newSelection = new Set(selectedImagesForShorts)
                                   if (isSelected) {
-                                    newSelection.delete(imageUrl)
-                                    setSelectedImagesOrderForShorts((prev) => prev.filter(url => url !== imageUrl))
-                                  } else {
-                                    if (newSelection.size < requiredImageCount) {
-                                      newSelection.add(imageUrl)
-                                      setSelectedImagesOrderForShorts((prev) => [...prev, imageUrl])
+                                    // 현재 순서 배열에서 인덱스 확인
+                                    const currentOrder = selectedImagesOrderForShorts.filter(url => selectedImagesForShorts.has(url))
+                                    const imageIndex = currentOrder.indexOf(imageUrl)
+                                    
+                                    // 기본 이미지는 삭제 불가 (최소 requiredImageCount 유지)
+                                    if (currentOrder.length > requiredImageCount && imageIndex >= requiredImageCount) {
+                                      // 추가로 선택한 이미지만 삭제 가능
+                                      newSelection.delete(imageUrl)
+                                      setSelectedImagesOrderForShorts((prev) => prev.filter(url => url !== imageUrl))
+                                    } else if (currentOrder.length <= requiredImageCount) {
+                                      // 기본 이미지만 있는 경우 삭제 불가
+                                      alert(`기본 이미지(${requiredImageCount}개)는 삭제할 수 없습니다. 추가로 선택한 이미지만 삭제할 수 있습니다.`)
+                                      return
+                                    } else {
+                                      // 기본 이미지 삭제 시도 시 경고
+                                      alert(`기본 이미지(${requiredImageCount}개)는 삭제할 수 없습니다. 추가로 선택한 이미지만 삭제할 수 있습니다.`)
+                                      return
                                     }
+                                  } else {
+                                    // 추가 선택 가능 (제한 없음)
+                                    newSelection.add(imageUrl)
+                                    setSelectedImagesOrderForShorts((prev) => [...prev, imageUrl])
                                   }
                                   setSelectedImagesForShorts(newSelection)
                                 }}
@@ -24378,9 +24509,11 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                     </span>
                                   </div>
                                 )}
-                                {!canSelect && !isSelected && (
-                                  <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                                    <span className="text-white text-xs font-semibold">최대 {requiredImageCount}개</span>
+                                {isBasicImage && (
+                                  <div className="absolute bottom-2 left-2">
+                                    <span className="inline-flex items-center gap-1 px-2 py-1 bg-gradient-to-r from-green-500 to-emerald-500 text-white text-xs font-semibold rounded-full shadow-md">
+                                      기본
+                                    </span>
                                   </div>
                                 )}
                               </div>
@@ -24494,10 +24627,17 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                         </div>
                       )}
                       
-                      {finalOrder.length !== requiredImageCount && (
+                      {finalOrder.length < requiredImageCount && (
                         <div className="p-4 bg-orange-50 border-2 border-orange-200 rounded-lg">
                           <p className="text-sm text-orange-600 text-center font-semibold">
-                            ⚠️ {requiredImageCount}개의 이미지를 선택해주세요. ({finalOrder.length}개 선택됨)
+                            ⚠️ 최소 {requiredImageCount}개의 이미지가 필요합니다. ({finalOrder.length}개 선택됨)
+                          </p>
+                        </div>
+                      )}
+                      {finalOrder.length >= requiredImageCount && finalOrder.length > requiredImageCount && (
+                        <div className="p-4 bg-green-50 border-2 border-green-200 rounded-lg">
+                          <p className="text-sm text-green-600 text-center font-semibold">
+                            ✓ 기본 {requiredImageCount}개 + 추가 {finalOrder.length - requiredImageCount}개 이미지가 선택되었습니다.
                           </p>
                         </div>
                       )}
