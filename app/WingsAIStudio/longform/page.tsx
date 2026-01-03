@@ -1397,80 +1397,123 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
 
       const audioCurrentTime = audioRef.currentTime
       
-      // 자막 타이밍을 동적으로 조정 (TTS 오디오와 자막 생성 타이밍 차이 보정)
-      // 자막이 늦게 표시되는 문제 해결: 더 큰 offset 적용 및 미리 표시
-      const playbackRate = audioRef.playbackRate || 1.0
-      // offset을 더 크게 조정하여 자막을 더 빠르게 표시 (0.3-0.4초)
-      const timingOffset = playbackRate > 1.0 ? 0.3 : 0.4 // 자막이 늦는 문제 해결을 위해 증가
-      const adjustedTimeForSubtitles = Number.parseFloat((audioCurrentTime + timingOffset).toFixed(5))
+      // TimingOffset 제거: 자막 타이밍과 표시 타이밍을 일치시킴 (정밀한 버전에서는 STT 타이밍이 정확하므로)
+      // 오차 허용 범위를 넓혀서 자막이 무조건 나오도록 함
+      const currentTimePrecise = Number.parseFloat(audioCurrentTime.toFixed(5))
+      const ERROR_MARGIN = 0.2 // 오차 허용 범위 0.2초 확대
       
       // 현재 시간에 맞는 자막 찾기 (소수점 5자리 정밀도로 비교)
-      // 중요: 자막이 무조건 나와야 하므로 여러 조건 확인
-      let subtitleText = ""
+      // 중요: 자막이 무조건 나와야 하므로 여러 조건 확인 및 이전 자막 유지
+      let subtitleText = lastSubtitleText // 이전 자막 유지 (침묵 구간 처리)
       
       if (videoData.subtitles && videoData.subtitles.length > 0) {
-        // 1. 현재 시간 범위 내의 자막 찾기
-        const subtitle = videoData.subtitles.find((s) => {
+        // 유효한 자막만 필터링 (start < end)
+        const validSubtitles = videoData.subtitles.filter((s) => {
           const start = Number.parseFloat(s.start.toFixed(5))
           const end = Number.parseFloat(s.end.toFixed(5))
-          // start >= end인 경우는 무효한 자막이므로 제외
-          if (start >= end) {
-            return false
-          }
-          return adjustedTimeForSubtitles >= start && adjustedTimeForSubtitles < end
+          return start < end
         })
         
-        if (subtitle) {
-          subtitleText = subtitle.text
-        } else {
-          // 2. 다음 자막이 곧 시작되는지 확인 (0.5초 이내면 미리 표시)
-          const currentTimePrecise = Number.parseFloat(audioCurrentTime.toFixed(5))
-          const upcomingSubtitle = videoData.subtitles.find((s) => {
-            const startPrecise = Number.parseFloat(s.start.toFixed(5))
-            const endPrecise = Number.parseFloat(s.end.toFixed(5))
-            // start >= end인 경우는 무효한 자막이므로 제외
-            if (startPrecise >= endPrecise) {
-              return false
-            }
-            // 0.5초 이내면 미리 표시하여 자막이 늦는 문제 해결
-            return startPrecise > currentTimePrecise && startPrecise <= currentTimePrecise + 0.5
+        if (validSubtitles.length > 0) {
+          // 1. 현재 시간 범위 내의 자막 찾기 (오차 허용 범위 확대)
+          const subtitle = validSubtitles.find((s) => {
+            const start = Number.parseFloat(s.start.toFixed(5))
+            const end = Number.parseFloat(s.end.toFixed(5))
+            // 경계값 처리: >= 대신 > 사용하고 오차 허용 범위 확대
+            return currentTimePrecise > (start - ERROR_MARGIN) && currentTimePrecise < (end + ERROR_MARGIN)
           })
           
-          if (upcomingSubtitle) {
-            subtitleText = upcomingSubtitle.text
+          if (subtitle) {
+            subtitleText = subtitle.text
           } else {
-            // 3. 가장 가까운 자막 찾기 (과거 또는 미래)
-            const validSubtitles = videoData.subtitles.filter((s) => {
-              const start = Number.parseFloat(s.start.toFixed(5))
+            // 2. 이전 자막 찾기 (현재 시간 이전의 가장 최근 자막)
+            const pastSubtitles = validSubtitles.filter((s) => {
               const end = Number.parseFloat(s.end.toFixed(5))
-              return start < end // 유효한 자막만
+              return currentTimePrecise >= end
             })
             
-            if (validSubtitles.length > 0) {
-              // 현재 시간과 가장 가까운 자막 찾기
-              const closestSubtitle = validSubtitles.reduce((closest, s) => {
-                const start = Number.parseFloat(s.start.toFixed(5))
-                const end = Number.parseFloat(s.end.toFixed(5))
-                const currentTimePrecise = Number.parseFloat(audioCurrentTime.toFixed(5))
-                
-                // 현재 시간이 자막 범위 내에 있으면 우선 선택
-                if (currentTimePrecise >= start && currentTimePrecise < end) {
-                  return s
-                }
-                
-                // 가장 가까운 자막 찾기
-                const closestDistance = Math.abs(Number.parseFloat(closest.start.toFixed(5)) - currentTimePrecise)
-                const currentDistance = Math.abs(start - currentTimePrecise)
-                return currentDistance < closestDistance ? s : closest
-              }, validSubtitles[0])
+            if (pastSubtitles.length > 0) {
+              // 가장 최근의 이전 자막 선택 (end가 가장 큰 것)
+              const lastPastSubtitle = pastSubtitles.reduce((latest, s) => {
+                const latestEnd = Number.parseFloat(latest.end.toFixed(5))
+                const currentEnd = Number.parseFloat(s.end.toFixed(5))
+                return currentEnd > latestEnd ? s : latest
+              }, pastSubtitles[0])
               
-              subtitleText = closestSubtitle.text
-            } else if (videoData.subtitles.length > 0) {
-              // 유효한 자막이 없어도 첫 번째 자막 표시 (최소한 뭔가 보이도록)
-              subtitleText = videoData.subtitles[0].text
+              // 이전 자막이 아직 유효한 범위 내에 있으면 사용 (0.5초 이내)
+              const lastEnd = Number.parseFloat(lastPastSubtitle.end.toFixed(5))
+              if (currentTimePrecise - lastEnd <= 0.5) {
+                subtitleText = lastPastSubtitle.text
+              } else {
+                // 3. 다음 자막이 곧 시작되는지 확인 (1초 이내면 미리 표시)
+                const upcomingSubtitle = validSubtitles.find((s) => {
+                  const startPrecise = Number.parseFloat(s.start.toFixed(5))
+                  return startPrecise > currentTimePrecise && startPrecise <= currentTimePrecise + 1.0
+                })
+                
+                if (upcomingSubtitle) {
+                  subtitleText = upcomingSubtitle.text
+                } else {
+                  // 4. 가장 가까운 자막 찾기 (과거 또는 미래)
+                  const closestSubtitle = validSubtitles.reduce((closest, s) => {
+                    const start = Number.parseFloat(s.start.toFixed(5))
+                    const end = Number.parseFloat(s.end.toFixed(5))
+                    const closestStart = Number.parseFloat(closest.start.toFixed(5))
+                    const closestEnd = Number.parseFloat(closest.end.toFixed(5))
+                    
+                    // 현재 시간이 자막 범위 내에 있으면 우선 선택
+                    if (currentTimePrecise >= start && currentTimePrecise < end) {
+                      return s
+                    }
+                    if (currentTimePrecise >= closestStart && currentTimePrecise < closestEnd) {
+                      return closest
+                    }
+                    
+                    // 가장 가까운 자막 찾기 (start 또는 end 중 가까운 것)
+                    const currentDistance = Math.min(
+                      Math.abs(start - currentTimePrecise),
+                      Math.abs(end - currentTimePrecise)
+                    )
+                    const closestDistance = Math.min(
+                      Math.abs(closestStart - currentTimePrecise),
+                      Math.abs(closestEnd - currentTimePrecise)
+                    )
+                    return currentDistance < closestDistance ? s : closest
+                  }, validSubtitles[0])
+                  
+                  subtitleText = closestSubtitle.text
+                }
+              }
+            } else {
+              // 과거 자막이 없으면 다음 자막 찾기
+              const upcomingSubtitle = validSubtitles.find((s) => {
+                const startPrecise = Number.parseFloat(s.start.toFixed(5))
+                return startPrecise > currentTimePrecise
+              })
+              
+              if (upcomingSubtitle) {
+                subtitleText = upcomingSubtitle.text
+              } else {
+                // 마지막 자막 사용
+                subtitleText = validSubtitles[validSubtitles.length - 1].text
+              }
             }
           }
+        } else if (videoData.subtitles.length > 0) {
+          // 유효한 자막이 없어도 첫 번째 자막 표시 (최소한 뭔가 보이도록)
+          subtitleText = videoData.subtitles[0].text
         }
+      }
+      
+      // 자막이 비어있으면 이전 자막 유지 (침묵 구간 처리)
+      if (!subtitleText && lastSubtitleText) {
+        subtitleText = lastSubtitleText
+      }
+      
+      // 최종 안전장치: 자막이 여전히 비어있으면 기본 메시지 표시 (자막이 없는 경우 대비)
+      if (!subtitleText && videoData.subtitles && videoData.subtitles.length > 0) {
+        // 첫 번째 자막이라도 표시
+        subtitleText = videoData.subtitles[0].text || ""
       }
       
       // 자막이 변경되었을 때만 업데이트 (불필요한 리렌더링 방지)
@@ -2299,8 +2342,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               subtitles[i].end = Number.parseFloat(alignToFrame(subtitles[i].end).toFixed(10))
             }
             
-            // 2. 자막 endTime 확장: 각 자막의 endTime을 다음 자막의 startTime까지 확장
-            // 자막은 다음 자막이 나오기 전까지 끝까지 표시되어야 함 (TTS가 끝날 때까지)
+            // 2. 자막 endTime 확장: 각 자막의 endTime을 다음 자막의 startTime까지 무조건 확장
+            // 자막이 무조건 나와야 하므로 모든 간격을 채워야 함
             for (let i = 0; i < subtitles.length - 1; i++) {
               const currentSubtitle = subtitles[i]
               const nextSubtitle = subtitles[i + 1]
@@ -2310,12 +2353,12 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                 // 다음 자막의 startTime을 이전 자막의 endTime + 1프레임(0.04초)으로 설정
                 nextSubtitle.start = Number.parseFloat(alignToFrame(currentSubtitle.end + FRAME_DURATION).toFixed(10))
                 console.log(`[자막 타이밍] 겹침 방지: 자막 ${i + 1} end=${currentSubtitle.end.toFixed(3)}초, 자막 ${i + 2} start=${nextSubtitle.start.toFixed(3)}초로 조정`)
-              } else {
-                // 간격이 있으면 현재 자막의 endTime을 다음 자막의 startTime까지 확장
-                // 자막이 다음 자막이 나오기 전까지 끝까지 표시되도록
-                currentSubtitle.end = Number.parseFloat(nextSubtitle.start.toFixed(10))
-                console.log(`[자막 타이밍] 자막 ${i + 1} endTime 확장: ${currentSubtitle.end.toFixed(3)}초 (다음 자막 start=${nextSubtitle.start.toFixed(3)}초까지)`)
               }
+              
+              // 간격이 있으면 현재 자막의 endTime을 다음 자막의 startTime까지 무조건 확장
+              // 자막이 무조건 나와야 하므로 모든 간격을 채워야 함
+              currentSubtitle.end = Number.parseFloat(nextSubtitle.start.toFixed(10))
+              console.log(`[자막 타이밍] 자막 ${i + 1} endTime 확장: ${currentSubtitle.end.toFixed(3)}초 (다음 자막 start=${nextSubtitle.start.toFixed(3)}초까지, 간격 제거)`)
             }
             
             // 4. 모든 자막의 endTime이 startTime보다 큰지 확인
@@ -4873,11 +4916,11 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                   break
                 }
               }
-              break
+                break
+              }
             }
           }
-        }
-        
+
         // 현재 시간이 포함된 라인을 찾지 못한 경우
         if (!currentLine && scriptLinesToUse.length > 0) {
           // 다음 라인이 시작되는 시점을 확인
@@ -5166,29 +5209,29 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               if (!currentSubtitleLine) {
                 currentSubtitleLine = { text: subtitleText, startTime: 0, endTime: audioDuration }
               }
-              
-              const displayLine = currentSubtitleLine.text
+            
+            const displayLine = currentSubtitleLine.text
 
-              // 자막 배경 (한 줄만 표시하므로 고정 높이) - 채널명과 겹치지 않도록 더 위로
-              const subtitleHeight = 100
-              const subtitleBottomOffset = 400 // 채널명과 겹치지 않도록 250에서 400으로 증가
-              ctx.fillStyle = "rgba(0, 0, 0, 0.75)"
-              ctx.fillRect(0, canvas.height - subtitleHeight - subtitleBottomOffset, canvas.width, subtitleHeight)
+            // 자막 배경 (한 줄만 표시하므로 고정 높이) - 채널명과 겹치지 않도록 더 위로
+            const subtitleHeight = 100
+            const subtitleBottomOffset = 400 // 채널명과 겹치지 않도록 250에서 400으로 증가
+            ctx.fillStyle = "rgba(0, 0, 0, 0.75)"
+            ctx.fillRect(0, canvas.height - subtitleHeight - subtitleBottomOffset, canvas.width, subtitleHeight)
 
-              // 자막 텍스트 (한 줄만 표시, 화면 너비 확인)
-              ctx.fillStyle = "white"
-              // 텍스트가 여전히 너무 길면 자르기
-              let finalText = displayLine
-              if (ctx.measureText(finalText).width > maxWidth) {
-                // 텍스트를 자르고 "..." 추가
-                while (ctx.measureText(finalText + "...").width > maxWidth && finalText.length > 0) {
-                  finalText = finalText.slice(0, -1)
-                }
-                finalText = finalText + "..."
+            // 자막 텍스트 (한 줄만 표시, 화면 너비 확인)
+            ctx.fillStyle = "white"
+            // 텍스트가 여전히 너무 길면 자르기
+            let finalText = displayLine
+            if (ctx.measureText(finalText).width > maxWidth) {
+              // 텍스트를 자르고 "..." 추가
+              while (ctx.measureText(finalText + "...").width > maxWidth && finalText.length > 0) {
+                finalText = finalText.slice(0, -1)
               }
-              ctx.fillText(finalText, canvas.width / 2, canvas.height - subtitleBottomOffset - 50)
+              finalText = finalText + "..."
             }
+            ctx.fillText(finalText, canvas.width / 2, canvas.height - subtitleBottomOffset - 50)
           }
+        }
 
         if (!audio.paused && elapsed < actualAudioDuration) {
           requestAnimationFrame(renderFrame)
@@ -8571,7 +8614,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             console.log(`[Whisper] 씬별 전체 ${allWordTimings.length}개 단어 타이밍 추출 완료 (${allWordTimings.length}개 단어, 소수점 10자리 정밀도)`)
             // STT 분석 완료 시 진행률 100%로 설정
             setGeneratingVideoProgress(100)
-          } else {
+        } else {
             if (!useWhisper) {
               console.log(`[v0] Whisper API 미사용 모드: 텍스트 길이 비율로 자막 생성`)
             } else {
@@ -8837,32 +8880,29 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                   console.log(`[자막 타이밍] 겹침 방지: 자막 ${i + 1} end=${currentSubtitle.end.toFixed(3)}초로 조정 (최소 길이)`)
                 }
               } else {
-                // 간격이 있으면 현재 자막의 endTime을 다음 자막의 startTime까지 확장
-                // 자막이 다음 자막이 나오기 전까지 끝까지 표시되도록
-                // 단, 간격이 너무 크면 (1초 이상) 다음 자막 시작 직전까지만 확장
-                const gap = nextSubtitle.start - currentSubtitle.end
-                if (gap > 1.0) {
-                  // 간격이 크면 다음 자막 시작 0.1초 전까지만 확장 (너무 길게 표시하지 않음)
-                  currentSubtitle.end = Number.parseFloat((nextSubtitle.start - 0.1).toFixed(10))
-                  console.log(`[자막 타이밍] 자막 ${i + 1} endTime 확장 (간격 ${gap.toFixed(3)}초): ${currentSubtitle.end.toFixed(3)}초 (다음 자막 start=${nextSubtitle.start.toFixed(3)}초 직전)`)
-                } else {
-                  // 간격이 작으면 다음 자막 시작까지 확장
-                  currentSubtitle.end = Number.parseFloat(nextSubtitle.start.toFixed(10))
-                  console.log(`[자막 타이밍] 자막 ${i + 1} endTime 확장: ${currentSubtitle.end.toFixed(3)}초 (다음 자막 start=${nextSubtitle.start.toFixed(3)}초까지)`)
-                }
+                // 간격이 있으면 현재 자막의 endTime을 다음 자막의 startTime까지 무조건 확장
+                // 자막이 무조건 나와야 하므로 모든 간격을 채워야 함
+                currentSubtitle.end = Number.parseFloat(nextSubtitle.start.toFixed(10))
+                console.log(`[자막 타이밍] 자막 ${i + 1} endTime 확장: ${currentSubtitle.end.toFixed(3)}초 (다음 자막 start=${nextSubtitle.start.toFixed(3)}초까지, 간격 제거)`)
               }
             }
             
             // 마지막 자막의 endTime을 오디오 끝까지 확장 (영상 잘림 방지)
+            // 나중에 actualMergedDuration으로 재조정되므로 여기서는 충분히 큰 값으로 설정
             if (subtitles.length > 0) {
               const lastSubtitle = subtitles[subtitles.length - 1]
-              // totalDuration은 나중에 계산되므로, 일단 마지막 단어의 endTime + 여유 시간으로 설정
+              // totalDuration은 나중에 계산되므로, 일단 마지막 단어의 endTime + 충분한 여유 시간으로 설정
               // 실제 totalDuration이 계산되면 다시 조정됨
               const lastWordEnd = sortedWordTimings.length > 0 
                 ? sortedWordTimings[sortedWordTimings.length - 1].end 
                 : lastSubtitle.end
-              // 마지막 단어 끝에서 0.2초 여유를 두고 확장 (나중에 totalDuration으로 재조정됨)
-              lastSubtitle.end = Number.parseFloat((lastWordEnd + 0.2).toFixed(10))
+              // 마지막 단어 끝에서 충분한 여유를 두고 확장 (나중에 totalDuration으로 재조정됨)
+              // 최소 1초 이상 확장하여 자막이 무조건 나오도록 보장
+              const minEndTime = Math.max(
+                Number.parseFloat((lastWordEnd + 1.0).toFixed(10)),
+                Number.parseFloat((lastSubtitle.start + 1.0).toFixed(10))
+              )
+              lastSubtitle.end = minEndTime
               console.log(`[자막 타이밍] 마지막 자막 endTime 확장: ${lastSubtitle.end.toFixed(3)}초 (나중에 totalDuration으로 재조정됨)`)
             }
             
@@ -18370,29 +18410,69 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                 } else {
                                   // 프롬프트 생성 없이 일괄 등록: decomposedScenes를 파싱하여 장면 구조 생성
                                   if (decomposedScenes && decomposedScenes.trim().length > 0) {
-                                    // decomposedScenes 파싱하여 장면 구조 생성
-                                    const sceneRegex = /씬\s+(\d+)\s*\n\[장면\s+(\d+)\]\s*\n([^[]+?)(?=\[장면\s+\d+\]|씬\s+\d+|$)/g
-                                    const sceneBlocks: Array<{ sceneNumber: number; imageNumber: number; text: string }> = []
-                                    let match
+                                    console.log("[일괄 등록] decomposedScenes 파싱 시작:", decomposedScenes.substring(0, 500))
                                     
-                                    while ((match = sceneRegex.exec(decomposedScenes)) !== null) {
-                                      sceneBlocks.push({
-                                        sceneNumber: parseInt(match[1]),
-                                        imageNumber: parseInt(match[2]),
-                                        text: match[3].trim(),
-                                      })
+                                    // decomposedScenes 파싱하여 장면 구조 생성 (더 강력한 정규식)
+                                    // 모든 장면을 정확히 파싱하기 위해 여러 패턴 시도
+                                    const sceneBlocks: Array<{ sceneNumber: number; imageNumber: number; text: string }> = []
+                                    
+                                    // 방법 1: 씬 블록 단위로 먼저 분리
+                                    const sceneBlockRegex = /씬\s+(\d+)\s*\n([\s\S]*?)(?=씬\s+\d+|$)/g
+                                    let sceneBlockMatch
+                                    
+                                    while ((sceneBlockMatch = sceneBlockRegex.exec(decomposedScenes)) !== null) {
+                                      const sceneNumber = parseInt(sceneBlockMatch[1])
+                                      const sceneContent = sceneBlockMatch[2]
+                                      
+                                      // 각 씬 블록 내에서 모든 장면 찾기
+                                      const imageRegex = /\[장면\s+(\d+)\]\s*\n([\s\S]*?)(?=\[장면\s+\d+\]|씬\s+\d+|$)/g
+                                      let imageMatch
+                                      
+                                      while ((imageMatch = imageRegex.exec(sceneContent)) !== null) {
+                                        const imageNumber = parseInt(imageMatch[1])
+                                        const imageText = imageMatch[2].trim()
+                                        
+                                        sceneBlocks.push({
+                                          sceneNumber: sceneNumber,
+                                          imageNumber: imageNumber,
+                                          text: imageText,
+                                        })
+                                        console.log(`[일괄 등록] 파싱됨: 씬 ${sceneNumber} 장면 ${imageNumber} - "${imageText.substring(0, 50)}..."`)
+                                      }
                                     }
                                     
-                                    // 씬별로 그룹화
-                                    const sceneMap = new Map<number, Array<{ imageNumber: number; text: string }>>()
-                                    for (const block of sceneBlocks) {
-                                      if (!sceneMap.has(block.sceneNumber)) {
-                                        sceneMap.set(block.sceneNumber, [])
+                                    // 방법 1이 실패한 경우 방법 2 시도: 직접 장면 찾기
+                                    if (sceneBlocks.length === 0) {
+                                      console.log("[일괄 등록] 방법 1 실패, 방법 2 시도")
+                                      const directImageRegex = /(?:씬\s+(\d+)\s*\n)?\[장면\s+(\d+)\]\s*\n([\s\S]*?)(?=\[장면\s+\d+\]|씬\s+\d+|$)/g
+                                      let directMatch
+                                      let lastSceneNumber = 1
+                                      
+                                      while ((directMatch = directImageRegex.exec(decomposedScenes)) !== null) {
+                                        const sceneNumber = directMatch[1] ? parseInt(directMatch[1]) : lastSceneNumber
+                                        const imageNumber = parseInt(directMatch[2])
+                                        const imageText = directMatch[3].trim()
+                                        
+                                        if (directMatch[1]) {
+                                          lastSceneNumber = sceneNumber
+                                        }
+                                        
+                                        sceneBlocks.push({
+                                          sceneNumber: sceneNumber,
+                                          imageNumber: imageNumber,
+                                          text: imageText,
+                                        })
+                                        console.log(`[일괄 등록] 파싱됨 (방법2): 씬 ${sceneNumber} 장면 ${imageNumber} - "${imageText.substring(0, 50)}..."`)
                                       }
-                                      sceneMap.get(block.sceneNumber)!.push({
-                                        imageNumber: block.imageNumber,
-                                        text: block.text,
-                                      })
+                                    }
+                                    
+                                    console.log(`[일괄 등록] 총 ${sceneBlocks.length}개 장면 파싱 완료`)
+                                    
+                                    if (sceneBlocks.length === 0) {
+                                      console.error("[일괄 등록] 장면 파싱 실패, decomposedScenes 내용:", decomposedScenes)
+                                      alert("장면 분해 결과를 파싱할 수 없습니다. 장면 분해를 다시 시도해주세요.")
+                                      e.target.value = ""
+                                      return
                                     }
                                     
                                     // 총 장면 수 계산
@@ -18404,57 +18484,95 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                     }
                                     
                                     // sceneImagePrompts 구조 생성
+                                    // 중요: sceneBlocks를 순서대로 처리하여 모든 장면에 순차적으로 이미지 할당
                                     const newSceneImagePrompts: Array<{ sceneNumber: number; images: Array<{ imageNumber: number; prompt: string; sceneText: string; visualInstruction?: string; imageUrl?: string; createdAt?: number }> }> = []
                                     
+                                    // sceneBlocks를 씬 번호와 장면 번호 순으로 정렬 (순차적 할당 보장)
+                                    const sortedSceneBlocks = [...sceneBlocks].sort((a, b) => {
+                                      if (a.sceneNumber !== b.sceneNumber) {
+                                        return a.sceneNumber - b.sceneNumber
+                                      }
+                                      return a.imageNumber - b.imageNumber
+                                    })
+                                    
+                                    console.log(`[일괄 등록] 정렬된 장면 목록:`, sortedSceneBlocks.map(b => `씬 ${b.sceneNumber} 장면 ${b.imageNumber}`).join(", "))
+                                    
                                     let fileIndex = 0
+                                    
+                                    // 씬별로 그룹화하여 sceneImagePrompts 구조 생성
+                                    const sceneMap = new Map<number, Array<{ imageNumber: number; text: string; imageUrl?: string }>>()
+                                    
+                                    // 모든 장면에 순차적으로 이미지 할당
+                                    for (const block of sortedSceneBlocks) {
+                                      // 이미지 파일이 있으면 업로드
+                                      let imageUrl: string | undefined = undefined
+                                      
+                                      if (fileIndex < selectedImageFiles.length) {
+                                        const file = selectedImageFiles[fileIndex]
+                                        
+                                        try {
+                                          // 이미지 파일만 처리 (동영상은 이미 필터링됨)
+                                          // 16:9 비율로 리사이즈
+                                          const resizedImage = await resizeImageTo16_9(file)
+                                          imageUrl = await new Promise<string>((resolve, reject) => {
+                                            const reader = new FileReader()
+                                            reader.onloadend = () => resolve(reader.result as string)
+                                            reader.onerror = reject
+                                            reader.readAsDataURL(resizedImage)
+                                          })
+                                          
+                                          // 이미지로 교체했으므로 변환된 영상 제거
+                                          setConvertedSceneVideos((prev) => {
+                                            const newMap = new Map(prev)
+                                            newMap.delete(`${block.sceneNumber}-${block.imageNumber}`)
+                                            return newMap
+                                          })
+                                          
+                                          console.log(`[일괄 등록] 씬 ${block.sceneNumber} 장면 ${block.imageNumber} 이미지 업로드 완료 (파일 ${fileIndex + 1}/${selectedImageFiles.length})`)
+                                        } catch (error) {
+                                          console.error(`[일괄 등록] 씬 ${block.sceneNumber} 장면 ${block.imageNumber} 이미지 업로드 실패:`, error)
+                                        }
+                                        
+                                        fileIndex++ // 성공/실패 여부와 관계없이 다음 파일로 진행
+                                      }
+                                      
+                                      // 씬별로 그룹화
+                                      if (!sceneMap.has(block.sceneNumber)) {
+                                        sceneMap.set(block.sceneNumber, [])
+                                      }
+                                      sceneMap.get(block.sceneNumber)!.push({
+                                        imageNumber: block.imageNumber,
+                                        text: block.text,
+                                        imageUrl: imageUrl,
+                                      })
+                                    }
+                                    
+                                    // sceneImagePrompts 구조 생성
                                     for (const [sceneNumber, images] of Array.from(sceneMap.entries()).sort((a, b) => a[0] - b[0])) {
                                       const sceneImages: Array<{ imageNumber: number; prompt: string; sceneText: string; visualInstruction?: string; imageUrl?: string; createdAt?: number }> = []
                                       
+                                      // 장면 번호 순으로 정렬하여 추가
                                       for (const image of images.sort((a, b) => a.imageNumber - b.imageNumber)) {
-                                        let imageUrl: string | undefined = undefined
-                                        
-                                        if (fileIndex < selectedImageFiles.length) {
-                                          const file = selectedImageFiles[fileIndex]
-                                          
-                                          try {
-                                            // 이미지 파일만 처리 (동영상은 이미 필터링됨)
-                                            // 16:9 비율로 리사이즈
-                                            const resizedImage = await resizeImageTo16_9(file)
-                                            imageUrl = await new Promise<string>((resolve, reject) => {
-                                              const reader = new FileReader()
-                                              reader.onloadend = () => resolve(reader.result as string)
-                                              reader.onerror = reject
-                                              reader.readAsDataURL(resizedImage)
-                                            })
-                                            
-                                            // 이미지로 교체했으므로 변환된 영상 제거
-                                            setConvertedSceneVideos((prev) => {
-                                              const newMap = new Map(prev)
-                                              newMap.delete(`${sceneNumber}-${image.imageNumber}`)
-                                              return newMap
-                                            })
-                                            
-                                            fileIndex++
-                                          } catch (error) {
-                                            console.error(`[일괄 등록] 씬 ${sceneNumber} 장면 ${image.imageNumber} 이미지 업로드 실패:`, error)
-                                            fileIndex++
-                                          }
-                                        }
-                                        
                                         sceneImages.push({
                                           imageNumber: image.imageNumber,
-                                          prompt: "사용자 업로드 이미지",
+                                          prompt: image.imageUrl ? "사용자 업로드 이미지" : "이미지 미등록",
                                           sceneText: image.text,
-                                          imageUrl: imageUrl,
-                                          createdAt: imageUrl ? Date.now() : undefined,
+                                          imageUrl: image.imageUrl,
+                                          createdAt: image.imageUrl ? Date.now() : undefined,
                                         })
                                       }
                                       
-                                      newSceneImagePrompts.push({
-                                        sceneNumber: sceneNumber,
-                                        images: sceneImages,
-                                      })
+                                      // 씬에 장면이 하나라도 있으면 추가
+                                      if (sceneImages.length > 0) {
+                                        newSceneImagePrompts.push({
+                                          sceneNumber: sceneNumber,
+                                          images: sceneImages,
+                                        })
+                                        console.log(`[일괄 등록] 씬 ${sceneNumber} 처리 완료: ${sceneImages.length}개 장면 (이미지 있음: ${sceneImages.filter(img => img.imageUrl).length}개)`)
+                                      }
                                     }
+                                    
+                                    console.log(`[일괄 등록] 최종 결과: ${newSceneImagePrompts.length}개 씬, 총 ${newSceneImagePrompts.reduce((sum, s) => sum + s.images.length, 0)}개 장면, ${newSceneImagePrompts.reduce((sum, s) => sum + s.images.filter(img => img.imageUrl).length, 0)}개 이미지 할당됨`)
                                     
                                     // sceneImagePrompts 업데이트
                                     setSceneImagePrompts(newSceneImagePrompts)
@@ -20148,14 +20266,14 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                             TTS 생성 중지
                           </Button>
                         ) : (
-                          <Button
-                            onClick={handleGenerateTTSForLines}
+                        <Button
+                      onClick={handleGenerateTTSForLines}
                             disabled={scriptLines.length === 0}
-                            className="w-full bg-red-600 hover:bg-red-700 text-white"
-                            size="lg"
-                          >
-                            <Volume2 className="w-4 h-4 mr-2" />
-                            모든 문장에 TTS 생성하기
+                      className="w-full bg-red-600 hover:bg-red-700 text-white"
+                      size="lg"
+                    >
+                          <Volume2 className="w-4 h-4 mr-2" />
+                          모든 문장에 TTS 생성하기
                           </Button>
                         )}
 
@@ -20290,7 +20408,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                   return scriptLines.length
                                 })()}개)
                               </span>
-                            </Button>
+                        </Button>
                           </label>
                         </div>
 

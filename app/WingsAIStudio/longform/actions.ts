@@ -1389,16 +1389,25 @@ export async function generateImageWithReplicate(
     // 프롬프트 그대로 사용 (이미지 프롬프트 생성에서 완성된 프롬프트 사용)
     let finalPrompt = prompt
     
-    // 애니메이션2 스타일인 경우 스틱맨 관련 키워드 제거
+    // 애니메이션2 스타일인 경우 스틱맨 관련 키워드 강력하게 제거
     if (imageStyle === "animation2") {
-      // 스틱맨 관련 키워드 제거
+      // 스틱맨 관련 키워드를 "stylized cartoon character"로 교체
       finalPrompt = finalPrompt
-        .replace(/stickman/gi, "")
-        .replace(/stick figure/gi, "")
-        .replace(/stick-man/gi, "")
-        .replace(/stick-figure/gi, "")
+        .replace(/\bstick\s*[-]?\s*man\b/gi, "stylized cartoon character")
+        .replace(/\bstick\s*[-]?\s*figure\b/gi, "stylized cartoon character")
+        .replace(/stickman/gi, "stylized cartoon character")
+        .replace(/stick figure/gi, "stylized cartoon character")
+        .replace(/stick-man/gi, "stylized cartoon character")
+        .replace(/stick-figure/gi, "stylized cartoon character")
+        .replace(/simple line art character/gi, "stylized cartoon character")
+        .replace(/line drawing character/gi, "stylized cartoon character")
         .replace(/\s+/g, " ")
         .trim()
+      
+      // 스틱맨이 여전히 남아있는지 확인하고 강제로 교체
+      if (finalPrompt.toLowerCase().includes('stick')) {
+        finalPrompt = finalPrompt.replace(/\bstick[^\s]*/gi, 'stylized cartoon character')
+      }
     }
     
     // 실사화 스타일인 경우 텍스트 관련 키워드 강력 제거

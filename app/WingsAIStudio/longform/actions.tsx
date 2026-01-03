@@ -4641,14 +4641,28 @@ export async function generateImageWithReplicate(
         finalPrompt = `${finalPrompt}, no animation style, no cartoon style, no illustration style, photorealistic only`
       }
       } else if (imageStyle === "animation2") {
-        // 애니메이션2: 스틱맨 및 실사 키워드 제거
-        const nonAnimation2Terms = ["stickman", "stick figure", "stick man", "photorealistic", "hyperrealistic", "realistic photography", "3D CGI", "rendered", "photography style", "DSLR camera", "professional photography", "mixed art styles", "inconsistent style"]
+        // 애니메이션2: 스틱맨 및 실사 키워드 강력하게 제거
+        const nonAnimation2Terms = [
+          "stickman", "stick figure", "stick man", "stick-man", "stick-figure",
+          "photorealistic", "hyperrealistic", "realistic photography", 
+          "3D CGI", "rendered", "photography style", "DSLR camera", 
+          "professional photography", "mixed art styles", "inconsistent style",
+          "line drawing", "simple line art character"
+        ]
         let cleanedPrompt = finalPrompt
         nonAnimation2Terms.forEach(term => {
           const regex = new RegExp(term, 'gi')
           cleanedPrompt = cleanedPrompt.replace(regex, '')
         })
+        // 추가: 스틱맨 관련 패턴 제거 (예: "stick man", "stick-man character" 등)
+        cleanedPrompt = cleanedPrompt.replace(/\bstick\s*[-]?\s*man\b/gi, 'stylized cartoon character')
+        cleanedPrompt = cleanedPrompt.replace(/\bstick\s*[-]?\s*figure\b/gi, 'stylized cartoon character')
         finalPrompt = cleanedPrompt.replace(/\s+/g, ' ').trim()
+        
+        // 스틱맨이 여전히 남아있는지 확인하고 강제로 교체
+        if (finalPrompt.toLowerCase().includes('stick')) {
+          finalPrompt = finalPrompt.replace(/\bstick[^\s]*/gi, 'stylized cartoon character')
+        }
         
         // 애니메이션2 프롬프트 구조 (제공된 구조 사용)
         // 주의: animation2는 스틱맨이 아닌 일반 카툰 캐릭터를 사용
@@ -4674,11 +4688,41 @@ export async function generateImageWithReplicate(
         const constraints = (
           "Base Character Consistency: The underlying character form (head shape, eyes, body type) must match the reference style. " +
           "No Realistic Anatomy: Do not add realistic human features, muscles, or photorealistic clothing textures. " +
-          "Stick to the simple cartoon style."
+          "Stick to the simple cartoon style. " +
+          "CRITICAL: Use a stylized cartoon character with full body proportions, NOT a stickman or stick figure. The character must have proper body structure, not just lines."
         )
         
         // 최종 프롬프트 조합
         finalPrompt = `${finalPrompt}, ${baseStyle}, ${characterDetails}, ${environmentLighting}, ${constraints}`
+        
+        // 최종 필터링: 스틱맨 관련 모든 패턴 제거 및 명시적 금지 추가
+        finalPrompt = finalPrompt
+          .replace(/of\s+the\s+stickman/gi, 'of the stylized cartoon character')
+          .replace(/aesthetic\s+of\s+the\s+stickman/gi, 'aesthetic')
+          .replace(/cartoon\s+aesthetic\s+of\s+the\s+stickman/gi, 'cartoon aesthetic')
+          .replace(/\bstick\s*[-]?\s*man\b/gi, 'stylized cartoon character')
+          .replace(/\bstick\s*[-]?\s*figure\b/gi, 'stylized cartoon character')
+          .replace(/\bstick[^\s]*/gi, 'stylized cartoon character')
+        
+        // 명시적으로 스틱맨 금지 추가
+        if (!finalPrompt.toLowerCase().includes('not stickman') && !finalPrompt.toLowerCase().includes('no stickman')) {
+          finalPrompt = `${finalPrompt}, NOT stickman, NOT stick figure, NOT stick-man, NOT stick-figure, absolutely no stickman, no stickman character, no stick figure character`
+        }
+    }
+    
+    // 최종 안전장치: animation2인 경우 한 번 더 필터링
+    if (imageStyle === "animation2") {
+      finalPrompt = finalPrompt
+        .replace(/of\s+the\s+stickman/gi, 'of the stylized cartoon character')
+        .replace(/aesthetic\s+of\s+the\s+stickman/gi, 'aesthetic')
+        .replace(/\bstick\s*[-]?\s*man\b/gi, 'stylized cartoon character')
+        .replace(/\bstick\s*[-]?\s*figure\b/gi, 'stylized cartoon character')
+        .replace(/\bstick[^\s]*/gi, 'stylized cartoon character')
+      
+      // 스틱맨이 여전히 남아있으면 강제로 교체
+      if (finalPrompt.toLowerCase().includes('stick')) {
+        finalPrompt = finalPrompt.replace(/\bstick[^\s]*/gi, 'stylized cartoon character')
+      }
     }
     
     console.log(`[v0] 프롬프트 사용: ${finalPrompt.substring(0, 100)}...`)
@@ -4697,8 +4741,8 @@ export async function generateImageWithReplicate(
         // 스틱맨 애니메이션 전용 negative prompt - 3D, 실사, 말풍선 완전 차단
         negativePrompt = "realistic, photo, photograph, real people, human, man, woman, semi-realistic, cinematic, movie still, 3d, 3d render, pixar, disney, blender, unreal engine, plastic, glossy, smooth shading, real room, real office, real furniture, lighting effects, depth of field, shadows, character design, mascot, robot, android, detailed face, skin, fingers, joints, body proportions, realistic human, human anatomy, person, cartoon human, anime, manga, portrait, nose, lips, teeth, eyelashes, hair, ears, skin texture, wrinkles, hands with fingers, body volume, torso muscles, render, photorealistic, painterly, digital painting, gradients, soft shading, detailed clothing folds, realistic proportions, close-up face, high detail character design, blank white background, line-art only, text, watermark, speech bubble, thought bubble, text bubble, caption, subtitle, label, signage, words, letters, typography, font, comic panel, comic strip, meme, poster, advertisement, slogan, headline, logo, non-stickman, mixed style, detailed cartoon human, prince, princess, chibi, kawaii, big head, human body, human skin, 3d render, detailed face, blush, portrait, close-up, single character focus, bokeh, depth of field, watercolor, airbrush, extra arms, extra hands, multiple arms, multiple hands, duplicated limbs, cloned arms, ghost limbs, motion trails, overlapping arms, sketch artifacts, three hands, four hands, three arms, four arms, extra limbs, deformed hands, malformed hands, wrong number of fingers, too many fingers, missing hands, missing arms, anatomical errors, body part errors, realistic photography, hyperrealistic, 3D CGI, rendered, animation style, cartoon style, illustration style, vector art, flat design, cel-shaded, stylized character, non-stickman character, human character, detailed character, realistic character, any non-stickman style"
       } else if (imageStyle === "animation2") {
-        // 애니메이션2: 스틱맨 및 실사 제외
-        negativePrompt = "realistic human, detailed human skin, photograph, 3d render, blank white background, line-art only, text, watermark, stickman, stick figure, stick man, photorealistic, realistic photography, hyperrealistic, 3D CGI, rendered, photography style, DSLR camera, professional photography, any realistic or photorealistic style"
+        // 애니메이션2: 스틱맨 및 실사 제외 (최대 강화 버전)
+        negativePrompt = "realistic human, detailed human skin, photograph, 3d render, blank white background, line-art only, text, watermark, stickman, stick figure, stick man, stick-man, stick-figure, stickman character, stick figure character, stick man character, simple line art character, line drawing character, minimalist stick figure, basic stick character, stick character design, stickman style, stick figure style, stick man style, thin line character, line art character, simple line character, photorealistic, realistic photography, hyperrealistic, 3D CGI, rendered, photography style, DSLR camera, professional photography, any realistic or photorealistic style, any stickman, any stick figure, any stick man"
       } else if (imageStyle === "animation3") {
         negativePrompt = "anime style, Studio Ghibli look, manga big eyes, cute aesthetic, purely sleek digital painting look"
       } else if (imageStyle === "realistic" || imageStyle === "realistic2") {
@@ -4736,8 +4780,8 @@ export async function generateImageWithReplicate(
         // 스틱맨 애니메이션 전용 negative prompt
         negativePromptText = "avoid: realistic, photo, photograph, real people, human, man, woman, semi-realistic, cinematic, movie still, 3d, 3d render, pixar, disney, blender, unreal engine, plastic, glossy, smooth shading, real room, real office, real furniture, lighting effects, depth of field, shadows, character design, mascot, robot, android, detailed face, skin, fingers, joints, body proportions, realistic human, human anatomy, person, cartoon human, anime, manga, portrait, nose, lips, teeth, eyelashes, hair, ears, skin texture, wrinkles, hands with fingers, body volume, torso muscles, render, photorealistic, painterly, digital painting, gradients, soft shading, detailed clothing folds, realistic proportions, close-up face, high detail character design, blank white background, line-art only, text, watermark, speech bubble, thought bubble, text bubble, caption, subtitle, label, signage, words, letters, typography, font, comic panel, comic strip, meme, poster, advertisement, slogan, headline, logo, non-stickman, mixed style, detailed cartoon human, prince, princess, chibi, kawaii, big head, human body, human skin, 3d render, detailed face, blush, portrait, close-up, single character focus, bokeh, depth of field, watercolor, airbrush, extra arms, extra hands, multiple arms, multiple hands, duplicated limbs, cloned arms, ghost limbs, motion trails, overlapping arms, sketch artifacts, three hands, four hands, three arms, four arms, extra limbs, deformed hands, malformed hands, wrong number of fingers, too many fingers, missing hands, missing arms, anatomical errors, body part errors, realistic photography, hyperrealistic, 3D CGI, rendered, animation style, cartoon style, illustration style, vector art, flat design, cel-shaded, stylized character, non-stickman character, human character, detailed character, realistic character, any non-stickman style"
       } else if (imageStyle === "animation2") {
-        // 애니메이션2: 스틱맨 및 실사 제외
-        negativePromptText = "avoid: realistic human, detailed human skin, photograph, 3d render, blank white background, line-art only, text, watermark, stickman, stick figure, stick man, photorealistic, realistic photography, hyperrealistic, 3D CGI, rendered, photography style, DSLR camera, professional photography, any realistic or photorealistic style"
+        // 애니메이션2: 스틱맨 및 실사 제외 (최대 강화 버전)
+        negativePromptText = "avoid: realistic human, detailed human skin, photograph, 3d render, blank white background, line-art only, text, watermark, stickman, stick figure, stick man, stick-man, stick-figure, stickman character, stick figure character, stick man character, simple line art character, line drawing character, minimalist stick figure, basic stick character, stick character design, stickman style, stick figure style, stick man style, thin line character, line art character, simple line character, photorealistic, realistic photography, hyperrealistic, 3D CGI, rendered, photography style, DSLR camera, professional photography, any realistic or photorealistic style, any stickman, any stick figure, any stick man"
       } else if (imageStyle === "animation3") {
         // 유럽풍 그래픽 노블
         negativePromptText = "avoid: anime style, Studio Ghibli look, manga big eyes, cute aesthetic, purely sleek digital painting look"
