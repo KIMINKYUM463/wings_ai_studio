@@ -1520,6 +1520,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       }
       
       // 자막이 변경되었을 때만 업데이트 (불필요한 리렌더링 방지)
+      // 중요: 자막이 고정되지 않도록 항상 업데이트 확인
       if (subtitleText !== lastSubtitleText) {
         setCurrentSubtitle(subtitleText)
         lastSubtitleText = subtitleText
@@ -7513,7 +7514,41 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
 
   // 개별 문장 TTS 생성 핸들러
   const handleGenerateTTSForSingleLine = async (lineId: number) => {
-    const line = scriptLines.find((l) => l.id === lineId)
+    // 먼저 scriptLines에서 찾기
+    let line = scriptLines.find((l) => l.id === lineId)
+    
+    // scriptLines에서 찾지 못했고 decomposedScenes가 있으면 파싱해서 찾기
+    if (!line && decomposedScenes && decomposedScenes.trim().length > 0) {
+      const sceneBlocks = decomposedScenes.split(/(?=씬\s+\d+)/).filter(block => block.trim().length > 0)
+      let currentLineId = 1
+      
+      for (const sceneBlock of sceneBlocks) {
+        const sceneNumMatch = sceneBlock.match(/씬\s+(\d+)/)
+        if (!sceneNumMatch) continue
+        
+        const imageRegex = /\[장면\s+(\d+)\]\s*\n([\s\S]*?)(?=\[장면\s+\d+\]|씬\s+\d+|$)/g
+        let imageMatch
+        
+        while ((imageMatch = imageRegex.exec(sceneBlock)) !== null) {
+          const imageText = imageMatch[2].trim()
+          
+          if (imageText) {
+            if (currentLineId === lineId) {
+              // 해당 lineId에 맞는 텍스트를 찾았음
+              line = {
+                id: lineId,
+                text: imageText,
+              }
+              break
+            }
+            currentLineId++
+          }
+        }
+        
+        if (line) break
+      }
+    }
+    
     if (!line) {
       alert("문장을 찾을 수 없습니다.")
       return
@@ -7708,6 +7743,10 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       }
       
       console.log(`[TTS] 파싱된 씬 수: ${parsedScenes.length}`)
+      
+      // 씬 번호 순서대로 정렬 (중요: TTS 생성 순서와 일치시켜야 함)
+      parsedScenes.sort((a, b) => a.sceneNumber - b.sceneNumber)
+      
       parsedScenes.forEach(scene => {
         console.log(`[TTS] 씬 ${scene.sceneNumber}: ${scene.scenes.length}개의 장면 발견`)
         scene.scenes.forEach(img => {
@@ -7720,7 +7759,10 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       let lineIdCounter = 1
       
       for (const parsedScene of parsedScenes) {
-        for (const scene of parsedScene.scenes) {
+        // 장면 번호 순서대로 정렬 (중요: TTS 생성 순서와 일치시켜야 함)
+        const sortedScenes = [...parsedScene.scenes].sort((a, b) => a.imageNumber - b.imageNumber)
+        
+        for (const scene of sortedScenes) {
           // 각 장면의 텍스트를 그대로 사용 (문장 분리 없이)
           const text = scene.text.trim()
           
@@ -8335,6 +8377,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         
         console.log(`[v0] 파싱된 씬 수: ${parsedScenes.length}`)
         
+        // 씬 번호 순서대로 정렬 (중요: TTS 생성 순서와 일치시켜야 함)
+        parsedScenes.sort((a, b) => a.sceneNumber - b.sceneNumber)
+        
         // 씬별로 오디오와 이미지 매핑 (각 장면의 텍스트에 맞는 TTS 사용)
         const sceneAudioMapping: Map<number, Array<{ lineId: number; text: string; imageNumber: number }>> = new Map()
         let globalLineId = 1
@@ -8344,9 +8389,11 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           if (!sceneData) continue
           
           // 각 장면의 텍스트에 맞는 TTS 매핑 (장면 분해 결과의 텍스트를 직접 사용)
+          // 장면 번호 순서대로 정렬 (중요: TTS 생성 순서와 일치시켜야 함)
+          const sortedScenes = [...parsedScene.scenes].sort((a, b) => a.imageNumber - b.imageNumber)
           const sceneLines: Array<{ lineId: number; text: string; imageNumber: number }> = []
           
-          for (const scene of parsedScene.scenes) {
+          for (const scene of sortedScenes) {
             // 각 장면의 텍스트에 해당하는 lineId 찾기 (TTS 생성 시 사용된 lineId와 일치)
             // TTS 생성 시 lineIdCounter로 생성했으므로, 같은 순서로 매칭
             const lineId = globalLineId++
@@ -8370,8 +8417,12 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         const audioBuffersMap = new Map<number, AudioBuffer>() // 각 오디오 버퍼를 개별적으로 저장
         const audioDurations: Array<{ lineId: number; duration: number; alignment?: any; audioBuffer?: AudioBuffer }> = []
         
+        // 씬 번호 순서대로 정렬하여 순회 (중요: TTS 생성 순서와 일치시켜야 함)
+        const sortedSceneNumbers = Array.from(sceneAudioMapping.keys()).sort((a, b) => a - b)
+        
         // 씬별로 순서대로 모든 오디오 로드 (개별적으로 저장)
-        for (const [sceneNum, lines] of sceneAudioMapping.entries()) {
+        for (const sceneNum of sortedSceneNumbers) {
+          const lines = sceneAudioMapping.get(sceneNum)!
           for (const line of lines) {
             const audio = generatedAudios.find((a) => a.lineId === line.lineId)
             if (audio) {
@@ -8742,7 +8793,26 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         setRenderingStatusMessage("자막 생성 중...")
         let subtitleId = 1
         
-        if (allWordTimings && allWordTimings.length > 0) {
+        // STT 분석 결과 검증: 단어 타이밍이 충분하지 않으면 fallback 사용
+        const hasValidWordTimings = allWordTimings && allWordTimings.length > 0
+        
+        // STT 분석이 부분적으로만 성공한 경우 확인 (단어 타이밍이 전체 오디오 길이의 50% 미만이면 fallback 사용)
+        let shouldUseFallback = false
+        if (hasValidWordTimings) {
+          const totalAudioDuration = calculatedTotalDurationForScene
+          const lastWordEnd = allWordTimings[allWordTimings.length - 1].end
+          const coverageRatio = lastWordEnd / totalAudioDuration
+          
+          // 단어 타이밍이 전체 오디오의 50% 미만을 커버하면 fallback 사용
+          if (coverageRatio < 0.5) {
+            console.warn(`[자막 생성] STT 분석 결과가 불충분합니다 (커버리지: ${(coverageRatio * 100).toFixed(1)}%). Fallback 방식 사용.`)
+            shouldUseFallback = true
+          }
+        } else {
+          shouldUseFallback = true
+        }
+        
+        if (hasValidWordTimings && !shouldUseFallback) {
           // 각 장면별로 정렬된 단어 타이밍을 사용하여 정확한 자막 생성
           let sortedWordTimings = allWordTimings.sort((a, b) => a.start - b.start)
           
@@ -8987,32 +9057,86 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           }
           
           console.log(`[v0] 씬별 Whisper 기반 자막 생성 완료: ${subtitles.length}개 자막 (${allWordTimings.length}개 단어 타이밍 사용, 침묵 구간 감지 및 타이밍 조정, 소수점 10자리 정밀도)`)
-        } else {
-          // Whisper 결과가 없으면 기존 방식 사용 (단어 길이 기반)
-          console.log(`[v0] 씬별 Whisper 결과 없음, 기존 방식으로 자막 생성`)
-          let cumulativeTime = 0
           
-          for (const [sceneNum, lines] of sceneAudioMapping.entries()) {
-            for (const line of lines) {
-              const audioDuration = audioDurations.find((d) => d.lineId === line.lineId)?.duration || 0
-              
-              if (audioDuration > 0) {
-                const subtitleLines = splitIntoSubtitleLines(line.text, audioDuration)
+          // 자막이 비어있거나 너무 적으면 fallback 사용
+          if (subtitles.length === 0) {
+            console.warn(`[자막 생성] Whisper 기반 자막이 생성되지 않았습니다. Fallback 방식 사용.`)
+            shouldUseFallback = true
+          }
+        }
+        
+        if (shouldUseFallback || !hasValidWordTimings) {
+          // Whisper 결과가 없거나 불충분하면 기존 방식 사용 (단어 길이 기반)
+          console.log(`[v0] 씬별 Whisper 결과 없음 또는 불충분, Fallback 방식으로 자막 생성`)
+          
+          // 기존 자막이 있으면 유지하고 추가로 생성
+          if (subtitles.length === 0) {
+            let cumulativeTime = 0
+            
+            // 씬 번호 순서대로 정렬하여 순회 (중요: TTS 생성 순서와 일치시켜야 함)
+            for (const sceneNum of sortedSceneNumbers) {
+              const lines = sceneAudioMapping.get(sceneNum)!
+              for (const line of lines) {
+                const audioDuration = audioDurations.find((d) => d.lineId === line.lineId)?.duration || 0
                 
-                for (let j = 0; j < subtitleLines.length; j++) {
-                  const subtitleLine = subtitleLines[j]
-                  const start = cumulativeTime + subtitleLine.startTime
-                  const end = cumulativeTime + subtitleLine.endTime
+                if (audioDuration > 0) {
+                  const subtitleLines = splitIntoSubtitleLines(line.text, audioDuration)
                   
+                  for (let j = 0; j < subtitleLines.length; j++) {
+                    const subtitleLine = subtitleLines[j]
+                    const start = cumulativeTime + subtitleLine.startTime
+                    const end = cumulativeTime + subtitleLine.endTime
+                    
+                    subtitles.push({
+                      id: subtitleId++,
+                      start: Number.parseFloat(start.toFixed(3)),
+                      end: Number.parseFloat(end.toFixed(3)),
+                      text: subtitleLine.text,
+                    })
+                  }
+                  
+                  cumulativeTime += audioDuration
+                }
+              }
+            }
+          }
+          
+          // Fallback으로 생성한 자막이 비어있으면 최소한의 자막 생성
+          if (subtitles.length === 0) {
+            console.warn(`[자막 생성] Fallback 방식으로도 자막이 생성되지 않았습니다. 최소한의 자막 생성.`)
+            let cumulativeTime = 0
+            
+            for (const sceneNum of sortedSceneNumbers) {
+              const lines = sceneAudioMapping.get(sceneNum)!
+              for (const line of lines) {
+                const audioDuration = audioDurations.find((d) => d.lineId === line.lineId)?.duration || 0
+                
+                if (audioDuration > 0 && line.text.trim().length > 0) {
+                  // 최소한의 자막 생성 (전체 텍스트를 하나의 자막으로)
                   subtitles.push({
                     id: subtitleId++,
-                    start: Number.parseFloat(start.toFixed(3)),
-                    end: Number.parseFloat(end.toFixed(3)),
-                    text: subtitleLine.text,
+                    start: Number.parseFloat(cumulativeTime.toFixed(3)),
+                    end: Number.parseFloat((cumulativeTime + audioDuration).toFixed(3)),
+                    text: line.text.trim(),
                   })
+                  
+                  cumulativeTime += audioDuration
                 }
-                
-                cumulativeTime += audioDuration
+              }
+            }
+          }
+          
+          // 자막 간격이 너무 크면 중간에 자막 추가 (빈 구간 방지)
+          if (subtitles.length > 1) {
+            for (let i = 0; i < subtitles.length - 1; i++) {
+              const currentEnd = subtitles[i].end
+              const nextStart = subtitles[i + 1].start
+              const gap = nextStart - currentEnd
+              
+              if (gap > 2.0) {
+                // 이전 자막을 다음 자막 시작 직전까지 확장
+                subtitles[i].end = Number.parseFloat((nextStart - 0.1).toFixed(3))
+                console.log(`[자막 생성] 자막 ${i + 1} endTime 확장: ${currentEnd.toFixed(3)}초 -> ${subtitles[i].end.toFixed(3)}초 (간격 ${gap.toFixed(3)}초 제거)`)
               }
             }
           }
@@ -9032,6 +9156,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         let imageTime = 0
         
         // 씬별로 이미지 매핑 (각 장면의 TTS와 정확히 매칭)
+        // 씬 번호 순서대로 정렬하여 순회 (중요: TTS 생성 순서와 일치시켜야 함)
         for (const parsedScene of parsedScenes) {
           const sceneData = sceneImagePrompts.find(s => s.sceneNumber === parsedScene.sceneNumber)
           if (!sceneData) continue
@@ -9073,8 +9198,10 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         const calculatedTotalDuration = calculatedTotalDurationForScene
         
         // 각 오디오를 순차적으로 합치기 (렌더링 API는 하나의 오디오만 받으므로)
+        // 씬 번호 순서대로 정렬하여 합치기 (중요: TTS 생성 순서와 일치시켜야 함)
         const audioBuffersToMerge: AudioBuffer[] = []
-        for (const [sceneNum, lines] of sceneAudioMapping.entries()) {
+        for (const sceneNum of sortedSceneNumbers) {
+          const lines = sceneAudioMapping.get(sceneNum)!
           for (const line of lines) {
             const audioBuffer = audioBuffersMap.get(line.lineId)
             if (audioBuffer) {
@@ -9789,7 +9916,26 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       setRenderingStatusMessage("자막 생성 중...")
       let subtitleId = 1
       
-      if (allWordTimings && allWordTimings.length > 0) {
+      // STT 분석 결과 검증: 단어 타이밍이 충분하지 않으면 fallback 사용
+      const hasValidWordTimings = allWordTimings && allWordTimings.length > 0
+      
+      // STT 분석이 부분적으로만 성공한 경우 확인 (단어 타이밍이 전체 오디오 길이의 50% 미만이면 fallback 사용)
+      let shouldUseFallback = false
+      if (hasValidWordTimings) {
+        const totalAudioDuration = calculatedTotalDurationForNormal
+        const lastWordEnd = allWordTimings[allWordTimings.length - 1].end
+        const coverageRatio = lastWordEnd / totalAudioDuration
+        
+        // 단어 타이밍이 전체 오디오의 50% 미만을 커버하면 fallback 사용
+        if (coverageRatio < 0.5) {
+          console.warn(`[자막 생성] STT 분석 결과가 불충분합니다 (커버리지: ${(coverageRatio * 100).toFixed(1)}%). Fallback 방식 사용.`)
+          shouldUseFallback = true
+        }
+      } else {
+        shouldUseFallback = true
+      }
+      
+      if (hasValidWordTimings && !shouldUseFallback) {
         // 각 문장별로 정렬된 단어 타이밍을 사용하여 정확한 자막 생성
         const sortedWordTimings = allWordTimings.sort((a, b) => a.start - b.start)
         let currentLine: string[] = []
@@ -9843,19 +9989,68 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         }
         
         console.log(`[v0] Whisper 기반 자막 생성 완료: ${subtitles.length}개 자막 (${allWordTimings.length}개 단어 타이밍 사용)`)
-      } else {
-        // Whisper 결과가 없으면 기존 방식 사용 (단어 길이 기반)
-        console.log(`[v0] Whisper 결과 없음, 기존 방식으로 자막 생성`)
-        const subtitleLines = splitIntoSubtitleLines(fullText, undefined, calculatedTotalDurationForNormal)
         
-        for (let j = 0; j < subtitleLines.length; j++) {
-          const subtitleLine = subtitleLines[j]
-          subtitles.push({
-            id: subtitleId++,
-            start: Number.parseFloat(subtitleLine.startTime.toFixed(3)),
-            end: Number.parseFloat(subtitleLine.endTime.toFixed(3)),
-            text: subtitleLine.text,
-          })
+        // 자막이 비어있거나 너무 적으면 fallback 사용
+        if (subtitles.length === 0) {
+          console.warn(`[자막 생성] Whisper 기반 자막이 생성되지 않았습니다. Fallback 방식 사용.`)
+          shouldUseFallback = true
+        }
+      }
+      
+      if (shouldUseFallback || !hasValidWordTimings) {
+        // Whisper 결과가 없거나 불충분하면 기존 방식 사용 (단어 길이 기반)
+        console.log(`[v0] Whisper 결과 없음 또는 불충분, Fallback 방식으로 자막 생성`)
+        
+        // 기존 자막이 있으면 유지하고 추가로 생성
+        if (subtitles.length === 0) {
+          const subtitleLines = splitIntoSubtitleLines(fullText, undefined, calculatedTotalDurationForNormal)
+          
+          for (let j = 0; j < subtitleLines.length; j++) {
+            const subtitleLine = subtitleLines[j]
+            subtitles.push({
+              id: subtitleId++,
+              start: Number.parseFloat(subtitleLine.startTime.toFixed(3)),
+              end: Number.parseFloat(subtitleLine.endTime.toFixed(3)),
+              text: subtitleLine.text,
+            })
+          }
+        }
+        
+        // Fallback으로 생성한 자막이 비어있으면 최소한의 자막 생성
+        if (subtitles.length === 0) {
+          console.warn(`[자막 생성] Fallback 방식으로도 자막이 생성되지 않았습니다. 최소한의 자막 생성.`)
+          let cumulativeTime = 0
+          
+          for (const line of scriptLines) {
+            const audioDuration = audioDurations.find((d) => d.lineId === line.id)?.duration || 0
+            
+            if (audioDuration > 0 && line.text.trim().length > 0) {
+              // 최소한의 자막 생성 (전체 텍스트를 하나의 자막으로)
+              subtitles.push({
+                id: subtitleId++,
+                start: Number.parseFloat(cumulativeTime.toFixed(3)),
+                end: Number.parseFloat((cumulativeTime + audioDuration).toFixed(3)),
+                text: line.text.trim(),
+              })
+              
+              cumulativeTime += audioDuration
+            }
+          }
+        }
+        
+        // 자막 간격이 너무 크면 중간에 자막 추가 (빈 구간 방지)
+        if (subtitles.length > 1) {
+          for (let i = 0; i < subtitles.length - 1; i++) {
+            const currentEnd = subtitles[i].end
+            const nextStart = subtitles[i + 1].start
+            const gap = nextStart - currentEnd
+            
+            if (gap > 2.0) {
+              // 이전 자막을 다음 자막 시작 직전까지 확장
+              subtitles[i].end = Number.parseFloat((nextStart - 0.1).toFixed(3))
+              console.log(`[자막 생성] 자막 ${i + 1} endTime 확장: ${currentEnd.toFixed(3)}초 -> ${subtitles[i].end.toFixed(3)}초 (간격 ${gap.toFixed(3)}초 제거)`)
+            }
+          }
         }
       }
 
