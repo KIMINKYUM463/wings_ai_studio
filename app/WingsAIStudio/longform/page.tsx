@@ -611,6 +611,7 @@ export default function LongformContentPage() {
   const [imageModel, setImageModel] = useState<"prunaai/hidream-l1-fast" | "black-forest-labs/flux-schnell" | "google/imagen-4-fast">("prunaai/hidream-l1-fast")
   const [selectedVoiceId, setSelectedVoiceId] = useState<string>("ttsmaker-여성1") // 기본: TTSMaker 여성1
   const [customElevenLabsVoices, setCustomElevenLabsVoices] = useState<Array<{ id: string; name: string }>>([]) // 사용자 추가 일레븐랩스 목소리
+  const [customElevenLabsVoiceId, setCustomElevenLabsVoiceId] = useState<string>("") // 사용자가 입력한 ElevenLabs 음성 ID
   const [supertoneVoices, setSupertoneVoices] = useState<Array<{ voice_id: string; name: string; language: string[]; styles: string[]; thumbnail_image_url?: string }>>([]) // 수퍼톤 음성 목록
   const [isLoadingSupertoneVoices, setIsLoadingSupertoneVoices] = useState(false) // 수퍼톤 음성 목록 로딩 중
   const [selectedSupertoneVoiceId, setSelectedSupertoneVoiceId] = useState<string>("") // 선택된 수퍼톤 음성 ID
@@ -7086,6 +7087,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     }
   }
 
+
   // 수퍼톤 음성 목록 가져오기
   const fetchSupertoneVoices = async () => {
     setIsLoadingSupertoneVoices(true)
@@ -7221,9 +7223,38 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             apiKey: ttsmakerApiKey,
           }),
         })
+      } else if (voiceId?.startsWith("elevenlabs-")) {
+        // ElevenLabs인 경우 (새로운 형식: elevenlabs-{voiceId})
+        const actualVoiceId = voiceId.replace("elevenlabs-", "")
+        let elevenlabsApiKey = typeof window !== "undefined" 
+          ? (localStorage.getItem("elevenlabs_api_key") || "").trim() 
+          : null
+        
+        // localStorage에 없으면 getApiKey로 시도
+        if (!elevenlabsApiKey || elevenlabsApiKey.length === 0) {
+          const apiKey = getApiKey("elevenlabs")
+          elevenlabsApiKey = apiKey !== undefined ? apiKey : null
+        }
+        
+        if (!elevenlabsApiKey || elevenlabsApiKey.length === 0) {
+          alert("ElevenLabs API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+          setPreviewingVoiceId(null)
+          return
+        }
+        
+        response = await fetch("/api/elevenlabs-tts", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            text: "여러분 환영합니다",
+            voiceId: actualVoiceId,
+            apiKey: elevenlabsApiKey,
+          }),
+        })
       } else {
-        // ElevenLabs인 경우
-        // 직접 로컬스토리지에서 가져오기
+        // 기본 ElevenLabs 처리 (하위 호환성: voiceId가 직접 ElevenLabs voice ID인 경우)
         let elevenlabsApiKey = typeof window !== "undefined" 
           ? (localStorage.getItem("elevenlabs_api_key") || "").trim() 
           : null
@@ -7260,6 +7291,11 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           const clonedResponse = response.clone()
           const errorData = await clonedResponse.json()
           errorMessage = errorData.error || errorData.message || `HTTP ${response.status}: ${response.statusText}`
+          
+          // 404 오류인 경우 더 명확한 메시지
+          if (response.status === 404 && errorMessage.includes("not found")) {
+            errorMessage = `커스텀 목소리를 찾을 수 없습니다.\n\n${errorMessage}\n\n가능한 원인:\n1. 목소리 ID가 올바르지 않습니다\n2. API 키가 해당 목소리를 생성한 계정의 키가 아닙니다\n3. 목소리가 삭제되었거나 비공개 상태입니다\n\n해결 방법:\n1. 목소리 ID를 다시 확인하세요\n2. 목소리를 생성한 계정의 API 키를 사용하세요\n3. ElevenLabs 대시보드에서 목소리가 존재하는지 확인하세요`
+          }
         } catch (e) {
           // JSON 파싱 실패 시 텍스트로 읽기 시도
           try {
@@ -7403,8 +7439,40 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             }),
             signal: abortSignal, // AbortSignal 전달
           })
+        } else if (selectedVoiceId?.startsWith("elevenlabs-")) {
+          // ElevenLabs인 경우 (새로운 형식: elevenlabs-{voiceId})
+          const voiceId = selectedVoiceId.replace("elevenlabs-", "")
+          // 미리듣기와 동일한 방식으로 API 키 가져오기
+          let elevenlabsApiKey = getApiKey("elevenlabs_api_key") ?? null
+          
+          console.log(`[TTS 생성] ElevenLabs API 키 확인 (getApiKey) - 존재: ${!!elevenlabsApiKey}, 길이: ${elevenlabsApiKey?.length || 0}`)
+          
+          // getApiKey로 못 찾으면 localStorage에서 직접 가져오기 (fallback)
+          if (!elevenlabsApiKey || elevenlabsApiKey.length === 0) {
+            elevenlabsApiKey = typeof window !== "undefined" 
+              ? (localStorage.getItem("elevenlabs_api_key") || "").trim() || null
+              : null
+            console.log(`[TTS 생성] ElevenLabs API 키 확인 (localStorage 직접) - 존재: ${!!elevenlabsApiKey}, 길이: ${elevenlabsApiKey?.length || 0}`)
+          }
+          
+          if (!elevenlabsApiKey || elevenlabsApiKey.length === 0) {
+            throw new Error("❌ ElevenLabs API 키가 필요합니다.\n\n해결 방법:\n1. 설정에서 ElevenLabs API 키를 입력하세요\n2. API 키가 올바른지 확인하세요")
+          }
+          
+          response = await fetch("/api/elevenlabs-tts", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              text: convertedText,
+              voiceId: voiceId,
+              apiKey: elevenlabsApiKey,
+            }),
+            signal: abortSignal, // AbortSignal 전달
+          })
         } else {
-          // ElevenLabs API를 통해 TTS 생성
+          // 기본 ElevenLabs 처리 (하위 호환성: selectedVoiceId가 직접 ElevenLabs voice ID인 경우)
           // 미리듣기와 동일한 방식으로 API 키 가져오기
           let elevenlabsApiKey = getApiKey("elevenlabs_api_key") ?? null
           
@@ -20317,6 +20385,162 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                     <CardTitle className="text-lg font-semibold text-slate-900">목소리 선택</CardTitle>
               </CardHeader>
               <CardContent className="pt-6 space-y-4">
+                    {/* ElevenLabs 음성 선택 */}
+                    <div className="mb-4 pb-4 border-b border-gray-200">
+                      <div className={`p-4 border-2 rounded-lg transition-all ${
+                        selectedVoiceId?.startsWith("elevenlabs-")
+                          ? "border-blue-500 bg-blue-50"
+                          : "border-gray-200 bg-white"
+                      }`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center space-x-2">
+                            <div
+                              className={`w-4 h-4 rounded-full border-2 cursor-pointer ${
+                                selectedVoiceId?.startsWith("elevenlabs-") ? "border-blue-500 bg-blue-500" : "border-gray-300"
+                              }`}
+                              onClick={() => {
+                                if (selectedVoiceId?.startsWith("elevenlabs-")) {
+                                  // 이미 선택되어 있으면 해제
+                                  setSelectedVoiceId("ttsmaker-여성1") // 기본값으로 변경
+                                  setCustomElevenLabsVoiceId("")
+                                } else {
+                                  // 선택되지 않았으면 기본 목소리 선택
+                                  if (customElevenLabsVoiceId) {
+                                    setSelectedVoiceId(`elevenlabs-${customElevenLabsVoiceId}`)
+                                  } else {
+                                    setSelectedVoiceId("elevenlabs-jB1Cifc2UQbq1gR3wnb0") // 기본 Rachel
+                                  }
+                                }
+                              }}
+                            >
+                              {selectedVoiceId?.startsWith("elevenlabs-") && (
+                                <div className="w-2 h-2 bg-white rounded-full mx-auto mt-0.5"></div>
+                              )}
+                            </div>
+                            <p className={`text-sm font-medium ${selectedVoiceId?.startsWith("elevenlabs-") ? "text-blue-900" : "text-gray-700"}`}>ElevenLabs</p>
+                          </div>
+                        </div>
+                        <div className="mt-3 space-y-2">
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              placeholder="ElevenLabs 음성 ID 입력 (예: jB1Cifc2UQbq1gR3wnb0)"
+                              value={customElevenLabsVoiceId}
+                              onChange={(e) => {
+                                const voiceId = e.target.value.trim()
+                                setCustomElevenLabsVoiceId(voiceId)
+                                if (voiceId && selectedVoiceId?.startsWith("elevenlabs-")) {
+                                  setSelectedVoiceId(`elevenlabs-${voiceId}`)
+                                }
+                              }}
+                              className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                if (customElevenLabsVoiceId) {
+                                  handlePreviewVoice(`elevenlabs-${customElevenLabsVoiceId}`)
+                                } else {
+                                  alert("음성 ID를 입력해주세요.")
+                                }
+                              }}
+                              disabled={!customElevenLabsVoiceId || previewingVoiceId === `elevenlabs-${customElevenLabsVoiceId}`}
+                              className="whitespace-nowrap"
+                            >
+                              {previewingVoiceId === `elevenlabs-${customElevenLabsVoiceId}` ? (
+                                <>
+                                  <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                  재생 중...
+                                </>
+                              ) : (
+                                <>
+                                  <Volume2 className="w-3 h-3 mr-1" />
+                                  미리듣기
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              window.open("https://loud-cowl-c24.notion.site/2de565477d5980b0b8c0f03f61b924d0?pvs=73", "_blank")
+                            }}
+                            className="w-full mt-2"
+                          >
+                            <ExternalLink className="w-3 h-3 mr-1" />
+                            가이드북
+                          </Button>
+                          <div className="mt-2">
+                            <p className="text-xs text-gray-500 mb-2">추천 음성:</p>
+                            <div className="flex gap-2 flex-wrap">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  const voiceId = "1KNqBv4TutQtzSIACsMC"
+                                  setCustomElevenLabsVoiceId(voiceId)
+                                  setSelectedVoiceId(`elevenlabs-${voiceId}`)
+                                }}
+                                className={selectedVoiceId === "elevenlabs-1KNqBv4TutQtzSIACsMC" ? "bg-blue-100 border-blue-500" : ""}
+                              >
+                                Voice 1
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  const voiceId = "4JJwo477JUAx3HV0T7n7"
+                                  setCustomElevenLabsVoiceId(voiceId)
+                                  setSelectedVoiceId(`elevenlabs-${voiceId}`)
+                                }}
+                                className={selectedVoiceId === "elevenlabs-4JJwo477JUAx3HV0T7n7" ? "bg-blue-100 border-blue-500" : ""}
+                              >
+                                Voice 2
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  const voiceId = "zgDzx5jLLCqEp6Fl7Kl7"
+                                  setCustomElevenLabsVoiceId(voiceId)
+                                  setSelectedVoiceId(`elevenlabs-${voiceId}`)
+                                }}
+                                className={selectedVoiceId === "elevenlabs-zgDzx5jLLCqEp6Fl7Kl7" ? "bg-blue-100 border-blue-500" : ""}
+                              >
+                                Voice 3
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  const voiceId = "0mlAtfsvMzFpppUuNWkV"
+                                  setCustomElevenLabsVoiceId(voiceId)
+                                  setSelectedVoiceId(`elevenlabs-${voiceId}`)
+                                }}
+                                className={selectedVoiceId === "elevenlabs-0mlAtfsvMzFpppUuNWkV" ? "bg-blue-100 border-blue-500" : ""}
+                              >
+                                Voice 4
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  const voiceId = "ETPP7D0aZVdEj12Aa7ho"
+                                  setCustomElevenLabsVoiceId(voiceId)
+                                  setSelectedVoiceId(`elevenlabs-${voiceId}`)
+                                }}
+                                className={selectedVoiceId === "elevenlabs-ETPP7D0aZVdEj12Aa7ho" ? "bg-blue-100 border-blue-500" : ""}
+                              >
+                                Voice 5
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
                     {/* 수퍼톤 음성 선택 */}
                     <div className="mb-4 pb-4 border-b border-gray-200">
                       <div className={`p-4 border-2 rounded-lg transition-all ${

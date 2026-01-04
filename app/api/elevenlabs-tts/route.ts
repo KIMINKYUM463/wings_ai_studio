@@ -75,6 +75,17 @@ export async function POST(request: NextRequest) {
         voiceId: voiceId,
       })
       
+      // 404 오류인 경우 커스텀 목소리 권한 문제 안내
+      if (response.status === 404) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `ElevenLabs 커스텀 목소리를 찾을 수 없습니다.\n\n오류: ${errorText}\n\n가능한 원인:\n1. 목소리 ID가 올바르지 않습니다\n2. API 키가 해당 목소리를 생성한 계정의 키가 아닙니다\n3. 목소리가 삭제되었거나 비공개 상태입니다\n\n해결 방법:\n1. 목소리 ID를 다시 확인하세요\n2. 목소리를 생성한 계정의 API 키를 사용하세요\n3. ElevenLabs 대시보드에서 목소리가 존재하는지 확인하세요`,
+          },
+          { status: response.status }
+        )
+      }
+      
       return NextResponse.json(
         {
           success: false,
