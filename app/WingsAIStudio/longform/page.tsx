@@ -1413,8 +1413,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       if (videoData.subtitles && videoData.subtitles.length > 0) {
         // 유효한 자막만 필터링 (start < end)
         const validSubtitles = videoData.subtitles.filter((s) => {
-          const start = Number.parseFloat(s.start.toFixed(5))
-          const end = Number.parseFloat(s.end.toFixed(5))
+        const start = Number.parseFloat(s.start.toFixed(5))
+        const end = Number.parseFloat(s.end.toFixed(5))
           return start < end
         })
         
@@ -1427,9 +1427,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             return currentTimePrecise > (start - ERROR_MARGIN) && currentTimePrecise < (end + ERROR_MARGIN)
           })
           
-          if (subtitle) {
-            subtitleText = subtitle.text
-          } else {
+      if (subtitle) {
+        subtitleText = subtitle.text
+      } else {
             // 2. 이전 자막 찾기 (현재 시간 이전의 가장 최근 자막)
             const pastSubtitles = validSubtitles.filter((s) => {
               const end = Number.parseFloat(s.end.toFixed(5))
@@ -1451,12 +1451,12 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               } else {
                 // 3. 다음 자막이 곧 시작되는지 확인 (1초 이내면 미리 표시)
                 const upcomingSubtitle = validSubtitles.find((s) => {
-                  const startPrecise = Number.parseFloat(s.start.toFixed(5))
+          const startPrecise = Number.parseFloat(s.start.toFixed(5))
                   return startPrecise > currentTimePrecise && startPrecise <= currentTimePrecise + 1.0
-                })
+        })
                 
-                if (upcomingSubtitle) {
-                  subtitleText = upcomingSubtitle.text
+        if (upcomingSubtitle) {
+          subtitleText = upcomingSubtitle.text
                 } else {
                   // 4. 가장 가까운 자막 찾기 (과거 또는 미래)
                   const closestSubtitle = validSubtitles.reduce((closest, s) => {
@@ -9080,7 +9080,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                 if (adjustedEnd > currentSubtitle.start) {
                   currentSubtitle.end = adjustedEnd
                   console.log(`[자막 타이밍] 겹침 방지: 자막 ${i + 1} end=${currentSubtitle.end.toFixed(3)}초로 조정 (자막 ${i + 2} start=${nextSubtitle.start.toFixed(3)}초 보존)`)
-                } else {
+        } else {
                   // endTime 조정이 불가능하면 최소한의 간격만 확보
                   currentSubtitle.end = Number.parseFloat((currentSubtitle.start + 0.1).toFixed(10))
                   console.log(`[자막 타이밍] 겹침 방지: 자막 ${i + 1} end=${currentSubtitle.end.toFixed(3)}초로 조정 (최소 길이)`)
@@ -9139,31 +9139,31 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           
           // 기존 자막이 있으면 유지하고 추가로 생성
           if (subtitles.length === 0) {
-            let cumulativeTime = 0
-            
+          let cumulativeTime = 0
+          
             // 씬 번호 순서대로 정렬하여 순회 (중요: TTS 생성 순서와 일치시켜야 함)
             for (const sceneNum of sortedSceneNumbers) {
               const lines = sceneAudioMapping.get(sceneNum)!
-              for (const line of lines) {
-                const audioDuration = audioDurations.find((d) => d.lineId === line.lineId)?.duration || 0
+            for (const line of lines) {
+              const audioDuration = audioDurations.find((d) => d.lineId === line.lineId)?.duration || 0
+              
+              if (audioDuration > 0) {
+                const subtitleLines = splitIntoSubtitleLines(line.text, audioDuration)
                 
-                if (audioDuration > 0) {
-                  const subtitleLines = splitIntoSubtitleLines(line.text, audioDuration)
+                for (let j = 0; j < subtitleLines.length; j++) {
+                  const subtitleLine = subtitleLines[j]
+                  const start = cumulativeTime + subtitleLine.startTime
+                  const end = cumulativeTime + subtitleLine.endTime
                   
-                  for (let j = 0; j < subtitleLines.length; j++) {
-                    const subtitleLine = subtitleLines[j]
-                    const start = cumulativeTime + subtitleLine.startTime
-                    const end = cumulativeTime + subtitleLine.endTime
-                    
-                    subtitles.push({
-                      id: subtitleId++,
-                      start: Number.parseFloat(start.toFixed(3)),
-                      end: Number.parseFloat(end.toFixed(3)),
-                      text: subtitleLine.text,
-                    })
-                  }
-                  
-                  cumulativeTime += audioDuration
+                  subtitles.push({
+                    id: subtitleId++,
+                    start: Number.parseFloat(start.toFixed(3)),
+                    end: Number.parseFloat(end.toFixed(3)),
+                    text: subtitleLine.text,
+                  })
+                }
+                
+                cumulativeTime += audioDuration
                 }
               }
             }
@@ -10071,16 +10071,16 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         
         // 기존 자막이 있으면 유지하고 추가로 생성
         if (subtitles.length === 0) {
-          const subtitleLines = splitIntoSubtitleLines(fullText, undefined, calculatedTotalDurationForNormal)
-          
-          for (let j = 0; j < subtitleLines.length; j++) {
-            const subtitleLine = subtitleLines[j]
-            subtitles.push({
-              id: subtitleId++,
-              start: Number.parseFloat(subtitleLine.startTime.toFixed(3)),
-              end: Number.parseFloat(subtitleLine.endTime.toFixed(3)),
-              text: subtitleLine.text,
-            })
+        const subtitleLines = splitIntoSubtitleLines(fullText, undefined, calculatedTotalDurationForNormal)
+        
+        for (let j = 0; j < subtitleLines.length; j++) {
+          const subtitleLine = subtitleLines[j]
+          subtitles.push({
+            id: subtitleId++,
+            start: Number.parseFloat(subtitleLine.startTime.toFixed(3)),
+            end: Number.parseFloat(subtitleLine.endTime.toFixed(3)),
+            text: subtitleLine.text,
+          })
           }
         }
         
@@ -24813,10 +24813,10 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                     setUserUploadedImagesForShorts((prev) => [...prev, imageUrl])
                     
                     // 자동으로 선택에 추가 (제한 없음)
-                    const newSelection = new Set(selectedImagesForShorts)
-                    newSelection.add(imageUrl)
-                    setSelectedImagesForShorts(newSelection)
-                    setSelectedImagesOrderForShorts((prev) => [...prev, imageUrl])
+                      const newSelection = new Set(selectedImagesForShorts)
+                      newSelection.add(imageUrl)
+                      setSelectedImagesForShorts(newSelection)
+                      setSelectedImagesOrderForShorts((prev) => [...prev, imageUrl])
                   }
                   reader.readAsDataURL(file)
                 })
@@ -24922,21 +24922,21 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                     // 기본 이미지는 삭제 불가 (최소 requiredImageCount 유지)
                                     if (currentOrder.length > requiredImageCount && imageIndex >= requiredImageCount) {
                                       // 추가로 선택한 이미지만 삭제 가능
-                                      newSelection.delete(imageUrl)
-                                      setSelectedImagesOrderForShorts((prev) => prev.filter(url => url !== imageUrl))
+                                    newSelection.delete(imageUrl)
+                                    setSelectedImagesOrderForShorts((prev) => prev.filter(url => url !== imageUrl))
                                     } else if (currentOrder.length <= requiredImageCount) {
                                       // 기본 이미지만 있는 경우 삭제 불가
                                       alert(`기본 이미지(${requiredImageCount}개)는 삭제할 수 없습니다. 추가로 선택한 이미지만 삭제할 수 있습니다.`)
                                       return
-                                    } else {
+                                  } else {
                                       // 기본 이미지 삭제 시도 시 경고
                                       alert(`기본 이미지(${requiredImageCount}개)는 삭제할 수 없습니다. 추가로 선택한 이미지만 삭제할 수 있습니다.`)
                                       return
                                     }
                                   } else {
                                     // 추가 선택 가능 (제한 없음)
-                                    newSelection.add(imageUrl)
-                                    setSelectedImagesOrderForShorts((prev) => [...prev, imageUrl])
+                                      newSelection.add(imageUrl)
+                                      setSelectedImagesOrderForShorts((prev) => [...prev, imageUrl])
                                   }
                                   setSelectedImagesForShorts(newSelection)
                                 }}

@@ -268,8 +268,8 @@ export default function ShoppingPage() {
       if (!supertoneApiKey) {
         alert("수퍼톤 API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
         setIsLoadingSupertoneVoices(false)
-        return
-      }
+      return
+    }
 
       const response = await fetch(`/api/supertone-voices?apiKey=${encodeURIComponent(supertoneApiKey)}`, {
         method: "GET",
@@ -339,7 +339,7 @@ export default function ShoppingPage() {
         const voiceName = voiceId.replace("ttsmaker-", "")
         const pitch = voiceName === "남성5" ? 0.9 : 1.0
         const ttsmakerApiKey = typeof window !== "undefined" ? localStorage.getItem("ttsmaker_api_key") || undefined : undefined
-        
+
         if (!ttsmakerApiKey) {
           alert("TTSMaker API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
           setPreviewingVoiceId(null)
@@ -533,16 +533,16 @@ export default function ShoppingPage() {
         }
         
         response = await fetch("/api/elevenlabs-tts", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            text: ttsText, // 원본 대본 그대로 사용 (절대 수정하지 않음)
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          text: ttsText, // 원본 대본 그대로 사용 (절대 수정하지 않음)
             voiceId: selectedVoiceId,
-            apiKey: elevenlabsApiKey,
-          }),
-        })
+          apiKey: elevenlabsApiKey,
+        }),
+      })
       }
 
       if (!response.ok) {
@@ -1136,52 +1136,52 @@ export default function ShoppingPage() {
         } else {
           // 썸네일 시간이 지나면 기존 영상 표시
           // 현재 시간에 맞는 영상 찾기 (썸네일 시간 제외)
-          let currentVideoIndex = -1
-          for (let i = 0; i < videoStartTimes.length; i++) {
-            const startTime = videoStartTimes[i]
-            const endTime = i < videoStartTimes.length - 1 ? videoStartTimes[i + 1] : startTime + videoDurations[i]
-            
+        let currentVideoIndex = -1
+        for (let i = 0; i < videoStartTimes.length; i++) {
+          const startTime = videoStartTimes[i]
+          const endTime = i < videoStartTimes.length - 1 ? videoStartTimes[i + 1] : startTime + videoDurations[i]
+          
             if (adjustedElapsed >= startTime && adjustedElapsed < endTime) {
-              currentVideoIndex = i
-              break
-            }
+            currentVideoIndex = i
+            break
           }
+        }
 
-          // 비디오 전환 시에만 처리
-          if (currentVideoIndex !== lastVideoIndex) {
-            // 이전 비디오 일시정지
-            if (lastVideoIndex >= 0 && videoElements[lastVideoIndex]) {
-              videoElements[lastVideoIndex].pause()
-              videoElements[lastVideoIndex].currentTime = 0
-            }
-            
-            // 새 비디오 재생 시작
-            if (currentVideoIndex >= 0 && videoElements[currentVideoIndex]) {
-              const video = videoElements[currentVideoIndex]
-              const videoStartTime = videoStartTimes[currentVideoIndex]
-              const videoElapsed = adjustedElapsed - videoStartTime
-              
-              if (video && !isNaN(video.duration) && video.duration > 0) {
-                // 시작 시간 설정
-                video.currentTime = Math.max(0, Math.min(videoElapsed, video.duration))
-                // 비디오 재생 (자체적으로 재생되도록)
-                video.play().catch(() => {})
-              }
-            }
-            
-            lastVideoIndex = currentVideoIndex
+        // 비디오 전환 시에만 처리
+        if (currentVideoIndex !== lastVideoIndex) {
+          // 이전 비디오 일시정지
+          if (lastVideoIndex >= 0 && videoElements[lastVideoIndex]) {
+            videoElements[lastVideoIndex].pause()
+            videoElements[lastVideoIndex].currentTime = 0
           }
-
-          // 현재 영상을 캔버스에 그리기 (매 프레임마다)
+          
+          // 새 비디오 재생 시작
           if (currentVideoIndex >= 0 && videoElements[currentVideoIndex]) {
             const video = videoElements[currentVideoIndex]
-            try {
-              if (video.readyState >= 2 || (video.videoWidth > 0 && video.videoHeight > 0)) {
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-              }
-            } catch (e) {
-              // 그리기 실패 시 무시
+            const videoStartTime = videoStartTimes[currentVideoIndex]
+              const videoElapsed = adjustedElapsed - videoStartTime
+            
+            if (video && !isNaN(video.duration) && video.duration > 0) {
+              // 시작 시간 설정
+              video.currentTime = Math.max(0, Math.min(videoElapsed, video.duration))
+              // 비디오 재생 (자체적으로 재생되도록)
+              video.play().catch(() => {})
             }
+          }
+          
+          lastVideoIndex = currentVideoIndex
+        }
+
+        // 현재 영상을 캔버스에 그리기 (매 프레임마다)
+        if (currentVideoIndex >= 0 && videoElements[currentVideoIndex]) {
+          const video = videoElements[currentVideoIndex]
+          try {
+            if (video.readyState >= 2 || (video.videoWidth > 0 && video.videoHeight > 0)) {
+              ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+            }
+          } catch (e) {
+            // 그리기 실패 시 무시
+          }
           }
         }
 
@@ -1317,7 +1317,7 @@ export default function ShoppingPage() {
         video.oncanplaythrough = () => {
           video.currentTime = 0
           resolve()
-        }
+      }
         video.onerror = reject
         video.load()
         
@@ -1328,7 +1328,7 @@ export default function ShoppingPage() {
           }
         }, 10000)
       })
-
+      
       // 썸네일 이미지 로드 (있는 경우) - 미리 로드하여 상태로 저장
       let thumbnailImage: HTMLImageElement | null = null
       if (thumbnailCanvasRef.current) {
@@ -1356,7 +1356,7 @@ export default function ShoppingPage() {
       audio.addEventListener("timeupdate", () => {
         const elapsed = audio.currentTime
         setCurrentTime(elapsed)
-        
+
         // 썸네일 시간 체크
         const THUMBNAIL_DURATION = 0.0001
         const adjustedElapsed = Math.max(0, elapsed - THUMBNAIL_DURATION)
@@ -1373,7 +1373,7 @@ export default function ShoppingPage() {
             video.play().catch(() => {})
           }
         }
-        
+
         // 자막 업데이트 (롱폼 방식)
         if (scriptLines.length > 0 && (!previewThumbnailImage || elapsed >= THUMBNAIL_DURATION)) {
           const currentLine = scriptLines.find(
@@ -1407,7 +1407,7 @@ export default function ShoppingPage() {
       // 미리보기용 오디오 및 비디오 설정 (롱폼 방식)
       setPreviewAudio(audio)
       setPreviewVideoElements([video])
-      
+            
       // video ref에 직접 설정
       if (previewVideoRef.current) {
         previewVideoRef.current.src = video.src
@@ -1442,7 +1442,7 @@ export default function ShoppingPage() {
         previewVideoRef.current.pause()
       }
       setIsPlaying(false)
-    } else {
+        } else {
       previewAudio.play()
       setIsPlaying(true)
       
@@ -1624,50 +1624,50 @@ export default function ShoppingPage() {
           // 현재 시간에 맞는 자막 찾기 (미리보기와 동일)
           const currentLine = scriptLinesToUse.find(
             line => elapsedMs >= line.startTime && elapsedMs < line.endTime
-          )
-          
-          if (currentLine) {
+        )
+
+        if (currentLine) {
             // 텍스트를 10자씩 나누기 (미리보기와 동일)
-            const fullText = currentLine.text
-            const chunkSize = 10
-            const chunks: string[] = []
-            for (let i = 0; i < fullText.length; i += chunkSize) {
-              chunks.push(fullText.slice(i, i + chunkSize))
-            }
-            
+          const fullText = currentLine.text
+          const chunkSize = 10
+          const chunks: string[] = []
+          for (let i = 0; i < fullText.length; i += chunkSize) {
+            chunks.push(fullText.slice(i, i + chunkSize))
+          }
+          
             // 현재 시간 기준으로 몇 번째 청크를 보여줄지 계산 (미리보기와 동일)
             const lineDuration = currentLine.endTime - currentLine.startTime
-            const chunkDuration = lineDuration / chunks.length
+          const chunkDuration = lineDuration / chunks.length
             const timeInLine = elapsedMs - currentLine.startTime
-            const currentChunkIndex = Math.min(Math.floor(timeInLine / chunkDuration), chunks.length - 1)
-            const textToShow = chunks[currentChunkIndex] || chunks[0]
-            
+          const currentChunkIndex = Math.min(Math.floor(timeInLine / chunkDuration), chunks.length - 1)
+          const textToShow = chunks[currentChunkIndex] || chunks[0]
+          
             // 미리보기와 동일한 위치: 중간에서 살짝 위 (38%)
             const subtitleY = canvas.height * 0.38
-            
+
             // 자막 텍스트 (미리보기와 동일한 스타일)
             // 미리보기: text-2xl (24px) + font-bold
             // Canvas에서는 더 크게 표시해야 하므로 비율 조정
             const fontSize = 100 // 미리보기와 동일한 크기 (Canvas 해상도 고려)
             ctx.font = `bold ${fontSize}px 'Noto Sans KR', sans-serif`
-            ctx.textAlign = "center"
+          ctx.textAlign = "center"
             ctx.textBaseline = "middle" // 중간 기준
-            
-            // 검정색 테두리
-            ctx.strokeStyle = "black"
+
+          // 검정색 테두리
+          ctx.strokeStyle = "black"
             ctx.lineWidth = 12
-            ctx.lineJoin = "round"
-            ctx.strokeText(textToShow, canvas.width / 2, subtitleY)
-            
-            // 흰색 글씨
-            ctx.fillStyle = "white"
-            ctx.fillText(textToShow, canvas.width / 2, subtitleY)
+          ctx.lineJoin = "round"
+          ctx.strokeText(textToShow, canvas.width / 2, subtitleY)
+          
+          // 흰색 글씨
+          ctx.fillStyle = "white"
+          ctx.fillText(textToShow, canvas.width / 2, subtitleY)
           }
         }
 
         // 다음 프레임 요청 (롱폼 쇼츠 생성기 방식)
         if (!audio.paused && elapsed < actualAudioDuration) {
-          requestAnimationFrame(renderFrame)
+        requestAnimationFrame(renderFrame)
         } else {
           mediaRecorder.stop()
           audio.pause()
@@ -2383,8 +2383,8 @@ export default function ShoppingPage() {
                               playsInline
                               loop
                               className="w-full h-full border-2 border-gray-300 rounded-lg object-cover"
-                              style={{ aspectRatio: "9/16" }}
-                            />
+                          style={{ aspectRatio: "9/16" }}
+                      />
                             {/* 썸네일 오버레이 (0.0001초 동안) */}
                             {previewThumbnailImage && currentTime < 0.0001 && (
                               <img
@@ -2417,7 +2417,7 @@ export default function ShoppingPage() {
                             <span className="text-gray-400 text-sm">미리보기를 생성해주세요</span>
                           </div>
                         )}
-                      </div>
+                    </div>
                     </div>
 
                     {/* 썸네일 생성기 */}
@@ -2549,7 +2549,7 @@ export default function ShoppingPage() {
                       )}
                     </Button>
 
-                    {/* 다운로드 버튼 */}
+                  {/* 다운로드 버튼 */}
                     <Button
                       onClick={handleRenderVideo}
                       disabled={isRendering || !previewGenerated}
@@ -2563,17 +2563,17 @@ export default function ShoppingPage() {
                         </>
                       ) : (
                         <>
-                          <Download className="w-4 h-4 mr-2" />
+                        <Download className="w-4 h-4 mr-2" />
                           영상 다운로드 (렌더링)
                         </>
                       )}
-                    </Button>
+                      </Button>
                     {!previewGenerated && (
                       <p className="text-sm text-gray-500 text-center">
                         먼저 미리보기를 생성해주세요
                       </p>
                     )}
-                  </div>
+                    </div>
 
                   {/* 다운로드된 영상이 있으면 표시 */}
                     <div className="flex gap-2">

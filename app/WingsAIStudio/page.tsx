@@ -260,7 +260,7 @@ function Header({ onSettingsClick, onFeedbackClick }: { onSettingsClick: () => v
               className="text-slate-700 hover:text-slate-900"
               onClick={onFeedbackClick}
             >
-              프로그램 개선사항
+              프로그램 요청사항
             </Button>
           </nav>
 
@@ -1224,7 +1224,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             />
           </div>
           
-          {/* 프로그램 개선사항 버튼 */}
+          {/* 프로그램 요청사항 버튼 */}
           <div className="p-4 border-t border-gray-200">
             <Button
               onClick={() => setShowFeedbackDialog(true)}
@@ -1232,7 +1232,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               className="w-full bg-gradient-to-r from-blue-50 to-indigo-50 hover:from-blue-100 hover:to-indigo-100 border-blue-200 text-blue-700"
             >
               <MessageSquare className="w-4 h-4 mr-2" />
-              프로그램 개선사항
+              프로그램 요청사항
             </Button>
           </div>
         </div>
@@ -1244,7 +1244,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <MessageSquare className="w-5 h-5 text-blue-500" />
-              프로그램 개선사항
+              프로그램 요청사항
             </DialogTitle>
             <DialogDescription>
               개선하고 싶은 사항이나 제안하고 싶은 기능을 자유롭게 작성해주세요.
@@ -1323,7 +1323,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               <div className="space-y-4 mt-4">
                 <div>
                   <Label htmlFor="feedback-content" className="text-sm font-medium">
-                    개선사항
+                    요청사항
                   </Label>
                   <Textarea
                     id="feedback-content"

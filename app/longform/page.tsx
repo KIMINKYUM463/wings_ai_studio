@@ -241,7 +241,7 @@ export default function LongformContentPage() {
   const [scriptLines, setScriptLines] = useState<Array<{ id: number; text: string }>>([])
   const [selectedLineIds, setSelectedLineIds] = useState<Set<number>>(new Set())
   const [scriptDuration, setScriptDuration] = useState<number>(20) // 대본 시간 (분)
-  const [generatedImages, setGeneratedImages] = useState<Array<{ lineId: number; imageUrl: string; prompt: string }>>([])
+  const [generatedImages, setGeneratedImages] = useState<Array<{ lineId: number; imageUrl: string; prompt: string; order?: number; isUserUploaded?: boolean }>>([])
   const [isGeneratingImages, setIsGeneratingImages] = useState(false)
   const [imageGenerationProgress, setImageGenerationProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 })
   const [selectedVoiceId, setSelectedVoiceId] = useState<string>("jB1Cifc2UQbq1gR3wnb0") // 기본: Rachel
@@ -9417,7 +9417,12 @@ export default function LongformContentPage() {
                         }
                         
                         // 오디오 시간을 그대로 사용 (이미 합쳐진 오디오이므로)
-                        const subtitle = videoData.subtitles.find((s) => audioCurrentTime >= s.start && audioCurrentTime < s.end)
+                        // 자막이 1초 늦게 나오는 문제 해결: 자막 시작 시간을 1초 앞당겨서 비교
+                        const subtitle = videoData.subtitles.find((s) => {
+                          // 자막 시작 시간을 1초 앞당겨서 비교 (실제 타이밍과 맞추기)
+                          const adjustedStart = Math.max(0, s.start - 1.0)
+                          return audioCurrentTime >= adjustedStart && audioCurrentTime < s.end
+                        })
                         setCurrentSubtitle(subtitle?.text || "")
                         setCurrentTime(totalCurrentTime)
                         setIsPlaying(!audioElement.paused)
@@ -11593,6 +11598,179 @@ export default function LongformContentPage() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* 이미지 업로드 (쇼츠 생성기용) */}
+            <Card className="mb-6">
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <CardTitle className="text-lg">이미지 추가 (선택사항)</CardTitle>
+                  <span className="text-xs text-muted-foreground">이미지는 한장씩 업로드해주세요</span>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground mb-3">
+                  쇼츠 영상에 사용할 이미지를 추가로 업로드할 수 있습니다.
+                </p>
+                <Input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={(e) => {
+                    const files = e.target.files
+                    if (!files || files.length === 0) return
+
+                    // 모든 파일을 먼저 읽고, 한 번에 상태 업데이트
+                    const fileArray = Array.from(files)
+                    const validFiles = fileArray.filter(file => file.type.startsWith("image/"))
+                    
+                    if (validFiles.length !== fileArray.length) {
+                      alert("일부 파일은 이미지 파일이 아닙니다.")
+                    }
+
+                    if (validFiles.length === 0) return
+
+                    // 모든 파일을 Promise로 읽기
+                    const readPromises = validFiles.map((file) => {
+                      return new Promise<string>((resolve, reject) => {
+                        const reader = new FileReader()
+                        reader.onload = (e) => {
+                          const imageUrl = e.target?.result as string
+                          resolve(imageUrl)
+                        }
+                        reader.onerror = () => reject(new Error(`파일 읽기 실패: ${file.name}`))
+                        reader.readAsDataURL(file)
+                      })
+                    })
+
+                    // 모든 파일을 읽은 후 한 번에 상태 업데이트
+                    Promise.all(readPromises)
+                      .then((imageUrls) => {
+                        setGeneratedImages((prev) => {
+                          // 현재 존재하는 이미지 URL 목록
+                          const existingUrls = new Set(prev.map(img => img.imageUrl))
+                          
+                          // 중복되지 않은 이미지만 필터링
+                          const newImageUrls = imageUrls.filter(url => !existingUrls.has(url))
+                          
+                          if (newImageUrls.length === 0) {
+                            console.log("[롱폼 쇼츠] 모든 이미지가 이미 존재합니다")
+                            return prev
+                          }
+
+                          // 새로운 이미지들 추가 (lineId는 임시로 음수 사용하여 구분)
+                          const newImages = newImageUrls.map((imageUrl, index) => ({
+                            lineId: -(Date.now() + index), // 음수로 임시 ID 생성
+                            imageUrl,
+                            prompt: "사용자 업로드 이미지",
+                            order: prev.length + index,
+                            isUserUploaded: true,
+                          }))
+
+                          return [...prev, ...newImages]
+                        })
+                      })
+                      .catch((error) => {
+                        console.error("[롱폼 쇼츠] 이미지 업로드 오류:", error)
+                        alert("이미지 업로드 중 오류가 발생했습니다.")
+                      })
+
+                    // input 초기화
+                    e.target.value = ""
+                  }}
+                  className="w-full"
+                />
+              </CardContent>
+            </Card>
+
+            {/* 이미지 선택 및 순서 조정 */}
+            {generatedImages.length > 0 && (
+              <Card className="mb-6">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg">이미지 선택 및 순서 조정</CardTitle>
+                    {(() => {
+                      // 두 가지 방법으로 업로드한 이미지 확인
+                      const uploadedImages1 = generatedImages.filter(img => img.prompt === "사용자 업로드 이미지")
+                      const uploadedImages2 = generatedImages.filter(img => img.isUserUploaded === true)
+                      const uploadedImages = uploadedImages1.length > 0 ? uploadedImages1 : uploadedImages2
+                      const uploadedCount = uploadedImages.length
+                      
+                      console.log("[롱폼 쇼츠] ===== 이미지 초기화 버튼 체크 =====")
+                      console.log("[롱폼 쇼츠] 전체 이미지 개수:", generatedImages.length)
+                      console.log("[롱폼 쇼츠] 전체 이미지 상세:", generatedImages.map(img => ({ 
+                        lineId: img.lineId, 
+                        prompt: img.prompt, 
+                        isUserUploaded: img.isUserUploaded 
+                      })))
+                      console.log("[롱폼 쇼츠] prompt로 필터링한 업로드 이미지:", uploadedImages1.length)
+                      console.log("[롱폼 쇼츠] isUserUploaded로 필터링한 업로드 이미지:", uploadedImages2.length)
+                      console.log("[롱폼 쇼츠] 최종 업로드 이미지 개수:", uploadedCount)
+                      
+                      if (uploadedCount > 0) {
+                        return (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              if (!confirm("업로드한 모든 사진을 삭제하시겠습니까?")) {
+                                return
+                              }
+                              setGeneratedImages((prev) => {
+                                // 업로드한 이미지가 아닌 것만 필터링 (AI 생성 이미지 유지)
+                                const filtered = prev.filter((img) => 
+                                  img.prompt !== "사용자 업로드 이미지" && img.isUserUploaded !== true
+                                )
+                                console.log("[롱폼 쇼츠] 초기화 후 이미지 개수:", filtered.length)
+                                return filtered
+                              })
+                            }}
+                            className="border-red-300 text-red-600 hover:bg-red-50 hover:border-red-400"
+                          >
+                            <X className="w-4 h-4 mr-2" />
+                            사진 초기화 ({uploadedCount}개)
+                          </Button>
+                        )
+                      }
+                      return null
+                    })()}
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                    {generatedImages.map((img, index) => {
+                      const isUserUploaded = img.prompt === "사용자 업로드 이미지"
+                      return (
+                        <div
+                          key={img.lineId}
+                          className="relative group border-2 rounded-lg overflow-hidden"
+                        >
+                          <div className="aspect-square w-full bg-muted">
+                            <img
+                              src={img.imageUrl}
+                              alt={`Image ${index + 1}`}
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                          {isUserUploaded && (
+                            <div className="absolute top-2 left-2 z-10">
+                              <Badge variant="secondary" className="bg-blue-500 text-white text-xs">
+                                <Upload className="w-3 h-3 mr-1" />
+                                업로드
+                              </Badge>
+                            </div>
+                          )}
+                          <div className="absolute top-2 right-2 z-10">
+                            <Badge variant="secondary" className="bg-purple-600 text-white">
+                              {index + 1}
+                            </Badge>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* 쇼츠 길이 선택 */}
             <Card className="mb-6">

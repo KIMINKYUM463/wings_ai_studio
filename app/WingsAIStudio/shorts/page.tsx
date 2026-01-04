@@ -33,6 +33,7 @@ import {
   X,
   GripVertical,
   RefreshCw,
+  Check,
 } from "lucide-react"
 import Link from "next/link"
 import { generateShortsScript, generateShortsTopics, generateShortsHookingTitle } from "./actions"
@@ -2925,32 +2926,62 @@ export default function ShortsPage() {
                     const files = event.target.files
                     if (!files || files.length === 0) return
 
-                    Array.from(files).forEach((file) => {
-                      if (!file.type.startsWith("image/")) {
-                        alert(`${file.name}은(는) 이미지 파일이 아닙니다.`)
-                        return
-                      }
+                    // 모든 파일을 먼저 읽고, 한 번에 상태 업데이트
+                    const fileArray = Array.from(files)
+                    const validFiles = fileArray.filter(file => file.type.startsWith("image/"))
+                    
+                    if (validFiles.length !== fileArray.length) {
+                      alert("일부 파일은 이미지 파일이 아닙니다.")
+                    }
 
-                      const reader = new FileReader()
-                      reader.onload = (e) => {
-                        const imageUrl = e.target?.result as string
-                        setGeneratedImages((prev) => {
-                          const newImages = [
-                            ...prev,
-                            {
-                              lineId: Date.now() + Math.random(), // 고유 ID
-                              imageUrl,
-                              prompt: "사용자 업로드 이미지",
-                              order: prev.length,
-                              isUserUploaded: true,
-                            },
-                          ]
-                          // order 기준으로 정렬
-                          return newImages.sort((a, b) => a.order - b.order)
-                        })
-                      }
-                      reader.readAsDataURL(file)
+                    if (validFiles.length === 0) return
+
+                    // 모든 파일을 Promise로 읽기
+                    const readPromises = validFiles.map((file) => {
+                      return new Promise<string>((resolve, reject) => {
+                        const reader = new FileReader()
+                        reader.onload = (e) => {
+                          const imageUrl = e.target?.result as string
+                          resolve(imageUrl)
+                        }
+                        reader.onerror = () => reject(new Error(`파일 읽기 실패: ${file.name}`))
+                        reader.readAsDataURL(file)
+                      })
                     })
+
+                    // 모든 파일을 읽은 후 한 번에 상태 업데이트
+                    Promise.all(readPromises)
+                      .then((imageUrls) => {
+                        setGeneratedImages((prev) => {
+                          // 현재 존재하는 이미지 URL 목록
+                          const existingUrls = new Set(prev.map(img => img.imageUrl))
+                          
+                          // 중복되지 않은 이미지만 필터링
+                          const newImageUrls = imageUrls.filter(url => !existingUrls.has(url))
+                          
+                          if (newImageUrls.length === 0) {
+                            console.log("[이미지 업로드] 모든 이미지가 이미 존재합니다")
+                            return prev
+                          }
+
+                          // 새로운 이미지들 추가
+                          const newImages = newImageUrls.map((imageUrl, index) => ({
+                            lineId: Date.now() + Math.random() + index, // 고유 ID
+                            imageUrl,
+                            prompt: "사용자 업로드 이미지",
+                            order: prev.length + index,
+                            isUserUploaded: true,
+                          }))
+
+                          const updatedImages = [...prev, ...newImages]
+                          // order 기준으로 정렬
+                          return updatedImages.sort((a, b) => a.order - b.order)
+                        })
+                      })
+                      .catch((error) => {
+                        console.error("[이미지 업로드] 오류:", error)
+                        alert("이미지 업로드 중 오류가 발생했습니다.")
+                      })
 
                     // input 초기화
                     event.target.value = ""
@@ -2978,11 +3009,17 @@ export default function ShortsPage() {
                               variant="destructive"
                               size="sm"
                               className="absolute top-1 right-1 h-5 w-5 p-0"
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
                                 setGeneratedImages((prev) => {
                                   const newImages = prev.filter((i) => i.lineId !== img.lineId)
                                   return newImages.map((img, i) => ({ ...img, order: i }))
                                 })
+                              }}
+                              onMouseDown={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
                               }}
                             >
                               <X className="w-3 h-3" />
@@ -3027,6 +3064,30 @@ export default function ShortsPage() {
         )
 
       case "image": {
+        // 이미지 선택 핸들러 (중복 방지)
+        const handleImageSelect = (imageUrl: string) => {
+          setGeneratedImages((prev) => {
+            // 이미 존재하는 이미지인지 확인 (imageUrl 기준)
+            const existingImage = prev.find((img) => img.imageUrl === imageUrl)
+            if (existingImage) {
+              // 이미 존재하면 추가하지 않음
+              console.log("[이미지 선택] 이미 추가된 이미지입니다:", imageUrl)
+              return prev
+            }
+            
+            // 새로운 이미지 추가
+            const newImage = {
+              lineId: Date.now() + Math.random(),
+              imageUrl,
+              prompt: "사용자 선택 이미지",
+              order: prev.length,
+              isUserUploaded: false,
+            }
+            
+            return [...prev, newImage].sort((a, b) => a.order - b.order)
+          })
+        }
+
         // 이미지 순서 변경 함수
         const handleImageReorder = (fromIndex: number, toIndex: number) => {
           setGeneratedImages((prev) => {
@@ -3039,14 +3100,43 @@ export default function ShortsPage() {
         }
 
         // 이미지 삭제 함수
-        const handleImageDelete = (index: number) => {
-          const sortedImages = [...generatedImages].sort((a, b) => a.order - b.order)
-          const imageToDelete = sortedImages[index]
+        const handleImageDelete = (index: number, e?: React.MouseEvent) => {
+          // 이벤트 전파 방지
+          if (e) {
+            e.preventDefault()
+            e.stopPropagation()
+          }
           
           setGeneratedImages((prev) => {
-            const newImages = prev.filter((img) => img.lineId !== imageToDelete.lineId && img.imageUrl !== imageToDelete.imageUrl)
+            // order 기준으로 정렬
+            const sortedImages = [...prev].sort((a, b) => a.order - b.order)
+            const imageToDelete = sortedImages[index]
+            
+            if (!imageToDelete) {
+              console.log("[이미지 삭제] 삭제할 이미지가 없습니다")
+              return prev
+            }
+            
+            console.log("[이미지 삭제] 이미지 삭제:", imageToDelete.lineId, imageToDelete.imageUrl)
+            
+            // lineId로만 비교 (고유 ID이므로 이것만으로 충분)
+            const newImages = prev.filter((img) => img.lineId !== imageToDelete.lineId)
             // order 재정렬
             return newImages.map((img, i) => ({ ...img, order: i }))
+          })
+        }
+
+        // 업로드한 사진만 모두 삭제하는 함수
+        const handleClearUploadedImages = () => {
+          if (!confirm("업로드한 모든 사진을 삭제하시겠습니까?")) {
+            return
+          }
+          
+          setGeneratedImages((prev) => {
+            // 업로드한 이미지가 아닌 것만 필터링 (AI 생성 이미지 유지)
+            const remainingImages = prev.filter((img) => !img.isUserUploaded)
+            // order 재정렬
+            return remainingImages.map((img, i) => ({ ...img, order: i }))
           })
         }
 
@@ -3055,32 +3145,62 @@ export default function ShortsPage() {
           const files = event.target.files
           if (!files || files.length === 0) return
 
-          Array.from(files).forEach((file) => {
-            if (!file.type.startsWith("image/")) {
-              alert(`${file.name}은(는) 이미지 파일이 아닙니다.`)
-              return
-            }
+          // 모든 파일을 먼저 읽고, 한 번에 상태 업데이트
+          const fileArray = Array.from(files)
+          const validFiles = fileArray.filter(file => file.type.startsWith("image/"))
+          
+          if (validFiles.length !== fileArray.length) {
+            alert("일부 파일은 이미지 파일이 아닙니다.")
+          }
 
-            const reader = new FileReader()
-            reader.onload = (e) => {
-              const imageUrl = e.target?.result as string
-              setGeneratedImages((prev) => {
-                const newImages = [
-                  ...prev,
-                  {
-                    lineId: Date.now() + Math.random(), // 고유 ID
-                    imageUrl,
-                    prompt: "사용자 업로드 이미지",
-                    order: prev.length,
-                    isUserUploaded: true,
-                  },
-                ]
-                // order 기준으로 정렬
-                return newImages.sort((a, b) => a.order - b.order)
-              })
-            }
-            reader.readAsDataURL(file)
+          if (validFiles.length === 0) return
+
+          // 모든 파일을 Promise로 읽기
+          const readPromises = validFiles.map((file) => {
+            return new Promise<string>((resolve, reject) => {
+              const reader = new FileReader()
+              reader.onload = (e) => {
+                const imageUrl = e.target?.result as string
+                resolve(imageUrl)
+              }
+              reader.onerror = () => reject(new Error(`파일 읽기 실패: ${file.name}`))
+              reader.readAsDataURL(file)
+            })
           })
+
+          // 모든 파일을 읽은 후 한 번에 상태 업데이트
+          Promise.all(readPromises)
+            .then((imageUrls) => {
+              setGeneratedImages((prev) => {
+                // 현재 존재하는 이미지 URL 목록
+                const existingUrls = new Set(prev.map(img => img.imageUrl))
+                
+                // 중복되지 않은 이미지만 필터링
+                const newImageUrls = imageUrls.filter(url => !existingUrls.has(url))
+                
+                if (newImageUrls.length === 0) {
+                  console.log("[이미지 업로드] 모든 이미지가 이미 존재합니다")
+                  return prev
+                }
+
+                // 새로운 이미지들 추가
+                const newImages = newImageUrls.map((imageUrl, index) => ({
+                  lineId: Date.now() + Math.random() + index, // 고유 ID
+                  imageUrl,
+                  prompt: "사용자 업로드 이미지",
+                  order: prev.length + index,
+                  isUserUploaded: true,
+                }))
+
+                const updatedImages = [...prev, ...newImages]
+                // order 기준으로 정렬
+                return updatedImages.sort((a, b) => a.order - b.order)
+              })
+            })
+            .catch((error) => {
+              console.error("[이미지 업로드] 오류:", error)
+              alert("이미지 업로드 중 오류가 발생했습니다.")
+            })
 
           // input 초기화 (같은 파일 다시 선택 가능하도록)
           event.target.value = ""
@@ -3215,8 +3335,108 @@ export default function ShortsPage() {
               </CardContent>
             </Card>
 
+            {/* 이미지 선택 갤러리 (업로드된 이미지들) */}
+            {generatedImages.filter(img => img.isUserUploaded).length > 0 && (
+              <Card className="border-2 border-gray-200 shadow-xl">
+                <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50 border-b-2 border-purple-100">
+                  <CardTitle className="text-xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent flex items-center gap-2">
+                    <ImageIcon className="w-6 h-6 text-purple-600" />
+                    이미지 선택
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-6">
+                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                    {generatedImages
+                      .filter(img => img.isUserUploaded)
+                      .map((img) => {
+                        // 아래쪽 선택된 이미지 목록에 이미 있는지 확인
+                        const isSelected = sortedImages.some(selectedImg => selectedImg.imageUrl === img.imageUrl)
+                        return (
+                          <div
+                            key={`gallery-${img.lineId}`}
+                            className="relative group cursor-pointer"
+                            onClick={() => {
+                              if (!isSelected) {
+                                handleImageSelect(img.imageUrl)
+                              }
+                            }}
+                          >
+                            <div className={`aspect-square w-full bg-muted rounded-lg overflow-hidden border-2 transition-all ${
+                              isSelected 
+                                ? "border-purple-500 ring-2 ring-purple-300" 
+                                : "border-gray-200 hover:border-purple-300"
+                            }`}>
+                              <img
+                                src={img.imageUrl}
+                                alt="Gallery image"
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                            {/* 체크박스 표시 */}
+                            <div className="absolute top-2 right-2 z-10">
+                              <div className={`w-6 h-6 rounded-full flex items-center justify-center transition-all ${
+                                isSelected
+                                  ? "bg-purple-600 border-2 border-white"
+                                  : "bg-white/80 border-2 border-gray-300"
+                              }`}>
+                                {isSelected && (
+                                  <Check className="w-4 h-4 text-white" />
+                                )}
+                              </div>
+                            </div>
+                            {/* 사용자 업로드 표시 */}
+                            {img.isUserUploaded && (
+                              <div className="absolute top-2 left-2 z-10">
+                                <Upload className="w-4 h-4 text-blue-500 bg-white/80 rounded p-0.5" />
+                              </div>
+                            )}
+                            {/* 기본 버튼 (사용자 업로드 이미지는 표시하지 않음) */}
+                            {!img.isUserUploaded && (
+                              <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 z-10">
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  className="text-xs px-2 py-1 h-auto bg-green-500 hover:bg-green-600 text-white"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    if (!isSelected) {
+                                      handleImageSelect(img.imageUrl)
+                                    }
+                                  }}
+                                >
+                                  기본
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {/* 이미지 목록 (드래그 앤 드롭 가능) */}
             <Card className="border-2 border-gray-200 shadow-xl">
+              <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50 border-b-2 border-purple-100">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent flex items-center gap-2">
+                    <ImageIcon className="w-6 h-6 text-purple-600" />
+                    이미지 선택 및 순서 조정
+                  </CardTitle>
+                  {generatedImages.filter(img => img.isUserUploaded).length > 0 ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleClearUploadedImages}
+                      className="border-red-300 text-red-600 hover:bg-red-50 hover:border-red-400"
+                    >
+                      <X className="w-4 h-4 mr-2" />
+                      사진 초기화 ({generatedImages.filter(img => img.isUserUploaded).length}개)
+                    </Button>
+                  ) : null}
+                </div>
+              </CardHeader>
               <CardContent className="p-6">
                 <div className="flex items-center gap-2 mb-6 p-4 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg border border-blue-200">
                   <Sparkles className="w-5 h-5 text-blue-600" />
@@ -3225,30 +3445,49 @@ export default function ShortsPage() {
                   </p>
                 </div>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-                {sortedImages.map((img, index) => (
+                {sortedImages.map((img, index) => {
+                  // 사용자 업로드 이미지는 드래그 불가능
+                  const isUserUploaded = img.isUserUploaded
+                  return (
                   <Card
                     key={`${img.lineId}-${img.order}`}
-                    draggable={true}
+                    draggable={!isUserUploaded}
                     onDragStart={(e) => {
+                      if (isUserUploaded) {
+                        e.preventDefault()
+                        return
+                      }
                       e.stopPropagation()
                       handleDragStart(e, index)
                     }}
                     onDragOver={(e) => {
+                      if (isUserUploaded) {
+                        e.preventDefault()
+                        return
+                      }
                       e.preventDefault()
                       e.stopPropagation()
                       handleDragOver(e, index)
                     }}
                     onDragLeave={handleDragLeave}
                     onDrop={(e) => {
+                      if (isUserUploaded) {
+                        e.preventDefault()
+                        return
+                      }
                       e.preventDefault()
                       e.stopPropagation()
                       handleDrop(e, index)
                     }}
                     onDragEnd={handleDragEnd}
-                    className={`group cursor-move transition-all duration-300 select-none border-2 ${
+                    className={`group transition-all duration-300 select-none border-2 ${
+                      isUserUploaded 
+                        ? "cursor-default border-gray-300" 
+                        : "cursor-move hover:shadow-2xl hover:scale-105 border-gray-200 hover:border-purple-300"
+                    } ${
                       draggedImageIndex === index 
                         ? "opacity-50 scale-95 border-purple-400" 
-                        : "hover:shadow-2xl hover:scale-105 border-gray-200 hover:border-purple-300"
+                        : ""
                     }`}
                     style={{
                       userSelect: "none",
@@ -3269,10 +3508,12 @@ export default function ShortsPage() {
                       {/* 배경 그라데이션 효과 */}
                       <div className="absolute inset-0 opacity-0 group-hover:opacity-5 transition-opacity duration-300 bg-gradient-to-br from-purple-500 to-pink-500" />
                       
-                      {/* 드래그 핸들 */}
-                      <div className="absolute top-2 left-2 z-10 bg-gradient-to-r from-purple-600 to-pink-600 rounded-lg p-1.5 shadow-lg opacity-80 group-hover:opacity-100 transition-opacity">
-                        <GripVertical className="w-4 h-4 text-white" />
-                      </div>
+                      {/* 드래그 핸들 (사용자 업로드 이미지는 표시하지 않음) */}
+                      {!isUserUploaded && (
+                        <div className="absolute top-2 left-2 z-10 bg-gradient-to-r from-purple-600 to-pink-600 rounded-lg p-1.5 shadow-lg opacity-80 group-hover:opacity-100 transition-opacity">
+                          <GripVertical className="w-4 h-4 text-white" />
+                        </div>
+                      )}
                       
                       {/* 삭제 버튼 */}
                       <Button
@@ -3280,10 +3521,18 @@ export default function ShortsPage() {
                         size="sm"
                         className="absolute top-2 right-2 z-10 h-7 w-7 p-0 rounded-full shadow-lg hover:scale-110 transition-transform"
                         onClick={(e) => {
+                          e.preventDefault()
                           e.stopPropagation()
-                          handleImageDelete(index)
+                          handleImageDelete(index, e)
                         }}
-                        onMouseDown={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                        }}
+                        onMouseUp={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                        }}
                       >
                         <X className="w-3.5 h-3.5" />
                       </Button>
@@ -3315,7 +3564,8 @@ export default function ShortsPage() {
                       )}
                     </CardContent>
                   </Card>
-                ))}
+                  )
+                })}
               </div>
               
               {sortedImages.length === 0 && (
