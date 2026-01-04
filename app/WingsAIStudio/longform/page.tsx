@@ -178,6 +178,7 @@ import {
   ArrowDown,
   ArrowUp,
   AlertCircle,
+  Film,
 } from "lucide-react"
 import Link from "next/link"
 import {
@@ -200,6 +201,7 @@ import {
   generateAIThumbnail, // AI 썸네일 생성 함수 import 추가
   summarizeScriptForShorts, // 쇼츠 대본 요약 함수 import 추가
   generateHookingVideoPrompt, // 후킹 영상 프롬프트 생성 함수 import 추가
+  generateIntroPrompt, // 인트로 프롬프트 생성 함수 import 추가
   extractTopicFromScript, // 대본에서 주제 추출 함수 import 추가
   regenerateScript, // 대본 재생성 함수 import 추가
   analyzeBenchmarkScript, // 벤치마킹 대본 분석 함수 import 추가
@@ -405,6 +407,7 @@ const sidebarItems = [
   { id: "title", title: "제목/설명 생성", icon: Type, description: "최적화된 유튜브 제목 자동 생성" },
   { id: "thumbnail", title: "썸네일 생성기", icon: ImageIcon, description: "클릭률 높은 썸네일 디자인 생성" },
   { id: "shorts", title: "쇼츠 생성기", icon: Scissors, description: "롱폼 대본을 쇼츠 영상으로 변환" },
+  { id: "intro", title: "인트로 생성기", icon: Film, description: "15초 인트로 영상 프롬프트 생성" },
   // { id: "hooking-video", title: "후킹 영상 프롬프트", icon: Plus, description: "소라2용 30초 후킹 영상 프롬프트 생성", isSpecial: true }, // 비활성화
 ]
 
@@ -827,6 +830,324 @@ export default function LongformContentPage() {
   const [isPlayingShorts, setIsPlayingShorts] = useState(false) // 쇼츠 재생 중
   const [shortsCurrentTime, setShortsCurrentTime] = useState(0) // 쇼츠 현재 시간
   const [testImageFile, setTestImageFile] = useState<File | null>(null) // 테스트용 이미지 파일
+  
+  // 인트로 생성기 상태
+  const [introImageStyle, setIntroImageStyle] = useState<string>("stickman-animation") // 인트로 이미지 스타일
+  const [introPrompt, setIntroPrompt] = useState<string>("") // 생성된 인트로 프롬프트
+  const [isGeneratingIntroPrompt, setIsGeneratingIntroPrompt] = useState(false) // 인트로 프롬프트 생성 중
+  
+  // OpenAI API를 사용하여 소라AI용 인트로 프롬프트 생성 함수
+  const generateIntroPromptWithOpenAI = async (scriptText: string, imageStyle: string, apiKey: string): Promise<string> => {
+    // 먼저 대본을 10~12초 TTS에 맞게 핵심만 추출 (후킹용)
+    let hookingScript = ""
+    try {
+      const summaryResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content: `당신은 유튜브 영상 전문가입니다. 주어진 대본에서 10~12초 TTS로 읽을 수 있는 핵심 후킹 문구를 추출해주세요.
+
+요구사항:
+- 시청자의 호기심을 자극하는 강렬한 첫 문장
+- 대본의 가장 중요한 핵심 메시지
+- 10~12초 TTS로 읽을 수 있는 길이 (약 30~40자 정도)
+- 질문 형식이나 충격적인 사실이면 더 좋음
+- 원본 대본의 톤과 스타일 유지
+- 한국어로 작성`
+            },
+            {
+              role: "user",
+              content: `다음 대본에서 10~12초 TTS로 읽을 수 있는 핵심 후킹 문구를 추출해주세요:\n\n${scriptText}`
+            }
+          ],
+          temperature: 0.7,
+          max_tokens: 200,
+        }),
+      })
+
+      if (summaryResponse.ok) {
+        const summaryData = await summaryResponse.json()
+        hookingScript = summaryData.choices[0]?.message?.content?.trim() || scriptText.substring(0, 200)
+      } else {
+        // API 실패 시 원본 대본의 처음 부분 사용
+        hookingScript = scriptText.substring(0, 200)
+      }
+    } catch (error) {
+      console.error("[인트로 생성기] 대본 요약 실패:", error)
+      hookingScript = scriptText.substring(0, 200)
+    }
+
+    // 기본 프롬프트 템플릿 (사용자가 제공한 템플릿)
+    const baseTemplate = `Create a 15-second cinematic YouTube intro video based on the following narration script.
+
+[STYLE]
+Visual style: {VISUAL_STYLE}
+Mood: {MOOD}
+Color tone: {COLOR_TONE}
+Lighting: {LIGHTING}
+Animation style: {ANIMATION_STYLE}
+
+[CHARACTER & SCENE]
+A historical or symbolic figure representing the narrator
+The character should look calm, wise, and thoughtful
+Background should feel timeless and symbolic, not modern
+Atmosphere should evoke curiosity and hidden truth
+
+[SCENE STRUCTURE – TOTAL 15 SECONDS]
+
+Scene 1 (0–5s):
+Slow fade-in from darkness.
+Camera slowly pushes forward.
+Minimal motion, strong atmosphere.
+
+Scene 2 (5–10s):
+Slight camera pan or zoom.
+Visual tension increases.
+Light subtly shifts to emphasize emotion.
+
+Scene 3 (10–15s):
+Cinematic climax.
+End with a dramatic pause and fade-out.
+
+[NARRATION & TEXT – CRITICAL REQUIREMENTS]
+The following script must be spoken clearly as narration.
+CRITICAL: ABSOLUTELY NO TEXT, NO SUBTITLES, NO WORDS, NO LETTERS, NO TYPOGRAPHY, NO WRITING, NO CAPTIONS, NO LABELS, NO SIGNS, NO NUMBERS, NO SYMBOLS, NO TEXT OVERLAYS, NO TEXT ELEMENTS, NO TEXT IN ANY FORM, NO TEXT ANYWHERE IN THE IMAGE.
+The video must be 100% text-free. Only visual elements, no text whatsoever.
+The narration script is for audio only, NOT for display on screen.
+
+[NARRATION SCRIPT – FOR AUDIO ONLY, 10-12 SECONDS]
+"{NARRATION_SCRIPT}"
+
+[AUDIO]
+Voice: calm, deep, documentary-style Korean narration
+Narration duration: 10-12 seconds (the script should be read in 10-12 seconds)
+Background music: subtle cinematic tension, low volume, not distracting
+The narration should end around 10-12 seconds, and the remaining 3-5 seconds should be silent or music-only
+
+[OUTPUT REQUIREMENTS]
+Duration: exactly 15 seconds
+Aspect ratio: 16:9
+Quality: ultra high quality, cinematic
+No logos, no watermarks
+ABSOLUTELY NO TEXT, NO SUBTITLES, NO WORDS, NO LETTERS, NO TYPOGRAPHY, NO WRITING, NO CAPTIONS, NO LABELS, NO SIGNS, NO NUMBERS, NO SYMBOLS, NO TEXT OVERLAYS, NO TEXT ELEMENTS, NO TEXT IN ANY FORM, NO TEXT ANYWHERE IN THE IMAGE`
+
+    // 그림체별 스타일 가이드
+    const styleGuides: Record<string, {
+      visualStyle: string
+      mood: string
+      colorTone: string
+      lighting: string
+      animationStyle: string
+    }> = {
+      "stickman-animation": {
+        visualStyle: "hand-drawn stickman animation, simple and clean lines, minimalist",
+        mood: "light, playful, engaging",
+        colorTone: "bright colors, high contrast, vibrant",
+        lighting: "bright, clear lighting",
+        animationStyle: "smooth, simple motion, clean animation"
+      },
+      "realistic": {
+        visualStyle: "cinematic realistic, high-quality photography style",
+        mood: "professional, serious, documentary-style",
+        colorTone: "natural colors, realistic tones",
+        lighting: "cinematic lighting, professional",
+        animationStyle: "smooth camera movement, high-quality motion"
+      },
+      "realistic2": {
+        visualStyle: "ultra-realistic, detailed cinematic photography",
+        mood: "dramatic, professional, high-end",
+        colorTone: "rich, deep colors, cinematic color grading",
+        lighting: "cinematic rim light, dramatic shadows",
+        animationStyle: "smooth, slow camera movement, cinematic motion"
+      },
+      "animation2": {
+        visualStyle: "hand-drawn cinematic illustration, slightly realistic but artistic",
+        mood: "mysterious, intellectual, dramatic",
+        colorTone: "dark navy, warm gold highlights, soft contrast",
+        lighting: "cinematic rim light, subtle glow",
+        animationStyle: "smooth, slow camera movement, high-quality motion"
+      },
+      "animation3": {
+        visualStyle: "European graphic novel style, elegant and sophisticated illustration",
+        mood: "elegant, sophisticated, artistic",
+        colorTone: "warm, muted colors, artistic palette",
+        lighting: "soft, artistic lighting, gentle shadows",
+        animationStyle: "smooth, elegant motion, refined animation"
+      },
+    }
+
+    const styleGuide = styleGuides[imageStyle] || styleGuides["animation2"]
+
+    // 템플릿에 스타일과 대본 삽입 (요약된 후킹 대본 사용)
+    const filledTemplate = baseTemplate
+      .replace("{VISUAL_STYLE}", styleGuide.visualStyle)
+      .replace("{MOOD}", styleGuide.mood)
+      .replace("{COLOR_TONE}", styleGuide.colorTone)
+      .replace("{LIGHTING}", styleGuide.lighting)
+      .replace("{ANIMATION_STYLE}", styleGuide.animationStyle)
+      .replace("{NARRATION_SCRIPT}", hookingScript)
+
+    // OpenAI API 호출하여 소라AI용 최적화된 프롬프트 생성
+    try {
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content: `당신은 소라AI(Sora AI) 영상 생성 전문가입니다. 주어진 프롬프트 템플릿을 기반으로 소라AI에게 최적화된 상세한 영상 생성 프롬프트를 작성해주세요.
+
+요구사항:
+- 소라AI가 이해할 수 있는 명확하고 구체적인 프롬프트
+- 시각적 묘사를 상세하게 작성
+- 15초 인트로 영상에 최적화
+- 대본의 내용과 분위기를 정확히 반영
+- 제공된 템플릿 구조를 유지하면서 더 구체적으로 확장
+- 한국어 대본은 그대로 유지
+- 영어로 작성하되, 한국어 대본 부분은 따옴표 안에 유지`
+            },
+            {
+              role: "user",
+              content: `다음 프롬프트 템플릿을 기반으로 소라AI용 최적화된 프롬프트를 생성해주세요:\n\n${filledTemplate}`
+            }
+          ],
+          temperature: 0.7,
+          max_tokens: 2000,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(`OpenAI API 오류: ${response.status} ${JSON.stringify(errorData)}`)
+      }
+
+      const data = await response.json()
+      const generatedPrompt = data.choices[0]?.message?.content?.trim()
+
+      if (!generatedPrompt) {
+        throw new Error("프롬프트 생성에 실패했습니다.")
+      }
+
+      return generatedPrompt
+    } catch (error) {
+      console.error("[인트로 생성기] OpenAI API 호출 실패:", error)
+      // API 호출 실패 시 기본 템플릿 반환
+      return filledTemplate
+    }
+  }
+
+  // 인트로 프롬프트 직접 생성 함수 (클라이언트 사이드 - 폴백용)
+  const generateIntroPromptDirect = (scriptText: string, imageStyle: string): string => {
+    const styleGuides: Record<string, {
+      visualStyle: string
+      mood: string
+      colorTone: string
+      lighting: string
+      animationStyle: string
+    }> = {
+      "stickman-animation": {
+        visualStyle: "hand-drawn stickman animation, simple and clean lines, minimalist",
+        mood: "light, playful, engaging",
+        colorTone: "bright colors, high contrast, vibrant",
+        lighting: "bright, clear lighting",
+        animationStyle: "smooth, simple motion, clean animation"
+      },
+      "realistic": {
+        visualStyle: "cinematic realistic, high-quality photography style",
+        mood: "professional, serious, documentary-style",
+        colorTone: "natural colors, realistic tones",
+        lighting: "cinematic lighting, professional",
+        animationStyle: "smooth camera movement, high-quality motion"
+      },
+      "realistic2": {
+        visualStyle: "ultra-realistic, detailed cinematic photography",
+        mood: "dramatic, professional, high-end",
+        colorTone: "rich, deep colors, cinematic color grading",
+        lighting: "cinematic rim light, dramatic shadows",
+        animationStyle: "smooth, slow camera movement, cinematic motion"
+      },
+      "animation2": {
+        visualStyle: "hand-drawn cinematic illustration, slightly realistic but artistic",
+        mood: "mysterious, intellectual, dramatic",
+        colorTone: "dark navy, warm gold highlights, soft contrast",
+        lighting: "cinematic rim light, subtle glow",
+        animationStyle: "smooth, slow camera movement, high-quality motion"
+      },
+      "animation3": {
+        visualStyle: "European graphic novel style, elegant and sophisticated illustration",
+        mood: "elegant, sophisticated, artistic",
+        colorTone: "warm, muted colors, artistic palette",
+        lighting: "soft, artistic lighting, gentle shadows",
+        animationStyle: "smooth, elegant motion, refined animation"
+      },
+    }
+
+    const styleGuide = styleGuides[imageStyle] || styleGuides["animation2"]
+    const introScript = scriptText.length > 200 ? scriptText.substring(0, 200) + "..." : scriptText
+
+    return `Create a 15-second cinematic YouTube intro video based on the following narration script.
+
+[STYLE]
+Visual style: ${styleGuide.visualStyle}
+Mood: ${styleGuide.mood}
+Color tone: ${styleGuide.colorTone}
+Lighting: ${styleGuide.lighting}
+Animation style: ${styleGuide.animationStyle}
+
+[CHARACTER & SCENE]
+A historical or symbolic figure representing the narrator
+The character should look calm, wise, and thoughtful
+Background should feel timeless and symbolic, not modern
+Atmosphere should evoke curiosity and hidden truth
+
+[SCENE STRUCTURE – TOTAL 15 SECONDS]
+
+Scene 1 (0–5s):
+Slow fade-in from darkness.
+Camera slowly pushes forward.
+Minimal motion, strong atmosphere.
+
+Scene 2 (5–10s):
+Slight camera pan or zoom.
+Visual tension increases.
+Light subtly shifts to emphasize emotion.
+
+Scene 3 (10–15s):
+Cinematic climax.
+Text appears clearly on screen.
+End with a dramatic pause and fade-out.
+
+[NARRATION & TEXT – VERY IMPORTANT]
+The following script must be spoken clearly as narration.
+At the same time, show the exact same Korean text as subtitles on screen.
+Use clean, bold Korean typography.
+Text should appear line by line, synced with narration.
+
+[NARRATION SCRIPT – REPLACE THIS ONLY]
+"${introScript}"
+
+[AUDIO]
+Voice: calm, deep, documentary-style Korean narration
+Background music: subtle cinematic tension, low volume, not distracting
+
+[OUTPUT REQUIREMENTS]
+Duration: exactly 15 seconds
+Aspect ratio: 16:9
+Quality: ultra high quality, cinematic
+No logos, no watermarks`
+  }
 
   // 상태 저장 (localStorage에 저장, 새로고침 시에만 초기화)
   useEffect(() => {
@@ -4077,11 +4398,24 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       }
       
       // 썸네일 스타일 프롬프트 생성 (실사화/애니메이션화)
+      // thumbnailStyle이 선택되지 않으면 imageStyle을 사용
       let thumbnailStylePrompt: string | undefined = undefined
       if (thumbnailStyle === "realistic") {
         thumbnailStylePrompt = "hyperrealistic, photorealistic masterpiece, 8K, ultra-detailed, sharp focus, cinematic lighting, shot on a professional DSLR camera with a 50mm lens, realistic textures, natural lighting, professional photography"
       } else if (thumbnailStyle === "animation") {
         thumbnailStylePrompt = "2D animation style, cartoon illustration, vibrant colors, stylized art, flat design, cel-shaded, animated character design, colorful and playful, animated movie style, Disney animation style"
+      } else if (!thumbnailStyle && imageStyle) {
+        // thumbnailStyle이 선택되지 않았으면 imageStyle을 사용
+        // imageStyle에 맞는 스타일 프롬프트 생성
+        if (imageStyle === "stickman-animation") {
+          thumbnailStylePrompt = "stickman animation style, 2D vector cartoon, white circular face, simple black outline, dot eyes, curved mouth, thin black limbs, vibrant colors, flat cel shading, thick bold outlines, solid color fills"
+        } else if (imageStyle === "realistic" || imageStyle === "realistic2") {
+          thumbnailStylePrompt = "hyperrealistic, photorealistic masterpiece, 8K, ultra-detailed, sharp focus, cinematic lighting, shot on a professional DSLR camera with a 50mm lens"
+        } else if (imageStyle === "animation2") {
+          thumbnailStylePrompt = "flat 2D vector illustration, minimal vector art, stylized cartoon character, thick bold black outlines, unshaded, flat solid colors, cel-shaded, simple line art, comic book inking style, completely flat, no shadows, no gradients, no depth"
+        } else if (imageStyle === "animation3") {
+          thumbnailStylePrompt = "European graphic novel style, bande dessinée aesthetic, highly detailed traditional illustration, hand-drawn ink lines with cross-hatching shadows, sophisticated and muted color palette, atmospheric, cinematic frame"
+        }
       }
       
       console.log("[v0] AI 썸네일 생성 시작, 주제:", topicToUse, "이미지 스타일:", imageStyle, "커스텀 문구:", thumbnailCustomText, "문구 없이:", thumbnailWithoutText, "썸네일 스타일:", thumbnailStyle, "캐릭터:", characterDescription)
@@ -25476,6 +25810,194 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                 )}
               </CardContent>
             </Card>
+          </div>
+        )
+
+      case "intro":
+        return (
+          <div className="space-y-8">
+            <div className="text-center space-y-2 mb-8">
+              <div className="flex items-center justify-center gap-4">
+                <h2 className="text-4xl font-bold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 bg-clip-text text-transparent">
+                  인트로 생성기
+                </h2>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => window.open("https://loud-cowl-c24.notion.site/2de565477d5980aeb6dff4474c9db5b6", "_blank")}
+                  className="border-purple-300 text-purple-600 hover:bg-purple-50 hover:border-purple-400"
+                >
+                  <ExternalLink className="w-4 h-4 mr-2" />
+                  가이드북
+                </Button>
+              </div>
+              <p className="text-gray-500 text-sm">
+                대본을 기반으로 15초 인트로 영상을 만들기 위한 프롬프트를 생성합니다.
+              </p>
+            </div>
+
+            {/* 대본 확인 */}
+            <Card className="border-2 border-gray-200 shadow-xl">
+              <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50 border-b-2 border-purple-100">
+                <CardTitle className="text-xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent flex items-center gap-2">
+                  <CheckCircle className="w-6 h-6 text-purple-600" />
+                  대본 확인
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-6">
+                {script ? (
+                  <div className="p-4 bg-blue-50 rounded-lg">
+                    <p className="text-sm text-muted-foreground mb-2">현재 대본:</p>
+                    <p className="text-sm font-medium">{script.substring(0, 200)}{script.length > 200 ? "..." : ""}</p>
+                  </div>
+                ) : (
+                  <div className="p-4 bg-red-50 rounded-lg">
+                    <p className="text-sm text-red-600">⚠️ 대본이 필요합니다. 먼저 대본을 생성해주세요.</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* 그림체 선택 */}
+            <Card className="border-2 border-gray-200 shadow-xl">
+              <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50 border-b-2 border-purple-100">
+                <CardTitle className="text-xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent flex items-center gap-2">
+                  <ImageIcon className="w-6 h-6 text-purple-600" />
+                  그림체 선택
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-6">
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { id: "stickman-animation", label: "스틱맨 애니메이션", icon: "🎨" },
+                    { id: "realistic", label: "실사화", icon: "📸" },
+                    { id: "realistic2", label: "실사화2", icon: "🖼️" },
+                    { id: "animation2", label: "애니메이션2", icon: "✨" },
+                    { id: "animation3", label: "유럽풍 그래픽 노블", icon: "🎭" },
+                  ].map((style) => (
+                    <Button
+                      key={style.id}
+                      variant={introImageStyle === style.id ? "default" : "outline"}
+                      onClick={() => setIntroImageStyle(style.id)}
+                      className={`flex-1 h-14 transition-all duration-300 ${
+                        introImageStyle === style.id
+                          ? "bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white shadow-lg scale-105"
+                          : "hover:border-purple-300 hover:scale-105 hover:shadow-md"
+                      }`}
+                    >
+                      <span className="mr-2 text-lg">{style.icon}</span>
+                      {style.label}
+                    </Button>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* 프롬프트 생성 버튼 */}
+            <Card className="border-2 border-gray-200 shadow-xl">
+              <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50 border-b-2 border-purple-100">
+                <CardTitle className="text-xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent flex items-center gap-2">
+                  <Sparkles className="w-6 h-6 text-purple-600" />
+                  인트로 프롬프트 생성
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-6">
+                <Button
+                  onClick={async () => {
+                    if (!script) {
+                      alert("대본이 필요합니다. 먼저 대본을 생성해주세요.")
+                      return
+                    }
+                    
+                    setIsGeneratingIntroPrompt(true)
+                    setIntroPrompt("") // 이전 프롬프트 초기화
+                    
+                    try {
+                      const openaiApiKey = getApiKey()
+                      if (!openaiApiKey) {
+                        alert("OpenAI API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+                        setIsGeneratingIntroPrompt(false)
+                        return
+                      }
+                      
+                      console.log("[인트로 생성기] 프롬프트 생성 시작...")
+                      console.log("[인트로 생성기] 선택한 그림체:", introImageStyle)
+                      
+                      // 대본의 처음 부분을 사용 (15초 영상용)
+                      const introScript = script.substring(0, 500) // 대본의 처음 500자 사용
+                      console.log("[인트로 생성기] 사용할 대본 길이:", introScript.length, "자")
+                      
+                      // OpenAI API를 사용하여 소라AI용 프롬프트 생성
+                      const prompt = await generateIntroPromptWithOpenAI(introScript, introImageStyle, openaiApiKey)
+                      
+                      if (prompt && prompt.trim()) {
+                        console.log("[인트로 생성기] 프롬프트 생성 성공!")
+                        setIntroPrompt(prompt)
+                      } else {
+                        throw new Error("생성된 프롬프트가 비어있습니다.")
+                      }
+                    } catch (error) {
+                      console.error("[인트로 생성기] 프롬프트 생성 실패:", error)
+                      const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류"
+                      alert(`프롬프트 생성에 실패했습니다.\n\n오류: ${errorMessage}\n\nAPI 키가 올바른지 확인해주세요.`)
+                    } finally {
+                      setIsGeneratingIntroPrompt(false)
+                    }
+                  }}
+                  disabled={isGeneratingIntroPrompt || !script}
+                  className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white h-12 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isGeneratingIntroPrompt ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      프롬프트 생성 중...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="mr-2 h-4 w-4" />
+                      인트로 프롬프트 생성
+                    </>
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
+
+            {/* 생성된 프롬프트 표시 */}
+            {introPrompt && (
+              <Card className="border-2 border-gray-200 shadow-xl">
+                <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50 border-b-2 border-purple-100">
+                  <CardTitle className="text-xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent flex items-center gap-2">
+                    <FileText className="w-6 h-6 text-purple-600" />
+                    생성된 인트로 프롬프트
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-6">
+                  <div className="space-y-4">
+                    <Textarea
+                      value={introPrompt}
+                      readOnly
+                      className="min-h-[200px] font-mono text-sm"
+                    />
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={() => {
+                          navigator.clipboard.writeText(introPrompt)
+                          alert("프롬프트가 클립보드에 복사되었습니다.")
+                        }}
+                        variant="outline"
+                        className="flex-1"
+                      >
+                        <Copy className="w-4 h-4 mr-2" />
+                        복사
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      이 프롬프트를 사용하여 15초 인트로 영상을 생성할 수 있습니다.
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </div>
         )
 

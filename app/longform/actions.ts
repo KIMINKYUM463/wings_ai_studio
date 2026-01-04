@@ -1485,3 +1485,89 @@ export async function convertImageToVideo(
     throw error
   }
 }
+
+/**
+ * 인트로 프롬프트 생성 함수
+ * 대본과 그림체를 기반으로 15초 인트로 영상을 만들기 위한 프롬프트를 생성합니다.
+ * 
+ * @param scriptText - 대본 텍스트 (한글 가능)
+ * @param imageStyle - 선택한 그림체 스타일
+ * @param openaiApiKey - OpenAI API 키
+ * @returns 15초 인트로 영상용 프롬프트
+ */
+export async function generateIntroPrompt(
+  scriptText: string,
+  imageStyle: string,
+  openaiApiKey: string
+): Promise<string> {
+  if (!openaiApiKey) {
+    throw new Error("OpenAI API 키가 필요합니다.")
+  }
+
+  try {
+    // 그림체별 스타일 가이드
+    const styleGuides: Record<string, string> = {
+      "stickman-animation": "스틱맨 애니메이션 스타일, 간단하고 깔끔한 선으로 표현, 밝고 경쾌한 색상",
+      "realistic": "실사 스타일, 고품질 사진 같은 현실적인 이미지, 전문적인 느낌",
+      "realistic2": "실사 스타일 2, 더욱 세밀하고 정교한 현실적인 이미지",
+      "animation2": "애니메이션 스타일 2, 부드럽고 아름다운 애니메이션, 생동감 있는 색상",
+      "animation3": "유럽풍 그래픽 노블 스타일, 우아하고 세련된 그래픽, 고급스러운 느낌",
+    }
+
+    const styleGuide = styleGuides[imageStyle] || styleGuides["stickman-animation"]
+
+    const systemPrompt = `당신은 15초 인트로 영상을 만들기 위한 프롬프트 전문가입니다. 주어진 대본을 바탕으로 15초 분량의 인트로 영상을 만들 수 있는 상세한 프롬프트를 작성해주세요.
+
+요구사항:
+- 15초 영상에 최적화된 프롬프트
+- 대본의 핵심 내용을 시각적으로 표현
+- ${styleGuide}
+- 인트로 영상에 적합한 역동적이고 매력적인 장면
+- 시선을 끌 수 있는 강렬한 첫 인상
+- 16:9 비율에 최적화
+- 영상의 흐름과 리듬을 고려한 장면 구성
+
+프롬프트는 한국어로 작성하되, 이미지 생성에 필요한 구체적인 시각적 묘사를 포함해야 합니다.`
+
+    const userPrompt = `다음 대본을 기반으로 15초 인트로 영상 프롬프트를 생성해주세요:
+
+대본:
+${scriptText}
+
+위 대본의 핵심 내용을 담은 15초 인트로 영상 프롬프트를 작성해주세요.`
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${openaiApiKey}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.7,
+        max_tokens: 1000,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(`OpenAI API 오류: ${response.status} ${JSON.stringify(errorData)}`)
+    }
+
+    const data = await response.json()
+    const generatedPrompt = data.choices[0]?.message?.content?.trim()
+
+    if (!generatedPrompt) {
+      throw new Error("프롬프트 생성에 실패했습니다.")
+    }
+
+    return generatedPrompt
+  } catch (error) {
+    console.error("[인트로 생성기] 프롬프트 생성 실패:", error)
+    throw error
+  }
+}

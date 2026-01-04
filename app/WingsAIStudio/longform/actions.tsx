@@ -5113,7 +5113,8 @@ export async function generateAIThumbnail(
       input: {
         prompt: prompt,
         aspect_ratio: "16:9",
-        output_format: "png",
+        resolution: "1K", // 1K 해상도 사용
+        output_format: "jpg", // JPG 형식 사용
       },
     }
     

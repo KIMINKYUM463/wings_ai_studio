@@ -5581,3 +5581,131 @@ ${script}`
     throw error
   }
 }
+
+/**
+ * 인트로 프롬프트 생성 함수
+ * 대본과 그림체를 기반으로 15초 인트로 영상을 만들기 위한 프롬프트를 생성합니다.
+ * 
+ * @param scriptText - 대본 텍스트 (한글 가능)
+ * @param imageStyle - 선택한 그림체 스타일
+ * @param openaiApiKey - OpenAI API 키
+ * @returns 15초 인트로 영상용 프롬프트
+ */
+export async function generateIntroPrompt(
+  scriptText: string,
+  imageStyle: string,
+  openaiApiKey: string
+): Promise<string> {
+  if (!openaiApiKey) {
+    throw new Error("OpenAI API 키가 필요합니다.")
+  }
+
+  try {
+    // 그림체별 스타일 가이드
+    const styleGuides: Record<string, {
+      visualStyle: string
+      mood: string
+      colorTone: string
+      lighting: string
+      animationStyle: string
+    }> = {
+      "stickman-animation": {
+        visualStyle: "hand-drawn stickman animation, simple and clean lines, minimalist",
+        mood: "light, playful, engaging",
+        colorTone: "bright colors, high contrast, vibrant",
+        lighting: "bright, clear lighting",
+        animationStyle: "smooth, simple motion, clean animation"
+      },
+      "realistic": {
+        visualStyle: "cinematic realistic, high-quality photography style",
+        mood: "professional, serious, documentary-style",
+        colorTone: "natural colors, realistic tones",
+        lighting: "cinematic lighting, professional",
+        animationStyle: "smooth camera movement, high-quality motion"
+      },
+      "realistic2": {
+        visualStyle: "ultra-realistic, detailed cinematic photography",
+        mood: "dramatic, professional, high-end",
+        colorTone: "rich, deep colors, cinematic color grading",
+        lighting: "cinematic rim light, dramatic shadows",
+        animationStyle: "smooth, slow camera movement, cinematic motion"
+      },
+      "animation2": {
+        visualStyle: "hand-drawn cinematic illustration, slightly realistic but artistic",
+        mood: "mysterious, intellectual, dramatic",
+        colorTone: "dark navy, warm gold highlights, soft contrast",
+        lighting: "cinematic rim light, subtle glow",
+        animationStyle: "smooth, slow camera movement, high-quality motion"
+      },
+      "animation3": {
+        visualStyle: "European graphic novel style, elegant and sophisticated illustration",
+        mood: "elegant, sophisticated, artistic",
+        colorTone: "warm, muted colors, artistic palette",
+        lighting: "soft, artistic lighting, gentle shadows",
+        animationStyle: "smooth, elegant motion, refined animation"
+      },
+    }
+
+    const styleGuide = styleGuides[imageStyle] || styleGuides["animation2"]
+
+    // 대본을 15초에 맞게 요약 (필요시)
+    const introScript = scriptText.length > 200 ? scriptText.substring(0, 200) + "..." : scriptText
+
+    // 프롬프트 템플릿 생성
+    const prompt = `Create a 15-second cinematic YouTube intro video based on the following narration script.
+
+[STYLE]
+Visual style: ${styleGuide.visualStyle}
+Mood: ${styleGuide.mood}
+Color tone: ${styleGuide.colorTone}
+Lighting: ${styleGuide.lighting}
+Animation style: ${styleGuide.animationStyle}
+
+[CHARACTER & SCENE]
+A historical or symbolic figure representing the narrator
+The character should look calm, wise, and thoughtful
+Background should feel timeless and symbolic, not modern
+Atmosphere should evoke curiosity and hidden truth
+
+[SCENE STRUCTURE – TOTAL 15 SECONDS]
+
+Scene 1 (0–5s):
+Slow fade-in from darkness.
+Camera slowly pushes forward.
+Minimal motion, strong atmosphere.
+
+Scene 2 (5–10s):
+Slight camera pan or zoom.
+Visual tension increases.
+Light subtly shifts to emphasize emotion.
+
+Scene 3 (10–15s):
+Cinematic climax.
+Text appears clearly on screen.
+End with a dramatic pause and fade-out.
+
+[NARRATION & TEXT – VERY IMPORTANT]
+The following script must be spoken clearly as narration.
+At the same time, show the exact same Korean text as subtitles on screen.
+Use clean, bold Korean typography.
+Text should appear line by line, synced with narration.
+
+[NARRATION SCRIPT – REPLACE THIS ONLY]
+"${introScript}"
+
+[AUDIO]
+Voice: calm, deep, documentary-style Korean narration
+Background music: subtle cinematic tension, low volume, not distracting
+
+[OUTPUT REQUIREMENTS]
+Duration: exactly 15 seconds
+Aspect ratio: 16:9
+Quality: ultra high quality, cinematic
+No logos, no watermarks`
+
+    return prompt
+  } catch (error) {
+    console.error("[인트로 생성기] 프롬프트 생성 실패:", error)
+    throw error
+  }
+}

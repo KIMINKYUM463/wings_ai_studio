@@ -50,6 +50,7 @@ import {
   Settings,
   Youtube,
   Calendar,
+  Film,
 } from "lucide-react"
 import Link from "next/link"
 import {
@@ -70,6 +71,7 @@ import {
   generateImageWithReplicate, // Replicate 이미지 생성 함수 import 추가
   generateAIThumbnail, // AI 썸네일 생성 함수 import 추가
   summarizeScriptForShorts, // 쇼츠 대본 요약 함수 import 추가
+  generateIntroPrompt, // 인트로 프롬프트 생성 함수 import 추가
 } from "./actions"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
@@ -150,6 +152,7 @@ const sidebarItems = [
   { id: "title", title: "제목/설명 생성", icon: Type, description: "최적화된 유튜브 제목 자동 생성" },
   { id: "thumbnail", title: "썸네일 생성기", icon: ImageIcon, description: "클릭률 높은 썸네일 디자인 생성" },
   { id: "shorts", title: "쇼츠 생성기", icon: Scissors, description: "롱폼 대본을 쇼츠 영상으로 변환" },
+  { id: "intro", title: "인트로 생성기", icon: Film, description: "15초 인트로 영상 프롬프트 생성" },
 ]
 
 const parseAnalysisForCharts = (analysis: string) => {
@@ -390,6 +393,11 @@ export default function LongformContentPage() {
   const [testImageFile, setTestImageFile] = useState<File | null>(null) // 테스트용 이미지 파일
   const [testImageUrl, setTestImageUrl] = useState<string | null>(null) // 테스트용 이미지 URL
   const previewContainerRef = useRef<HTMLDivElement | null>(null)
+  
+  // 인트로 생성기 상태
+  const [introImageStyle, setIntroImageStyle] = useState<string>("stickman-animation") // 인트로 이미지 스타일
+  const [introPrompt, setIntroPrompt] = useState<string>("") // 생성된 인트로 프롬프트
+  const [isGeneratingIntroPrompt, setIsGeneratingIntroPrompt] = useState(false) // 인트로 프롬프트 생성 중
   
   // 역사 카테고리 스타일 선택 (애니메이션/실사)
   const [historyStyle, setHistoryStyle] = useState<"animation" | "realistic">("animation")
@@ -12171,6 +12179,153 @@ export default function LongformContentPage() {
                 </>
               )}
             </div>
+          </div>
+        )
+
+      case "intro":
+        return (
+          <div className="space-y-6">
+            <h2 className="text-3xl font-bold mb-6">인트로 생성기</h2>
+            <p className="text-muted-foreground mb-6">
+              대본을 기반으로 15초 인트로 영상을 만들기 위한 프롬프트를 생성합니다.
+            </p>
+
+            {/* 대본 확인 */}
+            <Card className="mb-6">
+              <CardHeader>
+                <CardTitle className="text-lg">대본 확인</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {script ? (
+                  <div className="p-4 bg-blue-50 rounded-lg">
+                    <p className="text-sm text-muted-foreground mb-2">현재 대본:</p>
+                    <p className="text-sm font-medium">{script.substring(0, 200)}{script.length > 200 ? "..." : ""}</p>
+                  </div>
+                ) : (
+                  <div className="p-4 bg-red-50 rounded-lg">
+                    <p className="text-sm text-red-600">⚠️ 대본이 필요합니다. 먼저 대본을 생성해주세요.</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* 그림체 선택 */}
+            <Card className="mb-6">
+              <CardHeader>
+                <CardTitle className="text-lg">그림체 선택</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { id: "stickman-animation", label: "스틱맨 애니메이션", icon: "🎨" },
+                    { id: "realistic", label: "실사화", icon: "📸" },
+                    { id: "realistic2", label: "실사화2", icon: "🖼️" },
+                    { id: "animation2", label: "애니메이션2", icon: "✨" },
+                    { id: "animation3", label: "유럽풍 그래픽 노블", icon: "🎭" },
+                  ].map((style) => (
+                    <Button
+                      key={style.id}
+                      variant={introImageStyle === style.id ? "default" : "outline"}
+                      onClick={() => setIntroImageStyle(style.id)}
+                      className={`flex-1 h-14 transition-all duration-300 ${
+                        introImageStyle === style.id
+                          ? "bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white shadow-lg scale-105"
+                          : "hover:border-purple-300 hover:scale-105 hover:shadow-md"
+                      }`}
+                    >
+                      <span className="mr-2 text-lg">{style.icon}</span>
+                      {style.label}
+                    </Button>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* 프롬프트 생성 버튼 */}
+            <Card className="mb-6">
+              <CardHeader>
+                <CardTitle className="text-lg">인트로 프롬프트 생성</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Button
+                  onClick={async () => {
+                    if (!script) {
+                      alert("대본이 필요합니다. 먼저 대본을 생성해주세요.")
+                      return
+                    }
+                    setIsGeneratingIntroPrompt(true)
+                    try {
+                      // 인트로 프롬프트 생성 함수 호출 (actions 파일에 추가 필요)
+                      const openaiApiKey = getApiKey()
+                      if (!openaiApiKey) {
+                        alert("OpenAI API 키가 필요합니다.")
+                        setIsGeneratingIntroPrompt(false)
+                        return
+                      }
+                      
+                      // 대본의 처음 부분을 사용 (15초 영상용)
+                      const introScript = script.substring(0, 500) // 대본의 처음 500자 사용
+                      
+                      const prompt = await generateIntroPrompt(introScript, introImageStyle, openaiApiKey)
+                      setIntroPrompt(prompt)
+                    } catch (error) {
+                      console.error("[인트로 생성기] 프롬프트 생성 실패:", error)
+                      alert("프롬프트 생성에 실패했습니다.")
+                    } finally {
+                      setIsGeneratingIntroPrompt(false)
+                    }
+                  }}
+                  disabled={isGeneratingIntroPrompt || !script}
+                  className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white"
+                >
+                  {isGeneratingIntroPrompt ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      프롬프트 생성 중...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="mr-2 h-4 w-4" />
+                      인트로 프롬프트 생성
+                    </>
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
+
+            {/* 생성된 프롬프트 표시 */}
+            {introPrompt && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">생성된 인트로 프롬프트</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <Textarea
+                      value={introPrompt}
+                      readOnly
+                      className="min-h-[200px] font-mono text-sm"
+                    />
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={() => {
+                          navigator.clipboard.writeText(introPrompt)
+                          alert("프롬프트가 클립보드에 복사되었습니다.")
+                        }}
+                        variant="outline"
+                        className="flex-1"
+                      >
+                        <Copy className="w-4 h-4 mr-2" />
+                        복사
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      이 프롬프트를 사용하여 15초 인트로 영상을 생성할 수 있습니다.
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </div>
         )
 
