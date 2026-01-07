@@ -179,6 +179,7 @@ import {
   ArrowUp,
   AlertCircle,
   Film,
+  Hash,
 } from "lucide-react"
 import Link from "next/link"
 import {
@@ -848,6 +849,14 @@ export default function LongformContentPage() {
   const [chatbotMessages, setChatbotMessages] = useState<Array<{ type: "user" | "assistant"; content: string }>>([]) // 챗봇 메시지
   const [chatbotInput, setChatbotInput] = useState<string>("") // 챗봇 입력
   const [isChatbotGenerating, setIsChatbotGenerating] = useState(false) // 챗봇 응답 생성 중
+  
+  // 쇼츠 해시태그 상태
+  const [shortsHashtags, setShortsHashtags] = useState<string>("") // 쇼츠 해시태그 (콤마로 구분)
+  const [shortsTitles, setShortsTitles] = useState<string[]>([]) // 쇼츠 제목 목록 (3개)
+  const [shortsDescription, setShortsDescription] = useState<string>("") // 쇼츠 설명글
+  const [isGeneratingShortsTitles, setIsGeneratingShortsTitles] = useState(false) // 쇼츠 제목 생성 중
+  const [isGeneratingShortsDescription, setIsGeneratingShortsDescription] = useState(false) // 쇼츠 설명 생성 중
+  const [isGeneratingShortsTags, setIsGeneratingShortsTags] = useState(false) // 쇼츠 태그 생성 중
   
   // 대댓글 생성 함수
   const handleGenerateCommentReply = async () => {
@@ -5882,8 +5891,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     }
   }
 
-  // 쇼츠 제목 생성 함수
-  const handleGenerateShortsTitle = async () => {
+  // 쇼츠 제목 생성 함수 (새로운 프롬프트)
+  const handleGenerateShortsTitles = async () => {
     if (!summarizedScript) {
       alert("요약된 대본이 필요합니다.")
       return
@@ -5895,18 +5904,245 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       return
     }
 
-    setIsGeneratingShortsTitle(true)
+    setIsGeneratingShortsTitles(true)
     try {
-      // selectedTopic이 없으면 summarizedScript의 앞부분을 주제로 사용
       const topicToUse = selectedTopic || summarizedScript.substring(0, 100).replace(/\n/g, " ").trim()
-      const title = await generateShortsHookingTitle(topicToUse, summarizedScript, openaiApiKey)
-      setShortsHookingTitle(title)
-      console.log("[Shorts] 생성된 제목:", title)
+      
+      const systemPrompt = `너는 유튜브 쇼츠 전문 제목 생성 AI다.
+
+생성된 롱폼 대본 "주제"를 기반으로
+유튜브 쇼츠에서 클릭률(CTR)을 극대화할 수 있는
+제목을 생성하라.
+
+[제목 생성 규칙]
+- 40자 이내
+- 첫 3초에 시선 끌 수 있는 표현 사용
+- 질문형 / 경고형 / 반전형 중 최소 1개 포함
+- 추상적인 표현 금지
+- 설명형 문장 금지 (❌ ~에 대해 알아봅니다)
+- 이모지는 최대 1개
+
+[출력 형식]
+1. 제목
+2. 제목
+3. 제목`
+
+      const userPrompt = `주제: ${topicToUse}
+
+위 주제를 기반으로 쇼츠 제목 3개를 생성해주세요.`
+
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${openaiApiKey}`,
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          temperature: 0.7,
+          max_tokens: 300,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error?.message || "제목 생성에 실패했습니다.")
+      }
+
+      const data = await response.json()
+      const reply = data.choices[0]?.message?.content || ""
+      
+      // 제목 추출 (1. 2. 3. 형식 또는 줄바꿈으로 구분)
+      const titles = reply
+        .split('\n')
+        .map((line: string) => line.replace(/^\d+\.\s*/, '').trim())
+        .filter((line: string) => line.length > 0)
+        .slice(0, 3)
+      
+      setShortsTitles(titles)
+      console.log("[Shorts] 생성된 제목들:", titles)
     } catch (error) {
       console.error("제목 생성 실패:", error)
-      alert("제목 생성에 실패했습니다.")
+      const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다."
+      alert(`제목 생성에 실패했습니다: ${errorMessage}`)
     } finally {
-      setIsGeneratingShortsTitle(false)
+      setIsGeneratingShortsTitles(false)
+    }
+  }
+
+  // 쇼츠 설명글 생성 함수
+  const handleGenerateShortsDescription = async () => {
+    if (!shortsTitles.length && !selectedTopic) {
+      alert("제목을 먼저 생성하거나 주제를 선택해주세요.")
+      return
+    }
+
+    const openaiApiKey = getApiKey("openai_api_key")
+    if (!openaiApiKey) {
+      alert("OpenAI API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+      return
+    }
+
+    setIsGeneratingShortsDescription(true)
+    try {
+      const topicToUse = selectedTopic || summarizedScript?.substring(0, 100).replace(/\n/g, " ").trim() || ""
+      const titleToUse = shortsTitles[0] || ""
+      
+      const systemPrompt = `너는 유튜브 쇼츠 설명글(description) 최적화 AI다.
+
+입력된 "제목"과 "주제"를 기반으로
+쇼츠 업로드 시 사용하는 설명글을 작성하라.
+
+[설명글 작성 규칙]
+- 총 2~4줄
+- 첫 줄에 핵심 키워드 + 요약 문장 배치
+- 알고리즘이 이해하기 쉬운 자연어
+- 해시태그 ❌
+- "이 영상은", "영상에서" 같은 표현 ❌
+- 질문형 문장 1개 포함
+- 이모지는 최대 1개
+
+[출력 형식]
+설명글만 출력 (문장 번호 ❌)`
+
+      const userPrompt = `주제: ${topicToUse}
+제목: ${titleToUse}
+
+위 정보를 기반으로 쇼츠 설명글을 작성해주세요.`
+
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${openaiApiKey}`,
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          temperature: 0.7,
+          max_tokens: 300,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error?.message || "설명 생성에 실패했습니다.")
+      }
+
+      const data = await response.json()
+      const description = data.choices[0]?.message?.content || ""
+      
+      // 문장 번호 제거
+      const cleanDescription = description
+        .split('\n')
+        .map((line: string) => line.replace(/^\d+\.\s*/, '').trim())
+        .filter((line: string) => line.length > 0)
+        .join('\n')
+        .trim()
+      
+      setShortsDescription(cleanDescription)
+      console.log("[Shorts] 생성된 설명:", cleanDescription)
+    } catch (error) {
+      console.error("설명 생성 실패:", error)
+      const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다."
+      alert(`설명 생성에 실패했습니다: ${errorMessage}`)
+    } finally {
+      setIsGeneratingShortsDescription(false)
+    }
+  }
+
+  // 쇼츠 태그 생성 함수
+  const handleGenerateShortsTags = async () => {
+    if (!selectedTopic && !shortsTitles.length) {
+      alert("주제를 선택하거나 제목을 먼저 생성해주세요.")
+      return
+    }
+
+    const openaiApiKey = getApiKey("openai_api_key")
+    if (!openaiApiKey) {
+      alert("OpenAI API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+      return
+    }
+
+    setIsGeneratingShortsTags(true)
+    try {
+      const topicToUse = selectedTopic || summarizedScript?.substring(0, 100).replace(/\n/g, " ").trim() || ""
+      const titleToUse = shortsTitles[0] || ""
+      
+      const systemPrompt = `너는 유튜브 쇼츠 태그 최적화 전문 AI다.
+
+입력된 "주제"와 "제목"을 기반으로
+유튜브 쇼츠 노출에 도움이 되는 태그를 생성하라.
+
+[태그 생성 규칙]
+- 콤마(,)로만 구분
+- 총 15~25개
+- 한글 태그만 사용 (영어 태그 절대 금지)
+- 한 태그당 최대 15자
+- 검색형 + 추천형 태그 혼합
+- 중복 의미 태그는 형태만 다르게 생성
+
+[출력 형식]
+태그1,태그2,태그3,...`
+
+      const userPrompt = `주제: ${topicToUse}
+제목: ${titleToUse}
+
+위 정보를 기반으로 쇼츠 태그를 생성해주세요.`
+
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${openaiApiKey}`,
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          temperature: 0.7,
+          max_tokens: 500,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error?.message || "태그 생성에 실패했습니다.")
+      }
+
+      const data = await response.json()
+      const tags = data.choices[0]?.message?.content || ""
+      
+      // 태그 정리 (콤마로 구분, 공백 제거, 영어 태그 제거)
+      const cleanTags = tags
+        .split(',')
+        .map((tag: string) => tag.trim())
+        .filter((tag: string) => {
+          // 영어가 포함된 태그 제거 (한글만 허용)
+          if (tag.length === 0) return false
+          // 영어 문자나 숫자가 포함되어 있으면 제거
+          const hasEnglish = /[a-zA-Z0-9]/.test(tag)
+          return !hasEnglish
+        })
+        .join(',')
+      
+      setShortsHashtags(cleanTags)
+      console.log("[Shorts] 생성된 태그:", cleanTags)
+    } catch (error) {
+      console.error("태그 생성 실패:", error)
+      const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다."
+      alert(`태그 생성에 실패했습니다: ${errorMessage}`)
+    } finally {
+      setIsGeneratingShortsTags(false)
     }
   }
 
@@ -26053,122 +26289,183 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-6 space-y-4">
-                  <div className="flex gap-4 items-start">
-                    {/* 제목 생성 버튼 */}
-                    <div className="flex-1">
+                  <Button
+                    onClick={handleGenerateShortsTitles}
+                    disabled={!summarizedScript || isGeneratingShortsTitles}
+                    className="w-full h-14 text-lg font-semibold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 hover:from-purple-700 hover:via-pink-700 hover:to-blue-700 text-white shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                  >
+                    {isGeneratingShortsTitles ? (
+                      <>
+                        <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                        제목 생성 중...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-5 h-5 mr-2" />
+                        쇼츠 제목 3개 생성하기
+                      </>
+                    )}
+                  </Button>
+
+                  {/* 생성된 제목 목록 */}
+                  {shortsTitles.length > 0 && (
+                    <div className="space-y-3 mt-4">
+                      {shortsTitles.map((title, index) => (
+                        <div
+                          key={index}
+                          className="p-4 bg-gradient-to-br from-yellow-50 to-orange-50 rounded-lg border-2 border-yellow-200 flex items-center justify-between group"
+                        >
+                          <p className="text-lg font-bold text-gray-900 flex-1">{title}</p>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="ml-3 flex-shrink-0"
+                            onClick={(e) => {
+                              navigator.clipboard.writeText(title)
+                              const button = e.currentTarget
+                              const originalText = button.textContent
+                              button.textContent = "복사됨!"
+                              setTimeout(() => {
+                                button.textContent = originalText
+                              }, 1000)
+                            }}
+                          >
+                            <Copy className="w-4 h-4 mr-1" />
+                            복사
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* 설명글 생성 */}
+            {shortsTitles.length > 0 && (
+              <Card className="border-2 border-gray-200 shadow-xl">
+                <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50 border-b-2 border-purple-100">
+                  <CardTitle className="text-xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent flex items-center gap-2">
+                    <FileText className="w-6 h-6 text-purple-600" />
+                    설명글 생성
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-6 space-y-4">
+                  <Button
+                    onClick={handleGenerateShortsDescription}
+                    disabled={isGeneratingShortsDescription}
+                    className="w-full h-14 text-lg font-semibold bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 hover:from-blue-700 hover:via-purple-700 hover:to-pink-700 text-white shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                  >
+                    {isGeneratingShortsDescription ? (
+                      <>
+                        <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                        설명 생성 중...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-5 h-5 mr-2" />
+                        쇼츠 설명글 생성하기
+                      </>
+                    )}
+                  </Button>
+
+                  {/* 생성된 설명 */}
+                  {shortsDescription && (
+                    <div className="mt-4 p-4 bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg border-2 border-blue-200">
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="text-sm text-gray-700 whitespace-pre-wrap flex-1">{shortsDescription}</p>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="flex-shrink-0"
+                          onClick={(e) => {
+                            navigator.clipboard.writeText(shortsDescription)
+                            const button = e.currentTarget
+                            const originalText = button.textContent
+                            button.textContent = "복사됨!"
+                            setTimeout(() => {
+                              button.textContent = originalText
+                            }, 1000)
+                          }}
+                        >
+                          <Copy className="w-4 h-4 mr-1" />
+                          복사
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* 태그 생성 */}
+            {shortsTitles.length > 0 && (
+              <Card className="border-2 border-gray-200 shadow-xl">
+                <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50 border-b-2 border-purple-100">
+                  <CardTitle className="text-xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent flex items-center gap-2">
+                    <Hash className="w-6 h-6 text-purple-600" />
+                    태그 생성
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-6 space-y-4">
+                  <Button
+                    onClick={handleGenerateShortsTags}
+                    disabled={isGeneratingShortsTags}
+                    className="w-full h-14 text-lg font-semibold bg-gradient-to-r from-pink-600 via-purple-600 to-blue-600 hover:from-pink-700 hover:via-purple-700 hover:to-blue-700 text-white shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                  >
+                    {isGeneratingShortsTags ? (
+                      <>
+                        <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                        태그 생성 중...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-5 h-5 mr-2" />
+                        쇼츠 태그 생성하기
+                      </>
+                    )}
+                  </Button>
+
+                  {/* 생성된 태그 */}
+                  {shortsHashtags && (
+                    <div className="mt-4 space-y-3">
+                      <Textarea
+                        value={shortsHashtags}
+                        onChange={(e) => setShortsHashtags(e.target.value)}
+                        className="min-h-[80px] bg-white border-2 border-gray-300 rounded-lg"
+                        placeholder="태그를 콤마로 구분하여 입력하세요"
+                      />
+                      <div className="flex flex-wrap gap-2">
+                        {shortsHashtags.split(',').map((tag, index) => {
+                          const trimmedTag = tag.trim()
+                          if (!trimmedTag) return null
+                          return (
+                            <span
+                              key={index}
+                              className="px-3 py-1 bg-gradient-to-r from-pink-500 to-purple-500 text-white rounded-full text-sm font-semibold shadow-md"
+                            >
+                              #{trimmedTag}
+                            </span>
+                          )
+                        })}
+                      </div>
                       <Button
-                        onClick={handleGenerateShortsTitle}
-                        disabled={!summarizedScript || isGeneratingShortsTitle}
-                        className="w-full h-14 text-lg font-semibold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 hover:from-purple-700 hover:via-pink-700 hover:to-blue-700 text-white shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 !opacity-100 !pointer-events-auto cursor-pointer"
-                        size="lg"
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                        onClick={(e) => {
+                          navigator.clipboard.writeText(shortsHashtags)
+                          const button = e.currentTarget
+                          const originalText = button.textContent
+                          button.textContent = "태그 복사됨!"
+                          setTimeout(() => {
+                            button.textContent = originalText
+                          }, 1000)
+                        }}
                       >
-                        {isGeneratingShortsTitle ? (
-                          <>
-                            <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                            제목 생성 중...
-                          </>
-                        ) : (
-                          <>
-                            <Sparkles className="w-5 h-5 mr-2" />
-                            후킹 제목 생성하기
-                          </>
-                        )}
+                        <Copy className="w-4 h-4 mr-2" />
+                        태그 전체 복사
                       </Button>
-                    </div>
-                    
-                    {/* 제목 배치 샘플 시뮬레이션 */}
-                    <div className="flex-1 max-w-[150px]">
-                      <div className="relative aspect-[9/16] bg-black rounded-lg overflow-hidden border-2 border-gray-300" style={{ maxHeight: '200px' }}>
-                        {/* 샘플 배경 (첫 번째 이미지 또는 그라데이션) */}
-                        <div className="absolute inset-0 bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600 opacity-80">
-                          {(generatedImages.length > 0 && generatedImages[0]?.imageUrl) || (sceneImagePrompts.length > 0 && sceneImagePrompts[0]?.images?.[0]?.imageUrl) ? (
-                            <img 
-                              src={generatedImages[0]?.imageUrl || sceneImagePrompts[0]?.images?.[0]?.imageUrl || ""} 
-                              alt="샘플 배경" 
-                              className="w-full h-full object-cover opacity-50"
-                            />
-                          ) : null}
-                        </div>
-                        
-                        {/* 제목 배치 (생성된 제목이 있으면 표시, 없으면 샘플) */}
-                        <div className="absolute inset-0 flex flex-col justify-start items-center pt-4 px-2">
-                          {/* 첫 번째 줄 (노란색) */}
-                          {shortsHookingTitle?.line1 ? (
-                            <div className="text-center mb-1">
-                              <div className="inline-block px-2 py-1 bg-yellow-500 rounded-lg shadow-lg">
-                                <p className="text-white font-bold text-xs leading-tight whitespace-nowrap">
-                                  {shortsHookingTitle.line1}
-                                </p>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="text-center mb-1">
-                              <div className="inline-block px-2 py-1 bg-yellow-500 rounded-lg shadow-lg">
-                                <p className="text-white font-bold text-xs leading-tight">
-                                  샘플 제목 첫 줄
-                                </p>
-                              </div>
-                            </div>
-                          )}
-                          
-                          {/* 두 번째 줄 (흰색) */}
-                          {shortsHookingTitle?.line2 ? (
-                            <div className="text-center">
-                              <div className="inline-block px-2 py-1 bg-black/70 rounded-lg shadow-lg backdrop-blur-sm">
-                                <p className="text-white font-bold text-sm leading-tight whitespace-nowrap">
-                                  {shortsHookingTitle.line2}
-                                </p>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="text-center">
-                              <div className="inline-block px-2 py-1 bg-black/70 rounded-lg shadow-lg backdrop-blur-sm">
-                                <p className="text-white font-bold text-sm leading-tight">
-                                  샘플 제목 두 번째 줄
-                                </p>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                        
-                        {/* 설명 텍스트 */}
-                        <div className="absolute bottom-1 left-0 right-0 text-center">
-                          <p className="text-[10px] text-white/70 bg-black/50 px-1 py-0.5 rounded">
-                            미리보기
-                          </p>
-                        </div>
-                      </div>
-                      <p className="text-[10px] text-muted-foreground mt-1 text-center">
-                        {shortsHookingTitle ? "생성된 제목" : "제목 배치 예시"}
-                      </p>
-                    </div>
-                  </div>
-                  {shortsHookingTitle && (
-                    <div className="p-6 bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl border-2 border-purple-200 shadow-lg space-y-4">
-                      <p className="text-base font-bold text-gray-800 mb-3 flex items-center gap-2">
-                        <Sparkles className="w-5 h-5 text-purple-600" />
-                        생성된 제목 (수정 가능)
-                      </p>
-                      <div className="space-y-4">
-                        <div>
-                          <Label className="text-sm font-semibold text-gray-700 mb-2 block">첫 번째 줄 (꾸며주는 말)</Label>
-                          <Input
-                            value={shortsHookingTitle.line1}
-                            onChange={(e) => setShortsHookingTitle({ ...shortsHookingTitle, line1: e.target.value })}
-                            className="text-lg font-bold text-yellow-700 bg-yellow-50 border-2 border-yellow-300 rounded-lg px-4 py-3 shadow-md focus:ring-2 focus:ring-yellow-400 focus:border-yellow-500 transition-all"
-                            placeholder="첫 번째 줄 입력"
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-sm font-semibold text-gray-700 mb-2 block">두 번째 줄 (핵심 내용)</Label>
-                          <Input
-                            value={shortsHookingTitle.line2}
-                            onChange={(e) => setShortsHookingTitle({ ...shortsHookingTitle, line2: e.target.value })}
-                            className="text-lg font-bold text-white bg-gray-900 border-2 border-gray-700 rounded-lg px-4 py-3 shadow-md focus:ring-2 focus:ring-purple-400 focus:border-purple-500 transition-all"
-                            placeholder="두 번째 줄 입력"
-                          />
-                        </div>
-                      </div>
                     </div>
                   )}
                 </CardContent>
