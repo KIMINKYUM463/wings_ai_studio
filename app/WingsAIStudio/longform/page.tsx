@@ -27484,6 +27484,10 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                     )}
                   </Button>
                   
+                  <p className="text-sm text-red-600 font-semibold mt-2 text-center">
+                    ⚠️ '쇼츠 영상 렌더링 시작' 누르시고 다른 탭 가시면 안됩니다. 꼭 생성되시고 다른 탭 이동해주세요
+                  </p>
+                  
                   <p className="text-sm text-gray-500 mt-2 text-center">
                     재생 후 자막이 멈추면 한번더 렌더링 부탁드립니다
                   </p>
