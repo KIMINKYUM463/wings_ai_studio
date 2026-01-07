@@ -10716,16 +10716,47 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                   }
                 }
                 
-                // 모든 재시도 실패
-                console.error(`[Whisper] 장면 단위 STT 분석 최종 실패 (씬 ${task.sceneNum}, 장면 ${task.line.imageNumber}, ${MAX_RETRIES}회 시도)`)
+                // 모든 재시도 실패 - Fallback 방식으로 단어 타이밍 생성 (빠른 렌더링 방식)
+                console.warn(`[Whisper] 장면 단위 STT 분석 최종 실패 (씬 ${task.sceneNum}, 장면 ${task.line.imageNumber}, ${MAX_RETRIES}회 시도), Fallback 방식으로 처리`)
+                
+                // Fallback: 오디오 길이를 단어 개수로 균등 분배
+                const fallbackWordTimings: Array<{ word: string; start: number; end: number }> = []
+                const audioDuration = task.audioDuration || 0
+                
+                if (audioDuration > 0 && task.line.text) {
+                  // 텍스트를 단어로 분리 (공백 기준)
+                  const words = task.line.text.split(/\s+/).filter(w => w.trim().length > 0)
+                  
+                  if (words.length > 0) {
+                    // 각 단어에 균등하게 시간 분배
+                    const timePerWord = audioDuration / words.length
+                    
+                    for (let i = 0; i < words.length; i++) {
+                      const word = words[i].trim()
+                      if (word.length === 0) continue
+                      
+                      const wordStart = i * timePerWord
+                      const wordEnd = (i + 1) * timePerWord
+                      
+                      fallbackWordTimings.push({
+                        word: word,
+                        start: Number.parseFloat(wordStart.toFixed(10)),
+                        end: Number.parseFloat(wordEnd.toFixed(10)),
+                      })
+                    }
+                    
+                    console.log(`[Whisper Fallback] 단어 타이밍 생성 완료 (씬 ${task.sceneNum}, 장면 ${task.line.imageNumber}): ${fallbackWordTimings.length}개 단어 (오디오 길이: ${audioDuration.toFixed(3)}초)`)
+                  }
+                }
+                
                 return {
                   index: task.index,
                   sceneNum: task.sceneNum,
                   imageNumber: task.line.imageNumber,
                   lineId: task.line.lineId,
                   cumulativeTime: task.cumulativeTime,
-                  wordTimings: [],
-                  success: false,
+                  wordTimings: fallbackWordTimings,
+                  success: fallbackWordTimings.length > 0, // Fallback으로 생성된 타이밍이 있으면 success
                 }
               })
             )
