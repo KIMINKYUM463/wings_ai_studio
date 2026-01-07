@@ -10751,16 +10751,12 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                     } else {
                       const errorText = await whisperResponse.text()
                       const errorStatus = whisperResponse.status
-                      const isSizeError = errorStatus === 413 || 
-                                         errorText.includes("Request Entity Too Large") ||
-                                         errorText.includes("FUNCTION_PAYLOAD_TOO_LARGE") ||
-                                         errorText.includes("too large")
                       
                       console.warn(`[Whisper] 장면 단위 STT 분석 API 오류 (씬 ${task.sceneNum}, 장면 ${task.line.imageNumber}, 시도 ${attempt}/${MAX_RETRIES}):`, errorText)
                       
-                      // 크기 오류이고 첫 번째 시도인 경우 압축된 오디오로 재시도
-                      if (isSizeError && attempt === 1) {
-                        console.log(`[Whisper] 오디오 크기 문제 감지, 압축된 버전으로 재시도 (씬 ${task.sceneNum}, 장면 ${task.line.imageNumber})`)
+                      // 첫 번째 시도에서 API 오류 발생 시 무조건 압축된 오디오로 재시도 (크기 문제 가능성)
+                      if (attempt === 1) {
+                        console.log(`[Whisper] API 오류 발생, 오디오 크기 문제 가능성으로 압축된 버전으로 재시도 (씬 ${task.sceneNum}, 장면 ${task.line.imageNumber}, 오류: ${errorStatus})`)
                         try {
                           const compressedBlob = await compressAudioForWhisper(task.lineAudioBuffer)
                           const originalSize = (await audioBufferToBlob(task.lineAudioBuffer)).size
@@ -28051,11 +28047,29 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                           새 탭에서 열기
                         </Button>
                         <Button
-                          onClick={() => {
-                            const link = document.createElement("a")
-                            link.href = introVideoUrl
-                            link.download = "intro-video.mp4"
-                            link.click()
+                          onClick={async () => {
+                            try {
+                              // 외부 URL에서 영상 다운로드
+                              const response = await fetch(introVideoUrl)
+                              if (!response.ok) {
+                                throw new Error(`다운로드 실패: ${response.status}`)
+                              }
+                              
+                              const blob = await response.blob()
+                              const url = window.URL.createObjectURL(blob)
+                              const link = document.createElement("a")
+                              link.href = url
+                              link.download = `intro-video-${Date.now()}.mp4`
+                              document.body.appendChild(link)
+                              link.click()
+                              document.body.removeChild(link)
+                              window.URL.revokeObjectURL(url)
+                              
+                              console.log("[인트로 영상] 다운로드 완료")
+                            } catch (error) {
+                              console.error("[인트로 영상] 다운로드 실패:", error)
+                              alert(`영상 다운로드에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+                            }
                           }}
                           variant="outline"
                           className="flex-1"
