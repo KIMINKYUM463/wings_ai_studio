@@ -620,6 +620,7 @@ export default function LongformContentPage() {
   const [isLoadingSupertoneVoices, setIsLoadingSupertoneVoices] = useState(false) // 수퍼톤 음성 목록 로딩 중
   const [selectedSupertoneVoiceId, setSelectedSupertoneVoiceId] = useState<string>("") // 선택된 수퍼톤 음성 ID
   const [selectedSupertoneStyle, setSelectedSupertoneStyle] = useState<string>("neutral") // 선택된 수퍼톤 스타일
+  const [customSupertoneVoiceId, setCustomSupertoneVoiceId] = useState<string>("") // 사용자가 입력한 수퍼톤 음성 ID
   const [showAddVoiceDialog, setShowAddVoiceDialog] = useState(false) // 목소리 추가 다이얼로그
   const [newVoiceId, setNewVoiceId] = useState("") // 새 목소리 ID
   const [newVoiceName, setNewVoiceName] = useState("") // 새 목소리 이름
@@ -3173,28 +3174,30 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             let totalPhrases = 0
             const phraseMapping: Array<{ lineId: number; phrase: string; startTime: number; duration: number }> = []
             
-            let cumulativeTime = 0
+            let cumulativeTime = Number.parseFloat((0).toFixed(10)) // 소수점 10자리 정밀도
             for (const line of linesForTTS) {
-              // 수동 모드와 동일한 방식: audioDuration을 직접 사용 (정밀도 변환 없이)
+              // 소수점 10자리 정밀도로 계산
               const audioDuration = audioDurations.find((d) => d.lineId === line.id)?.duration || 0
               if (audioDuration > 0) {
                 const phrases = splitIntoSemanticPhrases(line.text)
-                // 수동 모드와 동일한 방식: 정밀도 변환 없이 직접 계산
-                const phraseDuration = audioDuration / phrases.length
+                // 소수점 10자리 정밀도로 계산
+                const audioDurationPrecise = Number.parseFloat(audioDuration.toFixed(10))
+                const phrasesCount = phrases.length
+                const phraseDuration = Number.parseFloat((audioDurationPrecise / phrasesCount).toFixed(10))
                 
                 for (let j = 0; j < phrases.length; j++) {
+                  const phraseStartTime = Number.parseFloat((cumulativeTime + (j * phraseDuration)).toFixed(10))
                   phraseMapping.push({
                     lineId: line.id,
                     phrase: phrases[j],
-                    // 수동 모드와 동일한 방식: 정밀도 변환 없이 직접 계산
-                    startTime: cumulativeTime + (j * phraseDuration),
+                    startTime: phraseStartTime,
                     duration: phraseDuration,
                   })
                   totalPhrases++
                 }
                 
-                // 수동 모드와 동일한 방식: 정밀도 변환 없이 직접 계산
-                cumulativeTime += audioDuration
+                // 소수점 10자리 정밀도로 누적 시간 계산
+                cumulativeTime = Number.parseFloat((cumulativeTime + audioDurationPrecise).toFixed(10))
               }
             }
             
@@ -3566,11 +3569,13 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                 }
               }
             } else {
-              // Fallback: 균등 분배
-              const timePerWord = totalDuration / words.length
+              // Fallback: 균등 분배 (소수점 10자리 정밀도)
+              const totalDurationPrecise = Number.parseFloat(totalDuration.toFixed(10))
+              const wordsCount = words.length
+              const timePerWord = Number.parseFloat((totalDurationPrecise / wordsCount).toFixed(10))
               for (let i = 0; i < words.length; i++) {
-                wordStartTimes.push(i * timePerWord)
-                wordEndTimes.push((i + 1) * timePerWord)
+                wordStartTimes.push(Number.parseFloat((i * timePerWord).toFixed(10)))
+                wordEndTimes.push(Number.parseFloat(((i + 1) * timePerWord).toFixed(10)))
               }
             }
             
@@ -3721,7 +3726,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             // Whisper 결과가 없거나 불충분하면 기존 방식 사용 (텍스트 길이 비율 기반)
             console.log(`[자동화] Whisper 결과 없음 또는 불충분, Fallback 방식으로 자막 생성`)
             
-            let subtitleTime = 0
+            let subtitleTime = Number.parseFloat((0).toFixed(10)) // 소수점 10자리 정밀도
             
             // 장면별 TTS 생성, 15~20자씩 나눈 청크로 자막 생성
             for (const line of linesForTTS) {
@@ -3731,19 +3736,20 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               if (audioDuration > 0) {
                 // 영상 렌더링 시점에 15~20자씩 나누기
                 const subtitleChunks = splitTextForSubtitles(line.text, 15, 20)
-                console.log(`[자막 생성] 청크별 자막 생성 (문장 ${line.id}, ${subtitleChunks.length}개 청크, 전체 오디오: ${audioDuration.toFixed(3)}초)`)
+                console.log(`[자막 생성] 청크별 자막 생성 (문장 ${line.id}, ${subtitleChunks.length}개 청크, 전체 오디오: ${audioDuration.toFixed(10)}초)`)
                 
                 const totalTextLength = line.text.length
+                const audioDurationPrecise = Number.parseFloat(audioDuration.toFixed(10))
                 
                 for (let j = 0; j < subtitleChunks.length; j++) {
                   const chunk = subtitleChunks[j]
                   
-                  // 텍스트 길이 비율로 타이밍 계산
-                  const chunkStartRatio = chunk.startChar / totalTextLength
-                  const chunkEndRatio = chunk.endChar / totalTextLength
+                  // 텍스트 길이 비율로 타이밍 계산 (소수점 10자리 정밀도)
+                  const chunkStartRatio = Number.parseFloat((chunk.startChar / totalTextLength).toFixed(10))
+                  const chunkEndRatio = Number.parseFloat((chunk.endChar / totalTextLength).toFixed(10))
                   
-                  const chunkStart = subtitleTime + (audioDuration * chunkStartRatio)
-                  const chunkEnd = subtitleTime + (audioDuration * chunkEndRatio)
+                  const chunkStart = Number.parseFloat((subtitleTime + (audioDurationPrecise * chunkStartRatio)).toFixed(10))
+                  const chunkEnd = Number.parseFloat((subtitleTime + (audioDurationPrecise * chunkEndRatio)).toFixed(10))
                   
                   subtitles.push({
                     id: subtitleId++,
@@ -3752,19 +3758,20 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                     text: chunk.text
                   })
                   
-                  console.log(`[자막 생성] 청크 ${j + 1}/${subtitleChunks.length}: "${chunk.text}" (${chunkStart.toFixed(3)}초 ~ ${chunkEnd.toFixed(3)}초, ${chunk.text.length}자)`)
+                  console.log(`[자막 생성] 청크 ${j + 1}/${subtitleChunks.length}: "${chunk.text}" (${chunkStart.toFixed(10)}초 ~ ${chunkEnd.toFixed(10)}초, ${chunk.text.length}자)`)
                 }
                 
-                subtitleTime += audioDuration
+                subtitleTime = Number.parseFloat((subtitleTime + audioDurationPrecise).toFixed(10))
               } else {
-                // 오디오가 없으면 기본값 사용 (3초)
+                // 오디오가 없으면 기본값 사용 (3초, 소수점 10자리 정밀도)
+                const defaultDuration = Number.parseFloat((3).toFixed(10))
                 subtitles.push({
                   id: subtitleId++,
                   start: Number.parseFloat(alignToFrame(subtitleTime).toFixed(10)),
-                  end: Number.parseFloat(alignToFrame(subtitleTime + 3).toFixed(10)),
+                  end: Number.parseFloat(alignToFrame(Number.parseFloat((subtitleTime + defaultDuration).toFixed(10))).toFixed(10)),
                   text: line.text
                 })
-                subtitleTime += 3
+                subtitleTime = Number.parseFloat((subtitleTime + defaultDuration).toFixed(10))
               }
             }
           }
@@ -10566,7 +10573,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           let totalPhrases = 0
           const phraseMapping: Array<{ lineId: number; phrase: string; startTime: number; duration: number; sceneNum: number }> = []
           
-          let cumulativeTime = 0
+          let cumulativeTime = Number.parseFloat((0).toFixed(10)) // 소수점 10자리 정밀도
           for (const [sceneNum, lines] of sceneAudioMapping.entries()) {
             for (const line of lines) {
               const audioDuration = Number.parseFloat((audioDurations.find((d) => d.lineId === line.lineId)?.duration || 0).toFixed(10)) // 소수점 10자리 정밀도
@@ -10594,9 +10601,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           
           let currentPhraseIndex = 0
           
-          // 장면 단위로 STT 분석 (각 라인별로 개별 분석)
-          // cumulativeTime은 위에서 이미 정의되어 있으므로 재사용
-          cumulativeTime = 0 // STT 분석을 위해 초기화
+            // 장면 단위로 STT 분석 (각 라인별로 개별 분석)
+            // cumulativeTime은 위에서 이미 정의되어 있으므로 재사용
+            cumulativeTime = Number.parseFloat((0).toFixed(10)) // STT 분석을 위해 초기화 (소수점 10자리 정밀도)
           
           // Whisper API를 사용하여 STT 분석 수행
           // (이미 if (useWhisper && openaiApiKey) 블록 안에 있음)
@@ -10835,20 +10842,22 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                   const words = task.line.text.split(/\s+/).filter(w => w.trim().length > 0)
                   
                   if (words.length > 0) {
-                    // 각 단어에 균등하게 시간 분배
-                    const timePerWord = audioDuration / words.length
+                    // 각 단어에 균등하게 시간 분배 (소수점 10자리 정밀도)
+                    const audioDurationPrecise = Number.parseFloat(audioDuration.toFixed(10))
+                    const wordsCount = words.length
+                    const timePerWord = Number.parseFloat((audioDurationPrecise / wordsCount).toFixed(10))
                     
                     for (let i = 0; i < words.length; i++) {
                       const word = words[i].trim()
                       if (word.length === 0) continue
                       
-                      const wordStart = i * timePerWord
-                      const wordEnd = (i + 1) * timePerWord
+                      const wordStart = Number.parseFloat((i * timePerWord).toFixed(10))
+                      const wordEnd = Number.parseFloat(((i + 1) * timePerWord).toFixed(10))
                       
                       fallbackWordTimings.push({
                         word: word,
-                        start: Number.parseFloat(wordStart.toFixed(10)),
-                        end: Number.parseFloat(wordEnd.toFixed(10)),
+                        start: wordStart,
+                        end: wordEnd,
                       })
                     }
                     
@@ -11731,19 +11740,24 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           const audioDuration = audioDurations.find((d) => d.lineId === line.id)?.duration || 0
           if (audioDuration > 0) {
             const phrases = splitIntoSemanticPhrases(line.text)
-            const phraseDuration = audioDuration / phrases.length
+            // 소수점 10자리 정밀도로 계산
+            const audioDurationPrecise = Number.parseFloat(audioDuration.toFixed(10))
+            const phrasesCount = phrases.length
+            const phraseDuration = Number.parseFloat((audioDurationPrecise / phrasesCount).toFixed(10))
             
             for (let j = 0; j < phrases.length; j++) {
+              const phraseStartTime = Number.parseFloat((cumulativeTime + (j * phraseDuration)).toFixed(10))
               phraseMapping.push({
                 lineId: line.id,
                 phrase: phrases[j],
-                startTime: cumulativeTime + (j * phraseDuration),
+                startTime: phraseStartTime,
                 duration: phraseDuration,
               })
               totalPhrases++
             }
             
-            cumulativeTime += audioDuration
+            // 소수점 10자리 정밀도로 누적 시간 계산
+            cumulativeTime = Number.parseFloat((cumulativeTime + audioDurationPrecise).toFixed(10))
           }
         }
         
@@ -22537,6 +22551,15 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                       }`}>
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center space-x-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => window.open("https://loud-cowl-c24.notion.site/2e1565477d5980c4a7a8fcbc1a9b3b41?pvs=73", "_blank")}
+                              className="border-purple-300 text-purple-600 hover:bg-purple-50 hover:border-purple-400 mr-2"
+                            >
+                              <ExternalLink className="w-4 h-4 mr-2" />
+                              가이드북
+                            </Button>
                             <div
                               className={`w-4 h-4 rounded-full border-2 cursor-pointer ${
                                 selectedVoiceId?.startsWith("supertone-") ? "border-purple-500 bg-purple-500" : "border-gray-300"
@@ -22677,6 +22700,57 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                           )}
                         </Button>
                       )}
+                      
+                      {/* 수퍼톤 음성 ID 직접 입력 */}
+                      <div className="mt-3 space-y-2">
+                        <Label className="text-sm font-medium text-gray-700">또는 음성 ID 직접 입력</Label>
+                        <div className="flex gap-2">
+                          <Input
+                            type="text"
+                            placeholder="수퍼톤 음성 ID 입력 (예: voice-123)"
+                            value={customSupertoneVoiceId}
+                            onChange={(e) => {
+                              const voiceId = e.target.value.trim()
+                              setCustomSupertoneVoiceId(voiceId)
+                              if (voiceId && selectedVoiceId?.startsWith("supertone-")) {
+                                setSelectedVoiceId(`supertone-${voiceId}`)
+                                setSelectedSupertoneVoiceId(voiceId)
+                              }
+                            }}
+                            className="flex-1"
+                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              if (customSupertoneVoiceId) {
+                                setSelectedSupertoneVoiceId(customSupertoneVoiceId)
+                                setSelectedVoiceId(`supertone-${customSupertoneVoiceId}`)
+                                handlePreviewVoice(`supertone-${customSupertoneVoiceId}`)
+                              } else {
+                                alert("음성 ID를 입력해주세요.")
+                              }
+                            }}
+                            disabled={!customSupertoneVoiceId || previewingVoiceId === `supertone-${customSupertoneVoiceId}`}
+                            className="whitespace-nowrap border-purple-300 text-purple-700 hover:bg-purple-100"
+                          >
+                            {previewingVoiceId === `supertone-${customSupertoneVoiceId}` ? (
+                              <>
+                                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                재생 중...
+                              </>
+                            ) : (
+                              <>
+                                <Volume2 className="w-3 h-3 mr-1" />
+                                미리듣기
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                        <p className="text-xs text-gray-500">
+                          💡 수퍼톤 음성 ID를 직접 입력하여 사용할 수 있습니다.
+                        </p>
+                      </div>
                       </div>
                     </div>
 
