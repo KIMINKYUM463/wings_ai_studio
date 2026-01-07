@@ -408,7 +408,7 @@ const sidebarItems = [
   { id: "title", title: "제목/설명 생성", icon: Type, description: "최적화된 유튜브 제목 자동 생성" },
   { id: "thumbnail", title: "썸네일 생성기", icon: ImageIcon, description: "클릭률 높은 썸네일 디자인 생성" },
   { id: "shorts", title: "쇼츠 생성기", icon: Scissors, description: "롱폼 대본을 쇼츠 영상으로 변환" },
-  { id: "intro", title: "인트로 생성기", icon: Film, description: "15초 인트로 영상 프롬프트 생성" },
+  { id: "intro", title: "인트로 생성기", icon: Film, description: "12초 인트로 영상 프롬프트 생성" },
   // { id: "hooking-video", title: "후킹 영상 프롬프트", icon: Plus, description: "소라2용 30초 후킹 영상 프롬프트 생성", isSpecial: true }, // 비활성화
 ]
 
@@ -1148,7 +1148,7 @@ ${userComment}`
     }
 
     // 기본 프롬프트 템플릿 (사용자가 제공한 템플릿)
-    const baseTemplate = `Create a 15-second cinematic YouTube intro video based on the following narration script.
+    const baseTemplate = `Create a 12-second cinematic YouTube intro video based on the following narration script.
 
 [STYLE]
 Visual style: {VISUAL_STYLE}
@@ -1163,19 +1163,19 @@ The character should look calm, wise, and thoughtful
 Background should feel timeless and symbolic, not modern
 Atmosphere should evoke curiosity and hidden truth
 
-[SCENE STRUCTURE – TOTAL 15 SECONDS]
+[SCENE STRUCTURE – TOTAL 12 SECONDS]
 
-Scene 1 (0–5s):
+Scene 1 (0–4s):
 Slow fade-in from darkness.
 Camera slowly pushes forward.
 Minimal motion, strong atmosphere.
 
-Scene 2 (5–10s):
+Scene 2 (4–8s):
 Slight camera pan or zoom.
 Visual tension increases.
 Light subtly shifts to emphasize emotion.
 
-Scene 3 (10–15s):
+Scene 3 (8–12s):
 Cinematic climax.
 End with a dramatic pause and fade-out.
 
@@ -1192,10 +1192,10 @@ The narration script is for audio only, NOT for display on screen.
 Voice: calm, deep, documentary-style Korean narration
 Narration duration: 10-12 seconds (the script should be read in 10-12 seconds)
 Background music: subtle cinematic tension, low volume, not distracting
-The narration should end around 10-12 seconds, and the remaining 3-5 seconds should be silent or music-only
+The narration should end around 10-12 seconds, and the remaining 0-2 seconds should be silent or music-only
 
 [OUTPUT REQUIREMENTS]
-Duration: exactly 15 seconds
+Duration: exactly 12 seconds
 Aspect ratio: 16:9
 Quality: ultra high quality, cinematic
 No logos, no watermarks
@@ -1275,7 +1275,7 @@ ABSOLUTELY NO TEXT, NO SUBTITLES, NO WORDS, NO LETTERS, NO TYPOGRAPHY, NO WRITIN
 요구사항:
 - 소라AI가 이해할 수 있는 명확하고 구체적인 프롬프트
 - 시각적 묘사를 상세하게 작성
-- 15초 인트로 영상에 최적화
+- 12초 인트로 영상에 최적화
 - 대본의 내용과 분위기를 정확히 반영
 - 제공된 템플릿 구조를 유지하면서 더 구체적으로 확장
 - 한국어 대본은 그대로 유지
@@ -1360,7 +1360,7 @@ ABSOLUTELY NO TEXT, NO SUBTITLES, NO WORDS, NO LETTERS, NO TYPOGRAPHY, NO WRITIN
     const styleGuide = styleGuides[imageStyle] || styleGuides["animation2"]
     const introScript = scriptText.length > 200 ? scriptText.substring(0, 200) + "..." : scriptText
 
-    return `Create a 15-second cinematic YouTube intro video based on the following narration script.
+    return `Create a 12-second cinematic YouTube intro video based on the following narration script.
 
 [STYLE]
 Visual style: ${styleGuide.visualStyle}
@@ -1375,19 +1375,19 @@ The character should look calm, wise, and thoughtful
 Background should feel timeless and symbolic, not modern
 Atmosphere should evoke curiosity and hidden truth
 
-[SCENE STRUCTURE – TOTAL 15 SECONDS]
+[SCENE STRUCTURE – TOTAL 12 SECONDS]
 
-Scene 1 (0–5s):
+Scene 1 (0–4s):
 Slow fade-in from darkness.
 Camera slowly pushes forward.
 Minimal motion, strong atmosphere.
 
-Scene 2 (5–10s):
+Scene 2 (4–8s):
 Slight camera pan or zoom.
 Visual tension increases.
 Light subtly shifts to emphasize emotion.
 
-Scene 3 (10–15s):
+Scene 3 (8–12s):
 Cinematic climax.
 Text appears clearly on screen.
 End with a dramatic pause and fade-out.
@@ -1406,7 +1406,7 @@ Voice: calm, deep, documentary-style Korean narration
 Background music: subtle cinematic tension, low volume, not distracting
 
 [OUTPUT REQUIREMENTS]
-Duration: exactly 15 seconds
+Duration: exactly 12 seconds
 Aspect ratio: 16:9
 Quality: ultra high quality, cinematic
 No logos, no watermarks`
@@ -27438,7 +27438,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                 </Button>
               </div>
               <p className="text-gray-500 text-sm">
-                대본을 기반으로 15초 인트로 영상을 만들기 위한 프롬프트를 생성합니다.
+                대본을 기반으로 12초 인트로 영상을 만들기 위한 프롬프트를 생성합니다.
               </p>
             </div>
 
@@ -27598,7 +27598,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                       </Button>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      이 프롬프트를 사용하여 15초 인트로 영상을 생성할 수 있습니다.
+                      이 프롬프트를 사용하여 12초 인트로 영상을 생성할 수 있습니다.
                     </p>
                   </div>
                 </CardContent>
@@ -27636,68 +27636,31 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                         console.log("[인트로 영상 생성] 시작...")
                         console.log("[인트로 영상 생성] 프롬프트:", introPrompt.substring(0, 100) + "...")
                         
-                        // Replicate openai/sora-2 모델로 영상 생성
-                        const response = await fetch("https://api.replicate.com/v1/models/openai/sora-2/predictions", {
+                        // 서버 사이드 API 라우트를 통해 Replicate API 호출
+                        const response = await fetch("/api/generate-intro-video", {
                           method: "POST",
                           headers: {
-                            Authorization: `Bearer ${replicateApiKey}`,
                             "Content-Type": "application/json",
                           },
                           body: JSON.stringify({
-                            input: {
-                              prompt: introPrompt,
-                              duration: 12, // 12초
-                              aspect_ratio: "16:9",
-                            },
+                            prompt: introPrompt,
+                            replicateApiKey: replicateApiKey,
                           }),
                         })
                         
                         if (!response.ok) {
-                          const errorText = await response.text()
-                          console.error("[인트로 영상 생성] API 호출 실패:", errorText)
-                          throw new Error(`Replicate API 호출 실패: ${response.status} - ${errorText}`)
+                          const errorData = await response.json().catch(() => ({ error: "알 수 없는 오류" }))
+                          console.error("[인트로 영상 생성] API 호출 실패:", errorData.error)
+                          throw new Error(errorData.error || `API 호출 실패: ${response.status}`)
                         }
                         
                         const data = await response.json()
-                        console.log("[인트로 영상 생성] 예측 생성됨:", data.id)
                         
-                        // 폴링으로 결과 확인
-                        let predictionId = data.id
-                        let status = data.status
-                        let videoUrl = null
-                        
-                        while (status === "starting" || status === "processing") {
-                          await new Promise(resolve => setTimeout(resolve, 2000)) // 2초 대기
-                          
-                          const statusResponse = await fetch(`https://api.replicate.com/v1/predictions/${predictionId}`, {
-                            headers: {
-                              Authorization: `Bearer ${replicateApiKey}`,
-                            },
-                          })
-                          
-                          if (!statusResponse.ok) {
-                            throw new Error(`상태 확인 실패: ${statusResponse.status}`)
-                          }
-                          
-                          const statusData = await statusResponse.json()
-                          status = statusData.status
-                          
-                          if (status === "succeeded" && statusData.output) {
-                            videoUrl = Array.isArray(statusData.output) ? statusData.output[0] : statusData.output
-                            console.log("[인트로 영상 생성] 영상 생성 완료:", videoUrl)
-                            break
-                          } else if (status === "failed" || status === "canceled") {
-                            throw new Error(`영상 생성 실패: ${status}`)
-                          }
-                          
-                          console.log(`[인트로 영상 생성] 진행 중... (${status})`)
-                        }
-                        
-                        if (videoUrl) {
-                          setIntroVideoUrl(videoUrl)
+                        if (data.success && data.videoUrl) {
+                          setIntroVideoUrl(data.videoUrl)
                           console.log("[인트로 영상 생성] 성공!")
                         } else {
-                          throw new Error("영상 URL을 가져올 수 없습니다.")
+                          throw new Error(data.error || "영상 URL을 가져올 수 없습니다.")
                         }
                       } catch (error) {
                         console.error("[인트로 영상 생성] 실패:", error)
