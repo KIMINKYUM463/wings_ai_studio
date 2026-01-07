@@ -837,6 +837,8 @@ export default function LongformContentPage() {
   const [introImageStyle, setIntroImageStyle] = useState<string>("stickman-animation") // 인트로 이미지 스타일
   const [introPrompt, setIntroPrompt] = useState<string>("") // 생성된 인트로 프롬프트
   const [isGeneratingIntroPrompt, setIsGeneratingIntroPrompt] = useState(false) // 인트로 프롬프트 생성 중
+  const [introVideoUrl, setIntroVideoUrl] = useState<string>("") // 생성된 인트로 영상 URL
+  const [isGeneratingIntroVideo, setIsGeneratingIntroVideo] = useState(false) // 인트로 영상 생성 중
   
   // 대댓글 생성기 상태
   const [commentReplyScript, setCommentReplyScript] = useState<string>("") // 대본 (내부적으로만 저장)
@@ -3264,55 +3266,75 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               // 배치 내 병렬 처리
               const batchResults = await Promise.all(
                 batch.map(async (task) => {
-                  try {
-                    console.log(`[자동화 Whisper] 구간 ${task.index + 1} (문장 ${task.phraseInfo.lineId}) STT 분석 시작 (구간: ${task.phraseInfo.startTime.toFixed(3)}초 ~ ${(task.phraseInfo.startTime + task.phraseInfo.duration).toFixed(3)}초)`)
-                    
-                    const relativeStartTime = task.phraseInfo.startTime - task.lineStartTime
-                    const relativeEndTime = relativeStartTime + task.phraseInfo.duration
-                    const segmentBuffer = extractAudioSegment(task.lineAudioBuffer, Math.max(0, relativeStartTime), Math.min(task.lineAudioBuffer.duration, relativeEndTime))
-                    
-                    // 추출된 구간을 Blob으로 변환
-                    const audioBlob = await audioBufferToBlob(segmentBuffer)
-                    
-                    // Whisper align API 호출 (해당 의미 단위만)
-                    const formData = new FormData()
-                    formData.append("audio", audioBlob, `phrase_${task.phraseInfo.lineId}_${task.index}.wav`)
-                    formData.append("text", task.phraseInfo.phrase)
-                    if (openaiApiKey) {
-                      formData.append("apiKey", openaiApiKey)
-                    }
-                    
-                    const whisperResponse = await fetch("/api/whisper-align", {
-                      method: "POST",
-                      body: formData,
-                    })
-                    
-                    if (whisperResponse.ok) {
-                      const whisperData = await whisperResponse.json()
-                      return {
-                        index: task.index,
-                        phraseInfo: task.phraseInfo,
-                        wordTimings: whisperData.wordTimings || [],
-                        success: true,
+                  const MAX_RETRIES = 10 // 최대 재시도 횟수
+                  const RETRY_DELAY = 2000 // 재시도 대기 시간 (ms)
+                  
+                  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+                    try {
+                      console.log(`[자동화 Whisper] 구간 ${task.index + 1} (문장 ${task.phraseInfo.lineId}) STT 분석 시작 (시도 ${attempt}/${MAX_RETRIES}, 구간: ${task.phraseInfo.startTime.toFixed(3)}초 ~ ${(task.phraseInfo.startTime + task.phraseInfo.duration).toFixed(3)}초)`)
+                      
+                      const relativeStartTime = task.phraseInfo.startTime - task.lineStartTime
+                      const relativeEndTime = relativeStartTime + task.phraseInfo.duration
+                      const segmentBuffer = extractAudioSegment(task.lineAudioBuffer, Math.max(0, relativeStartTime), Math.min(task.lineAudioBuffer.duration, relativeEndTime))
+                      
+                      // 추출된 구간을 Blob으로 변환
+                      const audioBlob = await audioBufferToBlob(segmentBuffer)
+                      
+                      // Whisper align API 호출 (해당 의미 단위만)
+                      const formData = new FormData()
+                      formData.append("audio", audioBlob, `phrase_${task.phraseInfo.lineId}_${task.index}.wav`)
+                      formData.append("text", task.phraseInfo.phrase)
+                      if (openaiApiKey) {
+                        formData.append("apiKey", openaiApiKey)
                       }
-                    } else {
-                      const errorText = await whisperResponse.text()
-                      console.warn(`[자동화 Whisper] 구간 ${task.index + 1} (문장 ${task.phraseInfo.lineId}) API 호출 실패:`, errorText)
-                      return {
-                        index: task.index,
-                        phraseInfo: task.phraseInfo,
-                        wordTimings: [],
-                        success: false,
+                      
+                      const whisperResponse = await fetch("/api/whisper-align", {
+                        method: "POST",
+                        body: formData,
+                      })
+                      
+                      if (whisperResponse.ok) {
+                        const whisperData = await whisperResponse.json()
+                        if (whisperData.wordTimings && whisperData.wordTimings.length > 0) {
+                          console.log(`[자동화 Whisper] 구간 ${task.index + 1} (문장 ${task.phraseInfo.lineId}) STT 분석 성공 (시도 ${attempt}/${MAX_RETRIES})`)
+                          return {
+                            index: task.index,
+                            phraseInfo: task.phraseInfo,
+                            wordTimings: whisperData.wordTimings || [],
+                            success: true,
+                          }
+                        } else {
+                          // wordTimings가 비어있으면 재시도
+                          console.warn(`[자동화 Whisper] 구간 ${task.index + 1} (문장 ${task.phraseInfo.lineId}) 단어 타이밍이 비어있음 (시도 ${attempt}/${MAX_RETRIES}), 재시도...`)
+                          if (attempt < MAX_RETRIES) {
+                            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY))
+                            continue
+                          }
+                        }
+                      } else {
+                        const errorText = await whisperResponse.text()
+                        console.warn(`[자동화 Whisper] 구간 ${task.index + 1} (문장 ${task.phraseInfo.lineId}) API 호출 실패 (시도 ${attempt}/${MAX_RETRIES}):`, errorText)
+                        if (attempt < MAX_RETRIES) {
+                          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY))
+                          continue
+                        }
+                      }
+                    } catch (error) {
+                      console.warn(`[자동화 Whisper] 구간 ${task.index + 1} (문장 ${task.phraseInfo.lineId}) STT 분석 오류 (시도 ${attempt}/${MAX_RETRIES}):`, error)
+                      if (attempt < MAX_RETRIES) {
+                        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY))
+                        continue
                       }
                     }
-                  } catch (error) {
-                    console.warn(`[자동화 Whisper] 구간 ${task.index + 1} (문장 ${task.phraseInfo.lineId}) STT 분석 오류:`, error)
-                    return {
-                      index: task.index,
-                      phraseInfo: task.phraseInfo,
-                      wordTimings: [],
-                      success: false,
-                    }
+                  }
+                  
+                  // 모든 재시도 실패
+                  console.error(`[자동화 Whisper] 구간 ${task.index + 1} (문장 ${task.phraseInfo.lineId}) STT 분석 최종 실패 (${MAX_RETRIES}회 시도)`)
+                  return {
+                    index: task.index,
+                    phraseInfo: task.phraseInfo,
+                    wordTimings: [],
+                    success: false,
                   }
                 })
               )
@@ -6510,48 +6532,74 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               // 추출된 구간을 Blob으로 변환
               const audioBlobForSTT = await audioBufferToBlob(segmentBuffer)
               
-              // Whisper align API 호출 (해당 문장만)
-              const formData = new FormData()
-              formData.append("audio", audioBlobForSTT, `shorts_sentence_${line.id}.wav`)
-              formData.append("text", line.text)
-              if (openaiApiKey) {
-                formData.append("apiKey", openaiApiKey)
-              }
+              // Whisper align API 호출 (해당 문장만) - 재시도 로직 포함
+              const MAX_RETRIES = 10 // 최대 재시도 횟수
+              const RETRY_DELAY = 2000 // 재시도 대기 시간 (ms)
               
-              const whisperResponse = await fetch("/api/whisper-align", {
-                method: "POST",
-                body: formData,
-              })
-              
-              if (whisperResponse.ok) {
-                const whisperData = await whisperResponse.json()
-                if (whisperData.wordTimings && whisperData.wordTimings.length > 0) {
-                  // 각 단어의 타이밍을 절대 시간으로 변환
-                  for (const wordTiming of whisperData.wordTimings) {
-                    allWordTimings.push({
-                      word: wordTiming.word,
-                      start: startTime + wordTiming.start, // 절대 시간으로 변환
-                      end: startTime + wordTiming.end, // 절대 시간으로 변환
-                      lineId: line.id,
-                    })
+              for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+                try {
+                  const formData = new FormData()
+                  formData.append("audio", audioBlobForSTT, `shorts_sentence_${line.id}.wav`)
+                  formData.append("text", line.text)
+                  if (openaiApiKey) {
+                    formData.append("apiKey", openaiApiKey)
                   }
-                  console.log(`[Shorts 렌더링] 문장 ${line.id}: ${whisperData.wordTimings.length}개 단어 타이밍 추출 완료`)
-                } else {
-                  console.warn(`[Shorts 렌더링] 문장 ${line.id}: 단어 타이밍 없음`)
+                  
+                  const whisperResponse = await fetch("/api/whisper-align", {
+                    method: "POST",
+                    body: formData,
+                  })
+                  
+                  if (whisperResponse.ok) {
+                    const whisperData = await whisperResponse.json()
+                    if (whisperData.wordTimings && whisperData.wordTimings.length > 0) {
+                      // 각 단어의 타이밍을 절대 시간으로 변환
+                      for (const wordTiming of whisperData.wordTimings) {
+                        allWordTimings.push({
+                          word: wordTiming.word,
+                          start: startTime + wordTiming.start, // 절대 시간으로 변환
+                          end: startTime + wordTiming.end, // 절대 시간으로 변환
+                          lineId: line.id,
+                        })
+                      }
+                      console.log(`[Shorts 렌더링] 문장 ${line.id}: ${whisperData.wordTimings.length}개 단어 타이밍 추출 완료 (시도 ${attempt}/${MAX_RETRIES})`)
+                      break // 성공하면 재시도 루프 종료
+                    } else {
+                      console.warn(`[Shorts 렌더링] 문장 ${line.id}: 단어 타이밍 없음 (시도 ${attempt}/${MAX_RETRIES}), 재시도...`)
+                      if (attempt < MAX_RETRIES) {
+                        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY))
+                        continue
+                      }
+                    }
+                  } else {
+                    const errorText = await whisperResponse.text()
+                    console.warn(`[Shorts 렌더링] 문장 ${line.id} API 호출 실패 (시도 ${attempt}/${MAX_RETRIES}):`, errorText)
+                    if (attempt < MAX_RETRIES) {
+                      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY))
+                      continue
+                    }
+                  }
+                } catch (error) {
+                  const errorMessage = error instanceof Error ? error.message : String(error)
+                  // OpenAI API 키 관련 오류인지 확인
+                  if (errorMessage.toLowerCase().includes("api key") ||
+                      errorMessage.toLowerCase().includes("openai api 키") ||
+                      errorMessage.toLowerCase().includes("unauthorized")) {
+                    console.warn(`[Shorts 렌더링] ❌ OpenAI API 키 오류 (문장 ${line.id}, 시도 ${attempt}/${MAX_RETRIES}): ${errorMessage}\n\n해결 방법:\n1. 설정에서 OpenAI API 키를 확인하세요\n2. API 키가 올바른지 확인하세요`)
+                    // API 키 오류는 재시도하지 않음
+                    break
+                  } else {
+                    console.warn(`[Shorts 렌더링] 문장 ${line.id} STT 분석 오류 (시도 ${attempt}/${MAX_RETRIES}):`, errorMessage)
+                    if (attempt < MAX_RETRIES) {
+                      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY))
+                      continue
+                    }
+                  }
                 }
-              } else {
-                console.warn(`[Shorts 렌더링] 문장 ${line.id} API 호출 실패:`, await whisperResponse.text())
               }
             } catch (error) {
               const errorMessage = error instanceof Error ? error.message : String(error)
-              // OpenAI API 키 관련 오류인지 확인
-              if (errorMessage.toLowerCase().includes("api key") ||
-                  errorMessage.toLowerCase().includes("openai api 키") ||
-                  errorMessage.toLowerCase().includes("unauthorized")) {
-                console.warn(`[Shorts 렌더링] ❌ OpenAI API 키 오류 (문장 ${line.id}): ${errorMessage}\n\n해결 방법:\n1. 설정에서 OpenAI API 키를 확인하세요\n2. API 키가 올바른지 확인하세요`)
-              } else {
-                console.warn(`[Shorts 렌더링] 문장 ${line.id} STT 분석 오류:`, errorMessage)
-              }
+              console.warn(`[Shorts 렌더링] 문장 ${line.id} 최종 실패:`, errorMessage)
               // 개별 문장 실패해도 계속 진행
             }
           }
@@ -10611,57 +10659,73 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             // 배치 내 병렬 처리
             const batchResults = await Promise.all(
               batch.map(async (task) => {
-                try {
-                  console.log(`[Whisper] 장면 단위 STT 분석 시작 (씬 ${task.sceneNum}, 장면 ${task.line.imageNumber}, lineId: ${task.line.lineId}, 텍스트: "${task.line.text.substring(0, 50)}...")`)
-                  
-                  const audioBlob = await audioBufferToBlob(task.lineAudioBuffer)
-                  const formData = new FormData()
-                  formData.append("audio", audioBlob, `scene_${task.sceneNum}_image_${task.line.imageNumber}_line_${task.line.lineId}.wav`)
-                  formData.append("text", task.line.text)
-                  if (openaiApiKey) {
-                    formData.append("apiKey", openaiApiKey)
+                const MAX_RETRIES = 10 // 최대 재시도 횟수
+                const RETRY_DELAY = 2000 // 재시도 대기 시간 (ms)
+                
+                for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+                  try {
+                    console.log(`[Whisper] 장면 단위 STT 분석 시작 (씬 ${task.sceneNum}, 장면 ${task.line.imageNumber}, lineId: ${task.line.lineId}, 시도 ${attempt}/${MAX_RETRIES}, 텍스트: "${task.line.text.substring(0, 50)}...")`)
+                    
+                    const audioBlob = await audioBufferToBlob(task.lineAudioBuffer)
+                    const formData = new FormData()
+                    formData.append("audio", audioBlob, `scene_${task.sceneNum}_image_${task.line.imageNumber}_line_${task.line.lineId}.wav`)
+                    formData.append("text", task.line.text)
+                    if (openaiApiKey) {
+                      formData.append("apiKey", openaiApiKey)
+                    }
+                            
+                    const whisperResponse = await fetch("/api/whisper-align", {
+                      method: "POST",
+                      body: formData,
+                    })
+                    
+                    if (whisperResponse.ok) {
+                      const whisperData = await whisperResponse.json()
+                      if (whisperData.wordTimings && whisperData.wordTimings.length > 0) {
+                        console.log(`[Whisper] 장면 단위 STT 분석 성공 (씬 ${task.sceneNum}, 장면 ${task.line.imageNumber}, 시도 ${attempt}/${MAX_RETRIES})`)
+                        return {
+                          index: task.index,
+                          sceneNum: task.sceneNum,
+                          imageNumber: task.line.imageNumber,
+                          lineId: task.line.lineId,
+                          cumulativeTime: task.cumulativeTime,
+                          wordTimings: whisperData.wordTimings || [],
+                          success: true,
+                        }
+                      } else {
+                        console.warn(`[Whisper] 장면 단위 STT 분석 단어 타이밍 없음 (씬 ${task.sceneNum}, 장면 ${task.line.imageNumber}, 시도 ${attempt}/${MAX_RETRIES}), 재시도...`)
+                        if (attempt < MAX_RETRIES) {
+                          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY))
+                          continue
+                        }
+                      }
+                    } else {
+                      const errorText = await whisperResponse.text()
+                      console.warn(`[Whisper] 장면 단위 STT 분석 API 오류 (씬 ${task.sceneNum}, 장면 ${task.line.imageNumber}, 시도 ${attempt}/${MAX_RETRIES}):`, errorText)
+                      if (attempt < MAX_RETRIES) {
+                        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY))
+                        continue
+                      }
+                    }
+                  } catch (whisperError) {
+                    console.warn(`[Whisper] 장면 단위 STT 분석 오류 (씬 ${task.sceneNum}, 장면 ${task.line.imageNumber}, 시도 ${attempt}/${MAX_RETRIES}):`, whisperError)
+                    if (attempt < MAX_RETRIES) {
+                      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY))
+                      continue
+                    }
                   }
-                          
-                          const whisperResponse = await fetch("/api/whisper-align", {
-                            method: "POST",
-                            body: formData,
-                          })
-                          
-                          if (whisperResponse.ok) {
-                            const whisperData = await whisperResponse.json()
-                    return {
-                      index: task.index,
-                      sceneNum: task.sceneNum,
-                      imageNumber: task.line.imageNumber,
-                      lineId: task.line.lineId,
-                      cumulativeTime: task.cumulativeTime,
-                      wordTimings: whisperData.wordTimings || [],
-                      success: true,
-                            }
-                          } else {
-                            const errorText = await whisperResponse.text()
-                    console.warn(`[Whisper] 장면 단위 STT 분석 API 오류 (씬 ${task.sceneNum}, 장면 ${task.line.imageNumber}):`, errorText)
-                    return {
-                      index: task.index,
-                      sceneNum: task.sceneNum,
-                      imageNumber: task.line.imageNumber,
-                      lineId: task.line.lineId,
-                      cumulativeTime: task.cumulativeTime,
-                      wordTimings: [],
-                      success: false,
-                            }
-                          }
-                        } catch (whisperError) {
-                  console.warn(`[Whisper] 장면 단위 STT 분석 오류 (씬 ${task.sceneNum}, 장면 ${task.line.imageNumber}):`, whisperError)
-                  return {
-                    index: task.index,
-                    sceneNum: task.sceneNum,
-                    imageNumber: task.line.imageNumber,
-                    lineId: task.line.lineId,
-                    cumulativeTime: task.cumulativeTime,
-                    wordTimings: [],
-                    success: false,
-                  }
+                }
+                
+                // 모든 재시도 실패
+                console.error(`[Whisper] 장면 단위 STT 분석 최종 실패 (씬 ${task.sceneNum}, 장면 ${task.line.imageNumber}, ${MAX_RETRIES}회 시도)`)
+                return {
+                  index: task.index,
+                  sceneNum: task.sceneNum,
+                  imageNumber: task.line.imageNumber,
+                  lineId: task.line.lineId,
+                  cumulativeTime: task.cumulativeTime,
+                  wordTimings: [],
+                  success: false,
                 }
               })
             )
@@ -11607,46 +11671,75 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               try {
                 console.log(`[Whisper] 구간 ${task.index + 1} (문장 ${task.phraseInfo.lineId}) STT 분석 시작 (구간: ${task.phraseInfo.startTime.toFixed(3)}초 ~ ${(task.phraseInfo.startTime + task.phraseInfo.duration).toFixed(3)}초)`)
                 
-                const relativeStartTime = task.phraseInfo.startTime - task.lineStartTime
-                const relativeEndTime = relativeStartTime + task.phraseInfo.duration
-                const segmentBuffer = extractAudioSegment(task.lineAudioBuffer, Math.max(0, relativeStartTime), Math.min(task.lineAudioBuffer.duration, relativeEndTime))
-            
-            // 추출된 구간을 Blob으로 변환
-            const audioBlob = await audioBufferToBlob(segmentBuffer)
-            
-            // Whisper align API 호출 (해당 의미 단위만)
-            const formData = new FormData()
-                formData.append("audio", audioBlob, `phrase_${task.phraseInfo.lineId}_${task.index}.wav`)
-                formData.append("text", task.phraseInfo.phrase)
-                if (openaiApiKey) {
-                  formData.append("apiKey", openaiApiKey)
+                const MAX_RETRIES = 10 // 최대 재시도 횟수
+                const RETRY_DELAY = 2000 // 재시도 대기 시간 (ms)
+                
+                for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+                  try {
+                    const relativeStartTime = task.phraseInfo.startTime - task.lineStartTime
+                    const relativeEndTime = relativeStartTime + task.phraseInfo.duration
+                    const segmentBuffer = extractAudioSegment(task.lineAudioBuffer, Math.max(0, relativeStartTime), Math.min(task.lineAudioBuffer.duration, relativeEndTime))
+                
+                    // 추출된 구간을 Blob으로 변환
+                    const audioBlob = await audioBufferToBlob(segmentBuffer)
+                    
+                    // Whisper align API 호출 (해당 의미 단위만)
+                    const formData = new FormData()
+                    formData.append("audio", audioBlob, `phrase_${task.phraseInfo.lineId}_${task.index}.wav`)
+                    formData.append("text", task.phraseInfo.phrase)
+                    if (openaiApiKey) {
+                      formData.append("apiKey", openaiApiKey)
+                    }
+                
+                    const whisperResponse = await fetch("/api/whisper-align", {
+                      method: "POST",
+                      body: formData,
+                    })
+                    
+                    if (whisperResponse.ok) {
+                      const whisperData = await whisperResponse.json()
+                      if (whisperData.wordTimings && whisperData.wordTimings.length > 0) {
+                        console.log(`[Whisper] 구간 ${task.index + 1} (문장 ${task.phraseInfo.lineId}) STT 분석 성공 (시도 ${attempt}/${MAX_RETRIES})`)
+                        return {
+                          index: task.index,
+                          phraseInfo: task.phraseInfo,
+                          wordTimings: whisperData.wordTimings || [],
+                          success: true,
+                        }
+                      } else {
+                        console.warn(`[Whisper] 구간 ${task.index + 1} (문장 ${task.phraseInfo.lineId}) 단어 타이밍이 비어있음 (시도 ${attempt}/${MAX_RETRIES}), 재시도...`)
+                        if (attempt < MAX_RETRIES) {
+                          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY))
+                          continue
+                        }
+                      }
+                    } else {
+                      const errorText = await whisperResponse.text()
+                      console.warn(`[Whisper] 구간 ${task.index + 1} (문장 ${task.phraseInfo.lineId}) API 호출 실패 (시도 ${attempt}/${MAX_RETRIES}):`, errorText)
+                      if (attempt < MAX_RETRIES) {
+                        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY))
+                        continue
+                      }
+                    }
+                  } catch (error) {
+                    console.warn(`[Whisper] 구간 ${task.index + 1} (문장 ${task.phraseInfo.lineId}) STT 분석 오류 (시도 ${attempt}/${MAX_RETRIES}):`, error)
+                    if (attempt < MAX_RETRIES) {
+                      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY))
+                      continue
+                    }
+                  }
                 }
-            
-            const whisperResponse = await fetch("/api/whisper-align", {
-              method: "POST",
-              body: formData,
-            })
-            
-            if (whisperResponse.ok) {
-              const whisperData = await whisperResponse.json()
-                  return {
-                    index: task.index,
-                    phraseInfo: task.phraseInfo,
-                    wordTimings: whisperData.wordTimings || [],
-                    success: true,
-                  }
-                } else {
-                  const errorText = await whisperResponse.text()
-                  console.warn(`[Whisper] 구간 ${task.index + 1} (문장 ${task.phraseInfo.lineId}) API 호출 실패:`, errorText)
-                  return {
-                    index: task.index,
-                    phraseInfo: task.phraseInfo,
-                    wordTimings: [],
-                    success: false,
-                  }
+                
+                // 모든 재시도 실패
+                console.error(`[Whisper] 구간 ${task.index + 1} (문장 ${task.phraseInfo.lineId}) STT 분석 최종 실패 (${MAX_RETRIES}회 시도)`)
+                return {
+                  index: task.index,
+                  phraseInfo: task.phraseInfo,
+                  wordTimings: [],
+                  success: false,
                 }
               } catch (error) {
-                console.warn(`[Whisper] 구간 ${task.index + 1} (문장 ${task.phraseInfo.lineId}) STT 분석 오류:`, error)
+                console.error(`[Whisper] 구간 ${task.index + 1} (문장 ${task.phraseInfo.lineId}) STT 분석 예외 발생:`, error)
                 return {
                   index: task.index,
                   phraseInfo: task.phraseInfo,
@@ -17020,15 +17113,35 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                           <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
                             <div className="flex items-center justify-between mb-3">
                               <h4 className="text-sm font-semibold text-gray-800">분석 결과</h4>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setBenchmarkAnalysis(null)}
-                                className="text-xs text-gray-500 hover:text-gray-700"
-                              >
-                                닫기
-                              </Button>
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    navigator.clipboard.writeText(benchmarkAnalysis)
+                                    const button = e.currentTarget
+                                    const originalText = button.textContent
+                                    button.textContent = "복사됨!"
+                                    setTimeout(() => {
+                                      button.textContent = originalText
+                                    }, 1000)
+                                  }}
+                                  className="text-xs text-gray-500 hover:text-gray-700"
+                                >
+                                  <Copy className="w-3 h-3 mr-1" />
+                                  복사
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setBenchmarkAnalysis(null)}
+                                  className="text-xs text-gray-500 hover:text-gray-700"
+                                >
+                                  닫기
+                                </Button>
+                              </div>
                             </div>
                             <div className="text-sm text-gray-700 whitespace-pre-wrap max-h-[500px] overflow-y-auto">
                               {benchmarkAnalysis}
@@ -27491,6 +27604,164 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                 </CardContent>
               </Card>
             )}
+
+            {/* 영상 생성 버튼 */}
+            {introPrompt && (
+              <Card className="border-2 border-gray-200 shadow-xl">
+                <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50 border-b-2 border-purple-100">
+                  <CardTitle className="text-xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent flex items-center gap-2">
+                    <Video className="w-6 h-6 text-purple-600" />
+                    영상 생성
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-6">
+                  <Button
+                    onClick={async () => {
+                      if (!introPrompt) {
+                        alert("프롬프트가 필요합니다. 먼저 인트로 프롬프트를 생성해주세요.")
+                        return
+                      }
+                      
+                      setIsGeneratingIntroVideo(true)
+                      setIntroVideoUrl("")
+                      
+                      try {
+                        const replicateApiKey = localStorage.getItem("replicate_api_key")
+                        if (!replicateApiKey) {
+                          alert("Replicate API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+                          setIsGeneratingIntroVideo(false)
+                          return
+                        }
+                        
+                        console.log("[인트로 영상 생성] 시작...")
+                        console.log("[인트로 영상 생성] 프롬프트:", introPrompt.substring(0, 100) + "...")
+                        
+                        // Replicate openai/sora-2 모델로 영상 생성
+                        const response = await fetch("https://api.replicate.com/v1/models/openai/sora-2/predictions", {
+                          method: "POST",
+                          headers: {
+                            Authorization: `Bearer ${replicateApiKey}`,
+                            "Content-Type": "application/json",
+                          },
+                          body: JSON.stringify({
+                            input: {
+                              prompt: introPrompt,
+                              duration: 12, // 12초
+                              aspect_ratio: "16:9",
+                            },
+                          }),
+                        })
+                        
+                        if (!response.ok) {
+                          const errorText = await response.text()
+                          console.error("[인트로 영상 생성] API 호출 실패:", errorText)
+                          throw new Error(`Replicate API 호출 실패: ${response.status} - ${errorText}`)
+                        }
+                        
+                        const data = await response.json()
+                        console.log("[인트로 영상 생성] 예측 생성됨:", data.id)
+                        
+                        // 폴링으로 결과 확인
+                        let predictionId = data.id
+                        let status = data.status
+                        let videoUrl = null
+                        
+                        while (status === "starting" || status === "processing") {
+                          await new Promise(resolve => setTimeout(resolve, 2000)) // 2초 대기
+                          
+                          const statusResponse = await fetch(`https://api.replicate.com/v1/predictions/${predictionId}`, {
+                            headers: {
+                              Authorization: `Bearer ${replicateApiKey}`,
+                            },
+                          })
+                          
+                          if (!statusResponse.ok) {
+                            throw new Error(`상태 확인 실패: ${statusResponse.status}`)
+                          }
+                          
+                          const statusData = await statusResponse.json()
+                          status = statusData.status
+                          
+                          if (status === "succeeded" && statusData.output) {
+                            videoUrl = Array.isArray(statusData.output) ? statusData.output[0] : statusData.output
+                            console.log("[인트로 영상 생성] 영상 생성 완료:", videoUrl)
+                            break
+                          } else if (status === "failed" || status === "canceled") {
+                            throw new Error(`영상 생성 실패: ${status}`)
+                          }
+                          
+                          console.log(`[인트로 영상 생성] 진행 중... (${status})`)
+                        }
+                        
+                        if (videoUrl) {
+                          setIntroVideoUrl(videoUrl)
+                          console.log("[인트로 영상 생성] 성공!")
+                        } else {
+                          throw new Error("영상 URL을 가져올 수 없습니다.")
+                        }
+                      } catch (error) {
+                        console.error("[인트로 영상 생성] 실패:", error)
+                        const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류"
+                        alert(`영상 생성에 실패했습니다.\n\n오류: ${errorMessage}\n\nAPI 키가 올바른지 확인해주세요.`)
+                      } finally {
+                        setIsGeneratingIntroVideo(false)
+                      }
+                    }}
+                    disabled={isGeneratingIntroVideo || !introPrompt}
+                    className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white h-12 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isGeneratingIntroVideo ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        영상 생성 중... (약 1-2분 소요)
+                      </>
+                    ) : (
+                      <>
+                        <Video className="mr-2 h-4 w-4" />
+                        영상 생성 (12초)
+                      </>
+                    )}
+                  </Button>
+                  
+                  {introVideoUrl && (
+                    <div className="mt-4 space-y-2">
+                      <p className="text-sm font-medium text-gray-700">생성된 영상:</p>
+                      <video
+                        src={introVideoUrl}
+                        controls
+                        className="w-full rounded-lg border border-gray-200"
+                        style={{ maxHeight: "500px" }}
+                      />
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={() => {
+                            window.open(introVideoUrl, "_blank")
+                          }}
+                          variant="outline"
+                          className="flex-1"
+                        >
+                          <ExternalLink className="w-4 h-4 mr-2" />
+                          새 탭에서 열기
+                        </Button>
+                        <Button
+                          onClick={() => {
+                            const link = document.createElement("a")
+                            link.href = introVideoUrl
+                            link.download = "intro-video.mp4"
+                            link.click()
+                          }}
+                          variant="outline"
+                          className="flex-1"
+                        >
+                          <Download className="w-4 h-4 mr-2" />
+                          다운로드
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
           </div>
         )
 
@@ -28565,15 +28836,28 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
 
       {/* 맨 위로 가기 버튼 */}
       {showScrollToTop && (
-        <Button
-          onClick={() => {
-            window.scrollTo({ top: 0, behavior: 'smooth' })
-          }}
-          className="fixed bottom-6 right-6 z-50 rounded-full w-12 h-12 shadow-lg hover:shadow-xl transition-all"
-          size="icon"
-        >
-          <ArrowUp className="w-5 h-5" />
-        </Button>
+        <div className="fixed bottom-6 right-6 z-50 flex flex-row gap-2">
+          <Button
+            onClick={() => {
+              window.scrollTo({ top: 0, behavior: 'smooth' })
+            }}
+            className="rounded-full w-12 h-12 shadow-lg hover:shadow-xl transition-all"
+            size="icon"
+            title="맨 위로"
+          >
+            <ArrowUp className="w-5 h-5" />
+          </Button>
+          <Button
+            onClick={() => {
+              window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' })
+            }}
+            className="rounded-full w-12 h-12 shadow-lg hover:shadow-xl transition-all"
+            size="icon"
+            title="맨 아래로"
+          >
+            <ArrowDown className="w-5 h-5" />
+          </Button>
+        </div>
       )}
     </div>
   )
