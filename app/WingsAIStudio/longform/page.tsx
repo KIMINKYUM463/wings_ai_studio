@@ -118,7 +118,7 @@ if (typeof document !== 'undefined') {
   }
 }
 import { motion, useMotionValue, useSpring, useTransform } from "framer-motion"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -719,6 +719,7 @@ export default function LongformContentPage() {
   const [generatedTitles, setGeneratedTitles] = useState<string[]>([])
   const [selectedTitle, setSelectedTitle] = useState<string>("")
   const [customTitle, setCustomTitle] = useState("")
+  const [copiedTitleIndex, setCopiedTitleIndex] = useState<number | null>(null)
   const [referenceTitle, setReferenceTitle] = useState("")
   const [referenceScript, setReferenceScript] = useState("") // 레퍼런스 대본
   const [isGeneratingTitles, setIsGeneratingTitles] = useState(false)
@@ -835,6 +836,257 @@ export default function LongformContentPage() {
   const [introImageStyle, setIntroImageStyle] = useState<string>("stickman-animation") // 인트로 이미지 스타일
   const [introPrompt, setIntroPrompt] = useState<string>("") // 생성된 인트로 프롬프트
   const [isGeneratingIntroPrompt, setIsGeneratingIntroPrompt] = useState(false) // 인트로 프롬프트 생성 중
+  
+  // 대댓글 생성기 상태
+  const [commentReplyScript, setCommentReplyScript] = useState<string>("") // 대본 (내부적으로만 저장)
+  const [commentReplyMessages, setCommentReplyMessages] = useState<Array<{ type: "user" | "assistant" | "script"; content: string }>>([]) // 대화 메시지
+  const [currentComment, setCurrentComment] = useState<string>("") // 현재 입력 중인 댓글
+  const [isGeneratingReply, setIsGeneratingReply] = useState(false) // 대댓글 생성 중
+  
+  // 윙스봇 챗봇 상태
+  const [isChatbotOpen, setIsChatbotOpen] = useState(false) // 챗봇 열림/닫힘
+  const [chatbotMessages, setChatbotMessages] = useState<Array<{ type: "user" | "assistant"; content: string }>>([]) // 챗봇 메시지
+  const [chatbotInput, setChatbotInput] = useState<string>("") // 챗봇 입력
+  const [isChatbotGenerating, setIsChatbotGenerating] = useState(false) // 챗봇 응답 생성 중
+  
+  // 대댓글 생성 함수
+  const handleGenerateCommentReply = async () => {
+    if (!currentComment.trim()) {
+      alert("댓글을 입력해주세요.")
+      return
+    }
+
+    if (!commentReplyScript) {
+      alert("먼저 대본을 입력해주세요.")
+      return
+    }
+
+    const apiKey = getApiKey()
+    if (!apiKey) {
+      alert("OpenAI API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+      return
+    }
+
+    setIsGeneratingReply(true)
+    
+    // 사용자 댓글을 메시지에 추가
+    const userComment = currentComment.trim()
+    setCommentReplyMessages((prev) => [...prev, { type: "user", content: userComment }])
+    setCurrentComment("")
+
+    try {
+      const systemPrompt = `당신은 유튜브 채널 운영자를 돕는 어시스턴트다. 사용자가 올린 유튜브 '대본(스크립트)'을 입력하면, 우선 모드를 판별한다.
+
+1) 대본 입력 시:
+- 분석 요약은 하지 않고, 내부적으로만 숙지한다.
+- 사용자가 나중에 댓글 응답을 요청할 경우, 숙지한 대본의 맥락과 메시지를 반영해 대댓글을 작성한다.
+- 숙지 여부는 명확히 표시하지 않고, "대본을 잘 받았다" 정도로 간단히 확인만 한다.
+
+2) 시청자 댓글 입력 시:
+- 댓글별 감정(긍정/중립/부정/혼합)과 의도를 간단히 파악 후, 400~500자 분량의 한국어 대댓글을 작성.
+- 기본은 각 댓글당 1개씩, 사용자가 "여러 버전"을 원하면 톤을 달리한 2~3개 버전 제공(따뜻함/유머/전문성 등).
+- 필수 요소: 진심 어린 공감 → 구체적 포인트 언급(영상 내용과 연결) → 가치/배움 요약 → 다음 행동 제안(구독·알림·관련 영상 시청 유도) → 감사.
+- 금지: 과장/허위 약속, 클릭베이트 표현 남발, 공격적/수세적 어조, 의료·법률·재정 조언으로 오해 소지 있는 단정.
+- 부정적·공격적 댓글은 '경청-사실정리-경계선-환영' 4단계로 대응. 인신공격엔 단호하고 짧게 경계를 표시하되, 대화 가능성은 열어둔다.
+
+스타일 가이드:
+- 따뜻하고 선명한 문장, 지나친 이모지 남용 금지(필요시 0~2개).
+- 채널 고유 어투가 있다면 그 톤을 그대로 반영. 없다면 담백하고 공손한 표준어 사용.
+- 반복어·상투어 최소화, 댓글 작성 시 매번 표현을 변주.
+- 길이 규정: 본문 400~500자(공백 포함 기준 가급적), 한 문장 길이 10~25자 중심으로 호흡 조절.
+- 링크·시간표시 등은 사용자가 제공한 자료만 사용하고 임의 생성 금지.
+
+운영 규칙:
+- 입력이 무엇인지 애매하면, '대본인지, 시청자 댓글인지'를 판별해 가장 가능성 높은 모드로 응답하고, 필요한 최소한의 추가 정보만 요청.
+- 여러 댓글이 한 번에 들어오면 번호를 매겨 각각 답변.
+- 외국어 댓글은 원문 존중+한국어 응대, 필요 시 짧게 원문 인용.
+- 민감주제(건강, 금융, 법률)는 정보 제공형으로 톤을 유지하고 전문가 상담을 권고.
+- 개인정보 유도 금지.
+
+출력 포맷(댓글 모드):
+- 오직 대댓글 내용만 반환하세요. 설명, 분석, 라벨, 제목 등은 절대 포함하지 마세요.
+- 대댓글만 400~500자로 작성하세요.
+- 다른 텍스트는 전혀 포함하지 마세요.`
+
+      const userPrompt = `다음은 유튜브 영상의 대본입니다:
+
+${commentReplyScript}
+
+위 대본을 참고하여 다음 시청자 댓글에 대한 대댓글을 작성해주세요:
+
+${userComment}`
+
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          temperature: 0.7,
+          max_tokens: 1000,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error?.message || "대댓글 생성에 실패했습니다.")
+      }
+
+      const data = await response.json()
+      let reply = data.choices[0]?.message?.content || "대댓글 생성에 실패했습니다."
+
+      // 모든 설명, 분석, 라벨을 제거하고 순수 대댓글만 추출
+      const lines: string[] = reply.split('\n')
+      
+      // "- 대댓글:" 또는 "대댓글:" 패턴 찾기
+      let foundReplyStart = false
+      const replyLines: string[] = []
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i]
+        const trimmed = line.trim()
+        
+        // "- 대댓글:" 또는 "대댓글:" 패턴 발견 시 그 다음부터가 실제 대댓글
+        if (trimmed.match(/^[-•]\s*대댓글\s*[:：]/) || trimmed.match(/^대댓글\s*[:：]/)) {
+          foundReplyStart = true
+          // 라벨 부분 제거하고 나머지만 추가
+          const content = trimmed.replace(/^[-•]\s*대댓글\s*[:：]\s*/, '').replace(/^대댓글\s*[:：]\s*/, '')
+          if (content) {
+            replyLines.push(content)
+          }
+          continue
+        }
+        
+        // 대댓글 시작 후에는 모든 내용 추가 (설명 문장 제외)
+        if (foundReplyStart) {
+          // 설명 문장 패턴 제거 (예: "댓글 작성자는...", "이 댓글은...")
+          if (trimmed.match(/^(댓글 작성자|이 댓글|댓글의|작성자는|의견을|표현하고)/)) {
+            continue
+          }
+          // [로 시작하고 ]로 끝나는 줄 제거
+          if (trimmed.match(/^\[.*\]$/)) {
+            continue
+          }
+          replyLines.push(line)
+        }
+      }
+      
+      // 대댓글 시작 패턴을 찾지 못한 경우, 설명 문장들을 모두 제거
+      if (!foundReplyStart) {
+        reply = lines
+          .filter((line: string) => {
+            const trimmed = line.trim()
+            // 설명 문장 제거
+            if (trimmed.match(/^(댓글 작성자|이 댓글|댓글의|작성자는|의견을|표현하고|부정적|긍정적|중립적)/)) {
+              return false
+            }
+            // [로 시작하고 ]로 끝나는 줄 제거
+            if (trimmed.match(/^\[.*\]$/)) {
+              return false
+            }
+            // "- 대댓글:" 같은 라벨 줄 제거
+            if (trimmed.match(/^[-•]\s*대댓글\s*[:：]/) || trimmed.match(/^대댓글\s*[:：]/)) {
+              return false
+            }
+            return true
+          })
+          .map((line: string) => {
+            // 라벨이 포함된 경우 제거
+            return line.replace(/^[-•]\s*대댓글\s*[:：]\s*/, '').replace(/^대댓글\s*[:：]\s*/, '')
+          })
+          .join('\n')
+          .trim()
+      } else {
+        reply = replyLines.join('\n').trim()
+      }
+      
+      // 여러 개의 빈 줄을 하나로 정리
+      reply = reply.replace(/\n{3,}/g, '\n\n')
+      
+      // 생성된 대댓글을 메시지에 추가
+      setCommentReplyMessages((prev) => [...prev, { type: "assistant", content: reply }])
+    } catch (error) {
+      console.error("대댓글 생성 실패:", error)
+      const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다."
+      alert(`대댓글 생성에 실패했습니다: ${errorMessage}`)
+      // 에러 발생 시 사용자 댓글도 제거
+      setCommentReplyMessages((prev) => prev.slice(0, -1))
+      setCurrentComment(userComment)
+    } finally {
+      setIsGeneratingReply(false)
+    }
+  }
+  
+  // 윙스봇 챗봇 메시지 전송 함수
+  const handleChatbotSend = async () => {
+    if (!chatbotInput.trim() || isChatbotGenerating) return
+
+    const userMessage = chatbotInput.trim()
+    setChatbotInput("")
+    setChatbotMessages((prev) => [...prev, { type: "user", content: userMessage }])
+    setIsChatbotGenerating(true)
+
+    try {
+      const apiKey = getApiKey()
+      if (!apiKey) {
+        setChatbotMessages((prev) => [...prev, {
+          type: "assistant",
+          content: "OpenAI API 키가 필요합니다. 설정에서 API 키를 입력해주세요."
+        }])
+        setIsChatbotGenerating(false)
+        return
+      }
+
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content: "당신은 윙스봇입니다. wingsAIStudio의 AI 어시스턴트로서 사용자에게 친절하고 도움이 되는 답변을 제공합니다. 유튜브 콘텐츠 제작, 대본 작성, 이미지 생성, TTS 등에 대한 질문에 답변할 수 있습니다."
+            },
+            ...chatbotMessages.map((msg) => ({
+              role: msg.type === "user" ? "user" : "assistant",
+              content: msg.content
+            })),
+            { role: "user", content: userMessage }
+          ],
+          temperature: 0.7,
+          max_tokens: 1000,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error?.message || "응답 생성에 실패했습니다.")
+      }
+
+      const data = await response.json()
+      const reply = data.choices[0]?.message?.content || "응답 생성에 실패했습니다."
+
+      setChatbotMessages((prev) => [...prev, { type: "assistant", content: reply }])
+    } catch (error) {
+      console.error("챗봇 응답 생성 실패:", error)
+      const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다."
+      setChatbotMessages((prev) => [...prev, {
+        type: "assistant",
+        content: `죄송합니다. 오류가 발생했습니다: ${errorMessage}`
+      }])
+    } finally {
+      setIsChatbotGenerating(false)
+    }
+  }
   
   // OpenAI API를 사용하여 소라AI용 인트로 프롬프트 생성 함수
   const generateIntroPromptWithOpenAI = async (scriptText: string, imageStyle: string, apiKey: string): Promise<string> => {
@@ -24134,11 +24386,34 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                               <p className={`text-sm flex-1 ${
                                 selectedTitle === cleanedTitle ? "text-red-700" : "text-gray-900"
                               }`}>{cleanedTitle}</p>
-                              {selectedTitle === cleanedTitle && (
-                                <div className="flex-shrink-0 text-red-500">
-                                  <Check className="w-4 h-4" />
-                                </div>
-                              )}
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    navigator.clipboard.writeText(cleanedTitle).then(() => {
+                                      setCopiedTitleIndex(index)
+                                      setTimeout(() => setCopiedTitleIndex(null), 1000)
+                                    }).catch((err) => {
+                                      console.error("복사 실패:", err)
+                                    })
+                                  }}
+                                  title="제목 복사"
+                                >
+                                  {copiedTitleIndex === index ? (
+                                    <Check className="w-4 h-4 text-green-500" />
+                                  ) : (
+                                    <Copy className="w-4 h-4 text-gray-500 hover:text-gray-700" />
+                                  )}
+                                </Button>
+                                {selectedTitle === cleanedTitle && (
+                                  <div className="flex-shrink-0 text-red-500">
+                                    <Check className="w-4 h-4" />
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </CardContent>
                         </Card>
@@ -26384,6 +26659,10 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                       </>
                     )}
                   </Button>
+                  
+                  <p className="text-sm text-gray-500 mt-2 text-center">
+                    재생 후 자막이 멈추면 한번더 렌더링 부탁드립니다
+                  </p>
 
                   {shortsVideoUrl && (
                     <div className="mt-6 space-y-4">
@@ -26914,6 +27193,171 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                   </div>
                 </CardContent>
               </Card>
+            )}
+          </div>
+        )
+
+      case "comment-reply":
+        return (
+          <div className="space-y-6">
+            <div className="text-center space-y-2 mb-8">
+              <h2 className="text-3xl font-bold text-slate-900">대댓글 생성기</h2>
+              <p className="text-gray-600">생성된 대본을 기반으로 시청자 댓글에 대한 대댓글을 자동 생성합니다</p>
+            </div>
+
+            {/* 대본 입력 섹션 */}
+            {!commentReplyScript && (
+              <Card className="border-2 border-gray-200 rounded-xl shadow-lg">
+                <CardHeader>
+                  <CardTitle className="text-xl font-semibold text-slate-900">대본 입력</CardTitle>
+                  <CardDescription>유튜브 영상의 대본을 입력해주세요. 대본은 내부적으로만 저장되며, 댓글 응답 생성 시 참고됩니다.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <Textarea
+                      placeholder="생성된 대본을 여기에 붙여넣으세요..."
+                      value={script || ""}
+                      onChange={(e) => {
+                        // script state는 이미 있으므로 그대로 사용
+                      }}
+                      className="min-h-[200px]"
+                      readOnly
+                    />
+                    <Button
+                      onClick={() => {
+                        if (script) {
+                          setCommentReplyScript(script)
+                          setCommentReplyMessages([{
+                            type: "script",
+                            content: "대본을 잘 받았습니다. 이제 시청자 댓글을 입력해주시면 대댓글을 생성해드리겠습니다."
+                          }])
+                        } else {
+                          alert("대본이 없습니다. 먼저 대본을 생성해주세요.")
+                        }
+                      }}
+                      disabled={!script}
+                      className="w-full"
+                    >
+                      대본 확인 완료
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* 대화형 대댓글 생성 섹션 */}
+            {commentReplyScript && (
+              <div className="space-y-4">
+                {/* 대화 메시지 표시 */}
+                <Card className="border-2 border-gray-200 rounded-xl shadow-lg">
+                  <CardHeader>
+                    <CardTitle className="text-xl font-semibold text-slate-900">대댓글 생성</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4 max-h-[500px] overflow-y-auto mb-4">
+                      {commentReplyMessages.map((message, index) => (
+                        <div
+                          key={index}
+                          className={`flex ${message.type === "user" ? "justify-end" : "justify-start"}`}
+                        >
+                          <div
+                            className={`max-w-[80%] rounded-lg p-4 ${
+                              message.type === "user"
+                                ? "bg-red-50 text-red-900 border border-red-200"
+                                : message.type === "script"
+                                ? "bg-blue-50 text-blue-900 border border-blue-200"
+                                : "bg-gray-50 text-gray-900 border border-gray-200"
+                            }`}
+                          >
+                            <div className="flex items-start gap-2">
+                              {message.type === "assistant" && (
+                                <Bot className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                              )}
+                              <div className="flex-1">
+                                <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                                {message.type === "assistant" && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="mt-2 h-7 text-xs"
+                                    onClick={(e) => {
+                                      navigator.clipboard.writeText(message.content)
+                                      const button = e.currentTarget
+                                      const originalText = button.textContent
+                                      button.textContent = "복사됨!"
+                                      setTimeout(() => {
+                                        button.textContent = originalText
+                                      }, 1000)
+                                    }}
+                                  >
+                                    <Copy className="w-3 h-3 mr-1" />
+                                    복사
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      {isGeneratingReply && (
+                        <div className="flex justify-start">
+                          <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                            <div className="flex items-center gap-2">
+                              <Loader2 className="w-5 h-5 animate-spin" />
+                              <span className="text-sm text-gray-600">대댓글 생성 중...</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 댓글 입력 */}
+                    <div className="space-y-2">
+                      <Textarea
+                        placeholder="시청자 댓글을 입력하세요..."
+                        value={currentComment}
+                        onChange={(e) => setCurrentComment(e.target.value)}
+                        className="min-h-[100px]"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && e.ctrlKey && currentComment.trim()) {
+                            handleGenerateCommentReply()
+                          }
+                        }}
+                      />
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={handleGenerateCommentReply}
+                          disabled={!currentComment.trim() || isGeneratingReply}
+                          className="flex-1"
+                        >
+                          {isGeneratingReply ? (
+                            <>
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              생성 중...
+                            </>
+                          ) : (
+                            <>
+                              <MessageSquare className="w-4 h-4 mr-2" />
+                              대댓글 생성
+                            </>
+                          )}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setCommentReplyScript("")
+                            setCommentReplyMessages([])
+                            setCurrentComment("")
+                          }}
+                        >
+                          초기화
+                        </Button>
+                      </div>
+                      <p className="text-xs text-gray-500">Ctrl + Enter로 빠르게 생성할 수 있습니다</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
             )}
           </div>
         )
@@ -27458,6 +27902,30 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                 </button>
               )
             })}
+            
+            {/* 구분선 */}
+            <div className="my-4 border-t border-gray-200"></div>
+            
+            {/* 기능 추가 섹션 */}
+            <div className="space-y-1">
+              <div className="px-3 py-2 flex items-center gap-2 text-gray-500 text-xs font-semibold uppercase tracking-wider">
+                <Plus className="w-4 h-4" />
+                기능 추가
+              </div>
+              <button
+                onClick={() => setActiveStep("comment-reply")}
+                className={`w-full text-left p-3 rounded-lg transition-all relative ${
+                  activeStep === "comment-reply"
+                    ? "bg-red-50 text-red-600 border-l-4 border-red-500"
+                    : "hover:bg-gray-50 text-gray-600"
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <MessageSquare className="w-5 h-5 flex-shrink-0" />
+                  <span className="font-medium text-sm">대댓글 생성기</span>
+                </div>
+              </button>
+            </div>
           </nav>
           </div>
         </aside>
@@ -27487,6 +27955,101 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           </div>
         </div>
       </footer>
+
+      {/* 윙스봇 챗봇 */}
+      {!isChatbotOpen && (
+        <button
+          onClick={() => {
+            setIsChatbotOpen(true)
+            if (chatbotMessages.length === 0) {
+              setChatbotMessages([{
+                type: "assistant",
+                content: "안녕하세요! 윙스봇입니다. 무엇을 도와드릴까요?"
+              }])
+            }
+          }}
+          className="fixed bottom-24 right-6 w-16 h-16 bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white rounded-full shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center z-50 group"
+          title="윙스봇과 대화하기"
+        >
+          <Bot className="w-8 h-8 group-hover:scale-110 transition-transform" />
+        </button>
+      )}
+
+      {isChatbotOpen && (
+        <div className="fixed bottom-6 right-6 w-96 h-[600px] bg-white rounded-xl shadow-2xl border-2 border-gray-200 flex flex-col z-50">
+          {/* 챗봇 헤더 */}
+          <div className="bg-gradient-to-r from-red-500 to-pink-500 text-white p-4 rounded-t-xl flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Bot className="w-6 h-6" />
+              <h3 className="font-bold text-lg">윙스봇</h3>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-white hover:bg-white/20"
+              onClick={() => setIsChatbotOpen(false)}
+            >
+              <X className="w-5 h-5" />
+            </Button>
+          </div>
+
+          {/* 메시지 영역 */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
+            {chatbotMessages.map((message, index) => (
+              <div
+                key={index}
+                className={`flex ${message.type === "user" ? "justify-end" : "justify-start"}`}
+              >
+                <div
+                  className={`max-w-[80%] rounded-lg p-3 ${
+                    message.type === "user"
+                      ? "bg-red-500 text-white"
+                      : "bg-white text-gray-900 border border-gray-200"
+                  }`}
+                >
+                  <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                </div>
+              </div>
+            ))}
+            {isChatbotGenerating && (
+              <div className="flex justify-start">
+                <div className="bg-white rounded-lg p-3 border border-gray-200">
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-gray-500" />
+                    <span className="text-sm text-gray-500">응답 생성 중...</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 입력 영역 */}
+          <div className="p-4 border-t border-gray-200 bg-white rounded-b-xl">
+            <div className="flex gap-2">
+              <Textarea
+                placeholder="메시지를 입력하세요..."
+                value={chatbotInput}
+                onChange={(e) => setChatbotInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault()
+                    handleChatbotSend()
+                  }
+                }}
+                className="flex-1 min-h-[60px] max-h-[120px] resize-none"
+                disabled={isChatbotGenerating}
+              />
+              <Button
+                onClick={handleChatbotSend}
+                disabled={!chatbotInput.trim() || isChatbotGenerating}
+                className="bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white"
+              >
+                <ArrowRight className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 영상 렌더링 진행 상황 표시 (우측 상단 고정) */}
       {isGeneratingVideo && (
