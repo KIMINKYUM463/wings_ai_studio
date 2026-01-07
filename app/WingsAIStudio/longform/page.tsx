@@ -10637,6 +10637,54 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           
           console.log(`[Whisper] 씬별 STT 분석 배치 병렬 처리 시작: 총 ${sttTasks.length}개 장면 (5개씩 배치)`)
           
+          // 오디오 압축 함수 (Whisper 분석용, 원본은 유지)
+          const compressAudioForWhisper = async (audioBuffer: AudioBuffer): Promise<Blob> => {
+            // 압축 설정: 샘플레이트 16kHz, 모노
+            const targetSampleRate = 16000
+            const targetChannels = 1
+            
+            // 오프라인 컨텍스트 생성 (샘플레이트 변환용)
+            const compressedLength = Math.floor(audioBuffer.length * (targetSampleRate / audioBuffer.sampleRate))
+            const offlineContext = new OfflineAudioContext(
+              targetChannels,
+              compressedLength,
+              targetSampleRate
+            )
+            
+            // 소스 생성
+            const source = offlineContext.createBufferSource()
+            source.buffer = audioBuffer
+            
+            // 모노로 변환 (스테레오인 경우)
+            if (audioBuffer.numberOfChannels > 1) {
+              // 스테레오를 모노로 변환: 두 채널의 평균
+              const merger = offlineContext.createChannelMerger(1)
+              const splitter = offlineContext.createChannelSplitter(audioBuffer.numberOfChannels)
+              
+              source.connect(splitter)
+              
+              // 각 채널을 gain으로 조정 후 병합 (평균값)
+              for (let i = 0; i < audioBuffer.numberOfChannels; i++) {
+                const channelGain = offlineContext.createGain()
+                channelGain.gain.value = 1.0 / audioBuffer.numberOfChannels
+                splitter.connect(channelGain, i)
+                channelGain.connect(merger, 0, 0)
+              }
+              
+              merger.connect(offlineContext.destination)
+            } else {
+              source.connect(offlineContext.destination)
+            }
+            
+            source.start(0)
+            
+            // 오프라인 렌더링
+            const compressedBuffer = await offlineContext.startRendering()
+            
+            // WAV로 변환
+            return audioBufferToBlob(compressedBuffer)
+          }
+          
           // 배치 병렬 처리 (5개씩 동시 처리, 순서 보장)
           const BATCH_SIZE = 5
           const totalBatches = Math.ceil(sttTasks.length / BATCH_SIZE)
@@ -10661,6 +10709,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               batch.map(async (task) => {
                 const MAX_RETRIES = 10 // 최대 재시도 횟수
                 const RETRY_DELAY = 2000 // 재시도 대기 시간 (ms)
+                let compressedRetryFailed = false // 압축 재시도 실패 플래그
                 
                 for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
                   try {
@@ -10694,30 +10743,92 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                         }
                       } else {
                         console.warn(`[Whisper] 장면 단위 STT 분석 단어 타이밍 없음 (씬 ${task.sceneNum}, 장면 ${task.line.imageNumber}, 시도 ${attempt}/${MAX_RETRIES}), 재시도...`)
-                        if (attempt < MAX_RETRIES) {
+                        if (attempt < MAX_RETRIES && !compressedRetryFailed) {
                           await new Promise(resolve => setTimeout(resolve, RETRY_DELAY))
                           continue
                         }
                       }
                     } else {
                       const errorText = await whisperResponse.text()
+                      const errorStatus = whisperResponse.status
+                      const isSizeError = errorStatus === 413 || 
+                                         errorText.includes("Request Entity Too Large") ||
+                                         errorText.includes("FUNCTION_PAYLOAD_TOO_LARGE") ||
+                                         errorText.includes("too large")
+                      
                       console.warn(`[Whisper] 장면 단위 STT 분석 API 오류 (씬 ${task.sceneNum}, 장면 ${task.line.imageNumber}, 시도 ${attempt}/${MAX_RETRIES}):`, errorText)
-                      if (attempt < MAX_RETRIES) {
+                      
+                      // 크기 오류이고 첫 번째 시도인 경우 압축된 오디오로 재시도
+                      if (isSizeError && attempt === 1) {
+                        console.log(`[Whisper] 오디오 크기 문제 감지, 압축된 버전으로 재시도 (씬 ${task.sceneNum}, 장면 ${task.line.imageNumber})`)
+                        try {
+                          const compressedBlob = await compressAudioForWhisper(task.lineAudioBuffer)
+                          const originalSize = (await audioBufferToBlob(task.lineAudioBuffer)).size
+                          const compressedSize = compressedBlob.size
+                          console.log(`[Whisper] 오디오 압축 완료: ${(originalSize / 1024).toFixed(1)}KB → ${(compressedSize / 1024).toFixed(1)}KB (${((1 - compressedSize / originalSize) * 100).toFixed(1)}% 감소)`)
+                          
+                          const compressedFormData = new FormData()
+                          compressedFormData.append("audio", compressedBlob, `scene_${task.sceneNum}_image_${task.line.imageNumber}_line_${task.line.lineId}_compressed.wav`)
+                          compressedFormData.append("text", task.line.text)
+                          if (openaiApiKey) {
+                            compressedFormData.append("apiKey", openaiApiKey)
+                          }
+                          
+                          const compressedResponse = await fetch("/api/whisper-align", {
+                            method: "POST",
+                            body: compressedFormData,
+                          })
+                          
+                          if (compressedResponse.ok) {
+                            const compressedData = await compressedResponse.json()
+                            if (compressedData.wordTimings && compressedData.wordTimings.length > 0) {
+                              console.log(`[Whisper] 압축된 오디오로 분석 성공 (씬 ${task.sceneNum}, 장면 ${task.line.imageNumber})`)
+                              return {
+                                index: task.index,
+                                sceneNum: task.sceneNum,
+                                imageNumber: task.line.imageNumber,
+                                lineId: task.line.lineId,
+                                cumulativeTime: task.cumulativeTime,
+                                wordTimings: compressedData.wordTimings || [],
+                                success: true,
+                              }
+                            }
+                          }
+                          
+                          // 압축된 오디오로도 실패
+                          const compressedErrorText = compressedResponse.ok ? "" : await compressedResponse.text()
+                          console.warn(`[Whisper] 압축된 오디오로도 실패 (씬 ${task.sceneNum}, 장면 ${task.line.imageNumber}), Fallback 방식으로 전환:`, compressedErrorText)
+                          compressedRetryFailed = true
+                          // 바로 Fallback으로 넘어가기 위해 루프 종료
+                          break
+                        } catch (compressError) {
+                          console.warn(`[Whisper] 오디오 압축 실패 (씬 ${task.sceneNum}, 장면 ${task.line.imageNumber}), Fallback 방식으로 전환:`, compressError)
+                          compressedRetryFailed = true
+                          // 바로 Fallback으로 넘어가기 위해 루프 종료
+                          break
+                        }
+                      }
+                      
+                      if (attempt < MAX_RETRIES && !compressedRetryFailed) {
                         await new Promise(resolve => setTimeout(resolve, RETRY_DELAY))
                         continue
                       }
                     }
                   } catch (whisperError) {
                     console.warn(`[Whisper] 장면 단위 STT 분석 오류 (씬 ${task.sceneNum}, 장면 ${task.line.imageNumber}, 시도 ${attempt}/${MAX_RETRIES}):`, whisperError)
-                    if (attempt < MAX_RETRIES) {
+                    if (attempt < MAX_RETRIES && !compressedRetryFailed) {
                       await new Promise(resolve => setTimeout(resolve, RETRY_DELAY))
                       continue
                     }
                   }
                 }
                 
-                // 모든 재시도 실패 - Fallback 방식으로 단어 타이밍 생성 (빠른 렌더링 방식)
-                console.warn(`[Whisper] 장면 단위 STT 분석 최종 실패 (씬 ${task.sceneNum}, 장면 ${task.line.imageNumber}, ${MAX_RETRIES}회 시도), Fallback 방식으로 처리`)
+                // 모든 재시도 실패 또는 압축 재시도 실패 - Fallback 방식으로 단어 타이밍 생성 (빠른 렌더링 방식)
+                if (compressedRetryFailed) {
+                  console.warn(`[Whisper] 압축된 오디오로도 실패하여 Fallback 방식으로 처리 (씬 ${task.sceneNum}, 장면 ${task.line.imageNumber})`)
+                } else {
+                  console.warn(`[Whisper] 장면 단위 STT 분석 최종 실패 (씬 ${task.sceneNum}, 장면 ${task.line.imageNumber}, ${MAX_RETRIES}회 시도), Fallback 방식으로 처리`)
+                }
                 
                 // Fallback: 오디오 길이를 단어 개수로 균등 분배
                 const fallbackWordTimings: Array<{ word: string; start: number; end: number }> = []
@@ -26423,13 +26534,215 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               </CardContent>
             </Card>
 
-            {/* 제목 생성 */}
+            {/* 영상 상단 제목 (영상에 표시되는 제목) */}
+            {summarizedScript && (
+              <Card className="border-2 border-gray-200 shadow-xl">
+                <CardHeader className="bg-gradient-to-r from-yellow-50 to-orange-50 border-b-2 border-yellow-100">
+                  <CardTitle className="text-xl font-bold bg-gradient-to-r from-yellow-600 to-orange-600 bg-clip-text text-transparent flex items-center gap-2">
+                    <Type className="w-6 h-6 text-yellow-600" />
+                    영상 상단 제목
+                  </CardTitle>
+                  <CardDescription className="text-sm text-gray-600 mt-2">
+                    영상 상단에 표시될 제목을 입력하세요 (2줄)
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="p-6 space-y-4">
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={async () => {
+                        if (!summarizedScript) {
+                          alert("요약된 대본이 필요합니다.")
+                          return
+                        }
+                        const openaiApiKey = getApiKey("openai_api_key")
+                        if (!openaiApiKey) {
+                          alert("OpenAI API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+                          return
+                        }
+                        setIsGeneratingShortsTitle(true)
+                        try {
+                          const title = await generateShortsHookingTitle(selectedTopic || "", summarizedScript, openaiApiKey)
+                          setShortsHookingTitle(title)
+                          console.log("[Shorts] 영상 상단 제목 생성 완료:", title)
+                        } catch (error) {
+                          console.error("[Shorts] 영상 상단 제목 생성 실패:", error)
+                          alert(`제목 생성에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+                        } finally {
+                          setIsGeneratingShortsTitle(false)
+                        }
+                      }}
+                      disabled={!summarizedScript || isGeneratingShortsTitle}
+                      className="flex-1 h-12 bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-700 hover:to-orange-700 text-white"
+                    >
+                      {isGeneratingShortsTitle ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          생성 중...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4 mr-2" />
+                          AI로 제목 생성
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      onClick={async () => {
+                        if (!summarizedScript) {
+                          alert("요약된 대본이 필요합니다.")
+                          return
+                        }
+                        const openaiApiKey = getApiKey("openai_api_key")
+                        if (!openaiApiKey) {
+                          alert("OpenAI API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+                          return
+                        }
+                        setIsGeneratingShortsTitle(true)
+                        try {
+                          const title = await generateShortsHookingTitle(selectedTopic || "", summarizedScript, openaiApiKey)
+                          setShortsHookingTitle(title)
+                          console.log("[Shorts] 영상 상단 제목 재생성 완료:", title)
+                        } catch (error) {
+                          console.error("[Shorts] 영상 상단 제목 재생성 실패:", error)
+                          alert(`제목 재생성에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+                        } finally {
+                          setIsGeneratingShortsTitle(false)
+                        }
+                      }}
+                      disabled={!summarizedScript || isGeneratingShortsTitle || !shortsHookingTitle}
+                      variant="outline"
+                      className="flex-1 h-12 border-2 border-yellow-500 text-yellow-600 hover:bg-yellow-50"
+                    >
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      재생성
+                    </Button>
+                  </div>
+                  
+                  <div className="flex gap-4">
+                    <div className="flex-1 space-y-3">
+                      <div>
+                        <Label htmlFor="shorts-title-line1" className="text-sm font-semibold text-gray-700 mb-2 block">
+                          첫 번째 줄 (노란색)
+                        </Label>
+                        <Input
+                          id="shorts-title-line1"
+                          value={shortsHookingTitle?.line1 || ""}
+                          onChange={(e) => {
+                            setShortsHookingTitle({
+                              line1: e.target.value,
+                              line2: shortsHookingTitle?.line2 || "",
+                            })
+                          }}
+                          placeholder="첫 번째 줄 제목을 입력하세요"
+                          className="h-12 text-lg border-2 border-gray-300 focus:border-yellow-500 focus:ring-2 focus:ring-yellow-300"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="shorts-title-line2" className="text-sm font-semibold text-gray-700 mb-2 block">
+                          두 번째 줄 (흰색)
+                        </Label>
+                        <Input
+                          id="shorts-title-line2"
+                          value={shortsHookingTitle?.line2 || ""}
+                          onChange={(e) => {
+                            setShortsHookingTitle({
+                              line1: shortsHookingTitle?.line1 || "",
+                              line2: e.target.value,
+                            })
+                          }}
+                          placeholder="두 번째 줄 제목을 입력하세요"
+                          className="h-12 text-lg border-2 border-gray-300 focus:border-yellow-500 focus:ring-2 focus:ring-yellow-300"
+                        />
+                      </div>
+                    </div>
+                    
+                    {/* 미리보기 */}
+                    {shortsHookingTitle && (shortsHookingTitle.line1 || shortsHookingTitle.line2) && (
+                      <div className="flex-shrink-0 w-48 p-3 bg-gradient-to-br from-gray-900 to-black rounded-lg border-2 border-gray-700">
+                        <Label className="text-xs font-semibold text-gray-300 mb-2 block">미리보기</Label>
+                        <div className="relative" style={{ width: "100%", aspectRatio: "9/16", backgroundColor: "#000" }}>
+                          <canvas
+                            ref={(canvas) => {
+                              if (canvas && shortsHookingTitle) {
+                                const ctx = canvas.getContext("2d")
+                                if (ctx) {
+                                  const width = canvas.offsetWidth || 180
+                                  const height = canvas.offsetHeight || 320
+                                  canvas.width = width
+                                  canvas.height = height
+                                  
+                                  // 배경
+                                  ctx.fillStyle = "#000"
+                                  ctx.fillRect(0, 0, width, height)
+                                  
+                                  // 제목 배경
+                                  const line1 = shortsHookingTitle.line1 || ""
+                                  const line2 = shortsHookingTitle.line2 || ""
+                                  const lineHeight = 50
+                                  const topMargin = 25 // 위로 이동
+                                  const totalTitleHeight = 100 + topMargin + 10
+                                  
+                                  ctx.fillStyle = "rgba(0, 0, 0, 0.8)"
+                                  ctx.fillRect(0, 0, width, totalTitleHeight)
+                                  
+                                  // 텍스트가 잘리지 않도록 폰트 크기 동적 조정 (두 줄 모두 동일한 크기)
+                                  const maxWidth = width * 0.9
+                                  let fontSize = Math.floor(width / 4)
+                                  ctx.font = `bold ${fontSize}px Arial`
+                                  ctx.textAlign = "center"
+                                  ctx.textBaseline = "middle"
+                                  
+                                  // 두 줄 모두 확인하여 더 긴 텍스트에 맞춰 폰트 크기 조정
+                                  if (line1 || line2) {
+                                    const longerText = line1.length > (line2?.length || 0) ? line1 : line2
+                                    let metrics = ctx.measureText(longerText)
+                                    while (metrics.width > maxWidth && fontSize > 10) {
+                                      fontSize -= 1
+                                      ctx.font = `bold ${fontSize}px Arial`
+                                      metrics = ctx.measureText(longerText)
+                                    }
+                                  }
+                                  
+                                  // 첫 번째 줄: 노란색 (동일한 폰트 크기 사용)
+                                  if (line1) {
+                                    ctx.font = `bold ${fontSize}px Arial`
+                                    ctx.fillStyle = "yellow"
+                                    ctx.fillText(line1, width / 2, 15 + topMargin) // 위로 이동
+                                  }
+                                  
+                                  // 두 번째 줄: 흰색 (동일한 폰트 크기 사용)
+                                  if (line2) {
+                                    ctx.font = `bold ${fontSize}px Arial`
+                                    ctx.fillStyle = "white"
+                                    ctx.fillText(line2, width / 2, 15 + topMargin + lineHeight) // 위로 이동
+                                  }
+                                }
+                              }
+                            }}
+                            className="w-full h-full rounded"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="flex items-center gap-2 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+                    <Sparkles className="w-4 h-4 text-yellow-600" />
+                    <p className="text-xs text-gray-600 font-medium">
+                      💡 이 제목은 영상 상단에 표시됩니다. 첫 번째 줄은 노란색, 두 번째 줄은 흰색으로 표시됩니다.
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* 제목 생성 (유튜브 등록용) */}
             {summarizedScript && (
               <Card className="border-2 border-gray-200 shadow-xl">
                 <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50 border-b-2 border-purple-100">
                   <CardTitle className="text-xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent flex items-center gap-2">
                     <Type className="w-6 h-6 text-purple-600" />
-                    제목 생성
+                    제목 생성 (유튜브 등록용)
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-6 space-y-4">
