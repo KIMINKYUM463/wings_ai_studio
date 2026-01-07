@@ -89,6 +89,7 @@ export interface ProjectData {
   aiThumbnailUrl?: string | null
   thumbnailCustomText?: string
   thumbnailText?: string[] // 썸네일 텍스트 배열
+  thumbnailStyle?: "realistic" | "animation" | null // 썸네일 스타일 (실사화/애니메이션화)
   
   // 기타
   completedSteps?: string[]

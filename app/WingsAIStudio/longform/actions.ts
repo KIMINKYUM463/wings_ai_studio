@@ -1540,7 +1540,7 @@ export async function generateImageWithReplicate(
   aspectRatio: "16:9" | "9:16" | "1:1" = "16:9",
   imageStyle?: string,
   sceneDescription?: string,
-  selectedModel?: "prunaai/hidream-l1-fast" | "black-forest-labs/flux-schnell" | "black-forest-labs/flux-pro"
+  selectedModel?: "prunaai/hidream-l1-fast" | "black-forest-labs/flux-schnell" | "black-forest-labs/flux-pro" | "google/imagen-4-fast"
 ): Promise<string> {
   if (!replicateApiKey) {
     throw new Error("Replicate API 키가 필요합니다.")
@@ -1646,8 +1646,16 @@ export async function generateImageWithReplicate(
         num_inference_steps: 16,
         image_format: "png",
       }
+    } else if (model === "google/imagen-4-fast") {
+      // imagen-4-fast 모델용 입력 형식 (16:9 비율)
+      inputBody = {
+        prompt: finalPrompt,
+        aspect_ratio: "16:9",
+        num_inference_steps: 4,
+        output_format: "png",
+      }
     } else {
-      // flux-pro 모델용 입력 형식 (1360x768로 통일)
+      // flux-pro/flux-schnell 모델용 입력 형식 (1360x768로 통일)
       // 실사화 스타일일 때는 negative prompt 추가
       const negativePrompt = (imageStyle === "realistic" || imageStyle === "realistic2")
         ? "text, letters, words, typography, English text, Korean text, Chinese text, Japanese text, numbers, logos, watermarks, signs, labels, captions, subtitles, written text, text overlay, any text elements, any written content, any letters, any numbers, any symbols that form text, text on image, text in background, floating text, alphabet, characters, fonts, typeface, lettering, inscription, writing, script, calligraphy, text box, text area, text banner, text label, text sign, text poster, text display, text graphics, text design, text art, text illustration, any form of text, any form of writing, any form of letters, any form of numbers, any readable text, any visible text, any text content, different person, different face, face morph, altered identity, wrong person, different character, different appearance, inconsistent character, changed appearance, different facial features, different body type, different clothing style"

@@ -80,6 +80,58 @@ const customStyles = `
     }
   }
   
+  @keyframes float {
+    0%, 100% {
+      transform: translateY(0px) rotate(0deg);
+    }
+    50% {
+      transform: translateY(-20px) rotate(5deg);
+    }
+  }
+  
+  @keyframes glow {
+    0%, 100% {
+      box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+    }
+    50% {
+      box-shadow: 0 0 40px rgba(59, 130, 246, 0.6);
+    }
+  }
+  
+  @keyframes gradient-shift {
+    0% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+    100% {
+      background-position: 0% 50%;
+    }
+  }
+  
+  @keyframes card-enter {
+    from {
+      opacity: 0;
+      transform: translateY(20px) scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+  
+  @keyframes pulse-glow {
+    0%, 100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.8;
+      transform: scale(1.05);
+    }
+  }
+  
   .animate-fade-in {
     animation: fade-in 0.6s ease-out forwards;
   }
@@ -98,6 +150,56 @@ const customStyles = `
   
   .animate-slide-in-right {
     animation: slide-in-right 0.4s ease-out forwards;
+  }
+  
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+  
+  .animate-glow {
+    animation: glow 3s ease-in-out infinite;
+  }
+  
+  .animate-gradient {
+    background-size: 200% 200%;
+    animation: gradient-shift 8s ease infinite;
+  }
+  
+  .animate-card-enter {
+    animation: card-enter 0.5s ease-out forwards;
+  }
+  
+  .animate-pulse-glow {
+    animation: pulse-glow 2s ease-in-out infinite;
+  }
+  
+  .glass-effect {
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+  }
+  
+  .glass-effect-dark {
+    background: rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+  
+  .project-card-hover {
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  
+  .project-card-hover:hover {
+    transform: translateY(-8px) scale(1.02);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+  }
+  
+  .bg-pattern {
+    background-image: 
+      radial-gradient(circle at 20% 50%, rgba(59, 130, 246, 0.1) 0%, transparent 50%),
+      radial-gradient(circle at 80% 80%, rgba(139, 92, 246, 0.1) 0%, transparent 50%),
+      radial-gradient(circle at 40% 20%, rgba(236, 72, 153, 0.1) 0%, transparent 50%);
   }
   
   .animate-shimmer {
@@ -207,9 +309,9 @@ import {
   analyzeBenchmarkScript, // 벤치마킹 대본 분석 함수 import 추가
   generateCustomPrompt, // 커스텀 프롬프트 생성 함수 import 추가
   translatePromptToKorean, // 영어 프롬프트 한글 번역 함수 import 추가
+  generateCustomImagePromptFromKorean, // 한글 프롬프트를 이미지 스타일에 맞게 영어로 변환하는 함수 import 추가
   // generateCommonStylePrompt, // 공통 스타일 프롬프트 생성 함수 import 추가 (임시 주석 처리)
 } from "./actions"
-import { generateCustomImagePromptFromKorean } from "./actions.ts" // 한글 프롬프트를 이미지 스타일에 맞게 영어로 변환하는 함수 import 추가
 import { generateRefinedScript, decomposeScriptIntoScenes, decomposeSingleScene, autoSplitScriptByMeaning } from "./refined-script-actions"
 import { generateSceneImagePrompts, generateSingleSceneImagePrompts, extractHistoricalContext } from "./scene-prompt-actions"
 import { Label } from "@/components/ui/label"
@@ -1924,7 +2026,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     setIsAutoRunning(true)
     setAutoProgress({
       step: 0,
-      totalSteps: 9,
+      totalSteps: 6,
       currentStepName: "시작",
       message: "자동화 파이프라인을 시작합니다...",
       isComplete: false,
@@ -1941,345 +2043,714 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     }
 
     try {
-      // 자동화용 영상 길이 설정 (테스트: 5분)
-      const autoDurationMinutes = 5
+      // 설정된 대본 시간 사용
+      const autoDurationMinutes = scriptDuration
 
       // Step 1: 대본 기획 생성
       setAutoProgress({
         step: 1,
-        totalSteps: 9,
+        totalSteps: 6,
         currentStepName: "대본 기획",
         message: `${autoDurationMinutes}분 영상용 대본 기획안을 생성하고 있습니다...`,
         isComplete: false,
       })
-      // 자동화 중에는 activeStep을 변경하지 않음 (주제 추천 화면 유지)
       
       const geminiApiKey = getGeminiApiKey()
       if (!geminiApiKey) {
         alert("Gemini API 키를 설정해주세요. 설정 페이지에서 API 키를 입력하고 저장해주세요.")
+        setIsAutoRunning(false)
         return
       }
       
-      // 콘텐츠 타입 선택이 필수입니다
-      if (!selectedContentType) {
-        alert("콘텐츠 타입을 선택해주세요. Type A, B, C, D 또는 커스텀 타입 중 하나를 선택해야 기획안을 생성할 수 있습니다.")
-        return
+      // 콘텐츠 타입이 선택되지 않았으면 자동으로 결정 (recommendContentType 사용)
+      let contentTypeToUse = selectedContentType
+      if (!contentTypeToUse) {
+        setAutoProgress({
+          step: 1,
+          totalSteps: 6,
+          currentStepName: "대본 기획",
+          message: "콘텐츠 타입을 자동으로 결정하고 있습니다...",
+          isComplete: false,
+        })
+        try {
+          const recommended = await recommendContentType(selectedTopic, selectedCategory, geminiApiKey)
+          contentTypeToUse = recommended
+          setSelectedContentType(recommended)
+          console.log(`[자동화] 자동 추천된 콘텐츠 타입: ${recommended}`)
+        } catch (error) {
+          console.warn("[자동화] 콘텐츠 타입 추천 실패, 기본값 사용:", error)
+          contentTypeToUse = "A" // 기본값
+        }
       }
       
-      // 커스텀 타입 선택 시 설명이 필수입니다
-      if (selectedContentType === "custom" && (!customContentTypeDescription || !customContentTypeDescription.trim())) {
-        alert("커스텀 타입을 선택하셨습니다. 원하는 대본 구조를 입력해주세요.")
-        return
-      }
-      
-      const planResult = await generateScriptPlan(selectedTopic, selectedCategory, undefined, geminiApiKey, autoDurationMinutes, referenceScript || undefined, selectedContentType, selectedContentType === "custom" ? customContentTypeDescription : undefined)
+      const planResult = await generateScriptPlan(
+        selectedTopic, 
+        selectedCategory, 
+        undefined, 
+        geminiApiKey, 
+        autoDurationMinutes, 
+        referenceScript || undefined, 
+        contentTypeToUse || undefined,
+        contentTypeToUse === "custom" ? customContentTypeDescription : undefined
+      )
       setScriptPlan(planResult)
       setCompletedSteps((prev) => [...new Set([...prev, "planning"])])
+      playNotificationSound() // 알림음 재생
       await new Promise(resolve => setTimeout(resolve, 1000))
 
-      // Step 2: 대본 초안 생성 (planning 단계 유지)
+      // Step 2: 정교한 대본 생성하기 실행
       setAutoProgress({
         step: 2,
-        totalSteps: 9,
-        currentStepName: "대본 초안",
-        message: `${autoDurationMinutes}분 대본 초안을 작성하고 있습니다...`,
-        isComplete: false,
-      })
-      // activeStep은 planning으로 유지 (별도의 draft UI가 없음)
-      
-      // folktale 카테고리 또는 Type D 선택 시 자동으로 스토리 모드로 설정
-      const shouldUseStoryMode = isStoryMode || selectedCategory === "folktale" || selectedContentType === "D"
-      const draftResult = await generateScriptDraft(planResult, selectedTopic, apiKey, selectedCategory, shouldUseStoryMode, selectedContentType || undefined)
-      setScriptDraft(draftResult)
-      setCompletedSteps((prev) => [...new Set([...prev, "draft"])])
-      await new Promise(resolve => setTimeout(resolve, 1000))
-
-      // Step 3: 대본 전체 생성 (초안을 기반으로 최종 대본 생성 - 수동 모드와 동일)
-      setAutoProgress({
-        step: 3,
-        totalSteps: 9,
+        totalSteps: 6,
         currentStepName: "대본 생성",
-        message: `${autoDurationMinutes}분 분량(약 ${autoDurationMinutes * 300}자)의 전체 대본을 생성하고 있습니다...`,
+        message: `정교한 대본을 생성하고 있습니다... (${autoDurationMinutes}분)`,
         isComplete: false,
       })
-      // 자동화 중에는 activeStep을 변경하지 않음 (주제 추천 화면 유지)
       
-      // 수동 모드와 동일하게 초안(draft)을 기반으로 최종 대본 생성
-      const targetChars = Math.floor(autoDurationMinutes * 60 * 6.9) // 1초당 6.9자 (목표 글자수 계산)
-      const scriptResult = await generateFinalScript(
-        draftResult,
-        selectedTopic,
-        apiKey,
-        autoDurationMinutes,
-        targetChars,
-        selectedCategory,
-        isStoryMode
-      )
-      // 대본 마지막에 CTA 추가
+      // 정교한 대본 생성 로직 (handleGenerateFullScript와 동일)
+      const geminiApiKeyForScript = getGeminiApiKey()
+      if (!geminiApiKeyForScript) {
+        alert("Gemini API 키를 설정해주세요.")
+        setIsAutoRunning(false)
+        return
+      }
+      
+      const shouldUseStoryMode = isStoryMode || selectedCategory === "folktale" || contentTypeToUse === "D"
+      const targetChars = Math.floor(autoDurationMinutes * 60 * 6.9)
+      
+      // 정교한 대본 생성 API 호출
+      const shouldSplit = autoDurationMinutes >= 10
+      let totalParts = 1
+      if (autoDurationMinutes === 10) totalParts = 2
+      else if (autoDurationMinutes === 15) totalParts = 3
+      else if (autoDurationMinutes === 20) totalParts = 4
+      else if (autoDurationMinutes === 25) totalParts = 5
+      else if (autoDurationMinutes === 30) totalParts = 6
+      else if (autoDurationMinutes === 35) totalParts = 7
+      else if (autoDurationMinutes === 40) totalParts = 8
+      
+      let fullScript = ""
+      
+      if (!shouldSplit) {
+        const response = await fetch("/api/generate-refined-script", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            scriptPlan: planResult,
+            topic: selectedTopic,
+            duration: autoDurationMinutes,
+            targetChars,
+            isStoryMode: shouldUseStoryMode,
+            apiKey: geminiApiKeyForScript
+          })
+        })
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.error || `대본 생성 실패: ${response.status}`)
+        }
+        
+        const result = await response.json()
+        if (!result || !result.script) {
+          throw new Error("대본 생성 응답이 올바르지 않습니다.")
+        }
+        fullScript = result.script
+      } else {
+        const parts: string[] = []
+        for (let partNumber = 1; partNumber <= totalParts; partNumber++) {
+          setAutoProgress({
+            step: 2,
+            totalSteps: 6,
+            currentStepName: "대본 생성",
+            message: `정교한 대본 생성 중... (${partNumber}/${totalParts})`,
+            isComplete: false,
+          })
+          
+          const response = await fetch("/api/generate-refined-script-part", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              scriptPlan: planResult,
+              topic: selectedTopic,
+              duration: autoDurationMinutes,
+              partNumber,
+              totalParts,
+              targetChars,
+              previousParts: parts.join("\n\n"),
+              isStoryMode: shouldUseStoryMode,
+              apiKey: geminiApiKeyForScript
+            })
+          })
+          
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}))
+            throw new Error(errorData.error || `${partNumber}회차 생성 실패`)
+          }
+          
+          const result = await response.json()
+          if (!result || !result.script) {
+            throw new Error(`${partNumber}회차 생성 응답이 올바르지 않습니다.`)
+          }
+          
+          parts.push(result.script)
+        }
+        fullScript = parts.join("\n\n")
+      }
+      
+      // CTA 추가
       const ctaText = "\n\n이 영상이 도움이 되셨다면 좋아요와 구독 부탁드립니다. 여러분의 응원이 제게 큰 힘이 됩니다. 다음 영상에서도 더 유용한 정보를 공유하겠습니다. 감사합니다."
-      const scriptWithCTA = scriptResult.trim() + ctaText
+      const scriptEnd = fullScript.trim().slice(-200)
+      const hasCTA = scriptEnd.includes("좋아요와 구독") || (scriptEnd.includes("좋아요") && scriptEnd.includes("구독"))
+      const scriptWithCTA = hasCTA ? fullScript : fullScript.trim() + ctaText
       
       setScript(scriptWithCTA)
       
-      // 문장 라인 파싱 (수동 모드와 동일하게 splitScriptIntoLines 함수 사용)
-      const sentences = splitScriptIntoLines(scriptResult)
-      setScriptLines(sentences)
-      setSelectedLineIds(new Set(sentences.map((s: { id: number }) => s.id)))
+      // 정교한 대본은 의미/장면 기반으로 나누기
+      const groupedLines = splitScriptIntoLines(scriptWithCTA, true)
+      setScriptLines(groupedLines)
+      setSelectedLineIds(new Set(groupedLines.map((s: { id: number }) => s.id)))
       setCompletedSteps((prev) => [...new Set([...prev, "script"])])
-      console.log(`[자동화] 대본 생성 완료, 문장 그룹 수: ${sentences.length}개`)
+      console.log(`[자동화] 정교한 대본 생성 완료, 문장 그룹 수: ${groupedLines.length}개`)
+      playNotificationSound() // 알림음 재생
       await new Promise(resolve => setTimeout(resolve, 1000))
 
-      // 로컬 변수로 이미지와 오디오 결과를 추적 (React state는 비동기라서 바로 반영 안됨)
-      let localImageResults: Array<{ lineId: number; imageUrl: string; prompt: string }> = []
-      let localAudioResults: Array<{ 
-        lineId: number; 
-        audioUrl: string; 
-        audioBase64: string; 
-        alignment?: any;
-        originalLineId?: number; // 원본 문장 ID
-      }> = []
+      // Step 2-2: 장면 분할 실행
+      setAutoProgress({
+        step: 2,
+        totalSteps: 6,
+        currentStepName: "장면 분할",
+        message: `장면을 분해하고 있습니다... (최대 ${maxScenesPerScene}개씩)`,
+        isComplete: false,
+      })
+      
+      // 장면 분해 로직 (장면 분해 버튼 클릭 로직과 동일)
+      const openaiApiKeyForScene = getApiKey("openai_api_key")
+      if (!openaiApiKeyForScene) {
+        alert("OpenAI API 키를 설정해주세요.")
+        setIsAutoRunning(false)
+        return
+      }
+      
+      // 대본을 의미 단위(씬)로 나누기
+      let scenes = scriptWithCTA.split(/\n\s*\n/).filter(s => s.trim().length > 0)
+      if (scenes.length === 0) {
+        scenes = [scriptWithCTA]
+      }
+      
+      // 긴 씬을 여러 씬으로 분할
+      const MAX_SCENE_LENGTH = 1500
+      const splitScenes: string[] = []
+      
+      for (let idx = 0; idx < scenes.length; idx++) {
+        const scene = scenes[idx]
+        if (scene.length <= MAX_SCENE_LENGTH) {
+          splitScenes.push(scene)
+        } else {
+          const sentences = scene.split(/([.!?。！？]\s*)/).filter(s => s.trim().length > 0)
+          let currentChunk = ""
+          for (let i = 0; i < sentences.length; i++) {
+            const sentence = sentences[i]
+            if (currentChunk.length + sentence.length <= MAX_SCENE_LENGTH) {
+              currentChunk += sentence
+            } else {
+              if (currentChunk.trim().length > 0) {
+                splitScenes.push(currentChunk.trim())
+              }
+              currentChunk = sentence
+            }
+          }
+          if (currentChunk.trim().length > 0) {
+            splitScenes.push(currentChunk.trim())
+          }
+        }
+      }
+      
+      const totalScenes = splitScenes.length
+      console.log(`[자동화] 총 씬 개수: ${totalScenes}개`)
+      
+      // 장면 분해 실행
+      const allResults: string[] = []
+      if (maxScenesPerScene === 1) {
+        // 최대 1개 선택 시 AI 호출 없이 바로 형식 변환
+        for (let i = 0; i < splitScenes.length; i++) {
+          const sceneText = splitScenes[i]
+          const sceneNumber = i + 1
+          const formattedResult = `씬 ${sceneNumber}\n\n[장면 1]\n\n${sceneText.trim()}`
+          allResults.push(formattedResult)
+        }
+      } else {
+        // 최대 2개 이상일 때는 AI 호출
+        const BATCH_SIZE = 5
+        for (let batchStart = 0; batchStart < splitScenes.length; batchStart += BATCH_SIZE) {
+          const batchEnd = Math.min(batchStart + BATCH_SIZE, splitScenes.length)
+          const batch = splitScenes.slice(batchStart, batchEnd)
+          
+          setAutoProgress({
+            step: 2,
+            totalSteps: 6,
+            currentStepName: "장면 분할",
+            message: `장면 분해 중... (${batchEnd}/${totalScenes})`,
+            isComplete: false,
+          })
+          
+          const batchPromises = batch.map(async (sceneText, batchIndex) => {
+            const sceneNumber = batchStart + batchIndex + 1
+            try {
+              const sceneResult = await decomposeSingleScene(sceneText, sceneNumber, openaiApiKeyForScene, maxScenesPerScene, true)
+              if (sceneResult && sceneResult.trim().length > 0) {
+                return { sceneNumber, result: sceneResult, success: true }
+              } else {
+                return { 
+                  sceneNumber, 
+                  result: `씬 ${sceneNumber}\n\n[장면 1]\n\n${sceneText.trim()}`, 
+                  success: false 
+                }
+              }
+            } catch (error) {
+              console.error(`[자동화] 씬 ${sceneNumber} 처리 실패:`, error)
+              return { 
+                sceneNumber, 
+                result: `씬 ${sceneNumber}\n\n[장면 1]\n\n${sceneText.trim()}`, 
+                success: false 
+              }
+            }
+          })
+          
+          const batchResults = await Promise.all(batchPromises)
+          batchResults.sort((a, b) => a.sceneNumber - b.sceneNumber)
+          for (const { result } of batchResults) {
+            allResults.push(result)
+          }
+          
+          if (batchEnd < splitScenes.length) {
+            await new Promise(resolve => setTimeout(resolve, 500))
+          }
+        }
+      }
+      
+      const finalDecomposedScenes = allResults.join("\n\n")
+      setDecomposedScenes(finalDecomposedScenes)
+      
+      // 장면 분해 결과 파싱
+      const parseSceneBlocks = (text: string) => {
+        const sceneBlocks = text.split(/(?=씬\s+\d+)/).filter(block => block.trim().length > 0)
+        const scenes: Array<{ id: number; text: string; sceneNumber?: number; imageNumber?: number }> = []
+        let globalLineId = 1
+        
+        for (const sceneBlock of sceneBlocks) {
+          const sceneNumMatch = sceneBlock.match(/씬\s+(\d+)/)
+          if (!sceneNumMatch) continue
+          
+          const sceneNum = parseInt(sceneNumMatch[1])
+          const imageRegex = /\[장면\s+(\d+)\]\s*\n([\s\S]*?)(?=\[장면\s+\d+\]|씬\s+\d+|$)/g
+          let imageMatch
+          
+          while ((imageMatch = imageRegex.exec(sceneBlock)) !== null) {
+            const imageNum = parseInt(imageMatch[1])
+            const imageText = imageMatch[2].trim()
+            if (imageText) {
+              scenes.push({
+                id: globalLineId++,
+                text: imageText,
+                sceneNumber: sceneNum,
+                imageNumber: imageNum,
+              })
+            }
+          }
+        }
+        
+        return scenes.length > 0 ? scenes : groupedLines
+      }
+      
+      const decomposedScenesParsed = parseSceneBlocks(finalDecomposedScenes)
+      setScriptLines(decomposedScenesParsed)
+      setCompletedSteps((prev) => [...new Set([...prev, "script"])])
+      console.log(`[자동화] 장면 분해 완료: ${decomposedScenesParsed.length}개 장면`)
+      playNotificationSound() // 알림음 재생
+      await new Promise(resolve => setTimeout(resolve, 1000))
 
-      // Step 4: 이미지 생성 (수동 모드와 동일하게 전체 문장에 대해 생성)
-      if (replicateApiKey) {
+      // Step 3: 이미지 프롬프트 생성
+      setAutoProgress({
+        step: 3,
+        totalSteps: 6,
+        currentStepName: "이미지 프롬프트 생성",
+        message: "장면별 이미지 프롬프트를 생성하고 있습니다...",
+        isComplete: false,
+      })
+      
+      if (!replicateApiKey) {
+        alert("Replicate API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+        setIsAutoRunning(false)
+        return
+      }
+      
+      const openaiApiKeyForImage = getApiKey("openai_api_key")
+      if (!openaiApiKeyForImage) {
+        alert("OpenAI API 키를 설정해주세요.")
+        setIsAutoRunning(false)
+        return
+      }
+      
+      // 장면 분해 결과가 없으면 에러
+      if (!finalDecomposedScenes || finalDecomposedScenes.trim().length === 0) {
+        alert("장면 분해 결과가 없습니다.")
+        setIsAutoRunning(false)
+        return
+      }
+      
+      // 시대적 배경 추출
+      const historicalContext = await extractHistoricalContext(selectedTopic || undefined, scriptWithCTA || undefined, openaiApiKeyForImage).catch(() => null)
+      
+      // 씬별로 이미지 프롬프트 생성
+      const sceneBlocks = finalDecomposedScenes.split(/(?=씬\s+\d+)/).filter(block => block.trim().length > 0)
+      const totalSceneBlocks = sceneBlocks.length
+      const allSceneImagePrompts: Array<{ sceneNumber: number; images: Array<{ imageNumber: number; prompt: string; sceneText: string; visualInstruction?: string; imageUrl?: string; createdAt?: number }> }> = []
+      let stickmanCharacterDescription: string | null = null
+      
+      for (let i = 0; i < sceneBlocks.length; i++) {
+        const sceneBlock = sceneBlocks[i]
+        const sceneNumMatch = sceneBlock.match(/씬\s+(\d+)/)
+        if (!sceneNumMatch) continue
+        
+        const sceneNum = parseInt(sceneNumMatch[1])
         setAutoProgress({
-          step: 4,
-          totalSteps: 9,
-          currentStepName: "이미지 생성",
-          message: `AI 이미지를 생성하고 있습니다... (총 ${sentences.length}개)`,
+          step: 3,
+          totalSteps: 6,
+          currentStepName: "이미지 프롬프트 생성",
+          message: `이미지 프롬프트 생성 중... (씬 ${sceneNum}/${totalSceneBlocks})`,
           isComplete: false,
         })
-        // 자동화 중에는 activeStep을 변경하지 않음 (주제 추천 화면 유지)
         
-        let successCount = 0
-        let failCount = 0
-        
-        // 수동 모드와 동일하게 전체 문장에 대해 이미지 생성
-        let characterAnchor: string | null = null // 캐릭터 앵커 (첫 번째 이미지에서 추출)
-        let backgroundStyle: string | null = null // 배경 스타일 (실사화 일관성 유지용)
-        let renderingStyle: string | null = null // 그림체/렌더링 스타일 (실사화 일관성 유지용)
-        const isRealistic = imageStyle === "realistic" || imageStyle === "realistic2"
-        
-        for (let i = 0; i < sentences.length; i++) {
-          const line = sentences[i]
+        try {
+          const sceneImages = await generateSingleSceneImagePrompts(
+            sceneBlock,
+            sceneNum,
+            imageStyle,
+            customStylePrompt || undefined,
+            historicalContext || undefined,
+            stickmanCharacterDescription || undefined,
+            openaiApiKeyForImage,
+            realisticCharacterType || undefined
+          )
+          
+          // 스틱맨 애니메이션의 경우 첫 번째 씬에서 캐릭터 설명 추출
+          if (imageStyle === "stickman-animation" && sceneNum === 1 && sceneImages.length > 0) {
+            const firstPrompt = sceneImages[0]?.prompt || ""
+            const characterMatch = firstPrompt.match(/(?:the same stickman character|the main stickman character|the protagonist stickman)\s*\(([^)]+)\)/i)
+            if (characterMatch) {
+              stickmanCharacterDescription = characterMatch[1]
+            }
+          }
+          
+          allSceneImagePrompts.push({
+            sceneNumber: sceneNum,
+            images: sceneImages,
+          })
+          
+          // 실시간으로 결과 업데이트
+          setSceneImagePrompts([...allSceneImagePrompts])
+          
+          if (i < sceneBlocks.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 2000))
+          }
+        } catch (error) {
+          console.error(`[자동화] 씬 ${sceneNum} 프롬프트 생성 실패:`, error)
+          allSceneImagePrompts.push({
+            sceneNumber: sceneNum,
+            images: [],
+          })
+        }
+      }
+      
+      setSceneImagePrompts(allSceneImagePrompts)
+      console.log(`[자동화] 이미지 프롬프트 생성 완료: ${allSceneImagePrompts.length}개 씬`)
+      await new Promise(resolve => setTimeout(resolve, 1000))
+
+      // Step 3-2: 모든 장면 이미지 생성하기
+      setAutoProgress({
+        step: 3,
+        totalSteps: 6,
+        currentStepName: "이미지 생성",
+        message: "모든 장면 이미지를 생성하고 있습니다...",
+        isComplete: false,
+      })
+      
+      // 총 이미지 개수 계산
+      const totalImages = allSceneImagePrompts.reduce((sum, scene) => sum + scene.images.length, 0)
+      let currentImageIndex = 0
+      let successCount = 0
+      let failCount = 0
+      
+      // 스타일 추출용 변수
+      let characterAnchor: string | null = null
+      let backgroundStyle: string | null = null
+      let renderingStyle: string | null = null
+      const isRealistic = imageStyle === "realistic" || imageStyle === "realistic2"
+      let isFirstImage = true
+      
+      // 모든 씬의 모든 이미지에 대해 생성
+      for (const scene of allSceneImagePrompts) {
+        for (const image of scene.images) {
+          currentImageIndex++
           setAutoProgress({
-            step: 4,
-            totalSteps: 9,
+            step: 3,
+            totalSteps: 6,
             currentStepName: "이미지 생성",
-            message: `이미지 생성 중... (${i + 1}/${sentences.length}) - 성공: ${successCount}, 실패: ${failCount}`,
+            message: `이미지 생성 중... (${currentImageIndex}/${totalImages}) - 성공: ${successCount}, 실패: ${failCount}`,
             isComplete: false,
           })
           
           try {
-            console.log(`[자동화] 이미지 생성 시작 (${i + 1}/${sentences.length}): ${line.text.substring(0, 30)}...`)
-            const topic = isCustomTopicSelected ? customTopic : selectedTopic
-            const prompt = await generateImagePrompt(
-              line.text, 
-              apiKey, 
-              selectedCategory,
-              imageStyle,
-              undefined, // commonStylePrompt
-              topic || undefined,
-              characterAnchor || undefined, // 캐릭터 앵커 전달
-              backgroundStyle || undefined, // 배경 스타일 전달
-              renderingStyle || undefined // 그림체 스타일 전달
-            )
-            console.log(`[자동화] 이미지 프롬프트 생성 완료: ${prompt.substring(0, 50)}...`)
-            
-            // 재시도 로직이 포함된 이미지 생성 (생성될 때까지 계속 시도)
+            // 이미지 생성
             let imageUrl: string | null = null
             let attempt = 1
             
             while (!imageUrl) {
               try {
-                console.log(`[자동화] 이미지 생성 시도 ${attempt}...`)
-                // 모델 선택: 모든 스타일에서 사용자 선택 모델 사용
-                const selectedModel = imageModel
-                imageUrl = await generateImageWithReplicate(prompt, replicateApiKey, "16:9", imageStyle, undefined, selectedModel)
-                console.log(`[자동화] 이미지 생성 완료 (시도 ${attempt}): ${imageUrl.substring(0, 50)}...`)
-                break // 성공하면 루프 종료
+                imageUrl = await generateImageWithReplicate(
+                  image.prompt,
+                  replicateApiKey,
+                  "16:9",
+                  imageStyle,
+                  undefined,
+                  imageModel
+                )
+                break
               } catch (error) {
                 console.error(`[자동화] 이미지 생성 재시도 ${attempt} 실패:`, error)
                 attempt++
-                // 재시도 전 대기 (지수 백오프, 최대 10초)
                 const delay = Math.min(1000 * attempt, 10000)
-                console.log(`[자동화] ${delay}ms 후 재시도...`)
                 await new Promise(resolve => setTimeout(resolve, delay))
               }
             }
             
             if (imageUrl) {
-              localImageResults.push({ lineId: line.id, imageUrl, prompt })
-              setGeneratedImages([...localImageResults])
+              // allSceneImagePrompts 변수 직접 업데이트 (클로저 문제 해결)
+              const sceneIndex = allSceneImagePrompts.findIndex(s => s.sceneNumber === scene.sceneNumber)
+              if (sceneIndex >= 0) {
+                const imageIndex = allSceneImagePrompts[sceneIndex].images.findIndex(img => img.imageNumber === image.imageNumber)
+                if (imageIndex >= 0) {
+                  allSceneImagePrompts[sceneIndex].images[imageIndex].imageUrl = imageUrl
+                  allSceneImagePrompts[sceneIndex].images[imageIndex].createdAt = Date.now()
+                }
+              }
+              
+              // sceneImagePrompts 상태도 업데이트 (UI 반영)
+              setSceneImagePrompts((prev) => {
+                const updated = prev.map((s) => {
+                  if (s.sceneNumber === scene.sceneNumber) {
+                    return {
+                      ...s,
+                      images: s.images.map((img) => 
+                        img.imageNumber === image.imageNumber
+                          ? { ...img, imageUrl: imageUrl as string, createdAt: Date.now() }
+                          : img
+                      )
+                    }
+                  }
+                  return s
+                })
+                return updated
+              })
+              
               successCount++
               
-              // 첫 번째 이미지에서 캐릭터 앵커, 배경 스타일, 그림체 추출
-              if (i === 0) {
+              // 첫 번째 이미지에서 스타일 정보 추출
+              if (isFirstImage) {
                 try {
                   const { extractCharacterAnchor, extractBackgroundAndRenderingStyle } = await import("./actions")
                   
-                  // 캐릭터 앵커 추출 (인물이 있는 경우)
                   if (!characterAnchor) {
                     const extractedAnchor = await extractCharacterAnchor(
                       imageUrl,
-                      line.text,
-                      apiKey,
-                      topic || undefined
+                      image.sceneText,
+                      openaiApiKeyForImage,
+                      selectedTopic || undefined
                     )
                     if (extractedAnchor) {
                       characterAnchor = extractedAnchor
-                      console.log("[자동화] 캐릭터 앵커 추출 완료:", characterAnchor.substring(0, 100) + "...")
-                    } else {
-                      console.log("[자동화] 캐릭터 앵커 추출: 인물 없음 또는 추출 실패")
                     }
                   }
                   
-                  // 실사화 스타일일 때 배경 스타일과 그림체 추출
                   if (isRealistic) {
                     const { backgroundStyle: extractedBg, renderingStyle: extractedRendering } = await extractBackgroundAndRenderingStyle(
                       imageUrl,
-                      apiKey
+                      openaiApiKeyForImage
                     )
-                    if (extractedBg) {
-                      backgroundStyle = extractedBg
-                      console.log("[자동화] 배경 스타일 추출 완료:", backgroundStyle.substring(0, 100) + "...")
-                    }
-                    if (extractedRendering) {
-                      renderingStyle = extractedRendering
-                      console.log("[자동화] 그림체 스타일 추출 완료:", renderingStyle.substring(0, 100) + "...")
-                    }
+                    if (extractedBg) backgroundStyle = extractedBg
+                    if (extractedRendering) renderingStyle = extractedRendering
                   }
                 } catch (error) {
-                  console.warn("[자동화] 스타일 정보 추출 실패, 계속 진행:", error)
+                  console.warn("[자동화] 스타일 정보 추출 실패:", error)
                 }
+                isFirstImage = false
               }
             }
           } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error)
-            console.error(`[자동화] 이미지 생성 실패 (문장 ${line.id}):`, errorMessage)
-            
-            // API 키 관련 오류인지 확인
-            let apiKeyInfo = ""
-            if (errorMessage.toLowerCase().includes("replicate") || 
-                errorMessage.toLowerCase().includes("api key") ||
-                errorMessage.toLowerCase().includes("api 키")) {
-              apiKeyInfo = "\n\n❌ Replicate API 키 문제일 수 있습니다.\n해결 방법:\n1. 설정에서 Replicate API 키를 확인하세요\n2. API 키가 올바른지 확인하세요"
-            } else if (errorMessage.toLowerCase().includes("gemini") ||
-                       errorMessage.toLowerCase().includes("프롬프트")) {
-              apiKeyInfo = "\n\n❌ Gemini API 키 문제일 수 있습니다.\n해결 방법:\n1. 설정에서 Gemini API 키를 확인하세요\n2. API 키가 올바른지 확인하세요"
-            }
-            
+            console.error(`[자동화] 이미지 생성 실패 (씬 ${scene.sceneNumber}, 장면 ${image.imageNumber}):`, error)
             failCount++
-            // 실패해도 계속 진행
-            setAutoProgress({
-              step: 4,
-              totalSteps: 9,
-              currentStepName: "이미지 생성",
-              message: `이미지 ${i + 1}번 생성 실패${apiKeyInfo}, 다음으로 진행... (성공: ${successCount}, 실패: ${failCount})`,
-              isComplete: false,
-            })
           }
           
-          // 각 이미지 생성 사이에 약간의 딜레이 추가 (API 제한 방지)
-          await new Promise(resolve => setTimeout(resolve, 300))
+          // API 제한 방지 딜레이
+          await new Promise(resolve => setTimeout(resolve, 5000))
         }
+      }
+      
+      console.log(`[자동화] 이미지 생성 완료 - 총 ${successCount}개 성공, ${failCount}개 실패`)
+      playNotificationSound() // 알림음 재생
+      
+      // 상태 업데이트가 완료될 때까지 대기
+      await new Promise(resolve => setTimeout(resolve, 2000))
+      
+      // 최종 상태 확인
+      console.log(`[자동화] sceneImagePrompts 최종 상태:`, sceneImagePrompts.map(s => ({
+        sceneNumber: s.sceneNumber,
+        imageCount: s.images.length,
+        imagesWithUrl: s.images.filter(img => img.imageUrl).length
+      })))
+      
+      if (successCount > 0) {
+        setCompletedSteps((prev) => [...new Set([...prev, "image"])])
+      }
+      await new Promise(resolve => setTimeout(resolve, 1000))
+
+      // Step 4: TTS 생성 (모든 문장에 TTS 생성하기)
+      setAutoProgress({
+        step: 4,
+        totalSteps: 6,
+        currentStepName: "TTS 생성",
+        message: "모든 문장에 TTS를 생성하고 있습니다...",
+        isComplete: false,
+      })
+      
+      // decomposedScenesParsed를 사용하여 TTS 생성
+      const linesForTTS = decomposedScenesParsed.length > 0 ? decomposedScenesParsed : groupedLines
+      
+      const supertoneApiKey = localStorage.getItem("supertone_api_key") || undefined
+      if (!selectedVoiceId || (!selectedVoiceId.startsWith("ttsmaker-") && !selectedVoiceId.startsWith("supertone-") && !elevenlabsApiKey)) {
+        alert("TTS 모델을 선택해주세요.")
+        setIsAutoRunning(false)
+        return
+      }
+      
+      // handleGenerateTTSForLines 로직과 동일하게 실행
+      const localAudioResults: Array<{ 
+        lineId: number; 
+        audioUrl: string; 
+        audioBase64: string; 
+        alignment?: any;
+        originalLineId?: number;
+      }> = []
+      
+      let ttsSuccessCount = 0
+      let ttsFailCount = 0
+      
+      for (let i = 0; i < linesForTTS.length; i++) {
+        const line = linesForTTS[i]
         
-        console.log(`[자동화] 이미지 생성 완료 - 총 ${successCount}개 성공, ${failCount}개 실패`)
-        
-        if (localImageResults.length > 0) {
-          setCompletedSteps((prev) => [...new Set([...prev, "image"])])
-        }
-      } else {
-        console.log("Replicate API 키가 없어 이미지 생성을 건너뜁니다.")
         setAutoProgress({
           step: 4,
-          totalSteps: 9,
-          currentStepName: "이미지 생성",
-          message: "Replicate API 키가 없어 이미지 생성을 건너뜁니다.",
-          isComplete: false,
-        })
-      }
-      await new Promise(resolve => setTimeout(resolve, 1000))
-
-      // Step 5: TTS 생성 (수동 모드와 동일하게 전체 문장에 대해 생성)
-      // TTSMaker는 API 키 필요, ElevenLabs 또는 수퍼톤인 경우만 필요
-      const supertoneApiKey = localStorage.getItem("supertone_api_key") || undefined
-      if (selectedVoiceId?.startsWith("ttsmaker-") || selectedVoiceId?.startsWith("supertone-") || elevenlabsApiKey) {
-        setAutoProgress({
-          step: 5,
-          totalSteps: 9,
+          totalSteps: 6,
           currentStepName: "TTS 생성",
-          message: `음성을 생성하고 있습니다... (총 ${sentences.length}개)`,
+          message: `TTS 생성 중... (${i + 1}/${linesForTTS.length}) - 성공: ${ttsSuccessCount}, 실패: ${ttsFailCount}`,
           isComplete: false,
         })
-        // 자동화 중에는 activeStep을 변경하지 않음 (주제 추천 화면 유지)
         
-        let ttsSuccessCount = 0
-        let ttsFailCount = 0
-        
-        // 장면별로 TTS 생성 (전체 텍스트로 하나의 오디오 생성 - 자연스러운 목소리 연결)
-        // 15~20자 나누기는 영상 렌더링 시점에 처리 (STT 불필요)
-        
-        for (let i = 0; i < sentences.length; i++) {
-          const line = sentences[i]
+        try {
+          const data = await generateTTSWithRetry(line, selectedVoiceId)
           
-          setAutoProgress({
-            step: 5,
-            totalSteps: 9,
-            currentStepName: "TTS 생성",
-            message: `음성 생성 중... (${i + 1}/${sentences.length}) - 성공: ${ttsSuccessCount}, 실패: ${ttsFailCount}`,
-            isComplete: false,
+          localAudioResults.push({
+            lineId: line.id,
+            audioUrl: data.audioUrl,
+            audioBase64: data.audioBase64 || "",
+            originalLineId: line.id,
           })
-          
-          try {
-            console.log(`[자동화] TTS 생성 시작 (문장 ${line.id}): ${line.text.substring(0, 30)}...`)
-            
-            // 전체 텍스트로 TTS 생성 (자연스러운 목소리 연결)
-            const data = await generateTTSWithRetry(line, selectedVoiceId)
-            
-            localAudioResults.push({
-              lineId: line.id,
-              audioUrl: data.audioUrl,
-              audioBase64: data.audioBase64 || "",
-              originalLineId: line.id,
-            })
-            setGeneratedAudios([...localAudioResults])
-            ttsSuccessCount++
-            console.log(`[자동화] TTS 생성 완료 (문장 ${line.id})`)
-          } catch (error) {
-            console.error(`[자동화] TTS 생성 실패 (문장 ${line.id}):`, error)
-            ttsFailCount++
-          }
-          
-          // API 제한 방지를 위한 딜레이
-          await new Promise(resolve => setTimeout(resolve, 200))
+          setGeneratedAudios([...localAudioResults])
+          ttsSuccessCount++
+        } catch (error) {
+          console.error(`[자동화] TTS 생성 실패 (문장 ${line.id}):`, error)
+          ttsFailCount++
         }
         
-        console.log(`[자동화] TTS 생성 완료 - 총 ${ttsSuccessCount}개 성공, ${ttsFailCount}개 실패`)
-        
-        if (localAudioResults.length > 0) {
-          setCompletedSteps((prev) => [...new Set([...prev, "video"])]) // 사이드바 ID는 "video"
-        }
-      } else {
-        console.log("ElevenLabs API 키가 없어 TTS 생성을 건너뜁니다.")
-        setAutoProgress({
-          step: 5,
-          totalSteps: 9,
-          currentStepName: "TTS 생성",
-          message: "ElevenLabs API 키가 없어 TTS 생성을 건너뜁니다.",
-          isComplete: false,
-        })
+        await new Promise(resolve => setTimeout(resolve, 200))
+      }
+      
+      console.log(`[자동화] TTS 생성 완료 - 총 ${ttsSuccessCount}개 성공, ${ttsFailCount}개 실패`)
+      playNotificationSound() // 알림음 재생
+      
+      if (localAudioResults.length > 0) {
+        setCompletedSteps((prev) => [...new Set([...prev, "video"])])
       }
       await new Promise(resolve => setTimeout(resolve, 1000))
 
-      // Step 6: 영상 렌더링 및 다운로드 (수동 모드와 완전히 동일한 방식)
-      console.log(`[자동화] ========== Step 6: 영상 렌더링 시작 ==========`)
-      console.log(`[자동화] 이미지: ${localImageResults.length}개, 오디오: ${localAudioResults.length}개`)
+      // Step 5: 영상 렌더링 (정밀한 버전) 및 빠른 다운로드 - 수동 모드로 건너뜀
+      console.log(`[자동화] ========== Step 5: 영상 렌더링 건너뜀 (수동 모드로 진행) ==========`)
+      // 영상 렌더링은 수동으로 진행하도록 함
+      if (false) { // Step 5 건너뜀
+      console.log(`[자동화] ========== Step 5: 영상 렌더링 시작 ==========`)
       
-      if (localImageResults.length === 0) {
+      // allSceneImagePrompts 변수에서 이미지 URL 수집 (이미지 생성 시 직접 업데이트됨)
+      const sceneImageUrls: Array<{ lineId: number; imageUrl: string; prompt: string }> = []
+      
+      console.log(`[자동화] allSceneImagePrompts 확인: ${allSceneImagePrompts.length}개 씬`)
+      
+      // handleRenderVideo가 sceneImagePrompts state를 확인하므로 먼저 업데이트
+      if (allSceneImagePrompts.length > 0) {
+        setSceneImagePrompts([...allSceneImagePrompts])
+        console.log(`[자동화] sceneImagePrompts state 업데이트 완료: ${allSceneImagePrompts.length}개 씬`)
+        // state 업데이트 대기
+        await new Promise(resolve => setTimeout(resolve, 500))
+      }
+      
+      // 이미지 URL 수집 (decomposedScenesParsed와 매칭)
+      for (const scene of allSceneImagePrompts) {
+        for (const image of scene.images) {
+          if (image.imageUrl) {
+            // decomposedScenesParsed에서 해당 장면 찾기
+            const matchingLine = decomposedScenesParsed.find(
+              (line: any) => (line as any).sceneNumber === scene.sceneNumber && (line as any).imageNumber === image.imageNumber
+            )
+            if (matchingLine) {
+              const lineId = (matchingLine as any).id
+              if (lineId !== undefined && lineId !== null) {
+                sceneImageUrls.push({
+                  lineId: Number(lineId),
+                  imageUrl: image.imageUrl as string,
+                  prompt: image.prompt || ''
+                })
+              } else {
+                console.warn(`[자동화] 매칭되는 라인에 id가 없음: 씬 ${scene.sceneNumber}, 장면 ${image.imageNumber}`)
+              }
+            } else {
+              console.warn(`[자동화] 매칭되는 라인을 찾을 수 없음: 씬 ${scene.sceneNumber}, 장면 ${image.imageNumber}`)
+            }
+          }
+        }
+      }
+      
+      const localImageResults = sceneImageUrls.length > 0 ? sceneImageUrls : []
+      console.log(`[자동화] 이미지 수집 결과: localImageResults=${localImageResults.length}개, 오디오: ${localAudioResults.length}개`)
+      console.log(`[자동화] allSceneImagePrompts 상세:`, allSceneImagePrompts.map(s => ({
+        sceneNumber: s.sceneNumber,
+        imageCount: s.images.length,
+        imagesWithUrl: s.images.filter(img => img.imageUrl).length
+      })))
+      
+      // sceneImagePrompts state에서도 이미지 확인
+      const hasSceneImages = allSceneImagePrompts.some(scene => 
+        scene.images.some(img => img.imageUrl)
+      )
+      const hasRegularImages = generatedImages.length > 0
+      const hasAnyImages = localImageResults.length > 0 || hasSceneImages || hasRegularImages
+      
+      console.log(`[자동화] 이미지 존재 여부: localImageResults=${localImageResults.length > 0}, hasSceneImages=${hasSceneImages}, hasRegularImages=${hasRegularImages}, hasAnyImages=${hasAnyImages}`)
+      
+      if (!hasAnyImages) {
         console.error("[자동화] 오류: 생성된 이미지가 없습니다!")
+        console.error(`[자동화] 이미지 상태: localImageResults=${localImageResults.length}, sceneImagePrompts=${sceneImagePrompts.length}, generatedImages=${generatedImages.length}`)
         setAutoProgress({
-          step: 6,
-          totalSteps: 9,
+          step: 5,
+          totalSteps: 6,
           currentStepName: "영상 렌더링",
           message: "⚠️ 생성된 이미지가 없어 영상 렌더링을 건너뜁니다.",
           isComplete: false,
@@ -2287,27 +2758,105 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       } else if (localAudioResults.length === 0) {
         console.error("[자동화] 오류: 생성된 오디오가 없습니다!")
         setAutoProgress({
-          step: 6,
-          totalSteps: 9,
+          step: 5,
+          totalSteps: 6,
           currentStepName: "영상 렌더링",
           message: "⚠️ 생성된 오디오가 없어 영상 렌더링을 건너뜁니다.",
           isComplete: false,
         })
       } else {
         setAutoProgress({
-          step: 6,
-          totalSteps: 9,
+          step: 5,
+          totalSteps: 6,
           currentStepName: "영상 렌더링",
-          message: "영상을 렌더링하고 있습니다... (오디오 분석 중)",
+          message: "영상을 렌더링하고 있습니다... (정밀한 버전)",
           isComplete: false,
         })
         
         try {
-          console.log("[자동화] 영상 렌더링 시작")
-          setIsGeneratingVideo(true)
-          setGeneratingVideoProgress(0)
-          setRenderingStatusMessage("오디오 분석 중...")
+          console.log("[자동화] 영상 렌더링 시작 - handleRenderVideo(true) 호출")
           
+          // handleRenderVideo가 필요한 상태를 확인할 수 있도록 scriptLines 설정
+          // linesForTTS를 scriptLines 형식으로 변환
+          const convertedScriptLines = linesForTTS.map(line => ({
+            id: line.id,
+            text: line.text,
+          }))
+          setScriptLines(convertedScriptLines)
+          console.log(`[자동화] scriptLines 설정 완료: ${convertedScriptLines.length}개`)
+          
+          // generatedAudios가 설정되었는지 확인 (이미 TTS 생성 루프에서 설정되었을 수 있음)
+          if (localAudioResults.length > 0) {
+            setGeneratedAudios([...localAudioResults])
+            console.log(`[자동화] generatedAudios 설정 완료: ${localAudioResults.length}개`)
+          }
+          
+          // 상태가 실제로 업데이트될 때까지 반복 확인 (최대 3초 대기)
+          // React 상태 업데이트는 비동기이므로, handleRenderVideo 내부에서도 재확인하지만
+          // 여기서도 충분히 대기하여 상태가 준비되도록 함
+          await new Promise(resolve => setTimeout(resolve, 500))
+          
+          // handleRenderVideo 호출 전 상태 확인
+          console.log(`[자동화] 렌더링 준비 상태: scriptLines=${convertedScriptLines.length}, generatedAudios=${localAudioResults.length}, linesForTTS=${linesForTTS.length}, localAudioResults=${localAudioResults.length}`)
+          
+          // 상태가 준비되지 않았으면 에러
+          if (convertedScriptLines.length === 0 || localAudioResults.length === 0) {
+            throw new Error(`상태 준비 실패: scriptLines=${convertedScriptLines.length}, generatedAudios=${localAudioResults.length}`)
+          }
+          
+          // 수동 모드의 '영상 생성 (정밀한 버전)' 버튼과 동일하게 handleRenderVideo(true) 호출
+          await handleRenderVideo(true)
+          
+          console.log("[자동화] handleRenderVideo 완료")
+          
+          // videoData가 설정될 때까지 대기
+          let retryCount = 0
+          const maxRetries = 20
+          while (!videoData && retryCount < maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, 500))
+            retryCount++
+          }
+          
+          if (!videoData) {
+            throw new Error("videoData가 설정되지 않았습니다.")
+          }
+          
+          console.log("[자동화] videoData 확인 완료, 빠른 다운로드 시작")
+          
+          // Step 5-2: 빠른 다운로드 실행
+          setAutoProgress({
+            step: 5,
+            totalSteps: 6,
+            currentStepName: "영상 다운로드",
+            message: "영상을 다운로드하고 있습니다...",
+            isComplete: false,
+          })
+
+          try {
+            console.log("[자동화] 빠른 다운로드 시작")
+            await handleFastDownload()
+            console.log("[자동화] 빠른 다운로드 완료")
+          } catch (fastDownloadError) {
+            console.error("[자동화] 빠른 다운로드 실패:", fastDownloadError)
+            // 빠른다운로드 실패해도 나머지 단계는 계속 진행
+          }
+
+        } catch (error) {
+          console.error("[자동화] 영상 렌더링 실패:", error)
+          const errorMessage = error instanceof Error 
+            ? (error as Error).message 
+            : String(error || "알 수 없는 오류")
+          setAutoProgress({
+            step: 5,
+            totalSteps: 6,
+            currentStepName: "영상 렌더링",
+            message: `영상 렌더링 실패: ${errorMessage}`,
+            isComplete: false,
+          })
+          setIsGeneratingVideo(false)
+        }
+          
+          /* 기존 복잡한 로직 제거 - handleRenderVideo로 대체
           // ===== 수동 모드의 handleRenderVideo와 완전히 동일한 로직 =====
           
           // 1. 각 TTS 오디오의 정확한 길이 측정 (수동 모드와 동일)
@@ -2317,50 +2866,53 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           const audioContextForAnalysis = new (window.AudioContext || (window as any).webkitAudioContext)()
 
           // 장면별 오디오 길이 측정 (전체 텍스트로 생성된 TTS)
-          for (let i = 0; i < sentences.length; i++) {
-            const line = sentences[i]
+          // TTS 생성이 완료된 후 오디오 URL이 준비될 때까지 대기
+          await new Promise(resolve => setTimeout(resolve, 1000))
+          
+          for (let i = 0; i < linesForTTS.length; i++) {
+            const line = linesForTTS[i]
             const audio = localAudioResults.find((a) => a.lineId === line.id)
             if (audio && audio.audioUrl) {
               try {
                 setAutoProgress({
-                  step: 6,
-                  totalSteps: 9,
+                  step: 5,
+                  totalSteps: 6,
                   currentStepName: "영상 렌더링",
-                  message: `오디오 분석 중... (${i + 1}/${sentences.length})`,
+                  message: `오디오 분석 중... (${i + 1}/${linesForTTS.length})`,
                   isComplete: false,
                 })
                 
-                const response = await fetch(audio.audioUrl)
-                const arrayBuffer = await response.arrayBuffer()
-                const audioBuffer = await audioContextForAnalysis.decodeAudioData(arrayBuffer)
-                
-                // 더 정확한 duration 계산: length / sampleRate
-                const preciseDuration = audioBuffer.length / audioBuffer.sampleRate
-                
-                // 실제 오디오 데이터의 끝부분 확인 (침묵 구간 제외)
-                let actualEndSample = audioBuffer.length
-                const silenceThreshold = 0.001
-                const lookbackSamples = Math.floor(audioBuffer.sampleRate * 0.1)
-                
-                for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
-                  const channelData = audioBuffer.getChannelData(channel)
-                  for (let i = audioBuffer.length - 1; i >= Math.max(0, audioBuffer.length - lookbackSamples); i--) {
-                    if (Math.abs(channelData[i]) > silenceThreshold) {
-                      actualEndSample = Math.max(actualEndSample, i + 1)
-                      break
-                    }
+                // 오디오 URL이 유효한지 확인하고 재시도
+                let response: Response
+                let retryCount = 0
+                const maxRetries = 3
+                while (retryCount < maxRetries) {
+                  try {
+                    response = await fetch(audio.audioUrl)
+                    if (response.ok) break
+                  } catch (fetchError) {
+                    retryCount++
+                    if (retryCount >= maxRetries) throw fetchError
+                    await new Promise(resolve => setTimeout(resolve, 500))
                   }
                 }
                 
-                const actualDuration = Math.max(
-                  preciseDuration,
-                  actualEndSample / audioBuffer.sampleRate
-                )
-                // 프레임 정렬: 오디오 길이를 프레임 단위로 올림 처리 (벤치마킹 코드 방식)
-                const alignedDuration = alignToFrame(actualDuration)
-                const finalDuration = Number.parseFloat(alignedDuration.toFixed(6))
+                if (!response!.ok) {
+                  throw new Error(`오디오 다운로드 실패: ${response!.status}`)
+                }
                 
-                console.log(`[오디오 길이] 문장 ${line.id}: 원본=${actualDuration.toFixed(6)}초, 프레임 정렬=${finalDuration.toFixed(6)}초`)
+                const arrayBuffer = await response!.arrayBuffer()
+                const audioBuffer = await audioContextForAnalysis.decodeAudioData(arrayBuffer)
+                
+                // 수동 모드와 동일한 방식: preciseDuration만 사용 (침묵 구간 제거 로직 제거)
+                // 더 정확한 duration 계산: length / sampleRate
+                const preciseDuration = audioBuffer.length / audioBuffer.sampleRate
+                // 프레임 정렬: 오디오 길이를 프레임 단위로 올림 처리 (벤치마킹 코드 방식)
+                const alignedDuration = alignToFrame(preciseDuration)
+                // 수동 모드와 동일하게 소수점 10자리 정밀도 사용
+                const finalDuration = Number.parseFloat(alignedDuration.toFixed(10))
+                
+                console.log(`[자동화 오디오 길이] 문장 ${line.id}: 원본=${preciseDuration.toFixed(10)}초, 프레임 정렬=${finalDuration.toFixed(10)}초 (수동 모드와 동일한 방식)`)
                 
                 audioDurations.push({ 
                   lineId: line.id, 
@@ -2375,9 +2927,294 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             }
           }
 
-          // 2. 자막 생성 (장면별 TTS 생성, 15~20자씩 나눈 청크로 자막 생성 - STT 불필요)
-          // 텍스트 길이 비율로 타이밍 계산 (실제 오디오 길이 측정 후 비율 적용)
+          // 2. 자막 생성 (정밀한 버전: Whisper API 사용)
           const subtitles: Array<{ id: number; start: number; end: number; text: string }> = []
+          
+          // OpenAI API 키 확인
+          const openaiApiKey = getApiKey("openai_api_key") || getApiKey("openai") || getApiKey("gpt_api_key") || getApiKey("chatgpt_api_key")
+          const allWordTimings: Array<{ word: string; start: number; end: number; lineId: number }> = []
+          
+          // 오디오 버퍼 맵 생성 (Whisper API 사용을 위해)
+          const audioBuffersMap = new Map<number, AudioBuffer>()
+          for (const audioDuration of audioDurations) {
+            if (audioDuration.audioBuffer) {
+              audioBuffersMap.set(audioDuration.lineId, audioDuration.audioBuffer)
+            }
+          }
+          
+          // 오디오 구간 추출 함수
+          const extractAudioSegment = (buffer: AudioBuffer, startTime: number, endTime: number): AudioBuffer => {
+            const sampleRate = buffer.sampleRate
+            const startSample = Math.floor(startTime * sampleRate)
+            const endSample = Math.floor(endTime * sampleRate)
+            const length = endSample - startSample
+            
+            const extractedBuffer = audioContextForAnalysis.createBuffer(
+              buffer.numberOfChannels,
+              length,
+              sampleRate
+            )
+            
+            for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+              const sourceData = buffer.getChannelData(channel)
+              const targetData = extractedBuffer.getChannelData(channel)
+              targetData.set(sourceData.subarray(startSample, endSample))
+            }
+            
+            return extractedBuffer
+          }
+          
+          // 문장을 의미 단위(구, 절)로 분할하는 함수
+          const splitIntoSemanticPhrases = (text: string): string[] => {
+            // 쉼표, 마침표, 느낌표, 물음표, 그리고 의미 단위 구분자로 분할
+            // 하지만 너무 짧게 나누지 않도록 최소 길이 제한
+            const minPhraseLength = 10 // 최소 10자 이상
+            
+            // 먼저 문장 부호로 분할
+            const punctuationSplit = text.split(/([.,!?;:])/).filter(s => s.trim().length > 0)
+            
+            const phrases: string[] = []
+            let currentPhrase = ""
+            
+            for (const segment of punctuationSplit) {
+              const testPhrase = currentPhrase + segment
+              
+              // 최소 길이 이상이고 문장 부호가 있으면 분할
+              if (testPhrase.length >= minPhraseLength && /[.,!?;:]/.test(segment)) {
+                if (currentPhrase.trim().length > 0) {
+                  phrases.push(currentPhrase.trim())
+                }
+                currentPhrase = segment
+              } else {
+                currentPhrase = testPhrase
+              }
+            }
+            
+            // 마지막 구 추가
+            if (currentPhrase.trim().length > 0) {
+              phrases.push(currentPhrase.trim())
+            }
+            
+            return phrases.length > 0 ? phrases : [text]
+          }
+          
+          // Whisper API 사용 여부에 따라 STT 분석 수행 (정밀한 버전)
+          if (openaiApiKey) {
+            setAutoProgress({
+              step: 5,
+              totalSteps: 6,
+              currentStepName: "영상 렌더링",
+              message: "TTS랑 자막 싱크 맞추는 중... (Whisper API 사용)",
+              isComplete: false,
+            })
+            
+            // 전체 구간 수 계산 (문장별 의미 단위 합계)
+            let totalPhrases = 0
+            const phraseMapping: Array<{ lineId: number; phrase: string; startTime: number; duration: number }> = []
+            
+            let cumulativeTime = 0
+            for (const line of linesForTTS) {
+              // 수동 모드와 동일한 방식: audioDuration을 직접 사용 (정밀도 변환 없이)
+              const audioDuration = audioDurations.find((d) => d.lineId === line.id)?.duration || 0
+              if (audioDuration > 0) {
+                const phrases = splitIntoSemanticPhrases(line.text)
+                // 수동 모드와 동일한 방식: 정밀도 변환 없이 직접 계산
+                const phraseDuration = audioDuration / phrases.length
+                
+                for (let j = 0; j < phrases.length; j++) {
+                  phraseMapping.push({
+                    lineId: line.id,
+                    phrase: phrases[j],
+                    // 수동 모드와 동일한 방식: 정밀도 변환 없이 직접 계산
+                    startTime: cumulativeTime + (j * phraseDuration),
+                    duration: phraseDuration,
+                  })
+                  totalPhrases++
+                }
+                
+                // 수동 모드와 동일한 방식: 정밀도 변환 없이 직접 계산
+                cumulativeTime += audioDuration
+              }
+            }
+            
+            console.log(`[자동화 Whisper] 각 의미 단위별 개별 STT 분석 시작 (${totalPhrases}개 구간, ${linesForTTS.length}개 문장) - 배치 병렬 처리`)
+            
+            // 모든 구간을 수집하여 배치 병렬 처리 (순서 보장)
+            const phraseSttTasks: Array<{
+              index: number
+              phraseInfo: { lineId: number; phrase: string; startTime: number; duration: number }
+              lineAudioBuffer: AudioBuffer
+              lineStartTime: number
+            }> = []
+            
+            // 수동 모드와 동일한 방식: 각 phrase마다 lineStartTime을 계산 (순서 보장)
+            for (let i = 0; i < phraseMapping.length; i++) {
+              const phraseInfo = phraseMapping[i]
+              
+              // 각 오디오 버퍼를 개별적으로 사용
+              const lineAudioBuffer = audioBuffersMap.get(phraseInfo.lineId)
+              if (!lineAudioBuffer) {
+                console.warn(`[자동화 Whisper] 오디오 버퍼를 찾을 수 없음 (줄 ${phraseInfo.lineId})`)
+                continue
+              }
+              
+              // 수동 모드와 동일한 방식: 매번 처음부터 순회하면서 계산 (순서 보장)
+              let lineStartTime = 0
+              for (const line of linesForTTS) {
+                if (line.id === phraseInfo.lineId) break
+                const audioDuration = audioDurations.find((d) => d.lineId === line.id)?.duration || 0
+                lineStartTime += audioDuration
+              }
+              
+              phraseSttTasks.push({
+                index: i,
+                phraseInfo,
+                lineAudioBuffer,
+                lineStartTime,
+              })
+            }
+            
+            // 배치 병렬 처리 (5개씩 동시 처리, 순서 보장)
+            const BATCH_SIZE = 5
+            const totalBatches = Math.ceil(phraseSttTasks.length / BATCH_SIZE)
+            
+            // 초기 메시지에 총 구간 수 표시
+            setAutoProgress({
+              step: 5,
+              totalSteps: 6,
+              currentStepName: "영상 렌더링",
+              message: `TTS랑 자막 싱크 맞추는 중... (총 ${phraseSttTasks.length}개 구간, ${totalBatches}개 배치)`,
+              isComplete: false,
+            })
+            
+            for (let batchStart = 0; batchStart < phraseSttTasks.length; batchStart += BATCH_SIZE) {
+              const batch = phraseSttTasks.slice(batchStart, batchStart + BATCH_SIZE)
+              const batchNumber = Math.floor(batchStart / BATCH_SIZE) + 1
+              const processedItems = Math.min(batchStart + BATCH_SIZE, phraseSttTasks.length)
+              const progressPercent = Math.round((processedItems / phraseSttTasks.length) * 100)
+              
+              setAutoProgress({
+                step: 5,
+                totalSteps: 6,
+                currentStepName: "영상 렌더링",
+                message: `TTS랑 자막 싱크 맞추는 중... (${processedItems}/${phraseSttTasks.length}개 구간 처리 중, 배치 ${batchNumber}/${totalBatches}, ${progressPercent}%)`,
+                isComplete: false,
+              })
+              console.log(`[자동화 Whisper] 배치 ${batchNumber}/${totalBatches} 처리 시작: ${batch.length}개 구간 병렬 처리`)
+              
+              // 배치 내 병렬 처리
+              const batchResults = await Promise.all(
+                batch.map(async (task) => {
+                  try {
+                    console.log(`[자동화 Whisper] 구간 ${task.index + 1} (문장 ${task.phraseInfo.lineId}) STT 분석 시작 (구간: ${task.phraseInfo.startTime.toFixed(3)}초 ~ ${(task.phraseInfo.startTime + task.phraseInfo.duration).toFixed(3)}초)`)
+                    
+                    const relativeStartTime = task.phraseInfo.startTime - task.lineStartTime
+                    const relativeEndTime = relativeStartTime + task.phraseInfo.duration
+                    const segmentBuffer = extractAudioSegment(task.lineAudioBuffer, Math.max(0, relativeStartTime), Math.min(task.lineAudioBuffer.duration, relativeEndTime))
+                    
+                    // 추출된 구간을 Blob으로 변환
+                    const audioBlob = await audioBufferToBlob(segmentBuffer)
+                    
+                    // Whisper align API 호출 (해당 의미 단위만)
+                    const formData = new FormData()
+                    formData.append("audio", audioBlob, `phrase_${task.phraseInfo.lineId}_${task.index}.wav`)
+                    formData.append("text", task.phraseInfo.phrase)
+                    if (openaiApiKey) {
+                      formData.append("apiKey", openaiApiKey)
+                    }
+                    
+                    const whisperResponse = await fetch("/api/whisper-align", {
+                      method: "POST",
+                      body: formData,
+                    })
+                    
+                    if (whisperResponse.ok) {
+                      const whisperData = await whisperResponse.json()
+                      return {
+                        index: task.index,
+                        phraseInfo: task.phraseInfo,
+                        wordTimings: whisperData.wordTimings || [],
+                        success: true,
+                      }
+                    } else {
+                      const errorText = await whisperResponse.text()
+                      console.warn(`[자동화 Whisper] 구간 ${task.index + 1} (문장 ${task.phraseInfo.lineId}) API 호출 실패:`, errorText)
+                      return {
+                        index: task.index,
+                        phraseInfo: task.phraseInfo,
+                        wordTimings: [],
+                        success: false,
+                      }
+                    }
+                  } catch (error) {
+                    console.warn(`[자동화 Whisper] 구간 ${task.index + 1} (문장 ${task.phraseInfo.lineId}) STT 분석 오류:`, error)
+                    return {
+                      index: task.index,
+                      phraseInfo: task.phraseInfo,
+                      wordTimings: [],
+                      success: false,
+                    }
+                  }
+                })
+              )
+              
+              // 결과를 인덱스 순으로 정렬하여 순서 보장
+              batchResults.sort((a, b) => a.index - b.index)
+              
+              // 정렬된 결과를 순서대로 처리
+              for (const result of batchResults) {
+                if (result.success && result.wordTimings && result.wordTimings.length > 0) {
+                  // 각 단어의 타이밍을 합쳐진 오디오의 절대 시간으로 변환 (고도화: 더 정밀한 계산)
+                  const phraseStartPrecise = Number.parseFloat(result.phraseInfo.startTime.toFixed(10))
+                  
+                  for (const wordTiming of result.wordTimings) {
+                    // 더 정밀한 시간 계산 (소수점 10자리 유지)
+                    const wordStartPrecise = Number.parseFloat(Number(wordTiming.start).toFixed(10))
+                    const wordEndPrecise = Number.parseFloat(Number(wordTiming.end).toFixed(10))
+                    
+                    const absoluteStart = Number.parseFloat((phraseStartPrecise + wordStartPrecise).toFixed(10))
+                    const absoluteEnd = Number.parseFloat((phraseStartPrecise + wordEndPrecise).toFixed(10))
+                    
+                    // 단어가 비어있지 않은 경우만 추가
+                    const trimmedWord = wordTiming.word.trim()
+                    if (trimmedWord.length > 0) {
+                      allWordTimings.push({
+                        word: trimmedWord,
+                        start: absoluteStart, // 절대 시간으로 변환
+                        end: absoluteEnd, // 절대 시간으로 변환
+                        lineId: result.phraseInfo.lineId,
+                      })
+                    }
+                  }
+                  console.log(`[자동화 Whisper] 구간 ${result.index + 1} (문장 ${result.phraseInfo.lineId}): ${result.wordTimings.length}개 단어 타이밍 추출 완료`)
+                } else {
+                  console.warn(`[자동화 Whisper] 구간 ${result.index + 1} (문장 ${result.phraseInfo.lineId}): 단어 타이밍 없음`)
+                }
+              }
+              
+              const completedItems = Math.min(batchStart + BATCH_SIZE, phraseSttTasks.length)
+              const completedProgressPercent = Math.round((completedItems / phraseSttTasks.length) * 100)
+              
+              setAutoProgress({
+                step: 5,
+                totalSteps: 6,
+                currentStepName: "영상 렌더링",
+                message: `TTS랑 자막 싱크 맞추는 중... (${completedItems}/${phraseSttTasks.length}개 구간 완료, 배치 ${batchNumber}/${totalBatches}, ${completedProgressPercent}%)`,
+                isComplete: false,
+              })
+              
+              console.log(`[자동화 Whisper] 배치 ${batchNumber}/${totalBatches} 처리 완료`)
+              
+              // 배치 간 짧은 딜레이 (API Rate Limit 방지)
+              if (batchStart + BATCH_SIZE < phraseSttTasks.length) {
+                await new Promise(resolve => setTimeout(resolve, 200))
+              }
+            }
+            
+            console.log(`[자동화 Whisper] 전체 ${allWordTimings.length}개 단어 타이밍 추출 완료 (${totalPhrases}개 구간, ${linesForTTS.length}개 문장)`)
+          } else {
+            console.warn(`[자동화] ❌ OpenAI API 키 없음, Whisper API 건너뜀\n\n해결 방법:\n1. 설정에서 OpenAI API 키를 입력하세요\n2. 대체 방식(텍스트 길이 비율)으로 자막이 생성됩니다 (정확도가 낮을 수 있음)`)
+          }
           
           // 텍스트를 15~20자씩 나누는 함수 (자막용, 영상 렌더링 시점에만 사용)
           const splitTextForSubtitles = (text: string, minChars: number = 15, maxChars: number = 20): Array<{ text: string; startChar: number; endChar: number }> => {
@@ -2605,55 +3442,153 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             return result.length > 0 ? result : [{ text, startTime: 0, endTime: totalDuration }]
           }
 
-          let subtitleTime = 0
+          // Whisper 결과를 기반으로 자막 생성
+          setAutoProgress({
+            step: 5,
+            totalSteps: 6,
+            currentStepName: "영상 렌더링",
+            message: "자막 생성 중...",
+            isComplete: false,
+          })
+          
           let subtitleId = 1
-
-          // 장면별 TTS 생성, 15~20자씩 나눈 청크로 자막 생성 (STT 불필요)
-          for (const line of sentences) {
-            const audioData = audioDurations.find((d) => d.lineId === line.id)
-            const audioDuration = audioData?.duration || 0
+          
+          // STT 분석 결과 검증: 단어 타이밍이 충분하지 않으면 fallback 사용
+          const hasValidWordTimings = allWordTimings && allWordTimings.length > 0
+          
+          // 총 오디오 길이 계산
+          const calculatedTotalDuration = audioDurations.reduce((sum, d) => sum + d.duration, 0)
+          
+          // STT 분석이 부분적으로만 성공한 경우 확인 (단어 타이밍이 전체 오디오 길이의 50% 미만이면 fallback 사용)
+          let shouldUseFallback = false
+          if (hasValidWordTimings) {
+            const lastWordEnd = allWordTimings[allWordTimings.length - 1]?.end || 0
+            const coverageRatio = calculatedTotalDuration > 0 ? lastWordEnd / calculatedTotalDuration : 0
             
-            if (audioDuration > 0) {
-              // 영상 렌더링 시점에 15~20자씩 나누기
-              const subtitleChunks = splitTextForSubtitles(line.text, 15, 20)
-              console.log(`[자막 생성] 청크별 자막 생성 (문장 ${line.id}, ${subtitleChunks.length}개 청크, 전체 오디오: ${audioDuration.toFixed(3)}초)`)
+            // 단어 타이밍이 전체 오디오의 50% 미만을 커버하면 fallback 사용
+            if (coverageRatio < 0.5) {
+              console.warn(`[자동화 자막 생성] STT 분석 결과가 불충분합니다 (커버리지: ${(coverageRatio * 100).toFixed(1)}%). Fallback 방식 사용.`)
+              shouldUseFallback = true
+            }
+          } else {
+            shouldUseFallback = true
+          }
+          
+          if (hasValidWordTimings && !shouldUseFallback) {
+            // 각 문장별로 정렬된 단어 타이밍을 사용하여 정확한 자막 생성
+            const sortedWordTimings = allWordTimings.sort((a, b) => a.start - b.start)
+            let currentLine: string[] = []
+            let lineStartTime = 0
+            const maxChars = 20 // 공백 포함 20자까지
+            const minChars = 5 // 최소 5자 이상이어야 줄 분리 (한 글자만 나오는 문제 방지)
+            
+            for (let i = 0; i < sortedWordTimings.length; i++) {
+              const wordTiming = sortedWordTimings[i]
+              const word = wordTiming.word.trim()
               
-              const totalTextLength = line.text.length
+              // 빈 단어는 건너뛰기
+              if (word.length === 0) continue
               
-              for (let j = 0; j < subtitleChunks.length; j++) {
-                const chunk = subtitleChunks[j]
-                
-                // 텍스트 길이 비율로 타이밍 계산
-                const chunkStartRatio = chunk.startChar / totalTextLength
-                const chunkEndRatio = chunk.endChar / totalTextLength
-                
-                const chunkStart = subtitleTime + (audioDuration * chunkStartRatio)
-                const chunkEnd = subtitleTime + (audioDuration * chunkEndRatio)
-                
-                            subtitles.push({
-                              id: subtitleId++,
-                  start: Number.parseFloat(alignToFrame(chunkStart).toFixed(10)),
-                  end: Number.parseFloat(alignToFrame(chunkEnd).toFixed(10)),
-                  text: chunk.text
-                })
-                
-                console.log(`[자막 생성] 청크 ${j + 1}/${subtitleChunks.length}: "${chunk.text}" (${chunkStart.toFixed(3)}초 ~ ${chunkEnd.toFixed(3)}초, ${chunk.text.length}자)`)
+              // 한 글자 단어는 이전 단어와 결합 (단, 현재 줄이 비어있으면 그대로 추가)
+              if (word.length === 1 && currentLine.length > 0) {
+                currentLine[currentLine.length - 1] += " " + word
+                continue
               }
               
-              subtitleTime += audioDuration
-            } else {
-              // 오디오가 없으면 기본값 사용 (3초)
-                        subtitles.push({
-                          id: subtitleId++,
-                start: Number.parseFloat(alignToFrame(subtitleTime).toFixed(10)),
-                end: Number.parseFloat(alignToFrame(subtitleTime + 3).toFixed(10)),
-                text: line.text
+              const testLine = currentLine.length > 0 ? currentLine.join(" ") + " " + word : word
+              
+              // 20자를 초과하고, 현재 줄이 최소 5자 이상이어야 줄 분리
+              if (testLine.length > maxChars && currentLine.join(" ").length >= minChars) {
+                if (currentLine.length > 0) {
+                  // 이전 줄의 마지막 단어 endTime 사용
+                  const prevWordEnd = i > 0 ? sortedWordTimings[i - 1].end : wordTiming.start
+                  subtitles.push({
+                    id: subtitleId++,
+                    start: Number.parseFloat(alignToFrame(lineStartTime).toFixed(10)),
+                    end: Number.parseFloat(alignToFrame(prevWordEnd).toFixed(10)),
+                    text: currentLine.join(" "),
+                  })
+                }
+                currentLine = [word]
+                lineStartTime = wordTiming.start
+              } else {
+                currentLine.push(word)
+              }
+            }
+            
+            // 마지막 줄 추가 (최소 1자 이상이어야 추가)
+            if (currentLine.length > 0 && currentLine.join(" ").trim().length > 0) {
+              const lastWordEnd = sortedWordTimings[sortedWordTimings.length - 1].end
+              subtitles.push({
+                id: subtitleId++,
+                start: Number.parseFloat(alignToFrame(lineStartTime).toFixed(10)),
+                end: Number.parseFloat(alignToFrame(lastWordEnd).toFixed(10)),
+                text: currentLine.join(" "),
               })
-              subtitleTime += 3
+            }
+            
+            console.log(`[자동화] Whisper 기반 자막 생성 완료: ${subtitles.length}개 자막 (${allWordTimings.length}개 단어 타이밍 사용)`)
+            
+            // 자막이 비어있거나 너무 적으면 fallback 사용
+            if (subtitles.length === 0) {
+              console.warn(`[자동화 자막 생성] Whisper 기반 자막이 생성되지 않았습니다. Fallback 방식 사용.`)
+              shouldUseFallback = true
             }
           }
-
-          const totalDuration = subtitleTime
+          
+          if (shouldUseFallback || !hasValidWordTimings) {
+            // Whisper 결과가 없거나 불충분하면 기존 방식 사용 (텍스트 길이 비율 기반)
+            console.log(`[자동화] Whisper 결과 없음 또는 불충분, Fallback 방식으로 자막 생성`)
+            
+            let subtitleTime = 0
+            
+            // 장면별 TTS 생성, 15~20자씩 나눈 청크로 자막 생성
+            for (const line of linesForTTS) {
+              const audioData = audioDurations.find((d) => d.lineId === line.id)
+              const audioDuration = audioData?.duration || 0
+              
+              if (audioDuration > 0) {
+                // 영상 렌더링 시점에 15~20자씩 나누기
+                const subtitleChunks = splitTextForSubtitles(line.text, 15, 20)
+                console.log(`[자막 생성] 청크별 자막 생성 (문장 ${line.id}, ${subtitleChunks.length}개 청크, 전체 오디오: ${audioDuration.toFixed(3)}초)`)
+                
+                const totalTextLength = line.text.length
+                
+                for (let j = 0; j < subtitleChunks.length; j++) {
+                  const chunk = subtitleChunks[j]
+                  
+                  // 텍스트 길이 비율로 타이밍 계산
+                  const chunkStartRatio = chunk.startChar / totalTextLength
+                  const chunkEndRatio = chunk.endChar / totalTextLength
+                  
+                  const chunkStart = subtitleTime + (audioDuration * chunkStartRatio)
+                  const chunkEnd = subtitleTime + (audioDuration * chunkEndRatio)
+                  
+                  subtitles.push({
+                    id: subtitleId++,
+                    start: Number.parseFloat(alignToFrame(chunkStart).toFixed(10)),
+                    end: Number.parseFloat(alignToFrame(chunkEnd).toFixed(10)),
+                    text: chunk.text
+                  })
+                  
+                  console.log(`[자막 생성] 청크 ${j + 1}/${subtitleChunks.length}: "${chunk.text}" (${chunkStart.toFixed(3)}초 ~ ${chunkEnd.toFixed(3)}초, ${chunk.text.length}자)`)
+                }
+                
+                subtitleTime += audioDuration
+              } else {
+                // 오디오가 없으면 기본값 사용 (3초)
+                subtitles.push({
+                  id: subtitleId++,
+                  start: Number.parseFloat(alignToFrame(subtitleTime).toFixed(10)),
+                  end: Number.parseFloat(alignToFrame(subtitleTime + 3).toFixed(10)),
+                  text: line.text
+                })
+                subtitleTime += 3
+              }
+            }
+          }
+          
+          const totalDuration = calculatedTotalDuration > 0 ? calculatedTotalDuration : (subtitles.length > 0 ? subtitles[subtitles.length - 1].end : 0)
           
           // 자막 타이밍 정리 및 프레임 정렬 (벤치마킹 코드 방식 적용)
           // 프레임 정렬: 25fps 기준 0.04초 단위로 정렬 (영상/자막 싱크 오차 원천 차단)
@@ -2716,14 +3651,14 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           }> = []
 
           let imageTime = 0
-          for (const line of sentences) {
+          for (const line of linesForTTS) {
             const image = localImageResults.find((img) => img.lineId === line.id)
             const audioData = audioDurations.find((d) => d.lineId === line.id)
             const audioDuration = audioData?.duration || 3
 
             if (image) {
               // 같은 이미지를 사용하는 문장 그룹 찾기 (수동 모드와 동일)
-              const sameImageLines = sentences.filter((l) => {
+              const sameImageLines = linesForTTS.filter((l) => {
                 const img = localImageResults.find((img) => img.lineId === l.id)
                 return img && img.imageUrl === image.imageUrl
               })
@@ -2754,8 +3689,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           console.log(`[자동화] 이미지 매핑 완료: ${autoImagesForRender.length}개`)
 
           setAutoProgress({
-            step: 6,
-            totalSteps: 9,
+            step: 5,
+            totalSteps: 6,
             currentStepName: "영상 렌더링",
             message: `영상 렌더링 준비 중... (총 ${Math.floor(totalDuration / 60)}분 ${Math.floor(totalDuration % 60)}초)`,
             isComplete: false,
@@ -2849,10 +3784,10 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           console.log("[자동화] 영상 렌더링 완료")
           playNotificationSound() // 알림음 재생
 
-          // 6. 빠른 다운로드 실행 (수동 모드의 handleFastDownload와 동일)
+          // Step 5-2: 빠른 다운로드 실행
           setAutoProgress({
-            step: 6,
-            totalSteps: 9,
+            step: 5,
+            totalSteps: 6,
             currentStepName: "영상 다운로드",
             message: "영상을 다운로드하고 있습니다...",
             isComplete: false,
@@ -3152,37 +4087,42 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             console.log("[자동화] 영상 다운로드 완료")
             playNotificationSound() // 알림음 재생
             setIsExporting(false)
+            
+            // 빠른다운로드는 이미 영상이 다운로드되었으므로 건너뜀
+            // (자동화 모드에서는 영상 렌더링 시 이미 다운로드됨)
+            console.log("[자동화] 빠른다운로드 건너뜀 (이미 영상 다운로드 완료)")
 
-          } catch (downloadError) {
-            console.error("[자동화] 빠른 다운로드 실패:", downloadError)
-            setIsExporting(false)
-            // 다운로드 실패해도 나머지 단계는 계속 진행
+          } catch (fastDownloadError) {
+            console.error("[자동화] 빠른 다운로드 실패:", fastDownloadError)
+            // 빠른다운로드 실패해도 나머지 단계는 계속 진행
           }
 
         } catch (error) {
           console.error("[자동화] 영상 렌더링 실패:", error)
           setAutoProgress({
-            step: 6,
-            totalSteps: 9,
+            step: 5,
+            totalSteps: 6,
             currentStepName: "영상 렌더링",
             message: `영상 렌더링 실패: ${error instanceof Error ? error.message : "알 수 없는 오류"}`,
             isComplete: false,
           })
           setIsGeneratingVideo(false)
         }
+        */ // 기존 복잡한 로직 끝
       }
+      } // Step 5 건너뜀 끝
       await new Promise(resolve => setTimeout(resolve, 1000))
 
-      // Step 7: 제목 생성
+      // Step 5: 제목/설명 생성
       setAutoProgress({
-        step: 7,
-        totalSteps: 9,
+        step: 5,
+        totalSteps: 6,
         currentStepName: "제목 생성",
         message: "유튜브 제목을 생성하고 있습니다...",
         isComplete: false,
       })
       
-      const titles = await generateYouTubeTitles(selectedTopic, scriptResult, apiKey)
+      const titles = await generateYouTubeTitles(selectedTopic, scriptWithCTA, apiKey)
       setGeneratedTitles(titles)
       
       // 랜덤으로 제목 선택 (수동 모드에서 사용자가 선택하는 것처럼)
@@ -3195,110 +4135,372 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       }
       await new Promise(resolve => setTimeout(resolve, 500))
 
-      // Step 8: 설명 생성 (선택된 제목 기반 - 수동 모드와 동일)
+      // Step 5-2: 설명 생성
       setAutoProgress({
-        step: 8,
-        totalSteps: 9,
+        step: 5,
+        totalSteps: 6,
         currentStepName: "설명 생성",
         message: "유튜브 설명을 생성하고 있습니다...",
         isComplete: false,
       })
       
-      // 수동 모드와 동일하게 호출: (script, category, title, apiKey)
       const selectedRandomTitle = youtubeTitle || titles[0] || selectedTopic
-      const description = await generateYouTubeDescription(scriptResult, selectedCategory, selectedRandomTitle, apiKey, scriptDuration)
+      const description = await generateYouTubeDescription(scriptWithCTA, selectedCategory, selectedRandomTitle, apiKey, autoDurationMinutes)
       setYoutubeDescription(description)
       setCompletedSteps((prev) => [...new Set([...prev, "title"])])
       console.log("[자동화] 제목/설명 생성 완료:", description)
+      playNotificationSound() // 알림음 재생
       await new Promise(resolve => setTimeout(resolve, 500))
 
-      // Step 9: AI 썸네일 생성 (썸네일 생성기 - AI로 썸네일 만들기)
+      // Step 6: AI 썸네일 생성 (handleAIGenerateThumbnail 로직 복사)
       setAutoProgress({
-        step: 9,
-        totalSteps: 9,
+        step: 6,
+        totalSteps: 6,
         currentStepName: "AI 썸네일 생성",
-        message: "썸네일 생성기로 이동 중...",
+        message: "AI 썸네일을 생성하고 있습니다...",
         isComplete: false,
       })
       
-      // 썸네일 모드를 AI로 설정
       setThumbnailMode("ai")
-      console.log("[자동화] 썸네일 생성기 - AI로 썸네일 만들기 시작")
       
       if (replicateApiKey) {
-        setAutoProgress({
-          step: 9,
-          totalSteps: 9,
-          currentStepName: "AI 썸네일 생성",
-          message: `AI가 "${selectedTopic}" 주제로 썸네일을 생성하고 있습니다...`,
-          isComplete: false,
-        })
-        
         try {
-          // 캐릭터 정보 추출 (첫 번째 장면의 첫 번째 이미지 프롬프트에서)
-          let characterDescription: string | undefined = undefined
-          if (sceneImagePrompts.length > 0 && sceneImagePrompts[0].images && sceneImagePrompts[0].images.length > 0) {
-            const firstImagePrompt = sceneImagePrompts[0].images[0].prompt
-            const characterMatch = firstImagePrompt.match(/(?:A|An|The)\s+([a-zA-Z\s]+?)(?:\s+(?:looking|standing|sitting|wearing|with|in)|,|\.|$)/i)
-            if (characterMatch && characterMatch[1]) {
-              characterDescription = characterMatch[1].trim()
+          // 주제가 없으면 대본에서 주제 추출
+          let topicToUse = selectedTopic
+          
+          if (!topicToUse) {
+            if (!scriptWithCTA) {
+              console.warn("[자동화] 주제와 대본이 없어 썸네일 생성을 건너뜁니다.")
             } else {
-              const promptWords = firstImagePrompt.split(',').slice(0, 2).join(',').trim()
-              if (promptWords.length > 0 && promptWords.length < 100) {
-                characterDescription = promptWords
+              // 대본에서 주제 추출 시도
+              const openaiApiKeyForExtract = getApiKey("openai_api_key")
+              if (openaiApiKeyForExtract) {
+                try {
+                  console.log("[자동화] 대본에서 주제 추출 중...")
+                  const { extractTopicFromScript } = await import("./actions")
+                  topicToUse = await extractTopicFromScript(scriptWithCTA, openaiApiKeyForExtract)
+                  console.log("[자동화] 추출된 주제:", topicToUse)
+                } catch (error) {
+                  console.error("[자동화] 주제 추출 실패, 대본 요약 사용:", error)
+                  // 주제 추출 실패 시 대본의 앞부분을 주제로 사용
+                  topicToUse = scriptWithCTA.substring(0, 100).replace(/\n/g, " ").trim()
+                  if (topicToUse.length > 50) {
+                    topicToUse = topicToUse.substring(0, 50) + "..."
+                  }
+                  console.log("[자동화] 대본 요약을 주제로 사용:", topicToUse)
+                }
+              } else {
+                // OpenAI API 키가 없으면 대본의 앞부분을 주제로 사용
+                topicToUse = scriptWithCTA.substring(0, 100).replace(/\n/g, " ").trim()
+                if (topicToUse.length > 50) {
+                  topicToUse = topicToUse.substring(0, 50) + "..."
+                }
+                console.log("[자동화] 대본 요약을 주제로 사용:", topicToUse)
               }
             }
           }
           
-          console.log(`[자동화] AI 썸네일 생성 시작 - 주제: ${selectedTopic}`)
-          const openaiApiKey = getApiKey("openai_api_key")
-          const thumbnailUrl = await generateAIThumbnail(
-            selectedTopic, 
-            replicateApiKey, 
-            imageStyle, 
-            thumbnailCustomText.trim() || undefined,
-            customStylePrompt || undefined,
-            characterDescription,
-            thumbnailWithoutText,
-            benchmarkThumbnailUrl || undefined,
-            openaiApiKey || undefined
-          )
-          setAiThumbnailUrl(thumbnailUrl)
-          setCompletedSteps((prev) => [...new Set([...prev, "thumbnail"])])
-          console.log(`[자동화] AI 썸네일 생성 완료: ${thumbnailUrl.substring(0, 50)}...`)
-          
-          setAutoProgress({
-            step: 9,
-            totalSteps: 9,
-            currentStepName: "AI 썸네일 생성",
-            message: "AI 썸네일이 생성되었습니다!",
-            isComplete: false,
-          })
+          if (!topicToUse) {
+            console.warn("[자동화] 주제를 찾을 수 없어 썸네일 생성을 건너뜁니다.")
+          } else {
+            // 캐릭터 정보 추출 (첫 번째 장면의 첫 번째 이미지 프롬프트에서)
+            let characterDescription: string | undefined = undefined
+            if (allSceneImagePrompts.length > 0 && allSceneImagePrompts[0].images && allSceneImagePrompts[0].images.length > 0) {
+              const firstImagePrompt = allSceneImagePrompts[0].images[0].prompt
+              // 프롬프트에서 캐릭터 관련 부분 추출 (간단한 추출)
+              // 예: "A detective", "The main character", "A person" 등의 패턴 찾기
+              const characterMatch = firstImagePrompt.match(/(?:A|An|The)\s+([a-zA-Z\s]+?)(?:\s+(?:looking|standing|sitting|wearing|with|in)|,|\.|$)/i)
+              if (characterMatch && characterMatch[1]) {
+                characterDescription = characterMatch[1].trim()
+              } else {
+                // 간단하게 프롬프트의 처음 부분 사용
+                const promptWords = firstImagePrompt.split(',').slice(0, 2).join(',').trim()
+                if (promptWords.length > 0 && promptWords.length < 100) {
+                  characterDescription = promptWords
+                }
+              }
+            }
+            
+            // 썸네일 스타일 프롬프트 생성 (실사화/애니메이션화)
+            // thumbnailStyle이 선택되지 않으면 imageStyle을 사용
+            let thumbnailStylePrompt: string | undefined = undefined
+            if (thumbnailStyle === "realistic") {
+              thumbnailStylePrompt = "hyperrealistic, photorealistic masterpiece, 8K, ultra-detailed, sharp focus, cinematic lighting, shot on a professional DSLR camera with a 50mm lens, realistic textures, natural lighting, professional photography"
+            } else if (thumbnailStyle === "animation") {
+              thumbnailStylePrompt = "2D animation style, cartoon illustration, vibrant colors, stylized art, flat design, cel-shaded, animated character design, colorful and playful, animated movie style, Disney animation style"
+            } else if (!thumbnailStyle && imageStyle) {
+              // thumbnailStyle이 선택되지 않았으면 imageStyle을 사용
+              // imageStyle에 맞는 스타일 프롬프트 생성
+              if (imageStyle === "stickman-animation") {
+                thumbnailStylePrompt = "stickman animation style, 2D vector cartoon, white circular face, simple black outline, dot eyes, curved mouth, thin black limbs, vibrant colors, flat cel shading, thick bold outlines, solid color fills"
+              } else if (imageStyle === "realistic" || imageStyle === "realistic2") {
+                thumbnailStylePrompt = "hyperrealistic, photorealistic masterpiece, 8K, ultra-detailed, sharp focus, cinematic lighting, shot on a professional DSLR camera with a 50mm lens"
+              } else if (imageStyle === "animation2") {
+                thumbnailStylePrompt = "flat 2D vector illustration, minimal vector art, stylized cartoon character, thick bold black outlines, unshaded, flat solid colors, cel-shaded, simple line art, comic book inking style, completely flat, no shadows, no gradients, no depth"
+              } else if (imageStyle === "animation3") {
+                thumbnailStylePrompt = "European graphic novel style, bande dessinée aesthetic, highly detailed traditional illustration, hand-drawn ink lines with cross-hatching shadows, sophisticated and muted color palette, atmospheric, cinematic frame"
+              }
+            }
+            
+            console.log("[자동화] AI 썸네일 생성 시작, 주제:", topicToUse, "이미지 스타일:", imageStyle, "커스텀 문구:", thumbnailCustomText, "문구 없이:", thumbnailWithoutText, "썸네일 스타일:", thumbnailStyle, "캐릭터:", characterDescription)
+            const openaiApiKeyForThumbnail = getApiKey("openai_api_key")
+            const thumbnailUrl = await generateAIThumbnail(
+              topicToUse, 
+              replicateApiKey, 
+              imageStyle, 
+              thumbnailCustomText.trim() || undefined,
+              thumbnailStylePrompt || customStylePrompt || undefined, // 썸네일 스타일 프롬프트 우선 사용
+              characterDescription,
+              thumbnailWithoutText,
+              benchmarkThumbnailUrl || undefined,
+              openaiApiKeyForThumbnail || undefined
+            )
+            setAiThumbnailUrl(thumbnailUrl)
+            setCompletedSteps((prev) => [...new Set([...prev, "thumbnail"])])
+            console.log(`[자동화] AI 썸네일 생성 완료`)
+            playNotificationSound() // 알림음 재생
+          }
         } catch (error) {
           console.error("[자동화] AI 썸네일 생성 실패:", error)
-          setAutoProgress({
-            step: 9,
-            totalSteps: 9,
-            currentStepName: "AI 썸네일 생성",
-            message: `AI 썸네일 생성 실패: ${error instanceof Error ? error.message : "알 수 없는 오류"}`,
-            isComplete: false,
-          })
+          const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다."
+          console.warn(`[자동화] AI 썸네일 생성에 실패했습니다: ${errorMessage}`)
         }
-      } else {
-        console.log("[자동화] Replicate API 키가 없어 AI 썸네일 생성을 건너뜁니다.")
+      }
+      await new Promise(resolve => setTimeout(resolve, 1000))
+
+      // Step 8: 쇼츠 생성 - 수동 모드로 건너뜀
+      console.log(`[자동화] ========== Step 8: 쇼츠 생성 건너뜀 (수동 모드로 진행) ==========`)
+      // 쇼츠 생성은 수동으로 진행하도록 함
+      if (false) { // Step 8 건너뜀
+      setAutoProgress({
+        step: 8,
+        totalSteps: 6,
+        currentStepName: "쇼츠 생성",
+        message: "쇼츠 영상을 생성하고 있습니다...",
+        isComplete: false,
+      })
+      
+      try {
+        // 8-1: 대본 요약
         setAutoProgress({
-          step: 9,
-          totalSteps: 9,
-          currentStepName: "AI 썸네일 생성",
-          message: "Replicate API 키가 없어 AI 썸네일 생성을 건너뜁니다. 수동으로 생성해주세요.",
+          step: 8,
+          totalSteps: 6,
+          currentStepName: "쇼츠 생성",
+          message: "대본을 요약하고 있습니다...",
           isComplete: false,
         })
+        
+        // 서버 액션을 직접 호출 (API 라우트 대신)
+        const summarized = await summarizeScriptForShorts(
+          scriptWithCTA,
+          shortsDuration,
+          apiKey
+        )
+        setSummarizedScript(summarized)
+        
+        // 8-2: 제목 생성
+        setAutoProgress({
+          step: 8,
+          totalSteps: 6,
+          currentStepName: "쇼츠 생성",
+          message: "쇼츠 제목을 생성하고 있습니다...",
+          isComplete: false,
+        })
+        
+        const shortsTitle = await generateShortsHookingTitle(selectedTopic, summarized, apiKey)
+        setShortsHookingTitle(shortsTitle)
+        
+        // 8-3: TTS 생성
+        setAutoProgress({
+          step: 8,
+          totalSteps: 6,
+          currentStepName: "쇼츠 생성",
+          message: "쇼츠 TTS를 생성하고 있습니다...",
+          isComplete: false,
+        })
+        
+        // 요약된 대본을 문장 단위로 분할
+        const shortsLines: Array<{ id: number; text: string; startTime: number; endTime: number }> = []
+        let currentTime = 0
+        const charsPerSecond = 10
+        
+        const shortsSentences = summarized
+          .split(/[.!?。！？]\s*/)
+          .map((s: string) => s.trim())
+          .filter((s: string) => s.length > 0)
+          .map((s: string) => {
+            if (!s.endsWith(".") && !s.endsWith("!") && !s.endsWith("?") && !s.endsWith("。") && !s.endsWith("！") && !s.endsWith("？")) {
+              return s + "."
+            }
+            return s
+          })
+        
+        shortsSentences.forEach((sentence: string, index: number) => {
+          const duration = (sentence.length / charsPerSecond) * 1000
+          shortsLines.push({
+            id: index + 1,
+            text: sentence,
+            startTime: currentTime,
+            endTime: currentTime + duration,
+          })
+          currentTime += duration
+        })
+        
+        setShortsScriptLines(shortsLines)
+        
+        // 각 라인별로 TTS 생성
+        const shortsAudios: Array<{ lineId: number; audioUrl?: string; audioBase64?: string; audioBuffer?: AudioBuffer; duration?: number }> = []
+        
+        for (const line of shortsLines) {
+          try {
+            const data = await generateTTSWithRetry(line, selectedVoiceId)
+            shortsAudios.push({
+              lineId: line.id,
+              audioUrl: data.audioUrl,
+              audioBase64: data.audioBase64,
+            })
+          } catch (error) {
+            console.error(`[자동화] 쇼츠 TTS 생성 실패 (줄 ${line.id}):`, error)
+          }
+          await new Promise(resolve => setTimeout(resolve, 200))
+        }
+        
+        // 오디오 합치기
+        if (shortsAudios.length > 0) {
+          const audioContextForShorts = new (window.AudioContext || (window as any).webkitAudioContext)()
+          const totalShortsDuration = shortsLines[shortsLines.length - 1]?.endTime || 0
+          const targetSampleRate = 44100
+          const totalSamples = Math.ceil((totalShortsDuration / 1000) * targetSampleRate)
+          const mergedShortsBuffer = audioContextForShorts.createBuffer(1, totalSamples, targetSampleRate)
+          const channelData = mergedShortsBuffer.getChannelData(0)
+          
+          let sampleOffset = 0
+          for (const audio of shortsAudios) {
+            // 타입 가드: audioUrl이 string 타입이고 비어있지 않은지 확인
+            // 조건을 분리하고 타입 단언을 사용하여 TypeScript 타입 좁히기
+            if (audio.audioUrl && typeof audio.audioUrl === 'string') {
+              // 타입 가드 후 타입 단언을 사용하여 string 타입으로 확정
+              const audioUrl = audio.audioUrl as string
+              const trimmedUrl = audioUrl.trim()
+              if (trimmedUrl.length > 0) {
+                try {
+                  // audioUrl은 이미 string 타입으로 확정됨
+                  const response = await fetch(audioUrl)
+                const arrayBuffer = await response.arrayBuffer()
+                const audioBuffer = await audioContextForShorts.decodeAudioData(arrayBuffer)
+                const sourceData = audioBuffer.getChannelData(0)
+                const resampleRatio = audioBuffer.sampleRate / targetSampleRate
+                const duration = audioBuffer.duration
+                
+                for (let i = 0; i < Math.floor(duration * targetSampleRate); i++) {
+                  const sourceIndex = Math.floor(i * resampleRatio)
+                  if (sourceIndex < sourceData.length && sampleOffset + i < channelData.length) {
+                    channelData[sampleOffset + i] = sourceData[sourceIndex]
+                  }
+                }
+                sampleOffset += Math.floor(duration * targetSampleRate)
+              } catch (error) {
+                console.error(`[자동화] 쇼츠 오디오 합치기 실패:`, error)
+              }
+              }
+            }
+          }
+          
+          const wavData = audioBufferToWav(mergedShortsBuffer)
+          const audioBlob = new Blob([wavData], { type: "audio/wav" })
+          const audioUrl = URL.createObjectURL(audioBlob)
+          setShortsTtsAudioUrl(audioUrl)
+        }
+        
+        // 8-4: 이미지 선택 (자동으로 필요한 개수만큼 선택)
+        const requiredImageCount = shortsDuration === 0.5 ? 4 : shortsDuration === 1 ? 8 : shortsDuration === 2 ? 15 : 22
+        const allAvailableImageUrls: string[] = []
+        
+        // allSceneImagePrompts 변수에서 이미지 URL 수집 (이미지 생성 시 직접 업데이트됨)
+        console.log(`[자동화] 쇼츠용 이미지 수집 - allSceneImagePrompts: ${allSceneImagePrompts.length}개 씬`)
+        
+        for (const scene of allSceneImagePrompts) {
+          for (const image of scene.images) {
+            const imageUrl = image.imageUrl
+            if (imageUrl && typeof imageUrl === 'string') {
+              const url = imageUrl as string
+              if (!allAvailableImageUrls.includes(url)) {
+                allAvailableImageUrls.push(url)
+              }
+            }
+          }
+        }
+        
+        console.log(`[자동화] 쇼츠용 사용 가능한 이미지: ${allAvailableImageUrls.length}개, 필요: ${requiredImageCount}개`)
+        
+        // 필요한 개수만큼 자동 선택
+        const selectedUrls = allAvailableImageUrls.slice(0, Math.min(requiredImageCount, allAvailableImageUrls.length))
+        setSelectedImagesForShorts(new Set(selectedUrls))
+        setSelectedImagesOrderForShorts(selectedUrls)
+        
+        // 8-5: 쇼츠 영상 렌더링 및 저장
+        setAutoProgress({
+          step: 8,
+          totalSteps: 6,
+          currentStepName: "쇼츠 생성",
+          message: "쇼츠 영상을 렌더링하고 있습니다...",
+          isComplete: false,
+        })
+        
+        // handleRenderShortsVideo 로직 실행
+        console.log(`[자동화] 쇼츠 렌더링 조건 확인:`, {
+          hasTts: !!shortsTtsAudioUrl,
+          hasImages: selectedUrls.length > 0,
+          shortsTtsAudioUrl: shortsTtsAudioUrl ? "있음" : "없음",
+          selectedUrlsCount: selectedUrls.length,
+        })
+        
+        if (shortsTtsAudioUrl && selectedUrls.length > 0) {
+          // 자동화 모드에서는 canvas ref가 없어도 렌더링 가능하도록 수정
+          // handleRenderShortsVideo 내부에서 canvas를 찾거나 생성하도록 처리
+          try {
+            // 쇼츠 탭으로 전환 (canvas가 렌더링되도록)
+            setActiveStep("shorts")
+            await new Promise(resolve => setTimeout(resolve, 1000))
+            
+            // canvas ref가 준비될 때까지 대기
+            let retryCount = 0
+            const maxRetries = 20 // 더 많은 재시도
+            while (!shortsCanvasRef.current && retryCount < maxRetries) {
+              await new Promise(resolve => setTimeout(resolve, 500))
+              retryCount++
+              console.log(`[자동화] 쇼츠 canvas 대기 중... (${retryCount}/${maxRetries})`)
+            }
+            
+            if (shortsCanvasRef.current) {
+              console.log("[자동화] 쇼츠 canvas 준비 완료, 렌더링 시작")
+              await handleRenderShortsVideo()
+              console.log("[자동화] 쇼츠 영상 렌더링 완료")
+            } else {
+              console.warn("[자동화] 쇼츠 canvas가 준비되지 않아 렌더링을 건너뜁니다.")
+              console.warn("[자동화] shortsCanvasRef.current:", shortsCanvasRef.current)
+            }
+          } catch (error) {
+            console.error("[자동화] 쇼츠 영상 렌더링 실패:", error)
+          }
+        } else {
+          console.warn("[자동화] 쇼츠 렌더링 조건 미충족:", {
+            hasTts: !!shortsTtsAudioUrl,
+            hasImages: selectedUrls.length > 0,
+            shortsTtsAudioUrl: shortsTtsAudioUrl || "없음",
+            selectedUrlsCount: selectedUrls.length,
+          })
+        }
+        
+      } catch (error) {
+        console.error("[자동화] 쇼츠 생성 실패:", error)
       }
       
       await new Promise(resolve => setTimeout(resolve, 1000))
 
-      // 썸네일 생성 완료 후 자동 예약 실행 (자동화 모드이고 예약 날짜가 설정된 경우)
-      if (workflowMode === "auto" && youtubeScheduleDate && youtubeScheduleTime) {
+      // 자동 예약 기능 제거됨 (자동화 모드에서 유튜브 업로드 예약 제거)
+      // 썸네일 생성 완료 후 자동 예약은 더 이상 실행하지 않음
+      if (false) {
         // 제목과 설명을 미리 계산 (클로저 문제 방지)
         // 설명은 이미 Step 8에서 생성되었으므로 바로 사용
         const finalTitleValue = youtubeTitle || titles[0] || selectedTopic
@@ -3306,11 +4508,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         
         // 설명 추출 (다양한 형식 지원)
         if (youtubeDescription) {
-          if (typeof youtubeDescription === "string") {
-            finalDescriptionValue = youtubeDescription
-          } else if (youtubeDescription.description) {
-            finalDescriptionValue = youtubeDescription.description
-          }
+          finalDescriptionValue = youtubeDescription!.description || ""
         }
         
         // 설명이 없으면 기본 설명 생성
@@ -3351,9 +4549,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           // YouTube 토큰 확인
           const tokensStr = localStorage.getItem("youtube_tokens")
           let isYoutubeConnected = false
-          if (tokensStr) {
+          if (tokensStr !== null) {
             try {
-              const tokens = JSON.parse(tokensStr)
+              const tokens = JSON.parse(tokensStr!)
               const expiresAt = new Date(tokens.expires_at)
               const now = new Date()
               isYoutubeConnected = !(expiresAt < now) && !!tokens.access_token
@@ -3537,11 +4735,12 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           }
         }
       }
+      } // Step 8 건너뜀 끝
 
       // 완료
       setAutoProgress({
-        step: 9,
-        totalSteps: 9,
+        step: 8,
+        totalSteps: 6,
         currentStepName: "완료",
         message: "🎉 자동화가 완료되었습니다! 각 단계를 확인하고 필요시 수정해주세요.",
         isComplete: true,
@@ -3606,19 +4805,10 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     }
   }
 
-  // 자동화 설정 확인 (대본 시간과 목소리 선택 후)
-  const handleAutomationSettingsConfirm = () => {
-    setShowAutomationSettingsDialog(false)
-    // 업로드 일자 선택 UI 표시
-    setShowScheduleSelector(true)
-    // 기본 날짜를 오늘로 설정
-    const today = new Date()
-    setYoutubeScheduleDate(today.toISOString().split('T')[0])
-  }
-
-  // 자동화 시작 (업로드 일자 선택 후)
+  // 자동화 시작
   const handleStartAutomation = () => {
-    setShowScheduleSelector(false)
+    setShowAutomationSettingsDialog(false)
+    // 자동화 파이프라인 바로 시작
     runAutomationPipeline()
   }
 
@@ -8711,9 +9901,18 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
   }
 
   const handleRenderVideo = async (useWhisper: boolean = true) => {
+    // 자동화 모드에서는 이미 확인했으므로, 상태가 준비되지 않았을 때만 경고
+    // 하지만 상태 업데이트가 비동기이므로, 짧은 대기 후 재확인
     if (scriptLines.length === 0 || generatedAudios.length === 0) {
-      alert("TTS와 대본이 모두 준비되어야 합니다.")
-      return
+      // 자동화 모드가 아닐 때만 즉시 경고
+      // 자동화 모드에서는 이미 상태를 설정했으므로, 잠시 대기 후 재확인
+      await new Promise(resolve => setTimeout(resolve, 200))
+      
+      if (scriptLines.length === 0 || generatedAudios.length === 0) {
+        console.error(`[handleRenderVideo] 상태 확인 실패: scriptLines=${scriptLines.length}, generatedAudios=${generatedAudios.length}`)
+        alert("TTS와 대본이 모두 준비되어야 합니다.")
+        return
+      }
     }
 
     // 씬별 이미지가 있는지 확인 (sceneImagePrompts)
@@ -14838,32 +16037,42 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     // 로그인하지 않은 경우 안내
     if (userId === "anonymous" || !userId) {
       return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-6">
-          <div className="max-w-6xl mx-auto">
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/50 to-indigo-50/50 p-6 bg-pattern relative overflow-hidden">
+          {/* 배경 장식 요소 */}
+          <div className="absolute inset-0 overflow-hidden pointer-events-none">
+            <div className="absolute top-20 left-10 w-72 h-72 bg-blue-200/20 rounded-full blur-3xl animate-float"></div>
+            <div className="absolute bottom-20 right-10 w-96 h-96 bg-indigo-200/20 rounded-full blur-3xl animate-float" style={{ animationDelay: '2s' }}></div>
+            <div className="absolute top-1/2 left-1/2 w-80 h-80 bg-purple-200/10 rounded-full blur-3xl animate-float" style={{ animationDelay: '4s' }}></div>
+          </div>
+          
+          <div className="max-w-6xl mx-auto relative z-10">
             <div className="mb-8 animate-fade-in">
-              <h1 className="text-4xl font-bold bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 bg-clip-text text-transparent mb-3">
+              <h1 className="text-5xl font-bold bg-gradient-to-r from-gray-900 via-blue-800 to-indigo-900 bg-clip-text text-transparent mb-4 animate-gradient">
                 롱폼 프로젝트
               </h1>
-              <p className="text-gray-600 text-lg">작업한 내용을 저장하고 관리하세요</p>
-              <div className="mt-4 p-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl shadow-sm backdrop-blur-sm">
-                <p className="text-sm text-amber-800">
-                  <strong>안내사항:</strong> 이미지는 1시간 후에 삭제가 되기에 미리 저장 또는 렌더링 부탁드립니다. TTS 용량이 크면 저장이 안될 수 있습니다. 참고바랍니다.
+              <p className="text-gray-700 text-xl font-medium">작업한 내용을 저장하고 관리하세요</p>
+              <div className="mt-6 p-5 bg-gradient-to-r from-amber-50/90 to-orange-50/90 border border-amber-200/50 rounded-2xl shadow-lg backdrop-blur-md glass-effect animate-slide-up">
+                <p className="text-sm text-amber-900 font-medium">
+                  <strong className="text-amber-950">안내사항:</strong> 이미지는 1시간 후에 삭제가 되기에 미리 저장 또는 렌더링 부탁드립니다. TTS 용량이 크면 저장이 안될 수 있습니다. 참고바랍니다.
                 </p>
               </div>
             </div>
             
-            <Card className="p-12 text-center shadow-xl border-0 bg-white/80 backdrop-blur-sm animate-slide-up">
-              <div className="max-w-md mx-auto">
-                <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-gradient-to-br from-blue-100 to-indigo-100 flex items-center justify-center animate-bounce-slow">
-                  <User className="w-10 h-10 text-blue-600" />
+            <Card className="p-12 text-center shadow-2xl border-0 glass-effect animate-card-enter relative overflow-hidden group">
+              {/* 카드 배경 그라데이션 */}
+              <div className="absolute inset-0 bg-gradient-to-br from-white/90 via-blue-50/50 to-indigo-50/50 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+              
+              <div className="max-w-md mx-auto relative z-10">
+                <div className="w-24 h-24 mx-auto mb-8 rounded-full bg-gradient-to-br from-blue-400 via-indigo-500 to-purple-600 flex items-center justify-center animate-pulse-glow shadow-2xl">
+                  <User className="w-12 h-12 text-white" />
                 </div>
-                <h3 className="text-2xl font-semibold text-gray-900 mb-3">로그인이 필요합니다</h3>
-                <p className="text-gray-600 mb-8 text-lg">
-                  프로젝트를 생성하고 관리하려면 먼저 로그인해주세요.
+                <h3 className="text-3xl font-bold text-gray-900 mb-4 bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">로그인이 필요합니다</h3>
+                <p className="text-gray-600 mb-10 text-lg leading-relaxed">
+                  프로젝트를 생성하고 관리하려면<br />먼저 로그인해주세요.
                 </p>
                 <Button
                   onClick={() => window.location.href = "/"}
-                  className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 px-8 py-6 text-lg font-semibold rounded-xl"
+                  className="bg-gradient-to-r from-red-600 via-red-500 to-pink-600 hover:from-red-700 hover:via-red-600 hover:to-pink-700 text-white shadow-2xl hover:shadow-3xl transition-all duration-300 transform hover:scale-110 hover:-translate-y-1 px-10 py-7 text-lg font-bold rounded-2xl animate-glow"
                 >
                   로그인하러 가기
                 </Button>
@@ -14875,36 +16084,44 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     }
 
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-6">
-        <div className="max-w-6xl mx-auto">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/50 to-indigo-50/50 p-6 bg-pattern relative overflow-hidden">
+        {/* 배경 장식 요소 */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-20 left-10 w-72 h-72 bg-blue-200/20 rounded-full blur-3xl animate-float"></div>
+          <div className="absolute bottom-20 right-10 w-96 h-96 bg-indigo-200/20 rounded-full blur-3xl animate-float" style={{ animationDelay: '2s' }}></div>
+          <div className="absolute top-1/2 left-1/2 w-80 h-80 bg-purple-200/10 rounded-full blur-3xl animate-float" style={{ animationDelay: '4s' }}></div>
+          <div className="absolute top-1/4 right-1/4 w-64 h-64 bg-pink-200/15 rounded-full blur-3xl animate-float" style={{ animationDelay: '1s' }}></div>
+        </div>
+        
+        <div className="max-w-6xl mx-auto relative z-10">
           <div className="mb-8 animate-fade-in">
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between mb-4">
               <div>
-                <h1 className="text-4xl font-bold bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 bg-clip-text text-transparent mb-3">
+                <h1 className="text-5xl font-bold bg-gradient-to-r from-gray-900 via-blue-800 to-indigo-900 bg-clip-text text-transparent mb-4 animate-gradient">
                   롱폼 프로젝트
                 </h1>
-                <p className="text-gray-600 text-lg">작업한 내용을 저장하고 관리하세요</p>
+                <p className="text-gray-700 text-xl font-medium">작업한 내용을 저장하고 관리하세요</p>
               </div>
               <Link href="/WingsAIStudio">
-                <Button variant="outline" size="lg" className="flex items-center gap-2 shadow-md hover:shadow-lg transition-all duration-300">
+                <Button variant="outline" size="lg" className="flex items-center gap-2 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 glass-effect border-gray-200/50">
                   <Home className="w-5 h-5" />
                   메인화면
                 </Button>
               </Link>
             </div>
-            <div className="mt-4 p-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl shadow-sm backdrop-blur-sm">
-              <p className="text-sm text-amber-800">
-                <strong>안내사항:</strong> 이미지는 1시간 후에 삭제가 되기에 미리 저장 또는 렌더링 부탁드립니다. TTS 용량이 크면 저장이 안될 수 있습니다. 참고바랍니다.
+            <div className="mt-6 p-5 bg-gradient-to-r from-amber-50/90 to-orange-50/90 border border-amber-200/50 rounded-2xl shadow-lg backdrop-blur-md glass-effect animate-slide-up">
+              <p className="text-sm text-amber-900 font-medium">
+                <strong className="text-amber-950">안내사항:</strong> 이미지는 1시간 후에 삭제가 되기에 미리 저장 또는 렌더링 부탁드립니다. TTS 용량이 크면 저장이 안될 수 있습니다. 참고바랍니다.
               </p>
             </div>
           </div>
 
-          <div className="mb-6 flex justify-end animate-fade-in">
+          <div className="mb-8 flex justify-end animate-fade-in">
             <Button
               onClick={() => setShowCreateProjectDialog(true)}
-              className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 px-6 py-6 rounded-xl font-semibold"
+              className="bg-gradient-to-r from-red-600 via-red-500 to-pink-600 hover:from-red-700 hover:via-red-600 hover:to-pink-700 text-white shadow-2xl hover:shadow-3xl transition-all duration-300 transform hover:scale-110 hover:-translate-y-1 px-8 py-7 rounded-2xl font-bold text-lg animate-glow"
             >
-              <FolderPlus className="w-5 h-5 mr-2" />
+              <FolderPlus className="w-6 h-6 mr-2" />
               새 프로젝트 만들기
             </Button>
           </div>
@@ -14912,34 +16129,44 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           {isLoadingProjects ? (
             <div className="flex flex-col items-center justify-center py-20 animate-fade-in">
               <div className="relative">
-                <Loader2 className="w-16 h-16 animate-spin text-blue-600" />
-                <div className="absolute inset-0 w-16 h-16 border-4 border-blue-200 rounded-full animate-ping opacity-20"></div>
+                <div className="w-20 h-20 border-4 border-blue-200 rounded-full animate-ping opacity-20"></div>
+                <Loader2 className="w-16 h-16 animate-spin text-blue-600 absolute inset-0 m-auto" />
               </div>
-              <p className="mt-6 text-gray-600 text-lg font-medium">프로젝트를 불러오는 중...</p>
+              <p className="mt-8 text-gray-700 text-xl font-semibold">프로젝트를 불러오는 중...</p>
+              <div className="mt-4 flex gap-2">
+                {[0, 1, 2].map((i) => (
+                  <div
+                    key={i}
+                    className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"
+                    style={{ animationDelay: `${i * 0.2}s` }}
+                  ></div>
+                ))}
+              </div>
             </div>
           ) : projects.length === 0 ? (
-            <Card className="p-12 text-center shadow-xl border-0 bg-white/80 backdrop-blur-sm animate-slide-up">
-              <div className="max-w-md mx-auto">
-                <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
-                  <Folder className="w-10 h-10 text-gray-400" />
+            <Card className="p-12 text-center shadow-2xl border-0 glass-effect animate-card-enter relative overflow-hidden group">
+              <div className="absolute inset-0 bg-gradient-to-br from-white/90 via-blue-50/50 to-indigo-50/50 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+              <div className="max-w-md mx-auto relative z-10">
+                <div className="w-24 h-24 mx-auto mb-8 rounded-full bg-gradient-to-br from-gray-300 via-gray-200 to-gray-100 flex items-center justify-center shadow-xl animate-pulse-glow">
+                  <Folder className="w-12 h-12 text-gray-500" />
                 </div>
-                <h3 className="text-2xl font-semibold text-gray-900 mb-3">프로젝트가 없습니다</h3>
-                <p className="text-gray-600 mb-8 text-lg">새 프로젝트를 만들어 시작하세요</p>
+                <h3 className="text-3xl font-bold text-gray-900 mb-4 bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">프로젝트가 없습니다</h3>
+                <p className="text-gray-600 mb-10 text-lg leading-relaxed">새 프로젝트를 만들어<br />작업을 시작하세요</p>
                 <Button
                   onClick={() => setShowCreateProjectDialog(true)}
-                  className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 px-8 py-6 text-lg font-semibold rounded-xl"
+                  className="bg-gradient-to-r from-red-600 via-red-500 to-pink-600 hover:from-red-700 hover:via-red-600 hover:to-pink-700 text-white shadow-2xl hover:shadow-3xl transition-all duration-300 transform hover:scale-110 hover:-translate-y-1 px-10 py-7 text-lg font-bold rounded-2xl animate-glow"
                 >
-                  <FolderPlus className="w-5 h-5 mr-2" />
+                  <FolderPlus className="w-6 h-6 mr-2" />
                   새 프로젝트 만들기
                 </Button>
               </div>
             </Card>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
               {projects.map((project, index) => (
                 <Card
                   key={project.id}
-                  className="cursor-pointer group relative overflow-hidden border-0 shadow-lg hover:shadow-2xl transition-all duration-500 transform hover:scale-105 hover:-translate-y-2 bg-white/90 backdrop-blur-sm animate-fade-in"
+                  className="cursor-pointer group relative overflow-hidden border-0 shadow-xl hover:shadow-2xl project-card-hover glass-effect animate-card-enter"
                   style={{
                     animationDelay: `${index * 100}ms`,
                     animationFillMode: 'both'
@@ -14947,16 +16174,19 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                   onClick={() => handleSelectProject(project)}
                 >
                   {/* 그라데이션 배경 효과 */}
-                  <div className="absolute inset-0 bg-gradient-to-br from-blue-50/50 via-transparent to-indigo-50/50 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                  <div className="absolute inset-0 bg-gradient-to-br from-blue-100/60 via-purple-50/40 to-indigo-100/60 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
                   
                   {/* 상단 장식 라인 */}
-                  <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-500 via-pink-500 to-red-500 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-500"></div>
+                  <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-red-500 via-pink-500 to-purple-500 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-500 shadow-lg"></div>
                   
-                  <CardHeader className="relative z-10 pb-3">
+                  {/* 반짝이는 효과 */}
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
+                  
+                  <CardHeader className="relative z-10 pb-4">
                     <div className="flex items-start justify-between">
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-2">
-                          <CardTitle className="text-xl font-bold text-gray-900 group-hover:text-red-600 transition-colors duration-300 truncate">
+                        <div className="flex items-center gap-3 mb-3">
+                          <CardTitle className="text-xl font-bold text-gray-900 group-hover:text-transparent group-hover:bg-gradient-to-r group-hover:from-red-600 group-hover:to-pink-600 group-hover:bg-clip-text transition-all duration-300 truncate">
                             {project.name}
                           </CardTitle>
                           {/* 최근 작업 배지 (가장 최근에 저장된 프로젝트 하나만) */}
@@ -14964,7 +16194,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                             // 첫 번째 프로젝트(가장 최근에 저장된 프로젝트)만 배지 표시
                             if (index === 0) {
                               return (
-                                <span className="px-2 py-0.5 text-xs font-semibold bg-gradient-to-r from-red-500 to-pink-500 text-white rounded-full shadow-sm animate-pulse">
+                                <span className="px-3 py-1 text-xs font-bold bg-gradient-to-r from-red-500 via-pink-500 to-purple-500 text-white rounded-full shadow-lg animate-pulse-glow">
                                   최근 작업
                                 </span>
                               )
@@ -14973,7 +16203,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                           })()}
                         </div>
                         {project.description && (
-                          <p className="text-sm text-gray-600 line-clamp-2 leading-relaxed">
+                          <p className="text-sm text-gray-600 line-clamp-2 leading-relaxed group-hover:text-gray-700 transition-colors duration-300">
                             {project.description}
                           </p>
                         )}
@@ -14981,28 +16211,31 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-9 w-9 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-all duration-300 transform hover:scale-110 ml-2 flex-shrink-0"
+                        className="h-10 w-10 text-gray-400 hover:text-red-600 hover:bg-red-50/80 rounded-full transition-all duration-300 transform hover:scale-125 hover:rotate-12 ml-2 flex-shrink-0 shadow-sm hover:shadow-md"
                         onClick={(e) => handleDeleteProject(project.id, e)}
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-5 h-5" />
                       </Button>
                     </div>
                   </CardHeader>
-                  <CardContent className="relative z-10 pt-0">
-                    <div className="space-y-2 text-xs text-gray-500">
-                      <div className="flex items-center gap-2">
-                        <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse"></div>
-                        <p className="font-medium">수정: {new Date(project.updated_at).toLocaleString("ko-KR")}</p>
+                  <CardContent className="relative z-10 pt-0 pb-4">
+                    <div className="space-y-3 text-xs">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-2 h-2 rounded-full bg-gradient-to-r from-green-400 to-emerald-500 animate-pulse shadow-sm"></div>
+                        <p className="font-semibold text-gray-600 group-hover:text-gray-700 transition-colors">수정: {new Date(project.updated_at).toLocaleString("ko-KR")}</p>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <div className="w-1.5 h-1.5 rounded-full bg-blue-400"></div>
-                        <p>생성: {new Date(project.created_at).toLocaleString("ko-KR")}</p>
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-2 h-2 rounded-full bg-gradient-to-r from-blue-400 to-indigo-500 shadow-sm"></div>
+                        <p className="text-gray-500 group-hover:text-gray-600 transition-colors">생성: {new Date(project.created_at).toLocaleString("ko-KR")}</p>
                       </div>
                     </div>
                   </CardContent>
                   
                   {/* 호버 시 표시되는 오버레이 */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"></div>
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/10 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none rounded-lg"></div>
+                  
+                  {/* 하단 그라데이션 라인 */}
+                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-blue-300/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
                 </Card>
               ))}
             </div>
@@ -15011,42 +16244,45 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
 
         {/* 프로젝트 생성 다이얼로그 */}
         <Dialog open={showCreateProjectDialog} onOpenChange={setShowCreateProjectDialog}>
-          <DialogContent className="sm:max-w-[500px] bg-white/95 backdrop-blur-md border-0 shadow-2xl rounded-2xl animate-dialog-enter">
-            <DialogHeader className="space-y-3 pb-4 border-b border-gray-100">
-              <DialogTitle className="text-2xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
+          <DialogContent className="sm:max-w-[500px] glass-effect border-0 shadow-2xl rounded-3xl animate-dialog-enter relative overflow-hidden">
+            {/* 다이얼로그 배경 그라데이션 */}
+            <div className="absolute inset-0 bg-gradient-to-br from-white/95 via-blue-50/30 to-indigo-50/30"></div>
+            
+            <DialogHeader className="space-y-4 pb-6 border-b border-gray-200/50 relative z-10">
+              <DialogTitle className="text-3xl font-bold bg-gradient-to-r from-gray-900 via-blue-800 to-indigo-900 bg-clip-text text-transparent">
                 새 프로젝트 만들기
               </DialogTitle>
-              <DialogDescription className="text-gray-600 text-base">
+              <DialogDescription className="text-gray-600 text-base font-medium">
                 프로젝트 이름을 입력하고 작업을 시작하세요
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-6 pt-4">
-              <div className="space-y-2">
-                <Label htmlFor="project-name" className="text-sm font-semibold text-gray-700">
-                  프로젝트 이름 <span className="text-red-500">*</span>
+            <div className="space-y-6 pt-6 relative z-10">
+              <div className="space-y-3">
+                <Label htmlFor="project-name" className="text-sm font-bold text-gray-800 flex items-center gap-2">
+                  프로젝트 이름 <span className="text-red-500 text-base">*</span>
                 </Label>
                 <Input
                   id="project-name"
                   value={newProjectName}
                   onChange={(e) => setNewProjectName(e.target.value)}
                   placeholder="예: 12/6 고구려 시리즈"
-                  className="mt-1 h-12 border-2 border-gray-200 focus:border-red-500 rounded-xl transition-all duration-300 focus:ring-2 focus:ring-red-200"
+                  className="h-14 border-2 border-gray-200 focus:border-red-500 rounded-xl transition-all duration-300 focus:ring-4 focus:ring-red-200/50 shadow-sm hover:shadow-md focus:shadow-lg text-base"
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="project-description" className="text-sm font-semibold text-gray-700">
-                  프로젝트 설명 <span className="text-gray-400 text-xs">(선택사항)</span>
+              <div className="space-y-3">
+                <Label htmlFor="project-description" className="text-sm font-bold text-gray-800">
+                  프로젝트 설명 <span className="text-gray-400 text-xs font-normal">(선택사항)</span>
                 </Label>
                 <Textarea
                   id="project-description"
                   value={newProjectDescription}
                   onChange={(e) => setNewProjectDescription(e.target.value)}
                   placeholder="프로젝트에 대한 간단한 설명을 입력하세요"
-                  className="mt-1 border-2 border-gray-200 focus:border-red-500 rounded-xl transition-all duration-300 focus:ring-2 focus:ring-red-200 resize-none"
-                  rows={3}
+                  className="border-2 border-gray-200 focus:border-red-500 rounded-xl transition-all duration-300 focus:ring-4 focus:ring-red-200/50 shadow-sm hover:shadow-md focus:shadow-lg resize-none text-base min-h-[100px]"
+                  rows={4}
                 />
               </div>
-              <div className="flex justify-end gap-3 pt-4">
+              <div className="flex justify-end gap-4 pt-6">
                 <Button
                   variant="outline"
                   onClick={() => {
@@ -15054,18 +16290,18 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                     setNewProjectName("")
                     setNewProjectDescription("")
                   }}
-                  className="px-6 py-6 rounded-xl border-2 hover:bg-gray-50 transition-all duration-300"
+                  className="px-8 py-7 rounded-2xl border-2 border-gray-300 hover:border-gray-400 hover:bg-gray-50/80 transition-all duration-300 transform hover:scale-105 font-semibold text-base shadow-sm hover:shadow-md"
                 >
                   취소
                 </Button>
                 <Button
                   onClick={handleCreateProject}
                   disabled={isSavingProject || !newProjectName.trim()}
-                  className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none px-8 py-6 rounded-xl font-semibold"
+                  className="bg-gradient-to-r from-red-600 via-red-500 to-pink-600 hover:from-red-700 hover:via-red-600 hover:to-pink-700 text-white shadow-2xl hover:shadow-3xl transition-all duration-300 transform hover:scale-110 hover:-translate-y-1 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:hover:shadow-2xl px-10 py-7 rounded-2xl font-bold text-lg animate-glow disabled:animate-none"
                 >
                   {isSavingProject ? (
                     <>
-                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                      <Loader2 className="w-6 h-6 mr-2 animate-spin" />
                       생성 중...
                     </>
                   ) : (
@@ -15768,14 +17004,11 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                       <div className="grid grid-cols-3 md:grid-cols-5 gap-2 mt-4">
                         {[
                           { step: 1, name: "대본 기획" },
-                          { step: 2, name: "대본 초안" },
-                          { step: 3, name: "대본 생성" },
-                          { step: 4, name: "이미지" },
-                          { step: 5, name: "TTS" },
-                          { step: 6, name: "영상 렌더링" },
-                          { step: 7, name: "제목" },
-                          { step: 8, name: "설명" },
-                          { step: 9, name: "썸네일" },
+                          { step: 2, name: "대본 생성" },
+                          { step: 3, name: "이미지" },
+                          { step: 4, name: "TTS" },
+                          { step: 5, name: "제목/설명" },
+                          { step: 6, name: "썸네일" },
                         ].map((item) => (
                           <div
                             key={item.step}
@@ -15845,57 +17078,6 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                         🎨 썸네일 확인
                       </Button>
                     </div>
-                    
-                    {/* 유튜브 업로드 예약 (추후 구현) */}
-                    <div className="border-t border-green-100 pt-4">
-                      <h4 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
-                        <Youtube className="w-4 h-4 text-red-500" />
-                        유튜브 업로드 예약 (준비 중)
-                      </h4>
-                      <div className="grid grid-cols-2 gap-4 mb-4">
-                        <div>
-                          <Label className="text-xs text-gray-600">예약 날짜</Label>
-                          <Input
-                            type="date"
-                            value={youtubeScheduleDate}
-                            onChange={(e) => setYoutubeScheduleDate(e.target.value)}
-                            className="mt-1"
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs text-gray-600">예약 시간</Label>
-                          <Input
-                            type="time"
-                            value={youtubeScheduleTime}
-                            onChange={(e) => setYoutubeScheduleTime(e.target.value)}
-                            className="mt-1"
-                          />
-                        </div>
-                      </div>
-                      <Button
-                        className="w-full bg-red-500 hover:bg-red-600 text-white"
-                        disabled={!youtubeConnected || isScheduling || !youtubeScheduleDate || !videoData || !videoData?.videoUrl}
-                        onClick={handleYoutubeSchedule}
-                      >
-                        <Youtube className="w-4 h-4 mr-2" />
-                        {isScheduling ? "예약 중..." : "유튜브 업로드 예약"}
-                      </Button>
-                      {!youtubeConnected && (
-                        <p className="text-xs text-red-500 mt-2 text-center">
-                          ※ 설정에서 YouTube 계정을 먼저 연결해주세요.
-                        </p>
-                      )}
-                      {youtubeConnected && (!videoData || !videoData.videoUrl) && (
-                        <p className="text-xs text-yellow-500 mt-2 text-center">
-                          ※ 영상 렌더링이 완료되어야 업로드할 수 있습니다.
-                        </p>
-                      )}
-                      {youtubeConnected && videoData && videoData.videoUrl && !youtubeScheduleDate && (
-                        <p className="text-xs text-yellow-500 mt-2 text-center">
-                          ※ 예약 날짜를 선택해주세요.
-                        </p>
-                      )}
-                    </div>
                   </CardContent>
                 </Card>
               )}
@@ -15914,36 +17096,33 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                   </CardHeader>
                   <CardContent className="pt-6">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* 자동화 모드 (비활성화) */}
+                      {/* 자동화 모드 */}
                       <div
-                        className="p-6 rounded-xl border-2 border-gray-200 bg-gray-50 cursor-not-allowed opacity-60 relative"
+                        className={`p-6 rounded-xl border-2 cursor-pointer transition-all duration-300 hover:shadow-lg relative ${
+                          workflowMode === "auto"
+                            ? "border-red-500 bg-red-50 shadow-md"
+                            : "border-gray-200 bg-white hover:border-red-300"
+                        }`}
+                        onClick={() => handleModeSelection("auto")}
                       >
                         <div className="flex items-center gap-3 mb-3">
-                          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-gray-400 to-gray-500 flex items-center justify-center">
+                          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-red-500 to-orange-500 flex items-center justify-center">
                             <Zap className="w-6 h-6 text-white" />
                           </div>
                           <div>
-                            <h3 className="font-bold text-lg text-gray-600">🚀 자동화 모드</h3>
-                            <p className="text-xs text-gray-400">원클릭으로 모든 작업 완료</p>
+                            <h3 className="font-bold text-lg text-gray-900">🚀 자동화 모드</h3>
+                            <p className="text-xs text-gray-500">원클릭으로 모든 작업 완료</p>
                           </div>
                         </div>
-                        <p className="text-sm text-gray-500 mb-4">
+                        <p className="text-sm text-gray-600 mb-4">
                           대본 기획부터 썸네일 생성까지 모든 과정을 AI가 자동으로 처리합니다.
                         </p>
-                        <ul className="text-xs text-gray-400 space-y-1">
+                        <ul className="text-xs text-gray-500 space-y-1">
                           <li>✓ 대본 기획 → 초안 → 완성</li>
                           <li>✓ AI 이미지 자동 생성</li>
                           <li>✓ TTS 음성 자동 생성</li>
                           <li>✓ 제목/설명/썸네일 자동 생성</li>
                         </ul>
-                        <div className="absolute top-4 right-4 bg-orange-500 text-white px-3 py-1 rounded-full text-xs font-bold">
-                          1월 초 오픈예정
-                        </div>
-                        <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                          <p className="text-xs text-yellow-800 font-medium">
-                            🔒 추가 개발 요청건이 너무 많아 그 기능까지 탑재 후 자동 모드 오픈
-                          </p>
-                        </div>
                       </div>
 
                       {/* 수동 모드 */}
@@ -15976,213 +17155,166 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                       </div>
                     </div>
 
-                    {/* 자동화 설정 팝업 (대본 시간 및 목소리 선택) */}
+                    {/* 자동화 설정 팝업 */}
                     <Dialog open={showAutomationSettingsDialog} onOpenChange={setShowAutomationSettingsDialog}>
-                      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
                         <DialogHeader>
                           <DialogTitle className="text-xl font-bold text-slate-900 flex items-center gap-2">
                             <Sparkles className="w-5 h-5 text-red-500" />
                             자동화 설정
                           </DialogTitle>
                           <DialogDescription className="text-sm text-gray-600">
-                            대본 생성에 필요한 시간과 목소리를 선택해주세요.
+                            자동화에 필요한 모든 설정을 선택해주세요.
                           </DialogDescription>
                         </DialogHeader>
                         
                         <div className="space-y-6 mt-4">
+                          {/* 콘텐츠 타입 선택 (선택사항) */}
+                          <div className="space-y-2">
+                            <Label className="text-sm font-medium text-gray-700">
+                              콘텐츠 타입 선택 (선택사항)
+                            </Label>
+                            <p className="text-xs text-gray-500 mb-2">
+                              선택하지 않으면 자동으로 결정됩니다.
+                            </p>
+                            <div className="grid grid-cols-4 gap-2">
+                              {["A", "B", "C", "D"].map((type) => (
+                                <Button
+                                  key={type}
+                                  variant={selectedContentType === type ? "default" : "outline"}
+                                  size="sm"
+                                  onClick={() => setSelectedContentType(selectedContentType === type ? null : type as "A" | "B" | "C" | "D")}
+                                  className={selectedContentType === type ? "bg-blue-600 hover:bg-blue-700 text-white" : ""}
+                                >
+                                  Type {type}
+                                </Button>
+                              ))}
+                            </div>
+                          </div>
+
                           {/* 대본 시간 선택 */}
                           <div className="space-y-2">
-                            <Label htmlFor="automation-script-duration" className="text-sm font-medium text-gray-700">
-                              대본 시간 선택
+                            <Label className="text-sm font-medium text-gray-700">
+                              대본 시간 선택 *
                             </Label>
                             <Select
                               value={scriptDuration.toString()}
                               onValueChange={(value) => setScriptDuration(Number.parseInt(value, 10))}
                             >
-                              <SelectTrigger id="automation-script-duration" className="w-full">
-                                <SelectValue placeholder="대본 시간을 선택하세요" />
+                              <SelectTrigger>
+                                <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="5">5분 (약 {Math.floor(5 * 60 * 6.9).toLocaleString()}자)</SelectItem>
-                                <SelectItem value="10">10분 (약 {Math.floor(10 * 60 * 6.9).toLocaleString()}자)</SelectItem>
-                                <SelectItem value="15">15분 (약 {Math.floor(15 * 60 * 6.9).toLocaleString()}자)</SelectItem>
-                                <SelectItem value="20">20분 (약 {Math.floor(20 * 60 * 6.9).toLocaleString()}자)</SelectItem>
-                                <SelectItem value="25">25분 (약 {Math.floor(25 * 60 * 6.9).toLocaleString()}자)</SelectItem>
-                                <SelectItem value="30">30분 (약 {Math.floor(30 * 60 * 6.9).toLocaleString()}자)</SelectItem>
-                                <SelectItem value="35">35분 (약 {Math.floor(35 * 60 * 6.9).toLocaleString()}자)</SelectItem>
-                                <SelectItem value="40">40분 (약 {Math.floor(40 * 60 * 6.9).toLocaleString()}자)</SelectItem>
+                                <SelectItem value="5">5분</SelectItem>
+                                <SelectItem value="10">10분</SelectItem>
+                                <SelectItem value="15">15분</SelectItem>
+                                <SelectItem value="20">20분</SelectItem>
+                                <SelectItem value="25">25분</SelectItem>
+                                <SelectItem value="30">30분</SelectItem>
+                                <SelectItem value="35">35분</SelectItem>
+                                <SelectItem value="40">40분</SelectItem>
                               </SelectContent>
                             </Select>
-                            <p className="text-xs text-gray-500">
-                              선택한 시간에 맞춰 대본이 생성됩니다.
-                            </p>
                           </div>
 
-                          {/* 목소리 선택 */}
+                          {/* 장면 분할 선택 */}
                           <div className="space-y-2">
-                            <Label className="text-sm font-medium text-gray-700">목소리 선택</Label>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 max-h-[300px] overflow-y-auto p-2 border border-gray-200 rounded-lg">
-                              {[
-                                { id: "ttsmaker-여성1", name: "TTSMaker 여성1", note: "ID: 503", provider: "ttsmaker" },
-                                { id: "ttsmaker-여성2", name: "TTSMaker 여성2", note: "ID: 509", provider: "ttsmaker" },
-                                { id: "ttsmaker-여성6", name: "TTSMaker 여성3", note: "ID: 5802", provider: "ttsmaker" },
-                                { id: "ttsmaker-남성1", name: "TTSMaker 남성1", note: "ID: 5501", provider: "ttsmaker" },
-                                { id: "ttsmaker-남성4", name: "TTSMaker 남성2", note: "ID: 5888", provider: "ttsmaker" },
-                                { id: "ttsmaker-남성5", name: "TTSMaker 남성3", note: "ID: 5888 (음높이 -10%)", provider: "ttsmaker" },
-                                { id: "jB1Cifc2UQbq1gR3wnb0", name: "ElevenLabs Rachel", note: "기본(Default)", provider: "elevenlabs" },
-                                { id: "8jHHF8rMqMlg8if2mOUe", name: "ElevenLabs Voice 2", note: "사용자 선택형", provider: "elevenlabs" },
-                                { id: "uyVNoMrnUku1dZyVEXwD", name: "ElevenLabs Voice 3", note: "", provider: "elevenlabs" },
-                                { id: "supertone-voice1", name: "수퍼톤 목소리1", note: "기본 여성", provider: "supertone" },
-                                { id: "supertone-voice2", name: "수퍼톤 목소리2", note: "기본 남성", provider: "supertone" },
-                                ...(customElevenLabsVoices || []).map((voice: { id: string; name: string }) => ({
-                                  id: voice.id,
-                                  name: `ElevenLabs ${voice.name}`,
-                                  note: "사용자 추가",
-                                  provider: "elevenlabs" as const,
-                                })),
-                              ].map((voice) => (
-                                <div
-                                  key={voice.id}
-                                  className={`p-3 border-2 rounded-lg transition-all ${
-                                    selectedVoiceId === voice.id
-                                      ? "border-red-500 bg-red-50"
-                                      : "border-gray-200 hover:border-gray-300"
-                                  }`}
+                            <Label className="text-sm font-medium text-gray-700">
+                              장면 분할 선택 *
+                            </Label>
+                            <div className="flex gap-2">
+                              {[1, 2, 3, 4, 5].map((num) => (
+                                <Button
+                                  key={num}
+                                  variant={maxScenesPerScene === num ? "default" : "outline"}
+                                  size="sm"
+                                  onClick={() => setMaxScenesPerScene(num as 1 | 2 | 3 | 4 | 5)}
+                                  className={maxScenesPerScene === num ? "bg-blue-600 hover:bg-blue-700 text-white" : ""}
                                 >
-                                  <div className="flex items-center space-x-2 mb-2">
-                                    <div
-                                      className={`w-4 h-4 rounded-full border-2 cursor-pointer ${
-                                        selectedVoiceId === voice.id ? "border-red-500 bg-red-500" : "border-gray-300"
-                                      }`}
-                                      onClick={() => setSelectedVoiceId(voice.id)}
-                                    >
-                                      {selectedVoiceId === voice.id && (
-                                        <div className="w-2 h-2 bg-white rounded-full mx-auto mt-0.5"></div>
-                                      )}
-                                    </div>
-                                    <div className="flex-1" onClick={() => setSelectedVoiceId(voice.id)}>
-                                      <p className="text-sm font-medium">{voice.name}</p>
-                                      {voice.note && <p className="text-xs text-gray-500">{voice.note}</p>}
-                                    </div>
-                                  </div>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="w-full text-xs"
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      handlePreviewVoice(voice.id)
-                                    }}
-                                    disabled={previewingVoiceId === voice.id}
-                                  >
-                                    {previewingVoiceId === voice.id ? (
-                                      <>
-                                        <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                                        재생 중...
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Volume2 className="w-3 h-3 mr-1" />
-                                        미리듣기
-                                      </>
-                                    )}
-                                  </Button>
-                                </div>
+                                  최대 {num}개
+                                </Button>
                               ))}
                             </div>
-                            {previewAudioUrl && (
-                              <audio
-                                src={previewAudioUrl}
-                                autoPlay
-                                onEnded={() => {
-                                  setPreviewAudioUrl(null)
-                                  setPreviewingVoiceId(null)
-                                }}
-                                className="w-full"
-                              />
-                            )}
-                            {/* 일레븐랩스 사용자 정의 목소리 추가 버튼 */}
-                            <div className="mt-3 pt-3 border-t border-gray-200">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="w-full"
-                                onClick={() => setShowAddVoiceDialog(true)}
-                              >
-                                <Plus className="w-3 h-3 mr-1" />
-                                일레븐랩스 목소리 추가
-                              </Button>
-                            </div>
                           </div>
-                          {/* 목소리 추가 다이얼로그 */}
-                          <Dialog open={showAddVoiceDialog} onOpenChange={setShowAddVoiceDialog}>
-                            <DialogContent>
-                              <DialogHeader>
-                                <DialogTitle>일레븐랩스 목소리 추가</DialogTitle>
-                                <DialogDescription>
-                                  일레븐랩스에서 발급받은 Voice ID를 입력하세요.
-                                </DialogDescription>
-                              </DialogHeader>
-                              <div className="space-y-4 mt-4">
-                                <div>
-                                  <Label>목소리 이름</Label>
-                                  <Input
-                                    value={newVoiceName}
-                                    onChange={(e) => setNewVoiceName(e.target.value)}
-                                    placeholder="예: 내 목소리"
-                                  />
-                                </div>
-                                <div>
-                                  <Label>Voice ID</Label>
-                                  <Input
-                                    value={newVoiceId}
-                                    onChange={(e) => setNewVoiceId(e.target.value)}
-                                    placeholder="예: jB1Cifc2UQbq1gR3wnb0"
-                                  />
-                                  <p className="text-xs text-gray-500 mt-1">
-                                    일레븐랩스 대시보드에서 Voice ID를 확인할 수 있습니다.
-                                  </p>
-                                </div>
-                                <div className="flex gap-2">
-                                  <Button
-                                    onClick={() => {
-                                      if (newVoiceId && newVoiceName) {
-                                        setCustomElevenLabsVoices([...customElevenLabsVoices, { id: newVoiceId, name: newVoiceName }])
-                                        // 로컬스토리지에 저장
-                                        localStorage.setItem("custom_elevenlabs_voices", JSON.stringify([...customElevenLabsVoices, { id: newVoiceId, name: newVoiceName }]))
-                                        setNewVoiceId("")
-                                        setNewVoiceName("")
-                                        setShowAddVoiceDialog(false)
-                                      } else {
-                                        alert("목소리 이름과 Voice ID를 모두 입력해주세요.")
-                                      }
-                                    }}
-                                    className="flex-1"
-                                  >
-                                    추가
-                                  </Button>
-                                  <Button
-                                    variant="outline"
-                                    onClick={() => {
-                                      setShowAddVoiceDialog(false)
-                                      setNewVoiceId("")
-                                      setNewVoiceName("")
-                                    }}
-                                  >
-                                    취소
-                                  </Button>
-                                </div>
-                              </div>
-                            </DialogContent>
-                          </Dialog>
+
+                          {/* 이미지 스타일 및 AI 모델 선택 */}
+                          <div className="space-y-2">
+                            <Label className="text-sm font-medium text-gray-700">
+                              이미지 스타일 선택 *
+                            </Label>
+                            <Select
+                              value={imageStyle}
+                              onValueChange={(value) => setImageStyle(value as any)}
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="stickman-animation">스틱맨 애니메이션</SelectItem>
+                                <SelectItem value="realistic">실사화</SelectItem>
+                                <SelectItem value="realistic2">실사화2</SelectItem>
+                                <SelectItem value="animation2">애니메이션2</SelectItem>
+                                <SelectItem value="animation3">유럽풍 그래픽 노블</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label className="text-sm font-medium text-gray-700">
+                              AI 모델 선택 *
+                            </Label>
+                            <Select
+                              value={imageModel}
+                              onValueChange={(value: "prunaai/hidream-l1-fast" | "black-forest-labs/flux-schnell" | "google/imagen-4-fast") => setImageModel(value)}
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="prunaai/hidream-l1-fast">HiDream L1 Fast</SelectItem>
+                                <SelectItem value="black-forest-labs/flux-schnell">Flux Schnell</SelectItem>
+                                <SelectItem value="google/imagen-4-fast">Imagen 4 Fast</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          {/* TTS 모델 선택 */}
+                          <div className="space-y-2">
+                            <Label className="text-sm font-medium text-gray-700">
+                              TTS 모델 선택 *
+                            </Label>
+                            <Select
+                              value={selectedVoiceId || ""}
+                              onValueChange={(value) => setSelectedVoiceId(value)}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="TTS 모델을 선택하세요" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="ttsmaker-여성1">TTSMaker 여성1</SelectItem>
+                                <SelectItem value="ttsmaker-여성2">TTSMaker 여성2</SelectItem>
+                                <SelectItem value="ttsmaker-여성6">TTSMaker 여성3</SelectItem>
+                                <SelectItem value="ttsmaker-남성1">TTSMaker 남성1</SelectItem>
+                                <SelectItem value="ttsmaker-남성4">TTSMaker 남성2</SelectItem>
+                                <SelectItem value="ttsmaker-남성5">TTSMaker 남성3</SelectItem>
+                                <SelectItem value="jB1Cifc2UQbq1gR3wnb0">ElevenLabs Rachel</SelectItem>
+                                <SelectItem value="8jHHF8rMqMlg8if2mOUe">ElevenLabs Voice 2</SelectItem>
+                                <SelectItem value="uyVNoMrnUku1dZyVEXwD">ElevenLabs Voice 3</SelectItem>
+                                <SelectItem value="supertone-voice1">수퍼톤 목소리1</SelectItem>
+                                <SelectItem value="supertone-voice2">수퍼톤 목소리2</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
                         </div>
 
                         <div className="flex gap-3 mt-6">
                           <Button
-                            onClick={handleAutomationSettingsConfirm}
-                            className="flex-1 bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600 text-white font-bold"
+                            onClick={handleStartAutomation}
+                            disabled={!scriptDuration || !maxScenesPerScene || !imageStyle || !imageModel || !selectedVoiceId}
+                            className="flex-1 bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600 text-white font-bold py-3 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            확인
+                            <Zap className="w-4 h-4 mr-2" />
+                            자동화 시작하기 🚀
                           </Button>
                           <Button
                             variant="outline"
@@ -16198,85 +17330,6 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                       </DialogContent>
                     </Dialog>
 
-                    {/* 자동화 모드 선택 시 업로드 일자 선택 UI */}
-                    {showScheduleSelector && workflowMode === "auto" && (
-                      <div className="mt-6 pt-6 border-t border-red-200">
-                        <div className="bg-gradient-to-br from-orange-50 to-red-50 rounded-xl p-6 border border-orange-200">
-                          <h4 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
-                            <Calendar className="w-5 h-5 text-orange-500" />
-                            📅 유튜브 업로드 예약 설정
-                          </h4>
-                          <p className="text-sm text-gray-600 mb-4">
-                            자동화 완료 후 유튜브에 업로드할 날짜와 시간을 선택하세요.
-                          </p>
-                          
-                          <div className="grid grid-cols-2 gap-4 mb-4">
-                            <div>
-                              <Label className="text-sm font-medium text-gray-700 mb-2 block">업로드 날짜</Label>
-                              <Input
-                                type="date"
-                                value={youtubeScheduleDate}
-                                onChange={(e) => setYoutubeScheduleDate(e.target.value)}
-                                min={new Date().toISOString().split('T')[0]}
-                                className="bg-white"
-                              />
-                            </div>
-                            <div>
-                              <Label className="text-sm font-medium text-gray-700 mb-2 block">업로드 시간</Label>
-                              <Input
-                                type="time"
-                                value={youtubeScheduleTime}
-                                onChange={(e) => setYoutubeScheduleTime(e.target.value)}
-                                className="bg-white"
-                              />
-                            </div>
-                          </div>
-
-                          <div className="bg-white/50 rounded-lg p-3 mb-4">
-                            <p className="text-sm text-gray-700">
-                              <span className="font-semibold">예약 일시:</span>{" "}
-                              {youtubeScheduleDate ? (
-                                <>
-                                  {new Date(youtubeScheduleDate).toLocaleDateString('ko-KR', {
-                                    year: 'numeric',
-                                    month: 'long',
-                                    day: 'numeric',
-                                    weekday: 'long'
-                                  })} {youtubeScheduleTime}
-                                </>
-                              ) : (
-                                "날짜를 선택해주세요"
-                              )}
-                            </p>
-                          </div>
-
-                          <div className="flex gap-3">
-                            <Button
-                              onClick={handleStartAutomation}
-                              disabled={!youtubeScheduleDate}
-                              className="flex-1 bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600 text-white font-bold py-3"
-                            >
-                              <Zap className="w-4 h-4 mr-2" />
-                              자동화 시작하기 🚀
-                            </Button>
-                            <Button
-                              variant="outline"
-                              onClick={() => {
-                                setShowScheduleSelector(false)
-                                setWorkflowMode(null)
-                              }}
-                              className="px-4"
-                            >
-                              취소
-                            </Button>
-                          </div>
-                          
-                          <p className="text-xs text-gray-500 mt-3 text-center">
-                            ※ 실제 유튜브 업로드는 Google Cloud Console 연동 후 가능합니다.
-                          </p>
-                        </div>
-                      </div>
-                    )}
                   </CardContent>
                 </Card>
               )}
@@ -21230,9 +22283,12 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                 }
 
                                 // 기존 오디오와 병합 (같은 lineId는 새 오디오로 교체)
+                                // 파일 순서대로 lineId 순서를 유지하도록 정렬
                                 setGeneratedAudios((prev) => {
                                   const filtered = prev.filter((audio) => !newAudios.some(newAudio => newAudio.lineId === audio.lineId))
-                                  return [...filtered, ...newAudios]
+                                  const merged = [...filtered, ...newAudios]
+                                  // lineId 순서대로 정렬하여 음악1, 음악2 순서 유지
+                                  return merged.sort((a, b) => a.lineId - b.lineId)
                                 })
 
                                 // 완료 표시 업데이트
