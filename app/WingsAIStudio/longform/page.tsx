@@ -80,58 +80,6 @@ const customStyles = `
     }
   }
   
-  @keyframes float {
-    0%, 100% {
-      transform: translateY(0px) rotate(0deg);
-    }
-    50% {
-      transform: translateY(-20px) rotate(5deg);
-    }
-  }
-  
-  @keyframes glow {
-    0%, 100% {
-      box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
-    }
-    50% {
-      box-shadow: 0 0 40px rgba(59, 130, 246, 0.6);
-    }
-  }
-  
-  @keyframes gradient-shift {
-    0% {
-      background-position: 0% 50%;
-    }
-    50% {
-      background-position: 100% 50%;
-    }
-    100% {
-      background-position: 0% 50%;
-    }
-  }
-  
-  @keyframes card-enter {
-    from {
-      opacity: 0;
-      transform: translateY(20px) scale(0.95);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0) scale(1);
-    }
-  }
-  
-  @keyframes pulse-glow {
-    0%, 100% {
-      opacity: 1;
-      transform: scale(1);
-    }
-    50% {
-      opacity: 0.8;
-      transform: scale(1.05);
-    }
-  }
-  
   .animate-fade-in {
     animation: fade-in 0.6s ease-out forwards;
   }
@@ -150,56 +98,6 @@ const customStyles = `
   
   .animate-slide-in-right {
     animation: slide-in-right 0.4s ease-out forwards;
-  }
-  
-  .animate-float {
-    animation: float 6s ease-in-out infinite;
-  }
-  
-  .animate-glow {
-    animation: glow 3s ease-in-out infinite;
-  }
-  
-  .animate-gradient {
-    background-size: 200% 200%;
-    animation: gradient-shift 8s ease infinite;
-  }
-  
-  .animate-card-enter {
-    animation: card-enter 0.5s ease-out forwards;
-  }
-  
-  .animate-pulse-glow {
-    animation: pulse-glow 2s ease-in-out infinite;
-  }
-  
-  .glass-effect {
-    background: rgba(255, 255, 255, 0.7);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.3);
-  }
-  
-  .glass-effect-dark {
-    background: rgba(0, 0, 0, 0.1);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-  }
-  
-  .project-card-hover {
-    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-  
-  .project-card-hover:hover {
-    transform: translateY(-8px) scale(1.02);
-    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
-  }
-  
-  .bg-pattern {
-    background-image: 
-      radial-gradient(circle at 20% 50%, rgba(59, 130, 246, 0.1) 0%, transparent 50%),
-      radial-gradient(circle at 80% 80%, rgba(139, 92, 246, 0.1) 0%, transparent 50%),
-      radial-gradient(circle at 40% 20%, rgba(236, 72, 153, 0.1) 0%, transparent 50%);
   }
   
   .animate-shimmer {
@@ -16037,42 +15935,32 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     // 로그인하지 않은 경우 안내
     if (userId === "anonymous" || !userId) {
       return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/50 to-indigo-50/50 p-6 bg-pattern relative overflow-hidden">
-          {/* 배경 장식 요소 */}
-          <div className="absolute inset-0 overflow-hidden pointer-events-none">
-            <div className="absolute top-20 left-10 w-72 h-72 bg-blue-200/20 rounded-full blur-3xl animate-float"></div>
-            <div className="absolute bottom-20 right-10 w-96 h-96 bg-indigo-200/20 rounded-full blur-3xl animate-float" style={{ animationDelay: '2s' }}></div>
-            <div className="absolute top-1/2 left-1/2 w-80 h-80 bg-purple-200/10 rounded-full blur-3xl animate-float" style={{ animationDelay: '4s' }}></div>
-          </div>
-          
-          <div className="max-w-6xl mx-auto relative z-10">
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-6">
+          <div className="max-w-6xl mx-auto">
             <div className="mb-8 animate-fade-in">
-              <h1 className="text-5xl font-bold bg-gradient-to-r from-gray-900 via-blue-800 to-indigo-900 bg-clip-text text-transparent mb-4 animate-gradient">
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 bg-clip-text text-transparent mb-3">
                 롱폼 프로젝트
               </h1>
-              <p className="text-gray-700 text-xl font-medium">작업한 내용을 저장하고 관리하세요</p>
-              <div className="mt-6 p-5 bg-gradient-to-r from-amber-50/90 to-orange-50/90 border border-amber-200/50 rounded-2xl shadow-lg backdrop-blur-md glass-effect animate-slide-up">
-                <p className="text-sm text-amber-900 font-medium">
-                  <strong className="text-amber-950">안내사항:</strong> 이미지는 1시간 후에 삭제가 되기에 미리 저장 또는 렌더링 부탁드립니다. TTS 용량이 크면 저장이 안될 수 있습니다. 참고바랍니다.
+              <p className="text-gray-600 text-lg">작업한 내용을 저장하고 관리하세요</p>
+              <div className="mt-4 p-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl shadow-sm backdrop-blur-sm">
+                <p className="text-sm text-amber-800">
+                  <strong>안내사항:</strong> 이미지는 1시간 후에 삭제가 되기에 미리 저장 또는 렌더링 부탁드립니다. TTS 용량이 크면 저장이 안될 수 있습니다. 참고바랍니다.
                 </p>
               </div>
             </div>
             
-            <Card className="p-12 text-center shadow-2xl border-0 glass-effect animate-card-enter relative overflow-hidden group">
-              {/* 카드 배경 그라데이션 */}
-              <div className="absolute inset-0 bg-gradient-to-br from-white/90 via-blue-50/50 to-indigo-50/50 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
-              
-              <div className="max-w-md mx-auto relative z-10">
-                <div className="w-24 h-24 mx-auto mb-8 rounded-full bg-gradient-to-br from-blue-400 via-indigo-500 to-purple-600 flex items-center justify-center animate-pulse-glow shadow-2xl">
-                  <User className="w-12 h-12 text-white" />
+            <Card className="p-12 text-center shadow-xl border-0 bg-white/80 backdrop-blur-sm animate-slide-up">
+              <div className="max-w-md mx-auto">
+                <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-gradient-to-br from-blue-100 to-indigo-100 flex items-center justify-center animate-bounce-slow">
+                  <User className="w-10 h-10 text-blue-600" />
                 </div>
-                <h3 className="text-3xl font-bold text-gray-900 mb-4 bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">로그인이 필요합니다</h3>
-                <p className="text-gray-600 mb-10 text-lg leading-relaxed">
-                  프로젝트를 생성하고 관리하려면<br />먼저 로그인해주세요.
+                <h3 className="text-2xl font-semibold text-gray-900 mb-3">로그인이 필요합니다</h3>
+                <p className="text-gray-600 mb-8 text-lg">
+                  프로젝트를 생성하고 관리하려면 먼저 로그인해주세요.
                 </p>
                 <Button
                   onClick={() => window.location.href = "/"}
-                  className="bg-gradient-to-r from-red-600 via-red-500 to-pink-600 hover:from-red-700 hover:via-red-600 hover:to-pink-700 text-white shadow-2xl hover:shadow-3xl transition-all duration-300 transform hover:scale-110 hover:-translate-y-1 px-10 py-7 text-lg font-bold rounded-2xl animate-glow"
+                  className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 px-8 py-6 text-lg font-semibold rounded-xl"
                 >
                   로그인하러 가기
                 </Button>
@@ -16084,44 +15972,36 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     }
 
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/50 to-indigo-50/50 p-6 bg-pattern relative overflow-hidden">
-        {/* 배경 장식 요소 */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute top-20 left-10 w-72 h-72 bg-blue-200/20 rounded-full blur-3xl animate-float"></div>
-          <div className="absolute bottom-20 right-10 w-96 h-96 bg-indigo-200/20 rounded-full blur-3xl animate-float" style={{ animationDelay: '2s' }}></div>
-          <div className="absolute top-1/2 left-1/2 w-80 h-80 bg-purple-200/10 rounded-full blur-3xl animate-float" style={{ animationDelay: '4s' }}></div>
-          <div className="absolute top-1/4 right-1/4 w-64 h-64 bg-pink-200/15 rounded-full blur-3xl animate-float" style={{ animationDelay: '1s' }}></div>
-        </div>
-        
-        <div className="max-w-6xl mx-auto relative z-10">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-6">
+        <div className="max-w-6xl mx-auto">
           <div className="mb-8 animate-fade-in">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-3">
               <div>
-                <h1 className="text-5xl font-bold bg-gradient-to-r from-gray-900 via-blue-800 to-indigo-900 bg-clip-text text-transparent mb-4 animate-gradient">
+                <h1 className="text-4xl font-bold bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 bg-clip-text text-transparent mb-3">
                   롱폼 프로젝트
                 </h1>
-                <p className="text-gray-700 text-xl font-medium">작업한 내용을 저장하고 관리하세요</p>
+                <p className="text-gray-600 text-lg">작업한 내용을 저장하고 관리하세요</p>
               </div>
               <Link href="/WingsAIStudio">
-                <Button variant="outline" size="lg" className="flex items-center gap-2 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 glass-effect border-gray-200/50">
+                <Button variant="outline" size="lg" className="flex items-center gap-2 shadow-md hover:shadow-lg transition-all duration-300">
                   <Home className="w-5 h-5" />
                   메인화면
                 </Button>
               </Link>
             </div>
-            <div className="mt-6 p-5 bg-gradient-to-r from-amber-50/90 to-orange-50/90 border border-amber-200/50 rounded-2xl shadow-lg backdrop-blur-md glass-effect animate-slide-up">
-              <p className="text-sm text-amber-900 font-medium">
-                <strong className="text-amber-950">안내사항:</strong> 이미지는 1시간 후에 삭제가 되기에 미리 저장 또는 렌더링 부탁드립니다. TTS 용량이 크면 저장이 안될 수 있습니다. 참고바랍니다.
+            <div className="mt-4 p-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl shadow-sm backdrop-blur-sm">
+              <p className="text-sm text-amber-800">
+                <strong>안내사항:</strong> 이미지는 1시간 후에 삭제가 되기에 미리 저장 또는 렌더링 부탁드립니다. TTS 용량이 크면 저장이 안될 수 있습니다. 참고바랍니다.
               </p>
             </div>
           </div>
 
-          <div className="mb-8 flex justify-end animate-fade-in">
+          <div className="mb-6 flex justify-end animate-fade-in">
             <Button
               onClick={() => setShowCreateProjectDialog(true)}
-              className="bg-gradient-to-r from-red-600 via-red-500 to-pink-600 hover:from-red-700 hover:via-red-600 hover:to-pink-700 text-white shadow-2xl hover:shadow-3xl transition-all duration-300 transform hover:scale-110 hover:-translate-y-1 px-8 py-7 rounded-2xl font-bold text-lg animate-glow"
+              className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 px-6 py-6 rounded-xl font-semibold"
             >
-              <FolderPlus className="w-6 h-6 mr-2" />
+              <FolderPlus className="w-5 h-5 mr-2" />
               새 프로젝트 만들기
             </Button>
           </div>
@@ -16129,44 +16009,34 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           {isLoadingProjects ? (
             <div className="flex flex-col items-center justify-center py-20 animate-fade-in">
               <div className="relative">
-                <div className="w-20 h-20 border-4 border-blue-200 rounded-full animate-ping opacity-20"></div>
-                <Loader2 className="w-16 h-16 animate-spin text-blue-600 absolute inset-0 m-auto" />
+                <Loader2 className="w-16 h-16 animate-spin text-blue-600" />
+                <div className="absolute inset-0 w-16 h-16 border-4 border-blue-200 rounded-full animate-ping opacity-20"></div>
               </div>
-              <p className="mt-8 text-gray-700 text-xl font-semibold">프로젝트를 불러오는 중...</p>
-              <div className="mt-4 flex gap-2">
-                {[0, 1, 2].map((i) => (
-                  <div
-                    key={i}
-                    className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"
-                    style={{ animationDelay: `${i * 0.2}s` }}
-                  ></div>
-                ))}
-              </div>
+              <p className="mt-6 text-gray-600 text-lg font-medium">프로젝트를 불러오는 중...</p>
             </div>
           ) : projects.length === 0 ? (
-            <Card className="p-12 text-center shadow-2xl border-0 glass-effect animate-card-enter relative overflow-hidden group">
-              <div className="absolute inset-0 bg-gradient-to-br from-white/90 via-blue-50/50 to-indigo-50/50 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
-              <div className="max-w-md mx-auto relative z-10">
-                <div className="w-24 h-24 mx-auto mb-8 rounded-full bg-gradient-to-br from-gray-300 via-gray-200 to-gray-100 flex items-center justify-center shadow-xl animate-pulse-glow">
-                  <Folder className="w-12 h-12 text-gray-500" />
+            <Card className="p-12 text-center shadow-xl border-0 bg-white/80 backdrop-blur-sm animate-slide-up">
+              <div className="max-w-md mx-auto">
+                <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
+                  <Folder className="w-10 h-10 text-gray-400" />
                 </div>
-                <h3 className="text-3xl font-bold text-gray-900 mb-4 bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">프로젝트가 없습니다</h3>
-                <p className="text-gray-600 mb-10 text-lg leading-relaxed">새 프로젝트를 만들어<br />작업을 시작하세요</p>
+                <h3 className="text-2xl font-semibold text-gray-900 mb-3">프로젝트가 없습니다</h3>
+                <p className="text-gray-600 mb-8 text-lg">새 프로젝트를 만들어 시작하세요</p>
                 <Button
                   onClick={() => setShowCreateProjectDialog(true)}
-                  className="bg-gradient-to-r from-red-600 via-red-500 to-pink-600 hover:from-red-700 hover:via-red-600 hover:to-pink-700 text-white shadow-2xl hover:shadow-3xl transition-all duration-300 transform hover:scale-110 hover:-translate-y-1 px-10 py-7 text-lg font-bold rounded-2xl animate-glow"
+                  className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 px-8 py-6 text-lg font-semibold rounded-xl"
                 >
-                  <FolderPlus className="w-6 h-6 mr-2" />
+                  <FolderPlus className="w-5 h-5 mr-2" />
                   새 프로젝트 만들기
                 </Button>
               </div>
             </Card>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {projects.map((project, index) => (
                 <Card
                   key={project.id}
-                  className="cursor-pointer group relative overflow-hidden border-0 shadow-xl hover:shadow-2xl project-card-hover glass-effect animate-card-enter"
+                  className="cursor-pointer group relative overflow-hidden border-0 shadow-lg hover:shadow-2xl transition-all duration-500 transform hover:scale-105 hover:-translate-y-2 bg-white/90 backdrop-blur-sm animate-fade-in"
                   style={{
                     animationDelay: `${index * 100}ms`,
                     animationFillMode: 'both'
@@ -16174,19 +16044,16 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                   onClick={() => handleSelectProject(project)}
                 >
                   {/* 그라데이션 배경 효과 */}
-                  <div className="absolute inset-0 bg-gradient-to-br from-blue-100/60 via-purple-50/40 to-indigo-100/60 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                  <div className="absolute inset-0 bg-gradient-to-br from-blue-50/50 via-transparent to-indigo-50/50 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
                   
                   {/* 상단 장식 라인 */}
-                  <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-red-500 via-pink-500 to-purple-500 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-500 shadow-lg"></div>
+                  <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-500 via-pink-500 to-red-500 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-500"></div>
                   
-                  {/* 반짝이는 효과 */}
-                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
-                  
-                  <CardHeader className="relative z-10 pb-4">
+                  <CardHeader className="relative z-10 pb-3">
                     <div className="flex items-start justify-between">
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-3 mb-3">
-                          <CardTitle className="text-xl font-bold text-gray-900 group-hover:text-transparent group-hover:bg-gradient-to-r group-hover:from-red-600 group-hover:to-pink-600 group-hover:bg-clip-text transition-all duration-300 truncate">
+                        <div className="flex items-center gap-2 mb-2">
+                          <CardTitle className="text-xl font-bold text-gray-900 group-hover:text-red-600 transition-colors duration-300 truncate">
                             {project.name}
                           </CardTitle>
                           {/* 최근 작업 배지 (가장 최근에 저장된 프로젝트 하나만) */}
@@ -16194,7 +16061,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                             // 첫 번째 프로젝트(가장 최근에 저장된 프로젝트)만 배지 표시
                             if (index === 0) {
                               return (
-                                <span className="px-3 py-1 text-xs font-bold bg-gradient-to-r from-red-500 via-pink-500 to-purple-500 text-white rounded-full shadow-lg animate-pulse-glow">
+                                <span className="px-2 py-0.5 text-xs font-semibold bg-gradient-to-r from-red-500 to-pink-500 text-white rounded-full shadow-sm animate-pulse">
                                   최근 작업
                                 </span>
                               )
@@ -16203,7 +16070,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                           })()}
                         </div>
                         {project.description && (
-                          <p className="text-sm text-gray-600 line-clamp-2 leading-relaxed group-hover:text-gray-700 transition-colors duration-300">
+                          <p className="text-sm text-gray-600 line-clamp-2 leading-relaxed">
                             {project.description}
                           </p>
                         )}
@@ -16211,31 +16078,28 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-10 w-10 text-gray-400 hover:text-red-600 hover:bg-red-50/80 rounded-full transition-all duration-300 transform hover:scale-125 hover:rotate-12 ml-2 flex-shrink-0 shadow-sm hover:shadow-md"
+                        className="h-9 w-9 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-all duration-300 transform hover:scale-110 ml-2 flex-shrink-0"
                         onClick={(e) => handleDeleteProject(project.id, e)}
                       >
-                        <Trash2 className="w-5 h-5" />
+                        <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>
                   </CardHeader>
-                  <CardContent className="relative z-10 pt-0 pb-4">
-                    <div className="space-y-3 text-xs">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-2 h-2 rounded-full bg-gradient-to-r from-green-400 to-emerald-500 animate-pulse shadow-sm"></div>
-                        <p className="font-semibold text-gray-600 group-hover:text-gray-700 transition-colors">수정: {new Date(project.updated_at).toLocaleString("ko-KR")}</p>
+                  <CardContent className="relative z-10 pt-0">
+                    <div className="space-y-2 text-xs text-gray-500">
+                      <div className="flex items-center gap-2">
+                        <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse"></div>
+                        <p className="font-medium">수정: {new Date(project.updated_at).toLocaleString("ko-KR")}</p>
                       </div>
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-2 h-2 rounded-full bg-gradient-to-r from-blue-400 to-indigo-500 shadow-sm"></div>
-                        <p className="text-gray-500 group-hover:text-gray-600 transition-colors">생성: {new Date(project.created_at).toLocaleString("ko-KR")}</p>
+                      <div className="flex items-center gap-2">
+                        <div className="w-1.5 h-1.5 rounded-full bg-blue-400"></div>
+                        <p>생성: {new Date(project.created_at).toLocaleString("ko-KR")}</p>
                       </div>
                     </div>
                   </CardContent>
                   
                   {/* 호버 시 표시되는 오버레이 */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/10 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none rounded-lg"></div>
-                  
-                  {/* 하단 그라데이션 라인 */}
-                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-blue-300/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"></div>
                 </Card>
               ))}
             </div>
@@ -16244,45 +16108,42 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
 
         {/* 프로젝트 생성 다이얼로그 */}
         <Dialog open={showCreateProjectDialog} onOpenChange={setShowCreateProjectDialog}>
-          <DialogContent className="sm:max-w-[500px] glass-effect border-0 shadow-2xl rounded-3xl animate-dialog-enter relative overflow-hidden">
-            {/* 다이얼로그 배경 그라데이션 */}
-            <div className="absolute inset-0 bg-gradient-to-br from-white/95 via-blue-50/30 to-indigo-50/30"></div>
-            
-            <DialogHeader className="space-y-4 pb-6 border-b border-gray-200/50 relative z-10">
-              <DialogTitle className="text-3xl font-bold bg-gradient-to-r from-gray-900 via-blue-800 to-indigo-900 bg-clip-text text-transparent">
+          <DialogContent className="sm:max-w-[500px] bg-white/95 backdrop-blur-md border-0 shadow-2xl rounded-2xl animate-dialog-enter">
+            <DialogHeader className="space-y-3 pb-4 border-b border-gray-100">
+              <DialogTitle className="text-2xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
                 새 프로젝트 만들기
               </DialogTitle>
-              <DialogDescription className="text-gray-600 text-base font-medium">
+              <DialogDescription className="text-gray-600 text-base">
                 프로젝트 이름을 입력하고 작업을 시작하세요
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-6 pt-6 relative z-10">
-              <div className="space-y-3">
-                <Label htmlFor="project-name" className="text-sm font-bold text-gray-800 flex items-center gap-2">
-                  프로젝트 이름 <span className="text-red-500 text-base">*</span>
+            <div className="space-y-6 pt-4">
+              <div className="space-y-2">
+                <Label htmlFor="project-name" className="text-sm font-semibold text-gray-700">
+                  프로젝트 이름 <span className="text-red-500">*</span>
                 </Label>
                 <Input
                   id="project-name"
                   value={newProjectName}
                   onChange={(e) => setNewProjectName(e.target.value)}
                   placeholder="예: 12/6 고구려 시리즈"
-                  className="h-14 border-2 border-gray-200 focus:border-red-500 rounded-xl transition-all duration-300 focus:ring-4 focus:ring-red-200/50 shadow-sm hover:shadow-md focus:shadow-lg text-base"
+                  className="mt-1 h-12 border-2 border-gray-200 focus:border-red-500 rounded-xl transition-all duration-300 focus:ring-2 focus:ring-red-200"
                 />
               </div>
-              <div className="space-y-3">
-                <Label htmlFor="project-description" className="text-sm font-bold text-gray-800">
-                  프로젝트 설명 <span className="text-gray-400 text-xs font-normal">(선택사항)</span>
+              <div className="space-y-2">
+                <Label htmlFor="project-description" className="text-sm font-semibold text-gray-700">
+                  프로젝트 설명 <span className="text-gray-400 text-xs">(선택사항)</span>
                 </Label>
                 <Textarea
                   id="project-description"
                   value={newProjectDescription}
                   onChange={(e) => setNewProjectDescription(e.target.value)}
                   placeholder="프로젝트에 대한 간단한 설명을 입력하세요"
-                  className="border-2 border-gray-200 focus:border-red-500 rounded-xl transition-all duration-300 focus:ring-4 focus:ring-red-200/50 shadow-sm hover:shadow-md focus:shadow-lg resize-none text-base min-h-[100px]"
-                  rows={4}
+                  className="mt-1 border-2 border-gray-200 focus:border-red-500 rounded-xl transition-all duration-300 focus:ring-2 focus:ring-red-200 resize-none"
+                  rows={3}
                 />
               </div>
-              <div className="flex justify-end gap-4 pt-6">
+              <div className="flex justify-end gap-3 pt-4">
                 <Button
                   variant="outline"
                   onClick={() => {
@@ -16290,18 +16151,18 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                     setNewProjectName("")
                     setNewProjectDescription("")
                   }}
-                  className="px-8 py-7 rounded-2xl border-2 border-gray-300 hover:border-gray-400 hover:bg-gray-50/80 transition-all duration-300 transform hover:scale-105 font-semibold text-base shadow-sm hover:shadow-md"
+                  className="px-6 py-6 rounded-xl border-2 hover:bg-gray-50 transition-all duration-300"
                 >
                   취소
                 </Button>
                 <Button
                   onClick={handleCreateProject}
                   disabled={isSavingProject || !newProjectName.trim()}
-                  className="bg-gradient-to-r from-red-600 via-red-500 to-pink-600 hover:from-red-700 hover:via-red-600 hover:to-pink-700 text-white shadow-2xl hover:shadow-3xl transition-all duration-300 transform hover:scale-110 hover:-translate-y-1 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:hover:shadow-2xl px-10 py-7 rounded-2xl font-bold text-lg animate-glow disabled:animate-none"
+                  className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none px-8 py-6 rounded-xl font-semibold"
                 >
                   {isSavingProject ? (
                     <>
-                      <Loader2 className="w-6 h-6 mr-2 animate-spin" />
+                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                       생성 중...
                     </>
                   ) : (
