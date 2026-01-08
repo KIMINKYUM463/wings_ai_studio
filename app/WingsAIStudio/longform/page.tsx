@@ -738,6 +738,9 @@ export default function LongformContentPage() {
   const [thumbnailBackgroundImage, setThumbnailBackgroundImage] = useState<string | null>(null) // 썸네일 배경 이미지
   const [thumbnailOverlayImage, setThumbnailOverlayImage] = useState<string | null>(null) // 썸네일 오버레이 이미지 (선택 가능한 이미지)
   const [benchmarkThumbnailUrl, setBenchmarkThumbnailUrl] = useState<string | null>(null) // 벤치마킹 썸네일 URL
+  const [benchmarkThumbnailFile, setBenchmarkThumbnailFile] = useState<File | null>(null) // 벤치마킹 썸네일 파일 (분석용)
+  const [analyzedBenchmarkStyle, setAnalyzedBenchmarkStyle] = useState<string | null>(null) // 분석된 벤치마킹 스타일 프롬프트
+  const [isAnalyzingBenchmarkThumbnail, setIsAnalyzingBenchmarkThumbnail] = useState(false) // 벤치마킹 썸네일 분석 중
   const [thumbnailStyle, setThumbnailStyle] = useState<"realistic" | "animation" | null>(null) // 썸네일 스타일 (실사화/애니메이션화)
   const [overlayImageSize, setOverlayImageSize] = useState({ width: 50, height: 50 }) // 오버레이 이미지 크기 (%)
   const [overlayImagePosition, setOverlayImagePosition] = useState({ x: 50, y: 50 }) // 오버레이 이미지 위치 (%)
@@ -5796,7 +5799,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         }
       }
       
-      console.log("[v0] AI 썸네일 생성 시작, 주제:", topicToUse, "이미지 스타일:", imageStyle, "커스텀 문구:", thumbnailCustomText, "문구 없이:", thumbnailWithoutText, "썸네일 스타일:", thumbnailStyle, "캐릭터:", characterDescription)
+      console.log("[v0] AI 썸네일 생성 시작, 주제:", topicToUse, "이미지 스타일:", imageStyle, "커스텀 문구:", thumbnailCustomText, "문구 없이:", thumbnailWithoutText, "썸네일 스타일:", thumbnailStyle, "캐릭터:", characterDescription, "분석된 벤치마킹 스타일:", analyzedBenchmarkStyle ? "있음" : "없음")
       const openaiApiKey = getApiKey("openai_api_key")
       const imageUrl = await generateAIThumbnail(
         topicToUse, 
@@ -5806,8 +5809,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         thumbnailStylePrompt || customStylePrompt || undefined, // 썸네일 스타일 프롬프트 우선 사용
         characterDescription,
         thumbnailWithoutText,
-        benchmarkThumbnailUrl || undefined,
-        openaiApiKey || undefined
+        analyzedBenchmarkStyle ? undefined : (benchmarkThumbnailUrl || undefined), // 분석된 스타일이 있으면 URL 전달 안 함
+        openaiApiKey || undefined,
+        analyzedBenchmarkStyle || undefined // 분석된 스타일 프롬프트 전달
       )
       setAiThumbnailUrl(imageUrl)
       setCompletedSteps((prev) => [...new Set([...prev, "thumbnail"])])
@@ -16649,7 +16653,17 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
   }
 
   // 프로젝트 목록 화면 표시
-  const handleShowProjectList = () => {
+  const handleShowProjectList = async () => {
+    // 프로젝트 목록으로 이동하기 전에 현재 프로젝트 저장
+    if (currentProject) {
+      try {
+        await handleAutoSaveProject(false) // 저장 실패 시 알림 표시
+      } catch (error) {
+        console.error("[Projects] 프로젝트 목록 이동 전 저장 실패:", error)
+        // 저장 실패해도 프로젝트 목록으로 이동은 계속 진행
+      }
+    }
+    
     setShowProjectList(true)
     setCurrentProject(null)
     // 프로젝트 목록을 표시한 후 페이지 새로고침
@@ -18473,15 +18487,35 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                   <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
                     <div className="flex items-center justify-between mb-3">
                       <h4 className="text-sm font-semibold text-gray-800">분석 결과</h4>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setBenchmarkAnalysis(null)}
-                        className="text-xs text-gray-500 hover:text-gray-700"
-                      >
-                        닫기
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={(e) => {
+                            navigator.clipboard.writeText(benchmarkAnalysis)
+                            const button = e.currentTarget
+                            const originalText = button.textContent
+                            button.textContent = "복사됨!"
+                            setTimeout(() => {
+                              button.textContent = originalText
+                            }, 1000)
+                          }}
+                          className="text-xs text-gray-500 hover:text-gray-700"
+                        >
+                          <Copy className="w-3 h-3 mr-1" />
+                          복사
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setBenchmarkAnalysis(null)}
+                          className="text-xs text-gray-500 hover:text-gray-700"
+                        >
+                          닫기
+                        </Button>
+                      </div>
                     </div>
                     <div className="text-sm text-gray-700 whitespace-pre-wrap max-h-[500px] overflow-y-auto">
                       {benchmarkAnalysis}
@@ -21087,24 +21121,6 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                           total: totalScenes
                         })
                         
-                        // 진행률 업데이트 인터벌 (씬당 약 5-8초 소요 가정)
-                        const startTime = Date.now()
-                        const estimatedTimePerScene = 6 // 씬당 약 6초
-                        const progressInterval = setInterval(() => {
-                          const elapsedTime = Date.now() - startTime
-                          const elapsedSeconds = Math.floor(elapsedTime / 1000)
-                          // 씬당 예상 소요 시간으로 현재 씬 번호 추정
-                          const estimatedCurrentScene = Math.min(
-                            totalScenes, 
-                            Math.max(1, Math.floor(elapsedSeconds / estimatedTimePerScene) + 1)
-                          )
-                          
-                          setScenePromptProgress({
-                            current: estimatedCurrentScene,
-                            total: totalScenes
-                          })
-                        }, 500) // 0.5초마다 업데이트
-                        
                         try {
                           console.log("[이미지 프롬프트 생성] decomposedScenes 확인:", decomposedScenes.substring(0, 500))
                           console.log("[이미지 프롬프트 생성] customStylePrompt:", customStylePrompt)
@@ -21124,9 +21140,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                             const sceneNum = parseInt(sceneNumMatch[1])
                             console.log(`[이미지 프롬프트 생성] 씬 ${sceneNum} 처리 시작 (${i + 1}/${totalScenes})`)
                             
-                            // 진행률 업데이트
+                            // 진행률 업데이트 (처리 시작 시)
                             setScenePromptProgress({
-                              current: i,
+                              current: allResults.length,
                               total: totalScenes
                             })
                             
@@ -21163,6 +21179,12 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                               
                               console.log(`[이미지 프롬프트 생성] 씬 ${sceneNum} 처리 완료 (${allResults.length}/${totalScenes})`)
                               
+                              // 진행률 업데이트 (씬 완료 시 - 실제 완료된 씬 수로 업데이트)
+                              setScenePromptProgress({
+                                current: allResults.length,
+                                total: totalScenes
+                              })
+                              
                               // 실시간으로 결과 업데이트
                               setSceneImagePrompts([...allResults])
                               
@@ -21172,6 +21194,12 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                               allResults.push({
                                 sceneNumber: sceneNum,
                                 images: [],
+                              })
+                              
+                              // 진행률 업데이트 (실패한 씬도 카운트에 포함)
+                              setScenePromptProgress({
+                                current: allResults.length,
+                                total: totalScenes
                               })
                             }
                             
@@ -21189,10 +21217,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                           console.log("[이미지 프롬프트 생성] 모든 씬 처리 완료, 최종 결과:", allResults.length)
                           setSceneImagePrompts(allResults)
                           
-                          // 완료 시 진행률 업데이트
-                          clearInterval(progressInterval)
+                          // 완료 시 진행률 업데이트 (실제 완료된 씬 수로)
                           setScenePromptProgress({
-                            current: totalScenes,
+                            current: allResults.length,
                             total: totalScenes
                           })
                           
@@ -21201,7 +21228,6 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                             setScenePromptProgress(null)
                           }, 1000)
                         } catch (error) {
-                          clearInterval(progressInterval)
                           setScenePromptProgress(null)
                           console.error("이미지 프롬프트 생성 실패:", error)
                           const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다."
@@ -26320,20 +26346,120 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                               className="w-full h-full object-cover"
                             />
                           </div>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              if (benchmarkThumbnailUrl.startsWith("blob:")) {
-                                URL.revokeObjectURL(benchmarkThumbnailUrl)
-                              }
-                              setBenchmarkThumbnailUrl(null)
-                            }}
-                            className="w-full sm:w-auto"
-                          >
-                            <X className="w-4 h-4 mr-2" />
-                            제거
-                          </Button>
+                          {analyzedBenchmarkStyle && !analyzedBenchmarkStyle.toLowerCase().includes("i'm sorry") && !analyzedBenchmarkStyle.toLowerCase().includes("i can't assist") && (
+                            <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                              <p className="text-xs font-semibold text-green-800 mb-1">✓ 분석 완료</p>
+                              <p className="text-xs text-green-700 line-clamp-2">{analyzedBenchmarkStyle.substring(0, 100)}...</p>
+                            </div>
+                          )}
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={async () => {
+                                const openaiApiKey = getApiKey("openai_api_key")
+                                if (!openaiApiKey) {
+                                  alert("OpenAI API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+                                  return
+                                }
+
+                                if (!benchmarkThumbnailFile) {
+                                  alert("썸네일 파일을 찾을 수 없습니다. 다시 업로드해주세요.")
+                                  return
+                                }
+
+                                setIsAnalyzingBenchmarkThumbnail(true)
+                                try {
+                                  // 파일을 base64로 변환
+                                  const base64 = await new Promise<string>((resolve, reject) => {
+                                    const reader = new FileReader()
+                                    reader.onloadend = () => {
+                                      const base64String = reader.result as string
+                                      // data:image/jpeg;base64, 부분 제거
+                                      const base64Data = base64String.split(',')[1]
+                                      resolve(base64Data)
+                                    }
+                                    reader.onerror = reject
+                                    reader.readAsDataURL(benchmarkThumbnailFile)
+                                  })
+
+                                  const mimeType = benchmarkThumbnailFile.type || 'image/jpeg'
+
+                                  const response = await fetch("/api/analyze-benchmark-thumbnail", {
+                                    method: "POST",
+                                    headers: {
+                                      "Content-Type": "application/json",
+                                    },
+                                    body: JSON.stringify({
+                                      imageBase64: base64,
+                                      mimeType: mimeType,
+                                      openaiApiKey,
+                                    }),
+                                  })
+
+                                  if (!response.ok) {
+                                    const errorData = await response.json()
+                                    if (errorData.contentPolicyViolation) {
+                                      alert("⚠️ OpenAI 콘텐츠 정책으로 인해 이 썸네일을 분석할 수 없습니다.\n\n다른 썸네일을 사용하시거나, 벤치마킹 썸네일 없이 AI 썸네일을 생성해주세요.")
+                                    } else {
+                                      throw new Error(errorData.error || "분석에 실패했습니다.")
+                                    }
+                                    return
+                                  }
+
+                                  const data = await response.json()
+                                  if (data.success && data.stylePrompt) {
+                                    // 콘텐츠 정책 위반 메시지 재확인
+                                    if (data.stylePrompt.toLowerCase().includes("i'm sorry") || 
+                                        data.stylePrompt.toLowerCase().includes("i can't assist")) {
+                                      alert("⚠️ OpenAI 콘텐츠 정책으로 인해 이 썸네일을 분석할 수 없습니다.\n\n다른 썸네일을 사용하시거나, 벤치마킹 썸네일 없이 AI 썸네일을 생성해주세요.")
+                                      setAnalyzedBenchmarkStyle(null)
+                                      return
+                                    }
+                                    setAnalyzedBenchmarkStyle(data.stylePrompt)
+                                    alert("벤치마킹 썸네일 분석이 완료되었습니다. 이제 AI 썸네일 생성하기 버튼을 눌러주세요.")
+                                  } else {
+                                    throw new Error("분석 결과를 받을 수 없습니다.")
+                                  }
+                                } catch (error) {
+                                  console.error("[Benchmark Thumbnail] 분석 실패:", error)
+                                  alert(`벤치마킹 썸네일 분석에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+                                } finally {
+                                  setIsAnalyzingBenchmarkThumbnail(false)
+                                }
+                              }}
+                              disabled={isAnalyzingBenchmarkThumbnail}
+                              className="flex-1 border-blue-300 text-blue-700 hover:bg-blue-50"
+                            >
+                              {isAnalyzingBenchmarkThumbnail ? (
+                                <>
+                                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                  분석 중...
+                                </>
+                              ) : (
+                                <>
+                                  <Sparkles className="w-4 h-4 mr-2" />
+                                  분석
+                                </>
+                              )}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                if (benchmarkThumbnailUrl.startsWith("blob:")) {
+                                  URL.revokeObjectURL(benchmarkThumbnailUrl)
+                                }
+                                setBenchmarkThumbnailUrl(null)
+                                setBenchmarkThumbnailFile(null)
+                                setAnalyzedBenchmarkStyle(null)
+                              }}
+                              className="border-red-300 text-red-700 hover:bg-red-50"
+                            >
+                              <X className="w-4 h-4 mr-2" />
+                              제거
+                            </Button>
+                          </div>
                         </div>
                       ) : (
                         <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-gray-400 transition-colors">
@@ -26347,6 +26473,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                               if (file) {
                                 const url = URL.createObjectURL(file)
                                 setBenchmarkThumbnailUrl(url)
+                                setBenchmarkThumbnailFile(file) // 파일 저장 (분석용)
+                                setAnalyzedBenchmarkStyle(null) // 새 썸네일 업로드 시 분석 결과 초기화
                               }
                             }}
                           />
@@ -27486,6 +27614,10 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                   
                   <p className="text-sm text-red-600 font-semibold mt-2 text-center">
                     ⚠️ '쇼츠 영상 렌더링 시작' 누르시고 다른 탭 가시면 안됩니다. 꼭 생성되시고 다른 탭 이동해주세요
+                  </p>
+                  
+                  <p className="text-sm text-red-600 font-semibold mt-2 text-center">
+                    되도록 렌더링 될때까지는 다른 인터넷창 켜지마시고 1~2분만 기다리시면 감사하겠습니다
                   </p>
                   
                   <p className="text-sm text-gray-500 mt-2 text-center">

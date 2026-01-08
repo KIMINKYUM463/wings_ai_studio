@@ -4687,7 +4687,8 @@ export async function generateAIThumbnail(
   characterDescription?: string,
   withoutText?: boolean,
   benchmarkThumbnailUrl?: string,
-  openaiApiKey?: string
+  openaiApiKey?: string,
+  analyzedBenchmarkStyle?: string
 ): Promise<string> {
   if (!replicateApiKey) {
     throw new Error("Replicate API 키가 필요합니다.")
@@ -4696,9 +4697,14 @@ export async function generateAIThumbnail(
   try {
     console.log(`[Longform] AI 썸네일 생성 시작, 주제: ${topic}, 이미지 스타일: ${imageStyle || "기본"}, 문구 없이: ${withoutText}`)
 
-    // 벤치마킹 썸네일이 있으면 스타일 분석
+    // 벤치마킹 썸네일 스타일 분석
     let benchmarkStylePrompt = ""
-    if (benchmarkThumbnailUrl && openaiApiKey) {
+    if (analyzedBenchmarkStyle) {
+      // 이미 분석된 스타일이 있으면 그것을 사용
+      benchmarkStylePrompt = analyzedBenchmarkStyle
+      console.log("[Longform] 사전 분석된 벤치마킹 썸네일 스타일 사용:", benchmarkStylePrompt.substring(0, 100) + "...")
+    } else if (benchmarkThumbnailUrl && openaiApiKey) {
+      // 분석된 스타일이 없으면 실시간으로 분석
       try {
         console.log("[Longform] 벤치마킹 썸네일 분석 시작...")
         benchmarkStylePrompt = await analyzeThumbnailStyle(benchmarkThumbnailUrl, openaiApiKey)
