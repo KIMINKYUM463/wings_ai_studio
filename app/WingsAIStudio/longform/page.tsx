@@ -7417,11 +7417,27 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       console.log("[대본 기획] API 호출 시작...")
       console.log("[대본 기획] 선택된 콘텐츠 타입:", selectedContentType)
       console.log("[대본 기획] 커스텀 타입 설명:", selectedContentType === "custom" ? customContentTypeDescription : "없음")
+      
+      // 콘텐츠 타입이 선택되지 않았으면 AI가 자동으로 판단
+      let contentTypeToUse = selectedContentType
+      if (!contentTypeToUse) {
+        console.log("[대본 기획] 콘텐츠 타입이 없어서 AI가 자동으로 판단합니다...")
+        try {
+          const recommended = await recommendContentType(topic, selectedCategory || "health", geminiApiKey)
+          contentTypeToUse = recommended
+          setSelectedContentType(recommended)
+          console.log(`[대본 기획] AI가 추천한 콘텐츠 타입: ${recommended}`)
+        } catch (error) {
+          console.warn("[대본 기획] 콘텐츠 타입 추천 실패, 기본값 사용:", error)
+          contentTypeToUse = "A" // 기본값
+        }
+      }
+      
       console.log("[대본 기획] ⚠️ generateScriptPlan 호출 직전 - 파라미터 확인:")
       console.log("  - topic:", topic)
       console.log("  - selectedCategory:", selectedCategory)
-      console.log("  - selectedContentType:", selectedContentType, "(타입:", typeof selectedContentType, ")")
-      console.log("  - customContentTypeDescription:", selectedContentType === "custom" ? customContentTypeDescription : undefined)
+      console.log("  - contentTypeToUse:", contentTypeToUse, "(타입:", typeof contentTypeToUse, ")")
+      console.log("  - customContentTypeDescription:", contentTypeToUse === "custom" ? customContentTypeDescription : undefined)
       
       let plan: string
       try {
@@ -7433,8 +7449,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           geminiApiKey,
           scriptDuration,
           referenceScript || undefined,
-          selectedContentType || undefined,
-          selectedContentType === "custom" ? customContentTypeDescription : undefined
+          contentTypeToUse,
+          contentTypeToUse === "custom" ? customContentTypeDescription : undefined
         )
         console.log("[대본 기획] ✅ generateScriptPlan 호출 완료!")
       } catch (error) {
@@ -17399,13 +17415,6 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                           // 대본 기획 생성 시작
                           setIsGenerating(true)
                           try {
-                            // 콘텐츠 타입 선택이 필수입니다
-                            if (!selectedContentType) {
-                              alert("콘텐츠 타입을 선택해주세요. Type A, B, C, D 또는 커스텀 타입 중 하나를 선택해야 기획안을 생성할 수 있습니다.")
-                              setIsGenerating(false)
-                              return
-                            }
-                            
                             // 커스텀 타입 선택 시 설명이 필수입니다
                             if (selectedContentType === "custom" && (!customContentTypeDescription || !customContentTypeDescription.trim())) {
                               alert("커스텀 타입을 선택하셨습니다. 원하는 대본 구조를 입력해주세요.")
@@ -17419,6 +17428,22 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                               setIsGenerating(false)
                               return
                             }
+                            
+                            // 콘텐츠 타입이 선택되지 않았으면 AI가 자동으로 판단
+                            let contentTypeToUse = selectedContentType
+                            if (!contentTypeToUse) {
+                              console.log("[대본 기획] 콘텐츠 타입이 없어서 AI가 자동으로 판단합니다...")
+                              try {
+                                const recommended = await recommendContentType(extractedTopic, selectedCategory || "health", geminiApiKey)
+                                contentTypeToUse = recommended
+                                setSelectedContentType(recommended)
+                                console.log(`[대본 기획] AI가 추천한 콘텐츠 타입: ${recommended}`)
+                              } catch (error) {
+                                console.warn("[대본 기획] 콘텐츠 타입 추천 실패, 기본값 사용:", error)
+                                contentTypeToUse = "A" // 기본값
+                              }
+                            }
+                            
                             const plan = await generateScriptPlan(
                               extractedTopic,
                               selectedCategory || "health",
@@ -17426,8 +17451,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                               geminiApiKey,
                               scriptDuration,
                               benchmarkScript || undefined,
-                              selectedContentType,
-                              selectedContentType === "custom" ? customContentTypeDescription : undefined
+                              contentTypeToUse,
+                              contentTypeToUse === "custom" ? customContentTypeDescription : undefined
                             )
                             setScriptPlan(plan)
                             setScriptDraft("") // 기획안이 새로 생성되면 초안 초기화
