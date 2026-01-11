@@ -44,7 +44,7 @@ export interface ProjectData {
   customStylePrompt?: string
   customStyleCharacterImage?: string | null
   customStyleBackgroundImage?: string | null
-  realisticCharacterType?: "korean" | "foreign" | null
+  realisticCharacterType?: "korean" | "foreign" | "none" | null
   // stickmanCharacterDescription는 이미지 프롬프트 생성 시 지역 변수로만 사용되므로 저장하지 않음
   convertedVideos?: Array<{ lineId: number; videoUrl: string }> // 변환된 영상 (Map을 배열로 변환)
   convertedSceneVideos?: Array<{ key: string; videoUrl: string }> // Scene 변환된 영상 (Map을 배열로 변환)
