@@ -4464,12 +4464,16 @@ export async function generateYouTubeDescription(
     }
     
     const categoryName = categoryNameMap[category] || category
+    const videoDurationSeconds = videoDurationMinutes ? videoDurationMinutes * 60 : undefined
+    const videoDurationText = videoDurationSeconds 
+      ? `영상 길이: ${Math.floor(videoDurationSeconds / 60)}분 ${videoDurationSeconds % 60}초 (총 ${videoDurationSeconds}초)`
+      : ""
     
     const descriptionPrompt = `당신은 유튜브 SEO 전문가입니다. 다음 영상을 분석하여 완벽한 설명란과 태그를 만들어주세요.
 
 영상 제목: "${title}"
 채널 카테고리: ${categoryName}
-영상 대본:
+${videoDurationText ? videoDurationText + "\n" : ""}영상 대본:
 
 ${script}
 
@@ -4477,7 +4481,10 @@ ${script}
 
 1. description: 유튜브 설명란 (이모지 적극 활용)
 
-   구조:
+   구조 (순서대로 작성):
+
+   - 핵심 태그 3개 (맨 앞에 배치, # 포함, 한 줄)
+     예: "#건강정보 #시니어건강 #60대건강"
 
    - 🔥 훅: 강력한 질문이나 혜택 제시
 
@@ -4494,7 +4501,7 @@ ${script}
    - 🕒 타임라인 (스포일러 금지!)
      * 대본을 분석하여 주요 구간별 타임라인을 작성하세요
      * 형식: "00:00 주제 소개", "05:30 첫 번째 이야기", "10:15 두 번째 이야기" 등
-     * 스포일러가 되지 않도록 주의하세요
+     * ${videoDurationSeconds ? `⚠️ 중요: 타임라인의 모든 시간은 영상 길이(${Math.floor(videoDurationSeconds / 60)}분 ${videoDurationSeconds % 60}초)를 초과하면 안 됩니다. 최대 시간은 ${Math.floor(videoDurationSeconds / 60)}:${String(videoDurationSeconds % 60).padStart(2, '0')}입니다.` : "스포일러가 되지 않도록 주의하세요"}
 
    - 구독 멘트
 
