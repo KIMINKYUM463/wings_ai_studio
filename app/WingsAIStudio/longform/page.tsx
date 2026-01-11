@@ -609,10 +609,10 @@ export default function LongformContentPage() {
   // 이미지 스타일 선택 (useEffect보다 먼저 선언되어야 함)
   const [imageStyle, setImageStyle] = useState<string>("stickman-animation")
   const [hoveredStyle, setHoveredStyle] = useState<string | null>(null)
-  // 실사화 인물 타입 선택 (한국인/외국인)
-  const [realisticCharacterType, setRealisticCharacterType] = useState<"korean" | "foreign" | null>(null)
+  // 실사화 인물 타입 선택 (한국인/외국인/없음)
+  const [realisticCharacterType, setRealisticCharacterType] = useState<"korean" | "foreign" | "none" | null>(null)
   // 이미지 생성 모델 선택 (모든 스타일 공통)
-  const [imageModel, setImageModel] = useState<"prunaai/hidream-l1-fast" | "black-forest-labs/flux-schnell" | "google/imagen-4-fast">("prunaai/hidream-l1-fast")
+  const [imageModel, setImageModel] = useState<"prunaai/hidream-l1-fast" | "black-forest-labs/flux-schnell" | "google/imagen-4-fast">("black-forest-labs/flux-schnell")
   const [selectedVoiceId, setSelectedVoiceId] = useState<string>("ttsmaker-여성1") // 기본: TTSMaker 여성1
   const [customElevenLabsVoices, setCustomElevenLabsVoices] = useState<Array<{ id: string; name: string }>>([]) // 사용자 추가 일레븐랩스 목소리
   const [customElevenLabsVoiceId, setCustomElevenLabsVoiceId] = useState<string>("") // 사용자가 입력한 ElevenLabs 음성 ID
@@ -739,7 +739,8 @@ export default function LongformContentPage() {
   const [thumbnailOverlayImage, setThumbnailOverlayImage] = useState<string | null>(null) // 썸네일 오버레이 이미지 (선택 가능한 이미지)
   const [benchmarkThumbnailUrl, setBenchmarkThumbnailUrl] = useState<string | null>(null) // 벤치마킹 썸네일 URL
   const [benchmarkThumbnailFile, setBenchmarkThumbnailFile] = useState<File | null>(null) // 벤치마킹 썸네일 파일 (분석용)
-  const [analyzedBenchmarkStyle, setAnalyzedBenchmarkStyle] = useState<string | null>(null) // 분석된 벤치마킹 스타일 프롬프트
+  const [analyzedBenchmarkStyle, setAnalyzedBenchmarkStyle] = useState<string | null>(null) // 분석된 벤치마킹 스타일 프롬프트 (영어)
+  const [analyzedBenchmarkStyleKorean, setAnalyzedBenchmarkStyleKorean] = useState<string | null>(null) // 분석된 벤치마킹 스타일 프롬프트 (한국어)
   const [isAnalyzingBenchmarkThumbnail, setIsAnalyzingBenchmarkThumbnail] = useState(false) // 벤치마킹 썸네일 분석 중
   const [thumbnailStyle, setThumbnailStyle] = useState<"realistic" | "animation" | null>(null) // 썸네일 스타일 (실사화/애니메이션화)
   const [overlayImageSize, setOverlayImageSize] = useState({ width: 50, height: 50 }) // 오버레이 이미지 크기 (%)
@@ -2595,7 +2596,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             historicalContext || undefined,
             stickmanCharacterDescription || undefined,
             openaiApiKeyForImage,
-            realisticCharacterType || undefined
+            realisticCharacterType === "none" ? undefined : (realisticCharacterType || undefined)
           )
           
           // 스틱맨 애니메이션의 경우 첫 번째 씬에서 캐릭터 설명 추출
@@ -4433,8 +4434,42 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               }
             }
             
-            console.log("[자동화] AI 썸네일 생성 시작, 주제:", topicToUse, "이미지 스타일:", imageStyle, "커스텀 문구:", thumbnailCustomText, "문구 없이:", thumbnailWithoutText, "썸네일 스타일:", thumbnailStyle, "캐릭터:", characterDescription)
+            console.log("=".repeat(80))
+            console.log("[자동화] ========== AI 썸네일 생성 시작 ==========")
+            console.log("[자동화] 주제:", topicToUse)
+            console.log("[자동화] 이미지 스타일:", imageStyle)
+            console.log("[자동화] 커스텀 문구:", thumbnailCustomText)
+            console.log("[자동화] 문구 없이:", thumbnailWithoutText)
+            console.log("[자동화] 썸네일 스타일:", thumbnailStyle)
+            console.log("[자동화] 캐릭터:", characterDescription)
+            console.log("[자동화] ==========================================")
+            console.log("[자동화] 🔍🔍🔍 analyzedBenchmarkStyle 상태 확인 시작 🔍🔍🔍")
+            console.log("[자동화] analyzedBenchmarkStyle 존재 여부:", analyzedBenchmarkStyle ? "있음 ✅" : "없음 ❌")
+            console.log("[자동화] analyzedBenchmarkStyle 타입:", typeof analyzedBenchmarkStyle)
+            console.log("[자동화] analyzedBenchmarkStyle 값:", analyzedBenchmarkStyle)
+            if (analyzedBenchmarkStyle) {
+              console.log("[자동화] analyzedBenchmarkStyle 길이:", analyzedBenchmarkStyle.length)
+              console.log("[자동화] analyzedBenchmarkStyle trim 후 길이:", analyzedBenchmarkStyle.trim().length)
+              console.log("[자동화] analyzedBenchmarkStyle 내용 (처음 500자):", analyzedBenchmarkStyle.substring(0, 500) + "...")
+              console.log("[자동화] analyzedBenchmarkStyle 전체 내용:", analyzedBenchmarkStyle)
+            } else {
+              console.log("[자동화] ⚠️⚠️⚠️ analyzedBenchmarkStyle이 null 또는 undefined입니다!")
+            }
+            console.log("[자동화] 🔍🔍🔍 analyzedBenchmarkStyle 상태 확인 완료 🔍🔍🔍")
+            console.log("=".repeat(80))
+            
             const openaiApiKeyForThumbnail = getApiKey("openai_api_key")
+            const benchmarkStyleToPass = analyzedBenchmarkStyle && analyzedBenchmarkStyle.trim().length > 0 ? analyzedBenchmarkStyle.trim() : undefined
+            
+            console.log("=".repeat(80))
+            console.log("[자동화] 🔍🔍🔍 generateAIThumbnail 호출 전 최종 확인 🔍🔍🔍")
+            console.log("[자동화] benchmarkStyleToPass 존재 여부:", benchmarkStyleToPass ? `있음 ✅ (${benchmarkStyleToPass.length}자)` : "없음 ❌")
+            if (benchmarkStyleToPass) {
+              console.log("[자동화] benchmarkStyleToPass 내용 (처음 500자):", benchmarkStyleToPass.substring(0, 500) + "...")
+            }
+            console.log("[자동화] 🔍🔍🔍 generateAIThumbnail 호출 전 최종 확인 완료 🔍🔍🔍")
+            console.log("=".repeat(80))
+            
             const thumbnailUrl = await generateAIThumbnail(
               topicToUse, 
               replicateApiKey, 
@@ -4443,8 +4478,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               thumbnailStylePrompt || customStylePrompt || undefined, // 썸네일 스타일 프롬프트 우선 사용
               characterDescription,
               thumbnailWithoutText,
-              benchmarkThumbnailUrl || undefined,
-              openaiApiKeyForThumbnail || undefined
+              benchmarkStyleToPass ? undefined : (benchmarkThumbnailUrl || undefined), // 분석된 스타일이 있으면 URL 전달 안 함
+              openaiApiKeyForThumbnail || undefined,
+              benchmarkStyleToPass || undefined // 🔥🔥🔥 영어 분석 결과 전달 (가장 중요!)
             )
             setAiThumbnailUrl(thumbnailUrl)
             setCompletedSteps((prev) => [...new Set([...prev, "thumbnail"])])
@@ -5800,7 +5836,17 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       }
       
       console.log("[v0] AI 썸네일 생성 시작, 주제:", topicToUse, "이미지 스타일:", imageStyle, "커스텀 문구:", thumbnailCustomText, "문구 없이:", thumbnailWithoutText, "썸네일 스타일:", thumbnailStyle, "캐릭터:", characterDescription, "분석된 벤치마킹 스타일:", analyzedBenchmarkStyle ? "있음" : "없음")
+      console.log("[v0] 🔍 analyzedBenchmarkStyle 값:", analyzedBenchmarkStyle)
+      console.log("[v0] 🔍 analyzedBenchmarkStyle 타입:", typeof analyzedBenchmarkStyle)
+      console.log("[v0] 🔍 analyzedBenchmarkStyle 길이:", analyzedBenchmarkStyle?.length)
+      if (analyzedBenchmarkStyle) {
+        console.log("[v0] 🔍 analyzedBenchmarkStyle 내용 (처음 500자):", analyzedBenchmarkStyle.substring(0, 500) + "...")
+      }
+      
       const openaiApiKey = getApiKey("openai_api_key")
+      const benchmarkStyleToPass = analyzedBenchmarkStyle && analyzedBenchmarkStyle.trim().length > 0 ? analyzedBenchmarkStyle.trim() : undefined
+      console.log("[v0] 🔍 generateAIThumbnail에 전달할 analyzedBenchmarkStyle:", benchmarkStyleToPass ? `있음 (${benchmarkStyleToPass.length}자)` : "없음")
+      
       const imageUrl = await generateAIThumbnail(
         topicToUse, 
         replicateApiKey, 
@@ -5809,9 +5855,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         thumbnailStylePrompt || customStylePrompt || undefined, // 썸네일 스타일 프롬프트 우선 사용
         characterDescription,
         thumbnailWithoutText,
-        analyzedBenchmarkStyle ? undefined : (benchmarkThumbnailUrl || undefined), // 분석된 스타일이 있으면 URL 전달 안 함
+        benchmarkStyleToPass ? undefined : (benchmarkThumbnailUrl || undefined), // 분석된 스타일이 있으면 URL 전달 안 함
         openaiApiKey || undefined,
-        analyzedBenchmarkStyle || undefined // 분석된 스타일 프롬프트 전달
+        benchmarkStyleToPass || undefined // 분석된 스타일 프롬프트 전달
       )
       setAiThumbnailUrl(imageUrl)
       setCompletedSteps((prev) => [...new Set([...prev, "thumbnail"])])
@@ -10605,8 +10651,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           
           let currentPhraseIndex = 0
           
-            // 장면 단위로 STT 분석 (각 라인별로 개별 분석)
-            // cumulativeTime은 위에서 이미 정의되어 있으므로 재사용
+          // 장면 단위로 STT 분석 (각 라인별로 개별 분석)
+          // cumulativeTime은 위에서 이미 정의되어 있으므로 재사용
             cumulativeTime = Number.parseFloat((0).toFixed(10)) // STT 분석을 위해 초기화 (소수점 10자리 정밀도)
           
           // Whisper API를 사용하여 STT 분석 수행
@@ -17899,8 +17945,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="prunaai/hidream-l1-fast">HiDream L1 Fast</SelectItem>
                                 <SelectItem value="black-forest-labs/flux-schnell">Flux Schnell</SelectItem>
+                                <SelectItem value="prunaai/hidream-l1-fast">HiDream L1 Fast</SelectItem>
                                 <SelectItem value="google/imagen-4-fast">Imagen 4 Fast</SelectItem>
                               </SelectContent>
                             </Select>
@@ -18506,15 +18552,15 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                           <Copy className="w-3 h-3 mr-1" />
                           복사
                         </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setBenchmarkAnalysis(null)}
-                          className="text-xs text-gray-500 hover:text-gray-700"
-                        >
-                          닫기
-                        </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setBenchmarkAnalysis(null)}
+                        className="text-xs text-gray-500 hover:text-gray-700"
+                      >
+                        닫기
+                      </Button>
                       </div>
                     </div>
                     <div className="text-sm text-gray-700 whitespace-pre-wrap max-h-[500px] overflow-y-auto">
@@ -20038,9 +20084,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                         variant={imageStyle === "realistic" ? "default" : "outline"}
                         onClick={() => {
                           setImageStyle("realistic")
-                          if (!realisticCharacterType) {
-                            setRealisticCharacterType("korean") // 기본값: 한국인
-                          }
+                          // 기본값 설정 제거 - 사용자가 직접 선택하도록
                         }}
                         onMouseEnter={() => setHoveredStyle("realistic")}
                         onMouseLeave={() => setHoveredStyle(null)}
@@ -20053,9 +20097,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                         variant={imageStyle === "realistic2" ? "default" : "outline"}
                         onClick={() => {
                           setImageStyle("realistic2")
-                          if (!realisticCharacterType) {
-                            setRealisticCharacterType("korean") // 기본값: 한국인
-                          }
+                          // 기본값 설정 제거 - 사용자가 직접 선택하도록
                         }}
                         onMouseEnter={() => setHoveredStyle("realistic2")}
                         onMouseLeave={() => setHoveredStyle(null)}
@@ -20094,8 +20136,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="prunaai/hidream-l1-fast">prunaai/hidream-l1-fast (이미지 한장당 7원)</SelectItem>
                               <SelectItem value="black-forest-labs/flux-schnell">black-forest-labs/flux-schnell (이미지 한장당 4원)</SelectItem>
+                              <SelectItem value="prunaai/hidream-l1-fast">prunaai/hidream-l1-fast (이미지 한장당 7원)</SelectItem>
                             <SelectItem value="google/imagen-4-fast">google/imagen-4-fast (이미지 한장당 28원)</SelectItem>
                             </SelectContent>
                           </Select>
@@ -20132,6 +20174,14 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                               size="sm"
                             >
                               외국인
+                            </Button>
+                            <Button
+                              variant={realisticCharacterType === "none" ? "default" : "outline"}
+                              onClick={() => setRealisticCharacterType("none")}
+                              className="flex-1"
+                              size="sm"
+                            >
+                              없음
                             </Button>
                           </div>
                         </div>
@@ -21155,7 +21205,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                 historicalContext || undefined,
                                 stickmanCharacterDescription || undefined,
                                 openaiApiKey,
-                                realisticCharacterType || undefined
+                                realisticCharacterType === "none" ? undefined : (realisticCharacterType || undefined)
                               )
                               
                               // 스틱맨 애니메이션의 경우 첫 번째 씬에서 캐릭터 설명 추출
@@ -21756,7 +21806,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                                   historicalContext || undefined,
                                                   stickmanCharacterDescription || undefined,
                                                   openaiApiKey,
-                                                  realisticCharacterType || undefined
+                                                  realisticCharacterType === "none" ? undefined : (realisticCharacterType || undefined)
                                                 )
                                                 
                                                 // 재생성된 프롬프트로 업데이트 (해당 이미지만)
@@ -21909,7 +21959,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                                           imageStyle,
                                                           customStylePrompt || undefined,
                                                           historicalContext || undefined,
-                                                          realisticCharacterType || undefined
+                                                          realisticCharacterType === "none" ? undefined : (realisticCharacterType || undefined)
                                                         )
                                                         
                                                         // 프롬프트 업데이트
@@ -26331,7 +26381,21 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                   {/* 벤치마킹 썸네일 카드 */}
                   <Card>
                     <CardHeader className="pb-4">
-                      <CardTitle className="text-lg">벤치마킹 썸네일 (선택사항)</CardTitle>
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-lg">벤치마킹 썸네일 (선택사항)</CardTitle>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            window.open("https://loud-cowl-c24.notion.site/2e5565477d59803885acdb286abcf699?pvs=73", "_blank")
+                          }}
+                          className="text-xs"
+                        >
+                          <ExternalLink className="w-3 h-3 mr-1" />
+                          가이드북
+                        </Button>
+                      </div>
                       <p className="text-sm text-muted-foreground font-normal mt-1">
                         참고할 썸네일을 업로드하면 AI가 분석하여 비슷한 스타일의 썸네일을 생성합니다.
                       </p>
@@ -26347,9 +26411,26 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                             />
                           </div>
                           {analyzedBenchmarkStyle && !analyzedBenchmarkStyle.toLowerCase().includes("i'm sorry") && !analyzedBenchmarkStyle.toLowerCase().includes("i can't assist") && (
-                            <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                              <p className="text-xs font-semibold text-green-800 mb-1">✓ 분석 완료</p>
-                              <p className="text-xs text-green-700 line-clamp-2">{analyzedBenchmarkStyle.substring(0, 100)}...</p>
+                            <div className="p-4 bg-green-50 border border-green-200 rounded-lg space-y-3">
+                              <p className="text-xs font-semibold text-green-800">✓ 분석 완료</p>
+                              
+                              {/* 한국어 분석 결과 */}
+                              {analyzedBenchmarkStyleKorean && (
+                                <div className="space-y-1">
+                                  <p className="text-xs font-semibold text-gray-700">[한국어 분석 결과]</p>
+                                  <div className="p-2 bg-white rounded border border-gray-200 max-h-48 overflow-y-auto">
+                                    <p className="text-xs text-gray-800 whitespace-pre-wrap">{analyzedBenchmarkStyleKorean}</p>
+                                  </div>
+                                </div>
+                              )}
+                              
+                              {/* 영어 분석 결과 */}
+                              <div className="space-y-1">
+                                <p className="text-xs font-semibold text-gray-700">[영어 분석 결과]</p>
+                                <div className="p-2 bg-white rounded border border-gray-200 max-h-48 overflow-y-auto">
+                                  <p className="text-xs text-gray-800 whitespace-pre-wrap">{analyzedBenchmarkStyle}</p>
+                                </div>
+                              </div>
                             </div>
                           )}
                           <div className="flex gap-2">
@@ -26414,9 +26495,11 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                         data.stylePrompt.toLowerCase().includes("i can't assist")) {
                                       alert("⚠️ OpenAI 콘텐츠 정책으로 인해 이 썸네일을 분석할 수 없습니다.\n\n다른 썸네일을 사용하시거나, 벤치마킹 썸네일 없이 AI 썸네일을 생성해주세요.")
                                       setAnalyzedBenchmarkStyle(null)
+                                      setAnalyzedBenchmarkStyleKorean(null)
                                       return
                                     }
                                     setAnalyzedBenchmarkStyle(data.stylePrompt)
+                                    setAnalyzedBenchmarkStyleKorean(data.koreanTranslation || null)
                                     alert("벤치마킹 썸네일 분석이 완료되었습니다. 이제 AI 썸네일 생성하기 버튼을 눌러주세요.")
                                   } else {
                                     throw new Error("분석 결과를 받을 수 없습니다.")
@@ -26443,9 +26526,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                 </>
                               )}
                             </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
+                          <Button
+                            variant="outline"
+                            size="sm"
                               onClick={() => {
                                 if (benchmarkThumbnailUrl.startsWith("blob:")) {
                                   URL.revokeObjectURL(benchmarkThumbnailUrl)
@@ -26453,12 +26536,13 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                 setBenchmarkThumbnailUrl(null)
                                 setBenchmarkThumbnailFile(null)
                                 setAnalyzedBenchmarkStyle(null)
+                                setAnalyzedBenchmarkStyleKorean(null)
                               }}
                               className="border-red-300 text-red-700 hover:bg-red-50"
-                            >
-                              <X className="w-4 h-4 mr-2" />
-                              제거
-                            </Button>
+                          >
+                            <X className="w-4 h-4 mr-2" />
+                            제거
+                          </Button>
                           </div>
                         </div>
                       ) : (
@@ -28193,7 +28277,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                             "Content-Type": "application/json",
                           },
                           body: JSON.stringify({
-                            prompt: introPrompt,
+                              prompt: introPrompt,
                             replicateApiKey: replicateApiKey,
                           }),
                         })
@@ -28267,11 +28351,11 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                               
                               const blob = await response.blob()
                               const url = window.URL.createObjectURL(blob)
-                              const link = document.createElement("a")
+                            const link = document.createElement("a")
                               link.href = url
                               link.download = `intro-video-${Date.now()}.mp4`
                               document.body.appendChild(link)
-                              link.click()
+                            link.click()
                               document.body.removeChild(link)
                               window.URL.revokeObjectURL(url)
                               

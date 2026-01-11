@@ -5045,14 +5045,36 @@ export async function generateAIThumbnail(
   characterDescription?: string,
   thumbnailWithoutText?: boolean,
   benchmarkThumbnailUrl?: string,
-  openaiApiKey?: string
+  openaiApiKey?: string,
+  analyzedBenchmarkStyle?: string
 ): Promise<string> {
   if (!replicateApiKey) {
     throw new Error("Replicate API 키가 필요합니다.")
   }
 
   try {
-    console.log(`[Longform] AI 썸네일 생성 시작, 주제: ${topic}, 이미지 스타일: ${imageStyle || "기본"}`)
+    console.log("=".repeat(100))
+    console.log(`[Longform] ========== AI 썸네일 생성 함수 시작 (actions.tsx) ==========`)
+    console.log(`[Longform] 주제: ${topic}`)
+    console.log(`[Longform] 이미지 스타일: ${imageStyle || "기본"}`)
+    console.log(`[Longform] 문구 없이: ${thumbnailWithoutText}`)
+    console.log(`[Longform] 커스텀 텍스트: ${customText || "없음"}`)
+    console.log(`[Longform] =========================================`)
+    console.log(`[Longform] 🔍🔍🔍 analyzedBenchmarkStyle 파라미터 확인 시작 🔍🔍🔍`)
+    console.log(`[Longform] analyzedBenchmarkStyle 전달 여부:`, analyzedBenchmarkStyle ? `있음 ✅ (${analyzedBenchmarkStyle.length}자)` : "없음 ❌")
+    console.log(`[Longform] analyzedBenchmarkStyle 타입:`, typeof analyzedBenchmarkStyle)
+    console.log(`[Longform] analyzedBenchmarkStyle 값:`, analyzedBenchmarkStyle)
+    if (analyzedBenchmarkStyle) {
+      console.log(`[Longform] analyzedBenchmarkStyle trim 후 길이:`, analyzedBenchmarkStyle.trim().length)
+      console.log(`[Longform] analyzedBenchmarkStyle 내용 (처음 500자):`, analyzedBenchmarkStyle.substring(0, 500) + "...")
+      console.log(`[Longform] analyzedBenchmarkStyle 전체 내용:`, analyzedBenchmarkStyle)
+      console.log(`[Longform] ✅✅✅ analyzedBenchmarkStyle이 정상적으로 전달되었습니다!`)
+    } else {
+      console.log(`[Longform] ❌❌❌ analyzedBenchmarkStyle이 전달되지 않았습니다!`)
+      console.log(`[Longform] ❌❌❌ 이 경우 벤치마킹 분석 결과가 프롬프트에 포함되지 않을 수 있습니다!`)
+    }
+    console.log(`[Longform] 🔍🔍🔍 analyzedBenchmarkStyle 파라미터 확인 완료 🔍🔍🔍`)
+    console.log("=".repeat(100))
 
     // 이미지 스타일에 맞는 스타일 프롬프트 생성
     let stylePrompt = ""
@@ -5093,15 +5115,65 @@ export async function generateAIThumbnail(
       basePrompt = `${basePrompt} The thumbnail MUST prominently display the following text: "${customText.trim()}". This text should be clearly visible, readable, and be a central element of the thumbnail design. The text should be styled to be eye-catching and attention-grabbing.`
     }
     
-    // 문구 없이 옵션이 체크된 경우 프롬프트 끝에 다시 한 번 극도로 강조
-    let finalPrompt = stylePrompt ? `${basePrompt} ${stylePrompt}` : basePrompt
-    if (thumbnailWithoutText) {
-      // 프롬프트 끝에 최종 경고 추가 (가장 강력한 형태) - 여러 번 반복하여 강조
-      const finalWarning = `FINAL CRITICAL REQUIREMENT - THIS IS ABSOLUTELY MANDATORY AND NON-NEGOTIABLE: The generated image MUST contain ZERO text elements. Any text, letters, words, numbers, symbols, typography, or written content in the generated image is a COMPLETE FAILURE and violates the core requirement. The image must be 100% text-free with absolutely no text visible anywhere. Text generation is STRICTLY PROHIBITED. The model must generate a pure visual image with NO TEXT WHATSOEVER. This is not optional - text must be completely absent. REMEMBER: NO TEXT AT ALL. NO TEXT. NO TEXT. NO TEXT.`
-      finalPrompt = `${finalPrompt}. ${finalWarning}`
-    }
+    // 🔥🔥🔥🔥🔥 영어 분석 결과(analyzedBenchmarkStyle)가 있으면 무조건 그것만 사용하도록 강제
+    // 모든 다른 로직을 무시하고 영어 분석 결과만 사용
+    console.log("=".repeat(100))
+    console.log("[Longform] 🔥🔥🔥🔥🔥 영어 분석 결과 강제 적용 시작 (actions.tsx) 🔥🔥🔥🔥🔥")
+    console.log("[Longform] analyzedBenchmarkStyle 존재 여부:", analyzedBenchmarkStyle ? "있음 ✅" : "없음 ❌")
     
-    const prompt = finalPrompt
+    let prompt: string
+    
+    if (analyzedBenchmarkStyle && analyzedBenchmarkStyle.trim().length > 0) {
+      console.log("[Longform] ✅✅✅✅✅ 영어 분석 결과가 있으므로 무조건 그것만 사용합니다!")
+      console.log("[Longform] 영어 분석 결과 길이:", analyzedBenchmarkStyle.trim().length)
+      console.log("[Longform] 영어 분석 결과 (처음 500자):", analyzedBenchmarkStyle.substring(0, 500))
+      
+      // 영어 분석 결과를 기반으로 프롬프트 생성 (모든 다른 로직 무시)
+      const textContent = customText && customText.trim() ? customText.trim() : topic
+      let benchmarkPrompt = `Create a YouTube thumbnail for video about: "${topic}".
+
+🚨🚨🚨 CRITICAL: The following benchmark thumbnail analysis is your PRIMARY PROMPT. Follow it EXACTLY. Use the EXACT same design structure, layout, text position, colors, illustration style, and all visual elements. 🚨🚨🚨
+
+BENCHMARK THUMBNAIL ANALYSIS (Follow this EXACTLY):
+${analyzedBenchmarkStyle.trim()}
+
+⚠️ MANDATORY REQUIREMENTS:
+1. TEXT POSITION AND LAYOUT: Use the EXACT same text position, alignment, spacing, and layout as described in the benchmark analysis above.
+2. TEXT VISUAL PROPERTIES: Replicate the EXACT same text colors, effects (shadows, outlines, backgrounds), typography, and font characteristics as described.
+3. ILLUSTRATION STYLE: Match the EXACT illustration style, art technique, rendering style, and visual effects described in the benchmark analysis.
+4. COLOR SCHEME: Use the EXACT same color palette, color distribution, and color tone as described.
+5. LAYOUT COMPOSITION: Match the EXACT composition type, element positions, and layout structure as described.
+6. VISUAL STYLE: Replicate the EXACT overall visual style, mood, and aesthetic as described.
+
+⚠️ TEXT CONTENT: The text content should be: "${textContent}"
+- Place the text "${textContent}" in the EXACT same position as described in the benchmark analysis.
+- Use the EXACT same text styling (colors, effects, typography) as described in the benchmark analysis.
+- The text "${textContent}" should follow the same text layout rules from the benchmark.
+
+Maintain 16:9 aspect ratio.`
+      
+      // withoutText가 true이면 텍스트 금지 키워드를 앞에 추가
+      if (thumbnailWithoutText) {
+        benchmarkPrompt = `NO TEXT. NO LETTERS. NO WORDS. NO TYPOGRAPHY. NO WRITING. NO TEXT OVERLAY. NO CAPTIONS. NO LABELS. NO SIGNS. NO NUMBERS. NO LOGOS. NO WATERMARKS. NO TEXT ELEMENTS. NO TEXT ANYWHERE. PURE VISUAL IMAGE ONLY. TEXT IS STRICTLY FORBIDDEN. ABSOLUTELY NO TEXT IN THE IMAGE. ${benchmarkPrompt}`
+      }
+      
+      prompt = benchmarkPrompt
+      console.log("[Longform] ✅✅✅✅✅ 영어 분석 결과를 기반으로 최종 프롬프트 생성 완료")
+      console.log("[Longform] 최종 프롬프트 길이:", prompt.length)
+      console.log("[Longform] 최종 프롬프트에 영어 분석 결과 포함 확인:", prompt.includes(analyzedBenchmarkStyle.substring(0, 100)) ? "포함됨 ✅✅✅" : "포함 안됨 ❌❌❌")
+    } else {
+      console.log("[Longform] ⚠️ analyzedBenchmarkStyle이 없으므로 기존 방식으로 프롬프트 생성")
+      // 문구 없이 옵션이 체크된 경우 프롬프트 끝에 다시 한 번 극도로 강조
+      let finalPrompt = stylePrompt ? `${basePrompt} ${stylePrompt}` : basePrompt
+      if (thumbnailWithoutText) {
+        // 프롬프트 끝에 최종 경고 추가 (가장 강력한 형태) - 여러 번 반복하여 강조
+        const finalWarning = `FINAL CRITICAL REQUIREMENT - THIS IS ABSOLUTELY MANDATORY AND NON-NEGOTIABLE: The generated image MUST contain ZERO text elements. Any text, letters, words, numbers, symbols, typography, or written content in the generated image is a COMPLETE FAILURE and violates the core requirement. The image must be 100% text-free with absolutely no text visible anywhere. Text generation is STRICTLY PROHIBITED. The model must generate a pure visual image with NO TEXT WHATSOEVER. This is not optional - text must be completely absent. REMEMBER: NO TEXT AT ALL. NO TEXT. NO TEXT. NO TEXT.`
+        finalPrompt = `${finalPrompt}. ${finalWarning}`
+      }
+      prompt = finalPrompt
+    }
+    console.log("[Longform] 🔥🔥🔥🔥🔥 영어 분석 결과 강제 적용 완료 🔥🔥🔥🔥🔥")
+    console.log("=".repeat(100))
 
     // 문구 없이 옵션이 체크된 경우 강력한 negative prompt 생성
     const negativePrompt = thumbnailWithoutText 
@@ -5109,6 +5181,11 @@ export async function generateAIThumbnail(
       : "YouTube logo, YouTube branding, YouTube icon, YouTube play button, YouTube elements, platform logos, service logos, brand logos, company logos, social media logos, video platform logos"
 
     // API 요청 본문 구성
+    console.log("=".repeat(100))
+    console.log("[Longform] ========== requestBody 생성 시작 (actions.tsx) ==========")
+    console.log("[Longform] 생성 전 prompt 길이:", prompt.length)
+    console.log("[Longform] 생성 전 prompt 내용 (처음 500자):", prompt.substring(0, 500))
+    
     const requestBody: any = {
       input: {
         prompt: prompt,
@@ -5118,11 +5195,93 @@ export async function generateAIThumbnail(
       },
     }
     
+    console.log("[Longform] requestBody 생성 완료")
+    console.log("[Longform] requestBody.input.prompt 길이:", requestBody.input.prompt.length)
+    console.log("[Longform] requestBody.input.prompt 내용 (처음 500자):", requestBody.input.prompt.substring(0, 500))
+    
     // negative_prompt가 있으면 추가 (nano-banana-pro 모델이 지원하는 경우)
     if (negativePrompt) {
       requestBody.input.negative_prompt = negativePrompt
       console.log("[Longform] negative_prompt 추가됨 (문구 금지 모드)")
     }
+    
+    // 🔥🔥🔥🔥🔥 requestBody 생성 직후 영어 분석 결과가 포함되었는지 확인 및 강제 교체
+    console.log("=".repeat(100))
+    console.log("[Longform] 🔥🔥🔥🔥🔥 requestBody 생성 직후 최종 강제 교체 확인 시작 (actions.tsx) 🔥🔥🔥🔥🔥")
+    if (analyzedBenchmarkStyle && analyzedBenchmarkStyle.trim().length > 0) {
+      console.log("[Longform] analyzedBenchmarkStyle 존재:", !!analyzedBenchmarkStyle)
+      console.log("[Longform] analyzedBenchmarkStyle 길이:", analyzedBenchmarkStyle.trim().length)
+      console.log("[Longform] analyzedBenchmarkStyle 내용 (처음 300자):", analyzedBenchmarkStyle.substring(0, 300))
+      
+      // requestBody.input.prompt에 벤치마킹 분석 결과가 포함되어 있는지 확인
+      const benchmarkInRequest = requestBody.input.prompt.includes(analyzedBenchmarkStyle.substring(0, 100)) || 
+                                 requestBody.input.prompt.includes("BENCHMARK THUMBNAIL ANALYSIS") ||
+                                 requestBody.input.prompt.toLowerCase().includes("benchmark thumbnail analysis")
+      
+      console.log("[Longform] requestBody.input.prompt에 벤치마킹 분석 결과 포함 여부:", benchmarkInRequest ? "포함됨 ✅" : "포함 안됨 ❌")
+      
+      // 포함되지 않았으면 강제로 교체
+      if (!benchmarkInRequest) {
+        console.error("[Longform] ❌❌❌ requestBody.input.prompt에 벤치마킹 분석 결과가 포함되지 않았습니다! 강제로 교체합니다.")
+        console.error("[Longform] 현재 requestBody.input.prompt (처음 500자):", requestBody.input.prompt.substring(0, 500))
+      }
+      
+      // 🔥🔥🔥 무조건 벤치마킹 기반 프롬프트로 교체 (확인 결과와 관계없이 무조건 교체!)
+      console.log("[Longform] ✅✅✅✅✅ requestBody.input.prompt를 벤치마킹 기반 프롬프트로 무조건 교체합니다! (확인 결과와 관계없이)")
+      
+      const textContent = customText && customText.trim() ? customText.trim() : topic
+      let benchmarkPrompt = `Create a YouTube thumbnail for video about: "${topic}".
+
+🚨🚨🚨 CRITICAL: The following benchmark thumbnail analysis is your PRIMARY PROMPT. Follow it EXACTLY. Use the EXACT same design structure, layout, text position, colors, illustration style, and all visual elements. 🚨🚨🚨
+
+BENCHMARK THUMBNAIL ANALYSIS (Follow this EXACTLY):
+${analyzedBenchmarkStyle.trim()}
+
+⚠️ MANDATORY REQUIREMENTS:
+1. TEXT POSITION AND LAYOUT: Use the EXACT same text position, alignment, spacing, and layout as described in the benchmark analysis above.
+2. TEXT VISUAL PROPERTIES: Replicate the EXACT same text colors, effects (shadows, outlines, backgrounds), typography, and font characteristics as described.
+3. ILLUSTRATION STYLE: Match the EXACT illustration style, art technique, rendering style, and visual effects described in the benchmark analysis.
+4. COLOR SCHEME: Use the EXACT same color palette, color distribution, and color tone as described.
+5. LAYOUT COMPOSITION: Match the EXACT composition type, element positions, and layout structure as described.
+6. VISUAL STYLE: Replicate the EXACT overall visual style, mood, and aesthetic as described.
+
+⚠️ TEXT CONTENT: The text content should be: "${textContent}"
+- Place the text "${textContent}" in the EXACT same position as described in the benchmark analysis.
+- Use the EXACT same text styling (colors, effects, typography) as described in the benchmark analysis.
+- The text "${textContent}" should follow the same text layout rules from the benchmark.
+
+Maintain 16:9 aspect ratio.`
+      
+      // withoutText가 true이면 텍스트 금지 키워드를 앞에 추가
+      if (thumbnailWithoutText) {
+        benchmarkPrompt = `NO TEXT. NO LETTERS. NO WORDS. NO TYPOGRAPHY. NO WRITING. NO TEXT OVERLAY. NO CAPTIONS. NO LABELS. NO SIGNS. NO NUMBERS. NO LOGOS. NO WATERMARKS. NO TEXT ELEMENTS. NO TEXT ANYWHERE. PURE VISUAL IMAGE ONLY. TEXT IS STRICTLY FORBIDDEN. ABSOLUTELY NO TEXT IN THE IMAGE. ${benchmarkPrompt}`
+      }
+      
+      requestBody.input.prompt = benchmarkPrompt
+      
+      console.log("[Longform] ✅✅✅✅✅ requestBody.input.prompt를 벤치마킹 기반 프롬프트로 최종 교체 완료")
+      console.log("[Longform] 교체된 requestBody.input.prompt 길이:", requestBody.input.prompt.length)
+      console.log("[Longform] 교체된 requestBody.input.prompt (처음 2000자):", requestBody.input.prompt.substring(0, 2000))
+      const finalIncludedCheck = requestBody.input.prompt.includes(analyzedBenchmarkStyle.substring(0, 100))
+      console.log("[Longform] 교체된 requestBody.input.prompt에 analyzedBenchmarkStyle 포함 확인:", finalIncludedCheck ? "포함됨 ✅✅✅" : "포함 안됨 ❌❌❌")
+      if (!finalIncludedCheck) {
+        console.error("[Longform] ❌❌❌❌❌ 치명적 오류: 교체 후에도 analyzedBenchmarkStyle이 포함되지 않았습니다!")
+        console.error("[Longform] analyzedBenchmarkStyle (처음 200자):", analyzedBenchmarkStyle.substring(0, 200))
+        console.error("[Longform] requestBody.input.prompt (처음 500자):", requestBody.input.prompt.substring(0, 500))
+      }
+    } else {
+      console.log("[Longform] ⚠️ analyzedBenchmarkStyle이 없거나 빈 문자열이므로 requestBody.input.prompt 교체하지 않음")
+    }
+    console.log("[Longform] 🔥🔥🔥🔥🔥 requestBody 생성 직후 최종 강제 교체 확인 완료 🔥🔥🔥🔥🔥")
+    console.log("=".repeat(100))
+    
+    console.log("[Longform] ========== Replicate API 호출 직전 최종 상태 (actions.tsx) ==========")
+    console.log("[Longform] requestBody.input.prompt 최종 길이:", requestBody.input.prompt.length)
+    console.log("[Longform] requestBody.input.prompt 최종 내용 (처음 1000자):", requestBody.input.prompt.substring(0, 1000))
+    if (analyzedBenchmarkStyle) {
+      console.log("[Longform] 최종 requestBody에 analyzedBenchmarkStyle 포함 여부:", requestBody.input.prompt.includes(analyzedBenchmarkStyle.substring(0, 100)) ? "포함됨 ✅✅✅" : "포함 안됨 ❌❌❌")
+    }
+    console.log("[Longform] =========================================================")
 
     const response = await fetch("https://api.replicate.com/v1/models/google/nano-banana-pro/predictions", {
       method: "POST",
