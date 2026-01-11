@@ -166,7 +166,7 @@ export async function generateSingleSceneImagePrompts(
   historicalContext?: string | null,
   stickmanCharacterDescription?: string | null,
   openaiApiKey?: string,
-  realisticCharacterType?: "korean" | "foreign" | null
+  realisticCharacterType?: "korean" | "foreign" | "none" | null
 ): Promise<Array<{ imageNumber: number; prompt: string; sceneText: string; visualInstruction?: string }>> {
   // 사용자가 제공한 API 키 필수 사용
   // 사용자가 제공한 API 키 필수 사용
@@ -646,7 +646,7 @@ export async function generateSceneImagePrompts(
   customStylePrompt?: string,
   topic?: string,
   script?: string,
-  realisticCharacterType?: "korean" | "foreign" | null
+  realisticCharacterType?: "korean" | "foreign" | "none" | null
 ): Promise<Array<{ sceneNumber: number; images: Array<{ imageNumber: number; prompt: string; sceneText: string; visualInstruction?: string; imageUrl?: string }> }>> {
   // 사용자가 제공한 API 키 필수 사용
   if (!openaiApiKey || openaiApiKey.trim().length === 0) {

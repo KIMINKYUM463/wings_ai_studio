@@ -1281,7 +1281,7 @@ export async function generateCustomImagePromptFromKorean(
   imageStyle?: string,
   customStylePrompt?: string,
   historicalContext?: string | null,
-  realisticCharacterType?: "korean" | "foreign" | null
+  realisticCharacterType?: "korean" | "foreign" | "none" | null
 ): Promise<string> {
   if (!openaiApiKey) {
     throw new Error("OpenAI API 키가 필요합니다.")
@@ -4696,13 +4696,22 @@ export async function generateAIThumbnail(
 
   try {
     console.log(`[Longform] AI 썸네일 생성 시작, 주제: ${topic}, 이미지 스타일: ${imageStyle || "기본"}, 문구 없이: ${withoutText}`)
+    console.log(`[Longform] 🔍 analyzedBenchmarkStyle 전달 여부:`, analyzedBenchmarkStyle ? `있음 (${analyzedBenchmarkStyle.length}자)` : "없음")
+    if (analyzedBenchmarkStyle) {
+      console.log(`[Longform] 🔍 analyzedBenchmarkStyle 내용 (처음 300자):`, analyzedBenchmarkStyle.substring(0, 300) + "...")
+    }
 
     // 벤치마킹 썸네일 스타일 분석
     let benchmarkStylePrompt = ""
     if (analyzedBenchmarkStyle) {
-      // 이미 분석된 스타일이 있으면 그것을 사용
-      benchmarkStylePrompt = analyzedBenchmarkStyle
-      console.log("[Longform] 사전 분석된 벤치마킹 썸네일 스타일 사용:", benchmarkStylePrompt.substring(0, 100) + "...")
+      // 이미 분석된 스타일이 있으면 그것을 사용 (무조건 사용)
+      benchmarkStylePrompt = analyzedBenchmarkStyle.trim()
+      console.log("[Longform] ✅✅✅ 사전 분석된 벤치마킹 썸네일 스타일 사용 (무조건 반영)")
+      console.log("[Longform] 벤치마킹 스타일 프롬프트 길이:", benchmarkStylePrompt.length)
+      console.log("[Longform] 벤치마킹 스타일 프롬프트 (처음 300자):", benchmarkStylePrompt.substring(0, 300) + "...")
+      if (!benchmarkStylePrompt || benchmarkStylePrompt.length === 0) {
+        console.error("[Longform] ❌ 벤치마킹 스타일 프롬프트가 비어있습니다!")
+      }
     } else if (benchmarkThumbnailUrl && openaiApiKey) {
       // 분석된 스타일이 없으면 실시간으로 분석
       try {
@@ -4713,6 +4722,19 @@ export async function generateAIThumbnail(
         console.warn("[Longform] 벤치마킹 썸네일 분석 실패, 계속 진행:", error)
         // 분석 실패해도 계속 진행
       }
+    }
+    
+    console.log("[Longform] 🔍 벤치마킹 스타일 프롬프트 존재 여부:", benchmarkStylePrompt ? `있음 (${benchmarkStylePrompt.length}자)` : "없음")
+    
+    // 벤치마킹 분석 결과가 있으면 무조건 사용해야 함 (basePrompt 생성 전에 확실히 설정)
+    if (analyzedBenchmarkStyle) {
+      if (!benchmarkStylePrompt || benchmarkStylePrompt.length === 0) {
+        console.error("[Longform] ❌❌❌ 오류: analyzedBenchmarkStyle이 있지만 benchmarkStylePrompt가 비어있습니다! 강제로 설정합니다.")
+        benchmarkStylePrompt = analyzedBenchmarkStyle.trim() // 강제로 설정
+        console.log("[Longform] ✅✅✅ benchmarkStylePrompt 강제 설정 완료:", benchmarkStylePrompt.length, "자")
+      }
+      console.log("[Longform] ✅✅✅ 최종 확인: benchmarkStylePrompt가 설정됨:", benchmarkStylePrompt.length, "자")
+      console.log("[Longform] 🔍 benchmarkStylePrompt 내용 (처음 300자):", benchmarkStylePrompt.substring(0, 300) + "...")
     }
 
     // 이미지 스타일에 맞는 스타일 프롬프트 생성
@@ -4764,26 +4786,58 @@ THIS IS A TEXT-FREE IMAGE REQUEST. ANY TEXT IN THE OUTPUT IS A CRITICAL ERROR.
       // 프롬프트 끝에 NEGATIVE 명시 (이중 보호)
       basePrompt = `${basePrompt} NEGATIVE PROMPT: text, letters, words, typography, numbers, logos, watermarks, signs, labels, captions, subtitles, written text, text overlay, any text elements, any written content, any letters, any numbers, any symbols that form text, text on image, text in background, floating text, alphabet, characters, fonts, typeface, lettering, inscription, writing, script, calligraphy, text box, text area, text banner, text label, text sign, text poster, text display, text graphics, text design, text art, text illustration, any form of text, any form of writing, any form of letters, any form of numbers, any readable text, any visible text, any text content`
     } else {
-      // 기본 프롬프트 (텍스트 영역 포함)
-      basePrompt = `YouTube thumbnail for video about: ${topic}. High quality, eye-catching, professional thumbnail design. Bright colors, clear text area, engaging composition. 16:9 aspect ratio.`
+      // 벤치마킹 스타일이 있으면 벤치마킹 분석 결과를 메인 프롬프트로 직접 사용
+      // analyzedBenchmarkStyle이 있으면 무조건 벤치마킹 기반 프롬프트 사용
+      if (analyzedBenchmarkStyle && (!benchmarkStylePrompt || benchmarkStylePrompt.length === 0)) {
+        benchmarkStylePrompt = analyzedBenchmarkStyle.trim()
+        console.log("[Longform] ⚠️ basePrompt 생성 시 analyzedBenchmarkStyle을 benchmarkStylePrompt로 설정")
+      }
       
-      // 커스텀 문구가 있으면 프롬프트에 추가 (withoutText가 false일 때만)
-      if (customText && customText.trim()) {
-        basePrompt = `${basePrompt} Include text or visual elements related to: "${customText.trim()}".`
+      if (benchmarkStylePrompt && benchmarkStylePrompt.length > 0) {
+        console.log("[Longform] ✅✅✅ 벤치마킹 스타일 기반 프롬프트 생성 시작")
+        console.log("[Longform] 벤치마킹 스타일 길이:", benchmarkStylePrompt.length)
+        console.log("[Longform] 벤치마킹 스타일 (처음 300자):", benchmarkStylePrompt.substring(0, 300) + "...")
+        
+        // 벤치마킹 분석 결과 자체가 이미 완전한 프롬프트이므로 그것을 메인으로 사용
+        // 주제만 벤치마킹 분석 결과에 통합
+        basePrompt = `Create a YouTube thumbnail for video about: "${topic}".
+
+🚨🚨🚨 CRITICAL: The following benchmark thumbnail analysis is your PRIMARY PROMPT. Follow it EXACTLY and only adapt the content to match the topic "${topic}". 🚨🚨🚨
+
+${benchmarkStylePrompt}
+
+⚠️ IMPORTANT INSTRUCTIONS:
+- Follow the EXACT design structure, layout, text position, colors, illustration style, and all visual elements described in the benchmark analysis above.
+- The ONLY change should be adapting the content/imagery to the topic: "${topic}".
+- Maintain 16:9 aspect ratio.
+
+${customText && customText.trim() ? `Include text or visual elements related to: "${customText.trim()}".` : ""}`
+        
+        console.log("[Longform] ✅✅✅ 벤치마킹 스타일 기반 basePrompt 생성 완료")
+        console.log("[Longform] basePrompt 길이:", basePrompt.length)
+        console.log("[Longform] basePrompt에 벤치마킹 포함 여부:", basePrompt.includes(benchmarkStylePrompt.substring(0, 100)) ? "포함됨 ✅" : "포함 안됨 ❌")
+      } else {
+        console.log("[Longform] ⚠️ 벤치마킹 스타일이 없어서 기본 프롬프트 사용")
+        // 기본 프롬프트 (벤치마킹 스타일 없을 때)
+        basePrompt = `YouTube thumbnail for video about: ${topic}. High quality, eye-catching, professional thumbnail design. Bright colors, clear text area, engaging composition. 16:9 aspect ratio.`
+        
+        // 커스텀 문구가 있으면 프롬프트에 추가 (withoutText가 false일 때만)
+        if (customText && customText.trim()) {
+          basePrompt = `${basePrompt} Include text or visual elements related to: "${customText.trim()}".`
+        }
       }
     }
     
-    // 벤치마킹 스타일이 있으면 프롬프트에 추가
-    if (benchmarkStylePrompt) {
-      if (withoutText) {
-        // 문구 없이 그림만 생성 모드: 벤치마킹 스타일에서 텍스트 관련 부분 제거하고 시각적 스타일만 적용
-        // 벤치마킹 스타일에서 텍스트 관련 키워드 제거
-        const visualOnlyStyle = benchmarkStylePrompt
-          .replace(/text|typography|letter|word|font|caption|label|writing|inscription/gi, "")
-          .replace(/\s+/g, " ")
-          .trim()
-        
-        basePrompt = `${basePrompt}
+    // 벤치마킹 스타일이 있고 withoutText가 true일 때만 별도 처리
+    if (benchmarkStylePrompt && withoutText) {
+      // 문구 없이 그림만 생성 모드: 벤치마킹 스타일에서 텍스트 관련 부분 제거하고 시각적 스타일만 적용
+      // 벤치마킹 스타일에서 텍스트 관련 키워드 제거
+      const visualOnlyStyle = benchmarkStylePrompt
+        .replace(/text|typography|letter|word|font|caption|label|writing|inscription/gi, "")
+        .replace(/\s+/g, " ")
+        .trim()
+      
+      basePrompt = `${basePrompt}
 
 ⚠️ CRITICAL: Match the following thumbnail VISUAL STYLE ONLY (NO TEXT):
 ${visualOnlyStyle}
@@ -4795,31 +4849,63 @@ MANDATORY REQUIREMENTS (VISUAL ONLY, NO TEXT):
 - Maintain the same overall visual balance
 - ⚠️ ABSOLUTELY NO TEXT - Ignore any text-related instructions from the reference
 - Focus ONLY on visual elements: colors, composition, imagery, style`
-      } else {
-        // 일반 모드: 텍스트 위치와 레이아웃 포함
-        basePrompt = `${basePrompt}
-
-⚠️ CRITICAL: Match the following thumbnail design EXACTLY:
-${benchmarkStylePrompt}
-
-MANDATORY REQUIREMENTS:
-- Use the EXACT same text position and layout as described above
-- Match the text alignment, spacing, and positioning precisely
-- Replicate the same text effects (shadows, outlines, backgrounds) exactly
-- Use the same color palette and visual style
-- Maintain the same overall composition and balance
-- The text location, size, and design must be identical to the reference thumbnail`
-      }
     }
     
-    let finalPrompt = stylePrompt ? `${basePrompt} ${stylePrompt}` : basePrompt
+    // stylePrompt는 벤치마킹 스타일이 없을 때만 추가 (벤치마킹 스타일이 있으면 벤치마킹 분석에 이미 스타일 정보가 포함됨)
+    let finalPrompt = basePrompt
+    if (!benchmarkStylePrompt && stylePrompt) {
+      finalPrompt = `${basePrompt} ${stylePrompt}`
+    }
     
     // withoutText가 true이면 프롬프트 맨 앞에 텍스트 금지 키워드를 명확하게 추가 (가장 중요!)
     if (withoutText) {
       finalPrompt = `NO TEXT. NO LETTERS. NO WORDS. NO TYPOGRAPHY. NO WRITING. NO TEXT OVERLAY. NO CAPTIONS. NO LABELS. NO SIGNS. NO NUMBERS. NO LOGOS. NO WATERMARKS. NO TEXT ELEMENTS. NO TEXT ANYWHERE. PURE VISUAL IMAGE ONLY. TEXT IS STRICTLY FORBIDDEN. ABSOLUTELY NO TEXT IN THE IMAGE. ${finalPrompt}`
     }
     
-    const prompt = finalPrompt
+    let prompt = finalPrompt
+
+    // 벤치마킹 분석 결과가 있으면 무조건 프롬프트에 포함되어야 함
+    if (analyzedBenchmarkStyle) {
+      // analyzedBenchmarkStyle이 있으면 무조건 벤치마킹 기반 프롬프트 사용
+      if (!benchmarkStylePrompt || benchmarkStylePrompt.length === 0) {
+        benchmarkStylePrompt = analyzedBenchmarkStyle.trim()
+        console.log("[Longform] ⚠️ analyzedBenchmarkStyle을 benchmarkStylePrompt로 강제 설정")
+      }
+      
+      // 프롬프트에 벤치마킹 분석 결과가 포함되어 있는지 확인
+      const benchmarkIncluded = prompt.includes(benchmarkStylePrompt.substring(0, 100)) || 
+                                 prompt.includes("CRITICAL: The following benchmark") ||
+                                 prompt.toLowerCase().includes(benchmarkStylePrompt.substring(0, 50).toLowerCase())
+      
+      if (!benchmarkIncluded) {
+        console.error("[Longform] ❌❌❌ 벤치마킹 분석 결과가 프롬프트에 포함되지 않음! 강제로 포함합니다.")
+        // 벤치마킹 기반 프롬프트로 교체
+        prompt = `Create a YouTube thumbnail for video about: "${topic}".
+
+🚨🚨🚨 CRITICAL: The following benchmark thumbnail analysis is your PRIMARY PROMPT. Follow it EXACTLY and only adapt the content to match the topic "${topic}". 🚨🚨🚨
+
+${benchmarkStylePrompt}
+
+⚠️ IMPORTANT INSTRUCTIONS:
+- Follow the EXACT design structure, layout, text position, colors, illustration style, and all visual elements described in the benchmark analysis above.
+- The ONLY change should be adapting the content/imagery to the topic: "${topic}".
+- Maintain 16:9 aspect ratio.
+
+${customText && customText.trim() ? `Include text or visual elements related to: "${customText.trim()}".` : ""}`
+        console.log("[Longform] ✅✅✅ 벤치마킹 기반 프롬프트로 교체 완료")
+      } else {
+        console.log("[Longform] ✅✅✅ 벤치마킹 분석 결과가 프롬프트에 포함됨")
+      }
+      
+      console.log("[Longform] 벤치마킹 스타일 길이:", benchmarkStylePrompt.length)
+      console.log("[Longform] 최종 프롬프트 길이:", prompt.length)
+      console.log("[Longform] 최종 프롬프트 (처음 1000자):", prompt.substring(0, 1000) + "...")
+    } else if (benchmarkStylePrompt && benchmarkStylePrompt.length > 0) {
+      // benchmarkStylePrompt만 있고 analyzedBenchmarkStyle은 없는 경우
+      console.log("[Longform] ✅ 벤치마킹 스타일이 프롬프트에 포함됨")
+      console.log("[Longform] 벤치마킹 스타일 길이:", benchmarkStylePrompt.length)
+      console.log("[Longform] 최종 프롬프트 길이:", prompt.length)
+    }
 
     // withoutText가 true인 경우 로그 출력
     if (withoutText) {
