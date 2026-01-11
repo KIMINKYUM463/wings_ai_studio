@@ -4919,7 +4919,7 @@ ${customText && customText.trim() ? `Include text or visual elements related to:
       input: {
         prompt: prompt,
         aspect_ratio: "16:9",
-        output_format: "png",
+        output_format: "jpg",
       },
     }
     

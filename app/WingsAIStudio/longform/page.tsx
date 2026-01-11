@@ -7302,7 +7302,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url
-      a.download = `ai-thumbnail-${Date.now()}.png`
+      a.download = `ai-thumbnail-${Date.now()}.jpg`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
