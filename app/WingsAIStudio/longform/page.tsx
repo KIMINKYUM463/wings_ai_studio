@@ -474,6 +474,7 @@ export default function LongformContentPage() {
   const [newProjectName, setNewProjectName] = useState("")
   const [newProjectDescription, setNewProjectDescription] = useState("")
   const [showCreateProjectDialog, setShowCreateProjectDialog] = useState(false)
+  const [projectSearchQuery, setProjectSearchQuery] = useState("") // 프로젝트 검색 쿼리
   const [userId, setUserId] = useState<string>("") // 사용자 ID (이메일 또는 사용자 식별자)
   
   // API 키 가져오기 헬퍼 함수
@@ -16744,44 +16745,79 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             </div>
           </div>
 
-          <div className="mb-6 flex justify-end animate-fade-in">
+          {/* 검색 및 새 프로젝트 버튼 */}
+          <div className="mb-6 flex flex-col sm:flex-row gap-4 items-stretch sm:items-center justify-between animate-fade-in">
+            <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+              <Input
+                type="text"
+                placeholder="프로젝트 제목으로 검색..."
+                value={projectSearchQuery}
+                onChange={(e) => setProjectSearchQuery(e.target.value)}
+                className="pl-10 h-12 bg-white border-2 border-gray-200 focus:border-red-500 rounded-xl transition-all duration-300 focus:ring-2 focus:ring-red-200"
+              />
+            </div>
             <Button
               onClick={() => setShowCreateProjectDialog(true)}
-              className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 px-6 py-6 rounded-xl font-semibold"
+              className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 px-6 py-6 rounded-xl font-semibold whitespace-nowrap"
             >
               <FolderPlus className="w-5 h-5 mr-2" />
               새 프로젝트 만들기
             </Button>
           </div>
 
-          {isLoadingProjects ? (
-            <div className="flex flex-col items-center justify-center py-20 animate-fade-in">
-              <div className="relative">
-                <Loader2 className="w-16 h-16 animate-spin text-blue-600" />
-                <div className="absolute inset-0 w-16 h-16 border-4 border-blue-200 rounded-full animate-ping opacity-20"></div>
-              </div>
-              <p className="mt-6 text-gray-600 text-lg font-medium">프로젝트를 불러오는 중...</p>
-            </div>
-          ) : projects.length === 0 ? (
-            <Card className="p-12 text-center shadow-xl border-0 bg-white/80 backdrop-blur-sm animate-slide-up">
-              <div className="max-w-md mx-auto">
-                <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
-                  <Folder className="w-10 h-10 text-gray-400" />
+          {/* 필터링된 프로젝트 목록 */}
+          {(() => {
+            const filteredProjects = projectSearchQuery.trim()
+              ? projects.filter((project) =>
+                  project.name.toLowerCase().includes(projectSearchQuery.toLowerCase())
+                )
+              : projects
+
+            if (isLoadingProjects) {
+              return (
+                <div className="flex flex-col items-center justify-center py-20 animate-fade-in">
+                  <div className="relative">
+                    <Loader2 className="w-16 h-16 animate-spin text-blue-600" />
+                    <div className="absolute inset-0 w-16 h-16 border-4 border-blue-200 rounded-full animate-ping opacity-20"></div>
+                  </div>
+                  <p className="mt-6 text-gray-600 text-lg font-medium">프로젝트를 불러오는 중...</p>
                 </div>
-                <h3 className="text-2xl font-semibold text-gray-900 mb-3">프로젝트가 없습니다</h3>
-                <p className="text-gray-600 mb-8 text-lg">새 프로젝트를 만들어 시작하세요</p>
-                <Button
-                  onClick={() => setShowCreateProjectDialog(true)}
-                  className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 px-8 py-6 text-lg font-semibold rounded-xl"
-                >
-                  <FolderPlus className="w-5 h-5 mr-2" />
-                  새 프로젝트 만들기
-                </Button>
-              </div>
-            </Card>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {projects.map((project, index) => (
+              )
+            }
+
+            if (filteredProjects.length === 0) {
+              return (
+                <Card className="p-12 text-center shadow-xl border-0 bg-white/80 backdrop-blur-sm animate-slide-up">
+                  <div className="max-w-md mx-auto">
+                    <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
+                      <Folder className="w-10 h-10 text-gray-400" />
+                    </div>
+                    <h3 className="text-2xl font-semibold text-gray-900 mb-3">
+                      {projectSearchQuery.trim() ? "검색 결과가 없습니다" : "프로젝트가 없습니다"}
+                    </h3>
+                    <p className="text-gray-600 mb-8 text-lg">
+                      {projectSearchQuery.trim() 
+                        ? `"${projectSearchQuery}"에 대한 검색 결과가 없습니다.`
+                        : "새 프로젝트를 만들어 시작하세요"}
+                    </p>
+                    {!projectSearchQuery.trim() && (
+                      <Button
+                        onClick={() => setShowCreateProjectDialog(true)}
+                        className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 px-8 py-6 text-lg font-semibold rounded-xl"
+                      >
+                        <FolderPlus className="w-5 h-5 mr-2" />
+                        새 프로젝트 만들기
+                      </Button>
+                    )}
+                  </div>
+                </Card>
+              )
+            }
+
+            return (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {filteredProjects.map((project, index) => (
                 <Card
                   key={project.id}
                   className="cursor-pointer group relative overflow-hidden border-0 shadow-lg hover:shadow-2xl transition-all duration-500 transform hover:scale-105 hover:-translate-y-2 bg-white/90 backdrop-blur-sm animate-fade-in"
@@ -16851,7 +16887,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                 </Card>
               ))}
             </div>
-          )}
+            )
+          })()}
         </div>
 
         {/* 프로젝트 생성 다이얼로그 */}
