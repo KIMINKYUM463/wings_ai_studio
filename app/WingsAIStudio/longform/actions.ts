@@ -4424,6 +4424,115 @@ export async function generateYouTubeDescription(
   }
 
   try {
+    console.log("[유튜브 설명 생성] 시작")
+    
+    // 카테고리 이름 매핑
+    const categoryNameMap: Record<string, string> = {
+      health: "건강",
+      history: "역사",
+      wisdom: "지혜",
+      self_improvement: "자기계발",
+      society: "사회",
+      space: "우주",
+      fortune: "운세",
+      psychology: "심리학",
+      reserve_army: "예비군",
+      elementary_school: "국민학교",
+      northkorea: "북한",
+      romance_of_three_kingdoms: "삼국지",
+      folktale: "옛날이야기",
+      science: "과학",
+      horror: "공포",
+      religion: "종교",
+      domestic_story: "국내 이야기",
+      international_story: "해외 이야기",
+      economy: "경제",
+      war: "전쟁",
+      affair: "사건",
+      ancient: "고대",
+      biology: "생물학",
+      greek_roman_mythology: "그리스 로마 신화",
+      death: "죽음",
+      ai: "인공지능",
+      alien: "외계인",
+      palmistry: "손금",
+      physiognomy: "관상",
+      fortune_telling: "점술",
+      urban_legend: "도시 전설",
+      serial_crime: "연쇄 범죄",
+      unsolved_case: "미제 사건",
+    }
+    
+    const categoryName = categoryNameMap[category] || category
+    
+    const descriptionPrompt = `당신은 유튜브 SEO 전문가입니다. 다음 영상을 분석하여 완벽한 설명란과 태그를 만들어주세요.
+
+영상 제목: "${title}"
+채널 카테고리: ${categoryName}
+영상 대본:
+
+${script}
+
+다음을 생성해주세요:
+
+1. description: 유튜브 설명란 (이모지 적극 활용)
+
+   구조:
+
+   - 🔥 훅: 강력한 질문이나 혜택 제시
+
+   - 영상 소개 (1-2줄)
+
+   - 혜택 3가지 (이모지로 시작)
+
+   - 감성 문구
+
+   - CTA
+
+   - 빈 줄
+
+   - 🕒 타임라인 (스포일러 금지!)
+     * 대본을 분석하여 주요 구간별 타임라인을 작성하세요
+     * 형식: "00:00 주제 소개", "05:30 첫 번째 이야기", "10:15 두 번째 이야기" 등
+     * 스포일러가 되지 않도록 주의하세요
+
+   - 구독 멘트
+
+2. pinnedComment: 고정댓글 (3-5줄, 시청자 참여 유도)
+
+3. hashtags: 설명란 해시태그 5개 (# 포함, 한 줄)
+
+4. uploadTags: 업로드 태그 20-25개
+
+   - 큰 모수 태그 5-7개
+
+   - 카테고리 조합 3-5개
+
+   - 영상 핵심 키워드 5-7개
+
+   - 롱테일 키워드 3-5개
+
+CRITICAL:
+
+- 한글만 사용
+
+- 클릭베이트 단어 제외
+
+- 타임라인 스포일러 금지
+
+- 불법/성인/폭력/담배 관련 키워드 절대 금지
+
+- 타임라인은 반드시 포함되어야 합니다
+
+JSON 형식으로만 응답:
+
+{
+  "description": "...",
+  "pinnedComment": "...",
+  "hashtags": "#태그1 #태그2 #태그3 #태그4 #태그5",
+  "uploadTags": ["태그1", "태그2", ...]
+}`
+
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -4435,15 +4544,15 @@ export async function generateYouTubeDescription(
         messages: [
           {
             role: "system",
-            content: "당신은 유튜브 설명 작성 전문가입니다. 대본을 분석하여 SEO에 최적화된 유튜브 설명을 작성해주세요. JSON 형식으로 {\"description\": \"설명\", \"pinnedComment\": \"고정 댓글\", \"hashtags\": \"해시태그\", \"uploadTags\": [\"태그1\", \"태그2\"]}로 응답해주세요.",
+            content: descriptionPrompt,
           },
           {
             role: "user",
-            content: `제목: ${title}\n카테고리: ${category}\n\n대본:\n${script.substring(0, 3000)}\n\n위 대본을 분석하여 유튜브 설명을 작성해주세요.`,
+            content: "위 정보를 바탕으로 유튜브 설명란, 고정댓글, 해시태그, 업로드 태그를 생성해주세요.",
           },
         ],
-        max_tokens: 1500,
-        temperature: 0.7,
+        max_tokens: 3000,
+        temperature: 0.8,
       }),
     })
 
@@ -4458,28 +4567,20 @@ export async function generateYouTubeDescription(
       throw new Error("설명을 생성할 수 없습니다.")
     }
 
-    // JSON 파싱 시도
+    // JSON 파싱
     const jsonMatch = content.match(/\{[\s\S]*\}/)
-    if (jsonMatch) {
-      try {
-        const parsed = JSON.parse(jsonMatch[0])
-        return {
-          description: parsed.description || content.trim(),
-          pinnedComment: parsed.pinnedComment || "",
-          hashtags: parsed.hashtags || "",
-          uploadTags: Array.isArray(parsed.uploadTags) ? parsed.uploadTags : [],
-        }
-      } catch {
-        // JSON 파싱 실패 시 기본값 반환
-      }
+    if (!jsonMatch) {
+      throw new Error("JSON 형식을 찾을 수 없습니다.")
     }
 
-    // JSON 형식이 아니면 기본 구조로 반환
+    const result = JSON.parse(jsonMatch[0])
+    console.log("[유튜브 설명 생성] 완료")
+    
     return {
-      description: content.trim(),
-      pinnedComment: "",
-      hashtags: "",
-      uploadTags: [],
+      description: result.description || "",
+      pinnedComment: result.pinnedComment || "",
+      hashtags: result.hashtags || "",
+      uploadTags: Array.isArray(result.uploadTags) ? result.uploadTags : [],
     }
   } catch (error) {
     console.error("설명 생성 실패:", error)
