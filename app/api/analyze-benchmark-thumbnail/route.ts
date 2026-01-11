@@ -170,7 +170,7 @@ Provide extremely detailed and precise information about ALL visual design eleme
       try {
         console.log("[Benchmark Thumbnail Analysis] Gemini로 fallback 분석 시작")
         const genAI = new GoogleGenerativeAI(geminiApiKey)
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" })
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" })
 
         const geminiPrompt = `You are a professional thumbnail design analyzer. Analyze this YouTube thumbnail image comprehensively, focusing on ALL visual design elements that can be replicated.
 
@@ -304,7 +304,7 @@ Provide extremely detailed and precise information about ALL visual design eleme
       if (!koreanTranslation && geminiApiKey) {
         try {
           const genAI = new GoogleGenerativeAI(geminiApiKey)
-          const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" })
+          const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" })
           
           const translationPrompt = `다음 영어 텍스트를 한국어로 자연스럽게 번역해주세요. 전문 용어는 그대로 유지하되, 일반적인 설명은 자연스러운 한국어로 번역해주세요:\n\n${styleDescription}`
           
