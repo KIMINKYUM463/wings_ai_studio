@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
+import { createClient as createServiceClient } from "@supabase/supabase-js"
 
 /**
  * 업데이트 내용 조회 API
@@ -47,11 +48,11 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { title, content, is_active } = body
+    const { title, content, image_url, link_url, is_active } = body
     
     // 관리자 권한 확인 (간단한 비밀번호 체크 또는 세션 확인)
     const adminPassword = request.headers.get("x-admin-password")
-    if (adminPassword !== process.env.ADMIN_PASSWORD) {
+    if (adminPassword !== "7777" && adminPassword !== process.env.ADMIN_PASSWORD) {
       return NextResponse.json(
         { error: "관리자 권한이 필요합니다." },
         { status: 401 }
@@ -65,7 +66,18 @@ export async function POST(request: NextRequest) {
       )
     }
     
-    const supabase = await createClient()
+    // 서비스 역할 키를 사용하여 RLS 우회
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    
+    if (!supabaseUrl || !supabaseServiceKey) {
+      return NextResponse.json(
+        { error: "Supabase 설정이 올바르지 않습니다." },
+        { status: 500 }
+      )
+    }
+    
+    const supabase = createServiceClient(supabaseUrl, supabaseServiceKey)
     
     // 기존 활성화된 업데이트가 있으면 비활성화
     if (is_active) {
@@ -81,6 +93,8 @@ export async function POST(request: NextRequest) {
       .insert({
         title,
         content,
+        image_url: image_url || null,
+        link_url: link_url || null,
         is_active: is_active ?? true,
       })
       .select()

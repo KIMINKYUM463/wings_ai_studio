@@ -476,6 +476,8 @@ export default function LongformContentPage() {
   const [showCreateProjectDialog, setShowCreateProjectDialog] = useState(false)
   const [projectSearchQuery, setProjectSearchQuery] = useState("") // 프로젝트 검색어
   const [userId, setUserId] = useState<string>("") // 사용자 ID (이메일 또는 사용자 식별자)
+  const [announcements, setAnnouncements] = useState<Array<{ id: string; title: string; content: string; image_url?: string; link_url?: string; created_at: string }>>([]) // 업데이트 사항
+  const [rightClickCount, setRightClickCount] = useState(0) // 마우스 오른쪽 클릭 횟수
   
   // API 키 가져오기 헬퍼 함수
   const getApiKey = (keyName?: string) => {
@@ -16724,6 +16726,50 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     }
   }, [userId])
 
+  // 업데이트 사항 불러오기
+  useEffect(() => {
+    const loadAnnouncements = async () => {
+      try {
+        const response = await fetch('/api/announcements/all')
+        if (response.ok) {
+          const data = await response.json()
+          if (data.announcements) {
+            setAnnouncements(data.announcements)
+          }
+        }
+      } catch (error) {
+        console.error("[Announcements] 업데이트 사항 불러오기 실패:", error)
+      }
+    }
+    
+    loadAnnouncements()
+  }, [])
+
+  // 마우스 오른쪽 두번 클릭 감지
+  useEffect(() => {
+    const handleContextMenu = (e: MouseEvent) => {
+      e.preventDefault()
+      setRightClickCount(prev => {
+        const newCount = prev + 1
+        if (newCount >= 2) {
+          // 관리자 페이지로 이동
+          window.location.href = '/WingsAIStudio/longform/admin'
+          return 0
+        }
+        // 2초 후 카운트 리셋
+        setTimeout(() => {
+          setRightClickCount(0)
+        }, 2000)
+        return newCount
+      })
+    }
+
+    window.addEventListener('contextmenu', handleContextMenu)
+    return () => {
+      window.removeEventListener('contextmenu', handleContextMenu)
+    }
+  }, [])
+
   // 프로젝트 목록 화면 렌더링
   const renderProjectList = () => {
     // 로그인하지 않은 경우 안내
@@ -16767,28 +16813,67 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
 
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-6">
-        <div className="max-w-6xl mx-auto">
-          <div className="mb-8 animate-fade-in">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <h1 className="text-4xl font-bold bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 bg-clip-text text-transparent mb-3">
-                  롱폼 프로젝트
-                </h1>
-                <p className="text-gray-600 text-lg">작업한 내용을 저장하고 관리하세요</p>
+        <div className="max-w-7xl mx-auto">
+          <div className="flex flex-col lg:flex-row gap-6">
+            {/* 좌측 업데이트 사항 패널 */}
+            {announcements.length > 0 && (
+              <aside className="w-full lg:w-80 flex-shrink-0">
+                <div className="bg-white rounded-xl border border-blue-200 shadow-lg p-4 sticky top-6">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Sparkles className="w-5 h-5 text-blue-600" />
+                    <h2 className="text-lg font-semibold text-gray-900">업데이트 사항</h2>
+                  </div>
+                  <div className="space-y-4 max-h-[calc(100vh-200px)] overflow-y-auto">
+                    {announcements.map((announcement) => (
+                      <div key={announcement.id} className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-4 border border-blue-100">
+                        <h3 className="font-semibold text-sm text-gray-900 mb-2">{announcement.title}</h3>
+                        <p className="text-xs text-gray-600 line-clamp-4 whitespace-pre-wrap mb-2">
+                          {announcement.content}
+                        </p>
+                        {announcement.link_url && (
+                          <a
+                            href={announcement.link_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 underline mb-2"
+                          >
+                            링크 열기
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
+                        <p className="text-xs text-gray-400">
+                          {new Date(announcement.created_at).toLocaleDateString("ko-KR")}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </aside>
+            )}
+
+            {/* 메인 콘텐츠 영역 */}
+            <div className="flex-1">
+              <div className="mb-8 animate-fade-in">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h1 className="text-4xl font-bold bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 bg-clip-text text-transparent mb-3">
+                      롱폼 프로젝트
+                    </h1>
+                    <p className="text-gray-600 text-lg">작업한 내용을 저장하고 관리하세요</p>
+                  </div>
+                  <Link href="/WingsAIStudio">
+                    <Button variant="outline" size="lg" className="flex items-center gap-2 shadow-md hover:shadow-lg transition-all duration-300">
+                      <Home className="w-5 h-5" />
+                      메인화면
+                    </Button>
+                  </Link>
+                </div>
+                <div className="mt-4 p-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl shadow-sm backdrop-blur-sm">
+                  <p className="text-sm text-amber-800">
+                    <strong>안내사항:</strong> 이미지는 1시간 후에 삭제가 되기에 미리 저장 또는 렌더링 부탁드립니다. TTS 용량이 크면 저장이 안될 수 있습니다. 참고바랍니다.
+                  </p>
+                </div>
               </div>
-              <Link href="/WingsAIStudio">
-                <Button variant="outline" size="lg" className="flex items-center gap-2 shadow-md hover:shadow-lg transition-all duration-300">
-                  <Home className="w-5 h-5" />
-                  메인화면
-                </Button>
-              </Link>
-            </div>
-            <div className="mt-4 p-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl shadow-sm backdrop-blur-sm">
-              <p className="text-sm text-amber-800">
-                <strong>안내사항:</strong> 이미지는 1시간 후에 삭제가 되기에 미리 저장 또는 렌더링 부탁드립니다. TTS 용량이 크면 저장이 안될 수 있습니다. 참고바랍니다.
-              </p>
-            </div>
-          </div>
 
           {/* 검색 및 새 프로젝트 만들기 버튼 */}
           <div className="mb-6 flex flex-col sm:flex-row gap-4 items-stretch sm:items-center justify-between animate-fade-in">
@@ -16962,6 +17047,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               </>
             )
           })()}
+            </div>
+          </div>
         </div>
 
         {/* 프로젝트 생성 다이얼로그 */}
@@ -28692,7 +28779,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
 
       {/* 설정 다이얼로그 */}
       <Dialog open={settingsDialogOpen} onOpenChange={setSettingsDialogOpen}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Key className="w-5 h-5" />
@@ -29014,6 +29101,40 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               <h2 className="text-xl lg:text-2xl font-bold text-red-600 mb-1">wingsAIStudio</h2>
               <p className="text-xs lg:text-sm text-gray-600">AI 영상 자동 제작</p>
             </div>
+
+            {/* 업데이트 사항 */}
+            {announcements.length > 0 && (
+              <div className="mb-6 p-4 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl border border-blue-200">
+                <div className="flex items-center gap-2 mb-3">
+                  <Sparkles className="w-4 h-4 text-blue-600" />
+                  <h3 className="text-sm font-semibold text-gray-900">업데이트 사항</h3>
+                </div>
+                <div className="space-y-4 max-h-[400px] overflow-y-auto">
+                  {announcements.map((announcement) => (
+                    <div key={announcement.id} className="bg-white rounded-lg p-3 border border-gray-200">
+                      <h4 className="font-semibold text-sm text-gray-900 mb-2">{announcement.title}</h4>
+                      <p className="text-xs text-gray-600 line-clamp-3 whitespace-pre-wrap mb-2">
+                        {announcement.content}
+                      </p>
+                      {announcement.link_url && (
+                        <a
+                          href={announcement.link_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 underline mb-2"
+                        >
+                          링크 열기
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      )}
+                      <p className="text-xs text-gray-400 mt-2">
+                        {new Date(announcement.created_at).toLocaleDateString("ko-KR")}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* 프로젝트 관리 버튼 */}
             {currentProject && (
