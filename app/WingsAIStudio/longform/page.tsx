@@ -208,9 +208,9 @@ import {
   analyzeBenchmarkScript, // 벤치마킹 대본 분석 함수 import 추가
   generateCustomPrompt, // 커스텀 프롬프트 생성 함수 import 추가
   translatePromptToKorean, // 영어 프롬프트 한글 번역 함수 import 추가
-  generateCustomImagePromptFromKorean, // 한글 프롬프트를 이미지 스타일에 맞게 영어로 변환하는 함수 import 추가
   // generateCommonStylePrompt, // 공통 스타일 프롬프트 생성 함수 import 추가 (임시 주석 처리)
 } from "./actions"
+import { generateCustomImagePromptFromKorean } from "./custom-prompt-actions"
 import { generateRefinedScript, decomposeScriptIntoScenes, decomposeSingleScene, autoSplitScriptByMeaning } from "./refined-script-actions"
 import { generateSceneImagePrompts, generateSingleSceneImagePrompts, extractHistoricalContext } from "./scene-prompt-actions"
 import { Label } from "@/components/ui/label"
@@ -18105,31 +18105,284 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                           </div>
 
                           {/* TTS 모델 선택 */}
-                          <div className="space-y-2">
+                          <div className="space-y-4">
                             <Label className="text-sm font-medium text-gray-700">
                               TTS 모델 선택 *
                             </Label>
-                            <Select
-                              value={selectedVoiceId || ""}
-                              onValueChange={(value) => setSelectedVoiceId(value)}
-                            >
-                              <SelectTrigger>
-                                <SelectValue placeholder="TTS 모델을 선택하세요" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="ttsmaker-여성1">TTSMaker 여성1</SelectItem>
-                                <SelectItem value="ttsmaker-여성2">TTSMaker 여성2</SelectItem>
-                                <SelectItem value="ttsmaker-여성6">TTSMaker 여성3</SelectItem>
-                                <SelectItem value="ttsmaker-남성1">TTSMaker 남성1</SelectItem>
-                                <SelectItem value="ttsmaker-남성4">TTSMaker 남성2</SelectItem>
-                                <SelectItem value="ttsmaker-남성5">TTSMaker 남성3</SelectItem>
-                                <SelectItem value="jB1Cifc2UQbq1gR3wnb0">ElevenLabs Rachel</SelectItem>
-                                <SelectItem value="8jHHF8rMqMlg8if2mOUe">ElevenLabs Voice 2</SelectItem>
-                                <SelectItem value="uyVNoMrnUku1dZyVEXwD">ElevenLabs Voice 3</SelectItem>
-                                <SelectItem value="supertone-voice1">수퍼톤 목소리1</SelectItem>
-                                <SelectItem value="supertone-voice2">수퍼톤 목소리2</SelectItem>
-                              </SelectContent>
-                            </Select>
+                            
+                            {/* ElevenLabs 음성 선택 */}
+                            <div className="mb-4 pb-4 border-b border-gray-200">
+                              <div className={`p-4 border-2 rounded-lg transition-all ${
+                                selectedVoiceId?.startsWith("elevenlabs-")
+                                  ? "border-blue-500 bg-blue-50"
+                                  : "border-gray-200 bg-white"
+                              }`}>
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="flex items-center space-x-2">
+                                    <div
+                                      className={`w-4 h-4 rounded-full border-2 cursor-pointer ${
+                                        selectedVoiceId?.startsWith("elevenlabs-") ? "border-blue-500 bg-blue-500" : "border-gray-300"
+                                      }`}
+                                      onClick={() => {
+                                        if (selectedVoiceId?.startsWith("elevenlabs-")) {
+                                          setSelectedVoiceId("ttsmaker-여성1")
+                                          setCustomElevenLabsVoiceId("")
+                                        } else {
+                                          if (customElevenLabsVoiceId) {
+                                            setSelectedVoiceId(`elevenlabs-${customElevenLabsVoiceId}`)
+                                          } else {
+                                            setSelectedVoiceId("elevenlabs-jB1Cifc2UQbq1gR3wnb0")
+                                          }
+                                        }
+                                      }}
+                                    >
+                                      {selectedVoiceId?.startsWith("elevenlabs-") && (
+                                        <div className="w-2 h-2 bg-white rounded-full mx-auto mt-0.5"></div>
+                                      )}
+                                    </div>
+                                    <p className={`text-sm font-medium ${selectedVoiceId?.startsWith("elevenlabs-") ? "text-blue-900" : "text-gray-700"}`}>ElevenLabs</p>
+                                  </div>
+                                </div>
+                                <div className="mt-3 space-y-2">
+                                  <div className="flex gap-2">
+                                    <Input
+                                      type="text"
+                                      placeholder="ElevenLabs 음성 ID 입력 (예: jB1Cifc2UQbq1gR3wnb0)"
+                                      value={customElevenLabsVoiceId}
+                                      onChange={(e) => {
+                                        const voiceId = e.target.value.trim()
+                                        setCustomElevenLabsVoiceId(voiceId)
+                                        if (voiceId && selectedVoiceId?.startsWith("elevenlabs-")) {
+                                          setSelectedVoiceId(`elevenlabs-${voiceId}`)
+                                        }
+                                      }}
+                                      className="flex-1"
+                                    />
+                                  </div>
+                                  <div className="mt-2">
+                                    <p className="text-xs text-gray-500 mb-2">추천 음성:</p>
+                                    <div className="flex gap-2 flex-wrap">
+                                      {[
+                                        { id: "1KNqBv4TutQtzSIACsMC", name: "Voice 1" },
+                                        { id: "4JJwo477JUAx3HV0T7n7", name: "Voice 2" },
+                                        { id: "zgDzx5jLLCqEp6Fl7Kl7", name: "Voice 3" },
+                                        { id: "0mlAtfsvMzFpppUuNWkV", name: "Voice 4" },
+                                        { id: "ETPP7D0aZVdEj12Aa7ho", name: "Voice 5" },
+                                      ].map((voice) => (
+                                        <Button
+                                          key={voice.id}
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => {
+                                            setCustomElevenLabsVoiceId(voice.id)
+                                            setSelectedVoiceId(`elevenlabs-${voice.id}`)
+                                          }}
+                                          className={selectedVoiceId === `elevenlabs-${voice.id}` ? "bg-blue-100 border-blue-500" : ""}
+                                        >
+                                          {voice.name}
+                                        </Button>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* 수퍼톤 음성 선택 */}
+                            <div className="mb-4 pb-4 border-b border-gray-200">
+                              <div className={`p-4 border-2 rounded-lg transition-all ${
+                                selectedVoiceId?.startsWith("supertone-")
+                                  ? "border-purple-500 bg-purple-50"
+                                  : "border-gray-200 bg-white"
+                              }`}>
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="flex items-center space-x-2">
+                                    <div
+                                      className={`w-4 h-4 rounded-full border-2 cursor-pointer ${
+                                        selectedVoiceId?.startsWith("supertone-") ? "border-purple-500 bg-purple-500" : "border-gray-300"
+                                      }`}
+                                      onClick={() => {
+                                        if (supertoneVoices.length > 0 && !selectedSupertoneVoiceId) {
+                                          setSelectedSupertoneVoiceId(supertoneVoices[0].voice_id)
+                                          setSelectedVoiceId(`supertone-${supertoneVoices[0].voice_id}`)
+                                          const firstVoice = supertoneVoices[0]
+                                          if (firstVoice.styles && firstVoice.styles.length > 0) {
+                                            const neutralStyle = firstVoice.styles.find(s => s.toLowerCase().includes("neutral") || s === "중립")
+                                            setSelectedSupertoneStyle(neutralStyle || firstVoice.styles[0])
+                                          }
+                                        } else if (selectedSupertoneVoiceId) {
+                                          setSelectedSupertoneVoiceId("")
+                                          setSelectedVoiceId("ttsmaker-여성1")
+                                        } else {
+                                          fetchSupertoneVoices()
+                                        }
+                                      }}
+                                    >
+                                      {selectedVoiceId?.startsWith("supertone-") && (
+                                        <div className="w-2 h-2 bg-white rounded-full mx-auto mt-0.5"></div>
+                                      )}
+                                    </div>
+                                    <p className={`text-sm font-medium ${selectedVoiceId?.startsWith("supertone-") ? "text-purple-900" : "text-gray-700"}`}>수퍼톤 (SuperTone)</p>
+                                  </div>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={fetchSupertoneVoices}
+                                    disabled={isLoadingSupertoneVoices}
+                                    className={selectedVoiceId?.startsWith("supertone-") ? "border-purple-300 text-purple-700" : ""}
+                                  >
+                                    {isLoadingSupertoneVoices ? (
+                                      <>
+                                        <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                        로딩 중...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <RefreshCw className="w-3 h-3 mr-1" />
+                                        음성 목록 가져오기
+                                      </>
+                                    )}
+                                  </Button>
+                                </div>
+                                {supertoneVoices.length > 0 && (
+                                  <Select
+                                    value={selectedSupertoneVoiceId}
+                                    onValueChange={(value) => {
+                                      setSelectedSupertoneVoiceId(value)
+                                      setSelectedVoiceId(`supertone-${value}`)
+                                      const selectedVoice = supertoneVoices.find(v => v.voice_id === value)
+                                      if (selectedVoice && selectedVoice.styles && selectedVoice.styles.length > 0) {
+                                        const neutralStyle = selectedVoice.styles.find(s => s.toLowerCase().includes("neutral") || s === "중립")
+                                        setSelectedSupertoneStyle(neutralStyle || selectedVoice.styles[0])
+                                      } else {
+                                        setSelectedSupertoneStyle("neutral")
+                                      }
+                                    }}
+                                  >
+                                    <SelectTrigger className="w-full mt-2">
+                                      <SelectValue placeholder="수퍼톤 음성을 선택하세요" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {supertoneVoices.map((voice) => (
+                                        <SelectItem key={voice.voice_id} value={voice.voice_id}>
+                                          <div className="flex items-center gap-2">
+                                            {voice.thumbnail_image_url && (
+                                              <img
+                                                src={voice.thumbnail_image_url}
+                                                alt={voice.name}
+                                                className="w-6 h-6 rounded-full object-cover"
+                                              />
+                                            )}
+                                            <div>
+                                              <div className="font-medium">{voice.name}</div>
+                                              {voice.styles && voice.styles.length > 0 && (
+                                                <div className="text-xs text-gray-500">
+                                                  스타일: {voice.styles.join(", ")}
+                                                </div>
+                                              )}
+                                            </div>
+                                          </div>
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                )}
+                                {selectedSupertoneVoiceId && (() => {
+                                  const selectedVoice = supertoneVoices.find(v => v.voice_id === selectedSupertoneVoiceId)
+                                  const availableStyles = selectedVoice?.styles || []
+                                  return availableStyles.length > 0 && (
+                                    <div className="mt-2">
+                                      <p className="text-sm font-medium text-gray-700 mb-2">스타일 선택</p>
+                                      <Select
+                                        value={selectedSupertoneStyle}
+                                        onValueChange={setSelectedSupertoneStyle}
+                                      >
+                                        <SelectTrigger className="w-full">
+                                          <SelectValue placeholder="스타일을 선택하세요" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {availableStyles.map((style) => (
+                                            <SelectItem key={style} value={style}>
+                                              {style}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                  )
+                                })()}
+                                {selectedSupertoneVoiceId && (
+                                  <div className="mt-3 space-y-2">
+                                    <Label className="text-sm font-medium text-gray-700">또는 음성 ID 직접 입력</Label>
+                                    <div className="flex gap-2">
+                                      <Input
+                                        type="text"
+                                        placeholder="수퍼톤 음성 ID 입력 (예: voice-123)"
+                                        value={customSupertoneVoiceId}
+                                        onChange={(e) => {
+                                          const voiceId = e.target.value.trim()
+                                          setCustomSupertoneVoiceId(voiceId)
+                                          if (voiceId && selectedVoiceId?.startsWith("supertone-")) {
+                                            setSelectedVoiceId(`supertone-${voiceId}`)
+                                            setSelectedSupertoneVoiceId(voiceId)
+                                          }
+                                        }}
+                                        className="flex-1"
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* TTSMaker 음성 선택 */}
+                            <div className="space-y-2">
+                              <p className="text-sm font-medium text-gray-700">TTSMaker</p>
+                              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                {[
+                                  { id: "ttsmaker-여성1", name: "TTSMaker 여성1", note: "ID: 503" },
+                                  { id: "ttsmaker-여성2", name: "TTSMaker 여성2", note: "ID: 509" },
+                                  { id: "ttsmaker-여성6", name: "TTSMaker 여성3", note: "ID: 5802" },
+                                  { id: "ttsmaker-남성1", name: "TTSMaker 남성1", note: "ID: 5501" },
+                                  { id: "ttsmaker-남성4", name: "TTSMaker 남성2", note: "ID: 5888" },
+                                  { id: "ttsmaker-남성5", name: "TTSMaker 남성3", note: "ID: 5888 (음높이 -10%)" },
+                                ].map((voice) => (
+                                  <div
+                                    key={voice.id}
+                                    className={`p-3 border-2 rounded-lg transition-all cursor-pointer ${
+                                      selectedVoiceId === voice.id
+                                        ? "border-red-500 bg-red-50"
+                                        : "border-gray-200 hover:border-gray-300"
+                                    }`}
+                                    onClick={() => {
+                                      setSelectedVoiceId(voice.id)
+                                      if (selectedSupertoneVoiceId) {
+                                        setSelectedSupertoneVoiceId("")
+                                      }
+                                      if (selectedVoiceId?.startsWith("elevenlabs-")) {
+                                        setCustomElevenLabsVoiceId("")
+                                      }
+                                    }}
+                                  >
+                                    <div className="flex items-center space-x-2 mb-2">
+                                      <div
+                                        className={`w-4 h-4 rounded-full border-2 cursor-pointer ${
+                                          selectedVoiceId === voice.id ? "border-red-500 bg-red-500" : "border-gray-300"
+                                        }`}
+                                      >
+                                        {selectedVoiceId === voice.id && (
+                                          <div className="w-2 h-2 bg-white rounded-full mx-auto mt-0.5"></div>
+                                        )}
+                                      </div>
+                                      <div className="flex-1">
+                                        <p className="text-sm font-medium">{voice.name}</p>
+                                        {voice.note && <p className="text-xs text-gray-500">{voice.note}</p>}
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
                           </div>
                         </div>
 
@@ -28471,6 +28724,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                       </>
                     )}
                   </Button>
+                  <p className="text-xs text-gray-500 text-center mt-2">
+                    영상 하나 생성시, 1.2달러 듭니다. 디젠ai 활용해서 만드시는게 더 효율적입니다. 시간없으신분만 이용해주세요
+                  </p>
                   
                   {introVideoUrl && (
                     <div className="mt-4 space-y-2">
