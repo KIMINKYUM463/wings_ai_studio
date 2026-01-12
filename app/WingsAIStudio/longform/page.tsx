@@ -16745,9 +16745,23 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     loadAnnouncements()
   }, [])
 
-  // 마우스 오른쪽 두번 클릭 감지
+  // 마우스 오른쪽 두번 클릭 감지 (오른쪽 위 영역에서만)
   useEffect(() => {
     const handleContextMenu = (e: MouseEvent) => {
+      // 오른쪽 위 영역 체크 (화면 너비의 80% 이상, 높이의 10% 이하)
+      const windowWidth = window.innerWidth
+      const windowHeight = window.innerHeight
+      const clickX = e.clientX
+      const clickY = e.clientY
+      
+      // 오른쪽 위 영역: X는 화면 너비의 80% 이상, Y는 화면 높이의 10% 이하
+      const isInTopRightArea = clickX >= windowWidth * 0.8 && clickY <= windowHeight * 0.1
+      
+      if (!isInTopRightArea) {
+        // 오른쪽 위 영역이 아니면 일반 컨텍스트 메뉴 허용
+        return
+      }
+      
       e.preventDefault()
       setRightClickCount(prev => {
         const newCount = prev + 1

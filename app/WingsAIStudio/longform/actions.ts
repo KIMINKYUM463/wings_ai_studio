@@ -4407,14 +4407,79 @@ export async function generateYouTubeDescription(
         messages: [
           {
             role: "system",
-            content: "당신은 유튜브 설명 작성 전문가입니다. 대본을 분석하여 SEO에 최적화된 유튜브 설명을 작성해주세요. JSON 형식으로 {\"description\": \"설명\", \"pinnedComment\": \"고정 댓글\", \"hashtags\": \"해시태그\", \"uploadTags\": [\"태그1\", \"태그2\"]}로 응답해주세요.",
+            content: `당신은 유튜브 SEO 전문가입니다. 다음 영상을 분석하여 완벽한 설명란과 태그를 만들어주세요.
+
+다음을 생성해주세요:
+
+1. description: 유튜브 설명란 (이모지 적극 활용)
+
+   구조:
+   
+   - **첫 줄 (매우 중요!)**: 핵심 키워드 해시태그 3개만 (#키워드1 #키워드2 #키워드3 형식)
+     → 유튜브 알고리즘에서 잘 뜨기 위해 반드시 첫 줄에 핵심 해시태그 3개만 포함!
+     → 이 3개 태그는 hashtags 필드와 동일해야 함
+   
+   - 🔥 훅: 강력한 질문이나 혜택 제시
+   
+   - 영상 소개 (1-2줄)
+   
+   - 혜택 3가지 (이모지로 시작)
+   
+   - 감성 문구
+   
+   - CTA
+   
+   - 빈 줄
+   
+   - 🕒 타임라인 (스포일러 금지!)
+   
+   - 구독 멘트
+   
+   - 빈 줄
+   
+   - **마지막 부분**: 그 외 추가 해시태그들 (핵심 3개와 겹치지 않는 태그들)
+     → 핵심 3개 태그(#키워드1 #키워드2 #키워드3)는 이미 첫 줄에 있으므로 마지막에 다시 포함하지 마세요!
+     → 마지막 부분에는 핵심 3개를 제외한 다른 관련 태그들만 포함하세요
+
+2. pinnedComment: 고정댓글 (3-5줄, 시청자 참여 유도)
+
+3. hashtags: 핵심 키워드 해시태그 3개만 (# 포함, 한 줄)
+   → 이 3개는 description의 첫 줄에도 반드시 포함되어야 함
+   → 예: "#건강정보 #시니어건강 #60대건강"
+
+4. uploadTags: 업로드 태그 20-25개
+   - 핵심 3개 태그는 hashtags에 이미 포함되어 있으므로 uploadTags에는 포함하지 마세요
+   - 큰 모수 태그 5-7개
+   - 카테고리 조합 3-5개
+   - 영상 핵심 키워드 5-7개 (hashtags의 3개 제외)
+   - 롱테일 키워드 3-5개
+
+⚠️ 매우 중요 - 태그 중복 방지:
+- hashtags의 3개 핵심 태그는 description 첫 줄에만 포함
+- description 마지막 부분에는 핵심 3개를 제외한 다른 태그들만 포함
+- uploadTags에는 hashtags의 3개 핵심 태그를 포함하지 않음
+- 모든 태그는 중복되지 않아야 함
+
+CRITICAL:
+- 한글만 사용
+- 클릭베이트 단어 제외
+- 타임라인 스포일러 금지
+- 불법/성인/폭력/담배 관련 키워드 절대 금지
+
+JSON 형식으로만 응답:
+{
+  "description": "...",
+  "pinnedComment": "...",
+  "hashtags": "#태그1 #태그2 #태그3",
+  "uploadTags": ["태그4", "태그5", ...]
+}`,
           },
           {
             role: "user",
-            content: `제목: ${title}\n카테고리: ${category}\n\n대본:\n${script.substring(0, 3000)}\n\n위 대본을 분석하여 유튜브 설명을 작성해주세요.`,
+            content: `제목: ${title}\n카테고리: ${category}${videoDurationMinutes ? `\n영상 길이: ${videoDurationMinutes}분` : ""}\n\n대본:\n${script.substring(0, 3000)}\n\n위 대본을 분석하여 유튜브 설명을 작성해주세요. 핵심 태그 3개는 첫 줄에만 포함하고, 마지막 부분에는 그 외 태그들만 포함하세요.`,
           },
         ],
-        max_tokens: 1500,
+        max_tokens: 2000,
         temperature: 0.7,
       }),
     })
@@ -4435,11 +4500,55 @@ export async function generateYouTubeDescription(
     if (jsonMatch) {
       try {
         const parsed = JSON.parse(jsonMatch[0])
+        
+        // 핵심 태그 추출 (hashtags에서 # 제거하고 정규화)
+        const coreTags = (parsed.hashtags || "")
+          .split(/\s+/)
+          .map((tag: string) => tag.replace(/^#/, "").trim().toLowerCase())
+          .filter((tag: string) => tag.length > 0)
+          .slice(0, 3) // 최대 3개만
+        
+        // description에서 마지막 부분의 핵심 태그 제거
+        let description = parsed.description || content.trim()
+        if (coreTags.length > 0 && description) {
+          const lines = description.split('\n')
+          if (lines.length > 1) {
+            const firstLine = lines[0]
+            const restLines = lines.slice(1)
+            
+            // 마지막 부분에서 핵심 태그 제거
+            const cleanedRestLines = restLines.map((line: string) => {
+              let cleanedLine = line
+              coreTags.forEach((coreTag: string) => {
+                // #태그 또는 태그 형식으로 제거 (대소문자 무시)
+                const regex = new RegExp(`#?${coreTag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'gi')
+                cleanedLine = cleanedLine.replace(regex, '').trim()
+              })
+              // 연속된 공백 정리
+              cleanedLine = cleanedLine.replace(/\s+/g, ' ').trim()
+              return cleanedLine
+            }).filter((line: string) => line.length > 0)
+            
+            description = [firstLine, ...cleanedRestLines].filter(l => l.trim()).join('\n')
+          }
+        }
+        
+        // uploadTags에서 핵심 태그 제거 (대소문자 무시)
+        const uploadTags = Array.isArray(parsed.uploadTags) 
+          ? parsed.uploadTags
+              .map((tag: string) => tag.replace(/^#/, "").trim())
+              .filter((tag: string) => {
+                if (tag.length === 0) return false
+                const tagLower = tag.toLowerCase()
+                return !coreTags.some((coreTag: string) => tagLower === coreTag)
+              })
+          : []
+        
         return {
-          description: parsed.description || content.trim(),
+          description: description,
           pinnedComment: parsed.pinnedComment || "",
           hashtags: parsed.hashtags || "",
-          uploadTags: Array.isArray(parsed.uploadTags) ? parsed.uploadTags : [],
+          uploadTags: uploadTags,
         }
       } catch {
         // JSON 파싱 실패 시 기본값 반환
