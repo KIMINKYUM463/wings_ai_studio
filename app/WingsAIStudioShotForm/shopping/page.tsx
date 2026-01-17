@@ -1,0 +1,6680 @@
+"use client"
+
+import { useState, useRef, useEffect } from "react"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { Label } from "@/components/ui/label"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  ShoppingBag,
+  FileText,
+  Video,
+  Download,
+  Loader2,
+  ArrowLeft,
+  Home,
+  Sparkles,
+  CheckCircle2,
+  Image as ImageIcon,
+  X,
+  Play,
+  Pause,
+  Volume2,
+  RefreshCw,
+  Bot,
+  ArrowRight,
+  ChevronDown,
+  Copy,
+  Check,
+} from "lucide-react"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Slider } from "@/components/ui/slider"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
+import Link from "next/link"
+import { generateShoppingScript, generateVideoWithSora2, generateImagesWith3Scenes, splitScriptIntoScenes, convertImageToVideoWithWan, convertImagesToVideosWithScript, generateImage, generateVideoWithSeedance, generateShortsThumbnail, generateThumbnailHookingText, generateYouTubeMetadata, getNaverTrendingKeywords, analyzeScriptParts, generateImagePromptsFromScript, mergeVideos, generateVideoPromptFromScript, generateVideoPromptFor3Scenes, generateVideoPromptForImage } from "./actions"
+import { getApiKey } from "@/lib/api-keys"
+import { getShoppingProjects, createShoppingProject, updateShoppingProject, deleteShoppingProject, getShoppingProject, uploadTTSAudio, type ShoppingProject, type ShoppingProjectData } from "./project-actions"
+import { Plus, Trash2, Edit2, Search, FolderOpen } from "lucide-react"
+
+// AudioBuffer를 WAV로 변환하는 함수
+const audioBufferToWav = (buffer: AudioBuffer): ArrayBuffer => {
+  const length = buffer.length
+  const numberOfChannels = buffer.numberOfChannels
+  const sampleRate = buffer.sampleRate
+  const arrayBuffer = new ArrayBuffer(44 + length * numberOfChannels * 2)
+  const view = new DataView(arrayBuffer)
+  const channels: Float32Array[] = []
+  let offset = 0
+  let pos = 0
+
+  // WAV 헤더 작성
+  const setUint16 = (data: number) => {
+    view.setUint16(pos, data, true)
+    pos += 2
+  }
+  const setUint32 = (data: number) => {
+    view.setUint32(pos, data, true)
+    pos += 4
+  }
+
+  // RIFF 헤더
+  setUint32(0x46464952) // "RIFF"
+  setUint32(length * numberOfChannels * 2 + 36) // 파일 크기 - 8
+  setUint32(0x45564157) // "WAVE"
+
+  // fmt 청크
+  setUint32(0x20746d66) // "fmt "
+  setUint32(16) // 청크 크기
+  setUint16(1) // 오디오 포맷 (1 = PCM)
+  setUint16(numberOfChannels) // 채널 수
+  setUint32(sampleRate) // 샘플레이트
+  setUint32(sampleRate * numberOfChannels * 2) // 바이트 레이트
+  setUint16(numberOfChannels * 2) // 블록 정렬
+  setUint16(16) // 비트 깊이
+
+  // data 청크
+  setUint32(0x61746164) // "data"
+  setUint32(length * numberOfChannels * 2) // 데이터 크기
+
+  // 채널 데이터 가져오기
+  for (let i = 0; i < numberOfChannels; i++) {
+    channels.push(buffer.getChannelData(i))
+  }
+
+  // PCM 데이터 작성
+  // 각 샘플을 순회하면서 모든 채널의 데이터를 인터리브 형식으로 작성
+  for (let i = 0; i < length; i++) {
+    for (let channel = 0; channel < numberOfChannels; channel++) {
+      let sample = Math.max(-1, Math.min(1, channels[channel][i]))
+      sample = sample < 0 ? sample * 0x8000 : sample * 0x7fff
+      view.setInt16(pos, sample, true)
+      pos += 2
+    }
+  }
+
+  console.log("[Shopping] WAV 변환 완료:", {
+    expectedSize: arrayBuffer.byteLength,
+    actualPos: pos,
+    length: length,
+    channels: numberOfChannels,
+  })
+
+  return arrayBuffer
+}
+
+interface ScriptLine {
+  id: number
+  text: string
+  startTime: number
+  endTime: number
+}
+
+export default function ShoppingPage() {
+  const [productName, setProductName] = useState("")
+  const [productDescription, setProductDescription] = useState("")
+  const [productImage, setProductImage] = useState<string | null>(null)
+  const [productImageFile, setProductImageFile] = useState<File | null>(null)
+  const [productImageAspectRatio, setProductImageAspectRatio] = useState<number | null>(null) // 제품 이미지 비율 (width/height)
+  const [script, setScript] = useState("")
+  const [videoUrl, setVideoUrl] = useState<string>("")
+  const [imageUrls, setImageUrls] = useState<string[]>([]) // 3개 장면 이미지 URL 배열
+  const [convertedVideoUrls, setConvertedVideoUrls] = useState<Map<number, string>>(new Map()) // 각 장면별로 변환된 영상 URL 저장
+  const [imagePrompts, setImagePrompts] = useState<Array<{ type: string; prompt: string; description: string; scriptText: string }>>([]) // 이미지 프롬프트 배열
+  const [isGeneratingPrompts, setIsGeneratingPrompts] = useState(false) // 프롬프트 생성 중 여부
+  const [promptsGenerated, setPromptsGenerated] = useState(false) // 프롬프트 생성 완료 여부
+  const [isGeneratingScript, setIsGeneratingScript] = useState(false)
+  const [isGeneratingVideo, setIsGeneratingVideo] = useState(false)
+  const [isConvertingToVideo, setIsConvertingToVideo] = useState<Map<number, boolean>>(new Map()) // 각 장면별 변환 중 여부
+  const [isMergingVideos, setIsMergingVideos] = useState(false) // 영상 합치기 중 여부
+  const [activeStep, setActiveStep] = useState<"product" | "script" | "video" | "render" | "thumbnail" | "preview">("product")
+  const [error, setError] = useState<string>("")
+  const [generationProgress, setGenerationProgress] = useState<{ current: number; total: number }>({ current: 0, total: 3 })
+  
+  // TTS 및 영상 렌더링 관련 상태
+  const [scenes, setScenes] = useState<string[]>([]) // 3개 장면 텍스트
+  const [scriptLines, setScriptLines] = useState<ScriptLine[]>([]) // 자막용 라인
+  const [ttsAudioUrl, setTtsAudioUrl] = useState<string>("")
+  const [isGeneratingTTS, setIsGeneratingTTS] = useState(false)
+  const [ttsProgress, setTtsProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 })
+  const [isRendering, setIsRendering] = useState(false)
+  const [isGeneratingPreview, setIsGeneratingPreview] = useState(false) // 미리보기 생성 중 상태
+  const [previewGenerated, setPreviewGenerated] = useState(false) // 미리보기 생성 완료 여부
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [selectedVoiceId, setSelectedVoiceId] = useState<string>("ttsmaker-여성1") // 기본: TTSMaker 여성1
+  const [customElevenLabsVoices, setCustomElevenLabsVoices] = useState<Array<{ id: string; name: string }>>([]) // 사용자 추가 일레븐랩스 목소리
+  const [supertoneVoices, setSupertoneVoices] = useState<Array<{ voice_id: string; name: string; language: string[]; styles: string[]; thumbnail_image_url?: string }>>([]) // 수퍼톤 음성 목록
+  const [isLoadingSupertoneVoices, setIsLoadingSupertoneVoices] = useState(false) // 수퍼톤 음성 목록 로딩 중
+  const [selectedSupertoneVoiceId, setSelectedSupertoneVoiceId] = useState<string>("") // 선택된 수퍼톤 음성 ID
+  const [selectedSupertoneStyle, setSelectedSupertoneStyle] = useState<string>("neutral") // 선택된 수퍼톤 스타일
+  const [customElevenLabsVoiceId, setCustomElevenLabsVoiceId] = useState<string>("") // 사용자가 입력한 ElevenLabs 음성 ID
+  const [previewingVoiceId, setPreviewingVoiceId] = useState<string | null>(null)
+  const [previewAudioUrl, setPreviewAudioUrl] = useState<string | null>(null)
+  const [previewVideoElements, setPreviewVideoElements] = useState<HTMLVideoElement[]>([]) // 미리보기용 비디오 엘리먼트
+  const [previewAudio, setPreviewAudio] = useState<HTMLAudioElement | null>(null) // 미리보기용 오디오
+  const [previewBgmAudio, setPreviewBgmAudio] = useState<HTMLAudioElement | null>(null) // 미리보기용 BGM 오디오
+  const [previewAnimationFrame, setPreviewAnimationFrame] = useState<number | null>(null) // 미리보기 애니메이션 프레임 (사용 안 함, 롱폼 방식)
+  const [previewThumbnailImage, setPreviewThumbnailImage] = useState<HTMLImageElement | null>(null) // 미리보기용 썸네일 이미지
+  const [currentSubtitle, setCurrentSubtitle] = useState<string>("") // 현재 자막 (롱폼 방식)
+  const previewVideoRef = useRef<HTMLVideoElement | null>(null) // 미리보기용 비디오 ref (롱폼 방식)
+  const [currentVideoIndex, setCurrentVideoIndex] = useState<number>(-1) // 현재 재생 중인 영상 인덱스
+  const [previousVideoIndex, setPreviousVideoIndex] = useState<number>(-1) // 이전 재생 중인 영상 인덱스
+  const [videoTransitionOpacity, setVideoTransitionOpacity] = useState<number>(1) // 영상 전환 효과용 opacity
+  
+  // Canvas 및 미리보기 관련
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null)
+  const previewContainerRef = useRef<HTMLDivElement | null>(null)
+  
+  // 썸네일 생성기 관련
+  const [thumbnailUrl, setThumbnailUrl] = useState<string>("")
+  const [isGeneratingThumbnail, setIsGeneratingThumbnail] = useState(false)
+  const [thumbnailHookingText, setThumbnailHookingText] = useState<{ line1: string; line2: string }>({ line1: "", line2: "" })
+  const thumbnailCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
+  const [thumbnailMode, setThumbnailMode] = useState<"ai" | "manual">("ai") // AI 생성 또는 직접 생성
+  const [thumbnailImages, setThumbnailImages] = useState<Array<{ url: string; text: { line1: string; line2: string }; isCustom: boolean }>>([]) // 여러 썸네일 저장
+  const [selectedThumbnailIndex, setSelectedThumbnailIndex] = useState<number>(-1) // 선택된 썸네일 인덱스
+  const [customThumbnailImage, setCustomThumbnailImage] = useState<string>("") // 직접 업로드한 이미지
+  const [customThumbnailText, setCustomThumbnailText] = useState<{ line1: string; line2: string }>({ line1: "", line2: "" }) // 직접 생성한 썸네일의 텍스트
+  const [customThumbnailTextStyle, setCustomThumbnailTextStyle] = useState<{
+    line1Color: string
+    line2Color: string
+    position: number // 0.0 ~ 1.0 (0 = 상단, 0.5 = 중앙, 1.0 = 하단)
+    strokeWidth: number // 테두리 두께
+    strokeColor: string // 테두리 색상
+    imageScale: number // 이미지 확대/축소 (0.5 ~ 2.0)
+    textRotation: number // 텍스트 회전 각도 (도 단위, -180 ~ 180)
+  }>({
+    line1Color: "#FFFFFF", // 흰색
+    line2Color: "#00FFCC", // 민트색
+    position: 0.45, // 중앙 약간 위
+    strokeWidth: 4,
+    strokeColor: "#000000", // 검정색 테두리
+    imageScale: 1.0, // 기본 100%
+    textRotation: 0 // 기본 회전 없음
+  })
+
+  // 새로운 기능 관련 상태
+  const [videoDuration, setVideoDuration] = useState<12 | 15 | 20 | 30>(12) // 영상 길이 옵션
+  const [isEditingScript, setIsEditingScript] = useState(false) // 대본 편집 모드
+  const [editedScript, setEditedScript] = useState("") // 편집된 대본
+  const [scriptParts, setScriptParts] = useState<Array<{ part: string; text: string; startIndex: number; endIndex: number }>>([]) // 대본 파트 분석 결과
+  const [isAnalyzingScript, setIsAnalyzingScript] = useState(false) // 대본 분석 중 여부
+  
+  // 자막 스타일 설정
+  const [subtitleStyle, setSubtitleStyle] = useState({
+    fontSize: 48,
+    fontFamily: "Pretendard",
+    color: "#FFFFFF",
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    position: "center" as "top" | "center" | "bottom",
+    positionOffset: 0, // 위치 세부 조정 (픽셀 단위, -200 ~ +200)
+    textAlign: "center" as "left" | "center" | "right",
+    fontWeight: "bold" as "normal" | "bold",
+    textShadow: true,
+  })
+  
+  // BGM 관련 상태
+  const [bgmUrl, setBgmUrl] = useState<string>("")
+  const [bgmFile, setBgmFile] = useState<File | null>(null)
+  const [bgmVolume, setBgmVolume] = useState(0.3) // BGM 볼륨 (0-1)
+  const [ttsVolume, setTtsVolume] = useState(1.0) // TTS 볼륨 (0-1)
+  
+  // 영상 효과 및 전환
+  const [transitionEffect, setTransitionEffect] = useState<"none" | "fade" | "slide" | "zoom">("fade")
+  const [transitionDuration, setTransitionDuration] = useState(0.5) // 전환 시간 (초)
+  
+  // 제목/설명/태그 자동 생성
+  const [youtubeTitle, setYoutubeTitle] = useState("")
+  const [youtubeDescription, setYoutubeDescription] = useState("")
+  const [youtubeTags, setYoutubeTags] = useState<string[]>([])
+  const [isGeneratingMetadata, setIsGeneratingMetadata] = useState(false)
+  const [copiedTitle, setCopiedTitle] = useState(false)
+  const [copiedDescription, setCopiedDescription] = useState(false)
+  const [copiedTags, setCopiedTags] = useState(false)
+
+  // 프로젝트 관리 상태
+  const [projects, setProjects] = useState<ShoppingProject[]>([])
+  const [currentProject, setCurrentProject] = useState<ShoppingProject | null>(null)
+  const [showProjectList, setShowProjectList] = useState(true) // 프로젝트 목록 화면 표시 여부
+  const [isLoadingProjects, setIsLoadingProjects] = useState(false)
+  const [isSavingProject, setIsSavingProject] = useState(false)
+  const [newProjectName, setNewProjectName] = useState("")
+  const [newProjectDescription, setNewProjectDescription] = useState("")
+  const [showCreateProjectDialog, setShowCreateProjectDialog] = useState(false)
+  const [projectSearchQuery, setProjectSearchQuery] = useState("") // 프로젝트 검색어
+  const [userId, setUserId] = useState<string>("") // 사용자 ID
+  const [isEditingProjectName, setIsEditingProjectName] = useState(false)
+  const [editingProjectName, setEditingProjectName] = useState("")
+
+  // 윙스봇 챗봇 상태
+  const [isChatbotOpen, setIsChatbotOpen] = useState(false) // 챗봇 열림/닫힘
+  const [chatbotMessages, setChatbotMessages] = useState<Array<{ type: "user" | "assistant"; content: string }>>([]) // 챗봇 메시지
+  const [chatbotInput, setChatbotInput] = useState<string>("") // 챗봇 입력
+  const [isChatbotGenerating, setIsChatbotGenerating] = useState(false) // 챗봇 응답 생성 중
+
+  // 네이버 인기 키워드 상태
+  const [trendingKeywords, setTrendingKeywords] = useState<string[]>([])
+  const [isLoadingKeywords, setIsLoadingKeywords] = useState(false)
+  const [showKeywordsDialog, setShowKeywordsDialog] = useState(false)
+
+  // 네이버 인기 키워드 가져오기
+  const handleLoadTrendingKeywords = async () => {
+    setIsLoadingKeywords(true)
+    setShowKeywordsDialog(true)
+    
+    // 최소 5초 동안 애니메이션 유지
+    const minLoadingTime = 5000
+    const startTime = Date.now()
+    
+    try {
+      const keywords = await getNaverTrendingKeywords("쇼핑")
+      console.log("[Frontend] 받은 키워드:", keywords)
+      
+      // 최소 로딩 시간이 지나지 않았다면 대기
+      const elapsedTime = Date.now() - startTime
+      if (elapsedTime < minLoadingTime) {
+        await new Promise(resolve => setTimeout(resolve, minLoadingTime - elapsedTime))
+      }
+      
+      setTrendingKeywords(keywords || [])
+      
+      // 키워드가 없으면 기본 키워드 표시
+      if (!keywords || keywords.length === 0) {
+        const defaultKeywords = [
+          "난로",
+          "패딩",
+          "코트",
+          "목도리",
+          "장갑",
+          "부츠",
+          "히트텍",
+          "내복",
+          "담요",
+          "전기장판"
+        ]
+        setTrendingKeywords(defaultKeywords)
+      }
+    } catch (error) {
+      console.error("인기 키워드 로드 실패:", error)
+      
+      // 최소 로딩 시간이 지나지 않았다면 대기
+      const elapsedTime = Date.now() - startTime
+      if (elapsedTime < minLoadingTime) {
+        await new Promise(resolve => setTimeout(resolve, minLoadingTime - elapsedTime))
+      }
+      
+      // 에러 발생 시에도 기본 키워드 표시
+      const defaultKeywords = [
+        "난로",
+        "패딩",
+        "코트",
+        "목도리",
+        "장갑",
+        "부츠",
+        "히트텍",
+        "내복",
+        "담요",
+        "전기장판"
+      ]
+      setTrendingKeywords(defaultKeywords)
+    } finally {
+      setIsLoadingKeywords(false)
+    }
+  }
+
+  // 키워드 선택 시 제품명에 자동 입력
+  const handleSelectKeyword = (keyword: string) => {
+    setProductName(keyword)
+    setShowKeywordsDialog(false)
+  }
+
+  // 사용자 ID 가져오기
+  useEffect(() => {
+    const fetchUserInfo = async () => {
+      try {
+        const response = await fetch("/api/kakao/user")
+        const data = await response.json()
+        
+        if (data.loggedIn && data.user) {
+          const userIdentifier = data.user.email || `kakao_${data.user.id}`
+          setUserId(userIdentifier)
+        } else {
+          const storedUserId = localStorage.getItem("user_id") || localStorage.getItem("user_email") || "anonymous"
+          setUserId(storedUserId)
+        }
+      } catch (error) {
+        console.error("[Shopping Projects] 사용자 정보 조회 실패:", error)
+        const storedUserId = localStorage.getItem("user_id") || localStorage.getItem("user_email") || "anonymous"
+        setUserId(storedUserId)
+      }
+    }
+    
+    fetchUserInfo()
+  }, [])
+
+  // 프로젝트 목록 불러오기
+  useEffect(() => {
+    if (userId && showProjectList) {
+      loadProjects()
+    }
+  }, [userId, showProjectList])
+
+  // 썸네일 탭으로 돌아왔을 때 썸네일 다시 그리기
+  useEffect(() => {
+    if (activeStep === "thumbnail" && thumbnailUrl && thumbnailCanvasRef.current) {
+      // 선택된 썸네일이 AI 생성 썸네일인지 확인
+      const selectedThumbnail = selectedThumbnailIndex >= 0 ? thumbnailImages[selectedThumbnailIndex] : null
+      if (selectedThumbnail && !selectedThumbnail.isCustom) {
+        // AI 생성 썸네일은 이미 텍스트가 포함되어 있으므로 그대로 표시
+        const canvas = thumbnailCanvasRef.current
+        const ctx = canvas.getContext("2d")
+        if (ctx) {
+          canvas.width = 1080
+          canvas.height = 1920
+          const img = new Image()
+          img.crossOrigin = "anonymous"
+          img.src = thumbnailUrl
+          img.onload = () => {
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+          }
+        }
+      } else if (selectedThumbnail && selectedThumbnail.isCustom && thumbnailHookingText.line1) {
+        // 직접 생성 썸네일은 텍스트를 렌더링
+        renderThumbnailWithText(thumbnailUrl, thumbnailHookingText)
+      }
+    }
+  }, [activeStep, thumbnailUrl, thumbnailHookingText, selectedThumbnailIndex, thumbnailImages])
+
+  // 직접 생성 모드: 이미지와 텍스트가 모두 있을 때 실시간 미리보기 업데이트
+  useEffect(() => {
+    if (thumbnailMode === "manual" && customThumbnailImage && customThumbnailText.line1 && customThumbnailText.line2) {
+      renderThumbnailWithText(customThumbnailImage, customThumbnailText)
+    }
+  }, [thumbnailMode, customThumbnailImage, customThumbnailText, customThumbnailTextStyle])
+
+  // preview 단계 진입 시 유튜브 메타데이터 자동 생성
+  useEffect(() => {
+    const generateMetadataOnPreview = async () => {
+      // preview 단계이고, 대본이 있고, 메타데이터가 없을 때만 자동 생성
+      if (activeStep === "preview" && script.trim() && !youtubeTitle && !youtubeDescription && youtubeTags.length === 0) {
+        const openaiApiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_openai_api_key") || undefined : undefined
+        
+        if (openaiApiKey) {
+          console.log("[Shopping] preview 단계 진입, 유튜브 메타데이터 자동 생성 시작")
+          setIsGeneratingMetadata(true)
+          try {
+            const metadata = await generateYouTubeMetadata(
+              productName,
+              productDescription || productName,
+              script,
+              openaiApiKey
+            )
+            setYoutubeTitle(metadata.title)
+            setYoutubeDescription(metadata.description)
+            setYoutubeTags(metadata.tags)
+            console.log("[Shopping] 유튜브 메타데이터 자동 생성 완료")
+          } catch (error) {
+            console.error("메타데이터 자동 생성 실패:", error)
+            // 자동 생성 실패해도 계속 진행 (사용자가 수동으로 생성할 수 있음)
+          } finally {
+            setIsGeneratingMetadata(false)
+          }
+        }
+      }
+    }
+
+    generateMetadataOnPreview()
+  }, [activeStep, script, productName, productDescription, youtubeTitle, youtubeDescription, youtubeTags])
+
+  // 프로젝트 목록 로드
+  const loadProjects = async () => {
+    if (!userId) return
+    
+    setIsLoadingProjects(true)
+    try {
+      const projectsList = await getShoppingProjects(userId)
+      // 최신 작업 순으로 정렬 (updated_at 기준, 없으면 created_at 기준)
+      const sortedProjects = [...projectsList].sort((a, b) => {
+        const dateA = new Date(a.updated_at || a.created_at).getTime()
+        const dateB = new Date(b.updated_at || b.created_at).getTime()
+        return dateB - dateA // 최신순 (내림차순)
+      })
+      setProjects(sortedProjects)
+    } catch (error) {
+      console.error("프로젝트 목록 로드 실패:", error)
+      alert("프로젝트 목록을 불러오는데 실패했습니다.")
+    } finally {
+      setIsLoadingProjects(false)
+    }
+  }
+
+  // 프로젝트 저장
+  const saveProject = async (projectName?: string, isNewProject: boolean = false) => {
+    if (!userId) {
+      alert("로그인이 필요합니다.")
+      return
+    }
+
+    // 프로젝트 이름 결정 (제품명과 별도로 관리)
+    let name: string
+    if (isNewProject) {
+      // 새 프로젝트 생성 시: 반드시 입력받은 이름 사용
+      name = newProjectName || projectName || "새 프로젝트"
+    } else if (currentProject) {
+      // 기존 프로젝트 업데이트 시: 현재 프로젝트 이름 유지 또는 입력받은 이름 사용
+      name = projectName || currentProject.name
+    } else {
+      // 프로젝트가 없는 경우: 입력받은 이름 또는 기본값
+      name = projectName || newProjectName || "새 프로젝트"
+    }
+    
+    if (!name.trim()) {
+      alert("프로젝트 이름을 입력해주세요.")
+      return
+    }
+
+    setIsSavingProject(true)
+    try {
+      // TTS 오디오 URL이 임시 URL(blob:)이면 Supabase Storage에 업로드
+      let finalTtsAudioUrl = ttsAudioUrl && ttsAudioUrl.trim() ? ttsAudioUrl : undefined
+      if (finalTtsAudioUrl && finalTtsAudioUrl.startsWith("blob:")) {
+        try {
+          console.log("[Shopping] 임시 오디오 URL 감지, Supabase Storage에 업로드 중...")
+          const audioResponse = await fetch(finalTtsAudioUrl)
+          const audioBlob = await audioResponse.blob()
+          
+          // 프로젝트 ID 결정 (기존 프로젝트 또는 새로 생성될 프로젝트)
+          let projectIdForUpload = currentProject?.id
+          if (!projectIdForUpload && !isNewProject) {
+            // 프로젝트가 없으면 먼저 생성해야 함
+            console.warn("[Shopping] 프로젝트가 없어 오디오를 나중에 업로드합니다.")
+          } else if (projectIdForUpload) {
+            // 기존 프로젝트가 있으면 바로 업로드
+            finalTtsAudioUrl = await uploadTTSAudio(audioBlob, projectIdForUpload, userId)
+            console.log("[Shopping] 오디오 파일 업로드 완료:", finalTtsAudioUrl)
+          }
+        } catch (uploadError) {
+          console.error("[Shopping] 오디오 파일 업로드 실패:", uploadError)
+          // 업로드 실패해도 임시 URL 유지 (사용자 경험 유지)
+        }
+      }
+      
+      const projectData: ShoppingProjectData = {
+        productName: productName ?? undefined,
+        productDescription: productDescription ?? undefined,
+        productImage: productImage !== null ? productImage : undefined,
+        videoDuration,
+        script,
+        editedScript,
+        selectedVoiceId,
+        selectedSupertoneVoiceId,
+        selectedSupertoneStyle,
+        ttsAudioUrl: finalTtsAudioUrl,
+        imageUrls,
+        imagePrompts,
+        convertedVideoUrls: Array.from(convertedVideoUrls.entries()).map(([index, url]) => ({ index, videoUrl: url })),
+        videoUrl,
+        subtitleStyle,
+        bgmUrl,
+        bgmVolume,
+        ttsVolume,
+        transitionEffect,
+        transitionDuration,
+        youtubeTitle,
+        youtubeDescription,
+        youtubeTags,
+        thumbnailUrl,
+        thumbnailHookingText,
+        thumbnailImages,
+        selectedThumbnailIndex,
+        activeStep,
+        completedSteps: [],
+      }
+
+      if (currentProject && !isNewProject) {
+        // 기존 프로젝트 업데이트
+        await updateShoppingProject(currentProject.id, {
+          name,
+          description: newProjectDescription || undefined,
+          data: projectData,
+        })
+        alert("프로젝트가 저장되었습니다.")
+      } else {
+        // 새 프로젝트 생성 전에 모든 상태 초기화
+        setProductName("")
+        setProductDescription("")
+        setProductImage(null)
+        setProductImageFile(null)
+        setScript("")
+        setEditedScript("")
+        setVideoUrl("")
+        setImageUrls([])
+        setImagePrompts([])
+        setPromptsGenerated(false)
+        setConvertedVideoUrls(new Map())
+        setTtsAudioUrl("")
+        setScenes([])
+        setScriptLines([])
+        setVideoDuration(12)
+        setSelectedVoiceId("ttsmaker-여성1")
+        setSelectedSupertoneVoiceId("")
+        setSelectedSupertoneStyle("neutral")
+        setSubtitleStyle({
+          fontSize: 48,
+          fontFamily: "Pretendard",
+          color: "#FFFFFF",
+          backgroundColor: "rgba(0, 0, 0, 0.5)",
+          position: "center" as "top" | "center" | "bottom",
+          positionOffset: 0,
+          textAlign: "center" as "left" | "center" | "right",
+          fontWeight: "bold" as "normal" | "bold",
+          textShadow: true,
+        })
+        setBgmUrl("")
+        setBgmFile(null)
+        setBgmVolume(0.3)
+        setTtsVolume(1.0)
+        setTransitionEffect("fade")
+        setTransitionDuration(0.5)
+        setYoutubeTitle("")
+        setYoutubeDescription("")
+        setYoutubeTags([])
+        setThumbnailUrl("")
+        setThumbnailHookingText({ line1: "", line2: "" })
+        setActiveStep("product")
+        setError("")
+        
+        // 빈 데이터로 새 프로젝트 생성
+        const emptyProjectData: ShoppingProjectData = {
+          activeStep: "product",
+        }
+        
+        const newProject = await createShoppingProject(
+          userId,
+          name,
+          newProjectDescription || undefined,
+          emptyProjectData
+        )
+        setCurrentProject(newProject) // 새 프로젝트로 전환
+        
+        // 새 프로젝트 생성 후 오디오가 임시 URL이면 업로드
+        if (finalTtsAudioUrl && finalTtsAudioUrl.startsWith("blob:")) {
+          try {
+            console.log("[Shopping] 새 프로젝트 생성 후 오디오 파일 업로드 중...")
+            const audioResponse = await fetch(finalTtsAudioUrl)
+            const audioBlob = await audioResponse.blob()
+            const uploadedAudioUrl = await uploadTTSAudio(audioBlob, newProject.id, userId)
+            
+            // 업로드된 URL로 프로젝트 업데이트
+            await updateShoppingProject(newProject.id, {
+              data: {
+                ...projectData,
+                ttsAudioUrl: uploadedAudioUrl,
+              },
+            })
+            
+            // 상태도 업데이트
+            setTtsAudioUrl(uploadedAudioUrl)
+            console.log("[Shopping] 새 프로젝트 오디오 파일 업로드 완료:", uploadedAudioUrl)
+          } catch (uploadError) {
+            console.error("[Shopping] 새 프로젝트 오디오 파일 업로드 실패:", uploadError)
+          }
+        }
+        
+        setShowCreateProjectDialog(false)
+        setNewProjectName("")
+        setNewProjectDescription("")
+        setShowProjectList(false) // 프로젝트 목록 닫고 작업 화면으로 이동
+      }
+      
+      await loadProjects()
+    } catch (error) {
+      console.error("프로젝트 저장 실패:", error)
+      alert("프로젝트 저장에 실패했습니다.")
+    } finally {
+      setIsSavingProject(false)
+    }
+  }
+
+  // 프로젝트 불러오기
+  const loadProject = async (projectId: string) => {
+    try {
+      const project = await getShoppingProject(projectId)
+      if (!project) {
+        alert("프로젝트를 찾을 수 없습니다.")
+        return
+      }
+
+      const data = project.data
+      
+      // 프로젝트 데이터 복원 (TTS 상태 포함)
+      if (data.productName) setProductName(data.productName)
+      if (data.productDescription) setProductDescription(data.productDescription)
+      if (data.productImage) {
+        setProductImage(data.productImage)
+        // 이미지 비율 계산
+        const img = new Image()
+        img.onload = () => {
+          const aspectRatio = img.width / img.height
+          setProductImageAspectRatio(aspectRatio)
+        }
+        img.src = data.productImage
+      }
+      if (data.videoDuration) setVideoDuration(data.videoDuration)
+      if (data.script) setScript(data.script)
+      if (data.editedScript) setEditedScript(data.editedScript)
+      if (data.selectedVoiceId) setSelectedVoiceId(data.selectedVoiceId)
+      if (data.selectedSupertoneVoiceId) setSelectedSupertoneVoiceId(data.selectedSupertoneVoiceId)
+      if (data.selectedSupertoneStyle) setSelectedSupertoneStyle(data.selectedSupertoneStyle)
+      // TTS 오디오 URL 복원 (빈 문자열이 아닌 경우에만)
+      setTtsAudioUrl(data.ttsAudioUrl && data.ttsAudioUrl.trim() ? data.ttsAudioUrl : "")
+      if (data.imageUrls) setImageUrls(data.imageUrls)
+      if (data.imagePrompts) {
+        setImagePrompts(data.imagePrompts)
+        setPromptsGenerated(data.imagePrompts.length > 0)
+      }
+      if (data.convertedVideoUrls) {
+        const videoMap = new Map<number, string>()
+        data.convertedVideoUrls.forEach(({ index, videoUrl }) => {
+          videoMap.set(index, videoUrl)
+        })
+        setConvertedVideoUrls(videoMap)
+      }
+      if (data.videoUrl) setVideoUrl(data.videoUrl)
+      if (data.subtitleStyle) setSubtitleStyle({
+        ...data.subtitleStyle,
+        positionOffset: data.subtitleStyle.positionOffset ?? 0, // 기본값 0
+      })
+      if (data.bgmUrl) setBgmUrl(data.bgmUrl)
+      if (data.bgmVolume !== undefined) setBgmVolume(data.bgmVolume)
+      if (data.ttsVolume !== undefined) setTtsVolume(data.ttsVolume)
+      if (data.transitionEffect) setTransitionEffect(data.transitionEffect)
+      if (data.transitionDuration !== undefined) setTransitionDuration(data.transitionDuration)
+      if (data.youtubeTitle) setYoutubeTitle(data.youtubeTitle)
+      if (data.youtubeDescription) setYoutubeDescription(data.youtubeDescription)
+      if (data.youtubeTags) setYoutubeTags(data.youtubeTags)
+      if (data.thumbnailUrl) setThumbnailUrl(data.thumbnailUrl)
+      if (data.thumbnailHookingText) setThumbnailHookingText(data.thumbnailHookingText)
+      if (data.thumbnailImages) setThumbnailImages(data.thumbnailImages)
+      if (data.selectedThumbnailIndex !== undefined) setSelectedThumbnailIndex(data.selectedThumbnailIndex)
+      if (data.activeStep) setActiveStep(data.activeStep)
+
+      setCurrentProject(project)
+      setShowProjectList(false)
+    } catch (error) {
+      console.error("프로젝트 불러오기 실패:", error)
+      alert("프로젝트를 불러오는데 실패했습니다.")
+    }
+  }
+
+  // 프로젝트 삭제
+  const handleDeleteProject = async (projectId: string) => {
+    if (!confirm("정말 이 프로젝트를 삭제하시겠습니까?")) return
+
+    try {
+      await deleteShoppingProject(projectId)
+      if (currentProject?.id === projectId) {
+        setCurrentProject(null)
+        setShowProjectList(true)
+      }
+      await loadProjects()
+      alert("프로젝트가 삭제되었습니다.")
+    } catch (error) {
+      console.error("프로젝트 삭제 실패:", error)
+      alert("프로젝트 삭제에 실패했습니다.")
+    }
+  }
+
+  // 파일 처리 공통 함수
+  const processImageFile = (file: File) => {
+    // 이미지 파일인지 확인
+    if (!file.type.startsWith("image/")) {
+      alert("이미지 파일만 업로드 가능합니다.")
+      return
+    }
+
+    // 파일 크기 제한 (10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      alert("이미지 크기는 10MB 이하여야 합니다.")
+      return
+    }
+
+    setProductImageFile(file)
+
+    // 미리보기를 위한 URL 생성
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      const imageUrl = reader.result as string
+      setProductImage(imageUrl)
+      
+      // 이미지 비율 계산
+      const img = new Image()
+      img.onload = () => {
+        const aspectRatio = img.width / img.height
+        setProductImageAspectRatio(aspectRatio)
+        console.log(`[Shopping] 제품 이미지 비율: ${img.width}x${img.height} = ${aspectRatio.toFixed(2)}`)
+      }
+      img.src = imageUrl
+    }
+    reader.readAsDataURL(file)
+  }
+
+  // 이미지 업로드 처리
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    processImageFile(file)
+  }
+
+  // 드래그 앤 드롭 처리
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+  }
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+
+    const file = e.dataTransfer.files?.[0]
+    if (!file) return
+    processImageFile(file)
+  }
+
+  // 이미지 제거
+  const handleRemoveImage = () => {
+    setProductImage(null)
+    setProductImageFile(null)
+  }
+
+  // 윙스봇 챗봇 메시지 전송 함수
+  const handleChatbotSend = async () => {
+    if (!chatbotInput.trim() || isChatbotGenerating) return
+
+    const userMessage = chatbotInput.trim()
+    setChatbotInput("")
+    setChatbotMessages((prev) => [...prev, { type: "user", content: userMessage }])
+    setIsChatbotGenerating(true)
+
+    try {
+      // WingsAIStudioShotForm 설정에서 OpenAI API 키 가져오기
+      const apiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_openai_api_key") || null : null
+      if (!apiKey) {
+        setChatbotMessages((prev) => [...prev, {
+          type: "assistant",
+          content: "OpenAI API 키가 필요합니다. 설정에서 API 키를 입력해주세요."
+        }])
+        setIsChatbotGenerating(false)
+        return
+      }
+
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content: "당신은 윙스봇입니다. WingsAIStudioShotForm의 AI 어시스턴트로서 사용자에게 친절하고 도움이 되는 답변을 제공합니다. 쇼핑 숏폼 영상 제작, 대본 작성, 이미지 생성, TTS 등에 대한 질문에 답변할 수 있습니다."
+            },
+            ...chatbotMessages.map((msg) => ({
+              role: msg.type === "user" ? "user" : "assistant",
+              content: msg.content
+            })),
+            { role: "user", content: userMessage }
+          ],
+          temperature: 0.7,
+          max_tokens: 1000,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error?.message || "응답 생성에 실패했습니다.")
+      }
+
+      const data = await response.json()
+      const reply = data.choices[0]?.message?.content || "응답 생성에 실패했습니다."
+
+      setChatbotMessages((prev) => [...prev, { type: "assistant", content: reply }])
+    } catch (error) {
+      console.error("챗봇 응답 생성 실패:", error)
+      const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다."
+      setChatbotMessages((prev) => [...prev, {
+        type: "assistant",
+        content: `죄송합니다. 오류가 발생했습니다: ${errorMessage}`
+      }])
+    } finally {
+      setIsChatbotGenerating(false)
+    }
+  }
+
+  // 대본 생성
+  const handleGenerateScript = async () => {
+    if (!productName.trim()) {
+      alert("제품명을 입력해주세요.")
+      return
+    }
+
+    const openaiApiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_openai_api_key") || undefined : undefined
+
+    if (!openaiApiKey) {
+      alert("OpenAI API 키가 필요합니다. 메인 화면의 설정(톱니바퀴 아이콘)에서 API 키를 입력해주세요.")
+      return
+    }
+
+    setIsGeneratingScript(true)
+    setError("")
+
+    try {
+      // 제품 설명이 있으면 그것을 기반으로, 없으면 제품명만 사용
+      const scriptPrompt = productDescription.trim() 
+        ? `${productName}. ${productDescription}` 
+        : productName
+      
+      const generatedScript = await generateShoppingScript(
+        productName,
+        scriptPrompt,
+        openaiApiKey,
+        videoDuration
+      )
+      setScript(generatedScript)
+      setEditedScript(generatedScript)
+      setActiveStep("script")
+      
+      // 대본 생성 후 자동으로 파트 분석
+      try {
+        setIsAnalyzingScript(true)
+        const parts = await analyzeScriptParts(generatedScript, openaiApiKey)
+        setScriptParts(parts)
+      } catch (error) {
+        console.error("대본 분석 실패:", error)
+        setScriptParts([])
+      } finally {
+        setIsAnalyzingScript(false)
+      }
+    } catch (error) {
+      console.error("대본 생성 실패:", error)
+      setError(`대본 생성에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+    } finally {
+      setIsGeneratingScript(false)
+    }
+  }
+
+  // 대본 편집 저장
+  const handleSaveEditedScript = () => {
+    setScript(editedScript)
+    setIsEditingScript(false)
+  }
+
+  // BGM 파일 업로드
+  const handleBgmUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (!file.type.startsWith("audio/")) {
+      alert("오디오 파일만 업로드 가능합니다.")
+      return
+    }
+
+    setBgmFile(file)
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      setBgmUrl(reader.result as string)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  // 제목/설명/태그 자동 생성
+  const handleGenerateMetadata = async () => {
+    if (!script.trim()) {
+      alert("대본이 없습니다. 먼저 대본을 생성해주세요.")
+      return
+    }
+
+    const openaiApiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_openai_api_key") || undefined : undefined
+
+    if (!openaiApiKey) {
+      alert("OpenAI API 키가 필요합니다.")
+      return
+    }
+
+    setIsGeneratingMetadata(true)
+    try {
+      const metadata = await generateYouTubeMetadata(
+        productName,
+        productDescription || productName,
+        script,
+        openaiApiKey
+      )
+      setYoutubeTitle(metadata.title)
+      setYoutubeDescription(metadata.description)
+      setYoutubeTags(metadata.tags)
+    } catch (error) {
+      console.error("메타데이터 생성 실패:", error)
+      alert(`메타데이터 생성에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+    } finally {
+      setIsGeneratingMetadata(false)
+    }
+  }
+
+  // 수퍼톤 음성 목록 가져오기
+  const fetchSupertoneVoices = async () => {
+    setIsLoadingSupertoneVoices(true)
+    try {
+      const supertoneApiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_supertone_api_key") || undefined : undefined
+      if (!supertoneApiKey) {
+        alert("수퍼톤 API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+        setIsLoadingSupertoneVoices(false)
+      return
+    }
+
+      const response = await fetch(`/api/supertone-voices?apiKey=${encodeURIComponent(supertoneApiKey)}`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "음성 목록을 가져오는데 실패했습니다.")
+      }
+
+      const data = await response.json()
+      if (data.success && data.voices) {
+        const excludedNames = ["달팽이A", "기억의정령_알마냐", "틈새의정령_알마냐"]
+        const filteredVoices = data.voices.filter((voice: { name: string }) => 
+          !excludedNames.some(excluded => voice.name.includes(excluded))
+        )
+        setSupertoneVoices(filteredVoices)
+        if (filteredVoices.length > 0 && !selectedSupertoneVoiceId) {
+          setSelectedSupertoneVoiceId(filteredVoices[0].voice_id)
+          setSelectedVoiceId(`supertone-${filteredVoices[0].voice_id}`)
+        }
+      } else {
+        throw new Error(data.error || "음성 목록을 가져오는데 실패했습니다.")
+      }
+    } catch (error) {
+      console.error("수퍼톤 음성 목록 가져오기 실패:", error)
+      alert(`수퍼톤 음성 목록을 가져오는데 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+    } finally {
+      setIsLoadingSupertoneVoices(false)
+    }
+  }
+
+  // 목소리 미리듣기 함수
+  const handlePreviewVoice = async (voiceId: string) => {
+    setPreviewingVoiceId(voiceId)
+    
+    try {
+      let response: Response
+      
+      if (voiceId?.startsWith("supertone-")) {
+        const actualVoiceId = voiceId.replace("supertone-", "")
+        const supertoneApiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_supertone_api_key") || undefined : undefined
+        
+        if (!supertoneApiKey) {
+          alert("수퍼톤 API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+          setPreviewingVoiceId(null)
+          return
+        }
+        
+        response = await fetch("/api/supertone-tts", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            text: "여러분 환영합니다",
+            voiceId: actualVoiceId,
+            apiKey: supertoneApiKey,
+            style: selectedSupertoneStyle || "neutral",
+            language: "ko",
+          }),
+        })
+      } else if (voiceId?.startsWith("ttsmaker-")) {
+        const voiceName = voiceId.replace("ttsmaker-", "")
+        const pitch = voiceName === "남성5" ? 0.9 : 1.0
+        const ttsmakerApiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_ttsmaker_api_key") || undefined : undefined
+
+        if (!ttsmakerApiKey) {
+          alert("TTSMaker API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+          setPreviewingVoiceId(null)
+          return
+        }
+        
+        response = await fetch("/api/ttsmaker", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            text: "여러분 환영합니다",
+            voice: voiceName,
+            speed: 1.0,
+            pitch: pitch,
+            apiKey: ttsmakerApiKey,
+          }),
+        })
+      } else if (voiceId?.startsWith("elevenlabs-")) {
+        // ElevenLabs인 경우 - 접두사 제거
+        const cleanVoiceId = voiceId.replace("elevenlabs-", "")
+        let elevenlabsApiKey = typeof window !== "undefined" 
+          ? (localStorage.getItem("shotform_elevenlabs_api_key") || localStorage.getItem("elevenlabs_api_key") || "").trim() 
+          : null
+        
+        if (!elevenlabsApiKey || elevenlabsApiKey.length === 0) {
+          alert("ElevenLabs API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+          setPreviewingVoiceId(null)
+          return
+        }
+        
+        response = await fetch("/api/elevenlabs-tts", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            text: "여러분 환영합니다",
+            voiceId: cleanVoiceId, // 접두사 제거된 순수 Voice ID
+            apiKey: elevenlabsApiKey,
+          }),
+        })
+      } else {
+        // 기본 TTSMaker 처리 (접두사 없는 경우)
+        const voiceName = voiceId.replace("ttsmaker-", "") || "여성1"
+        const pitch = voiceName === "남성5" ? 0.9 : 1.0
+        const ttsmakerApiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_ttsmaker_api_key") || undefined : undefined
+
+        if (!ttsmakerApiKey) {
+          alert("TTSMaker API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+          setPreviewingVoiceId(null)
+          return
+        }
+        
+        response = await fetch("/api/ttsmaker", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            text: "여러분 환영합니다",
+            voice: voiceName,
+            speed: 1.0,
+            pitch: pitch,
+            apiKey: ttsmakerApiKey,
+          }),
+        })
+      }
+
+      if (!response.ok) {
+        let errorMessage = "미리듣기 실패"
+        try {
+          const clonedResponse = response.clone()
+          const errorData = await clonedResponse.json()
+          errorMessage = errorData.error || errorData.message || `HTTP ${response.status}: ${response.statusText}`
+        } catch (e) {
+          try {
+            const errorText = await response.text()
+            errorMessage = errorText || `HTTP ${response.status}: ${response.statusText}`
+          } catch (textError) {
+            errorMessage = `HTTP ${response.status}: ${response.statusText}`
+          }
+        }
+        throw new Error(errorMessage)
+      }
+
+      const data = await response.json()
+      
+      if (data.audioUrl) {
+        setPreviewAudioUrl(data.audioUrl)
+        const audio = new Audio(data.audioUrl)
+        audio.play()
+        audio.onended = () => {
+          setPreviewingVoiceId(null)
+          setPreviewAudioUrl(null)
+        }
+        audio.onerror = () => {
+          setPreviewingVoiceId(null)
+          setPreviewAudioUrl(null)
+        }
+      } else if (data.audioBase64) {
+        const binaryString = atob(data.audioBase64)
+        const bytes = new Uint8Array(binaryString.length)
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i)
+        }
+        const blob = new Blob([bytes], { type: "audio/mpeg" })
+        const audioUrl = URL.createObjectURL(blob)
+        setPreviewAudioUrl(audioUrl)
+        
+        const audio = new Audio(audioUrl)
+        audio.play()
+        audio.onended = () => {
+          URL.revokeObjectURL(audioUrl)
+          setPreviewingVoiceId(null)
+          setPreviewAudioUrl(null)
+        }
+        audio.onerror = () => {
+          URL.revokeObjectURL(audioUrl)
+          setPreviewingVoiceId(null)
+          setPreviewAudioUrl(null)
+        }
+      }
+    } catch (error) {
+      console.error("미리듣기 실패:", error)
+      alert(`미리듣기에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+      setPreviewingVoiceId(null)
+      setPreviewAudioUrl(null)
+    }
+  }
+
+  // TTS 생성 (3개 장면 전체 대본) - 이미지 생성보다 먼저
+  const handleGenerateTTS = async () => {
+    if (!script.trim()) {
+      alert("대본이 없습니다.")
+      return
+    }
+
+    // 재생성 시 기존 오디오 URL 초기화
+    if (ttsAudioUrl) {
+      // Blob URL인 경우 메모리 해제
+      if (ttsAudioUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(ttsAudioUrl)
+      }
+      setTtsAudioUrl("")
+    }
+
+    setIsGeneratingTTS(true)
+    setTtsProgress({ current: 0, total: 1 })
+    setError("")
+
+    try {
+      // 전체 대본을 한 번에 TTS 생성 (대본 그대로 사용 - 절대 끊기면 안됨)
+      console.log("[Shopping] TTS 생성 중... (목소리:", selectedVoiceId, ")")
+      console.log("[Shopping] 대본 전체 길이:", script.length, "자")
+      console.log("[Shopping] 대본 전체 내용:", script)
+      
+      // 대본을 그대로 사용 (전처리 없이 원본 그대로)
+      // 절대 대본을 수정하거나 자르지 않음
+      const ttsText = script.trim()
+      
+      console.log("[Shopping] TTS에 전달할 대본 길이:", ttsText.length, "자")
+      console.log("[Shopping] TTS에 전달할 대본 내용:", ttsText)
+      
+      let response: Response
+      
+      // TTSMaker인 경우
+      if (selectedVoiceId?.startsWith("ttsmaker-")) {
+        const voiceName = selectedVoiceId.replace("ttsmaker-", "")
+        const pitch = voiceName === "남성5" ? 0.9 : 1.0
+        const ttsmakerApiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_ttsmaker_api_key") || undefined : undefined
+        
+        if (!ttsmakerApiKey) {
+          alert("TTSMaker API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+          setIsGeneratingTTS(false)
+          return
+        }
+        
+        response = await fetch("/api/ttsmaker", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            text: ttsText,
+            voice: voiceName,
+            speed: 1.0,
+            pitch: pitch,
+            apiKey: ttsmakerApiKey,
+          }),
+        })
+      } else if (selectedVoiceId?.startsWith("supertone-")) {
+        // 수퍼톤인 경우
+        const voiceId = selectedVoiceId.replace("supertone-", "")
+        let supertoneApiKey = typeof window !== "undefined" 
+          ? (localStorage.getItem("supertone_api_key") || "").trim() 
+          : null
+        
+        if (!supertoneApiKey || supertoneApiKey.length === 0) {
+          alert("수퍼톤 API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+          setIsGeneratingTTS(false)
+          return
+        }
+        
+        response = await fetch("/api/supertone-tts", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            text: ttsText,
+            voiceId: voiceId,
+            apiKey: supertoneApiKey,
+            style: selectedSupertoneStyle || "neutral",
+            language: "ko",
+          }),
+        })
+      } else if (selectedVoiceId?.startsWith("elevenlabs-")) {
+        // ElevenLabs인 경우
+        const voiceId = selectedVoiceId.replace("elevenlabs-", "") // 접두사 제거
+        const elevenlabsApiKey = typeof window !== "undefined" ? localStorage.getItem("elevenlabs_api_key") || undefined : undefined
+
+        if (!elevenlabsApiKey) {
+          alert("ElevenLabs API 키가 필요합니다. 메인 화면의 설정(톱니바퀴 아이콘)에서 API 키를 입력해주세요.")
+          setIsGeneratingTTS(false)
+          return
+        }
+        
+        response = await fetch("/api/elevenlabs-tts", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            text: ttsText, // 원본 대본 그대로 사용 (절대 수정하지 않음)
+            voiceId: voiceId, // 접두사 제거된 순수 Voice ID
+            apiKey: elevenlabsApiKey,
+          }),
+        })
+      } else {
+        // TTSMaker인 경우 (기본)
+        const voiceName = selectedVoiceId.replace("ttsmaker-", "")
+        const pitch = voiceName === "남성5" ? 0.9 : 1.0
+        const ttsmakerApiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_ttsmaker_api_key") || undefined : undefined
+
+        if (!ttsmakerApiKey) {
+          alert("TTSMaker API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+          setIsGeneratingTTS(false)
+          return
+        }
+
+        response = await fetch("/api/ttsmaker-tts", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            text: ttsText,
+            voiceId: voiceName === "여성1" ? 503 : voiceName === "여성2" ? 509 : voiceName === "여성6" ? 5802 : voiceName === "남성1" ? 5501 : voiceName === "남성4" ? 5888 : 5888,
+            pitch: pitch,
+            apiKey: ttsmakerApiKey,
+          }),
+        })
+      }
+
+      if (!response.ok) {
+        let errorMessage = "TTS 생성 실패"
+        try {
+          const errorData = await response.json()
+          errorMessage = errorData.error || errorData.message || `HTTP ${response.status}: ${response.statusText}`
+        } catch (e) {
+          const errorText = await response.text()
+          errorMessage = errorText || `HTTP ${response.status}: ${response.statusText}`
+        }
+        throw new Error(errorMessage)
+      }
+
+      const data = await response.json()
+      
+      console.log("[Shopping] TTS API 응답:", {
+        hasAudioBase64: !!data.audioBase64,
+        hasAudioUrl: !!data.audioUrl,
+        success: data.success,
+        error: data.error,
+      })
+      
+      if (!data.success) {
+        throw new Error(data.error || "TTS 생성에 실패했습니다.")
+      }
+      
+      if (!data.audioBase64 && !data.audioUrl) {
+        throw new Error(`TTS 응답에 오디오 데이터가 없습니다. 응답: ${JSON.stringify(data)}`)
+      }
+
+      // Base64를 Blob으로 변환
+      let audioBlob: Blob
+      if (data.audioBase64) {
+        const audioBytes = Uint8Array.from(atob(data.audioBase64), (c) => c.charCodeAt(0))
+        audioBlob = new Blob([audioBytes], { type: "audio/mpeg" })
+      } else if (data.audioUrl) {
+        const audioResponse = await fetch(data.audioUrl)
+        audioBlob = await audioResponse.blob()
+      } else {
+        throw new Error("오디오 데이터를 찾을 수 없습니다.")
+      }
+
+      // 1.5배속 처리 (피치 유지)
+      console.log("[Shopping] 오디오 1.5배속 처리 시작 (피치 유지)...")
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const arrayBuffer = await audioBlob.arrayBuffer()
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
+      
+      // 원본 오디오 정보 확인
+      const originalDuration = audioBuffer.duration
+      const originalSampleRate = audioBuffer.sampleRate
+      const originalLength = audioBuffer.length
+      
+      console.log("[Shopping] 원본 오디오 정보:", {
+        길이: originalDuration.toFixed(3) + "초",
+        샘플수: originalLength,
+        샘플레이트: originalSampleRate + "Hz",
+        채널수: audioBuffer.numberOfChannels
+      })
+      
+      // 1배속으로 사용 (배속 처리 없이 원본 그대로 사용)
+      // 원본 오디오를 그대로 WAV로 변환하여 전체 대본이 모두 포함되도록 함
+      console.log("[Shopping] 오디오를 1배속으로 처리 (원본 그대로 사용, 전체 대본 포함)...")
+      
+      // WAV로 변환 (원본 그대로 사용)
+      console.log("[Shopping] WAV 변환 시작...")
+      const wavBuffer = audioBufferToWav(audioBuffer) // 원본 audioBuffer 사용
+      const processedBlob = new Blob([wavBuffer], { type: "audio/wav" })
+      
+      console.log("[Shopping] ✅ 오디오 처리 완료 (1배속, 원본 그대로, 전체 대본 포함)")
+      console.log("[Shopping] WAV Blob 크기:", processedBlob.size, "bytes")
+      console.log("[Shopping] 최종 오디오 정보:", {
+        원본_길이: originalDuration.toFixed(3) + "초",
+        처리_후_길이: originalDuration.toFixed(3) + "초 (변경 없음, 전체 대본 포함)",
+        WAV_크기: (processedBlob.size / 1024).toFixed(2) + "KB"
+      })
+      
+      // 실제 오디오 길이 (원본 그대로) 사용
+      const actualAudioDuration = originalDuration
+      
+      // 임시 URL 생성 (미리듣기용)
+      const tempAudioUrl = URL.createObjectURL(processedBlob)
+      console.log("[Shopping] 임시 오디오 URL 생성:", tempAudioUrl)
+      
+      // Supabase Storage에 오디오 파일 업로드 (영구 저장)
+      let permanentAudioUrl = tempAudioUrl // 기본값: 임시 URL
+      try {
+        if (userId && currentProject?.id) {
+          console.log("[Shopping] 오디오 파일을 Supabase Storage에 업로드 중...")
+          permanentAudioUrl = await uploadTTSAudio(processedBlob, currentProject.id, userId)
+          console.log("[Shopping] 오디오 파일 업로드 완료:", permanentAudioUrl)
+        } else {
+          console.warn("[Shopping] 프로젝트가 없어 오디오 파일을 업로드하지 않습니다. 프로젝트를 먼저 저장해주세요.")
+        }
+      } catch (uploadError) {
+        console.error("[Shopping] 오디오 파일 업로드 실패:", uploadError)
+        // 업로드 실패해도 임시 URL 사용 (사용자 경험 유지)
+      }
+      
+      // TTS 오디오 URL 설정 (영구 URL 우선, 없으면 임시 URL)
+      setTtsAudioUrl(permanentAudioUrl)
+      console.log("[Shopping] TTS 오디오 URL 설정 완료:", permanentAudioUrl ? "있음" : "없음")
+      
+      // 실제 오디오 길이에 맞춰 scriptLines 시간 정보 생성/재조정
+      // 3개 장면으로 나누기 (scenes가 없으면 생성)
+      let sceneTexts = scenes.length > 0 ? scenes : await splitScriptIntoScenes(script)
+      if (scenes.length === 0) {
+        setScenes(sceneTexts)
+      }
+      
+      // 각 장면을 문장 단위로 나누어 scriptLines 생성
+      const lines: ScriptLine[] = []
+      let currentTime = 0
+      
+      // 실제 오디오 길이에 맞춰 시간 분배
+      const totalCharacters = script.length
+      
+      for (let i = 0; i < sceneTexts.length; i++) {
+        const scene = sceneTexts[i]
+        const sentences = scene.split(/[.!?。！？]\s*/).filter(s => s.trim().length > 0)
+        
+        for (const sentence of sentences) {
+          const sentenceLength = sentence.trim().length
+          const duration = (sentenceLength / totalCharacters) * actualAudioDuration * 1000 // 밀리초
+          
+          lines.push({
+            id: lines.length + 1,
+            text: sentence.trim(),
+            startTime: currentTime,
+            endTime: currentTime + duration,
+          })
+          
+          currentTime += duration
+        }
+      }
+      
+      setScriptLines(lines)
+      console.log("[Shopping] scriptLines 시간 정보 생성 완료 (실제 오디오 길이 기반)")
+      
+      setTtsProgress({ current: 1, total: 1 })
+      
+      alert(`TTS 생성이 완료되었습니다! (실제 길이: ${actualAudioDuration.toFixed(1)}초)`)
+    } catch (error) {
+      console.error("TTS 생성 실패:", error)
+      setError(`TTS 생성에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+    } finally {
+      setIsGeneratingTTS(false)
+    }
+  }
+
+  // 이미지 1개만 생성 (영상은 미리보기 버튼에서)
+  // 이미지 생성 단계로 이동 (실제 생성은 하지 않음)
+  const handleGoToImageGeneration = () => {
+    if (!script.trim()) {
+      alert("대본이 생성되지 않았습니다.")
+      return
+    }
+    setActiveStep("video")
+    // 프롬프트 초기화
+    setImagePrompts([])
+    setPromptsGenerated(false)
+    // 영상 생성 상태 초기화 (단계 전환 시)
+    setIsConvertingToVideo(new Map())
+  }
+
+  // 이미지 프롬프트 생성 함수
+  const handleGenerateImagePrompts = async () => {
+    if (!script.trim()) {
+      alert("대본이 생성되지 않았습니다.")
+      return
+    }
+
+    const openaiApiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_openai_api_key") || undefined : undefined
+
+    if (!openaiApiKey) {
+      alert("OpenAI API 키가 필요합니다. 메인 화면의 설정(톱니바퀴 아이콘)에서 API 키를 입력해주세요.")
+      return
+    }
+
+    setIsGeneratingPrompts(true)
+    setError("")
+
+    try {
+      // 이미지를 base64로 변환 (있는 경우)
+      let imageBase64: string | undefined = undefined
+      if (productImage) {
+        imageBase64 = productImage
+      }
+
+      // 대본 전체를 분석하여 이미지 프롬프트 생성 (1개 이미지용)
+      const prompts = await generateImagePromptsFromScript(
+        script, // 대본 전체 전달
+        productName,
+        productDescription || "",
+        imageBase64,
+        openaiApiKey
+      )
+      
+      setImagePrompts(prompts)
+      setPromptsGenerated(true)
+    } catch (error) {
+      console.error("프롬프트 생성 실패:", error)
+      setError(`프롬프트 생성에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+    } finally {
+      setIsGeneratingPrompts(false)
+    }
+  }
+
+  // 실제 이미지 생성 함수 (프롬프트 사용)
+  const handleGenerateImage = async () => {
+    if (!script.trim()) {
+      alert("대본이 생성되지 않았습니다.")
+      return
+    }
+
+    if (!promptsGenerated || imagePrompts.length === 0) {
+      alert("먼저 이미지 프롬프트를 생성해주세요.")
+      return
+    }
+
+    const replicateApiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_replicate_api_key") || undefined : undefined
+
+    if (!replicateApiKey) {
+      alert("Replicate API 키가 필요합니다. 메인 화면의 설정(톱니바퀴 아이콘)에서 API 키를 입력해주세요.")
+      return
+    }
+
+    setIsGeneratingVideo(true)
+    setError("")
+    setImageUrls([]) // 재생성 시 기존 이미지 초기화
+    setGenerationProgress({ current: 0, total: 3 })
+
+    try {
+      // 이미지를 base64로 변환 (있는 경우)
+      let imageBase64: string | undefined = undefined
+      let imageAspectRatio: string | undefined = undefined
+      
+      if (productImage) {
+        imageBase64 = productImage
+        
+        // 원본 이미지 비율 계산
+        try {
+          const img = new Image()
+          await new Promise<void>((resolve, reject) => {
+            img.onload = () => {
+              const width = img.width
+              const height = img.height
+              const ratio = width / height
+              
+              // 비율에 따라 적절한 aspect_ratio 설정
+              if (Math.abs(ratio - 1) < 0.1) {
+                // 1:1 (정사각형)
+                imageAspectRatio = "1:1"
+              } else if (ratio > 1.2) {
+                // 가로가 더 긴 경우
+                imageAspectRatio = "16:9"
+              } else if (ratio < 0.7) {
+                // 세로가 더 긴 경우
+                imageAspectRatio = "9:16"
+              } else {
+                // 중간 비율
+                imageAspectRatio = ratio > 1 ? "4:3" : "3:4"
+              }
+              console.log(`[Shopping] 원본 이미지 비율 계산: ${width}x${height} = ${ratio.toFixed(2)}, aspect_ratio: ${imageAspectRatio}`)
+              resolve()
+            }
+            img.onerror = () => {
+              console.warn("[Shopping] 이미지 비율 계산 실패, 기본값 9:16 사용")
+              imageAspectRatio = "9:16"
+              resolve()
+            }
+            img.src = productImage
+          })
+        } catch (error) {
+          console.error("[Shopping] 이미지 비율 계산 중 오류:", error)
+          imageAspectRatio = "9:16" // 기본값
+        }
+      }
+
+      // 프롬프트를 사용하여 3장의 이미지 생성
+      const openaiApiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_openai_api_key") || undefined : undefined
+      
+      const imageUrls = await generateImage(script, productName, replicateApiKey, imageBase64, productDescription, openaiApiKey, imagePrompts, imageAspectRatio)
+      
+      setImageUrls(imageUrls)
+      setGenerationProgress({ current: 3, total: 3 })
+      // 이미지 생성 완료 후에도 "video" 단계에 머물러서 원본과 생성된 이미지를 비교할 수 있도록 함
+    } catch (error) {
+      console.error("이미지 생성 실패:", error)
+      setError(`이미지 생성에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+    } finally {
+      setIsGeneratingVideo(false)
+      setGenerationProgress({ current: 0, total: 1 })
+    }
+  }
+
+  // 미리보기 버튼 클릭 시 영상 생성 및 미리보기 준비 (레거시 - 사용 안 함)
+  const handleGenerateVideoFromImage = async () => {
+    // 이 함수는 더 이상 사용하지 않음
+    // handleConvertAllImagesToVideos를 사용해야 함
+    alert("이미지 영상 변환 기능을 사용해주세요.")
+  }
+
+  // 미리보기 초기화 (생성된 영상 + TTS + 자막)
+  const initializePreview = async (generatedVideoUrl: string) => {
+    if (!ttsAudioUrl || !canvasRef.current) {
+      console.warn("TTS 또는 캔버스가 준비되지 않았습니다.")
+      return
+    }
+
+    try {
+      // 오디오 로드
+      const audio = new Audio(ttsAudioUrl)
+      audio.crossOrigin = "anonymous"
+      
+      await new Promise<void>((resolve, reject) => {
+        audio.oncanplaythrough = () => resolve()
+        audio.onerror = (e) => reject(e)
+        audio.load()
+      })
+      
+      setPreviewAudio(audio)
+      
+      // 비디오 로드
+      const video = document.createElement("video")
+      video.src = generatedVideoUrl
+      video.crossOrigin = "anonymous"
+      video.preload = "auto"
+      video.muted = true // 음소거 (TTS를 별도로 재생)
+      video.loop = true // 루프 (TTS 길이에 맞춰 반복)
+      
+      await new Promise<void>((resolve, reject) => {
+        video.oncanplaythrough = () => resolve()
+        video.onerror = (e) => reject(e)
+        video.load()
+      })
+      
+      setPreviewVideoElements([video])
+      
+      // 캔버스에 첫 프레임 그리기
+      const canvas = canvasRef.current
+      if (canvas) {
+        canvas.width = 1080
+        canvas.height = 1920
+        const ctx = canvas.getContext("2d")
+        if (ctx && video.videoWidth > 0) {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+        }
+      }
+      
+      console.log("[Shopping] 미리보기 준비 완료")
+    } catch (error) {
+      console.error("[Shopping] 미리보기 준비 실패:", error)
+      setError(`미리보기 준비에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+    }
+  }
+
+  // 썸네일 생성 (AI)
+  const handleGenerateThumbnail = async () => {
+    if (!productName) {
+      alert("제품명이 필요합니다.")
+      return
+    }
+
+    const replicateApiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_replicate_api_key") || undefined : undefined
+    const gptApiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_openai_api_key") || undefined : undefined
+
+    if (!replicateApiKey) {
+      alert("Replicate API 키가 필요합니다. 메인 화면의 설정(톱니바퀴 아이콘)에서 API 키를 입력해주세요.")
+      return
+    }
+
+    setIsGeneratingThumbnail(true)
+    setError("")
+
+    try {
+      // 제품 이미지가 있으면 base64로 변환
+      let imageBase64: string | undefined = undefined
+      if (productImage) {
+        imageBase64 = productImage
+      }
+
+      // 1. 후킹 문구 생성
+      const hookingText = await generateThumbnailHookingText(productName, gptApiKey)
+      setThumbnailHookingText(hookingText)
+
+      // 2. 제품 이미지 확인
+      if (!imageBase64) {
+        throw new Error("제품 이미지가 필요합니다.")
+      }
+
+      // 3. 나노바나나로 썸네일 생성 (제품 이미지 + 텍스트 포함)
+      const thumbnail = await generateShortsThumbnail(productName, replicateApiKey, imageBase64, hookingText)
+      
+      // 4. 썸네일 목록에 추가
+      const newThumbnail = {
+        url: thumbnail,
+        text: hookingText,
+        isCustom: false
+      }
+      setThumbnailImages(prev => [...prev, newThumbnail])
+      setSelectedThumbnailIndex(thumbnailImages.length)
+      setThumbnailUrl(thumbnail)
+
+      // 5. 생성된 썸네일을 캔버스에 표시 (AI 생성 썸네일은 이미 텍스트가 포함되어 있으므로 그대로 표시)
+      setTimeout(() => {
+        if (thumbnailCanvasRef.current) {
+          const canvas = thumbnailCanvasRef.current
+          const ctx = canvas.getContext("2d")
+          if (ctx) {
+            canvas.width = 1080
+            canvas.height = 1920
+            const img = new Image()
+            img.crossOrigin = "anonymous"
+            img.src = thumbnail
+            img.onload = () => {
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+            }
+          }
+        }
+      }, 100)
+    } catch (error) {
+      console.error("썸네일 생성 실패:", error)
+      setError(`썸네일 생성에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+    } finally {
+      setIsGeneratingThumbnail(false)
+    }
+  }
+
+  // 직접 썸네일 이미지 업로드
+  const handleCustomThumbnailUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (!file.type.startsWith("image/")) {
+      alert("이미지 파일만 업로드 가능합니다.")
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      const imageUrl = event.target?.result as string
+      setCustomThumbnailImage(imageUrl)
+      
+      // 후킹 문구 자동 생성 (선택사항)
+      if (!customThumbnailText.line1) {
+        const gptApiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_openai_api_key") || undefined : undefined
+        if (gptApiKey) {
+          generateThumbnailHookingText(productName, gptApiKey).then(text => {
+            setCustomThumbnailText(text)
+          }).catch(() => {
+            // 실패해도 계속 진행
+          })
+        }
+      }
+    }
+    reader.readAsDataURL(file)
+  }
+
+  // 이미지 생성 단계에서 생성한 이미지 선택
+  const handleSelectGeneratedImage = (imageUrl: string) => {
+    setCustomThumbnailImage(imageUrl)
+    
+    // 후킹 문구 자동 생성 (선택사항)
+    if (!customThumbnailText.line1) {
+      const gptApiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_openai_api_key") || undefined : undefined
+      if (gptApiKey) {
+        generateThumbnailHookingText(productName, gptApiKey).then(text => {
+          setCustomThumbnailText(text)
+        }).catch(() => {
+          // 실패해도 계속 진행
+        })
+      }
+    }
+  }
+
+  // 직접 생성한 썸네일에 텍스트 추가 및 저장
+  const handleSaveCustomThumbnail = () => {
+    if (!customThumbnailImage) {
+      alert("이미지를 업로드해주세요.")
+      return
+    }
+
+    if (!customThumbnailText.line1 || !customThumbnailText.line2) {
+      alert("텍스트를 입력해주세요.")
+      return
+    }
+
+    // 캔버스에 이미지와 텍스트 그리기
+    renderThumbnailWithText(customThumbnailImage, customThumbnailText).then(() => {
+      // 캔버스에서 데이터 URL 가져오기
+      if (thumbnailCanvasRef.current) {
+        const dataUrl = thumbnailCanvasRef.current.toDataURL("image/png")
+        
+        // 썸네일 목록에 추가
+        const newThumbnail = {
+          url: dataUrl,
+          text: customThumbnailText,
+          isCustom: true
+        }
+        setThumbnailImages(prev => [...prev, newThumbnail])
+        setSelectedThumbnailIndex(thumbnailImages.length)
+        setThumbnailUrl(dataUrl)
+        
+        // 초기화
+        setCustomThumbnailImage("")
+        setCustomThumbnailText({ line1: "", line2: "" })
+      }
+    })
+  }
+
+  // 썸네일 선택
+  const handleSelectThumbnail = (index: number) => {
+    setSelectedThumbnailIndex(index)
+    const selected = thumbnailImages[index]
+    if (selected) {
+      setThumbnailUrl(selected.url)
+      setThumbnailHookingText(selected.text)
+      
+      // AI 생성 썸네일은 이미 텍스트가 포함되어 있으므로 그대로 표시
+      if (!selected.isCustom) {
+        if (thumbnailCanvasRef.current) {
+          const canvas = thumbnailCanvasRef.current
+          const ctx = canvas.getContext("2d")
+          if (ctx) {
+            canvas.width = 1080
+            canvas.height = 1920
+            const img = new Image()
+            img.crossOrigin = "anonymous"
+            img.src = selected.url
+            img.onload = () => {
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+            }
+          }
+        }
+      } else {
+        // 직접 생성 썸네일은 텍스트를 렌더링
+        renderThumbnailWithText(selected.url, selected.text)
+      }
+    }
+  }
+
+  // 썸네일에 텍스트 렌더링
+  const renderThumbnailWithText = async (imageUrl: string, hookingText: { line1: string; line2: string }): Promise<void> => {
+    return new Promise((resolve) => {
+      const canvas = thumbnailCanvasRef.current
+      if (!canvas) {
+        resolve()
+        return
+      }
+
+      const ctx = canvas.getContext("2d")
+      if (!ctx) {
+        resolve()
+        return
+      }
+
+      // 캔버스 크기 설정 (9:16 비율)
+      canvas.width = 1080
+      canvas.height = 1920
+
+      // 이미지 로드
+      const img = new Image()
+      img.crossOrigin = "anonymous"
+      img.src = imageUrl
+
+      img.onload = () => {
+        // 배경 이미지 그리기 (스케일 적용)
+        const scaledWidth = canvas.width * customThumbnailTextStyle.imageScale
+        const scaledHeight = canvas.height * customThumbnailTextStyle.imageScale
+        const offsetX = (canvas.width - scaledWidth) / 2
+        const offsetY = (canvas.height - scaledHeight) / 2
+        
+        ctx.drawImage(img, offsetX, offsetY, scaledWidth, scaledHeight)
+
+        // 텍스트 위치 (사용자 설정에 따라)
+        const textY = canvas.height * customThumbnailTextStyle.position
+        const textX = canvas.width / 2
+
+        // 첫 번째 줄 스타일
+        ctx.font = "bold 100px 'Noto Sans KR', Arial, sans-serif"
+        ctx.textAlign = "center"
+        ctx.textBaseline = "middle"
+        
+        // 첫 번째 줄 회전 적용
+        ctx.save()
+        ctx.translate(textX, textY)
+        ctx.rotate((customThumbnailTextStyle.textRotation * Math.PI) / 180)
+        
+        // 첫 번째 줄 테두리
+        if (customThumbnailTextStyle.strokeWidth > 0) {
+          ctx.strokeStyle = customThumbnailTextStyle.strokeColor
+          ctx.lineWidth = customThumbnailTextStyle.strokeWidth
+          ctx.lineJoin = "round"
+          ctx.strokeText(hookingText.line1, 0, 0)
+        }
+        
+        // 첫 번째 줄 텍스트
+        ctx.fillStyle = customThumbnailTextStyle.line1Color
+        ctx.fillText(hookingText.line1, 0, 0)
+        ctx.restore()
+
+        // 두 번째 줄 스타일
+        const textY2 = textY + 120
+        
+        // 두 번째 줄 회전 적용
+        ctx.save()
+        ctx.translate(textX, textY2)
+        ctx.rotate((customThumbnailTextStyle.textRotation * Math.PI) / 180)
+        
+        // 두 번째 줄 테두리
+        if (customThumbnailTextStyle.strokeWidth > 0) {
+          ctx.strokeStyle = customThumbnailTextStyle.strokeColor
+          ctx.lineWidth = customThumbnailTextStyle.strokeWidth
+          ctx.strokeText(hookingText.line2, 0, 0)
+        }
+        
+        // 두 번째 줄 텍스트
+        ctx.fillStyle = customThumbnailTextStyle.line2Color
+        ctx.fillText(hookingText.line2, 0, 0)
+        ctx.restore()
+        
+        resolve()
+      }
+
+      img.onerror = () => {
+        resolve()
+      }
+    })
+  }
+
+  // 썸네일 다운로드 (캔버스에서)
+  const handleDownloadThumbnail = () => {
+    const canvas = thumbnailCanvasRef.current
+    if (!canvas) {
+      alert("썸네일이 생성되지 않았습니다.")
+      return
+    }
+    
+    try {
+      const dataUrl = canvas.toDataURL("image/png")
+      const a = document.createElement("a")
+      a.href = dataUrl
+      a.download = `${productName}_쇼츠_썸네일.png`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+    } catch (error) {
+      console.error("썸네일 다운로드 실패:", error)
+      alert("썸네일 다운로드에 실패했습니다.")
+    }
+  }
+
+  // 미리보기 초기화 및 재생
+  const handlePreview = async () => {
+    // Map을 배열로 변환 (인덱스 순서대로)
+    const videoUrlsArray: string[] = []
+    for (let i = 0; i < imageUrls.length; i++) {
+      const videoUrl = convertedVideoUrls.get(i)
+      if (!videoUrl) {
+        alert(`장면 ${i + 1}의 영상이 아직 변환되지 않았습니다.`)
+        return
+      }
+      videoUrlsArray.push(videoUrl)
+    }
+
+    if (videoUrlsArray.length === 0 || !ttsAudioUrl || !canvasRef.current) {
+      alert("변환된 영상과 TTS가 모두 준비되어야 합니다.")
+      return
+    }
+
+    setError("")
+    try {
+      console.log("[Shopping] 미리보기 시작")
+
+      const canvas = canvasRef.current
+      const ctx = canvas.getContext("2d")
+      if (!ctx) {
+        throw new Error("Canvas context를 생성할 수 없습니다.")
+      }
+
+      // Canvas 크기를 1080x1920으로 설정
+      canvas.width = 1080
+      canvas.height = 1920
+
+      // 이미 로드된 오디오와 비디오가 있으면 재사용
+      let audio: HTMLAudioElement | null = previewAudio
+      let bgmAudio: HTMLAudioElement | null = null
+      let videoElements = previewVideoElements
+
+      // 오디오가 없거나 유효하지 않으면 새로 로드
+      if (!audio || !audio.duration || isNaN(audio.duration)) {
+        console.log("[Shopping] 오디오 새로 로드")
+        const audioResponse = await fetch(ttsAudioUrl)
+        const audioBlob = await audioResponse.blob()
+        const audioUrl = URL.createObjectURL(audioBlob)
+        audio = new Audio(audioUrl)
+        audio.volume = ttsVolume // TTS 볼륨 설정
+
+        await new Promise<void>((resolve, reject) => {
+          if (!audio) {
+            reject(new Error("오디오 생성 실패"))
+            return
+          }
+          audio.onloadeddata = () => resolve()
+          audio.onerror = reject
+        })
+        setPreviewAudio(audio)
+      } else {
+        console.log("[Shopping] 기존 오디오 재사용")
+        // 기존 오디오 재사용 시 시간 초기화 및 볼륨 설정
+        audio.currentTime = 0
+        audio.pause()
+        audio.volume = ttsVolume
+      }
+
+      if (!audio) {
+        throw new Error("오디오를 로드할 수 없습니다.")
+      }
+
+      // BGM 로드 (있는 경우)
+      if (bgmUrl) {
+        console.log("[Shopping] BGM 로드")
+        bgmAudio = new Audio(bgmUrl)
+        bgmAudio.volume = bgmVolume
+        bgmAudio.loop = true // BGM 반복 재생
+        
+        await new Promise<void>((resolve, reject) => {
+          if (!bgmAudio) {
+            reject(new Error("BGM 생성 실패"))
+            return
+          }
+          bgmAudio.onloadeddata = () => {
+            setPreviewBgmAudio(bgmAudio)
+            resolve()
+          }
+          bgmAudio.onerror = (e) => {
+            console.warn("[Shopping] BGM 로드 실패, 계속 진행:", e)
+            bgmAudio = null // BGM 로드 실패 시 null로 설정
+            setPreviewBgmAudio(null)
+            resolve() // BGM이 없어도 계속 진행
+          }
+        })
+      } else {
+        // BGM이 없으면 기존 BGM 정리
+        if (previewBgmAudio) {
+          previewBgmAudio.pause()
+          previewBgmAudio.currentTime = 0
+          setPreviewBgmAudio(null)
+        }
+      }
+
+      const actualAudioDuration = audio.duration
+      console.log("[Shopping] 실제 오디오 길이:", actualAudioDuration.toFixed(3), "초")
+
+      // 비디오 엘리먼트가 없거나 개수가 맞지 않으면 새로 로드
+      if (!videoElements || videoElements.length !== videoUrlsArray.length) {
+        console.log("[Shopping] 비디오 새로 로드")
+        videoElements = []
+        for (let i = 0; i < videoUrlsArray.length; i++) {
+          const videoUrl = videoUrlsArray[i]
+          const video = document.createElement("video")
+          video.crossOrigin = "anonymous"
+          video.src = videoUrl
+          video.muted = true
+          video.playsInline = true
+          video.preload = "auto" // 미리 로드
+          
+          await new Promise<void>((resolve, reject) => {
+            // loadedmetadata와 canplay 이벤트 사용
+            let metadataLoaded = false
+            let canPlay = false
+            
+            const checkReady = () => {
+              if (metadataLoaded && canPlay) {
+                video.currentTime = 0 // 시작 위치로 초기화
+                console.log(`[Shopping] 비디오 ${i + 1} 로드 완료: duration=${video.duration.toFixed(2)}초`)
+                resolve()
+              }
+            }
+            
+            video.onloadedmetadata = () => {
+              metadataLoaded = true
+              checkReady()
+            }
+            
+            video.oncanplay = () => {
+              canPlay = true
+              checkReady()
+            }
+            
+            video.onerror = (e) => {
+              console.error(`[Shopping] 비디오 ${i + 1} 로드 에러:`, e)
+              reject(new Error(`비디오 ${i + 1} 로드 실패`))
+            }
+            
+            video.load()
+            
+            // 타임아웃 설정 (15초)
+            setTimeout(() => {
+              if (!metadataLoaded || !canPlay) {
+                console.warn(`[Shopping] 비디오 ${i + 1} 로드 타임아웃, 계속 진행 (readyState: ${video.readyState})`)
+                if (video.readyState >= 1) {
+                  // 메타데이터라도 있으면 계속 진행
+                  metadataLoaded = true
+                  canPlay = true
+                  checkReady()
+                } else {
+                  resolve() // 타임아웃이어도 계속 진행
+                }
+              }
+            }, 15000)
+          })
+          videoElements.push(video)
+        }
+        setPreviewVideoElements(videoElements)
+      } else {
+        console.log("[Shopping] 기존 비디오 재사용")
+        // 기존 비디오 재사용 시 시간 초기화
+        for (const video of videoElements) {
+          video.currentTime = 0
+          video.pause()
+        }
+      }
+
+      // 각 영상의 실제 duration 가져오기
+      const videoDurations: number[] = []
+      for (const video of videoElements) {
+        if (video.duration && !isNaN(video.duration) && video.duration > 0) {
+          videoDurations.push(video.duration)
+        } else {
+          // duration이 없으면 기본값 사용 (나중에 업데이트)
+          videoDurations.push(5) // 기본 5초
+        }
+      }
+
+      console.log("[Shopping] 각 영상의 실제 길이:", videoDurations.map(d => d.toFixed(2) + "초"))
+
+      // 각 영상의 시작 시간 계산 (간단하게 순차적으로 이어붙이기)
+      let accumulatedTime = 0
+      const videoStartTimes: number[] = []
+      for (let i = 0; i < videoDurations.length; i++) {
+        videoStartTimes.push(accumulatedTime)
+        accumulatedTime += videoDurations[i]
+      }
+
+      console.log("[Shopping] 각 영상의 시작 시간:", videoStartTimes.map(t => t.toFixed(2) + "초"))
+
+      // 썸네일 이미지 로드 (선택된 썸네일 사용)
+      let thumbnailImage: HTMLImageElement | null = null
+      if (selectedThumbnailIndex >= 0 && thumbnailImages[selectedThumbnailIndex]) {
+        try {
+          const selectedThumbnail = thumbnailImages[selectedThumbnailIndex]
+          thumbnailImage = new Image()
+          thumbnailImage.crossOrigin = "anonymous"
+          thumbnailImage.src = selectedThumbnail.url
+          await new Promise<void>((resolve, reject) => {
+            thumbnailImage!.onload = () => resolve()
+            thumbnailImage!.onerror = reject
+            // 타임아웃 설정
+            setTimeout(() => {
+              if (!thumbnailImage!.complete) {
+                reject(new Error("썸네일 로드 타임아웃"))
+              }
+            }, 5000)
+          })
+          console.log("[Shopping] 선택된 썸네일 이미지 로드 완료 (인덱스:", selectedThumbnailIndex, ")")
+        } catch (error) {
+          console.warn("[Shopping] 썸네일 이미지 로드 실패, 계속 진행:", error)
+        }
+      } else if (thumbnailUrl) {
+        // 선택된 썸네일이 없으면 기존 thumbnailUrl 사용 (하위 호환성)
+        try {
+          thumbnailImage = new Image()
+          thumbnailImage.crossOrigin = "anonymous"
+          thumbnailImage.src = thumbnailUrl
+          await new Promise<void>((resolve, reject) => {
+            thumbnailImage!.onload = () => resolve()
+            thumbnailImage!.onerror = reject
+            setTimeout(() => {
+              if (!thumbnailImage!.complete) {
+                reject(new Error("썸네일 로드 타임아웃"))
+              }
+            }, 5000)
+          })
+          console.log("[Shopping] 썸네일 이미지 로드 완료 (기존 URL)")
+        } catch (error) {
+          console.warn("[Shopping] 썸네일 이미지 로드 실패, 계속 진행:", error)
+        }
+      }
+
+      // 미리보기 렌더링 함수 (썸네일 포함, BGM 적용)
+      let lastVideoIndex = -1
+      const currentBgmAudio = bgmAudio // 클로저에서 접근 가능하도록
+      const THUMBNAIL_DURATION = 0.0001
+      
+      const renderPreview = () => {
+        const elapsed = audio.paused ? currentTime : audio.currentTime
+        if (!audio.paused) {
+          setCurrentTime(elapsed)
+        }
+
+        // 캔버스 초기화
+        ctx.fillStyle = "black"
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+        // 썸네일이 있고 0.0001초 이하일 때 썸네일 표시
+        const adjustedElapsed = Math.max(0, elapsed - THUMBNAIL_DURATION)
+        
+        if (thumbnailImage && elapsed < THUMBNAIL_DURATION) {
+          ctx.drawImage(thumbnailImage, 0, 0, canvas.width, canvas.height)
+        } else {
+          // 썸네일 시간이 지나면 기존 영상 표시
+          // 현재 시간에 맞는 영상 찾기 (썸네일 시간 제외)
+        let currentVideoIndex = -1
+        for (let i = 0; i < videoStartTimes.length; i++) {
+          const startTime = videoStartTimes[i]
+          const endTime = i < videoStartTimes.length - 1 ? videoStartTimes[i + 1] : startTime + videoDurations[i]
+          
+            if (adjustedElapsed >= startTime && adjustedElapsed < endTime) {
+            currentVideoIndex = i
+            break
+          }
+        }
+
+        // 비디오 전환 시에만 처리
+        if (currentVideoIndex !== lastVideoIndex) {
+          // 이전 비디오 일시정지
+          if (lastVideoIndex >= 0 && videoElements[lastVideoIndex]) {
+            videoElements[lastVideoIndex].pause()
+            videoElements[lastVideoIndex].currentTime = 0
+          }
+          
+          // 새 비디오 재생 시작
+          if (currentVideoIndex >= 0 && videoElements[currentVideoIndex]) {
+            const video = videoElements[currentVideoIndex]
+            const videoStartTime = videoStartTimes[currentVideoIndex]
+              const videoElapsed = adjustedElapsed - videoStartTime
+            
+            if (video && !isNaN(video.duration) && video.duration > 0) {
+              // 시작 시간 설정
+              video.currentTime = Math.max(0, Math.min(videoElapsed, video.duration))
+              // 비디오 재생 (자체적으로 재생되도록)
+              video.play().catch(() => {})
+            }
+          }
+          
+          lastVideoIndex = currentVideoIndex
+        }
+
+        // 현재 영상을 캔버스에 그리기
+        if (currentVideoIndex >= 0 && videoElements[currentVideoIndex]) {
+          const currentVideo = videoElements[currentVideoIndex]
+          
+          try {
+            if (currentVideo.readyState >= 2 || (currentVideo.videoWidth > 0 && currentVideo.videoHeight > 0)) {
+              ctx.drawImage(currentVideo, 0, 0, canvas.width, canvas.height)
+            }
+          } catch (e) {
+            // 그리기 실패 시 무시
+          }
+          }
+        }
+
+        // 자막 그리기 (썸네일 시간 동안에는 표시하지 않음)
+        if (scriptLines.length > 0 && (!thumbnailImage || elapsed >= THUMBNAIL_DURATION)) {
+          const elapsedMs = adjustedElapsed * 1000
+          const currentLine = scriptLines.find(
+            line => elapsedMs >= line.startTime && elapsedMs < line.endTime
+          )
+          
+          if (currentLine) {
+            // 텍스트를 10자씩 나누기
+            const fullText = currentLine.text
+            const chunkSize = 10
+            const chunks: string[] = []
+            for (let i = 0; i < fullText.length; i += chunkSize) {
+              chunks.push(fullText.slice(i, i + chunkSize))
+            }
+            
+            // 현재 시간 기준으로 몇 번째 청크를 보여줄지 계산
+            const lineDuration = currentLine.endTime - currentLine.startTime
+            const chunkDuration = lineDuration / chunks.length
+            const timeInLine = elapsedMs - currentLine.startTime
+            const currentChunkIndex = Math.min(Math.floor(timeInLine / chunkDuration), chunks.length - 1)
+            const textToShow = chunks[currentChunkIndex] || chunks[0]
+            
+            const subtitleY = canvas.height * 0.38
+            
+            // 자막 텍스트 (배경 없음, 검정 테두리)
+            ctx.font = "bold 100px 'Noto Sans KR', sans-serif"
+            ctx.textAlign = "center"
+            ctx.textBaseline = "middle"
+            
+            // 검정색 테두리
+            ctx.strokeStyle = "black"
+            ctx.lineWidth = 12
+            ctx.lineJoin = "round"
+            ctx.strokeText(textToShow, canvas.width / 2, subtitleY)
+            
+            // 흰색 글씨
+            ctx.fillStyle = "white"
+            ctx.fillText(textToShow, canvas.width / 2, subtitleY)
+          }
+        }
+
+        if (!audio.ended && !audio.paused) {
+          const frameId = requestAnimationFrame(renderPreview)
+          setPreviewAnimationFrame(frameId)
+        } else {
+          setIsPlaying(false)
+          // 모든 비디오 일시정지
+          for (const video of videoElements) {
+            video.pause()
+          }
+          // BGM 일시정지 및 정지
+          if (currentBgmAudio) {
+            currentBgmAudio.pause()
+            currentBgmAudio.currentTime = 0 // BGM 시간 초기화
+          }
+        }
+      }
+
+      // 미리보기 단계로 이동
+      setActiveStep("preview")
+      
+      // 초기 프레임 그리기 (재생하지 않고 첫 프레임만 표시)
+      audio.currentTime = 0
+      setCurrentTime(0)
+      
+      // 초기 프레임 렌더링 (시간 0으로 설정)
+      const initialElapsed = 0
+      const THUMBNAIL_DURATION_INIT = 0.0001
+      
+      // 캔버스 초기화
+      ctx.fillStyle = "black"
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      
+      // 썸네일이 있으면 먼저 표시, 없으면 첫 번째 영상 표시
+      if (thumbnailImage && initialElapsed < THUMBNAIL_DURATION_INIT) {
+        ctx.drawImage(thumbnailImage, 0, 0, canvas.width, canvas.height)
+      } else if (videoElements[0]) {
+        const video = videoElements[0]
+        video.currentTime = 0
+        try {
+          if (video.readyState >= 1 || (video.videoWidth > 0 && video.videoHeight > 0)) {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+          }
+        } catch (e) {
+          console.warn("초기 비디오 그리기 실패:", e)
+        }
+      }
+      
+      // 자동 재생하지 않음 (재생 버튼을 눌러야 재생됨)
+    } catch (error) {
+      console.error("미리보기 실패:", error)
+      setError(`미리보기에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+    }
+  }
+
+  // 미리보기 생성 (롱폼 방식: HTML video 엘리먼트 사용)
+  const handleGeneratePreview = async () => {
+    // 3개의 개별 영상이 모두 준비되어야 함
+    if (convertedVideoUrls.size !== 3 || !ttsAudioUrl) {
+      alert("3개의 영상과 TTS가 모두 준비되어야 합니다.")
+      return
+    }
+
+    setIsGeneratingPreview(true)
+    setError("")
+    
+    try {
+      console.log("[Shopping] 미리보기 생성 시작 (롱폼 방식)")
+
+      // 오디오 로드 (blob URL인지 확인)
+      let audioUrl: string
+      if (ttsAudioUrl.startsWith("blob:")) {
+        // blob URL이면 직접 사용
+        audioUrl = ttsAudioUrl
+      } else {
+        // 일반 URL이면 fetch로 가져오기
+        const audioResponse = await fetch(ttsAudioUrl)
+        const audioBlob = await audioResponse.blob()
+        audioUrl = URL.createObjectURL(audioBlob)
+      }
+      
+      const audio = new Audio(audioUrl)
+      audio.volume = ttsVolume // TTS 볼륨 설정
+
+      await new Promise<void>((resolve, reject) => {
+        audio.onloadeddata = () => resolve()
+        audio.onerror = reject
+      })
+
+      const actualAudioDuration = audio.duration
+      console.log("[Shopping] 실제 오디오 길이:", actualAudioDuration.toFixed(3), "초")
+
+      // BGM 로드 (있는 경우)
+      let bgmAudio: HTMLAudioElement | null = null
+      if (bgmUrl) {
+        console.log("[Shopping] BGM 로드")
+        bgmAudio = new Audio(bgmUrl)
+        bgmAudio.volume = bgmVolume
+        bgmAudio.loop = true // BGM 반복 재생
+        
+        await new Promise<void>((resolve, reject) => {
+          if (!bgmAudio) {
+            reject(new Error("BGM 생성 실패"))
+            return
+          }
+          bgmAudio.onloadeddata = () => {
+            setPreviewBgmAudio(bgmAudio)
+            resolve()
+          }
+          bgmAudio.onerror = (e) => {
+            console.warn("[Shopping] BGM 로드 실패, 계속 진행:", e)
+            bgmAudio = null
+            setPreviewBgmAudio(null)
+            resolve() // BGM이 없어도 계속 진행
+          }
+        })
+      } else {
+        // BGM이 없으면 기존 BGM 정리
+        if (previewBgmAudio) {
+          previewBgmAudio.pause()
+          previewBgmAudio.currentTime = 0
+          setPreviewBgmAudio(null)
+        }
+      }
+
+      // 3개의 개별 영상 로드 (롱폼 방식: HTML video 엘리먼트로 직접 사용)
+      const videoElements: HTMLVideoElement[] = []
+      const videoDurations: number[] = []
+      
+      // TTS 길이를 3으로 나눈 값 계산
+      const durationPerVideo = Math.round(actualAudioDuration / 3)
+      
+      for (let i = 0; i < 3; i++) {
+        const videoUrl = convertedVideoUrls.get(i)
+        if (!videoUrl) {
+          throw new Error(`영상 ${i + 1}이 준비되지 않았습니다.`)
+        }
+        
+        const video = document.createElement("video")
+        video.crossOrigin = "anonymous"
+        video.src = videoUrl
+        video.muted = true
+        video.playsInline = true
+        video.preload = "auto"
+        video.loop = false // 순차 재생이므로 루프 없음
+        
+        await new Promise<void>((resolve, reject) => {
+          video.onloadedmetadata = () => {
+            const duration = video.duration || durationPerVideo
+            videoDurations.push(duration)
+            console.log(`[Shopping] 미리보기 영상 ${i + 1} 로드 완료, 길이: ${duration.toFixed(2)}초`)
+            resolve()
+          }
+          video.onerror = reject
+          video.load()
+          
+          setTimeout(() => {
+            if (video.readyState < 3) {
+              console.warn(`비디오 ${i + 1} 로드 타임아웃, 계속 진행`)
+              videoDurations.push(durationPerVideo)
+              resolve()
+            }
+          }, 10000)
+        })
+        
+        videoElements.push(video)
+      }
+      
+      console.log("[Shopping] 미리보기 3개 영상 로드 완료, 각 영상 길이:", videoDurations.map(d => d.toFixed(2) + "초"))
+      
+      // 썸네일 이미지 로드 (선택된 썸네일 사용) - 미리 로드하여 상태로 저장
+      let thumbnailImage: HTMLImageElement | null = null
+      if (selectedThumbnailIndex >= 0 && thumbnailImages[selectedThumbnailIndex]) {
+        try {
+          const selectedThumbnail = thumbnailImages[selectedThumbnailIndex]
+          thumbnailImage = new Image()
+          thumbnailImage.crossOrigin = "anonymous"
+          await new Promise<void>((resolve, reject) => {
+            thumbnailImage!.onload = () => resolve()
+            thumbnailImage!.onerror = reject
+            thumbnailImage!.src = selectedThumbnail.url
+          })
+          console.log("[Shopping] 선택된 썸네일 이미지 로드 완료 (인덱스:", selectedThumbnailIndex, ")")
+          setPreviewThumbnailImage(thumbnailImage)
+        } catch (error) {
+          console.warn("[Shopping] 썸네일 이미지 로드 실패, 계속 진행:", error)
+          setPreviewThumbnailImage(null)
+        }
+      } else if (thumbnailUrl) {
+        // 선택된 썸네일이 없으면 기존 thumbnailUrl 사용 (하위 호환성)
+        try {
+          thumbnailImage = new Image()
+          thumbnailImage.crossOrigin = "anonymous"
+          await new Promise<void>((resolve, reject) => {
+            thumbnailImage!.onload = () => resolve()
+            thumbnailImage!.onerror = reject
+            thumbnailImage!.src = thumbnailUrl
+          })
+          console.log("[Shopping] 썸네일 이미지 로드 완료 (기존 URL)")
+          setPreviewThumbnailImage(thumbnailImage)
+        } catch (error) {
+          console.warn("[Shopping] 썸네일 이미지 로드 실패, 계속 진행:", error)
+          setPreviewThumbnailImage(null)
+        }
+      } else {
+        setPreviewThumbnailImage(null)
+      }
+
+      // 오디오 종료 시 BGM도 멈추기
+      audio.addEventListener("ended", () => {
+        console.log("[Shopping] 오디오 재생 완료, BGM도 멈춤")
+        setIsPlaying(false)
+        // 비디오 일시정지
+        if (previewVideoRef.current) {
+          previewVideoRef.current.pause()
+        }
+        // BGM 일시정지 및 정지
+        if (bgmAudio) {
+          bgmAudio.pause()
+          bgmAudio.currentTime = 0 // BGM 시간 초기화
+        }
+        if (previewBgmAudio) {
+          previewBgmAudio.pause()
+          previewBgmAudio.currentTime = 0
+        }
+      })
+
+      // 롱폼 방식: onTimeUpdate 이벤트로 자막 동기화
+      audio.addEventListener("timeupdate", () => {
+        const elapsed = audio.currentTime
+        setCurrentTime(elapsed)
+
+        // 오디오가 끝났는지 확인
+        if (audio.ended) {
+          setIsPlaying(false)
+          // 비디오 일시정지
+          if (previewVideoRef.current) {
+            previewVideoRef.current.pause()
+          }
+          // BGM 일시정지 및 정지
+          if (bgmAudio) {
+            bgmAudio.pause()
+            bgmAudio.currentTime = 0
+          }
+          if (previewBgmAudio) {
+            previewBgmAudio.pause()
+            previewBgmAudio.currentTime = 0
+          }
+          return
+        }
+
+        // 썸네일 시간 체크
+        const THUMBNAIL_DURATION = 0.01 // 0.01초
+        const elapsedMs = elapsed * 1000
+        
+        // 각 영상의 시작 시간 계산
+        const videoStartTimes = [THUMBNAIL_DURATION]
+        for (let i = 0; i < 3; i++) {
+          const startTime = i === 0 
+            ? THUMBNAIL_DURATION 
+            : videoStartTimes[i] + videoDurations[i - 1]
+          videoStartTimes.push(startTime)
+        }
+        
+        // 현재 시간에 맞는 영상 찾기 및 동기화
+        let foundVideoIndex = -1
+        let videoTime = 0
+        
+        if (elapsed >= THUMBNAIL_DURATION) {
+          for (let i = 0; i < 3; i++) {
+            const startTime = videoStartTimes[i + 1]
+            const endTime = startTime + videoDurations[i]
+            
+            if (elapsed >= startTime && elapsed < endTime) {
+              foundVideoIndex = i
+              videoTime = elapsed - startTime
+              break
+            }
+          }
+        }
+        
+        // 현재 영상 인덱스 업데이트
+        if (foundVideoIndex !== currentVideoIndex) {
+          setCurrentVideoIndex(foundVideoIndex)
+        }
+        
+        // 현재 영상 동기화
+        if (foundVideoIndex >= 0 && videoElements[foundVideoIndex]) {
+          const video = videoElements[foundVideoIndex]
+          
+          // video ref에 현재 영상 설정
+          if (previewVideoRef.current) {
+            // 영상 전환 감지
+            if (previewVideoRef.current.src !== video.src) {
+              // 영상 변경 (전환 효과 최소화)
+              const wasPlaying = !previewVideoRef.current.paused
+              
+              previewVideoRef.current.src = video.src
+              previewVideoRef.current.crossOrigin = video.crossOrigin
+              previewVideoRef.current.muted = video.muted
+              previewVideoRef.current.playsInline = video.playsInline
+              previewVideoRef.current.loop = false
+              
+              // 영상이 준비되면 즉시 재생
+              const onLoadedData = () => {
+                if (previewVideoRef.current && previewVideoRef.current.src === video.src) {
+                  previewVideoRef.current.currentTime = videoTime
+                  if (wasPlaying && !audio.paused) {
+                    previewVideoRef.current.play().catch(() => {})
+                  }
+                  setVideoTransitionOpacity(1)
+                  previewVideoRef.current.removeEventListener('loadeddata', onLoadedData)
+                }
+              }
+              
+              previewVideoRef.current.addEventListener('loadeddata', onLoadedData)
+              previewVideoRef.current.load()
+              
+              // 빠른 페이드 효과 (거의 즉시)
+              setVideoTransitionOpacity(0.3)
+              setTimeout(() => setVideoTransitionOpacity(1), 30)
+            } else {
+              // 같은 영상이면 시간 동기화만 수행 (더 정확하게)
+              if (Math.abs(previewVideoRef.current.currentTime - videoTime) > 0.05) {
+                previewVideoRef.current.currentTime = videoTime
+              }
+              
+              // 재생 보장
+              if (previewVideoRef.current.paused && !audio.paused) {
+                previewVideoRef.current.play().catch(() => {})
+              }
+              
+              // 전환 효과 완료 확인
+              if (videoTransitionOpacity < 1) {
+                setVideoTransitionOpacity(1)
+              }
+            }
+          }
+          
+          // 백그라운드 비디오 엘리먼트도 동기화
+          if (!isNaN(video.duration) && video.duration > 0) {
+            if (Math.abs(video.currentTime - videoTime) > 0.1) {
+              video.currentTime = videoTime
+            }
+            if (video.paused && !audio.paused) {
+              video.play().catch(() => {})
+            }
+          }
+        } else {
+          // 썸네일 시간이거나 영상 범위를 벗어난 경우
+          if (previewVideoRef.current && !audio.paused) {
+            previewVideoRef.current.pause()
+          }
+          if (foundVideoIndex === -1) {
+            setCurrentVideoIndex(-1)
+            setPreviousVideoIndex(-1)
+          }
+        }
+
+        // 자막 업데이트 (썸네일 시간 제외)
+        if (scriptLines.length > 0 && (!previewThumbnailImage || elapsed >= THUMBNAIL_DURATION)) {
+          const currentLine = scriptLines.find(
+            line => elapsedMs >= line.startTime && elapsedMs < line.endTime
+          )
+          
+          if (currentLine) {
+            // 텍스트를 10자씩 나누기
+            const fullText = currentLine.text
+            const chunkSize = 10
+            const chunks: string[] = []
+            for (let i = 0; i < fullText.length; i += chunkSize) {
+              chunks.push(fullText.slice(i, i + chunkSize))
+            }
+            
+            const lineDuration = currentLine.endTime - currentLine.startTime
+            const chunkDuration = lineDuration / chunks.length
+            const timeInLine = elapsedMs - currentLine.startTime
+            const currentChunkIndex = Math.min(Math.floor(timeInLine / chunkDuration), chunks.length - 1)
+            const textToShow = chunks[currentChunkIndex] || chunks[0]
+            
+            setCurrentSubtitle(textToShow)
+          } else {
+            setCurrentSubtitle("")
+          }
+        } else {
+          setCurrentSubtitle("")
+        }
+      })
+
+      // 미리보기용 오디오 및 비디오 설정 (3개 영상)
+      setPreviewAudio(audio)
+      setPreviewVideoElements(videoElements)
+            
+      // video ref에 첫 번째 영상 설정 (초기값)
+      if (previewVideoRef.current && videoElements.length > 0) {
+        const firstVideo = videoElements[0]
+        previewVideoRef.current.src = firstVideo.src
+        previewVideoRef.current.crossOrigin = firstVideo.crossOrigin
+        previewVideoRef.current.muted = firstVideo.muted
+        previewVideoRef.current.playsInline = firstVideo.playsInline
+        previewVideoRef.current.loop = false
+        previewVideoRef.current.load()
+      }
+
+      setPreviewGenerated(true)
+      setCurrentTime(0)
+      setCurrentSubtitle("")
+      console.log("[Shopping] 미리보기 생성 완료 (롱폼 방식)")
+      alert("미리보기가 생성되었습니다! 재생 버튼을 눌러 확인하세요.")
+    } catch (error) {
+      console.error("미리보기 생성 실패:", error)
+      setError(`미리보기 생성에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+    } finally {
+      setIsGeneratingPreview(false)
+    }
+  }
+
+  // 미리보기 재생/일시정지 (롱폼 방식: onTimeUpdate 사용)
+  const handlePreviewPlayPause = () => {
+    if (!previewAudio) return
+
+    if (isPlaying) {
+      previewAudio.pause()
+      // 비디오도 일시정지
+      if (previewVideoRef.current) {
+        previewVideoRef.current.pause()
+      }
+      // BGM 일시정지
+      if (previewBgmAudio) {
+        previewBgmAudio.pause()
+      }
+      setIsPlaying(false)
+        } else {
+      previewAudio.play()
+      // BGM 재생 (있는 경우)
+      if (previewBgmAudio) {
+        previewBgmAudio.currentTime = 0
+        previewBgmAudio.play().catch(() => {})
+      }
+      setIsPlaying(true)
+      
+      // 비디오 재생 시작 (롱폼 방식: 단순하게)
+      if (previewVideoRef.current) {
+        previewVideoRef.current.loop = true
+        previewVideoRef.current.currentTime = 0
+        previewVideoRef.current.play().catch(() => {})
+      }
+    }
+  }
+
+  // 최종 영상 렌더링 (미리보기와 동일: 롱폼 쇼츠 생성기 방식)
+  const handleRenderVideo = async () => {
+    // 3개의 개별 영상이 모두 준비되어야 함
+    if (convertedVideoUrls.size !== 3 || !ttsAudioUrl || !canvasRef.current) {
+      alert("3개의 영상과 TTS가 모두 준비되어야 합니다.")
+      return
+    }
+    
+    if (!previewGenerated || !previewAudio) {
+      alert("먼저 미리보기를 생성해주세요.")
+      return
+    }
+
+    setIsRendering(true)
+    setError("")
+    try {
+      console.log("[Shopping] 최종 영상 렌더링 시작 (미리보기와 동일한 방식)")
+
+      const canvas = canvasRef.current
+      const ctx = canvas.getContext("2d")
+      if (!ctx) {
+        throw new Error("Canvas context를 생성할 수 없습니다.")
+      }
+
+      // Canvas 크기를 1080x1920으로 설정
+      canvas.width = 1080
+      canvas.height = 1920
+
+      // 미리보기에서 사용하는 오디오 재사용
+      const audio = previewAudio
+      
+      // 오디오 시간 초기화
+      audio.currentTime = 0
+      const actualAudioDuration = audio.duration
+      console.log("[Shopping] 실제 오디오 길이:", actualAudioDuration.toFixed(3), "초")
+
+      // 3개의 개별 영상 엘리먼트 생성 및 로드
+      const videoElements: HTMLVideoElement[] = []
+      const videoDurations: number[] = []
+      
+      // TTS 길이를 3으로 나눈 값 계산
+      const durationPerVideo = Math.round(actualAudioDuration / 3)
+      
+      for (let i = 0; i < 3; i++) {
+        const videoUrl = convertedVideoUrls.get(i)
+        if (!videoUrl) {
+          throw new Error(`영상 ${i + 1}이 준비되지 않았습니다.`)
+        }
+        
+        const video = document.createElement("video")
+        video.src = videoUrl
+        video.crossOrigin = "anonymous"
+        video.preload = "auto"
+        video.muted = true
+        video.playsInline = true
+        
+        await new Promise<void>((resolve, reject) => {
+          video.onloadedmetadata = () => {
+            const duration = video.duration || durationPerVideo
+            videoDurations.push(duration)
+            console.log(`[Shopping] 영상 ${i + 1} 로드 완료, 길이: ${duration.toFixed(2)}초`)
+            resolve()
+          }
+          video.onerror = reject
+          video.load()
+        })
+        
+        videoElements.push(video)
+      }
+
+      console.log("[Shopping] 3개 영상 로드 완료, 각 영상 길이:", videoDurations.map(d => d.toFixed(2) + "초"))
+
+      // MediaRecorder 설정 (롱폼 쇼츠 생성기 방식)
+      const stream = canvas.captureStream(30)
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const source = audioContext.createMediaElementSource(audio)
+      
+      // TTS 볼륨 조절
+      const ttsGainNode = audioContext.createGain()
+      ttsGainNode.gain.value = ttsVolume
+      source.connect(ttsGainNode)
+      
+      // BGM 추가 (있는 경우)
+      let bgmGainNode: GainNode | null = null
+      let bgmSource: MediaElementAudioSourceNode | null = null
+      if (bgmUrl && bgmFile) {
+        const bgmAudio = new Audio(bgmUrl)
+        bgmAudio.loop = true
+        bgmAudio.volume = bgmVolume
+        bgmSource = audioContext.createMediaElementSource(bgmAudio)
+        bgmGainNode = audioContext.createGain()
+        bgmGainNode.gain.value = bgmVolume
+        bgmSource.connect(bgmGainNode)
+        bgmAudio.play()
+      }
+      
+      const destination = audioContext.createMediaStreamDestination()
+      ttsGainNode.connect(destination)
+      if (bgmGainNode) {
+        bgmGainNode.connect(destination)
+      }
+
+      const videoTrack = stream.getVideoTracks()[0]
+      const audioTrack = destination.stream.getAudioTracks()[0]
+      const combinedStream = new MediaStream([videoTrack, audioTrack])
+
+      const mediaRecorder = new MediaRecorder(combinedStream, {
+        mimeType: "video/webm;codecs=vp9,opus",
+        videoBitsPerSecond: 5000000,
+      })
+
+      const chunks: Blob[] = []
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunks.push(e.data)
+        }
+      }
+
+      mediaRecorder.onstop = () => {
+        const videoBlob = new Blob(chunks, { type: "video/webm" })
+        const videoUrl = URL.createObjectURL(videoBlob)
+        
+        // 자동 다운로드 (롱폼 쇼츠 생성기 방식)
+        const a = document.createElement("a")
+        a.href = videoUrl
+        a.download = `${productName || "shopping"}_video_${Date.now()}.webm`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        
+        // URL 정리
+        URL.revokeObjectURL(videoUrl)
+
+        console.log("[Shopping] 영상 렌더링 및 다운로드 완료")
+        setIsRendering(false)
+        // alert 제거 (롱폼 쇼츠 생성기 방식)
+      }
+
+      // 썸네일 이미지 로드 (있는 경우) - 미리보기에서 사용한 것 재사용
+      let thumbnailImage: HTMLImageElement | null = previewThumbnailImage
+
+      // 렌더링 시작 (롱폼 쇼츠 생성기 방식)
+      mediaRecorder.start()
+      audio.play()
+
+      // 롱폼 쇼츠 생성기 방식으로 렌더링 (썸네일 + 3개 영상 순차 재생)
+      const THUMBNAIL_DURATION = 0.00001 // 0.00001초로 변경
+      let scriptLinesToUse = scriptLines
+
+      // 각 영상의 시작 시간 계산
+      const videoStartTimes = [THUMBNAIL_DURATION]
+      for (let i = 0; i < 3; i++) {
+        const startTime = i === 0 
+          ? THUMBNAIL_DURATION 
+          : videoStartTimes[i] + videoDurations[i - 1]
+        videoStartTimes.push(startTime)
+      }
+
+      const renderFrame = () => {
+        const elapsed = audio.currentTime
+
+        // 캔버스 초기화
+        ctx.fillStyle = "black"
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+        // 썸네일이 있고 0.00001초 이하일 때 썸네일 표시
+        if (thumbnailImage && elapsed < THUMBNAIL_DURATION) {
+          ctx.drawImage(thumbnailImage, 0, 0, canvas.width, canvas.height)
+        } else {
+          // 썸네일 시간이 지나면 현재 시간에 맞는 영상 찾기
+          let currentVideoIndex = -1
+          let videoTime = 0
+          
+          for (let i = 0; i < 3; i++) {
+            const startTime = videoStartTimes[i + 1]
+            const endTime = startTime + videoDurations[i]
+            
+            if (elapsed >= startTime && elapsed < endTime) {
+              currentVideoIndex = i
+              videoTime = elapsed - startTime
+              break
+            }
+          }
+          
+          // 현재 시간에 맞는 영상 재생
+          if (currentVideoIndex >= 0) {
+            const video = videoElements[currentVideoIndex]
+            
+            if (video && !isNaN(video.duration) && video.duration > 0) {
+              // 시간 차이가 크면 동기화
+              if (Math.abs(video.currentTime - videoTime) > 0.3) {
+                video.currentTime = videoTime
+              }
+              
+              // 비디오 재생 보장
+              if (video.paused) {
+                video.play().catch(() => {})
+              }
+            }
+
+            // 영상을 캔버스에 그리기 (미리보기와 동일)
+            try {
+              if (video && (video.readyState >= 2 || (video.videoWidth > 0 && video.videoHeight > 0))) {
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+              }
+            } catch (e) {
+              // 그리기 실패 시 무시
+            }
+          }
+        }
+
+        // 자막 그리기 (썸네일 시간 제외)
+        if (scriptLinesToUse.length > 0 && (!thumbnailImage || elapsed >= THUMBNAIL_DURATION)) {
+          const elapsedMs = elapsed * 1000
+          
+          // 현재 시간에 맞는 자막 찾기 (미리보기와 동일)
+          const currentLine = scriptLinesToUse.find(
+            line => elapsedMs >= line.startTime && elapsedMs < line.endTime
+        )
+
+        if (currentLine) {
+            // 텍스트를 10자씩 나누기 (미리보기와 동일)
+          const fullText = currentLine.text
+          const chunkSize = 10
+          const chunks: string[] = []
+          for (let i = 0; i < fullText.length; i += chunkSize) {
+            chunks.push(fullText.slice(i, i + chunkSize))
+          }
+          
+            // 현재 시간 기준으로 몇 번째 청크를 보여줄지 계산 (미리보기와 동일)
+            const lineDuration = currentLine.endTime - currentLine.startTime
+          const chunkDuration = lineDuration / chunks.length
+            const timeInLine = elapsedMs - currentLine.startTime
+          const currentChunkIndex = Math.min(Math.floor(timeInLine / chunkDuration), chunks.length - 1)
+          const textToShow = chunks[currentChunkIndex] || chunks[0]
+          
+            // 자막 위치 계산 (subtitleStyle.position 기반 + positionOffset)
+            let baseY: number
+            if (subtitleStyle.position === "top") {
+              baseY = canvas.height * 0.15
+            } else if (subtitleStyle.position === "center") {
+              baseY = canvas.height * 0.5
+            } else {
+              baseY = canvas.height * 0.85
+            }
+            // positionOffset 적용 (픽셀 단위, 캔버스 크기에 비례하여 스케일링)
+            const scaleFactor = canvas.height / 1920 // 1920px 기준 스케일링
+            const subtitleY = baseY + (subtitleStyle.positionOffset * scaleFactor)
+
+            // 자막 스타일 적용
+            const fontSize = subtitleStyle.fontSize * (canvas.width / 540) // 540px 기준으로 스케일링
+            ctx.font = `${subtitleStyle.fontWeight} ${fontSize}px '${subtitleStyle.fontFamily}', sans-serif`
+            ctx.textAlign = subtitleStyle.textAlign
+            ctx.textBaseline = "middle"
+
+            // 배경 그리기
+            const metrics = ctx.measureText(textToShow)
+            const textWidth = metrics.width
+            const textHeight = fontSize
+            const padding = 20
+            const bgX = subtitleStyle.textAlign === "center" 
+              ? (canvas.width - textWidth) / 2 - padding
+              : subtitleStyle.textAlign === "right"
+              ? canvas.width - textWidth - padding * 2
+              : padding
+            const bgY = subtitleY - textHeight / 2 - padding
+            const bgWidth = textWidth + padding * 2
+            const bgHeight = textHeight + padding * 2
+
+            ctx.fillStyle = subtitleStyle.backgroundColor
+            ctx.fillRect(bgX, bgY, bgWidth, bgHeight)
+
+            // 텍스트 그리기
+            if (subtitleStyle.textShadow) {
+              ctx.strokeStyle = "rgba(0, 0, 0, 0.8)"
+              ctx.lineWidth = 4
+              ctx.strokeText(textToShow, canvas.width / 2, subtitleY)
+            }
+            ctx.fillStyle = subtitleStyle.color
+            ctx.lineWidth = 12
+          ctx.lineJoin = "round"
+          ctx.strokeText(textToShow, canvas.width / 2, subtitleY)
+          
+          // 흰색 글씨
+          ctx.fillStyle = "white"
+          ctx.fillText(textToShow, canvas.width / 2, subtitleY)
+          }
+        }
+
+        // 다음 프레임 요청 (롱폼 쇼츠 생성기 방식)
+        if (!audio.paused && elapsed < actualAudioDuration) {
+        requestAnimationFrame(renderFrame)
+        } else {
+          mediaRecorder.stop()
+          audio.pause()
+        }
+      }
+
+      renderFrame()
+    } catch (error) {
+      console.error("영상 렌더링 실패:", error)
+      setError(`영상 렌더링에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+      setIsRendering(false)
+    }
+  }
+
+  // 1개 이미지를 3분할 영상으로 변환 (제품영상 4초, 확대영상 4초, 다른 각도 4초)
+  const handleConvertAllImagesToVideos = async () => {
+    if (imageUrls.length !== 3) {
+      alert("이미지 3개가 준비되어야 합니다.")
+      return
+    }
+
+    const replicateApiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_replicate_api_key") || undefined : undefined
+    const openaiApiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_openai_api_key") || undefined : undefined
+
+    if (!replicateApiKey) {
+      alert("Replicate API 키가 필요합니다. 메인 화면의 설정(톱니바퀴 아이콘)에서 API 키를 입력해주세요.")
+      return
+    }
+
+    setError("")
+    
+    try {
+      // TTS 길이 계산 (오디오 메타데이터를 우선 사용)
+      let totalTtsDuration = 12 // 기본값 12초
+      
+      // 1순위: 오디오 메타데이터 사용 (가장 정확함)
+      if (ttsAudioUrl) {
+        try {
+          const audio = new Audio(ttsAudioUrl)
+          await new Promise((resolve, reject) => {
+            audio.onloadedmetadata = () => {
+              totalTtsDuration = Math.ceil(audio.duration)
+              console.log(`[Shopping] ✅ TTS 길이: ${totalTtsDuration}초 (오디오 메타데이터 기반, 실제 길이: ${audio.duration.toFixed(2)}초)`)
+              resolve(undefined)
+            }
+            audio.onerror = reject
+            audio.load()
+          })
+        } catch (audioError) {
+          console.warn("[Shopping] TTS 오디오 길이 가져오기 실패, scriptLines 사용:", audioError)
+        }
+      }
+      
+      // 2순위: scriptLines 사용 (오디오 메타데이터가 없을 때만)
+      if (totalTtsDuration === 12 && scriptLines && scriptLines.length > 0) {
+        const lastLine = scriptLines[scriptLines.length - 1]
+        const scriptLinesDuration = Math.ceil(lastLine.endTime / 1000)
+        // scriptLines의 endTime이 비정상적으로 크면 무시 (예: 37초)
+        if (scriptLinesDuration <= 60) { // 최대 60초까지만 허용
+          totalTtsDuration = scriptLinesDuration
+          console.log(`[Shopping] ⚠️ TTS 길이: ${totalTtsDuration}초 (scriptLines 기반, 오디오 메타데이터 없음)`)
+        } else {
+          console.warn(`[Shopping] ⚠️ scriptLines의 endTime이 비정상적입니다 (${scriptLinesDuration}초). 기본값 사용.`)
+        }
+      }
+      
+      // 각 이미지당 영상 길이 계산 (TTS 길이를 3으로 나누고 반올림)
+      const durationPerVideo = Math.round(totalTtsDuration / 3)
+      console.log(`[Shopping] 📊 TTS 길이 계산 결과:`)
+      console.log(`  - TTS 전체 길이: ${totalTtsDuration}초`)
+      console.log(`  - 각 이미지당 duration: ${totalTtsDuration} / 3 = ${(totalTtsDuration / 3).toFixed(2)}초`)
+      console.log(`  - 반올림된 duration: ${durationPerVideo}초`)
+      console.log(`  - 총 영상 길이 (예상): ${durationPerVideo * 3}초`)
+      
+      // 각 영상의 sample_shift 계산 (각 영상 길이에 맞게)
+      const sampleShiftPerVideo = Math.max(8, Math.min(16, durationPerVideo))
+      
+      console.log(`[Shopping] 3개 이미지를 영상으로 변환 시작 (TTS: ${totalTtsDuration}초, 각 영상: ${durationPerVideo}초, sample_shift: ${sampleShiftPerVideo})`)
+      
+      const videoResults: Array<{ index: number; videoUrl: string; duration: number; sceneType: string }> = []
+      const newVideoMap = new Map<number, string>()
+      
+      // 3개 이미지를 각각 영상으로 변환
+      for (let i = 0; i < 3; i++) {
+        const imageUrl = imageUrls[i]
+        const sceneNames = ["제품 사용 영상", "디테일 영상", "다른 배경 영상"]
+        
+        // 변환 시작 상태 업데이트 (이전 상태 유지)
+        setIsConvertingToVideo((prev) => {
+          const newMap = new Map(prev)
+          newMap.set(i, true)
+          console.log(`[Shopping] 🔄 ${sceneNames[i]} 변환 상태 업데이트: true (인덱스 ${i})`)
+          return newMap
+        })
+        
+        console.log(`[Shopping] 📹 ${sceneNames[i]} 생성 시작 (${i + 1}/3, 길이: ${durationPerVideo}초, sample_shift: ${sampleShiftPerVideo})`)
+        
+        // 각 이미지에 맞는 프롬프트 생성 (새로운 규칙 적용)
+        console.log(`[Shopping] 🔍 프롬프트 생성 전 확인: durationPerVideo=${durationPerVideo}초`)
+        const videoPrompt = await generateVideoPromptForImage(
+          i as 0 | 1 | 2,
+          productName,
+          productDescription,
+          durationPerVideo,
+          openaiApiKey // AI 행동 프롬프트 생성용 API 키
+        )
+        
+        console.log(`[Shopping] ${sceneNames[i]} 프롬프트:`, videoPrompt)
+        console.log(`[Shopping] 🔍 프롬프트에 포함된 duration 확인:`, videoPrompt.includes(`Duration: ${durationPerVideo} seconds`) ? `✅ 올바름 (${durationPerVideo}초)` : `❌ 잘못됨`)
+        
+        // 이미지를 영상으로 변환 (bytedance/seedance-1-pro-fast 모델 사용, duration 사용)
+        try {
+          const videoUrl = await generateVideoWithSeedance(
+            imageUrl,
+            videoPrompt,
+            durationPerVideo, // duration 전달
+            replicateApiKey
+          )
+          
+          console.log(`[Shopping] ✅ ${sceneNames[i]} 생성 완료:`, videoUrl)
+          
+          // 변환된 영상 URL 저장 및 즉시 표시
+          newVideoMap.set(i, videoUrl)
+          setConvertedVideoUrls(new Map(newVideoMap))
+          
+          videoResults.push({
+            index: i,
+            videoUrl,
+            duration: durationPerVideo, // 계산된 duration 사용
+            sceneType: sceneNames[i]
+          })
+        } catch (error) {
+          console.error(`[Shopping] ❌ ${sceneNames[i]} 생성 실패:`, error)
+          throw error
+        } finally {
+          // 상태 업데이트는 finally에서 확실히 수행
+          setIsConvertingToVideo((prev) => {
+            const newMap = new Map(prev)
+            newMap.set(i, false)
+            // 모든 영상이 완료되었는지 확인
+            const allComplete = Array.from(newMap.values()).every(v => v === false)
+            console.log(`[Shopping] 🔄 ${sceneNames[i]} 변환 상태 업데이트: false (인덱스 ${i}), 모든 영상 완료: ${allComplete}, 현재 상태:`, Array.from(newMap.entries()))
+            return newMap
+          })
+        }
+      }
+      
+      // 영상 합치기 기능 제거 - 개별 영상 3개만 사용
+      const totalVideoDuration = videoResults.reduce((sum, result) => sum + result.duration, 0)
+      console.log(`[Shopping] 3개 영상 변환 완료 (각 영상: ${durationPerVideo}초, 총 ${totalVideoDuration.toFixed(1)}초, TTS: ${totalTtsDuration}초)`)
+      
+      // 모든 영상이 저장되었는지 확인하고 최종 업데이트
+      if (newVideoMap.size === 3) {
+        console.log(`[Shopping] ✅ 모든 영상이 성공적으로 저장되었습니다 (${newVideoMap.size}/3)`)
+        // 최종 상태 업데이트 (모든 영상이 확실히 저장되도록)
+        setConvertedVideoUrls(new Map(newVideoMap))
+      } else {
+        console.warn(`[Shopping] ⚠️ 영상 저장 상태 확인: ${newVideoMap.size}/3`)
+      }
+      
+      // 모든 변환 상태 확실히 초기화 (모든 영상 완료 후)
+      // 상태 업데이트가 완료될 시간을 주고 확실히 초기화
+      await new Promise(resolve => setTimeout(resolve, 200)) // 상태 업데이트가 완료될 시간을 줌
+      setIsConvertingToVideo((prev) => {
+        // 모든 값이 false인지 확인하고 빈 Map으로 초기화
+        const allFalse = Array.from(prev.values()).every(v => v === false)
+        if (allFalse || prev.size === 0) {
+          console.log(`[Shopping] 🔄 모든 변환 상태 초기화 완료 (이전 상태: ${prev.size}개 항목)`)
+          return new Map()
+        }
+        // 혹시 모를 경우를 위해 모든 항목을 false로 설정
+        const clearedMap = new Map<number, boolean>()
+        console.log(`[Shopping] 🔄 모든 변환 상태를 false로 설정 후 초기화`)
+        return clearedMap
+      })
+    } catch (error) {
+      console.error("[Shopping] ❌ 영상 변환 실패:", error)
+      setError(`영상 변환에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+      
+      // 에러 발생 시 모든 변환 상태 초기화
+      setIsConvertingToVideo(new Map())
+      setIsMergingVideos(false)
+      console.log(`[Shopping] 🔄 에러 발생으로 인한 모든 상태 초기화 완료`)
+    }
+  }
+
+  // 개별 영상 재생성
+  const handleRegenerateSingleVideo = async (index: 0 | 1 | 2) => {
+    if (imageUrls.length <= index) {
+      alert("해당 이미지가 없습니다.")
+      return
+    }
+
+    const replicateApiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_replicate_api_key") || undefined : undefined
+    const openaiApiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_openai_api_key") || undefined : undefined
+
+    if (!replicateApiKey) {
+      alert("Replicate API 키가 필요합니다. 메인 화면의 설정(톱니바퀴 아이콘)에서 API 키를 입력해주세요.")
+      return
+    }
+
+    setError("")
+    
+    // 장면 이름 정의 (try-catch 블록에서 모두 사용 가능하도록 함수 상단에 정의)
+    const sceneNames = ["제품 사용 영상", "디테일 영상", "다른 배경 영상"]
+    
+    try {
+      // TTS 길이 계산
+      let totalTtsDuration = 12
+      if (ttsAudioUrl) {
+        try {
+          const audio = new Audio(ttsAudioUrl)
+          await new Promise((resolve, reject) => {
+            audio.onloadedmetadata = () => {
+              totalTtsDuration = Math.ceil(audio.duration)
+              resolve(undefined)
+            }
+            audio.onerror = reject
+            audio.load()
+          })
+        } catch (audioError) {
+          console.warn("[Shopping] TTS 오디오 길이 가져오기 실패:", audioError)
+        }
+      }
+      
+      // 각 이미지당 영상 길이 계산
+      const durationPerVideo = Math.round(totalTtsDuration / 3)
+      
+      // 변환 시작 상태 업데이트
+      setIsConvertingToVideo((prev) => {
+        const newMap = new Map(prev)
+        newMap.set(index, true)
+        return newMap
+      })
+      
+      console.log(`[Shopping] 📹 ${sceneNames[index]} 재생성 시작 (길이: ${durationPerVideo}초)`)
+      
+      // 프롬프트 생성
+      const videoPrompt = await generateVideoPromptForImage(
+        index,
+        productName,
+        productDescription,
+        durationPerVideo,
+        openaiApiKey
+      )
+      
+      // 이미지를 영상으로 변환
+      const imageUrl = imageUrls[index]
+      const videoUrl = await generateVideoWithSeedance(
+        imageUrl,
+        videoPrompt,
+        durationPerVideo,
+        replicateApiKey
+      )
+      
+      console.log(`[Shopping] ✅ ${sceneNames[index]} 재생성 완료:`, videoUrl)
+      
+      // 변환된 영상 URL 저장 및 즉시 표시
+      setConvertedVideoUrls((prev) => {
+        const newMap = new Map(prev)
+        newMap.set(index, videoUrl)
+        return newMap
+      })
+      
+    } catch (error) {
+      console.error(`[Shopping] ❌ ${sceneNames[index]} 재생성 실패:`, error)
+      setError(`영상 재생성에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+    } finally {
+      // 상태 업데이트
+      setIsConvertingToVideo((prev) => {
+        const newMap = new Map(prev)
+        newMap.set(index, false)
+        return newMap
+      })
+    }
+  }
+
+  // 개별 장면을 영상으로 변환 (레거시 - 호환성 유지)
+  const handleConvertImageToVideo = async (sceneIndex: number) => {
+    if (imageUrls.length === 0) {
+      alert("이미지가 준비되어야 합니다.")
+      return
+    }
+
+    const replicateApiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_replicate_api_key") || undefined : undefined
+
+    if (!replicateApiKey) {
+      alert("Replicate API 키가 필요합니다. 메인 화면의 설정(톱니바퀴 아이콘)에서 API 키를 입력해주세요.")
+      return
+    }
+
+    // 해당 장면의 변환 상태를 true로 설정
+    setIsConvertingToVideo((prev) => {
+      const newMap = new Map(prev)
+      newMap.set(sceneIndex, true)
+      return newMap
+    })
+    setError("")
+    try {
+      console.log(`[Shopping] 장면 ${sceneIndex + 1} 영상 변환 시작`)
+
+      // 대본이 있으면 해당 장면의 대본 사용, 없으면 기본 프롬프트
+      let scenePrompt: string
+      let duration: number | undefined
+      
+      if (script.trim() && scenes.length > sceneIndex) {
+        const sceneScript = scenes[sceneIndex]
+        const charactersPerSecond = 6.7
+        duration = Math.max(3, Math.ceil(sceneScript.length / charactersPerSecond))
+        scenePrompt = `${productName} product in use. ${sceneScript}. Smooth motion, natural movement, duration: ${duration} seconds. High quality, professional video, 9:16 vertical format.`
+      } else {
+        scenePrompt = scenes[sceneIndex] || `Product showcase scene ${sceneIndex + 1}`
+      }
+      
+      const videoUrl = await convertImageToVideoWithWan(
+        imageUrls[sceneIndex],
+        scenePrompt,
+        undefined,
+        replicateApiKey,
+        duration
+      )
+      
+      // 변환된 영상 URL 저장
+      setConvertedVideoUrls((prev) => {
+        const newMap = new Map(prev)
+        newMap.set(sceneIndex, videoUrl)
+        return newMap
+      })
+      
+      console.log(`[Shopping] 장면 ${sceneIndex + 1} 영상 변환 완료:`, videoUrl)
+      alert(`장면 ${sceneIndex + 1} 영상 변환이 완료되었습니다!`)
+    } catch (error) {
+      console.error(`[Shopping] 장면 ${sceneIndex + 1} 영상 변환 실패:`, error)
+      setError(`장면 ${sceneIndex + 1} 영상 변환에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+    } finally {
+      // 해당 장면의 변환 상태를 false로 설정
+      setIsConvertingToVideo((prev) => {
+        const newMap = new Map(prev)
+        newMap.set(sceneIndex, false)
+        return newMap
+      })
+    }
+  }
+
+  // 비디오 다운로드
+  const handleDownload = () => {
+    if (!videoUrl) return
+
+    const link = document.createElement("a")
+    link.href = videoUrl
+    link.download = `${productName}_shopping_video.mp4`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
+  const renderStepContent = () => {
+    switch (activeStep) {
+      case "product":
+        return (
+          <div className="space-y-6">
+            <Card className="border border-orange-200/50 rounded-2xl shadow-2xl bg-white/80 backdrop-blur-xl overflow-hidden relative">
+              <div className="absolute inset-0 bg-gradient-to-br from-orange-50/50 to-amber-50/30"></div>
+              <CardHeader className="pb-4 relative z-10 border-b border-orange-100">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-xl bg-gradient-to-br from-orange-100 to-amber-100 border border-orange-200/50 shadow-sm">
+                    <ShoppingBag className="w-5 h-5 text-orange-600" />
+                  </div>
+                  <CardTitle className="text-xl font-bold text-slate-800">
+                    제품 정보
+                  </CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-6 py-6 relative z-10">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="product-name" className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                      제품명 <span className="text-red-500">*</span>
+                    </Label>
+                    <Button
+                      type="button"
+                      onClick={handleLoadTrendingKeywords}
+                      disabled={isLoadingKeywords}
+                      className="h-8 px-3 text-xs bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-semibold shadow-md shadow-orange-500/30"
+                    >
+                      {isLoadingKeywords ? (
+                        <>
+                          <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                          로딩 중...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-3 h-3 mr-1" />
+                          잘뜨는 키워드 찾기
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-slate-500">예: 무선 블루투스 이어폰</p>
+                  <Input
+                    id="product-name"
+                    placeholder="제품명을 입력해주세요"
+                    value={productName}
+                    onChange={(e) => setProductName(e.target.value)}
+                    className="h-12 bg-white/80 border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-orange-400 focus:ring-orange-400/20 shadow-sm"
+                  />
+                </div>
+
+                <div className="space-y-3">
+                  <Label htmlFor="product-description" className="text-sm font-semibold text-slate-700">
+                    제품 설명 (선택사항)
+                  </Label>
+                  <p className="text-xs text-slate-500">
+                    제품의 주요 특징, 장점 등을 입력해주세요. 비워두면 제품명만으로 대본을 생성합니다.
+                  </p>
+                  <Textarea
+                    id="product-description"
+                    placeholder="제품 설명을 입력해주세요"
+                    value={productDescription}
+                    onChange={(e) => setProductDescription(e.target.value)}
+                    rows={4}
+                    className="resize-none bg-white/80 border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-orange-400 focus:ring-orange-400/20 shadow-sm"
+                  />
+                </div>
+
+                <div className="space-y-3">
+                  <Label htmlFor="video-duration" className="text-sm font-semibold text-slate-700">
+                    영상 길이
+                  </Label>
+                  <p className="text-xs text-slate-500">
+                    영상 길이를 선택하세요. 선택한 길이에 맞춰 대본이 생성됩니다.
+                  </p>
+                  <Select value={videoDuration.toString()} onValueChange={(value) => setVideoDuration(parseInt(value) as 12 | 15 | 20 | 30)}>
+                    <SelectTrigger className="h-12 bg-white/80 border-slate-200 text-slate-900 focus:border-orange-400 focus:ring-orange-400/20 shadow-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-white border-slate-200 shadow-xl">
+                      <SelectItem value="12" className="text-slate-900 hover:bg-orange-50">12초</SelectItem>
+                      <SelectItem value="15" className="text-slate-900 hover:bg-orange-50">15초</SelectItem>
+                      <SelectItem value="20" className="text-slate-900 hover:bg-orange-50">20초</SelectItem>
+                      <SelectItem value="30" className="text-slate-900 hover:bg-orange-50">30초</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-3">
+                  <Label htmlFor="product-image" className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                    제품 이미지 <span className="text-red-500">*</span>
+                  </Label>
+                  {!productImage ? (
+                    <div
+                      className={`border-dashed border-2 rounded-2xl p-8 md:p-12 text-center transition-all duration-300 ${
+                        isDragging
+                          ? "border-orange-400 bg-orange-50 backdrop-blur-sm scale-[1.02]"
+                          : "border-orange-300 bg-orange-50/50 hover:border-orange-400 hover:bg-orange-50 backdrop-blur-sm"
+                      }`}
+                      onDragOver={handleDragOver}
+                      onDragLeave={handleDragLeave}
+                      onDrop={handleDrop}
+                    >
+                      <input
+                        type="file"
+                        id="product-image"
+                        accept="image/*"
+                        onChange={handleImageUpload}
+                        className="hidden"
+                      />
+                      <label
+                        htmlFor="product-image"
+                        className="cursor-pointer flex flex-col items-center gap-4"
+                      >
+                        <div className={`p-4 rounded-2xl ${isDragging ? "bg-orange-100" : "bg-orange-50"} transition-all shadow-sm`}>
+                          <ImageIcon className={`w-12 h-12 ${isDragging ? "text-orange-500" : "text-orange-600"}`} />
+                        </div>
+                        <div className="space-y-2">
+                          <span className={`text-sm md:text-base font-semibold block ${isDragging ? "text-orange-700" : "text-slate-700"}`}>
+                            {isDragging ? "여기에 이미지를 놓아주세요" : "제품 이미지를 업로드해주세요"}
+                          </span>
+                          <span className="text-xs text-slate-500 block">
+                            이미지를 클릭하거나 드래그하여 업로드
+                          </span>
+                          <span className="text-xs text-slate-400 block">
+                            PNG, JPG, GIF (최대 10MB)
+                          </span>
+                        </div>
+                      </label>
+                    </div>
+                  ) : (
+                    <div className="relative">
+                      <div className="relative w-full h-64 rounded-2xl overflow-hidden border-2 border-orange-200 bg-white backdrop-blur-sm shadow-xl">
+                        <img
+                          src={productImage}
+                          alt="제품 이미지"
+                          className="w-full h-full object-contain"
+                        />
+                        <button
+                          onClick={handleRemoveImage}
+                          className="absolute top-3 right-3 p-2.5 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-full hover:from-red-600 hover:to-red-700 transition-all shadow-lg hover:scale-110"
+                          type="button"
+                          aria-label="이미지 제거"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-3 text-center">
+                        이미지가 업로드되었습니다. 다른 이미지를 업로드하려면 제거 후 다시 업로드하세요.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {error && (
+                  <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl backdrop-blur-sm">
+                    <div className="flex items-center gap-2 text-red-400">
+                      <X className="w-4 h-4" />
+                      <span className="text-sm font-medium">{error}</span>
+                    </div>
+                  </div>
+                )}
+
+                <Button
+                  onClick={handleGenerateScript}
+                  disabled={!productName.trim() || !productImage || isGeneratingScript}
+                  className="w-full h-14 bg-gradient-to-r from-orange-500 via-amber-500 to-orange-500 hover:from-orange-400 hover:via-amber-400 hover:to-orange-400 text-white font-bold rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 shadow-lg shadow-orange-500/50 hover:shadow-xl hover:shadow-orange-500/50 transform hover:scale-[1.02]"
+                  size="lg"
+                >
+                  {isGeneratingScript ? (
+                    <>
+                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                      AI가 대본을 생성하고 있습니다...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-5 h-5 mr-2" />
+                      대본 생성하기
+                    </>
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        )
+
+      case "script":
+        return (
+          <div className="space-y-6">
+            <div className="text-center space-y-3">
+              <h2 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-orange-600 to-amber-600 bg-clip-text text-transparent">
+                생성된 대본
+              </h2>
+              <p className="text-slate-600 text-base">대본을 확인하고 수정할 수 있습니다</p>
+            </div>
+
+            <Card className="border border-orange-200/50 rounded-2xl shadow-2xl bg-gradient-to-br from-orange-50/80 to-amber-50/60 backdrop-blur-xl overflow-hidden relative">
+              <div className="absolute inset-0 bg-gradient-to-br from-orange-50/50 to-amber-50/30"></div>
+              <CardHeader className="relative z-10 border-b border-orange-100">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-xl bg-gradient-to-br from-orange-100 to-amber-100 border border-orange-200/50 shadow-sm">
+                      <FileText className="w-5 h-5 text-orange-600" />
+                    </div>
+                    <CardTitle className="text-xl font-bold text-slate-800">
+                      대본 ({videoDuration}초)
+                    </CardTitle>
+                  </div>
+                  <div className="flex gap-2">
+                    {!isEditingScript ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setIsEditingScript(true)
+                          setEditedScript(script)
+                        }}
+                        className="text-sm border-orange-300 bg-gradient-to-r from-orange-50 to-amber-50 text-orange-700 hover:from-orange-100 hover:to-amber-100 hover:text-orange-800 hover:border-orange-400 font-semibold"
+                      >
+                        편집
+                      </Button>
+                    ) : (
+                      <>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setIsEditingScript(false)
+                            setEditedScript("")
+                          }}
+                          className="text-sm border-slate-300 bg-gradient-to-r from-slate-50 to-gray-50 text-slate-700 hover:from-slate-100 hover:to-gray-100 hover:text-slate-800 hover:border-slate-400 font-semibold"
+                        >
+                          취소
+                        </Button>
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={handleSaveEditedScript}
+                          className="text-sm bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 text-white font-semibold shadow-md"
+                        >
+                          저장
+                        </Button>
+                      </>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleGenerateScript}
+                      disabled={isGeneratingScript}
+                      className="text-sm border-orange-300 bg-gradient-to-r from-orange-50 to-amber-50 text-orange-700 hover:from-orange-100 hover:to-amber-100 hover:text-orange-800 hover:border-orange-400 font-semibold disabled:opacity-50"
+                    >
+                      {isGeneratingScript ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          재생성 중...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4 mr-2" />
+                          대본 재생성
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4 relative z-10">
+                {/* 전체 대본 표시 */}
+                <div>
+                  <Label className="text-sm font-semibold text-slate-700 mb-2 block">전체 대본</Label>
+                  <Textarea
+                    value={isEditingScript ? editedScript : script}
+                    onChange={(e) => isEditingScript ? setEditedScript(e.target.value) : setScript(e.target.value)}
+                    rows={8}
+                    className="font-medium bg-gradient-to-br from-orange-50/90 to-amber-50/70 border-orange-200 text-slate-900 placeholder:text-slate-400 focus:border-orange-400 focus:ring-orange-400/20 resize-none shadow-sm"
+                    placeholder="대본이 여기에 표시됩니다..."
+                    disabled={!isEditingScript && !script}
+                  />
+                </div>
+                
+                {isAnalyzingScript && (
+                  <div className="flex items-center gap-2 text-sm text-slate-600">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>대본을 분석하고 있습니다...</span>
+                  </div>
+                )}
+                
+                {/* 대본 파트별 분석 결과 */}
+                {script && scriptParts.length > 0 && !isEditingScript && (
+                  <div className="space-y-3 pt-4 border-t border-orange-100">
+                    <Label className="text-sm font-semibold text-slate-700 mb-3 block">대본 분석</Label>
+                    <div className="space-y-3">
+                      {scriptParts.map((part, index) => {
+                        const partColors: Record<string, { bg: string; border: string; text: string; label: string }> = {
+                          "인트로/후킹": { bg: "from-pink-50 to-rose-50", border: "border-pink-300", text: "text-pink-700", label: "인트로/후킹" },
+                          "제품 소개": { bg: "from-blue-50 to-cyan-50", border: "border-blue-300", text: "text-blue-700", label: "제품 소개" },
+                          "제품 장점": { bg: "from-green-50 to-emerald-50", border: "border-green-300", text: "text-green-700", label: "제품 장점" },
+                          "마무리": { bg: "from-purple-50 to-indigo-50", border: "border-purple-300", text: "text-purple-700", label: "마무리" },
+                        }
+                        const colors = partColors[part.part] || { bg: "from-gray-50 to-slate-50", border: "border-gray-300", text: "text-gray-700", label: part.part }
+                        
+                        return (
+                          <div
+                            key={index}
+                            className={`p-4 rounded-xl border-2 ${colors.border} bg-gradient-to-br ${colors.bg} backdrop-blur-sm shadow-sm`}
+                          >
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className={`px-2 py-1 text-xs font-bold rounded-full ${colors.text} bg-white/80 border ${colors.border}`}>
+                                {colors.label}
+                              </span>
+                              <span className="text-xs text-slate-500">
+                                {part.text.length}자
+                              </span>
+                            </div>
+                            <p className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap">
+                              {part.text}
+                            </p>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {error && (
+                  <div className="p-4 bg-red-50 border border-red-200 rounded-xl backdrop-blur-sm">
+                    <div className="flex items-center gap-2 text-red-600">
+                      <X className="w-4 h-4" />
+                      <span className="text-sm font-medium">{error}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* TTS 생성 */}
+                <Card className="border border-blue-200/50 rounded-xl bg-white/60 backdrop-blur-sm shadow-lg mt-6">
+                  <CardContent className="p-5 space-y-4">
+                    <div>
+                      <h3 className="font-bold text-slate-800 text-lg">TTS 생성</h3>
+                      <p className="text-sm text-slate-600 mt-1">대본을 음성으로 변환합니다</p>
+                    </div>
+
+                    {/* 목소리 선택 UI */}
+                    <div className="space-y-4 pt-4 border-t border-blue-100">
+                      <div className="space-y-3">
+                        <Label className="text-sm font-semibold text-slate-700">목소리 선택</Label>
+                        
+                        {/* 수퍼톤 선택 */}
+                        <div className="space-y-3 p-4 border border-blue-200/50 rounded-xl bg-white/60 backdrop-blur-sm shadow-sm">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                              <div
+                                className={`w-4 h-4 rounded-full border-2 cursor-pointer ${
+                                  selectedVoiceId?.startsWith("supertone-") ? "border-purple-500 bg-purple-500" : "border-gray-300"
+                                }`}
+                                onClick={() => {
+                                  if (supertoneVoices.length > 0 && !selectedSupertoneVoiceId) {
+                                    setSelectedSupertoneVoiceId(supertoneVoices[0].voice_id)
+                                    setSelectedVoiceId(`supertone-${supertoneVoices[0].voice_id}`)
+                                    const firstVoice = supertoneVoices[0]
+                                    if (firstVoice.styles && firstVoice.styles.length > 0) {
+                                      const neutralStyle = firstVoice.styles.find(s => s.toLowerCase().includes("neutral") || s === "중립")
+                                      setSelectedSupertoneStyle(neutralStyle || firstVoice.styles[0])
+                                    }
+                                  } else if (selectedSupertoneVoiceId) {
+                                    setSelectedSupertoneVoiceId("")
+                                    setSelectedVoiceId("ttsmaker-여성1")
+                                  } else {
+                                    fetchSupertoneVoices()
+                                  }
+                                }}
+                              >
+                                {selectedVoiceId?.startsWith("supertone-") && (
+                                  <div className="w-2 h-2 bg-white rounded-full mx-auto mt-0.5"></div>
+                                )}
+                              </div>
+                              <p className={`text-sm font-medium ${selectedVoiceId?.startsWith("supertone-") ? "text-purple-900" : "text-gray-700"}`}>수퍼톤 (SuperTone)</p>
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={fetchSupertoneVoices}
+                              disabled={isLoadingSupertoneVoices}
+                              className={selectedVoiceId?.startsWith("supertone-") ? "border-purple-300 text-purple-700" : ""}
+                            >
+                              {isLoadingSupertoneVoices ? (
+                                <>
+                                  <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                  로딩 중...
+                                </>
+                              ) : (
+                                <>
+                                  <RefreshCw className="w-3 h-3 mr-1" />
+                                  음성 목록 가져오기
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                          
+                          {supertoneVoices.length > 0 && (
+                            <div className="mt-3">
+                              <Label className="text-sm font-medium text-gray-700 mb-2 block">음성 목록에서 선택</Label>
+                              <Select
+                                value={selectedSupertoneVoiceId && supertoneVoices.find(v => v.voice_id === selectedSupertoneVoiceId) ? selectedSupertoneVoiceId : ""}
+                                onValueChange={(value) => {
+                                  setSelectedSupertoneVoiceId(value)
+                                  setSelectedVoiceId(`supertone-${value}`)
+                                  const selectedVoice = supertoneVoices.find(v => v.voice_id === value)
+                                  if (selectedVoice && selectedVoice.styles && selectedVoice.styles.length > 0) {
+                                    const neutralStyle = selectedVoice.styles.find(s => s.toLowerCase().includes("neutral") || s === "중립")
+                                    setSelectedSupertoneStyle(neutralStyle || selectedVoice.styles[0])
+                                  } else {
+                                    setSelectedSupertoneStyle("neutral")
+                                  }
+                                }}
+                              >
+                                <SelectTrigger className="w-full">
+                                  <SelectValue placeholder="수퍼톤 음성을 선택하세요" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {supertoneVoices.map((voice) => (
+                                    <SelectItem key={voice.voice_id} value={voice.voice_id}>
+                                      <div className="flex items-center gap-2">
+                                        {voice.thumbnail_image_url && (
+                                          <img
+                                            src={voice.thumbnail_image_url}
+                                            alt={voice.name}
+                                            className="w-6 h-6 rounded-full object-cover"
+                                          />
+                                        )}
+                                        <div>
+                                          <div className="font-medium">{voice.name}</div>
+                                          <div className="text-xs text-gray-500">ID: {voice.voice_id}</div>
+                                          {voice.styles && voice.styles.length > 0 && (
+                                            <div className="text-xs text-gray-500">
+                                              스타일: {voice.styles.join(", ")}
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          )}
+                          {selectedSupertoneVoiceId && (() => {
+                            const selectedVoice = supertoneVoices.find(v => v.voice_id === selectedSupertoneVoiceId)
+                            const availableStyles = selectedVoice?.styles || []
+                            // 직접 입력한 ID인 경우 스타일 선택 표시하지 않음 (기본 neutral 사용)
+                            if (!selectedVoice) {
+                              return null
+                            }
+                            return availableStyles.length > 0 && (
+                              <div className="mt-2">
+                                <p className="text-sm font-medium text-gray-700 mb-2">스타일 선택</p>
+                                <Select
+                                  value={selectedSupertoneStyle}
+                                  onValueChange={setSelectedSupertoneStyle}
+                                >
+                                  <SelectTrigger className="w-full">
+                                    <SelectValue placeholder="스타일을 선택하세요" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {availableStyles.map((style) => (
+                                      <SelectItem key={style} value={style}>
+                                        {style}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            )
+                          })()}
+                          
+                          {/* 수퍼톤 ID 직접 입력 */}
+                          <div className="mt-3 space-y-2">
+                            <Label className="text-sm font-medium text-gray-700">또는 ID 직접 입력</Label>
+                            <Input
+                              placeholder="수퍼톤 Voice ID를 입력하세요"
+                              value={selectedSupertoneVoiceId && !supertoneVoices.find(v => v.voice_id === selectedSupertoneVoiceId) ? selectedSupertoneVoiceId : ""}
+                              onChange={(e) => {
+                                const inputId = e.target.value.trim()
+                                if (inputId) {
+                                  // 직접 입력한 ID를 우선적으로 선택
+                                  setSelectedSupertoneVoiceId(inputId)
+                                  setSelectedVoiceId(`supertone-${inputId}`)
+                                  setSelectedSupertoneStyle("neutral") // 기본 스타일
+                                } else {
+                                  setSelectedSupertoneVoiceId("")
+                                  if (selectedVoiceId?.startsWith("supertone-")) {
+                                    setSelectedVoiceId("ttsmaker-여성1")
+                                  }
+                                }
+                              }}
+                              className="w-full border-purple-200 focus:border-purple-400 focus:ring-purple-400/20"
+                            />
+                            <p className="text-xs text-gray-500">수퍼톤 Voice ID를 알고 있다면 직접 입력할 수 있습니다. 직접 입력한 ID가 우선적으로 적용됩니다.</p>
+                          </div>
+                          {selectedSupertoneVoiceId && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="w-full mt-2 border-purple-300 text-purple-700 hover:bg-purple-100"
+                              onClick={() => handlePreviewVoice(`supertone-${selectedSupertoneVoiceId}`)}
+                              disabled={previewingVoiceId === `supertone-${selectedSupertoneVoiceId}`}
+                            >
+                              {previewingVoiceId === `supertone-${selectedSupertoneVoiceId}` ? (
+                                <>
+                                  <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                  재생 중...
+                                </>
+                              ) : (
+                                <>
+                                  <Volume2 className="w-3 h-3 mr-1" />
+                                  미리듣기
+                                </>
+                              )}
+                            </Button>
+                          )}
+                        </div>
+
+                        {/* ElevenLabs 음성 선택 */}
+                        <div className="space-y-3 p-4 border border-blue-200/50 rounded-xl bg-white/60 backdrop-blur-sm shadow-sm mt-4">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                              <div
+                                className={`w-4 h-4 rounded-full border-2 cursor-pointer ${
+                                  selectedVoiceId?.startsWith("elevenlabs-") ? "border-blue-500 bg-blue-500" : "border-gray-300"
+                                }`}
+                                onClick={() => {
+                                  if (selectedVoiceId?.startsWith("elevenlabs-")) {
+                                    setSelectedVoiceId("ttsmaker-여성1")
+                                    setCustomElevenLabsVoiceId("")
+                                  } else {
+                                    if (customElevenLabsVoiceId) {
+                                      setSelectedVoiceId(`elevenlabs-${customElevenLabsVoiceId}`)
+                                    } else {
+                                      setSelectedVoiceId("elevenlabs-jB1Cifc2UQbq1gR3wnb0")
+                                    }
+                                    // 다른 TTS 선택 시 수퍼톤 선택 해제
+                                    if (selectedSupertoneVoiceId) {
+                                      setSelectedSupertoneVoiceId("")
+                                    }
+                                  }
+                                }}
+                              >
+                                {selectedVoiceId?.startsWith("elevenlabs-") && (
+                                  <div className="w-2 h-2 bg-white rounded-full mx-auto mt-0.5"></div>
+                                )}
+                              </div>
+                              <p className={`text-sm font-medium ${selectedVoiceId?.startsWith("elevenlabs-") ? "text-blue-900" : "text-gray-700"}`}>ElevenLabs</p>
+                            </div>
+                          </div>
+                          <div className="mt-3 space-y-2">
+                            <Label className="text-sm font-medium text-gray-700">Voice ID 직접 입력</Label>
+                            <Input
+                              type="text"
+                              placeholder="ElevenLabs 음성 ID 입력 (예: jB1Cifc2UQbq1gR3wnb0)"
+                              value={customElevenLabsVoiceId}
+                              onChange={(e) => {
+                                const voiceId = e.target.value.trim()
+                                setCustomElevenLabsVoiceId(voiceId)
+                                if (voiceId && selectedVoiceId?.startsWith("elevenlabs-")) {
+                                  setSelectedVoiceId(`elevenlabs-${voiceId}`)
+                                } else if (voiceId) {
+                                  setSelectedVoiceId(`elevenlabs-${voiceId}`)
+                                  // 다른 TTS 선택 시 수퍼톤 선택 해제
+                                  if (selectedSupertoneVoiceId) {
+                                    setSelectedSupertoneVoiceId("")
+                                  }
+                                }
+                              }}
+                              className="w-full border-blue-200 focus:border-blue-400 focus:ring-blue-400/20"
+                            />
+                            <div className="mt-2">
+                              <p className="text-xs text-gray-500 mb-2">추천 음성:</p>
+                              <div className="flex gap-2 flex-wrap">
+                                {[
+                                  { id: "jB1Cifc2UQbq1gR3wnb0", name: "Rachel" },
+                                  { id: "8jHHF8rMqMlg8if2mOUe", name: "Voice 2" },
+                                  { id: "uyVNoMrnUku1dZyVEXwD", name: "Voice 3" },
+                                  { id: "1KNqBv4TutQtzSIACsMC", name: "Voice 4" },
+                                  { id: "4JJwo477JUAx3HV0T7n7", name: "Voice 5" },
+                                ].map((voice) => (
+                                  <Button
+                                    key={voice.id}
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setCustomElevenLabsVoiceId(voice.id)
+                                      setSelectedVoiceId(`elevenlabs-${voice.id}`)
+                                      // 다른 TTS 선택 시 수퍼톤 선택 해제
+                                      if (selectedSupertoneVoiceId) {
+                                        setSelectedSupertoneVoiceId("")
+                                      }
+                                    }}
+                                    className={selectedVoiceId === `elevenlabs-${voice.id}` ? "bg-blue-100 border-blue-500" : ""}
+                                  >
+                                    {voice.name}
+                                  </Button>
+                                ))}
+                              </div>
+                            </div>
+                            {selectedVoiceId?.startsWith("elevenlabs-") && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="w-full mt-2 border-blue-300 text-blue-700 hover:bg-blue-100"
+                                onClick={() => handlePreviewVoice(selectedVoiceId)}
+                                disabled={previewingVoiceId === selectedVoiceId}
+                              >
+                                {previewingVoiceId === selectedVoiceId ? (
+                                  <>
+                                    <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                    재생 중...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Volume2 className="w-3 h-3 mr-1" />
+                                    미리듣기
+                                  </>
+                                )}
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* TTSMaker 목소리 선택 */}
+                        <div className="space-y-2 mt-4">
+                          <Label className="text-sm font-semibold text-slate-700">TTSMaker 목소리 선택</Label>
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                            {[
+                              { id: "ttsmaker-여성1", name: "TTSMaker 여성1", note: "ID: 503", provider: "ttsmaker" },
+                              { id: "ttsmaker-여성2", name: "TTSMaker 여성2", note: "ID: 509", provider: "ttsmaker" },
+                              { id: "ttsmaker-여성6", name: "TTSMaker 여성3", note: "ID: 5802", provider: "ttsmaker" },
+                              { id: "ttsmaker-남성1", name: "TTSMaker 남성1", note: "ID: 5501", provider: "ttsmaker" },
+                              { id: "ttsmaker-남성4", name: "TTSMaker 남성2", note: "ID: 5888", provider: "ttsmaker" },
+                              { id: "ttsmaker-남성5", name: "TTSMaker 남성3", note: "ID: 5888 (음높이 -10%)", provider: "ttsmaker" },
+                            ].map((voice) => (
+                              <div
+                                key={voice.id}
+                                className={`p-3 border-2 rounded-lg transition-all cursor-pointer ${
+                                  selectedVoiceId === voice.id
+                                    ? "border-red-500 bg-red-50"
+                                    : "border-gray-200 hover:border-gray-300"
+                                }`}
+                              >
+                                <div className="flex items-center space-x-2 mb-2">
+                                  <div
+                                    className={`w-4 h-4 rounded-full border-2 cursor-pointer ${
+                                      selectedVoiceId === voice.id ? "border-red-500 bg-red-500" : "border-gray-300"
+                                    }`}
+                                    onClick={() => {
+                                      setSelectedVoiceId(voice.id)
+                                      if (selectedSupertoneVoiceId) {
+                                        setSelectedSupertoneVoiceId("")
+                                      }
+                                      if (customElevenLabsVoiceId) {
+                                        setCustomElevenLabsVoiceId("")
+                                      }
+                                    }}
+                                  >
+                                    {selectedVoiceId === voice.id && (
+                                      <div className="w-2 h-2 bg-white rounded-full mx-auto mt-0.5"></div>
+                                    )}
+                                  </div>
+                                  <div 
+                                    className="flex-1 cursor-pointer"
+                                    onClick={() => {
+                                      setSelectedVoiceId(voice.id)
+                                      if (selectedSupertoneVoiceId) {
+                                        setSelectedSupertoneVoiceId("")
+                                      }
+                                      if (customElevenLabsVoiceId) {
+                                        setCustomElevenLabsVoiceId("")
+                                      }
+                                    }}
+                                  >
+                                    <p className="text-sm font-medium">{voice.name}</p>
+                                    {voice.note && <p className="text-xs text-gray-500">{voice.note}</p>}
+                                  </div>
+                                </div>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="w-full text-xs"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handlePreviewVoice(voice.id)
+                                  }}
+                                  disabled={previewingVoiceId === voice.id}
+                                >
+                                  {previewingVoiceId === voice.id ? (
+                                    <>
+                                      <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                      재생 중...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Volume2 className="w-3 h-3 mr-1" />
+                                      미리듣기
+                                    </>
+                                  )}
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    {ttsProgress.total > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-sm text-slate-600">
+                          <span>진행 상황</span>
+                          <span>{ttsProgress.current} / {ttsProgress.total}</span>
+                        </div>
+                        <div className="w-full bg-slate-200 rounded-full h-2">
+                          <div
+                            className="bg-orange-500 h-2 rounded-full transition-all duration-300"
+                            style={{
+                              width: `${(ttsProgress.current / ttsProgress.total) * 100}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                    {ttsAudioUrl ? (
+                      <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg space-y-3">
+                        <div className="flex items-center gap-2 text-sm font-medium text-green-700">
+                          <CheckCircle2 className="w-5 h-5 text-green-500" />
+                          <span>TTS 생성 완료 - 미리듣기 가능</span>
+                        </div>
+                        <audio 
+                          controls 
+                          src={ttsAudioUrl} 
+                          className="w-full"
+                          preload="auto"
+                          onLoadedMetadata={(e) => {
+                            const audio = e.currentTarget
+                            console.log("[Shopping] ✅ 오디오 메타데이터 로드 완료:", {
+                              duration: audio.duration,
+                              readyState: audio.readyState,
+                              networkState: audio.networkState,
+                            })
+                            // 오디오 길이 확인
+                            if (audio.duration && audio.duration > 0) {
+                              console.log("[Shopping] ✅ 오디오 전체 길이:", audio.duration.toFixed(3), "초")
+                            } else {
+                              console.error("[Shopping] ❌ 오류: 오디오 길이를 확인할 수 없습니다!")
+                            }
+                          }}
+                          onLoadedData={(e) => {
+                            const audio = e.currentTarget
+                            console.log("[Shopping] ✅ 오디오 데이터 로드 완료:", {
+                              duration: audio.duration,
+                              readyState: audio.readyState,
+                            })
+                          }}
+                          onCanPlay={(e) => {
+                            const audio = e.currentTarget
+                            console.log("[Shopping] ✅ 오디오 재생 가능:", {
+                              duration: audio.duration,
+                              readyState: audio.readyState,
+                            })
+                          }}
+                          onTimeUpdate={(e) => {
+                            const audio = e.currentTarget
+                            // 재생 진행률 로그 (25% 단위로 한 번만)
+                            if (audio.duration > 0) {
+                              const progress = Math.floor((audio.currentTime / audio.duration) * 100)
+                              const lastProgress = (audio as any).__lastProgress || 0
+                              if (progress !== lastProgress && progress % 25 === 0 && progress > 0) {
+                                console.log(`[Shopping] 오디오 재생 진행: ${progress}% (${audio.currentTime.toFixed(2)}초 / ${audio.duration.toFixed(2)}초)`)
+                                ;(audio as any).__lastProgress = progress
+                              }
+                            }
+                          }}
+                          onError={(e) => {
+                            const audio = e.currentTarget
+                            console.error("[Shopping] ❌ 오디오 로드 오류:", {
+                              error: audio.error,
+                              code: audio.error?.code,
+                              message: audio.error?.message,
+                            })
+                          }}
+                          onEnded={() => {
+                            console.log("[Shopping] ✅ 오디오 재생 완료 - 전체 대본이 재생되었습니다")
+                          }}
+                        />
+                        <p className="text-xs text-slate-400 mt-2">위 플레이어에서 생성된 음성을 확인할 수 있습니다.</p>
+                      </div>
+                    ) : (
+                      <div className="mt-3 p-4 bg-white/60 border border-slate-200 rounded-xl text-center">
+                        <p className="text-sm text-slate-600">TTS 생성 후 미리듣기가 가능합니다.</p>
+                      </div>
+                    )}
+                    
+                    {/* TTS 생성/재생성 버튼 (하단) */}
+                    <div className="pt-4 border-t border-blue-100 space-y-2">
+                      <Button
+                        onClick={handleGenerateTTS}
+                        disabled={isGeneratingTTS}
+                        className="w-full bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-400 hover:to-purple-400 text-white font-semibold shadow-lg shadow-blue-500/50"
+                        size="lg"
+                      >
+                        {isGeneratingTTS ? (
+                          <>
+                            <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                            TTS 생성 중...
+                          </>
+                        ) : ttsAudioUrl ? (
+                          <>
+                            <RefreshCw className="w-5 h-5 mr-2" />
+                            TTS 재생성
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-5 h-5 mr-2" />
+                            TTS 생성하기
+                          </>
+                        )}
+                      </Button>
+                      {ttsAudioUrl && (
+                        <p className="text-xs text-center text-slate-500">
+                          기존 음성 파일이 있어도 재생성할 수 있습니다.
+                        </p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <div className="flex gap-3 pt-4">
+                  <Button
+                    variant="outline"
+                    onClick={() => setActiveStep("product")}
+                    className="flex-1 border-orange-300 bg-gradient-to-r from-orange-50 to-amber-50 text-orange-700 hover:from-orange-100 hover:to-amber-100 hover:text-orange-800 hover:border-orange-400 font-semibold shadow-md transition-all"
+                  >
+                    <ArrowLeft className="w-4 h-4 mr-2" />
+                    이전
+                  </Button>
+                  <Button
+                    onClick={handleGoToImageGeneration}
+                    disabled={!script.trim()}
+                    className="flex-1 bg-gradient-to-r from-green-500 via-emerald-500 to-green-500 hover:from-green-400 hover:via-emerald-400 hover:to-green-400 text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-green-500/50 hover:shadow-xl hover:shadow-green-500/50 transition-all duration-300"
+                    size="lg"
+                  >
+                    <ImageIcon className="w-5 h-5 mr-2" />
+                    이미지 생성하기
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )
+
+      case "video":
+        return (
+          <div className="space-y-6">
+            <div className="text-center space-y-3">
+              <h2 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
+                이미지 생성
+              </h2>
+              <p className="text-slate-600 text-base">AI가 이미지를 생성합니다</p>
+            </div>
+
+            {isGeneratingVideo ? (
+              /* 이미지 생성 애니메이션: 원본 이미지가 생성된 이미지로 변환 */
+              productImage ? (
+                <Card className="border border-green-200/50 rounded-2xl shadow-2xl bg-white/80 backdrop-blur-xl overflow-hidden relative">
+                  <div className="absolute inset-0 bg-gradient-to-br from-green-50/50 to-emerald-50/30"></div>
+                  <CardHeader className="relative z-10 border-b border-green-100">
+                    <CardTitle className="text-xl font-bold text-slate-800">이미지 생성 중...</CardTitle>
+                  </CardHeader>
+                  <CardContent className="py-6 relative z-10">
+                    <div className="flex items-center justify-center gap-8 flex-wrap">
+                      {/* 원본 이미지 */}
+                      <div className="space-y-3 text-center">
+                        <Label className="text-sm font-semibold text-slate-700">원본 이미지</Label>
+                        <div className="relative w-48 aspect-[9/16] bg-gray-100 rounded-lg overflow-hidden border-2 border-blue-300 shadow-lg">
+                          <img
+                            src={productImage}
+                            alt="원본 제품 이미지"
+                            className={`w-full h-full opacity-70 transition-opacity duration-1000 ${
+                              productImageAspectRatio !== null && Math.abs(productImageAspectRatio - 1) < 0.1
+                                ? "object-contain" // 1:1 비율일 때는 축소해서 전체 표시 (상하 여백 생김)
+                                : "object-cover" // 그 외에는 기존대로
+                            }`}
+                          />
+                        </div>
+                      </div>
+
+                      {/* AI 변환 애니메이션 */}
+                      <div className="flex flex-col items-center justify-center relative">
+                        {/* 화살표 */}
+                        <div className="relative">
+                          <ArrowRight className="w-16 h-16 text-green-500 animate-pulse" />
+                          {/* AI 생성 효과 - Sparkles */}
+                          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                            <Sparkles className="w-8 h-8 text-green-400 animate-bounce absolute -top-2 -left-2" style={{ animationDelay: '0s' }} />
+                            <Sparkles className="w-6 h-6 text-emerald-400 animate-bounce absolute -top-1 -right-1" style={{ animationDelay: '0.2s' }} />
+                            <Sparkles className="w-5 h-5 text-green-300 animate-bounce absolute -bottom-1 -left-1" style={{ animationDelay: '0.4s' }} />
+                            <Sparkles className="w-7 h-7 text-emerald-300 animate-bounce absolute -bottom-2 -right-2" style={{ animationDelay: '0.6s' }} />
+                          </div>
+                          {/* 회전하는 로딩 링 */}
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <div className="w-10 h-10 border-4 border-green-500 border-t-transparent rounded-full animate-spin"></div>
+                          </div>
+                          {/* Bot 아이콘 */}
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <Bot className="w-6 h-6 text-green-600 animate-pulse" />
+                          </div>
+                        </div>
+                        <span className="text-xs text-slate-500 mt-3 font-medium">AI가 이미지를 생성 중...</span>
+                      </div>
+
+                      {/* 생성 중인 이미지 */}
+                      <div className="space-y-3 text-center">
+                        <Label className="text-sm font-semibold text-slate-700">생성 중...</Label>
+                        <div className="relative w-48 aspect-[9/16] bg-gray-100 rounded-lg overflow-hidden border-2 border-green-500 shadow-lg">
+                          {/* 그라데이션 배경 애니메이션 */}
+                          <div className="absolute inset-0 bg-gradient-to-br from-green-200/50 via-emerald-200/50 to-green-300/50 animate-pulse"></div>
+                          {/* 파티클 효과 */}
+                          <div className="absolute inset-0">
+                            <div className="absolute top-1/4 left-1/4 w-2 h-2 bg-green-400 rounded-full animate-ping" style={{ animationDelay: '0s' }}></div>
+                            <div className="absolute top-1/2 right-1/4 w-2 h-2 bg-emerald-400 rounded-full animate-ping" style={{ animationDelay: '0.3s' }}></div>
+                            <div className="absolute bottom-1/4 left-1/2 w-2 h-2 bg-green-300 rounded-full animate-ping" style={{ animationDelay: '0.6s' }}></div>
+                            <div className="absolute bottom-1/3 right-1/3 w-2 h-2 bg-emerald-300 rounded-full animate-ping" style={{ animationDelay: '0.9s' }}></div>
+                          </div>
+                          {/* 중앙 로딩 스피너 */}
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <div className="relative">
+                              <Loader2 className="w-8 h-8 text-green-500 animate-spin" />
+                              <Sparkles className="w-4 h-4 text-green-400 absolute -top-1 -right-1 animate-bounce" />
+                            </div>
+                          </div>
+                          {/* 하단 텍스트 */}
+                          <div className="absolute bottom-2 left-2 right-2 text-[10px] text-green-600 font-medium bg-white/90 px-2 py-1 rounded text-center">
+                            AI 생성 중...
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : (
+                <Card>
+                  <CardContent className="py-12">
+                    <div className="text-center space-y-4">
+                      <Loader2 className="w-12 h-12 animate-spin mx-auto text-orange-500" />
+                      <div>
+                        <h3 className="text-xl font-semibold mb-2">이미지 생성 중...</h3>
+                        <p className="text-muted-foreground mb-4">
+                          AI가 이미지를 생성하고 있습니다
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )
+            ) : imageUrls.length > 0 && productImage ? (
+              /* 생성 완료: 원본 이미지와 생성된 3장의 이미지 */
+              <Card className="border border-green-200/50 rounded-2xl shadow-2xl bg-white/80 backdrop-blur-xl overflow-hidden relative">
+                <div className="absolute inset-0 bg-gradient-to-br from-green-50/50 to-emerald-50/30"></div>
+                <CardHeader className="relative z-10 border-b border-green-100">
+                  <CardTitle className="text-xl font-bold text-slate-800">이미지 생성 완료 (1장)</CardTitle>
+                </CardHeader>
+                <CardContent className="py-6 relative z-10">
+                  <div className="space-y-6">
+                    {/* 원본 이미지와 생성된 이미지 좌우 배치 */}
+                    <div className="flex items-center justify-center gap-8 flex-wrap">
+                      {/* 원본 이미지 */}
+                      <div className="space-y-3 text-center">
+                        <Label className="text-sm font-semibold text-slate-700">원본 이미지</Label>
+                        <div className="relative w-48 aspect-[9/16] bg-gray-100 rounded-lg overflow-hidden border-2 border-blue-300 shadow-lg">
+                          <img
+                            src={productImage}
+                            alt="원본 제품 이미지"
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                      </div>
+
+                      {/* 화살표 */}
+                      <div className="flex flex-col items-center justify-center">
+                        <ArrowRight className="w-16 h-16 text-green-500" />
+                        <span className="text-xs text-slate-500 mt-2 font-medium">AI 변환</span>
+                      </div>
+
+                      {/* 생성된 이미지 (3개) */}
+                      <div className="space-y-3 text-center">
+                        <Label className="text-sm font-semibold text-slate-700">생성된 이미지 (3개)</Label>
+                        <div className="flex gap-4 justify-center flex-wrap">
+                          {imageUrls.map((url, index) => (
+                            <div key={index} className="relative w-48 aspect-[9/16] bg-gray-100 rounded-lg overflow-hidden border-2 border-green-500 shadow-lg">
+                              <img
+                                src={url}
+                                alt={`생성된 이미지 ${index + 1}`}
+                                className="w-full h-full object-cover"
+                              />
+                              <div className="absolute top-2 right-2 bg-green-500 text-white text-xs font-bold px-2 py-1 rounded-full shadow-md">
+                                {index + 1}
+                              </div>
+                              <div className="absolute bottom-2 left-2 bg-black/50 text-white text-xs font-medium px-2 py-1 rounded">
+                                {imagePrompts[index]?.type || `이미지 ${index + 1}`}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 이미지 프롬프트 표시 (Collapsible) */}
+                    {imagePrompts.length > 0 && (
+                      <div className="pt-4 border-t border-green-200">
+                        <Collapsible>
+                          <CollapsibleTrigger className="w-full group">
+                            <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-all">
+                              <div className="flex items-center gap-2">
+                                <FileText className="w-5 h-5 text-blue-600" />
+                                <span className="text-sm font-semibold text-blue-700">이미지 프롬프트 보기</span>
+                              </div>
+                              <ChevronDown className="w-5 h-5 text-blue-400 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                            </div>
+                          </CollapsibleTrigger>
+                          <CollapsibleContent>
+                            <div className="mt-3 space-y-3">
+                              {imagePrompts.map((prompt, index) => (
+                                <div key={index} className="p-4 bg-white rounded-lg border border-blue-200 shadow-sm">
+                                  <div className="flex items-center gap-2 mb-3">
+                                    <span className="px-3 py-1 text-xs font-bold bg-blue-100 text-blue-700 rounded-full">
+                                      {index + 1}. {prompt.type}
+                                    </span>
+                                  </div>
+                                  <div className="space-y-2">
+                                    <div>
+                                      <p className="text-xs font-medium text-slate-700 mb-1">대본 부분:</p>
+                                      <p className="text-xs text-slate-600 bg-slate-50 p-2 rounded border border-slate-200">
+                                        {prompt.scriptText}
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <p className="text-xs font-medium text-slate-700 mb-1">프롬프트:</p>
+                                      <p className="text-xs text-slate-600 bg-slate-50 p-2 rounded border border-slate-200 font-mono break-words">
+                                        {prompt.prompt}
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <p className="text-xs font-medium text-slate-700 mb-1">설명:</p>
+                                      <p className="text-xs text-slate-500 italic">
+                                        {prompt.description}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </CollapsibleContent>
+                        </Collapsible>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex gap-3 pt-6 justify-center flex-wrap">
+                    <Button
+                      variant="outline"
+                      onClick={() => setActiveStep("script")}
+                      className="border-orange-300 bg-gradient-to-r from-orange-50 to-amber-50 text-orange-700 hover:from-orange-100 hover:to-amber-100 hover:text-orange-800 hover:border-orange-400 font-semibold shadow-md transition-all"
+                    >
+                      <ArrowLeft className="w-4 h-4 mr-2" />
+                      이전
+                    </Button>
+                    <Button
+                      onClick={handleGenerateImage}
+                      disabled={isGeneratingVideo}
+                      variant="outline"
+                      className="border-green-300 bg-gradient-to-r from-green-50 to-emerald-50 text-green-700 hover:from-green-100 hover:to-emerald-100 hover:text-green-800 hover:border-green-400 font-semibold shadow-md transition-all"
+                    >
+                      {isGeneratingVideo ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          재생성 중...
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="w-4 h-4 mr-2" />
+                          재생성
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      onClick={() => setActiveStep("render")}
+                      className="bg-gradient-to-r from-green-500 via-emerald-500 to-green-500 hover:from-green-400 hover:via-emerald-400 hover:to-green-400 text-white font-bold shadow-lg shadow-green-500/50 hover:shadow-xl hover:shadow-green-500/50 transition-all duration-300"
+                      size="lg"
+                    >
+                      다음 단계로
+                      <ArrowRight className="w-4 h-4 ml-2" />
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              /* 이미지 생성 시작 화면 */
+              <Card className="border border-green-200/50 rounded-2xl shadow-2xl bg-white/80 backdrop-blur-xl overflow-hidden relative">
+                <div className="absolute inset-0 bg-gradient-to-br from-green-50/50 to-emerald-50/30"></div>
+                <CardHeader className="relative z-10 border-b border-green-100">
+                  <CardTitle className="text-xl font-bold text-slate-800">이미지 생성 준비</CardTitle>
+                </CardHeader>
+                <CardContent className="py-6 relative z-10">
+                  {productImage ? (
+                    <div className="space-y-6">
+                      <div className="text-center">
+                        <p className="text-slate-600 mb-4">업로드된 제품 이미지를 기반으로 AI가 새로운 이미지를 생성합니다.</p>
+                        <div className="flex justify-center mb-6">
+                          <div className="relative w-48 aspect-[9/16] bg-gray-100 rounded-lg overflow-hidden border-2 border-green-300 shadow-lg">
+                            <img
+                              src={productImage}
+                              alt="제품 이미지"
+                              className={`w-full h-full ${
+                                productImageAspectRatio !== null && Math.abs(productImageAspectRatio - 1) < 0.1
+                                  ? "object-contain" // 1:1 비율일 때는 축소해서 전체 표시 (상하 여백 생김)
+                                  : "object-cover" // 그 외에는 기존대로
+                              }`}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 프롬프트 생성 단계 */}
+                      {!promptsGenerated ? (
+                        <div className="space-y-4">
+                          <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
+                            <p className="text-sm text-blue-700 mb-3">
+                              <strong>1단계:</strong> 대본을 분석하여 이미지 프롬프트를 생성합니다.
+                            </p>
+                            <Button
+                              onClick={handleGenerateImagePrompts}
+                              disabled={isGeneratingPrompts}
+                              className="w-full bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-400 hover:to-cyan-400 text-white font-semibold shadow-lg shadow-blue-500/50"
+                              size="lg"
+                            >
+                              {isGeneratingPrompts ? (
+                                <>
+                                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                                  프롬프트 생성 중...
+                                </>
+                              ) : (
+                                <>
+                                  <Sparkles className="w-5 h-5 mr-2" />
+                                  이미지 프롬프트 생성하기
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          {/* 생성된 프롬프트 표시 */}
+                          <div className="p-4 bg-green-50 border border-green-200 rounded-xl">
+                            <div className="flex items-center gap-2 mb-3">
+                              <CheckCircle2 className="w-5 h-5 text-green-600" />
+                              <p className="text-sm font-semibold text-green-700">프롬프트 생성 완료 (3개)</p>
+                            </div>
+                            <div className="space-y-3">
+                              {imagePrompts.map((prompt, index) => (
+                                <div key={index} className="p-4 bg-white rounded-lg border border-green-200 shadow-sm">
+                                  <div className="flex items-center gap-2 mb-3">
+                                    <span className="px-3 py-1 text-xs font-bold bg-green-100 text-green-700 rounded-full">
+                                      {index + 1}. {prompt.type}
+                                    </span>
+                                  </div>
+                                  <div className="space-y-2">
+                                    <div>
+                                      <p className="text-xs font-medium text-slate-700 mb-1">대본 부분:</p>
+                                      <p className="text-xs text-slate-600 bg-slate-50 p-2 rounded border border-slate-200">
+                                        {prompt.scriptText}
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <p className="text-xs font-medium text-slate-700 mb-1">프롬프트:</p>
+                                      <p className="text-xs text-slate-600 bg-slate-50 p-2 rounded border border-slate-200 font-mono break-words">
+                                        {prompt.prompt}
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <p className="text-xs font-medium text-slate-700 mb-1">설명:</p>
+                                      <p className="text-xs text-slate-500 italic">
+                                        {prompt.description}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* 이미지 생성 버튼 */}
+                          <div className="p-4 bg-purple-50 border border-purple-200 rounded-xl">
+                            <p className="text-sm text-purple-700 mb-3">
+                              <strong>2단계:</strong> 생성된 프롬프트를 사용하여 이미지를 생성합니다.
+                            </p>
+                            <Button
+                              onClick={handleGenerateImage}
+                              disabled={isGeneratingVideo}
+                              className="w-full bg-gradient-to-r from-green-500 via-emerald-500 to-green-500 hover:from-green-400 hover:via-emerald-400 hover:to-green-400 text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-green-500/50 hover:shadow-xl hover:shadow-green-500/50 transition-all duration-300"
+                              size="lg"
+                            >
+                              {isGeneratingVideo ? (
+                                <>
+                                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                                  이미지 생성 중...
+                                </>
+                              ) : (
+                                <>
+                                  <ImageIcon className="w-5 h-5 mr-2" />
+                                  이미지 생성하기
+                                </>
+                              )}
+                            </Button>
+                          </div>
+
+                          {/* 프롬프트 재생성 버튼 */}
+                          <Button
+                            onClick={() => {
+                              setPromptsGenerated(false)
+                              setImagePrompts([])
+                            }}
+                            variant="outline"
+                            size="sm"
+                            className="w-full border-blue-300 bg-gradient-to-r from-blue-50 to-cyan-50 text-blue-700 hover:from-blue-100 hover:to-cyan-100 hover:text-blue-800 hover:border-blue-400"
+                          >
+                            <RefreshCw className="w-4 h-4 mr-2" />
+                            프롬프트 다시 생성하기
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8">
+                      <p className="text-slate-600 mb-4">제품 이미지가 필요합니다.</p>
+                      <Button
+                        onClick={() => setActiveStep("product")}
+                        variant="outline"
+                        className="border-green-300 bg-gradient-to-r from-green-50 to-emerald-50 text-green-700 hover:from-green-100 hover:to-emerald-100 hover:text-green-800 hover:border-green-400 font-semibold shadow-md"
+                      >
+                        제품 정보로 돌아가기
+                      </Button>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        )
+
+      case "preview":
+        return (
+          <div className="space-y-6">
+            <div className="text-center space-y-2">
+              <h2 className="text-3xl font-bold">미리보기</h2>
+              <p className="text-muted-foreground">영상을 미리보고 다운로드하세요</p>
+            </div>
+
+            {/* 좌우 레이아웃: 좌측 옵션, 우측 미리보기 */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* 좌측: 옵션 패널 */}
+              <div className="lg:col-span-1 space-y-4">
+                <div className="sticky top-4">
+                  <h3 className="text-lg font-semibold text-gray-800 mb-4">옵션</h3>
+                  
+                  {/* 자막 스타일 설정 */}
+                  <Collapsible>
+                    <CollapsibleTrigger className="w-full group">
+                      <Card className="border border-green-200/50 rounded-xl shadow-sm bg-white/80 hover:bg-white transition-all">
+                        <CardHeader className="py-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <FileText className="w-5 h-5 text-green-600" />
+                              <CardTitle className="text-base font-semibold text-slate-800">자막 스타일 설정</CardTitle>
+                            </div>
+                            <ChevronDown className="w-5 h-5 text-slate-400 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                          </div>
+                        </CardHeader>
+                      </Card>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <Card className="border border-green-200/50 rounded-xl shadow-sm bg-white/80 mt-2">
+                        <CardContent className="space-y-5 py-6">
+                          <div className="grid grid-cols-1 gap-5">
+                            <div className="space-y-3">
+                              <Label className="text-sm font-semibold text-slate-700">폰트 크기</Label>
+                              <div className="flex items-center gap-3">
+                                <Slider
+                                  value={[subtitleStyle.fontSize]}
+                                  onValueChange={([value]) => setSubtitleStyle({ ...subtitleStyle, fontSize: value })}
+                                  min={24}
+                                  max={72}
+                                  step={4}
+                                  className="flex-1"
+                                />
+                                <span className="text-sm text-slate-500 font-medium w-14 text-right">{subtitleStyle.fontSize}px</span>
+                              </div>
+                            </div>
+                            <div className="space-y-3">
+                              <Label className="text-sm font-semibold text-slate-700">위치</Label>
+                              <Select
+                                value={subtitleStyle.position}
+                                onValueChange={(value: "top" | "center" | "bottom") => setSubtitleStyle({ ...subtitleStyle, position: value })}
+                              >
+                                <SelectTrigger className="bg-white/80 border-slate-200 text-slate-900 focus:border-green-400 focus:ring-green-400/20 shadow-sm">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent className="bg-white border-slate-200 shadow-xl">
+                                  <SelectItem value="top" className="text-slate-900 hover:bg-green-50">상단</SelectItem>
+                                  <SelectItem value="center" className="text-slate-900 hover:bg-green-50">중앙</SelectItem>
+                                  <SelectItem value="bottom" className="text-slate-900 hover:bg-green-50">하단</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-3">
+                              <Label className="text-sm font-semibold text-slate-700">위치 세부 조정 (Y축 오프셋)</Label>
+                              <div className="flex items-center gap-3">
+                                <Slider
+                                  value={[subtitleStyle.positionOffset]}
+                                  onValueChange={([value]) => setSubtitleStyle({ ...subtitleStyle, positionOffset: value })}
+                                  min={-200}
+                                  max={200}
+                                  step={5}
+                                  className="flex-1"
+                                />
+                                <span className="text-sm text-slate-500 font-medium w-20 text-right">
+                                  {subtitleStyle.positionOffset > 0 ? `+${subtitleStyle.positionOffset}` : subtitleStyle.positionOffset}px
+                                </span>
+                              </div>
+                              <p className="text-xs text-slate-500">
+                                기본 위치에서 위(+)/아래(-)로 이동할 수 있습니다. 양수는 아래로, 음수는 위로 이동합니다.
+                              </p>
+                            </div>
+                            <div className="space-y-3">
+                              <Label className="text-sm font-semibold text-slate-700">텍스트 색상</Label>
+                              <div className="flex gap-3">
+                                <input
+                                  type="color"
+                                  value={subtitleStyle.color}
+                                  onChange={(e) => setSubtitleStyle({ ...subtitleStyle, color: e.target.value })}
+                                  className="w-14 h-12 rounded-lg border-2 border-slate-200 cursor-pointer shadow-sm"
+                                />
+                                <Input
+                                  value={subtitleStyle.color}
+                                  onChange={(e) => setSubtitleStyle({ ...subtitleStyle, color: e.target.value })}
+                                  className="flex-1 bg-white/80 border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-green-400 focus:ring-green-400/20 shadow-sm"
+                                  placeholder="#FFFFFF"
+                                />
+                              </div>
+                            </div>
+                            <div className="space-y-3">
+                              <Label className="text-sm font-semibold text-slate-700">배경 투명도</Label>
+                              <div className="flex items-center gap-3">
+                                <Slider
+                                  value={[parseFloat(subtitleStyle.backgroundColor.split(",")[3]?.replace(")", "") || "0.5")]}
+                                  onValueChange={([value]) => setSubtitleStyle({ ...subtitleStyle, backgroundColor: `rgba(0, 0, 0, ${value})` })}
+                                  min={0}
+                                  max={1}
+                                  step={0.1}
+                                  className="flex-1"
+                                />
+                                <span className="text-sm text-slate-500 font-medium w-14 text-right">
+                                  {Math.round(parseFloat(subtitleStyle.backgroundColor.split(",")[3]?.replace(")", "") || "0.5") * 100)}%
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex gap-3 pt-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setSubtitleStyle({ ...subtitleStyle, fontWeight: subtitleStyle.fontWeight === "bold" ? "normal" : "bold" })}
+                              className="border-green-300 bg-gradient-to-r from-green-50 to-emerald-50 text-green-700 hover:from-green-100 hover:to-emerald-100 hover:text-green-800 hover:border-green-400 font-semibold shadow-md"
+                            >
+                              {subtitleStyle.fontWeight === "bold" ? "굵게" : "보통"}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setSubtitleStyle({ ...subtitleStyle, textShadow: !subtitleStyle.textShadow })}
+                              className="border-green-300 bg-gradient-to-r from-green-50 to-emerald-50 text-green-700 hover:from-green-100 hover:to-emerald-100 hover:text-green-800 hover:border-green-400 font-semibold shadow-md"
+                            >
+                              {subtitleStyle.textShadow ? "그림자 ON" : "그림자 OFF"}
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </CollapsibleContent>
+                  </Collapsible>
+
+                  {/* BGM 추가 */}
+                  <Collapsible>
+                    <CollapsibleTrigger className="w-full group">
+                      <Card className="border border-purple-200/50 rounded-xl shadow-sm bg-white/80 hover:bg-white transition-all">
+                        <CardHeader className="py-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <Volume2 className="w-5 h-5 text-purple-600" />
+                              <CardTitle className="text-base font-semibold text-slate-800">배경음악 (BGM)</CardTitle>
+                            </div>
+                            <ChevronDown className="w-5 h-5 text-slate-400 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                          </div>
+                        </CardHeader>
+                      </Card>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <Card className="border border-purple-200/50 rounded-xl shadow-sm bg-white/80 mt-2">
+                        <CardContent className="space-y-5 py-6">
+                          <div className="space-y-3">
+                            <Label className="text-sm font-semibold text-slate-700">BGM 파일 업로드 (선택사항)</Label>
+                            <div className="relative">
+                              <input
+                                type="file"
+                                accept="audio/*"
+                                onChange={handleBgmUpload}
+                                className="w-full text-sm text-slate-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gradient-to-r file:from-purple-500 file:to-pink-500 file:text-white hover:file:from-purple-400 hover:file:to-pink-400 file:cursor-pointer bg-white/80 border border-slate-200 rounded-lg p-2 shadow-sm"
+                              />
+                            </div>
+                            {bgmUrl && (
+                              <div className="mt-3 p-4 bg-green-50 border border-green-200 rounded-xl backdrop-blur-sm">
+                                <div className="flex items-center gap-2 mb-3">
+                                  <CheckCircle2 className="w-4 h-4 text-green-600" />
+                                  <p className="text-sm text-green-600 font-medium">BGM이 업로드되었습니다.</p>
+                                </div>
+                                <audio controls src={bgmUrl} className="w-full" />
+                              </div>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-1 gap-5 pt-2">
+                            <div className="space-y-3">
+                              <Label className="text-sm font-semibold text-slate-700">BGM 볼륨</Label>
+                              <div className="flex items-center gap-3">
+                                <Slider
+                                  value={[bgmVolume]}
+                                  onValueChange={([value]) => setBgmVolume(value)}
+                                  min={0}
+                                  max={1}
+                                  step={0.1}
+                                  className="flex-1"
+                                />
+                                <span className="text-sm text-slate-500 font-medium w-14 text-right">{Math.round(bgmVolume * 100)}%</span>
+                              </div>
+                            </div>
+                            <div className="space-y-3">
+                              <Label className="text-sm font-semibold text-slate-700">TTS 볼륨</Label>
+                              <div className="flex items-center gap-3">
+                                <Slider
+                                  value={[ttsVolume]}
+                                  onValueChange={([value]) => setTtsVolume(value)}
+                                  min={0}
+                                  max={1}
+                                  step={0.1}
+                                  className="flex-1"
+                                />
+                                <span className="text-sm text-slate-500 font-medium w-14 text-right">{Math.round(ttsVolume * 100)}%</span>
+                              </div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </CollapsibleContent>
+                  </Collapsible>
+
+
+                  {/* 유튜브 제목/설명/태그 생성기 */}
+                  <Collapsible>
+                    <CollapsibleTrigger className="w-full group">
+                      <Card className="border border-yellow-200/50 rounded-xl shadow-sm bg-white/80 hover:bg-white transition-all">
+                        <CardHeader className="py-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <FileText className="w-5 h-5 text-yellow-600" />
+                              <CardTitle className="text-base font-semibold text-slate-800">유튜브 제목/설명/태그 생성기</CardTitle>
+                            </div>
+                            <ChevronDown className="w-5 h-5 text-slate-400 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                          </div>
+                        </CardHeader>
+                      </Card>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <Card className="border border-yellow-200/50 rounded-xl shadow-sm bg-white/80 mt-2">
+                        <CardHeader className="relative z-10 border-b border-yellow-100">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className="p-2 rounded-xl bg-gradient-to-br from-yellow-100 to-orange-100 border border-yellow-200/50 shadow-sm">
+                                <FileText className="w-5 h-5 text-yellow-600" />
+                              </div>
+                              <CardTitle className="text-lg font-bold text-slate-800">유튜브 제목/설명/태그 생성기</CardTitle>
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={handleGenerateMetadata}
+                              disabled={isGeneratingMetadata || !script.trim()}
+                              className="bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-400 hover:to-orange-400 text-white border-0 font-semibold shadow-lg shadow-yellow-500/50"
+                            >
+                              {isGeneratingMetadata ? (
+                                <>
+                                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                  생성 중...
+                                </>
+                              ) : (
+                                <>
+                                  <Sparkles className="w-4 h-4 mr-2" />
+                                  재생성
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="space-y-5 py-6 relative z-10">
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <Label className="text-sm font-semibold text-slate-700">제목</Label>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={async () => {
+                                  if (youtubeTitle) {
+                                    await navigator.clipboard.writeText(youtubeTitle)
+                                    setCopiedTitle(true)
+                                    setTimeout(() => setCopiedTitle(false), 2000)
+                                  }
+                                }}
+                                className="h-7 px-2"
+                              >
+                                {copiedTitle ? (
+                                  <>
+                                    <Check className="w-3 h-3 mr-1 text-green-600" />
+                                    <span className="text-xs text-green-600">복사됨</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3 h-3 mr-1" />
+                                    <span className="text-xs">복사</span>
+                                  </>
+                                )}
+                              </Button>
+                            </div>
+                            <Input
+                              value={youtubeTitle}
+                              onChange={(e) => setYoutubeTitle(e.target.value)}
+                              placeholder="유튜브 영상 제목"
+                              className="bg-white/80 border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-yellow-400 focus:ring-yellow-400/20 shadow-sm"
+                            />
+                          </div>
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <Label className="text-sm font-semibold text-slate-700">설명</Label>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={async () => {
+                                  if (youtubeDescription) {
+                                    await navigator.clipboard.writeText(youtubeDescription)
+                                    setCopiedDescription(true)
+                                    setTimeout(() => setCopiedDescription(false), 2000)
+                                  }
+                                }}
+                                className="h-7 px-2"
+                              >
+                                {copiedDescription ? (
+                                  <>
+                                    <Check className="w-3 h-3 mr-1 text-green-600" />
+                                    <span className="text-xs text-green-600">복사됨</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3 h-3 mr-1" />
+                                    <span className="text-xs">복사</span>
+                                  </>
+                                )}
+                              </Button>
+                            </div>
+                            <Textarea
+                              value={youtubeDescription}
+                              onChange={(e) => setYoutubeDescription(e.target.value)}
+                              rows={4}
+                              placeholder="유튜브 영상 설명"
+                              className="resize-none bg-white/80 border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-yellow-400 focus:ring-yellow-400/20 shadow-sm"
+                            />
+                          </div>
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <Label className="text-sm font-semibold text-slate-700">태그</Label>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={async () => {
+                                  if (youtubeTags.length > 0) {
+                                    await navigator.clipboard.writeText(youtubeTags.join(", "))
+                                    setCopiedTags(true)
+                                    setTimeout(() => setCopiedTags(false), 2000)
+                                  }
+                                }}
+                                className="h-7 px-2"
+                              >
+                                {copiedTags ? (
+                                  <>
+                                    <Check className="w-3 h-3 mr-1 text-green-600" />
+                                    <span className="text-xs text-green-600">복사됨</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3 h-3 mr-1" />
+                                    <span className="text-xs">복사</span>
+                                  </>
+                                )}
+                              </Button>
+                            </div>
+                            <div className="flex flex-wrap gap-2 mb-2">
+                              {youtubeTags.map((tag, index) => (
+                                <span
+                                  key={index}
+                                  className="px-3 py-1.5 bg-gradient-to-r from-yellow-100 to-orange-100 border border-yellow-200/50 text-yellow-700 rounded-full text-sm font-medium shadow-sm"
+                                >
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                            <Input
+                              value={youtubeTags.join(", ")}
+                              onChange={(e) => setYoutubeTags(e.target.value.split(",").map(t => t.trim()).filter(t => t))}
+                              placeholder="태그를 쉼표로 구분하여 입력"
+                              className="bg-white/80 border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-yellow-400 focus:ring-yellow-400/20 shadow-sm"
+                            />
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </div>
+              </div>
+
+              {/* 우측: 미리보기 영역 */}
+              <div className="lg:col-span-2">
+                <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Video className="w-5 h-5" />
+                      영상 미리보기
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-4">
+                      {/* 영상 미리보기 */}
+                      <div className="flex justify-center items-start">
+                        {/* 비디오 미리보기 (롱폼 방식: HTML video 엘리먼트) */}
+                        <div className="space-y-2">
+                          <h3 className="text-sm font-medium text-center text-gray-600">영상 미리보기</h3>
+                          <div className="relative" style={{ width: "300px", height: "533px" }}>
+                            {previewGenerated && convertedVideoUrls.size === 3 ? (
+                              <>
+                                <video
+                                  ref={previewVideoRef}
+                                  crossOrigin="anonymous"
+                                  muted
+                                  playsInline
+                                  loop={false}
+                                  className="w-full h-full border-2 border-gray-300 rounded-lg object-cover"
+                                  style={{ 
+                                    aspectRatio: "9/16",
+                                    opacity: videoTransitionOpacity,
+                                    transition: "opacity 0.05s ease-in-out"
+                                  }}
+                                />
+                                {/* 썸네일 오버레이 (0.01초 동안) */}
+                                {previewThumbnailImage && currentTime < 0.01 && (
+                                  <img
+                                    src={previewThumbnailImage.src}
+                                    alt="썸네일"
+                                    className="absolute top-0 left-0 w-full h-full object-cover border-2 border-gray-300 rounded-lg"
+                                    style={{ aspectRatio: "9/16" }}
+                                  />
+                                )}
+                                {/* 자막 오버레이 (미리보기 크기에 맞춤, subtitleStyle 적용) */}
+                                {currentSubtitle && currentTime >= 0.01 && (
+                                  <div 
+                                    className="absolute left-0 right-0 flex items-center justify-center pointer-events-none"
+                                    style={{
+                                      top: (() => {
+                                        // 기본 위치 계산
+                                        let basePercent = subtitleStyle.position === "top" ? 15 : subtitleStyle.position === "center" ? 50 : 85
+                                        // positionOffset을 퍼센트로 변환 (533px 기준, -200~+200px를 -37.5%~+37.5%로 변환)
+                                        const offsetPercent = (subtitleStyle.positionOffset / 533) * 100
+                                        return `${basePercent + offsetPercent}%`
+                                      })(),
+                                      justifyContent: subtitleStyle.textAlign === "center" ? "center" : subtitleStyle.textAlign === "right" ? "flex-end" : "flex-start",
+                                      padding: "0 20px",
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        fontFamily: `'${subtitleStyle.fontFamily}', sans-serif`,
+                                        fontSize: `${subtitleStyle.fontSize * 0.6}px`, // 미리보기 크기에 맞춰 스케일링
+                                        fontWeight: subtitleStyle.fontWeight,
+                                        textAlign: subtitleStyle.textAlign,
+                                        color: subtitleStyle.color,
+                                        backgroundColor: subtitleStyle.backgroundColor,
+                                        padding: "8px 16px",
+                                        borderRadius: "8px",
+                                        lineHeight: "1.2",
+                                        textShadow: subtitleStyle.textShadow ? "2px 2px 4px rgba(0,0,0,0.8)" : "none",
+                                      }}
+                                    >
+                                      {currentSubtitle}
+                                    </div>
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              <div className="w-full h-full border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center bg-gray-50">
+                                <span className="text-gray-400 text-sm">미리보기를 생성해주세요</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                  {/* 재생 컨트롤 */}
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-center gap-4">
+                      <Button
+                        onClick={handlePreviewPlayPause}
+                        disabled={!previewAudio}
+                        size="lg"
+                        className="w-32"
+                      >
+                        {isPlaying ? (
+                          <>
+                            <Pause className="w-4 h-4 mr-2" />
+                            일시정지
+                          </>
+                        ) : (
+                          <>
+                            <Play className="w-4 h-4 mr-2" />
+                            재생
+                          </>
+                        )}
+                      </Button>
+                    </div>
+
+                    {/* 재생바 */}
+                    {previewAudio && (
+                      <div className="space-y-2">
+                        <Slider
+                          value={[currentTime]}
+                          max={previewAudio.duration || 1}
+                          step={0.1}
+                          onValueChange={(value) => {
+                            if (previewAudio) {
+                              const newTime = value[0]
+                              previewAudio.currentTime = newTime
+                              setCurrentTime(newTime)
+                              
+                              // 비디오 시간 동기화 (롱폼 방식)
+                              if (previewVideoRef.current) {
+                                const video = previewVideoRef.current
+                                const THUMBNAIL_DURATION = 0.0001
+                                const adjustedElapsed = Math.max(0, newTime - THUMBNAIL_DURATION)
+                                
+                                if (!isNaN(video.duration) && video.duration > 0) {
+                                  const videoTime = adjustedElapsed % video.duration
+                                  video.currentTime = videoTime
+                                }
+                              }
+                            }
+                          }}
+                          className="w-full"
+                        />
+                        <div className="flex items-center justify-between text-sm text-muted-foreground">
+                          <span>{Math.floor(currentTime / 60)}:{(Math.floor(currentTime % 60)).toString().padStart(2, "0")}</span>
+                          <span>{Math.floor((previewAudio.duration || 0) / 60)}:{(Math.floor((previewAudio.duration || 0) % 60)).toString().padStart(2, "0")}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 미리보기 생성 및 다운로드 버튼 */}
+                  <div className="space-y-3">
+                    {/* 미리보기 생성 버튼 */}
+                    <Button
+                      onClick={handleGeneratePreview}
+                      disabled={isGeneratingPreview || convertedVideoUrls.size !== 3 || !ttsAudioUrl}
+                      className="w-full bg-blue-500 hover:bg-blue-600 text-white disabled:bg-gray-300 disabled:cursor-not-allowed"
+                      size="lg"
+                    >
+                      {isGeneratingPreview ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          미리보기 생성 중...
+                        </>
+                      ) : (
+                        <>
+                          <Play className="w-4 h-4 mr-2" />
+                          미리보기 생성
+                        </>
+                      )}
+                    </Button>
+
+                  {/* 다운로드 버튼 */}
+                    <Button
+                      onClick={handleRenderVideo}
+                      disabled={isRendering || !previewGenerated}
+                      className="w-full bg-orange-500 hover:bg-orange-600 text-white disabled:bg-gray-300 disabled:cursor-not-allowed"
+                      size="lg"
+                    >
+                      {isRendering ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          렌더링 중...
+                        </>
+                      ) : (
+                        <>
+                        <Download className="w-4 h-4 mr-2" />
+                          영상 다운로드 (렌더링)
+                        </>
+                      )}
+                      </Button>
+                    {!previewGenerated && (
+                      <p className="text-sm text-gray-500 text-center">
+                        먼저 미리보기를 생성해주세요
+                      </p>
+                    )}
+                    </div>
+
+                    {/* 이전/처음으로 버튼 */}
+                    <div className="flex gap-3 pt-4 border-t border-gray-200">
+                      <Button
+                        variant="outline"
+                        onClick={() => setActiveStep("render")}
+                        className="flex-1 border-orange-300 bg-gradient-to-r from-orange-50 to-amber-50 text-orange-700 hover:from-orange-100 hover:to-amber-100 hover:text-orange-800 hover:border-orange-400 font-semibold shadow-md transition-all"
+                      >
+                        <ArrowLeft className="w-4 h-4 mr-2" />
+                        이전
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setActiveStep("product")
+                          setProductName("")
+                          setProductDescription("")
+                          setProductImage(null)
+                          setProductImageFile(null)
+                          setScript("")
+                          setVideoUrl("")
+                          setImageUrls([])
+                          setTtsAudioUrl("")
+                          setScenes([])
+                          setScriptLines([])
+                          setError("")
+                          if (previewAudio) {
+                            previewAudio.pause()
+                            previewAudio.currentTime = 0
+                          }
+                          if (previewAnimationFrame) {
+                            cancelAnimationFrame(previewAnimationFrame)
+                          }
+                          setIsPlaying(false)
+                          setCurrentTime(0)
+                        }}
+                        className="flex-1 border-orange-300 bg-gradient-to-r from-orange-50 to-amber-50 text-orange-700 hover:from-orange-100 hover:to-amber-100 hover:text-orange-800 hover:border-orange-400 font-semibold shadow-md transition-all"
+                      >
+                        <Home className="w-4 h-4 mr-2" />
+                        처음으로
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          </div>
+        )
+
+      case "render":
+        return (
+          <div className="space-y-6">
+            <div className="text-center space-y-3">
+              <h2 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
+                영상 생성
+              </h2>
+              <p className="text-slate-600 text-base">영상 설정을 구성하고 생성하세요</p>
+            </div>
+
+            {/* 생성된 영상 실시간 표시 */}
+            {/* 영상이 하나라도 생성 중이거나 생성된 경우 표시 */}
+            {(convertedVideoUrls.size > 0 || isConvertingToVideo.get(0) || isConvertingToVideo.get(1) || isConvertingToVideo.get(2)) && (
+              <Card className="border border-blue-200 rounded-2xl shadow-lg bg-white">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Video className="w-5 h-5 text-blue-600" />
+                    개별 영상 생성 중 ({convertedVideoUrls.size}/3)
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {[0, 1, 2].map((index) => {
+                      const videoUrl = convertedVideoUrls.get(index)
+                      const isConverting = isConvertingToVideo.get(index)
+                      const sceneNames = ["제품 사용 영상", "디테일 영상", "다른 배경 영상"]
+                      
+                      // 생성 완료된 영상
+                      if (videoUrl && !isConverting) {
+                        return (
+                          <div key={index} className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <Label className="text-sm font-semibold text-slate-700">{sceneNames[index]}</Label>
+                              <Button
+                                onClick={() => handleRegenerateSingleVideo(index as 0 | 1 | 2)}
+                                disabled={isConvertingToVideo.get(index)}
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-xs border-orange-300 bg-gradient-to-r from-orange-50 to-amber-50 text-orange-700 hover:from-orange-100 hover:to-amber-100 hover:text-orange-800 hover:border-orange-400"
+                              >
+                                {isConvertingToVideo.get(index) ? (
+                                  <>
+                                    <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                    생성 중
+                                  </>
+                                ) : (
+                                  <>
+                                    <RefreshCw className="w-3 h-3 mr-1" />
+                                    재생성
+                                  </>
+                                )}
+                              </Button>
+                            </div>
+                            <div className="relative w-full aspect-[9/16] bg-gray-100 rounded-lg overflow-hidden border-2 border-green-300 shadow-lg">
+                              <video
+                                src={videoUrl}
+                                controls
+                                className="w-full h-full object-cover"
+                                crossOrigin="anonymous"
+                              />
+                              <div className="absolute top-2 right-2 bg-green-500 text-white text-xs font-bold px-2 py-1 rounded-full shadow-md">
+                                ✓ {index + 1}
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      }
+                      
+                      // 생성 중인 영상
+                      if (isConverting) {
+                        return (
+                          <div key={index} className="space-y-2">
+                            <Label className="text-sm font-semibold text-slate-700">{sceneNames[index]} (생성 중...)</Label>
+                            <div className="relative w-full aspect-[9/16] bg-gray-100 rounded-lg overflow-hidden border-2 border-blue-500 shadow-lg">
+                              {/* 원본 이미지 배경 */}
+                              {imageUrls[index] && (
+                                <img
+                                  src={imageUrls[index]}
+                                  alt={`원본 이미지 ${index + 1}`}
+                                  className="w-full h-full object-cover opacity-50"
+                                />
+                              )}
+                              {/* 로딩 오버레이 */}
+                              <div className="absolute inset-0 bg-gradient-to-br from-blue-200/50 via-cyan-200/50 to-blue-300/50">
+                                <div className="absolute inset-0 flex items-center justify-center">
+                                  <div className="relative">
+                                    <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+                                    <Sparkles className="w-4 h-4 text-blue-400 absolute -top-1 -right-1 animate-bounce" />
+                                  </div>
+                                </div>
+                                <div className="absolute bottom-2 left-2 right-2 text-[10px] text-blue-600 font-medium bg-white/90 px-2 py-1 rounded text-center">
+                                  AI가 영상을 생성 중...
+                                </div>
+                              </div>
+                              <div className="absolute top-2 right-2 bg-blue-500 text-white text-xs font-bold px-2 py-1 rounded-full shadow-md">
+                                {index + 1}
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      }
+                      
+                      // 아직 시작하지 않은 영상 (원본 이미지 표시)
+                      return (
+                        <div key={index} className="space-y-2">
+                          <Label className="text-sm font-semibold text-slate-700">{sceneNames[index]} (대기 중)</Label>
+                          <div className="relative w-full aspect-[9/16] bg-gray-100 rounded-lg overflow-hidden border-2 border-gray-300 shadow-lg">
+                            {imageUrls[index] ? (
+                              <img
+                                src={imageUrls[index]}
+                                alt={`원본 이미지 ${index + 1}`}
+                                className="w-full h-full object-cover opacity-70"
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center bg-gray-200">
+                                <span className="text-gray-400 text-sm">이미지 없음</span>
+                              </div>
+                            )}
+                            <div className="absolute top-2 right-2 bg-gray-400 text-white text-xs font-bold px-2 py-1 rounded-full shadow-md">
+                              {index + 1}
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+            
+
+            {/* 영상이 없을 때 */}
+            {convertedVideoUrls.size === 0 && (
+              <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <ImageIcon className="w-5 h-5" />
+                    생성된 이미지
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {imageUrls.length > 0 ? (
+                    <div className="space-y-6">
+                      {/* 이미지 표시 (3개) */}
+                      <div className="flex justify-center">
+                        <div className="space-y-4 w-full max-w-4xl">
+                          <Label className="text-sm font-semibold text-slate-700 text-center block">생성된 이미지 (3개)</Label>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            {imageUrls.map((url, index) => (
+                              <div key={index} className="space-y-2">
+                                <div className="relative w-full aspect-[9/16] bg-gray-100 rounded-lg overflow-hidden border-2 border-gray-200 shadow-sm">
+                                  <img
+                                    src={url}
+                                    alt={`생성된 이미지 ${index + 1}`}
+                                    className="w-full h-full object-cover"
+                                  />
+                                  <div className="absolute top-2 right-2 bg-green-500 text-white text-xs font-bold px-2 py-1 rounded-full shadow-md">
+                                    {index + 1}
+                                  </div>
+                                  <div className="absolute bottom-2 left-2 bg-black/50 text-white text-xs font-medium px-2 py-1 rounded">
+                                    {imagePrompts[index]?.type || `이미지 ${index + 1}`}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-12">
+                      <div className="inline-block p-6 rounded-full bg-white/60 border border-slate-200 mb-4 shadow-sm">
+                        <ImageIcon className="w-12 h-12 text-slate-400" />
+                      </div>
+                      <p className="text-slate-600 text-base">이미지가 생성되지 않았습니다.</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* 영상 생성/재생성 버튼 */}
+            {imageUrls.length > 0 && (
+              <div className="flex gap-3 pt-4">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setActiveStep("video")
+                    // 영상 생성 상태 초기화 (단계 전환 시)
+                    setIsConvertingToVideo(new Map())
+                  }}
+                  className="flex-1 border-orange-300 bg-gradient-to-r from-orange-50 to-amber-50 text-orange-700 hover:from-orange-100 hover:to-amber-100 hover:text-orange-800 hover:border-orange-400 font-semibold shadow-md transition-all"
+                >
+                  <ArrowLeft className="w-4 h-4 mr-2" />
+                  이전
+                </Button>
+                <Button
+                  onClick={() => setActiveStep("thumbnail")}
+                  disabled={convertedVideoUrls.size < 3}
+                  className="flex-1 bg-gradient-to-r from-purple-500 via-pink-500 to-purple-500 hover:from-purple-400 hover:via-pink-400 hover:to-purple-400 text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-purple-500/50 hover:shadow-xl hover:shadow-purple-500/50 transition-all duration-300"
+                  size="lg"
+                >
+                  다음
+                  <ArrowRight className="w-4 h-4 ml-2" />
+                </Button>
+                {/* 영상이 이미 생성된 경우 "재생성" 버튼, 없으면 "영상 생성" 버튼 */}
+                {convertedVideoUrls.size === 3 ? (
+                  <Button
+                    onClick={() => {
+                      // 재생성 시 기존 영상 초기화
+                      setConvertedVideoUrls(new Map())
+                      handleConvertAllImagesToVideos()
+                    }}
+                    disabled={isConvertingToVideo.size > 0 && convertedVideoUrls.size < 3}
+                    className="flex-1 bg-gradient-to-r from-orange-500 via-red-500 to-orange-500 hover:from-orange-400 hover:via-red-400 hover:to-orange-400 text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-orange-500/50 hover:shadow-xl hover:shadow-orange-500/50 transition-all duration-300"
+                    size="lg"
+                  >
+                    {isConvertingToVideo.size > 0 && convertedVideoUrls.size < 3 ? (
+                      <>
+                        <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                        AI가 영상을 생성하고 있습니다...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-5 h-5 mr-2" />
+                        영상 재생성
+                      </>
+                    )}
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={handleConvertAllImagesToVideos}
+                    disabled={isConvertingToVideo.size > 0 && convertedVideoUrls.size > 0 && convertedVideoUrls.size < 3}
+                    className="flex-1 bg-gradient-to-r from-blue-500 via-cyan-500 to-blue-500 hover:from-blue-400 hover:via-cyan-400 hover:to-blue-400 text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-blue-500/50 hover:shadow-xl hover:shadow-blue-500/50 transition-all duration-300"
+                    size="lg"
+                  >
+                    {isConvertingToVideo.size > 0 && convertedVideoUrls.size > 0 && convertedVideoUrls.size < 3 ? (
+                      <>
+                        <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                        AI가 영상을 생성하고 있습니다...
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-5 h-5 mr-2" />
+                        영상 생성
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+        )
+
+      case "thumbnail":
+        return (
+          <div className="space-y-6">
+            <div className="text-center space-y-3">
+              <h2 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
+                썸네일 생성
+              </h2>
+              <p className="text-slate-600 text-base">쇼츠 썸네일을 생성하세요</p>
+            </div>
+
+            {/* 생성 방식 선택 */}
+            <Card className="border border-purple-200 rounded-2xl shadow-lg bg-white">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <ImageIcon className="w-5 h-5 text-purple-600" />
+                  썸네일 생성 방식
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex gap-3">
+                  <Button
+                    onClick={() => setThumbnailMode("ai")}
+                    variant={thumbnailMode === "ai" ? "default" : "outline"}
+                    className={`flex-1 ${thumbnailMode === "ai" ? "bg-purple-500 hover:bg-purple-600 text-white" : ""}`}
+                  >
+                    <Sparkles className="w-4 h-4 mr-2" />
+                    AI 생성
+                  </Button>
+                  <Button
+                    onClick={() => setThumbnailMode("manual")}
+                    variant={thumbnailMode === "manual" ? "default" : "outline"}
+                    className={`flex-1 ${thumbnailMode === "manual" ? "bg-purple-500 hover:bg-purple-600 text-white" : ""}`}
+                  >
+                    <ImageIcon className="w-4 h-4 mr-2" />
+                    직접 생성
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* AI 생성 모드 */}
+            {thumbnailMode === "ai" && (
+              <Card className="border border-purple-200 rounded-2xl shadow-lg bg-white">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Sparkles className="w-5 h-5 text-purple-600" />
+                    AI 썸네일 생성
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex justify-center items-start">
+                    <div className="space-y-2">
+                      <h3 className="text-sm font-medium text-center text-gray-600">썸네일 미리보기</h3>
+                      <div className="relative" style={{ width: "300px", height: "533px" }}>
+                        {thumbnailUrl ? (
+                          <canvas
+                            ref={thumbnailCanvasRef}
+                            className="w-full h-full border-2 border-gray-300 rounded-lg"
+                            style={{ aspectRatio: "9/16" }}
+                          />
+                        ) : (
+                          <div className="w-full h-full border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center bg-gray-50">
+                            <span className="text-gray-400 text-sm">썸네일 생성 버튼을 눌러주세요</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={handleGenerateThumbnail}
+                          disabled={isGeneratingThumbnail}
+                          className="flex-1 bg-purple-500 hover:bg-purple-600 text-white"
+                          size="sm"
+                        >
+                          {isGeneratingThumbnail ? (
+                            <>
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              생성 중...
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles className="w-4 h-4 mr-2" />
+                              AI 썸네일 생성
+                            </>
+                          )}
+                        </Button>
+                        {thumbnailUrl && (
+                          <Button
+                            onClick={handleDownloadThumbnail}
+                            variant="outline"
+                            size="sm"
+                          >
+                            <Download className="w-4 h-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* 직접 생성 모드 */}
+            {thumbnailMode === "manual" && (
+              <Card className="border border-purple-200 rounded-2xl shadow-lg bg-white">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <ImageIcon className="w-5 h-5 text-purple-600" />
+                    직접 썸네일 생성
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* 왼쪽: 이미지 선택 및 텍스트 입력 */}
+                    <div className="space-y-4">
+                      {/* 이미지 선택 */}
+                      <div className="space-y-3">
+                        <Label className="text-sm font-semibold text-slate-700">이미지 선택</Label>
+                        
+                        {/* 이미지 업로드 */}
+                        <div className="space-y-2">
+                          <Label className="text-xs text-slate-500">이미지 파일 업로드</Label>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleCustomThumbnailUpload}
+                            className="w-full text-sm text-slate-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gradient-to-r file:from-purple-500 file:to-pink-500 file:text-white hover:file:from-purple-400 hover:file:to-pink-400 file:cursor-pointer bg-white/80 border border-slate-200 rounded-lg p-2 shadow-sm"
+                          />
+                        </div>
+
+                        {/* 생성된 이미지에서 선택 */}
+                        {imageUrls.length > 0 && (
+                          <div className="space-y-2">
+                            <Label className="text-xs text-slate-500">이미지 생성 단계에서 생성한 이미지 선택</Label>
+                            <div className="grid grid-cols-3 gap-2">
+                              {imageUrls.map((url, index) => (
+                                <div
+                                  key={index}
+                                  onClick={() => handleSelectGeneratedImage(url)}
+                                  className={`relative cursor-pointer border-2 rounded-lg overflow-hidden transition-all ${
+                                    customThumbnailImage === url
+                                      ? "border-purple-500 ring-2 ring-purple-300"
+                                      : "border-gray-200 hover:border-purple-300"
+                                  }`}
+                                  style={{ aspectRatio: "9/16" }}
+                                >
+                                  <img
+                                    src={url}
+                                    alt={`생성된 이미지 ${index + 1}`}
+                                    className="w-full h-full object-cover"
+                                  />
+                                  {customThumbnailImage === url && (
+                                    <div className="absolute inset-0 bg-purple-500/20 flex items-center justify-center">
+                                      <CheckCircle2 className="w-6 h-6 text-purple-600" />
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 텍스트 입력 */}
+                      {customThumbnailImage && (
+                        <div className="space-y-4">
+                          <div className="space-y-2">
+                            <Label className="text-sm font-semibold text-slate-700">첫 번째 줄 텍스트</Label>
+                            <Input
+                              value={customThumbnailText.line1}
+                              onChange={(e) => setCustomThumbnailText({ ...customThumbnailText, line1: e.target.value })}
+                              placeholder="첫 번째 줄 텍스트 입력"
+                              className="bg-white/80 border-slate-200"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label className="text-sm font-semibold text-slate-700">두 번째 줄 텍스트</Label>
+                            <Input
+                              value={customThumbnailText.line2}
+                              onChange={(e) => setCustomThumbnailText({ ...customThumbnailText, line2: e.target.value })}
+                              placeholder="두 번째 줄 텍스트 입력"
+                              className="bg-white/80 border-slate-200"
+                            />
+                          </div>
+
+                          {/* 텍스트 스타일 설정 */}
+                          <div className="space-y-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                            <Label className="text-sm font-semibold text-slate-700">텍스트 스타일 설정</Label>
+                            
+                            {/* 첫 번째 줄 색상 */}
+                            <div className="space-y-2">
+                              <Label className="text-xs text-slate-600">첫 번째 줄 색상</Label>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="color"
+                                  value={customThumbnailTextStyle.line1Color}
+                                  onChange={(e) => setCustomThumbnailTextStyle({ ...customThumbnailTextStyle, line1Color: e.target.value })}
+                                  className="w-12 h-10 rounded-lg border-2 border-slate-200 cursor-pointer"
+                                />
+                                <Input
+                                  value={customThumbnailTextStyle.line1Color}
+                                  onChange={(e) => setCustomThumbnailTextStyle({ ...customThumbnailTextStyle, line1Color: e.target.value })}
+                                  className="flex-1 bg-white border-slate-200 text-sm"
+                                  placeholder="#FFFFFF"
+                                />
+                              </div>
+                            </div>
+
+                            {/* 두 번째 줄 색상 */}
+                            <div className="space-y-2">
+                              <Label className="text-xs text-slate-600">두 번째 줄 색상</Label>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="color"
+                                  value={customThumbnailTextStyle.line2Color}
+                                  onChange={(e) => setCustomThumbnailTextStyle({ ...customThumbnailTextStyle, line2Color: e.target.value })}
+                                  className="w-12 h-10 rounded-lg border-2 border-slate-200 cursor-pointer"
+                                />
+                                <Input
+                                  value={customThumbnailTextStyle.line2Color}
+                                  onChange={(e) => setCustomThumbnailTextStyle({ ...customThumbnailTextStyle, line2Color: e.target.value })}
+                                  className="flex-1 bg-white border-slate-200 text-sm"
+                                  placeholder="#00FFCC"
+                                />
+                              </div>
+                            </div>
+
+                            {/* 텍스트 위치 */}
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <Label className="text-xs text-slate-600">텍스트 위치</Label>
+                                <span className="text-xs text-slate-500">
+                                  {Math.round(customThumbnailTextStyle.position * 100)}% (상단: 0%, 하단: 100%)
+                                </span>
+                              </div>
+                              <Slider
+                                value={[customThumbnailTextStyle.position]}
+                                onValueChange={([value]) => setCustomThumbnailTextStyle({ ...customThumbnailTextStyle, position: value })}
+                                min={0}
+                                max={1}
+                                step={0.01}
+                                className="w-full"
+                              />
+                            </div>
+
+                            {/* 테두리 설정 */}
+                            <div className="space-y-3">
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <Label className="text-xs text-slate-600">테두리 두께</Label>
+                                  <span className="text-xs text-slate-500">{customThumbnailTextStyle.strokeWidth}px</span>
+                                </div>
+                                <Slider
+                                  value={[customThumbnailTextStyle.strokeWidth]}
+                                  onValueChange={([value]) => setCustomThumbnailTextStyle({ ...customThumbnailTextStyle, strokeWidth: value })}
+                                  min={0}
+                                  max={20}
+                                  step={1}
+                                  className="w-full"
+                                />
+                              </div>
+                              {customThumbnailTextStyle.strokeWidth > 0 && (
+                                <div className="space-y-2">
+                                  <Label className="text-xs text-slate-600">테두리 색상</Label>
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="color"
+                                      value={customThumbnailTextStyle.strokeColor}
+                                      onChange={(e) => setCustomThumbnailTextStyle({ ...customThumbnailTextStyle, strokeColor: e.target.value })}
+                                      className="w-12 h-10 rounded-lg border-2 border-slate-200 cursor-pointer"
+                                    />
+                                    <Input
+                                      value={customThumbnailTextStyle.strokeColor}
+                                      onChange={(e) => setCustomThumbnailTextStyle({ ...customThumbnailTextStyle, strokeColor: e.target.value })}
+                                      className="flex-1 bg-white border-slate-200 text-sm"
+                                      placeholder="#000000"
+                                    />
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* 이미지 확대/축소 */}
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <Label className="text-xs text-slate-600">이미지 크기</Label>
+                                <span className="text-xs text-slate-500">
+                                  {Math.round(customThumbnailTextStyle.imageScale * 100)}% (50% ~ 200%)
+                                </span>
+                              </div>
+                              <Slider
+                                value={[customThumbnailTextStyle.imageScale]}
+                                onValueChange={([value]) => setCustomThumbnailTextStyle({ ...customThumbnailTextStyle, imageScale: value })}
+                                min={0.5}
+                                max={2.0}
+                                step={0.1}
+                                className="w-full"
+                              />
+                            </div>
+
+                            {/* 텍스트 회전 */}
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <Label className="text-xs text-slate-600">텍스트 회전</Label>
+                                <span className="text-xs text-slate-500">
+                                  {customThumbnailTextStyle.textRotation}° (-180° ~ 180°)
+                                </span>
+                              </div>
+                              <Slider
+                                value={[customThumbnailTextStyle.textRotation]}
+                                onValueChange={([value]) => setCustomThumbnailTextStyle({ ...customThumbnailTextStyle, textRotation: value })}
+                                min={-180}
+                                max={180}
+                                step={1}
+                                className="w-full"
+                              />
+                            </div>
+                          </div>
+
+                          <Button
+                            onClick={handleSaveCustomThumbnail}
+                            disabled={!customThumbnailText.line1 || !customThumbnailText.line2}
+                            className="w-full bg-purple-500 hover:bg-purple-600 text-white"
+                          >
+                            <CheckCircle2 className="w-4 h-4 mr-2" />
+                            썸네일 저장
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 오른쪽: 미리보기 */}
+                    <div className="space-y-2">
+                      <Label className="text-sm font-semibold text-slate-700">미리보기</Label>
+                      <div className="relative" style={{ width: "300px", height: "533px" }}>
+                        {customThumbnailImage ? (
+                          <canvas
+                            ref={thumbnailCanvasRef}
+                            className="w-full h-full border-2 border-gray-300 rounded-lg"
+                            style={{ aspectRatio: "9/16" }}
+                          />
+                        ) : (
+                          <div className="w-full h-full border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center bg-gray-50">
+                            <span className="text-gray-400 text-sm">이미지를 업로드해주세요</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* 생성된 썸네일 목록 */}
+            {thumbnailImages.length > 0 && (
+              <Card className="border border-purple-200 rounded-2xl shadow-lg bg-white">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <ImageIcon className="w-5 h-5 text-purple-600" />
+                    생성된 썸네일 목록 ({thumbnailImages.length}개)
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    {thumbnailImages.map((thumb, index) => (
+                      <div
+                        key={index}
+                        onClick={() => handleSelectThumbnail(index)}
+                        className={`relative cursor-pointer border-2 rounded-lg overflow-hidden transition-all ${
+                          selectedThumbnailIndex === index
+                            ? "border-purple-500 ring-2 ring-purple-300 scale-105"
+                            : "border-gray-200 hover:border-purple-300"
+                        }`}
+                        style={{ aspectRatio: "9/16" }}
+                      >
+                        <img
+                          src={thumb.url}
+                          alt={`썸네일 ${index + 1}`}
+                          className="w-full h-full object-cover"
+                        />
+                        {selectedThumbnailIndex === index && (
+                          <div className="absolute inset-0 bg-purple-500/20 flex items-center justify-center">
+                            <CheckCircle2 className="w-8 h-8 text-purple-600" />
+                          </div>
+                        )}
+                        <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs p-2">
+                          {thumb.isCustom ? "직접 생성" : "AI 생성"}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {selectedThumbnailIndex >= 0 && (
+                    <div className="mt-4 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                      <p className="text-sm text-purple-700">
+                        선택된 썸네일: {selectedThumbnailIndex + 1}번 ({thumbnailImages[selectedThumbnailIndex]?.isCustom ? "직접 생성" : "AI 생성"})
+                      </p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* 네비게이션 버튼 */}
+            <div className="flex gap-3 pt-4">
+              <Button
+                variant="outline"
+                onClick={() => setActiveStep("render")}
+                className="flex-1 border-orange-300 bg-gradient-to-r from-orange-50 to-amber-50 text-orange-700 hover:from-orange-100 hover:to-amber-100 hover:text-orange-800 hover:border-orange-400 font-semibold shadow-md transition-all"
+              >
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                이전
+              </Button>
+              <Button
+                onClick={() => setActiveStep("preview")}
+                disabled={selectedThumbnailIndex === -1 || !thumbnailUrl}
+                className="flex-1 bg-gradient-to-r from-purple-500 via-pink-500 to-purple-500 hover:from-purple-400 hover:via-pink-400 hover:to-purple-400 text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-purple-500/50 hover:shadow-xl hover:shadow-purple-500/50 transition-all duration-300"
+                size="lg"
+              >
+                다음
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            </div>
+          </div>
+        )
+
+      default:
+        return null
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-orange-50/30 to-amber-50/20 relative overflow-hidden">
+      {/* 배경 애니메이션 효과 */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-0 left-1/4 w-96 h-96 bg-orange-200/40 rounded-full blur-3xl animate-pulse" />
+        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-amber-200/40 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
+        <div className="absolute top-1/2 left-1/2 w-96 h-96 bg-orange-100/30 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '2s' }} />
+      </div>
+
+      <div className="relative z-10 max-w-5xl mx-auto p-4 md:p-6 lg:p-8">
+        {/* 헤더 */}
+        <div className="mb-8 md:mb-10">
+          <div className="flex items-center justify-between mb-6">
+            <Link href="/WingsAIStudioShotForm">
+              <Button 
+                variant="ghost" 
+                size="sm"
+                className="text-slate-600 hover:text-slate-900 hover:bg-white/80 backdrop-blur-sm border border-slate-200/50"
+              >
+                <Home className="w-4 h-4 mr-2" />
+                홈으로
+              </Button>
+            </Link>
+            {!showProjectList && (
+              <div className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-orange-100 to-amber-100 backdrop-blur-xl border border-orange-200/50 text-orange-700 text-sm font-semibold shadow-lg shadow-orange-200/50">
+                <ShoppingBag className="w-4 h-4" />
+                쇼핑 숏폼
+              </div>
+            )}
+          </div>
+          {currentProject && !showProjectList && (
+            <div className="mb-6 text-center">
+              <div className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-orange-100 to-amber-100 backdrop-blur-xl border border-orange-200/50 rounded-full shadow-lg shadow-orange-200/30">
+                <FolderOpen className="w-4 h-4 text-orange-600" />
+                <span className="text-orange-700 font-semibold">{currentProject.name}</span>
+              </div>
+            </div>
+          )}
+          {!showProjectList && (
+            <div className="text-center space-y-3">
+              <div className="relative inline-block">
+                <div className="absolute inset-0 bg-gradient-to-r from-orange-200/40 to-amber-200/40 blur-2xl rounded-3xl"></div>
+                <h1 className="relative text-4xl md:text-5xl font-bold bg-gradient-to-r from-orange-600 via-amber-600 to-orange-600 bg-clip-text text-transparent mb-2">
+                  AI 쇼핑 숏폼 제작
+                </h1>
+              </div>
+              <p className="text-slate-600 text-base md:text-lg font-medium">
+                AI가 제품 정보를 분석하여 전문적인 쇼핑 영상을 자동으로 제작합니다
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* 진행 단계 표시 (프로젝트 목록이 아닐 때만 표시) */}
+        {!showProjectList && (
+          <div className="mb-6 md:mb-8">
+            <div className="flex items-center justify-center gap-2 md:gap-4">
+              {[
+                { step: "product", label: "제품 입력", icon: ShoppingBag },
+                { step: "script", label: "대본 및 TTS 생성", icon: FileText },
+                { step: "video", label: "이미지 생성", icon: ImageIcon },
+                { step: "render", label: "영상 생성", icon: Video },
+                { step: "thumbnail", label: "썸네일 생성", icon: ImageIcon },
+                { step: "preview", label: "완료", icon: CheckCircle2 },
+              ].map((item, index) => {
+                const Icon = item.icon
+                const isActive = activeStep === item.step
+                const isCompleted =
+                  (activeStep === "script" && index < 1) ||
+                  (activeStep === "video" && index < 2) ||
+                  (activeStep === "render" && index < 3) ||
+                  (activeStep === "thumbnail" && index < 4) ||
+                  (activeStep === "preview" && index < 5)
+
+                return (
+                  <div key={item.step} className="flex items-center">
+                    <div 
+                      className="flex flex-col items-center relative cursor-pointer group"
+                      onClick={() => {
+                        const step = item.step as "product" | "script" | "video" | "render" | "thumbnail" | "preview"
+                        setActiveStep(step)
+                      }}
+                    >
+                      {/* 활성 단계 글로우 효과 */}
+                      {isActive && (
+                        <div className="absolute inset-0 rounded-full bg-orange-400/30 blur-xl animate-pulse" />
+                      )}
+                      
+                      {/* 완료 단계 글로우 효과 */}
+                      {isCompleted && (
+                        <div className="absolute inset-0 rounded-full bg-green-400/20 blur-lg" />
+                      )}
+                      
+                      <div
+                        className={`relative w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center transition-all duration-500 ${
+                          isActive
+                            ? "bg-orange-100 text-orange-600 scale-110 shadow-lg shadow-orange-500/50 animate-pulse"
+                            : isCompleted
+                              ? "bg-green-100 text-green-600 scale-105 shadow-md shadow-green-500/30 group-hover:scale-110 group-hover:shadow-lg"
+                              : "bg-white text-slate-400 scale-100 border border-slate-200 group-hover:scale-105 group-hover:border-orange-300 group-hover:bg-orange-50"
+                        }`}
+                      >
+                        <Icon 
+                          className={`w-5 h-5 md:w-6 md:h-6 transition-all duration-300 ${
+                            isActive ? "animate-bounce" : isCompleted ? "scale-110" : ""
+                          }`}
+                        />
+                        
+                        {/* 완료 체크마크 오버레이 */}
+                        {isCompleted && (
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <CheckCircle2 className="w-6 h-6 md:w-7 md:h-7 text-green-600 animate-in zoom-in duration-300" />
+                          </div>
+                        )}
+                      </div>
+                      
+                      <span
+                        className={`text-xs md:text-sm mt-2 transition-all duration-300 ${
+                          isActive
+                            ? "text-orange-600 font-semibold scale-105"
+                            : isCompleted
+                              ? "text-green-600 font-medium group-hover:text-green-700"
+                              : "text-slate-500 font-normal group-hover:text-orange-600"
+                        }`}
+                      >
+                        {item.label}
+                      </span>
+                      
+                      {/* 활성 단계 언더라인 애니메이션 */}
+                      {isActive && (
+                        <div className="relative w-full h-1 mt-1">
+                          <div className="absolute inset-0 bg-orange-200 rounded-full" />
+                          <div className="absolute inset-0 bg-orange-400 rounded-full animate-pulse" />
+                          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-orange-500 to-transparent rounded-full animate-shimmer" />
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* 연결선 애니메이션 */}
+                    {index < 5 && (
+                      <div className="relative w-8 md:w-12 h-0.5 mx-2 overflow-hidden">
+                        {/* 배경선 */}
+                        <div className="absolute inset-0 bg-gray-300" />
+                        
+                        {/* 진행 애니메이션 (완료된 경우) */}
+                        {isCompleted && (
+                          <div className="absolute inset-0 bg-green-400">
+                            <div 
+                              className="absolute inset-0 bg-gradient-to-r from-transparent via-green-500 to-transparent animate-flow"
+                              style={{
+                                width: '50%',
+                              }}
+                            />
+                          </div>
+                        )}
+                        
+                        {/* 활성 단계 이전 연결선 (활성 단계로 진행 중) */}
+                        {isActive && index > 0 && (
+                          <div className="absolute inset-0 bg-green-400 animate-progress-line" />
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* 메인 컨텐츠 */}
+        {showProjectList ? (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="relative inline-block mb-2">
+                  <div className="absolute inset-0 bg-gradient-to-r from-orange-200/40 to-amber-200/40 blur-2xl rounded-3xl"></div>
+                  <h2 className="relative text-3xl md:text-4xl font-bold bg-gradient-to-r from-orange-600 to-amber-600 bg-clip-text text-transparent">
+                    프로젝트 목록
+                  </h2>
+                </div>
+                <p className="text-slate-600 mt-2 text-base">쇼핑 숏폼 프로젝트를 관리하세요</p>
+              </div>
+              <Button
+                onClick={() => {
+                  setShowCreateProjectDialog(true)
+                  setNewProjectName("")
+                  setNewProjectDescription("")
+                }}
+                className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 text-white font-semibold shadow-lg shadow-orange-500/50"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                새 프로젝트 만들기
+              </Button>
+            </div>
+
+            {/* 프로젝트 검색 */}
+            <div className="relative">
+              <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-slate-400 w-5 h-5 z-10" />
+              <Input
+                placeholder="프로젝트 검색..."
+                value={projectSearchQuery}
+                onChange={(e) => setProjectSearchQuery(e.target.value)}
+                className="pl-12 h-12 bg-white/80 border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-orange-400 focus:ring-orange-400/20 backdrop-blur-sm shadow-sm"
+              />
+            </div>
+
+            {/* 프로젝트 목록 */}
+            {isLoadingProjects ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {projects
+                  .filter((project) =>
+                    project.name.toLowerCase().includes(projectSearchQuery.toLowerCase()) ||
+                    project.description?.toLowerCase().includes(projectSearchQuery.toLowerCase())
+                  )
+                  .map((project, index) => {
+                    // 가장 최근에 저장한 프로젝트 하나만 '최근' 태그 표시 (정렬된 목록의 첫 번째)
+                    const isRecent = index === 0
+                    
+                    return (
+                    <Card 
+                      key={project.id} 
+                      className={`${isRecent ? "border-2 border-red-500" : "border border-orange-200/50"} hover:border-orange-400 transition-all duration-300 bg-white/80 backdrop-blur-xl shadow-xl hover:shadow-2xl hover:shadow-orange-200/50 hover:scale-[1.02] overflow-hidden relative group`}
+                    >
+                      <div className="absolute inset-0 bg-gradient-to-br from-orange-50/50 to-amber-50/30 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                      {isRecent && (
+                        <div className="absolute top-1 right-2 z-20">
+                          <span className="px-2 py-1 text-xs font-bold text-white bg-gradient-to-r from-red-500 to-red-600 rounded-full shadow-lg border-2 border-white">
+                            최근
+                          </span>
+                        </div>
+                      )}
+                      <CardHeader className="relative z-10">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            {isEditingProjectName && currentProject?.id === project.id ? (
+                              <Input
+                                value={editingProjectName}
+                                onChange={(e) => setEditingProjectName(e.target.value)}
+                                className="text-lg font-semibold bg-white/80 border-slate-200 text-slate-900"
+                                autoFocus
+                              />
+                            ) : (
+                              <CardTitle className="text-lg font-bold text-slate-800">{project.name}</CardTitle>
+                            )}
+                            {project.description && (
+                              <p className="text-sm text-slate-600 mt-2 line-clamp-2">{project.description}</p>
+                            )}
+                          </div>
+                          <div className="flex gap-1">
+                            {isEditingProjectName && currentProject?.id === project.id ? (
+                              <div className="flex gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={async () => {
+                                    if (editingProjectName.trim()) {
+                                      try {
+                                        await updateShoppingProject(project.id, { name: editingProjectName })
+                                        await loadProjects()
+                                        setIsEditingProjectName(false)
+                                        setEditingProjectName("")
+                                      } catch (error) {
+                                        alert("프로젝트 이름 변경에 실패했습니다.")
+                                      }
+                                    }
+                                  }}
+                                >
+                                  <CheckCircle2 className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    setIsEditingProjectName(false)
+                                    setEditingProjectName("")
+                                  }}
+                                >
+                                  <X className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  setIsEditingProjectName(true)
+                                  setEditingProjectName(project.name)
+                                  setCurrentProject(project)
+                                }}
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </Button>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteProject(project.id)}
+                              className="text-red-500 hover:text-red-600"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="relative z-10">
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-slate-500">생성</span>
+                            <span className="text-slate-600 font-medium">{new Date(project.created_at).toLocaleDateString("ko-KR")}</span>
+                          </div>
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-slate-500">수정</span>
+                            <span className="text-slate-600 font-medium">{new Date(project.updated_at).toLocaleDateString("ko-KR")}</span>
+                          </div>
+                          <Button
+                            onClick={() => loadProject(project.id)}
+                            className="w-full mt-4 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 text-white font-semibold shadow-lg shadow-orange-500/50 hover:shadow-xl hover:shadow-orange-500/50 transition-all"
+                          >
+                            <FolderOpen className="w-4 h-4 mr-2" />
+                            프로젝트 열기
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                    )
+                  })}
+              </div>
+            )}
+
+            {projects.length === 0 && !isLoadingProjects && (
+              <div className="text-center py-16">
+                <div className="relative inline-block mb-6">
+                  <div className="absolute inset-0 bg-orange-200/40 blur-2xl rounded-full"></div>
+                  <div className="relative p-6 rounded-full bg-gradient-to-br from-orange-100 to-amber-100 border border-orange-200/50 shadow-lg">
+                    <ShoppingBag className="w-16 h-16 text-orange-600" />
+                  </div>
+                </div>
+                <p className="text-slate-600 mb-6 text-lg">프로젝트가 없습니다</p>
+                <Button
+                  onClick={() => {
+                    setShowCreateProjectDialog(true)
+                    setNewProjectName("")
+                    setNewProjectDescription("")
+                  }}
+                  className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 text-white font-semibold shadow-lg shadow-orange-500/50 hover:shadow-xl hover:shadow-orange-500/50 px-8 py-6 text-lg"
+                >
+                  <Plus className="w-5 h-5 mr-2" />
+                  새 프로젝트 만들기
+                </Button>
+              </div>
+            )}
+
+            {/* 새 프로젝트 생성 다이얼로그 */}
+            <Dialog open={showCreateProjectDialog} onOpenChange={setShowCreateProjectDialog}>
+              <DialogContent className="bg-white/95 backdrop-blur-xl border border-orange-200/50 shadow-2xl">
+                <DialogHeader>
+                  <DialogTitle className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                    <div className="p-2 rounded-xl bg-gradient-to-br from-orange-100 to-amber-100 border border-orange-200/50 shadow-sm">
+                      <Plus className="w-5 h-5 text-orange-600" />
+                    </div>
+                    새 프로젝트 만들기
+                  </DialogTitle>
+                  <DialogDescription className="text-slate-600">
+                    프로젝트 이름과 설명을 입력하여 새 프로젝트를 생성하세요.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-5 py-4">
+                  <div className="space-y-2">
+                    <Label className="text-slate-700 font-semibold">프로젝트 이름</Label>
+                    <Input
+                      value={newProjectName}
+                      onChange={(e) => setNewProjectName(e.target.value)}
+                      placeholder="프로젝트 이름을 입력하세요"
+                      className="bg-white/80 border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-orange-400 focus:ring-orange-400/20 shadow-sm"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-slate-700 font-semibold">설명 (선택사항)</Label>
+                    <Textarea
+                      value={newProjectDescription}
+                      onChange={(e) => setNewProjectDescription(e.target.value)}
+                      placeholder="프로젝트 설명을 입력하세요"
+                      rows={3}
+                      className="bg-white/80 border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-orange-400 focus:ring-orange-400/20 resize-none shadow-sm"
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowCreateProjectDialog(false)
+                      setNewProjectName("")
+                      setNewProjectDescription("")
+                    }}
+                    className="border-orange-300 bg-gradient-to-r from-orange-50 to-amber-50 text-orange-700 hover:from-orange-100 hover:to-amber-100 hover:text-orange-800 hover:border-orange-400 font-semibold shadow-md"
+                  >
+                    취소
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      if (newProjectName.trim()) {
+                        saveProject(undefined, true) // 새 프로젝트로 생성 (기존 프로젝트 덮어쓰기)
+                      } else {
+                        alert("프로젝트 이름을 입력해주세요.")
+                      }
+                    }}
+                    disabled={isSavingProject}
+                    className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 text-white font-semibold shadow-lg shadow-orange-500/50"
+                  >
+                    {isSavingProject ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        생성 중...
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="w-4 h-4 mr-2" />
+                        생성
+                      </>
+                    )}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
+        ) : (
+          <>
+            {renderStepContent()}
+            {/* 프로젝트 목록 및 저장 버튼 */}
+            <div className="fixed top-6 right-6 z-40 flex items-center gap-3">
+              <Button
+                onClick={() => {
+                  if (currentProject) {
+                    saveProject()
+                  } else {
+                    setShowCreateProjectDialog(true)
+                    setNewProjectName("")
+                    setNewProjectDescription("")
+                  }
+                }}
+                disabled={isSavingProject || !currentProject}
+                className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 text-white font-semibold shadow-lg shadow-orange-500/50 disabled:opacity-50 border-orange-200/50 backdrop-blur-xl"
+              >
+                {isSavingProject ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    저장 중...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 mr-2" />
+                    프로젝트 저장
+                  </>
+                )}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowProjectList(true)
+                }}
+                className="border-orange-300 bg-gradient-to-r from-orange-50 to-amber-50 backdrop-blur-xl text-orange-700 hover:from-orange-100 hover:to-amber-100 hover:text-orange-800 hover:border-orange-400 font-semibold shadow-lg transition-all"
+              >
+                <Home className="w-4 h-4 mr-2" />
+                프로젝트 목록
+              </Button>
+            </div>
+          </>
+        )}
+        
+        {/* 숨겨진 Canvas (렌더링용) */}
+        <canvas
+          ref={canvasRef}
+          width={1080}
+          height={1920}
+          className="hidden"
+          style={{ width: "1080px", height: "1920px" }}
+        />
+      </div>
+
+      {/* 네이버 인기 키워드 다이얼로그 */}
+      <Dialog open={showKeywordsDialog} onOpenChange={setShowKeywordsDialog}>
+        <DialogContent className="max-w-4xl max-h-[80vh] bg-white/95 backdrop-blur-xl border-2 border-orange-200/50 shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold bg-gradient-to-r from-orange-600 to-amber-600 bg-clip-text text-transparent flex items-center gap-2">
+              <Sparkles className="w-6 h-6 text-orange-500" />
+              현재 잘뜨는 키워드
+            </DialogTitle>
+            <DialogDescription className="text-slate-600">
+              네이버 데이터랩에서 최근 7일간 인기 검색 키워드를 가져왔습니다. 키워드를 클릭하면 제품명에 자동으로 입력됩니다.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-y-auto custom-scrollbar">
+            {isLoadingKeywords ? (
+              <div className="flex flex-col items-center justify-center py-16">
+                {/* AI가 키워드를 찾는 애니메이션 */}
+                <div className="relative mb-6">
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-20 h-20 rounded-full bg-gradient-to-r from-orange-200 to-amber-200 animate-pulse"></div>
+                  </div>
+                  <div className="relative flex items-center justify-center">
+                    <Sparkles className="w-12 h-12 text-orange-500 animate-bounce" style={{ animationDelay: '0s' }} />
+                    <Sparkles className="w-8 h-8 text-amber-500 animate-bounce absolute -top-2 -left-2" style={{ animationDelay: '0.2s' }} />
+                    <Sparkles className="w-6 h-6 text-orange-400 animate-bounce absolute -bottom-1 -right-1" style={{ animationDelay: '0.4s' }} />
+                  </div>
+                </div>
+                <div className="space-y-2 text-center">
+                  <p className="text-lg font-semibold text-slate-800 bg-gradient-to-r from-orange-600 to-amber-600 bg-clip-text text-transparent">
+                    AI가 인기 키워드를 분석 중...
+                  </p>
+                  <div className="flex items-center justify-center gap-1">
+                    <span className="w-2 h-2 bg-orange-500 rounded-full animate-bounce" style={{ animationDelay: '0s' }}></span>
+                    <span className="w-2 h-2 bg-amber-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></span>
+                    <span className="w-2 h-2 bg-orange-400 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></span>
+                  </div>
+                  <p className="text-sm text-slate-500 mt-4">최신 트렌드를 찾고 있어요</p>
+                </div>
+              </div>
+            ) : trendingKeywords.length > 0 ? (
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 py-4">
+                {trendingKeywords.map((keyword, index) => (
+                  <div
+                    key={index}
+                    className="p-4 rounded-xl bg-gradient-to-br from-orange-50 to-amber-50 border-2 border-orange-200/50 hover:border-orange-400 hover:from-orange-100 hover:to-amber-100 transition-all duration-200 group shadow-sm hover:shadow-md cursor-pointer"
+                    onClick={() => handleSelectKeyword(keyword)}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-semibold text-orange-600 bg-orange-100 px-2 py-0.5 rounded-full">
+                        #{index + 1}
+                      </span>
+                      <Sparkles className="w-4 h-4 text-orange-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
+                    <p className="text-sm font-semibold text-slate-800 group-hover:text-orange-600 transition-colors mb-3">
+                      {keyword}
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleSelectKeyword(keyword)
+                        }}
+                        className="flex-1 px-3 py-1.5 text-xs font-semibold bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-lg transition-all shadow-sm hover:shadow-md"
+                      >
+                        선택
+                      </button>
+                      <a
+                        href={`https://www.coupang.com/np/search?q=${encodeURIComponent(keyword)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex-1 px-3 py-1.5 text-xs font-semibold bg-white border-2 border-orange-300 hover:border-orange-400 text-orange-600 hover:text-orange-700 rounded-lg transition-all shadow-sm hover:shadow-md text-center"
+                      >
+                        쿠팡 검색
+                      </a>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-12">
+                <p className="text-slate-500">인기 키워드를 불러올 수 없습니다.</p>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={() => setShowKeywordsDialog(false)}
+              className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white"
+            >
+              닫기
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 윙스봇 챗봇 */}
+      {!isChatbotOpen && (
+        <button
+          onClick={() => {
+            setIsChatbotOpen(true)
+            if (chatbotMessages.length === 0) {
+              setChatbotMessages([{
+                type: "assistant",
+                content: "안녕하세요! 윙스봇입니다. 무엇을 도와드릴까요?"
+              }])
+            }
+          }}
+          className="fixed bottom-6 right-6 w-16 h-16 bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white rounded-full shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center z-50 group"
+          title="윙스봇과 대화하기"
+        >
+          <Bot className="w-8 h-8 group-hover:scale-110 transition-transform" />
+        </button>
+      )}
+
+      {isChatbotOpen && (
+        <div className="fixed bottom-6 right-6 w-96 h-[600px] bg-white rounded-xl shadow-2xl border-2 border-gray-200 flex flex-col z-50">
+          {/* 챗봇 헤더 */}
+          <div className="bg-gradient-to-r from-orange-500 to-red-500 text-white p-4 rounded-t-xl flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Bot className="w-6 h-6" />
+              <h3 className="font-bold text-lg">윙스봇</h3>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-white hover:bg-white/20"
+              onClick={() => setIsChatbotOpen(false)}
+            >
+              <X className="w-5 h-5" />
+            </Button>
+          </div>
+
+          {/* 메시지 영역 */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
+            {chatbotMessages.map((message, index) => (
+              <div
+                key={index}
+                className={`flex ${message.type === "user" ? "justify-end" : "justify-start"}`}
+              >
+                <div
+                  className={`max-w-[80%] rounded-lg p-3 ${
+                    message.type === "user"
+                      ? "bg-orange-500 text-white"
+                      : "bg-white text-gray-900 border border-gray-200"
+                  }`}
+                >
+                  <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                </div>
+              </div>
+            ))}
+            {isChatbotGenerating && (
+              <div className="flex justify-start">
+                <div className="bg-white rounded-lg p-3 border border-gray-200">
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-gray-500" />
+                    <span className="text-sm text-gray-500">응답 생성 중...</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 입력 영역 */}
+          <div className="p-4 border-t border-gray-200 bg-white rounded-b-xl">
+            <div className="flex gap-2">
+              <Textarea
+                placeholder="메시지를 입력하세요..."
+                value={chatbotInput}
+                onChange={(e) => setChatbotInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault()
+                    handleChatbotSend()
+                  }
+                }}
+                className="flex-1 min-h-[60px] max-h-[120px] resize-none"
+                disabled={isChatbotGenerating}
+              />
+              <Button
+                onClick={handleChatbotSend}
+                disabled={!chatbotInput.trim() || isChatbotGenerating}
+                className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white"
+              >
+                <ArrowRight className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+

@@ -374,3 +374,44 @@
 .delay-700 {
   animation-delay: 700ms;
 }
+
+/* 단계별 진행 표시기 애니메이션 */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes flow {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(200%);
+  }
+}
+
+@keyframes progress-line {
+  0% {
+    width: 0%;
+  }
+  100% {
+    width: 100%;
+  }
+}
+
+.animate-shimmer {
+  background-size: 200% 100%;
+  animation: shimmer 2s linear infinite;
+}
+
+.animate-flow {
+  animation: flow 1.5s ease-in-out infinite;
+}
+
+.animate-progress-line {
+  animation: progress-line 1s ease-out forwards;
+}

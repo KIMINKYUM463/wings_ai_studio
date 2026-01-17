@@ -27,7 +27,6 @@ import {
   Scissors,
   Film,
   BarChart3,
-  MessageSquare,
   FileText,
   LineChart,
   ArrowRight,
@@ -57,83 +56,76 @@ import {
   Clock,
   Target,
   Wand2,
+  MessageSquare,
+  Edit,
 } from "lucide-react"
 import { useRouter } from "next/navigation"
 
 // 숏폼 전용 서비스
 const shotFormServices = [
   {
-    id: "quick-shorts",
-    title: "빠른 쇼츠 생성",
-    icon: Zap,
-    description: "15초 만에 완성하는 AI 쇼츠 영상",
-    url: "/WingsAIStudio/shorts",
+    id: "shorts",
+    title: "일반 숏폼",
+    icon: Scissors,
+    description: "1,2,3분 AI 숏폼 영상",
+    url: "/WingsAIStudioShotForm/shorts",
     gradient: "from-pink-500 via-red-500 to-orange-500",
     hoverGradient: "from-pink-600 via-red-600 to-orange-600",
+  },
+  {
+    id: "shopping",
+    title: "쇼핑 숏폼",
+    icon: ShoppingBag,
+    description: "15초~20초 쇼핑 영상을 빠르게 제작",
+    url: "/WingsAIStudioShotForm/shopping",
+    gradient: "from-orange-500 via-amber-500 to-yellow-500",
+    hoverGradient: "from-orange-600 via-amber-600 to-yellow-600",
     featured: true,
   },
   {
-    id: "trending-shorts",
-    title: "트렌딩 쇼츠",
-    icon: TrendingUp,
-    description: "실시간 트렌드 기반 쇼츠 제작",
-    url: "/WingsAIStudio/youtube-trends",
+    id: "channel-analysis",
+    title: "채널 분석",
+    icon: BarChart3,
+    description: "채널 데이터를 종합적으로 분석하여 성장 전략을 제시합니다",
+    url: "/WingsAIStudioShotForm/channel-analysis",
+    gradient: "from-blue-500 via-cyan-500 to-teal-500",
+    hoverGradient: "from-blue-600 via-cyan-600 to-teal-600",
+  },
+]
+
+// 분석 & 도구 서비스
+const analysisToolsServices = [
+  {
+    id: "analytics",
+    title: "유튜브 분석",
+    icon: BarChart3,
+    description: "데이터 기반 인사이트로 채널 성장을 돕습니다",
+    url: "/WingsAIStudioShotForm/youtube-analytics",
     gradient: "from-purple-500 via-indigo-500 to-blue-500",
     hoverGradient: "from-purple-600 via-indigo-600 to-blue-600",
   },
   {
-    id: "category-shorts",
-    title: "카테고리별 쇼츠",
-    icon: Target,
-    description: "주제별 맞춤 쇼츠 자동 생성",
-    url: "/WingsAIStudio/shorts",
-    gradient: "from-cyan-500 via-teal-500 to-green-500",
-    hoverGradient: "from-cyan-600 via-teal-600 to-green-600",
-  },
-]
-
-// 숏폼 도구 서비스
-const shotFormToolsServices = [
-  {
-    id: "script-generator",
-    title: "대본 생성기",
-    icon: FileText,
-    description: "AI가 자동으로 쇼츠 대본을 생성합니다",
-    url: "/WingsAIStudio/shorts",
-    gradient: "from-blue-500 via-cyan-500 to-teal-500",
-    hoverGradient: "from-blue-600 via-cyan-600 to-teal-600",
+    id: "youtube-trends",
+    title: "유튜브 실시간 분석",
+    icon: LineChart,
+    description: "실시간 키워드 트렌드를 한눈에 확인",
+    url: "/WingsAIStudioShotForm/youtube-trends",
+    gradient: "from-violet-500 via-fuchsia-500 to-pink-500",
+    hoverGradient: "from-violet-600 via-fuchsia-600 to-pink-600",
   },
   {
-    id: "image-generator",
-    title: "이미지 생성기",
-    icon: ImageIcon,
-    description: "대본에 맞는 이미지를 자동 생성",
-    url: "/WingsAIStudio/shorts",
-    gradient: "from-purple-500 via-pink-500 to-rose-500",
-    hoverGradient: "from-purple-600 via-pink-600 to-rose-600",
-  },
-  {
-    id: "voice-selector",
-    title: "음성 선택기",
-    icon: Volume2,
-    description: "다양한 TTS 음성으로 변환",
-    url: "/WingsAIStudio/shorts",
+    id: "chatbot",
+    title: "윙스AI 1:1봇",
+    icon: MessageSquare,
+    description: "AI가 1:1로 답변해드립니다",
+    url: "/WingsAIStudioShotForm/wings-chatbot",
     gradient: "from-green-500 via-emerald-500 to-teal-500",
     hoverGradient: "from-green-600 via-emerald-600 to-teal-600",
-  },
-  {
-    id: "video-renderer",
-    title: "영상 렌더러",
-    icon: Play,
-    description: "자막과 이미지를 합쳐 영상 완성",
-    url: "/WingsAIStudio/shorts",
-    gradient: "from-orange-500 via-red-500 to-pink-500",
-    hoverGradient: "from-orange-600 via-red-600 to-pink-600",
   },
 ]
 
 // Header 컴포넌트
-function Header({ onSettingsClick, onFeedbackClick }: { onSettingsClick: () => void; onFeedbackClick: () => void }) {
+function Header({ onSettingsClick }: { onSettingsClick: () => void }) {
   const router = useRouter()
   
   return (
@@ -156,20 +148,6 @@ function Header({ onSettingsClick, onFeedbackClick }: { onSettingsClick: () => v
               onClick={() => router.push('/')}
             >
               부스텍AI홈
-            </Button>
-            <Button 
-              variant="ghost" 
-              className="text-slate-700 hover:text-slate-900"
-              onClick={() => window.open('https://loud-cowl-c24.notion.site/WingsAIStudio-2c9565477d598027b595e528e18a974a', '_blank')}
-            >
-              가이드
-            </Button>
-            <Button 
-              variant="ghost" 
-              className="text-slate-700 hover:text-slate-900"
-              onClick={onFeedbackClick}
-            >
-              프로그램 개선사항
             </Button>
           </nav>
 
@@ -367,7 +345,7 @@ function HeroSection() {
         <Button
           size="lg"
           className="w-full sm:w-auto px-8 text-base font-semibold shadow-lg hover:shadow-xl transition-all bg-gradient-to-r from-pink-600 to-orange-600 hover:from-pink-700 hover:to-orange-700"
-          onClick={() => router.push("/WingsAIStudio/shorts")}
+          onClick={() => router.push("/WingsAIStudioShotForm/shorts")}
         >
           <Zap className="w-4 h-4 mr-2" />
           지금 바로 쇼츠 만들기
@@ -393,9 +371,9 @@ function FeatureCard({
   index,
   onServiceClick,
 }: {
-  service: (typeof shotFormServices)[0] | (typeof shotFormToolsServices)[0]
+  service: (typeof shotFormServices)[0]
   index: number
-  onServiceClick: (service: (typeof shotFormServices)[0] | (typeof shotFormToolsServices)[0]) => void
+  onServiceClick: (service: (typeof shotFormServices)[0]) => void
 }) {
   const Icon = service.icon
   const isLocked = 'locked' in service && service.locked
@@ -482,7 +460,7 @@ function FeatureSection({
 }: {
   title: string
   subtitle: string
-  services: typeof shotFormServices | typeof shotFormToolsServices
+  services: typeof shotFormServices | typeof analysisToolsServices
   onServiceClick: (service: (typeof services)[0]) => void
   columns?: number
 }) {
@@ -548,16 +526,6 @@ export default function ShotFormPage() {
   const [password, setPassword] = useState("")
   const [passwordError, setPasswordError] = useState("")
   const [isPasswordAuthenticated, setIsPasswordAuthenticated] = useState(false)
-  
-  // 업데이트 팝업 관련 상태
-  const [announcement, setAnnouncement] = useState<{ id: string; title: string; content: string; created_at: string } | null>(null)
-  const [isAnnouncementClosed, setIsAnnouncementClosed] = useState(false)
-  
-  // 개선사항 관련 상태
-  const [showFeedbackDialog, setShowFeedbackDialog] = useState(false)
-  const [feedbackContent, setFeedbackContent] = useState("")
-  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false)
-  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false)
 
   // 로그인 상태 확인 및 비밀번호 인증 확인
   useEffect(() => {
@@ -569,8 +537,8 @@ export default function ShotFormPage() {
           if (data.loggedIn) {
             setIsLoggedIn(true)
             
-            // 비밀번호 인증 확인 (sessionStorage)
-            const passwordAuth = sessionStorage.getItem('wingsaistudio_password_auth')
+            // 비밀번호 인증 확인 (sessionStorage) - ShotForm 전용 키 사용
+            const passwordAuth = sessionStorage.getItem('wingsaistudio_shotform_password_auth')
             if (passwordAuth === 'true') {
               setIsPasswordAuthenticated(true)
             } else {
@@ -600,36 +568,6 @@ export default function ShotFormPage() {
     checkLoginStatus()
   }, [router])
 
-  // 업데이트 내용 불러오기
-  useEffect(() => {
-    const fetchAnnouncement = async () => {
-      try {
-        const response = await fetch('/api/announcements')
-        if (response.ok) {
-          const data = await response.json()
-          if (data.announcement) {
-            // 이미 본 업데이트인지 확인
-            const viewedAnnouncements = localStorage.getItem('viewed_announcements')
-            const viewedIds = viewedAnnouncements ? JSON.parse(viewedAnnouncements) : []
-            
-            // 이 업데이트를 아직 보지 않았으면 팝업 표시
-            if (!viewedIds.includes(data.announcement.id)) {
-              setAnnouncement(data.announcement)
-              setIsAnnouncementClosed(false)
-            }
-          }
-        }
-      } catch (error) {
-        console.error("[Announcements] 업데이트 내용 불러오기 실패:", error)
-      }
-    }
-    
-    // 비밀번호 인증이 완료된 후에만 업데이트 내용 불러오기
-    if (isPasswordAuthenticated) {
-      fetchAnnouncement()
-    }
-  }, [isPasswordAuthenticated])
-
   // 비밀번호 확인 핸들러
   const handlePasswordSubmit = (e?: React.FormEvent) => {
     if (e) {
@@ -638,9 +576,9 @@ export default function ShotFormPage() {
     
     setPasswordError("")
     
-    if (password === "1235") {
-      // 비밀번호가 맞으면 sessionStorage에 저장
-      sessionStorage.setItem('wingsaistudio_password_auth', 'true')
+    if (password === "7777") {
+      // 비밀번호가 맞으면 sessionStorage에 저장 (ShotForm 전용 키 사용)
+      sessionStorage.setItem('wingsaistudio_shotform_password_auth', 'true')
       setIsPasswordAuthenticated(true)
       setShowPasswordDialog(false)
       setPassword("")
@@ -650,19 +588,19 @@ export default function ShotFormPage() {
     }
   }
 
-  // 로컬스토리지에서 API 키 불러오기
+  // 로컬스토리지에서 API 키 불러오기 (ShotForm 전용 키 사용)
   useEffect(() => {
     // 로그인 및 비밀번호 인증 확인 후에만 실행
     if (!isCheckingLogin && isLoggedIn && isPasswordAuthenticated) {
-      const storedOpenAI = localStorage.getItem("openai_api_key") || ""
-      const storedElevenLabs = localStorage.getItem("elevenlabs_api_key") || ""
-      const storedReplicate = localStorage.getItem("replicate_api_key") || ""
-      const storedGemini = localStorage.getItem("gemini_api_key") || ""
-      const storedTTSMaker = localStorage.getItem("ttsmaker_api_key") || ""
-      const storedSupertone = localStorage.getItem("supertone_api_key") || ""
-      const storedYoutubeClientId = localStorage.getItem("youtube_client_id") || ""
-      const storedYoutubeClientSecret = localStorage.getItem("youtube_client_secret") || ""
-      const storedYoutubeDataApiKey = localStorage.getItem("wings_youtube_data_api_key") || ""
+      const storedOpenAI = localStorage.getItem("shotform_openai_api_key") || ""
+      const storedElevenLabs = localStorage.getItem("shotform_elevenlabs_api_key") || ""
+      const storedReplicate = localStorage.getItem("shotform_replicate_api_key") || ""
+      const storedGemini = localStorage.getItem("shotform_gemini_api_key") || ""
+      const storedTTSMaker = localStorage.getItem("shotform_ttsmaker_api_key") || ""
+      const storedSupertone = localStorage.getItem("shotform_supertone_api_key") || ""
+      const storedYoutubeClientId = localStorage.getItem("shotform_youtube_client_id") || ""
+      const storedYoutubeClientSecret = localStorage.getItem("shotform_youtube_client_secret") || ""
+      const storedYoutubeDataApiKey = localStorage.getItem("shotform_youtube_data_api_key") || ""
 
       setApiKeys({
         openai: storedOpenAI,
@@ -681,12 +619,12 @@ export default function ShotFormPage() {
     }
   }, [isCheckingLogin, isLoggedIn, isPasswordAuthenticated])
 
-  // YouTube 연결 상태 확인 (로컬스토리지에서)
+  // YouTube 연결 상태 확인 (로컬스토리지에서) - ShotForm 전용 키 사용
   const checkYoutubeConnection = async () => {
     setCheckingYoutube(true)
     try {
-      // 로컬스토리지에서 토큰 확인
-      const tokensStr = localStorage.getItem("youtube_tokens")
+      // 로컬스토리지에서 토큰 확인 (ShotForm 전용 키)
+      const tokensStr = localStorage.getItem("shotform_youtube_tokens")
       if (tokensStr) {
         try {
           const tokens = JSON.parse(tokensStr)
@@ -708,7 +646,7 @@ export default function ShotFormPage() {
     }
   }
 
-  // URL 파라미터에서 토큰 받아서 로컬스토리지에 저장
+  // URL 파라미터에서 토큰 받아서 로컬스토리지에 저장 (ShotForm 전용 키 사용)
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search)
     if (urlParams.get("youtube_connected") === "true") {
@@ -722,7 +660,7 @@ export default function ShotFormPage() {
           refresh_token: refreshToken,
           expires_at: expiresAt,
         }
-        localStorage.setItem("youtube_tokens", JSON.stringify(tokens))
+        localStorage.setItem("shotform_youtube_tokens", JSON.stringify(tokens))
         setYoutubeConnected(true)
         
         // URL 정리
@@ -743,10 +681,10 @@ export default function ShotFormPage() {
     window.location.href = `/api/youtube/auth?clientId=${encodeURIComponent(clientId)}&clientSecret=${encodeURIComponent(clientSecret)}`
   }
 
-  // YouTube 연결 해제 (로컬스토리지에서 삭제)
+  // YouTube 연결 해제 (로컬스토리지에서 삭제) - ShotForm 전용 키 사용
   const handleYoutubeDisconnect = async () => {
     try {
-      localStorage.removeItem("youtube_tokens")
+      localStorage.removeItem("shotform_youtube_tokens")
       setYoutubeConnected(false)
       alert("YouTube 연결이 해제되었습니다.")
     } catch (error) {
@@ -755,17 +693,17 @@ export default function ShotFormPage() {
     }
   }
 
-  // API 키 저장 (모두 로컬스토리지에 저장)
+  // API 키 저장 (ShotForm 전용 키로 저장)
   const handleSave = () => {
-    localStorage.setItem("openai_api_key", apiKeys.openai)
-    localStorage.setItem("elevenlabs_api_key", apiKeys.elevenlabs)
-    localStorage.setItem("replicate_api_key", apiKeys.replicate)
-    localStorage.setItem("gemini_api_key", apiKeys.gemini)
-    localStorage.setItem("ttsmaker_api_key", apiKeys.ttsmaker || "")
-    localStorage.setItem("supertone_api_key", apiKeys.supertone || "")
-    localStorage.setItem("youtube_client_id", apiKeys.youtubeClientId)
-    localStorage.setItem("youtube_client_secret", apiKeys.youtubeClientSecret)
-    localStorage.setItem("wings_youtube_data_api_key", apiKeys.youtubeDataApiKey)
+    localStorage.setItem("shotform_openai_api_key", apiKeys.openai)
+    localStorage.setItem("shotform_elevenlabs_api_key", apiKeys.elevenlabs)
+    localStorage.setItem("shotform_replicate_api_key", apiKeys.replicate)
+    localStorage.setItem("shotform_gemini_api_key", apiKeys.gemini)
+    localStorage.setItem("shotform_ttsmaker_api_key", apiKeys.ttsmaker || "")
+    localStorage.setItem("shotform_supertone_api_key", apiKeys.supertone || "")
+    localStorage.setItem("shotform_youtube_client_id", apiKeys.youtubeClientId)
+    localStorage.setItem("shotform_youtube_client_secret", apiKeys.youtubeClientSecret)
+    localStorage.setItem("shotform_youtube_data_api_key", apiKeys.youtubeDataApiKey)
     
     setSaved(true)
     setTimeout(() => {
@@ -977,7 +915,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     }
   }
 
-  const handleServiceClick = (service: (typeof shotFormServices)[0] | (typeof shotFormToolsServices)[0]) => {
+  const handleServiceClick = (service: (typeof shotFormServices)[0]) => {
     if (service.url.startsWith("http")) {
       window.open(service.url, "_blank")
     } else {
@@ -1066,20 +1004,6 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     )
   }
 
-  // 업데이트 팝업 닫기 핸들러
-  const handleCloseAnnouncement = () => {
-    if (announcement) {
-      // 본 업데이트 ID를 localStorage에 저장
-      const viewedAnnouncements = localStorage.getItem('viewed_announcements')
-      const viewedIds = viewedAnnouncements ? JSON.parse(viewedAnnouncements) : []
-      if (!viewedIds.includes(announcement.id)) {
-        viewedIds.push(announcement.id)
-        localStorage.setItem('viewed_announcements', JSON.stringify(viewedIds))
-      }
-    }
-    setIsAnnouncementClosed(true)
-  }
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-pink-50 via-white to-orange-100">
       {/* 배경 장식 */}
@@ -1090,188 +1014,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       </div>
 
       {/* 헤더 */}
-      <Header onSettingsClick={() => setOpen(true)} onFeedbackClick={() => setShowFeedbackDialog(true)} />
-
-      {/* 업데이트 팝업 (왼쪽 고정 패널) */}
-      {announcement && !isAnnouncementClosed && (
-        <div className="fixed left-4 top-20 z-50 w-80 max-h-[calc(100vh-6rem)] bg-white/95 backdrop-blur-md border border-gray-200 rounded-xl shadow-2xl flex flex-col animate-slide-in-right">
-          {/* 헤더 */}
-          <div className="flex items-center justify-between p-4 border-b border-gray-200">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-pink-500" />
-              <h3 className="font-semibold text-gray-900">업데이트 내용</h3>
-            </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 hover:bg-gray-100"
-              onClick={handleCloseAnnouncement}
-            >
-              <X className="w-4 h-4 text-gray-600" />
-            </Button>
-          </div>
-          
-          {/* 내용 */}
-          <div className="flex-1 overflow-y-auto p-4">
-            <div className="mb-3">
-              <h4 className="font-bold text-lg text-gray-900 mb-1">{announcement.title}</h4>
-              <p className="text-xs text-gray-500">
-                {new Date(announcement.created_at).toLocaleDateString("ko-KR", {
-                  year: "numeric",
-                  month: "long",
-                  day: "numeric",
-                })}
-              </p>
-            </div>
-            <div 
-              className="prose prose-sm max-w-none text-gray-700 whitespace-pre-wrap text-sm leading-relaxed"
-              dangerouslySetInnerHTML={{ __html: announcement.content.replace(/\n/g, '<br />') }}
-            />
-          </div>
-          
-          {/* 프로그램 개선사항 버튼 */}
-          <div className="p-4 border-t border-gray-200">
-            <Button
-              onClick={() => setShowFeedbackDialog(true)}
-              variant="outline"
-              className="w-full bg-gradient-to-r from-pink-50 to-orange-50 hover:from-pink-100 hover:to-orange-100 border-pink-200 text-pink-700"
-            >
-              <MessageSquare className="w-4 h-4 mr-2" />
-              프로그램 개선사항
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* 개선사항 작성 다이얼로그 */}
-      <Dialog open={showFeedbackDialog} onOpenChange={setShowFeedbackDialog}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <MessageSquare className="w-5 h-5 text-pink-500" />
-              프로그램 개선사항
-            </DialogTitle>
-            <DialogDescription>
-              개선하고 싶은 사항이나 제안하고 싶은 기능을 자유롭게 작성해주세요.
-            </DialogDescription>
-          </DialogHeader>
-          
-          {feedbackSubmitted ? (
-            <div className="py-8 text-center">
-              <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-4" />
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">제출 완료</h3>
-              <p className="text-sm text-gray-600 mb-6">
-                소중한 의견 감사합니다. 검토 후 반영하겠습니다.
-              </p>
-              <Button
-                onClick={() => {
-                  setShowFeedbackDialog(false)
-                  setFeedbackSubmitted(false)
-                  setFeedbackContent("")
-                }}
-                className="bg-gradient-to-r from-pink-600 to-orange-600 hover:from-pink-700 hover:to-orange-700"
-              >
-                확인
-              </Button>
-            </div>
-          ) : (
-            <form
-              onSubmit={async (e) => {
-                e.preventDefault()
-                if (!feedbackContent.trim()) {
-                  alert("개선사항을 입력해주세요.")
-                  return
-                }
-                
-                setIsSubmittingFeedback(true)
-                try {
-                  // 사용자 ID 가져오기
-                  let userId = null
-                  try {
-                    const userResponse = await fetch('/api/kakao/user')
-                    if (userResponse.ok) {
-                      const userData = await userResponse.json()
-                      if (userData.loggedIn && userData.user) {
-                        userId = userData.user.email || userData.user.id || null
-                      }
-                    }
-                  } catch (error) {
-                    console.error("[Feedback] 사용자 정보 가져오기 실패:", error)
-                  }
-                  
-                  const response = await fetch('/api/feedback', {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                      content: feedbackContent.trim(),
-                      userId: userId,
-                    }),
-                  })
-                  
-                  if (response.ok) {
-                    setFeedbackSubmitted(true)
-                    setFeedbackContent("")
-                  } else {
-                    const errorData = await response.json()
-                    alert(errorData.error || "개선사항 제출에 실패했습니다.")
-                  }
-                } catch (error) {
-                  console.error("[Feedback] 제출 실패:", error)
-                  alert("개선사항 제출 중 오류가 발생했습니다.")
-                } finally {
-                  setIsSubmittingFeedback(false)
-                }
-              }}
-            >
-              <div className="space-y-4 mt-4">
-                <div>
-                  <Label htmlFor="feedback-content" className="text-sm font-medium">
-                    개선사항
-                  </Label>
-                  <Textarea
-                    id="feedback-content"
-                    value={feedbackContent}
-                    onChange={(e) => setFeedbackContent(e.target.value)}
-                    placeholder="예: 새로운 기능 추가, 버그 수정, UI 개선 등 자유롭게 작성해주세요."
-                    className="min-h-[150px] resize-none mt-2"
-                    disabled={isSubmittingFeedback}
-                  />
-                </div>
-                
-                <div className="flex justify-end gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setShowFeedbackDialog(false)
-                      setFeedbackContent("")
-                    }}
-                    disabled={isSubmittingFeedback}
-                  >
-                    취소
-                  </Button>
-                  <Button
-                    type="submit"
-                    disabled={isSubmittingFeedback || !feedbackContent.trim()}
-                    className="bg-gradient-to-r from-pink-600 to-orange-600 hover:from-pink-700 hover:to-orange-700"
-                  >
-                    {isSubmittingFeedback ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        제출 중...
-                      </>
-                    ) : (
-                      "제출"
-                    )}
-                  </Button>
-                </div>
-              </div>
-            </form>
-          )}
-        </DialogContent>
-      </Dialog>
+      <Header onSettingsClick={() => setOpen(true)} />
 
       {/* 메인 컨텐츠 */}
       <main className="relative z-10">
@@ -1289,11 +1032,11 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               onServiceClick={handleServiceClick}
             />
 
-            {/* 숏폼 도구 섹션 */}
+            {/* 분석 & 도구 섹션 */}
             <FeatureSection
-              title="숏폼 도구"
-              subtitle="쇼츠 제작에 필요한 모든 도구를 한 곳에서"
-              services={shotFormToolsServices}
+              title="분석 & 도구"
+              subtitle="채널 성장과 운영을 돕는 보조 도구"
+              services={analysisToolsServices}
               onServiceClick={handleServiceClick}
             />
           </div>
