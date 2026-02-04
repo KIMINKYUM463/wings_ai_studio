@@ -34,14 +34,22 @@ export async function GET(request: NextRequest) {
       program_description: "AI 기반 영상 자동 제작 플랫폼"
     }
 
+    // WingsAIStudioShortForm을 기본 프로그램으로 추가 (모든 로그인 사용자에게 제공)
+    const wingsAIStudioShortFormProgram = {
+      id: "wingsaistudioshortform",
+      program_name: "WingsAIStudioShortForm",
+      program_path: "/WingsAIStudioShotForm",
+      program_description: "AI 기반 숏폼 영상 제작 플랫폼"
+    }
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
     if (!supabaseUrl || !supabaseServiceKey) {
-      // Supabase가 없어도 WingsAIStudio는 반환
+      // Supabase가 없어도 WingsAIStudio와 WingsAIStudioShortForm은 반환
       return NextResponse.json({
         success: true,
-        programs: [wingsAIStudioProgram],
+        programs: [wingsAIStudioProgram, wingsAIStudioShortFormProgram],
         hasInstructor: false,
       })
     }
@@ -56,10 +64,10 @@ export async function GET(request: NextRequest) {
       .single()
 
     if (userError || !user || !user.instructor) {
-      // 강사가 지정되지 않은 경우 WingsAIStudio만 반환
+      // 강사가 지정되지 않은 경우 WingsAIStudio와 WingsAIStudioShortForm만 반환
       return NextResponse.json({
         success: true,
-        programs: [wingsAIStudioProgram],
+        programs: [wingsAIStudioProgram, wingsAIStudioShortFormProgram],
         hasInstructor: false,
       })
     }
@@ -73,21 +81,28 @@ export async function GET(request: NextRequest) {
 
     if (programsError) {
       console.error("[User Programs] 프로그램 목록 조회 실패:", programsError)
-      // 조회 실패해도 WingsAIStudio는 반환
+      // 조회 실패해도 WingsAIStudio와 WingsAIStudioShortForm은 반환
       return NextResponse.json({
         success: true,
-        programs: [wingsAIStudioProgram],
+        programs: [wingsAIStudioProgram, wingsAIStudioShortFormProgram],
         hasInstructor: true,
       })
     }
 
-    // WingsAIStudio가 이미 목록에 있는지 확인
+    // WingsAIStudio와 WingsAIStudioShortForm이 이미 목록에 있는지 확인
     const hasWingsAIStudio = programs?.some((p: any) => p.id === "wingsaistudio" || p.program_path === "/WingsAIStudio")
+    const hasWingsAIStudioShortForm = programs?.some((p: any) => p.id === "wingsaistudioshortform" || p.program_path === "/WingsAIStudioShotForm")
     
-    // WingsAIStudio가 없으면 맨 앞에 추가
-    const allPrograms = hasWingsAIStudio 
-      ? programs || []
-      : [wingsAIStudioProgram, ...(programs || [])]
+    // 기본 프로그램들을 맨 앞에 추가 (없는 경우만)
+    const defaultPrograms: any[] = []
+    if (!hasWingsAIStudio) {
+      defaultPrograms.push(wingsAIStudioProgram)
+    }
+    if (!hasWingsAIStudioShortForm) {
+      defaultPrograms.push(wingsAIStudioShortFormProgram)
+    }
+    
+    const allPrograms = [...defaultPrograms, ...(programs || [])]
 
     return NextResponse.json({
       success: true,

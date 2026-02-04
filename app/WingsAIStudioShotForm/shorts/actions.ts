@@ -595,7 +595,8 @@ export async function generateImagePrompt(
   scriptText: string,
   openaiApiKey: string,
   category: string = "health",
-  historyStyle?: string
+  historyStyle?: string,
+  imageStyle?: string
 ): Promise<string> {
   if (!openaiApiKey) {
     throw new Error("OpenAI API 키가 필요합니다.")
@@ -625,24 +626,74 @@ export async function generateImagePrompt(
 - 고품질, 전문적, 아름다운 이미지
 - ${categoryGuide}
 - 1:1 비율에 최적화된 구도
-- 텍스트, 글씨, 영어, 한글, 숫자, 로고, 워터마크 등 모든 텍스트 요소 절대 금지
+- ⚠️ 절대 금지 사항 (최우선 규칙 - 반드시 준수):
+  * 텍스트, 글씨, 문자, 한자(漢字), 한글, 영어, 일본어, 아랍어, 키릴 문자 등 모든 언어의 텍스트
+  * 숫자, 숫자 표시, 0-9 모든 숫자, 로마 숫자, 아라비아 숫자
+  * 로고, 워터마크, 표지판, 라벨, 배지, 비문, 각인
+  * 자막, 캡션, 부제목, 글쓰기, 문자, 기호, 문장부호
+  * 텍스트 오버레이, 이미지 위의 텍스트, 텍스트 레이어
+  * 거리 표지판, 상점 간판, 이름표, 가격표, 배너, 포스터
+  * 책 표지, 잡지 표지, 신문, 문서, 서류, 종이, 페이지
+  * 화면, 디스플레이, 모니터, 전화기, 태블릿, 컴퓨터, TV
+  * 손글씨, 인쇄된 텍스트, 디지털 텍스트, 타이포그래피
+  * 문구, 문장, 단어, 글자, 알파벳, 한자, 한글, 일본어 문자
+- 이미지에 어떤 종류의 텍스트, 문자, 한자, 숫자도 절대 포함되면 안 됩니다
+- 프롬프트에 반드시 "no text", "text-free", "no letters", "no words", "no characters", "no numbers", "no Chinese characters", "no Korean text", "no Japanese text" 등을 포함해야 합니다
 
 프롬프트 형식:
 - 명사와 형용사를 사용한 구체적 묘사
 - 스타일과 분위기 명시
 - 색상과 조명 묘사
 - 카메라 각도와 구도
-- NEGATIVE 프롬프트에 반드시 포함: text, letters, words, typography, English text, Korean text, Chinese text, numbers, logos, watermarks, signs, labels`
+- NEGATIVE 프롬프트에 반드시 포함: text, letters, words, typography, font, fonts, English text, Korean text, Chinese text, Japanese text, Arabic text, Cyrillic text, numbers, digits, numerals, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, logos, watermarks, signs, labels, badges, inscriptions, captions, subtitles, writing, characters, symbols, glyphs, text overlay, text on image, any text, no text, text-free, lettering, calligraphy, handwriting, printed text, digital text, street signs, shop signs, name tags, price tags, banners, book covers, magazine covers, newspaper, documents, papers, screens, displays, monitors, phones, tablets, computers`
+
+    // 이미지 스타일에 따른 스타일 가이드 추가
+    let styleGuide = ""
+    if (imageStyle) {
+      switch (imageStyle) {
+        case "stickman-animation":
+          styleGuide = "\n스타일 요구사항: stickman animation style, simple line art, minimalist animation, clean lines, simple stick figure characters"
+          break
+        case "animation2":
+          styleGuide = "\n스타일 요구사항: stylized cartoon character, animated style, colorful cartoon illustration"
+          break
+        case "animation3":
+          styleGuide = "\n스타일 요구사항: European graphic novel style, artistic illustration, vintage European art style, elegant graphic design"
+          break
+        case "realistic":
+        case "realistic2":
+          styleGuide = "\n스타일 요구사항: photorealistic, high quality photograph, professional photography, realistic lighting, detailed, 8k, ultra realistic"
+          break
+        default:
+          styleGuide = ""
+      }
+    }
 
     const userPrompt = `다음 텍스트를 바탕으로 이미지 생성용 영어 프롬프트를 작성해주세요:
 
 텍스트: ${scriptText}
 
 카테고리: ${category}
-${historyStyle ? `이미지 스타일: ${getImageStyleName(historyStyle)}` : ""}
+${historyStyle ? `이미지 스타일: ${getImageStyleName(historyStyle)}` : ""}${styleGuide}
 
 위 텍스트의 핵심 내용을 시각적으로 표현할 수 있는 영어 프롬프트를 작성해주세요.
-프롬프트에 NEGATIVE로 "text, letters, words, typography, English text, Korean text, Chinese text, numbers, logos, watermarks, signs, labels"를 반드시 포함하여 텍스트가 보이지 않도록 하세요.
+
+⚠️ 절대 금지 사항 (최우선 규칙 - 반드시 준수):
+- 이미지에 어떤 종류의 텍스트, 문자, 한자, 숫자도 절대 포함되면 안 됩니다:
+  * 모든 언어의 텍스트 (한글, 한자(漢字), 영어, 일본어, 아랍어, 키릴 문자 등)
+  * 모든 숫자 (0-9, 로마 숫자, 아라비아 숫자)
+  * 로고, 워터마크, 표지판, 라벨, 배지, 비문, 각인
+  * 자막, 캡션, 부제목, 글쓰기, 문자, 기호, 문장부호
+  * 텍스트 오버레이, 이미지 위의 텍스트, 텍스트 레이어
+  * 거리 표지판, 상점 간판, 이름표, 가격표, 배너, 포스터
+  * 책 표지, 잡지 표지, 신문, 문서, 서류, 종이, 페이지
+  * 화면, 디스플레이, 모니터, 전화기, 태블릿, 컴퓨터, TV
+  * 손글씨, 인쇄된 텍스트, 디지털 텍스트, 타이포그래피
+  * 문구, 문장, 단어, 글자, 알파벳, 한자, 한글, 일본어 문자
+- 프롬프트에 반드시 "no text", "text-free", "no letters", "no words", "no characters", "no numbers", "no Chinese characters", "no Korean text", "no Japanese text", "no typography", "no writing" 등을 명시적으로 포함해야 합니다
+- 프롬프트에 NEGATIVE로 반드시 포함: "text, letters, words, typography, font, fonts, English text, Korean text, Chinese text, Chinese characters, Japanese text, Japanese characters, Arabic text, Cyrillic text, numbers, digits, numerals, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, logos, watermarks, signs, labels, badges, inscriptions, captions, subtitles, writing, characters, symbols, glyphs, text overlay, text on image, any text, no text, text-free, lettering, calligraphy, handwriting, printed text, digital text, street signs, shop signs, name tags, price tags, banners, book covers, magazine covers, newspaper, documents, papers, screens, displays, monitors, phones, tablets, computers, Chinese characters, Korean characters, Japanese characters, Hanja, Kanji, Hiragana, Katakana"
+- 텍스트가 전혀 보이지 않는 순수한 이미지만 생성되어야 합니다
+
 프롬프트만 작성하고 설명은 추가하지 마세요.`
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -695,15 +746,33 @@ ${historyStyle ? `이미지 스타일: ${getImageStyleName(historyStyle)}` : ""}
       .trim()
 
     const negativeKeywords = [
-      "text", "letters", "words", "typography", 
-      "English text", "Korean text", "Chinese text", 
-      "numbers", "logos", "watermarks", "signs", "labels",
+      "text", "letters", "words", "typography", "font", "fonts",
+      "English text", "Korean text", "Korean characters", "Chinese text", "Chinese characters", "Hanja", "Japanese text", "Japanese characters", "Kanji", "Hiragana", "Katakana", "Arabic text", "Cyrillic text",
+      "numbers", "digits", "numerals", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "roman numerals", "arabic numerals",
+      "logos", "watermarks", "signs", "labels", "badges", "inscriptions", "engravings",
+      "captions", "subtitles", "writing", "characters", "symbols", "glyphs", "punctuation",
+      "text overlay", "text on image", "any text", "no text", "text-free",
+      "lettering", "calligraphy", "handwriting", "printed text", "digital text",
+      "street signs", "shop signs", "name tags", "price tags", "banners", "posters",
+      "book covers", "magazine covers", "newspaper", "documents", "papers", "pages",
+      "screens", "displays", "monitors", "phones", "tablets", "computers", "TV"
     ]
+    
+    // 프롬프트에 명시적으로 "no text", "text-free" 등을 추가
+    if (!cleanPrompt.toLowerCase().includes("no text") && !cleanPrompt.toLowerCase().includes("text-free")) {
+      cleanPrompt = `${cleanPrompt}, no text, text-free, no letters, no words, no characters, no numbers, no Chinese characters, no Korean text, no Japanese text`
+    }
     
     const hasNegative = /NEGATIVE|negative/i.test(cleanPrompt)
     
     if (!hasNegative) {
       cleanPrompt = `${cleanPrompt}, NEGATIVE: ${negativeKeywords.join(", ")}`
+    } else {
+      // NEGATIVE가 이미 있으면 더 강화
+      cleanPrompt = cleanPrompt.replace(
+        /NEGATIVE:\s*([^,]+(?:,\s*[^,]+)*)/i,
+        `NEGATIVE: ${negativeKeywords.join(", ")}`
+      )
     }
 
     return cleanPrompt.trim()
@@ -731,15 +800,33 @@ export async function generateImageWithReplicate(
   try {
     console.log(`[Shorts] Replicate 이미지 생성 시작, 비율: ${aspectRatio}, 스타일: ${imageStyle || "기본"}`)
 
-    let model = "black-forest-labs/flux-schnell" // 더 빠른 모델을 기본으로 사용
+    let model = "prunaai/hidream-l1-fast" // 기본 모델
     if (selectedModel) {
       model = selectedModel
-    } else if (imageStyle === "stickman-animation") {
-      model = "prunaai/hidream-l1-fast"
+    } else {
+      // 이미지 스타일에 따라 모델 선택
+      switch (imageStyle) {
+        case "stickman-animation":
+          model = "prunaai/hidream-l1-fast" // 스틱맨 애니메이션 스타일
+          break
+        case "animation2":
+          model = "prunaai/hidream-l1-fast" // 애니메이션2 스타일
+          break
+        case "animation3":
+          model = "prunaai/hidream-l1-fast" // 유럽풍 그래픽 노블 스타일
+          break
+        case "realistic":
+        case "realistic2":
+          model = "black-forest-labs/flux-schnell" // 실사화 스타일은 flux-schnell 사용
+          break
+        default:
+          model = "prunaai/hidream-l1-fast"
+      }
     }
 
     let finalPrompt = prompt
     
+    // 이미지 스타일에 따라 프롬프트 수정
     if (imageStyle === "animation2") {
       finalPrompt = finalPrompt
         .replace(/\bstick\s*[-]?\s*man\b/gi, "stylized cartoon character")
@@ -747,6 +834,15 @@ export async function generateImageWithReplicate(
         .replace(/stickman/gi, "stylized cartoon character")
         .replace(/\s+/g, " ")
         .trim()
+    } else if (imageStyle === "animation3") {
+      // 유럽풍 그래픽 노블 스타일
+      finalPrompt = `${finalPrompt}, European graphic novel style, artistic illustration, vintage European art style, elegant graphic design`
+    } else if (imageStyle === "realistic" || imageStyle === "realistic2") {
+      // 실사화 스타일
+      finalPrompt = `${finalPrompt}, photorealistic, high quality photograph, professional photography, realistic lighting, detailed, 8k, ultra realistic`
+    } else if (imageStyle === "stickman-animation") {
+      // 스틱맨 애니메이션 스타일
+      finalPrompt = `${finalPrompt}, stickman animation style, simple line art, minimalist animation, clean lines`
     }
 
     let inputBody: any = {}
@@ -755,7 +851,7 @@ export async function generateImageWithReplicate(
         prompt: finalPrompt,
         width: 1024,
         height: 1024,
-        negative_prompt: "realistic human, detailed human skin, photograph, 3d render, blank white background, line-art only, text, letters, words, writing, labels, signs, watermark, typography, font, caption, subtitle, non-stickman, mixed style",
+        negative_prompt: "realistic human, detailed human skin, photograph, 3d render, blank white background, line-art only, text, letters, words, typography, font, fonts, writing, labels, signs, watermark, caption, subtitle, English text, Korean text, Korean characters, Chinese text, Chinese characters, Hanja, Japanese text, Japanese characters, Kanji, Hiragana, Katakana, Arabic text, Cyrillic text, numbers, digits, numerals, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, roman numerals, arabic numerals, logos, watermarks, signs, labels, badges, inscriptions, engravings, captions, subtitles, writing, characters, symbols, glyphs, punctuation, text overlay, text on image, any text, no text, text-free, lettering, calligraphy, handwriting, printed text, digital text, street signs, shop signs, name tags, price tags, banners, posters, book covers, magazine covers, newspaper, documents, papers, pages, screens, displays, monitors, phones, tablets, computers, TV, non-stickman, mixed style",
         num_inference_steps: 8, // 16에서 8로 줄여서 더 빠르게 생성
         image_format: "png",
       }
@@ -765,6 +861,7 @@ export async function generateImageWithReplicate(
         aspect_ratio: "1:1",
         num_inference_steps: 4,
         output_format: "png",
+        negative_prompt: "text, letters, words, typography, font, fonts, English text, Korean text, Korean characters, Chinese text, Chinese characters, Hanja, Japanese text, Japanese characters, Kanji, Hiragana, Katakana, Arabic text, Cyrillic text, numbers, digits, numerals, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, roman numerals, arabic numerals, logos, watermarks, signs, labels, badges, inscriptions, engravings, captions, subtitles, writing, characters, symbols, glyphs, punctuation, text overlay, text on image, any text, no text, text-free, lettering, calligraphy, handwriting, printed text, digital text, street signs, shop signs, name tags, price tags, banners, posters, book covers, magazine covers, newspaper, documents, papers, pages, screens, displays, monitors, phones, tablets, computers, TV",
       }
     } else if (model === "black-forest-labs/flux-schnell") {
       // flux-schnell은 더 빠른 모델이므로 기본 설정 사용
@@ -774,7 +871,7 @@ export async function generateImageWithReplicate(
         height: 1024,
         output_format: "png",
         output_quality: 85, // 90에서 85로 줄여서 더 빠르게 생성
-        negative_prompt: "text, letters, words, typography, English text, Korean text, Chinese text, numbers, logos, watermarks, signs, labels",
+        negative_prompt: "text, letters, words, typography, font, fonts, English text, Korean text, Korean characters, Chinese text, Chinese characters, Hanja, Japanese text, Japanese characters, Kanji, Hiragana, Katakana, Arabic text, Cyrillic text, numbers, digits, numerals, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, roman numerals, arabic numerals, logos, watermarks, signs, labels, badges, inscriptions, engravings, captions, subtitles, writing, characters, symbols, glyphs, punctuation, text overlay, text on image, any text, no text, text-free, lettering, calligraphy, handwriting, printed text, digital text, street signs, shop signs, name tags, price tags, banners, posters, book covers, magazine covers, newspaper, documents, papers, pages, screens, displays, monitors, phones, tablets, computers, TV",
       }
     } else {
       inputBody = {
@@ -783,7 +880,7 @@ export async function generateImageWithReplicate(
         height: 1024,
         output_format: "png",
         output_quality: 85, // 90에서 85로 줄여서 더 빠르게 생성
-        negative_prompt: "text, letters, words, typography, English text, Korean text, Chinese text, numbers, logos, watermarks, signs, labels",
+        negative_prompt: "text, letters, words, typography, font, fonts, English text, Korean text, Korean characters, Chinese text, Chinese characters, Hanja, Japanese text, Japanese characters, Kanji, Hiragana, Katakana, Arabic text, Cyrillic text, numbers, digits, numerals, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, roman numerals, arabic numerals, logos, watermarks, signs, labels, badges, inscriptions, engravings, captions, subtitles, writing, characters, symbols, glyphs, punctuation, text overlay, text on image, any text, no text, text-free, lettering, calligraphy, handwriting, printed text, digital text, street signs, shop signs, name tags, price tags, banners, posters, book covers, magazine covers, newspaper, documents, papers, pages, screens, displays, monitors, phones, tablets, computers, TV",
       }
     }
 
@@ -914,6 +1011,7 @@ async function generateImageWithStableDiffusion(
           prompt: prompt,
           width: dims.width,
           height: dims.height,
+          negative_prompt: "text, letters, words, typography, font, fonts, English text, Korean text, Korean characters, Chinese text, Chinese characters, Hanja, Japanese text, Japanese characters, Kanji, Hiragana, Katakana, Arabic text, Cyrillic text, numbers, digits, numerals, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, roman numerals, arabic numerals, logos, watermarks, signs, labels, badges, inscriptions, engravings, captions, subtitles, writing, characters, symbols, glyphs, punctuation, text overlay, text on image, any text, no text, text-free, lettering, calligraphy, handwriting, printed text, digital text, street signs, shop signs, name tags, price tags, banners, posters, book covers, magazine covers, newspaper, documents, papers, pages, screens, displays, monitors, phones, tablets, computers, TV",
         },
       }),
     })

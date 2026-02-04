@@ -496,7 +496,6 @@ export default function ShotFormPage() {
     openai: "",
     elevenlabs: "",
     replicate: "",
-    gemini: "",
     ttsmaker: "",
     supertone: "",
     youtubeClientId: "",
@@ -509,7 +508,6 @@ export default function ShotFormPage() {
     openai: false,
     elevenlabs: false,
     replicate: false,
-    gemini: false,
     ttsmaker: false,
     supertone: false,
     youtubeClientId: false,
@@ -595,7 +593,6 @@ export default function ShotFormPage() {
       const storedOpenAI = localStorage.getItem("shotform_openai_api_key") || ""
       const storedElevenLabs = localStorage.getItem("shotform_elevenlabs_api_key") || ""
       const storedReplicate = localStorage.getItem("shotform_replicate_api_key") || ""
-      const storedGemini = localStorage.getItem("shotform_gemini_api_key") || ""
       const storedTTSMaker = localStorage.getItem("shotform_ttsmaker_api_key") || ""
       const storedSupertone = localStorage.getItem("shotform_supertone_api_key") || ""
       const storedYoutubeClientId = localStorage.getItem("shotform_youtube_client_id") || ""
@@ -606,7 +603,6 @@ export default function ShotFormPage() {
         openai: storedOpenAI,
         elevenlabs: storedElevenLabs,
         replicate: storedReplicate,
-        gemini: storedGemini,
         ttsmaker: storedTTSMaker,
         supertone: storedSupertone,
         youtubeClientId: storedYoutubeClientId,
@@ -698,7 +694,6 @@ export default function ShotFormPage() {
     localStorage.setItem("shotform_openai_api_key", apiKeys.openai)
     localStorage.setItem("shotform_elevenlabs_api_key", apiKeys.elevenlabs)
     localStorage.setItem("shotform_replicate_api_key", apiKeys.replicate)
-    localStorage.setItem("shotform_gemini_api_key", apiKeys.gemini)
     localStorage.setItem("shotform_ttsmaker_api_key", apiKeys.ttsmaker || "")
     localStorage.setItem("shotform_supertone_api_key", apiKeys.supertone || "")
     localStorage.setItem("shotform_youtube_client_id", apiKeys.youtubeClientId)
@@ -729,10 +724,7 @@ ${apiKeys.elevenlabs || "(미입력)"}
 3. Replicate API Key
 ${apiKeys.replicate || "(미입력)"}
 
-4. Gemini API Key
-${apiKeys.gemini || "(미입력)"}
-
-5. TTSMaker API Key
+4. TTSMaker API Key
 ${apiKeys.ttsmaker || "(미입력)"}
 
 6. Supertone API Key
@@ -795,27 +787,6 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               Authorization: `Bearer ${apiKeys.openai}`,
             },
           })
-          if (response.ok) {
-            setTestResults({
-              ...testResults,
-              [keyType]: { success: true, message: "연결 성공!" }
-            })
-          } else {
-            const error = await response.json()
-            setTestResults({
-              ...testResults,
-              [keyType]: { success: false, message: `연결 실패: ${error.error?.message || response.statusText}` }
-            })
-          }
-          break
-        }
-        case "gemini": {
-          const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKeys.gemini}`,
-            {
-              method: "GET",
-            }
-          )
           if (response.ok) {
             setTestResults({
               ...testResults,
@@ -1334,62 +1305,6 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                 </p>
               )}
               <p className="text-xs text-muted-foreground">AI 모델 실행에 사용됩니다</p>
-            </div>
-
-            {/* Gemini API Key */}
-            <div className="space-y-2">
-              <Label htmlFor="gemini-key" className="text-sm font-medium">
-                Gemini API Key
-              </Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  id="gemini-key"
-                  type={showKeys.gemini ? "text" : "password"}
-                  placeholder="입력하세요"
-                  value={apiKeys.gemini}
-                  onChange={(e) => setApiKeys({ ...apiKeys, gemini: e.target.value })}
-                  className="font-mono text-sm"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setShowKeys({ ...showKeys, gemini: !showKeys.gemini })}
-                  className="shrink-0"
-                >
-                  {showKeys.gemini ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={() => {
-                    navigator.clipboard.writeText(apiKeys.gemini)
-                    setCopied(true)
-                    setTimeout(() => setCopied(false), 2000)
-                  }}
-                  disabled={!apiKeys.gemini}
-                  className="shrink-0"
-                >
-                  <Copy className="w-4 h-4" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => testApiKey("gemini")}
-                  disabled={testingKeys.gemini || !apiKeys.gemini}
-                  className="shrink-0 text-xs"
-                >
-                  {testingKeys.gemini ? "확인 중..." : "연결확인"}
-                </Button>
-              </div>
-              {testResults.gemini && (
-                <p className={`text-xs ${testResults.gemini.success ? "text-green-600" : "text-red-600"}`}>
-                  {testResults.gemini.message}
-                </p>
-              )}
-              <p className="text-xs text-muted-foreground">대본 기획 및 생성에 사용됩니다</p>
             </div>
 
             {/* 구분선 */}

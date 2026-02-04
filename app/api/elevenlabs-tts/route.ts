@@ -46,8 +46,8 @@ export async function POST(request: NextRequest) {
         text: ttsText, // 원본 대본 그대로 사용 (절대 수정하지 않음)
         model_id: "eleven_multilingual_v2",
         voice_settings: {
-          stability: 0.5,
-          similarity_boost: 0.75,
+          stability: 0.7, // 0.65에서 0.7로 증가 (더 안정적이고 자연스러운 음성, 기계음 감소)
+          similarity_boost: 0.75, // 0.8에서 0.75로 조정 (너무 높으면 기계음이 나올 수 있음)
         },
       }),
     })
@@ -131,8 +131,8 @@ export async function POST(request: NextRequest) {
           text: ttsText,
           model_id: "eleven_multilingual_v2",
           voice_settings: {
-            stability: 0.5,
-            similarity_boost: 0.75,
+            stability: 0.7, // 0.65에서 0.7로 증가 (더 안정적이고 자연스러운 음성, 기계음 감소)
+            similarity_boost: 0.75, // 0.8에서 0.75로 조정 (너무 높으면 기계음이 나올 수 있음)
           },
         }),
       })

@@ -624,6 +624,7 @@ export default function LongformContentPage() {
   const [selectedSupertoneVoiceId, setSelectedSupertoneVoiceId] = useState<string>("") // 선택된 수퍼톤 음성 ID
   const [selectedSupertoneStyle, setSelectedSupertoneStyle] = useState<string>("neutral") // 선택된 수퍼톤 스타일
   const [customSupertoneVoiceId, setCustomSupertoneVoiceId] = useState<string>("") // 사용자가 입력한 수퍼톤 음성 ID
+  const [ttsTargetLanguage, setTtsTargetLanguage] = useState<string>("ko") // TTS 생성 언어 (기본값: 한국어)
   const [showAddVoiceDialog, setShowAddVoiceDialog] = useState(false) // 목소리 추가 다이얼로그
   const [newVoiceId, setNewVoiceId] = useState("") // 새 목소리 ID
   const [newVoiceName, setNewVoiceName] = useState("") // 새 목소리 이름
@@ -9389,7 +9390,46 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     let lastError: Error | null = null
     
     // 숫자를 한글로 변환
-    const convertedText = convertNumbersToKorean(line.text)
+    let convertedText = convertNumbersToKorean(line.text)
+    
+    // 번역이 필요한 경우 (한국어가 아닌 경우)
+    if (ttsTargetLanguage !== "ko") {
+      try {
+        const openaiApiKey = getApiKey("openai_api_key") || getApiKey("openai") || getApiKey("gpt_api_key") || getApiKey("chatgpt_api_key")
+        
+        if (!openaiApiKey) {
+          console.warn("[TTS 번역] OpenAI API 키가 없어 번역을 건너뜁니다. 원본 텍스트를 사용합니다.")
+        } else {
+          console.log(`[TTS 번역] ${ttsTargetLanguage}로 번역 시작: "${convertedText.substring(0, 30)}..."`)
+          
+          const translateResponse = await fetch("/api/translate", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              text: convertedText,
+              sourceLanguage: "ko",
+              targetLanguage: ttsTargetLanguage,
+              apiKey: openaiApiKey,
+            }),
+            signal: abortSignal,
+          })
+          
+          if (translateResponse.ok) {
+            const translateData = await translateResponse.json()
+            if (translateData.translatedText) {
+              convertedText = translateData.translatedText
+              console.log(`[TTS 번역] 번역 완료: "${convertedText.substring(0, 30)}..."`)
+            }
+          } else {
+            console.warn("[TTS 번역] 번역 실패, 원본 텍스트 사용")
+          }
+        }
+      } catch (error) {
+        console.warn("[TTS 번역] 번역 중 오류 발생, 원본 텍스트 사용:", error)
+      }
+    }
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       // 중지 요청 확인
@@ -9453,7 +9493,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               voiceId: voiceId,
               apiKey: supertoneApiKey,
               style: selectedSupertoneStyle || "neutral", // 사용자가 선택한 스타일
-              language: "ko", // 기본값: 한국어
+              language: ttsTargetLanguage, // 선택한 언어로 설정
             }),
             signal: abortSignal, // AbortSignal 전달
           })
@@ -18397,6 +18437,40 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                 ))}
                               </div>
                             </div>
+
+                            {/* TTS 생성 언어 선택 */}
+                            <div className="space-y-2">
+                              <Label className="text-sm font-medium text-gray-700">
+                                TTS 생성 언어 *
+                              </Label>
+                              <Select
+                                value={ttsTargetLanguage}
+                                onValueChange={(value) => setTtsTargetLanguage(value)}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="ko">한국어 (기본)</SelectItem>
+                                  <SelectItem value="en">영어</SelectItem>
+                                  <SelectItem value="ja">일본어</SelectItem>
+                                  <SelectItem value="zh">중국어</SelectItem>
+                                  <SelectItem value="es">스페인어</SelectItem>
+                                  <SelectItem value="fr">프랑스어</SelectItem>
+                                  <SelectItem value="de">독일어</SelectItem>
+                                  <SelectItem value="pt">포르투갈어</SelectItem>
+                                  <SelectItem value="ru">러시아어</SelectItem>
+                                  <SelectItem value="ar">아랍어</SelectItem>
+                                  <SelectItem value="it">이탈리아어</SelectItem>
+                                  <SelectItem value="vi">베트남어</SelectItem>
+                                  <SelectItem value="th">태국어</SelectItem>
+                                  <SelectItem value="id">인도네시아어</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <p className="text-xs text-gray-500">
+                                선택한 언어로 대본이 자동 번역되어 TTS가 생성됩니다. (기본값: 한국어)
+                              </p>
+                            </div>
                           </div>
                         </div>
 
@@ -23331,6 +23405,40 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
                           <p className="text-sm text-blue-800">
                             <strong>안내:</strong> TTS는 씬1부터 순서대로 생성하셔야 합니다.
+                          </p>
+                        </div>
+
+                        {/* TTS 생성 언어 선택 */}
+                        <div className="space-y-2 mb-4">
+                          <Label className="text-sm font-medium text-gray-700">
+                            TTS 생성 언어
+                          </Label>
+                          <Select
+                            value={ttsTargetLanguage}
+                            onValueChange={(value) => setTtsTargetLanguage(value)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="ko">한국어 (기본)</SelectItem>
+                              <SelectItem value="en">영어</SelectItem>
+                              <SelectItem value="ja">일본어</SelectItem>
+                              <SelectItem value="zh">중국어</SelectItem>
+                              <SelectItem value="es">스페인어</SelectItem>
+                              <SelectItem value="fr">프랑스어</SelectItem>
+                              <SelectItem value="de">독일어</SelectItem>
+                              <SelectItem value="pt">포르투갈어</SelectItem>
+                              <SelectItem value="ru">러시아어</SelectItem>
+                              <SelectItem value="ar">아랍어</SelectItem>
+                              <SelectItem value="it">이탈리아어</SelectItem>
+                              <SelectItem value="vi">베트남어</SelectItem>
+                              <SelectItem value="th">태국어</SelectItem>
+                              <SelectItem value="id">인도네시아어</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-gray-500">
+                            선택한 언어로 대본이 자동 번역되어 TTS가 생성됩니다. (기본값: 한국어)
                           </p>
                         </div>
 

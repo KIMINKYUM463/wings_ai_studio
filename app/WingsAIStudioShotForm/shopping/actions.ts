@@ -457,20 +457,52 @@ export async function generateImageWithNanobanana(
     // 실제 제품을 사용하는 느낌의 사진이어야 함
     // 각 섹션마다 다른 배경이 나와야 함
     
-    // 제품 유형에 따라 적절한 배경과 구도 설정
-    const sceneConfigs = getProductSceneConfigs(productName, productDescription)
+    // AI를 활용하여 손이 필요한지 판단 (이미지 생성용)
+    let needsHands = false
+    try {
+      // OpenAI API 키 확인
+      const openaiApiKey = process.env.OPENAI_API_KEY
+      if (openaiApiKey) {
+        // AI를 통해 손 필요 여부 판단 (간단한 판단만 수행)
+        const productActions = await generateProductActionPromptWithAI(
+          productName,
+          productDescription,
+          sceneIndex !== undefined ? sceneIndex : 0,
+          openaiApiKey
+        )
+        needsHands = productActions.needsHands
+        console.log(`[Shopping] AI가 판단한 손 필요 여부: ${needsHands} (제품: ${productName})`)
+      } else {
+        // API 키가 없으면 기본 함수 사용
+        needsHands = needsHandsInImage(productName, productDescription)
+        console.log(`[Shopping] OpenAI API 키 없음, 기본 함수로 손 필요 여부 판단: ${needsHands}`)
+      }
+    } catch (error) {
+      console.warn("[Shopping] AI 손 필요 여부 판단 실패, 기본 함수 사용:", error)
+      // AI 판단 실패 시 기본 함수 사용
+      needsHands = needsHandsInImage(productName, productDescription)
+    }
     
-    const currentSceneIndex = sceneIndex !== undefined ? sceneIndex : 0
-    const config = sceneConfigs[currentSceneIndex] || sceneConfigs[0]
+    // sceneScript가 제공되면 그것을 사용 (재생성 시 추가 프롬프트 포함)
+    let imagePrompt: string
     
-    // 제품 유형에 따라 손이 필요한지 판단
-    const needsHands = needsHandsInImage(productName, productDescription)
-    
-    // 각 장면마다 완전히 다른 프롬프트 구조로 생성
-    let imagePrompt = `${productName} 제품 사진.
+    if (sceneScript && sceneScript.trim() && sceneScript.length > 50) {
+      // sceneScript가 제공된 경우 (재생성 시 추가 프롬프트 포함된 프롬프트)
+      imagePrompt = sceneScript
+      console.log("[Shopping] 제공된 프롬프트 사용 (추가 프롬프트 포함 가능):", sceneScript.substring(0, 100) + "...")
+    } else {
+      // 기존 로직: 제품 유형에 따라 적절한 배경과 구도 설정
+      const sceneConfigs = getProductSceneConfigs(productName, productDescription)
+      
+      const currentSceneIndex = sceneIndex !== undefined ? sceneIndex : 0
+      const config = sceneConfigs[currentSceneIndex] || sceneConfigs[0]
+      
+      // 각 장면마다 완전히 다른 프롬프트 구조로 생성
+      imagePrompt = `${productName} 제품 사진.
 
 핵심 요소 (반드시 포함):
-- 제품 전체가 화면에 완전히 보여야 함 (full product visible, entire product in frame)
+- 제품 전체가 화면에 완전히 보여야 함 (full product visible, entire product in frame, entire product fills the frame)
+- 제품 전체가 화면에 가득 차야 함 (제품의 일부만 보이는 것이 아닌, 전체 제품이 화면에 가득 차야 함)
 - 제품의 모든 디테일과 형태가 명확하게 보임
 - 제품 중심의 사진 (product-focused photography)${needsHands ? `
 - 손으로 제품을 사용하거나 잡고 있는 모습 (hands using or holding the product, natural hand position, hands visible but face not visible)` : ""}
@@ -493,13 +525,20 @@ ${needsHands ? `포함 사항:
 - 텍스트나 글씨 없음 (no text, no letters)
 
 품질: 고품질, 전문적인 제품 촬영, 매력적인 구도, 9:16 세로 비율, vertical composition.`
+    }
     
+    // 제품 이미지가 있으면 참고 문구 추가 (기존 프롬프트든 새 프롬프트든)
     if (productImageBase64) {
       imagePrompt = `${imagePrompt}
 
 중요: 첨부된 제품 이미지를 참고하여 제품의 실제 모습을 정확하게 보여주세요.
 - 제품의 색상, 형태, 디자인을 일관성있게 유지 (product preservation, exact product shape and features maintained)
-- 제품 전체가 화면에 완전히 보이도록 구성${needsHands ? `
+- 제품 전체가 화면에 완전히 보이도록 구성
+- 원본 제품 이미지에 있는 기능, 버튼, 스위치, 조절 장치만 그대로 유지 (maintain exact original product features, buttons, switches, controls from reference image)
+- 원본 제품에 없는 새로운 기능, 버튼, 스위치, 조절 장치를 절대 추가하지 않음 (no additional features, no extra buttons, no new switches, no new controls, no modifications to original design)
+- 제품의 원본 디자인과 구조를 정확하게 보존 (exact product design preservation, maintain original product structure, do not add or remove any elements)
+- 참고 이미지의 제품과 동일한 모델이어야 함 (same product model as reference image, identical product design)
+- 배경은 참고 이미지와 다르게 생성해야 함 (background must be different from the reference image, create a new background that is different from the original image's background, different background setting, different background colors, different background style, do not copy the reference image's background)${needsHands ? `
 - 손으로 제품을 자연스럽게 사용하거나 잡고 있는 모습 포함 (hands naturally using or holding the product)` : `
 - 제품만 보여주고 손이나 사람은 포함하지 않음 (product only, no hands, no people)`}`
     }
@@ -723,7 +762,7 @@ async function generateProductActionPromptWithAI(
   productDescription: string | undefined,
   imageIndex: 0 | 1 | 2,
   apiKey?: string
-): Promise<{ allowedActions: string; forbiddenActions: string }> {
+): Promise<{ allowedActions: string; forbiddenActions: string; needsHands: boolean }> {
   const GPT_API_KEY = apiKey || process.env.OPENAI_API_KEY
   
   if (!GPT_API_KEY) {
@@ -751,30 +790,45 @@ async function generateProductActionPromptWithAI(
             role: "system",
             content: `당신은 제품 영상 제작 전문가입니다. 주어진 제품 정보를 분석하여 해당 제품에만 해당하는 구체적이고 정확한 행동 프롬프트를 생성해주세요.
 
-중요 규칙:
+중요 규칙 (절대 준수):
 1. 제품의 핵심 기능(CORE FUNCTION) 하나만 지속적으로 보여줘야 합니다
 2. 영상 전체에 걸쳐 동일한 핵심 행동이 계속되어야 합니다 (행동이 바뀌거나 중단되면 안 됨)
-3. 제품의 부가 기능, 점검, 교체, 정비, 보관 등은 절대 포함하지 마세요
-4. 제품의 실제 사용 방법과 목적을 정확히 파악해야 합니다
-5. 제품과 관련 없는 행동은 절대 포함하지 마세요
-6. 제품의 주요 기능과 사용 맥락을 반영해야 합니다
-7. 구체적이고 명확한 행동만 제시해야 합니다
+3. 제품의 실제 사용 행동만 포함해야 합니다 - 제품이 작동하거나 사용되는 모습만 보여주세요
+4. 제품과 관련 없는 행동은 절대 포함하지 마세요
+
+절대 금지 행동 (매우 중요):
+- 제품 분리, 조립, 해체 행동 (예: 난로 부품 분리, 제품을 분해하는 모습)
+- 제품 점화, 켜기, 시작하는 행동 (예: 난로에 불 붙이기, 제품 전원 켜는 모습)
+- 제품 점검, 검사, 확인 행동 (예: 부품 확인, 상태 점검)
+- 제품 교체, 정비, 수리 행동 (예: 필터 교체, 부품 교체)
+- 제품 보관, 정리, 저장 행동 (예: 제품을 보관함에 넣기, 정리하기)
+- 제품을 사용하지 않고 들고 있는 모습
+- 제품의 부가 기능이나 보조 기능
+- 제품과 관련 없는 행동
+- 제품 위에 다른 제품이나 물건을 올리는 행동 (예: 제품 위에 다른 제품을 얹기, 제품 위에 물건 올리기) - 절대 금지
 
 손(hands) 관련 규칙 (매우 중요):
 - 제품이 손으로 사용되는 제품인지 판단하세요 (청소기, 믹서, 전기기기, 주방용품, 공구 등)
 - 손이 필요한 제품의 경우: "hands operating the product continuously throughout the entire video from start to finish. If hands appear at the beginning, hands must remain visible throughout the entire video until the end. DO NOT show hands disappearing or product operating without hands mid-video."
 - 손이 필요하지 않은 제품의 경우: "no hands, product only"
 
-예시:
-- 청소기: "바닥 청소하는 행동만 지속적으로, 손이 나오면 영상 끝까지 손이 계속 나와야 함" (필터 교체, 점검, 보관 등 금지)
-- 믹서: "재료를 갈거나 섞는 행동만 지속적으로, 손이 나오면 영상 끝까지 손이 계속 나와야 함" (부품 교체, 점검 등 금지)
-- 에어프라이어: "음식을 조리하는 행동만 지속적으로" (필터 교체, 점검 등 금지)
+예시 (올바른 행동):
+- 청소기: "바닥 청소하는 행동만 지속적으로, 손이 나오면 영상 끝까지 손이 계속 나와야 함" (청소기가 바닥에서 움직이며 청소하는 모습만)
+- 믹서: "재료를 갈거나 섞는 행동만 지속적으로, 손이 나오면 영상 끝까지 손이 계속 나와야 함" (믹서가 작동하며 재료를 섞는 모습만)
+- 에어프라이어: "음식을 조리하는 행동만 지속적으로" (에어프라이어가 작동하며 음식을 조리하는 모습만)
+- 난로: "난로가 작동하며 열을 내뿜는 모습만 지속적으로" (난로가 작동 중인 모습만, 불 붙이기나 분리 행동 금지)
 - 화장품: "손 없이 제품만" (손 필요 없음)
+
+예시 (금지 행동):
+- 난로: "난로 부품 분리", "난로에 불 붙이기", "난로 점검" 등은 절대 금지
+- 청소기: "필터 교체", "부품 점검", "보관" 등은 절대 금지
+- 믹서: "부품 교체", "점검", "정리" 등은 절대 금지
 
 응답 형식 (JSON):
 {
-  "allowedActions": "이 장면에서 보여줄 수 있는 구체적인 핵심 행동 하나만 (예: '청소기를 바닥에서 앞뒤로 움직이며 먼지를 흡입하는 모습을 영상 전체에 걸쳐 지속적으로, 손이 나오면 영상 끝까지 손이 계속 나와야 함', '믹서에 재료를 넣고 작동시키는 모습을 영상 전체에 걸쳐 지속적으로, 손이 나오면 영상 끝까지 손이 계속 나와야 함'). 핵심 기능 하나만 계속 보여주세요. 손이 필요한 제품은 손이 영상 전체에 걸쳐 계속 나와야 합니다.",
-  "forbiddenActions": "절대 보여주면 안 되는 행동들 (예: '제품을 공중에 들고 있는 모습', '제품을 사용하지 않고 보관하는 모습', '필터 교체', '부품 점검', '정비', '보관', '제품과 관련 없는 행동', '핵심 기능이 아닌 부가 행동', '손이 나오다가 중간에 사라지는 모습', '손 없이 제품이 혼자 작동하는 모습(손이 필요한 제품의 경우)'). 핵심 기능 외의 모든 행동을 금지합니다."
+  "allowedActions": "이 장면에서 보여줄 수 있는 구체적인 핵심 행동 하나만 (예: '청소기를 바닥에서 앞뒤로 움직이며 먼지를 흡입하는 모습을 영상 전체에 걸쳐 지속적으로, 손이 나오면 영상 끝까지 손이 계속 나와야 함', '믹서에 재료를 넣고 작동시키는 모습을 영상 전체에 걸쳐 지속적으로, 손이 나오면 영상 끝까지 손이 계속 나와야 함', '난로가 작동하며 열을 내뿜는 모습을 영상 전체에 걸쳐 지속적으로'). 핵심 기능 하나만 계속 보여주세요. 손이 필요한 제품은 손이 영상 전체에 걸쳐 계속 나와야 합니다.",
+  "forbiddenActions": "절대 보여주면 안 되는 행동들 (예: '제품 분리', '제품 조립', '제품 점화', '제품 켜기', '제품 점검', '제품 교체', '제품 정비', '제품 보관', '제품을 공중에 들고 있는 모습', '제품을 사용하지 않고 보관하는 모습', '필터 교체', '부품 점검', '정비', '보관', '제품과 관련 없는 행동', '핵심 기능이 아닌 부가 행동', '손이 나오다가 중간에 사라지는 모습', '손 없이 제품이 혼자 작동하는 모습(손이 필요한 제품의 경우)', '난로 부품 분리', '난로에 불 붙이기', '난로 점검' 등). 핵심 기능 외의 모든 행동을 금지합니다.",
+  "needsHands": true 또는 false - 이 제품이 손으로 사용되는 제품인지 판단하세요. 손이 필요한 제품(청소기, 믹서, 전기기기, 주방용품, 공구 등)은 true, 손이 필요하지 않은 제품(화장품, 의류, 액세서리 등)은 false입니다.
 }`
           },
           {
@@ -785,7 +839,13 @@ ${productDescription ? `제품 설명: ${productDescription}` : ''}
 
 이 제품에 맞는 구체적인 행동 프롬프트를 생성해주세요. 제품의 실제 사용 방법을 정확히 반영하고, 제품과 관련 없는 행동은 절대 포함하지 마세요.
 
-중요: 이 제품이 손으로 사용되는 제품인지 판단하세요. 손이 필요한 제품(청소기, 믹서, 전기기기, 주방용품, 공구 등)의 경우, 손이 나오면 영상 전체에 걸쳐 끝까지 손이 계속 나와야 합니다. 손이 나오다가 중간에 사라지면 안 됩니다.`
+매우 중요:
+1. 제품의 실제 사용 행동만 포함하세요 (제품이 작동하거나 사용되는 모습만)
+2. 제품 분리, 조립, 점화, 켜기, 점검, 교체, 정비, 보관 등은 절대 포함하지 마세요
+3. 예를 들어 난로인 경우: "난로가 작동하며 열을 내뿜는 모습"만 보여주고, "난로 부품 분리"나 "난로에 불 붙이기"는 절대 금지입니다
+4. 제품의 핵심 기능 하나만 지속적으로 보여주세요
+
+손 관련: 이 제품이 손으로 사용되는 제품인지 판단하세요. 손이 필요한 제품(청소기, 믹서, 전기기기, 주방용품, 공구 등)의 경우, 손이 나오면 영상 전체에 걸쳐 끝까지 손이 계속 나와야 합니다. 손이 나오다가 중간에 사라지면 안 됩니다.`
           }
         ],
         response_format: { type: "json_object" },
@@ -800,14 +860,22 @@ ${productDescription ? `제품 설명: ${productDescription}` : ''}
     const data = await response.json()
     const content = JSON.parse(data.choices[0].message.content)
     
+    // needsHands는 AI가 판단한 값이 있으면 사용하고, 없으면 기본 함수로 판단
+    const aiNeedsHands = content.needsHands !== undefined ? content.needsHands : null
+    
     return {
       allowedActions: content.allowedActions || "ONLY actions directly related to using the product",
-      forbiddenActions: content.forbiddenActions || "DO NOT show any actions unrelated to the product"
+      forbiddenActions: content.forbiddenActions || "DO NOT show any actions unrelated to the product",
+      needsHands: aiNeedsHands !== null ? aiNeedsHands : needsHandsInImage(productName, productDescription) // AI가 판단하지 못하면 기본 함수 사용
     }
   } catch (error) {
     console.error("[Shopping] AI 행동 프롬프트 생성 실패, 기본 함수 사용:", error)
     // 실패 시 기본 함수 사용
-    return getProductSpecificActions(productName, productDescription)
+    const defaultActions = getProductSpecificActions(productName, productDescription)
+    return {
+      ...defaultActions,
+      needsHands: needsHandsInImage(productName, productDescription)
+    }
   }
 }
 
@@ -844,6 +912,23 @@ function getProductSpecificActions(productName: string, productDescription?: str
     }
   }
   
+  // 난로, 히터, 전기히터
+  if (combined.includes("난로") || combined.includes("히터") || combined.includes("heater") || combined.includes("stove") || combined.includes("전기히터")) {
+    return {
+      allowedActions: "ONLY the core heating action continuously throughout the entire video: the heater/stove operating and emitting heat continuously from start to finish. Show ONLY the main heating function - the product operating and providing heat continuously. The product must be actively heating throughout the entire video.",
+      forbiddenActions: "ABSOLUTELY FORBIDDEN: lighting the heater/stove, turning on the heater/stove, disassembling the heater/stove, separating parts, inspecting parts, maintenance, checking the product, product being turned off, product not operating, product being stored, product being carried, any action unrelated to the core heating function. DO NOT show ignition, disassembly, inspection, or maintenance - ONLY show continuous heating operation."
+    }
+  }
+  
+  // 전기기기 (전기밥솥, 전자레인지, 토스터 등)
+  if (combined.includes("전기밥솥") || combined.includes("전자레인지") || combined.includes("토스터") || 
+      combined.includes("rice cooker") || combined.includes("microwave") || combined.includes("toaster")) {
+    return {
+      allowedActions: "ONLY the core operating action continuously throughout the entire video: the product operating and performing its main function continuously from start to finish. Show ONLY the main function - the product actively operating continuously.",
+      forbiddenActions: "ABSOLUTELY FORBIDDEN: turning on the product, starting the product, disassembling the product, separating parts, inspecting parts, maintenance, checking the product, product being turned off, product not operating, product being stored, product being carried, any action unrelated to the core operating function. DO NOT show turning on, disassembly, inspection, or maintenance - ONLY show continuous operation."
+    }
+  }
+  
   // 화장품, 스킨케어
   if (combined.includes("세럼") || combined.includes("크림") || combined.includes("로션") || combined.includes("에센스") || 
       combined.includes("serum") || combined.includes("cream") || combined.includes("lotion") || combined.includes("essence") ||
@@ -877,7 +962,7 @@ function getProductSpecificActions(productName: string, productDescription?: str
   const needsHands = needsHandsInImage(productName, productDescription)
   return {
     allowedActions: `ONLY the core/main function of ${productName} continuously throughout the entire video: demonstrate the product's main function continuously from start to finish, show the product being actively used for its intended purpose without interruption${needsHands ? ", hands operating the product naturally. CRITICAL: If hands are shown operating the product, hands must remain visible throughout the entire video from start to finish. Hands must NOT disappear mid-video." : ", no hands, product only"}. Show ONLY the primary core action - the same action must continue throughout the video.`,
-    forbiddenActions: `ABSOLUTELY FORBIDDEN: maintenance, inspection, replacement, checking parts, examining the product, product being held without use, product being stored, product not in active use, any action unrelated to the product's core/main function. DO NOT show any secondary actions - ONLY show the continuous core function.${needsHands ? " DO NOT show hands appearing and then disappearing - if hands appear, they must stay until the end." : ""}`
+    forbiddenActions: `ABSOLUTELY FORBIDDEN: disassembling the product, separating parts, assembling the product, lighting the product, turning on the product, starting the product, maintenance, inspection, replacement, checking parts, examining the product, product being held without use, product being stored, product not in active use, any action unrelated to the product's core/main function. DO NOT show disassembly, ignition, turning on, inspection, or maintenance - ONLY show the continuous core function.${needsHands ? " DO NOT show hands appearing and then disappearing - if hands appear, they must stay until the end." : ""}`
   }
 }
 
@@ -909,75 +994,74 @@ export async function generateVideoPromptForImage(
   
   // 공통 규칙
   const commonRules = `GLOBAL RULES (MUST FOLLOW - ABSOLUTELY CRITICAL):
+- ABSOLUTELY CRITICAL - VIDEO DURATION (HIGHEST PRIORITY): This video MUST be exactly ${duration} seconds long. NOT ${duration * 3} seconds, NOT the full TTS duration (${duration * 3} seconds), but EXACTLY ${duration} seconds. This is 1/3 of the total TTS duration. The video MUST end at exactly ${duration} seconds. DO NOT make it longer than ${duration} seconds. DO NOT make it the full TTS duration. The video duration is ${duration} seconds, NOT ${duration * 3} seconds.
 - PRODUCT PRESERVATION (HIGHEST PRIORITY): The product's physical shape, size, proportions, dimensions, design, colors, textures, and all visual features MUST remain EXACTLY the same as shown in the input image throughout the entire video
-- The product must be IDENTICAL to the reference image - same exact shape, same exact size, same exact proportions, same exact design
+- The product must be IDENTICAL to the reference image - same exact shape, same exact size, same exact proportions, same exact design, same exact colors
 - DO NOT deform, distort, stretch, shrink, resize, modify, abstract, stylize, or redesign the product in ANY way
-- DO NOT change the product's form, structure, or appearance - it must look EXACTLY like the input image
+- DO NOT change the product's form, structure, appearance, or colors - it must look EXACTLY like the input image
 - The product's outline, edges, curves, angles, and all geometric features must remain unchanged
-- If the product has buttons, handles, screens, or any components, they must remain in the exact same position and size
+- The product's colors, color scheme, and color palette must remain EXACTLY the same as the input image - DO NOT change any colors
+- If the product has buttons, handles, screens, or any components, they must remain in the exact same position, size, and color
 - The product's materials, textures, and surface details must remain consistent
-- Only the camera angle, lighting, background, and product position/rotation can change - the product itself must be IDENTICALLY preserved
+- BACKGROUND PRESERVATION (CRITICAL): The background shown in the input image MUST be preserved and maintained throughout the entire video. The background's colors, style, setting, and overall appearance must remain EXACTLY the same as the input image. DO NOT change the background to a different setting, color, or style. The background must be IDENTICAL to the input image.
+- ONLY horizontal camera movement is allowed - the product itself must remain COMPLETELY STATIC and UNTOUCHED. DO NOT move, rotate, touch, or manipulate the product. Only the camera can move horizontally - smooth horizontal camera movement, slow horizontal rotation (left-right), gentle horizontal panning (left-right), or subtle horizontal angle changes. DO NOT move the camera vertically (up or down). DO NOT tilt the camera up or down. Keep the camera at the same height level. The product must stay in the exact same position and state as shown in the input image. The background must be IDENTICALLY preserved
 - No human faces or heads visible (no face, no head)
 - Hands, arms, or partial body parts are allowed
 - No text, subtitles, or watermarks
 - Realistic lighting and natural movement
 - Vertical format (9:16 aspect ratio)
-- CRITICAL VIDEO LENGTH: The video MUST be exactly ${duration} seconds long. The total video duration must be ${duration} seconds, not longer, not shorter. This is a segment of a longer video, so it must be precisely ${duration} seconds.
+- ABSOLUTELY FORBIDDEN - NO OBJECTS ON PRODUCT: DO NOT place any other products, objects, items, or things on top of or above the product. The product must remain clear and unobstructed. DO NOT show anything being placed on the product, stacked on the product, or positioned above the product. The product surface must remain empty and clear throughout the entire video.
 - CRITICAL: ${productActions.allowedActions}
 - CRITICAL: ${productActions.forbiddenActions}`
 
   let prompt = ""
 
   if (imageIndex === 0) {
-    // 첫 번째 이미지: 제품을 실제로 사용하는 장면
-    prompt = `${productName} product video. `
-    prompt += `CRITICAL: This video segment must be exactly ${duration} seconds long. The total video duration must be precisely ${duration} seconds. `
+    // 첫 번째 이미지: 전체 샷 - 제품을 정적 상태로 유지하고 카메라만 움직임
+    prompt = `${productName} product full shot video. `
+    prompt += `ABSOLUTELY CRITICAL - VIDEO DURATION: This video MUST be exactly ${duration} seconds long. NOT ${duration * 3} seconds, NOT the full TTS duration, but EXACTLY ${duration} seconds. The total TTS duration is ${duration * 3} seconds, and this is only 1/3 of it. This video segment must be exactly ${duration} seconds. DO NOT make it longer than ${duration} seconds. DO NOT make it the full TTS duration. `
+    prompt += `ABSOLUTELY CRITICAL - FULL SHOT (NOT DETAIL SHOT): This is a FULL SHOT showing the entire product. The complete product must be visible in the frame throughout the entire video. This is NOT a close-up or detail shot. Show the entire product from a medium distance, with the whole product clearly visible. `
     prompt += `ABSOLUTELY CRITICAL - PRODUCT PRESERVATION: The product shown in the input image must appear EXACTLY as it is - same shape, same size, same proportions, same design, same colors, same textures. DO NOT modify, deform, distort, or change the product in any way. The product must be IDENTICAL to the input image. `
-    prompt += `ABSOLUTELY CRITICAL - SINGLE CORE ACTION ONLY: Show ONLY the product's core/main function continuously throughout the entire video from start to finish. The same core action must continue without interruption, without changing to other actions. DO NOT show maintenance, inspection, replacement, storage, or any secondary actions. `
-    prompt += `Show the product being actively used in a real-world scenario. `
-    prompt += `The product's main function must be clearly demonstrated continuously. `
-    prompt += `${productActions.allowedActions} `
-    if (needsHands) {
-      prompt += `CRITICAL - HANDS CONSISTENCY: If hands are shown operating the product at the beginning, hands MUST remain visible throughout the entire video from start to finish. Hands must NOT disappear or vanish mid-video. The product must be continuously operated by hands throughout the entire video duration. `
-    } else {
-      prompt += `No hands, product only. `
-    }
-    prompt += `No storage, shelving, docking, or cabinet scenes. `
-    prompt += `The core action must continue from the beginning to the end of the video without stopping or changing. `
-    prompt += `${productActions.forbiddenActions} `
+    prompt += `ABSOLUTELY CRITICAL - BACKGROUND PRESERVATION: The background shown in the input image MUST be preserved and maintained throughout the entire video. The background's colors, style, setting, and overall appearance must remain EXACTLY the same as the input image. DO NOT change the background. `
+    prompt += `ABSOLUTELY CRITICAL - STATIC PRODUCT, CAMERA MOVEMENT ONLY: The product must remain COMPLETELY STATIC and UNTOUCHED throughout the entire video. DO NOT show the product being used, operated, touched, moved, or manipulated in any way. DO NOT show hands touching or operating the product. The product must stay in the exact same position and state as shown in the input image. ONLY the camera should move - smooth, horizontal camera movement only. `
+    prompt += `ABSOLUTELY CRITICAL - HORIZONTAL CAMERA MOVEMENT ONLY: Camera movement must be HORIZONTAL ONLY - slow horizontal rotation around the product (left-right), gentle horizontal panning (left-right), or subtle horizontal angle changes. DO NOT move the camera up or down. DO NOT use vertical camera movement. DO NOT tilt the camera up or down. Keep the camera at the same height level throughout the entire video. Only horizontal (left-right) camera movement is allowed. `
+    prompt += `ABSOLUTELY FORBIDDEN - NO OBJECTS ON PRODUCT: DO NOT place any other products, objects, items, or things on top of or above the product. The product must remain clear and unobstructed. DO NOT show anything being placed on the product, stacked on the product, or positioned above the product. The product surface must remain empty and clear throughout the entire video. `
+    prompt += `Show the product in a static state with smooth, horizontal-only camera movement around it. The entire product must be visible in the frame. `
+    prompt += `Smooth, natural, horizontal-only camera movement - slow horizontal rotation around the product (left-right), gentle horizontal panning (left-right), or subtle horizontal angle changes. The camera height must remain constant - no vertical movement. The product must remain completely still. `
+    prompt += `NO hands, NO human interaction, NO product usage, NO product operation - product only, static product with camera movement. `
     prompt += `${commonRules}`
   } else if (imageIndex === 1) {
-    // 두 번째 이미지: 디테일 강조 (형태 유지) - 슬로우모션
+    // 두 번째 이미지: 디테일 샷 - 제품의 디테일을 강조하는 클로즈업 (전체샷과 완전히 다른 스타일)
     prompt = `${productName} product detail shot video. `
-    prompt += `CRITICAL: This video segment must be exactly ${duration} seconds long. The total video duration must be precisely ${duration} seconds. `
+    prompt += `ABSOLUTELY CRITICAL - VIDEO DURATION: This video MUST be exactly ${duration} seconds long. NOT ${duration * 3} seconds, NOT the full TTS duration, but EXACTLY ${duration} seconds. The total TTS duration is ${duration * 3} seconds, and this is only 1/3 of it. This video segment must be exactly ${duration} seconds. DO NOT make it longer than ${duration} seconds. DO NOT make it the full TTS duration. `
+    prompt += `ABSOLUTELY CRITICAL - DETAIL SHOT (NOT FULL SHOT): This is a DETAIL SHOT/CLOSE-UP showing product details. This is COMPLETELY DIFFERENT from the full shot. Focus on product details, textures, features, and close-up views. The product may be shown partially or in close-up, emphasizing specific details, buttons, textures, materials, or design elements. `
     prompt += `ABSOLUTELY CRITICAL - PRODUCT PRESERVATION: The product shown in the input image must appear EXACTLY as it is - same shape, same size, same proportions, same design, same colors, same textures. DO NOT modify, deform, distort, or change the product in any way. The product must be IDENTICAL to the input image. `
-    prompt += `Emphasize product details while maintaining the full product shape. `
-    prompt += `Product must NOT be cropped or distorted - full outline must be recognizable. `
-    prompt += `Close-up shot but product's overall form remains visible and IDENTICAL to the input image. `
-    prompt += `Background must be different from the first image. `
-    prompt += `NO hands, NO human interaction - product only, isolated product detail shot. `
+    prompt += `ABSOLUTELY CRITICAL - BACKGROUND PRESERVATION: The background shown in the input image MUST be preserved and maintained throughout the entire video. The background's colors, style, setting, and overall appearance must remain EXACTLY the same as the input image. DO NOT change the background. `
+    prompt += `ABSOLUTELY CRITICAL - NO PRODUCT USAGE: This is a detail shot, NOT a usage shot. DO NOT show the product being used or operated. Show the product in a static or nearly static state, focusing on details. The product should appear still or with very minimal movement, emphasizing details rather than function. `
+    prompt += `ABSOLUTELY FORBIDDEN - NO OBJECTS ON PRODUCT: DO NOT place any other products, objects, items, or things on top of or above the product. The product must remain clear and unobstructed. DO NOT show anything being placed on the product, stacked on the product, or positioned above the product. The product surface must remain empty and clear throughout the entire video. `
+    prompt += `Emphasize product details, textures, materials, buttons, screens, design elements, or specific features. `
+    prompt += `Product may be shown partially or in close-up - this is different from the full shot which shows the entire product. `
+    prompt += `NO hands, NO human interaction, NO product usage - product only, isolated product detail shot. `
     prompt += `CRITICAL: Slow motion effect - very slow, smooth, cinematic camera movement around the product. `
-    prompt += `Slow-motion detail reveal - camera slowly moves around the product, slowly zooms in on details, very slow panning motion. `
-    prompt += `The movement must be extremely slow and smooth, like cinematic slow-motion footage. `
-    prompt += `Slow camera rotation or slow zoom to showcase product details in slow motion. `
+    prompt += `ABSOLUTELY CRITICAL - HORIZONTAL CAMERA MOVEMENT ONLY: Camera movement must be HORIZONTAL ONLY - slow horizontal rotation around the product (left-right), gentle horizontal panning (left-right), or subtle horizontal angle changes. DO NOT move the camera up or down. DO NOT use vertical camera movement. DO NOT tilt the camera up or down. Keep the camera at the same height level throughout the entire video. Only horizontal (left-right) camera movement is allowed. `
+    prompt += `Slow-motion detail reveal - camera slowly moves horizontally around the product (left-right only), very slow horizontal panning motion, slow horizontal rotation. DO NOT move camera vertically. `
+    prompt += `The movement must be extremely slow and smooth, like cinematic slow-motion footage, but HORIZONTAL ONLY. `
+    prompt += `Slow horizontal camera rotation (left-right only) to showcase product details in slow motion. DO NOT use vertical camera movement. `
+    prompt += `The product itself should be relatively still - only the camera moves slowly in horizontal direction. `
+    prompt += `DO NOT show the product being used or operated - this is a detail showcase, not a usage demonstration. `
     prompt += `${commonRules}`
   } else {
-    // 세 번째 이미지: 다른 배경과 구도로 제품 사용
-    prompt = `${productName} product usage video. `
-    prompt += `CRITICAL: This video segment must be exactly ${duration} seconds long. The total video duration must be precisely ${duration} seconds. `
+    // 세 번째 이미지: 다른 각도로 제품을 정적 상태로 유지하고 카메라만 움직임
+    prompt = `${productName} product from different angle video. `
+    prompt += `ABSOLUTELY CRITICAL - VIDEO DURATION: This video MUST be exactly ${duration} seconds long. NOT ${duration * 3} seconds, NOT the full TTS duration, but EXACTLY ${duration} seconds. The total TTS duration is ${duration * 3} seconds, and this is only 1/3 of it. This video segment must be exactly ${duration} seconds. DO NOT make it longer than ${duration} seconds. DO NOT make it the full TTS duration. `
     prompt += `ABSOLUTELY CRITICAL - PRODUCT PRESERVATION: The product shown in the input image must appear EXACTLY as it is - same shape, same size, same proportions, same design, same colors, same textures. DO NOT modify, deform, distort, or change the product in any way. The product must be IDENTICAL to the input image. `
-    prompt += `ABSOLUTELY CRITICAL - SINGLE CORE ACTION ONLY: Show ONLY the product's core/main function continuously throughout the entire video from start to finish. The same core action must continue without interruption, without changing to other actions. DO NOT show maintenance, inspection, replacement, storage, or any secondary actions. `
-    prompt += `Show the product being used with a different background and composition from the first image. `
-    prompt += `${productActions.allowedActions} `
-    if (needsHands) {
-      prompt += `CRITICAL - HANDS CONSISTENCY: If hands are shown operating the product at the beginning, hands MUST remain visible throughout the entire video from start to finish. Hands must NOT disappear or vanish mid-video. The product must be continuously operated by hands throughout the entire video duration. `
-    } else {
-      prompt += `No hands, product only. `
-    }
-    prompt += `Product must be actively used (same core function as first image but different context). `
-    prompt += `Scene must NOT repeat or look similar to the first image. `
-    prompt += `The core action must continue from the beginning to the end of the video without stopping or changing. `
-    prompt += `${productActions.forbiddenActions} `
+    prompt += `ABSOLUTELY CRITICAL - BACKGROUND PRESERVATION: The background shown in the input image MUST be preserved and maintained throughout the entire video. The background's colors, style, setting, and overall appearance must remain EXACTLY the same as the input image. DO NOT change the background. `
+    prompt += `ABSOLUTELY CRITICAL - STATIC PRODUCT, CAMERA MOVEMENT ONLY: The product must remain COMPLETELY STATIC and UNTOUCHED throughout the entire video. DO NOT show the product being used, operated, touched, moved, or manipulated in any way. DO NOT show hands touching or operating the product. The product must stay in the exact same position and state as shown in the input image. ONLY the camera should move - smooth, horizontal camera movement only. `
+    prompt += `ABSOLUTELY CRITICAL - HORIZONTAL CAMERA MOVEMENT ONLY: Camera movement must be HORIZONTAL ONLY - slow horizontal rotation around the product from a different angle (left-right), gentle horizontal panning (left-right), or subtle horizontal angle changes. DO NOT move the camera up or down. DO NOT use vertical camera movement. DO NOT tilt the camera up or down. Keep the camera at the same height level throughout the entire video. Only horizontal (left-right) camera movement is allowed. `
+    prompt += `ABSOLUTELY FORBIDDEN - NO OBJECTS ON PRODUCT: DO NOT place any other products, objects, items, or things on top of or above the product. The product must remain clear and unobstructed. DO NOT show anything being placed on the product, stacked on the product, or positioned above the product. The product surface must remain empty and clear throughout the entire video. `
+    prompt += `Show the product in a static state with smooth, horizontal-only camera movement from a different angle. The product must remain completely still while the camera moves horizontally. `
+    prompt += `Smooth, natural, horizontal-only camera movement from different angles - slow horizontal rotation around the product (left-right), gentle horizontal panning (left-right), or subtle horizontal angle changes. The camera height must remain constant - no vertical movement. The product must remain completely still. `
+    prompt += `NO hands, NO human interaction, NO product usage, NO product operation - product only, static product with camera movement from different angles. `
     prompt += `${commonRules}`
   }
 
@@ -1644,6 +1728,12 @@ export async function generateShoppingScript(
    - 대본 작성 후 반드시 글자 수를 세어서 정확히 ${targetLength}자인지 확인
    - ${targetLength}자가 아니면 다시 작성하여 정확히 ${targetLength}자가 되도록 조정
 
+5. 절대 금지 사항 (매우 중요):
+   - 문장 2개 이상 금지: 마침표(.)로 문장을 나누지 말고, 하나의 긴 문장으로 자연스럽게 연결 (예: "~했답니다. 꿀템이에요" 같은 형식 금지)
+   - 평범한 단어 금지: "가성비 너무 좋아요", "정말 좋아요", "완전 추천해요" 같은 평범하고 흔한 표현 절대 사용 금지
+   - 광고 티나는 문장 금지: "지금 당장 구매하세요!", "구매하러 가세요", "지금 바로 주문하세요" 같은 직접적인 구매 유도 문구 절대 사용 금지
+   - 대본은 자연스럽고 진솔한 추천 느낌으로 작성하되, 광고처럼 보이지 않아야 함
+
 출력 형식:
 - 번호나 제목 없이 순수한 대본 텍스트만 작성
 - 자연스러운 대화체로 작성
@@ -1675,7 +1765,13 @@ export async function generateShoppingScript(
    - 대본 작성 후 반드시 글자 수를 세어서 정확히 ${targetLength}자인지 확인
    - ${targetLength}자가 아니면 다시 작성하여 정확히 ${targetLength}자가 되도록 조정
 6. 대본은 반드시 끝까지 완성되어야 하며, 마지막에 끊기면 안 됨
-7. 반드시 궁금증을 유발하는 강력한 후킹으로 시작해야 함`,
+7. 반드시 궁금증을 유발하는 강력한 후킹으로 시작해야 함
+
+절대 금지 사항 (매우 중요):
+- 문장 2개 이상 금지: 마침표(.)로 문장을 나누지 말고, 하나의 긴 문장으로 자연스럽게 연결 (예: "~했답니다. 꿀템이에요" 같은 형식 절대 금지)
+- 평범한 단어 금지: "가성비 너무 좋아요", "정말 좋아요", "완전 추천해요", "가성비 최고예요" 같은 평범하고 흔한 표현 절대 사용 금지
+- 광고 티나는 문장 금지: "지금 당장 구매하세요!", "구매하러 가세요", "지금 바로 주문하세요", "구매 링크는 설명란에" 같은 직접적인 구매 유도 문구 절대 사용 금지
+- 대본은 자연스럽고 진솔한 추천 느낌으로 작성하되, 광고처럼 보이지 않아야 함`,
             },
           ],
           max_tokens: duration <= 15 ? 200 : duration <= 20 ? 250 : 300,
@@ -1867,6 +1963,91 @@ JSON 형식:
   }
 }
 
+// 추가 프롬프트를 반영하여 이미지 프롬프트를 AI로 재작성
+export async function refineImagePromptWithCustomInput(
+  originalPrompt: string,
+  customPrompt: string,
+  productName: string,
+  productDescription?: string,
+  apiKey?: string
+): Promise<string> {
+  const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
+
+  if (!GPT_API_KEY) {
+    // API 키가 없으면 단순히 연결
+    return `${originalPrompt}, ${customPrompt}`
+  }
+
+  try {
+    console.log("[Shopping] AI를 사용하여 프롬프트 재작성 시작")
+    console.log("[Shopping] 원본 프롬프트:", originalPrompt.substring(0, 100))
+    console.log("[Shopping] 추가 프롬프트:", customPrompt)
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${GPT_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `당신은 이미지 생성 프롬프트 전문가입니다. 사용자가 제공한 기존 프롬프트와 추가 요구사항을 바탕으로, Replicate의 nano-banana 모델에 최적화된 영어 프롬프트를 작성해주세요.
+
+중요 규칙:
+- 기존 프롬프트의 핵심 내용은 유지하되, 추가 요구사항을 자연스럽게 통합
+- 제품의 실제 모습을 정확하게 보여주는 것이 중요
+- 영어로 작성하되, 한국어 요구사항의 의미를 정확히 반영
+- 구체적이고 시각적으로 묘사할 수 있는 표현 사용
+- 프롬프트는 명확하고 간결하게 작성
+- 제품 이미지가 참고 이미지로 제공된 경우, 원본 제품의 기능, 버튼, 스위치, 조절 장치를 정확하게 유지해야 함
+- 원본 제품에 없는 새로운 기능, 버튼, 스위치, 조절 장치를 절대 추가하지 않음 (no additional features, no extra buttons, no new switches, no new controls)
+- 제품의 원본 디자인과 구조를 정확하게 보존 (exact product design preservation, maintain original product structure)`,
+          },
+          {
+            role: "user",
+            content: `기존 프롬프트:
+${originalPrompt}
+
+추가 요구사항 (한국어):
+${customPrompt}
+
+제품명: ${productName}
+${productDescription ? `제품 설명: ${productDescription}` : ''}
+
+위 정보를 바탕으로 개선된 이미지 생성 프롬프트를 작성해주세요. 기존 프롬프트의 핵심은 유지하되, 추가 요구사항을 자연스럽게 통합한 영어 프롬프트를 작성해주세요.`,
+          },
+        ],
+        temperature: 0.7,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error("[Shopping] 프롬프트 재작성 API 오류:", errorText)
+      // API 오류 시 단순히 연결
+      return `${originalPrompt}, ${customPrompt}`
+    }
+
+    const data = await response.json()
+    const refinedPrompt = data.choices[0]?.message?.content?.trim()
+
+    if (!refinedPrompt) {
+      console.warn("[Shopping] 프롬프트 재작성 응답이 비어있음, 기본 연결 사용")
+      return `${originalPrompt}, ${customPrompt}`
+    }
+
+    console.log("[Shopping] ✅ AI가 재작성한 프롬프트:", refinedPrompt.substring(0, 150))
+    return refinedPrompt
+  } catch (error) {
+    console.error("[Shopping] 프롬프트 재작성 실패:", error)
+    // 오류 시 단순히 연결
+    return `${originalPrompt}, ${customPrompt}`
+  }
+}
+
 // 대본에 맞는 이미지 프롬프트 생성 (대본 전체를 분석하여 3개의 프롬프트 생성)
 export async function generateImagePromptsFromScript(
   script: string,
@@ -1903,6 +2084,9 @@ ${productDescription ? `- 제품 설명: ${productDescription}` : ''}
 - 대본 전체를 읽고 분석하여, 대본의 흐름에 맞게 3장의 이미지를 위한 프롬프트를 생성해야 합니다
 - 대본을 단순히 3등분하는 것이 아니라, 대본의 내용과 흐름을 분석하여 적절한 3개의 장면으로 나눠야 합니다
 - 제품은 반드시 보존되어야 하며, 제품의 모양과 특징이 정확하게 유지되어야 함
+- 제품 이미지가 제공된 경우, 원본 제품 이미지에 있는 기능, 버튼, 디자인 요소만 그대로 유지해야 함
+- 원본 제품에 없는 새로운 기능, 버튼, 스위치, 조절 장치 등을 절대 추가하면 안 됨 (no additional features, no extra buttons, no new controls, maintain exact original product design)
+- 제품의 원본 디자인과 구조를 정확하게 보존 (exact product design preservation, maintain original product structure)
 - 제품 유형에 따라 손이 필요한지 판단:
   * 청소기, 전기기기, 주방용품, 공구 등 사용하는 제품: 손으로 제품을 사용하거나 잡고 있는 모습 포함 (hands using or holding the product)
   * 화장품, 의류, 액세서리 등: 손 없이 제품만 보여주기 (product only, no hands)
@@ -1914,32 +2098,44 @@ ${productDescription ? `- 제품 설명: ${productDescription}` : ''}
   * 의류: 옷걸이, 침대 위, 의자 위 (hanger, on bed, on chair)
 - 각 이미지는 대본의 특정 부분과 연결되어야 하며, 해당 부분의 내용을 잘 표현해야 함
 - 배경은 제품의 실제 사용 환경에 맞게 설정 (청소기는 바닥, 주방용품은 주방 등)
+- 매우 중요: 제품 이미지가 제공된 경우, 제품은 정확하게 보존하되 배경은 참고 이미지와 다르게 생성해야 함 (product must be preserved exactly, but background must be different from the reference image, create a new background that is different from the original image's background, different background setting, different background colors, different background style, do not copy the reference image's background)
 - 숏폼 영상 제작용이므로 제품이 명확하게 보여야 함
 - 사람 얼굴은 절대 나오면 안 됨 (no face, no head visible)
 
 생성할 이미지 유형:
 1. 첫 번째 이미지: 전체 샷 (Full Shot) - 제품 전체가 화면에 완전히 보이는 전체 사진
-2. 두 번째 이미지: 디테일 샷 (Detail Shot) - 제품의 특징과 디테일이 강조된 매우 확대된 클로즈업 사진 (extreme close-up, macro shot, 제품의 일부만 크게 보이도록 확대, 손 없음, 제품만 확대, no hands, no human hands, product only)
+   - 제품 이미지가 제공된 경우, 원본 제품의 모든 기능, 버튼, 디자인 요소를 정확하게 유지해야 함
+   - 원본에 없는 새로운 기능이나 버튼을 절대 추가하지 않음
+   - 제품 전체가 화면에 가득 차야 함 (full product visible, entire product fills the frame)
+2. 두 번째 이미지: 디테일 샷 (Detail Shot) - 제품 전체가 화면에 가득 차면서 디테일이 강조된 사진 (full product visible, entire product fills the frame, product details emphasized, NOT extreme close-up, NOT macro shot, NOT partial product, entire product must be visible and fill the screen, no hands, no human hands, product only)
+   - 제품 전체가 화면에 가득 차야 함 (전체 제품이 보여야 함, 특정 부분만 보이는 것이 아님)
+   - 제품의 특징과 디테일을 강조하되, 제품 전체가 화면에 완전히 보여야 함
+   - 원본 제품 이미지에 있는 버튼, 스위치, 조절 장치만 그대로 보여줌
+   - 원본에 없는 새로운 요소를 절대 추가하지 않음
+   - 클로즈업이나 매크로 샷이 아닌, 제품 전체가 화면에 가득 찬 사진
 3. 세 번째 이미지: 각도와 배경 다르게 하는 샷 (Different Angle & Background) - 제품은 동일하지만 완전히 다른 각도와 배경의 사진
+   - 제품의 원본 디자인과 기능은 그대로 유지하면서 각도와 배경만 변경
+   - 원본 제품에 없는 새로운 기능이나 버튼을 절대 추가하지 않음
+   - 제품 전체가 화면에 가득 차야 함 (full product visible, entire product fills the frame)
 
 JSON 형식으로 응답:
 {
   "images": [
     {
       "type": "전체 샷",
-      "prompt": "이미지 생성 프롬프트 (영어) - 제품 전체가 화면에 완전히 보이는 전체 사진",
+      "prompt": "이미지 생성 프롬프트 (영어) - 제품 전체가 화면에 완전히 보이는 전체 사진, 원본 제품 이미지의 기능과 버튼을 정확하게 유지, 새로운 기능이나 버튼 추가 금지 (maintain exact original product features and buttons, no additional features or buttons)",
       "description": "제품 전체가 화면에 완전히 보이는 전체 사진",
       "scriptText": "이 이미지에 해당하는 대본 부분"
     },
     {
       "type": "디테일 샷",
-      "prompt": "이미지 생성 프롬프트 (영어) - 제품의 특징과 디테일이 강조된 매우 확대된 클로즈업 사진 (extreme close-up, macro shot, 제품의 일부만 크게 보이도록 확대, 제품의 텍스처, 재질, 버튼, 디테일 등이 매우 크게 보이도록, 손 없음, 제품만 확대, no hands, no human hands, product only, isolated product)",
-      "description": "제품의 특징과 디테일이 강조된 매우 확대된 클로즈업 사진 (손 없음)",
+      "prompt": "이미지 생성 프롬프트 (영어) - 제품 전체가 화면에 가득 차면서 디테일이 강조된 사진 (full product visible, entire product fills the frame, product details emphasized, NOT extreme close-up, NOT macro shot, NOT partial product, entire product must be visible and fill the screen, product texture, materials, buttons, details clearly visible, no hands, no human hands, product only, isolated product, maintain exact original product buttons and features from reference image, no additional buttons or features)",
+      "description": "제품 전체가 화면에 가득 차면서 디테일이 강조된 사진 (손 없음, 제품 전체가 보임)",
       "scriptText": "이 이미지에 해당하는 대본 부분"
     },
     {
       "type": "각도와 배경 다르게",
-      "prompt": "이미지 생성 프롬프트 (영어) - 제품은 동일하지만 완전히 다른 각도와 배경의 사진",
+      "prompt": "이미지 생성 프롬프트 (영어) - 제품은 동일하지만 완전히 다른 각도와 배경의 사진, 원본 제품의 기능과 버튼은 그대로 유지 (same product with different angle and background, maintain exact original product features and buttons, no additional features or buttons)",
       "description": "제품은 동일하지만 완전히 다른 각도와 배경의 사진",
       "scriptText": "이 이미지에 해당하는 대본 부분"
     }
@@ -1988,10 +2184,10 @@ ${script}
         images.push({
           type: index === 0 ? "전체 샷" : index === 1 ? "디테일 샷" : "각도와 배경 다르게",
           prompt: index === 0 
-            ? `${productName} product, full shot, entire product visible, professional product photography, high quality, 9:16 aspect ratio`
+            ? `${productName} product, full shot, entire product visible, maintain exact original product features and buttons from reference image, no additional features or buttons, professional product photography, high quality, 9:16 aspect ratio`
             : index === 1
-            ? `${productName} product, extreme close-up macro shot, very zoomed in detail shot, highlighting product features and details, product texture and material visible, only part of product visible in frame, no hands, no human hands, product only, isolated product, professional product photography, high quality, 9:16 aspect ratio`
-            : `${productName} product, different angle and background, same product from different perspective, professional product photography, high quality, 9:16 aspect ratio`,
+            ? `${productName} product, extreme close-up macro shot, very zoomed in detail shot, highlighting product features and details, product texture and material visible, only part of product visible in frame, no hands, no human hands, product only, isolated product, maintain exact original product buttons and features from reference image, no additional buttons or features, professional product photography, high quality, 9:16 aspect ratio`
+            : `${productName} product, different angle and background, same product from different perspective, maintain exact original product features and buttons, no additional features or buttons, professional product photography, high quality, 9:16 aspect ratio`,
           description: index === 0 ? "제품 전체가 화면에 완전히 보이는 전체 사진" : index === 1 ? "제품의 특징과 디테일이 강조된 클로즈업 사진" : "제품은 동일하지만 완전히 다른 각도와 배경의 사진",
           scriptText: scriptPart
         })
@@ -2006,19 +2202,19 @@ ${script}
     return [
       {
         type: "전체 샷",
-        prompt: `${productName} product, full shot, entire product visible, professional product photography, high quality, 9:16 aspect ratio`,
+        prompt: `${productName} product, full shot, entire product visible, professional product photography, high quality, 9:16 aspect ratio, maintain exact original product features and buttons from reference image, no additional features or buttons`,
         description: "제품 전체가 화면에 완전히 보이는 전체 사진",
         scriptText: script.substring(0, Math.floor(scriptLength / 3))
       },
       {
         type: "디테일 샷",
-        prompt: `${productName} product, extreme close-up macro shot, very zoomed in detail shot, highlighting product features and details, product texture and material visible, only part of product visible in frame, no hands, no human hands, product only, isolated product, professional product photography, high quality, 9:16 aspect ratio`,
+        prompt: `${productName} product, extreme close-up macro shot, very zoomed in detail shot, highlighting product features and details, product texture and material visible, only part of product visible in frame, no hands, no human hands, product only, isolated product, maintain exact original product buttons and features from reference image, no additional buttons or features, professional product photography, high quality, 9:16 aspect ratio`,
         description: "제품의 특징과 디테일이 강조된 매우 확대된 클로즈업 사진 (손 없음)",
         scriptText: script.substring(Math.floor(scriptLength / 3), Math.floor(scriptLength * 2 / 3))
       },
       {
         type: "각도와 배경 다르게",
-        prompt: `${productName} product, different angle and background, same product from different perspective, professional product photography, high quality, 9:16 aspect ratio`,
+        prompt: `${productName} product, different angle and background, same product from different perspective, maintain exact original product features and buttons, no additional features or buttons, professional product photography, high quality, 9:16 aspect ratio`,
         description: "제품은 동일하지만 완전히 다른 각도와 배경의 사진",
         scriptText: script.substring(Math.floor(scriptLength * 2 / 3))
       }
@@ -2056,9 +2252,9 @@ async function analyzeProductAndGeneratePrompts(
 제품 카테고리 예시: 주방용품, 욕실용품, 청소템, 정리수납, 살림템, 생활용품 등
 
 생성할 이미지 유형:
-1. 연출샷: 제품 전체가 잘 보이는 연출 사진 (제품의 전체적인 모습과 사용 맥락을 보여주는 샷)
-2. 배경 변경: 제품은 동일하지만 완전히 다른 배경의 사진 (제품의 활용 공간을 다양하게 보여주는 샷)
-3. 디테일샷: 제품의 특징과 디테일이 강조된 클로즈업 사진 (제품의 품질과 특징을 자세히 보여주는 샷)
+1. 연출샷: 제품 전체가 잘 보이는 연출 사진 (제품의 전체적인 모습과 사용 맥락을 보여주는 샷, 제품 전체가 화면에 가득 차야 함)
+2. 배경 변경: 제품은 동일하지만 완전히 다른 배경의 사진 (제품의 활용 공간을 다양하게 보여주는 샷, 제품 전체가 화면에 가득 차야 함)
+3. 디테일샷: 제품 전체가 화면에 가득 차면서 디테일이 강조된 사진 (제품 전체가 보이면서 품질과 특징을 자세히 보여주는 샷, 클로즈업이나 매크로 샷이 아닌 제품 전체가 화면에 가득 찬 사진)
 
 중요 규칙:
 - 제품은 반드시 보존되어야 하며, 제품의 모양과 특징이 정확하게 유지되어야 함
@@ -2131,8 +2327,8 @@ ${productImageBase64 ? '제품 이미지가 참고 이미지로 제공됩니다.
       },
       {
         type: "디테일샷",
-        prompt: `${productName} product, close-up detail shot, highlighting product features, professional product photography, high quality, 9:16 aspect ratio`,
-        description: "제품 디테일샷"
+        prompt: `${productName} product, full product visible, entire product fills the frame, product details emphasized, highlighting product features, NOT close-up, NOT macro shot, entire product must be visible, professional product photography, high quality, 9:16 aspect ratio`,
+        description: "제품 전체가 화면에 가득 차면서 디테일이 강조된 사진"
       }
     ]
   }
@@ -2358,12 +2554,20 @@ export async function generateShortsThumbnail(
 
 Product: ${productName}
 
-CRITICAL PRODUCT PRESERVATION RULES (MUST FOLLOW):
-- The product's physical shape, proportions, and design must be preserved EXACTLY as shown in the reference image
-- Product must NOT be deformed, abstracted, or redesigned
-- Product must remain recognizable and maintain its original form
-- Do NOT alter the product's structure, size, or appearance
-- The product in the image must match the reference product image exactly
+CRITICAL PRODUCT PRESERVATION RULES (MUST FOLLOW - ABSOLUTELY MANDATORY):
+- The product's physical shape, proportions, dimensions, and design must be preserved EXACTLY as shown in the reference image
+- Product must NOT be deformed, abstracted, redesigned, or modified in any way
+- Product must remain recognizable and maintain its original form, structure, and appearance
+- Do NOT alter the product's structure, size, shape, proportions, or appearance
+- The product in the image must match the reference product image EXACTLY
+- Maintain exact original product features, buttons, switches, controls, and design elements from reference image
+- Do NOT add new features, buttons, switches, or controls that are not present in the original product
+- Do NOT remove or modify any existing features, buttons, or design elements from the original product
+- Product's original design and structure must be preserved accurately (exact product design preservation, maintain original product structure)
+- The product's actual appearance must be accurately reflected (product preservation, exact product shape and features maintained)
+- Only maintain original product features, buttons, and design elements from the reference image
+- Never add new features, buttons, or switches not present in the original
+- Exact original product design and structure must be preserved
 
 Background: Show the product being actively used in a real-world scenario. The product's main function must be clearly demonstrated. Hands operating or using the product are allowed. Realistic product usage scene, natural lighting, authentic environment. Photo-realistic style, not illustration.
 
@@ -2397,14 +2601,16 @@ Text style requirements:
 
 Image requirements:
 - Product usage scene as background (photo-realistic)
-- Product being actively used (product shape MUST be preserved exactly)
+- Product being actively used (product shape, structure, features, buttons, and design MUST be preserved exactly as in reference image)
+- Product must maintain exact original form, features, buttons, and design elements from reference image
+- Do NOT add new features, buttons, or controls not present in the original product
 - Hands operating the product are visible
 - Natural, realistic environment
 - High quality, professional photography style
 - 9:16 vertical aspect ratio
 - No human faces, no face visible
 - Realistic lighting and shadows
-- Product must be the exact same product from the reference image
+- Product must be the exact same product from the reference image (exact product design preservation, maintain original product structure, exact product shape and features maintained)
 
 Product highlighting elements:
 - Add a bright red arrow or red circle to highlight and point to the product
@@ -2777,18 +2983,27 @@ export async function generateVideoWithSeedance(
     }
     
     // duration 파라미터 추가 (모델이 지원하는 경우)
-    // seedance 모델의 경우 duration 대신 다른 파라미터를 사용할 수 있으므로 확인 필요
+    // CRITICAL: duration은 반드시 TTS/3으로 계산된 값이어야 함
     if (duration && duration > 0) {
       modelInput.duration = duration
-      console.log(`[Shopping] ✅ duration 파라미터 추가: ${duration}초`)
+      console.log(`[Shopping] ✅ duration 파라미터 추가: ${duration}초 (각 영상 길이, TTS/3)`)
+      console.log(`[Shopping] ⚠️ CRITICAL: 이 영상은 반드시 ${duration}초로 생성되어야 합니다. TTS 전체 길이(${duration * 3}초)가 아닙니다!`)
+      console.log(`[Shopping] ⚠️ CRITICAL: 이 영상은 TTS 길이의 1/3인 ${duration}초입니다. 절대 ${duration * 3}초로 생성하면 안 됩니다!`)
     } else {
-      console.warn(`[Shopping] ⚠️ duration이 유효하지 않음: ${duration}`)
+      console.error(`[Shopping] ❌ CRITICAL ERROR: duration이 유효하지 않음: ${duration}`)
+      throw new Error(`영상 길이 파라미터가 유효하지 않습니다: ${duration}초`)
     }
+    
+    // 프롬프트 맨 앞에 duration 강조 추가
+    const enhancedPrompt = `CRITICAL VIDEO DURATION REQUIREMENT: This video MUST be exactly ${duration} seconds long. NOT ${duration * 3} seconds. The total TTS duration is ${duration * 3} seconds, but this video segment is only ${duration} seconds (1/3 of total). The video MUST end at exactly ${duration} seconds. DO NOT make it longer. ${prompt}`
+    
+    modelInput.prompt = enhancedPrompt
     
     console.log(`[Shopping] Replicate API URL:`, apiUrl)
     console.log(`[Shopping] Input:`, JSON.stringify(modelInput, null, 2))
-    console.log(`[Shopping] 🔍 duration 파라미터 확인:`, modelInput.duration, "초")
-    console.log(`[Shopping] 🔍 프롬프트에 duration 포함 여부:`, prompt.includes(`${duration} seconds`) ? "✅ 포함됨" : "❌ 포함 안 됨")
+    console.log(`[Shopping] 🔍 duration 파라미터 확인:`, modelInput.duration, "초 (각 영상 길이, TTS/3)")
+    console.log(`[Shopping] 🔍 프롬프트에 duration 포함 여부:`, enhancedPrompt.includes(`${duration} seconds`) ? "✅ 포함됨" : "❌ 포함 안 됨")
+    console.log(`[Shopping] ⚠️ CRITICAL: 각 영상은 반드시 ${duration}초로 생성되어야 합니다. TTS 전체 길이(${duration * 3}초)가 아닙니다!`)
     
     const response = await fetch(apiUrl, {
       method: "POST",

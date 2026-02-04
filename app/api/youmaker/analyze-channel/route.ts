@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server"
-import { GoogleGenerativeAI } from "@google/generative-ai"
 
 export const dynamic = 'force-dynamic'
 
@@ -179,161 +178,6 @@ async function getChannelData(channelId: string, youtubeApiKey: string): Promise
 }
 
 /**
- * AI 경쟁 전략 분석
- */
-async function analyzeStrategy(videos: AnalyzedVideo[], geminiApiKey: string): Promise<any> {
-  const genAI = new GoogleGenerativeAI(geminiApiKey)
-  const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" })
-
-  const topVideos = videos.slice(0, 10)
-
-  const prompt = `당신은 전 세계 1위 유튜브 전략 컨설턴트입니다. 아래 채널 데이터를 기반으로 '초격차 경쟁 전략'을 수립하세요.
-
-[데이터: 인기 영상 Top 10]
-${JSON.stringify(topVideos, null, 2)}
-
-분석 결과는 반드시 다음 JSON 구조로 응답하세요:
-{
-  "coreConcept": { "title": "핵심 컨셉", "description": "상세 설명" },
-  "detailedPlan": { 
-      "contentDirection": "콘텐츠 방향성", 
-      "uploadSchedule": "추천 스케줄",
-      "keywordStrategy": "점유할 키워드"
-  },
-  "revenueModel": "수익화 제안"
-}
-
-설명이나 추가 텍스트 없이 JSON만 출력해주세요.`
-
-  try {
-    const result = await model.generateContent(prompt)
-    const response = await result.response
-    let text = response.text().trim()
-
-    // JSON 코드 블록 제거
-    if (text.startsWith("```json")) {
-      text = text.replace(/```json\n?/g, "").replace(/```\n?/g, "")
-    } else if (text.startsWith("```")) {
-      text = text.replace(/```\n?/g, "")
-    }
-
-    // JSON 파싱
-    const jsonMatch = text.match(/\{[\s\S]*\}/)
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[0])
-    } else {
-      throw new Error("JSON 파싱 실패")
-    }
-  } catch (error) {
-    console.error("[Strategy Analysis] 오류:", error)
-    throw error
-  }
-}
-
-/**
- * AI 성장 과정 분석
- */
-async function analyzeGrowth(videos: AnalyzedVideo[], geminiApiKey: string): Promise<any> {
-  const genAI = new GoogleGenerativeAI(geminiApiKey)
-  const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" })
-
-  const timelineData = videos.map((v) => ({
-    t: v.title,
-    d: v.publishedAt,
-    v: v.viewCount,
-  }))
-
-  const prompt = `당신은 유튜브 데이터 사이언티스트입니다. 영상 업로드 타임라인을 분석하여 채널의 성장 임계점(Tipping Point)과 성공 공식을 도출하세요.
-
-[데이터: 타임라인]
-${JSON.stringify(timelineData, null, 2)}
-
-분석 결과 JSON 구조:
-{
-  "overallSummary": "채널 성장사 총평",
-  "phases": [
-    { "phaseTitle": "단계명", "period": "기간", "strategyAnalysis": "적용된 성공 전략" }
-  ]
-}
-
-설명이나 추가 텍스트 없이 JSON만 출력해주세요.`
-
-  try {
-    const result = await model.generateContent(prompt)
-    const response = await result.response
-    let text = response.text().trim()
-
-    // JSON 코드 블록 제거
-    if (text.startsWith("```json")) {
-      text = text.replace(/```json\n?/g, "").replace(/```\n?/g, "")
-    } else if (text.startsWith("```")) {
-      text = text.replace(/```\n?/g, "")
-    }
-
-    // JSON 파싱
-    const jsonMatch = text.match(/\{[\s\S]*\}/)
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[0])
-    } else {
-      throw new Error("JSON 파싱 실패")
-    }
-  } catch (error) {
-    console.error("[Growth Analysis] 오류:", error)
-    throw error
-  }
-}
-
-/**
- * AI 채널 주치의 컨설팅
- */
-async function analyzeConsulting(videos: AnalyzedVideo[], geminiApiKey: string): Promise<any> {
-  const genAI = new GoogleGenerativeAI(geminiApiKey)
-  const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" })
-
-  const recentVideos = videos.slice(0, 15)
-
-  const prompt = `당신은 유튜브 채널 전문 주치의입니다. SWOT 분석을 통해 채널의 병목 현상을 진단하고 처방전을 내리세요.
-
-[데이터: 최근 성과]
-${JSON.stringify(recentVideos, null, 2)}
-
-분석 결과 JSON 구조:
-{
-  "overallDiagnosis": "종합 진단 결과",
-  "detailedAnalysis": [
-    { "area": "분야(예: 썸네일)", "problem": "문제점", "solution": "해결책" }
-  ],
-  "actionPlan": { "shortTerm": ["당장 할 일 3가지"], "longTerm": ["장기 과제"] }
-}
-
-설명이나 추가 텍스트 없이 JSON만 출력해주세요.`
-
-  try {
-    const result = await model.generateContent(prompt)
-    const response = await result.response
-    let text = response.text().trim()
-
-    // JSON 코드 블록 제거
-    if (text.startsWith("```json")) {
-      text = text.replace(/```json\n?/g, "").replace(/```\n?/g, "")
-    } else if (text.startsWith("```")) {
-      text = text.replace(/```\n?/g, "")
-    }
-
-    // JSON 파싱
-    const jsonMatch = text.match(/\{[\s\S]*\}/)
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[0])
-    } else {
-      throw new Error("JSON 파싱 실패")
-    }
-  } catch (error) {
-    console.error("[Consulting Analysis] 오류:", error)
-    throw error
-  }
-}
-
-/**
  * 채널 ID 추출 (URL, ID 또는 채널명)
  */
 async function resolveChannelId(input: string, youtubeApiKey: string): Promise<string> {
@@ -414,7 +258,7 @@ async function resolveChannelId(input: string, youtubeApiKey: string): Promise<s
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { channelId, youtubeApiKey, geminiApiKey } = body
+    const { channelId, youtubeApiKey } = body
 
     if (!channelId) {
       return NextResponse.json(
@@ -425,18 +269,10 @@ export async function POST(request: NextRequest) {
 
     // API 키 우선순위: 요청에서 받은 키 > 환경 변수
     const YOUTUBE_API_KEY = youtubeApiKey || process.env.YOUTUBE_API_KEY
-    const GEMINI_API_KEY = geminiApiKey || process.env.API_KEY || process.env.GEMINI_API_KEY
 
     if (!YOUTUBE_API_KEY) {
       return NextResponse.json(
         { error: "YouTube API Key가 필요합니다." },
-        { status: 400 }
-      )
-    }
-
-    if (!GEMINI_API_KEY) {
-      return NextResponse.json(
-        { error: "Gemini API Key가 필요합니다." },
         { status: 400 }
       )
     }
@@ -459,25 +295,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 2. AI 분석 병렬 실행
-    console.log("[Channel Analysis] AI 분석 시작...")
-    const [strategy, growth, consulting] = await Promise.all([
-      analyzeStrategy(videos, GEMINI_API_KEY),
-      analyzeGrowth(videos, GEMINI_API_KEY),
-      analyzeConsulting(videos, GEMINI_API_KEY),
-    ])
-
-    console.log("[Channel Analysis] AI 분석 완료")
-
     return NextResponse.json({
       success: true,
       result: {
         channelInfo,
         videos,
         metadata,
-        strategy,
-        growth,
-        consulting,
       },
     })
   } catch (error) {

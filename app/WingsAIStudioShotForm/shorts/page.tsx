@@ -91,11 +91,14 @@ export default function ShortsPage() {
   const [ttsGenerationProgress, setTtsGenerationProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 })
   const [generatedAudios, setGeneratedAudios] = useState<Array<{ lineId: number; audioUrl?: string; audioBase64?: string; audioBuffer?: AudioBuffer; duration?: number }>>([])
   const [selectedVoiceId, setSelectedVoiceId] = useState<string>("ttsmaker-여성1") // 기본: TTSMaker 여성1
-  const [previewingVoiceId, setPreviewingVoiceId] = useState<string | null>(null)
-  const [previewAudioUrl, setPreviewAudioUrl] = useState<string | null>(null)
+  const [customElevenLabsVoices, setCustomElevenLabsVoices] = useState<Array<{ id: string; name: string }>>([]) // 사용자 추가 일레븐랩스 목소리
   const [supertoneVoices, setSupertoneVoices] = useState<Array<{ voice_id: string; name: string; language: string[]; styles: string[]; thumbnail_image_url?: string }>>([]) // 수퍼톤 음성 목록
   const [isLoadingSupertoneVoices, setIsLoadingSupertoneVoices] = useState(false) // 수퍼톤 음성 목록 로딩 중
   const [selectedSupertoneVoiceId, setSelectedSupertoneVoiceId] = useState<string>("") // 선택된 수퍼톤 음성 ID
+  const [selectedSupertoneStyle, setSelectedSupertoneStyle] = useState<string>("neutral") // 선택된 수퍼톤 스타일
+  const [customElevenLabsVoiceId, setCustomElevenLabsVoiceId] = useState<string>("") // 사용자가 입력한 ElevenLabs 음성 ID
+  const [previewingVoiceId, setPreviewingVoiceId] = useState<string | null>(null)
+  const [previewAudioUrl, setPreviewAudioUrl] = useState<string | null>(null)
   // 이미지 스타일 선택
   const [imageStyle, setImageStyle] = useState<string>("stickman-animation")
   const [videoUrl, setVideoUrl] = useState<string>("")
@@ -181,8 +184,8 @@ export default function ShortsPage() {
       return
     }
 
-    // 로컬스토리지에서 직접 가져오기 (롱폼과 동일한 방식)
-    const openaiApiKey = typeof window !== "undefined" ? localStorage.getItem("openai_api_key") || undefined : undefined
+    // 로컬스토리지에서 직접 가져오기 (ShotForm 전용 키 사용)
+    const openaiApiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_openai_api_key") || undefined : undefined
     
     if (!openaiApiKey) {
       alert("OpenAI API 키가 필요합니다. 메인 화면의 설정(톱니바퀴 아이콘)에서 API 키를 입력해주세요.")
@@ -209,8 +212,8 @@ export default function ShortsPage() {
       return
     }
 
-    // 로컬스토리지에서 직접 가져오기
-    const openaiApiKey = typeof window !== "undefined" ? localStorage.getItem("openai_api_key") || undefined : undefined
+    // 로컬스토리지에서 직접 가져오기 (ShotForm 전용 키 사용)
+    const openaiApiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_openai_api_key") || undefined : undefined
     
     if (!openaiApiKey) {
       alert("OpenAI API 키가 필요합니다. 메인 화면의 설정(톱니바퀴 아이콘)에서 API 키를 입력해주세요.")
@@ -316,8 +319,8 @@ export default function ShortsPage() {
       return
     }
 
-    // 로컬스토리지에서 직접 가져오기
-    const openaiApiKey = typeof window !== "undefined" ? localStorage.getItem("openai_api_key") || undefined : undefined
+    // 로컬스토리지에서 직접 가져오기 (ShotForm 전용 키 사용)
+    const openaiApiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_openai_api_key") || undefined : undefined
       const replicateApiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_replicate_api_key") || undefined : undefined
 
     if (!openaiApiKey || !replicateApiKey) {
@@ -364,7 +367,7 @@ export default function ShortsPage() {
         // 프롬프트 생성 (1:1 비율 강제)
         // custom 카테고리는 health로 대체, fortune(사주)도 health로 대체
         const categoryForPrompt = (selectedCategory === "custom" || selectedCategory === "fortune") ? "health" : (selectedCategory || "health")
-        let prompt = await generateImagePrompt(line.text, openaiApiKey, categoryForPrompt)
+        let prompt = await generateImagePrompt(line.text, openaiApiKey, categoryForPrompt, undefined, imageStyle)
         // 모든 비율 관련 텍스트 제거 및 1:1로 변경
         prompt = prompt.replace(/16:9/g, "")
         prompt = prompt.replace(/9:16/g, "")
@@ -473,22 +476,19 @@ export default function ShortsPage() {
           body: JSON.stringify({
             text: "여러분 환영합니다",
             voice: voiceName,
-            speed: 1.0,
+            speed: 0.95, // 1.0에서 0.95로 조정 (조금 더 느리게 하여 자연스러움 향상)
             pitch: pitch,
             apiKey: apiKey,
+            highQuality: true, // 고품질 모드 활성화 (기계음 감소)
           }),
         })
       } else if (isSupertone) {
         const supertoneVoiceId = voiceId.replace("supertone-", "")
         // 수퍼톤 API 키 가져오기
+        // 롱폼 키(supertone_api_key)를 먼저 확인하고, 없으면 ShotForm 전용 키 사용
         let supertoneApiKey = typeof window !== "undefined" 
-          ? (localStorage.getItem("shotform_supertone_api_key") || "").trim() 
+          ? (localStorage.getItem("supertone_api_key") || localStorage.getItem("shotform_supertone_api_key") || "").trim() 
           : null
-        
-        if (!supertoneApiKey || supertoneApiKey.length === 0) {
-          const key = getApiKey("shotform_supertone_api_key")
-          supertoneApiKey = key !== undefined ? key : null
-        }
         
         apiKey = supertoneApiKey || undefined
         apiKeyName = "수퍼톤 API 키"
@@ -499,7 +499,7 @@ export default function ShortsPage() {
           return
         }
         
-        console.log(`[미리듣기] 수퍼톤 voice: ${voiceId} -> ${supertoneVoiceId}`)
+        console.log(`[미리듣기] 수퍼톤 voice: ${voiceId} -> ${supertoneVoiceId}, style: ${selectedSupertoneStyle || "neutral"}`)
         response = await fetch("/api/supertone-tts", {
           method: "POST",
           headers: {
@@ -509,13 +509,14 @@ export default function ShortsPage() {
             text: "여러분 환영합니다",
             voiceId: supertoneVoiceId,
             apiKey: apiKey,
-            style: "neutral",
+            style: selectedSupertoneStyle || "neutral", // 선택된 스타일 사용
             language: "ko",
+            model: "sona_speech_1", // 명시적으로 모델 지정 (기계음 감소)
           }),
         })
       } else {
         // ElevenLabs
-        let elevenlabsApiKey = getApiKey("elevenlabs_api_key") ?? null
+        let elevenlabsApiKey = getApiKey("elevenlabs") ?? null
         
         if (!elevenlabsApiKey || elevenlabsApiKey.length === 0) {
           elevenlabsApiKey = typeof window !== "undefined" 
@@ -532,7 +533,9 @@ export default function ShortsPage() {
           return
         }
         
-        console.log(`[미리듣기] ElevenLabs voice: ${voiceId}`)
+        // ElevenLabs인 경우 - 접두사 제거
+        const elevenlabsVoiceId = voiceId.startsWith("elevenlabs-") ? voiceId.replace("elevenlabs-", "") : voiceId
+        console.log(`[미리듣기] ElevenLabs voice: ${voiceId} -> ${elevenlabsVoiceId}`)
         response = await fetch("/api/elevenlabs-tts", {
           method: "POST",
           headers: {
@@ -540,7 +543,7 @@ export default function ShortsPage() {
           },
           body: JSON.stringify({
             text: "여러분 환영합니다",
-            voiceId: voiceId,
+            voiceId: elevenlabsVoiceId,
             apiKey: apiKey,
           }),
         })
@@ -607,9 +610,19 @@ export default function ShortsPage() {
   const fetchSupertoneVoices = async () => {
     setIsLoadingSupertoneVoices(true)
     try {
-      const supertoneApiKey = getApiKey("shotform_supertone_api_key")
-      if (!supertoneApiKey) {
-        alert("수퍼톤 API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+      // 롱폼 키(supertone_api_key)를 먼저 확인하고, 없으면 ShotForm 전용 키 사용
+      const supertoneApiKey = typeof window !== "undefined" 
+        ? (localStorage.getItem("supertone_api_key") || localStorage.getItem("shotform_supertone_api_key") || "").trim() 
+        : null
+      if (!supertoneApiKey || supertoneApiKey.length === 0) {
+        alert("수퍼톤 API 키가 필요합니다. 설정에서 API 키를 입력해주세요.\n\n수퍼톤 API 콘솔(console.supertoneapi.com)에서 API 키를 발급받을 수 있습니다.")
+        setIsLoadingSupertoneVoices(false)
+        return
+      }
+
+      // API 키 형식 검증
+      if (supertoneApiKey.length < 20) {
+        alert(`수퍼톤 API 키 형식이 올바르지 않습니다. (길이: ${supertoneApiKey.length}자)\n\n수퍼톤 API 콘솔(console.supertoneapi.com)에서 올바른 API 키를 확인하고 다시 입력해주세요.`)
         setIsLoadingSupertoneVoices(false)
         return
       }
@@ -622,8 +635,15 @@ export default function ShortsPage() {
       })
 
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || "음성 목록을 가져오는데 실패했습니다.")
+        let errorMessage = "음성 목록을 가져오는데 실패했습니다."
+        try {
+          const errorData = await response.json()
+          errorMessage = errorData.error || errorMessage
+        } catch (e) {
+          // JSON 파싱 실패 시 상태 텍스트 사용
+          errorMessage = `HTTP ${response.status}: ${response.statusText}`
+        }
+        throw new Error(errorMessage)
       }
 
       const data = await response.json()
@@ -670,27 +690,18 @@ export default function ShortsPage() {
       apiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_ttsmaker_api_key") || undefined : undefined
       apiKeyName = "TTSMaker API 키"
     } else if (isSupertone) {
-      // 수퍼톤 API 키 가져오기 (ShotForm 전용 키 사용)
+      // 수퍼톤 API 키 가져오기 (롱폼 키를 먼저 확인하고, 없으면 ShotForm 전용 키 사용)
       let supertoneApiKey = typeof window !== "undefined" 
-        ? (localStorage.getItem("shotform_supertone_api_key") || "").trim() 
+        ? (localStorage.getItem("supertone_api_key") || localStorage.getItem("shotform_supertone_api_key") || "").trim() 
         : null
-      
-      if (!supertoneApiKey || supertoneApiKey.length === 0) {
-        const key = getApiKey("shotform_supertone_api_key")
-        supertoneApiKey = key !== undefined ? key : null
-      }
       
       apiKey = supertoneApiKey || undefined
       apiKeyName = "수퍼톤 API 키"
     } else {
-      // ElevenLabs
-      let elevenlabsApiKey = getApiKey("shotform_elevenlabs_api_key") ?? null
-      
-      if (!elevenlabsApiKey || elevenlabsApiKey.length === 0) {
-        elevenlabsApiKey = typeof window !== "undefined" 
-          ? (localStorage.getItem("shotform_elevenlabs_api_key") || "").trim() || null
-          : null
-      }
+      // ElevenLabs (ShotForm 전용 키 사용)
+      let elevenlabsApiKey = typeof window !== "undefined" 
+        ? (localStorage.getItem("shotform_elevenlabs_api_key") || "").trim() || null
+        : null
       
       apiKey = elevenlabsApiKey || undefined
       apiKeyName = "ElevenLabs API 키"
@@ -743,7 +754,17 @@ export default function ShortsPage() {
           } else if (isSupertone) {
             // 수퍼톤 API를 통해 TTS 생성
             const voiceId = selectedVoiceId.replace("supertone-", "")
-            console.log(`[Shorts] 수퍼톤 TTS 생성 중... (${i + 1}/${scriptLines.length})`)
+            console.log(`[Shorts] 수퍼톤 TTS 생성 중... (${i + 1}/${scriptLines.length}, voiceId: ${voiceId}, style: ${selectedSupertoneStyle})`)
+            
+            // 롱폼 키(supertone_api_key)를 먼저 확인하고, 없으면 ShotForm 전용 키 사용
+            // apiKey는 이미 위에서 설정되었지만, 롱폼 키를 우선 사용하도록 재확인
+            let supertoneApiKeyForTts = typeof window !== "undefined" 
+              ? (localStorage.getItem("supertone_api_key") || localStorage.getItem("shotform_supertone_api_key") || "").trim() 
+              : null
+            
+            if (!supertoneApiKeyForTts || supertoneApiKeyForTts.length === 0) {
+              throw new Error("수퍼톤 API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+            }
             
             response = await fetch("/api/supertone-tts", {
               method: "POST",
@@ -753,14 +774,16 @@ export default function ShortsPage() {
               body: JSON.stringify({
                 text: line.text,
                 voiceId: voiceId,
-                apiKey: apiKey,
-                style: "neutral", // 기본 스타일
+                apiKey: supertoneApiKeyForTts,
+                style: selectedSupertoneStyle || "neutral", // 선택된 스타일 사용
                 language: "ko", // 한국어
               }),
             })
           } else {
             // ElevenLabs API를 통해 TTS 생성
-            console.log(`[Shorts] ElevenLabs TTS 생성 중... (${i + 1}/${scriptLines.length})`)
+            // ElevenLabs인 경우 - 접두사 제거
+            const elevenlabsVoiceId = selectedVoiceId.startsWith("elevenlabs-") ? selectedVoiceId.replace("elevenlabs-", "") : selectedVoiceId
+            console.log(`[Shorts] ElevenLabs TTS 생성 중... (${i + 1}/${scriptLines.length}, voiceId: ${elevenlabsVoiceId})`)
             
             response = await fetch("/api/elevenlabs-tts", {
               method: "POST",
@@ -769,7 +792,7 @@ export default function ShortsPage() {
               },
               body: JSON.stringify({
                 text: line.text,
-                voiceId: selectedVoiceId,
+                voiceId: elevenlabsVoiceId,
                 apiKey: apiKey,
               }),
             })
@@ -3600,167 +3623,388 @@ export default function ShortsPage() {
                   목소리 선택
                 </CardTitle>
               </CardHeader>
-              <CardContent className="p-6">
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 max-h-[400px] overflow-y-auto p-3 border-2 border-gray-100 rounded-xl bg-gradient-to-br from-gray-50 to-white">
-                  {[
-                    { id: "ttsmaker-여성1", name: "TTSMaker 여성1", note: "ID: 503", provider: "ttsmaker" },
-                    { id: "ttsmaker-여성2", name: "TTSMaker 여성2", note: "ID: 509", provider: "ttsmaker" },
-                    { id: "ttsmaker-여성6", name: "TTSMaker 여성3", note: "ID: 5802", provider: "ttsmaker" },
-                    { id: "ttsmaker-남성1", name: "TTSMaker 남성1", note: "ID: 5501", provider: "ttsmaker" },
-                    { id: "ttsmaker-남성4", name: "TTSMaker 남성2", note: "ID: 5888", provider: "ttsmaker" },
-                    { id: "ttsmaker-남성5", name: "TTSMaker 남성3", note: "ID: 5888 (음높이 -10%)", provider: "ttsmaker" },
-                    { id: "jB1Cifc2UQbq1gR3wnb0", name: "ElevenLabs Rachel", note: "기본(Default)", provider: "elevenlabs" },
-                    { id: "8jHHF8rMqMlg8if2mOUe", name: "ElevenLabs Voice 2", note: "사용자 선택형", provider: "elevenlabs" },
-                    { id: "uyVNoMrnUku1dZyVEXwD", name: "ElevenLabs Voice 3", note: "", provider: "elevenlabs" },
-                  ].map((voice) => (
-                    <div
-                      key={voice.id}
-                      className={`group p-4 border-2 rounded-xl transition-all duration-300 cursor-pointer ${
-                        selectedVoiceId === voice.id
-                          ? "border-purple-500 bg-gradient-to-br from-purple-50 to-pink-50 shadow-lg scale-105 ring-2 ring-purple-300"
-                          : "border-gray-200 hover:border-purple-300 hover:shadow-md hover:scale-105 bg-white"
-                      }`}
-                      onClick={() => setSelectedVoiceId(voice.id)}
-                    >
-                      <div className="flex items-center space-x-3 mb-3">
-                        <div
-                          className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${
-                            selectedVoiceId === voice.id 
-                              ? "border-purple-600 bg-gradient-to-r from-purple-600 to-pink-600 shadow-md" 
-                              : "border-gray-300 group-hover:border-purple-400"
-                          }`}
-                        >
-                          {selectedVoiceId === voice.id && (
-                            <div className="w-2.5 h-2.5 bg-white rounded-full"></div>
-                          )}
-                        </div>
-                        <div className="flex-1">
-                          <p className={`text-sm font-semibold ${
-                            selectedVoiceId === voice.id ? "text-purple-900" : "text-gray-800"
-                          }`}>
-                            {voice.name}
-                          </p>
-                          <p className="text-xs text-gray-500 mt-0.5">{voice.note}</p>
-                        </div>
-                        {selectedVoiceId === voice.id && (
-                          <Sparkles className="w-4 h-4 text-purple-600 animate-pulse" />
-                        )}
-                      </div>
-                      <Button
-                        variant={selectedVoiceId === voice.id ? "default" : "outline"}
-                        size="sm"
-                        className={`w-full text-xs transition-all duration-300 ${
-                          selectedVoiceId === voice.id
-                            ? "bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white shadow-md"
-                            : "hover:border-purple-300 hover:text-purple-600"
-                        }`}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handlePreviewVoice(voice.id)
-                        }}
-                        disabled={previewingVoiceId === voice.id}
-                      >
-                        {previewingVoiceId === voice.id ? (
-                          <>
-                            <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                            재생 중...
-                          </>
-                        ) : (
-                          <>
-                            <Volume2 className="w-3 h-3 mr-1" />
-                            미리듣기
-                          </>
-                        )}
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-                
-                {/* 수퍼톤 목소리 선택 */}
-                <div className="mt-6 pt-6 border-t-2 border-gray-200">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-lg font-semibold text-gray-800">수퍼톤 목소리</h3>
-                      <Badge variant="outline" className="text-xs">고품질</Badge>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={fetchSupertoneVoices}
-                      disabled={isLoadingSupertoneVoices}
-                      className={selectedVoiceId?.startsWith("supertone-") ? "border-purple-300 text-purple-700" : ""}
-                    >
-                      {isLoadingSupertoneVoices ? (
-                        <>
-                          <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                          로딩 중...
-                        </>
-                      ) : (
-                        <>
-                          <RefreshCw className="w-3 h-3 mr-1" />
-                          음성 목록 가져오기
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                  {supertoneVoices.length > 0 && (
-                    <Select
-                      value={selectedSupertoneVoiceId}
-                      onValueChange={(value) => {
-                        setSelectedSupertoneVoiceId(value)
-                        setSelectedVoiceId(`supertone-${value}`)
-                      }}
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="수퍼톤 음성을 선택하세요" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {supertoneVoices.map((voice) => (
-                          <SelectItem key={voice.voice_id} value={voice.voice_id}>
-                            <div className="flex items-center gap-2">
-                              {voice.thumbnail_image_url && (
-                                <img
-                                  src={voice.thumbnail_image_url}
-                                  alt={voice.name}
-                                  className="w-6 h-6 rounded-full object-cover"
-                                />
-                              )}
-                              <div>
-                                <div className="font-medium">{voice.name}</div>
-                                {voice.styles && voice.styles.length > 0 && (
-                                  <div className="text-xs text-gray-500">
-                                    스타일: {voice.styles.join(", ")}
-                                  </div>
+              <CardContent className="p-6 space-y-4">
+                        {/* 수퍼톤 선택 */}
+                        <div className="space-y-3 p-4 border border-purple-200/50 rounded-xl bg-white/60 backdrop-blur-sm shadow-sm">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                              <div
+                                className={`w-4 h-4 rounded-full border-2 cursor-pointer ${
+                                  selectedVoiceId?.startsWith("supertone-") ? "border-purple-500 bg-purple-500" : "border-gray-300"
+                                }`}
+                                onClick={() => {
+                                  if (supertoneVoices.length > 0 && !selectedSupertoneVoiceId) {
+                                    setSelectedSupertoneVoiceId(supertoneVoices[0].voice_id)
+                                    setSelectedVoiceId(`supertone-${supertoneVoices[0].voice_id}`)
+                                    const firstVoice = supertoneVoices[0]
+                                    if (firstVoice.styles && firstVoice.styles.length > 0) {
+                                      const neutralStyle = firstVoice.styles.find(s => s.toLowerCase().includes("neutral") || s === "중립")
+                                      setSelectedSupertoneStyle(neutralStyle || firstVoice.styles[0])
+                                    }
+                                  } else if (selectedSupertoneVoiceId) {
+                                    setSelectedSupertoneVoiceId("")
+                                    setSelectedVoiceId("ttsmaker-여성1")
+                                  } else {
+                                    fetchSupertoneVoices()
+                                  }
+                                }}
+                              >
+                                {selectedVoiceId?.startsWith("supertone-") && (
+                                  <div className="w-2 h-2 bg-white rounded-full mx-auto mt-0.5"></div>
                                 )}
                               </div>
+                              <p className={`text-sm font-medium ${selectedVoiceId?.startsWith("supertone-") ? "text-purple-900" : "text-gray-700"}`}>수퍼톤 (SuperTone)</p>
                             </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                  {selectedSupertoneVoiceId && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full mt-2 border-purple-300 text-purple-700 hover:bg-purple-100"
-                      onClick={() => handlePreviewVoice(`supertone-${selectedSupertoneVoiceId}`)}
-                      disabled={previewingVoiceId === `supertone-${selectedSupertoneVoiceId}`}
-                    >
-                      {previewingVoiceId === `supertone-${selectedSupertoneVoiceId}` ? (
-                        <>
-                          <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                          재생 중...
-                        </>
-                      ) : (
-                        <>
-                          <Volume2 className="w-3 h-3 mr-1" />
-                          미리듣기
-                        </>
-                      )}
-                    </Button>
-                  )}
-                </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={fetchSupertoneVoices}
+                              disabled={isLoadingSupertoneVoices}
+                              className={selectedVoiceId?.startsWith("supertone-") ? "border-purple-300 text-purple-700" : ""}
+                            >
+                              {isLoadingSupertoneVoices ? (
+                                <>
+                                  <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                  로딩 중...
+                                </>
+                              ) : (
+                                <>
+                                  <RefreshCw className="w-3 h-3 mr-1" />
+                                  음성 목록 가져오기
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                          
+                          {supertoneVoices.length > 0 && (
+                            <div className="mt-3">
+                              <Label className="text-sm font-medium text-gray-700 mb-2 block">음성 목록에서 선택</Label>
+                              <Select
+                                value={selectedSupertoneVoiceId && supertoneVoices.find(v => v.voice_id === selectedSupertoneVoiceId) ? selectedSupertoneVoiceId : ""}
+                                onValueChange={(value) => {
+                                  setSelectedSupertoneVoiceId(value)
+                                  setSelectedVoiceId(`supertone-${value}`)
+                                  const selectedVoice = supertoneVoices.find(v => v.voice_id === value)
+                                  if (selectedVoice && selectedVoice.styles && selectedVoice.styles.length > 0) {
+                                    const neutralStyle = selectedVoice.styles.find(s => s.toLowerCase().includes("neutral") || s === "중립")
+                                    setSelectedSupertoneStyle(neutralStyle || selectedVoice.styles[0])
+                                  } else {
+                                    setSelectedSupertoneStyle("neutral")
+                                  }
+                                  // 다른 TTS 선택 시 ElevenLabs 선택 해제
+                                  if (customElevenLabsVoiceId) {
+                                    setCustomElevenLabsVoiceId("")
+                                  }
+                                }}
+                              >
+                                <SelectTrigger className="w-full">
+                                  <SelectValue placeholder="수퍼톤 음성을 선택하세요" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {supertoneVoices.map((voice) => (
+                                    <SelectItem key={voice.voice_id} value={voice.voice_id}>
+                                      <div className="flex items-center gap-2">
+                                        {voice.thumbnail_image_url && (
+                                          <img
+                                            src={voice.thumbnail_image_url}
+                                            alt={voice.name}
+                                            className="w-6 h-6 rounded-full object-cover"
+                                          />
+                                        )}
+                                        <div>
+                                          <div className="font-medium">{voice.name}</div>
+                                          <div className="text-xs text-gray-500">ID: {voice.voice_id}</div>
+                                          {voice.styles && voice.styles.length > 0 && (
+                                            <div className="text-xs text-gray-500">
+                                              스타일: {voice.styles.join(", ")}
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          )}
+                          {selectedSupertoneVoiceId && (() => {
+                            const selectedVoice = supertoneVoices.find(v => v.voice_id === selectedSupertoneVoiceId)
+                            const availableStyles = selectedVoice?.styles || []
+                            // 직접 입력한 ID인 경우 스타일 선택 표시하지 않음 (기본 neutral 사용)
+                            if (!selectedVoice) {
+                              return null
+                            }
+                            return availableStyles.length > 0 && (
+                              <div className="mt-2">
+                                <p className="text-sm font-medium text-gray-700 mb-2">스타일 선택</p>
+                                <Select
+                                  value={selectedSupertoneStyle}
+                                  onValueChange={setSelectedSupertoneStyle}
+                                >
+                                  <SelectTrigger className="w-full">
+                                    <SelectValue placeholder="스타일을 선택하세요" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {availableStyles.map((style) => (
+                                      <SelectItem key={style} value={style}>
+                                        {style}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            )
+                          })()}
+                          
+                          {/* 수퍼톤 ID 직접 입력 */}
+                          <div className="mt-3 space-y-2">
+                            <Label className="text-sm font-medium text-gray-700">또는 ID 직접 입력</Label>
+                            <Input
+                              placeholder="수퍼톤 Voice ID를 입력하세요"
+                              value={selectedSupertoneVoiceId && !supertoneVoices.find(v => v.voice_id === selectedSupertoneVoiceId) ? selectedSupertoneVoiceId : ""}
+                              onChange={(e) => {
+                                const inputId = e.target.value.trim()
+                                if (inputId) {
+                                  // 직접 입력한 ID를 우선적으로 선택
+                                  setSelectedSupertoneVoiceId(inputId)
+                                  setSelectedVoiceId(`supertone-${inputId}`)
+                                  setSelectedSupertoneStyle("neutral") // 기본 스타일
+                                  // 다른 TTS 선택 시 ElevenLabs 선택 해제
+                                  if (customElevenLabsVoiceId) {
+                                    setCustomElevenLabsVoiceId("")
+                                  }
+                                } else {
+                                  setSelectedSupertoneVoiceId("")
+                                  if (selectedVoiceId?.startsWith("supertone-")) {
+                                    setSelectedVoiceId("ttsmaker-여성1")
+                                  }
+                                }
+                              }}
+                              className="w-full border-purple-200 focus:border-purple-400 focus:ring-purple-400/20"
+                            />
+                            <p className="text-xs text-gray-500">수퍼톤 Voice ID를 알고 있다면 직접 입력할 수 있습니다. 직접 입력한 ID가 우선적으로 적용됩니다.</p>
+                          </div>
+                          {selectedSupertoneVoiceId && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="w-full mt-2 border-purple-300 text-purple-700 hover:bg-purple-100"
+                              onClick={() => handlePreviewVoice(`supertone-${selectedSupertoneVoiceId}`)}
+                              disabled={previewingVoiceId === `supertone-${selectedSupertoneVoiceId}`}
+                            >
+                              {previewingVoiceId === `supertone-${selectedSupertoneVoiceId}` ? (
+                                <>
+                                  <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                  재생 중...
+                                </>
+                              ) : (
+                                <>
+                                  <Volume2 className="w-3 h-3 mr-1" />
+                                  미리듣기
+                                </>
+                              )}
+                            </Button>
+                          )}
+                        </div>
+
+                        {/* ElevenLabs 음성 선택 */}
+                        <div className="space-y-3 p-4 border border-blue-200/50 rounded-xl bg-white/60 backdrop-blur-sm shadow-sm">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                              <div
+                                className={`w-4 h-4 rounded-full border-2 cursor-pointer ${
+                                  selectedVoiceId?.startsWith("elevenlabs-") ? "border-blue-500 bg-blue-500" : "border-gray-300"
+                                }`}
+                                onClick={() => {
+                                  if (selectedVoiceId?.startsWith("elevenlabs-")) {
+                                    setSelectedVoiceId("ttsmaker-여성1")
+                                    setCustomElevenLabsVoiceId("")
+                                  } else {
+                                    if (customElevenLabsVoiceId) {
+                                      setSelectedVoiceId(`elevenlabs-${customElevenLabsVoiceId}`)
+                                    } else {
+                                      setSelectedVoiceId("elevenlabs-jB1Cifc2UQbq1gR3wnb0")
+                                    }
+                                    // 다른 TTS 선택 시 수퍼톤 선택 해제
+                                    if (selectedSupertoneVoiceId) {
+                                      setSelectedSupertoneVoiceId("")
+                                    }
+                                  }
+                                }}
+                              >
+                                {selectedVoiceId?.startsWith("elevenlabs-") && (
+                                  <div className="w-2 h-2 bg-white rounded-full mx-auto mt-0.5"></div>
+                                )}
+                              </div>
+                              <p className={`text-sm font-medium ${selectedVoiceId?.startsWith("elevenlabs-") ? "text-blue-900" : "text-gray-700"}`}>ElevenLabs</p>
+                            </div>
+                          </div>
+                          <div className="mt-3 space-y-2">
+                            <Label className="text-sm font-medium text-gray-700">Voice ID 직접 입력</Label>
+                            <Input
+                              type="text"
+                              placeholder="ElevenLabs 음성 ID 입력 (예: jB1Cifc2UQbq1gR3wnb0)"
+                              value={customElevenLabsVoiceId}
+                              onChange={(e) => {
+                                const voiceId = e.target.value.trim()
+                                setCustomElevenLabsVoiceId(voiceId)
+                                if (voiceId && selectedVoiceId?.startsWith("elevenlabs-")) {
+                                  setSelectedVoiceId(`elevenlabs-${voiceId}`)
+                                } else if (voiceId) {
+                                  setSelectedVoiceId(`elevenlabs-${voiceId}`)
+                                  // 다른 TTS 선택 시 수퍼톤 선택 해제
+                                  if (selectedSupertoneVoiceId) {
+                                    setSelectedSupertoneVoiceId("")
+                                  }
+                                }
+                              }}
+                              className="w-full border-blue-200 focus:border-blue-400 focus:ring-blue-400/20"
+                            />
+                            <div className="mt-2">
+                              <p className="text-xs text-gray-500 mb-2">추천 음성:</p>
+                              <div className="flex gap-2 flex-wrap">
+                                {[
+                                  { id: "jB1Cifc2UQbq1gR3wnb0", name: "Rachel" },
+                                  { id: "8jHHF8rMqMlg8if2mOUe", name: "Voice 2" },
+                                  { id: "uyVNoMrnUku1dZyVEXwD", name: "Voice 3" },
+                                  { id: "1KNqBv4TutQtzSIACsMC", name: "Voice 4" },
+                                  { id: "4JJwo477JUAx3HV0T7n7", name: "Voice 5" },
+                                ].map((voice) => (
+                                  <Button
+                                    key={voice.id}
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setCustomElevenLabsVoiceId(voice.id)
+                                      setSelectedVoiceId(`elevenlabs-${voice.id}`)
+                                      // 다른 TTS 선택 시 수퍼톤 선택 해제
+                                      if (selectedSupertoneVoiceId) {
+                                        setSelectedSupertoneVoiceId("")
+                                      }
+                                    }}
+                                    className={selectedVoiceId === `elevenlabs-${voice.id}` ? "bg-blue-100 border-blue-500" : ""}
+                                  >
+                                    {voice.name}
+                                  </Button>
+                                ))}
+                              </div>
+                            </div>
+                            {selectedVoiceId?.startsWith("elevenlabs-") && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="w-full mt-2 border-blue-300 text-blue-700 hover:bg-blue-100"
+                                onClick={() => handlePreviewVoice(selectedVoiceId)}
+                                disabled={previewingVoiceId === selectedVoiceId}
+                              >
+                                {previewingVoiceId === selectedVoiceId ? (
+                                  <>
+                                    <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                    재생 중...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Volume2 className="w-3 h-3 mr-1" />
+                                    미리듣기
+                                  </>
+                                )}
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* TTSMaker 목소리 선택 */}
+                        <div className="space-y-2 mt-4">
+                          <Label className="text-sm font-semibold text-slate-700">TTSMaker 목소리 선택</Label>
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                            {[
+                              { id: "ttsmaker-여성1", name: "TTSMaker 여성1", note: "ID: 503", provider: "ttsmaker" },
+                              { id: "ttsmaker-여성2", name: "TTSMaker 여성2", note: "ID: 509", provider: "ttsmaker" },
+                              { id: "ttsmaker-여성6", name: "TTSMaker 여성3", note: "ID: 5802", provider: "ttsmaker" },
+                              { id: "ttsmaker-남성1", name: "TTSMaker 남성1", note: "ID: 5501", provider: "ttsmaker" },
+                              { id: "ttsmaker-남성4", name: "TTSMaker 남성2", note: "ID: 5888", provider: "ttsmaker" },
+                              { id: "ttsmaker-남성5", name: "TTSMaker 남성3", note: "ID: 5888 (음높이 -10%)", provider: "ttsmaker" },
+                            ].map((voice) => (
+                              <div
+                                key={voice.id}
+                                className={`p-3 border-2 rounded-lg transition-all cursor-pointer ${
+                                  selectedVoiceId === voice.id
+                                    ? "border-red-500 bg-red-50"
+                                    : "border-gray-200 hover:border-gray-300"
+                                }`}
+                                onClick={() => {
+                                  setSelectedVoiceId(voice.id)
+                                  // 다른 TTS 선택 시 수퍼톤, ElevenLabs 선택 해제
+                                  if (selectedSupertoneVoiceId) {
+                                    setSelectedSupertoneVoiceId("")
+                                  }
+                                  if (customElevenLabsVoiceId) {
+                                    setCustomElevenLabsVoiceId("")
+                                  }
+                                }}
+                              >
+                                <div className="flex items-center space-x-2 mb-2">
+                                  <div
+                                    className={`w-4 h-4 rounded-full border-2 cursor-pointer ${
+                                      selectedVoiceId === voice.id ? "border-red-500 bg-red-500" : "border-gray-300"
+                                    }`}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setSelectedVoiceId(voice.id)
+                                      // 다른 TTS 선택 시 수퍼톤, ElevenLabs 선택 해제
+                                      if (selectedSupertoneVoiceId) {
+                                        setSelectedSupertoneVoiceId("")
+                                      }
+                                      if (customElevenLabsVoiceId) {
+                                        setCustomElevenLabsVoiceId("")
+                                      }
+                                    }}
+                                  >
+                                    {selectedVoiceId === voice.id && (
+                                      <div className="w-2 h-2 bg-white rounded-full mx-auto mt-0.5"></div>
+                                    )}
+                                  </div>
+                                  <div className="flex-1" onClick={(e) => {
+                                    e.stopPropagation()
+                                    setSelectedVoiceId(voice.id)
+                                    // 다른 TTS 선택 시 수퍼톤, ElevenLabs 선택 해제
+                                    if (selectedSupertoneVoiceId) {
+                                      setSelectedSupertoneVoiceId("")
+                                    }
+                                    if (customElevenLabsVoiceId) {
+                                      setCustomElevenLabsVoiceId("")
+                                    }
+                                  }}>
+                                    <p className="text-sm font-medium">{voice.name}</p>
+                                    <p className="text-xs text-muted-foreground">{voice.note}</p>
+                                  </div>
+                                </div>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="w-full text-xs"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handlePreviewVoice(voice.id)
+                                  }}
+                                  disabled={previewingVoiceId === voice.id}
+                                >
+                                  {previewingVoiceId === voice.id ? (
+                                    <>
+                                      <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                      재생 중...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Volume2 className="w-3 h-3 mr-1" />
+                                      미리듣기
+                                    </>
+                                  )}
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                 
                 {previewAudioUrl && (
                   <audio
@@ -4136,6 +4380,11 @@ export default function ShortsPage() {
                 )}
               </Button>
             </div>
+            <div className="mt-4 p-4 bg-red-50 border-2 border-red-300 rounded-lg">
+              <p className="text-center font-bold text-red-700 text-base">
+                ⚠️ 영상 렌더링 중에는 다른페이지 이동 금지입니다. 잠시만 기다려주세요
+              </p>
+            </div>
           </div>
         )
 
@@ -4143,6 +4392,21 @@ export default function ShortsPage() {
         return (
           <div className="space-y-6">
             <h2 className="text-3xl font-bold mb-6">완성된 영상</h2>
+            {isRendering && (
+              <Card className="border-2 border-blue-200 bg-blue-50">
+                <CardContent className="p-6">
+                  <div className="flex items-center gap-3">
+                    <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                    <div>
+                      <p className="font-semibold text-blue-900">영상 렌더링 중...</p>
+                      <p className="text-sm text-blue-700 mt-1">
+                        렌더링 할때는 해당 페이지에 꼭 머물러야 합니다. 잠시만 기다려주세요
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
             {videoUrl && (
               <Card>
                 <CardContent className="p-6">

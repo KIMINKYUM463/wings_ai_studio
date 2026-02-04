@@ -53,7 +53,15 @@ export interface ShoppingProjectData {
   // BGM 관련
   bgmUrl?: string
   bgmVolume?: number
+  bgmStartTime?: number
+  bgmEndTime?: number
   ttsVolume?: number
+  
+  // 효과음 관련
+  sfxUrl?: string
+  sfxVolume?: number
+  sfxStartTime?: number
+  sfxEndTime?: number
   
   // 영상 효과 및 전환
   transitionEffect?: "none" | "fade" | "slide" | "zoom"

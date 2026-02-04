@@ -11,6 +11,28 @@ export async function GET(request: NextRequest) {
 
     console.log("[Superton] 음성 목록 가져오기 시작")
     console.log("[Superton] API 키 길이:", apiKey?.length || 0)
+    console.log("[Superton] API 키 앞 10자리:", apiKey?.substring(0, 10) || "없음")
+
+    // API 키 앞뒤 공백 제거
+    const trimmedApiKey = (apiKey || "").trim()
+    if (!trimmedApiKey || trimmedApiKey.length === 0) {
+      return NextResponse.json(
+        { success: false, error: "수퍼톤 API 키가 비어있습니다. 설정에서 API 키를 입력해주세요." },
+        { status: 400 }
+      )
+    }
+
+    // API 키 형식 검증 (일반적으로 32자리 hex 문자열)
+    if (trimmedApiKey.length < 20) {
+      console.warn("[Superton] API 키 길이가 비정상적으로 짧습니다:", trimmedApiKey.length)
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: `수퍼톤 API 키 형식이 올바르지 않습니다. (길이: ${trimmedApiKey.length}자)\n\n수퍼톤 API 콘솔(console.supertoneapi.com)에서 올바른 API 키를 확인하고 다시 입력해주세요.` 
+        },
+        { status: 400 }
+      )
+    }
 
     // 수퍼톤 API 호출 - GET /v1/voices
     // 실제 베이스 URL: https://supertoneapi.com
@@ -28,7 +50,7 @@ export async function GET(request: NextRequest) {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
-          "x-sup-api-key": apiKey, // Bearer가 아닌 커스텀 헤더 사용
+          "x-sup-api-key": trimmedApiKey, // Bearer가 아닌 커스텀 헤더 사용
           "User-Agent": "WingsAIStudio/1.0",
         },
         signal: controller.signal,
@@ -70,23 +92,80 @@ export async function GET(request: NextRequest) {
 
     if (!response.ok) {
       let errorText = ""
+      let errorDetails: any = null
       try {
-        errorText = await response.text()
-        console.log("[Superton] 에러 응답 본문:", errorText)
-        try {
-          const errorJson = JSON.parse(errorText)
-          errorText = errorJson.detail?.message || errorJson.message || errorJson.error || errorText
-        } catch {
-          // JSON이 아니면 그대로 사용
+        const responseText = await response.text()
+        console.log("[Superton] 에러 응답 본문:", responseText)
+        
+        if (responseText) {
+          try {
+            errorDetails = JSON.parse(responseText)
+            console.log("[Superton] 파싱된 에러 객체:", errorDetails)
+            
+            // 다양한 형식의 에러 메시지 추출 시도
+            if (typeof errorDetails === 'string') {
+              errorText = errorDetails
+            } else if (errorDetails.message) {
+              // message가 객체인 경우 (예: {message: "Invalid API Key", error: "Unauthorized"})
+              if (typeof errorDetails.message === 'string') {
+                errorText = errorDetails.message
+              } else if (errorDetails.message.message) {
+                errorText = errorDetails.message.message
+              } else if (errorDetails.message.error) {
+                errorText = errorDetails.message.error
+              } else {
+                errorText = JSON.stringify(errorDetails.message)
+              }
+            } else if (errorDetails.detail?.message) {
+              errorText = errorDetails.detail.message
+            } else if (errorDetails.error?.message) {
+              errorText = errorDetails.error.message
+            } else if (errorDetails.error) {
+              errorText = typeof errorDetails.error === 'string' 
+                ? errorDetails.error 
+                : JSON.stringify(errorDetails.error)
+            } else if (errorDetails.detail) {
+              errorText = typeof errorDetails.detail === 'string'
+                ? errorDetails.detail
+                : JSON.stringify(errorDetails.detail)
+            } else {
+              errorText = JSON.stringify(errorDetails)
+            }
+          } catch (parseError) {
+            // JSON이 아니면 텍스트 그대로 사용
+            errorText = responseText
+          }
         }
       } catch (e) {
         errorText = `응답 읽기 실패: ${e instanceof Error ? e.message : String(e)}`
+      }
+      
+      // errorText가 문자열이 아닌 경우 문자열로 변환
+      if (typeof errorText !== 'string') {
+        errorText = JSON.stringify(errorText)
+      }
+      
+      // 401 오류인 경우 특별한 메시지
+      if (response.status === 401) {
+        // [object Object]나 빈 객체 문자열 제거
+        let detailMessage = ''
+        if (errorText && 
+            typeof errorText === 'string' &&
+            errorText !== '{}' && 
+            errorText !== '[object Object]' && 
+            errorText.trim().length > 0 &&
+            !errorText.startsWith('{') &&
+            !errorText.startsWith('[')) {
+          detailMessage = ` 상세: ${errorText}`
+        }
+        errorText = `인증 실패: API 키가 올바르지 않거나 만료되었습니다.\n\n해결 방법:\n1. 수퍼톤 API 콘솔(console.supertoneapi.com)에 로그인하여 API 키를 확인하세요\n2. API 키가 만료되었거나 삭제된 경우, 콘솔에서 새로 발급받으세요\n3. API 키를 정확히 복사하여 설정에 다시 입력하세요 (앞뒤 공백 주의)\n4. 계정당 최대 3개의 API 키를 생성할 수 있습니다\n${detailMessage ? `\n오류 상세: ${detailMessage}` : ''}`
       }
       
       console.error("[Superton] API 오류:", {
         status: response.status,
         statusText: response.statusText,
         error: errorText,
+        errorDetails: errorDetails,
       })
       
       return NextResponse.json(

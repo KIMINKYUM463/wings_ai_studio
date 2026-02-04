@@ -50,9 +50,10 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
 import Link from "next/link"
-import { generateShoppingScript, generateVideoWithSora2, generateImagesWith3Scenes, splitScriptIntoScenes, convertImageToVideoWithWan, convertImagesToVideosWithScript, generateImage, generateVideoWithSeedance, generateShortsThumbnail, generateThumbnailHookingText, generateYouTubeMetadata, getNaverTrendingKeywords, analyzeScriptParts, generateImagePromptsFromScript, mergeVideos, generateVideoPromptFromScript, generateVideoPromptFor3Scenes, generateVideoPromptForImage } from "./actions"
+import { generateShoppingScript, generateVideoWithSora2, generateImagesWith3Scenes, splitScriptIntoScenes, convertImageToVideoWithWan, convertImagesToVideosWithScript, generateImage, generateImageWithNanobanana, generateVideoWithSeedance, generateShortsThumbnail, generateThumbnailHookingText, generateYouTubeMetadata, getNaverTrendingKeywords, analyzeScriptParts, generateImagePromptsFromScript, refineImagePromptWithCustomInput, mergeVideos, generateVideoPromptFromScript, generateVideoPromptFor3Scenes, generateVideoPromptForImage } from "./actions"
 import { getApiKey } from "@/lib/api-keys"
 import { getShoppingProjects, createShoppingProject, updateShoppingProject, deleteShoppingProject, getShoppingProject, uploadTTSAudio, type ShoppingProject, type ShoppingProjectData } from "./project-actions"
+import { getAudioLibrary, getAllAudioLibrary, type AudioLibraryItem } from "./audio-library-actions"
 import { Plus, Trash2, Edit2, Search, FolderOpen } from "lucide-react"
 
 // AudioBuffer를 WAV로 변환하는 함수
@@ -141,9 +142,13 @@ export default function ShoppingPage() {
   const [imagePrompts, setImagePrompts] = useState<Array<{ type: string; prompt: string; description: string; scriptText: string }>>([]) // 이미지 프롬프트 배열
   const [isGeneratingPrompts, setIsGeneratingPrompts] = useState(false) // 프롬프트 생성 중 여부
   const [promptsGenerated, setPromptsGenerated] = useState(false) // 프롬프트 생성 완료 여부
+  const [videoPrompts, setVideoPrompts] = useState<Map<number, string>>(new Map()) // 각 장면별 영상 프롬프트 저장 (인덱스 -> 프롬프트)
+  const [isGeneratingVideoPrompts, setIsGeneratingVideoPrompts] = useState<Map<number, boolean>>(new Map()) // 각 장면별 영상 프롬프트 생성 중 여부
   const [isGeneratingScript, setIsGeneratingScript] = useState(false)
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false)
   const [isConvertingToVideo, setIsConvertingToVideo] = useState<Map<number, boolean>>(new Map()) // 각 장면별 변환 중 여부
+  const [isRegeneratingImage, setIsRegeneratingImage] = useState<Map<number, boolean>>(new Map()) // 각 이미지별 재생성 중 여부
+  const [customImagePrompts, setCustomImagePrompts] = useState<Map<number, string>>(new Map()) // 각 이미지별 추가 프롬프트 (한국어)
   const [isMergingVideos, setIsMergingVideos] = useState(false) // 영상 합치기 중 여부
   const [activeStep, setActiveStep] = useState<"product" | "script" | "video" | "render" | "thumbnail" | "preview">("product")
   const [error, setError] = useState<string>("")
@@ -172,6 +177,7 @@ export default function ShoppingPage() {
   const [previewVideoElements, setPreviewVideoElements] = useState<HTMLVideoElement[]>([]) // 미리보기용 비디오 엘리먼트
   const [previewAudio, setPreviewAudio] = useState<HTMLAudioElement | null>(null) // 미리보기용 오디오
   const [previewBgmAudio, setPreviewBgmAudio] = useState<HTMLAudioElement | null>(null) // 미리보기용 BGM 오디오
+  const [previewSfxAudio, setPreviewSfxAudio] = useState<HTMLAudioElement | null>(null) // 미리보기용 효과음 오디오
   const [previewAnimationFrame, setPreviewAnimationFrame] = useState<number | null>(null) // 미리보기 애니메이션 프레임 (사용 안 함, 롱폼 방식)
   const [previewThumbnailImage, setPreviewThumbnailImage] = useState<HTMLImageElement | null>(null) // 미리보기용 썸네일 이미지
   const [currentSubtitle, setCurrentSubtitle] = useState<string>("") // 현재 자막 (롱폼 방식)
@@ -191,6 +197,11 @@ export default function ShoppingPage() {
   const [thumbnailHookingText, setThumbnailHookingText] = useState<{ line1: string; line2: string }>({ line1: "", line2: "" })
   const thumbnailCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const [isDragging, setIsDragging] = useState(false)
+  const [draggingBgmHandle, setDraggingBgmHandle] = useState<"start" | "end" | null>(null) // BGM 핸들 드래그 중
+  const [draggingSfxHandle, setDraggingSfxHandle] = useState<"start" | "end" | null>(null) // 효과음 핸들 드래그 중
+  const timelineRef = useRef<HTMLDivElement | null>(null) // 타임라인 재생바 ref
+  const bgmTimelineRef = useRef<HTMLDivElement | null>(null) // BGM 타임라인 ref
+  const sfxTimelineRef = useRef<HTMLDivElement | null>(null) // 효과음 타임라인 ref
   const [thumbnailMode, setThumbnailMode] = useState<"ai" | "manual">("ai") // AI 생성 또는 직접 생성
   const [thumbnailImages, setThumbnailImages] = useState<Array<{ url: string; text: { line1: string; line2: string }; isCustom: boolean }>>([]) // 여러 썸네일 저장
   const [selectedThumbnailIndex, setSelectedThumbnailIndex] = useState<number>(-1) // 선택된 썸네일 인덱스
@@ -238,7 +249,23 @@ export default function ShoppingPage() {
   const [bgmUrl, setBgmUrl] = useState<string>("")
   const [bgmFile, setBgmFile] = useState<File | null>(null)
   const [bgmVolume, setBgmVolume] = useState(0.3) // BGM 볼륨 (0-1)
+  const [bgmStartTime, setBgmStartTime] = useState(0) // BGM 시작 시간 (초)
+  const [bgmEndTime, setBgmEndTime] = useState(0) // BGM 종료 시간 (초)
   const [ttsVolume, setTtsVolume] = useState(1.0) // TTS 볼륨 (0-1)
+  
+  // 효과음 관련 상태
+  const [sfxUrl, setSfxUrl] = useState<string>("")
+  const [sfxFile, setSfxFile] = useState<File | null>(null)
+  const [sfxVolume, setSfxVolume] = useState(0.5) // 효과음 볼륨 (0-1)
+  const [sfxStartTime, setSfxStartTime] = useState(0) // 효과음 시작 시간 (초)
+  const [sfxEndTime, setSfxEndTime] = useState(0) // 효과음 종료 시간 (초)
+  
+  // 오디오 라이브러리 관련 상태
+  const [bgmLibrary, setBgmLibrary] = useState<AudioLibraryItem[]>([])
+  const [sfxLibrary, setSfxLibrary] = useState<AudioLibraryItem[]>([])
+  const [isLoadingAudioLibrary, setIsLoadingAudioLibrary] = useState(false)
+  const [showBgmLibraryDialog, setShowBgmLibraryDialog] = useState(false)
+  const [showSfxLibraryDialog, setShowSfxLibraryDialog] = useState(false)
   
   // 영상 효과 및 전환
   const [transitionEffect, setTransitionEffect] = useState<"none" | "fade" | "slide" | "zoom">("fade")
@@ -386,7 +413,7 @@ export default function ShoppingPage() {
       // 선택된 썸네일이 AI 생성 썸네일인지 확인
       const selectedThumbnail = selectedThumbnailIndex >= 0 ? thumbnailImages[selectedThumbnailIndex] : null
       if (selectedThumbnail && !selectedThumbnail.isCustom) {
-        // AI 생성 썸네일은 이미 텍스트가 포함되어 있으므로 그대로 표시
+        // AI 생성 썸네일은 이미 텍스트가 포함되어 있으므로 그대로 표시 (비율 유지)
         const canvas = thumbnailCanvasRef.current
         const ctx = canvas.getContext("2d")
         if (ctx) {
@@ -396,7 +423,35 @@ export default function ShoppingPage() {
           img.crossOrigin = "anonymous"
           img.src = thumbnailUrl
           img.onload = () => {
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+            // 비율 유지하며 그리기
+            const imgAspect = img.width / img.height
+            const canvasAspect = canvas.width / canvas.height
+            
+            let drawWidth: number
+            let drawHeight: number
+            let offsetX: number
+            let offsetY: number
+            
+            if (imgAspect > canvasAspect) {
+              // 이미지가 더 넓음 - 높이에 맞추고 좌우 크롭
+              drawHeight = canvas.height
+              drawWidth = drawHeight * imgAspect
+              offsetX = (canvas.width - drawWidth) / 2
+              offsetY = 0
+            } else {
+              // 이미지가 더 높음 - 너비에 맞추고 상하 크롭
+              drawWidth = canvas.width
+              drawHeight = drawWidth / imgAspect
+              offsetX = 0
+              offsetY = (canvas.height - drawHeight) / 2
+            }
+            
+            // 검은 배경으로 채우기
+            ctx.fillStyle = "black"
+            ctx.fillRect(0, 0, canvas.width, canvas.height)
+            
+            // 이미지 그리기 (비율 유지)
+            ctx.drawImage(img, 0, 0, img.width, img.height, offsetX, offsetY, drawWidth, drawHeight)
           }
         }
       } else if (selectedThumbnail && selectedThumbnail.isCustom && thumbnailHookingText.line1) {
@@ -412,6 +467,104 @@ export default function ShoppingPage() {
       renderThumbnailWithText(customThumbnailImage, customThumbnailText)
     }
   }, [thumbnailMode, customThumbnailImage, customThumbnailText, customThumbnailTextStyle])
+
+  // 전역 마우스 이벤트로 핸들 드래그 처리
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!previewAudio) return
+      
+      // BGM 핸들 드래그
+      if (draggingBgmHandle && bgmUrl && bgmTimelineRef.current) {
+        const rect = bgmTimelineRef.current.getBoundingClientRect()
+        const mouseX = e.clientX - rect.left
+        const percentage = Math.max(0, Math.min(1, mouseX / rect.width))
+        const newTime = percentage * previewAudio.duration
+        
+        if (draggingBgmHandle === "start") {
+          setBgmStartTime(Math.max(0, Math.min(newTime, bgmEndTime)))
+        } else {
+          setBgmEndTime(Math.max(newTime, bgmStartTime))
+        }
+        return
+      }
+      
+      // 효과음 핸들 드래그
+      if (draggingSfxHandle && sfxUrl && sfxTimelineRef.current) {
+        const rect = sfxTimelineRef.current.getBoundingClientRect()
+        const mouseX = e.clientX - rect.left
+        const percentage = Math.max(0, Math.min(1, mouseX / rect.width))
+        const newTime = percentage * previewAudio.duration
+        
+        if (draggingSfxHandle === "start") {
+          setSfxStartTime(Math.max(0, Math.min(newTime, sfxEndTime)))
+        } else {
+          setSfxEndTime(Math.max(newTime, sfxStartTime))
+        }
+        return
+      }
+    }
+    
+    const handleMouseUp = () => {
+      setDraggingBgmHandle(null)
+      setDraggingSfxHandle(null)
+    }
+    
+    if (draggingBgmHandle || draggingSfxHandle) {
+      window.addEventListener("mousemove", handleMouseMove)
+      window.addEventListener("mouseup", handleMouseUp)
+      return () => {
+        window.removeEventListener("mousemove", handleMouseMove)
+        window.removeEventListener("mouseup", handleMouseUp)
+      }
+    }
+  }, [draggingBgmHandle, draggingSfxHandle, previewAudio, bgmUrl, sfxUrl, bgmEndTime, bgmStartTime, sfxEndTime, sfxStartTime])
+
+  // BGM URL 변경 시 이전 BGM 정리
+  useEffect(() => {
+    return () => {
+      // 컴포넌트 언마운트 또는 bgmUrl 변경 시 이전 BGM 정리
+      if (previewBgmAudio) {
+        console.log("[Shopping] BGM URL 변경 또는 컴포넌트 언마운트 - 이전 BGM 정리")
+        previewBgmAudio.pause()
+        previewBgmAudio.currentTime = 0
+        previewBgmAudio.src = "" // 오디오 소스 제거
+        previewBgmAudio.load() // 오디오 리소스 해제
+        setPreviewBgmAudio(null)
+      }
+    }
+  }, [bgmUrl, previewBgmAudio])
+
+  // 오디오 라이브러리 로드
+  useEffect(() => {
+    const loadAudioLibrary = async () => {
+      if (activeStep === "preview") {
+        console.log("[Shopping] 오디오 라이브러리 로드 시작 (클라이언트)")
+        setIsLoadingAudioLibrary(true)
+        try {
+          console.log("[Shopping] getAllAudioLibrary 호출 전")
+          const result = await getAllAudioLibrary()
+          console.log("[Shopping] getAllAudioLibrary 호출 후 - 결과:", result)
+          console.log("[Shopping] 오디오 라이브러리 로드 완료 - BGM:", result.bgm.length, "개, SFX:", result.sfx.length, "개")
+          console.log("[Shopping] BGM 목록:", result.bgm.map(a => a.name))
+          console.log("[Shopping] SFX 목록:", result.sfx.map(a => a.name))
+          setBgmLibrary(result.bgm)
+          setSfxLibrary(result.sfx)
+        } catch (error) {
+          console.error("[Shopping] 오디오 라이브러리 로드 실패 (클라이언트):", error)
+          // 에러가 발생해도 빈 배열로 설정
+          setBgmLibrary([])
+          setSfxLibrary([])
+        } finally {
+          setIsLoadingAudioLibrary(false)
+        }
+      } else {
+        // preview 단계가 아니면 라이브러리 초기화
+        setBgmLibrary([])
+        setSfxLibrary([])
+      }
+    }
+    loadAudioLibrary()
+  }, [activeStep])
 
   // preview 단계 진입 시 유튜브 메타데이터 자동 생성
   useEffect(() => {
@@ -538,6 +691,12 @@ export default function ShoppingPage() {
         subtitleStyle,
         bgmUrl,
         bgmVolume,
+        bgmStartTime,
+        bgmEndTime,
+        sfxUrl,
+        sfxVolume,
+        sfxStartTime,
+        sfxEndTime,
         ttsVolume,
         transitionEffect,
         transitionDuration,
@@ -594,6 +753,13 @@ export default function ShoppingPage() {
         setBgmUrl("")
         setBgmFile(null)
         setBgmVolume(0.3)
+        setBgmStartTime(0)
+        setBgmEndTime(0)
+        setSfxUrl("")
+        setSfxFile(null)
+        setSfxVolume(0.5)
+        setSfxStartTime(0)
+        setSfxEndTime(0)
         setTtsVolume(1.0)
         setTransitionEffect("fade")
         setTransitionDuration(0.5)
@@ -708,6 +874,12 @@ export default function ShoppingPage() {
       })
       if (data.bgmUrl) setBgmUrl(data.bgmUrl)
       if (data.bgmVolume !== undefined) setBgmVolume(data.bgmVolume)
+      if (data.bgmStartTime !== undefined) setBgmStartTime(data.bgmStartTime)
+      if (data.bgmEndTime !== undefined) setBgmEndTime(data.bgmEndTime)
+      if (data.sfxUrl) setSfxUrl(data.sfxUrl)
+      if (data.sfxVolume !== undefined) setSfxVolume(data.sfxVolume)
+      if (data.sfxStartTime !== undefined) setSfxStartTime(data.sfxStartTime)
+      if (data.sfxEndTime !== undefined) setSfxEndTime(data.sfxEndTime)
       if (data.ttsVolume !== undefined) setTtsVolume(data.ttsVolume)
       if (data.transitionEffect) setTransitionEffect(data.transitionEffect)
       if (data.transitionDuration !== undefined) setTransitionDuration(data.transitionDuration)
@@ -954,8 +1126,81 @@ export default function ShoppingPage() {
     const reader = new FileReader()
     reader.onloadend = () => {
       setBgmUrl(reader.result as string)
+      
+      // 기본 종료 시간을 10초로 설정
+      setBgmEndTime(10)
     }
     reader.readAsDataURL(file)
+  }
+
+  // 효과음 파일 업로드
+  const handleSfxUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (!file.type.startsWith("audio/")) {
+      alert("오디오 파일만 업로드 가능합니다.")
+      return
+    }
+
+    setSfxFile(file)
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      setSfxUrl(reader.result as string)
+      
+      // 파일 크기 확인 및 기본 종료 시간 설정
+      const audio = new Audio(reader.result as string)
+      audio.onloadedmetadata = () => {
+        if (sfxEndTime === 0 || sfxEndTime > audio.duration) {
+          setSfxEndTime(audio.duration)
+        }
+      }
+    }
+    reader.readAsDataURL(file)
+  }
+
+  // 오디오 라이브러리에서 BGM 선택
+  const handleSelectBgmFromLibrary = (audioItem: AudioLibraryItem) => {
+    setBgmUrl(audioItem.url)
+    setBgmFile(null) // 라이브러리에서 선택한 경우 파일은 null
+    
+    // 기본 종료 시간을 10초로 설정
+    setBgmEndTime(10)
+    setShowBgmLibraryDialog(false)
+  }
+
+  // BGM 삭제
+  const handleDeleteBgm = () => {
+    // BGM 정리
+    if (previewBgmAudio) {
+      previewBgmAudio.pause()
+      previewBgmAudio.currentTime = 0
+      previewBgmAudio.src = ""
+      previewBgmAudio.load()
+      setPreviewBgmAudio(null)
+    }
+    
+    // 상태 초기화
+    setBgmUrl("")
+    setBgmFile(null)
+    setBgmVolume(0.3)
+    setBgmStartTime(0)
+    setBgmEndTime(0)
+  }
+
+  // 오디오 라이브러리에서 효과음 선택
+  const handleSelectSfxFromLibrary = (audioItem: AudioLibraryItem) => {
+    setSfxUrl(audioItem.url)
+    setSfxFile(null) // 라이브러리에서 선택한 경우 파일은 null
+    
+    // 오디오 길이 확인
+    const audio = new Audio(audioItem.url)
+    audio.onloadedmetadata = () => {
+      if (sfxEndTime === 0 || sfxEndTime > audio.duration) {
+        setSfxEndTime(audio.duration)
+      }
+    }
+    setShowSfxLibraryDialog(false)
   }
 
   // 제목/설명/태그 자동 생성
@@ -995,12 +1240,23 @@ export default function ShoppingPage() {
   const fetchSupertoneVoices = async () => {
     setIsLoadingSupertoneVoices(true)
     try {
-      const supertoneApiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_supertone_api_key") || undefined : undefined
-      if (!supertoneApiKey) {
-        alert("수퍼톤 API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
+      // 롱폼 키(supertone_api_key)를 먼저 확인하고, 없으면 ShotForm 전용 키 사용
+      // 롱폼 키(supertone_api_key)를 먼저 확인하고, 없으면 ShotForm 전용 키 사용
+      const supertoneApiKey = typeof window !== "undefined" 
+        ? (localStorage.getItem("supertone_api_key") || localStorage.getItem("shotform_supertone_api_key") || "").trim() 
+        : null
+      if (!supertoneApiKey || supertoneApiKey.length === 0) {
+        alert("수퍼톤 API 키가 필요합니다. 설정에서 API 키를 입력해주세요.\n\n수퍼톤 API 콘솔(console.supertoneapi.com)에서 API 키를 발급받을 수 있습니다.")
         setIsLoadingSupertoneVoices(false)
-      return
-    }
+        return
+      }
+
+      // API 키 형식 검증
+      if (supertoneApiKey.length < 20) {
+        alert(`수퍼톤 API 키 형식이 올바르지 않습니다. (길이: ${supertoneApiKey.length}자)\n\n수퍼톤 API 콘솔(console.supertoneapi.com)에서 올바른 API 키를 확인하고 다시 입력해주세요.`)
+        setIsLoadingSupertoneVoices(false)
+        return
+      }
 
       const response = await fetch(`/api/supertone-voices?apiKey=${encodeURIComponent(supertoneApiKey)}`, {
         method: "GET",
@@ -1045,7 +1301,10 @@ export default function ShoppingPage() {
       
       if (voiceId?.startsWith("supertone-")) {
         const actualVoiceId = voiceId.replace("supertone-", "")
-        const supertoneApiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_supertone_api_key") || undefined : undefined
+        // 롱폼 키(supertone_api_key)를 먼저 확인하고, 없으면 ShotForm 전용 키 사용
+        const supertoneApiKey = typeof window !== "undefined" 
+          ? (localStorage.getItem("supertone_api_key") || localStorage.getItem("shotform_supertone_api_key") || "").trim() 
+          : null
         
         if (!supertoneApiKey) {
           alert("수퍼톤 API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
@@ -1266,11 +1525,12 @@ export default function ShoppingPage() {
       } else if (selectedVoiceId?.startsWith("supertone-")) {
         // 수퍼톤인 경우
         const voiceId = selectedVoiceId.replace("supertone-", "")
-        let supertoneApiKey = typeof window !== "undefined" 
-          ? (localStorage.getItem("supertone_api_key") || "").trim() 
+        // 롱폼 키(supertone_api_key)를 먼저 확인하고, 없으면 ShotForm 전용 키 사용
+        const supertoneApiKey = typeof window !== "undefined" 
+          ? (localStorage.getItem("supertone_api_key") || localStorage.getItem("shotform_supertone_api_key") || "").trim() 
           : null
         
-        if (!supertoneApiKey || supertoneApiKey.length === 0) {
+        if (!supertoneApiKey) {
           alert("수퍼톤 API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
           setIsGeneratingTTS(false)
           return
@@ -1632,6 +1892,162 @@ export default function ShoppingPage() {
     }
   }
 
+  // 개별 이미지 재생성 함수
+  const handleRegenerateSingleImage = async (index: 0 | 1 | 2) => {
+    // 즉시 로딩 상태 설정 (버튼 클릭 시 바로 로딩 표시)
+    setIsRegeneratingImage((prev) => {
+      const newMap = new Map(prev)
+      newMap.set(index, true)
+      return newMap
+    })
+    
+    if (!script.trim()) {
+      alert("대본이 생성되지 않았습니다.")
+      setIsRegeneratingImage((prev) => {
+        const newMap = new Map(prev)
+        newMap.set(index, false)
+        return newMap
+      })
+      return
+    }
+
+    if (!promptsGenerated || imagePrompts.length === 0) {
+      alert("먼저 이미지 프롬프트를 생성해주세요.")
+      setIsRegeneratingImage((prev) => {
+        const newMap = new Map(prev)
+        newMap.set(index, false)
+        return newMap
+      })
+      return
+    }
+
+    const replicateApiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_replicate_api_key") || undefined : undefined
+
+    if (!replicateApiKey) {
+      alert("Replicate API 키가 필요합니다. 메인 화면의 설정(톱니바퀴 아이콘)에서 API 키를 입력해주세요.")
+      setIsRegeneratingImage((prev) => {
+        const newMap = new Map(prev)
+        newMap.set(index, false)
+        return newMap
+      })
+      return
+    }
+
+    const sceneNames = ["제품 전체 샷", "제품 디테일 샷", "다른 배경 샷"]
+    
+    try {
+      setError("")
+      
+      console.log(`[Shopping] 🖼️ ${sceneNames[index]} 재생성 시작`)
+      
+      // 이미지를 base64로 변환 (있는 경우)
+      let imageBase64: string | undefined = undefined
+      let imageAspectRatio: string | undefined = undefined
+      
+      if (productImage) {
+        imageBase64 = productImage
+        
+        // 원본 이미지 비율 계산
+        try {
+          const img = new Image()
+          await new Promise<void>((resolve, reject) => {
+            img.onload = () => {
+              const width = img.width
+              const height = img.height
+              const ratio = width / height
+              
+              // 비율에 따라 적절한 aspect_ratio 설정
+              if (Math.abs(ratio - 1) < 0.1) {
+                imageAspectRatio = "1:1"
+              } else if (ratio > 1.2) {
+                imageAspectRatio = "16:9"
+              } else if (ratio < 0.7) {
+                imageAspectRatio = "9:16"
+              } else {
+                imageAspectRatio = ratio > 1 ? "4:3" : "3:4"
+              }
+              resolve()
+            }
+            img.onerror = () => {
+              imageAspectRatio = "9:16"
+              resolve()
+            }
+            img.src = productImage
+          })
+        } catch (error) {
+          console.error("[Shopping] 이미지 비율 계산 중 오류:", error)
+          imageAspectRatio = "9:16"
+        }
+      }
+
+      // 해당 인덱스의 프롬프트로 이미지 재생성
+      const prompt = imagePrompts[index]
+      
+      // 추가 프롬프트가 있으면 AI를 통해 프롬프트 재작성
+      const customPrompt = customImagePrompts.get(index)
+      let finalPrompt = prompt.prompt
+      
+      if (customPrompt && customPrompt.trim()) {
+        console.log(`[Shopping] 추가 프롬프트 감지, AI를 통해 프롬프트 재작성 시작: ${customPrompt}`)
+        
+        const openaiApiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_openai_api_key") || undefined : undefined
+        
+        if (openaiApiKey) {
+          // AI를 통해 프롬프트 재작성
+          finalPrompt = await refineImagePromptWithCustomInput(
+            prompt.prompt,
+            customPrompt,
+            productName,
+            productDescription,
+            openaiApiKey
+          )
+          console.log(`[Shopping] ✅ AI가 재작성한 프롬프트: ${finalPrompt.substring(0, 100)}...`)
+        } else {
+          // API 키가 없으면 단순히 연결
+          finalPrompt = `${prompt.prompt}, ${customPrompt.trim()}`
+          console.log(`[Shopping] OpenAI API 키 없음, 단순 연결 사용`)
+        }
+      }
+      
+      const imageUrl = await generateImageWithNanobanana(
+        finalPrompt,
+        productName,
+        imageBase64,
+        replicateApiKey,
+        index, // sceneIndex
+        productDescription,
+        imageAspectRatio
+      )
+      
+      console.log(`[Shopping] ✅ ${sceneNames[index]} 재생성 완료:`, imageUrl)
+      
+      // 재생성된 이미지 URL 업데이트
+      setImageUrls((prev) => {
+        const newUrls = [...prev]
+        newUrls[index] = imageUrl
+        return newUrls
+      })
+      
+      // 해당 인덱스의 영상이 있다면 초기화 (이미지가 변경되었으므로)
+      setConvertedVideoUrls((prev) => {
+        const newMap = new Map(prev)
+        newMap.delete(index)
+        return newMap
+      })
+      
+    } catch (error) {
+      console.error(`[Shopping] ❌ ${sceneNames[index]} 재생성 실패:`, error)
+      setError(`이미지 재생성에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+    } finally {
+      // 상태 업데이트
+      setIsRegeneratingImage((prev) => {
+        const newMap = new Map(prev)
+        newMap.set(index, false)
+        return newMap
+      })
+    }
+  }
+
   // 미리보기 버튼 클릭 시 영상 생성 및 미리보기 준비 (레거시 - 사용 안 함)
   const handleGenerateVideoFromImage = async () => {
     // 이 함수는 더 이상 사용하지 않음
@@ -1675,14 +2091,41 @@ export default function ShoppingPage() {
       
       setPreviewVideoElements([video])
       
-      // 캔버스에 첫 프레임 그리기
+      // 캔버스에 첫 프레임 그리기 (비율 유지)
       const canvas = canvasRef.current
       if (canvas) {
         canvas.width = 1080
         canvas.height = 1920
         const ctx = canvas.getContext("2d")
-        if (ctx && video.videoWidth > 0) {
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+        if (ctx && video.videoWidth > 0 && video.videoHeight > 0) {
+          const videoWidth = video.videoWidth
+          const videoHeight = video.videoHeight
+          const canvasWidth = canvas.width
+          const canvasHeight = canvas.height
+          
+          // 비디오와 캔버스의 비율 계산
+          const videoAspect = videoWidth / videoHeight
+          const canvasAspect = canvasWidth / canvasHeight
+          
+          let drawWidth = canvasWidth
+          let drawHeight = canvasHeight
+          let drawX = 0
+          let drawY = 0
+          
+          // 비율에 맞춰 중앙 크롭 (cover 방식)
+          if (videoAspect > canvasAspect) {
+            // 비디오가 더 넓음 - 높이에 맞추고 좌우 크롭
+            drawHeight = canvasHeight
+            drawWidth = drawHeight * videoAspect
+            drawX = (canvasWidth - drawWidth) / 2
+          } else {
+            // 비디오가 더 높음 - 너비에 맞추고 상하 크롭
+            drawWidth = canvasWidth
+            drawHeight = drawWidth / videoAspect
+            drawY = (canvasHeight - drawHeight) / 2
+          }
+          
+          ctx.drawImage(video, 0, 0, videoWidth, videoHeight, drawX, drawY, drawWidth, drawHeight)
         }
       }
       
@@ -1752,7 +2195,35 @@ export default function ShoppingPage() {
             img.crossOrigin = "anonymous"
             img.src = thumbnail
             img.onload = () => {
-              ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+              // 비율 유지하며 그리기
+              const imgAspect = img.width / img.height
+              const canvasAspect = canvas.width / canvas.height
+              
+              let drawWidth: number
+              let drawHeight: number
+              let offsetX: number
+              let offsetY: number
+              
+              if (imgAspect > canvasAspect) {
+                // 이미지가 더 넓음 - 높이에 맞추고 좌우 크롭
+                drawHeight = canvas.height
+                drawWidth = drawHeight * imgAspect
+                offsetX = (canvas.width - drawWidth) / 2
+                offsetY = 0
+              } else {
+                // 이미지가 더 높음 - 너비에 맞추고 상하 크롭
+                drawWidth = canvas.width
+                drawHeight = drawWidth / imgAspect
+                offsetX = 0
+                offsetY = (canvas.height - drawHeight) / 2
+              }
+              
+              // 검은 배경으로 채우기
+              ctx.fillStyle = "black"
+              ctx.fillRect(0, 0, canvas.width, canvas.height)
+              
+              // 이미지 그리기 (비율 유지)
+              ctx.drawImage(img, 0, 0, img.width, img.height, offsetX, offsetY, drawWidth, drawHeight)
             }
           }
         }
@@ -1867,7 +2338,35 @@ export default function ShoppingPage() {
             img.crossOrigin = "anonymous"
             img.src = selected.url
             img.onload = () => {
-              ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+              // 비율 유지하며 그리기
+              const imgAspect = img.width / img.height
+              const canvasAspect = canvas.width / canvas.height
+              
+              let drawWidth: number
+              let drawHeight: number
+              let offsetX: number
+              let offsetY: number
+              
+              if (imgAspect > canvasAspect) {
+                // 이미지가 더 넓음 - 높이에 맞추고 좌우 크롭
+                drawHeight = canvas.height
+                drawWidth = drawHeight * imgAspect
+                offsetX = (canvas.width - drawWidth) / 2
+                offsetY = 0
+              } else {
+                // 이미지가 더 높음 - 너비에 맞추고 상하 크롭
+                drawWidth = canvas.width
+                drawHeight = drawWidth / imgAspect
+                offsetX = 0
+                offsetY = (canvas.height - drawHeight) / 2
+              }
+              
+              // 검은 배경으로 채우기
+              ctx.fillStyle = "black"
+              ctx.fillRect(0, 0, canvas.width, canvas.height)
+              
+              // 이미지 그리기 (비율 유지)
+              ctx.drawImage(img, 0, 0, img.width, img.height, offsetX, offsetY, drawWidth, drawHeight)
             }
           }
         }
@@ -1903,13 +2402,37 @@ export default function ShoppingPage() {
       img.src = imageUrl
 
       img.onload = () => {
-        // 배경 이미지 그리기 (스케일 적용)
-        const scaledWidth = canvas.width * customThumbnailTextStyle.imageScale
-        const scaledHeight = canvas.height * customThumbnailTextStyle.imageScale
-        const offsetX = (canvas.width - scaledWidth) / 2
-        const offsetY = (canvas.height - scaledHeight) / 2
+        // 배경 이미지 그리기 (비율 유지하며 확대 - cover 방식)
+        const imgAspect = img.width / img.height
+        const canvasAspect = canvas.width / canvas.height
         
-        ctx.drawImage(img, offsetX, offsetY, scaledWidth, scaledHeight)
+        // 이미지 스케일 적용
+        let drawWidth: number
+        let drawHeight: number
+        let offsetX: number
+        let offsetY: number
+        
+        // 비율을 유지하면서 확대 (cover 방식)
+        if (imgAspect > canvasAspect) {
+          // 이미지가 더 넓음 - 높이에 맞추고 좌우 크롭
+          drawHeight = canvas.height * customThumbnailTextStyle.imageScale
+          drawWidth = drawHeight * imgAspect
+          offsetX = (canvas.width - drawWidth) / 2
+          offsetY = (canvas.height - drawHeight) / 2
+        } else {
+          // 이미지가 더 높음 - 너비에 맞추고 상하 크롭
+          drawWidth = canvas.width * customThumbnailTextStyle.imageScale
+          drawHeight = drawWidth / imgAspect
+          offsetX = (canvas.width - drawWidth) / 2
+          offsetY = (canvas.height - drawHeight) / 2
+        }
+        
+        // 검은 배경으로 채우기
+        ctx.fillStyle = "black"
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+        
+        // 이미지 그리기 (비율 유지)
+        ctx.drawImage(img, 0, 0, img.width, img.height, offsetX, offsetY, drawWidth, drawHeight)
 
         // 텍스트 위치 (사용자 설정에 따라)
         const textY = canvas.height * customThumbnailTextStyle.position
@@ -2057,11 +2580,22 @@ export default function ShoppingPage() {
       }
 
       // BGM 로드 (있는 경우)
+      let sfxAudio: HTMLAudioElement | null = null
       if (bgmUrl) {
+        // 새로운 BGM을 만들기 전에 이전 BGM 정리
+        if (previewBgmAudio) {
+          console.log("[Shopping] 이전 BGM 정리")
+          previewBgmAudio.pause()
+          previewBgmAudio.currentTime = 0
+          previewBgmAudio.src = "" // 오디오 소스 제거
+          previewBgmAudio.load() // 오디오 리소스 해제
+          setPreviewBgmAudio(null)
+        }
+        
         console.log("[Shopping] BGM 로드")
         bgmAudio = new Audio(bgmUrl)
         bgmAudio.volume = bgmVolume
-        bgmAudio.loop = true // BGM 반복 재생
+        bgmAudio.loop = false // 시간대에 맞게 재생하므로 loop 해제
         
         await new Promise<void>((resolve, reject) => {
           if (!bgmAudio) {
@@ -2069,7 +2603,70 @@ export default function ShoppingPage() {
             return
           }
           bgmAudio.onloadeddata = () => {
-            setPreviewBgmAudio(bgmAudio)
+            // BGM의 timeupdate 이벤트로 종료 시간 체크 (추가 보호)
+            const currentBgmAudio = bgmAudio // 클로저에서 안전하게 접근하기 위해 로컬 변수에 저장
+            if (currentBgmAudio) {
+              currentBgmAudio.addEventListener("timeupdate", () => {
+                if (previewAudio && currentBgmAudio && !currentBgmAudio.paused) {
+                  const elapsed = previewAudio.currentTime
+                  // 종료 시간에 도달했거나 넘어갔거나 오디오가 끝났으면 즉시 정지 (엄격한 체크)
+                  if (elapsed >= bgmEndTime || elapsed < bgmStartTime || elapsed >= previewAudio.duration || previewAudio.ended) {
+                    console.log(`[Shopping] BGM timeupdate 이벤트에서 정지: elapsed=${elapsed.toFixed(2)}초, bgmEndTime=${bgmEndTime}초`)
+                    currentBgmAudio.pause()
+                    currentBgmAudio.currentTime = 0
+                  }
+                }
+              })
+              // BGM이 끝났을 때도 체크하여 재생 시간대를 넘었으면 재생하지 않음
+              currentBgmAudio.addEventListener("ended", () => {
+                if (previewAudio) {
+                  const elapsed = previewAudio.currentTime
+                  // BGM 자체가 끝났어도 메인 오디오 시간을 체크하여 종료 시간을 넘었으면 재생하지 않음
+                  if (elapsed >= bgmEndTime || elapsed < bgmStartTime || elapsed >= previewAudio.duration || previewAudio.ended) {
+                    console.log(`[Shopping] BGM ended 이벤트: 재생 시간대 밖이므로 재생하지 않음, elapsed=${elapsed.toFixed(2)}초, bgmEndTime=${bgmEndTime}초`)
+                    currentBgmAudio.pause()
+                    currentBgmAudio.currentTime = 0
+                  } else if (elapsed >= bgmStartTime && elapsed < bgmEndTime && elapsed < previewAudio.duration && !previewAudio.ended) {
+                    // 재생 시간대 내에 있으면 다시 재생 (루프)
+                    const bgmOffset = elapsed - bgmStartTime
+                    const bgmDuration = currentBgmAudio.duration
+                    if (isFinite(bgmDuration) && bgmDuration > 0) {
+                      const safeCurrentTime = Math.max(0, Math.min(bgmOffset % bgmDuration, bgmDuration))
+                      if (isFinite(safeCurrentTime)) {
+                        currentBgmAudio.currentTime = safeCurrentTime
+                        currentBgmAudio.play().catch(() => {})
+                      }
+                    }
+                  }
+                }
+              })
+              // previewBgmAudio가 설정된 후에도 ended 이벤트를 추가하여 종료 시간 체크
+              // 이는 BGM이 자체적으로 끝났을 때도 메인 오디오 시간을 체크하기 위함
+              const bgmEndedHandler = () => {
+                if (previewAudio && currentBgmAudio) {
+                  const elapsed = previewAudio.currentTime
+                  // BGM 자체가 끝났어도 메인 오디오 시간을 체크하여 종료 시간을 넘었으면 재생하지 않음
+                  if (elapsed >= bgmEndTime || elapsed < bgmStartTime || elapsed >= previewAudio.duration || previewAudio.ended) {
+                    console.log(`[Shopping] ⛔ BGM ended 이벤트 (previewBgmAudio): 재생 시간대 밖이므로 재생하지 않음, elapsed=${elapsed.toFixed(2)}초, bgmEndTime=${bgmEndTime}초`)
+                    currentBgmAudio.pause()
+                    currentBgmAudio.currentTime = 0
+                  } else if (elapsed >= bgmStartTime && elapsed < bgmEndTime && elapsed < previewAudio.duration && !previewAudio.ended) {
+                    // 재생 시간대 내에 있으면 다시 재생 (루프)
+                    const bgmOffset = elapsed - bgmStartTime
+                    const bgmDuration = currentBgmAudio.duration
+                    if (isFinite(bgmDuration) && bgmDuration > 0) {
+                      const safeCurrentTime = Math.max(0, Math.min(bgmOffset % bgmDuration, bgmDuration))
+                      if (isFinite(safeCurrentTime)) {
+                        currentBgmAudio.currentTime = safeCurrentTime
+                        currentBgmAudio.play().catch(() => {})
+                      }
+                    }
+                  }
+                }
+              }
+              currentBgmAudio.addEventListener("ended", bgmEndedHandler)
+              setPreviewBgmAudio(currentBgmAudio)
+            }
             resolve()
           }
           bgmAudio.onerror = (e) => {
@@ -2084,7 +2681,41 @@ export default function ShoppingPage() {
         if (previewBgmAudio) {
           previewBgmAudio.pause()
           previewBgmAudio.currentTime = 0
+          previewBgmAudio.src = "" // 오디오 소스 제거
+          previewBgmAudio.load() // 오디오 리소스 해제
           setPreviewBgmAudio(null)
+        }
+      }
+
+      // 효과음 로드 (있는 경우)
+      if (sfxUrl) {
+        console.log("[Shopping] 효과음 로드")
+        sfxAudio = new Audio(sfxUrl)
+        sfxAudio.volume = sfxVolume
+        sfxAudio.loop = false
+        
+        await new Promise<void>((resolve, reject) => {
+          if (!sfxAudio) {
+            reject(new Error("효과음 생성 실패"))
+            return
+          }
+          sfxAudio.onloadeddata = () => {
+            setPreviewSfxAudio(sfxAudio)
+            resolve()
+          }
+          sfxAudio.onerror = (e) => {
+            console.warn("[Shopping] 효과음 로드 실패, 계속 진행:", e)
+            sfxAudio = null
+            setPreviewSfxAudio(null)
+            resolve()
+          }
+        })
+      } else {
+        // 효과음이 없으면 기존 효과음 정리
+        if (previewSfxAudio) {
+          previewSfxAudio.pause()
+          previewSfxAudio.currentTime = 0
+          setPreviewSfxAudio(null)
         }
       }
 
@@ -2227,15 +2858,72 @@ export default function ShoppingPage() {
         }
       }
 
-      // 미리보기 렌더링 함수 (썸네일 포함, BGM 적용)
+      // 미리보기 렌더링 함수 (썸네일 포함, BGM 및 효과음 적용)
       let lastVideoIndex = -1
       const currentBgmAudio = bgmAudio // 클로저에서 접근 가능하도록
+      const currentSfxAudio = sfxAudio // 클로저에서 접근 가능하도록
       const THUMBNAIL_DURATION = 0.0001
       
       const renderPreview = () => {
         const elapsed = audio.paused ? currentTime : audio.currentTime
         if (!audio.paused) {
           setCurrentTime(elapsed)
+          
+          // BGM 시간대 체크 및 재생/정지
+          if (currentBgmAudio && bgmUrl) {
+            // bgmEndTime에 도달했거나 넘어갔거나 bgmStartTime 이전이면 무조건 정지 (엄격한 체크)
+            // bgmEndTime에 도달하면 즉시 정지 (예: 10초에 도달하면 정지)
+            if (previewAudio && (elapsed >= bgmEndTime || elapsed < bgmStartTime || elapsed >= previewAudio.duration || previewAudio.ended)) {
+              if (!currentBgmAudio.paused) {
+                currentBgmAudio.pause()
+                currentBgmAudio.currentTime = 0
+              }
+            } else if (previewAudio && elapsed >= bgmStartTime && elapsed < bgmEndTime && elapsed < previewAudio.duration && !previewAudio.ended) {
+              // BGM 재생 시간대 내에 있을 때만 재생 (elapsed < bgmEndTime - 종료 시간에 도달하면 재생하지 않음)
+              if (currentBgmAudio.paused) {
+                // BGM 시작 시간에 맞춰 오디오 위치 설정
+                const bgmOffset = elapsed - bgmStartTime
+                const bgmDuration = currentBgmAudio.duration
+                if (isFinite(bgmDuration) && bgmDuration > 0) {
+                  const safeCurrentTime = Math.max(0, Math.min(bgmOffset % bgmDuration, bgmDuration))
+                  if (isFinite(safeCurrentTime)) {
+                    currentBgmAudio.currentTime = safeCurrentTime
+                    currentBgmAudio.play().catch(() => {})
+                  }
+                }
+              } else {
+                // BGM이 재생 중이면 종료 시간에 도달했는지 계속 확인
+                if (elapsed >= bgmEndTime || elapsed >= previewAudio.duration || previewAudio.ended) {
+                  // 종료 시간에 도달했거나 넘어갔거나 오디오가 끝났으면 즉시 정지
+                  currentBgmAudio.pause()
+                  currentBgmAudio.currentTime = 0
+                }
+              }
+            } else {
+              // BGM 재생 시간대 밖이면 무조건 정지
+              if (!currentBgmAudio.paused) {
+                currentBgmAudio.pause()
+                currentBgmAudio.currentTime = 0
+              }
+            }
+          }
+          
+          // 효과음 시간대 체크 및 재생/정지
+          if (currentSfxAudio && sfxUrl) {
+            if (elapsed >= sfxStartTime && elapsed < sfxEndTime) {
+              if (currentSfxAudio.paused) {
+                // 효과음 시작 시간에 맞춰 오디오 위치 설정
+                const sfxOffset = elapsed - sfxStartTime
+                currentSfxAudio.currentTime = Math.min(sfxOffset, currentSfxAudio.duration)
+                currentSfxAudio.play().catch(() => {})
+              }
+            } else {
+              if (!currentSfxAudio.paused) {
+                currentSfxAudio.pause()
+                currentSfxAudio.currentTime = 0
+              }
+            }
+          }
         }
 
         // 캔버스 초기화
@@ -2286,17 +2974,44 @@ export default function ShoppingPage() {
           lastVideoIndex = currentVideoIndex
         }
 
-        // 현재 영상을 캔버스에 그리기
-        if (currentVideoIndex >= 0 && videoElements[currentVideoIndex]) {
-          const currentVideo = videoElements[currentVideoIndex]
-          
-          try {
-            if (currentVideo.readyState >= 2 || (currentVideo.videoWidth > 0 && currentVideo.videoHeight > 0)) {
-              ctx.drawImage(currentVideo, 0, 0, canvas.width, canvas.height)
+          // 현재 영상을 캔버스에 그리기 (비율 유지)
+          if (currentVideoIndex >= 0 && videoElements[currentVideoIndex]) {
+            const currentVideo = videoElements[currentVideoIndex]
+            
+            try {
+              if (currentVideo.readyState >= 2 || (currentVideo.videoWidth > 0 && currentVideo.videoHeight > 0)) {
+                const videoWidth = currentVideo.videoWidth
+                const videoHeight = currentVideo.videoHeight
+                const canvasWidth = canvas.width
+                const canvasHeight = canvas.height
+                
+                // 비디오와 캔버스의 비율 계산
+                const videoAspect = videoWidth / videoHeight
+                const canvasAspect = canvasWidth / canvasHeight
+                
+                let drawWidth = canvasWidth
+                let drawHeight = canvasHeight
+                let drawX = 0
+                let drawY = 0
+                
+                // 비율에 맞춰 중앙 크롭 (cover 방식)
+                if (videoAspect > canvasAspect) {
+                  // 비디오가 더 넓음 - 높이에 맞추고 좌우 크롭
+                  drawHeight = canvasHeight
+                  drawWidth = drawHeight * videoAspect
+                  drawX = (canvasWidth - drawWidth) / 2
+                } else {
+                  // 비디오가 더 높음 - 너비에 맞추고 상하 크롭
+                  drawWidth = canvasWidth
+                  drawHeight = drawWidth / videoAspect
+                  drawY = (canvasHeight - drawHeight) / 2
+                }
+                
+                ctx.drawImage(currentVideo, 0, 0, videoWidth, videoHeight, drawX, drawY, drawWidth, drawHeight)
+              }
+            } catch (e) {
+              // 그리기 실패 시 무시
             }
-          } catch (e) {
-            // 그리기 실패 시 무시
-          }
           }
         }
 
@@ -2356,6 +3071,11 @@ export default function ShoppingPage() {
             currentBgmAudio.pause()
             currentBgmAudio.currentTime = 0 // BGM 시간 초기화
           }
+          // 효과음 일시정지 및 정지
+          if (currentSfxAudio) {
+            currentSfxAudio.pause()
+            currentSfxAudio.currentTime = 0
+          }
         }
       }
 
@@ -2382,7 +3102,34 @@ export default function ShoppingPage() {
         video.currentTime = 0
         try {
           if (video.readyState >= 1 || (video.videoWidth > 0 && video.videoHeight > 0)) {
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+            const videoWidth = video.videoWidth
+            const videoHeight = video.videoHeight
+            const canvasWidth = canvas.width
+            const canvasHeight = canvas.height
+            
+            // 비디오와 캔버스의 비율 계산
+            const videoAspect = videoWidth / videoHeight
+            const canvasAspect = canvasWidth / canvasHeight
+            
+            let drawWidth = canvasWidth
+            let drawHeight = canvasHeight
+            let drawX = 0
+            let drawY = 0
+            
+            // 비율에 맞춰 중앙 크롭 (cover 방식)
+            if (videoAspect > canvasAspect) {
+              // 비디오가 더 넓음 - 높이에 맞추고 좌우 크롭
+              drawHeight = canvasHeight
+              drawWidth = drawHeight * videoAspect
+              drawX = (canvasWidth - drawWidth) / 2
+            } else {
+              // 비디오가 더 높음 - 너비에 맞추고 상하 크롭
+              drawWidth = canvasWidth
+              drawHeight = drawWidth / videoAspect
+              drawY = (canvasHeight - drawHeight) / 2
+            }
+            
+            ctx.drawImage(video, 0, 0, videoWidth, videoHeight, drawX, drawY, drawWidth, drawHeight)
           }
         } catch (e) {
           console.warn("초기 비디오 그리기 실패:", e)
@@ -2435,11 +3182,22 @@ export default function ShoppingPage() {
 
       // BGM 로드 (있는 경우)
       let bgmAudio: HTMLAudioElement | null = null
+      let sfxAudio: HTMLAudioElement | null = null
       if (bgmUrl) {
+        // 새로운 BGM을 만들기 전에 이전 BGM 정리
+        if (previewBgmAudio) {
+          console.log("[Shopping] 이전 BGM 정리")
+          previewBgmAudio.pause()
+          previewBgmAudio.currentTime = 0
+          previewBgmAudio.src = "" // 오디오 소스 제거
+          previewBgmAudio.load() // 오디오 리소스 해제
+          setPreviewBgmAudio(null)
+        }
+        
         console.log("[Shopping] BGM 로드")
         bgmAudio = new Audio(bgmUrl)
         bgmAudio.volume = bgmVolume
-        bgmAudio.loop = true // BGM 반복 재생
+        bgmAudio.loop = false // 시간대에 맞게 재생하므로 loop 해제
         
         await new Promise<void>((resolve, reject) => {
           if (!bgmAudio) {
@@ -2462,7 +3220,41 @@ export default function ShoppingPage() {
         if (previewBgmAudio) {
           previewBgmAudio.pause()
           previewBgmAudio.currentTime = 0
+          previewBgmAudio.src = "" // 오디오 소스 제거
+          previewBgmAudio.load() // 오디오 리소스 해제
           setPreviewBgmAudio(null)
+        }
+      }
+
+      // 효과음 로드 (있는 경우)
+      if (sfxUrl) {
+        console.log("[Shopping] 효과음 로드")
+        sfxAudio = new Audio(sfxUrl)
+        sfxAudio.volume = sfxVolume
+        sfxAudio.loop = false
+        
+        await new Promise<void>((resolve, reject) => {
+          if (!sfxAudio) {
+            reject(new Error("효과음 생성 실패"))
+            return
+          }
+          sfxAudio.onloadeddata = () => {
+            setPreviewSfxAudio(sfxAudio)
+            resolve()
+          }
+          sfxAudio.onerror = (e) => {
+            console.warn("[Shopping] 효과음 로드 실패, 계속 진행:", e)
+            sfxAudio = null
+            setPreviewSfxAudio(null)
+            resolve()
+          }
+        })
+      } else {
+        // 효과음이 없으면 기존 효과음 정리
+        if (previewSfxAudio) {
+          previewSfxAudio.pause()
+          previewSfxAudio.currentTime = 0
+          setPreviewSfxAudio(null)
         }
       }
 
@@ -2557,14 +3349,28 @@ export default function ShoppingPage() {
         if (previewVideoRef.current) {
           previewVideoRef.current.pause()
         }
-        // BGM 일시정지 및 정지
-        if (bgmAudio) {
-          bgmAudio.pause()
-          bgmAudio.currentTime = 0 // BGM 시간 초기화
-        }
+        // BGM 강제 정지 (previewBgmAudio만 사용)
         if (previewBgmAudio) {
           previewBgmAudio.pause()
           previewBgmAudio.currentTime = 0
+          // 오디오 소스 제거하여 완전히 정지
+          try {
+            previewBgmAudio.src = ""
+            previewBgmAudio.load()
+          } catch (e) {
+            console.warn("[Shopping] BGM 정리 중 오류:", e)
+          }
+        }
+        // 효과음 강제 정지
+        if (previewSfxAudio) {
+          previewSfxAudio.pause()
+          previewSfxAudio.currentTime = 0
+          try {
+            previewSfxAudio.src = ""
+            previewSfxAudio.load()
+          } catch (e) {
+            console.warn("[Shopping] 효과음 정리 중 오류:", e)
+          }
         }
       })
 
@@ -2573,21 +3379,144 @@ export default function ShoppingPage() {
         const elapsed = audio.currentTime
         setCurrentTime(elapsed)
 
+        // 오디오가 끝났으면 BGM과 효과음 모두 정지
+        if (audio.ended || elapsed >= audio.duration) {
+          if (previewBgmAudio && !previewBgmAudio.paused) {
+            previewBgmAudio.pause()
+            const bgmDuration = previewBgmAudio.duration
+            if (isFinite(bgmDuration)) {
+              previewBgmAudio.currentTime = 0
+            }
+          }
+          if (previewSfxAudio && !previewSfxAudio.paused) {
+            previewSfxAudio.pause()
+            const sfxDuration = previewSfxAudio.duration
+            if (isFinite(sfxDuration)) {
+              previewSfxAudio.currentTime = 0
+            }
+          }
+          return
+        }
+
+        // BGM 시간대 체크 및 재생/정지 (previewBgmAudio만 사용)
+        if (previewBgmAudio && bgmUrl) {
+          // duration이 유효한지 확인 (NaN, Infinity 체크)
+          const bgmDuration = previewBgmAudio.duration
+          if (isFinite(bgmDuration) && bgmDuration > 0) {
+            // 먼저 종료 시간에 도달했거나 넘어갔는지 체크 (가장 우선순위) - 엄격한 체크
+            // bgmEndTime에 도달하면 즉시 정지 (예: 10초에 도달하면 정지)
+            // 이 체크를 먼저 수행하여 BGM이 재생 중이든 아니든 무조건 정지
+            // CRITICAL: 이 체크는 매 timeupdate마다 반드시 실행되어야 함
+            if (elapsed >= bgmEndTime || elapsed < bgmStartTime || elapsed >= audio.duration || audio.ended) {
+              // BGM이 재생 중이면 즉시 정지 (강제 정지) - 무조건 정지
+              if (!previewBgmAudio.paused) {
+                console.log(`[Shopping] ⛔ BGM 강제 정지: elapsed=${elapsed.toFixed(2)}초, bgmEndTime=${bgmEndTime}초, bgmStartTime=${bgmStartTime}초`)
+                previewBgmAudio.pause()
+                previewBgmAudio.currentTime = 0
+              }
+              // 재생 시간대 밖이므로 더 이상 진행하지 않음 (return으로 빠져나감)
+              return // 이 시점에서 더 이상 BGM 로직을 실행하지 않음
+            }
+            
+            // BGM 재생 시간대 내에 있을 때만 재생
+            if (elapsed >= bgmStartTime && elapsed < bgmEndTime && elapsed < audio.duration && !audio.ended) {
+              // BGM 재생 시간대 내에 있고 오디오가 아직 끝나지 않았을 때만 재생
+              // 주의: elapsed < bgmEndTime (등호 없음) - 종료 시간에 도달하면 재생하지 않음
+              const bgmOffset = elapsed - bgmStartTime
+              const safeCurrentTime = Math.max(0, Math.min(bgmOffset % bgmDuration, bgmDuration))
+              
+              if (previewBgmAudio.paused) {
+                // BGM이 일시정지 상태면 재생 시작
+                if (isFinite(safeCurrentTime)) {
+                  previewBgmAudio.currentTime = safeCurrentTime
+                  previewBgmAudio.play().catch(() => {})
+                }
+              } else {
+                // BGM이 재생 중이면 종료 시간을 넘어가지 않았는지 매번 확인 (매우 중요!)
+                // 매 timeupdate마다 체크하여 종료 시간에 도달하면 즉시 정지
+                // 가장 먼저 종료 시간 체크 (우선순위 최상위) - 재생 중일 때도 반드시 체크
+                if (elapsed >= bgmEndTime || elapsed >= audio.duration || audio.ended) {
+                  // 종료 시간에 도달했거나 넘어갔거나 오디오가 끝났으면 즉시 정지
+                  console.log(`[Shopping] BGM 재생 중 종료 시간 도달: elapsed=${elapsed.toFixed(2)}초, bgmEndTime=${bgmEndTime}초, paused=${previewBgmAudio.paused}`)
+                  previewBgmAudio.pause()
+                  previewBgmAudio.currentTime = 0
+                  // 정지 후 더 이상 진행하지 않음 (return으로 빠져나감)
+                  return
+                }
+                
+                // 종료 시간 내에 있을 때만 시간 동기화
+                if (elapsed < bgmEndTime) {
+                  // 종료 시간 내에 있으면 시간 동기화 (0.1초 이상 차이나면)
+                  if (Math.abs(previewBgmAudio.currentTime - safeCurrentTime) > 0.1) {
+                    previewBgmAudio.currentTime = safeCurrentTime
+                  }
+                }
+              }
+            } else {
+              // BGM 재생 시간대 밖이면 무조건 정지
+              if (!previewBgmAudio.paused) {
+                console.log(`[Shopping] BGM 재생 시간대 밖: elapsed=${elapsed.toFixed(2)}초, bgmStartTime=${bgmStartTime}초, bgmEndTime=${bgmEndTime}초`)
+                previewBgmAudio.pause()
+                previewBgmAudio.currentTime = 0
+              }
+            }
+          }
+        }
+
+        // 효과음 시간대 체크 및 재생/정지 (previewSfxAudio만 사용)
+        if (previewSfxAudio && sfxUrl) {
+          // duration이 유효한지 확인 (NaN, Infinity 체크)
+          const sfxDuration = previewSfxAudio.duration
+          if (isFinite(sfxDuration) && sfxDuration > 0) {
+            // sfxEndTime을 넘어갔거나 sfxStartTime 이전이거나 오디오가 끝났으면 무조건 효과음 정지
+            if (elapsed >= sfxEndTime || elapsed < sfxStartTime || elapsed >= audio.duration) {
+              if (!previewSfxAudio.paused) {
+                previewSfxAudio.pause()
+                previewSfxAudio.currentTime = 0
+              }
+            } else if (elapsed >= sfxStartTime && elapsed < sfxEndTime && elapsed < audio.duration) {
+              // 효과음 재생 시간대 내에 있고 오디오가 아직 끝나지 않았을 때만 재생
+              const sfxOffset = elapsed - sfxStartTime
+              const safeCurrentTime = Math.max(0, Math.min(sfxOffset, sfxDuration))
+              
+              if (previewSfxAudio.paused) {
+                // 효과음이 일시정지 상태면 재생 시작
+                if (isFinite(safeCurrentTime)) {
+                  previewSfxAudio.currentTime = safeCurrentTime
+                  previewSfxAudio.play().catch(() => {})
+                }
+              } else {
+                // 효과음이 재생 중이면 시간 동기화 (0.1초 이상 차이나면)
+                if (Math.abs(previewSfxAudio.currentTime - safeCurrentTime) > 0.1) {
+                  previewSfxAudio.currentTime = safeCurrentTime
+                }
+              }
+            }
+          }
+        }
+
         // 오디오가 끝났는지 확인
-        if (audio.ended) {
+        if (audio.ended || elapsed >= audio.duration) {
           setIsPlaying(false)
           // 비디오 일시정지
           if (previewVideoRef.current) {
             previewVideoRef.current.pause()
           }
-          // BGM 일시정지 및 정지
-          if (bgmAudio) {
-            bgmAudio.pause()
-            bgmAudio.currentTime = 0
-          }
+          // BGM 일시정지 및 정지 (previewBgmAudio만 사용)
           if (previewBgmAudio) {
             previewBgmAudio.pause()
-            previewBgmAudio.currentTime = 0
+            const bgmDuration = previewBgmAudio.duration
+            if (isFinite(bgmDuration)) {
+              previewBgmAudio.currentTime = 0
+            }
+          }
+          // 효과음 일시정지 및 정지 (previewSfxAudio만 사용)
+          if (previewSfxAudio) {
+            previewSfxAudio.pause()
+            const sfxDuration = previewSfxAudio.duration
+            if (isFinite(sfxDuration)) {
+              previewSfxAudio.currentTime = 0
+            }
           }
           return
         }
@@ -2772,14 +3701,13 @@ export default function ShoppingPage() {
       if (previewBgmAudio) {
         previewBgmAudio.pause()
       }
-      setIsPlaying(false)
-        } else {
-      previewAudio.play()
-      // BGM 재생 (있는 경우)
-      if (previewBgmAudio) {
-        previewBgmAudio.currentTime = 0
-        previewBgmAudio.play().catch(() => {})
+      // 효과음 일시정지
+      if (previewSfxAudio) {
+        previewSfxAudio.pause()
       }
+      setIsPlaying(false)
+    } else {
+      previewAudio.play()
       setIsPlaying(true)
       
       // 비디오 재생 시작 (롱폼 방식: 단순하게)
@@ -2787,6 +3715,55 @@ export default function ShoppingPage() {
         previewVideoRef.current.loop = true
         previewVideoRef.current.currentTime = 0
         previewVideoRef.current.play().catch(() => {})
+      }
+      
+      // 재생 시작 시점에 BGM과 효과음 체크 및 재생
+      const elapsed = previewAudio.currentTime
+      const audioDuration = previewAudio.duration
+      
+      // BGM 체크 및 재생 (종료 시간을 넘어간 경우 재생하지 않음)
+      if (previewBgmAudio && bgmUrl && !previewAudio.ended && audioDuration > 0) {
+        const bgmDuration = previewBgmAudio.duration
+        if (isFinite(bgmDuration) && bgmDuration > 0) {
+          // 종료 시간에 도달했거나 넘어갔거나 시작 시간 이전이면 재생하지 않음 (엄격한 체크)
+          // bgmEndTime에 도달하면 즉시 정지 (예: 10초에 도달하면 정지)
+          if (elapsed >= bgmEndTime || elapsed < bgmStartTime || elapsed >= audioDuration || previewAudio.ended) {
+            // BGM이 재생 중이면 정지
+            if (!previewBgmAudio.paused) {
+              previewBgmAudio.pause()
+              previewBgmAudio.currentTime = 0
+            }
+          } else if (elapsed >= bgmStartTime && elapsed < bgmEndTime && elapsed < audioDuration && !previewAudio.ended) {
+            // BGM 재생 시간대 내에 있을 때만 재생 (elapsed < bgmEndTime - 종료 시간에 도달하면 재생하지 않음)
+            const bgmOffset = elapsed - bgmStartTime
+            const safeCurrentTime = Math.max(0, Math.min(bgmOffset % bgmDuration, bgmDuration))
+            if (isFinite(safeCurrentTime)) {
+              previewBgmAudio.currentTime = safeCurrentTime
+              previewBgmAudio.play().catch(() => {})
+            }
+          } else {
+            // BGM 재생 시간대 밖이면 무조건 정지
+            if (!previewBgmAudio.paused) {
+              previewBgmAudio.pause()
+              previewBgmAudio.currentTime = 0
+            }
+          }
+        }
+      }
+      
+      // 효과음 체크 및 재생
+      if (previewSfxAudio && sfxUrl && !previewAudio.ended && audioDuration > 0) {
+        const sfxDuration = previewSfxAudio.duration
+        if (isFinite(sfxDuration) && sfxDuration > 0) {
+          if (elapsed >= sfxStartTime && elapsed < sfxEndTime && elapsed < audioDuration) {
+            const sfxOffset = elapsed - sfxStartTime
+            const safeCurrentTime = Math.max(0, Math.min(sfxOffset, sfxDuration))
+            if (isFinite(safeCurrentTime)) {
+              previewSfxAudio.currentTime = safeCurrentTime
+              previewSfxAudio.play().catch(() => {})
+            }
+          }
+        }
       }
     }
   }
@@ -2864,6 +3841,7 @@ export default function ShoppingPage() {
       console.log("[Shopping] 3개 영상 로드 완료, 각 영상 길이:", videoDurations.map(d => d.toFixed(2) + "초"))
 
       // MediaRecorder 설정 (롱폼 쇼츠 생성기 방식)
+      // 부드러운 렌더링을 위해 30fps로 설정
       const stream = canvas.captureStream(30)
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
       const source = audioContext.createMediaElementSource(audio)
@@ -2873,18 +3851,78 @@ export default function ShoppingPage() {
       ttsGainNode.gain.value = ttsVolume
       source.connect(ttsGainNode)
       
-      // BGM 추가 (있는 경우)
+      // BGM 추가 (있는 경우) - bgmUrl만 있으면 추가 (파일 업로드 또는 라이브러리 선택 모두)
       let bgmGainNode: GainNode | null = null
       let bgmSource: MediaElementAudioSourceNode | null = null
-      if (bgmUrl && bgmFile) {
-        const bgmAudio = new Audio(bgmUrl)
-        bgmAudio.loop = true
-        bgmAudio.volume = bgmVolume
-        bgmSource = audioContext.createMediaElementSource(bgmAudio)
-        bgmGainNode = audioContext.createGain()
-        bgmGainNode.gain.value = bgmVolume
-        bgmSource.connect(bgmGainNode)
-        bgmAudio.play()
+      let bgmAudioElement: HTMLAudioElement | null = null
+      if (bgmUrl) {
+        bgmAudioElement = new Audio(bgmUrl)
+        bgmAudioElement.loop = false // 시간대에 맞게 재생하므로 loop 해제
+        bgmAudioElement.volume = bgmVolume
+        bgmAudioElement.preload = "auto"
+        bgmAudioElement.crossOrigin = "anonymous"
+        
+        // BGM 오디오 로드 대기
+        await new Promise<void>((resolve, reject) => {
+          if (!bgmAudioElement) {
+            resolve()
+            return
+          }
+          bgmAudioElement.onloadeddata = () => {
+            console.log("[Shopping] BGM 로드 완료")
+            resolve()
+          }
+          bgmAudioElement.onerror = (e) => {
+            console.warn("[Shopping] BGM 로드 실패, 계속 진행:", e)
+            bgmAudioElement = null
+            resolve() // BGM이 없어도 계속 진행
+          }
+          bgmAudioElement.load()
+        })
+        
+        if (bgmAudioElement) {
+          bgmSource = audioContext.createMediaElementSource(bgmAudioElement)
+          bgmGainNode = audioContext.createGain()
+          bgmGainNode.gain.value = bgmVolume
+          bgmSource.connect(bgmGainNode)
+        }
+      }
+      
+      // 효과음 추가 (있는 경우)
+      let sfxGainNode: GainNode | null = null
+      let sfxSource: MediaElementAudioSourceNode | null = null
+      let sfxAudioElement: HTMLAudioElement | null = null
+      if (sfxUrl) {
+        sfxAudioElement = new Audio(sfxUrl)
+        sfxAudioElement.loop = false
+        sfxAudioElement.volume = sfxVolume
+        sfxAudioElement.preload = "auto"
+        sfxAudioElement.crossOrigin = "anonymous"
+        
+        // 효과음 오디오 로드 대기
+        await new Promise<void>((resolve, reject) => {
+          if (!sfxAudioElement) {
+            resolve()
+            return
+          }
+          sfxAudioElement.onloadeddata = () => {
+            console.log("[Shopping] 효과음 로드 완료")
+            resolve()
+          }
+          sfxAudioElement.onerror = (e) => {
+            console.warn("[Shopping] 효과음 로드 실패, 계속 진행:", e)
+            sfxAudioElement = null
+            resolve() // 효과음이 없어도 계속 진행
+          }
+          sfxAudioElement.load()
+        })
+        
+        if (sfxAudioElement) {
+          sfxSource = audioContext.createMediaElementSource(sfxAudioElement)
+          sfxGainNode = audioContext.createGain()
+          sfxGainNode.gain.value = sfxVolume
+          sfxSource.connect(sfxGainNode)
+        }
       }
       
       const destination = audioContext.createMediaStreamDestination()
@@ -2892,14 +3930,18 @@ export default function ShoppingPage() {
       if (bgmGainNode) {
         bgmGainNode.connect(destination)
       }
+      if (sfxGainNode) {
+        sfxGainNode.connect(destination)
+      }
 
       const videoTrack = stream.getVideoTracks()[0]
       const audioTrack = destination.stream.getAudioTracks()[0]
       const combinedStream = new MediaStream([videoTrack, audioTrack])
 
+      // 부드러운 렌더링을 위한 MediaRecorder 설정
       const mediaRecorder = new MediaRecorder(combinedStream, {
         mimeType: "video/webm;codecs=vp9,opus",
-        videoBitsPerSecond: 5000000,
+        videoBitsPerSecond: 5000000, // 5Mbps (고품질)
       })
 
       const chunks: Blob[] = []
@@ -2932,69 +3974,197 @@ export default function ShoppingPage() {
       // 썸네일 이미지 로드 (있는 경우) - 미리보기에서 사용한 것 재사용
       let thumbnailImage: HTMLImageElement | null = previewThumbnailImage
 
+      // AudioContext가 suspended 상태면 resume
+      if (audioContext.state === "suspended") {
+        await audioContext.resume()
+        console.log("[Shopping] AudioContext resumed")
+      }
+
       // 렌더링 시작 (롱폼 쇼츠 생성기 방식)
       mediaRecorder.start()
       audio.play()
+      
+      // BGM과 효과음이 AudioContext를 통해 재생되도록 확인
+      console.log("[Shopping] 렌더링 시작 - BGM:", bgmUrl ? "있음" : "없음", "효과음:", sfxUrl ? "있음" : "없음")
 
       // 롱폼 쇼츠 생성기 방식으로 렌더링 (썸네일 + 3개 영상 순차 재생)
-      const THUMBNAIL_DURATION = 0.00001 // 0.00001초로 변경
+      // 미리보기와 완전히 동일한 로직 사용
+      const THUMBNAIL_DURATION = 0.0001 // 미리보기와 동일하게 0.0001초
       let scriptLinesToUse = scriptLines
 
-      // 각 영상의 시작 시간 계산
-      const videoStartTimes = [THUMBNAIL_DURATION]
-      for (let i = 0; i < 3; i++) {
-        const startTime = i === 0 
-          ? THUMBNAIL_DURATION 
-          : videoStartTimes[i] + videoDurations[i - 1]
-        videoStartTimes.push(startTime)
+      // 각 영상의 시작 시간 계산 (미리보기와 동일한 방식)
+      let accumulatedTime = 0
+      const videoStartTimes: number[] = []
+      for (let i = 0; i < videoDurations.length; i++) {
+        videoStartTimes.push(accumulatedTime)
+        accumulatedTime += videoDurations[i]
       }
+
+      console.log("[Shopping] 렌더링 - 각 영상의 시작 시간:", videoStartTimes.map(t => t.toFixed(2) + "초"))
+
+      let lastVideoIndex = -1 // 미리보기와 동일하게 lastVideoIndex 사용
 
       const renderFrame = () => {
         const elapsed = audio.currentTime
+
+        // BGM 시간대 체크 및 재생/정지 (렌더링 중에도 동기화)
+        if (bgmAudioElement && bgmUrl) {
+          // bgmEndTime을 넘어갔거나 bgmStartTime 이전이면 무조건 정지
+          if (elapsed >= bgmEndTime || elapsed < bgmStartTime) {
+            if (!bgmAudioElement.paused) {
+              bgmAudioElement.pause()
+              bgmAudioElement.currentTime = 0
+            }
+          } else if (elapsed >= bgmStartTime && elapsed < bgmEndTime) {
+            // BGM 재생 시간대 내에 있을 때만 재생
+            if (bgmAudioElement.paused) {
+              // BGM 시작 시간에 맞춰 오디오 위치 설정
+              const bgmOffset = elapsed - bgmStartTime
+              const bgmDuration = bgmAudioElement.duration
+              if (isFinite(bgmDuration) && bgmDuration > 0) {
+                const safeCurrentTime = Math.max(0, Math.min(bgmOffset % bgmDuration, bgmDuration))
+                if (isFinite(safeCurrentTime)) {
+                  bgmAudioElement.currentTime = safeCurrentTime
+                  bgmAudioElement.play().catch(() => {})
+                }
+              }
+            } else {
+              // 재생 중일 때도 시간 동기화 (0.1초 이상 차이나면)
+              const bgmOffset = elapsed - bgmStartTime
+              const bgmDuration = bgmAudioElement.duration
+              if (isFinite(bgmDuration) && bgmDuration > 0) {
+                const targetTime = Math.max(0, Math.min(bgmOffset % bgmDuration, bgmDuration))
+                if (Math.abs(bgmAudioElement.currentTime - targetTime) > 0.1) {
+                  bgmAudioElement.currentTime = targetTime
+                }
+              }
+            }
+          }
+        }
+
+        // 효과음 시간대 체크 및 재생/정지 (렌더링 중에도 동기화)
+        if (sfxAudioElement && sfxUrl) {
+          if (elapsed >= sfxStartTime && elapsed < sfxEndTime) {
+            // 효과음 재생 시간대 내에 있을 때만 재생
+            if (sfxAudioElement.paused) {
+              // 효과음 시작 시간에 맞춰 오디오 위치 설정
+              const sfxOffset = elapsed - sfxStartTime
+              const sfxDuration = sfxAudioElement.duration
+              if (isFinite(sfxDuration) && sfxDuration > 0) {
+                const safeCurrentTime = Math.max(0, Math.min(sfxOffset, sfxDuration))
+                if (isFinite(safeCurrentTime)) {
+                  sfxAudioElement.currentTime = safeCurrentTime
+                  sfxAudioElement.play().catch(() => {})
+                }
+              }
+            }
+          } else {
+            // 효과음 시간대 밖이면 정지
+            if (!sfxAudioElement.paused) {
+              sfxAudioElement.pause()
+              sfxAudioElement.currentTime = 0
+            }
+          }
+        }
 
         // 캔버스 초기화
         ctx.fillStyle = "black"
         ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-        // 썸네일이 있고 0.00001초 이하일 때 썸네일 표시
+        // 썸네일이 있고 0.0001초 이하일 때 썸네일 표시 (미리보기와 동일)
+        const adjustedElapsed = Math.max(0, elapsed - THUMBNAIL_DURATION) // 미리보기와 동일하게 adjustedElapsed 사용
+        
         if (thumbnailImage && elapsed < THUMBNAIL_DURATION) {
           ctx.drawImage(thumbnailImage, 0, 0, canvas.width, canvas.height)
         } else {
-          // 썸네일 시간이 지나면 현재 시간에 맞는 영상 찾기
+          // 썸네일 시간이 지나면 기존 영상 표시 (미리보기와 동일)
+          // 현재 시간에 맞는 영상 찾기 (썸네일 시간 제외)
           let currentVideoIndex = -1
-          let videoTime = 0
-          
-          for (let i = 0; i < 3; i++) {
-            const startTime = videoStartTimes[i + 1]
-            const endTime = startTime + videoDurations[i]
+          for (let i = 0; i < videoStartTimes.length; i++) {
+            const startTime = videoStartTimes[i]
+            const endTime = i < videoStartTimes.length - 1 ? videoStartTimes[i + 1] : startTime + videoDurations[i]
             
-            if (elapsed >= startTime && elapsed < endTime) {
+            if (adjustedElapsed >= startTime && adjustedElapsed < endTime) {
               currentVideoIndex = i
-              videoTime = elapsed - startTime
               break
             }
           }
-          
-          // 현재 시간에 맞는 영상 재생
-          if (currentVideoIndex >= 0) {
-            const video = videoElements[currentVideoIndex]
+
+          // 비디오 전환 시에만 처리 (미리보기와 동일)
+          if (currentVideoIndex !== lastVideoIndex) {
+            // 이전 비디오 일시정지
+            if (lastVideoIndex >= 0 && videoElements[lastVideoIndex]) {
+              videoElements[lastVideoIndex].pause()
+              videoElements[lastVideoIndex].currentTime = 0
+            }
             
-            if (video && !isNaN(video.duration) && video.duration > 0) {
-              // 시간 차이가 크면 동기화
-              if (Math.abs(video.currentTime - videoTime) > 0.3) {
-                video.currentTime = videoTime
-              }
+            // 새 비디오 재생 시작
+            if (currentVideoIndex >= 0 && videoElements[currentVideoIndex]) {
+              const video = videoElements[currentVideoIndex]
+              const videoStartTime = videoStartTimes[currentVideoIndex]
+              const videoElapsed = adjustedElapsed - videoStartTime
               
-              // 비디오 재생 보장
-              if (video.paused) {
+              if (video && !isNaN(video.duration) && video.duration > 0) {
+                // 시작 시간 설정
+                video.currentTime = Math.max(0, Math.min(videoElapsed, video.duration))
+                // 비디오 재생 (자체적으로 재생되도록)
                 video.play().catch(() => {})
               }
             }
+            
+            lastVideoIndex = currentVideoIndex
+          }
 
-            // 영상을 캔버스에 그리기 (미리보기와 동일)
+          // 현재 영상을 캔버스에 그리기 (렌더링 최적화: 매 프레임마다 동기화, 비율 유지)
+          if (currentVideoIndex >= 0 && videoElements[currentVideoIndex]) {
+            const currentVideo = videoElements[currentVideoIndex]
+            const videoStartTime = videoStartTimes[currentVideoIndex]
+            const videoElapsed = adjustedElapsed - videoStartTime
+            
+            // 렌더링 시에는 매 프레임마다 비디오 시간을 오디오에 맞춰 동기화 (부드러운 재생을 위해)
+            if (currentVideo && !isNaN(currentVideo.duration) && currentVideo.duration > 0) {
+              const targetTime = Math.max(0, Math.min(videoElapsed, currentVideo.duration))
+              // 시간 차이가 0.1초 이상이면 동기화 (너무 자주 설정하지 않도록)
+              if (Math.abs(currentVideo.currentTime - targetTime) > 0.1) {
+                currentVideo.currentTime = targetTime
+              }
+              
+              // 비디오가 일시정지되어 있으면 재생
+              if (currentVideo.paused) {
+                currentVideo.play().catch(() => {})
+              }
+            }
+            
             try {
-              if (video && (video.readyState >= 2 || (video.videoWidth > 0 && video.videoHeight > 0))) {
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+              if (currentVideo.readyState >= 2 || (currentVideo.videoWidth > 0 && currentVideo.videoHeight > 0)) {
+                const videoWidth = currentVideo.videoWidth
+                const videoHeight = currentVideo.videoHeight
+                const canvasWidth = canvas.width
+                const canvasHeight = canvas.height
+                
+                // 비디오와 캔버스의 비율 계산
+                const videoAspect = videoWidth / videoHeight
+                const canvasAspect = canvasWidth / canvasHeight
+                
+                let drawWidth = canvasWidth
+                let drawHeight = canvasHeight
+                let drawX = 0
+                let drawY = 0
+                
+                // 비율에 맞춰 중앙 크롭 (cover 방식)
+                if (videoAspect > canvasAspect) {
+                  // 비디오가 더 넓음 - 높이에 맞추고 좌우 크롭
+                  drawHeight = canvasHeight
+                  drawWidth = drawHeight * videoAspect
+                  drawX = (canvasWidth - drawWidth) / 2
+                } else {
+                  // 비디오가 더 높음 - 너비에 맞추고 상하 크롭
+                  drawWidth = canvasWidth
+                  drawHeight = drawWidth / videoAspect
+                  drawY = (canvasHeight - drawHeight) / 2
+                }
+                
+                ctx.drawImage(currentVideo, 0, 0, videoWidth, videoHeight, drawX, drawY, drawWidth, drawHeight)
               }
             } catch (e) {
               // 그리기 실패 시 무시
@@ -3002,32 +4172,34 @@ export default function ShoppingPage() {
           }
         }
 
-        // 자막 그리기 (썸네일 시간 제외)
+        // 자막 그리기 (썸네일 시간 동안에는 표시하지 않음) - 미리보기와 동일
         if (scriptLinesToUse.length > 0 && (!thumbnailImage || elapsed >= THUMBNAIL_DURATION)) {
-          const elapsedMs = elapsed * 1000
-          
-          // 현재 시간에 맞는 자막 찾기 (미리보기와 동일)
+          const elapsedMs = adjustedElapsed * 1000 // adjustedElapsed 사용
           const currentLine = scriptLinesToUse.find(
             line => elapsedMs >= line.startTime && elapsedMs < line.endTime
-        )
-
-        if (currentLine) {
-            // 텍스트를 10자씩 나누기 (미리보기와 동일)
-          const fullText = currentLine.text
-          const chunkSize = 10
-          const chunks: string[] = []
-          for (let i = 0; i < fullText.length; i += chunkSize) {
-            chunks.push(fullText.slice(i, i + chunkSize))
-          }
+          )
           
+          if (currentLine) {
+            // 텍스트를 10자씩 나누기 (미리보기와 동일)
+            const fullText = currentLine.text
+            const chunkSize = 10
+            const chunks: string[] = []
+            for (let i = 0; i < fullText.length; i += chunkSize) {
+              chunks.push(fullText.slice(i, i + chunkSize))
+            }
+            
             // 현재 시간 기준으로 몇 번째 청크를 보여줄지 계산 (미리보기와 동일)
             const lineDuration = currentLine.endTime - currentLine.startTime
-          const chunkDuration = lineDuration / chunks.length
+            const chunkDuration = lineDuration / chunks.length
             const timeInLine = elapsedMs - currentLine.startTime
-          const currentChunkIndex = Math.min(Math.floor(timeInLine / chunkDuration), chunks.length - 1)
-          const textToShow = chunks[currentChunkIndex] || chunks[0]
-          
-            // 자막 위치 계산 (subtitleStyle.position 기반 + positionOffset)
+            const currentChunkIndex = Math.min(Math.floor(timeInLine / chunkDuration), chunks.length - 1)
+            const textToShow = chunks[currentChunkIndex] || chunks[0]
+            
+            // 자막 위치 계산 (subtitleStyle 설정 반영)
+            // 캔버스 크기: 1080x1920, 미리보기 크기: 533px 기준
+            // 미리보기에서는 fontSize * 0.6을 사용하므로, 렌더링에서도 동일한 비율 적용
+            const previewHeight = 533 // 미리보기 높이 (px)
+            const scaleFactor = canvas.height / previewHeight // 스케일 팩터 계산
             let baseY: number
             if (subtitleStyle.position === "top") {
               baseY = canvas.height * 0.15
@@ -3036,54 +4208,87 @@ export default function ShoppingPage() {
             } else {
               baseY = canvas.height * 0.85
             }
-            // positionOffset 적용 (픽셀 단위, 캔버스 크기에 비례하여 스케일링)
-            const scaleFactor = canvas.height / 1920 // 1920px 기준 스케일링
-            const subtitleY = baseY + (subtitleStyle.positionOffset * scaleFactor)
-
-            // 자막 스타일 적용
-            const fontSize = subtitleStyle.fontSize * (canvas.width / 540) // 540px 기준으로 스케일링
+            // positionOffset을 캔버스 크기에 맞게 스케일링
+            const offsetY = subtitleStyle.positionOffset * scaleFactor
+            const subtitleY = baseY + offsetY
+            
+            // 자막 스타일 적용 (미리보기와 동일한 비율: fontSize * 0.6 * scaleFactor)
+            const fontSize = subtitleStyle.fontSize * 0.6 * scaleFactor
             ctx.font = `${subtitleStyle.fontWeight} ${fontSize}px '${subtitleStyle.fontFamily}', sans-serif`
             ctx.textAlign = subtitleStyle.textAlign
             ctx.textBaseline = "middle"
-
-            // 배경 그리기
-            const metrics = ctx.measureText(textToShow)
-            const textWidth = metrics.width
+            
+            // 텍스트 크기 측정 (배경 그리기용)
+            const textMetrics = ctx.measureText(textToShow)
+            const textWidth = textMetrics.width
             const textHeight = fontSize
-            const padding = 20
-            const bgX = subtitleStyle.textAlign === "center" 
-              ? (canvas.width - textWidth) / 2 - padding
-              : subtitleStyle.textAlign === "right"
-              ? canvas.width - textWidth - padding * 2
-              : padding
-            const bgY = subtitleY - textHeight / 2 - padding
-            const bgWidth = textWidth + padding * 2
-            const bgHeight = textHeight + padding * 2
-
-            ctx.fillStyle = subtitleStyle.backgroundColor
-            ctx.fillRect(bgX, bgY, bgWidth, bgHeight)
-
-            // 텍스트 그리기
-            if (subtitleStyle.textShadow) {
-              ctx.strokeStyle = "rgba(0, 0, 0, 0.8)"
-              ctx.lineWidth = 4
-              ctx.strokeText(textToShow, canvas.width / 2, subtitleY)
+            const padding = fontSize * 0.2 // 패딩 계산
+            
+            // 배경 그리기 (backgroundColor가 투명도가 있으면)
+            if (subtitleStyle.backgroundColor && subtitleStyle.backgroundColor !== "transparent") {
+              const bgColor = subtitleStyle.backgroundColor
+              ctx.fillStyle = bgColor
+              
+              // 텍스트 정렬에 따라 배경 위치 조정
+              let bgX: number
+              if (subtitleStyle.textAlign === "center") {
+                bgX = canvas.width / 2 - textWidth / 2 - padding
+              } else if (subtitleStyle.textAlign === "right") {
+                bgX = canvas.width - textWidth - padding * 2
+              } else {
+                bgX = padding
+              }
+              
+              const bgY = subtitleY - textHeight / 2 - padding
+              const bgWidth = textWidth + padding * 2
+              const bgHeight = textHeight + padding * 2
+              
+              // 둥근 모서리 배경 (간단한 사각형으로 대체)
+              ctx.fillRect(bgX, bgY, bgWidth, bgHeight)
             }
+            
+            // 텍스트 그림자 (textShadow가 true인 경우)
+            if (subtitleStyle.textShadow) {
+              ctx.shadowColor = "rgba(0, 0, 0, 0.8)"
+              ctx.shadowBlur = fontSize * 0.1
+              ctx.shadowOffsetX = fontSize * 0.02
+              ctx.shadowOffsetY = fontSize * 0.02
+            } else {
+              ctx.shadowColor = "transparent"
+              ctx.shadowBlur = 0
+              ctx.shadowOffsetX = 0
+              ctx.shadowOffsetY = 0
+            }
+            
+            // 텍스트 정렬에 따라 X 위치 계산
+            let textX: number
+            if (subtitleStyle.textAlign === "center") {
+              textX = canvas.width / 2
+            } else if (subtitleStyle.textAlign === "right") {
+              textX = canvas.width - padding
+            } else {
+              textX = padding
+            }
+            
+            // 자막 텍스트 그리기
             ctx.fillStyle = subtitleStyle.color
-            ctx.lineWidth = 12
-          ctx.lineJoin = "round"
-          ctx.strokeText(textToShow, canvas.width / 2, subtitleY)
-          
-          // 흰색 글씨
-          ctx.fillStyle = "white"
-          ctx.fillText(textToShow, canvas.width / 2, subtitleY)
+            ctx.fillText(textToShow, textX, subtitleY)
           }
         }
 
         // 다음 프레임 요청 (롱폼 쇼츠 생성기 방식)
         if (!audio.paused && elapsed < actualAudioDuration) {
-        requestAnimationFrame(renderFrame)
+          requestAnimationFrame(renderFrame)
         } else {
+          // 렌더링 종료 시 BGM 및 효과음 정리
+          if (bgmAudioElement) {
+            bgmAudioElement.pause()
+            bgmAudioElement.currentTime = 0
+          }
+          if (sfxAudioElement) {
+            sfxAudioElement.pause()
+            sfxAudioElement.currentTime = 0
+          }
           mediaRecorder.stop()
           audio.pause()
         }
@@ -3111,6 +4316,22 @@ export default function ShoppingPage() {
       alert("Replicate API 키가 필요합니다. 메인 화면의 설정(톱니바퀴 아이콘)에서 API 키를 입력해주세요.")
       return
     }
+
+    // 즉시 로딩 상태 표시 (모든 영상에 대해)
+    setIsGeneratingVideoPrompts((prev) => {
+      const newMap = new Map(prev)
+      newMap.set(0, true)
+      newMap.set(1, true)
+      newMap.set(2, true)
+      return newMap
+    })
+    setIsConvertingToVideo((prev) => {
+      const newMap = new Map(prev)
+      newMap.set(0, true)
+      newMap.set(1, true)
+      newMap.set(2, true)
+      return newMap
+    })
 
     setError("")
     
@@ -3150,12 +4371,20 @@ export default function ShoppingPage() {
       }
       
       // 각 이미지당 영상 길이 계산 (TTS 길이를 3으로 나누고 반올림)
+      // CRITICAL: 각 영상은 반드시 TTS 길이 / 3으로 고정되어야 함
       const durationPerVideo = Math.round(totalTtsDuration / 3)
+      
+      // durationPerVideo가 유효한지 확인 (0보다 커야 함)
+      if (!durationPerVideo || durationPerVideo <= 0) {
+        throw new Error(`영상 길이 계산 오류: durationPerVideo=${durationPerVideo}초 (TTS: ${totalTtsDuration}초)`)
+      }
+      
       console.log(`[Shopping] 📊 TTS 길이 계산 결과:`)
       console.log(`  - TTS 전체 길이: ${totalTtsDuration}초`)
       console.log(`  - 각 이미지당 duration: ${totalTtsDuration} / 3 = ${(totalTtsDuration / 3).toFixed(2)}초`)
       console.log(`  - 반올림된 duration: ${durationPerVideo}초`)
       console.log(`  - 총 영상 길이 (예상): ${durationPerVideo * 3}초`)
+      console.log(`  - ⚠️ CRITICAL: 각 영상은 반드시 ${durationPerVideo}초로 생성되어야 합니다. TTS 전체 길이(${totalTtsDuration}초)가 아닙니다!`)
       
       // 각 영상의 sample_shift 계산 (각 영상 길이에 맞게)
       const sampleShiftPerVideo = Math.max(8, Math.min(16, durationPerVideo))
@@ -3164,13 +4393,93 @@ export default function ShoppingPage() {
       
       const videoResults: Array<{ index: number; videoUrl: string; duration: number; sceneType: string }> = []
       const newVideoMap = new Map<number, string>()
+      const sceneNames = ["제품 사용 영상", "디테일 영상", "다른 배경 영상"]
       
-      // 3개 이미지를 각각 영상으로 변환
+      // 기존에 생성된 영상이 있으면 유지
+      const existingVideos = new Map(convertedVideoUrls)
+      
+      // 1단계: 모든 이미지에 대한 프롬프트를 먼저 생성 (OpenAI API 활용)
+      console.log(`[Shopping] 📝 1단계: 영상 프롬프트 생성 시작 (OpenAI API 활용)`)
+      const videoPromptsMap = new Map<number, string>()
+      
       for (let i = 0; i < 3; i++) {
-        const imageUrl = imageUrls[i]
-        const sceneNames = ["제품 사용 영상", "디테일 영상", "다른 배경 영상"]
+        // 이미 생성된 영상이 있으면 프롬프트도 건너뛰기 (기존 프롬프트가 있으면 사용)
+        if (existingVideos.has(i) && videoPrompts.has(i)) {
+          console.log(`[Shopping] ⏭️ ${sceneNames[i]} 프롬프트 이미 존재, 건너뜀`)
+          videoPromptsMap.set(i, videoPrompts.get(i)!)
+          continue
+        }
         
-        // 변환 시작 상태 업데이트 (이전 상태 유지)
+        // 프롬프트 생성 중 상태 업데이트
+        setIsGeneratingVideoPrompts((prev) => {
+          const newMap = new Map(prev)
+          newMap.set(i, true)
+          return newMap
+        })
+        
+        try {
+          console.log(`[Shopping] 🤖 ${sceneNames[i]} 프롬프트 생성 중... (${i + 1}/3)`)
+          
+          // OpenAI API를 활용하여 제품 행동 프롬프트 생성
+          const videoPrompt = await generateVideoPromptForImage(
+            i as 0 | 1 | 2,
+            productName,
+            productDescription,
+            durationPerVideo,
+            openaiApiKey // AI 행동 프롬프트 생성용 API 키
+          )
+          
+          console.log(`[Shopping] ✅ ${sceneNames[i]} 프롬프트 생성 완료`)
+          console.log(`[Shopping] 📄 프롬프트 내용 (${sceneNames[i]}):`, videoPrompt.substring(0, 200) + "...")
+          
+          // 프롬프트 저장
+          videoPromptsMap.set(i, videoPrompt)
+          setVideoPrompts((prev) => {
+            const newMap = new Map(prev)
+            newMap.set(i, videoPrompt)
+            return newMap
+          })
+        } catch (error) {
+          console.error(`[Shopping] ❌ ${sceneNames[i]} 프롬프트 생성 실패:`, error)
+          setError(`${sceneNames[i]} 프롬프트 생성에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+          throw error
+        } finally {
+          setIsGeneratingVideoPrompts((prev) => {
+            const newMap = new Map(prev)
+            newMap.set(i, false)
+            return newMap
+          })
+        }
+      }
+      
+      console.log(`[Shopping] ✅ 모든 프롬프트 생성 완료! 이제 영상을 생성합니다.`)
+      
+      // 2단계: 생성된 프롬프트를 사용하여 영상 생성
+      console.log(`[Shopping] 🎬 2단계: 영상 생성 시작`)
+      
+      for (let i = 0; i < 3; i++) {
+        // 이미 생성된 영상이 있으면 건너뛰기
+        if (existingVideos.has(i)) {
+          console.log(`[Shopping] ⏭️ ${sceneNames[i]} 이미 생성됨, 건너뜀`)
+          newVideoMap.set(i, existingVideos.get(i)!)
+          videoResults.push({
+            index: i,
+            videoUrl: existingVideos.get(i)!,
+            duration: durationPerVideo,
+            sceneType: sceneNames[i]
+          })
+          continue
+        }
+        
+        const imageUrl = imageUrls[i]
+        const videoPrompt = videoPromptsMap.get(i)
+        
+        if (!videoPrompt) {
+          console.error(`[Shopping] ❌ ${sceneNames[i]} 프롬프트가 없습니다.`)
+          throw new Error(`${sceneNames[i]} 프롬프트가 생성되지 않았습니다.`)
+        }
+        
+        // 변환 시작 상태 업데이트
         setIsConvertingToVideo((prev) => {
           const newMap = new Map(prev)
           newMap.set(i, true)
@@ -3178,27 +4487,26 @@ export default function ShoppingPage() {
           return newMap
         })
         
-        console.log(`[Shopping] 📹 ${sceneNames[i]} 생성 시작 (${i + 1}/3, 길이: ${durationPerVideo}초, sample_shift: ${sampleShiftPerVideo})`)
-        
-        // 각 이미지에 맞는 프롬프트 생성 (새로운 규칙 적용)
-        console.log(`[Shopping] 🔍 프롬프트 생성 전 확인: durationPerVideo=${durationPerVideo}초`)
-        const videoPrompt = await generateVideoPromptForImage(
-          i as 0 | 1 | 2,
-          productName,
-          productDescription,
-          durationPerVideo,
-          openaiApiKey // AI 행동 프롬프트 생성용 API 키
-        )
-        
-        console.log(`[Shopping] ${sceneNames[i]} 프롬프트:`, videoPrompt)
-        console.log(`[Shopping] 🔍 프롬프트에 포함된 duration 확인:`, videoPrompt.includes(`Duration: ${durationPerVideo} seconds`) ? `✅ 올바름 (${durationPerVideo}초)` : `❌ 잘못됨`)
+        console.log(`[Shopping] 📹 ${sceneNames[i]} 영상 생성 시작 (${i + 1}/3)`)
+        console.log(`[Shopping] ⚠️ CRITICAL: 각 영상 길이 = ${durationPerVideo}초 (TTS 전체: ${totalTtsDuration}초 / 3 = ${(totalTtsDuration / 3).toFixed(2)}초)`)
+        console.log(`[Shopping] ⚠️ CRITICAL: 이 영상은 반드시 ${durationPerVideo}초로 생성되어야 합니다. TTS 전체 길이(${totalTtsDuration}초)가 아닙니다!`)
+        console.log(`[Shopping] 📄 사용할 프롬프트:`, videoPrompt.substring(0, 200) + "...")
         
         // 이미지를 영상으로 변환 (bytedance/seedance-1-pro-fast 모델 사용, duration 사용)
+        // CRITICAL: durationPerVideo는 반드시 TTS/3으로 계산된 값이어야 함
+        if (durationPerVideo !== Math.round(totalTtsDuration / 3)) {
+          console.error(`[Shopping] ❌ CRITICAL ERROR: durationPerVideo가 올바르지 않습니다!`)
+          console.error(`  - durationPerVideo: ${durationPerVideo}초`)
+          console.error(`  - 예상 값 (TTS/3): ${Math.round(totalTtsDuration / 3)}초`)
+          console.error(`  - TTS 전체: ${totalTtsDuration}초`)
+          throw new Error(`영상 길이 계산 오류: durationPerVideo=${durationPerVideo}초, 예상=${Math.round(totalTtsDuration / 3)}초`)
+        }
+        
         try {
           const videoUrl = await generateVideoWithSeedance(
             imageUrl,
             videoPrompt,
-            durationPerVideo, // duration 전달
+            durationPerVideo, // duration 전달 (반드시 TTS/3)
             replicateApiKey
           )
           
@@ -3284,6 +4592,18 @@ export default function ShoppingPage() {
       return
     }
 
+    // 즉시 로딩 상태 표시
+    setIsGeneratingVideoPrompts((prev) => {
+      const newMap = new Map(prev)
+      newMap.set(index, true)
+      return newMap
+    })
+    setIsConvertingToVideo((prev) => {
+      const newMap = new Map(prev)
+      newMap.set(index, true)
+      return newMap
+    })
+
     setError("")
     
     // 장면 이름 정의 (try-catch 블록에서 모두 사용 가능하도록 함수 상단에 정의)
@@ -3309,25 +4629,65 @@ export default function ShoppingPage() {
       }
       
       // 각 이미지당 영상 길이 계산
+      // CRITICAL: 각 영상은 반드시 TTS 길이 / 3으로 고정되어야 함
       const durationPerVideo = Math.round(totalTtsDuration / 3)
       
-      // 변환 시작 상태 업데이트
-      setIsConvertingToVideo((prev) => {
+      // durationPerVideo가 유효한지 확인 (0보다 커야 함)
+      if (!durationPerVideo || durationPerVideo <= 0) {
+        throw new Error(`영상 길이 계산 오류: durationPerVideo=${durationPerVideo}초 (TTS: ${totalTtsDuration}초)`)
+      }
+      
+      console.log(`[Shopping] ⚠️ CRITICAL: 각 영상은 반드시 ${durationPerVideo}초로 생성되어야 합니다. TTS 전체 길이(${totalTtsDuration}초)가 아닙니다!`)
+      
+      // 1단계: 프롬프트 먼저 생성 (OpenAI API 활용)
+      console.log(`[Shopping] 📝 1단계: ${sceneNames[index]} 프롬프트 생성 시작 (OpenAI API 활용)`)
+      
+      let videoPrompt: string
+      try {
+        console.log(`[Shopping] 🤖 ${sceneNames[index]} 프롬프트 생성 중...`)
+        
+        // OpenAI API를 활용하여 제품 행동 프롬프트 생성
+        videoPrompt = await generateVideoPromptForImage(
+          index,
+          productName,
+          productDescription,
+          durationPerVideo,
+          openaiApiKey
+        )
+        
+        console.log(`[Shopping] ✅ ${sceneNames[index]} 프롬프트 생성 완료`)
+        console.log(`[Shopping] 📄 프롬프트 내용:`, videoPrompt.substring(0, 200) + "...")
+        
+        // 프롬프트 저장
+        setVideoPrompts((prev) => {
+          const newMap = new Map(prev)
+          newMap.set(index, videoPrompt)
+          return newMap
+        })
+      } catch (error) {
+        console.error(`[Shopping] ❌ ${sceneNames[index]} 프롬프트 생성 실패:`, error)
+        setError(`${sceneNames[index]} 프롬프트 생성에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+        throw error
+      } finally {
+        setIsGeneratingVideoPrompts((prev) => {
+          const newMap = new Map(prev)
+          newMap.set(index, false)
+          return newMap
+        })
+      }
+      
+      // 2단계: 생성된 프롬프트를 사용하여 영상 생성
+      console.log(`[Shopping] 🎬 2단계: ${sceneNames[index]} 영상 생성 시작`)
+      
+      // 프롬프트 생성 완료, 이제 영상 생성 단계
+      setIsGeneratingVideoPrompts((prev) => {
         const newMap = new Map(prev)
-        newMap.set(index, true)
+        newMap.set(index, false)
         return newMap
       })
       
       console.log(`[Shopping] 📹 ${sceneNames[index]} 재생성 시작 (길이: ${durationPerVideo}초)`)
-      
-      // 프롬프트 생성
-      const videoPrompt = await generateVideoPromptForImage(
-        index,
-        productName,
-        productDescription,
-        durationPerVideo,
-        openaiApiKey
-      )
+      console.log(`[Shopping] 📄 사용할 프롬프트:`, videoPrompt.substring(0, 200) + "...")
       
       // 이미지를 영상으로 변환
       const imageUrl = imageUrls[index]
@@ -3458,28 +4818,10 @@ export default function ShoppingPage() {
               </CardHeader>
               <CardContent className="space-y-6 py-6 relative z-10">
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
+                  <div>
                     <Label htmlFor="product-name" className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                       제품명 <span className="text-red-500">*</span>
                     </Label>
-                    <Button
-                      type="button"
-                      onClick={handleLoadTrendingKeywords}
-                      disabled={isLoadingKeywords}
-                      className="h-8 px-3 text-xs bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-semibold shadow-md shadow-orange-500/30"
-                    >
-                      {isLoadingKeywords ? (
-                        <>
-                          <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                          로딩 중...
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="w-3 h-3 mr-1" />
-                          잘뜨는 키워드 찾기
-                        </>
-                      )}
-                    </Button>
                   </div>
                   <p className="text-xs text-slate-500">예: 무선 블루투스 이어폰</p>
                   <Input
@@ -4433,17 +5775,79 @@ export default function ShoppingPage() {
                         <Label className="text-sm font-semibold text-slate-700">생성된 이미지 (3개)</Label>
                         <div className="flex gap-4 justify-center flex-wrap">
                           {imageUrls.map((url, index) => (
-                            <div key={index} className="relative w-48 aspect-[9/16] bg-gray-100 rounded-lg overflow-hidden border-2 border-green-500 shadow-lg">
-                              <img
-                                src={url}
-                                alt={`생성된 이미지 ${index + 1}`}
-                                className="w-full h-full object-cover"
-                              />
-                              <div className="absolute top-2 right-2 bg-green-500 text-white text-xs font-bold px-2 py-1 rounded-full shadow-md">
-                                {index + 1}
+                            <div key={index} className="space-y-2">
+                              <div className="flex items-center justify-center gap-2">
+                                <Label className="text-xs font-medium text-slate-600">
+                                  {imagePrompts[index]?.type || `이미지 ${index + 1}`}
+                                </Label>
+                                <Button
+                                  onClick={() => handleRegenerateSingleImage(index as 0 | 1 | 2)}
+                                  disabled={isRegeneratingImage.get(index)}
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-6 px-2 text-[10px] border-blue-300 bg-gradient-to-r from-blue-50 to-cyan-50 text-blue-700 hover:from-blue-100 hover:to-cyan-100 hover:text-blue-800 hover:border-blue-400"
+                                >
+                                  {isRegeneratingImage.get(index) ? (
+                                    <>
+                                      <Loader2 className="w-2.5 h-2.5 mr-1 animate-spin" />
+                                      재생성 중
+                                    </>
+                                  ) : (
+                                    <>
+                                      <RefreshCw className="w-2.5 h-2.5 mr-1" />
+                                      재생성
+                                    </>
+                                  )}
+                                </Button>
                               </div>
-                              <div className="absolute bottom-2 left-2 bg-black/50 text-white text-xs font-medium px-2 py-1 rounded">
-                                {imagePrompts[index]?.type || `이미지 ${index + 1}`}
+                              {/* 추가 프롬프트 입력 필드 */}
+                              <div className="space-y-1 w-48">
+                                <Label className="text-[10px] text-slate-600">추가 프롬프트</Label>
+                                <Input
+                                  type="text"
+                                  placeholder="예: 밝은 조명, 자연스러운 배경"
+                                  value={customImagePrompts.get(index) || ""}
+                                  onChange={(e) => {
+                                    const newMap = new Map(customImagePrompts)
+                                    newMap.set(index, e.target.value)
+                                    setCustomImagePrompts(newMap)
+                                  }}
+                                  className="h-7 text-[10px]"
+                                />
+                              </div>
+                              <div className="relative w-48 aspect-[9/16] bg-gray-100 rounded-lg overflow-hidden border-2 border-green-500 shadow-lg">
+                                {isRegeneratingImage.get(index) ? (
+                                  <>
+                                    <img
+                                      src={url}
+                                      alt={`생성된 이미지 ${index + 1}`}
+                                      className="w-full h-full object-cover opacity-50"
+                                    />
+                                    <div className="absolute inset-0 bg-gradient-to-br from-blue-200/50 via-cyan-200/50 to-blue-300/50">
+                                      <div className="absolute inset-0 flex items-center justify-center">
+                                        <div className="relative">
+                                          <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
+                                          <Sparkles className="w-3 h-3 text-blue-400 absolute -top-0.5 -right-0.5 animate-bounce" />
+                                        </div>
+                                      </div>
+                                      <div className="absolute bottom-2 left-2 right-2 text-[9px] text-blue-600 font-medium bg-white/90 px-1.5 py-0.5 rounded text-center">
+                                        재생성 중...
+                                      </div>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <img
+                                    src={url}
+                                    alt={`생성된 이미지 ${index + 1}`}
+                                    className="w-full h-full object-cover"
+                                  />
+                                )}
+                                <div className="absolute top-2 right-2 bg-green-500 text-white text-xs font-bold px-2 py-1 rounded-full shadow-md">
+                                  {index + 1}
+                                </div>
+                                <div className="absolute bottom-2 left-2 bg-black/50 text-white text-xs font-medium px-2 py-1 rounded">
+                                  {imagePrompts[index]?.type || `이미지 ${index + 1}`}
+                                </div>
                               </div>
                             </div>
                           ))}
@@ -4853,19 +6257,51 @@ export default function ShoppingPage() {
                         <CardContent className="space-y-5 py-6">
                           <div className="space-y-3">
                             <Label className="text-sm font-semibold text-slate-700">BGM 파일 업로드 (선택사항)</Label>
-                            <div className="relative">
-                              <input
-                                type="file"
-                                accept="audio/*"
-                                onChange={handleBgmUpload}
-                                className="w-full text-sm text-slate-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gradient-to-r file:from-purple-500 file:to-pink-500 file:text-white hover:file:from-purple-400 hover:file:to-pink-400 file:cursor-pointer bg-white/80 border border-slate-200 rounded-lg p-2 shadow-sm"
-                              />
+                            <div className="flex gap-2">
+                              <div className="flex-1">
+                                <input
+                                  type="file"
+                                  accept="audio/*"
+                                  onChange={handleBgmUpload}
+                                  className="w-full text-sm text-slate-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gradient-to-r file:from-purple-500 file:to-pink-500 file:text-white hover:file:from-purple-400 hover:file:to-pink-400 file:cursor-pointer bg-white/80 border border-slate-200 rounded-lg p-2 shadow-sm"
+                                />
+                              </div>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={(e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  console.log("[Shopping] BGM 라이브러리 버튼 클릭")
+                                  console.log("[Shopping] 현재 showBgmLibraryDialog:", showBgmLibraryDialog)
+                                  setTimeout(() => {
+                                    setShowBgmLibraryDialog(true)
+                                    console.log("[Shopping] setShowBgmLibraryDialog(true) 호출 후")
+                                  }, 0)
+                                }}
+                                className="whitespace-nowrap"
+                              >
+                                <FolderOpen className="w-4 h-4 mr-2" />
+                                라이브러리
+                              </Button>
                             </div>
                             {bgmUrl && (
                               <div className="mt-3 p-4 bg-green-50 border border-green-200 rounded-xl backdrop-blur-sm">
-                                <div className="flex items-center gap-2 mb-3">
-                                  <CheckCircle2 className="w-4 h-4 text-green-600" />
-                                  <p className="text-sm text-green-600 font-medium">BGM이 업로드되었습니다.</p>
+                                <div className="flex items-center justify-between mb-3">
+                                  <div className="flex items-center gap-2">
+                                    <CheckCircle2 className="w-4 h-4 text-green-600" />
+                                    <p className="text-sm text-green-600 font-medium">BGM이 업로드되었습니다.</p>
+                                  </div>
+                                  <Button
+                                    type="button"
+                                    variant="destructive"
+                                    size="sm"
+                                    onClick={handleDeleteBgm}
+                                    className="h-8 px-3"
+                                  >
+                                    <X className="w-4 h-4 mr-1" />
+                                    삭제
+                                  </Button>
                                 </div>
                                 <audio controls src={bgmUrl} className="w-full" />
                               </div>
@@ -4900,6 +6336,156 @@ export default function ShoppingPage() {
                                 <span className="text-sm text-slate-500 font-medium w-14 text-right">{Math.round(ttsVolume * 100)}%</span>
                               </div>
                             </div>
+                            {bgmUrl && (
+                              <>
+                                <div className="space-y-3 pt-2 border-t border-slate-200">
+                                  <Label className="text-sm font-semibold text-slate-700">BGM 재생 시간대</Label>
+                                  <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-2">
+                                      <Label className="text-xs text-slate-600">시작 시간 (초)</Label>
+                                      <Input
+                                        type="number"
+                                        value={bgmStartTime}
+                                        onChange={(e) => setBgmStartTime(Math.max(0, parseFloat(e.target.value) || 0))}
+                                        min={0}
+                                        step={0.1}
+                                        className="bg-white/80 border-slate-200"
+                                      />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <Label className="text-xs text-slate-600">종료 시간 (초)</Label>
+                                      <Input
+                                        type="number"
+                                        value={bgmEndTime}
+                                        onChange={(e) => setBgmEndTime(Math.max(bgmStartTime, parseFloat(e.target.value) || 0))}
+                                        min={bgmStartTime}
+                                        step={0.1}
+                                        className="bg-white/80 border-slate-200"
+                                      />
+                                    </div>
+                                  </div>
+                                  <p className="text-xs text-slate-500">
+                                    {bgmStartTime.toFixed(1)}초 ~ {bgmEndTime.toFixed(1)}초 구간에 BGM이 재생됩니다
+                                  </p>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </CollapsibleContent>
+                  </Collapsible>
+
+                  {/* 효과음 추가 */}
+                  <Collapsible>
+                    <CollapsibleTrigger className="w-full group">
+                      <Card className="border border-blue-200/50 rounded-xl shadow-sm bg-white/80 hover:bg-white transition-all">
+                        <CardHeader className="py-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <Volume2 className="w-5 h-5 text-blue-600" />
+                              <CardTitle className="text-base font-semibold text-slate-800">효과음 (SFX)</CardTitle>
+                            </div>
+                            <ChevronDown className="w-5 h-5 text-slate-400 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                          </div>
+                        </CardHeader>
+                      </Card>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <Card className="border border-blue-200/50 rounded-xl shadow-sm bg-white/80 mt-2">
+                        <CardContent className="space-y-5 py-6">
+                          <div className="space-y-3">
+                            <Label className="text-sm font-semibold text-slate-700">효과음 파일 업로드 (선택사항)</Label>
+                            <div className="flex gap-2">
+                              <div className="flex-1">
+                                <input
+                                  type="file"
+                                  accept="audio/*"
+                                  onChange={handleSfxUpload}
+                                  className="w-full text-sm text-slate-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gradient-to-r file:from-blue-500 file:to-cyan-500 file:text-white hover:file:from-blue-400 hover:file:to-cyan-400 file:cursor-pointer bg-white/80 border border-slate-200 rounded-lg p-2 shadow-sm"
+                                />
+                              </div>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={(e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  console.log("[Shopping] 효과음 라이브러리 버튼 클릭 - 이벤트:", e)
+                                  console.log("[Shopping] 현재 showSfxLibraryDialog:", showSfxLibraryDialog)
+                                  console.log("[Shopping] setShowSfxLibraryDialog(true) 호출 직전")
+                                  setShowSfxLibraryDialog(true)
+                                  console.log("[Shopping] setShowSfxLibraryDialog(true) 호출 후")
+                                  // 상태가 실제로 변경되었는지 확인
+                                  setTimeout(() => {
+                                    console.log("[Shopping] 100ms 후 showSfxLibraryDialog 상태:", showSfxLibraryDialog)
+                                  }, 100)
+                                }}
+                                className="whitespace-nowrap"
+                              >
+                                <FolderOpen className="w-4 h-4 mr-2" />
+                                라이브러리
+                              </Button>
+                            </div>
+                            {sfxUrl && (
+                              <div className="mt-3 p-4 bg-green-50 border border-green-200 rounded-xl backdrop-blur-sm">
+                                <div className="flex items-center gap-2 mb-3">
+                                  <CheckCircle2 className="w-4 h-4 text-green-600" />
+                                  <p className="text-sm text-green-600 font-medium">효과음이 업로드되었습니다.</p>
+                                </div>
+                                <audio controls src={sfxUrl} className="w-full" />
+                              </div>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-1 gap-5 pt-2">
+                            <div className="space-y-3">
+                              <Label className="text-sm font-semibold text-slate-700">효과음 볼륨</Label>
+                              <div className="flex items-center gap-3">
+                                <Slider
+                                  value={[sfxVolume]}
+                                  onValueChange={([value]) => setSfxVolume(value)}
+                                  min={0}
+                                  max={1}
+                                  step={0.1}
+                                  className="flex-1"
+                                />
+                                <span className="text-sm text-slate-500 font-medium w-14 text-right">{Math.round(sfxVolume * 100)}%</span>
+                              </div>
+                            </div>
+                            {sfxUrl && (
+                              <>
+                                <div className="space-y-3 pt-2 border-t border-slate-200">
+                                  <Label className="text-sm font-semibold text-slate-700">효과음 재생 시간대</Label>
+                                  <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-2">
+                                      <Label className="text-xs text-slate-600">시작 시간 (초)</Label>
+                                      <Input
+                                        type="number"
+                                        value={sfxStartTime}
+                                        onChange={(e) => setSfxStartTime(Math.max(0, parseFloat(e.target.value) || 0))}
+                                        min={0}
+                                        step={0.1}
+                                        className="bg-white/80 border-slate-200"
+                                      />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <Label className="text-xs text-slate-600">종료 시간 (초)</Label>
+                                      <Input
+                                        type="number"
+                                        value={sfxEndTime}
+                                        onChange={(e) => setSfxEndTime(Math.max(sfxStartTime, parseFloat(e.target.value) || 0))}
+                                        min={sfxStartTime}
+                                        step={0.1}
+                                        className="bg-white/80 border-slate-200"
+                                      />
+                                    </div>
+                                  </div>
+                                  <p className="text-xs text-slate-500">
+                                    {sfxStartTime.toFixed(1)}초 ~ {sfxEndTime.toFixed(1)}초 구간에 효과음이 재생됩니다
+                                  </p>
+                                </div>
+                              </>
+                            )}
                           </div>
                         </CardContent>
                       </Card>
@@ -5186,41 +6772,208 @@ export default function ShoppingPage() {
                       </Button>
                     </div>
 
-                    {/* 재생바 */}
+                    {/* 재생바 - 캡컷 스타일 */}
                     {previewAudio && (
-                      <div className="space-y-2">
-                        <Slider
-                          value={[currentTime]}
-                          max={previewAudio.duration || 1}
-                          step={0.1}
-                          onValueChange={(value) => {
-                            if (previewAudio) {
-                              const newTime = value[0]
-                              previewAudio.currentTime = newTime
-                              setCurrentTime(newTime)
+                      <div className="bg-slate-800 rounded-lg p-4 space-y-0">
+                        {/* 상단 시간 눈금 (통합) */}
+                        {previewAudio.duration > 0 && (
+                          <div className="relative w-full h-14 mb-2 border-b border-slate-600">
+                            {/* 초 단위 눈금 및 레이블 (모든 초 표시) */}
+                            {Array.from({ length: Math.floor(previewAudio.duration) + 1 }, (_, i) => {
+                              const timeInSeconds = i
+                              if (timeInSeconds > previewAudio.duration) return null
+                              const leftPercent = (timeInSeconds / previewAudio.duration) * 100
+                              const isMinuteMark = timeInSeconds % 60 === 0
+                              const isTenSecondMark = timeInSeconds % 10 === 0
+                              const isFiveSecondMark = timeInSeconds % 5 === 0
                               
-                              // 비디오 시간 동기화 (롱폼 방식)
-                              if (previewVideoRef.current) {
-                                const video = previewVideoRef.current
-                                const THUMBNAIL_DURATION = 0.0001
-                                const adjustedElapsed = Math.max(0, newTime - THUMBNAIL_DURATION)
+                              // 1초마다 작은 눈금 표시
+                              // 5초마다 중간 크기 눈금 표시
+                              // 10초마다 큰 눈금 표시
+                              // 60초(1분)마다 가장 큰 눈금 표시
+                              const tickHeight = isMinuteMark ? 'h-6' : isTenSecondMark ? 'h-5' : isFiveSecondMark ? 'h-3' : 'h-2'
+                              const tickColor = isMinuteMark ? 'bg-slate-300' : isTenSecondMark ? 'bg-slate-400' : isFiveSecondMark ? 'bg-slate-500' : 'bg-slate-500/60'
+                              
+                              // 모든 초에 레이블 표시
+                              return (
+                                <div
+                                  key={`tick-${timeInSeconds}`}
+                                  className="absolute top-0 bottom-0 flex flex-col items-center"
+                                  style={{ left: `${leftPercent}%`, transform: 'translateX(-50%)' }}
+                                >
+                                  <div className={`w-px ${tickHeight} ${tickColor}`}></div>
+                                  <span className={`text-[8px] text-slate-300 mt-0.5 whitespace-nowrap ${isMinuteMark ? 'font-semibold' : isTenSecondMark ? 'font-medium' : 'font-normal'}`}>
+                                    {timeInSeconds}초
+                                  </span>
+                                </div>
+                              )
+                            })}
+                            {/* 현재 재생 위치 표시 (상단 눈금에서도) */}
+                            <div
+                              className="absolute top-0 bottom-0 w-0.5 bg-white shadow-lg z-30 pointer-events-none"
+                              style={{ left: `${(currentTime / previewAudio.duration) * 100}%` }}
+                            />
+                          </div>
+                        )}
+
+                        {/* 트랙 영역 */}
+                        <div className="space-y-3">
+                          {/* 메인 재생바 (재생 위치 조정용) */}
+                          <div className="relative">
+                            <div className="flex items-center gap-2 mb-1">
+                              <Label className="text-xs text-slate-300">재생 위치</Label>
+                            </div>
+                            <div 
+                              ref={timelineRef}
+                              className="relative h-8 bg-slate-700 rounded cursor-pointer border border-slate-600"
+                              onClick={(e) => {
+                                if (!previewAudio || draggingBgmHandle || draggingSfxHandle) return
+                                const rect = e.currentTarget.getBoundingClientRect()
+                                const clickX = e.clientX - rect.left
+                                const percentage = Math.max(0, Math.min(1, clickX / rect.width))
+                                const newTime = percentage * previewAudio.duration
+                                previewAudio.currentTime = newTime
+                                setCurrentTime(newTime)
                                 
-                                if (!isNaN(video.duration) && video.duration > 0) {
-                                  const videoTime = adjustedElapsed % video.duration
-                                  video.currentTime = videoTime
+                                // 비디오 시간 동기화
+                                if (previewVideoRef.current) {
+                                  const video = previewVideoRef.current
+                                  const THUMBNAIL_DURATION = 0.0001
+                                  const adjustedElapsed = Math.max(0, newTime - THUMBNAIL_DURATION)
+                                  
+                                  if (!isNaN(video.duration) && video.duration > 0) {
+                                    const videoTime = adjustedElapsed % video.duration
+                                    video.currentTime = videoTime
+                                  }
                                 }
-                              }
-                            }
-                          }}
-                          className="w-full"
-                        />
-                        <div className="flex items-center justify-between text-sm text-muted-foreground">
+                              }}
+                            >
+                              {/* 현재 재생 위치 표시 */}
+                              {previewAudio.duration > 0 && (
+                                <div
+                                  className="absolute top-0 bottom-0 w-0.5 bg-white shadow-lg z-20 pointer-events-none"
+                                  style={{ left: `${(currentTime / previewAudio.duration) * 100}%` }}
+                                />
+                              )}
+                            </div>
+                          </div>
+
+                          {/* BGM 트랙 */}
+                          {bgmUrl && (
+                            <div className="relative">
+                              <div className="flex items-center gap-2 mb-1">
+                                <div className="w-3 h-3 rounded-full bg-purple-500"></div>
+                                <Label className="text-xs text-slate-300">BGM</Label>
+                                <span className="text-[10px] text-slate-400 ml-auto">
+                                  {bgmStartTime.toFixed(1)}초 ~ {bgmEndTime.toFixed(1)}초
+                                </span>
+                              </div>
+                              <div 
+                                ref={bgmTimelineRef}
+                                className="relative h-10 bg-slate-700 rounded border border-slate-600"
+                              >
+                                {/* BGM 범위 표시 */}
+                                {previewAudio.duration > 0 && (
+                                  <>
+                                    <div
+                                      className="absolute h-full bg-purple-500/50 rounded border-y border-purple-400/50"
+                                      style={{
+                                        left: `${(bgmStartTime / previewAudio.duration) * 100}%`,
+                                        width: `${((bgmEndTime - bgmStartTime) / previewAudio.duration) * 100}%`,
+                                      }}
+                                    />
+                                    {/* BGM 시작 핸들 */}
+                                    <div
+                                      className="absolute -top-1 -bottom-1 w-2 bg-purple-600 cursor-ew-resize hover:bg-purple-500 hover:w-3 z-10 rounded transition-all border-2 border-white shadow-lg"
+                                      style={{ left: `calc(${(bgmStartTime / previewAudio.duration) * 100}% - 4px)` }}
+                                      onMouseDown={(e) => {
+                                        e.stopPropagation()
+                                        setDraggingBgmHandle("start")
+                                      }}
+                                    />
+                                    {/* BGM 종료 핸들 */}
+                                    <div
+                                      className="absolute -top-1 -bottom-1 w-2 bg-purple-600 cursor-ew-resize hover:bg-purple-500 hover:w-3 z-10 rounded transition-all border-2 border-white shadow-lg"
+                                      style={{ left: `calc(${(bgmEndTime / previewAudio.duration) * 100}% - 4px)` }}
+                                      onMouseDown={(e) => {
+                                        e.stopPropagation()
+                                        setDraggingBgmHandle("end")
+                                      }}
+                                    />
+                                    {/* 현재 재생 위치 표시 */}
+                                    <div
+                                      className="absolute top-0 bottom-0 w-0.5 bg-white shadow-lg z-20 pointer-events-none"
+                                      style={{ left: `${(currentTime / previewAudio.duration) * 100}%` }}
+                                    />
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* 효과음 트랙 */}
+                          {sfxUrl && (
+                            <div className="relative">
+                              <div className="flex items-center gap-2 mb-1">
+                                <div className="w-3 h-3 rounded-full bg-blue-500"></div>
+                                <Label className="text-xs text-slate-300">효과음</Label>
+                                <span className="text-[10px] text-slate-400 ml-auto">
+                                  {sfxStartTime.toFixed(1)}초 ~ {sfxEndTime.toFixed(1)}초
+                                </span>
+                              </div>
+                              <div 
+                                ref={sfxTimelineRef}
+                                className="relative h-10 bg-slate-700 rounded border border-slate-600"
+                              >
+                                {/* 효과음 범위 표시 */}
+                                {previewAudio.duration > 0 && (
+                                  <>
+                                    <div
+                                      className="absolute h-full bg-blue-500/50 rounded border-y border-blue-400/50"
+                                      style={{
+                                        left: `${(sfxStartTime / previewAudio.duration) * 100}%`,
+                                        width: `${((sfxEndTime - sfxStartTime) / previewAudio.duration) * 100}%`,
+                                      }}
+                                    />
+                                    {/* 효과음 시작 핸들 */}
+                                    <div
+                                      className="absolute -top-1 -bottom-1 w-2 bg-blue-600 cursor-ew-resize hover:bg-blue-500 hover:w-3 z-10 rounded transition-all border-2 border-white shadow-lg"
+                                      style={{ left: `calc(${(sfxStartTime / previewAudio.duration) * 100}% - 4px)` }}
+                                      onMouseDown={(e) => {
+                                        e.stopPropagation()
+                                        setDraggingSfxHandle("start")
+                                      }}
+                                    />
+                                    {/* 효과음 종료 핸들 */}
+                                    <div
+                                      className="absolute -top-1 -bottom-1 w-2 bg-blue-600 cursor-ew-resize hover:bg-blue-500 hover:w-3 z-10 rounded transition-all border-2 border-white shadow-lg"
+                                      style={{ left: `calc(${(sfxEndTime / previewAudio.duration) * 100}% - 4px)` }}
+                                      onMouseDown={(e) => {
+                                        e.stopPropagation()
+                                        setDraggingSfxHandle("end")
+                                      }}
+                                    />
+                                    {/* 현재 재생 위치 표시 */}
+                                    <div
+                                      className="absolute top-0 bottom-0 w-0.5 bg-white shadow-lg z-20 pointer-events-none"
+                                      style={{ left: `${(currentTime / previewAudio.duration) * 100}%` }}
+                                    />
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* 현재 시간 표시 */}
+                        <div className="flex items-center justify-between text-sm text-slate-300 mt-3 pt-3 border-t border-slate-600">
                           <span>{Math.floor(currentTime / 60)}:{(Math.floor(currentTime % 60)).toString().padStart(2, "0")}</span>
                           <span>{Math.floor((previewAudio.duration || 0) / 60)}:{(Math.floor((previewAudio.duration || 0) % 60)).toString().padStart(2, "0")}</span>
                         </div>
                       </div>
                     )}
                   </div>
+
 
                   {/* 미리보기 생성 및 다운로드 버튼 */}
                   <div className="space-y-3">
@@ -5343,6 +7096,8 @@ export default function ShoppingPage() {
                     {[0, 1, 2].map((index) => {
                       const videoUrl = convertedVideoUrls.get(index)
                       const isConverting = isConvertingToVideo.get(index)
+                      const isGeneratingPrompt = isGeneratingVideoPrompts.get(index)
+                      const videoPrompt = videoPrompts.get(index)
                       const sceneNames = ["제품 사용 영상", "디테일 영상", "다른 배경 영상"]
                       
                       // 생성 완료된 영상
@@ -5371,6 +7126,25 @@ export default function ShoppingPage() {
                                 )}
                               </Button>
                             </div>
+                            {/* 영상 프롬프트 표시 (Collapsible) */}
+                            {videoPrompt && (
+                              <Collapsible>
+                                <CollapsibleTrigger className="w-full">
+                                  <div className="flex items-center justify-between w-full p-2 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 transition-colors">
+                                    <span className="text-xs font-semibold text-blue-700">영상 프롬프트 보기</span>
+                                    <ChevronDown className="w-4 h-4 text-blue-600" />
+                                  </div>
+                                </CollapsibleTrigger>
+                                <CollapsibleContent>
+                                  <div className="mt-2 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                                    <p className="text-xs font-medium text-slate-700 mb-1">프롬프트:</p>
+                                    <p className="text-xs text-slate-600 bg-white p-2 rounded border border-slate-200 font-mono break-words max-h-40 overflow-y-auto">
+                                      {videoPrompt}
+                                    </p>
+                                  </div>
+                                </CollapsibleContent>
+                              </Collapsible>
+                            )}
                             <div className="relative w-full aspect-[9/16] bg-gray-100 rounded-lg overflow-hidden border-2 border-green-300 shadow-lg">
                               <video
                                 src={videoUrl}
@@ -5387,10 +7161,42 @@ export default function ShoppingPage() {
                       }
                       
                       // 생성 중인 영상
-                      if (isConverting) {
+                      if (isConverting || isGeneratingPrompt) {
+                        const statusText = isGeneratingPrompt 
+                          ? "프롬프트 생성 중..." 
+                          : "영상 생성 중..."
+                        
                         return (
                           <div key={index} className="space-y-2">
-                            <Label className="text-sm font-semibold text-slate-700">{sceneNames[index]} (생성 중...)</Label>
+                            <Label className="text-sm font-semibold text-slate-700">{sceneNames[index]} ({statusText})</Label>
+                            {/* 프롬프트 생성 중일 때 프롬프트 표시 */}
+                            {isGeneratingPrompt && (
+                              <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                                <div className="flex items-center gap-2">
+                                  <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />
+                                  <p className="text-xs text-blue-600 font-medium">영상 프롬프트 생성중</p>
+                                </div>
+                              </div>
+                            )}
+                            {/* 생성된 프롬프트 표시 (영상 생성 중일 때) */}
+                            {videoPrompt && !isGeneratingPrompt && (
+                              <Collapsible>
+                                <CollapsibleTrigger className="w-full">
+                                  <div className="flex items-center justify-between w-full p-2 bg-green-50 hover:bg-green-100 rounded-lg border border-green-200 transition-colors">
+                                    <span className="text-xs font-semibold text-green-700">생성된 프롬프트 보기</span>
+                                    <ChevronDown className="w-4 h-4 text-green-600" />
+                                  </div>
+                                </CollapsibleTrigger>
+                                <CollapsibleContent>
+                                  <div className="mt-2 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                                    <p className="text-xs font-medium text-slate-700 mb-1">프롬프트:</p>
+                                    <p className="text-xs text-slate-600 bg-white p-2 rounded border border-slate-200 font-mono break-words max-h-40 overflow-y-auto">
+                                      {videoPrompt}
+                                    </p>
+                                  </div>
+                                </CollapsibleContent>
+                              </Collapsible>
+                            )}
                             <div className="relative w-full aspect-[9/16] bg-gray-100 rounded-lg overflow-hidden border-2 border-blue-500 shadow-lg">
                               {/* 원본 이미지 배경 */}
                               {imageUrls[index] && (
@@ -5409,7 +7215,7 @@ export default function ShoppingPage() {
                                   </div>
                                 </div>
                                 <div className="absolute bottom-2 left-2 right-2 text-[10px] text-blue-600 font-medium bg-white/90 px-2 py-1 rounded text-center">
-                                  AI가 영상을 생성 중...
+                                  {statusText}
                                 </div>
                               </div>
                               <div className="absolute top-2 right-2 bg-blue-500 text-white text-xs font-bold px-2 py-1 rounded-full shadow-md">
@@ -5468,12 +7274,75 @@ export default function ShoppingPage() {
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             {imageUrls.map((url, index) => (
                               <div key={index} className="space-y-2">
-                                <div className="relative w-full aspect-[9/16] bg-gray-100 rounded-lg overflow-hidden border-2 border-gray-200 shadow-sm">
-                                  <img
-                                    src={url}
-                                    alt={`생성된 이미지 ${index + 1}`}
-                                    className="w-full h-full object-cover"
+                                <div className="flex items-center justify-between">
+                                  <Label className="text-sm font-semibold text-slate-700">
+                                    {imagePrompts[index]?.type || `이미지 ${index + 1}`}
+                                  </Label>
+                                  <Button
+                                    onClick={() => handleRegenerateSingleImage(index as 0 | 1 | 2)}
+                                    disabled={isRegeneratingImage.get(index)}
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs border-blue-300 bg-gradient-to-r from-blue-50 to-cyan-50 text-blue-700 hover:from-blue-100 hover:to-cyan-100 hover:text-blue-800 hover:border-blue-400"
+                                  >
+                                    {isRegeneratingImage.get(index) ? (
+                                      <>
+                                        <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                        재생성 중
+                                      </>
+                                    ) : (
+                                      <>
+                                        <RefreshCw className="w-3 h-3 mr-1" />
+                                        재생성
+                                      </>
+                                    )}
+                                  </Button>
+                                </div>
+                                {/* 추가 프롬프트 입력 필드 */}
+                                <div className="space-y-1">
+                                  <Label className="text-xs text-slate-600">추가 프롬프트 (한국어)</Label>
+                                  <Input
+                                    type="text"
+                                    placeholder="예: 밝은 조명, 자연스러운 배경, 고급스러운 느낌"
+                                    value={customImagePrompts.get(index) || ""}
+                                    onChange={(e) => {
+                                      const newMap = new Map(customImagePrompts)
+                                      newMap.set(index, e.target.value)
+                                      setCustomImagePrompts(newMap)
+                                    }}
+                                    className="h-8 text-xs"
                                   />
+                                  <p className="text-[10px] text-slate-500">
+                                    재생성 시 기존 프롬프트에 추가됩니다
+                                  </p>
+                                </div>
+                                <div className="relative w-full aspect-[9/16] bg-gray-100 rounded-lg overflow-hidden border-2 border-gray-200 shadow-sm">
+                                  {isRegeneratingImage.get(index) ? (
+                                    <>
+                                      <img
+                                        src={url}
+                                        alt={`생성된 이미지 ${index + 1}`}
+                                        className="w-full h-full object-cover opacity-50"
+                                      />
+                                      <div className="absolute inset-0 bg-gradient-to-br from-blue-200/50 via-cyan-200/50 to-blue-300/50">
+                                        <div className="absolute inset-0 flex items-center justify-center">
+                                          <div className="relative">
+                                            <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+                                            <Sparkles className="w-4 h-4 text-blue-400 absolute -top-1 -right-1 animate-bounce" />
+                                          </div>
+                                        </div>
+                                        <div className="absolute bottom-2 left-2 right-2 text-[10px] text-blue-600 font-medium bg-white/90 px-2 py-1 rounded text-center">
+                                          AI가 이미지를 재생성 중...
+                                        </div>
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <img
+                                      src={url}
+                                      alt={`생성된 이미지 ${index + 1}`}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  )}
                                   <div className="absolute top-2 right-2 bg-green-500 text-white text-xs font-bold px-2 py-1 rounded-full shadow-md">
                                     {index + 1}
                                   </div>
@@ -5523,19 +7392,20 @@ export default function ShoppingPage() {
                   다음
                   <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
-                {/* 영상이 이미 생성된 경우 "재생성" 버튼, 없으면 "영상 생성" 버튼 */}
+                {/* 영상 생성/재생성 버튼 */}
                 {convertedVideoUrls.size === 3 ? (
+                  // 모든 영상이 생성된 경우: 재생성 버튼
                   <Button
                     onClick={() => {
                       // 재생성 시 기존 영상 초기화
                       setConvertedVideoUrls(new Map())
                       handleConvertAllImagesToVideos()
                     }}
-                    disabled={isConvertingToVideo.size > 0 && convertedVideoUrls.size < 3}
+                    disabled={isConvertingToVideo.size > 0}
                     className="flex-1 bg-gradient-to-r from-orange-500 via-red-500 to-orange-500 hover:from-orange-400 hover:via-red-400 hover:to-orange-400 text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-orange-500/50 hover:shadow-xl hover:shadow-orange-500/50 transition-all duration-300"
                     size="lg"
                   >
-                    {isConvertingToVideo.size > 0 && convertedVideoUrls.size < 3 ? (
+                    {isConvertingToVideo.size > 0 ? (
                       <>
                         <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                         AI가 영상을 생성하고 있습니다...
@@ -5548,21 +7418,30 @@ export default function ShoppingPage() {
                     )}
                   </Button>
                 ) : (
+                  // 영상이 없거나 일부만 생성된 경우: 영상 생성 버튼
                   <Button
                     onClick={handleConvertAllImagesToVideos}
-                    disabled={isConvertingToVideo.size > 0 && convertedVideoUrls.size > 0 && convertedVideoUrls.size < 3}
+                    disabled={isConvertingToVideo.size > 0}
                     className="flex-1 bg-gradient-to-r from-blue-500 via-cyan-500 to-blue-500 hover:from-blue-400 hover:via-cyan-400 hover:to-blue-400 text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-blue-500/50 hover:shadow-xl hover:shadow-blue-500/50 transition-all duration-300"
                     size="lg"
                   >
-                    {isConvertingToVideo.size > 0 && convertedVideoUrls.size > 0 && convertedVideoUrls.size < 3 ? (
+                    {isConvertingToVideo.size > 0 ? (
                       <>
                         <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                        AI가 영상을 생성하고 있습니다...
+                        {convertedVideoUrls.size > 0 ? (
+                          <>개별 영상 생성 중 ({convertedVideoUrls.size}/3)</>
+                        ) : (
+                          <>AI가 영상을 생성하고 있습니다...</>
+                        )}
                       </>
                     ) : (
                       <>
                         <Play className="w-5 h-5 mr-2" />
-                        영상 생성
+                        {convertedVideoUrls.size > 0 ? (
+                          <>영상 재생성 ({convertedVideoUrls.size}/3 완료)</>
+                        ) : (
+                          <>영상 생성</>
+                        )}
                       </>
                     )}
                   </Button>
@@ -6674,7 +8553,111 @@ export default function ShoppingPage() {
           </div>
         </div>
       )}
+
+      {/* 오디오 라이브러리 다이얼로그 - 항상 렌더링 */}
+      {/* BGM 라이브러리 다이얼로그 */}
+      <Dialog open={showBgmLibraryDialog} onOpenChange={(open) => {
+        console.log("[Shopping] BGM 다이얼로그 onOpenChange 호출됨:", open, "현재 상태:", showBgmLibraryDialog)
+        // 디버깅: 왜 false로 변경되는지 확인
+        if (!open && showBgmLibraryDialog) {
+          console.log("[Shopping] ⚠️ 다이얼로그가 열려있는데 닫기 요청이 들어옴!")
+          console.trace("[Shopping] 스택 트레이스:")
+        }
+        setShowBgmLibraryDialog(open)
+      }}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>BGM 라이브러리</DialogTitle>
+            <DialogDescription>
+              관리자가 업로드한 BGM 중에서 선택하세요.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-4">
+            {isLoadingAudioLibrary ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-6 h-6 animate-spin text-purple-500" />
+                <span className="ml-2 text-sm text-slate-600">라이브러리 로딩 중...</span>
+              </div>
+            ) : bgmLibrary.length === 0 ? (
+              <div className="text-center py-8 text-slate-500">
+                <p>등록된 BGM이 없습니다.</p>
+                <p className="text-xs mt-2">관리자에게 문의하세요.</p>
+                <p className="text-xs mt-1">로드된 BGM 개수: {bgmLibrary.length}</p>
+              </div>
+            ) : (
+              bgmLibrary.map((audio) => (
+                <div
+                  key={audio.path}
+                  className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer transition-colors"
+                  onClick={() => handleSelectBgmFromLibrary(audio)}
+                >
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-slate-800">{audio.name}</p>
+                    <p className="text-xs text-slate-500 mt-1">{audio.path}</p>
+                  </div>
+                  <audio controls className="flex-1 h-8" src={audio.url} />
+                  <Button size="sm" variant="outline">
+                    선택
+                  </Button>
+                </div>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 효과음 라이브러리 다이얼로그 */}
+      <Dialog open={showSfxLibraryDialog} onOpenChange={(open) => {
+        console.log("[Shopping] 효과음 다이얼로그 onOpenChange 호출됨:", open, "현재 상태:", showSfxLibraryDialog)
+        // 디버깅: 왜 false로 변경되는지 확인
+        if (!open && showSfxLibraryDialog) {
+          console.log("[Shopping] ⚠️ 다이얼로그가 열려있는데 닫기 요청이 들어옴!")
+          console.trace("[Shopping] 스택 트레이스:")
+        }
+        setShowSfxLibraryDialog(open)
+      }}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>효과음 라이브러리</DialogTitle>
+            <DialogDescription>
+              관리자가 업로드한 효과음 중에서 선택하세요.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-4">
+            {isLoadingAudioLibrary ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
+                <span className="ml-2 text-sm text-slate-600">라이브러리 로딩 중...</span>
+              </div>
+            ) : sfxLibrary.length === 0 ? (
+              <div className="text-center py-8 text-slate-500">
+                <p>등록된 효과음이 없습니다.</p>
+                <p className="text-xs mt-2">관리자에게 문의하세요.</p>
+                <p className="text-xs mt-1">로드된 효과음 개수: {sfxLibrary.length}</p>
+              </div>
+            ) : (
+              sfxLibrary.map((audio) => (
+                <div
+                  key={audio.path}
+                  className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer transition-colors"
+                  onClick={() => handleSelectSfxFromLibrary(audio)}
+                >
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-slate-800">{audio.name}</p>
+                    <p className="text-xs text-slate-500 mt-1">{audio.path}</p>
+                  </div>
+                  <audio controls className="flex-1 h-8" src={audio.url} />
+                  <Button size="sm" variant="outline">
+                    선택
+                  </Button>
+                </div>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
+
 

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { BarChart3, Loader2, Home, Sparkles, Brain, TrendingUp, FileText, CheckCircle2, AlertCircle, Target, Zap, Eye, Heart, MessageSquare, Clock, Bookmark, Square, User, ShoppingBag, ExternalLink, Play } from "lucide-react"
+import { BarChart3, Loader2, Home, TrendingUp, AlertCircle, Target, Brain, FileText, Eye, Heart, MessageSquare, Bookmark, ShoppingBag, ExternalLink, Play, Sparkles } from "lucide-react"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 import { useRouter } from "next/navigation"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -30,41 +30,6 @@ interface AnalyzedVideo {
   description: string
 }
 
-interface StrategyAnalysis {
-  coreConcept: {
-    title: string
-    description: string
-  }
-  detailedPlan: {
-    contentDirection: string
-    uploadSchedule: string
-    keywordStrategy: string
-  }
-  revenueModel: string
-}
-
-interface GrowthAnalysis {
-  overallSummary: string
-  phases: Array<{
-    phaseTitle: string
-    period: string
-    strategyAnalysis: string
-  }>
-}
-
-interface ConsultingAnalysis {
-  overallDiagnosis: string
-  detailedAnalysis: Array<{
-    area: string
-    problem: string
-    solution: string
-  }>
-  actionPlan: {
-    shortTerm: string[]
-    longTerm: string[]
-  }
-}
-
 interface ChannelAnalysisResult {
   channelInfo: {
     title: string
@@ -82,9 +47,6 @@ interface ChannelAnalysisResult {
     averageUploadCycle: string
     recentUploadCycle: string
   }
-  strategy: StrategyAnalysis
-  growth: GrowthAnalysis
-  consulting: ConsultingAnalysis
 }
 
 interface ProductInfo {
@@ -183,14 +145,9 @@ export default function ChannelAnalysisPage() {
     try {
       // 로컬 스토리지에서 API 키 가져오기
       const youtubeApiKey = localStorage.getItem("shotform_youtube_data_api_key") || ""
-      const geminiApiKey = localStorage.getItem("shotform_gemini_api_key") || ""
 
       if (!youtubeApiKey) {
         throw new Error("YouTube API Key를 설정해주세요. 설정 페이지에서 API 키를 입력하고 저장해주세요.")
-      }
-
-      if (!geminiApiKey) {
-        throw new Error("Gemini API Key를 설정해주세요. 설정 페이지에서 API 키를 입력하고 저장해주세요.")
       }
 
       // API 호출 (채널 ID, URL 또는 채널명 모두 전달)
@@ -200,7 +157,6 @@ export default function ChannelAnalysisPage() {
         body: JSON.stringify({
           channelId: channelId.trim(), // 원본 입력값 그대로 전달 (API에서 처리)
           youtubeApiKey,
-          geminiApiKey,
         }),
       })
 
@@ -497,36 +453,9 @@ export default function ChannelAnalysisPage() {
                 </Button>
               </div>
 
-              {/* 메인 분석 탭 */}
-              <Tabs defaultValue="strategy" className="space-y-6">
-                <TabsList className="grid w-full grid-cols-3 bg-slate-800/50 p-1.5 rounded-xl border border-slate-700/50 backdrop-blur-sm">
-                  <TabsTrigger 
-                    value="strategy" 
-                    className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-600 data-[state=active]:to-pink-600 data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-purple-500/50 text-slate-300 data-[state=active]:border-0 transition-all"
-                  >
-                    <Square className="w-4 h-4 mr-2" />
-                    경쟁 전략 분석
-                  </TabsTrigger>
-                  <TabsTrigger 
-                    value="growth" 
-                    className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-600 data-[state=active]:to-cyan-600 data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-blue-500/50 text-slate-300 data-[state=active]:border-0 transition-all"
-                  >
-                    <TrendingUp className="w-4 h-4 mr-2" />
-                    성장 과정 분석
-                  </TabsTrigger>
-                  <TabsTrigger 
-                    value="consulting" 
-                    className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-teal-600 data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/50 text-slate-300 data-[state=active]:border-0 transition-all"
-                  >
-                    <User className="w-4 h-4 mr-2" />
-                    AI 채널 컨설팅
-                  </TabsTrigger>
-                </TabsList>
-              </Tabs>
-
-              {/* 하위 탭 (인기 점수, 조회수, 좋아요, 댓글, 타임라인, 콘텐츠 포맷) */}
+              {/* 하위 탭 (인기 점수, 조회수, 좋아요, 댓글, 타임라인) */}
               <Tabs defaultValue="popularity" className="space-y-6">
-                  <TabsList className="grid w-full grid-cols-6 bg-slate-800/50 p-1.5 rounded-xl border border-slate-700/50 backdrop-blur-sm">
+                  <TabsList className="grid w-full grid-cols-5 bg-slate-800/50 p-1.5 rounded-xl border border-slate-700/50 backdrop-blur-sm">
                     <TabsTrigger 
                       value="popularity" 
                       className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-red-500 data-[state=active]:to-red-600 data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-red-500/50 text-xs text-slate-300 data-[state=active]:border-0 transition-all"
@@ -561,13 +490,6 @@ export default function ChannelAnalysisPage() {
                     >
                       <TrendingUp className="w-3 h-3 mr-1" />
                       타임라인
-                    </TabsTrigger>
-                    <TabsTrigger 
-                      value="format" 
-                      className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-amber-500 data-[state=active]:to-orange-500 data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-amber-500/50 text-xs text-slate-300 data-[state=active]:border-0 transition-all"
-                    >
-                      <Clock className="w-3 h-3 mr-1" />
-                      콘텐츠 포맷
                     </TabsTrigger>
                   </TabsList>
 
@@ -821,202 +743,6 @@ export default function ChannelAnalysisPage() {
                     </Card>
                   </TabsContent>
 
-                  {/* 콘텐츠 포맷 */}
-                  <TabsContent value="format" className="space-y-6">
-                    <Card className="border border-slate-700/50 bg-slate-800/30 backdrop-blur-xl shadow-2xl">
-                      <CardHeader className="border-b border-slate-700/50">
-                        <CardTitle className="text-xl font-bold text-white flex items-center gap-2">
-                          <div className="p-1.5 rounded-lg bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-500/30">
-                            <Clock className="w-4 h-4 text-amber-400" />
-                          </div>
-                          콘텐츠 포맷 분석
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-slate-400">콘텐츠 포맷 분석 기능은 곧 제공될 예정입니다.</p>
-                      </CardContent>
-                    </Card>
-                  </TabsContent>
-              </Tabs>
-
-              {/* 메인 분석 탭 내용 */}
-              <Tabs defaultValue="strategy" className="space-y-6">
-                {/* 경쟁 전략 분석 */}
-                <TabsContent value="strategy" className="space-y-6">
-                  <Card className="border border-slate-700/50 bg-slate-800/30 backdrop-blur-xl shadow-2xl">
-                    <CardHeader className="bg-gradient-to-r from-purple-600/20 to-pink-600/20 border-b border-slate-700/50">
-                      <CardTitle className="text-2xl font-bold text-white flex items-center gap-3">
-                        <div className="p-2 rounded-xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-500/30">
-                          <Target className="w-6 h-6 text-purple-400" />
-                        </div>
-                        초격차 경쟁 전략
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="pt-6 space-y-6">
-                      <div className="p-6 bg-gradient-to-br from-purple-500/10 to-pink-500/10 rounded-2xl border border-purple-500/20 backdrop-blur-sm">
-                        <h3 className="text-xl font-bold text-white mb-3">{analysisResult.strategy.coreConcept.title}</h3>
-                        <p className="text-slate-300 leading-relaxed">{analysisResult.strategy.coreConcept.description}</p>
-                      </div>
-
-                      <div className="space-y-4">
-                        <div className="p-5 bg-gradient-to-br from-blue-500/10 to-cyan-500/10 rounded-2xl border border-blue-500/20 backdrop-blur-sm">
-                          <h4 className="font-bold text-blue-400 mb-3 flex items-center gap-2">
-                            <Zap className="w-5 h-5" />
-                            콘텐츠 방향성
-                          </h4>
-                          <p className="text-slate-300 leading-relaxed">{analysisResult.strategy.detailedPlan.contentDirection}</p>
-                        </div>
-
-                        <div className="p-5 bg-gradient-to-br from-cyan-500/10 to-teal-500/10 rounded-2xl border border-cyan-500/20 backdrop-blur-sm">
-                          <h4 className="font-bold text-cyan-400 mb-3 flex items-center gap-2">
-                            <CheckCircle2 className="w-5 h-5" />
-                            추천 업로드 스케줄
-                          </h4>
-                          <p className="text-slate-300 leading-relaxed">{analysisResult.strategy.detailedPlan.uploadSchedule}</p>
-                        </div>
-
-                        <div className="p-5 bg-gradient-to-br from-indigo-500/10 to-purple-500/10 rounded-2xl border border-indigo-500/20 backdrop-blur-sm">
-                          <h4 className="font-bold text-indigo-400 mb-3 flex items-center gap-2">
-                            <Sparkles className="w-5 h-5" />
-                            키워드 전략
-                          </h4>
-                          <p className="text-slate-300 leading-relaxed">{analysisResult.strategy.detailedPlan.keywordStrategy}</p>
-                        </div>
-                      </div>
-
-                      <div className="p-6 bg-gradient-to-br from-emerald-500/10 to-teal-500/10 rounded-2xl border border-emerald-500/20 backdrop-blur-sm">
-                        <h4 className="font-bold text-emerald-400 mb-3 flex items-center gap-2">
-                          <TrendingUp className="w-5 h-5" />
-                          수익화 제안
-                        </h4>
-                        <p className="text-slate-300 leading-relaxed">{analysisResult.strategy.revenueModel}</p>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-
-                {/* 성장 과정 분석 */}
-                <TabsContent value="growth" className="space-y-6 mt-6">
-                  <Card className="border border-slate-700/50 bg-slate-800/30 backdrop-blur-xl shadow-2xl">
-                    <CardHeader className="bg-gradient-to-r from-blue-600/20 to-cyan-600/20 border-b border-slate-700/50">
-                      <CardTitle className="text-2xl font-bold text-white flex items-center gap-3">
-                        <div className="p-2 rounded-xl bg-gradient-to-br from-blue-500/20 to-cyan-500/20 border border-blue-500/30">
-                          <TrendingUp className="w-6 h-6 text-blue-400" />
-                        </div>
-                        성장 과정 분석
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="pt-6 space-y-6">
-                      <div className="p-6 bg-gradient-to-br from-blue-500/10 to-cyan-500/10 rounded-2xl border border-blue-500/20 backdrop-blur-sm">
-                        <h3 className="text-xl font-bold text-white mb-3">채널 성장사 총평</h3>
-                        <p className="text-slate-300 leading-relaxed">{analysisResult.growth.overallSummary}</p>
-                      </div>
-
-                      <div className="space-y-4">
-                        {analysisResult.growth.phases.map((phase, index) => (
-                          <Card key={index} className="border border-blue-500/20 bg-gradient-to-br from-slate-800/50 to-blue-500/5 backdrop-blur-sm">
-                            <CardHeader>
-                              <CardTitle className="text-lg font-bold text-white flex items-center gap-3">
-                                <span className="w-10 h-10 rounded-full bg-gradient-to-r from-blue-500 to-cyan-500 text-white flex items-center justify-center text-sm font-bold shadow-lg shadow-blue-500/50">
-                                  {index + 1}
-                                </span>
-                                {phase.phaseTitle}
-                              </CardTitle>
-                              <p className="text-sm text-blue-400 font-medium mt-2">{phase.period}</p>
-                            </CardHeader>
-                            <CardContent>
-                              <p className="text-slate-300 leading-relaxed">{phase.strategyAnalysis}</p>
-                            </CardContent>
-                          </Card>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-
-                {/* 채널 진단 */}
-                <TabsContent value="consulting" className="space-y-6 mt-6">
-                  <Card className="border border-slate-700/50 bg-slate-800/30 backdrop-blur-xl shadow-2xl">
-                    <CardHeader className="bg-gradient-to-r from-emerald-600/20 to-teal-600/20 border-b border-slate-700/50">
-                      <CardTitle className="text-2xl font-bold text-white flex items-center gap-3">
-                        <div className="p-2 rounded-xl bg-gradient-to-br from-emerald-500/20 to-teal-500/20 border border-emerald-500/30">
-                          <FileText className="w-6 h-6 text-emerald-400" />
-                        </div>
-                        채널 주치의 진단
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="pt-6 space-y-6">
-                      <div className="p-6 bg-gradient-to-br from-emerald-500/10 to-teal-500/10 rounded-2xl border border-emerald-500/20 backdrop-blur-sm">
-                        <h3 className="text-xl font-bold text-white mb-3">종합 진단 결과</h3>
-                        <p className="text-slate-300 leading-relaxed">{analysisResult.consulting.overallDiagnosis}</p>
-                      </div>
-
-                      <div className="space-y-4">
-                        <h4 className="text-lg font-bold text-white flex items-center gap-2">
-                          <Brain className="w-5 h-5 text-emerald-400" />
-                          상세 분석
-                        </h4>
-                        {analysisResult.consulting.detailedAnalysis.map((item, index) => (
-                          <Card key={index} className="border border-emerald-500/20 bg-gradient-to-br from-slate-800/50 to-emerald-500/5 backdrop-blur-sm">
-                            <CardHeader>
-                              <CardTitle className="text-base font-bold text-emerald-400">{item.area}</CardTitle>
-                            </CardHeader>
-                            <CardContent className="space-y-3">
-                              <div>
-                                <p className="text-sm font-semibold text-red-400 mb-1">문제점:</p>
-                                <p className="text-slate-300">{item.problem}</p>
-                              </div>
-                              <div>
-                                <p className="text-sm font-semibold text-emerald-400 mb-1">해결책:</p>
-                                <p className="text-slate-300">{item.solution}</p>
-                              </div>
-                            </CardContent>
-                          </Card>
-                        ))}
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <Card className="border border-orange-500/20 bg-gradient-to-br from-slate-800/50 to-orange-500/5 backdrop-blur-sm">
-                          <CardHeader>
-                            <CardTitle className="text-lg font-bold text-orange-400 flex items-center gap-2">
-                              <Zap className="w-5 h-5" />
-                              단기 액션 플랜
-                            </CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                            <ul className="space-y-2">
-                              {analysisResult.consulting.actionPlan.shortTerm.map((action, index) => (
-                                <li key={index} className="flex items-start gap-2 text-slate-300">
-                                  <CheckCircle2 className="w-4 h-4 text-orange-400 mt-0.5 shrink-0" />
-                                  <span>{action}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </CardContent>
-                        </Card>
-
-                        <Card className="border border-blue-500/20 bg-gradient-to-br from-slate-800/50 to-blue-500/5 backdrop-blur-sm">
-                          <CardHeader>
-                            <CardTitle className="text-lg font-bold text-blue-400 flex items-center gap-2">
-                              <TrendingUp className="w-5 h-5" />
-                              장기 액션 플랜
-                            </CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                            <ul className="space-y-2">
-                              {analysisResult.consulting.actionPlan.longTerm.map((action, index) => (
-                                <li key={index} className="flex items-start gap-2 text-slate-300">
-                                  <CheckCircle2 className="w-4 h-4 text-blue-400 mt-0.5 shrink-0" />
-                                  <span>{action}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </CardContent>
-                        </Card>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
               </Tabs>
 
               {/* 최근 영상 목록 */}

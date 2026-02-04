@@ -119,110 +119,6 @@ const analysisToolsServices = [
   },
 ]
 
-// 수강생들 필요한 기능 서비스
-const otherToolsServices = [
-  {
-    id: "niche-analyzer",
-    title: "틈새주제 분석기",
-    icon: Search,
-    description: "검색량이 적은 틈새 주제를 AI가 분석해드립니다",
-    url: "#",
-    gradient: "from-cyan-500 via-blue-500 to-indigo-500",
-    hoverGradient: "from-cyan-600 via-blue-600 to-indigo-600",
-    locked: true,
-  },
-  {
-    id: "keyword-optimizer",
-    title: "키워드 최적화",
-    icon: Search,
-    description: "SEO에 최적화된 키워드를 추천해드립니다",
-    url: "#",
-    gradient: "from-purple-500 to-pink-500",
-    hoverGradient: "from-purple-600 to-pink-600",
-    locked: true,
-  },
-  {
-    id: "competitor-analysis",
-    title: "경쟁채널 분석",
-    icon: BarChart3,
-    description: "경쟁 채널의 전략을 분석해드립니다",
-    url: "#",
-    gradient: "from-blue-500 to-cyan-500",
-    hoverGradient: "from-blue-600 to-cyan-600",
-    locked: true,
-  },
-  {
-    id: "viral-predictor",
-    title: "바이럴 예측기",
-    icon: LineChart,
-    description: "콘텐츠의 바이럴 가능성을 예측해드립니다",
-    url: "#",
-    gradient: "from-orange-500 to-red-500",
-    hoverGradient: "from-orange-600 to-red-600",
-    locked: true,
-  },
-  {
-    id: "thumbnail-ab",
-    title: "썸네일 A/B 테스트",
-    icon: ImageIcon,
-    description: "최적의 썸네일을 테스트해드립니다",
-    url: "#",
-    gradient: "from-green-500 to-emerald-500",
-    hoverGradient: "from-green-600 to-emerald-600",
-    locked: true,
-  },
-  {
-    id: "upload-scheduler",
-    title: "업로드 스케줄러",
-    icon: Play,
-    description: "최적의 업로드 시간을 분석해드립니다",
-    url: "#",
-    gradient: "from-violet-500 to-purple-500",
-    hoverGradient: "from-violet-600 to-purple-600",
-    locked: true,
-  },
-  {
-    id: "comment-analyzer",
-    title: "댓글 분석기",
-    icon: MessageSquare,
-    description: "댓글 감정을 AI로 분석해드립니다",
-    url: "#",
-    gradient: "from-pink-500 to-rose-500",
-    hoverGradient: "from-pink-600 to-rose-600",
-    locked: true,
-  },
-  {
-    id: "revenue-calculator",
-    title: "수익 계산기",
-    icon: BarChart3,
-    description: "예상 수익을 계산해드립니다",
-    url: "#",
-    gradient: "from-amber-500 to-orange-500",
-    hoverGradient: "from-amber-600 to-orange-600",
-    locked: true,
-  },
-  {
-    id: "hashtag-generator",
-    title: "해시태그 생성기",
-    icon: Sparkles,
-    description: "최적의 해시태그를 생성해드립니다",
-    url: "#",
-    gradient: "from-teal-500 to-cyan-500",
-    hoverGradient: "from-teal-600 to-cyan-600",
-    locked: true,
-  },
-  {
-    id: "content-calendar",
-    title: "콘텐츠 캘린더",
-    icon: FileText,
-    description: "콘텐츠 일정을 관리해드립니다",
-    url: "#",
-    gradient: "from-indigo-500 to-blue-500",
-    hoverGradient: "from-indigo-600 to-blue-600",
-    locked: true,
-  },
-]
-
 // Header 컴포넌트
 function Header({ onSettingsClick, onFeedbackClick }: { onSettingsClick: () => void; onFeedbackClick: () => void }) {
   const router = useRouter()
@@ -576,7 +472,7 @@ function FeatureSection({
 }: {
   title: string
   subtitle: string
-  services: typeof videoProductionServices | typeof analysisToolsServices | typeof otherToolsServices
+  services: typeof videoProductionServices | typeof analysisToolsServices
   onServiceClick: (service: (typeof services)[0]) => void
   columns?: number
 }) {
@@ -1294,15 +1190,6 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               subtitle="채널 성장과 운영을 돕는 보조 도구"
               services={analysisToolsServices}
               onServiceClick={handleServiceClick}
-            />
-
-            {/* 수강생들 필요한 기능 섹션 */}
-            <FeatureSection
-              title="수강생들 필요한 기능"
-              subtitle="수강생들이 필요한 기능을 요청해주시면 아래 개발해드립니다"
-              services={otherToolsServices}
-              onServiceClick={handleServiceClick}
-              columns={5}
             />
           </div>
         </div>

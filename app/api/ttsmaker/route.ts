@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 
 export async function POST(request: NextRequest) {
   try {
-    const { text, voice = "ko-KR-Standard-A", speed = 1.0, pitch = 1.0, apiKey } = await request.json()
+    const { text, voice = "ko-KR-Standard-A", speed = 1.0, pitch = 1.0, apiKey, highQuality = false } = await request.json()
     
     // API 키 확인 (요청 본문에서 받거나 환경 변수에서 가져오기)
     const TTSMAKER_API_KEY = apiKey || process.env.TTSMAKER_API_KEY
@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
       audio_speed: speed,
       audio_volume: 1,
       audio_pitch: finalPitch,
-      audio_high_quality: 0,
+      audio_high_quality: highQuality ? 1 : 0, // 미리듣기에서 고품질 모드 사용
       text_paragraph_pause_time: 0,
       emotion_style_key: "",
       emotion_intensity: 1,
