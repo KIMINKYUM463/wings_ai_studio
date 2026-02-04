@@ -20004,6 +20004,13 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                         const geminiApiKey = getGeminiApiKey()
                         if (!geminiApiKey) {
                           alert("Gemini API 키를 설정해주세요. 설정 페이지에서 API 키를 입력하고 저장해주세요.")
+                          setIsSplittingScenes(false)
+                          return
+                        }
+                        
+                        if (!script || script.trim().length === 0) {
+                          alert("대본이 비어있습니다.")
+                          setIsSplittingScenes(false)
                           return
                         }
                         
@@ -20014,8 +20021,26 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                         alert("대본이 의미 단위로 나뉘었습니다.")
                       } catch (error) {
                         console.error("[씬 나누기] 에러:", error)
-                        const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다."
-                        alert(`씬 나누기에 실패했습니다: ${errorMessage}`)
+                        let errorMessage = "알 수 없는 오류가 발생했습니다."
+                        
+                        if (error instanceof Error) {
+                          errorMessage = error.message
+                          
+                          // 더 친절한 에러 메시지로 변환
+                          if (errorMessage.includes("API 키") || errorMessage.includes("인증 실패")) {
+                            errorMessage = "Gemini API 키가 올바르지 않습니다. 설정 페이지에서 API 키를 확인해주세요."
+                          } else if (errorMessage.includes("타임아웃")) {
+                            errorMessage = "요청 시간이 초과되었습니다. 대본이 너무 길거나 네트워크가 불안정할 수 있습니다. 잠시 후 다시 시도해주세요."
+                          } else if (errorMessage.includes("요청 한도") || errorMessage.includes("429")) {
+                            errorMessage = "API 요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요."
+                          } else if (errorMessage.includes("너무 깁니다") || errorMessage.includes("너무 길어서")) {
+                            errorMessage = "대본이 너무 깁니다. 대본을 나눠서 처리하거나 더 짧은 대본으로 시도해주세요."
+                          } else if (errorMessage.includes("안전성 검사")) {
+                            errorMessage = "대본 내용이 Gemini API의 안전성 정책에 위배됩니다. 대본 내용을 확인해주세요."
+                          }
+                        }
+                        
+                        alert(`씬 나누기에 실패했습니다.\n\n${errorMessage}`)
                       } finally {
                         setIsSplittingScenes(false)
                       }

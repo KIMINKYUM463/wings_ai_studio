@@ -6856,8 +6856,18 @@ export async function autoSplitScriptByMeaning(
     throw new Error("대본이 비어있습니다.")
   }
 
-  try {
-    const systemPrompt = `당신은 대본 편집 전문가입니다. 한 줄로 된 대본을 의미 단위로 분석하여 적절한 위치에 빈 줄을 추가하여 나눠주세요.
+  // 대본 길이 제한 (너무 긴 대본은 분할 처리 필요)
+  const MAX_SCRIPT_LENGTH = 50000 // 약 5만자 제한
+  if (script.length > MAX_SCRIPT_LENGTH) {
+    throw new Error(`대본이 너무 깁니다 (${script.length}자). 최대 ${MAX_SCRIPT_LENGTH}자까지 지원합니다. 대본을 나눠서 처리해주세요.`)
+  }
+
+  const maxRetries = 3
+  let lastError: Error | null = null
+
+  for (let retry = 0; retry < maxRetries; retry++) {
+    try {
+      const systemPrompt = `당신은 대본 편집 전문가입니다. 한 줄로 된 대본을 의미 단위로 분석하여 적절한 위치에 빈 줄을 추가하여 나눠주세요.
 
 [중요 규칙]
 1. 대본의 내용을 절대 변경하거나 수정하지 마세요.
@@ -6877,81 +6887,177 @@ export async function autoSplitScriptByMeaning(
 - 각 의미 단위는 자연스럽게 연결되어야 합니다.
 - 원본 대본의 모든 내용을 포함해야 합니다.`
 
-    const userPrompt = `다음 대본을 의미 단위로 나눠주세요. 빈 줄만 추가하고 내용은 절대 변경하지 마세요.
+      const userPrompt = `다음 대본을 의미 단위로 나눠주세요. 빈 줄만 추가하고 내용은 절대 변경하지 마세요.
 
 [대본]:
 ${script}`
 
-    console.log("[씬 나누기] 의미 단위 분석 시작...")
-    
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
+      console.log(`[씬 나누기] 의미 단위 분석 시작... (시도 ${retry + 1}/${maxRetries}, 대본 길이: ${script.length}자)`)
+      
+      // 타임아웃 설정 (60초)
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 60000)
+      
+      try {
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_API_KEY}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            signal: controller.signal,
+            body: JSON.stringify({
+              contents: [
                 {
-                  text: `${systemPrompt}\n\n${userPrompt}`,
+                  parts: [
+                    {
+                      text: `${systemPrompt}\n\n${userPrompt}`,
+                    },
+                  ],
                 },
               ],
-            },
-          ],
-          generationConfig: {
-            temperature: 0.3, // 낮은 온도로 정확한 분석
-            topK: 40,
-            topP: 0.95,
-            maxOutputTokens: Math.min(65536, Math.ceil(script.length * 1.5)), // 원본보다 약간 더 긴 토큰 할당 (최대 65536)
-          },
-        }),
+              generationConfig: {
+                temperature: 0.3, // 낮은 온도로 정확한 분석
+                topK: 40,
+                topP: 0.95,
+                maxOutputTokens: Math.min(65536, Math.ceil(script.length * 1.5)), // 원본보다 약간 더 긴 토큰 할당 (최대 65536)
+              },
+            }),
+          }
+        )
+
+        clearTimeout(timeoutId)
+
+        if (!response.ok) {
+          let errorText = ""
+          try {
+            errorText = await response.text()
+          } catch (e) {
+            errorText = `HTTP ${response.status} ${response.statusText}`
+          }
+          
+          // API 키 관련 오류인 경우 재시도하지 않음
+          if (response.status === 401 || response.status === 403) {
+            throw new Error(`Gemini API 인증 실패: ${errorText}. API 키를 확인해주세요.`)
+          }
+          
+          // 429 (Rate Limit) 오류인 경우 재시도
+          if (response.status === 429) {
+            lastError = new Error(`API 요청 한도 초과 (${response.status}). 잠시 후 재시도합니다.`)
+            if (retry < maxRetries - 1) {
+              const waitTime = 3000 * (retry + 1) // 3초, 6초, 9초
+              console.warn(`[씬 나누기] 요청 한도 초과, ${waitTime}ms 후 재시도...`)
+              await new Promise(resolve => setTimeout(resolve, waitTime))
+              continue
+            }
+            throw lastError
+          }
+          
+          throw new Error(`씬 나누기 실패 (HTTP ${response.status}): ${errorText.substring(0, 200)}`)
+        }
+
+        const data = await response.json()
+        
+        // API 응답 검증
+        if (!data.candidates || data.candidates.length === 0) {
+          throw new Error("Gemini API가 응답을 생성하지 못했습니다. API 응답을 확인해주세요.")
+        }
+        
+        if (data.candidates[0].finishReason === "SAFETY") {
+          throw new Error("Gemini API가 안전성 검사로 인해 응답을 차단했습니다. 대본 내용을 확인해주세요.")
+        }
+        
+        if (data.candidates[0].finishReason === "MAX_TOKENS") {
+          throw new Error("대본이 너무 길어서 처리할 수 없습니다. 대본을 나눠서 처리해주세요.")
+        }
+        
+        let result = data.candidates[0]?.content?.parts?.[0]?.text
+
+        if (!result) {
+          throw new Error("씬 나누기 결과를 생성할 수 없습니다. API 응답 형식을 확인해주세요.")
+        }
+
+        result = result.trim()
+        
+        // 결과에서 "[대본]:" 같은 프롬프트 부분 제거
+        const lines = result.split('\n')
+        let startIndex = 0
+        for (let i = 0; i < lines.length; i++) {
+          if (lines[i].includes('대본') && lines[i].includes(':')) {
+            startIndex = i + 1
+            break
+          }
+        }
+        result = lines.slice(startIndex).join('\n').trim()
+        
+        // 빈 결과 처리
+        if (!result || result.length === 0) {
+          throw new Error("씬 나누기 결과가 비어있습니다.")
+        }
+        
+        // 원본 대본의 글자수와 비교하여 너무 많이 변경되었는지 확인
+        const originalLength = script.replace(/\s+/g, '').length
+        const resultLength = result.replace(/\s+/g, '').length
+        
+        if (originalLength === 0) {
+          console.warn("[씬 나누기] 원본 대본이 비어있어 결과를 반환합니다.")
+          return result
+        }
+        
+        const lengthDiff = Math.abs(originalLength - resultLength) / originalLength
+        
+        if (lengthDiff > 0.1) {
+          // 10% 이상 차이나면 원본을 반환하고 경고
+          console.warn(`[씬 나누기] 결과가 원본과 너무 많이 달라서 원본을 반환합니다. (차이: ${(lengthDiff * 100).toFixed(1)}%)`)
+          return script
+        }
+        
+        console.log(`[씬 나누기] 완료: 원본 ${script.length}자 -> 결과 ${result.length}자`)
+        
+        return result
+      } catch (fetchError: any) {
+        clearTimeout(timeoutId)
+        
+        // AbortError는 타임아웃
+        if (fetchError.name === 'AbortError') {
+          lastError = new Error("씬 나누기 요청이 타임아웃되었습니다 (60초 초과). 대본이 너무 길거나 네트워크가 불안정할 수 있습니다.")
+          if (retry < maxRetries - 1) {
+            console.warn(`[씬 나누기] 타임아웃, ${2000 * (retry + 1)}ms 후 재시도...`)
+            await new Promise(resolve => setTimeout(resolve, 2000 * (retry + 1)))
+            continue
+          }
+          throw lastError
+        }
+        
+        // 다른 에러는 즉시 throw
+        throw fetchError
       }
-    )
-
-    if (!response.ok) {
-      const errorText = await response.text()
-      throw new Error(`씬 나누기 실패: ${response.status} - ${errorText}`)
-    }
-
-    const data = await response.json()
-    let result = data.candidates?.[0]?.content?.parts?.[0]?.text
-
-    if (!result) {
-      throw new Error("씬 나누기 결과를 생성할 수 없습니다.")
-    }
-
-    result = result.trim()
-    
-    // 결과에서 "[대본]:" 같은 프롬프트 부분 제거
-    const lines = result.split('\n')
-    let startIndex = 0
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].includes('대본') && lines[i].includes(':')) {
-        startIndex = i + 1
-        break
+    } catch (error: any) {
+      lastError = error instanceof Error ? error : new Error(String(error))
+      console.error(`[씬 나누기] 오류 발생 (시도 ${retry + 1}/${maxRetries}):`, {
+        name: lastError.name,
+        message: lastError.message,
+      })
+      
+      // 재시도 가능한 오류인 경우
+      if (retry < maxRetries - 1 && (
+        lastError.message.includes("요청 한도") ||
+        lastError.message.includes("타임아웃") ||
+        lastError.message.includes("network") ||
+        lastError.message.includes("ECONNRESET")
+      )) {
+        const waitTime = 2000 * (retry + 1)
+        console.warn(`[씬 나누기] ${waitTime}ms 후 재시도...`)
+        await new Promise(resolve => setTimeout(resolve, waitTime))
+        continue
       }
+      
+      // 재시도 불가능한 오류이거나 마지막 시도인 경우
+      throw lastError
     }
-    result = lines.slice(startIndex).join('\n').trim()
-    
-    // 원본 대본의 글자수와 비교하여 너무 많이 변경되었는지 확인
-    const originalLength = script.replace(/\s+/g, '').length
-    const resultLength = result.replace(/\s+/g, '').length
-    const lengthDiff = Math.abs(originalLength - resultLength) / originalLength
-    
-    if (lengthDiff > 0.1) {
-      // 10% 이상 차이나면 원본을 반환하고 경고
-      console.warn("[씬 나누기] 결과가 원본과 너무 많이 달라서 원본을 반환합니다.")
-      return script
-    }
-    
-    console.log(`[씬 나누기] 완료: 원본 ${script.length}자 -> 결과 ${result.length}자`)
-    
-    return result
-  } catch (error) {
-    console.error("씬 나누기 실패:", error)
-    throw error
   }
+
+  // 모든 재시도 실패
+  throw lastError || new Error("씬 나누기에 실패했습니다. 여러 번 시도했지만 실패했습니다.")
 }
