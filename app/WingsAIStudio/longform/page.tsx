@@ -9392,8 +9392,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     // 숫자를 한글로 변환
     let convertedText = convertNumbersToKorean(line.text)
     
-    // 번역이 필요한 경우 (한국어가 아닌 경우)
-    if (ttsTargetLanguage !== "ko") {
+    // 언어 선택 기능 비활성화 - 항상 한국어 사용
+    // 번역이 필요한 경우 (한국어가 아닌 경우) - 비활성화됨
+    if (false && ttsTargetLanguage !== "ko") {
       try {
         const openaiApiKey = getApiKey("openai_api_key") || getApiKey("openai") || getApiKey("gpt_api_key") || getApiKey("chatgpt_api_key")
         
@@ -9493,7 +9494,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               voiceId: voiceId,
               apiKey: supertoneApiKey,
               style: selectedSupertoneStyle || "neutral", // 사용자가 선택한 스타일
-              language: ttsTargetLanguage, // 선택한 언어로 설정
+              language: "ko", // 언어 선택 기능 비활성화 - 항상 한국어 사용
             }),
             signal: abortSignal, // AbortSignal 전달
           })
@@ -18438,14 +18439,15 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                               </div>
                             </div>
 
-                            {/* TTS 생성 언어 선택 */}
-                            <div className="space-y-2">
+                            {/* TTS 생성 언어 선택 - 비활성화 */}
+                            {/* <div className="space-y-2">
                               <Label className="text-sm font-medium text-gray-700">
                                 TTS 생성 언어 *
                               </Label>
                               <Select
                                 value={ttsTargetLanguage}
                                 onValueChange={(value) => setTtsTargetLanguage(value)}
+                                disabled
                               >
                                 <SelectTrigger>
                                   <SelectValue />
@@ -18470,7 +18472,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                               <p className="text-xs text-gray-500">
                                 선택한 언어로 대본이 자동 번역되어 TTS가 생성됩니다. (기본값: 한국어)
                               </p>
-                            </div>
+                            </div> */}
                           </div>
                         </div>
 
@@ -23433,14 +23435,15 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                           </p>
                         </div>
 
-                        {/* TTS 생성 언어 선택 */}
-                        <div className="space-y-2 mb-4">
+                        {/* TTS 생성 언어 선택 - 비활성화 */}
+                        {/* <div className="space-y-2 mb-4">
                           <Label className="text-sm font-medium text-gray-700">
                             TTS 생성 언어
                           </Label>
                           <Select
                             value={ttsTargetLanguage}
                             onValueChange={(value) => setTtsTargetLanguage(value)}
+                            disabled
                           >
                             <SelectTrigger>
                               <SelectValue />
@@ -23465,7 +23468,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                           <p className="text-xs text-gray-500">
                             선택한 언어로 대본이 자동 번역되어 TTS가 생성됩니다. (기본값: 한국어)
                           </p>
-                        </div>
+                        </div> */}
 
                         <div className="space-y-3">
                         {isGeneratingTTS ? (
