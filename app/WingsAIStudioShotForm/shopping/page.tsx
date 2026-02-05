@@ -1240,9 +1240,9 @@ export default function ShoppingPage() {
   const fetchSupertoneVoices = async () => {
     setIsLoadingSupertoneVoices(true)
     try {
-      // ShotForm 설정창 키를 먼저 확인하고, 없으면 롱폼 키 사용
+      // WingsAIStudioShotForm 설정창에서만 API 키 가져오기
       const supertoneApiKey = typeof window !== "undefined" 
-        ? (localStorage.getItem("shotform_supertone_api_key") || localStorage.getItem("supertone_api_key") || "").trim() 
+        ? (localStorage.getItem("shotform_supertone_api_key") || "").trim() 
         : null
       if (!supertoneApiKey || supertoneApiKey.length === 0) {
         alert("수퍼톤 API 키가 필요합니다. 설정에서 API 키를 입력해주세요.\n\n수퍼톤 API 콘솔(console.supertoneapi.com)에서 API 키를 발급받을 수 있습니다.")
@@ -1300,9 +1300,9 @@ export default function ShoppingPage() {
       
       if (voiceId?.startsWith("supertone-")) {
         const actualVoiceId = voiceId.replace("supertone-", "")
-        // ShotForm 설정창 키를 먼저 확인하고, 없으면 롱폼 키 사용
+        // WingsAIStudioShotForm 설정창에서만 API 키 가져오기
         const supertoneApiKey = typeof window !== "undefined" 
-          ? (localStorage.getItem("shotform_supertone_api_key") || localStorage.getItem("supertone_api_key") || "").trim() 
+          ? (localStorage.getItem("shotform_supertone_api_key") || "").trim() 
           : null
         
         if (!supertoneApiKey) {
@@ -1351,8 +1351,9 @@ export default function ShoppingPage() {
       } else if (voiceId?.startsWith("elevenlabs-")) {
         // ElevenLabs인 경우 - 접두사 제거
         const cleanVoiceId = voiceId.replace("elevenlabs-", "")
+        // WingsAIStudioShotForm 설정창에서만 API 키 가져오기
         let elevenlabsApiKey = typeof window !== "undefined" 
-          ? (localStorage.getItem("shotform_elevenlabs_api_key") || localStorage.getItem("elevenlabs_api_key") || "").trim() 
+          ? (localStorage.getItem("shotform_elevenlabs_api_key") || "").trim() 
           : null
         
         if (!elevenlabsApiKey || elevenlabsApiKey.length === 0) {
@@ -1524,9 +1525,9 @@ export default function ShoppingPage() {
       } else if (selectedVoiceId?.startsWith("supertone-")) {
         // 수퍼톤인 경우
         const voiceId = selectedVoiceId.replace("supertone-", "")
-        // ShotForm 설정창 키를 먼저 확인하고, 없으면 롱폼 키 사용
+        // WingsAIStudioShotForm 설정창에서만 API 키 가져오기
         const supertoneApiKey = typeof window !== "undefined" 
-          ? (localStorage.getItem("shotform_supertone_api_key") || localStorage.getItem("supertone_api_key") || "").trim() 
+          ? (localStorage.getItem("shotform_supertone_api_key") || "").trim() 
           : null
         
         if (!supertoneApiKey) {
@@ -1551,9 +1552,9 @@ export default function ShoppingPage() {
       } else if (selectedVoiceId?.startsWith("elevenlabs-")) {
         // ElevenLabs인 경우
         const voiceId = selectedVoiceId.replace("elevenlabs-", "") // 접두사 제거
-        // ShotForm 설정창 키를 먼저 확인하고, 없으면 롱폼 키 사용
+        // WingsAIStudioShotForm 설정창에서만 API 키 가져오기
         const elevenlabsApiKey = typeof window !== "undefined" 
-          ? (localStorage.getItem("shotform_elevenlabs_api_key") || localStorage.getItem("elevenlabs_api_key") || "").trim() 
+          ? (localStorage.getItem("shotform_elevenlabs_api_key") || "").trim() 
           : null
 
         if (!elevenlabsApiKey || elevenlabsApiKey.length === 0) {
