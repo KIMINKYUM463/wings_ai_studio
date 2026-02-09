@@ -625,6 +625,7 @@ export default function LongformContentPage() {
   const [selectedSupertoneStyle, setSelectedSupertoneStyle] = useState<string>("neutral") // 선택된 수퍼톤 스타일
   const [customSupertoneVoiceId, setCustomSupertoneVoiceId] = useState<string>("") // 사용자가 입력한 수퍼톤 음성 ID
   const [ttsTargetLanguage, setTtsTargetLanguage] = useState<string>("ko") // TTS 생성 언어 (기본값: 한국어)
+  const [selectedTtsLanguage, setSelectedTtsLanguage] = useState<string>("ko") // 선택된 TTS 언어 (토글용)
   const [showAddVoiceDialog, setShowAddVoiceDialog] = useState(false) // 목소리 추가 다이얼로그
   const [newVoiceId, setNewVoiceId] = useState("") // 새 목소리 ID
   const [newVoiceName, setNewVoiceName] = useState("") // 새 목소리 이름
@@ -794,9 +795,9 @@ export default function LongformContentPage() {
   
   // 영상 효과 설정
   const [introVideo, setIntroVideo] = useState<string | null>(null) // 앞부분 10초 동영상
-  const [logoImage, setLogoImage] = useState<string | null>(null) // 우측 상단 로고
+  const [logoImage, setLogoImage] = useState<string | null>(null) // 좌측 상단 로고
   const [logoSize, setLogoSize] = useState(120) // 로고 크기 (px)
-  const [logoPositionX, setLogoPositionX] = useState(95) // 로고 X 위치 (% - 우측에서)
+  const [logoPositionX, setLogoPositionX] = useState(5) // 로고 X 위치 (% - 좌측에서)
   const [logoPositionY, setLogoPositionY] = useState(5) // 로고 Y 위치 (% - 상단에서)
   const [enableZoom, setEnableZoom] = useState(true) // 줌인 효과 활성화
   const introVideoRef = useRef<HTMLVideoElement | null>(null) // 앞부분 동영상 ref
@@ -1786,6 +1787,40 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
   const [resizingAudioTrack, setResizingAudioTrack] = useState<{ id: string; side: "left" | "right" } | null>(null) // 리사이즈 중인 오디오 트랙
   const [audioTrackDragStart, setAudioTrackDragStart] = useState<{ id: string; startX: number; startTime: number } | null>(null) // 드래그 시작 위치
   const [audioTrackResizeStart, setAudioTrackResizeStart] = useState<{ id: string; side: "left" | "right"; startX: number; startTime: number; endTime: number } | null>(null) // 리사이즈 시작 위치
+  
+  // 배경음악 추가 핸들러
+  const handleAddBackgroundMusic = async (file: File) => {
+    try {
+      const url = URL.createObjectURL(file)
+      const audio = new Audio(url)
+      
+      // 오디오 길이 확인
+      await new Promise<void>((resolve, reject) => {
+        audio.onloadedmetadata = () => resolve()
+        audio.onerror = reject
+      })
+      
+      const audioDuration = audio.duration
+      const videoDuration = videoData?.duration || 0
+      
+      // 배경음악 트랙 생성 (전체 영상 길이에 맞춰 자동 반복)
+      const newTrack: AudioTrack = {
+        id: `bgm-${Date.now()}`,
+        type: "background_music",
+        file,
+        url,
+        startTime: 0, // 영상 시작부터
+        endTime: videoDuration > 0 ? videoDuration : audioDuration, // 영상 길이만큼 또는 오디오 길이
+        volume: 0.3, // 기본 볼륨 30% (음성과 겹치지 않도록)
+      }
+      
+      setAudioTracks((prev) => [...prev, newTrack])
+      audio.src = "" // 메모리 정리
+    } catch (error) {
+      console.error("배경음악 추가 실패:", error)
+      alert("배경음악 파일을 로드할 수 없습니다.")
+    }
+  }
   
   const [textStyles, setTextStyles] = useState<
     Array<{
@@ -9184,6 +9219,92 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     return languageMap[code.toLowerCase()] || code
   }
 
+  // 언어별 TTSMaker 목소리 목록 반환 함수
+  const getLanguageVoices = (language: string): Array<{ id: string; name: string; note: string; provider: string; language: string }> => {
+    const languageVoicesMap: Record<string, Array<{ id: string; name: string; note: string; provider: string; language: string }>> = {
+      "ko": [
+        { id: "ttsmaker-여성1", name: "TTSMaker 여성1", note: "ID: 503", provider: "ttsmaker", language: "ko" },
+        { id: "ttsmaker-여성2", name: "TTSMaker 여성2", note: "ID: 509", provider: "ttsmaker", language: "ko" },
+        { id: "ttsmaker-여성6", name: "TTSMaker 여성3", note: "ID: 5802", provider: "ttsmaker", language: "ko" },
+        { id: "ttsmaker-남성1", name: "TTSMaker 남성1", note: "ID: 5501", provider: "ttsmaker", language: "ko" },
+        { id: "ttsmaker-남성4", name: "TTSMaker 남성2", note: "ID: 5888", provider: "ttsmaker", language: "ko" },
+        { id: "ttsmaker-남성5", name: "TTSMaker 남성3", note: "ID: 5888 (음높이 -10%)", provider: "ttsmaker", language: "ko" },
+      ],
+      "en": [
+        { id: "ttsmaker-en-148", name: "TTSMaker 영어 1", note: "ID: 148", provider: "ttsmaker", language: "en" },
+        { id: "ttsmaker-en-149", name: "TTSMaker 영어 2", note: "ID: 149", provider: "ttsmaker", language: "en" },
+        { id: "ttsmaker-en-788", name: "TTSMaker 영어 3", note: "ID: 788", provider: "ttsmaker", language: "en" },
+        { id: "ttsmaker-en-1788", name: "TTSMaker 영어 4", note: "ID: 1788", provider: "ttsmaker", language: "en" },
+      ],
+      "zh": [
+        { id: "ttsmaker-zh-204", name: "TTSMaker 중국어 1", note: "ID: 204", provider: "ttsmaker", language: "zh" },
+        { id: "ttsmaker-zh-349", name: "TTSMaker 중국어 2", note: "ID: 349", provider: "ttsmaker", language: "zh" },
+        { id: "ttsmaker-zh-1349", name: "TTSMaker 중국어 3", note: "ID: 1349", provider: "ttsmaker", language: "zh" },
+        { id: "ttsmaker-zh-999", name: "TTSMaker 중국어 4", note: "ID: 999", provider: "ttsmaker", language: "zh" },
+        { id: "ttsmaker-zh-1406", name: "TTSMaker 중국어 5", note: "ID: 1406", provider: "ttsmaker", language: "zh" },
+      ],
+      "es": [
+        { id: "ttsmaker-es-231", name: "TTSMaker 스페인어 1", note: "ID: 231", provider: "ttsmaker", language: "es" },
+        { id: "ttsmaker-es-238", name: "TTSMaker 스페인어 2", note: "ID: 238", provider: "ttsmaker", language: "es" },
+        { id: "ttsmaker-es-232", name: "TTSMaker 스페인어 3", note: "ID: 232", provider: "ttsmaker", language: "es" },
+        { id: "ttsmaker-es-239", name: "TTSMaker 스페인어 4", note: "ID: 239", provider: "ttsmaker", language: "es" },
+      ],
+      "pt": [
+        { id: "ttsmaker-pt-260", name: "TTSMaker 포르투갈어 1", note: "ID: 260", provider: "ttsmaker", language: "pt" },
+        { id: "ttsmaker-pt-261", name: "TTSMaker 포르투갈어 2", note: "ID: 261", provider: "ttsmaker", language: "pt" },
+        { id: "ttsmaker-pt-266", name: "TTSMaker 포르투갈어 3", note: "ID: 266", provider: "ttsmaker", language: "pt" },
+        { id: "ttsmaker-pt-821", name: "TTSMaker 포르투갈어 4", note: "ID: 821", provider: "ttsmaker", language: "pt" },
+      ],
+      "de": [
+        { id: "ttsmaker-de-289", name: "TTSMaker 독일어 1", note: "ID: 289", provider: "ttsmaker", language: "de" },
+        { id: "ttsmaker-de-299", name: "TTSMaker 독일어 2", note: "ID: 299", provider: "ttsmaker", language: "de" },
+        { id: "ttsmaker-de-290", name: "TTSMaker 독일어 3", note: "ID: 290", provider: "ttsmaker", language: "de" },
+        { id: "ttsmaker-de-120091", name: "TTSMaker 독일어 4", note: "ID: 120091", provider: "ttsmaker", language: "de" },
+      ],
+      "fr": [
+        { id: "ttsmaker-fr-256", name: "TTSMaker 프랑스어 1", note: "ID: 256", provider: "ttsmaker", language: "fr" },
+        { id: "ttsmaker-fr-255", name: "TTSMaker 프랑스어 2", note: "ID: 255", provider: "ttsmaker", language: "fr" },
+        { id: "ttsmaker-fr-259", name: "TTSMaker 프랑스어 3", note: "ID: 259", provider: "ttsmaker", language: "fr" },
+        { id: "ttsmaker-fr-257", name: "TTSMaker 프랑스어 4", note: "ID: 257", provider: "ttsmaker", language: "fr" },
+      ],
+      "ja": [
+        { id: "ttsmaker-ja-406", name: "TTSMaker 일본어 1", note: "ID: 406", provider: "ttsmaker", language: "ja" },
+        { id: "ttsmaker-ja-407", name: "TTSMaker 일본어 2", note: "ID: 407", provider: "ttsmaker", language: "ja" },
+        { id: "ttsmaker-ja-4501", name: "TTSMaker 일본어 3", note: "ID: 4501", provider: "ttsmaker", language: "ja" },
+        { id: "ttsmaker-ja-4513", name: "TTSMaker 일본어 4", note: "ID: 4513", provider: "ttsmaker", language: "ja" },
+      ],
+      "it": [
+        { id: "ttsmaker-it-221", name: "TTSMaker 이탈리아어 1", note: "ID: 221", provider: "ttsmaker", language: "it" },
+        { id: "ttsmaker-it-229", name: "TTSMaker 이탈리아어 2", note: "ID: 229", provider: "ttsmaker", language: "it" },
+        { id: "ttsmaker-it-140001", name: "TTSMaker 이탈리아어 3", note: "ID: 140001", provider: "ttsmaker", language: "it" },
+        { id: "ttsmaker-it-140002", name: "TTSMaker 이탈리아어 4", note: "ID: 140002", provider: "ttsmaker", language: "it" },
+        { id: "ttsmaker-it-140003", name: "TTSMaker 이탈리아어 5", note: "ID: 140003", provider: "ttsmaker", language: "it" },
+      ],
+      "tr": [
+        { id: "ttsmaker-tr-150001", name: "TTSMaker 터키어 1", note: "ID: 150001", provider: "ttsmaker", language: "tr" },
+        { id: "ttsmaker-tr-150002", name: "TTSMaker 터키어 2", note: "ID: 150002", provider: "ttsmaker", language: "tr" },
+      ],
+      "ru": [
+        { id: "ttsmaker-ru-567", name: "TTSMaker 러시아어 1", note: "ID: 567", provider: "ttsmaker", language: "ru" },
+        { id: "ttsmaker-ru-70001", name: "TTSMaker 러시아어 2", note: "ID: 70001", provider: "ttsmaker", language: "ru" },
+        { id: "ttsmaker-ru-831", name: "TTSMaker 러시아어 3", note: "ID: 831", provider: "ttsmaker", language: "ru" },
+        { id: "ttsmaker-ru-70002", name: "TTSMaker 러시아어 4", note: "ID: 70002", provider: "ttsmaker", language: "ru" },
+      ],
+      "ms": [
+        { id: "ttsmaker-ms-160001", name: "TTSMaker 말레이어 1", note: "ID: 160001", provider: "ttsmaker", language: "ms" },
+        { id: "ttsmaker-ms-160002", name: "TTSMaker 말레이어 2", note: "ID: 160002", provider: "ttsmaker", language: "ms" },
+      ],
+      "th": [
+        { id: "ttsmaker-th-399", name: "TTSMaker 태국어 1", note: "ID: 399", provider: "ttsmaker", language: "th" },
+        { id: "ttsmaker-th-170001", name: "TTSMaker 태국어 2", note: "ID: 170001", provider: "ttsmaker", language: "th" },
+        { id: "ttsmaker-th-170002", name: "TTSMaker 태국어 3", note: "ID: 170002", provider: "ttsmaker", language: "th" },
+        { id: "ttsmaker-th-179001", name: "TTSMaker 태국어 4", note: "ID: 179001", provider: "ttsmaker", language: "th" },
+        { id: "ttsmaker-th-170003", name: "TTSMaker 태국어 5", note: "ID: 170003", provider: "ttsmaker", language: "th" },
+      ],
+    }
+    return languageVoicesMap[language] || []
+  }
+
   // 목소리 미리듣기 함수
   const handlePreviewVoice = async (voiceId: string) => {
     setPreviewingVoiceId(voiceId)
@@ -9217,9 +9338,39 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         })
       } else if (voiceId?.startsWith("ttsmaker-")) {
         // TTSMaker인 경우
-        const voiceName = voiceId.replace("ttsmaker-", "")
-        // 남성5는 음높이 -10% (pitch 0.9)
-        const pitch = voiceName === "남성5" ? 0.9 : 1.0
+        const foreignLanguagePattern = /^ttsmaker-(en|zh|es|pt|de|fr|ja|it|tr|ru|ms|th)-/
+        const languageMatch = voiceId.match(foreignLanguagePattern)
+        let voiceIdForApi: string
+        let pitch = 1.0
+        let previewText = "여러분 환영합니다"
+        
+        if (languageMatch) {
+          // 외국어 버전: "ttsmaker-en-148" -> "148"
+          const language = languageMatch[1]
+          voiceIdForApi = voiceId.replace(`ttsmaker-${language}-`, "")
+          // 언어별 미리듣기 텍스트
+          const previewTexts: Record<string, string> = {
+            "en": "Welcome everyone",
+            "zh": "欢迎大家",
+            "es": "Bienvenidos todos",
+            "pt": "Bem-vindos todos",
+            "de": "Willkommen alle",
+            "fr": "Bienvenue à tous",
+            "ja": "皆さん、ようこそ",
+            "it": "Benvenuti tutti",
+            "tr": "Herkese hoş geldiniz",
+            "ru": "Добро пожаловать всем",
+            "ms": "Selamat datang semua",
+            "th": "ยินดีต้อนรับทุกคน",
+          }
+          previewText = previewTexts[language] || "Welcome everyone"
+        } else {
+          // 한국어 버전
+          const voiceName = voiceId.replace("ttsmaker-", "")
+          voiceIdForApi = voiceName
+          pitch = voiceName === "남성5" ? 0.9 : 1.0
+        }
+        
         const ttsmakerApiKey = getApiKey("ttsmaker_api_key")
         
         if (!ttsmakerApiKey) {
@@ -9228,15 +9379,15 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           return
         }
         
-        console.log(`[미리듣기] TTSMaker voice: ${voiceId} -> ${voiceName}, pitch: ${pitch}`)
+        console.log(`[미리듣기] TTSMaker voice: ${voiceId} -> ${voiceIdForApi}, pitch: ${pitch}, text: ${previewText}`)
         response = await fetch("/api/ttsmaker", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            text: "여러분 환영합니다",
-            voice: voiceName,
+            text: previewText,
+            voice: voiceIdForApi,
             speed: 1.0,
             pitch: pitch,
             apiKey: ttsmakerApiKey,
@@ -9392,16 +9543,18 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     // 숫자를 한글로 변환
     let convertedText = convertNumbersToKorean(line.text)
     
-    // 언어 선택 기능 비활성화 - 항상 한국어 사용
-    // 번역이 필요한 경우 (한국어가 아닌 경우) - 비활성화됨
-    if (false && ttsTargetLanguage !== "ko") {
+    // 외국어 버전 TTSMaker 선택 시 번역 수행
+    const foreignLanguagePattern = /^ttsmaker-(en|zh|es|pt|de|fr|ja|it|tr|ru|ms|th)-/
+    const languageMatch = selectedVoiceId?.match(foreignLanguagePattern)
+    if (languageMatch) {
+      const targetLanguage = languageMatch[1] // en, zh, es, pt 등
       try {
         const openaiApiKey = getApiKey("openai_api_key") || getApiKey("openai") || getApiKey("gpt_api_key") || getApiKey("chatgpt_api_key")
         
         if (!openaiApiKey) {
-          console.warn("[TTS 번역] OpenAI API 키가 없어 번역을 건너뜁니다. 원본 텍스트를 사용합니다.")
+          console.warn(`[TTS 번역] OpenAI API 키가 없어 번역을 건너뜁니다. 원본 텍스트를 사용합니다.`)
         } else {
-          console.log(`[TTS 번역] ${ttsTargetLanguage}로 번역 시작: "${convertedText.substring(0, 30)}..."`)
+          console.log(`[TTS 번역] ${targetLanguage}로 번역 시작: "${convertedText.substring(0, 30)}..."`)
           
           const translateResponse = await fetch("/api/translate", {
             method: "POST",
@@ -9411,7 +9564,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             body: JSON.stringify({
               text: convertedText,
               sourceLanguage: "ko",
-              targetLanguage: ttsTargetLanguage,
+              targetLanguage: targetLanguage,
               apiKey: openaiApiKey,
             }),
             signal: abortSignal,
@@ -9424,11 +9577,11 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               console.log(`[TTS 번역] 번역 완료: "${convertedText.substring(0, 30)}..."`)
             }
           } else {
-            console.warn("[TTS 번역] 번역 실패, 원본 텍스트 사용")
+            console.warn(`[TTS 번역] 번역 실패, 원본 텍스트 사용`)
           }
         }
       } catch (error) {
-        console.warn("[TTS 번역] 번역 중 오류 발생, 원본 텍스트 사용:", error)
+        console.warn(`[TTS 번역] 번역 중 오류 발생, 원본 텍스트 사용:`, error)
       }
     }
     
@@ -9443,9 +9596,24 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         
         // TTSMaker인 경우
         if (selectedVoiceId?.startsWith("ttsmaker-")) {
-          // TTSMaker인 경우
-          const voiceName = selectedVoiceId.replace("ttsmaker-", "")
-          const pitch = voiceName === "남성5" ? 0.9 : 1.0
+          // 외국어 버전인지 확인
+          const foreignLanguagePattern = /^ttsmaker-(en|zh|es|pt|de|fr|ja|it|tr|ru|ms|th)-/
+          const languageMatch = selectedVoiceId.match(foreignLanguagePattern)
+          let voiceId: string
+          let pitch = 1.0
+          
+          if (languageMatch) {
+            // 외국어 버전: "ttsmaker-en-148" -> "148"
+            const language = languageMatch[1]
+            voiceId = selectedVoiceId.replace(`ttsmaker-${language}-`, "")
+          } else {
+            // 한국어 버전
+            const voiceName = selectedVoiceId.replace("ttsmaker-", "")
+            pitch = voiceName === "남성5" ? 0.9 : 1.0
+            // 한국어 버전은 이름을 그대로 사용 (API에서 매핑)
+            voiceId = voiceName
+          }
+          
           const ttsmakerApiKey = getApiKey("ttsmaker_api_key")
           
           if (!ttsmakerApiKey) {
@@ -9459,7 +9627,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             },
             body: JSON.stringify({
               text: convertedText,
-              voice: voiceName,
+              voice: voiceId,
               speed: 1.0,
               pitch: pitch,
               apiKey: ttsmakerApiKey,
@@ -15009,14 +15177,22 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       
       // 효과음 및 배경음악 추가
       const gainNodes: Array<{ node: GainNode; source: AudioBufferSourceNode; track: AudioTrack }> = []
+      const bgmSources: Array<{ source: AudioBufferSourceNode; track: AudioTrack; buffer: AudioBuffer }> = [] // 배경음악 반복 재생용
+      
       for (const { buffer, track } of audioBuffers) {
-        const trackSource = audioContext.createBufferSource()
-        trackSource.buffer = buffer
-        const gainNode = audioContext.createGain()
-        gainNode.gain.value = track.volume
-        trackSource.connect(gainNode)
-        gainNode.connect(destination)
-        gainNodes.push({ node: gainNode, source: trackSource, track })
+        if (track.type === "background_music") {
+          // 배경음악은 반복 재생을 위해 별도로 관리
+          bgmSources.push({ source: null as any, track, buffer })
+        } else {
+          // 효과음은 일반적으로 처리
+          const trackSource = audioContext.createBufferSource()
+          trackSource.buffer = buffer
+          const gainNode = audioContext.createGain()
+          gainNode.gain.value = track.volume
+          trackSource.connect(gainNode)
+          gainNode.connect(destination)
+          gainNodes.push({ node: gainNode, source: trackSource, track })
+        }
       }
       
       // 비디오 스트림과 오디오 스트림 합치기
@@ -15082,14 +15258,22 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         })
       }
 
-      // 로고 이미지 로드
+      // 로고 이미지 로드 (투명 배경 유지)
       let logoImg: HTMLImageElement | null = null
       if (logoImage) {
         logoImg = new Image()
         logoImg.crossOrigin = "anonymous"
+        // 이미지가 완전히 로드될 때까지 대기 (투명 배경 유지를 위해)
         await new Promise<void>((resolve, reject) => {
-          logoImg!.onload = () => resolve()
-          logoImg!.onerror = reject
+          logoImg!.onload = () => {
+            // 이미지가 완전히 로드되었는지 확인
+            if (logoImg!.complete && logoImg!.naturalWidth > 0) {
+              resolve()
+            } else {
+              reject(new Error("이미지 로드 실패"))
+            }
+          }
+          logoImg!.onerror = () => reject(new Error("이미지 로드 오류"))
           logoImg!.src = logoImage
         })
       }
@@ -15097,11 +15281,49 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       // 렌더링 시작
       mediaRecorder.start()
       
+      // 배경음악 반복 재생 함수
+      const startBGM = (bgmTrack: { source: AudioBufferSourceNode; track: AudioTrack; buffer: AudioBuffer }, startOffset: number = 0) => {
+        const currentTime = audioContext.currentTime
+        const adjustedStartTime = bgmTrack.track.startTime + startOffset
+        const videoDuration = videoData.duration || 0
+        const bgmDuration = bgmTrack.buffer.duration
+        
+        // 영상 길이만큼 반복 재생
+        let playTime = 0
+        const playNext = () => {
+          if (playTime >= videoDuration) return
+          
+          const source = audioContext.createBufferSource()
+          source.buffer = bgmTrack.buffer
+          const gainNode = audioContext.createGain()
+          gainNode.gain.value = bgmTrack.track.volume
+          source.connect(gainNode)
+          gainNode.connect(destination)
+          
+          const startAt = currentTime + adjustedStartTime + playTime
+          const remainingTime = videoDuration - playTime
+          
+          if (remainingTime >= bgmDuration) {
+            // 전체 재생
+            source.start(startAt)
+            source.stop(startAt + bgmDuration)
+            playTime += bgmDuration
+            source.onended = playNext
+          } else {
+            // 마지막 부분만 재생
+            source.start(startAt)
+            source.stop(startAt + remainingTime)
+          }
+        }
+        
+        playNext()
+      }
+      
       // 앞부분 동영상이 있으면 10초 후에 오디오 재생, 없으면 바로 재생
       if (introVideo) {
         setTimeout(() => {
           audio.play()
-          // 효과음 및 배경음악 재생 시작
+          // 효과음 재생 시작
           for (const { source, track } of gainNodes) {
             const adjustedStartTime = track.startTime + (introVideo ? 10 : 0)
             const currentTime = audioContext.currentTime
@@ -15112,10 +15334,14 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               source.stop(currentTime + adjustedStartTime + duration)
             }
           }
+          // 배경음악 재생 시작 (반복)
+          for (const bgmTrack of bgmSources) {
+            startBGM(bgmTrack, introVideo ? 10 : 0)
+          }
         }, 10000) // 10초 후 재생
       } else {
         audio.play()
-        // 효과음 및 배경음악 재생 시작
+        // 효과음 재생 시작
         for (const { source, track } of gainNodes) {
           const currentTime = audioContext.currentTime
           if (track.startTime <= videoData.duration) {
@@ -15124,6 +15350,10 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             const duration = track.endTime - track.startTime
             source.stop(currentTime + track.startTime + duration)
           }
+        }
+        // 배경음악 재생 시작 (반복)
+        for (const bgmTrack of bgmSources) {
+          startBGM(bgmTrack)
         }
       }
 
@@ -15280,8 +15510,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           : 1 - 4 * (1 - t) * (1 - t) * (1 - t) * t - (1 - t) * (1 - t)
       }
 
-      // 이미지 전환 페이드 시간 (초) - 더 자연스러운 전환을 위해 길게 설정
-      const fadeDuration = 1.2
+      // 이미지 전환 페이드 시간 (초) - 매우 부드러운 전환을 위해 더 길게 설정
+      const fadeDuration = 2.0
 
       let previousImage: AutoImage | null = null
       let previousImageElement: HTMLImageElement | null = null
@@ -15319,43 +15549,67 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         } else {
           // 현재 시간에 맞는 이미지 찾기
           const adjustedTime = introVideo ? currentTime - 10 : currentTime // 앞부분 동영상이 있으면 10초 빼기
-          let currentImage = videoData.autoImages?.find(
-            (img) => adjustedTime >= img.startTime && adjustedTime <= img.endTime
-          )
           
-          // 모든 이미지의 endTime이 지나버렸을 때 마지막 이미지 계속 표시 (에러 방지)
-          if (!currentImage && videoData.autoImages && videoData.autoImages.length > 0) {
-            const lastImage = videoData.autoImages[videoData.autoImages.length - 1]
-            if (adjustedTime >= lastImage.startTime) {
-              // 마지막 이미지의 startTime 이후면 마지막 이미지 계속 표시
-              currentImage = lastImage
-              console.log(`[렌더링] 모든 이미지 시간 종료, 마지막 이미지 계속 표시 (시간: ${adjustedTime.toFixed(2)}초)`)
+          // 먼저 전환 중인지 확인 (이전 이미지의 endTime부터 fadeDuration 동안)
+          let isTransitioning = false
+          let previousImageData: { id: string; url: string; startTime: number; endTime: number; keyword: string; motion?: string } | null = null
+          let nextImageData: { id: string; url: string; startTime: number; endTime: number; keyword: string; motion?: string } | null = null
+          let fadeProgress = 1 // 1 = 완전히 새 이미지, 0 = 완전히 이전 이미지
+          
+          // 모든 이미지를 순회하며 전환 구간 확인
+          if (videoData.autoImages && videoData.autoImages.length > 1) {
+            for (let i = 0; i < videoData.autoImages.length - 1; i++) {
+              const prevImg = videoData.autoImages[i]
+              const nextImg = videoData.autoImages[i + 1]
+              
+              const transitionStartTime = prevImg.endTime
+              const transitionEndTime = transitionStartTime + fadeDuration
+              
+              // 현재 시간이 전환 구간 내에 있으면
+              if (adjustedTime >= transitionStartTime && adjustedTime <= transitionEndTime) {
+                isTransitioning = true
+                previousImageData = prevImg
+                nextImageData = nextImg
+                
+                // 전환 진행률 계산 (0 = 이전 이미지, 1 = 다음 이미지)
+                const timeSinceTransition = adjustedTime - transitionStartTime
+                fadeProgress = Math.min(Math.max(timeSinceTransition / fadeDuration, 0), 1)
+                
+                // 매우 부드러운 전환을 위한 easing (easeInOutCubic - 가장 부드러운 곡선)
+                if (fadeProgress < 0.5) {
+                  fadeProgress = 4 * fadeProgress * fadeProgress * fadeProgress
+                } else {
+                  const t = 2 * fadeProgress - 1
+                  fadeProgress = 1 + (t * t * t - 1) / 2
+                }
+                break
+              }
+            }
+          }
+          
+          // 전환 중이 아니면 일반적으로 현재 이미지 찾기
+          let currentImage: { id: string; url: string; startTime: number; endTime: number; keyword: string; motion?: string } | null = null
+          if (isTransitioning) {
+            // 전환 중일 때는 다음 이미지를 currentImage로 사용
+            currentImage = nextImageData
+          } else {
+            // 전환 중이 아니면 일반적으로 찾기
+            currentImage = videoData.autoImages?.find(
+              (img) => adjustedTime >= img.startTime && adjustedTime <= img.endTime
+            ) || null
+            
+            // 모든 이미지의 endTime이 지나버렸을 때 마지막 이미지 계속 표시 (에러 방지)
+            if (!currentImage && videoData.autoImages && videoData.autoImages.length > 0) {
+              const lastImage = videoData.autoImages[videoData.autoImages.length - 1]
+              if (adjustedTime >= lastImage.startTime) {
+                currentImage = lastImage
+                console.log(`[렌더링] 모든 이미지 시간 종료, 마지막 이미지 계속 표시 (시간: ${adjustedTime.toFixed(2)}초)`)
+              }
             }
           }
           
           // 현재 이미지 인덱스 찾기
           const currentImageIndex = currentImage ? videoData.autoImages?.indexOf(currentImage) || -1 : -1
-          
-          // 이전 이미지 찾기 (전환 중일 때) - 더 정확하게 찾기
-          let previousImageData: typeof currentImage | null = null
-          if (currentImageIndex > 0 && currentImageIndex !== previousImageIndex) {
-            // 이전 이미지가 있고, 현재 이미지가 바뀌었을 때
-            const prevIndex = currentImageIndex - 1
-            previousImageData = videoData.autoImages?.[prevIndex] || null
-            
-            // 이전 이미지가 전환 시간 내에 있는지 확인
-            if (previousImageData) {
-              const timeSincePrevEnd = adjustedTime - previousImageData.endTime
-              if (timeSincePrevEnd > fadeDuration) {
-                previousImageData = null // 전환 시간이 지났으면 이전 이미지 표시 안 함
-              }
-            }
-          } else if (currentImageIndex === previousImageIndex && previousImage) {
-            // 같은 이미지가 계속 표시되는 경우
-            previousImageData = previousImage
-          }
-          
-          // 전환 효과 제거 - 바로 이미지 전환
           
           // 이전 이미지 업데이트
           if (currentImageIndex !== previousImageIndex && currentImage) {
@@ -15377,58 +15631,100 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             const cachedImg = imageCache.get(currentImage.id)
             
             try {
-              if (cachedVideo) {
-                // 비디오 재생
-                const imageStartTime = currentImage.startTime
-                const timeInImage = adjustedTime - imageStartTime
-                const videoDuration = cachedVideo.duration || 6
-                const videoTime = timeInImage % videoDuration
-                cachedVideo.currentTime = videoTime
+              // 전환 효과를 위한 헬퍼 함수: 이미지를 그리는 함수
+              const drawImageToCanvas = (
+                img: HTMLImageElement | HTMLVideoElement,
+                alpha: number,
+                isVideo: boolean = false
+              ) => {
+                const targetWidth = 1920
+                const targetHeight = 1080
                 
-                // 비디오를 1920x1080에 딱 맞게 그리기
-                ctx.drawImage(cachedVideo, 0, 0, 1920, 1080)
-              } else if (cachedImg) {
-                const img = cachedImg
-              
-              // 이미지를 1920x1080에 딱 맞게 조정 (잘려도 됨)
-              const targetWidth = 1920
-              const targetHeight = 1080
-              const targetRatio = targetWidth / targetHeight
-              const imgRatio = img.width / img.height
-              
-              let sourceX = 0
-              let sourceY = 0
-              let sourceWidth = img.width
-              let sourceHeight = img.height
-              
-              // 이미지를 1920x1080 비율에 맞게 중앙 크롭
-              if (imgRatio > targetRatio) {
-                // 이미지가 더 넓은 경우: 높이 기준으로 크롭 (좌우 잘림)
-                sourceHeight = img.height
-                sourceWidth = img.height * targetRatio
-                sourceX = (img.width - sourceWidth) / 2
-                sourceY = 0
-              } else {
-                // 이미지가 더 높은 경우: 너비 기준으로 크롭 (상하 잘림)
-                sourceWidth = img.width
-                sourceHeight = img.width / targetRatio
-                sourceX = 0
-                sourceY = (img.height - sourceHeight) / 2
-              }
-              
-                // 현재 이미지를 1920x1080에 딱 맞게 그리기
-                if (img && img.complete && img.naturalWidth > 0) {
+                if (isVideo) {
+                  // 비디오는 전체 화면에 그리기
+                  ctx.save()
+                  ctx.globalAlpha = alpha
+                  ctx.drawImage(img, 0, 0, targetWidth, targetHeight)
+                  ctx.restore()
+                } else {
+                  // 이미지는 비율에 맞게 크롭하여 그리기
+                  const targetRatio = targetWidth / targetHeight
+                  const imgRatio = img.width / img.height
+                  
+                  let sourceX = 0
+                  let sourceY = 0
+                  let sourceWidth = img.width
+                  let sourceHeight = img.height
+                  
+                  // 이미지를 1920x1080 비율에 맞게 중앙 크롭
+                  if (imgRatio > targetRatio) {
+                    // 이미지가 더 넓은 경우: 높이 기준으로 크롭 (좌우 잘림)
+                    sourceHeight = img.height
+                    sourceWidth = img.height * targetRatio
+                    sourceX = (img.width - sourceWidth) / 2
+                    sourceY = 0
+                  } else {
+                    // 이미지가 더 높은 경우: 너비 기준으로 크롭 (상하 잘림)
+                    sourceWidth = img.width
+                    sourceHeight = img.width / targetRatio
+                    sourceX = 0
+                    sourceY = (img.height - sourceHeight) / 2
+                  }
+                  
+                  ctx.save()
+                  ctx.globalAlpha = alpha
                   ctx.drawImage(
                     img,
                     sourceX, sourceY, sourceWidth, sourceHeight, // 소스: 크롭할 영역
                     0, 0, targetWidth, targetHeight // 대상: 1920x1080 전체
                   )
+                  ctx.restore()
                 }
-              } else {
-                // 이미지가 아직 로드되지 않았을 때 (로딩 중)
-                // 검은 화면 유지 또는 마지막 로드된 이미지 사용
-                if (previousImageElement && previousImageElement.complete && previousImageElement.naturalWidth > 0) {
-                  ctx.drawImage(previousImageElement, 0, 0, 1920, 1080)
+              }
+              
+              // 전환 효과: 이전 이미지와 현재 이미지를 페이드로 전환
+              // 전환 중일 때는 이전 이미지와 다음 이미지를 모두 그리기
+              if (isTransitioning && previousImageData && currentImage) {
+                // 이전 이미지 로드 시도
+                const prevCachedVideo = videoCache.get(previousImageData.id)
+                const prevCachedImg = imageCache.get(previousImageData.id)
+                
+                // 이전 이미지 그리기 (페이드 아웃: 1 - fadeProgress)
+                if (prevCachedVideo) {
+                  const prevImageStartTime = previousImageData.startTime
+                  const prevTimeInImage = adjustedTime - prevImageStartTime
+                  const prevVideoDuration = prevCachedVideo.duration || 6
+                  const prevVideoTime = prevTimeInImage % prevVideoDuration
+                  prevCachedVideo.currentTime = prevVideoTime
+                  drawImageToCanvas(prevCachedVideo, 1 - fadeProgress, true)
+                } else if (prevCachedImg && prevCachedImg.complete && prevCachedImg.naturalWidth > 0) {
+                  drawImageToCanvas(prevCachedImg, 1 - fadeProgress, false)
+                }
+              }
+              
+              // 현재 이미지 그리기 (페이드 인: fadeProgress)
+              // 전환 중이면 fadeProgress에 따라, 전환 중이 아니면 opacity 1.0으로
+              const currentImageOpacity = isTransitioning ? fadeProgress : 1.0
+              if (currentImageOpacity > 0) {
+                if (cachedVideo) {
+                  // 비디오 재생
+                  const imageStartTime = currentImage.startTime
+                  const timeInImage = adjustedTime - imageStartTime
+                  const videoDuration = cachedVideo.duration || 6
+                  const videoTime = timeInImage % videoDuration
+                  cachedVideo.currentTime = videoTime
+                  
+                  // 비디오를 페이드 인으로 그리기
+                  drawImageToCanvas(cachedVideo, currentImageOpacity, true)
+                } else if (cachedImg && cachedImg.complete && cachedImg.naturalWidth > 0) {
+                  // 이미지를 페이드 인으로 그리기
+                  drawImageToCanvas(cachedImg, currentImageOpacity, false)
+                } else {
+                  // 이미지가 아직 로드되지 않았을 때 (로딩 중)
+                  // 검은 화면 유지 또는 마지막 로드된 이미지 사용
+                  if (previousImageElement && previousImageElement.complete && previousImageElement.naturalWidth > 0) {
+                    ctx.drawImage(previousImageElement, 0, 0, 1920, 1080)
+                  }
                 }
               }
             } catch (error) {
@@ -15480,15 +15776,25 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           }
         }
 
-        // 로고 그리기 (크기와 위치 조절 가능)
-        if (logoImg) {
+        // 로고 그리기 (크기와 위치 조절 가능, 투명 배경 유지)
+        if (logoImg && logoImg.complete && logoImg.naturalWidth > 0) {
+          ctx.save()
+          // 투명 배경을 유지하기 위해 globalCompositeOperation 설정
+          ctx.globalCompositeOperation = "source-over"
+          // 이미지의 알파 채널 보존
+          ctx.imageSmoothingEnabled = true
+          ctx.imageSmoothingQuality = "high"
+          
           const logoWidth = logoSize
           const logoHeight = logoSize
           // X 위치: logoPositionX% (0% = 좌측, 100% = 우측)
           const logoX = (canvas.width * logoPositionX) / 100 - logoWidth / 2
           // Y 위치: logoPositionY% (0% = 상단, 100% = 하단)
           const logoY = (canvas.height * logoPositionY) / 100 - logoHeight / 2
+          
+          // 투명 배경을 유지하면서 이미지 그리기
           ctx.drawImage(logoImg, logoX, logoY, logoWidth, logoHeight)
+          ctx.restore()
         }
 
         // 현재 시간에 맞는 자막 찾기 (미리보기와 동일하게: videoData.subtitles의 정확한 시간 사용)
@@ -17191,26 +17497,26 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             <div className="flex-1 space-y-6">
               {/* 제목 & 설명 */}
               <div className="space-y-2 mb-6">
-                <h1 className="text-2xl md:text-3xl font-semibold text-slate-900">주제 추천</h1>
+                <h1 className="text-2xl md:text-3xl font-semibold text-slate-900 dark:text-gray-100">주제 추천</h1>
                 <p className="text-sm md:text-base text-gray-500">AI가 최적의 영상 주제를 추천해드립니다</p>
               </div>
 
               {/* 카테고리 선택 및 주제 생성 통합 카드 */}
-              <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white">
-                <CardHeader className="pb-4 border-b border-gray-100">
-                  <CardTitle className="text-lg font-semibold text-slate-900">카테고리 선택</CardTitle>
+              <Card className="border border-gray-200 dark:border-gray-700 rounded-2xl shadow-sm bg-white dark:bg-gray-800">
+                <CardHeader className="pb-4 border-b border-gray-100 dark:border-gray-700">
+                  <CardTitle className="text-lg font-semibold text-slate-900 dark:text-gray-100">카테고리 선택</CardTitle>
                 </CardHeader>
                 <CardContent className="pt-6 space-y-6">
                   {/* 기본 주제/틈새 주제 토글 */}
                   <div className="flex items-center justify-center mb-4">
-                    <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1">
+                    <div className="inline-flex rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 p-1">
                       <button
                         type="button"
                         onClick={() => setShowBasicCategories(true)}
                         className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
                           showBasicCategories
-                            ? "bg-white text-red-600 shadow-sm"
-                            : "text-gray-600 hover:text-gray-900"
+                            ? "bg-white dark:bg-gray-600 text-red-600 dark:text-red-400 shadow-sm"
+                            : "text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
                         }`}
                       >
                         기본 주제
@@ -17220,8 +17526,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                         onClick={() => setShowBasicCategories(false)}
                         className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
                           !showBasicCategories
-                            ? "bg-white text-red-600 shadow-sm"
-                            : "text-gray-600 hover:text-gray-900"
+                            ? "bg-white dark:bg-gray-600 text-red-600 dark:text-red-400 shadow-sm"
+                            : "text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
                         }`}
                       >
                         틈새 주제
@@ -17232,7 +17538,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                   {/* 기본 주제 */}
                   {showBasicCategories && (
             <div>
-                      <h3 className="text-sm font-semibold text-gray-700 mb-3">기본 주제</h3>
+                      <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">기본 주제</h3>
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                         {[
                           { id: "wisdom", name: "지혜(명언)", icon: "💡", gradient: "from-yellow-400 to-orange-500", available: true },
@@ -17354,9 +17660,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               </Card>
 
               {/* 주제 생성 카드 */}
-              <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white">
-                <CardHeader className="pb-4 border-b border-gray-100">
-                  <CardTitle className="text-lg font-semibold text-slate-900">주제 생성</CardTitle>
+              <Card className="border border-gray-200 dark:border-gray-700 rounded-2xl shadow-sm bg-white dark:bg-gray-800">
+                <CardHeader className="pb-4 border-b border-gray-100 dark:border-gray-700">
+                  <CardTitle className="text-lg font-semibold text-slate-900 dark:text-gray-100">주제 생성</CardTitle>
                   <p className="text-sm text-gray-500 mt-2">
                     {isDirectScriptInput
                       ? "외부에서 생성한 대본을 붙여넣으면 대본 기획 및 초안 단계를 생략하고 바로 대본 생성 단계로 이동합니다."
@@ -17711,9 +18017,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
 
               {/* 추천 주제 목록 - 주제 생성 카드 바로 아래 */}
             {generatedTopics.length > 0 && (
-                <Card ref={generatedTopicsRef} className="border border-gray-200 rounded-2xl shadow-sm bg-white">
-                <CardHeader className="pb-4 border-b border-gray-100">
-                  <CardTitle className="text-lg font-semibold text-slate-900">추천 주제 선택</CardTitle>
+                <Card ref={generatedTopicsRef} className="border border-gray-200 dark:border-gray-700 rounded-2xl shadow-sm bg-white dark:bg-gray-800">
+                <CardHeader className="pb-4 border-b border-gray-100 dark:border-gray-700">
+                  <CardTitle className="text-lg font-semibold text-slate-900 dark:text-gray-100">추천 주제 선택</CardTitle>
                   <p className="text-sm text-gray-500 mt-2">
                     생성된 주제 중 하나를 선택하거나 직접 입력할 수 있습니다
                   </p>
@@ -17848,7 +18154,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               {isAutoRunning && (
                 <Card className="border-2 border-red-300 rounded-2xl shadow-lg bg-white animate-fade-in">
                   <CardHeader className="pb-4 border-b border-red-100">
-                    <CardTitle className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                    <CardTitle className="text-xl font-bold text-slate-900 dark:text-gray-100 flex items-center gap-2">
                       <Loader2 className="w-5 h-5 text-red-500 animate-spin" />
                       자동화 진행 중...
                     </CardTitle>
@@ -17915,7 +18221,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               {autoProgress.isComplete && isReadyForUpload && (
                 <Card className="border-2 border-green-300 rounded-2xl shadow-lg bg-gradient-to-br from-white to-green-50 animate-fade-in">
                   <CardHeader className="pb-4 border-b border-green-100">
-                    <CardTitle className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                    <CardTitle className="text-xl font-bold text-slate-900 dark:text-gray-100 flex items-center gap-2">
                       <Check className="w-5 h-5 text-green-500" />
                       자동화 완료! 🎉
                     </CardTitle>
@@ -17967,7 +18273,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               {selectedTopic && !isAutoRunning && (
                 <Card className="border-2 border-red-200 rounded-2xl shadow-lg bg-gradient-to-br from-white to-red-50">
                   <CardHeader className="pb-4 border-b border-red-100">
-                    <CardTitle className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                    <CardTitle className="text-xl font-bold text-slate-900 dark:text-gray-100 flex items-center gap-2">
                       <Sparkles className="w-5 h-5 text-red-500" />
                       작업 모드 선택
                     </CardTitle>
@@ -18218,11 +18524,14 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                     <p className="text-xs text-gray-500 mb-2">추천 음성:</p>
                                     <div className="flex gap-2 flex-wrap">
                                       {[
-                                        { id: "1KNqBv4TutQtzSIACsMC", name: "Voice 1" },
-                                        { id: "4JJwo477JUAx3HV0T7n7", name: "Voice 2" },
-                                        { id: "zgDzx5jLLCqEp6Fl7Kl7", name: "Voice 3" },
-                                        { id: "0mlAtfsvMzFpppUuNWkV", name: "Voice 4" },
-                                        { id: "ETPP7D0aZVdEj12Aa7ho", name: "Voice 5" },
+                                        { id: "jB1Cifc2UQbq1gR3wnb0", name: "Rachel (기본)" },
+                                        { id: "8jHHF8rMqMlg8if2mOUe", name: "Voice 2" },
+                                        { id: "uyVNoMrnUku1dZyVEXwD", name: "Voice 3" },
+                                        { id: "1KNqBv4TutQtzSIACsMC", name: "Voice 4" },
+                                        { id: "4JJwo477JUAx3HV0T7n7", name: "Voice 5" },
+                                        { id: "zgDzx5jLLCqEp6Fl7Kl7", name: "Voice 6" },
+                                        { id: "0mlAtfsvMzFpppUuNWkV", name: "Voice 7" },
+                                        { id: "ETPP7D0aZVdEj12Aa7ho", name: "Voice 8" },
                                       ].map((voice) => (
                                         <Button
                                           key={voice.id}
@@ -18392,16 +18701,41 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
 
                             {/* TTSMaker 음성 선택 */}
                             <div className="space-y-2">
-                              <p className="text-sm font-medium text-gray-700">TTSMaker</p>
+                              <div className="flex items-center justify-between mb-3">
+                                <p className="text-sm font-medium text-gray-700">TTSMaker</p>
+                                <Select
+                                  value={selectedTtsLanguage}
+                                  onValueChange={(value) => {
+                                    setSelectedTtsLanguage(value)
+                                    // 언어 변경 시 해당 언어의 첫 번째 목소리 자동 선택
+                                    const languageVoices = getLanguageVoices(value)
+                                    if (languageVoices.length > 0) {
+                                      setSelectedVoiceId(languageVoices[0].id)
+                                    }
+                                  }}
+                                >
+                                  <SelectTrigger className="w-40">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="ko">한국어</SelectItem>
+                                    <SelectItem value="en">영어</SelectItem>
+                                    <SelectItem value="zh">중국어</SelectItem>
+                                    <SelectItem value="es">스페인어</SelectItem>
+                                    <SelectItem value="pt">포르투갈어</SelectItem>
+                                    <SelectItem value="de">독일어</SelectItem>
+                                    <SelectItem value="fr">프랑스어</SelectItem>
+                                    <SelectItem value="ja">일본어</SelectItem>
+                                    <SelectItem value="it">이탈리아어</SelectItem>
+                                    <SelectItem value="tr">터키어</SelectItem>
+                                    <SelectItem value="ru">러시아어</SelectItem>
+                                    <SelectItem value="ms">말레이어</SelectItem>
+                                    <SelectItem value="th">태국어</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
                               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                                {[
-                                  { id: "ttsmaker-여성1", name: "TTSMaker 여성1", note: "ID: 503" },
-                                  { id: "ttsmaker-여성2", name: "TTSMaker 여성2", note: "ID: 509" },
-                                  { id: "ttsmaker-여성6", name: "TTSMaker 여성3", note: "ID: 5802" },
-                                  { id: "ttsmaker-남성1", name: "TTSMaker 남성1", note: "ID: 5501" },
-                                  { id: "ttsmaker-남성4", name: "TTSMaker 남성2", note: "ID: 5888" },
-                                  { id: "ttsmaker-남성5", name: "TTSMaker 남성3", note: "ID: 5888 (음높이 -10%)" },
-                                ].map((voice) => (
+                                 {getLanguageVoices(selectedTtsLanguage).map((voice) => (
                                   <div
                                     key={voice.id}
                                     className={`p-3 border-2 rounded-lg transition-all cursor-pointer ${
@@ -18434,10 +18768,32 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                         {voice.note && <p className="text-xs text-gray-500">{voice.note}</p>}
                                       </div>
                                     </div>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="w-full text-xs"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handlePreviewVoice(voice.id)
+                                      }}
+                                      disabled={previewingVoiceId === voice.id}
+                                    >
+                                      {previewingVoiceId === voice.id ? (
+                                        <>
+                                          <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                          재생 중...
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Volume2 className="w-3 h-3 mr-1" />
+                                          미리듣기
+                                        </>
+                                      )}
+                                    </Button>
                                   </div>
-                                ))}
-                              </div>
+                              ))}
                             </div>
+                          </div>
 
                             {/* TTS 생성 언어 선택 - 비활성화 */}
                             {/* <div className="space-y-2">
@@ -18508,12 +18864,12 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             {/* 우측 사이드 패널 */}
             {selectedCategory && (
               <div className="w-full lg:w-80 xl:w-96 order-2 lg:order-3">
-                <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white sticky top-4">
-                  <CardHeader className="pb-4 border-b border-gray-100">
+                <Card className="border border-gray-200 dark:border-gray-700 rounded-2xl shadow-sm bg-white dark:bg-gray-800 sticky top-4">
+                  <CardHeader className="pb-4 border-b border-gray-100 dark:border-gray-700">
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <TrendingUp className="w-4 h-4 text-gray-600" />
-                        <CardTitle className="text-sm md:text-base font-semibold text-gray-700">
+                        <CardTitle className="text-sm md:text-base font-semibold text-gray-700 dark:text-gray-300">
                           일주일간 인기 주제
                         </CardTitle>
                       </div>
@@ -18888,9 +19244,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             </div>
 
             {isCustomTopicSelected ? (
-              <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white">
-                <CardHeader className="pb-4 border-b border-gray-100">
-                  <CardTitle className="text-lg font-semibold text-slate-900">주제 직접 입력</CardTitle>
+              <Card className="border border-gray-200 dark:border-gray-700 rounded-2xl shadow-sm bg-white dark:bg-gray-800">
+                <CardHeader className="pb-4 border-b border-gray-100 dark:border-gray-700">
+                  <CardTitle className="text-lg font-semibold text-slate-900 dark:text-gray-100">주제 직접 입력</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div>
@@ -18933,9 +19289,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                 </CardContent>
               </Card>
             ) : selectedTopic ? (
-              <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white">
-                <CardHeader className="pb-4 border-b border-gray-100">
-                  <CardTitle className="text-lg font-semibold text-slate-900">선택된 주제</CardTitle>
+              <Card className="border border-gray-200 dark:border-gray-700 rounded-2xl shadow-sm bg-white dark:bg-gray-800">
+                <CardHeader className="pb-4 border-b border-gray-100 dark:border-gray-700">
+                  <CardTitle className="text-lg font-semibold text-slate-900 dark:text-gray-100">선택된 주제</CardTitle>
                 </CardHeader>
                 <CardContent className="pt-6">
                   <p className="text-base font-medium text-gray-900 mb-4">{selectedTopic}</p>
@@ -18964,8 +19320,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               </Card>
             )}
 
-            <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white">
-              <CardHeader className="pb-4 border-b border-gray-100">
+            <Card className="border border-gray-200 dark:border-gray-700 rounded-2xl shadow-sm bg-white dark:bg-gray-800">
+              <CardHeader className="pb-4 border-b border-gray-100 dark:border-gray-700">
                 <CardTitle className="text-lg font-semibold text-slate-900">
                   벤치마킹 대본 구조 뽑기 (선택사항)
                   <span className="ml-2 text-sm font-normal text-gray-500">커스텀 타입때 활용가능</span>
@@ -19067,9 +19423,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             </Card>
 
             {selectedTopic && (
-              <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white">
-                <CardHeader className="pb-4 border-b border-gray-100">
-                  <CardTitle className="text-lg font-semibold text-slate-900">대본 기획 생성</CardTitle>
+              <Card className="border border-gray-200 dark:border-gray-700 rounded-2xl shadow-sm bg-white dark:bg-gray-800">
+                <CardHeader className="pb-4 border-b border-gray-100 dark:border-gray-700">
+                  <CardTitle className="text-lg font-semibold text-slate-900 dark:text-gray-100">대본 기획 생성</CardTitle>
                 </CardHeader>
                 <CardContent className="pt-6 space-y-6">
                   {/* 콘텐츠 타입 선택 */}
@@ -19709,8 +20065,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               <p className="text-sm md:text-base text-gray-500">20분 분량의 대본 자동 생성</p>
             </div>
 
-            <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white">
-              <CardHeader className="pb-4 border-b border-gray-100">
+            <Card className="border border-gray-200 dark:border-gray-700 rounded-2xl shadow-sm bg-white dark:bg-gray-800">
+              <CardHeader className="pb-4 border-b border-gray-100 dark:border-gray-700">
                 <CardTitle className="text-lg font-semibold text-slate-900">선택된 주제</CardTitle>
               </CardHeader>
               <CardContent className="pt-6">
@@ -19719,9 +20075,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             </Card>
 
             {scriptPlan && (
-              <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white">
-                <CardHeader className="pb-4 border-b border-gray-100">
-                  <CardTitle className="text-lg font-semibold text-slate-900">대본 기획안</CardTitle>
+              <Card className="border border-gray-200 dark:border-gray-700 rounded-2xl shadow-sm bg-white dark:bg-gray-800">
+                <CardHeader className="pb-4 border-b border-gray-100 dark:border-gray-700">
+                  <CardTitle className="text-lg font-semibold text-slate-900 dark:text-gray-100">대본 기획안</CardTitle>
                 </CardHeader>
                 <CardContent className="pt-6">
                   <div className="bg-gray-50 p-4 rounded-lg max-h-60 overflow-y-auto">
@@ -19739,9 +20095,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
 
 
             {scriptPlan && (
-              <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white">
-                <CardHeader className="pb-4 border-b border-gray-100">
-                  <CardTitle className="text-lg font-semibold text-slate-900">최종 대본 생성</CardTitle>
+              <Card className="border border-gray-200 dark:border-gray-700 rounded-2xl shadow-sm bg-white dark:bg-gray-800">
+                <CardHeader className="pb-4 border-b border-gray-100 dark:border-gray-700">
+                  <CardTitle className="text-lg font-semibold text-slate-900 dark:text-gray-100">최종 대본 생성</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <p className="text-xs text-gray-600">
@@ -19905,9 +20261,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
 
 
             {script && (
-              <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white mb-6">
+              <Card className="border border-gray-200 dark:border-gray-700 rounded-2xl shadow-sm bg-white dark:bg-gray-800 mb-6">
                 <CardHeader className="pb-4 border-b border-gray-100">
-                  <CardTitle className="text-lg font-semibold text-slate-900">생성된 대본 (전체 보기 및 편집)</CardTitle>
+                  <CardTitle className="text-lg font-semibold text-slate-900 dark:text-gray-100">생성된 대본 (전체 보기 및 편집)</CardTitle>
                 </CardHeader>
                 <CardContent className="pt-6">
               <div className="flex items-center justify-between mb-4">
@@ -20533,10 +20889,10 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             )}
 
             {decomposedScenes && (
-              <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white mb-6">
+              <Card className="border border-gray-200 dark:border-gray-700 rounded-2xl shadow-sm bg-white dark:bg-gray-800 mb-6">
                 <CardHeader className="pb-4 border-b border-gray-100">
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg font-semibold text-slate-900">장면 분해 결과</CardTitle>
+                    <CardTitle className="text-lg font-semibold text-slate-900 dark:text-gray-100">장면 분해 결과</CardTitle>
                     <Button 
                       variant="outline" 
                       size="sm" 
@@ -20583,8 +20939,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             {/* 이미지 스타일 선택 */}
               {!customStylePrompt && (
               <div className={`flex-1 relative ${(customStyleCharacterImage !== null || customStyleBackgroundImage !== null) ? 'opacity-50' : ''}`}>
-                <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white">
-              <CardHeader className="pb-4 border-b border-gray-100">
+                <Card className="border border-gray-200 dark:border-gray-700 rounded-2xl shadow-sm bg-white dark:bg-gray-800">
+              <CardHeader className="pb-4 border-b border-gray-100 dark:border-gray-700">
                 <CardTitle className="text-lg font-semibold text-slate-900">이미지 스타일 선택</CardTitle>
                 <p className="text-xs text-gray-500 mt-1">AI 모델을 선택하셔야 합니다</p>
               </CardHeader>
@@ -20656,9 +21012,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="black-forest-labs/flux-schnell">black-forest-labs/flux-schnell (이미지 한장당 4원)</SelectItem>
-                              <SelectItem value="prunaai/hidream-l1-fast">prunaai/hidream-l1-fast (이미지 한장당 7원)</SelectItem>
-                            <SelectItem value="google/imagen-4-fast">google/imagen-4-fast (이미지 한장당 28원)</SelectItem>
+                              <SelectItem value="black-forest-labs/flux-schnell">black-forest-labs/flux-schnell</SelectItem>
+                              <SelectItem value="prunaai/hidream-l1-fast">prunaai/hidream-l1-fast</SelectItem>
+                            <SelectItem value="google/imagen-4-fast">google/imagen-4-fast</SelectItem>
                             </SelectContent>
                           </Select>
                           {imageModel === "black-forest-labs/flux-schnell" && (
@@ -20779,7 +21135,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               )}
 
               {/* 이미지 스타일 생성 */}
-            <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white flex-1">
+            <Card className="border border-gray-200 dark:border-gray-700 rounded-2xl shadow-sm bg-white dark:bg-gray-800 flex-1">
               <CardHeader className="pb-4 border-b border-gray-100">
                 <CardTitle className="text-lg font-semibold text-slate-900">이미지 스타일 생성</CardTitle>
               </CardHeader>
@@ -21190,9 +21546,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               
               {/* 생성된 커스텀 스타일 프롬프트 표시 - 오른쪽에 배치 */}
               {customStylePrompt && (
-                <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white flex-1">
+                <Card className="border border-gray-200 dark:border-gray-700 rounded-2xl shadow-sm bg-white dark:bg-gray-800 flex-1">
                   <CardHeader className="pb-4 border-b border-gray-100">
-                    <CardTitle className="text-lg font-semibold text-slate-900">생성된 커스텀 스타일</CardTitle>
+                    <CardTitle className="text-lg font-semibold text-slate-900 dark:text-gray-100">생성된 커스텀 스타일</CardTitle>
                   </CardHeader>
                   <CardContent className="pt-6">
                     <div className="space-y-4">
@@ -21280,10 +21636,10 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               </Card>
             ) : (
               <>
-                <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white">
-                  <CardHeader className="pb-4 border-b border-gray-100">
+                <Card className="border border-gray-200 dark:border-gray-700 rounded-2xl shadow-sm bg-white dark:bg-gray-800">
+                  <CardHeader className="pb-4 border-b border-gray-100 dark:border-gray-700">
                     <div className="flex items-center justify-between">
-                      <CardTitle className="text-lg font-semibold text-slate-900">생성된 문장 리스트</CardTitle>
+                      <CardTitle className="text-lg font-semibold text-slate-900 dark:text-gray-100">생성된 문장 리스트</CardTitle>
                       {/* 이미지 일괄 등록 버튼 */}
                       <div className="flex items-center gap-2">
                         <label className="cursor-pointer">
@@ -22214,10 +22570,10 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
 
                     {/* Scene별 이미지 프롬프트 트리 구조 표시 */}
                     {sceneImagePrompts.length > 0 && (
-                      <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white mt-6">
+                      <Card className="border border-gray-200 dark:border-gray-700 rounded-2xl shadow-sm bg-white dark:bg-gray-800 mt-6">
                         <CardHeader className="pb-4 border-b border-gray-100">
                           <div className="flex items-center justify-between">
-                            <CardTitle className="text-lg font-semibold text-slate-900">
+                            <CardTitle className="text-lg font-semibold text-slate-900 dark:text-gray-100">
                               {sceneImagePrompts.some(scene => scene.images.some(img => img.imageUrl)) 
                                 ? "장면별 이미지" 
                                 : "생성된 이미지 프롬프트 (트리 구조)"}
@@ -22977,9 +23333,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               </Card>
             ) : (
               <>
-            <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white">
-              <CardHeader className="pb-4 border-b border-gray-100">
-                    <CardTitle className="text-lg font-semibold text-slate-900">목소리 선택</CardTitle>
+              <Card className="border border-gray-200 dark:border-gray-700 rounded-2xl shadow-sm bg-white dark:bg-gray-800">
+                <CardHeader className="pb-4 border-b border-gray-100 dark:border-gray-700">
+                  <CardTitle className="text-lg font-semibold text-slate-900 dark:text-gray-100">목소리 선택</CardTitle>
               </CardHeader>
               <CardContent className="pt-6 space-y-4">
                     {/* ElevenLabs 음성 선택 */}
@@ -23076,13 +23432,49 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                 variant="outline"
                                 size="sm"
                                 onClick={() => {
+                                  const voiceId = "jB1Cifc2UQbq1gR3wnb0"
+                                  setCustomElevenLabsVoiceId(voiceId)
+                                  setSelectedVoiceId(`elevenlabs-${voiceId}`)
+                                }}
+                                className={selectedVoiceId === "elevenlabs-jB1Cifc2UQbq1gR3wnb0" ? "bg-blue-100 border-blue-500" : ""}
+                              >
+                                Rachel (기본)
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  const voiceId = "8jHHF8rMqMlg8if2mOUe"
+                                  setCustomElevenLabsVoiceId(voiceId)
+                                  setSelectedVoiceId(`elevenlabs-${voiceId}`)
+                                }}
+                                className={selectedVoiceId === "elevenlabs-8jHHF8rMqMlg8if2mOUe" ? "bg-blue-100 border-blue-500" : ""}
+                              >
+                                Voice 2
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  const voiceId = "uyVNoMrnUku1dZyVEXwD"
+                                  setCustomElevenLabsVoiceId(voiceId)
+                                  setSelectedVoiceId(`elevenlabs-${voiceId}`)
+                                }}
+                                className={selectedVoiceId === "elevenlabs-uyVNoMrnUku1dZyVEXwD" ? "bg-blue-100 border-blue-500" : ""}
+                              >
+                                Voice 3
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
                                   const voiceId = "1KNqBv4TutQtzSIACsMC"
                                   setCustomElevenLabsVoiceId(voiceId)
                                   setSelectedVoiceId(`elevenlabs-${voiceId}`)
                                 }}
                                 className={selectedVoiceId === "elevenlabs-1KNqBv4TutQtzSIACsMC" ? "bg-blue-100 border-blue-500" : ""}
                               >
-                                Voice 1
+                                Voice 4
                               </Button>
                               <Button
                                 variant="outline"
@@ -23094,7 +23486,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                 }}
                                 className={selectedVoiceId === "elevenlabs-4JJwo477JUAx3HV0T7n7" ? "bg-blue-100 border-blue-500" : ""}
                               >
-                                Voice 2
+                                Voice 5
                               </Button>
                               <Button
                                 variant="outline"
@@ -23351,18 +23743,41 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                     </div>
 
                     <div className="space-y-2">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-sm font-medium text-gray-700">TTSMaker</p>
+                        <Select
+                          value={selectedTtsLanguage}
+                          onValueChange={(value) => {
+                            setSelectedTtsLanguage(value)
+                            // 언어 변경 시 해당 언어의 첫 번째 목소리 자동 선택
+                            const languageVoices = getLanguageVoices(value)
+                            if (languageVoices.length > 0) {
+                              setSelectedVoiceId(languageVoices[0].id)
+                            }
+                          }}
+                        >
+                          <SelectTrigger className="w-40">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="ko">한국어</SelectItem>
+                            <SelectItem value="en">영어</SelectItem>
+                            <SelectItem value="zh">중국어</SelectItem>
+                            <SelectItem value="es">스페인어</SelectItem>
+                            <SelectItem value="pt">포르투갈어</SelectItem>
+                            <SelectItem value="de">독일어</SelectItem>
+                            <SelectItem value="fr">프랑스어</SelectItem>
+                            <SelectItem value="ja">일본어</SelectItem>
+                            <SelectItem value="it">이탈리아어</SelectItem>
+                            <SelectItem value="tr">터키어</SelectItem>
+                            <SelectItem value="ru">러시아어</SelectItem>
+                            <SelectItem value="ms">말레이어</SelectItem>
+                            <SelectItem value="th">태국어</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        {[
-                          { id: "ttsmaker-여성1", name: "TTSMaker 여성1", note: "ID: 503", provider: "ttsmaker" },
-                          { id: "ttsmaker-여성2", name: "TTSMaker 여성2", note: "ID: 509", provider: "ttsmaker" },
-                          { id: "ttsmaker-여성6", name: "TTSMaker 여성3", note: "ID: 5802", provider: "ttsmaker" },
-                          { id: "ttsmaker-남성1", name: "TTSMaker 남성1", note: "ID: 5501", provider: "ttsmaker" },
-                          { id: "ttsmaker-남성4", name: "TTSMaker 남성2", note: "ID: 5888", provider: "ttsmaker" },
-                          { id: "ttsmaker-남성5", name: "TTSMaker 남성3", note: "ID: 5888 (음높이 -10%)", provider: "ttsmaker" },
-                          { id: "jB1Cifc2UQbq1gR3wnb0", name: "ElevenLabs Rachel", note: "기본(Default)", provider: "elevenlabs" },
-                          { id: "8jHHF8rMqMlg8if2mOUe", name: "ElevenLabs Voice 2", note: "사용자 선택형", provider: "elevenlabs" },
-                          { id: "uyVNoMrnUku1dZyVEXwD", name: "ElevenLabs Voice 3", note: "", provider: "elevenlabs" },
-                        ].map((voice) => (
+                        {getLanguageVoices(selectedTtsLanguage).map((voice) => (
                           <div
                             key={voice.id}
                             className={`p-3 border-2 rounded-lg transition-all cursor-pointer ${
@@ -23428,6 +23843,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                               ))}
                             </div>
                           </div>
+
 
                         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
                           <p className="text-sm text-blue-800">
@@ -23779,9 +24195,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           <div className="space-y-6">
             <h2 className="text-3xl font-bold mb-6">영상 렌더링</h2>
             
-            <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white">
-              <CardHeader className="pb-4 border-b border-gray-100">
-                <CardTitle className="text-lg font-semibold text-slate-900">영상 미리보기</CardTitle>
+            <Card className="border border-gray-200 dark:border-gray-700 rounded-2xl shadow-sm bg-white dark:bg-gray-800">
+              <CardHeader className="pb-4 border-b border-gray-100 dark:border-gray-700">
+                <CardTitle className="text-lg font-semibold text-slate-900 dark:text-gray-100">영상 미리보기</CardTitle>
               </CardHeader>
               <CardContent className="pt-6">
                 <div
@@ -24109,9 +24525,57 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                         // 앞부분 동영상 시간 조정
                         const adjustedTime = introVideo ? currentTime - 10 : currentTime
                         
-                        const currentImage = autoImages.find(
-                          (img) => adjustedTime >= img.startTime && adjustedTime <= img.endTime
-                        )
+                        // 이미지 전환 페이드 시간 (초) - 매우 부드러운 전환을 위해 더 길게 설정
+                        const fadeDuration = 2.0
+                        
+                        // 먼저 전환 중인지 확인 (이전 이미지의 endTime부터 fadeDuration 동안)
+                        let isTransitioning = false
+                        let previousImageForPreview: typeof autoImages[0] | null = null
+                        let nextImageForPreview: typeof autoImages[0] | null = null
+                        let fadeProgressForPreview = 1
+                        
+                        // 모든 이미지를 순회하며 전환 구간 확인
+                        if (autoImages.length > 1) {
+                          for (let i = 0; i < autoImages.length - 1; i++) {
+                            const prevImg = autoImages[i]
+                            const nextImg = autoImages[i + 1]
+                            
+                            const transitionStartTime = prevImg.endTime
+                            const transitionEndTime = transitionStartTime + fadeDuration
+                            
+                            // 현재 시간이 전환 구간 내에 있으면
+                            if (adjustedTime >= transitionStartTime && adjustedTime <= transitionEndTime) {
+                              isTransitioning = true
+                              previousImageForPreview = prevImg
+                              nextImageForPreview = nextImg
+                              
+                              // 전환 진행률 계산 (0 = 이전 이미지, 1 = 다음 이미지)
+                              const timeSinceTransition = adjustedTime - transitionStartTime
+                              fadeProgressForPreview = Math.min(Math.max(timeSinceTransition / fadeDuration, 0), 1)
+                              
+                              // 매우 부드러운 전환을 위한 easing (easeInOutCubic)
+                              if (fadeProgressForPreview < 0.5) {
+                                fadeProgressForPreview = 4 * fadeProgressForPreview * fadeProgressForPreview * fadeProgressForPreview
+                              } else {
+                                const t = 2 * fadeProgressForPreview - 1
+                                fadeProgressForPreview = 1 + (t * t * t - 1) / 2
+                              }
+                              break
+                            }
+                          }
+                        }
+                        
+                        // 전환 중이 아니면 일반적으로 현재 이미지 찾기
+                        let currentImage: typeof autoImages[0] | null = null
+                        if (isTransitioning) {
+                          // 전환 중일 때는 다음 이미지를 currentImage로 사용
+                          currentImage = nextImageForPreview
+                        } else {
+                          // 전환 중이 아니면 일반적으로 찾기
+                          currentImage = autoImages.find(
+                            (img) => adjustedTime >= img.startTime && adjustedTime <= img.endTime
+                          ) || null
+                        }
                         
                         // lineId 추출 (image_1 -> 1 또는 scene_1_image_1 -> 1-1)
                         let lineId: number | null = null
@@ -24271,50 +24735,54 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                           return t * t * (3 - 2 * t)
                         }
 
-                        // 이미지 전환 페이드 시간 (초) - 더 자연스러운 전환을 위해 길게 설정
-                        const fadeDuration = 1.2
-
                         // 현재 이미지 인덱스 찾기
                         const currentImageIndex = autoImages.indexOf(currentImg)
                         
-                        // 이전 이미지 찾기 (전환 중일 때) - 더 정확하게 찾기
-                        let previousImage: typeof currentImg | null = null
-                        if (currentImageIndex > 0) {
-                          const prevIndex = currentImageIndex - 1
-                          const prevImg = autoImages[prevIndex]
-                          
-                          // 이전 이미지가 전환 시간 내에 있는지 확인
-                          if (prevImg) {
-                            const timeSincePrevEnd = adjustedTime - prevImg.endTime
-                            if (timeSincePrevEnd <= fadeDuration && adjustedTime >= prevImg.startTime) {
-                              previousImage = prevImg
-                            }
-                          }
-                        }
+                        // 전환 정보 사용 (위에서 계산된 값)
+                        const previousImage = previousImageForPreview
+                        const fadeProgress = fadeProgressForPreview
                         const previousImageUrl = previousImage?.url
 
-                        // 이미지 전환 페이드 계산 - 한 번만 정의
-                        let fadeProgress = 1 // 1 = 완전히 새 이미지, 0 = 완전히 이전 이미지
-                        if (previousImage && previousImage.id !== currentImg.id) {
-                          const transitionStartTime = currentImg.startTime
-                          const timeSinceTransition = adjustedTime - transitionStartTime
-                          fadeProgress = Math.min(Math.max(timeSinceTransition / fadeDuration, 0), 1)
-                          // 더 부드러운 전환을 위한 easing (smoothstep 사용)
-                          fadeProgress = fadeProgress * fadeProgress * (3 - 2 * fadeProgress)
+                        // 줌인 효과 적용
+                        let zoomScale = 1
+                        if (enableZoom && currentImg) {
+                          // 이미지가 표시되는 동안 부드럽게 줌인 (1.0 -> 1.2)
+                          const easedProgress = easeInOutSmooth(progress)
+                          zoomScale = 1 + easedProgress * 0.2 // 최대 20% 줌인
                         }
-
-                        // 줌인 효과와 전환 효과 제거 - 이미지를 그대로 표시
+                        
                         return (
-                          <div className="absolute inset-0 w-full h-full bg-black">
-                            {/* 현재 이미지 - 줌인 및 전환 효과 없음 */}
-                            <img
-                              src={imageUrl || ""}
-                              alt=""
-                              className="absolute inset-0 w-full h-full object-cover"
-                              style={{
-                                opacity: 1,
-                              }}
-                            />
+                          <div className="absolute inset-0 w-full h-full bg-black overflow-hidden">
+                            {/* 이전 이미지 - 페이드 아웃 (전환 중일 때만 표시) */}
+                            {previousImageUrl && fadeProgress < 1 && (
+                              <img
+                                src={previousImageUrl}
+                                alt=""
+                                className="absolute inset-0 w-full h-full object-cover"
+                                style={{
+                                  opacity: 1 - fadeProgress,
+                                  transform: `scale(${zoomScale})`,
+                                  transformOrigin: "center center",
+                                  transition: "opacity 0.1s ease-out, transform 0.1s ease-out",
+                                  zIndex: 1,
+                                }}
+                              />
+                            )}
+                            {/* 현재 이미지 - 페이드 인 및 줌인 효과 적용 */}
+                            {fadeProgress > 0 && (
+                              <img
+                                src={imageUrl || ""}
+                                alt=""
+                                className="absolute inset-0 w-full h-full object-cover"
+                                style={{
+                                  opacity: fadeProgress,
+                                  transform: `scale(${zoomScale})`,
+                                  transformOrigin: "center center",
+                                  transition: "opacity 0.1s ease-out, transform 0.1s ease-out",
+                                  zIndex: 2,
+                                }}
+                              />
+                            )}
                             {/* 로고 표시 (클릭 선택 후 드래그 및 리사이즈 가능) */}
                             {logoImage && (
                               <div
@@ -25034,16 +25502,16 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                   </Card>
                 )}
 
-                {/* 영상 효과 설정 */}
-                <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white mb-4">
-                  <CardHeader className="pb-3 border-b border-gray-100">
-                    <CardTitle className="text-lg font-semibold text-slate-900">영상 효과 설정</CardTitle>
+                 {/* 영상 효과 설정 */}
+                 <Card className="border border-gray-200 dark:border-gray-700 rounded-2xl shadow-sm bg-white dark:bg-gray-800 mb-4">
+                   <CardHeader className="pb-3 border-b border-gray-100 dark:border-gray-700">
+                     <CardTitle className="text-lg font-semibold text-slate-900 dark:text-gray-100">영상 효과 설정</CardTitle>
                   </CardHeader>
                   <CardContent className="pt-4 space-y-4">
                     {/* 자막 표시 설정 */}
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
-                        <label className="text-sm font-medium">자막 표시</label>
+                        <label className="text-sm font-medium dark:text-gray-300">자막 표시</label>
                         <div className="flex gap-2">
                           <Button
                             variant={showSubtitles ? "default" : "outline"}
@@ -25069,6 +25537,194 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                           : "영상에 자막이 표시되지 않으며, TTS 음성만 포함됩니다."}
                       </p>
                     </div>
+
+                    {/* 로고 이미지 업로드 - 숨김 */}
+                    {/* <div className="space-y-4 border-t pt-4">
+                      <div className="flex items-center justify-between">
+                        <label className="text-sm font-medium dark:text-gray-300">로고 이미지 (좌측 상단)</label>
+                        <div className="flex gap-2">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            id="logo-upload"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0]
+                              if (file) {
+                                const reader = new FileReader()
+                                reader.onload = (event) => {
+                                  const result = event.target?.result as string
+                                  setLogoImage(result)
+                                  // 기본 위치를 좌측 상단으로 설정
+                                  setLogoPositionX(5)
+                                  setLogoPositionY(5)
+                                }
+                                reader.readAsDataURL(file)
+                              }
+                            }}
+                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              document.getElementById("logo-upload")?.click()
+                            }}
+                          >
+                            <Upload className="w-4 h-4 mr-2" />
+                            로고 업로드
+                          </Button>
+                          {logoImage && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setLogoImage(null)
+                                setIsLogoSelected(false)
+                              }}
+                            >
+                              <X className="w-4 h-4 mr-2" />
+                              제거
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                      {logoImage && (
+                        <div className="flex items-center gap-4">
+                          <img
+                            src={logoImage}
+                            alt="로고 미리보기"
+                            className="w-20 h-20 object-contain border-2 border-gray-300 rounded"
+                          />
+                          <div className="flex-1 space-y-2">
+                            <div className="flex items-center gap-2">
+                              <label className="text-xs text-gray-600">크기:</label>
+                              <input
+                                type="range"
+                                min="50"
+                                max="300"
+                                value={logoSize}
+                                onChange={(e) => setLogoSize(Number.parseInt(e.target.value))}
+                                className="flex-1"
+                              />
+                              <span className="text-xs text-gray-600 w-12">{logoSize}px</span>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              미리보기에서 로고를 클릭하여 위치를 조정할 수 있습니다.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div> */}
+
+                    {/* 줌인 효과 설정 - 숨김 */}
+                    {/* <div className="space-y-4 border-t pt-4">
+                      <div className="flex items-center justify-between">
+                        <label className="text-sm font-medium dark:text-gray-300">이미지 줌인 효과</label>
+                        <div className="flex gap-2">
+                          <Button
+                            variant={enableZoom ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => setEnableZoom(true)}
+                            className={enableZoom ? "bg-green-600 hover:bg-green-700 text-white" : ""}
+                          >
+                            활성화
+                          </Button>
+                          <Button
+                            variant={!enableZoom ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => setEnableZoom(false)}
+                            className={!enableZoom ? "bg-gray-600 hover:bg-gray-700 text-white" : ""}
+                          >
+                            비활성화
+                          </Button>
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {enableZoom 
+                          ? "각 이미지가 표시되는 동안 부드럽게 줌인 효과가 적용됩니다." 
+                          : "이미지가 정적 상태로 표시됩니다."}
+                      </p>
+                    </div> */}
+
+                    {/* 배경음악 추가 - 숨김 */}
+                    {/* <div className="space-y-4 border-t pt-4">
+                      <div className="flex items-center justify-between">
+                        <label className="text-sm font-medium dark:text-gray-300">배경음악 추가</label>
+                        <div className="flex gap-2">
+                          <input
+                            type="file"
+                            accept="audio/*"
+                            className="hidden"
+                            id="background-music-upload"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0]
+                              if (file) {
+                                handleAddBackgroundMusic(file)
+                              }
+                              // 같은 파일을 다시 선택할 수 있도록 초기화
+                              e.target.value = ""
+                            }}
+                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              document.getElementById("background-music-upload")?.click()
+                            }}
+                            disabled={!videoData}
+                          >
+                            <Upload className="w-4 h-4 mr-2" />
+                            배경음악 추가
+                          </Button>
+                        </div>
+                      </div>
+                      {audioTracks.filter(t => t.type === "background_music").length > 0 && (
+                        <div className="space-y-2">
+                          {audioTracks.filter(t => t.type === "background_music").map((track) => (
+                            <div key={track.id} className="flex items-center gap-2 p-2 bg-gray-50 dark:bg-gray-700 rounded border">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-medium truncate">{track.file.name}</p>
+                                <div className="flex items-center gap-4 mt-1">
+                                  <div className="flex items-center gap-2">
+                                    <label className="text-xs text-gray-600">볼륨:</label>
+                                    <input
+                                      type="range"
+                                      min="0"
+                                      max="100"
+                                      value={Math.round(track.volume * 100)}
+                                      onChange={(e) => {
+                                        const newVolume = Number.parseInt(e.target.value) / 100
+                                        setAudioTracks((prev) =>
+                                          prev.map((t) =>
+                                            t.id === track.id ? { ...t, volume: newVolume } : t
+                                          )
+                                        )
+                                      }}
+                                      className="w-20 h-1"
+                                    />
+                                    <span className="text-xs text-gray-600 w-8">{Math.round(track.volume * 100)}%</span>
+                                  </div>
+                                </div>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  setAudioTracks((prev) => prev.filter((t) => t.id !== track.id))
+                                  URL.revokeObjectURL(track.url)
+                                }}
+                                className="h-8 w-8 p-0"
+                              >
+                                <X className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        배경음악은 전체 영상 길이에 맞춰 자동으로 반복 재생됩니다. 볼륨을 조절하여 음성과 조화롭게 믹싱하세요.
+                      </p>
+                    </div> */}
 
                   </CardContent>
                 </Card>
@@ -25753,9 +26409,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               <h1 className="text-2xl md:text-3xl font-semibold text-slate-900">유튜브 설명 생성</h1>
               <p className="text-sm md:text-base text-gray-500">생성된 대본과 제목을 바탕으로 SEO에 최적화된 영상 설명, 고정댓글, 업로드 태그를 생성해드립니다.</p>
             </div>
-            <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white">
-              <CardHeader className="pb-4 border-b border-gray-100">
-                <CardTitle className="text-lg font-semibold text-slate-900">유튜브 설명 생성</CardTitle>
+            <Card className="border border-gray-200 dark:border-gray-700 rounded-2xl shadow-sm bg-white dark:bg-gray-800">
+              <CardHeader className="pb-4 border-b border-gray-100 dark:border-gray-700">
+                <CardTitle className="text-lg font-semibold text-slate-900 dark:text-gray-100">유튜브 설명 생성</CardTitle>
               </CardHeader>
               <CardContent className="pt-6 space-y-4">
               {!selectedTitle && (
@@ -28490,8 +29146,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               <p className="text-sm md:text-base text-gray-500">소라2용 30초 후킹 영상 프롬프트를 생성합니다</p>
             </div>
 
-            <Card className="border border-gray-200 rounded-2xl shadow-sm bg-white">
-              <CardHeader className="pb-4 border-b border-gray-100">
+            <Card className="border border-gray-200 dark:border-gray-700 rounded-2xl shadow-sm bg-white dark:bg-gray-800">
+              <CardHeader className="pb-4 border-b border-gray-100 dark:border-gray-700">
                 <CardTitle className="text-lg font-semibold text-slate-900">후킹 영상 프롬프트 생성</CardTitle>
               </CardHeader>
               <CardContent className="pt-6 space-y-6">
@@ -29152,9 +29808,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       {/* Header */}
-      <header className="border-b bg-white sticky top-0 z-50 shadow-sm">
+      <header className="border-b bg-white dark:bg-gray-900 dark:border-gray-800 sticky top-0 z-50 shadow-sm">
         <div className="container mx-auto px-6 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
@@ -29164,7 +29820,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                   메인으로
               </Button>
               </Link>
-              <h1 className="text-lg font-semibold text-gray-800">
+              <h1 className="text-lg font-semibold text-gray-800 dark:text-gray-200">
                 wingsAIStudio - AI 기반 영상 자동 제작 툴
                 </h1>
             </div>
@@ -29971,8 +30627,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             {exportStatusMessage && (
               <div className={`text-xs rounded-lg p-2.5 mb-2 ${
                 exportProgress >= 100 
-                  ? "bg-green-50 text-green-700 border border-green-200" 
-                  : "bg-gray-50 text-gray-700"
+                  ? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-700" 
+                  : "bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
               }`}>
                 <div className="flex items-center gap-2">
                   {exportProgress >= 100 ? (
@@ -29986,7 +30642,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             )}
 
             {/* 안내 메시지 */}
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
               {exportProgress >= 100 
                 ? "다운로드가 완료되었습니다. 우측 상단의 X 버튼을 눌러 닫을 수 있습니다."
                 : "다운로드 중에도 다른 작업을 계속할 수 있습니다."}

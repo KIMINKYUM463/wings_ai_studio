@@ -2611,7 +2611,7 @@ export default function ShoppingPage() {
             if (currentBgmAudio) {
               currentBgmAudio.addEventListener("timeupdate", () => {
                 if (previewAudio && currentBgmAudio && !currentBgmAudio.paused) {
-                  const elapsed = previewAudio.currentTime
+                const elapsed = previewAudio.currentTime
                   // 종료 시간에 도달했거나 넘어갔거나 오디오가 끝났으면 즉시 정지 (엄격한 체크)
                   if (elapsed >= bgmEndTime || elapsed < bgmStartTime || elapsed >= previewAudio.duration || previewAudio.ended) {
                     console.log(`[Shopping] BGM timeupdate 이벤트에서 정지: elapsed=${elapsed.toFixed(2)}초, bgmEndTime=${bgmEndTime}초`)
@@ -2641,8 +2641,8 @@ export default function ShoppingPage() {
                       }
                     }
                   }
-                }
-              })
+              }
+            })
               // previewBgmAudio가 설정된 후에도 ended 이벤트를 추가하여 종료 시간 체크
               // 이는 BGM이 자체적으로 끝났을 때도 메인 오디오 시간을 체크하기 위함
               const bgmEndedHandler = () => {
@@ -4648,15 +4648,15 @@ export default function ShoppingPage() {
       let videoPrompt: string
       try {
         console.log(`[Shopping] 🤖 ${sceneNames[index]} 프롬프트 생성 중...`)
-        
+      
         // OpenAI API를 활용하여 제품 행동 프롬프트 생성
         videoPrompt = await generateVideoPromptForImage(
-          index,
-          productName,
-          productDescription,
-          durationPerVideo,
-          openaiApiKey
-        )
+        index,
+        productName,
+        productDescription,
+        durationPerVideo,
+        openaiApiKey
+      )
         
         console.log(`[Shopping] ✅ ${sceneNames[index]} 프롬프트 생성 완료`)
         console.log(`[Shopping] 📄 프롬프트 내용:`, videoPrompt.substring(0, 200) + "...")
