@@ -2897,21 +2897,24 @@ ${quoteInfo.items
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50">
-      <Sidebar 
-        activeTab={activeTab} 
-        onTabChange={setActiveTab}
-        isCollapsed={isSidebarCollapsed}
-        onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-      />
+    <>
+      {/* 키워드 분석 탭 렌더링 */}
+      {activeTab === "keyword-analysis" && (
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50">
+          <Sidebar 
+            activeTab={activeTab} 
+            onTabChange={setActiveTab}
+            isCollapsed={isSidebarCollapsed}
+            onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+          />
 
-      <div className={`${isSidebarCollapsed ? "ml-20" : "ml-72"} transition-all duration-300 p-8`}>
-        {/* 헤더 */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h1 className="text-4xl font-bold text-slate-900 mb-2">키워드 분석</h1>
-            </div>
+          <div className={`${isSidebarCollapsed ? "ml-20" : "ml-72"} transition-all duration-300 p-8`}>
+            {/* 헤더 */}
+            <div className="mb-8">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h1 className="text-4xl font-bold text-slate-900 mb-2">키워드 분석</h1>
+                </div>
             <Button
               onClick={handleSearch}
               disabled={isLoading || keywords.length === 0}
@@ -3324,6 +3327,8 @@ ${quoteInfo.items
           </div>
         </DialogContent>
       </Dialog>
+        </div>
+      )}
 
       {/* 네이버 업로드 다이얼로그 - 커스텀 모달 */}
       {isNaverUploadDialogOpen && (
@@ -4218,6 +4223,6 @@ ${quoteInfo.items
           </div>
         </div>
       )}
-    </div>
+    </>
   )
 }
