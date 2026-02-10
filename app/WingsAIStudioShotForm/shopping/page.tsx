@@ -2736,7 +2736,10 @@ export default function ShoppingPage() {
           video.src = videoUrl
           video.muted = true
           video.playsInline = true
-          video.preload = "auto" // 미리 로드
+          // 모바일에서 더 나은 버퍼링을 위해 preload 설정
+          const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+                          (typeof window !== "undefined" && window.innerWidth <= 768)
+          video.preload = isMobile ? "metadata" : "auto" // 모바일에서는 metadata만, 데스크톱에서는 auto
           
           await new Promise<void>((resolve, reject) => {
             // loadedmetadata와 canplay 이벤트 사용
@@ -2761,6 +2764,14 @@ export default function ShoppingPage() {
               checkReady()
             }
             
+            // 모바일에서 버퍼링 개선을 위한 이벤트 추가
+            if (isMobile) {
+              video.oncanplaythrough = () => {
+                canPlay = true
+                checkReady()
+              }
+            }
+            
             video.onerror = (e) => {
               console.error(`[Shopping] 비디오 ${i + 1} 로드 에러:`, e)
               reject(new Error(`비디오 ${i + 1} 로드 실패`))
@@ -2768,7 +2779,8 @@ export default function ShoppingPage() {
             
             video.load()
             
-            // 타임아웃 설정 (15초)
+            // 타임아웃 설정 (모바일에서는 더 길게)
+            const timeout = isMobile ? 20000 : 15000
             setTimeout(() => {
               if (!metadataLoaded || !canPlay) {
                 console.warn(`[Shopping] 비디오 ${i + 1} 로드 타임아웃, 계속 진행 (readyState: ${video.readyState})`)
@@ -2781,7 +2793,7 @@ export default function ShoppingPage() {
                   resolve() // 타임아웃이어도 계속 진행
                 }
               }
-            }, 15000)
+            }, timeout)
           })
           videoElements.push(video)
         }
@@ -3279,7 +3291,10 @@ export default function ShoppingPage() {
         video.src = videoUrl
         video.muted = true
         video.playsInline = true
-        video.preload = "auto"
+        // 모바일에서 더 나은 버퍼링을 위해 preload 설정
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+                        (typeof window !== "undefined" && window.innerWidth <= 768)
+        video.preload = isMobile ? "metadata" : "auto"
         video.loop = false // 순차 재생이므로 루프 없음
         
         await new Promise<void>((resolve, reject) => {
@@ -3289,16 +3304,26 @@ export default function ShoppingPage() {
             console.log(`[Shopping] 미리보기 영상 ${i + 1} 로드 완료, 길이: ${duration.toFixed(2)}초`)
             resolve()
           }
+          // 모바일에서 버퍼링 개선
+          if (isMobile) {
+            video.oncanplaythrough = () => {
+              const duration = video.duration || durationPerVideo
+              if (!videoDurations.includes(duration)) {
+                videoDurations.push(duration)
+              }
+            }
+          }
           video.onerror = reject
           video.load()
           
+          const timeout = isMobile ? 15000 : 10000
           setTimeout(() => {
             if (video.readyState < 3) {
               console.warn(`비디오 ${i + 1} 로드 타임아웃, 계속 진행`)
               videoDurations.push(durationPerVideo)
               resolve()
             }
-          }, 10000)
+          }, timeout)
         })
         
         videoElements.push(video)
@@ -3823,7 +3848,10 @@ export default function ShoppingPage() {
         const video = document.createElement("video")
         video.src = videoUrl
         video.crossOrigin = "anonymous"
-        video.preload = "auto"
+        // 모바일에서 더 나은 버퍼링을 위해 preload 설정
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+                        (typeof window !== "undefined" && window.innerWidth <= 768)
+        video.preload = isMobile ? "metadata" : "auto"
         video.muted = true
         video.playsInline = true
         
@@ -3834,8 +3862,30 @@ export default function ShoppingPage() {
             console.log(`[Shopping] 영상 ${i + 1} 로드 완료, 길이: ${duration.toFixed(2)}초`)
             resolve()
           }
+          // 모바일에서 버퍼링 개선
+          if (isMobile) {
+            video.oncanplaythrough = () => {
+              const duration = video.duration || durationPerVideo
+              if (!videoDurations.includes(duration)) {
+                videoDurations.push(duration)
+              }
+            }
+          }
           video.onerror = reject
           video.load()
+          
+          // 모바일에서는 타임아웃을 더 길게
+          if (isMobile) {
+            setTimeout(() => {
+              if (video.readyState >= 1) {
+                const duration = video.duration || durationPerVideo
+                if (!videoDurations.includes(duration)) {
+                  videoDurations.push(duration)
+                }
+                resolve()
+              }
+            }, 15000)
+          }
         })
         
         videoElements.push(video)
@@ -3958,20 +4008,33 @@ export default function ShoppingPage() {
         const videoBlob = new Blob(chunks, { type: "video/webm" })
         const videoUrl = URL.createObjectURL(videoBlob)
         
-        // 자동 다운로드 (롱폼 쇼츠 생성기 방식)
-        const a = document.createElement("a")
-        a.href = videoUrl
-        a.download = `${productName || "shopping"}_video_${Date.now()}.webm`
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
+        // 모바일 기기 감지
+        const mobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+                      (window.innerWidth <= 768)
         
-        // URL 정리
-        URL.revokeObjectURL(videoUrl)
+        if (mobile) {
+          // 모바일에서는 자동 다운로드 대신 사용자에게 알림
+          console.log("[Shopping] 영상 렌더링 완료 (모바일)")
+          setVideoUrl(videoUrl) // 상태에 저장하여 다운로드 버튼으로 다운로드 가능하게
+          setIsRendering(false)
+          alert("영상 렌더링이 완료되었습니다.\n\n다운로드 버튼을 눌러 영상을 저장하세요.")
+        } else {
+          // 데스크톱에서는 자동 다운로드 (롱폼 쇼츠 생성기 방식)
+          const a = document.createElement("a")
+          a.href = videoUrl
+          a.download = `${productName || "shopping"}_video_${Date.now()}.webm`
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+          
+          // URL 정리 (다운로드 후 약간의 지연을 두고 정리)
+          setTimeout(() => {
+            URL.revokeObjectURL(videoUrl)
+          }, 1000)
 
-        console.log("[Shopping] 영상 렌더링 및 다운로드 완료")
-        setIsRendering(false)
-        // alert 제거 (롱폼 쇼츠 생성기 방식)
+          console.log("[Shopping] 영상 렌더링 및 다운로드 완료")
+          setIsRendering(false)
+        }
       }
 
       // 썸네일 이미지 로드 (있는 경우) - 미리보기에서 사용한 것 재사용
@@ -4755,9 +4818,9 @@ export default function ShoppingPage() {
         const sceneScript = scenes[sceneIndex]
         const charactersPerSecond = 6.7
         duration = Math.max(3, Math.ceil(sceneScript.length / charactersPerSecond))
-        scenePrompt = `${productName} product in use. ${sceneScript}. Smooth motion, natural movement, duration: ${duration} seconds. High quality, professional video, 9:16 vertical format.`
+        scenePrompt = `${productName} product in use. ${sceneScript}. Smooth motion, natural movement, duration: ${duration} seconds. CRITICAL - PRODUCT VISIBILITY: The product must ALWAYS be fully visible in the frame throughout the entire video. The product must NEVER disappear, move out of frame, or become partially hidden. The product must stay in the center of the frame and remain fully visible from start to finish. The product must remain within the frame boundaries at all times. ABSOLUTELY CRITICAL - PRODUCT SHAPE PRESERVATION: The product's shape, form, and structure must remain EXACTLY the same as the input image throughout the entire video. The product must NEVER be deformed, distorted, broken, cracked, bent, warped, or changed in any way. Even when hands are using the product, the product must maintain its exact rigid form and physical integrity. Hands must NOT cause the product to deform or change shape. High quality, professional video, 9:16 vertical format.`
       } else {
-        scenePrompt = scenes[sceneIndex] || `Product showcase scene ${sceneIndex + 1}`
+        scenePrompt = scenes[sceneIndex] || `Product showcase scene ${sceneIndex + 1}. CRITICAL - PRODUCT VISIBILITY: The product must ALWAYS be fully visible in the frame throughout the entire video. The product must NEVER disappear, move out of frame, or become partially hidden. The product must stay in the center of the frame and remain fully visible from start to finish.`
       }
       
       const videoUrl = await convertImageToVideoWithWan(
@@ -4790,16 +4853,61 @@ export default function ShoppingPage() {
     }
   }
 
-  // 비디오 다운로드
+  // 모바일 기기 감지
+  const isMobile = () => {
+    if (typeof window === "undefined") return false
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+           (window.innerWidth <= 768)
+  }
+
+  // 비디오 다운로드 (모바일 대응)
   const handleDownload = () => {
     if (!videoUrl) return
 
-    const link = document.createElement("a")
-    link.href = videoUrl
-    link.download = `${productName}_shopping_video.mp4`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
+    const mobile = isMobile()
+    
+    if (mobile) {
+      // 모바일에서는 새 창에서 열기 또는 공유 기능 사용
+      try {
+        // iOS Safari에서는 다운로드가 제한되므로 새 창에서 열기
+        const newWindow = window.open(videoUrl, "_blank")
+        if (!newWindow) {
+          // 팝업이 차단된 경우 사용자에게 알림
+          alert("모바일에서는 영상을 새 창에서 열어 다운로드하거나 공유할 수 있습니다.\n\n영상 URL을 복사하여 사용하세요.")
+          // URL 복사 기능 제공
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(videoUrl).then(() => {
+              alert("영상 URL이 클립보드에 복사되었습니다.")
+            }).catch(() => {
+              // 복사 실패 시 URL 표시
+              prompt("영상 URL (복사하세요):", videoUrl)
+            })
+          } else {
+            prompt("영상 URL (복사하세요):", videoUrl)
+          }
+        }
+      } catch (error) {
+        console.error("다운로드 실패:", error)
+        alert("모바일에서는 영상 다운로드가 제한될 수 있습니다.\n\n영상 URL을 복사하여 사용하세요.")
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(videoUrl).then(() => {
+            alert("영상 URL이 클립보드에 복사되었습니다.")
+          }).catch(() => {
+            prompt("영상 URL (복사하세요):", videoUrl)
+          })
+        } else {
+          prompt("영상 URL (복사하세요):", videoUrl)
+        }
+      }
+    } else {
+      // 데스크톱에서는 일반 다운로드
+      const link = document.createElement("a")
+      link.href = videoUrl
+      link.download = `${productName}_shopping_video.mp4`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+    }
   }
 
   const renderStepContent = () => {
