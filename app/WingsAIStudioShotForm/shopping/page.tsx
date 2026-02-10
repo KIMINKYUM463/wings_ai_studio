@@ -7108,29 +7108,44 @@ export default function ShoppingPage() {
                       )}
                     </Button>
 
-                  {/* 다운로드 버튼 */}
-                    <Button
-                      onClick={handleRenderVideo}
-                      disabled={isRendering || !previewGenerated}
-                      className="w-full bg-orange-500 hover:bg-orange-600 text-white disabled:bg-gray-300 disabled:cursor-not-allowed"
-                      size="lg"
-                    >
-                      {isRendering ? (
-                        <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          렌더링 중...
-                        </>
-                      ) : (
-                        <>
+                  {/* 렌더링 버튼 또는 다운로드 버튼 */}
+                    {videoUrl ? (
+                      // 렌더링 완료 후 다운로드 버튼 표시
+                      <Button
+                        onClick={handleDownload}
+                        className="w-full bg-green-500 hover:bg-green-600 text-white"
+                        size="lg"
+                      >
                         <Download className="w-4 h-4 mr-2" />
-                          영상 다운로드 (렌더링)
-                        </>
-                      )}
+                        영상 다운로드
                       </Button>
-                    {!previewGenerated && (
-                      <p className="text-sm text-gray-500 text-center">
-                        먼저 미리보기를 생성해주세요
-                      </p>
+                    ) : (
+                      // 렌더링 버튼
+                      <>
+                        <Button
+                          onClick={handleRenderVideo}
+                          disabled={isRendering || !previewGenerated}
+                          className="w-full bg-orange-500 hover:bg-orange-600 text-white disabled:bg-gray-300 disabled:cursor-not-allowed"
+                          size="lg"
+                        >
+                          {isRendering ? (
+                            <>
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              렌더링 중...
+                            </>
+                          ) : (
+                            <>
+                            <Download className="w-4 h-4 mr-2" />
+                              영상 다운로드 (렌더링)
+                            </>
+                          )}
+                        </Button>
+                        {!previewGenerated && (
+                          <p className="text-sm text-gray-500 text-center">
+                            먼저 미리보기를 생성해주세요
+                          </p>
+                        )}
+                      </>
                     )}
                     </div>
 
