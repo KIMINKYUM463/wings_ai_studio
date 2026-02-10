@@ -2739,35 +2739,49 @@ export default function ShoppingPage() {
           // 모바일에서 더 나은 버퍼링을 위해 preload 설정
           const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
                           (typeof window !== "undefined" && window.innerWidth <= 768)
-          video.preload = isMobile ? "metadata" : "auto" // 모바일에서는 metadata만, 데스크톱에서는 auto
+          // 모바일에서도 auto로 설정하여 충분한 버퍼링 보장
+          video.preload = "auto"
           
           await new Promise<void>((resolve, reject) => {
             // loadedmetadata와 canplay 이벤트 사용
             let metadataLoaded = false
             let canPlay = false
+            let canPlayThrough = false
             
             const checkReady = () => {
-              if (metadataLoaded && canPlay) {
-                video.currentTime = 0 // 시작 위치로 초기화
-                console.log(`[Shopping] 비디오 ${i + 1} 로드 완료: duration=${video.duration.toFixed(2)}초`)
-                resolve()
+              // 모바일에서는 canplaythrough까지 기다림
+              if (isMobile) {
+                if (metadataLoaded && canPlay && canPlayThrough) {
+                  video.currentTime = 0 // 시작 위치로 초기화
+                  console.log(`[Shopping] 비디오 ${i + 1} 로드 완료 (모바일): duration=${video.duration.toFixed(2)}초, readyState=${video.readyState}`)
+                  resolve()
+                }
+              } else {
+                if (metadataLoaded && canPlay) {
+                  video.currentTime = 0 // 시작 위치로 초기화
+                  console.log(`[Shopping] 비디오 ${i + 1} 로드 완료: duration=${video.duration.toFixed(2)}초`)
+                  resolve()
+                }
               }
             }
             
             video.onloadedmetadata = () => {
               metadataLoaded = true
+              console.log(`[Shopping] 비디오 ${i + 1} 메타데이터 로드 완료`)
               checkReady()
             }
             
             video.oncanplay = () => {
               canPlay = true
+              console.log(`[Shopping] 비디오 ${i + 1} canplay 이벤트`)
               checkReady()
             }
             
             // 모바일에서 버퍼링 개선을 위한 이벤트 추가
             if (isMobile) {
               video.oncanplaythrough = () => {
-                canPlay = true
+                canPlayThrough = true
+                console.log(`[Shopping] 비디오 ${i + 1} canplaythrough 이벤트 (모바일)`)
                 checkReady()
               }
             }
@@ -2780,9 +2794,20 @@ export default function ShoppingPage() {
             video.load()
             
             // 타임아웃 설정 (모바일에서는 더 길게)
-            const timeout = isMobile ? 20000 : 15000
+            const timeout = isMobile ? 30000 : 15000
             setTimeout(() => {
-              if (!metadataLoaded || !canPlay) {
+              if (isMobile && (!metadataLoaded || !canPlay || !canPlayThrough)) {
+                console.warn(`[Shopping] 비디오 ${i + 1} 로드 타임아웃 (모바일), 계속 진행 (readyState: ${video.readyState})`)
+                if (video.readyState >= 2) {
+                  // canplay 이상이면 계속 진행
+                  metadataLoaded = true
+                  canPlay = true
+                  canPlayThrough = true
+                  checkReady()
+                } else {
+                  resolve() // 타임아웃이어도 계속 진행
+                }
+              } else if (!isMobile && (!metadataLoaded || !canPlay)) {
                 console.warn(`[Shopping] 비디오 ${i + 1} 로드 타임아웃, 계속 진행 (readyState: ${video.readyState})`)
                 if (video.readyState >= 1) {
                   // 메타데이터라도 있으면 계속 진행
@@ -2979,10 +3004,38 @@ export default function ShoppingPage() {
               const videoElapsed = adjustedElapsed - videoStartTime
             
             if (video && !isNaN(video.duration) && video.duration > 0) {
-              // 시작 시간 설정
-              video.currentTime = Math.max(0, Math.min(videoElapsed, video.duration))
-              // 비디오 재생 (자체적으로 재생되도록)
-              video.play().catch(() => {})
+              // 모바일에서 비디오가 완전히 로드되었는지 확인
+              const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+                              (typeof window !== "undefined" && window.innerWidth <= 768)
+              
+              // 모바일에서는 readyState가 충분히 높아야 재생 가능
+              if (isMobile && video.readyState < 2) {
+                // 비디오가 아직 로드되지 않았으면 로드 대기
+                video.load()
+                video.addEventListener("canplay", () => {
+                  video.currentTime = Math.max(0, Math.min(videoElapsed, video.duration))
+                  video.play().catch((error) => {
+                    console.warn(`[Shopping] 모바일 비디오 재생 실패, 재시도:`, error)
+                    // 재시도
+                    setTimeout(() => {
+                      video.play().catch(() => {})
+                    }, 100)
+                  })
+                }, { once: true })
+              } else {
+                // 시작 시간 설정
+                video.currentTime = Math.max(0, Math.min(videoElapsed, video.duration))
+                // 비디오 재생 (자체적으로 재생되도록)
+                video.play().catch((error) => {
+                  console.warn(`[Shopping] 비디오 재생 실패:`, error)
+                  // 모바일에서 재생 실패 시 재시도
+                  if (isMobile) {
+                    setTimeout(() => {
+                      video.play().catch(() => {})
+                    }, 100)
+                  }
+                })
+              }
             }
           }
           
@@ -3294,34 +3347,82 @@ export default function ShoppingPage() {
         // 모바일에서 더 나은 버퍼링을 위해 preload 설정
         const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
                         (typeof window !== "undefined" && window.innerWidth <= 768)
-        video.preload = isMobile ? "metadata" : "auto"
+        // 모바일에서도 auto로 설정하여 충분한 버퍼링 보장
+        video.preload = "auto"
         video.loop = false // 순차 재생이므로 루프 없음
         
         await new Promise<void>((resolve, reject) => {
-          video.onloadedmetadata = () => {
-            const duration = video.duration || durationPerVideo
-            videoDurations.push(duration)
-            console.log(`[Shopping] 미리보기 영상 ${i + 1} 로드 완료, 길이: ${duration.toFixed(2)}초`)
-            resolve()
-          }
-          // 모바일에서 버퍼링 개선
-          if (isMobile) {
-            video.oncanplaythrough = () => {
-              const duration = video.duration || durationPerVideo
-              if (!videoDurations.includes(duration)) {
+          let metadataLoaded = false
+          let canPlay = false
+          let canPlayThrough = false
+          
+          const checkReady = () => {
+            // 모바일에서는 canplaythrough까지 기다림
+            if (isMobile) {
+              if (metadataLoaded && canPlay && canPlayThrough) {
+                const duration = video.duration || durationPerVideo
                 videoDurations.push(duration)
+                console.log(`[Shopping] 미리보기 영상 ${i + 1} 로드 완료 (모바일), 길이: ${duration.toFixed(2)}초, readyState=${video.readyState}`)
+                resolve()
+              }
+            } else {
+              if (metadataLoaded && canPlay) {
+                const duration = video.duration || durationPerVideo
+                videoDurations.push(duration)
+                console.log(`[Shopping] 미리보기 영상 ${i + 1} 로드 완료, 길이: ${duration.toFixed(2)}초`)
+                resolve()
               }
             }
           }
+          
+          video.onloadedmetadata = () => {
+            metadataLoaded = true
+            console.log(`[Shopping] 미리보기 영상 ${i + 1} 메타데이터 로드 완료`)
+            checkReady()
+          }
+          
+          video.oncanplay = () => {
+            canPlay = true
+            console.log(`[Shopping] 미리보기 영상 ${i + 1} canplay 이벤트`)
+            checkReady()
+          }
+          
+          // 모바일에서 버퍼링 개선
+          if (isMobile) {
+            video.oncanplaythrough = () => {
+              canPlayThrough = true
+              console.log(`[Shopping] 미리보기 영상 ${i + 1} canplaythrough 이벤트 (모바일)`)
+              checkReady()
+            }
+          }
+          
           video.onerror = reject
           video.load()
           
-          const timeout = isMobile ? 15000 : 10000
+          const timeout = isMobile ? 30000 : 10000
           setTimeout(() => {
-            if (video.readyState < 3) {
-              console.warn(`비디오 ${i + 1} 로드 타임아웃, 계속 진행`)
-              videoDurations.push(durationPerVideo)
-              resolve()
+            if (isMobile && (!metadataLoaded || !canPlay || !canPlayThrough)) {
+              console.warn(`미리보기 비디오 ${i + 1} 로드 타임아웃 (모바일), 계속 진행 (readyState: ${video.readyState})`)
+              if (video.readyState >= 2) {
+                // canplay 이상이면 계속 진행
+                metadataLoaded = true
+                canPlay = true
+                canPlayThrough = true
+                checkReady()
+              } else {
+                videoDurations.push(durationPerVideo)
+                resolve()
+              }
+            } else if (!isMobile && (!metadataLoaded || !canPlay)) {
+              console.warn(`미리보기 비디오 ${i + 1} 로드 타임아웃, 계속 진행`)
+              if (video.readyState >= 1) {
+                metadataLoaded = true
+                canPlay = true
+                checkReady()
+              } else {
+                videoDurations.push(durationPerVideo)
+                resolve()
+              }
             }
           }, timeout)
         })
