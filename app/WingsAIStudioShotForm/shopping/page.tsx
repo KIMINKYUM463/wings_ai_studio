@@ -2757,10 +2757,10 @@ export default function ShoppingPage() {
                   resolve()
                 }
               } else {
-                if (metadataLoaded && canPlay) {
-                  video.currentTime = 0 // 시작 위치로 초기화
-                  console.log(`[Shopping] 비디오 ${i + 1} 로드 완료: duration=${video.duration.toFixed(2)}초`)
-                  resolve()
+              if (metadataLoaded && canPlay) {
+                video.currentTime = 0 // 시작 위치로 초기화
+                console.log(`[Shopping] 비디오 ${i + 1} 로드 완료: duration=${video.duration.toFixed(2)}초`)
+                resolve()
                 }
               }
             }
@@ -3023,15 +3023,15 @@ export default function ShoppingPage() {
                   })
                 }, { once: true })
               } else {
-                // 시작 시간 설정
-                video.currentTime = Math.max(0, Math.min(videoElapsed, video.duration))
-                // 비디오 재생 (자체적으로 재생되도록)
+              // 시작 시간 설정
+              video.currentTime = Math.max(0, Math.min(videoElapsed, video.duration))
+              // 비디오 재생 (자체적으로 재생되도록)
                 video.play().catch((error) => {
                   console.warn(`[Shopping] 비디오 재생 실패:`, error)
                   // 모바일에서 재생 실패 시 재시도
                   if (isMobile) {
                     setTimeout(() => {
-                      video.play().catch(() => {})
+              video.play().catch(() => {})
                     }, 100)
                   }
                 })
@@ -3367,11 +3367,11 @@ export default function ShoppingPage() {
               }
             } else {
               if (metadataLoaded && canPlay) {
-                const duration = video.duration || durationPerVideo
-                videoDurations.push(duration)
-                console.log(`[Shopping] 미리보기 영상 ${i + 1} 로드 완료, 길이: ${duration.toFixed(2)}초`)
-                resolve()
-              }
+            const duration = video.duration || durationPerVideo
+            videoDurations.push(duration)
+            console.log(`[Shopping] 미리보기 영상 ${i + 1} 로드 완료, 길이: ${duration.toFixed(2)}초`)
+            resolve()
+          }
             }
           }
           
@@ -3410,9 +3410,9 @@ export default function ShoppingPage() {
                 canPlayThrough = true
                 checkReady()
               } else {
-                videoDurations.push(durationPerVideo)
-                resolve()
-              }
+              videoDurations.push(durationPerVideo)
+              resolve()
+            }
             } else if (!isMobile && (!metadataLoaded || !canPlay)) {
               console.warn(`미리보기 비디오 ${i + 1} 로드 타임아웃, 계속 진행`)
               if (video.readyState >= 1) {
@@ -4121,20 +4121,20 @@ export default function ShoppingPage() {
           alert("영상 렌더링이 완료되었습니다.\n\n다운로드 버튼을 눌러 영상을 저장하세요.")
         } else {
           // 데스크톱에서는 자동 다운로드 (롱폼 쇼츠 생성기 방식)
-          const a = document.createElement("a")
-          a.href = videoUrl
-          a.download = `${productName || "shopping"}_video_${Date.now()}.webm`
-          document.body.appendChild(a)
-          a.click()
-          document.body.removeChild(a)
-          
+        const a = document.createElement("a")
+        a.href = videoUrl
+        a.download = `${productName || "shopping"}_video_${Date.now()}.webm`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        
           // URL 정리 (다운로드 후 약간의 지연을 두고 정리)
           setTimeout(() => {
-            URL.revokeObjectURL(videoUrl)
+        URL.revokeObjectURL(videoUrl)
           }, 1000)
 
-          console.log("[Shopping] 영상 렌더링 및 다운로드 완료")
-          setIsRendering(false)
+        console.log("[Shopping] 영상 렌더링 및 다운로드 완료")
+        setIsRendering(false)
         }
       }
 
@@ -5002,12 +5002,12 @@ export default function ShoppingPage() {
       }
     } else {
       // 데스크톱에서는 일반 다운로드
-      const link = document.createElement("a")
-      link.href = videoUrl
-      link.download = `${productName}_shopping_video.mp4`
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
+    const link = document.createElement("a")
+    link.href = videoUrl
+    link.download = `${productName}_shopping_video.mp4`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
     }
   }
 
@@ -7223,28 +7223,28 @@ export default function ShoppingPage() {
                     ) : (
                       // 렌더링 버튼
                       <>
-                        <Button
-                          onClick={handleRenderVideo}
-                          disabled={isRendering || !previewGenerated}
-                          className="w-full bg-orange-500 hover:bg-orange-600 text-white disabled:bg-gray-300 disabled:cursor-not-allowed"
-                          size="lg"
-                        >
-                          {isRendering ? (
-                            <>
-                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                              렌더링 중...
-                            </>
-                          ) : (
-                            <>
-                            <Download className="w-4 h-4 mr-2" />
-                              영상 다운로드 (렌더링)
-                            </>
-                          )}
-                        </Button>
-                        {!previewGenerated && (
-                          <p className="text-sm text-gray-500 text-center">
-                            먼저 미리보기를 생성해주세요
-                          </p>
+                    <Button
+                      onClick={handleRenderVideo}
+                      disabled={isRendering || !previewGenerated}
+                      className="w-full bg-orange-500 hover:bg-orange-600 text-white disabled:bg-gray-300 disabled:cursor-not-allowed"
+                      size="lg"
+                    >
+                      {isRendering ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          렌더링 중...
+                        </>
+                      ) : (
+                        <>
+                        <Download className="w-4 h-4 mr-2" />
+                          영상 다운로드 (렌더링)
+                        </>
+                      )}
+                      </Button>
+                    {!previewGenerated && (
+                      <p className="text-sm text-gray-500 text-center">
+                        먼저 미리보기를 생성해주세요
+                      </p>
                         )}
                       </>
                     )}
