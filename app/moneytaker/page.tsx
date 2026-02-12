@@ -249,7 +249,8 @@ export default function MoneyTakerPage() {
   const [totalImageCount, setTotalImageCount] = useState(0) // 전체 이미지 개수
   const [regeneratingImageIndex, setRegeneratingImageIndex] = useState<number | null>(null) // 재생성 중인 이미지 인덱스
   const imageGenerationStartedRef = useRef(false) // 이미지 생성 시작 여부 추적
-  const [generationStep, setGenerationStep] = useState<"extracting" | "analyzing" | "writing" | "copywriting">("extracting") // 생성 단계
+  const [generationStep, setGenerationStep] = useState<"keyword" | "top-exposure" | "writing" | "seo" | "final">("keyword") // 생성 단계
+  const [generationProgress, setGenerationProgress] = useState(0) // 생성 진행률 (0-100)
   const [isUploadingToNaver, setIsUploadingToNaver] = useState(false) // 네이버 업로드 중 상태
   const [isNaverUploadDialogOpen, setIsNaverUploadDialogOpen] = useState(false) // 네이버 업로드 다이얼로그
   const [naverUploadInfo, setNaverUploadInfo] = useState({
@@ -1015,11 +1016,11 @@ PC 검색량: ${keywordData.pc.toLocaleString()}
           messages: [
             {
               role: "system",
-              content: "You are an expert at creating natural, realistic image prompts. Generate a detailed image prompt in English based on the blog content. CRITICAL REQUIREMENT: ALL people in the image MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features. DO NOT include Japanese, Chinese, Western, or any other ethnicity. Every single person must be Korean. Create natural, candid, lifestyle images with Korean people only. Include office scenes, consultation rooms, professional settings, or business environments when appropriate. Return only one prompt, without numbering or bullet points.",
+              content: "You are an expert at creating natural, realistic image prompts. Generate a detailed image prompt in English based on the blog content. ABSOLUTE MANDATORY REQUIREMENT: ALL people in the image MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features, Korean skin tone, Korean hair, Korean eyes. The setting MUST be Korean style - Korean office, Korean consultation room, Korean business environment, Korean atmosphere, Korean culture, Korean lifestyle. ABSOLUTELY DO NOT include: Western people, Caucasian, European, American, Japanese, Chinese, or any other ethnicity. NO foreign languages, NO English text, NO foreign signs, NO foreign architecture, NO foreign style, NO foreign elements. Every single person must be Korean. NO EXCEPTIONS. Create natural, candid, lifestyle images with Korean people only in Korean settings. Include Korean office scenes, Korean consultation rooms, Korean professional settings, or Korean business environments when appropriate. Return only one prompt, without numbering or bullet points.",
             },
             {
               role: "user",
-              content: `Based on this blog content, generate one natural, realistic image prompt in English. CRITICAL: ALL people in the image MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features. DO NOT include Japanese, Chinese, Western, or any other ethnicity. Every single person must be Korean. Create a candid, lifestyle image with Korean people only. Include professional office scenes, consultation rooms, or business environments when relevant:\n\n${content.substring(0, 2000)}`,
+              content: `Keyword (MAIN SUBJECT/HERO): ${blogAIKeyword}\n\nBased on this blog content and keyword, generate one photorealistic, realistic photography image prompt in English. The keyword "${blogAIKeyword}" must be the MAIN SUBJECT and HERO of the image. CRITICAL: Image must be PHOTOREALISTIC, REALISTIC PHOTOGRAPHY - use terms like 'photorealistic', 'realistic photography', 'professional photography', 'high-quality photo', 'lifelike', 'cinematic photo'. NOT illustration, NOT cartoon, NOT drawing, NOT painting. ABSOLUTE MANDATORY: ALL people in the image MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features, Korean skin tone, Korean hair, Korean eyes. The setting MUST be Korean style - Korean office, Korean consultation room, Korean business environment, Korean atmosphere, Korean culture, Korean lifestyle. ABSOLUTELY DO NOT include: Western people, Caucasian, European, American, Japanese, Chinese, or any other ethnicity. NO foreign languages, NO English text, NO foreign signs, NO foreign architecture, NO foreign style, NO foreign elements. NO illustrations, NO cartoons, NO drawings, NO paintings, NO AI-generated look. Every single person must be Korean. NO EXCEPTIONS. Create a photorealistic, candid, lifestyle photography with Korean people only in Korean settings. The keyword "${blogAIKeyword}" must be prominently featured as the main subject. Include Korean professional office scenes, Korean consultation rooms, or Korean business environments when relevant:\n\n${content.substring(0, 2000)}`,
             },
           ],
           temperature: 0.7,
@@ -1032,27 +1033,14 @@ PC 검색량: ${keywordData.pc.toLocaleString()}
       }
 
       const imagePromptData = await imagePromptResponse.json()
-      const prompt = imagePromptData.choices?.[0]?.message?.content?.trim() || "Professional consultation scene with Korean people only in office setting"
+      const prompt = imagePromptData.choices?.[0]?.message?.content?.trim() || "Professional Korean consultation scene with Korean people only in Korean office setting, Korean style, Korean atmosphere, no foreign elements, no foreign languages, no foreign signs"
       
       console.log(`[MoneyTaker] 생성된 프롬프트:`, prompt.substring(0, 100))
       
-      // 이미지 생성
-      const imageResponse = await fetch("/api/moneytaker/generate-image", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ prompt }),
-      })
-
-      if (!imageResponse.ok) {
-        const errorData = await imageResponse.json().catch(() => ({}))
-        throw new Error(errorData.error || "이미지 생성 실패")
-      }
-
-      const data = await imageResponse.json()
+      // 이미지 생성 (재시도 포함)
+      const result = await generateImageWithRetry(prompt, 5)
       
-      if (data.success && data.imageUrl) {
+      if (result.success && result.imageUrl) {
         console.log(`[MoneyTaker] ✅ 이미지 ${imageIndex + 1} 재생성 성공`)
         // 이미지 상태 업데이트
         setGeneratedImages((prev) => {
@@ -1060,7 +1048,7 @@ PC 검색량: ${keywordData.pc.toLocaleString()}
           while (newImages.length <= imageIndex) {
             newImages.push("")
           }
-          newImages[imageIndex] = data.imageUrl
+          newImages[imageIndex] = result.imageUrl!
           return newImages
         })
         return true
@@ -1097,11 +1085,11 @@ PC 검색량: ${keywordData.pc.toLocaleString()}
           messages: [
             {
               role: "system",
-              content: "You are an expert at creating natural, realistic image prompts. Generate a detailed image prompt in English based on the blog content. CRITICAL REQUIREMENT: ALL people in the image MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features. DO NOT include Japanese, Chinese, Western, or any other ethnicity. Every single person must be Korean. Create natural, candid, lifestyle images with Korean people only. Include office scenes, consultation rooms, professional settings, or business environments when appropriate. Return only one prompt, without numbering or bullet points.",
+              content: "You are an expert at creating photorealistic, realistic image prompts. Generate a detailed, photorealistic image prompt in English based on the blog content and keyword. CRITICAL: The keyword is the MAIN SUBJECT/HERO of the image. The keyword must be the central focus and protagonist of the image. ABSOLUTE MANDATORY REQUIREMENT: The image MUST be PHOTOREALISTIC, REALISTIC PHOTOGRAPHY, NOT illustration, NOT cartoon, NOT drawing, NOT painting. Use terms like 'photorealistic', 'realistic photography', 'professional photography', 'high-quality photo', 'lifelike', 'cinematic photo'. ALL people in the image MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features, Korean skin tone, Korean hair, Korean eyes. The setting MUST be Korean style - Korean office, Korean consultation room, Korean business environment, Korean atmosphere, Korean culture, Korean lifestyle. ABSOLUTELY DO NOT include: Western people, Caucasian, European, American, Japanese, Chinese, or any other ethnicity. NO foreign languages, NO English text, NO foreign signs, NO foreign architecture, NO foreign style, NO foreign elements. NO illustrations, NO cartoons, NO drawings, NO paintings, NO AI-generated look, NO artificial appearance. Every single person must be Korean. NO EXCEPTIONS. Create photorealistic, natural, candid, lifestyle photography with Korean people only in Korean settings. The keyword must be prominently featured as the main subject. Include Korean office scenes, Korean consultation rooms, Korean professional settings, or Korean business environments when appropriate. Return only one prompt, without numbering or bullet points.",
             },
             {
               role: "user",
-              content: `Based on this blog content, generate one natural, realistic image prompt in English. CRITICAL: ALL people in the image MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features. DO NOT include Japanese, Chinese, Western, or any other ethnicity. Every single person must be Korean. Create a candid, lifestyle image with Korean people only. Include professional office scenes, consultation rooms, or business environments when relevant:\n\n${content.substring(0, 2000)}`,
+              content: `Keyword (MAIN SUBJECT/HERO): ${reporterKeyword}\n\nBased on this blog content and keyword, generate one photorealistic, realistic photography image prompt in English. The keyword "${reporterKeyword}" must be the MAIN SUBJECT and HERO of the image. CRITICAL: Image must be PHOTOREALISTIC, REALISTIC PHOTOGRAPHY - use terms like 'photorealistic', 'realistic photography', 'professional photography', 'high-quality photo', 'lifelike', 'cinematic photo'. NOT illustration, NOT cartoon, NOT drawing, NOT painting. ABSOLUTE MANDATORY: ALL people in the image MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features, Korean skin tone, Korean hair, Korean eyes. The setting MUST be Korean style - Korean office, Korean consultation room, Korean business environment, Korean atmosphere, Korean culture, Korean lifestyle. ABSOLUTELY DO NOT include: Western people, Caucasian, European, American, Japanese, Chinese, or any other ethnicity. NO foreign languages, NO English text, NO foreign signs, NO foreign architecture, NO foreign style, NO foreign elements. NO illustrations, NO cartoons, NO drawings, NO paintings, NO AI-generated look. Every single person must be Korean. NO EXCEPTIONS. Create a photorealistic, candid, lifestyle photography with Korean people only in Korean settings. The keyword "${reporterKeyword}" must be prominently featured as the main subject. Include Korean professional office scenes, Korean consultation rooms, or Korean business environments when relevant:\n\n${content.substring(0, 2000)}`,
             },
           ],
           temperature: 0.7,
@@ -1114,27 +1102,14 @@ PC 검색량: ${keywordData.pc.toLocaleString()}
       }
 
       const imagePromptData = await imagePromptResponse.json()
-      const prompt = imagePromptData.choices?.[0]?.message?.content?.trim() || "Professional consultation scene with Korean people only in office setting"
+      const prompt = imagePromptData.choices?.[0]?.message?.content?.trim() || `Photorealistic, realistic photography of ${reporterKeyword || "Korean consultation scene"} with Korean people only in Korean office setting, Korean style, Korean atmosphere, professional photography, high-quality photo, lifelike, no foreign elements, no foreign languages, no foreign signs, NOT illustration, NOT cartoon`
       
       console.log(`[Reporter AI] 생성된 프롬프트:`, prompt.substring(0, 100))
       
-      // 이미지 생성
-      const imageResponse = await fetch("/api/moneytaker/generate-image", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ prompt }),
-      })
-
-      if (!imageResponse.ok) {
-        const errorData = await imageResponse.json().catch(() => ({}))
-        throw new Error(errorData.error || "이미지 생성 실패")
-      }
-
-      const data = await imageResponse.json()
+      // 이미지 생성 (재시도 포함)
+      const result = await generateImageWithRetry(prompt, 5)
       
-      if (data.success && data.imageUrl) {
+      if (result.success && result.imageUrl) {
         console.log(`[Reporter AI] ✅ 이미지 ${imageIndex + 1} 재생성 성공`)
         // 이미지 상태 업데이트
         setReporterImages((prev) => {
@@ -1142,7 +1117,7 @@ PC 검색량: ${keywordData.pc.toLocaleString()}
           while (newImages.length <= imageIndex) {
             newImages.push("")
           }
-          newImages[imageIndex] = data.imageUrl
+          newImages[imageIndex] = result.imageUrl!
           return newImages
         })
         return true
@@ -1232,6 +1207,53 @@ PC 검색량: ${keywordData.pc.toLocaleString()}
   }
 
   // 콘텐츠 기반 이미지 생성 함수 (병렬 처리)
+  // 이미지 생성 재시도 헬퍼 함수
+  const generateImageWithRetry = async (prompt: string, maxRetries: number = 5): Promise<{ success: boolean; imageUrl?: string; error?: string }> => {
+    let lastError: string = ""
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`[MoneyTaker] 이미지 생성 시도 ${attempt}/${maxRetries}:`, prompt.substring(0, 50) + "...")
+        
+        const imageResponse = await fetch("/api/moneytaker/generate-image", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ prompt }),
+        })
+
+        if (imageResponse.ok) {
+          const data = await imageResponse.json()
+          if (data.success && data.imageUrl) {
+            console.log(`[MoneyTaker] ✅ 이미지 생성 성공 (시도 ${attempt}/${maxRetries})`)
+            return { success: true, imageUrl: data.imageUrl }
+          } else {
+            lastError = data.error || "이미지 생성 실패"
+            console.warn(`[MoneyTaker] ⚠️ 이미지 생성 실패 (시도 ${attempt}/${maxRetries}):`, lastError)
+          }
+        } else {
+          const errorData = await imageResponse.json().catch(() => ({}))
+          lastError = errorData.error || `HTTP ${imageResponse.status}`
+          console.warn(`[MoneyTaker] ⚠️ 이미지 생성 API 오류 (시도 ${attempt}/${maxRetries}):`, imageResponse.status, lastError)
+        }
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : "알 수 없는 오류"
+        console.warn(`[MoneyTaker] ⚠️ 이미지 생성 예외 (시도 ${attempt}/${maxRetries}):`, lastError)
+      }
+      
+      // 마지막 시도가 아니면 잠시 대기 후 재시도
+      if (attempt < maxRetries) {
+        const delay = attempt * 1000 // 1초, 2초, 3초, 4초씩 증가
+        console.log(`[MoneyTaker] ${delay}ms 후 재시도...`)
+        await new Promise(resolve => setTimeout(resolve, delay))
+      }
+    }
+    
+    console.error(`[MoneyTaker] ❌ 이미지 생성 최종 실패 (${maxRetries}번 시도 후):`, lastError)
+    return { success: false, error: lastError }
+  }
+
   const generateImagesForContent = async (content: string, onImageGenerated?: (imageUrl: string) => void) => {
     // 이미 이미지 생성이 시작되었으면 중복 실행 방지
     if (imageGenerationStartedRef.current) {
@@ -1252,7 +1274,20 @@ PC 검색량: ${keywordData.pc.toLocaleString()}
       // OpenAI API 키 (하드코딩)
       const OPENAI_API_KEY = "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"
       
-      // 생성된 콘텐츠를 기반으로 이미지 프롬프트 생성
+      // 콘텐츠에서 이미지 제안 위치 및 설명 추출
+      const imageSuggestionRegex = /\*\*\[?이미지 제안:\s*([^\]]+)\]?\*\*/g
+      const imageSuggestions: string[] = []
+      let match
+      while ((match = imageSuggestionRegex.exec(content)) !== null) {
+        imageSuggestions.push(match[1].trim())
+      }
+      
+      // 이미지 제안 설명을 포함한 프롬프트 생성
+      const imageSuggestionContext = imageSuggestions.length > 0
+        ? `\n\n이미지 제안 설명 (각 이미지는 해당 설명에 정확히 맞춰야 합니다):\n${imageSuggestions.map((desc, idx) => `${idx + 1}. ${desc}`).join("\n")}\n\n각 이미지 프롬프트는 해당 순서의 이미지 제안 설명과 정확히 일치해야 합니다.`
+        : ""
+      
+      // 생성된 콘텐츠를 기반으로 이미지 프롬프트 생성 (전체 내용 사용)
       const imagePromptResponse = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -1264,15 +1299,15 @@ PC 검색량: ${keywordData.pc.toLocaleString()}
           messages: [
             {
               role: "system",
-              content: "You are an expert at creating natural, realistic image prompts. Generate detailed image prompts in English based on the blog content. Each prompt should describe a different scene or concept from the blog. CRITICAL REQUIREMENT: ALL people in ALL images MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features. DO NOT include Japanese, Chinese, Western, or any other ethnicity. Every single person in every image must be Korean. Create natural, candid, lifestyle images with Korean people only. Include office scenes, consultation rooms, professional settings, or business environments when appropriate. The images should feature Korean professionals, clients, or people in authentic professional or service industry contexts. Avoid staged or artificial poses. Focus on authentic moments, natural expressions, and real environments. Return only the prompts, one per line, without numbering or bullet points.",
+              content: "You are an expert at creating photorealistic, realistic image prompts. Generate detailed, photorealistic image prompts in English based on the blog content, keyword, and image suggestion descriptions. CRITICAL: The keyword is the MAIN SUBJECT/HERO of each image. The keyword must be the central focus and protagonist of the image. Each prompt must accurately match the corresponding image suggestion description and be directly related to the specific content around that image suggestion location in the blog. ABSOLUTE MANDATORY REQUIREMENT: ALL images MUST be PHOTOREALISTIC, REALISTIC PHOTOGRAPHY, NOT illustration, NOT cartoon, NOT drawing, NOT painting. Use terms like 'photorealistic', 'realistic photography', 'professional photography', 'high-quality photo', 'lifelike', 'cinematic photo'. ALL people in ALL images MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features, Korean skin tone, Korean hair, Korean eyes. The setting MUST be Korean style - Korean office, Korean consultation room, Korean business environment, Korean atmosphere, Korean culture, Korean lifestyle. ABSOLUTELY DO NOT include: Western people, Caucasian, European, American, Japanese, Chinese, or any other ethnicity. NO foreign languages, NO English text, NO foreign signs, NO foreign architecture, NO foreign style, NO foreign elements. NO illustrations, NO cartoons, NO drawings, NO paintings, NO AI-generated look, NO artificial appearance. Every single person in every image must be Korean. NO EXCEPTIONS. Create photorealistic, natural, candid, lifestyle photography with Korean people only in Korean settings. The keyword must be prominently featured as the main subject. Include Korean office scenes, Korean consultation rooms, Korean professional settings, or Korean business environments. The images should feature Korean professionals, clients, or people in authentic Korean professional or service industry contexts. Avoid staged or artificial poses. Focus on authentic Korean moments, natural Korean expressions, and real Korean environments. IMPORTANT: Each image prompt must be directly related to the blog content context where the image suggestion appears, and the keyword must be the central focus. Return only the prompts, one per line, without numbering or bullet points.",
             },
             {
               role: "user",
-              content: `Based on this blog content, generate ${imageSuggestionCount} natural, realistic image prompts in English. CRITICAL: ALL people in ALL images MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features. DO NOT include Japanese, Chinese, Western, or any other ethnicity. Every single person in every image must be Korean. Create candid, lifestyle images with Korean people only. Include professional office scenes, consultation rooms, or business environments when relevant. The images should feel natural and unposed, with real expressions and environments:\n\n${content.substring(0, 2000)}`,
+              content: `Keyword (MAIN SUBJECT/HERO): ${blogAIKeyword}\n\nBased on this blog content and keyword, generate ${imageSuggestionCount} photorealistic, realistic photography image prompts in English. The keyword "${blogAIKeyword}" must be the MAIN SUBJECT and HERO of each image. Each prompt must match the corresponding image suggestion description and be directly related to the specific content context where that image appears in the blog. CRITICAL: Images must be PHOTOREALISTIC, REALISTIC PHOTOGRAPHY - use terms like 'photorealistic', 'realistic photography', 'professional photography', 'high-quality photo', 'lifelike', 'cinematic photo'. NOT illustration, NOT cartoon, NOT drawing, NOT painting. ABSOLUTE MANDATORY: ALL people in ALL images MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features, Korean skin tone, Korean hair, Korean eyes. The setting MUST be Korean style - Korean office, Korean consultation room, Korean business environment, Korean atmosphere, Korean culture, Korean lifestyle. ABSOLUTELY DO NOT include: Western people, Caucasian, European, American, Japanese, Chinese, or any other ethnicity. NO foreign languages, NO English text, NO foreign signs, NO foreign architecture, NO foreign style, NO foreign elements. NO illustrations, NO cartoons, NO drawings, NO paintings, NO AI-generated look. Every single person in every image must be Korean. NO EXCEPTIONS. Create photorealistic, candid, lifestyle photography with Korean people only in Korean settings. The keyword "${blogAIKeyword}" must be prominently featured as the main subject in each image. Include Korean professional office scenes, Korean consultation rooms, or Korean business environments when relevant. The images should feel natural and unposed, with real Korean expressions and Korean environments.${imageSuggestionContext}\n\nFull blog content:\n${content}`,
             },
           ],
           temperature: 0.7,
-          max_tokens: 500,
+          max_tokens: 800,
         }),
       })
 
@@ -1294,7 +1329,7 @@ PC 검색량: ${keywordData.pc.toLocaleString()}
 
       // 프롬프트 개수가 부족하면 기본 프롬프트로 채우기
       while (imagePrompts.length < imageSuggestionCount) {
-        imagePrompts.push("Professional consultation scene with Korean people only in office setting")
+        imagePrompts.push("Professional Korean consultation scene with Korean people only in Korean office setting, Korean style, Korean atmosphere, no foreign elements, no foreign languages, no foreign signs")
       }
       // 초과하면 자르기
       if (imagePrompts.length > imageSuggestionCount) {
@@ -1317,60 +1352,46 @@ PC 검색량: ${keywordData.pc.toLocaleString()}
         try {
           console.log(`[MoneyTaker] 이미지 ${index + 1}/${imageSuggestionCount} 생성 요청 시작:`, prompt.substring(0, 50) + "...")
           
-          // 이미지가 이미 생성되었는지 확인은 상태 업데이트 시점에만 체크 (클로저 문제 방지)
+          // 재시도 로직이 포함된 이미지 생성
+          const result = await generateImageWithRetry(prompt, 5)
           
-          const imageResponse = await fetch("/api/moneytaker/generate-image", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ prompt }),
-          })
-
-          if (imageResponse.ok) {
-            const data = await imageResponse.json()
-            if (data.success && data.imageUrl) {
-              console.log(`[MoneyTaker] ✅ 이미지 ${index + 1}/${imageSuggestionCount} 생성 성공`)
+          if (result.success && result.imageUrl) {
+            console.log(`[MoneyTaker] ✅ 이미지 ${index + 1}/${imageSuggestionCount} 생성 성공`)
+            
+            // 함수형 업데이트로 정확한 인덱스에 저장 (중복 방지)
+            setGeneratedImages((prev) => {
+              // 이전 상태를 복사
+              const newImages = [...prev]
               
-              // 함수형 업데이트로 정확한 인덱스에 저장 (중복 방지)
-              setGeneratedImages((prev) => {
-                // 이전 상태를 복사
-                const newImages = [...prev]
-                
-                // 배열이 충분히 크도록 확장
-                while (newImages.length < imageSuggestionCount) {
-                  newImages.push("")
-                }
-                
-                // 해당 인덱스가 비어있을 때만 저장 (중복 방지)
-                // 인덱스 범위 체크 추가
-                if (index >= 0 && index < imageSuggestionCount) {
-                  if (!newImages[index] || newImages[index] === "") {
-                    newImages[index] = data.imageUrl
-                    console.log(`[MoneyTaker] ✅ 이미지 저장 완료 - 인덱스 ${index}에 저장됨 (배열 길이: ${newImages.length}, 총 ${imageSuggestionCount}개 중 ${index + 1}번째)`)
-                  } else {
-                    console.log(`[MoneyTaker] ⚠️ 인덱스 ${index}에 이미 이미지가 있음, 건너뜀 (기존 이미지 유지)`)
-                  }
-                } else {
-                  console.error(`[MoneyTaker] ❌ 잘못된 인덱스: ${index} (범위: 0-${imageSuggestionCount - 1})`)
-                }
-                
-                return newImages
-              })
-              
-              // 콜백 호출 (실시간 업데이트)
-              if (onImageGenerated) {
-                onImageGenerated(data.imageUrl)
+              // 배열이 충분히 크도록 확장
+              while (newImages.length < imageSuggestionCount) {
+                newImages.push("")
               }
-              return { index, success: true, imageUrl: data.imageUrl }
-            } else {
-              console.error(`[MoneyTaker] ❌ 이미지 ${index + 1} 생성 실패:`, data.error)
-              return { index, success: false, error: data.error }
+              
+              // 해당 인덱스가 비어있을 때만 저장 (중복 방지)
+              // 인덱스 범위 체크 추가
+              if (index >= 0 && index < imageSuggestionCount) {
+                if (!newImages[index] || newImages[index] === "") {
+                  newImages[index] = result.imageUrl!
+                  console.log(`[MoneyTaker] ✅ 이미지 저장 완료 - 인덱스 ${index}에 저장됨 (배열 길이: ${newImages.length}, 총 ${imageSuggestionCount}개 중 ${index + 1}번째)`)
+                } else {
+                  console.log(`[MoneyTaker] ⚠️ 인덱스 ${index}에 이미 이미지가 있음, 건너뜀 (기존 이미지 유지)`)
+                }
+              } else {
+                console.error(`[MoneyTaker] ❌ 잘못된 인덱스: ${index} (범위: 0-${imageSuggestionCount - 1})`)
+              }
+              
+              return newImages
+            })
+            
+            // 콜백 호출 (실시간 업데이트)
+            if (onImageGenerated) {
+              onImageGenerated(result.imageUrl)
             }
+            return { index, success: true, imageUrl: result.imageUrl }
           } else {
-            const errorData = await imageResponse.json().catch(() => ({}))
-            console.error(`[MoneyTaker] ❌ 이미지 ${index + 1} 생성 API 오류:`, imageResponse.status, errorData)
-            return { index, success: false, error: `HTTP ${imageResponse.status}` }
+            console.error(`[MoneyTaker] ❌ 이미지 ${index + 1} 생성 최종 실패 (5번 시도 후):`, result.error)
+            return { index, success: false, error: result.error }
           }
         } catch (error) {
           console.error(`[MoneyTaker] ❌ 이미지 ${index + 1} 생성 예외:`, error)
@@ -1835,22 +1856,25 @@ ${blogTopPosts.map((post, idx) => `${idx + 1}. 제목: ${post.title}\n   설명:
       setRegeneratingImageIndex(null) // 재생성 중인 이미지 인덱스 초기화
       setIsEditingContent(false)
       imageGenerationStartedRef.current = false // 이미지 생성 시작 플래그 초기화
-      setGenerationStep("extracting") // 생성 단계 초기화
+      setGenerationStep("keyword") // 생성 단계 초기화
+      setGenerationProgress(0) // 진행률 초기화
     
     console.log("[MoneyTaker] 이전 이미지 제거, 새 콘텐츠 생성 시작")
 
     try {
-      // Step 1: 상위노출 단어 추출 중 (5초)
-      setGenerationStep("extracting")
-      await new Promise(resolve => setTimeout(resolve, 5000)) // 5초 대기
+      // Step 1: 키워드 분석 (20%)
+      setGenerationStep("keyword")
+      setGenerationProgress(20)
+      await new Promise(resolve => setTimeout(resolve, 4000)) // 4초 대기
       
-      // Step 2: 머니테이커 AI 로직 활용 (5초)
-      setGenerationStep("analyzing")
-      await new Promise(resolve => setTimeout(resolve, 5000)) // 5초 대기
+      // Step 2: 상위노출 작업 (40%)
+      setGenerationStep("top-exposure")
+      setGenerationProgress(40)
+      await new Promise(resolve => setTimeout(resolve, 4000)) // 4초 대기
       
-      // Step 3: 전환률 높이는 카피라이팅 작업
-      setGenerationStep("copywriting")
-      await new Promise(resolve => setTimeout(resolve, 1500)) // 1.5초 대기
+      // Step 3: AI 글 작성 (60%)
+      setGenerationStep("writing")
+      setGenerationProgress(60)
       // Anthropic API 키
       const ANTHROPIC_API_KEY = "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"
       
@@ -2227,9 +2251,16 @@ ${blogAIKeyword}를 찾는 과정은 쉽지 않습니다. [감정 표현 - 예: 
 
 ---
 
-**[링크/연락처 섹션]**
-(함께 읽으면 좋을 글 링크)
-(연락처)
+오늘은 ${blogAIKeyword}에 대해 말씀드렸습니다.
+
+[키워드에서 추론한 업종]을 고민 중이시라면, 어떤 곳을 선택하시든 위에서 설명드린 요소들을 꼼꼼히 살펴보시길 권장드립니다.
+
+혹시 더 궁금하신 점이 있거나 도움이 필요하시다면, 언제든 편하게 문의 주셔도 좋습니다.
+
+**[이미지 제안: 따뜻한 상담 장면 또는 연락처 안내]**
+
+**[링크/연락처]**
+📞 문의하기
 (네이버 플레이스 혹은 홈페이지 링크)
 
 ---
@@ -2681,8 +2712,17 @@ ${personaInfo.customerCharacteristics || "고객 특징"}의 "어떤 상태"에�
 
 ---
 
+오늘은 ${blogAIKeyword}에 대해 말씀드렸습니다.
+
+${personaInfo.industry || "업종"}을 고민 중이시라면, 어떤 곳을 선택하시든 위에서 설명드린 요소들을 꼼꼼히 살펴보시길 권장드립니다.
+
+혹시 더 궁금하신 점이 있거나 도움이 필요하시다면, 언제든 편하게 문의 주셔도 좋습니다.
+
+**[이미지 제안: 따뜻한 상담 장면 또는 연락처 안내]**
+
 **[링크/연락처]**
-(${personaInfo.businessName || "업체명"} - ${personaInfo.salesLocation || "지역"})
+📞 문의하기
+(네이버 플레이스 혹은 홈페이지 링크)
 
 ---
 
@@ -2723,6 +2763,10 @@ ${personaInfo.customerCharacteristics || "고객 특징"}의 "어떤 상태"에�
 ${analysisContext}`
       }
 
+      // Step 3: AI 글 작성 (60%)
+      setGenerationStep("writing")
+      setGenerationProgress(60)
+      
       const msg = await anthropic.messages.create({
         model: "claude-opus-4-5-20251101",
         max_tokens: 20000,
@@ -2793,29 +2837,34 @@ ${analysisContext}`
       setBlogTitle(title)
       setEditedContent(content) // 편집용 콘텐츠도 설정
 
-      // 이미지 생성은 타이핑 애니메이션 중에 시작 (병렬 처리)
-
-      // Step 4: 글 작성 중
-      setGenerationStep("writing")
-      
+      // Step 3: AI 글 작성 완료 - 타이핑 애니메이션 시작
       // 타이핑 애니메이션 효과를 위한 시뮬레이션
       setStreamingContent("")
       let currentIndex = 0
-      const typingInterval = setInterval(() => {
+      const typingInterval = setInterval(async () => {
         if (currentIndex < content.length) {
           const chunk = content.slice(0, currentIndex + 1)
           setStreamingContent(chunk)
           currentIndex += Math.floor(Math.random() * 3) + 1 // 1-3 글자씩 랜덤하게
-          
-          // 글의 일정 부분이 생성되면 이미지 프롬프트 생성 시작 (병렬 처리)
-          // 완전한 콘텐츠가 생성된 후에만 이미지 생성 (중복 방지)
-          if (imageMode === "ai" && currentIndex >= content.length && !imageGenerationStartedRef.current) {
-            // 콘텐츠가 완전히 생성된 후에만 이미지 생성 시작
-            console.log("[MoneyTaker] 콘텐츠 생성 완료, 이미지 생성 시작")
-            generateImagesForContent(content)
-          }
         } else {
           clearInterval(typingInterval)
+          
+          // 타이핑 애니메이션 완료 - SEO 최적화 단계로 전환
+          // Step 4: SEO 최적화 (80%)
+          setGenerationStep("seo")
+          setGenerationProgress(80)
+          
+          // SEO 최적화 단계 시뮬레이션 (2초)
+          await new Promise(resolve => setTimeout(resolve, 2000))
+          
+          // Step 5: 최종 검수 (100%)
+          setGenerationStep("final")
+          setGenerationProgress(100)
+          
+          // 최종 검수 단계 시뮬레이션 (2초)
+          await new Promise(resolve => setTimeout(resolve, 2000))
+          
+          // 모든 단계 완료 후 콘텐츠 표시
           setGeneratedContent(content)
           setEditedContent(content) // 편집용 콘텐츠도 업데이트
           setStreamingContent("")
@@ -2825,15 +2874,14 @@ ${analysisContext}`
             setBlogTitle(blogAIKeyword || "AI 생성 블로그 포스트")
           }
           
-          // 콘텐츠 생성 완료
-          // 이미지 생성은 병렬로 진행 중이므로, 콘텐츠 생성 완료 후에도 계속 진행
-          if (imageMode !== "ai") {
-            setIsGenerating(false)
-          } else {
-            // AI 모드일 때는 이미지 생성이 완료될 때까지 대기하지 않음 (병렬 처리)
-            // 콘텐츠 생성이 완료되면 즉시 isGenerating을 false로 설정 (이미지는 계속 생성됨)
-            setIsGenerating(false)
+          // 이미지 생성 시작 (병렬 처리)
+          if (imageMode === "ai" && !imageGenerationStartedRef.current) {
+            console.log("[MoneyTaker] 콘텐츠 생성 완료, 이미지 생성 시작")
+            generateImagesForContent(content)
           }
+          
+          // 모든 단계 완료 - 로딩 UI 종료
+          setIsGenerating(false)
         }
       }, 20) // 20ms마다 업데이트 (타이핑 속도 조절)
 
@@ -3321,11 +3369,11 @@ ${generatedGuide}
           messages: [
             {
               role: "system",
-              content: "You are an expert at creating natural, realistic image prompts. Generate detailed image prompts in English based on the blog content and image suggestion descriptions. Each prompt should describe a different scene or concept from the blog that matches the corresponding image suggestion. CRITICAL REQUIREMENT: ALL people in ALL images MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features. DO NOT include Japanese, Chinese, Western, or any other ethnicity. Every single person in every image must be Korean. Create natural, candid, lifestyle images with Korean people only. Include office scenes, consultation rooms, professional settings, or business environments when appropriate. The images should feature Korean professionals, clients, or people in authentic professional or service industry contexts. Avoid staged or artificial poses. Focus on authentic moments, natural expressions, and real environments. Return only the prompts, one per line, without numbering or bullet points.",
+              content: "You are an expert at creating photorealistic, realistic image prompts. Generate detailed, photorealistic image prompts in English based on the blog content, keyword, and image suggestion descriptions. CRITICAL: The keyword is the MAIN SUBJECT/HERO of each image. The keyword must be the central focus and protagonist of the image. Each prompt should describe a different scene or concept from the blog that matches the corresponding image suggestion. ABSOLUTE MANDATORY REQUIREMENT: ALL images MUST be PHOTOREALISTIC, REALISTIC PHOTOGRAPHY, NOT illustration, NOT cartoon, NOT drawing, NOT painting. Use terms like 'photorealistic', 'realistic photography', 'professional photography', 'high-quality photo', 'lifelike', 'cinematic photo'. ALL people in ALL images MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features, Korean skin tone, Korean hair, Korean eyes. The setting MUST be Korean style - Korean office, Korean consultation room, Korean business environment, Korean atmosphere, Korean culture, Korean lifestyle. ABSOLUTELY DO NOT include: Western people, Caucasian, European, American, Japanese, Chinese, or any other ethnicity. NO foreign languages, NO English text, NO foreign signs, NO foreign architecture, NO foreign style, NO foreign elements. NO illustrations, NO cartoons, NO drawings, NO paintings, NO AI-generated look, NO artificial appearance. Every single person in every image must be Korean. NO EXCEPTIONS. Create photorealistic, natural, candid, lifestyle photography with Korean people only in Korean settings. The keyword must be prominently featured as the main subject. Include Korean office scenes, Korean consultation rooms, Korean professional settings, or Korean business environments when appropriate. The images should feature Korean professionals, clients, or people in authentic Korean professional or service industry contexts. Avoid staged or artificial poses. Focus on authentic Korean moments, natural Korean expressions, and real Korean environments. Return only the prompts, one per line, without numbering or bullet points.",
             },
             {
               role: "user",
-              content: `Based on this blog content, generate ${imageSuggestionCount} natural, realistic image prompts in English. Each prompt should match the corresponding image suggestion description and be relevant to the blog content. CRITICAL: ALL people in ALL images MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features. DO NOT include Japanese, Chinese, Western, or any other ethnicity. Every single person in every image must be Korean. Create candid, lifestyle images with Korean people only. Include professional office scenes, consultation rooms, or business environments when relevant. The images should feel natural and unposed, with real expressions and environments.${imageSuggestionContext}\n\nBlog content:\n${content}`,
+              content: `Keyword (MAIN SUBJECT/HERO): ${reporterKeyword}\n\nBased on this blog content and keyword, generate ${imageSuggestionCount} photorealistic, realistic photography image prompts in English. The keyword "${reporterKeyword}" must be the MAIN SUBJECT and HERO of each image. Each prompt should match the corresponding image suggestion description and be relevant to the blog content. CRITICAL: Images must be PHOTOREALISTIC, REALISTIC PHOTOGRAPHY - use terms like 'photorealistic', 'realistic photography', 'professional photography', 'high-quality photo', 'lifelike', 'cinematic photo'. NOT illustration, NOT cartoon, NOT drawing, NOT painting. ABSOLUTE MANDATORY: ALL people in ALL images MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features, Korean skin tone, Korean hair, Korean eyes. The setting MUST be Korean style - Korean office, Korean consultation room, Korean business environment, Korean atmosphere, Korean culture, Korean lifestyle. ABSOLUTELY DO NOT include: Western people, Caucasian, European, American, Japanese, Chinese, or any other ethnicity. NO foreign languages, NO English text, NO foreign signs, NO foreign architecture, NO foreign style, NO foreign elements. NO illustrations, NO cartoons, NO drawings, NO paintings, NO AI-generated look. Every single person in every image must be Korean. NO EXCEPTIONS. Create photorealistic, candid, lifestyle photography with Korean people only in Korean settings. The keyword "${reporterKeyword}" must be prominently featured as the main subject in each image. Include Korean professional office scenes, Korean consultation rooms, or Korean business environments when relevant. The images should feel natural and unposed, with real Korean expressions and Korean environments.${imageSuggestionContext}\n\nBlog content:\n${content}`,
             },
           ],
           temperature: 0.7,
@@ -3351,7 +3399,7 @@ ${generatedGuide}
 
       // 프롬프트 개수가 부족하면 기본 프롬프트로 채우기
       while (imagePrompts.length < imageSuggestionCount) {
-        imagePrompts.push("Professional consultation scene with Korean people only in office setting")
+        imagePrompts.push(`Photorealistic, realistic photography of ${reporterKeyword || "Korean consultation scene"} with Korean people only in Korean office setting, Korean style, Korean atmosphere, professional photography, high-quality photo, lifelike, no foreign elements, no foreign languages, no foreign signs, NOT illustration, NOT cartoon`)
       }
       // 초과하면 자르기
       if (imagePrompts.length > imageSuggestionCount) {
@@ -3373,52 +3421,40 @@ ${generatedGuide}
         try {
           console.log(`[Reporter AI] 이미지 ${index + 1}/${imageSuggestionCount} 생성 요청 시작:`, prompt.substring(0, 50) + "...")
           
-          const imageResponse = await fetch("/api/moneytaker/generate-image", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ prompt }),
-          })
-
-          if (imageResponse.ok) {
-            const data = await imageResponse.json()
-            if (data.success && data.imageUrl) {
-              console.log(`[Reporter AI] ✅ 이미지 ${index + 1}/${imageSuggestionCount} 생성 성공`)
+          // 재시도 로직이 포함된 이미지 생성
+          const result = await generateImageWithRetry(prompt, 5)
+          
+          if (result.success && result.imageUrl) {
+            console.log(`[Reporter AI] ✅ 이미지 ${index + 1}/${imageSuggestionCount} 생성 성공`)
+            
+            // 함수형 업데이트로 정확한 인덱스에 저장 (중복 방지)
+            setReporterImages((prev) => {
+              const newImages = [...prev]
               
-              // 함수형 업데이트로 정확한 인덱스에 저장 (중복 방지)
-              setReporterImages((prev) => {
-                const newImages = [...prev]
-                
-                // 배열이 충분히 크도록 확장
-                while (newImages.length < imageSuggestionCount) {
-                  newImages.push("")
-                }
-                
-                // 해당 인덱스가 비어있을 때만 저장 (중복 방지)
-                if (index >= 0 && index < imageSuggestionCount) {
-                  if (!newImages[index] || newImages[index] === "") {
-                    newImages[index] = data.imageUrl
-                    console.log(`[Reporter AI] ✅ 이미지 저장 완료 - 인덱스 ${index}에 저장됨 (배열 길이: ${newImages.length}, 총 ${imageSuggestionCount}개 중 ${index + 1}번째)`)
-                  } else {
-                    console.log(`[Reporter AI] ⚠️ 인덱스 ${index}에 이미 이미지가 있음, 건너뜀 (기존 이미지 유지)`)
-                  }
+              // 배열이 충분히 크도록 확장
+              while (newImages.length < imageSuggestionCount) {
+                newImages.push("")
+              }
+              
+              // 해당 인덱스가 비어있을 때만 저장 (중복 방지)
+              if (index >= 0 && index < imageSuggestionCount) {
+                if (!newImages[index] || newImages[index] === "") {
+                  newImages[index] = result.imageUrl!
+                  console.log(`[Reporter AI] ✅ 이미지 저장 완료 - 인덱스 ${index}에 저장됨 (배열 길이: ${newImages.length}, 총 ${imageSuggestionCount}개 중 ${index + 1}번째)`)
                 } else {
-                  console.error(`[Reporter AI] ❌ 잘못된 인덱스: ${index} (범위: 0-${imageSuggestionCount - 1})`)
+                  console.log(`[Reporter AI] ⚠️ 인덱스 ${index}에 이미 이미지가 있음, 건너뜀 (기존 이미지 유지)`)
                 }
-                
-                return newImages
-              })
+              } else {
+                console.error(`[Reporter AI] ❌ 잘못된 인덱스: ${index} (범위: 0-${imageSuggestionCount - 1})`)
+              }
               
-              return { index, success: true, imageUrl: data.imageUrl }
-            } else {
-              console.error(`[Reporter AI] ❌ 이미지 ${index + 1} 생성 실패:`, data.error)
-              return { index, success: false, error: data.error }
-            }
+              return newImages
+            })
+            
+            return { index, success: true, imageUrl: result.imageUrl }
           } else {
-            const errorData = await imageResponse.json().catch(() => ({}))
-            console.error(`[Reporter AI] ❌ 이미지 ${index + 1} 생성 API 오류:`, imageResponse.status, errorData)
-            return { index, success: false, error: `HTTP ${imageResponse.status}` }
+            console.error(`[Reporter AI] ❌ 이미지 ${index + 1} 생성 최종 실패 (5번 시도 후):`, result.error)
+            return { index, success: false, error: result.error }
           }
         } catch (error) {
           console.error(`[Reporter AI] ❌ 이미지 ${index + 1} 생성 예외:`, error)
@@ -4492,7 +4528,7 @@ ${generatedGuide}
 
           <div className="grid grid-cols-12 gap-6">
             {/* 왼쪽: 설정 영역 */}
-            <div className={`${generatedContent ? "col-span-5" : "col-span-7"} transition-all duration-500 space-y-6`}>
+            <div className={`${generatedContent ? "col-span-3" : "col-span-4"} transition-all duration-500 space-y-6`}>
               {/* Step 1: 키워드 입력 */}
               <Card className="border-0 shadow-xl bg-white">
                 <CardContent className="p-6">
@@ -5025,42 +5061,249 @@ ${generatedGuide}
             </div>
 
             {/* 오른쪽: 생성된 콘텐츠 미리보기 */}
-            <div className={`${generatedContent ? "col-span-7" : "col-span-5"} transition-all duration-500`}>
+            <div className={`${generatedContent ? "col-span-9" : "col-span-8"} transition-all duration-500`}>
               <Card className="border-0 shadow-xl bg-white h-full sticky top-8">
                 <CardContent className="p-6 h-full flex flex-col">
-                  {isGenerating ? (
+                  {isGenerating && !streamingContent ? (
                     <div className="flex-1 overflow-y-auto">
-                      <div className="flex flex-col items-center justify-center min-h-[400px]">
-                        <div className="relative mb-6">
-                          {/* 모래시계 회전 애니메이션 */}
+                      <div className="flex flex-col items-center justify-center min-h-[600px] p-8 bg-gradient-to-b from-slate-50 to-white">
+                        {/* 상단 애니메이션 영역 - 모래시계 */}
+                        <div className="relative w-full max-w-md mb-8">
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <div className="w-40 h-40 rounded-full bg-gradient-to-br from-blue-100 via-indigo-100 to-purple-100 opacity-60"></div>
+                          </div>
                           <div className="relative flex items-center justify-center">
-                            <Hourglass className="w-20 h-20 text-indigo-600 animate-spin" style={{ animationDuration: '2s' }} />
+                            <Hourglass className="w-20 h-20 text-blue-600 animate-spin" style={{ animationDuration: '2s' }} />
                           </div>
                         </div>
-                        <h3 className="text-xl font-semibold text-slate-900 mb-2 text-center px-4">
-                          {generationStep === "extracting" && "상위노출 단어 추출 중입니다"}
-                          {generationStep === "analyzing" && "머니테이커 AI 로직을 활용해 상위노출 글 작업 중입니다"}
-                          {generationStep === "copywriting" && "전환률을 높이는 카피라이팅 작업 중입니다"}
-                          {generationStep === "writing" && "AI가 글을 작성 중입니다..."}
-                        </h3>
-                        <p className="text-slate-500 text-sm">잠시만 기다려주세요</p>
-                      </div>
-                      <div className="prose prose-slate max-w-none">
-                        <div className="text-slate-700 leading-relaxed">
-                          {streamingContent ? (
-                            <>
-                              {parseMarkdown(streamingContent, generatedImages, (index) => regenerateImageAtIndex(index, streamingContent || generatedContent || ""), handleImageUploadAtIndex, regeneratingImageIndex)}
-                              <span className="inline-block w-2 h-5 bg-indigo-600 ml-1 animate-pulse" />
-                            </>
-                          ) : generatedContent ? (
-                            // 타이핑 애니메이션이 끝나고 콘텐츠가 있으면 표시
-                            parseMarkdown(generatedContent, generatedImages, (index) => regenerateImageAtIndex(index, generatedContent), handleImageUploadAtIndex, regeneratingImageIndex)
-                          ) : (
-                            <div className="flex items-center gap-2 text-slate-400">
-                              <Loader2 className="w-5 h-5 animate-spin" />
-                              <span>생성 중...</span>
+
+                        {/* 진행률 바 */}
+                        <div className="w-full max-w-md mb-8">
+                          <div className="flex items-center justify-between mb-3">
+                            <span className="text-sm font-medium text-slate-700">진행률</span>
+                            <span className="text-sm font-bold text-blue-600">{generationProgress}%</span>
+                          </div>
+                          <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                            <div 
+                              className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 transition-all duration-500 ease-out"
+                              style={{ width: `${generationProgress}%` }}
+                            ></div>
+                          </div>
+                        </div>
+
+                        {/* 현재 단계 메시지 */}
+                        <div className="text-center mb-10">
+                          <div className="flex items-center justify-center gap-2 mb-4">
+                            <Zap className="w-6 h-6 text-yellow-500" />
+                            <h3 className="text-2xl font-bold text-slate-900">
+                              {generationStep === "keyword" && "키워드 분석"}
+                              {generationStep === "top-exposure" && "상위노출 작업"}
+                              {generationStep === "writing" && "AI 글 작성"}
+                              {generationStep === "seo" && "SEO 최적화"}
+                              {generationStep === "final" && "최종 검수"}
+                            </h3>
+                          </div>
+                          <p className="text-slate-600 text-base leading-relaxed">
+                            {generationStep === "keyword" && "입력하신 키워드의 검색량과 경쟁도를 분석 중입니다"}
+                            {generationStep === "top-exposure" && "상위 글들의 공통점을 분석하여 상위노출 분석 진행중입니다"}
+                            {generationStep === "writing" && "마케팅 전문 AI가 본문을 작성 중입니다"}
+                            {generationStep === "seo" && "제목, 소제목, 키워드 배치를 최적화 중입니다"}
+                            {generationStep === "final" && "맞춤법과 문맥을 최종 점검 중입니다"}
+                          </p>
+                        </div>
+
+                        {/* 단계별 아이콘 - 5단계 */}
+                        <div className="w-full max-w-2xl mb-8">
+                          <div className="flex items-center justify-between px-4">
+                            {/* 키워드 */}
+                            <div className="flex flex-col items-center">
+                              <div className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 ${
+                                generationStep === "keyword" 
+                                  ? "bg-blue-500 text-white ring-4 ring-blue-200 shadow-lg scale-110" 
+                                  : generationProgress >= 20
+                                  ? "bg-blue-100 text-blue-600"
+                                  : "bg-slate-100 text-slate-400"
+                              }`}>
+                                <Search className="w-7 h-7" />
+                              </div>
+                              <span className="text-xs mt-3 font-medium text-slate-700">키워드</span>
                             </div>
-                          )}
+
+                            {/* 상위노출 */}
+                            <div className="flex flex-col items-center">
+                              <div className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 ${
+                                generationStep === "top-exposure" 
+                                  ? "bg-blue-500 text-white ring-4 ring-blue-200 shadow-lg scale-110" 
+                                  : generationProgress >= 40
+                                  ? "bg-blue-100 text-blue-600"
+                                  : "bg-slate-100 text-slate-400"
+                              }`}>
+                                <TrendingUp className="w-7 h-7" />
+                              </div>
+                              <span className="text-xs mt-3 font-medium text-slate-700">상위노출</span>
+                            </div>
+
+                            {/* AI */}
+                            <div className="flex flex-col items-center">
+                              <div className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 ${
+                                generationStep === "writing" 
+                                  ? "bg-blue-500 text-white ring-4 ring-blue-200 shadow-lg scale-110" 
+                                  : generationProgress >= 60
+                                  ? "bg-blue-100 text-blue-600"
+                                  : "bg-slate-100 text-slate-400"
+                              }`}>
+                                <Brain className="w-7 h-7" />
+                              </div>
+                              <span className="text-xs mt-3 font-medium text-slate-700">AI</span>
+                            </div>
+
+                            {/* SEO */}
+                            <div className="flex flex-col items-center">
+                              <div className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 ${
+                                generationStep === "seo" 
+                                  ? "bg-blue-500 text-white ring-4 ring-blue-200 shadow-lg scale-110" 
+                                  : generationProgress >= 80
+                                  ? "bg-blue-100 text-blue-600"
+                                  : "bg-slate-100 text-slate-400"
+                              }`}>
+                                <BarChart3 className="w-7 h-7" />
+                              </div>
+                              <span className="text-xs mt-3 font-medium text-slate-700">SEO</span>
+                            </div>
+
+                            {/* 최종 */}
+                            <div className="flex flex-col items-center">
+                              <div className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 ${
+                                generationStep === "final" 
+                                  ? "bg-blue-500 text-white ring-4 ring-blue-200 shadow-lg scale-110" 
+                                  : generationProgress >= 100
+                                  ? "bg-blue-100 text-blue-600"
+                                  : "bg-slate-100 text-slate-400"
+                              }`}>
+                                <CheckCircle2 className="w-7 h-7" />
+                              </div>
+                              <span className="text-xs mt-3 font-medium text-slate-700">최종</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 하단 안내 메시지 */}
+                        <div className="mt-6 p-4 bg-white rounded-xl border border-slate-200 shadow-sm max-w-md">
+                          <div className="flex items-center gap-2">
+                            <FileText className="w-5 h-5 text-blue-500" />
+                            <p className="text-sm text-slate-700 font-medium">
+                              상위노출과 전환율을 동시에 잡는 전문 블로그 글을 제작 중입니다
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : isGenerating && streamingContent ? (
+                    <div className="flex-1 overflow-y-auto flex flex-col">
+                      {/* 단계별 진행 UI - 상단에 고정 */}
+                      <div className="mb-6 pb-6 border-b border-slate-200 bg-white sticky top-0 z-10">
+                        {/* 프로그레스 바 */}
+                        <div className="mb-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-sm font-medium text-slate-600">
+                              {generationStep === "writing" && "AI 글 작성 중..."}
+                              {generationStep === "seo" && "SEO 최적화 중..."}
+                              {generationStep === "final" && "최종 검수 중..."}
+                            </span>
+                            <span className="text-sm font-semibold text-blue-600">{generationProgress}%</span>
+                          </div>
+                          <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
+                            <div 
+                              className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 transition-all duration-500 ease-out"
+                              style={{ width: `${generationProgress}%` }}
+                            ></div>
+                          </div>
+                        </div>
+
+                        {/* 현재 단계 메시지 */}
+                        <div className="text-center mb-4">
+                          <div className="flex items-center justify-center gap-2 mb-2">
+                            <Zap className="w-4 h-4 text-yellow-500" />
+                            <h3 className="text-lg font-bold text-slate-900">
+                              {generationStep === "writing" && "AI 글 작성"}
+                              {generationStep === "seo" && "SEO 최적화"}
+                              {generationStep === "final" && "최종 검수"}
+                            </h3>
+                          </div>
+                          <p className="text-slate-600 text-xs">
+                            {generationStep === "writing" && "마케팅 전문 AI가 본문을 작성 중입니다"}
+                            {generationStep === "seo" && "제목, 소제목, 키워드 배치를 최적화 중입니다"}
+                            {generationStep === "final" && "맞춤법과 문맥을 최종 점검 중입니다"}
+                          </p>
+                        </div>
+
+                        {/* 단계별 아이콘 - 5단계 */}
+                        <div className="w-full max-w-xl mx-auto">
+                          <div className="flex items-center justify-between px-2">
+                            {/* 키워드 */}
+                            <div className="flex flex-col items-center">
+                              <div className="w-8 h-8 rounded-full flex items-center justify-center bg-blue-100 text-blue-600">
+                                <Search className="w-4 h-4" />
+                              </div>
+                              <span className="text-xs mt-1 font-medium text-slate-700">키워드</span>
+                            </div>
+
+                            {/* 상위노출 */}
+                            <div className="flex flex-col items-center">
+                              <div className="w-8 h-8 rounded-full flex items-center justify-center bg-blue-100 text-blue-600">
+                                <TrendingUp className="w-4 h-4" />
+                              </div>
+                              <span className="text-xs mt-1 font-medium text-slate-700">상위노출</span>
+                            </div>
+
+                            {/* AI */}
+                            <div className="flex flex-col items-center">
+                              <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-300 ${
+                                generationStep === "writing" 
+                                  ? "bg-blue-500 text-white ring-2 ring-blue-200 shadow-md scale-110" 
+                                  : "bg-blue-100 text-blue-600"
+                              }`}>
+                                <Brain className="w-4 h-4" />
+                              </div>
+                              <span className="text-xs mt-1 font-medium text-slate-700">AI</span>
+                            </div>
+
+                            {/* SEO */}
+                            <div className="flex flex-col items-center">
+                              <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-300 ${
+                                generationStep === "seo" 
+                                  ? "bg-blue-500 text-white ring-2 ring-blue-200 shadow-md scale-110" 
+                                  : generationProgress >= 80
+                                  ? "bg-blue-100 text-blue-600"
+                                  : "bg-slate-100 text-slate-400"
+                              }`}>
+                                <BarChart3 className="w-4 h-4" />
+                              </div>
+                              <span className="text-xs mt-1 font-medium text-slate-700">SEO</span>
+                            </div>
+
+                            {/* 최종 */}
+                            <div className="flex flex-col items-center">
+                              <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-300 ${
+                                generationStep === "final" 
+                                  ? "bg-blue-500 text-white ring-2 ring-blue-200 shadow-md scale-110" 
+                                  : "bg-slate-100 text-slate-400"
+                              }`}>
+                                <CheckCircle2 className="w-4 h-4" />
+                              </div>
+                              <span className="text-xs mt-1 font-medium text-slate-700">최종</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 타이핑 애니메이션 콘텐츠 */}
+                      <div className="flex-1 overflow-y-auto">
+                        <div className="prose prose-slate max-w-none">
+                          <div className="text-slate-700 leading-relaxed">
+                            {parseMarkdown(streamingContent, generatedImages, (index) => regenerateImageAtIndex(index, streamingContent || generatedContent || ""), handleImageUploadAtIndex, regeneratingImageIndex)}
+                            <span className="inline-block w-2 h-5 bg-indigo-600 ml-1 animate-pulse" />
+                          </div>
                         </div>
                       </div>
                     </div>
