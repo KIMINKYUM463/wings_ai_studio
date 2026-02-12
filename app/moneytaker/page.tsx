@@ -1016,11 +1016,11 @@ PC 검색량: ${keywordData.pc.toLocaleString()}
           messages: [
             {
               role: "system",
-              content: "You are an expert at creating natural, realistic image prompts. Generate a detailed image prompt in English based on the blog content. ABSOLUTE MANDATORY REQUIREMENT: ALL people in the image MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features, Korean skin tone, Korean hair, Korean eyes. The setting MUST be Korean style - Korean office, Korean consultation room, Korean business environment, Korean atmosphere, Korean culture, Korean lifestyle. ABSOLUTELY DO NOT include: Western people, Caucasian, European, American, Japanese, Chinese, or any other ethnicity. NO foreign languages, NO English text, NO foreign signs, NO foreign architecture, NO foreign style, NO foreign elements. Every single person must be Korean. NO EXCEPTIONS. Create natural, candid, lifestyle images with Korean people only in Korean settings. Include Korean office scenes, Korean consultation rooms, Korean professional settings, or Korean business environments when appropriate. Return only one prompt, without numbering or bullet points.",
+              content: "You are an expert at creating photorealistic, realistic image prompts. Generate a detailed, photorealistic image prompt in English based on the blog content and keyword. CRITICAL: The keyword is the MAIN SUBJECT/HERO of the image. The keyword must be the central focus and protagonist of the image. ABSOLUTE MANDATORY REQUIREMENT: The image MUST be PHOTOREALISTIC, REALISTIC PHOTOGRAPHY, NOT illustration, NOT cartoon, NOT drawing, NOT painting. Use terms like 'photorealistic', 'realistic photography', 'professional photography', 'high-quality photo', 'lifelike', 'cinematic photo'. ALL people in the image MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features, Korean skin tone, Korean hair, Korean eyes. The setting MUST be Korean style - Korean office, Korean consultation room, Korean business environment, Korean atmosphere, Korean culture, Korean lifestyle. ABSOLUTELY DO NOT include: Western people, Caucasian, European, American, Japanese, Chinese, or any other ethnicity. NO foreign languages, NO English text, NO foreign signs, NO foreign architecture, NO foreign style, NO foreign elements. NO illustrations, NO cartoons, NO drawings, NO paintings, NO AI-generated look, NO artificial appearance. CRITICAL ABSOLUTE MANDATORY TEXT BAN: ZERO TEXT, ZERO LETTERS, ZERO WORDS, ZERO WRITING, ZERO KOREAN TEXT, ZERO KOREAN CHARACTERS, ZERO HANGUL, ZERO HANJA, ZERO KOREAN LETTERS, ZERO KOREAN WORDS, ZERO KOREAN WRITING, ZERO SIGNS, ZERO TEXT OVERLAY, ZERO WATERMARK, ZERO SUBTITLES, ZERO CAPTIONS, ZERO LABELS, ZERO WRITTEN TEXT, ZERO PRINTED TEXT, ZERO HANDWRITTEN TEXT, ZERO TEXT ON WALLS, ZERO TEXT ON SIGNS, ZERO TEXT ON PAPERS, ZERO TEXT ON SCREENS, ZERO TEXT ON CLOTHES, ZERO TEXT ON OBJECTS, ZERO TEXT ON ANY SURFACE, ZERO TEXT ANYWHERE IN THE IMAGE, ZERO TEXT IN BACKGROUND, ZERO TEXT IN FOREGROUND, ZERO TEXT ON ANYTHING, completely text-free image, no text visible anywhere, no letters visible anywhere, no words visible anywhere, no writing visible anywhere, no text at all, no Korean characters, no Hangul, no Hanja, no Korean alphabet, no Korean script, no any written language, no any text in any language. Every single person must be Korean. NO EXCEPTIONS. Create photorealistic, natural, candid, lifestyle photography with Korean people only in Korean settings. The keyword must be prominently featured as the main subject. Include Korean office scenes, Korean consultation rooms, Korean professional settings, or Korean business environments when appropriate. Return only one prompt, without numbering or bullet points.",
             },
             {
               role: "user",
-              content: `Keyword (MAIN SUBJECT/HERO): ${blogAIKeyword}\n\nBased on this blog content and keyword, generate one photorealistic, realistic photography image prompt in English. The keyword "${blogAIKeyword}" must be the MAIN SUBJECT and HERO of the image. CRITICAL: Image must be PHOTOREALISTIC, REALISTIC PHOTOGRAPHY - use terms like 'photorealistic', 'realistic photography', 'professional photography', 'high-quality photo', 'lifelike', 'cinematic photo'. NOT illustration, NOT cartoon, NOT drawing, NOT painting. ABSOLUTE MANDATORY: ALL people in the image MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features, Korean skin tone, Korean hair, Korean eyes. The setting MUST be Korean style - Korean office, Korean consultation room, Korean business environment, Korean atmosphere, Korean culture, Korean lifestyle. ABSOLUTELY DO NOT include: Western people, Caucasian, European, American, Japanese, Chinese, or any other ethnicity. NO foreign languages, NO English text, NO foreign signs, NO foreign architecture, NO foreign style, NO foreign elements. NO illustrations, NO cartoons, NO drawings, NO paintings, NO AI-generated look. Every single person must be Korean. NO EXCEPTIONS. Create a photorealistic, candid, lifestyle photography with Korean people only in Korean settings. The keyword "${blogAIKeyword}" must be prominently featured as the main subject. Include Korean professional office scenes, Korean consultation rooms, or Korean business environments when relevant:\n\n${content.substring(0, 2000)}`,
+              content: `Keyword (MAIN SUBJECT/HERO): ${blogAIKeyword}\n\nBased on this blog content and keyword, generate one photorealistic, realistic photography image prompt in English. The keyword "${blogAIKeyword}" must be the MAIN SUBJECT and HERO of the image. CRITICAL: Image must be PHOTOREALISTIC, REALISTIC PHOTOGRAPHY - use terms like 'photorealistic', 'realistic photography', 'professional photography', 'high-quality photo', 'lifelike', 'cinematic photo'. NOT illustration, NOT cartoon, NOT drawing, NOT painting. ABSOLUTE MANDATORY: ALL people in the image MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features, Korean skin tone, Korean hair, Korean eyes. The setting MUST be Korean style - Korean office, Korean consultation room, Korean business environment, Korean atmosphere, Korean culture, Korean lifestyle. ABSOLUTELY DO NOT include: Western people, Caucasian, European, American, Japanese, Chinese, or any other ethnicity. NO foreign languages, NO English text, NO foreign signs, NO foreign architecture, NO foreign style, NO foreign elements. NO illustrations, NO cartoons, NO drawings, NO paintings, NO AI-generated look. CRITICAL ABSOLUTE MANDATORY TEXT BAN: ZERO TEXT, ZERO LETTERS, ZERO WORDS, ZERO WRITING, ZERO KOREAN TEXT, ZERO KOREAN CHARACTERS, ZERO HANGUL, ZERO HANJA, ZERO KOREAN LETTERS, ZERO KOREAN WORDS, ZERO KOREAN WRITING, ZERO SIGNS, ZERO TEXT OVERLAY, ZERO WATERMARK, ZERO SUBTITLES, ZERO CAPTIONS, ZERO LABELS, ZERO WRITTEN TEXT, ZERO PRINTED TEXT, ZERO HANDWRITTEN TEXT, ZERO TEXT ON WALLS, ZERO TEXT ON SIGNS, ZERO TEXT ON PAPERS, ZERO TEXT ON SCREENS, ZERO TEXT ON CLOTHES, ZERO TEXT ON OBJECTS, ZERO TEXT ON ANY SURFACE, ZERO TEXT ANYWHERE IN THE IMAGE, ZERO TEXT IN BACKGROUND, ZERO TEXT IN FOREGROUND, ZERO TEXT ON ANYTHING, completely text-free image, no text visible anywhere, no letters visible anywhere, no words visible anywhere, no writing visible anywhere, no text at all, no Korean characters, no Hangul, no Hanja, no Korean alphabet, no Korean script, no any written language, no any text in any language. Every single person must be Korean. NO EXCEPTIONS. Create a photorealistic, candid, lifestyle photography with Korean people only in Korean settings. The keyword "${blogAIKeyword}" must be prominently featured as the main subject. Include Korean professional office scenes, Korean consultation rooms, or Korean business environments when relevant:\n\n${content.substring(0, 2000)}`,
             },
           ],
           temperature: 0.7,
@@ -1085,11 +1085,11 @@ PC 검색량: ${keywordData.pc.toLocaleString()}
           messages: [
             {
               role: "system",
-              content: "You are an expert at creating photorealistic, realistic image prompts. Generate a detailed, photorealistic image prompt in English based on the blog content and keyword. CRITICAL: The keyword is the MAIN SUBJECT/HERO of the image. The keyword must be the central focus and protagonist of the image. ABSOLUTE MANDATORY REQUIREMENT: The image MUST be PHOTOREALISTIC, REALISTIC PHOTOGRAPHY, NOT illustration, NOT cartoon, NOT drawing, NOT painting. Use terms like 'photorealistic', 'realistic photography', 'professional photography', 'high-quality photo', 'lifelike', 'cinematic photo'. ALL people in the image MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features, Korean skin tone, Korean hair, Korean eyes. The setting MUST be Korean style - Korean office, Korean consultation room, Korean business environment, Korean atmosphere, Korean culture, Korean lifestyle. ABSOLUTELY DO NOT include: Western people, Caucasian, European, American, Japanese, Chinese, or any other ethnicity. NO foreign languages, NO English text, NO foreign signs, NO foreign architecture, NO foreign style, NO foreign elements. NO illustrations, NO cartoons, NO drawings, NO paintings, NO AI-generated look, NO artificial appearance. Every single person must be Korean. NO EXCEPTIONS. Create photorealistic, natural, candid, lifestyle photography with Korean people only in Korean settings. The keyword must be prominently featured as the main subject. Include Korean office scenes, Korean consultation rooms, Korean professional settings, or Korean business environments when appropriate. Return only one prompt, without numbering or bullet points.",
+              content: "You are an expert at creating photorealistic, realistic image prompts. Generate a detailed, photorealistic image prompt in English based on the blog content and keyword. CRITICAL: The keyword is the MAIN SUBJECT/HERO of the image. The keyword must be the central focus and protagonist of the image. ABSOLUTE MANDATORY REQUIREMENT: The image MUST be PHOTOREALISTIC, REALISTIC PHOTOGRAPHY, NOT illustration, NOT cartoon, NOT drawing, NOT painting. Use terms like 'photorealistic', 'realistic photography', 'professional photography', 'high-quality photo', 'lifelike', 'cinematic photo'. ALL people in the image MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features, Korean skin tone, Korean hair, Korean eyes. The setting MUST be Korean style - Korean office, Korean consultation room, Korean business environment, Korean atmosphere, Korean culture, Korean lifestyle. ABSOLUTELY DO NOT include: Western people, Caucasian, European, American, Japanese, Chinese, or any other ethnicity. NO foreign languages, NO English text, NO foreign signs, NO foreign architecture, NO foreign style, NO foreign elements. NO illustrations, NO cartoons, NO drawings, NO paintings, NO AI-generated look, NO artificial appearance. CRITICAL ABSOLUTE MANDATORY: ZERO TEXT, ZERO LETTERS, ZERO WORDS, ZERO WRITING, ZERO KOREAN TEXT, ZERO HANGUL, ZERO HANJA, ZERO SIGNS, ZERO TEXT OVERLAY, ZERO WATERMARK, ZERO SUBTITLES, ZERO CAPTIONS, ZERO LABELS, ZERO WRITTEN TEXT, ZERO PRINTED TEXT, ZERO HANDWRITTEN TEXT, ZERO TEXT ON WALLS, ZERO TEXT ON SIGNS, ZERO TEXT ON PAPERS, ZERO TEXT ON SCREENS, ZERO TEXT ON CLOTHES, ZERO TEXT ON OBJECTS, ZERO TEXT ON ANY SURFACE, ZERO TEXT ANYWHERE IN THE IMAGE, ZERO TEXT IN BACKGROUND, ZERO TEXT IN FOREGROUND, ZERO TEXT ON ANYTHING, completely text-free image, no text visible anywhere, no letters visible anywhere, no words visible anywhere, no writing visible anywhere, no text at all. Every single person must be Korean. NO EXCEPTIONS. Create photorealistic, natural, candid, lifestyle photography with Korean people only in Korean settings. The keyword must be prominently featured as the main subject. Include Korean office scenes, Korean consultation rooms, Korean professional settings, or Korean business environments when appropriate. Return only one prompt, without numbering or bullet points.",
             },
             {
               role: "user",
-              content: `Keyword (MAIN SUBJECT/HERO): ${reporterKeyword}\n\nBased on this blog content and keyword, generate one photorealistic, realistic photography image prompt in English. The keyword "${reporterKeyword}" must be the MAIN SUBJECT and HERO of the image. CRITICAL: Image must be PHOTOREALISTIC, REALISTIC PHOTOGRAPHY - use terms like 'photorealistic', 'realistic photography', 'professional photography', 'high-quality photo', 'lifelike', 'cinematic photo'. NOT illustration, NOT cartoon, NOT drawing, NOT painting. ABSOLUTE MANDATORY: ALL people in the image MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features, Korean skin tone, Korean hair, Korean eyes. The setting MUST be Korean style - Korean office, Korean consultation room, Korean business environment, Korean atmosphere, Korean culture, Korean lifestyle. ABSOLUTELY DO NOT include: Western people, Caucasian, European, American, Japanese, Chinese, or any other ethnicity. NO foreign languages, NO English text, NO foreign signs, NO foreign architecture, NO foreign style, NO foreign elements. NO illustrations, NO cartoons, NO drawings, NO paintings, NO AI-generated look. Every single person must be Korean. NO EXCEPTIONS. Create a photorealistic, candid, lifestyle photography with Korean people only in Korean settings. The keyword "${reporterKeyword}" must be prominently featured as the main subject. Include Korean professional office scenes, Korean consultation rooms, or Korean business environments when relevant:\n\n${content.substring(0, 2000)}`,
+              content: `Keyword (MAIN SUBJECT/HERO): ${reporterKeyword}\n\nBased on this blog content and keyword, generate one photorealistic, realistic photography image prompt in English. The keyword "${reporterKeyword}" must be the MAIN SUBJECT and HERO of the image. CRITICAL: Image must be PHOTOREALISTIC, REALISTIC PHOTOGRAPHY - use terms like 'photorealistic', 'realistic photography', 'professional photography', 'high-quality photo', 'lifelike', 'cinematic photo'. NOT illustration, NOT cartoon, NOT drawing, NOT painting. ABSOLUTE MANDATORY: ALL people in the image MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features, Korean skin tone, Korean hair, Korean eyes. The setting MUST be Korean style - Korean office, Korean consultation room, Korean business environment, Korean atmosphere, Korean culture, Korean lifestyle. ABSOLUTELY DO NOT include: Western people, Caucasian, European, American, Japanese, Chinese, or any other ethnicity. NO foreign languages, NO English text, NO foreign signs, NO foreign architecture, NO foreign style, NO foreign elements. NO illustrations, NO cartoons, NO drawings, NO paintings, NO AI-generated look. CRITICAL ABSOLUTE MANDATORY: ZERO TEXT, ZERO LETTERS, ZERO WORDS, ZERO WRITING, ZERO KOREAN TEXT, ZERO HANGUL, ZERO HANJA, ZERO SIGNS, ZERO TEXT OVERLAY, ZERO WATERMARK, ZERO SUBTITLES, ZERO CAPTIONS, ZERO LABELS, ZERO WRITTEN TEXT, ZERO PRINTED TEXT, ZERO HANDWRITTEN TEXT, ZERO TEXT ON WALLS, ZERO TEXT ON SIGNS, ZERO TEXT ON PAPERS, ZERO TEXT ON SCREENS, ZERO TEXT ON CLOTHES, ZERO TEXT ON OBJECTS, ZERO TEXT ON ANY SURFACE, ZERO TEXT ANYWHERE IN THE IMAGE, ZERO TEXT IN BACKGROUND, ZERO TEXT IN FOREGROUND, ZERO TEXT ON ANYTHING, completely text-free image, no text visible anywhere, no letters visible anywhere, no words visible anywhere, no writing visible anywhere, no text at all. Every single person must be Korean. NO EXCEPTIONS. Create a photorealistic, candid, lifestyle photography with Korean people only in Korean settings. The keyword "${reporterKeyword}" must be prominently featured as the main subject. Include Korean professional office scenes, Korean consultation rooms, or Korean business environments when relevant:\n\n${content.substring(0, 2000)}`,
             },
           ],
           temperature: 0.7,
@@ -1277,14 +1277,27 @@ PC 검색량: ${keywordData.pc.toLocaleString()}
       // 콘텐츠에서 이미지 제안 위치 및 설명 추출
       const imageSuggestionRegex = /\*\*\[?이미지 제안:\s*([^\]]+)\]?\*\*/g
       const imageSuggestions: string[] = []
+      const imageSuggestionPositions: number[] = [] // 각 이미지 제안의 위치 저장
       let match
       while ((match = imageSuggestionRegex.exec(content)) !== null) {
         imageSuggestions.push(match[1].trim())
+        imageSuggestionPositions.push(match.index) // 위치 저장
       }
       
-      // 이미지 제안 설명을 포함한 프롬프트 생성
+      // 각 이미지 제안 주변의 콘텐츠 컨텍스트 추출 (앞뒤 800자로 확대)
+      const imageSuggestionContexts = imageSuggestions.map((desc, idx) => {
+        const position = imageSuggestionPositions[idx]
+        const contextStart = Math.max(0, position - 800)
+        const contextEnd = Math.min(content.length, position + 800)
+        const beforeContext = content.substring(contextStart, position).trim()
+        const afterContext = content.substring(position, contextEnd).trim()
+        const fullContext = (beforeContext + "\n\n[이미지 제안 위치]\n\n" + afterContext).trim()
+        return `이미지 ${idx + 1}:\n- 이미지 제안 설명: "${desc}"\n- 주변 콘텐츠 (이미지 제안 위치 기준 앞뒤 800자):\n${fullContext}\n\n이 이미지는 반드시 위 주변 콘텐츠에서 논의되고 있는 내용을 시각적으로 표현해야 합니다. 콘텐츠와 직접적으로 연관된 장면, 상황, 또는 개념을 보여주어야 합니다.`
+      })
+      
+      // 이미지 제안 설명과 주변 콘텐츠를 포함한 프롬프트 생성
       const imageSuggestionContext = imageSuggestions.length > 0
-        ? `\n\n이미지 제안 설명 (각 이미지는 해당 설명에 정확히 맞춰야 합니다):\n${imageSuggestions.map((desc, idx) => `${idx + 1}. ${desc}`).join("\n")}\n\n각 이미지 프롬프트는 해당 순서의 이미지 제안 설명과 정확히 일치해야 합니다.`
+        ? `\n\n=== 이미지 제안 및 주변 콘텐츠 컨텍스트 ===\n\n${imageSuggestionContexts.join("\n\n========================================\n\n")}\n\n=== 중요 지시사항 ===\n\n각 이미지 프롬프트를 생성할 때:\n1. 해당 이미지의 주변 콘텐츠 컨텍스트를 반드시 읽고 이해하세요.\n2. 그 콘텐츠에서 논의되고 있는 구체적인 내용, 상황, 개념을 파악하세요.\n3. 이미지 제안 설명과 주변 콘텐츠를 모두 반영하여, 그 콘텐츠를 정확히 시각적으로 표현하는 이미지를 생성하세요.\n4. 콘텐츠와 직접적으로 연관되지 않은 일반적인 이미지를 생성하지 마세요.\n5. 각 이미지는 해당 위치의 콘텐츠를 읽은 사람이 "아, 이 이미지가 이 내용을 보여주는구나"라고 즉시 이해할 수 있어야 합니다.\n\n각 이미지 프롬프트는 반드시 해당 순서의 이미지 제안 설명과 주변 콘텐츠 컨텍스트를 정확히 반영하여, 그 콘텐츠를 시각적으로 표현하는 이미지여야 합니다.`
         : ""
       
       // 생성된 콘텐츠를 기반으로 이미지 프롬프트 생성 (전체 내용 사용)
@@ -1299,11 +1312,11 @@ PC 검색량: ${keywordData.pc.toLocaleString()}
           messages: [
             {
               role: "system",
-              content: "You are an expert at creating photorealistic, realistic image prompts. Generate detailed, photorealistic image prompts in English based on the blog content, keyword, and image suggestion descriptions. CRITICAL: The keyword is the MAIN SUBJECT/HERO of each image. The keyword must be the central focus and protagonist of the image. Each prompt must accurately match the corresponding image suggestion description and be directly related to the specific content around that image suggestion location in the blog. ABSOLUTE MANDATORY REQUIREMENT: ALL images MUST be PHOTOREALISTIC, REALISTIC PHOTOGRAPHY, NOT illustration, NOT cartoon, NOT drawing, NOT painting. Use terms like 'photorealistic', 'realistic photography', 'professional photography', 'high-quality photo', 'lifelike', 'cinematic photo'. ALL people in ALL images MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features, Korean skin tone, Korean hair, Korean eyes. The setting MUST be Korean style - Korean office, Korean consultation room, Korean business environment, Korean atmosphere, Korean culture, Korean lifestyle. ABSOLUTELY DO NOT include: Western people, Caucasian, European, American, Japanese, Chinese, or any other ethnicity. NO foreign languages, NO English text, NO foreign signs, NO foreign architecture, NO foreign style, NO foreign elements. NO illustrations, NO cartoons, NO drawings, NO paintings, NO AI-generated look, NO artificial appearance. Every single person in every image must be Korean. NO EXCEPTIONS. Create photorealistic, natural, candid, lifestyle photography with Korean people only in Korean settings. The keyword must be prominently featured as the main subject. Include Korean office scenes, Korean consultation rooms, Korean professional settings, or Korean business environments. The images should feature Korean professionals, clients, or people in authentic Korean professional or service industry contexts. Avoid staged or artificial poses. Focus on authentic Korean moments, natural Korean expressions, and real Korean environments. IMPORTANT: Each image prompt must be directly related to the blog content context where the image suggestion appears, and the keyword must be the central focus. Return only the prompts, one per line, without numbering or bullet points.",
+              content: "You are an expert at creating photorealistic, realistic image prompts. Generate detailed, photorealistic image prompts in English based on the blog content, keyword, and image suggestion descriptions. CRITICAL REQUIREMENTS: 1) The keyword is the MAIN SUBJECT/HERO of each image and must be the central focus. 2) MOST IMPORTANT: Each image MUST be DIRECTLY RELATED and VISUALLY REPRESENT the specific blog content context where the image suggestion appears. You MUST read the surrounding content context provided for each image carefully and create an image that accurately and precisely visually represents that exact content being discussed. The image must show what is being described or discussed in that specific section of the blog. 3) The image must accurately match the corresponding image suggestion description. 4) ABSOLUTE MANDATORY: ALL images MUST be PHOTOREALISTIC, REALISTIC PHOTOGRAPHY, NOT illustration, NOT cartoon, NOT drawing, NOT painting. Use terms like 'photorealistic', 'realistic photography', 'professional photography', 'high-quality photo', 'lifelike', 'cinematic photo'. 5) ALL people in ALL images MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features, Korean skin tone, Korean hair, Korean eyes. 6) The setting MUST be Korean style - Korean office, Korean consultation room, Korean business environment, Korean atmosphere, Korean culture, Korean lifestyle. 7) ABSOLUTELY DO NOT include: Western people, Caucasian, European, American, Japanese, Chinese, or any other ethnicity. NO foreign languages, NO English text, NO foreign signs, NO foreign architecture, NO foreign style, NO foreign elements. 8) NO illustrations, NO cartoons, NO drawings, NO paintings, NO AI-generated look, NO artificial appearance. 9) CRITICAL ABSOLUTE MANDATORY TEXT BAN: ZERO TEXT, ZERO LETTERS, ZERO WORDS, ZERO WRITING, ZERO KOREAN TEXT, ZERO KOREAN CHARACTERS, ZERO HANGUL, ZERO HANJA, ZERO KOREAN LETTERS, ZERO KOREAN WORDS, ZERO KOREAN WRITING, ZERO SIGNS, ZERO TEXT OVERLAY, ZERO WATERMARK, ZERO SUBTITLES, ZERO CAPTIONS, ZERO LABELS, ZERO WRITTEN TEXT, ZERO PRINTED TEXT, ZERO HANDWRITTEN TEXT, ZERO TEXT ON WALLS, ZERO TEXT ON SIGNS, ZERO TEXT ON PAPERS, ZERO TEXT ON SCREENS, ZERO TEXT ON CLOTHES, ZERO TEXT ON OBJECTS, ZERO TEXT ON ANY SURFACE, ZERO TEXT ANYWHERE IN THE IMAGE, ZERO TEXT IN BACKGROUND, ZERO TEXT IN FOREGROUND, ZERO TEXT ON ANYTHING, completely text-free image, no text visible anywhere, no letters visible anywhere, no words visible anywhere, no writing visible anywhere, no text at all, no Korean characters, no Hangul, no Hanja, no Korean alphabet, no Korean script, no any written language, no any text in any language. Every single person in every image must be Korean. NO EXCEPTIONS. Create photorealistic, natural, candid, lifestyle photography with Korean people only in Korean settings. The keyword must be prominently featured as the main subject. Include Korean office scenes, Korean consultation rooms, Korean professional settings, or Korean business environments that directly relate to the blog content context. The images should feature Korean professionals, clients, or people in authentic Korean professional or service industry contexts that match the specific content being discussed. Avoid staged or artificial poses. Focus on authentic Korean moments, natural Korean expressions, and real Korean environments that visually represent the blog content. CRITICAL: For each image, you will be provided with the surrounding content context. You MUST read that context carefully and create an image prompt that visually represents what is being discussed in that exact section. The image must be directly relevant and related to the content context - not a generic image, but a specific image that shows what the content is describing. Return only the prompts, one per line, without numbering or bullet points.",
             },
             {
               role: "user",
-              content: `Keyword (MAIN SUBJECT/HERO): ${blogAIKeyword}\n\nBased on this blog content and keyword, generate ${imageSuggestionCount} photorealistic, realistic photography image prompts in English. The keyword "${blogAIKeyword}" must be the MAIN SUBJECT and HERO of each image. Each prompt must match the corresponding image suggestion description and be directly related to the specific content context where that image appears in the blog. CRITICAL: Images must be PHOTOREALISTIC, REALISTIC PHOTOGRAPHY - use terms like 'photorealistic', 'realistic photography', 'professional photography', 'high-quality photo', 'lifelike', 'cinematic photo'. NOT illustration, NOT cartoon, NOT drawing, NOT painting. ABSOLUTE MANDATORY: ALL people in ALL images MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features, Korean skin tone, Korean hair, Korean eyes. The setting MUST be Korean style - Korean office, Korean consultation room, Korean business environment, Korean atmosphere, Korean culture, Korean lifestyle. ABSOLUTELY DO NOT include: Western people, Caucasian, European, American, Japanese, Chinese, or any other ethnicity. NO foreign languages, NO English text, NO foreign signs, NO foreign architecture, NO foreign style, NO foreign elements. NO illustrations, NO cartoons, NO drawings, NO paintings, NO AI-generated look. Every single person in every image must be Korean. NO EXCEPTIONS. Create photorealistic, candid, lifestyle photography with Korean people only in Korean settings. The keyword "${blogAIKeyword}" must be prominently featured as the main subject in each image. Include Korean professional office scenes, Korean consultation rooms, or Korean business environments when relevant. The images should feel natural and unposed, with real Korean expressions and Korean environments.${imageSuggestionContext}\n\nFull blog content:\n${content}`,
+              content: `Keyword (MAIN SUBJECT/HERO): ${blogAIKeyword}\n\nBased on this blog content and keyword, generate ${imageSuggestionCount} photorealistic, realistic photography image prompts in English. CRITICAL REQUIREMENTS:\n\n1. The keyword "${blogAIKeyword}" must be the MAIN SUBJECT and HERO of each image.\n\n2. MOST IMPORTANT - CONTENT RELEVANCE: Each image MUST be DIRECTLY RELATED and VISUALLY REPRESENT the specific blog content context where that image appears. You MUST read the surrounding content context provided for each image carefully. The image must accurately and precisely visually represent what is being described or discussed in that exact section of the blog. The image must show the specific situation, concept, or scene being discussed in that content context.\n\n3. Each prompt must accurately match the corresponding image suggestion description.\n\n4. Images must be PHOTOREALISTIC, REALISTIC PHOTOGRAPHY - use terms like 'photorealistic', 'realistic photography', 'professional photography', 'high-quality photo', 'lifelike', 'cinematic photo'. NOT illustration, NOT cartoon, NOT drawing, NOT painting.\n\n5. ABSOLUTE MANDATORY: ALL people in ALL images MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features, Korean skin tone, Korean hair, Korean eyes. The setting MUST be Korean style - Korean office, Korean consultation room, Korean business environment, Korean atmosphere, Korean culture, Korean lifestyle. ABSOLUTELY DO NOT include: Western people, Caucasian, European, American, Japanese, Chinese, or any other ethnicity. NO foreign languages, NO English text, NO foreign signs, NO foreign architecture, NO foreign style, NO foreign elements.\n\n6. NO illustrations, NO cartoons, NO drawings, NO paintings, NO AI-generated look.\n\n7. CRITICAL ABSOLUTE MANDATORY TEXT BAN: ZERO TEXT, ZERO LETTERS, ZERO WORDS, ZERO WRITING, ZERO KOREAN TEXT, ZERO KOREAN CHARACTERS, ZERO HANGUL, ZERO HANJA, ZERO KOREAN LETTERS, ZERO KOREAN WORDS, ZERO KOREAN WRITING, ZERO SIGNS, ZERO TEXT OVERLAY, ZERO WATERMARK, ZERO SUBTITLES, ZERO CAPTIONS, ZERO LABELS, ZERO WRITTEN TEXT, ZERO PRINTED TEXT, ZERO HANDWRITTEN TEXT, ZERO TEXT ON WALLS, ZERO TEXT ON SIGNS, ZERO TEXT ON PAPERS, ZERO TEXT ON SCREENS, ZERO TEXT ON CLOTHES, ZERO TEXT ON OBJECTS, ZERO TEXT ON ANY SURFACE, ZERO TEXT ANYWHERE IN THE IMAGE, ZERO TEXT IN BACKGROUND, ZERO TEXT IN FOREGROUND, ZERO TEXT ON ANYTHING, completely text-free image, no text visible anywhere, no letters visible anywhere, no words visible anywhere, no writing visible anywhere, no text at all, no Korean characters, no Hangul, no Hanja, no Korean alphabet, no Korean script, no any written language, no any text in any language.\n\nEvery single person in every image must be Korean. NO EXCEPTIONS. Create photorealistic, candid, lifestyle photography with Korean people only in Korean settings. The keyword "${blogAIKeyword}" must be prominently featured as the main subject in each image. The images must visually represent the specific content being discussed in that section of the blog. Include Korean professional office scenes, Korean consultation rooms, or Korean business environments that directly relate to the blog content context. The images should feel natural and unposed, with real Korean expressions and Korean environments that match what is being discussed in the blog content.${imageSuggestionContext}\n\nIMPORTANT: Read the blog content carefully. For each image suggestion, identify the specific content context around that location. The image must visually represent what is being discussed in that exact section. Make sure each image is directly relevant and related to the content context - not a generic image, but a specific image that shows what the content is describing.\n\nFull blog content:\n${content}`,
             },
           ],
           temperature: 0.7,
@@ -1872,16 +1885,162 @@ ${blogTopPosts.map((post, idx) => `${idx + 1}. 제목: ${post.title}\n   설명:
       setGenerationProgress(40)
       await new Promise(resolve => setTimeout(resolve, 4000)) // 4초 대기
       
-      // Step 3: AI 글 작성 (60%)
-      setGenerationStep("writing")
-      setGenerationProgress(60)
-      // Anthropic API 키
+      // Step 2.5: 제목 생성 (콘텐츠 생성 전에 먼저 생성)
       const ANTHROPIC_API_KEY = "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"
       
       const anthropic = new Anthropic({
         apiKey: ANTHROPIC_API_KEY,
-        dangerouslyAllowBrowser: true, // 브라우저 환경에서 실행 허용
+        dangerouslyAllowBrowser: true,
       })
+      
+      let generatedTitle = ""
+      try {
+        const titlePrompt = `${blogAIKeyword}를 활용하여 독자의 핵심 반박에 맞는 제목 1개를 생성하세요.
+
+## 제목 패턴 10가지:
+
+**1. 경고형**
+"{keyword}, {잘못된 행동}하면 {부정적 결과}합니다"
+
+예시:
+- "계룡 한의원, 브랜드 따지다가 재시공하게 되는 이유?"
+- "종합소득세, 후기만 보고 선택하지 마세요"
+
+---
+
+**2. 질문형**
+"{keyword}, {핵심 고민}? [해결책]합니다"
+
+예시:
+- "분당 인테리어, 잘하는 곳? 전문가는 이렇게 찾습니다"
+- "임플란트, 효과 있을까? 이것만 확인하세요"
+
+---
+
+**3. 조건부 해결책형**
+"{keyword}, {조건}다면? 이것부터 확인하세요"
+
+예시:
+- "판교 인테리어, 예산 부족하다면? 이것부터 확인하세요"
+- "법인세 신고, 확실하게 절세하고 싶다면? [필독]"
+
+---
+
+**4. 놓침 강조형**
+"{keyword}, '이것' 모르면 {부정적 결과}합니다"
+
+예시:
+- "여의도 인테리어, '이것' 모르면 추가 비용 발생합니다"
+- "종합소득세, '이것' 놓치면 환급 못 받습니다"
+
+---
+
+**5. 체크리스트형**
+"{keyword}, {목표}? N가지 확인하세요"
+
+예시:
+- "성남 인테리어, 20년 쓸 집 만들려면? 체크리스트 [공유]"
+- "임플란트, 2가지 놓치면 실패할 수 있습니다"
+
+---
+
+**6. 전문가 인증형**
+"{keyword}, {직책/경력}가 알려드립니다"
+
+예시:
+- "분당 인테리어, 20년 경력 시공 전문가가 알려드립니다"
+- "상속세, 15년차 세무사가 알려드립니다"
+
+---
+
+**7. 오해 바로잡기형**
+"{keyword}, 무조건 {행동}해야 하는 건 아닙니다"
+
+예시:
+- "강남 인테리어, 무조건 비싸야 좋은 건 아닙니다"
+- "한방 치료, 꼭 맡겨야 할까? 솔직한 의견"
+
+---
+
+**8. 후기/공개형**
+"{keyword}, {정보/노하우} [공개]합니다"
+
+예시:
+- "죽전 인테리어, 실제 시공 과정 [공개]합니다"
+- "사랑니 발치, 통증 없이 치료받는 노하우 [공개]합니다"
+
+---
+
+**9. 긴급성/손실 강조형**
+"{keyword}, {행동}하면 {손실}, {해결책}하는 방법"
+
+예시:
+- "판교 인테리어, 견적 잘못 받으면 500만 원 손해, 줄이는 방법"
+- "법인세 신고, 신고 기한 놓치면 가산세 20%, 줄이는 법"
+
+---
+
+**10. 이유/원인 제시형**
+"{keyword}, 전문가가 {행동} 말리는 이유?"
+
+예시:
+- "미금 인테리어, 전문가가 견적 비교 말리는 이유?"
+- "세무사, 세무사가 인터넷 추천 안 믿는 이유?"
+
+---
+
+## 제목 생성 원칙:
+
+1. **{keyword}는 제목 시작 부분에 필수 포함**
+
+2. **문장 마무리 필수:**
+   - "~합니다", "~하세요", "~이유?" 등으로 완결
+   - 체언 종결 금지 ("~발생" X → "~발생합니다" O)
+
+3. **패턴 선택:**
+   - 추론한 핵심 반박 1위에 맞춰 선택
+   - 경고형/질문형/조건부 해결책형이 가장 범용적
+
+4. **특수 표현:**
+   - [필독], [공개], [공유]
+   - '이것', '진짜', '이런 곳'
+   - N가지, N%, N만 원
+
+5. **금지:**
+   - 과장 표현
+   - 클릭베이트
+   - 50자 이상 긴 제목
+   - 체언 종결
+
+---
+
+이제 위 패턴 중 가장 적합한 1개를 선택하여 제목을 생성하세요.`
+
+        const titleMsg = await anthropic.messages.create({
+          model: "claude-opus-4-5-20251101",
+          max_tokens: 200,
+          temperature: 1,
+          messages: [
+            {
+              role: "user",
+              content: titlePrompt,
+            },
+          ],
+        })
+
+        generatedTitle = titleMsg.content[0].type === "text" ? titleMsg.content[0].text.trim() : blogAIKeyword || "AI 생성 블로그 포스트"
+        
+        // 제목에서 따옴표나 불필요한 문자 제거
+        generatedTitle = generatedTitle.replace(/^["']|["']$/g, "").trim()
+        
+        setBlogTitle(generatedTitle)
+      } catch (error) {
+        console.error("제목 생성 실패:", error)
+        generatedTitle = blogAIKeyword || "AI 생성 블로그 포스트"
+        setBlogTitle(generatedTitle)
+      }
+      
+      // Anthropic API는 이미 위에서 생성됨
 
       let prompt = ""
       
@@ -2806,35 +2965,21 @@ ${analysisContext}`
           title = firstLine.replace(/^#+\s*/, "").trim()
           content = lines.slice(1).join("\n").trim()
         } else {
-          // 제목이 없으면 본문 전체를 사용하고, AI로 제목 생성
+          // 제목이 없으면 본문 전체를 사용 (제목은 이미 위에서 생성됨)
           content = fullContent.trim()
-          try {
-            const titleMsg = await anthropic.messages.create({
-              model: "claude-opus-4-5-20251101",
-              max_tokens: 200,
-              temperature: 1,
-              messages: [
-                {
-                  role: "user",
-                  content: `당신은 SEO 최적화된 블로그 제목 전문가입니다. 키워드를 자연스럽게 포함한 매력적인 제목을 작성합니다.\n\n키워드: ${blogAIKeyword}\n본문 내용: ${content.substring(0, 500)}\n\n위 정보를 바탕으로 SEO 최적화된 블로그 제목을 하나만 생성해주세요. 제목만 작성하고 다른 설명은 하지 마세요.`,
-                },
-              ],
-            })
-
-            title = titleMsg.content[0].type === "text" ? titleMsg.content[0].text.trim() : blogAIKeyword || "AI 생성 블로그 포스트"
-          } catch (error) {
-            console.error("제목 생성 실패:", error)
-            title = blogAIKeyword || "AI 생성 블로그 포스트"
-          }
         }
       }
 
-      // 제목이 여전히 없으면 키워드로 설정
-      if (!title) {
-        title = blogAIKeyword || "AI 생성 블로그 포스트"
+      // 제목은 이미 위에서 생성했으므로 generatedTitle 사용
+      // 만약 콘텐츠에서 제목을 찾았다면 그것을 우선 사용
+      if (title) {
+        setBlogTitle(title)
+      } else {
+        // 콘텐츠에서 제목을 찾지 못했으면 이미 생성한 제목 사용
+        title = generatedTitle || blogAIKeyword || "AI 생성 블로그 포스트"
+        setBlogTitle(title)
       }
-
-      setBlogTitle(title)
+      
       setEditedContent(content) // 편집용 콘텐츠도 설정
 
       // Step 3: AI 글 작성 완료 - 타이핑 애니메이션 시작
@@ -2869,10 +3014,7 @@ ${analysisContext}`
           setEditedContent(content) // 편집용 콘텐츠도 업데이트
           setStreamingContent("")
           
-          // 제목이 없으면 키워드로 설정
-          if (!blogTitle) {
-            setBlogTitle(blogAIKeyword || "AI 생성 블로그 포스트")
-          }
+          // 제목은 이미 위에서 생성했으므로 그대로 사용
           
           // 이미지 생성 시작 (병렬 처리)
           if (imageMode === "ai" && !imageGenerationStartedRef.current) {
@@ -3352,9 +3494,29 @@ ${generatedGuide}
       // OpenAI API 키
       const OPENAI_API_KEY = "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"
       
-      // 이미지 제안 설명을 포함한 프롬프트 생성
+      // 각 이미지 제안 주변의 콘텐츠 컨텍스트 추출 (앞뒤 800자로 확대)
+      const imageSuggestionPositions: number[] = []
+      let searchPos = 0
+      while ((match = imageSuggestionRegex.exec(content)) !== null) {
+        imageSuggestionPositions.push(match.index)
+      }
+      
+      // 정규식 재설정 (다시 사용하기 위해)
+      imageSuggestionRegex.lastIndex = 0
+      
+      const imageSuggestionContexts = imageSuggestions.map((desc, idx) => {
+        const position = imageSuggestionPositions[idx]
+        const contextStart = Math.max(0, position - 800)
+        const contextEnd = Math.min(content.length, position + 800)
+        const beforeContext = content.substring(contextStart, position).trim()
+        const afterContext = content.substring(position, contextEnd).trim()
+        const fullContext = (beforeContext + "\n\n[이미지 제안 위치]\n\n" + afterContext).trim()
+        return `이미지 ${idx + 1}:\n- 이미지 제안 설명: "${desc}"\n- 주변 콘텐츠 (이미지 제안 위치 기준 앞뒤 800자):\n${fullContext}\n\n이 이미지는 반드시 위 주변 콘텐츠에서 논의되고 있는 내용을 시각적으로 표현해야 합니다. 콘텐츠와 직접적으로 연관된 장면, 상황, 또는 개념을 보여주어야 합니다.`
+      })
+      
+      // 이미지 제안 설명과 주변 콘텐츠를 포함한 프롬프트 생성
       const imageSuggestionContext = imageSuggestions.length > 0
-        ? `\n\n이미지 제안 설명:\n${imageSuggestions.map((desc, idx) => `${idx + 1}. ${desc}`).join("\n")}\n\n각 이미지 제안 설명에 맞는 구체적인 이미지를 생성해주세요.`
+        ? `\n\n=== 이미지 제안 및 주변 콘텐츠 컨텍스트 ===\n\n${imageSuggestionContexts.join("\n\n========================================\n\n")}\n\n=== 중요 지시사항 ===\n\n각 이미지 프롬프트를 생성할 때:\n1. 해당 이미지의 주변 콘텐츠 컨텍스트를 반드시 읽고 이해하세요.\n2. 그 콘텐츠에서 논의되고 있는 구체적인 내용, 상황, 개념을 파악하세요.\n3. 이미지 제안 설명과 주변 콘텐츠를 모두 반영하여, 그 콘텐츠를 정확히 시각적으로 표현하는 이미지를 생성하세요.\n4. 콘텐츠와 직접적으로 연관되지 않은 일반적인 이미지를 생성하지 마세요.\n5. 각 이미지는 해당 위치의 콘텐츠를 읽은 사람이 "아, 이 이미지가 이 내용을 보여주는구나"라고 즉시 이해할 수 있어야 합니다.\n\n각 이미지 프롬프트는 반드시 해당 순서의 이미지 제안 설명과 주변 콘텐츠 컨텍스트를 정확히 반영하여, 그 콘텐츠를 시각적으로 표현하는 이미지여야 합니다.`
         : ""
       
       // 생성된 콘텐츠를 기반으로 이미지 프롬프트 생성 (전체 내용 사용)
@@ -3369,11 +3531,11 @@ ${generatedGuide}
           messages: [
             {
               role: "system",
-              content: "You are an expert at creating photorealistic, realistic image prompts. Generate detailed, photorealistic image prompts in English based on the blog content, keyword, and image suggestion descriptions. CRITICAL: The keyword is the MAIN SUBJECT/HERO of each image. The keyword must be the central focus and protagonist of the image. Each prompt should describe a different scene or concept from the blog that matches the corresponding image suggestion. ABSOLUTE MANDATORY REQUIREMENT: ALL images MUST be PHOTOREALISTIC, REALISTIC PHOTOGRAPHY, NOT illustration, NOT cartoon, NOT drawing, NOT painting. Use terms like 'photorealistic', 'realistic photography', 'professional photography', 'high-quality photo', 'lifelike', 'cinematic photo'. ALL people in ALL images MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features, Korean skin tone, Korean hair, Korean eyes. The setting MUST be Korean style - Korean office, Korean consultation room, Korean business environment, Korean atmosphere, Korean culture, Korean lifestyle. ABSOLUTELY DO NOT include: Western people, Caucasian, European, American, Japanese, Chinese, or any other ethnicity. NO foreign languages, NO English text, NO foreign signs, NO foreign architecture, NO foreign style, NO foreign elements. NO illustrations, NO cartoons, NO drawings, NO paintings, NO AI-generated look, NO artificial appearance. Every single person in every image must be Korean. NO EXCEPTIONS. Create photorealistic, natural, candid, lifestyle photography with Korean people only in Korean settings. The keyword must be prominently featured as the main subject. Include Korean office scenes, Korean consultation rooms, Korean professional settings, or Korean business environments when appropriate. The images should feature Korean professionals, clients, or people in authentic Korean professional or service industry contexts. Avoid staged or artificial poses. Focus on authentic Korean moments, natural Korean expressions, and real Korean environments. Return only the prompts, one per line, without numbering or bullet points.",
+              content: "You are an expert at creating photorealistic, realistic image prompts. Generate detailed, photorealistic image prompts in English based on the blog content, keyword, and image suggestion descriptions. CRITICAL REQUIREMENTS: 1) The keyword is the MAIN SUBJECT/HERO of each image and must be the central focus. 2) MOST IMPORTANT: Each image MUST be DIRECTLY RELATED and VISUALLY REPRESENT the specific blog content context where the image suggestion appears. You MUST read the surrounding content context provided for each image carefully and create an image that accurately and precisely visually represents that exact content being discussed. The image must show what is being described or discussed in that specific section of the blog. 3) The image must accurately match the corresponding image suggestion description. 4) ABSOLUTE MANDATORY: ALL images MUST be PHOTOREALISTIC, REALISTIC PHOTOGRAPHY, NOT illustration, NOT cartoon, NOT drawing, NOT painting. Use terms like 'photorealistic', 'realistic photography', 'professional photography', 'high-quality photo', 'lifelike', 'cinematic photo'. 5) ALL people in ALL images MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features, Korean skin tone, Korean hair, Korean eyes. 6) The setting MUST be Korean style - Korean office, Korean consultation room, Korean business environment, Korean atmosphere, Korean culture, Korean lifestyle. 7) ABSOLUTELY DO NOT include: Western people, Caucasian, European, American, Japanese, Chinese, or any other ethnicity. NO foreign languages, NO English text, NO foreign signs, NO foreign architecture, NO foreign style, NO foreign elements. 8) NO illustrations, NO cartoons, NO drawings, NO paintings, NO AI-generated look, NO artificial appearance. 9) CRITICAL ABSOLUTE MANDATORY TEXT BAN: ZERO TEXT, ZERO LETTERS, ZERO WORDS, ZERO WRITING, ZERO KOREAN TEXT, ZERO KOREAN CHARACTERS, ZERO HANGUL, ZERO HANJA, ZERO KOREAN LETTERS, ZERO KOREAN WORDS, ZERO KOREAN WRITING, ZERO SIGNS, ZERO TEXT OVERLAY, ZERO WATERMARK, ZERO SUBTITLES, ZERO CAPTIONS, ZERO LABELS, ZERO WRITTEN TEXT, ZERO PRINTED TEXT, ZERO HANDWRITTEN TEXT, ZERO TEXT ON WALLS, ZERO TEXT ON SIGNS, ZERO TEXT ON PAPERS, ZERO TEXT ON SCREENS, ZERO TEXT ON CLOTHES, ZERO TEXT ON OBJECTS, ZERO TEXT ON ANY SURFACE, ZERO TEXT ANYWHERE IN THE IMAGE, ZERO TEXT IN BACKGROUND, ZERO TEXT IN FOREGROUND, ZERO TEXT ON ANYTHING, completely text-free image, no text visible anywhere, no letters visible anywhere, no words visible anywhere, no writing visible anywhere, no text at all, no Korean characters, no Hangul, no Hanja, no Korean alphabet, no Korean script, no any written language, no any text in any language. Every single person in every image must be Korean. NO EXCEPTIONS. Create photorealistic, natural, candid, lifestyle photography with Korean people only in Korean settings. The keyword must be prominently featured as the main subject. Include Korean office scenes, Korean consultation rooms, Korean professional settings, or Korean business environments that directly relate to the blog content context. The images should feature Korean professionals, clients, or people in authentic Korean professional or service industry contexts that match the specific content being discussed. Avoid staged or artificial poses. Focus on authentic Korean moments, natural Korean expressions, and real Korean environments that visually represent the blog content. CRITICAL: For each image, you will be provided with the surrounding content context. You MUST read that context carefully and create an image prompt that visually represents what is being discussed in that exact section. The image must be directly relevant and related to the content context - not a generic image, but a specific image that shows what the content is describing. Return only the prompts, one per line, without numbering or bullet points.",
             },
             {
               role: "user",
-              content: `Keyword (MAIN SUBJECT/HERO): ${reporterKeyword}\n\nBased on this blog content and keyword, generate ${imageSuggestionCount} photorealistic, realistic photography image prompts in English. The keyword "${reporterKeyword}" must be the MAIN SUBJECT and HERO of each image. Each prompt should match the corresponding image suggestion description and be relevant to the blog content. CRITICAL: Images must be PHOTOREALISTIC, REALISTIC PHOTOGRAPHY - use terms like 'photorealistic', 'realistic photography', 'professional photography', 'high-quality photo', 'lifelike', 'cinematic photo'. NOT illustration, NOT cartoon, NOT drawing, NOT painting. ABSOLUTE MANDATORY: ALL people in ALL images MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features, Korean skin tone, Korean hair, Korean eyes. The setting MUST be Korean style - Korean office, Korean consultation room, Korean business environment, Korean atmosphere, Korean culture, Korean lifestyle. ABSOLUTELY DO NOT include: Western people, Caucasian, European, American, Japanese, Chinese, or any other ethnicity. NO foreign languages, NO English text, NO foreign signs, NO foreign architecture, NO foreign style, NO foreign elements. NO illustrations, NO cartoons, NO drawings, NO paintings, NO AI-generated look. Every single person in every image must be Korean. NO EXCEPTIONS. Create photorealistic, candid, lifestyle photography with Korean people only in Korean settings. The keyword "${reporterKeyword}" must be prominently featured as the main subject in each image. Include Korean professional office scenes, Korean consultation rooms, or Korean business environments when relevant. The images should feel natural and unposed, with real Korean expressions and Korean environments.${imageSuggestionContext}\n\nBlog content:\n${content}`,
+              content: `Keyword (MAIN SUBJECT/HERO): ${reporterKeyword}\n\nBased on this blog content and keyword, generate ${imageSuggestionCount} photorealistic, realistic photography image prompts in English. CRITICAL REQUIREMENTS:\n\n1. The keyword "${reporterKeyword}" must be the MAIN SUBJECT and HERO of each image.\n\n2. MOST IMPORTANT - CONTENT RELEVANCE: Each image MUST be DIRECTLY RELATED and VISUALLY REPRESENT the specific blog content context where that image appears. You MUST read the surrounding content context provided for each image carefully. The image must accurately and precisely visually represent what is being described or discussed in that exact section of the blog. The image must show the specific situation, concept, or scene being discussed in that content context.\n\n3. Each prompt must accurately match the corresponding image suggestion description.\n\n4. Images must be PHOTOREALISTIC, REALISTIC PHOTOGRAPHY - use terms like 'photorealistic', 'realistic photography', 'professional photography', 'high-quality photo', 'lifelike', 'cinematic photo'. NOT illustration, NOT cartoon, NOT drawing, NOT painting.\n\n5. ABSOLUTE MANDATORY: ALL people in ALL images MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features, Korean skin tone, Korean hair, Korean eyes. The setting MUST be Korean style - Korean office, Korean consultation room, Korean business environment, Korean atmosphere, Korean culture, Korean lifestyle. ABSOLUTELY DO NOT include: Western people, Caucasian, European, American, Japanese, Chinese, or any other ethnicity. NO foreign languages, NO English text, NO foreign signs, NO foreign architecture, NO foreign style, NO foreign elements.\n\n6. NO illustrations, NO cartoons, NO drawings, NO paintings, NO AI-generated look.\n\n7. CRITICAL ABSOLUTE MANDATORY TEXT BAN: ZERO TEXT, ZERO LETTERS, ZERO WORDS, ZERO WRITING, ZERO KOREAN TEXT, ZERO KOREAN CHARACTERS, ZERO HANGUL, ZERO HANJA, ZERO KOREAN LETTERS, ZERO KOREAN WORDS, ZERO KOREAN WRITING, ZERO SIGNS, ZERO TEXT OVERLAY, ZERO WATERMARK, ZERO SUBTITLES, ZERO CAPTIONS, ZERO LABELS, ZERO WRITTEN TEXT, ZERO PRINTED TEXT, ZERO HANDWRITTEN TEXT, ZERO TEXT ON WALLS, ZERO TEXT ON SIGNS, ZERO TEXT ON PAPERS, ZERO TEXT ON SCREENS, ZERO TEXT ON CLOTHES, ZERO TEXT ON OBJECTS, ZERO TEXT ON ANY SURFACE, ZERO TEXT ANYWHERE IN THE IMAGE, ZERO TEXT IN BACKGROUND, ZERO TEXT IN FOREGROUND, ZERO TEXT ON ANYTHING, completely text-free image, no text visible anywhere, no letters visible anywhere, no words visible anywhere, no writing visible anywhere, no text at all, no Korean characters, no Hangul, no Hanja, no Korean alphabet, no Korean script, no any written language, no any text in any language.\n\nEvery single person in every image must be Korean. NO EXCEPTIONS. Create photorealistic, candid, lifestyle photography with Korean people only in Korean settings. The keyword "${reporterKeyword}" must be prominently featured as the main subject in each image. The images must visually represent the specific content being discussed in that section of the blog. Include Korean professional office scenes, Korean consultation rooms, or Korean business environments that directly relate to the blog content context. The images should feel natural and unposed, with real Korean expressions and Korean environments that match what is being discussed in the blog content.${imageSuggestionContext}\n\nIMPORTANT: Read the blog content carefully. For each image suggestion, identify the specific content context around that location. The image must visually represent what is being discussed in that exact section. Make sure each image is directly relevant and related to the content context - not a generic image, but a specific image that shows what the content is describing.\n\nFull blog content:\n${content}`,
             },
           ],
           temperature: 0.7,
@@ -5321,36 +5483,151 @@ ${generatedGuide}
                               try {
                                 const OPENAI_API_KEY = "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"
                                 
-                                const response = await fetch("https://api.openai.com/v1/chat/completions", {
-                                  method: "POST",
-                                  headers: {
-                                    "Content-Type": "application/json",
-                                    "Authorization": `Bearer ${OPENAI_API_KEY}`,
-                                  },
-                                  body: JSON.stringify({
-                                    model: "gpt-4o-mini",
-                                    messages: [
-                                      {
-                                        role: "system",
-                                        content: "당신은 SEO 최적화된 블로그 제목 전문가입니다. 키워드를 자연스럽게 포함한 매력적인 제목을 작성합니다.",
-                                      },
-                                      {
-                                        role: "user",
-                                        content: `키워드: ${blogAIKeyword}\n본문 내용: ${generatedContent.substring(0, 500)}\n\n위 정보를 바탕으로 SEO 최적화된 블로그 제목을 하나만 생성해주세요. 제목만 작성하고 다른 설명은 하지 마세요.`,
-                                      },
-                                    ],
-                                    temperature: 0.7,
-                                    max_tokens: 100,
-                                  }),
+                                const ANTHROPIC_API_KEY = "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"
+                                
+                                const anthropic = new Anthropic({
+                                  apiKey: ANTHROPIC_API_KEY,
+                                  dangerouslyAllowBrowser: true,
                                 })
+                                
+                                const titlePrompt = `${blogAIKeyword}를 활용하여 독자의 핵심 반박에 맞는 제목 1개를 생성하세요.
 
-                                if (!response.ok) {
-                                  throw new Error("제목 재생성에 실패했습니다.")
-                                }
+## 제목 패턴 10가지:
 
-                                const data = await response.json()
-                                const newTitle = data.choices?.[0]?.message?.content?.trim() || blogTitle
-                                setBlogTitle(newTitle)
+**1. 경고형**
+"{keyword}, {잘못된 행동}하면 {부정적 결과}합니다"
+
+예시:
+- "계룡 한의원, 브랜드 따지다가 재시공하게 되는 이유?"
+- "종합소득세, 후기만 보고 선택하지 마세요"
+
+---
+
+**2. 질문형**
+"{keyword}, {핵심 고민}? [해결책]합니다"
+
+예시:
+- "분당 인테리어, 잘하는 곳? 전문가는 이렇게 찾습니다"
+- "임플란트, 효과 있을까? 이것만 확인하세요"
+
+---
+
+**3. 조건부 해결책형**
+"{keyword}, {조건}다면? 이것부터 확인하세요"
+
+예시:
+- "판교 인테리어, 예산 부족하다면? 이것부터 확인하세요"
+- "법인세 신고, 확실하게 절세하고 싶다면? [필독]"
+
+---
+
+**4. 놓침 강조형**
+"{keyword}, '이것' 모르면 {부정적 결과}합니다"
+
+예시:
+- "여의도 인테리어, '이것' 모르면 추가 비용 발생합니다"
+- "종합소득세, '이것' 놓치면 환급 못 받습니다"
+
+---
+
+**5. 체크리스트형**
+"{keyword}, {목표}? N가지 확인하세요"
+
+예시:
+- "성남 인테리어, 20년 쓸 집 만들려면? 체크리스트 [공유]"
+- "임플란트, 2가지 놓치면 실패할 수 있습니다"
+
+---
+
+**6. 전문가 인증형**
+"{keyword}, {직책/경력}가 알려드립니다"
+
+예시:
+- "분당 인테리어, 20년 경력 시공 전문가가 알려드립니다"
+- "상속세, 15년차 세무사가 알려드립니다"
+
+---
+
+**7. 오해 바로잡기형**
+"{keyword}, 무조건 {행동}해야 하는 건 아닙니다"
+
+예시:
+- "강남 인테리어, 무조건 비싸야 좋은 건 아닙니다"
+- "한방 치료, 꼭 맡겨야 할까? 솔직한 의견"
+
+---
+
+**8. 후기/공개형**
+"{keyword}, {정보/노하우} [공개]합니다"
+
+예시:
+- "죽전 인테리어, 실제 시공 과정 [공개]합니다"
+- "사랑니 발치, 통증 없이 치료받는 노하우 [공개]합니다"
+
+---
+
+**9. 긴급성/손실 강조형**
+"{keyword}, {행동}하면 {손실}, {해결책}하는 방법"
+
+예시:
+- "판교 인테리어, 견적 잘못 받으면 500만 원 손해, 줄이는 방법"
+- "법인세 신고, 신고 기한 놓치면 가산세 20%, 줄이는 법"
+
+---
+
+**10. 이유/원인 제시형**
+"{keyword}, 전문가가 {행동} 말리는 이유?"
+
+예시:
+- "미금 인테리어, 전문가가 견적 비교 말리는 이유?"
+- "세무사, 세무사가 인터넷 추천 안 믿는 이유?"
+
+---
+
+## 제목 생성 원칙:
+
+1. **{keyword}는 제목 시작 부분에 필수 포함**
+
+2. **문장 마무리 필수:**
+   - "~합니다", "~하세요", "~이유?" 등으로 완결
+   - 체언 종결 금지 ("~발생" X → "~발생합니다" O)
+
+3. **패턴 선택:**
+   - 추론한 핵심 반박 1위에 맞춰 선택
+   - 경고형/질문형/조건부 해결책형이 가장 범용적
+
+4. **특수 표현:**
+   - [필독], [공개], [공유]
+   - '이것', '진짜', '이런 곳'
+   - N가지, N%, N만 원
+
+5. **금지:**
+   - 과장 표현
+   - 클릭베이트
+   - 50자 이상 긴 제목
+   - 체언 종결
+
+---
+
+이제 위 패턴 중 가장 적합한 1개를 선택하여 제목을 생성하세요.`
+
+                                const titleMsg = await anthropic.messages.create({
+                                  model: "claude-opus-4-5-20251101",
+                                  max_tokens: 200,
+                                  temperature: 1,
+                                  messages: [
+                                    {
+                                      role: "user",
+                                      content: titlePrompt,
+                                    },
+                                  ],
+                                })
+                                
+                                const newTitle = titleMsg.content[0].type === "text" ? titleMsg.content[0].text.trim() : blogTitle
+                                // 제목에서 따옴표나 불필요한 문자 제거
+                                const cleanedTitle = newTitle.replace(/^["']|["']$/g, "").trim()
+                                setBlogTitle(cleanedTitle)
+
                               } catch (error) {
                                 console.error("제목 재생성 실패:", error)
                                 alert(error instanceof Error ? error.message : "제목 재생성에 실패했습니다.")
