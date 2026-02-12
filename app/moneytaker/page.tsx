@@ -6209,7 +6209,7 @@ ${generatedGuide}
 
               <div className="grid grid-cols-12 gap-6">
                 {/* 왼쪽: 입력 폼 */}
-                <div className="col-span-7 space-y-6">
+                <div className={`${generatedGuide || generatedRecruitment ? "col-span-3" : "col-span-4"} transition-all duration-500 space-y-6`}>
                   {/* Step 1: 업체 정보 입력 */}
                   <Card className="border-0 shadow-xl bg-white">
                     <CardContent className="p-6">
@@ -6380,7 +6380,7 @@ ${generatedGuide}
                 </div>
 
                 {/* 오른쪽: 생성된 결과 */}
-                <div className="col-span-5">
+                <div className={`${generatedGuide || generatedRecruitment ? "col-span-9" : "col-span-8"} transition-all duration-500`}>
                   <Card className="border-0 shadow-xl bg-white h-full sticky top-8">
                     <CardContent className="p-6 h-full flex flex-col">
                       {generatedGuide ? (
@@ -6471,7 +6471,7 @@ ${generatedGuide}
 
               <div className="grid grid-cols-12 gap-6">
                 {/* 왼쪽: 입력 폼 */}
-                <div className="col-span-7 space-y-6">
+                <div className={`${generatedDraft ? "col-span-3" : "col-span-4"} transition-all duration-500 space-y-6`}>
                   {/* Step 1: 목표 키워드 입력 */}
                   <Card className="border-0 shadow-xl bg-white">
                     <CardContent className="p-6">
@@ -6968,7 +6968,7 @@ ${generatedGuide}
                 </div>
 
                 {/* 오른쪽: 생성된 결과 */}
-                <div className="col-span-5">
+                <div className={`${generatedDraft ? "col-span-9" : "col-span-8"} transition-all duration-500`}>
                   <Card className="border-0 shadow-xl bg-white h-full sticky top-8">
                     <CardContent className="p-6 h-full flex flex-col">
                       {generatedDraft ? (
