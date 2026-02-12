@@ -48,6 +48,7 @@ import {
   Copy,
   Check,
   Edit,
+  Hourglass,
   RefreshCw as RefreshCwIcon,
   MessageCircle,
   X as XIcon,
@@ -248,6 +249,7 @@ export default function MoneyTakerPage() {
   const [totalImageCount, setTotalImageCount] = useState(0) // 전체 이미지 개수
   const [regeneratingImageIndex, setRegeneratingImageIndex] = useState<number | null>(null) // 재생성 중인 이미지 인덱스
   const imageGenerationStartedRef = useRef(false) // 이미지 생성 시작 여부 추적
+  const [generationStep, setGenerationStep] = useState<"extracting" | "analyzing" | "writing" | "copywriting">("extracting") // 생성 단계
   const [isUploadingToNaver, setIsUploadingToNaver] = useState(false) // 네이버 업로드 중 상태
   const [isNaverUploadDialogOpen, setIsNaverUploadDialogOpen] = useState(false) // 네이버 업로드 다이얼로그
   const [naverUploadInfo, setNaverUploadInfo] = useState({
@@ -615,10 +617,13 @@ export default function MoneyTakerPage() {
             <div key={`image-${currentImageIndex}`} className="my-6 rounded-lg overflow-hidden border border-slate-200 shadow-md relative group">
               {isRegenerating ? (
                 // 재생성 중일 때 로딩 오버레이
-                <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-10">
-                  <div className="bg-white rounded-lg p-6 flex flex-col items-center">
-                    <Loader2 className="w-8 h-8 text-indigo-600 animate-spin mb-2" />
-                    <p className="text-sm text-slate-700">이미지 재생성 중...</p>
+                <div className="absolute inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-20 rounded-lg">
+                  <div className="bg-white rounded-xl p-8 flex flex-col items-center shadow-2xl min-w-[200px]">
+                    <div className="relative mb-4">
+                      <Hourglass className="w-12 h-12 text-indigo-600 animate-spin" style={{ animationDuration: '2s' }} />
+                    </div>
+                    <p className="text-base font-semibold text-slate-900">이미지 재생성 중...</p>
+                    <p className="text-xs text-slate-500 mt-1">잠시만 기다려주세요</p>
                   </div>
                 </div>
               ) : null}
@@ -1010,11 +1015,11 @@ PC 검색량: ${keywordData.pc.toLocaleString()}
           messages: [
             {
               role: "system",
-              content: "You are an expert at creating natural, realistic image prompts. Generate a detailed image prompt in English based on the blog content. Create natural, candid, lifestyle images with Asian people (Korean, Japanese, Chinese appearance) in realistic everyday situations. Include office scenes, consultation rooms, professional settings, or business environments when appropriate. Return only one prompt, without numbering or bullet points.",
+              content: "You are an expert at creating natural, realistic image prompts. Generate a detailed image prompt in English based on the blog content. CRITICAL REQUIREMENT: ALL people in the image MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features. DO NOT include Japanese, Chinese, Western, or any other ethnicity. Every single person must be Korean. Create natural, candid, lifestyle images with Korean people only. Include office scenes, consultation rooms, professional settings, or business environments when appropriate. Return only one prompt, without numbering or bullet points.",
             },
             {
               role: "user",
-              content: `Based on this blog content, generate one natural, realistic image prompt in English. Create a candid, lifestyle image with Asian people (Korean, Japanese, Chinese appearance) in an authentic everyday situation. Include professional office scenes, consultation rooms, or business environments when relevant:\n\n${content.substring(0, 2000)}`,
+              content: `Based on this blog content, generate one natural, realistic image prompt in English. CRITICAL: ALL people in the image MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features. DO NOT include Japanese, Chinese, Western, or any other ethnicity. Every single person must be Korean. Create a candid, lifestyle image with Korean people only. Include professional office scenes, consultation rooms, or business environments when relevant:\n\n${content.substring(0, 2000)}`,
             },
           ],
           temperature: 0.7,
@@ -1027,7 +1032,7 @@ PC 검색량: ${keywordData.pc.toLocaleString()}
       }
 
       const imagePromptData = await imagePromptResponse.json()
-      const prompt = imagePromptData.choices?.[0]?.message?.content?.trim() || "Professional consultation scene with Asian people in office setting"
+      const prompt = imagePromptData.choices?.[0]?.message?.content?.trim() || "Professional consultation scene with Korean people only in office setting"
       
       console.log(`[MoneyTaker] 생성된 프롬프트:`, prompt.substring(0, 100))
       
@@ -1092,11 +1097,11 @@ PC 검색량: ${keywordData.pc.toLocaleString()}
           messages: [
             {
               role: "system",
-              content: "You are an expert at creating natural, realistic image prompts. Generate a detailed image prompt in English based on the blog content. Create natural, candid, lifestyle images with Asian people (Korean, Japanese, Chinese appearance) in realistic everyday situations. Include office scenes, consultation rooms, professional settings, or business environments when appropriate. Return only one prompt, without numbering or bullet points.",
+              content: "You are an expert at creating natural, realistic image prompts. Generate a detailed image prompt in English based on the blog content. CRITICAL REQUIREMENT: ALL people in the image MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features. DO NOT include Japanese, Chinese, Western, or any other ethnicity. Every single person must be Korean. Create natural, candid, lifestyle images with Korean people only. Include office scenes, consultation rooms, professional settings, or business environments when appropriate. Return only one prompt, without numbering or bullet points.",
             },
             {
               role: "user",
-              content: `Based on this blog content, generate one natural, realistic image prompt in English. Create a candid, lifestyle image with Asian people (Korean, Japanese, Chinese appearance) in an authentic everyday situation. Include professional office scenes, consultation rooms, or business environments when relevant:\n\n${content.substring(0, 2000)}`,
+              content: `Based on this blog content, generate one natural, realistic image prompt in English. CRITICAL: ALL people in the image MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features. DO NOT include Japanese, Chinese, Western, or any other ethnicity. Every single person must be Korean. Create a candid, lifestyle image with Korean people only. Include professional office scenes, consultation rooms, or business environments when relevant:\n\n${content.substring(0, 2000)}`,
             },
           ],
           temperature: 0.7,
@@ -1109,7 +1114,7 @@ PC 검색량: ${keywordData.pc.toLocaleString()}
       }
 
       const imagePromptData = await imagePromptResponse.json()
-      const prompt = imagePromptData.choices?.[0]?.message?.content?.trim() || "Professional consultation scene with Asian people in office setting"
+      const prompt = imagePromptData.choices?.[0]?.message?.content?.trim() || "Professional consultation scene with Korean people only in office setting"
       
       console.log(`[Reporter AI] 생성된 프롬프트:`, prompt.substring(0, 100))
       
@@ -1259,11 +1264,11 @@ PC 검색량: ${keywordData.pc.toLocaleString()}
           messages: [
             {
               role: "system",
-              content: "You are an expert at creating natural, realistic image prompts. Generate detailed image prompts in English based on the blog content. Each prompt should describe a different scene or concept from the blog. IMPORTANT: Create natural, candid, lifestyle images with Asian people (Korean, Japanese, Chinese appearance) in realistic everyday situations. Include office scenes, consultation rooms, professional settings, or business environments when appropriate. The images should feature Asian professionals, clients, or people in authentic professional or service industry contexts. Avoid staged or artificial poses. Focus on authentic moments, natural expressions, and real environments. Return only the prompts, one per line, without numbering or bullet points.",
+              content: "You are an expert at creating natural, realistic image prompts. Generate detailed image prompts in English based on the blog content. Each prompt should describe a different scene or concept from the blog. CRITICAL REQUIREMENT: ALL people in ALL images MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features. DO NOT include Japanese, Chinese, Western, or any other ethnicity. Every single person in every image must be Korean. Create natural, candid, lifestyle images with Korean people only. Include office scenes, consultation rooms, professional settings, or business environments when appropriate. The images should feature Korean professionals, clients, or people in authentic professional or service industry contexts. Avoid staged or artificial poses. Focus on authentic moments, natural expressions, and real environments. Return only the prompts, one per line, without numbering or bullet points.",
             },
             {
               role: "user",
-              content: `Based on this blog content, generate ${imageSuggestionCount} natural, realistic image prompts in English. Create candid, lifestyle images with Asian people (Korean, Japanese, Chinese appearance) in authentic everyday situations. Include professional office scenes, consultation rooms, or business environments when relevant. The images should feel natural and unposed, with real expressions and environments:\n\n${content.substring(0, 2000)}`,
+              content: `Based on this blog content, generate ${imageSuggestionCount} natural, realistic image prompts in English. CRITICAL: ALL people in ALL images MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features. DO NOT include Japanese, Chinese, Western, or any other ethnicity. Every single person in every image must be Korean. Create candid, lifestyle images with Korean people only. Include professional office scenes, consultation rooms, or business environments when relevant. The images should feel natural and unposed, with real expressions and environments:\n\n${content.substring(0, 2000)}`,
             },
           ],
           temperature: 0.7,
@@ -1289,7 +1294,7 @@ PC 검색량: ${keywordData.pc.toLocaleString()}
 
       // 프롬프트 개수가 부족하면 기본 프롬프트로 채우기
       while (imagePrompts.length < imageSuggestionCount) {
-        imagePrompts.push("Professional consultation scene with Asian people in office setting")
+        imagePrompts.push("Professional consultation scene with Korean people only in office setting")
       }
       // 초과하면 자르기
       if (imagePrompts.length > imageSuggestionCount) {
@@ -1830,10 +1835,22 @@ ${blogTopPosts.map((post, idx) => `${idx + 1}. 제목: ${post.title}\n   설명:
       setRegeneratingImageIndex(null) // 재생성 중인 이미지 인덱스 초기화
       setIsEditingContent(false)
       imageGenerationStartedRef.current = false // 이미지 생성 시작 플래그 초기화
+      setGenerationStep("extracting") // 생성 단계 초기화
     
     console.log("[MoneyTaker] 이전 이미지 제거, 새 콘텐츠 생성 시작")
 
     try {
+      // Step 1: 상위노출 단어 추출 중 (5초)
+      setGenerationStep("extracting")
+      await new Promise(resolve => setTimeout(resolve, 5000)) // 5초 대기
+      
+      // Step 2: 머니테이커 AI 로직 활용 (5초)
+      setGenerationStep("analyzing")
+      await new Promise(resolve => setTimeout(resolve, 5000)) // 5초 대기
+      
+      // Step 3: 전환률 높이는 카피라이팅 작업
+      setGenerationStep("copywriting")
+      await new Promise(resolve => setTimeout(resolve, 1500)) // 1.5초 대기
       // Anthropic API 키
       const ANTHROPIC_API_KEY = "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"
       
@@ -2778,6 +2795,9 @@ ${analysisContext}`
 
       // 이미지 생성은 타이핑 애니메이션 중에 시작 (병렬 처리)
 
+      // Step 4: 글 작성 중
+      setGenerationStep("writing")
+      
       // 타이핑 애니메이션 효과를 위한 시뮬레이션
       setStreamingContent("")
       let currentIndex = 0
@@ -3177,6 +3197,23 @@ ${generatedGuide}
 4. SEO 최적화된 구조
 5. 읽기 쉽고 전문적인 문체
 6. 구체적이고 실용적인 내용${imagePromptPart}
+7. 원고 마지막에 반드시 다음 형식의 CTA(Call To Action) 섹션을 포함해주세요:
+
+---
+오늘은 ${reporterKeyword}에 대해 말씀드렸습니다.
+
+[키워드에서 추론한 업종]을 고민 중이시라면, 어떤 곳을 선택하시든 위에서 설명드린 요소들을 꼼꼼히 살펴보시길 권장드립니다.
+
+혹시 더 궁금하신 점이 있거나 도움이 필요하시다면, 언제든 편하게 문의 주셔도 좋습니다.
+
+**[이미지 제안: 따뜻한 상담 장면 또는 연락처 안내]**
+
+**[링크/연락처]**
+📞 문의하기
+(네이버 플레이스 혹은 홈페이지 링크)
+---
+
+위 CTA 섹션을 원고 마지막에 자연스럽게 포함하여 작성해주세요. 업종은 키워드를 기반으로 적절히 추론하여 작성해주세요.
 
 원고를 작성해주세요.`
 
@@ -3243,9 +3280,14 @@ ${generatedGuide}
   // 기자단 AI: 이미지 생성 (블로그 AI와 동일한 방식)
   const generateReporterImagesForContent = async (content: string) => {
     try {
-      // 콘텐츠에서 이미지 제안 개수 추출
-      const imageSuggestionMatches = content.match(/\*\*\[?이미지 제안:/g)
-      const imageSuggestionCount = imageSuggestionMatches ? imageSuggestionMatches.length : 0
+      // 콘텐츠에서 이미지 제안 개수 및 설명 추출
+      const imageSuggestionRegex = /\*\*\[?이미지 제안:\s*([^\]]+)\]?\*\*/g
+      const imageSuggestions: string[] = []
+      let match
+      while ((match = imageSuggestionRegex.exec(content)) !== null) {
+        imageSuggestions.push(match[1].trim())
+      }
+      const imageSuggestionCount = imageSuggestions.length
       
       if (imageSuggestionCount === 0) {
         console.log("[Reporter AI] 이미지 제안 위치가 없습니다.")
@@ -3253,6 +3295,7 @@ ${generatedGuide}
       }
 
       console.log("[Reporter AI] 이미지 제안 개수:", imageSuggestionCount)
+      console.log("[Reporter AI] 이미지 제안 설명:", imageSuggestions)
       
       // 이미지 생성 시작 상태 설정
       setIsGeneratingImages(true)
@@ -3261,7 +3304,12 @@ ${generatedGuide}
       // OpenAI API 키
       const OPENAI_API_KEY = "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"
       
-      // 생성된 콘텐츠를 기반으로 이미지 프롬프트 생성
+      // 이미지 제안 설명을 포함한 프롬프트 생성
+      const imageSuggestionContext = imageSuggestions.length > 0
+        ? `\n\n이미지 제안 설명:\n${imageSuggestions.map((desc, idx) => `${idx + 1}. ${desc}`).join("\n")}\n\n각 이미지 제안 설명에 맞는 구체적인 이미지를 생성해주세요.`
+        : ""
+      
+      // 생성된 콘텐츠를 기반으로 이미지 프롬프트 생성 (전체 내용 사용)
       const imagePromptResponse = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -3273,11 +3321,11 @@ ${generatedGuide}
           messages: [
             {
               role: "system",
-              content: "You are an expert at creating natural, realistic image prompts. Generate detailed image prompts in English based on the blog content. Each prompt should describe a different scene or concept from the blog. IMPORTANT: Create natural, candid, lifestyle images with Asian people (Korean, Japanese, Chinese appearance) in realistic everyday situations. Include office scenes, consultation rooms, professional settings, or business environments when appropriate. The images should feature Asian professionals, clients, or people in authentic professional or service industry contexts. Avoid staged or artificial poses. Focus on authentic moments, natural expressions, and real environments. Return only the prompts, one per line, without numbering or bullet points.",
+              content: "You are an expert at creating natural, realistic image prompts. Generate detailed image prompts in English based on the blog content and image suggestion descriptions. Each prompt should describe a different scene or concept from the blog that matches the corresponding image suggestion. CRITICAL REQUIREMENT: ALL people in ALL images MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features. DO NOT include Japanese, Chinese, Western, or any other ethnicity. Every single person in every image must be Korean. Create natural, candid, lifestyle images with Korean people only. Include office scenes, consultation rooms, professional settings, or business environments when appropriate. The images should feature Korean professionals, clients, or people in authentic professional or service industry contexts. Avoid staged or artificial poses. Focus on authentic moments, natural expressions, and real environments. Return only the prompts, one per line, without numbering or bullet points.",
             },
             {
               role: "user",
-              content: `Based on this blog content, generate ${imageSuggestionCount} natural, realistic image prompts in English. Create candid, lifestyle images with Asian people (Korean, Japanese, Chinese appearance) in authentic everyday situations. Include professional office scenes, consultation rooms, or business environments when relevant. The images should feel natural and unposed, with real expressions and environments:\n\n${content.substring(0, 2000)}`,
+              content: `Based on this blog content, generate ${imageSuggestionCount} natural, realistic image prompts in English. Each prompt should match the corresponding image suggestion description and be relevant to the blog content. CRITICAL: ALL people in ALL images MUST be Korean people only. Use Korean appearance, Korean ethnicity, Korean facial features. DO NOT include Japanese, Chinese, Western, or any other ethnicity. Every single person in every image must be Korean. Create candid, lifestyle images with Korean people only. Include professional office scenes, consultation rooms, or business environments when relevant. The images should feel natural and unposed, with real expressions and environments.${imageSuggestionContext}\n\nBlog content:\n${content}`,
             },
           ],
           temperature: 0.7,
@@ -3303,7 +3351,7 @@ ${generatedGuide}
 
       // 프롬프트 개수가 부족하면 기본 프롬프트로 채우기
       while (imagePrompts.length < imageSuggestionCount) {
-        imagePrompts.push("Professional consultation scene with Asian people in office setting")
+        imagePrompts.push("Professional consultation scene with Korean people only in office setting")
       }
       // 초과하면 자르기
       if (imagePrompts.length > imageSuggestionCount) {
@@ -4444,7 +4492,7 @@ ${generatedGuide}
 
           <div className="grid grid-cols-12 gap-6">
             {/* 왼쪽: 설정 영역 */}
-            <div className="col-span-7 space-y-6">
+            <div className={`${generatedContent ? "col-span-5" : "col-span-7"} transition-all duration-500 space-y-6`}>
               {/* Step 1: 키워드 입력 */}
               <Card className="border-0 shadow-xl bg-white">
                 <CardContent className="p-6">
@@ -4977,14 +5025,25 @@ ${generatedGuide}
             </div>
 
             {/* 오른쪽: 생성된 콘텐츠 미리보기 */}
-            <div className="col-span-5">
+            <div className={`${generatedContent ? "col-span-7" : "col-span-5"} transition-all duration-500`}>
               <Card className="border-0 shadow-xl bg-white h-full sticky top-8">
                 <CardContent className="p-6 h-full flex flex-col">
                   {isGenerating ? (
                     <div className="flex-1 overflow-y-auto">
-                      <div className="flex items-center gap-2 mb-4">
-                        <PenTool className="w-5 h-5 text-indigo-600 animate-pulse" />
-                        <h3 className="text-xl font-semibold text-slate-900">AI가 글을 작성 중입니다...</h3>
+                      <div className="flex flex-col items-center justify-center min-h-[400px]">
+                        <div className="relative mb-6">
+                          {/* 모래시계 회전 애니메이션 */}
+                          <div className="relative flex items-center justify-center">
+                            <Hourglass className="w-20 h-20 text-indigo-600 animate-spin" style={{ animationDuration: '2s' }} />
+                          </div>
+                        </div>
+                        <h3 className="text-xl font-semibold text-slate-900 mb-2 text-center px-4">
+                          {generationStep === "extracting" && "상위노출 단어 추출 중입니다"}
+                          {generationStep === "analyzing" && "머니테이커 AI 로직을 활용해 상위노출 글 작업 중입니다"}
+                          {generationStep === "copywriting" && "전환률을 높이는 카피라이팅 작업 중입니다"}
+                          {generationStep === "writing" && "AI가 글을 작성 중입니다..."}
+                        </h3>
+                        <p className="text-slate-500 text-sm">잠시만 기다려주세요</p>
                       </div>
                       <div className="prose prose-slate max-w-none">
                         <div className="text-slate-700 leading-relaxed">

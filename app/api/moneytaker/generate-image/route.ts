@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
 
     // Replicate API 키 (하드코딩 - moneytaker ai에서만)
     const REPLICATE_API_KEY = "r8_baQDZUG5bjR24N1qKO8kBk3CcyLCe8b25sgGx"
-    const model = "prunaai/hidream-l1-fast"
+    const model = "google/imagen-4"
 
     console.log("[MoneyTaker API] 이미지 생성 시작:", prompt.substring(0, 50) + "...")
 
@@ -26,10 +26,10 @@ export async function POST(request: NextRequest) {
       },
         body: JSON.stringify({
           input: {
-            prompt: `${prompt}, natural, realistic, candid, lifestyle photography, authentic moments, real people, natural expressions, everyday life, unposed, genuine, high quality, professional photography style, no text, no watermark`,
+            prompt: `Korean people only, Korean appearance, Korean ethnicity, Korean facial features, Korean person, all people are Korean, no foreigners, no Western people, no Japanese, no Chinese, ${prompt}, natural, realistic, candid, lifestyle photography, authentic moments, real Korean people, natural expressions, everyday life, unposed, genuine, high quality, professional photography style, no text, no watermark`,
             aspect_ratio: "16:9",
-            output_format: "webp",
-            output_quality: 90,
+            output_format: "png",
+            safety_filter_level: "block_medium_and_above",
           },
         }),
     })
