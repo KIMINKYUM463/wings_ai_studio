@@ -4229,7 +4229,7 @@ export async function generateYouTubeTitles(
           },
           {
             role: "user",
-            content: `카테고리: ${category}\n\n대본:\n${script.substring(0, 2000)}\n\n위 대본을 분석하여 유튜브 제목 10개를 생성해주세요. 각 제목은 한 줄로 작성해주세요.`,
+            content: `카테고리: ${category}\n\n대본:\n${script.substring(0, 2000)}\n\n위 대본을 분석하여 유튜브 제목 10개를 **반드시 한글로만** 생성해주세요. 각 제목은 한 줄로 작성해주세요.`,
           },
         ],
         max_tokens: 1000,
@@ -4564,6 +4564,116 @@ JSON 형식으로만 응답:
     }
   } catch (error) {
     console.error("설명 생성 실패:", error)
+    throw error
+  }
+}
+
+/** 제목/설명 다국어 변환 대상 (TTS와 동일 목록, 한국어 제외) */
+export type TitleDescTranslateLang =
+  | "en" | "zh" | "es" | "pt" | "de" | "fr" | "ja" | "it" | "tr" | "ru" | "ms" | "th"
+
+/** 언어 코드 → 영어 표기 (번역 프롬프트용) */
+export const TITLE_DESC_LANG_NAMES: Record<TitleDescTranslateLang, string> = {
+  en: "English",
+  zh: "Chinese",
+  es: "Spanish",
+  pt: "Portuguese",
+  de: "German",
+  fr: "French",
+  ja: "Japanese",
+  it: "Italian",
+  tr: "Turkish",
+  ru: "Russian",
+  ms: "Malay",
+  th: "Thai",
+}
+
+/**
+ * 한국어 제목/설명을 선택한 외국어로 번역 (제목·설명 생성은 항상 한국어 우선, 언어 변경 시 AI 번역)
+ */
+export async function translateTitleAndDescription(
+  title: string,
+  description: { description: string; pinnedComment: string; hashtags: string; uploadTags: string[] },
+  targetLanguage: TitleDescTranslateLang,
+  apiKey?: string
+): Promise<{ title: string; description: string; pinnedComment: string; hashtags: string; uploadTags: string[] }> {
+  const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
+  if (!GPT_API_KEY) {
+    throw new Error("OpenAI API 키가 설정되지 않았습니다.")
+  }
+
+  const langName = TITLE_DESC_LANG_NAMES[targetLanguage]
+  const prompt = `You are a professional translator. Translate the following Korean YouTube title and description into ${langName}. Keep the same structure: hashtags stay as hashtags (translate the keyword only), timestamps (e.g. 0:00, 1:30) stay as-is, emojis can stay or be adapted. Return valid JSON only, no markdown:
+
+{
+  "title": "translated title",
+  "description": "translated description text (multi-line, preserve line breaks)",
+  "pinnedComment": "translated pinned comment",
+  "hashtags": "#translated #hashtag #keywords",
+  "uploadTags": ["tag1", "tag2", "tag3", ...]
+}
+
+Korean title: ${title}
+
+Korean description:
+${description.description}
+
+Korean pinned comment: ${description.pinnedComment}
+
+Korean hashtags: ${description.hashtags}
+
+Korean upload tags (comma-separated): ${description.uploadTags.join(", ")}`
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${GPT_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: "You output only valid JSON. No explanation, no markdown code block." },
+          { role: "user", content: prompt },
+        ],
+        max_tokens: 2000,
+        temperature: 0.3,
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`API 호출 실패: ${response.status}`)
+    }
+
+    const data = await response.json()
+    const content = data.choices?.[0]?.message?.content
+    if (!content) {
+      throw new Error("번역 결과를 받지 못했습니다.")
+    }
+
+    const jsonMatch = content.replace(/^```json\s*|\s*```$/g, "").trim().match(/\{[\s\S]*\}/)
+    if (!jsonMatch) {
+      throw new Error("번역 결과 형식이 올바르지 않습니다.")
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]) as {
+      title?: string
+      description?: string
+      pinnedComment?: string
+      hashtags?: string
+      uploadTags?: string[]
+    }
+
+    return {
+      title: parsed.title ?? title,
+      description: parsed.description ?? description.description,
+      pinnedComment: parsed.pinnedComment ?? description.pinnedComment,
+      hashtags: parsed.hashtags ?? description.hashtags,
+      uploadTags: Array.isArray(parsed.uploadTags) ? parsed.uploadTags : description.uploadTags,
+    }
+  } catch (error) {
+    console.error("제목/설명 번역 실패:", error)
     throw error
   }
 }

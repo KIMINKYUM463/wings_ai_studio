@@ -196,6 +196,8 @@ import {
   extractKeywordsFromScript, // 대본에서 키워드 추출 함수 import 추가
   generateDoctorImage,
   generateYouTubeDescription,
+  translateTitleAndDescription,
+  type TitleDescTranslateLang,
   recommendContentType, // 콘텐츠 타입 추천 함수 import 추가
   generateImagePrompt, // 이미지 프롬프트 생성 함수 import 추가
   generateImageWithReplicate, // Replicate 이미지 생성 함수 import 추가
@@ -727,6 +729,16 @@ export default function LongformContentPage() {
   const [selectedTitle, setSelectedTitle] = useState<string>("")
   const [customTitle, setCustomTitle] = useState("")
   const [copiedTitleIndex, setCopiedTitleIndex] = useState<number | null>(null)
+  // 제목/설명 다국어 변환 (TTS와 동일 언어 목록, 한국어 제외 시 선택 언어로 표시)
+  const [titleDescTranslateLang, setTitleDescTranslateLang] = useState<"ko" | TitleDescTranslateLang>("ko")
+  const [translatedTitleDescByLang, setTranslatedTitleDescByLang] = useState<Record<string, {
+    title: string
+    description: string
+    pinnedComment: string
+    hashtags: string
+    uploadTags: string[]
+  }>>({})
+  const [isTranslatingTitleDesc, setIsTranslatingTitleDesc] = useState(false)
   const [referenceTitle, setReferenceTitle] = useState("")
   const [referenceScript, setReferenceScript] = useState("") // 레퍼런스 대본
   const [isGeneratingTitles, setIsGeneratingTitles] = useState(false)
@@ -799,7 +811,7 @@ export default function LongformContentPage() {
   const [logoSize, setLogoSize] = useState(120) // 로고 크기 (px)
   const [logoPositionX, setLogoPositionX] = useState(5) // 로고 X 위치 (% - 좌측에서)
   const [logoPositionY, setLogoPositionY] = useState(5) // 로고 Y 위치 (% - 상단에서)
-  const [enableZoom, setEnableZoom] = useState(true) // 줌인 효과 활성화
+  const [enableZoom, setEnableZoom] = useState(false) // 줌인 효과 비활성화 (영상 렌더링 시 줌인 없음)
   const introVideoRef = useRef<HTMLVideoElement | null>(null) // 앞부분 동영상 ref
   
   // 로고 드래그 및 리사이즈 상태
@@ -3991,7 +4003,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               startTime: img.startTime,
               endTime: img.endTime,
               keyword: img.keyword,
-              motion: (img.motion || "static") as "zoom-in" | "zoom-out" | "pan-left" | "pan-right" | "static",
+              motion: "static" as const, // 줌인 효과 없음
             })),
           }
           setVideoData(newVideoData)
@@ -4004,7 +4016,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             startTime: img.startTime,
             endTime: img.endTime,
             keyword: img.keyword,
-            motion: (img.motion || "static") as "zoom-in" | "zoom-out" | "pan-left" | "pan-right" | "static",
+            motion: "static" as const, // 줌인 효과 없음
           })))
           console.log(`[자동화] autoImages state 업데이트 완료: ${autoImagesForRender.length}개`)
 
@@ -4151,8 +4163,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               }
             }
             
-            // autoImages의 마지막 endTime도 조정 (이미지는 0.5초 앞당김 없음)
-            const adjustedAutoImagesForAuto = autoImagesForRender.map(img => ({ ...img })) // 복사본 생성
+            // autoImages의 마지막 endTime도 조정 (이미지는 0.5초 앞당김 없음), 줌인 효과 없이 항상 static
+            const adjustedAutoImagesForAuto = autoImagesForRender.map(img => ({ ...img, motion: "static" as const }))
             if (adjustedAutoImagesForAuto.length > 0 && actualAudioDurationForAuto > 0) {
               const lastImage = adjustedAutoImagesForAuto[adjustedAutoImagesForAuto.length - 1]
               const targetEndTime = audioDurationWithPaddingForAuto
@@ -9209,11 +9221,14 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       "it": "이탈리아어",
       "ja": "일본어",
       "ko": "한국어",
+      "ms": "말레이어",
       "nl": "네덜란드어",
       "pl": "폴란드어",
       "pt": "포르투갈어",
       "ro": "루마니아어",
       "ru": "러시아어",
+      "th": "태국어",
+      "tr": "터키어",
       "vi": "베트남어",
     }
     return languageMap[code.toLowerCase()] || code
@@ -11832,7 +11847,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             startTime: img.startTime,
             endTime: img.endTime,
             keyword: img.keyword,
-            motion: (img.motion || "static") as "zoom-in" | "zoom-out" | "pan-left" | "pan-right" | "static",
+            motion: "static" as const, // 줌인 효과 없음
           })),
         })
         
@@ -11842,7 +11857,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           startTime: img.startTime,
           endTime: img.endTime,
           keyword: img.keyword,
-          motion: (img.motion || "static") as "zoom-in" | "zoom-out" | "pan-left" | "pan-right" | "static",
+          motion: "static" as const, // 줌인 효과 없음
         })))
         
         console.log("[v0] 미리보기 데이터 생성 완료 (씬별 렌더링)")
@@ -12780,7 +12795,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           startTime: img.startTime,
           endTime: img.endTime,
           keyword: img.keyword,
-          motion: (img.motion || "static") as "zoom-in" | "zoom-out" | "pan-left" | "pan-right" | "static",
+          motion: "static" as const, // 줌인 효과 없음
         })),
       })
 
@@ -12791,7 +12806,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         startTime: img.startTime,
         endTime: img.endTime,
         keyword: img.keyword,
-        motion: (img.motion || "static") as "zoom-in" | "zoom-out" | "pan-left" | "pan-right" | "static",
+        motion: "static" as const, // 줌인 효과 없음
       })))
 
       console.log("[v0] 미리보기 데이터 생성 완료")
@@ -26276,7 +26291,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                 <>
                   {youtubeDescription ? (
                     <div className="mt-6 space-y-6">
-                      <h3 className="text-xl font-semibold mb-4">생성된 설명란</h3>
+                      <h3 className="text-xl font-semibold mb-4">생성된 설명란 (한국어)</h3>
                   
                   {/* 설명란 (해시태그 포함) */}
                   <div className="space-y-4">
@@ -26371,7 +26386,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                         </div>
                       </CardContent>
                     </Card>
-                    </div>
+                  </div>
                   </div>
                   ) : (
                     <div className="mt-6 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
@@ -26394,6 +26409,167 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               {selectedTitle && isGenerating && !youtubeDescription && (
                 <div className="mt-6">
                   <AIGeneratingAnimation type="영상 설명" />
+                </div>
+              )}
+
+              {/* 다국어로 변환 (TTS와 동일 언어 목록, 한국어 제외 시 선택 언어로 제목·설명란 표시) */}
+              {selectedTitle && youtubeDescription && (
+                <div className="mt-10 pt-8 border-t border-gray-200 space-y-4">
+                  <h3 className="text-xl font-semibold text-gray-800">다국어로 변환</h3>
+                  <p className="text-sm text-gray-500">언어를 선택하면 해당 언어로 제목·설명란·고정댓글·태그가 표시됩니다.</p>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Label className="text-sm font-medium text-gray-700">언어</Label>
+                    <Select
+                      value={titleDescTranslateLang}
+                      onValueChange={async (value: "ko" | TitleDescTranslateLang) => {
+                        setTitleDescTranslateLang(value)
+                        if (value === "ko") return
+                        if (translatedTitleDescByLang[value]) return
+                        setIsTranslatingTitleDesc(true)
+                        try {
+                          const apiKey = getApiKey()
+                          if (!apiKey) {
+                            alert("번역에 OpenAI API 키가 필요합니다. 설정에서 입력해주세요.")
+                            setIsTranslatingTitleDesc(false)
+                            return
+                          }
+                          const result = await translateTitleAndDescription(
+                            selectedTitle,
+                            youtubeDescription,
+                            value,
+                            apiKey
+                          )
+                          setTranslatedTitleDescByLang((prev) => ({ ...prev, [value]: result }))
+                        } catch (e) {
+                          console.error("제목/설명 번역 실패:", e)
+                          alert(`번역 실패: ${e instanceof Error ? e.message : "알 수 없는 오류"}`)
+                        } finally {
+                          setIsTranslatingTitleDesc(false)
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="w-40">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ko">한국어</SelectItem>
+                        <SelectItem value="en">영어</SelectItem>
+                        <SelectItem value="zh">중국어</SelectItem>
+                        <SelectItem value="es">스페인어</SelectItem>
+                        <SelectItem value="pt">포르투갈어</SelectItem>
+                        <SelectItem value="de">독일어</SelectItem>
+                        <SelectItem value="fr">프랑스어</SelectItem>
+                        <SelectItem value="ja">일본어</SelectItem>
+                        <SelectItem value="it">이탈리아어</SelectItem>
+                        <SelectItem value="tr">터키어</SelectItem>
+                        <SelectItem value="ru">러시아어</SelectItem>
+                        <SelectItem value="ms">말레이어</SelectItem>
+                        <SelectItem value="th">태국어</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {titleDescTranslateLang !== "ko" && isTranslatingTitleDesc && (
+                      <span className="text-sm text-gray-500 flex items-center gap-1">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        번역 중...
+                      </span>
+                    )}
+                  </div>
+
+                  {titleDescTranslateLang === "ko" && (
+                    <p className="text-sm text-gray-600 mt-2">위의 제목·설명란(한국어)을 사용하세요.</p>
+                  )}
+
+                  {titleDescTranslateLang !== "ko" && translatedTitleDescByLang[titleDescTranslateLang] && (
+                    <div className="mt-6 p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-4">
+                      <h4 className="text-lg font-medium text-gray-800">
+                        {languageCodeToKorean(titleDescTranslateLang)} 제목·설명
+                      </h4>
+                      <div>
+                        <p className="text-sm text-gray-500 mb-1">제목</p>
+                        <p className="font-medium text-gray-900">
+                          {translatedTitleDescByLang[titleDescTranslateLang].title}
+                        </p>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="mt-1 h-8"
+                          onClick={() =>
+                            copyToClipboard(translatedTitleDescByLang[titleDescTranslateLang].title)
+                          }
+                        >
+                          <Copy className="w-4 h-4 mr-1" />
+                          복사
+                        </Button>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500 mb-1">설명란</p>
+                        <pre className="whitespace-pre-wrap text-sm leading-relaxed text-gray-700 bg-white p-4 rounded-lg border">
+                          {translatedTitleDescByLang[titleDescTranslateLang].description}
+                        </pre>
+                        <p className="text-sm text-gray-500 mt-2">
+                          {translatedTitleDescByLang[titleDescTranslateLang].hashtags}
+                        </p>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="mt-1 h-8"
+                          onClick={() =>
+                            copyToClipboard(
+                              `${translatedTitleDescByLang[titleDescTranslateLang].description}\n\n${translatedTitleDescByLang[titleDescTranslateLang].hashtags}`
+                            )
+                          }
+                        >
+                          <Copy className="w-4 h-4 mr-1" />
+                          복사
+                        </Button>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500 mb-1">고정댓글</p>
+                        <p className="text-sm whitespace-pre-wrap text-gray-700">
+                          {translatedTitleDescByLang[titleDescTranslateLang].pinnedComment}
+                        </p>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="mt-1 h-8"
+                          onClick={() =>
+                            copyToClipboard(translatedTitleDescByLang[titleDescTranslateLang].pinnedComment)
+                          }
+                        >
+                          <Copy className="w-4 h-4 mr-1" />
+                          복사
+                        </Button>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500 mb-1">
+                          업로드 태그 (
+                          {translatedTitleDescByLang[titleDescTranslateLang].uploadTags.length}개)
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {translatedTitleDescByLang[titleDescTranslateLang].uploadTags.map(
+                            (tag, idx) => (
+                              <Badge key={idx} variant="secondary" className="text-xs">
+                                {tag}
+                              </Badge>
+                            )
+                          )}
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="mt-1 h-8"
+                          onClick={() =>
+                            copyToClipboard(
+                              translatedTitleDescByLang[titleDescTranslateLang].uploadTags.join(", ")
+                            )
+                          }
+                        >
+                          <Copy className="w-4 h-4 mr-1" />
+                          복사
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
