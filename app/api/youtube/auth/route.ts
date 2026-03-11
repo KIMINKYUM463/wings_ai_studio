@@ -8,8 +8,13 @@ const SCOPES = [
   "https://www.googleapis.com/auth/youtube.readonly",
 ]
 
-function buildAuthUrl(finalClientId: string, finalClientSecret: string, state?: string | null) {
-  const redirectUri = process.env.YOUTUBE_REDIRECT_URI || `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/youtube/callback`
+function buildAuthUrl(
+  finalClientId: string,
+  finalClientSecret: string,
+  origin: string,
+  state?: string | null
+) {
+  const redirectUri = process.env.YOUTUBE_REDIRECT_URI || `${origin.replace(/\/$/, "")}/api/youtube/callback`
   const oauth2Client = new google.auth.OAuth2(finalClientId, finalClientSecret, redirectUri)
   return oauth2Client.generateAuthUrl({
     access_type: "offline",
@@ -24,8 +29,17 @@ function buildAuthUrl(finalClientId: string, finalClientSecret: string, state?: 
  * POST: body { clientId, clientSecret, state } → 쿠키 설정 후 JSON { url } 반환 (설정에서 넣은 값 사용 시)
  * GET: 쿼리 또는 env에서 Client ID/Secret 사용 → Google로 리다이렉트
  */
+function getOriginFromRequest(request: Request): string {
+  try {
+    const url = new URL(request.url)
+    if (url.origin && url.origin !== "null") return url.origin
+  } catch (_) {}
+  return process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
+}
+
 export async function POST(request: Request) {
   try {
+    const origin = getOriginFromRequest(request)
     const body = await request.json().catch(() => ({}))
     const clientId = body.clientId as string | undefined
     const clientSecret = body.clientSecret as string | undefined
@@ -56,7 +70,7 @@ export async function POST(request: Request) {
       maxAge: 60 * 5,
     })
 
-    const authUrl = buildAuthUrl(finalClientId, finalClientSecret, state)
+    const authUrl = buildAuthUrl(finalClientId, finalClientSecret, origin, state)
     return NextResponse.json({ url: authUrl })
   } catch (error) {
     console.error("[YouTube] 인증 시작 오류:", error)
@@ -69,12 +83,12 @@ export async function POST(request: Request) {
 
 export async function GET(request: Request) {
   try {
+    const origin = getOriginFromRequest(request)
     const { searchParams } = new URL(request.url)
     const clientId = searchParams.get("clientId")
     const clientSecret = searchParams.get("clientSecret")
     const finalClientId = clientId || process.env.YOUTUBE_CLIENT_ID
     const finalClientSecret = clientSecret || process.env.YOUTUBE_CLIENT_SECRET
-    const redirectUri = process.env.YOUTUBE_REDIRECT_URI || `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/youtube/callback`
 
     if (!finalClientId || !finalClientSecret) {
       return NextResponse.json(
@@ -99,7 +113,7 @@ export async function GET(request: Request) {
     })
 
     const state = searchParams.get("state") || undefined
-    const authUrl = buildAuthUrl(finalClientId, finalClientSecret, state)
+    const authUrl = buildAuthUrl(finalClientId, finalClientSecret, origin, state)
     return NextResponse.redirect(authUrl)
   } catch (error) {
     console.error("[YouTube] 인증 시작 오류:", error)

@@ -16,18 +16,27 @@ function getSupabaseClient() {
   return createClient(supabaseUrl, supabaseKey)
 }
 
+/** 배포 URL 기준: 요청 origin 사용 (localhost 방지) */
+function getBaseUrlFromRequest(request: Request): string {
+  try {
+    const url = new URL(request.url)
+    if (url.origin && url.origin !== "null") return url.origin.replace(/\/$/, "")
+  } catch (_) {}
+  return process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
+}
+
 /**
  * YouTube OAuth 콜백 처리 API
  * GET /api/youtube/callback?code=...
  */
 export async function GET(request: Request) {
   try {
+    const baseUrl = getBaseUrlFromRequest(request)
     const { searchParams } = new URL(request.url)
     const code = searchParams.get("code")
     const error = searchParams.get("error")
-    const state = searchParams.get("state") // shopping_factory 이면 쇼핑 예약 공장으로 리다이렉트
+    const state = searchParams.get("state") // shopping_factory 이면 쇼핑 공장 자동화로 리다이렉트
 
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
     const shoppingFactoryPath = "/WingsAIStudioShotForm/shopping"
     const defaultRedirect = `${baseUrl}/WingsAIStudio`
 
@@ -64,7 +73,7 @@ export async function GET(request: Request) {
       // 쿠키 읽기 실패 시 환경 변수 사용
     }
     
-    const redirectUri = process.env.YOUTUBE_REDIRECT_URI || `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/youtube/callback`
+    const redirectUri = process.env.YOUTUBE_REDIRECT_URI || `${baseUrl}/api/youtube/callback`
 
     if (!clientId || !clientSecret) {
       const dest = state === "shopping_factory" ? `${baseUrl}${shoppingFactoryPath}?youtube_error=config` : `${defaultRedirect}?youtube_error=config`
@@ -128,8 +137,8 @@ export async function GET(request: Request) {
     )
   } catch (error) {
     console.error("[YouTube] 콜백 처리 오류:", error)
+    const baseUrl = getBaseUrlFromRequest(request)
     const state = new URL(request.url).searchParams.get("state")
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
     const dest = state === "shopping_factory"
       ? `${baseUrl}/WingsAIStudioShotForm/shopping?youtube_error=callback_failed`
       : `${baseUrl}/WingsAIStudio?youtube_error=callback_failed`

@@ -84,7 +84,8 @@ export async function POST(request: NextRequest) {
     // Client ID와 Secret은 요청 본문에서 받거나 환경 변수에서 가져오기
     const clientId = body.clientId || process.env.YOUTUBE_CLIENT_ID
     const clientSecret = body.clientSecret || process.env.YOUTUBE_CLIENT_SECRET
-    const redirectUri = process.env.YOUTUBE_REDIRECT_URI || `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/youtube/callback`
+    const requestOrigin = new URL(request.url).origin
+    const redirectUri = process.env.YOUTUBE_REDIRECT_URI || `${(process.env.NEXT_PUBLIC_APP_URL || requestOrigin).replace(/\/$/, "")}/api/youtube/callback`
 
     if (!clientId || !clientSecret) {
       return NextResponse.json(
