@@ -55,7 +55,7 @@ import { generateShoppingScript, generateVideoWithSora2, generateImagesWith3Scen
 import { getApiKey } from "@/lib/api-keys"
 import { getShoppingProjects, createShoppingProject, updateShoppingProject, deleteShoppingProject, getShoppingProject, uploadTTSAudio, type ShoppingProject, type ShoppingProjectData } from "./project-actions"
 import { getAudioLibrary, getAllAudioLibrary, type AudioLibraryItem } from "./audio-library-actions"
-import { Plus, Trash2, Edit2, Search, FolderOpen, Factory, Cog, ChevronLeft, ChevronRight } from "lucide-react"
+import { Plus, Trash2, Edit2, Search, FolderOpen, Factory, Cog, ChevronLeft, ChevronRight, Settings } from "lucide-react"
 
 // AudioBuffer를 WAV로 변환하는 함수
 const audioBufferToWav = (buffer: AudioBuffer): ArrayBuffer => {
@@ -197,7 +197,7 @@ function deleteShotFormScheduleVideoBlob(id: string): Promise<void> {
   })
 }
 
-// 예약 공장 (공장 모드): 날짜별 상품·이미지·목소리만 정해두면 해당 날에 영상 자동 생성
+// 공장 자동화 (공장 모드): 날짜별 상품·이미지·목소리만 정해두면 해당 날에 영상 자동 생성
 const FACTORY_SCHEDULES_STORAGE_KEY = "wings_shotform_factory_schedules"
 
 export interface FactoryScheduleItem {
@@ -213,7 +213,13 @@ export interface FactoryScheduleItem {
   createdAt: string
   errorMessage?: string
   videoBlobId?: string // ready일 때 ShotForm schedule ID와 동일하게 사용 가능
-  projectId?: string // 예약 공장 자동 생성 시 생성·저장되는 프로젝트 ID
+  projectId?: string // 공장 자동화 자동 생성 시 생성·저장되는 프로젝트 ID
+  /** 예약 완료 시 유튜브 업로드에 사용 (제목/설명/태그 생성기 값) */
+  youtubeTitle?: string
+  youtubeDescription?: string
+  youtubeTags?: string[]
+  /** 공장 자동화에서 자동 업로드 완료된 경우 true (목록에서 다운로드 버튼 대신 유튜브 업로드 완료 표시) */
+  youtubeUploaded?: boolean
 }
 
 const FACTORY_PHASE_LABELS: Record<string, string> = {
@@ -225,7 +231,7 @@ const FACTORY_PHASE_LABELS: Record<string, string> = {
   preview: "미리보기·렌더링",
 }
 
-// 예약 공장 단계 순서 및 단계별 이름 (완료/진행 중 표시용)
+// 공장 자동화 단계 순서 및 단계별 이름 (완료/진행 중 표시용)
 const FACTORY_PHASES_ORDER: Array<{ key: string; label: string }> = [
   { key: "script", label: "대본생성" },
   { key: "video", label: "이미지생성" },
@@ -277,7 +283,7 @@ function getSubtitlePhrases(text: string): string[] {
   return lines.length >= 1 ? lines : [merged]
 }
 
-// 예약 공장 6단계 스테퍼용: phase → 스텝 인덱스 (0=제품입력, 1=대본·TTS, 2=이미지, 3=영상, 4=썸네일, 5=완료)
+// 공장 자동화 6단계 스테퍼용: phase → 스텝 인덱스 (0=제품입력, 1=대본·TTS, 2=이미지, 3=영상, 4=썸네일, 5=완료)
 function getFactoryPhaseStepIndex(phase: string | undefined): number {
   if (!phase) return 0
   const map: Record<string, number> = {
@@ -286,7 +292,8 @@ function getFactoryPhaseStepIndex(phase: string | undefined): number {
     tts: 1,
     video: 2,
     render: 3,
-    preview: 4,
+    thumbnail: 4,
+    preview: 5,
   }
   return map[phase] ?? 0
 }
@@ -380,6 +387,7 @@ export default function ShoppingPage() {
   const [customThumbnailTextStyle, setCustomThumbnailTextStyle] = useState<{
     line1Color: string
     line2Color: string
+    fontSize: number // 글씨 크기 (48 ~ 200)
     position: number // 0.0 ~ 1.0 (0 = 상단, 0.5 = 중앙, 1.0 = 하단)
     strokeWidth: number // 테두리 두께
     strokeColor: string // 테두리 색상
@@ -388,6 +396,7 @@ export default function ShoppingPage() {
   }>({
     line1Color: "#FFFFFF", // 흰색
     line2Color: "#00FFCC", // 민트색
+    fontSize: 100, // 글씨 크기 (기본 100px)
     position: 0.45, // 중앙 약간 위
     strokeWidth: 4,
     strokeColor: "#000000", // 검정색 테두리
@@ -454,7 +463,7 @@ export default function ShoppingPage() {
   const [projects, setProjects] = useState<ShoppingProject[]>([])
   const [currentProject, setCurrentProject] = useState<ShoppingProject | null>(null)
   const [showProjectList, setShowProjectList] = useState(true) // 프로젝트 목록 화면 표시 여부
-  const [showFactoryView, setShowFactoryView] = useState(false) // 예약 공장(공장 모드) 화면
+  const [showFactoryView, setShowFactoryView] = useState(false) // 공장 자동화(공장 모드) 화면
   const [factorySchedules, setFactorySchedules] = useState<FactoryScheduleItem[]>([])
   const [showAddFactoryScheduleDialog, setShowAddFactoryScheduleDialog] = useState(false)
   const [factoryCalendarMonth, setFactoryCalendarMonth] = useState(() => {
@@ -468,6 +477,16 @@ export default function ShoppingPage() {
   const [newFactoryImage, setNewFactoryImage] = useState<string | null>(null)
   const [newFactoryVoiceId, setNewFactoryVoiceId] = useState("ttsmaker-여성1")
   const [factoryAutoRunItem, setFactoryAutoRunItem] = useState<FactoryScheduleItem | null>(null)
+  /** 공장 자동화 백그라운드 파이프라인 대기 큐 (순차 처리용) */
+  const [factoryPipelineQueue, setFactoryPipelineQueue] = useState<FactoryScheduleItem[]>([])
+  /** 현재 파이프라인 실행 중인 예약 ID (목록에서 '작업 중' 표시용) */
+  const [factoryPipelineRunningItemId, setFactoryPipelineRunningItemId] = useState<string | null>(null)
+  const factoryPipelineRunningRef = useRef(false)
+  const [showFactorySettingsDialog, setShowFactorySettingsDialog] = useState(false)
+  const [uploadingFactoryId, setUploadingFactoryId] = useState<string | null>(null)
+  const [youtubeChannelName, setYoutubeChannelName] = useState<string | null>(null) // 연동된 유튜브 채널명 (공장 자동화 → 자동 업로드용)
+  const [youtubeClientId, setYoutubeClientId] = useState("")
+  const [youtubeClientSecret, setYoutubeClientSecret] = useState("")
   const [isLoadingProjects, setIsLoadingProjects] = useState(false)
   const [isSavingProject, setIsSavingProject] = useState(false)
   const [newProjectName, setNewProjectName] = useState("")
@@ -602,7 +621,7 @@ export default function ShoppingPage() {
     localStorage.setItem(SHOTFORM_SCHEDULES_STORAGE_KEY, JSON.stringify(items))
   }
 
-  // 예약 공장 목록 로드
+  // 공장 자동화 목록 로드
   useEffect(() => {
     try {
       const raw = localStorage.getItem(FACTORY_SCHEDULES_STORAGE_KEY)
@@ -639,6 +658,42 @@ export default function ShoppingPage() {
       fetchSupertoneVoices()
     }
   }, [showAddFactoryScheduleDialog])
+
+  // 공장 자동화: 유튜브 채널 연동 상태 로드 (localStorage) + OAuth 콜백 처리
+  useEffect(() => {
+    const key = "shopping_factory_youtube_channel"
+    try {
+      const saved = typeof window !== "undefined" ? localStorage.getItem(key) : null
+      if (saved) setYoutubeChannelName(saved)
+      const savedId = typeof window !== "undefined" ? localStorage.getItem("shopping_factory_youtube_client_id") : null
+      const savedSecret = typeof window !== "undefined" ? localStorage.getItem("shopping_factory_youtube_client_secret") : null
+      if (savedId) setYoutubeClientId(savedId)
+      if (savedSecret) setYoutubeClientSecret(savedSecret)
+    } catch (_) {}
+    if (typeof window === "undefined") return
+    const params = new URLSearchParams(window.location.search)
+    const channelFromUrl = params.get("youtube_channel")
+    const errorFromUrl = params.get("youtube_error")
+    if (channelFromUrl) {
+      try {
+        const decoded = decodeURIComponent(channelFromUrl)
+        setYoutubeChannelName(decoded)
+        localStorage.setItem(key, decoded)
+        window.history.replaceState({}, "", window.location.pathname + (window.location.hash || ""))
+      } catch (_) {}
+    }
+    if (errorFromUrl) {
+      const messages: Record<string, string> = {
+        access_denied: "YouTube 연동이 취소되었습니다.",
+        no_code: "인증 코드를 받지 못했습니다.",
+        config: "YouTube API 설정을 확인해주세요.",
+        no_tokens: "토큰을 받지 못했습니다. 다시 시도해주세요.",
+        callback_failed: "연동 처리 중 오류가 발생했습니다.",
+      }
+      alert(messages[errorFromUrl] || `연동 오류: ${errorFromUrl}`)
+      window.history.replaceState({}, "", window.location.pathname + (window.location.hash || ""))
+    }
+  }, [])
 
   // 프로젝트 목록 불러오기
   useEffect(() => {
@@ -2686,8 +2741,9 @@ export default function ShoppingPage() {
         const textY = canvas.height * customThumbnailTextStyle.position
         const textX = canvas.width / 2
 
-        // 첫 번째 줄 스타일
-        ctx.font = "bold 100px 'Noto Sans KR', Arial, sans-serif"
+        // 첫 번째 줄 스타일 (글씨 크기: customThumbnailTextStyle.fontSize)
+        const fontSize = customThumbnailTextStyle.fontSize ?? 100
+        ctx.font = `bold ${fontSize}px 'Noto Sans KR', Arial, sans-serif`
         ctx.textAlign = "center"
         ctx.textBaseline = "middle"
         
@@ -2709,8 +2765,8 @@ export default function ShoppingPage() {
         ctx.fillText(hookingText.line1, 0, 0)
         ctx.restore()
 
-        // 두 번째 줄 스타일
-        const textY2 = textY + 120
+        // 두 번째 줄 스타일 (첫 줄과 동일 크기, 줄 간격은 글씨 크기의 1.2배)
+        const textY2 = textY + fontSize * 1.2
         
         // 두 번째 줄 회전 적용
         ctx.save()
@@ -4311,13 +4367,103 @@ export default function ShoppingPage() {
         throw new Error("응답에 videoUrl 또는 videoBase64가 없습니다.")
       }
 
+      // 사용자 PC로 영상 파일 다운로드 (공장 자동화 포함 항상 실행)
       const downloadUrl = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = downloadUrl
-      a.download = `${productName || "shopping"}_server_${Date.now()}.mp4`
+      a.download = `${(factoryAutoRunItem?.productName || productName) || "shopping"}_server_${Date.now()}.mp4`
       a.click()
       URL.revokeObjectURL(downloadUrl)
-      alert("서버 렌더링이 완료되었습니다. 다운로드가 시작됩니다.")
+      if (!factoryAutoRunItem) {
+        alert("서버 렌더링이 완료되었습니다. 다운로드가 시작됩니다.")
+      }
+
+      // 공장 자동화 모드: 서버에서 받은 영상으로 저장 후 유튜브 자동 업로드
+      if (factoryAutoRunItem) {
+        await saveShotFormScheduleVideoBlob(factoryAutoRunItem.id, blob)
+        let youtubeUploaded = false
+        // 업로드 시 제목·설명이 비어 있으면 미리 생성 (자동 진행 시 state가 비어 있을 수 있음)
+        let uploadTitle = youtubeTitle?.trim() || factoryAutoRunItem.productName
+        let uploadDescription = youtubeDescription?.trim() || ""
+        let uploadTags = youtubeTags?.length ? youtubeTags : []
+        if (!youtubeTitle?.trim() || !youtubeDescription?.trim()) {
+          try {
+            const openaiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_openai_api_key") || undefined : undefined
+            const meta = await generateYouTubeMetadata(
+              factoryAutoRunItem.productName,
+              factoryAutoRunItem.productDescription || "",
+              script,
+              openaiKey
+            )
+            uploadTitle = meta.title || uploadTitle
+            uploadDescription = meta.description || uploadDescription
+            uploadTags = meta.tags?.length ? meta.tags : uploadTags
+          } catch (metaErr) {
+            console.warn("[Factory] 유튜브 메타데이터 생성 실패:", metaErr)
+          }
+        }
+        if (youtubeChannelName) {
+          try {
+          const base64 = await new Promise<string>((resolve, reject) => {
+            const r = new FileReader()
+            r.onload = () => {
+              const s = r.result as string
+              resolve(s.includes(",") ? s.split(",")[1] : s)
+            }
+            r.onerror = reject
+            r.readAsDataURL(blob)
+          })
+          const [y, m, d] = factoryAutoRunItem.scheduledDate.split("-").map(Number)
+          const [h, min] = (factoryAutoRunItem.scheduledTime || "09:00").split(":").map(Number)
+          const scheduledDateTime = new Date(y, m - 1, d, h, min)
+          const clientId = typeof window !== "undefined" ? localStorage.getItem("shopping_factory_youtube_client_id") : null
+          const clientSecret = typeof window !== "undefined" ? localStorage.getItem("shopping_factory_youtube_client_secret") : null
+          const uploadRes = await fetch("/api/youtube/upload", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              videoUrl: "blob:",
+              videoBase64: base64,
+              title: uploadTitle,
+              description: uploadDescription,
+              tags: uploadTags,
+              scheduledTime: scheduledDateTime.toISOString(),
+              clientId: clientId || undefined,
+              clientSecret: clientSecret || undefined,
+            }),
+          })
+          const uploadData = await uploadRes.json().catch(() => ({}))
+          if (uploadRes.ok && uploadData.success) {
+            youtubeUploaded = true
+            alert(`유튜브 예약 업로드가 완료되었습니다.\n${uploadData.message || ""}`)
+          } else {
+            alert(`유튜브 업로드 실패: ${uploadData.error || uploadRes.statusText}`)
+          }
+          } catch (e) {
+            alert(`유튜브 자동 업로드 중 오류: ${e instanceof Error ? e.message : "알 수 없음"}`)
+          }
+        }
+        const updatedItem = {
+          ...factoryAutoRunItem,
+          status: "ready" as const,
+          videoBlobId: factoryAutoRunItem.id,
+          youtubeTitle: uploadTitle,
+          youtubeDescription: uploadDescription,
+          youtubeTags: uploadTags,
+          youtubeUploaded,
+        }
+        persistFactorySchedules(factorySchedules.map((s) => (s.id === factoryAutoRunItem.id ? updatedItem : s)))
+        if (!youtubeChannelName) {
+          alert("공장 예약 완료. 공장 자동화 목록에서 다운로드할 수 있습니다.")
+        }
+      }
+
+      // 공장 자동화 모드였으면 완료 후 목록으로
+      if (factoryAutoRunItem) {
+        setFactoryAutoRunItem(null)
+        setShowProjectList(true)
+        setShowFactoryView(true)
+      }
     } catch (err) {
       console.error("[서버 다운로드] 실패:", err)
       const msg = err instanceof Error ? err.message : String(err)
@@ -5466,8 +5612,10 @@ export default function ShoppingPage() {
   }
 
   const factoryPipelineScriptStartedRef = useRef(false)
+  const factoryServerDownloadTriggeredRef = useRef<string | null>(null)
+  const factoryPreviewAutoTriggeredRef = useRef<string | null>(null)
 
-  // 예약 공장: 해당 날짜 도래 시 수동으로 영상 생성 시작 (제작 화면으로 이동)
+  // 공장 자동화: 해당 날짜 도래 시 수동으로 영상 생성 시작 (제작 화면으로 이동)
   const startFactoryPipeline = (item: FactoryScheduleItem) => {
     persistFactorySchedules(factorySchedules.map((s) => (s.id === item.id ? { ...s, status: "generating" as const } : s)))
     setProductName(item.productName)
@@ -5484,7 +5632,7 @@ export default function ShoppingPage() {
     factoryPipelineScriptStartedRef.current = false
   }
 
-  // 예약 공장: 상품 클릭 시 수동 모드로 진입 (프로젝트 있으면 불러오기, 없으면 제품 정보만 로드). 썸네일은 AI 생성으로 설정.
+  // 공장 자동화: 상품 클릭 시 수동 모드로 진입 (프로젝트 있으면 불러오기, 없으면 제품 정보만 로드). 썸네일은 AI 생성으로 설정.
   const openFactoryItemInManualMode = async (item: FactoryScheduleItem, e?: React.MouseEvent) => {
     if (e) {
       e.stopPropagation()
@@ -5577,7 +5725,7 @@ export default function ShoppingPage() {
     setShowProjectList(false)
   }
 
-  // 예약 공장: 백그라운드에서 전체 파이프라인 실행 (화면 전환 없이 예약 공장에 머물며 진행 상황만 표시)
+  // 공장 자동화: 백그라운드에서 전체 파이프라인 실행 (화면 전환 없이 공장 자동화에 머물며 진행 상황만 표시)
   // 각 단계 완료 시 자동으로 프로젝트 생성·저장
   const runFactoryPipelineInBackground = async (item: FactoryScheduleItem) => {
     let projectId: string | null = item.projectId || null
@@ -5802,9 +5950,10 @@ export default function ShoppingPage() {
       })
 
       updatePhase("thumbnail")
+      let thumbUrl: string
       try {
         const hookingText = await generateThumbnailHookingText(item.productName, openaiKey)
-        const thumbUrl = await generateShortsThumbnail(
+        thumbUrl = await generateShortsThumbnail(
           item.productName,
           replicateKey,
           item.productImageBase64 ?? undefined,
@@ -5818,118 +5967,173 @@ export default function ShoppingPage() {
           activeStep: "thumbnail",
         })
       } catch (thumbErr) {
-        console.warn("[Factory] AI 썸네일 생성 실패, 계속 진행:", thumbErr)
+        console.warn("[Factory] AI 썸네일 생성 실패, 상품 이미지로 진행:", thumbErr)
+        thumbUrl = item.productImageBase64?.startsWith("data:")
+          ? item.productImageBase64
+          : item.productImageBase64
+            ? `data:image/jpeg;base64,${item.productImageBase64}`
+            : ""
+      }
+      if (!thumbUrl) {
+        throw new Error("썸네일을 생성할 수 없고 상품 이미지도 없습니다.")
       }
 
       updatePhase("preview")
-      const canvas = document.createElement("canvas")
-      canvas.width = 1080
-      canvas.height = 1920
-      canvas.style.position = "fixed"
-      canvas.style.left = "-9999px"
-      canvas.style.top = "0"
-      document.body.appendChild(canvas)
-      const ctx = canvas.getContext("2d")!
-      const videoEls: HTMLVideoElement[] = []
-      const videoDurations: number[] = []
-      for (let i = 0; i < 3; i++) {
-        const v = document.createElement("video")
-        v.src = videoUrls[i]
-        v.muted = true
-        v.playsInline = true
-        v.crossOrigin = "anonymous"
-        await new Promise<void>((resolve, reject) => {
-          v.onloadedmetadata = () => {
-            videoDurations.push(v.duration || 10)
-            resolve()
-          }
-          v.onerror = reject
-          v.load()
-        })
-        videoEls.push(v)
-      }
-      let accumulated = 0
-      const videoStartTimes = videoDurations.map((d) => {
-        const t = accumulated
-        accumulated += d
-        return t
-      })
-      const audioEl = new Audio(ttsBlobUrl)
-      await new Promise<void>((resolve) => {
-        audioEl.onloadeddata = () => resolve()
-        audioEl.load()
-      })
-      const stream = canvas.captureStream(30)
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)()
-      const source = audioCtx.createMediaElementSource(audioEl)
-      const dest = audioCtx.createMediaStreamDestination()
-      source.connect(dest)
-      const combined = new MediaStream([stream.getVideoTracks()[0], dest.stream.getAudioTracks()[0]])
-      const recorder = new MediaRecorder(combined, { mimeType: "video/webm;codecs=vp9,opus", videoBitsPerSecond: 5000000 })
-      const chunks: Blob[] = []
-      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data) }
-      const renderDone = new Promise<Blob>((resolve) => {
-        recorder.onstop = () => resolve(new Blob(chunks, { type: "video/webm" }))
-      })
-      recorder.start()
-      audioEl.play()
-      const THUMB = 0.0001
-      let lastIdx = -1
-      const draw = () => {
-        const elapsed = audioEl.currentTime
-        const adj = Math.max(0, elapsed - THUMB)
-        ctx.fillStyle = "black"
-        ctx.fillRect(0, 0, canvas.width, canvas.height)
-        if (elapsed >= THUMB) {
-          let idx = -1
-          for (let i = 0; i < videoStartTimes.length; i++) {
-            const end = i < videoStartTimes.length - 1 ? videoStartTimes[i + 1] : videoStartTimes[i] + videoDurations[i]
-            if (adj >= videoStartTimes[i] && adj < end) {
-              idx = i
-              break
-            }
-          }
-          if (idx !== lastIdx) {
-            if (lastIdx >= 0) videoEls[lastIdx].pause()
-            if (idx >= 0) {
-              videoEls[idx].currentTime = adj - videoStartTimes[idx]
-              videoEls[idx].play().catch(() => {})
-            }
-            lastIdx = idx
-          }
-          if (idx >= 0 && videoEls[idx].readyState >= 2) ctx.drawImage(videoEls[idx], 0, 0, canvas.width, canvas.height)
-        }
-        // 자막: 의미 단위로 나눠 한 줄씩 순서대로 (쉼표·마침표 기준)
-        const elapsedMs = elapsed * 1000
-        const currentLine = scriptLines.find((l) => elapsedMs >= l.startTime && elapsedMs < l.endTime)
-        if (currentLine) {
-          const phrases = getSubtitlePhrases(currentLine.text)
-          const lineDuration = currentLine.endTime - currentLine.startTime
-          const timeInLine = elapsedMs - currentLine.startTime
-          const phraseIndex = phrases.length <= 1 ? 0 : Math.min(Math.floor((timeInLine / lineDuration) * phrases.length), phrases.length - 1)
-          const textToShow = phrases[phraseIndex] || currentLine.text
-          const fontSize = 100
-          ctx.font = `bold ${fontSize}px "Noto Sans KR", sans-serif`
-          ctx.textAlign = "center"
-          ctx.textBaseline = "middle"
-          ctx.strokeStyle = "black"
-          ctx.lineWidth = 12
-          ctx.strokeText(textToShow, canvas.width / 2, canvas.height * 0.38)
-          ctx.fillStyle = "white"
-          ctx.fillText(textToShow, canvas.width / 2, canvas.height * 0.38)
-        }
-        if (elapsed >= actualAudioDuration) {
-          if (recorder.state === "recording") recorder.stop()
-          return
-        }
-        requestAnimationFrame(draw)
-      }
-      requestAnimationFrame(draw)
-      const blob = await renderDone
-      document.body.removeChild(canvas)
-      URL.revokeObjectURL(ttsBlobUrl)
-      await saveShotFormScheduleVideoBlob(item.id, blob)
       await saveProjectStep({ activeStep: "preview" })
+
+      // 썸네일 완료 후 곧바로 서버 렌더만 수행 → PC 다운로드 → 유튜브 업로드 (클라이언트 미리보기 생략)
+      const durationSec = actualAudioDuration
+      const getBlobFromUrl = async (url: string): Promise<Blob> => {
+        if (url.startsWith("data:")) {
+          const res = await fetch(url)
+          return res.blob()
+        }
+        const res = await fetch(url)
+        if (!res.ok) throw new Error(`다운로드 실패: ${url}`)
+        return res.blob()
+      }
+      const ttsBlob = await getBlobFromUrl(ttsBlobUrl)
+      const audioGcsUrl = await uploadBlobToGcsShopping(ttsBlob, "tts_audio", ttsBlob.type || "audio/mpeg")
+      const gcsVideoUrls: string[] = []
+      for (let i = 0; i < 3; i++) {
+        const b = await getBlobFromUrl(videoUrls[i])
+        const gcsUrl = await uploadBlobToGcsShopping(b, `segment_${i}`, b.type || "video/webm")
+        gcsVideoUrls.push(gcsUrl)
+      }
+      const thumbBlob = await getBlobFromUrl(thumbUrl)
+      const thumbnailImageUrl = await uploadBlobToGcsShopping(thumbBlob, "thumbnail", thumbBlob.type || "image/jpeg")
+      const subtitles: { start: number; end: number; text: string }[] = []
+      for (const line of scriptLines) {
+        const startSec = line.startTime / 1000
+        const endSec = line.endTime / 1000
+        const phrases = getSubtitlePhrases(line.text)
+        if (phrases.length <= 0) continue
+        const span = endSec - startSec
+        phrases.forEach((phrase, i) => {
+          const pStart = startSec + (span * i) / phrases.length
+          const pEnd = startSec + (span * (i + 1)) / phrases.length
+          subtitles.push({ start: pStart, end: pEnd, text: phrase })
+        })
+      }
+      const durationPerVideo = durationSec / 3
+      const body = {
+        type: "shopping",
+        duration: durationSec,
+        audioGcsUrl,
+        subtitles,
+        thumbnailImageUrl,
+        videoSegments: [
+          { url: gcsVideoUrls[0], startTime: 0, endTime: durationPerVideo },
+          { url: gcsVideoUrls[1], startTime: durationPerVideo, endTime: durationPerVideo * 2 },
+          { url: gcsVideoUrls[2], startTime: durationPerVideo * 2, endTime: durationSec },
+        ],
+        config: { width: 1080, height: 1920, fps: 30 },
+      }
+      const renderRes = await fetch("/api/ai/render", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      if (!renderRes.ok) {
+        const errData = await renderRes.json().catch(() => ({}))
+        throw new Error(errData.error || `렌더 요청 실패: ${renderRes.status}`)
+      }
+      const result = await renderRes.json()
+      const videoUrl = result.videoUrl
+      const videoBase64 = result.videoBase64
+      let serverBlob: Blob
+      if (videoUrl) {
+        const videoRes = await fetch(videoUrl)
+        if (!videoRes.ok) throw new Error("렌더된 영상 다운로드 실패")
+        serverBlob = await videoRes.blob()
+      } else if (videoBase64) {
+        const binary = atob(videoBase64)
+        const bytes = new Uint8Array(binary.length)
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+        serverBlob = new Blob([bytes], { type: "video/mp4" })
+      } else {
+        throw new Error("응답에 videoUrl 또는 videoBase64가 없습니다.")
+      }
+      await saveShotFormScheduleVideoBlob(item.id, serverBlob)
+
+      // PC에 파일 다운로드
+      const downloadUrl = URL.createObjectURL(serverBlob)
+      const link = document.createElement("a")
+      link.href = downloadUrl
+      link.download = `${item.productName}_공장_${item.id.slice(0, 8)}.mp4`
+      link.click()
+      URL.revokeObjectURL(downloadUrl)
+
+      // 유튜브 업로드용 제목·설명·태그 생성 (백그라운드에서는 항상 여기서 생성)
+      let uploadTitle = item.youtubeTitle || item.productName
+      let uploadDescription = item.youtubeDescription || ""
+      let uploadTags: string[] = item.youtubeTags || []
+      try {
+        const meta = await generateYouTubeMetadata(
+          item.productName,
+          item.productDescription || "",
+          script,
+          openaiKey
+        )
+        uploadTitle = meta.title || uploadTitle
+        uploadDescription = meta.description || uploadDescription
+        uploadTags = meta.tags?.length ? meta.tags : uploadTags
+      } catch (metaErr) {
+        console.warn("[Factory] 유튜브 메타데이터 생성 실패, 제품명만 사용:", metaErr)
+      }
+
+      let youtubeUploaded = false
+      const channelName = typeof window !== "undefined" ? localStorage.getItem("shopping_factory_youtube_channel") : null
+      if (channelName) {
+        try {
+          const base64 = await new Promise<string>((resolve, reject) => {
+            const r = new FileReader()
+            r.onload = () => { const s = r.result as string; resolve(s.includes(",") ? s.split(",")[1] : s) }
+            r.onerror = reject
+            r.readAsDataURL(serverBlob)
+          })
+          const [y, m, d] = item.scheduledDate.split("-").map(Number)
+          const [h, min] = (item.scheduledTime || "09:00").split(":").map(Number)
+          const scheduledDateTime = new Date(y, m - 1, d, h, min)
+          const clientId = typeof window !== "undefined" ? localStorage.getItem("shopping_factory_youtube_client_id") : null
+          const clientSecret = typeof window !== "undefined" ? localStorage.getItem("shopping_factory_youtube_client_secret") : null
+          const uploadRes = await fetch("/api/youtube/upload", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              videoUrl: "blob:",
+              videoBase64: base64,
+              title: uploadTitle,
+              description: uploadDescription,
+              tags: uploadTags,
+              scheduledTime: scheduledDateTime.toISOString(),
+              clientId: clientId || undefined,
+              clientSecret: clientSecret || undefined,
+            }),
+          })
+          const uploadData = await uploadRes.json().catch(() => ({}))
+          if (uploadRes.ok && uploadData.success) youtubeUploaded = true
+        } catch (_) {}
+      }
+      setFactorySchedules((prev) => {
+        const next = prev.map((s) =>
+          s.id === item.id
+            ? {
+                ...s,
+                status: "ready" as const,
+                videoBlobId: item.id,
+                youtubeTitle: uploadTitle,
+                youtubeDescription: uploadDescription,
+                youtubeTags: uploadTags,
+                youtubeUploaded,
+              }
+            : s
+        )
+        localStorage.setItem(FACTORY_SCHEDULES_STORAGE_KEY, JSON.stringify(next))
+        return next
+      })
+
+      URL.revokeObjectURL(ttsBlobUrl)
       updatePhase("preview", "ready")
     } catch (e) {
       console.error("[Factory] 백그라운드 파이프라인 실패:", e)
@@ -5943,12 +6147,62 @@ export default function ShoppingPage() {
     }
   }
 
+  // 공장 자동화 큐: 한 번에 하나씩만 백그라운드 파이프라인 실행 (순차 처리)
+  useEffect(() => {
+    if (factoryPipelineQueue.length === 0 || factoryPipelineRunningRef.current) return
+    const first = factoryPipelineQueue[0]
+    factoryPipelineRunningRef.current = true
+    setFactoryPipelineRunningItemId(first.id)
+    runFactoryPipelineInBackground(first).finally(() => {
+      factoryPipelineRunningRef.current = false
+      setFactoryPipelineRunningItemId(null)
+      setFactoryPipelineQueue((prev) => prev.filter((s) => s.id !== first.id))
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- queue만 반응, pipeline 함수는 최신 클로저 사용
+  }, [factoryPipelineQueue])
+
   useEffect(() => {
     if (!factoryAutoRunItem || factoryPipelineScriptStartedRef.current || activeStep !== "product") return
     if (!productName) return
     factoryPipelineScriptStartedRef.current = true
     handleGenerateScript()
   }, [factoryAutoRunItem, activeStep, productName])
+
+  // 공장 자동화: 썸네일 준비되면 자동으로 미리보기 단계로 이동 (버튼 클릭 없이)
+  useEffect(() => {
+    if (!factoryAutoRunItem || activeStep !== "thumbnail") return
+    const thumbReady = thumbnailUrl || thumbnailImages.length > 0
+    if (!thumbReady || convertedVideoUrls.size !== 3 || !ttsAudioUrl) return
+    setActiveStep("preview")
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 자동 진행용
+  }, [factoryAutoRunItem?.id, activeStep, thumbnailUrl, thumbnailImages.length, convertedVideoUrls.size, ttsAudioUrl])
+
+  // 공장 자동화: 미리보기 단계 진입 시 미리보기 생성 자동 실행 (한 번만)
+  useEffect(() => {
+    if (!factoryAutoRunItem) {
+      factoryPreviewAutoTriggeredRef.current = null
+      return
+    }
+    if (activeStep !== "preview" || previewGenerated || isGeneratingPreview) return
+    if (convertedVideoUrls.size !== 3 || !ttsAudioUrl) return
+    if (factoryPreviewAutoTriggeredRef.current === factoryAutoRunItem.id) return
+    factoryPreviewAutoTriggeredRef.current = factoryAutoRunItem.id
+    handleGeneratePreview()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ref로 한 번만 호출
+  }, [factoryAutoRunItem?.id, activeStep, previewGenerated, isGeneratingPreview, convertedVideoUrls.size, ttsAudioUrl])
+
+  // 공장 자동화: 미리보기 생성 완료 시 서버 다운로드(렌더) 자동 시작 (한 번만)
+  useEffect(() => {
+    if (!factoryAutoRunItem) {
+      factoryServerDownloadTriggeredRef.current = null
+      return
+    }
+    if (activeStep !== "preview" || !previewGenerated || isServerDownloading) return
+    if (factoryServerDownloadTriggeredRef.current === factoryAutoRunItem.id) return
+    factoryServerDownloadTriggeredRef.current = factoryAutoRunItem.id
+    handleServerDownload()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ref 방지로 한 번만 호출
+  }, [factoryAutoRunItem?.id, activeStep, previewGenerated, isServerDownloading])
 
   const handleDownload = () => {
     if (!videoUrl) return
@@ -8268,29 +8522,33 @@ export default function ShoppingPage() {
                       </Button>
                       {factoryAutoRunItem && (
                         <Button
-                          onClick={() => handleRenderVideo({
-                            onComplete: async (blob) => {
-                              if (!factoryAutoRunItem) return
-                              await saveShotFormScheduleVideoBlob(factoryAutoRunItem.id, blob)
-                              persistFactorySchedules(factorySchedules.map((s) => (s.id === factoryAutoRunItem.id ? { ...s, status: "ready" as const, videoBlobId: factoryAutoRunItem.id } : s)))
-                              setFactoryAutoRunItem(null)
-                              alert("공장 예약 완료. 예약 공장 목록에서 다운로드할 수 있습니다.")
-                              setShowProjectList(true)
-                              setShowFactoryView(true)
-                            },
-                          })}
-                          disabled={isRendering || !previewGenerated}
+                          onClick={() => handleServerDownload()}
+                          disabled={!previewGenerated || isServerDownloading}
                           className="col-span-full bg-amber-600 hover:bg-amber-700 text-white"
                           size="lg"
                         >
-                          {isRendering ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Factory className="w-4 h-4 mr-2" />}
-                          공장 예약 완료
+                          {isServerDownloading ? (
+                            <>
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              서버 렌더링 중… (자동 진행)
+                            </>
+                          ) : (
+                            <>
+                              <Factory className="w-4 h-4 mr-2" />
+                              공장 예약 완료
+                            </>
+                          )}
                         </Button>
                       )}
                     </div>
                     {!previewGenerated && (
                       <p className="text-sm text-gray-500 text-center">
                         먼저 미리보기를 생성해주세요
+                      </p>
+                    )}
+                    {factoryAutoRunItem && previewGenerated && !isServerDownloading && (
+                      <p className="text-xs text-amber-700 text-center">
+                        미리보기 생성 후 서버 렌더링이 자동으로 시작됩니다.
                       </p>
                     )}
                     </div>
@@ -8949,6 +9207,24 @@ export default function ShoppingPage() {
                               </div>
                             </div>
 
+                            {/* 글씨 크기 */}
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <Label className="text-xs text-slate-600">글씨 크기</Label>
+                                <span className="text-xs text-slate-500">
+                                  {customThumbnailTextStyle.fontSize ?? 100}px (48 ~ 200)
+                                </span>
+                              </div>
+                              <Slider
+                                value={[customThumbnailTextStyle.fontSize ?? 100]}
+                                onValueChange={([value]) => setCustomThumbnailTextStyle({ ...customThumbnailTextStyle, fontSize: value })}
+                                min={48}
+                                max={200}
+                                step={4}
+                                className="w-full"
+                              />
+                            </div>
+
                             {/* 텍스트 위치 */}
                             <div className="space-y-2">
                               <div className="flex items-center justify-between">
@@ -9206,9 +9482,9 @@ export default function ShoppingPage() {
           {factoryAutoRunItem && !showProjectList && (
             <div className="mb-4 p-4 rounded-xl bg-amber-100/90 border-2 border-amber-400/60 flex items-center justify-center gap-2 flex-wrap">
               <Factory className="w-5 h-5 text-amber-700" />
-              <span className="font-semibold text-amber-900">예약 공장 자동 생성:</span>
+              <span className="font-semibold text-amber-900">공장 자동화 자동 생성:</span>
               <span className="text-amber-800">{factoryAutoRunItem.productName}</span>
-              <span className="text-sm text-amber-700">· 완료 단계에서 「공장 예약 완료」를 누르면 예약 공장 목록에 저장됩니다.</span>
+              <span className="text-sm text-amber-700">· 완료 단계에서 「공장 예약 완료」를 누르면 공장 자동화 목록에 저장됩니다.</span>
             </div>
           )}
         </div>
@@ -9404,7 +9680,7 @@ export default function ShoppingPage() {
         {/* 메인 컨텐츠 */}
         {showProjectList ? (
           <div className="space-y-6">
-            {/* 프로젝트 목록 / 예약 공장 탭 */}
+            {/* 프로젝트 목록 / 공장 자동화 탭 */}
             <div className="flex items-center justify-between flex-wrap gap-4">
               <div className="flex items-center gap-3">
                 <Button
@@ -9426,7 +9702,7 @@ export default function ShoppingPage() {
                   className={showFactoryView ? "bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-lg shadow-amber-500/50" : "border-amber-300 text-amber-700"}
                 >
                   <Factory className="w-4 h-4 mr-2" />
-                  예약 공장
+                  공장 자동화
                 </Button>
                 </div>
               {!showFactoryView ? (
@@ -9442,13 +9718,30 @@ export default function ShoppingPage() {
                 새 프로젝트 만들기
               </Button>
               ) : (
-                <Button
-                  onClick={() => setShowAddFactoryScheduleDialog(true)}
-                  className="bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-semibold shadow-lg shadow-amber-500/50"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  예약 추가
-                </Button>
+                <div className="flex items-center gap-3">
+                  {youtubeChannelName && (
+                    <span className="text-sm font-medium text-amber-800 bg-amber-100/90 px-3 py-1.5 rounded-full border border-amber-300/80">
+                      {youtubeChannelName}
+                    </span>
+                  )}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9 rounded-full text-amber-700 hover:bg-amber-100"
+                    onClick={() => setShowFactorySettingsDialog(true)}
+                    title="공장 자동화 설정"
+                  >
+                    <Settings className="w-5 h-5" />
+                  </Button>
+                  <Button
+                    onClick={() => setShowAddFactoryScheduleDialog(true)}
+                    className="bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-semibold shadow-lg shadow-amber-500/50"
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    예약 추가
+              </Button>
+                </div>
               )}
             </div>
 
@@ -9697,7 +9990,7 @@ export default function ShoppingPage() {
 
             </>
             ) : (
-            /* 예약 공장 뷰: n8n 스타일 컨베이어 + 예약 목록 */
+            /* 공장 자동화 뷰: n8n 스타일 컨베이어 + 예약 목록 */
             <div className="space-y-6">
               <p className="text-slate-600 text-base">날짜·상품·이미지·목소리를 정해두면 해당 날에 영상을 자동 생성합니다.</p>
               {/* 컨베이어 벨트 애니메이션 (n8n 스타일) */}
@@ -9730,7 +10023,7 @@ export default function ShoppingPage() {
                       {currentPhaseLabel ? (
                         <>작업 중 · 현재 단계: {currentPhaseLabel}</>
                       ) : (
-                        <>예약 공장 · 해당 날짜에 자동 생성</>
+                        <>공장 자동화 · 해당 날짜에 자동 생성</>
                       )}
                     </span>
                   </div>
@@ -9852,9 +10145,11 @@ export default function ShoppingPage() {
                   예약이 있는 날에 예약된 영상(상품명)이 표시됩니다.
                 </p>
               </div>
-              {/* 예약 공장 6단계 프로세스 스테퍼 (수동 모드와 동일, 작업 중일 때만 표시) */}
+              {/* 공장 자동화 6단계 프로세스 스테퍼 (실제 진행 중인 예약의 phase 기준) */}
               {(() => {
-                const generatingItem = factorySchedules.find((s) => s.status === "generating")
+                const generatingItem = factoryPipelineRunningItemId
+                  ? factorySchedules.find((s) => s.id === factoryPipelineRunningItemId)
+                  : factorySchedules.find((s) => s.status === "generating")
                 const currentStepIndex = generatingItem ? getFactoryPhaseStepIndex(generatingItem.phase) : -1
                 const steps = [
                   { step: "product", label: "제품 입력", icon: ShoppingBag },
@@ -9963,10 +10258,15 @@ export default function ShoppingPage() {
                               </div>
                               <div className="flex-1 min-w-0">
                                 <p className="font-semibold text-slate-900 truncate">{item.productName}</p>
-                                {item.status === "generating" && (
+                                {item.status === "generating" && item.id === factoryPipelineRunningItemId && (
                                   <p className="text-sm font-medium text-amber-700 mt-1 flex items-center gap-1.5">
                                     <Loader2 className="w-4 h-4 animate-spin shrink-0" />
                                     작업 중 · {getFactoryPhaseDisplayText(item.phase)}
+                                  </p>
+                                )}
+                                {item.status === "generating" && factoryPipelineQueue.some((q) => q.id === item.id) && item.id !== factoryPipelineRunningItemId && (
+                                  <p className="text-sm font-medium text-slate-500 mt-1">
+                                    대기중
                                   </p>
                                 )}
                                 <p className="text-sm text-slate-500 mt-0.5">
@@ -9977,20 +10277,78 @@ export default function ShoppingPage() {
                               </div>
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
-                              {isReady && (
-                                <Button size="sm" className="bg-green-500 hover:bg-green-600" onClick={async () => {
-                                  const blob = await getShotFormScheduleVideoBlob(item.videoBlobId || item.id)
-                                  if (!blob) { alert("저장된 영상을 찾을 수 없습니다."); return }
-                                  const url = URL.createObjectURL(blob)
-                                  const a = document.createElement("a")
-                                  a.href = url
-                                  a.download = `${item.productName}_공장_${item.id.slice(0, 8)}.webm`
-                                  a.click()
-                                  URL.revokeObjectURL(url)
-                                }}>
-                                  <Download className="w-4 h-4 mr-1" />
-                                  다운로드
-                                </Button>
+                              {isReady && item.youtubeUploaded && (
+                                <span className="text-xs font-medium text-green-700 bg-green-100 px-2 py-1 rounded">
+                                  유튜브 업로드 완료
+                                </span>
+                              )}
+                              {isReady && !item.youtubeUploaded && youtubeChannelName && (
+                                <>
+                                  <span className="text-xs font-medium text-amber-700 bg-amber-50 px-2 py-1 rounded border border-amber-200">
+                                    유튜브 미업로드
+                                  </span>
+                                  <Button
+                                    size="sm"
+                                    className="bg-[#ff0000] hover:bg-[#cc0000] text-white"
+                                    disabled={uploadingFactoryId === item.id}
+                                    onClick={async () => {
+                                      const blob = await getShotFormScheduleVideoBlob(item.videoBlobId || item.id)
+                                      if (!blob) {
+                                        alert("저장된 영상을 찾을 수 없습니다. 해당 예약을 클릭해 다시 영상을 생성해 주세요.")
+                                        return
+                                      }
+                                      setUploadingFactoryId(item.id)
+                                      try {
+                                        const base64 = await new Promise<string>((resolve, reject) => {
+                                          const r = new FileReader()
+                                          r.onload = () => { const s = r.result as string; resolve(s.includes(",") ? s.split(",")[1] : s) }
+                                          r.onerror = reject
+                                          r.readAsDataURL(blob)
+                                        })
+                                        const [y, m, d] = item.scheduledDate.split("-").map(Number)
+                                        const [h, min] = (item.scheduledTime || "09:00").split(":").map(Number)
+                                        const scheduledDateTime = new Date(y, m - 1, d, h, min)
+                                        const clientId = typeof window !== "undefined" ? localStorage.getItem("shopping_factory_youtube_client_id") : null
+                                        const clientSecret = typeof window !== "undefined" ? localStorage.getItem("shopping_factory_youtube_client_secret") : null
+                                        const res = await fetch("/api/youtube/upload", {
+                                          method: "POST",
+                                          headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({
+                                            videoUrl: "blob:",
+                                            videoBase64: base64,
+                                            title: item.youtubeTitle || item.productName,
+                                            description: item.youtubeDescription || "",
+                                            tags: item.youtubeTags || [],
+                                            scheduledTime: scheduledDateTime.toISOString(),
+                                            clientId: clientId || undefined,
+                                            clientSecret: clientSecret || undefined,
+                                          }),
+                                        })
+                                        const data = await res.json().catch(() => ({}))
+                                        if (res.ok && data.success) {
+                                          persistFactorySchedules(factorySchedules.map((s) =>
+                                            s.id === item.id ? { ...s, youtubeUploaded: true } : s
+                                          ))
+                                          alert(data.message || "유튜브 예약 업로드가 완료되었습니다.")
+                                        } else {
+                                          alert(`유튜브 업로드 실패: ${data.error || res.statusText}`)
+                                        }
+                                      } catch (e) {
+                                        alert(`업로드 중 오류: ${e instanceof Error ? e.message : "알 수 없음"}`)
+                                      } finally {
+                                        setUploadingFactoryId(null)
+                                      }
+                                    }}
+                                  >
+                                    {uploadingFactoryId === item.id ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
+                                    유튜브에 업로드
+                                  </Button>
+                                </>
+                              )}
+                              {isReady && !item.youtubeUploaded && !youtubeChannelName && (
+                                <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-1 rounded">
+                                  예약 완료
+                                </span>
                               )}
                               {isDue && item.status === "pending" && (
                                 <Button
@@ -10029,7 +10387,144 @@ export default function ShoppingPage() {
               </div>
             </div>
             )}
-            {/* 예약 공장 - 예약 추가 다이얼로그 (공장 탭에서도 열리도록 showProjectList일 때 항상 렌더) */}
+            {/* 공장 자동화 설정 다이얼로그 (유튜브 연동) */}
+            <Dialog open={showFactorySettingsDialog} onOpenChange={setShowFactorySettingsDialog}>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>공장 자동화 설정</DialogTitle>
+                  <DialogDescription>
+                    예약 발행 시 유튜브 쇼츠 자동 업로드를 위해 채널을 연동할 수 있습니다.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="grid gap-2">
+                    <Label className="text-amber-900 font-medium">YouTube API 설정</Label>
+                    <p className="text-sm text-slate-600">Google Cloud Console에서 OAuth 2.0 클라이언트 ID(웹 애플리케이션)를 만든 뒤 아래에 입력하세요.</p>
+                    <div className="grid gap-2">
+                      <Label className="text-xs text-slate-500">Client ID</Label>
+                      <Input
+                        type="text"
+                        placeholder="xxxxx.apps.googleusercontent.com"
+                        value={youtubeClientId}
+                        onChange={(e) => setYoutubeClientId(e.target.value)}
+                        onBlur={() => {
+                          try {
+                            if (typeof window !== "undefined" && youtubeClientId.trim())
+                              localStorage.setItem("shopping_factory_youtube_client_id", youtubeClientId.trim())
+                          } catch (_) {}
+                        }}
+                        className="font-mono text-sm"
+                      />
+                      <Label className="text-xs text-slate-500">Client Secret</Label>
+                      <Input
+                        type="password"
+                        placeholder="GOCSPX-..."
+                        value={youtubeClientSecret}
+                        onChange={(e) => setYoutubeClientSecret(e.target.value)}
+                        onBlur={() => {
+                          try {
+                            if (typeof window !== "undefined" && youtubeClientSecret)
+                              localStorage.setItem("shopping_factory_youtube_client_secret", youtubeClientSecret)
+                          } catch (_) {}
+                        }}
+                        className="font-mono text-sm"
+                      />
+                    </div>
+                    <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2 mt-1">
+                      <strong>redirect_uri_mismatch 오류 시:</strong> Google Cloud Console → 사용자 인증 정보 → 해당 OAuth 클라이언트 → &quot;승인된 리디렉션 URI&quot;에 아래 주소를 <strong>그대로</strong> 추가하세요.
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <code className="text-xs bg-slate-100 px-2 py-1 rounded break-all flex-1">
+                        {typeof window !== "undefined" ? `${window.location.origin}/api/youtube/callback` : "https://도메인/api/youtube/callback"}
+                      </code>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="shrink-0 h-8"
+                        onClick={() => {
+                          const uri = typeof window !== "undefined" ? `${window.location.origin}/api/youtube/callback` : ""
+                          if (uri && navigator.clipboard) {
+                            navigator.clipboard.writeText(uri)
+                            alert("리디렉션 URI가 클립보드에 복사되었습니다.")
+                          }
+                        }}
+                      >
+                        <Copy className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label className="text-amber-900 font-medium">YouTube 연동</Label>
+                    {youtubeChannelName ? (
+                      <div className="flex flex-col gap-2 rounded-lg border border-amber-200 bg-amber-50/80 p-3">
+                        <p className="text-sm text-amber-800">
+                          연결된 채널: <span className="font-semibold">{youtubeChannelName}</span>
+                        </p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="border-amber-300 text-amber-700 hover:bg-amber-100"
+                          onClick={() => {
+                            const key = "shopping_factory_youtube_channel"
+                            try {
+                              if (typeof window !== "undefined") localStorage.removeItem(key)
+                            } catch (_) {}
+                            setYoutubeChannelName(null)
+                            setShowFactorySettingsDialog(false)
+                          }}
+                        >
+                          연동 해제
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        <p className="text-sm text-slate-600">YouTube 채널과 연동하면 예약 발행 시 해당 채널에 자동 업로드할 수 있습니다.</p>
+                        <Button
+                          type="button"
+                          className="bg-[#ff0000] hover:bg-[#cc0000] text-white"
+                          onClick={async () => {
+                            const id = youtubeClientId.trim()
+                            const secret = youtubeClientSecret
+                            if (typeof window === "undefined") return
+                            if (id && secret) {
+                              try {
+                                const res = await fetch("/api/youtube/auth", {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ clientId: id, clientSecret: secret, state: "shopping_factory" }),
+                                })
+                                if (res.redirected && res.url) {
+                                  window.location.href = res.url
+                                  return
+                                }
+                                const data = await res.json().catch(() => ({}))
+                                if (data.url) {
+                                  window.location.href = data.url
+                                  return
+                                }
+                                if (!res.ok) {
+                                  alert(data.error || "연동 시작에 실패했습니다.")
+                                  return
+                                }
+                              } catch (e) {
+                                alert("연동 요청 중 오류가 발생했습니다.")
+                                return
+                              }
+                            }
+                            window.location.href = "/api/youtube/auth?state=shopping_factory"
+                          }}
+                        >
+                          YouTube 채널과 연동
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+            {/* 공장 자동화 - 예약 추가 다이얼로그 (공장 탭에서도 열리도록 showProjectList일 때 항상 렌더) */}
             <Dialog open={showAddFactoryScheduleDialog} onOpenChange={setShowAddFactoryScheduleDialog}>
               <DialogContent className="sm:max-w-md">
                 <DialogHeader>
@@ -10157,7 +10652,8 @@ export default function ShoppingPage() {
                       setNewFactoryDesc("")
                       setNewFactoryImage(null)
                       setNewFactoryVoiceId("ttsmaker-여성1")
-                      runFactoryPipelineInBackground(newItem)
+                      // 순차 처리: 큐에 넣기만 하고, 별도 useEffect에서 한 건씩 처리
+                      setFactoryPipelineQueue((prev) => [...prev, newItem])
                     }}
                     className="bg-amber-600 hover:bg-amber-700"
                   >

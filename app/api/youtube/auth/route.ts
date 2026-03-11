@@ -3,19 +3,75 @@ import { google } from "googleapis"
 
 export const dynamic = 'force-dynamic'
 
+const SCOPES = [
+  "https://www.googleapis.com/auth/youtube.upload",
+  "https://www.googleapis.com/auth/youtube.readonly",
+]
+
+function buildAuthUrl(finalClientId: string, finalClientSecret: string, state?: string | null) {
+  const redirectUri = process.env.YOUTUBE_REDIRECT_URI || `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/youtube/callback`
+  const oauth2Client = new google.auth.OAuth2(finalClientId, finalClientSecret, redirectUri)
+  return oauth2Client.generateAuthUrl({
+    access_type: "offline",
+    scope: SCOPES,
+    prompt: "consent",
+    state: state || undefined,
+  })
+}
+
 /**
  * YouTube OAuth 인증 시작 API
- * GET /api/youtube/auth
+ * POST: body { clientId, clientSecret, state } → 쿠키 설정 후 JSON { url } 반환 (설정에서 넣은 값 사용 시)
+ * GET: 쿼리 또는 env에서 Client ID/Secret 사용 → Google로 리다이렉트
  */
+export async function POST(request: Request) {
+  try {
+    const body = await request.json().catch(() => ({}))
+    const clientId = body.clientId as string | undefined
+    const clientSecret = body.clientSecret as string | undefined
+    const state = body.state as string | undefined
+
+    const finalClientId = (clientId?.trim() || "") || process.env.YOUTUBE_CLIENT_ID
+    const finalClientSecret = clientSecret || process.env.YOUTUBE_CLIENT_SECRET
+
+    if (!finalClientId || !finalClientSecret) {
+      return NextResponse.json(
+        { error: "YouTube API 설정이 필요합니다. 설정에서 Client ID와 Secret을 입력해주세요." },
+        { status: 400 }
+      )
+    }
+
+    const { cookies } = await import("next/headers")
+    const cookieStore = await cookies()
+    cookieStore.set("youtube_temp_client_id", finalClientId, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 60 * 5,
+    })
+    cookieStore.set("youtube_temp_client_secret", finalClientSecret, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 60 * 5,
+    })
+
+    const authUrl = buildAuthUrl(finalClientId, finalClientSecret, state)
+    return NextResponse.json({ url: authUrl })
+  } catch (error) {
+    console.error("[YouTube] 인증 시작 오류:", error)
+    return NextResponse.json(
+      { error: "인증 시작에 실패했습니다." },
+      { status: 500 }
+    )
+  }
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
-    
-    // 쿼리 파라미터에서 Client ID와 Secret 가져오기 (로컬스토리지에서 클라이언트가 전달)
     const clientId = searchParams.get("clientId")
     const clientSecret = searchParams.get("clientSecret")
-    
-    // 환경 변수는 fallback (선택사항)
     const finalClientId = clientId || process.env.YOUTUBE_CLIENT_ID
     const finalClientSecret = clientSecret || process.env.YOUTUBE_CLIENT_SECRET
     const redirectUri = process.env.YOUTUBE_REDIRECT_URI || `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/youtube/callback`
@@ -27,37 +83,23 @@ export async function GET(request: Request) {
       )
     }
 
-    // Client ID와 Secret을 세션에 임시 저장 (callback에서 사용하기 위해)
-    // 쿠키에 저장 (httpOnly로 보안)
     const { cookies } = await import("next/headers")
     const cookieStore = await cookies()
     cookieStore.set("youtube_temp_client_id", finalClientId, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      maxAge: 60 * 5, // 5분 (OAuth 인증 완료까지)
+      maxAge: 60 * 5,
     })
     cookieStore.set("youtube_temp_client_secret", finalClientSecret, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      maxAge: 60 * 5, // 5분
+      maxAge: 60 * 5,
     })
 
-    const oauth2Client = new google.auth.OAuth2(finalClientId, finalClientSecret, redirectUri)
-
-    // YouTube Data API v3 스코프
-    const scopes = [
-      "https://www.googleapis.com/auth/youtube.upload",
-      "https://www.googleapis.com/auth/youtube.readonly",
-    ]
-
-    const authUrl = oauth2Client.generateAuthUrl({
-      access_type: "offline", // refresh token 받기 위해 필요
-      scope: scopes,
-      prompt: "consent", // 항상 refresh token 받기 위해 필요
-    })
-
+    const state = searchParams.get("state") || undefined
+    const authUrl = buildAuthUrl(finalClientId, finalClientSecret, state)
     return NextResponse.redirect(authUrl)
   } catch (error) {
     console.error("[YouTube] 인증 시작 오류:", error)

@@ -33,13 +33,21 @@ export async function POST(request: NextRequest) {
       tokens: tokensFromBody, // 클라이언트에서 전달한 토큰
     } = body
 
-    // 필수 필드 검증
-    if (!videoUrl || !title || !description) {
+    // 필수 필드 검증 (description은 선택, 유튜브 API 허용)
+    if (!title || typeof title !== "string") {
       return NextResponse.json(
-        { error: "필수 필드가 누락되었습니다." },
+        { error: "제목(title)이 필요합니다." },
         { status: 400 }
       )
     }
+    const hasVideo = videoUrl && typeof videoUrl === "string" && (videoUrl.startsWith("blob:") ? body.videoBase64 : true)
+    if (!hasVideo) {
+      return NextResponse.json(
+        { error: "영상 URL 또는 videoBase64가 필요합니다." },
+        { status: 400 }
+      )
+    }
+    const descriptionStr = description != null ? String(description) : ""
 
     // YouTube 토큰 확인 (요청 본문에서 받거나 쿠키에서 받기)
     let tokens = tokensFromBody
@@ -193,7 +201,7 @@ export async function POST(request: NextRequest) {
       requestBody: {
         snippet: {
           title,
-          description,
+          description: descriptionStr,
           tags: tags.length > 0 ? tags : undefined,
           categoryId,
         },

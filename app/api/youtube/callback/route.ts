@@ -25,17 +25,20 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url)
     const code = searchParams.get("code")
     const error = searchParams.get("error")
+    const state = searchParams.get("state") // shopping_factory 이면 쇼핑 예약 공장으로 리다이렉트
+
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+    const shoppingFactoryPath = "/WingsAIStudioShotForm/shopping"
+    const defaultRedirect = `${baseUrl}/WingsAIStudio`
 
     if (error) {
-      return NextResponse.redirect(
-        `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/WingsAIStudio?youtube_error=${error}`
-      )
+      const dest = state === "shopping_factory" ? `${baseUrl}${shoppingFactoryPath}?youtube_error=${error}` : `${defaultRedirect}?youtube_error=${error}`
+      return NextResponse.redirect(dest)
     }
 
     if (!code) {
-      return NextResponse.redirect(
-        `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/WingsAIStudio?youtube_error=no_code`
-      )
+      const dest = state === "shopping_factory" ? `${baseUrl}${shoppingFactoryPath}?youtube_error=no_code` : `${defaultRedirect}?youtube_error=no_code`
+      return NextResponse.redirect(dest)
     }
 
     // 세션 쿠키에서 Client ID와 Secret 가져오기 (auth에서 임시 저장한 값)
@@ -64,9 +67,8 @@ export async function GET(request: Request) {
     const redirectUri = process.env.YOUTUBE_REDIRECT_URI || `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/youtube/callback`
 
     if (!clientId || !clientSecret) {
-      return NextResponse.redirect(
-        `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/WingsAIStudio?youtube_error=config`
-      )
+      const dest = state === "shopping_factory" ? `${baseUrl}${shoppingFactoryPath}?youtube_error=config` : `${defaultRedirect}?youtube_error=config`
+      return NextResponse.redirect(dest)
     }
 
     const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, redirectUri)
@@ -75,9 +77,8 @@ export async function GET(request: Request) {
     const { tokens } = await oauth2Client.getToken(code)
 
     if (!tokens.access_token || !tokens.refresh_token) {
-      return NextResponse.redirect(
-        `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/WingsAIStudio?youtube_error=no_tokens`
-      )
+      const dest = state === "shopping_factory" ? `${baseUrl}${shoppingFactoryPath}?youtube_error=no_tokens` : `${defaultRedirect}?youtube_error=no_tokens`
+      return NextResponse.redirect(dest)
     }
 
     // 토큰 만료 시간 계산 (기본 1시간)
@@ -85,30 +86,54 @@ export async function GET(request: Request) {
       ? new Date(tokens.expiry_date)
       : new Date(Date.now() + 3600 * 1000)
 
-    // 토큰을 쿼리 파라미터로 전달하여 클라이언트에서 로컬스토리지에 저장하도록 함
-    // 보안: 실제로는 암호화하거나 더 안전한 방법 사용 권장
-    const tokenData = {
-      access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token,
-      expires_at: expiresAt.toISOString(),
+    // 예약 공장 연동 시: 토큰 쿠키 저장 + 채널명 조회 후 쇼핑 페이지로 리다이렉트 (이후 유튜브 예약 업로드 시 사용)
+    if (state === "shopping_factory") {
+      try {
+        const { cookies } = await import("next/headers")
+        const cookieStore = await cookies()
+        cookieStore.set("youtube_tokens", JSON.stringify({
+          access_token: tokens.access_token,
+          refresh_token: tokens.refresh_token,
+          expires_at: expiresAt.toISOString(),
+        }), {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          maxAge: 60 * 60 * 24 * 365, // 1년
+        })
+
+        oauth2Client.setCredentials({ access_token: tokens.access_token })
+        const youtube = google.youtube({ version: "v3", auth: oauth2Client })
+        const { data } = await youtube.channels.list({ part: ["snippet"], mine: true })
+        const channelTitle = data.items?.[0]?.snippet?.title
+        const channelParam = channelTitle ? encodeURIComponent(channelTitle) : ""
+        const redirectUrl = channelParam
+          ? `${baseUrl}${shoppingFactoryPath}?youtube_channel=${channelParam}`
+          : `${baseUrl}${shoppingFactoryPath}?youtube_connected=1`
+        return NextResponse.redirect(redirectUrl)
+      } catch (e) {
+        console.error("[YouTube] 채널 정보 조회 오류:", e)
+        return NextResponse.redirect(`${baseUrl}${shoppingFactoryPath}?youtube_connected=1`)
+      }
     }
-    
-    // URL에 토큰 정보를 포함하여 리다이렉트 (클라이언트에서 로컬스토리지에 저장)
+
+    // 기존: WingsAIStudio로 토큰 포함 리다이렉트
     const tokenParams = new URLSearchParams({
       access_token: tokens.access_token,
       refresh_token: tokens.refresh_token,
       expires_at: expiresAt.toISOString(),
     })
-
-    // 성공 시 메인 페이지로 리다이렉트 (토큰 정보 포함)
     return NextResponse.redirect(
-      `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/WingsAIStudio?youtube_connected=true&${tokenParams.toString()}`
+      `${defaultRedirect}?youtube_connected=true&${tokenParams.toString()}`
     )
   } catch (error) {
     console.error("[YouTube] 콜백 처리 오류:", error)
-    return NextResponse.redirect(
-      `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/WingsAIStudio?youtube_error=callback_failed`
-    )
+    const state = new URL(request.url).searchParams.get("state")
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+    const dest = state === "shopping_factory"
+      ? `${baseUrl}/WingsAIStudioShotForm/shopping?youtube_error=callback_failed`
+      : `${baseUrl}/WingsAIStudio?youtube_error=callback_failed`
+    return NextResponse.redirect(dest)
   }
 }
 

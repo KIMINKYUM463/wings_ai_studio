@@ -1,8 +1,20 @@
 [
   {
-    "origin": ["https://wingsaistudio.com", "https://www.wingsaistudio.com", "http://localhost:3000"],
-    "method": ["GET", "PUT", "POST", "HEAD", "DELETE"],
-    "responseHeader": ["Content-Type", "Content-Length", "Access-Control-Allow-Origin"],
+    "origin": [
+      "https://wingsaistudio.com",
+      "https://www.wingsaistudio.com",
+      "http://localhost:3000",
+      "http://127.0.0.1:3000"
+    ],
+    "method": ["GET", "PUT", "POST", "HEAD", "DELETE", "OPTIONS"],
+    "responseHeader": [
+      "Content-Type",
+      "Content-Length",
+      "Access-Control-Allow-Origin",
+      "Access-Control-Allow-Methods",
+      "Access-Control-Allow-Headers",
+      "Access-Control-Expose-Headers"
+    ],
     "maxAgeSeconds": 3600
   }
 ]
