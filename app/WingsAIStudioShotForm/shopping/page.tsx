@@ -9192,7 +9192,12 @@ export default function ShoppingPage() {
                 </Button>
                 <Button
                   variant={showFactoryView ? "default" : "outline"}
-                  onClick={() => setShowFactoryView(true)}
+                  onClick={() => {
+                    if (showFactoryView) return
+                    const pw = prompt("테스트 진행중\n\n비밀번호를 입력하세요.")
+                    if (pw === "111") setShowFactoryView(true)
+                    else if (pw !== null) alert("비밀번호가 올바르지 않습니다.")
+                  }}
                   className={showFactoryView ? "bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-lg shadow-amber-500/50" : "border-amber-300 text-amber-700"}
                 >
                   <Factory className="w-4 h-4 mr-2" />
