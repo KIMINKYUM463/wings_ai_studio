@@ -331,6 +331,8 @@ export default function ShoppingPage() {
   const [ttsProgress, setTtsProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 })
   const [isRendering, setIsRendering] = useState(false)
   const [isServerDownloading, setIsServerDownloading] = useState(false) // 서버 다운로드(Cloud Run 렌더) 중
+  /** 모바일/인앱에서 자동 다운로드가 안 될 때 보여줄 '영상 저장' 링크 (탭하여 저장) */
+  const [serverDownloadLink, setServerDownloadLink] = useState<{ url: string; fileName: string } | null>(null)
   const [isGeneratingPreview, setIsGeneratingPreview] = useState(false) // 미리보기 생성 중 상태
   const [previewGenerated, setPreviewGenerated] = useState(false) // 미리보기 생성 완료 여부
   const [isPlaying, setIsPlaying] = useState(false)
@@ -4367,12 +4369,21 @@ export default function ShoppingPage() {
         throw new Error("응답에 videoUrl 또는 videoBase64가 없습니다.")
       }
 
-      // 사용자 기기로 영상 저장 (모바일: 공유/새 창 열기, PC: 다운로드)
+      // 사용자 기기로 영상 저장 (모바일/인앱: 공유·새 창·화면 링크, PC: 다운로드)
       const fileName = `${(factoryAutoRunItem?.productName || productName) || "shopping"}_server_${Date.now()}.mp4`
       const downloadUrl = URL.createObjectURL(blob)
-      const mobile = typeof navigator !== "undefined" && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || (typeof window !== "undefined" && window.innerWidth <= 768))
+      const ua = typeof navigator !== "undefined" ? navigator.userAgent : ""
+      const inAppBrowser = /NAVER|Naver|KAKAOTALK|Daum|FBAN|FBAV/i.test(ua)
+      const mobile = typeof navigator !== "undefined" && (inAppBrowser || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua) || (typeof window !== "undefined" && window.innerWidth <= 768))
       if (mobile) {
-        // 모바일: Web Share API로 저장/공유 유도, 실패 시 새 창에서 열어 길게 눌러 저장
+        // 모바일·인앱: 화면에 '영상 저장' 링크 항상 표시 (네이버 등 인앱에서는 자동 다운로드가 막힘)
+        setServerDownloadLink({ url: downloadUrl, fileName })
+        setTimeout(() => {
+          setServerDownloadLink((prev) => {
+            if (prev?.url === downloadUrl) URL.revokeObjectURL(downloadUrl)
+            return null
+          })
+        }, 5 * 60 * 1000)
         const file = new File([blob], fileName, { type: "video/mp4" })
         const shared = typeof navigator !== "undefined" && navigator.share && (navigator.canShare?.({ files: [file] }) ?? true)
         if (shared) {
@@ -4382,14 +4393,19 @@ export default function ShoppingPage() {
           } catch (e) {
             if ((e as Error)?.name !== "AbortError") {
               window.open(downloadUrl, "_blank")
-              if (!factoryAutoRunItem) alert("영상이 새 창에서 열렸습니다.\n재생 화면을 길게 눌러 '동영상 저장' 또는 '다운로드'를 선택하세요.")
+              if (!factoryAutoRunItem) alert("영상이 새 창에서 열렸을 수 있습니다.\n안 되면 아래 '영상 저장' 버튼을 눌러 주세요.")
             }
           }
         } else {
           window.open(downloadUrl, "_blank")
-          if (!factoryAutoRunItem) alert("영상이 새 창에서 열렸습니다.\n재생 화면을 길게 눌러 '동영상 저장' 또는 '다운로드'를 선택하세요.")
         }
-        setTimeout(() => URL.revokeObjectURL(downloadUrl), 60000)
+        if (!factoryAutoRunItem) {
+          if (inAppBrowser) {
+            alert("서버 렌더링이 완료되었습니다.\n\n아래 '영상 저장' 버튼을 눌러 저장해 주세요. 저장이 안 되면 Chrome 또는 Safari에서 이 페이지를 열어 다시 시도해 주세요.")
+          } else {
+            alert("서버 렌더링이 완료되었습니다.\n아래 '영상 저장' 버튼을 눌러 주세요.")
+          }
+        }
       } else {
         const a = document.createElement("a")
         a.href = downloadUrl
@@ -8554,6 +8570,22 @@ export default function ShoppingPage() {
                           </>
                         )}
                       </Button>
+                      {serverDownloadLink && (
+                        <div className="col-span-full space-y-1">
+                          <p className="text-sm text-amber-800 font-medium">영상을 저장하려면 아래 버튼을 눌러 주세요.</p>
+                          <a
+                            href={serverDownloadLink.url}
+                            download={serverDownloadLink.fileName}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center justify-center gap-2 w-full rounded-lg bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-4 text-base border border-green-700 shadow-sm"
+                          >
+                            <Download className="w-5 h-5 shrink-0" />
+                            영상 저장 (탭하여 다운로드)
+                          </a>
+                          <p className="text-xs text-slate-500">저장이 안 되면 Chrome 또는 Safari에서 이 페이지를 열어 다시 시도해 주세요.</p>
+                        </div>
+                      )}
                       <Button
                         onClick={handleOpenScheduleModal}
                         disabled={isRendering || !previewGenerated}
