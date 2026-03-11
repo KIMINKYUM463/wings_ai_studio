@@ -1548,22 +1548,16 @@ export default function ShoppingPage() {
 
       mediaRecorder.onstop = () => {
         const videoBlob = new Blob(chunks, { type: "video/webm" })
-        const videoUrl = URL.createObjectURL(videoBlob)
-        
-        // 자동 다운로드 (롱폼 쇼츠 생성기 방식)
+        const videoUrlForDownload = URL.createObjectURL(videoBlob)
         const a = document.createElement("a")
-        a.href = videoUrl
+        a.href = videoUrlForDownload
         a.download = `${productName || "shopping"}_video_${Date.now()}.webm`
         document.body.appendChild(a)
         a.click()
         document.body.removeChild(a)
-        
-        // URL 정리
-        URL.revokeObjectURL(videoUrl)
-
+        URL.revokeObjectURL(videoUrlForDownload)
         console.log("[Shopping] 영상 렌더링 및 다운로드 완료")
         setIsRendering(false)
-        // alert 제거 (롱폼 쇼츠 생성기 방식)
       }
 
       // 썸네일 이미지 로드 (있는 경우) - 미리보기에서 사용한 것 재사용
@@ -2563,11 +2557,11 @@ export default function ShoppingPage() {
                         </>
                       ) : (
                         <>
-                        <Download className="w-4 h-4 mr-2" />
+                          <Download className="w-4 h-4 mr-2" />
                           영상 다운로드 (렌더링)
                         </>
                       )}
-                      </Button>
+                    </Button>
                     {!previewGenerated && (
                       <p className="text-sm text-gray-500 text-center">
                         먼저 미리보기를 생성해주세요
@@ -2794,6 +2788,7 @@ export default function ShoppingPage() {
           className="hidden"
           style={{ width: "1080px", height: "1920px" }}
         />
+
       </div>
     </div>
   )

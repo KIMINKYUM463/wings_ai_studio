@@ -108,8 +108,7 @@ export async function POST(request: NextRequest) {
 
     console.log("[v0] Cloud Run 렌더링 API 호출 시작", { type: type || "longform", duration, durationMinutes: durationMinutes.toFixed(1) })
 
-    // 롱폼 vs 숏폼(쇼핑) 별도 GCP 프로젝트 사용 (충돌 방지)
-    // 숏폼은 SHOPPING_* 전용 사용, 롱폼 URL로 폴백하지 않음
+    // 롱폼과 쇼핑 분리: 쇼핑은 별도 GCP 프로젝트/서비스(wingsshort) 사용, 롱폼에 영향 없음
     const CLOUD_RUN_URL = isShopping
       ? process.env.SHOPPING_CLOUD_RUN_RENDER_URL
       : process.env.CLOUD_RUN_RENDER_URL
@@ -121,7 +120,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error: isShopping
-            ? "숏폼(쇼핑)은 별도 GCP 프로젝트를 사용합니다. SHOPPING_CLOUD_RUN_RENDER_URL 환경 변수를 설정해주세요. (롱폼용 CLOUD_RUN_RENDER_URL과 분리)"
+            ? "SHOPPING_CLOUD_RUN_RENDER_URL 환경 변수를 설정해주세요. (쇼핑 전용 Cloud Run 서비스 URL)"
             : "CLOUD_RUN_RENDER_URL 환경 변수가 설정되지 않았습니다.",
         },
         { status: 500 }

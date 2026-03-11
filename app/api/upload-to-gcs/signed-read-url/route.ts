@@ -2,12 +2,9 @@ import { type NextRequest, NextResponse } from "next/server"
 import { Storage } from "@google-cloud/storage"
 
 /**
- * Cloud Storage 파일을 공개로 설정하는 API
- *
+ * GCS 객체에 대한 읽기용 Signed URL 생성 (균일 버킷 수준 액세스 버킷에서 make-public 없이 접근용)
  * body: { fileName: string, scope?: "shopping" }
- * scope === "shopping" 이면 SHOPPING_GOOGLE_* 사용 (숏폼 버킷).
  */
-
 function getStorageClient(scope?: "shopping") {
   const isShopping = scope === "shopping"
   const projectId = isShopping
@@ -65,31 +62,21 @@ export async function POST(request: NextRequest) {
     }
 
     const isShopping = scope === "shopping"
-    console.log(`[MakePublic] 파일 공개 설정 시작: ${fileName}`, isShopping ? "(숏폼)" : "")
-
     const { storage, bucketName } = getStorageClient(isShopping ? "shopping" : undefined)
     const bucket = storage.bucket(bucketName)
     const file = bucket.file(fileName)
 
-    // 파일을 공개로 설정
-    await file.makePublic()
-
-    const publicUrl = `https://storage.googleapis.com/${bucketName}/${fileName}`
-
-    console.log(`[MakePublic] 파일 공개 설정 완료: ${publicUrl}`)
-
-    return NextResponse.json({
-      success: true,
-      url: publicUrl,
+    const [readUrl] = await file.getSignedUrl({
+      action: "read",
+      expires: Date.now() + 2 * 60 * 60 * 1000, // 2시간 (렌더 시간 여유)
     })
+
+    return NextResponse.json({ readUrl })
   } catch (error) {
-    console.error("[MakePublic] 파일 공개 설정 오류:", error)
+    console.error("[SignedReadURL] 오류:", error)
     return NextResponse.json(
-      {
-        error: `파일 공개 설정 실패: ${error instanceof Error ? error.message : String(error)}`,
-      },
+      { error: `읽기 Signed URL 생성 실패: ${error instanceof Error ? error.message : String(error)}` },
       { status: 500 }
     )
   }
 }
-

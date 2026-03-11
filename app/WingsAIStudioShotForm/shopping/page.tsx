@@ -323,6 +323,7 @@ export default function ShoppingPage() {
   const [isGeneratingTTS, setIsGeneratingTTS] = useState(false)
   const [ttsProgress, setTtsProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 })
   const [isRendering, setIsRendering] = useState(false)
+  const [isServerDownloading, setIsServerDownloading] = useState(false) // 서버 다운로드(Cloud Run 렌더) 중
   const [isGeneratingPreview, setIsGeneratingPreview] = useState(false) // 미리보기 생성 중 상태
   const [previewGenerated, setPreviewGenerated] = useState(false) // 미리보기 생성 완료 여부
   const [isPlaying, setIsPlaying] = useState(false)
@@ -3579,7 +3580,10 @@ export default function ShoppingPage() {
         }
         
         const video = document.createElement("video")
+        // blob: URL은 same-origin이라 crossOrigin 불필요; 외부 URL만 anonymous (CORS)
+        if (!videoUrl.startsWith("blob:")) {
         video.crossOrigin = "anonymous"
+        }
         video.src = videoUrl
         video.muted = true
         video.playsInline = true
@@ -3593,6 +3597,9 @@ export default function ShoppingPage() {
         await new Promise<void>((resolve, reject) => {
           let metadataLoaded = false
           let canPlay = false
+          let resolved = false
+          const done = () => { if (!resolved) { resolved = true; resolve() } }
+          const fail = (err: Error) => { if (!resolved) { resolved = true; reject(err) } }
           
           const checkReady = () => {
             // 모바일: canplay만 만족하면 진행 (canplaythrough 대기 시 iOS에서 타임아웃만 나고 끊김)
@@ -3601,15 +3608,15 @@ export default function ShoppingPage() {
                 const duration = video.duration || durationPerVideo
                 videoDurations.push(duration)
                 console.log(`[Shopping] 미리보기 영상 ${i + 1} 로드 완료 (모바일), 길이: ${duration.toFixed(2)}초, readyState=${video.readyState}`)
-                resolve()
+                done()
               }
             } else {
               if (metadataLoaded && canPlay) {
             const duration = video.duration || durationPerVideo
             videoDurations.push(duration)
             console.log(`[Shopping] 미리보기 영상 ${i + 1} 로드 완료, 길이: ${duration.toFixed(2)}초`)
-            resolve()
-          }
+                done()
+              }
             }
           }
           
@@ -3632,11 +3639,17 @@ export default function ShoppingPage() {
             }
           }
           
-          video.onerror = reject
+          video.onerror = () => {
+            const code = video.error?.code ?? -1
+            const msg = video.error?.message ?? "알 수 없음"
+            console.error(`[Shopping] 미리보기 영상 ${i + 1} 로드 실패: code=${code}, message=${msg}`)
+            fail(new Error(`영상 ${i + 1} 로드 실패 (code: ${code}). 브라우저가 해당 형식을 지원하지 않거나 파일이 손상되었을 수 있습니다.`))
+          }
           video.load()
           
           const timeout = isMobile ? 45000 : 10000
           setTimeout(() => {
+            if (resolved) return
             if (metadataLoaded && canPlay) return
             if (isMobile) {
               console.warn(`미리보기 비디오 ${i + 1} 로드 타임아웃 (모바일), 계속 진행 (readyState: ${video.readyState})`)
@@ -3645,8 +3658,8 @@ export default function ShoppingPage() {
                 checkReady()
               } else {
               videoDurations.push(durationPerVideo)
-              resolve()
-            }
+                done()
+              }
             } else {
               console.warn(`미리보기 비디오 ${i + 1} 로드 타임아웃, 계속 진행`)
               if (video.readyState >= 1) {
@@ -3655,7 +3668,7 @@ export default function ShoppingPage() {
                 checkReady()
               } else {
                 videoDurations.push(durationPerVideo)
-                resolve()
+                done()
               }
             }
           }, timeout)
@@ -4034,8 +4047,10 @@ export default function ShoppingPage() {
       console.log("[Shopping] 미리보기 생성 완료 (롱폼 방식)")
       alert("미리보기가 생성되었습니다! 재생 버튼을 눌러 확인하세요.")
     } catch (error) {
+      const msg = error instanceof Error ? error.message : "알 수 없는 오류"
       console.error("미리보기 생성 실패:", error)
-      setError(`미리보기 생성에 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+      setError(`미리보기 생성에 실패했습니다: ${msg}`)
+      alert(`미리보기 생성 실패\n\n${msg}\n\nSafari에서는 WebM 영상이 지원되지 않을 수 있습니다. Chrome 등 다른 브라우저에서 시도해 보세요.`)
     } finally {
       setIsGeneratingPreview(false)
     }
@@ -4119,6 +4134,197 @@ export default function ShoppingPage() {
           }
         }
       }
+    }
+  }
+
+  // blob을 GCS(숏폼 버킷)에 업로드 후 접근 가능한 URL 반환 (서버 다운로드용). 균일 버킷 수준 액세스 대응으로 읽기용 signed URL 사용.
+  const uploadBlobToGcsShopping = async (blob: Blob, fileName: string, contentType: string): Promise<string> => {
+    const ext = fileName.includes(".") ? fileName.split(".").pop() : "bin"
+    const safeName = `${fileName.replace(/[^a-zA-Z0-9.-]/g, "_")}_${Date.now()}.${ext}`
+    const res = await fetch("/api/upload-to-gcs/signed-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fileName: safeName, contentType, scope: "shopping" }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.error || `Signed URL 실패: ${res.status}`)
+    }
+    const { signedUrl, fileName: storedFileName } = await res.json()
+    const putRes = await fetch(signedUrl, { method: "PUT", body: blob, headers: { "Content-Type": contentType } })
+    if (!putRes.ok) throw new Error("GCS 업로드 실패")
+    // 균일 버킷 수준 액세스에서는 makePublic() 불가 → 읽기용 signed URL 사용 (Cloud Run이 이 URL로 fetch)
+    const readRes = await fetch("/api/upload-to-gcs/signed-read-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fileName: storedFileName, scope: "shopping" }),
+    })
+    if (!readRes.ok) {
+      const err = await readRes.json().catch(() => ({}))
+      throw new Error(err.error || "읽기 URL 생성 실패")
+    }
+    const { readUrl } = await readRes.json()
+    return readUrl
+  }
+
+  // 서버 다운로드: 미리보기 데이터(TTS, 자막, 영상3개, 썸네일, BGM/효과음)를 Cloud Run으로 보내 렌더 후 다운로드
+  const handleServerDownload = async () => {
+    if (!previewGenerated || !previewAudio || convertedVideoUrls.size !== 3 || !ttsAudioUrl) {
+      alert("미리보기를 먼저 생성하고, TTS와 영상 3개가 준비되어 있어야 합니다.")
+      return
+    }
+    const durationSec = previewAudio.duration
+    if (!isFinite(durationSec) || durationSec <= 0) {
+      alert("오디오 길이를 확인할 수 없습니다. 미리보기를 다시 생성해주세요.")
+      return
+    }
+    const thumbSrc = selectedThumbnailIndex >= 0 && thumbnailImages[selectedThumbnailIndex]
+      ? thumbnailImages[selectedThumbnailIndex].url
+      : thumbnailUrl || ""
+    if (!thumbSrc) {
+      alert("썸네일을 선택하거나 생성해주세요.")
+      return
+    }
+    if (scriptLines.length === 0) {
+      alert("자막 데이터가 없습니다. 미리보기를 다시 생성해주세요.")
+      return
+    }
+
+    setIsServerDownloading(true)
+    setError("")
+    try {
+      const durationPerVideo = durationSec / 3
+
+      const getBlobFromUrl = async (url: string): Promise<Blob> => {
+        if (url.startsWith("data:")) {
+          const res = await fetch(url)
+          return res.blob()
+        }
+        const res = await fetch(url)
+        if (!res.ok) throw new Error(`다운로드 실패: ${url}`)
+        return res.blob()
+      }
+
+      // 1) TTS 오디오 업로드
+      const ttsBlob = await getBlobFromUrl(ttsAudioUrl)
+      const audioGcsUrl = await uploadBlobToGcsShopping(ttsBlob, "tts_audio", ttsBlob.type || "audio/mpeg")
+
+      // 2) 영상 3개 업로드
+      const videoUrls: string[] = []
+      for (let i = 0; i < 3; i++) {
+        const url = convertedVideoUrls.get(i)
+        if (!url) throw new Error(`영상 ${i + 1}이 없습니다.`)
+        const blob = await getBlobFromUrl(url)
+        const gcsUrl = await uploadBlobToGcsShopping(blob, `segment_${i}`, blob.type || "video/webm")
+        videoUrls.push(gcsUrl)
+      }
+
+      // 3) 썸네일 업로드
+      const thumbBlob = await getBlobFromUrl(thumbSrc)
+      const thumbnailImageUrl = await uploadBlobToGcsShopping(thumbBlob, "thumbnail", thumbBlob.type || "image/jpeg")
+
+      // 4) BGM / 효과음 (선택)
+      let bgmGcsUrl: string | null = null
+      let sfxGcsUrl: string | null = null
+      if (bgmUrl) {
+        try {
+          const b = await getBlobFromUrl(bgmUrl)
+          bgmGcsUrl = await uploadBlobToGcsShopping(b, "bgm", b.type || "audio/mpeg")
+        } catch (e) {
+          console.warn("[서버 다운로드] BGM 업로드 실패, BGM 없이 진행:", e)
+        }
+      }
+      if (sfxUrl) {
+        try {
+          const b = await getBlobFromUrl(sfxUrl)
+          sfxGcsUrl = await uploadBlobToGcsShopping(b, "sfx", b.type || "audio/mpeg")
+        } catch (e) {
+          console.warn("[서버 다운로드] 효과음 업로드 실패, 효과음 없이 진행:", e)
+        }
+      }
+
+      // 미리보기처럼 TTS에 맞춰 한 줄(phrase)씩 시간대로 전달 (getSubtitlePhrases로 나눈 뒤 구간별 start/end 부여)
+      const subtitles: { start: number; end: number; text: string }[] = []
+      for (const line of scriptLines) {
+        const startSec = line.startTime / 1000
+        const endSec = line.endTime / 1000
+        const phrases = getSubtitlePhrases(line.text)
+        if (phrases.length <= 0) continue
+        const span = endSec - startSec
+        phrases.forEach((phrase, i) => {
+          const pStart = startSec + (span * i) / phrases.length
+          const pEnd = startSec + (span * (i + 1)) / phrases.length
+          subtitles.push({ start: pStart, end: pEnd, text: phrase })
+        })
+      }
+
+      const videoSegments = [
+        { url: videoUrls[0], startTime: 0, endTime: durationPerVideo },
+        { url: videoUrls[1], startTime: durationPerVideo, endTime: durationPerVideo * 2 },
+        { url: videoUrls[2], startTime: durationPerVideo * 2, endTime: durationSec },
+      ]
+
+      const body: Record<string, unknown> = {
+        type: "shopping",
+        duration: durationSec,
+        audioGcsUrl,
+        subtitles,
+        thumbnailImageUrl,
+        videoSegments,
+        config: { width: 1080, height: 1920, fps: 30 },
+      }
+      if (bgmGcsUrl) {
+        body.bgmUrl = bgmGcsUrl
+        body.bgmStartTime = bgmStartTime
+        body.bgmEndTime = bgmEndTime
+      }
+      if (sfxGcsUrl) {
+        body.sfxUrl = sfxGcsUrl
+        body.sfxStartTime = sfxStartTime
+        body.sfxEndTime = sfxEndTime
+      }
+
+      const renderRes = await fetch("/api/ai/render", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      if (!renderRes.ok) {
+        const errData = await renderRes.json().catch(() => ({}))
+        throw new Error(errData.error || `렌더 요청 실패: ${renderRes.status}`)
+      }
+      const result = await renderRes.json()
+      const videoUrl = result.videoUrl
+      const videoBase64 = result.videoBase64
+
+      let blob: Blob
+      if (videoUrl) {
+        const videoRes = await fetch(videoUrl)
+        if (!videoRes.ok) throw new Error("렌더된 영상 다운로드 실패")
+        blob = await videoRes.blob()
+      } else if (videoBase64) {
+        const binary = atob(videoBase64)
+        const bytes = new Uint8Array(binary.length)
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+        blob = new Blob([bytes], { type: "video/mp4" })
+      } else {
+        throw new Error("응답에 videoUrl 또는 videoBase64가 없습니다.")
+      }
+
+      const downloadUrl = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = downloadUrl
+      a.download = `${productName || "shopping"}_server_${Date.now()}.mp4`
+      a.click()
+      URL.revokeObjectURL(downloadUrl)
+      alert("서버 렌더링이 완료되었습니다. 다운로드가 시작됩니다.")
+    } catch (err) {
+      console.error("[서버 다운로드] 실패:", err)
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(`서버 다운로드 실패: ${msg}`)
+      alert(`서버 다운로드에 실패했습니다.\n\n${msg}`)
+    } finally {
+      setIsServerDownloading(false)
     }
   }
 
@@ -8022,6 +8228,25 @@ export default function ShoppingPage() {
                       )}
                       </Button>
                       )}
+                      <Button
+                        onClick={handleServerDownload}
+                        disabled={!previewGenerated || isServerDownloading}
+                        variant="outline"
+                        className="col-span-full border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        size="lg"
+                      >
+                        {isServerDownloading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            서버 렌더링 중...
+                          </>
+                        ) : (
+                          <>
+                            <Download className="w-4 h-4 mr-2" />
+                            서버 다운로드
+                          </>
+                        )}
+                      </Button>
                       <Button
                         onClick={handleOpenScheduleModal}
                         disabled={isRendering || !previewGenerated}

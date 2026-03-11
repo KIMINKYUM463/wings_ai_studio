@@ -44,6 +44,249 @@ def after_request(response):
     """모든 응답 후 CORS 헤더 추가"""
     return add_cors_headers(response)
 
+def _download_to_temp(url_or_b64, temp_dir, prefix, is_base64=False, default_ext='.bin'):
+    """URL 또는 base64에서 파일 다운로드 후 경로 반환"""
+    import requests
+    import base64
+    if is_base64:
+        data = base64.b64decode(url_or_b64)
+        ext = default_ext
+    else:
+        r = requests.get(url_or_b64, timeout=300, headers={'User-Agent': 'Mozilla/5.0'})
+        r.raise_for_status()
+        data = r.content
+        ext = '.mp4' if 'video' in r.headers.get('Content-Type', '') else ('.jpg' if 'image' in r.headers.get('Content-Type', '') else default_ext)
+    path = f"{temp_dir}/{prefix}{ext}"
+    with open(path, 'wb') as f:
+        f.write(data)
+    return path
+
+
+def render_shopping(data):
+    """쇼핑 숏폼: 썸네일(0.01초) + 영상 3개 concat + 자막 + TTS, 1080x1920"""
+    import tempfile
+    import base64
+    import time
+    import uuid
+    import shutil
+    import traceback
+    import requests
+
+    duration = float(data.get('duration', 0))
+    audio_gcs_url = data.get('audioGcsUrl')
+    audio_base64 = data.get('audioBase64')
+    subtitles = data.get('subtitles', [])
+    thumbnail_url = data.get('thumbnailImageUrl') or data.get('thumbnailImageGcsUrl')
+    thumbnail_b64 = data.get('thumbnailImage')
+    video_segments = data.get('videoSegments', [])
+    config = data.get('config', {})
+    width = int(config.get('width', 1080))
+    height = int(config.get('height', 1920))
+    bgm_url = data.get('bgmUrl')
+    bgm_start = float(data.get('bgmStartTime', 0))
+    bgm_end = float(data.get('bgmEndTime', 0))
+    sfx_url = data.get('sfxUrl')
+    sfx_start = float(data.get('sfxStartTime', 0))
+    sfx_end = float(data.get('sfxEndTime', 0))
+
+    if not (audio_gcs_url or audio_base64):
+        return jsonify({"success": False, "error": "audioGcsUrl 또는 audioBase64 필요"}), 400
+    if not (thumbnail_url or thumbnail_b64):
+        return jsonify({"success": False, "error": "thumbnailImageUrl 또는 thumbnailImage 필요"}), 400
+    if not video_segments or len(video_segments) < 3:
+        return jsonify({"success": False, "error": "videoSegments 3개 필요"}), 400
+
+    unique_id = str(uuid.uuid4()).replace('-', '')[:12]
+    temp_dir = tempfile.mkdtemp()
+    try:
+        # 1) 오디오 (TTS)
+        if audio_gcs_url:
+            audio_path = _download_to_temp(audio_gcs_url, temp_dir, 'audio')
+        else:
+            audio_path = _download_to_temp(audio_base64, temp_dir, 'audio', is_base64=True, default_ext='.mp3')
+        # 1b) BGM/효과음 있으면 믹싱 후 단일 오디오로 (미리보기와 동일)
+        if bgm_url and bgm_end > bgm_start:
+            try:
+                bgm_path = _download_to_temp(bgm_url, temp_dir, 'bgm', default_ext='.mp3')
+                bgm_dur = bgm_end - bgm_start
+                mixed_path = f"{temp_dir}/mixed_audio.wav"
+                if sfx_url and sfx_end > sfx_start:
+                    sfx_path = _download_to_temp(sfx_url, temp_dir, 'sfx', default_ext='.mp3')
+                    sfx_dur = sfx_end - sfx_start
+                    # TTS + BGM(adelay+atrim) + SFX(adelay+atrim) -> amix
+                    subprocess.run([
+                        'ffmpeg', '-y', '-i', audio_path, '-i', bgm_path, '-i', sfx_path,
+                        '-filter_complex',
+                        f'[0:a]atrim=0:{duration},asetpts=PTS-STARTPTS[a0];'
+                        f'[1:a]atrim=0:{bgm_dur},asetpts=PTS-STARTPTS,adelay={int(bgm_start*1000)}|{int(bgm_start*1000)},apad[a1];'
+                        f'[2:a]atrim=0:{sfx_dur},asetpts=PTS-STARTPTS,adelay={int(sfx_start*1000)}|{int(sfx_start*1000)},apad[a2];'
+                        f'[a0][a1][a2]amix=inputs=3:duration=first:dropout_transition=0[mix]',
+                        '-map', '[mix]', '-t', str(duration), '-ac', '1', mixed_path
+                    ], capture_output=True, text=True, timeout=120)
+                else:
+                    subprocess.run([
+                        'ffmpeg', '-y', '-i', audio_path, '-i', bgm_path,
+                        '-filter_complex',
+                        f'[0:a]atrim=0:{duration},asetpts=PTS-STARTPTS[a0];'
+                        f'[1:a]atrim=0:{bgm_dur},asetpts=PTS-STARTPTS,adelay={int(bgm_start*1000)}|{int(bgm_start*1000)},apad[a1];'
+                        f'[a0][a1]amix=inputs=2:duration=first:dropout_transition=0[mix]',
+                        '-map', '[mix]', '-t', str(duration), '-ac', '1', mixed_path
+                    ], capture_output=True, text=True, timeout=120)
+                if os.path.exists(mixed_path) and os.path.getsize(mixed_path) > 0:
+                    audio_path = mixed_path
+            except Exception as e:
+                print(f"[Render Shopping] BGM/SFX mix skip: {e}")
+        elif sfx_url and sfx_end > sfx_start:
+            try:
+                sfx_path = _download_to_temp(sfx_url, temp_dir, 'sfx', default_ext='.mp3')
+                sfx_dur = sfx_end - sfx_start
+                mixed_path = f"{temp_dir}/mixed_audio.wav"
+                subprocess.run([
+                    'ffmpeg', '-y', '-i', audio_path, '-i', sfx_path,
+                    '-filter_complex',
+                    f'[0:a]atrim=0:{duration},asetpts=PTS-STARTPTS[a0];'
+                    f'[1:a]atrim=0:{sfx_dur},asetpts=PTS-STARTPTS,adelay={int(sfx_start*1000)}|{int(sfx_start*1000)},apad[a1];'
+                    f'[a0][a1]amix=inputs=2:duration=first:dropout_transition=0[mix]',
+                    '-map', '[mix]', '-t', str(duration), '-ac', '1', mixed_path
+                ], capture_output=True, text=True, timeout=120)
+                if os.path.exists(mixed_path) and os.path.getsize(mixed_path) > 0:
+                    audio_path = mixed_path
+            except Exception as e:
+                print(f"[Render Shopping] SFX mix skip: {e}")
+        # 2) 썸네일
+        if thumbnail_b64:
+            thumb_path = _download_to_temp(thumbnail_b64, temp_dir, 'thumb', is_base64=True, default_ext='.jpg')
+        else:
+            thumb_path = _download_to_temp(thumbnail_url, temp_dir, 'thumb', default_ext='.jpg')
+        # 3) 영상 3개
+        seg_paths = []
+        for i, seg in enumerate(video_segments[:3]):
+            url = seg.get('url')
+            if not url:
+                raise Exception(f"videoSegments[{i}].url 필요")
+            seg_paths.append(_download_to_temp(url, temp_dir, f'seg{i}', default_ext='.webm'))
+
+        # 4) 썸네일을 0.01초 비디오로 (1080x1920) - 미리보기처럼 화면 꽉 차게: cover 후 중앙 crop
+        thumb_video = f"{temp_dir}/thumb_v.mp4"
+        scale_crop = f'scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}:(iw-{width})/2:(ih-{height})/2'
+        subprocess.run([
+            'ffmpeg', '-y', '-loop', '1', '-i', thumb_path, '-t', '0.01', '-vf',
+            scale_crop, '-r', '30', '-pix_fmt', 'yuv420p', thumb_video
+        ], capture_output=True, text=True, timeout=60)
+
+        # 5) 각 세그먼트: 미리보기와 동일하게 "해당 구간 길이"만큼만 처음부터 재생 (startTime/endTime은 타임라인 위치이지 영상 내 seek 아님)
+        duration_per_segment = duration / 3.0
+        scaled = []
+        for i, p in enumerate(seg_paths):
+            out_p = f"{temp_dir}/scaled_{i}.mp4"
+            seg_start = float(video_segments[i].get('startTime', i * duration_per_segment))
+            seg_end = float(video_segments[i].get('endTime', (i + 1) * duration_per_segment))
+            seg_dur = max(0.01, seg_end - seg_start)
+            # 항상 각 영상의 "처음"부터 seg_dur초만 잘라서 사용 (미리보기와 동일). 화면 꽉 차게: cover 후 중앙 crop
+            subprocess.run([
+                'ffmpeg', '-y', '-i', p, '-t', str(seg_dur), '-vf',
+                f'scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}:(iw-{width})/2:(ih-{height})/2',
+                '-r', '30', '-an', '-pix_fmt', 'yuv420p', out_p
+            ], capture_output=True, text=True, timeout=120)
+            scaled.append(out_p)
+
+        # 6) concat: 썸네일(0.01초) + 세그먼트 3개 → 총 길이를 오디오(duration)에 맞춰 잘라서 미리보기와 동기화
+        concat_list = f"{temp_dir}/concat.txt"
+        with open(concat_list, 'w') as f:
+            f.write(f"file '{thumb_video}'\n")
+            for s in scaled:
+                f.write(f"file '{s}'\n")
+        video_concat = f"{temp_dir}/video_concat.mp4"
+        subprocess.run([
+            'ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', concat_list, '-c', 'copy', video_concat
+        ], capture_output=True, text=True, timeout=120)
+        # 최종 영상 길이 = 오디오 길이(duration)로 맞춤 (끊김 방지)
+        video_no_audio = f"{temp_dir}/video_no_audio.mp4"
+        subprocess.run([
+            'ffmpeg', '-y', '-i', video_concat, '-t', str(duration), '-c', 'copy', video_no_audio
+        ], capture_output=True, text=True, timeout=60)
+
+        # 7) 자막: 미리보기처럼 시간별로 바뀌게 drawtext 사용 (각 구간 enable=between(t,start,end))
+        output_path = f"{temp_dir}/output.mp4"
+        font_path = None
+        for p in ['/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc', '/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc']:
+            if os.path.exists(p):
+                font_path = p
+                break
+        if not font_path:
+            import glob
+            for pat in ['/usr/share/fonts/**/NotoSansCJK*Bold*.ttc', '/usr/share/fonts/**/NotoSansCJK*.ttc']:
+                found = glob.glob(pat, recursive=True)
+                if found:
+                    font_path = found[0]
+                    break
+
+        # 미리보기와 동일: 자막 위치 38% (canvas.height*0.38), 한 줄(phrase)마다 해당 시간에만 표시
+        drawtext_parts = []
+        for sub in (subtitles or []):
+            start = float(sub.get('start', sub.get('startTime', 0)))
+            end = float(sub.get('end', sub.get('endTime', start + 1)))
+            text = (sub.get('text', '') or '').strip().replace('\n', ' ').replace('\r', ' ')
+            if not text or end <= start:
+                continue
+            # drawtext 이스케이프: \ ' : % [ ]
+            text_esc = text.replace('\\', '\\\\').replace("'", "'\\\\''").replace(':', '\\:').replace('%', '\\%').replace('[', '\\[').replace(']', '\\]')
+            enable = f"between(t,{start:.3f},{end:.3f})"
+            # y=h*0.38-th/2 → 미리보기와 동일하게 화면 높이의 38% 지점에 자막 세로 중앙 맞춤
+            y_pos = "h*0.38-th/2"
+            if font_path:
+                font_esc = font_path.replace("'", "'\\''")
+                drawtext_parts.append(f"drawtext=fontfile='{font_esc}':text='{text_esc}':enable='{enable}':x=(w-text_w)/2:y={y_pos}:fontsize=72:fontcolor=white:box=1:boxcolor=black@0.75:boxborderw=8:fix_bounds=1")
+            else:
+                drawtext_parts.append(f"drawtext=text='{text_esc}':enable='{enable}':x=(w-text_w)/2:y={y_pos}:fontsize=72:fontcolor=white:box=1:boxcolor=black@0.75:boxborderw=8:fix_bounds=1")
+
+        if drawtext_parts and font_path:
+            vf_chain = ','.join(drawtext_parts)
+            subprocess.run([
+                'ffmpeg', '-y', '-i', video_no_audio, '-i', audio_path, '-vf', vf_chain,
+                '-c:a', 'aac', '-b:a', '192k', '-shortest', '-movflags', '+faststart', output_path
+            ], capture_output=True, text=True, timeout=600)
+        elif drawtext_parts:
+            vf_chain = ','.join(drawtext_parts)
+            subprocess.run([
+                'ffmpeg', '-y', '-i', video_no_audio, '-i', audio_path, '-vf', vf_chain,
+                '-c:a', 'aac', '-b:a', '192k', '-shortest', '-movflags', '+faststart', output_path
+            ], capture_output=True, text=True, timeout=600)
+        else:
+            subprocess.run([
+                'ffmpeg', '-y', '-i', video_no_audio, '-i', audio_path, '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-shortest', '-movflags', '+faststart', output_path
+            ], capture_output=True, text=True, timeout=300)
+
+        if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+            raise Exception("쇼핑 렌더 출력 파일 생성 실패")
+
+        with open(output_path, 'rb') as f:
+            video_data = f.read()
+        size_mb = len(video_data) / 1024 / 1024
+        if size_mb > 30:
+            project_id = os.environ.get('SHOPPING_GOOGLE_CLOUD_PROJECT_ID') or os.environ.get('GOOGLE_CLOUD_PROJECT_ID')
+            bucket_name = os.environ.get('SHOPPING_GOOGLE_CLOUD_STORAGE_BUCKET') or os.environ.get('GOOGLE_CLOUD_STORAGE_BUCKET')
+            if project_id and bucket_name:
+                from google.cloud import storage
+                client = storage.Client(project=project_id)
+                bucket = client.bucket(bucket_name)
+                blob = bucket.blob(f"shopping_{int(time.time())}_{unique_id}.mp4")
+                blob.upload_from_string(video_data, content_type='video/mp4')
+                video_url = blob.public_url
+                return jsonify({"success": True, "videoUrl": video_url, "projectId": f"shopping_{unique_id}"})
+        video_base64 = base64.b64encode(video_data).decode('utf-8')
+        return jsonify({"success": True, "videoBase64": video_base64, "projectId": f"shopping_{unique_id}"})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"success": False, "error": f"쇼핑 렌더 실패: {str(e)}"}), 500
+    finally:
+        if temp_dir and os.path.exists(temp_dir):
+            try:
+                shutil.rmtree(temp_dir)
+            except Exception:
+                pass
+
+
 @app.route('/render', methods=['POST', 'OPTIONS'])
 def render_video():
     # OPTIONS 요청 처리 (CORS preflight)
@@ -52,7 +295,6 @@ def render_video():
         return add_cors_headers(response), 200
     """
     영상 렌더링 엔드포인트
-    현재는 테스트용으로 간단한 응답만 반환
     """
     try:
         data = request.json
@@ -62,8 +304,12 @@ def render_video():
                 "success": False,
                 "error": "요청 데이터가 없습니다."
             }), 400
-        
-        # 요청 데이터 확인
+
+        # 쇼핑 숏폼: type === "shopping" 이면 별도 파이프라인
+        if data.get('type') == 'shopping':
+            return render_shopping(data)
+
+        # 요청 데이터 확인 (롱폼)
         audio_base64 = data.get('audioBase64')
         audio_gcs_url = data.get('audioGcsUrl')  # Cloud Storage URL
         subtitles = data.get('subtitles', [])
