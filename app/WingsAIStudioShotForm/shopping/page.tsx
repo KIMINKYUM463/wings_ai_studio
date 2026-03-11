@@ -35,6 +35,7 @@ import {
   ChevronDown,
   Copy,
   Check,
+  CalendarClock,
 } from "lucide-react"
 import {
   Select,
@@ -54,7 +55,7 @@ import { generateShoppingScript, generateVideoWithSora2, generateImagesWith3Scen
 import { getApiKey } from "@/lib/api-keys"
 import { getShoppingProjects, createShoppingProject, updateShoppingProject, deleteShoppingProject, getShoppingProject, uploadTTSAudio, type ShoppingProject, type ShoppingProjectData } from "./project-actions"
 import { getAudioLibrary, getAllAudioLibrary, type AudioLibraryItem } from "./audio-library-actions"
-import { Plus, Trash2, Edit2, Search, FolderOpen } from "lucide-react"
+import { Plus, Trash2, Edit2, Search, FolderOpen, Factory, Cog, ChevronLeft, ChevronRight } from "lucide-react"
 
 // AudioBuffer를 WAV로 변환하는 함수
 const audioBufferToWav = (buffer: AudioBuffer): ArrayBuffer => {
@@ -129,6 +130,167 @@ interface ScriptLine {
   endTime: number
 }
 
+// 예약 발행 (ShotForm 쇼핑 전용)
+const SHOTFORM_SCHEDULES_STORAGE_KEY = "wings_shotform_shopping_schedules"
+const SHOTFORM_SCHEDULES_DB_NAME = "WingsShotFormShoppingSchedules"
+const SHOTFORM_SCHEDULES_DB_STORE = "videos"
+
+export interface ShoppingScheduleItem {
+  id: string
+  productName: string
+  productDescription?: string
+  scheduleAt: string
+  createdAt: string
+  status: "scheduled"
+}
+
+function openShotFormSchedulesDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(SHOTFORM_SCHEDULES_DB_NAME, 1)
+    req.onerror = () => reject(req.error)
+    req.onsuccess = () => resolve(req.result)
+    req.onupgradeneeded = (e) => {
+      const db = (e.target as IDBOpenDBRequest).result
+      if (!db.objectStoreNames.contains(SHOTFORM_SCHEDULES_DB_STORE)) {
+        db.createObjectStore(SHOTFORM_SCHEDULES_DB_STORE, { keyPath: "id" })
+      }
+    }
+  })
+}
+
+function saveShotFormScheduleVideoBlob(id: string, blob: Blob): Promise<void> {
+  return openShotFormSchedulesDB().then((db) => {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(SHOTFORM_SCHEDULES_DB_STORE, "readwrite")
+      const store = tx.objectStore(SHOTFORM_SCHEDULES_DB_STORE)
+      store.put({ id, blob })
+      tx.oncomplete = () => { db.close(); resolve() }
+      tx.onerror = () => { db.close(); reject(tx.error) }
+    })
+  })
+}
+
+function getShotFormScheduleVideoBlob(id: string): Promise<Blob | null> {
+  return openShotFormSchedulesDB().then((db) => {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(SHOTFORM_SCHEDULES_DB_STORE, "readonly")
+      const store = tx.objectStore(SHOTFORM_SCHEDULES_DB_STORE)
+      const req = store.get(id)
+      req.onsuccess = () => {
+        db.close()
+        resolve(req.result?.blob ?? null)
+      }
+      req.onerror = () => { db.close(); reject(req.error) }
+    })
+  })
+}
+
+function deleteShotFormScheduleVideoBlob(id: string): Promise<void> {
+  return openShotFormSchedulesDB().then((db) => {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(SHOTFORM_SCHEDULES_DB_STORE, "readwrite")
+      const store = tx.objectStore(SHOTFORM_SCHEDULES_DB_STORE)
+      store.delete(id)
+      tx.oncomplete = () => { db.close(); resolve() }
+      tx.onerror = () => { db.close(); reject(tx.error) }
+    })
+  })
+}
+
+// 예약 공장 (공장 모드): 날짜별 상품·이미지·목소리만 정해두면 해당 날에 영상 자동 생성
+const FACTORY_SCHEDULES_STORAGE_KEY = "wings_shotform_factory_schedules"
+
+export interface FactoryScheduleItem {
+  id: string
+  scheduledDate: string // YYYY-MM-DD
+  scheduledTime?: string // HH:mm (발행 시·분)
+  productName: string
+  productDescription?: string
+  productImageBase64: string | null // 썸네일용 작은 base64 가능
+  voiceId: string // selectedVoiceId 형식 (ttsmaker-여성1, supertone-xxx 등)
+  status: "pending" | "generating" | "ready" | "failed"
+  phase?: string // 실행 단계: product | script | video | render | thumbnail | preview
+  createdAt: string
+  errorMessage?: string
+  videoBlobId?: string // ready일 때 ShotForm schedule ID와 동일하게 사용 가능
+  projectId?: string // 예약 공장 자동 생성 시 생성·저장되는 프로젝트 ID
+}
+
+const FACTORY_PHASE_LABELS: Record<string, string> = {
+  product: "제품 입력",
+  script: "대본·TTS 생성",
+  video: "이미지 생성",
+  render: "영상 생성",
+  thumbnail: "썸네일 생성",
+  preview: "미리보기·렌더링",
+}
+
+// 예약 공장 단계 순서 및 단계별 이름 (완료/진행 중 표시용)
+const FACTORY_PHASES_ORDER: Array<{ key: string; label: string }> = [
+  { key: "script", label: "대본생성" },
+  { key: "video", label: "이미지생성" },
+  { key: "tts", label: "TTS생성" },
+  { key: "render", label: "영상생성" },
+  { key: "preview", label: "미리보기" },
+]
+
+function getFactoryPhaseDisplayText(phase: string | undefined): string {
+  if (!phase) return "진행 중"
+  const idx = FACTORY_PHASES_ORDER.findIndex((p) => p.key === phase)
+  if (idx < 0) return FACTORY_PHASE_LABELS[phase] || phase
+  const parts: string[] = []
+  for (let i = 0; i < FACTORY_PHASES_ORDER.length; i++) {
+    if (i < idx) parts.push(`${FACTORY_PHASES_ORDER[i].label} 완료`)
+    else if (i === idx) parts.push(`${FACTORY_PHASES_ORDER[i].label} 중`)
+    else break
+  }
+  return parts.join(" → ")
+}
+
+// 자막: 단어 중간에서 끊지 않고, 공백 단위로 묶어서 한 줄씩 표시 (예: "이거 하나로 요리가" / "진짜 쉬워져요")
+const SUBTITLE_MAX_CHARS_PER_LINE = 11
+
+// "될 거예요" → "될거예요"처럼 띄어쓰기된 어미/보조용언을 한 단위로 묶음 (줄 나눔 시 "될" / "거예요"로 끊기지 않도록)
+function mergeKoreanEndingSpaces(text: string): string {
+  return text
+    .replace(/\s+(거예요|거야|것 같아|수 있어|수 있죠|겁니다|습니다|해요|돼요|되죠|될까요)\b/g, (m) => m.trim())
+    .replace(/\s+(거예요|거야)\s*$/g, (m) => m.trim())
+}
+
+function getSubtitlePhrases(text: string): string[] {
+  if (!text || !text.trim()) return []
+  const merged = mergeKoreanEndingSpaces(text.trim())
+  const tokens = merged.split(/\s+/).filter(Boolean)
+  if (tokens.length === 0) return [merged]
+  const lines: string[] = []
+  let currentLine = ""
+  for (const token of tokens) {
+    const next = currentLine ? `${currentLine} ${token}` : token
+    if (next.length <= SUBTITLE_MAX_CHARS_PER_LINE) {
+      currentLine = next
+    } else {
+      if (currentLine) lines.push(currentLine)
+      currentLine = token
+    }
+  }
+  if (currentLine) lines.push(currentLine)
+  return lines.length >= 1 ? lines : [merged]
+}
+
+// 예약 공장 6단계 스테퍼용: phase → 스텝 인덱스 (0=제품입력, 1=대본·TTS, 2=이미지, 3=영상, 4=썸네일, 5=완료)
+function getFactoryPhaseStepIndex(phase: string | undefined): number {
+  if (!phase) return 0
+  const map: Record<string, number> = {
+    product: 0,
+    script: 1,
+    tts: 1,
+    video: 2,
+    render: 3,
+    preview: 4,
+  }
+  return map[phase] ?? 0
+}
+
 export default function ShoppingPage() {
   const [productName, setProductName] = useState("")
   const [productDescription, setProductDescription] = useState("")
@@ -198,6 +360,13 @@ export default function ShoppingPage() {
   const thumbnailCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [draggingBgmHandle, setDraggingBgmHandle] = useState<"start" | "end" | null>(null) // BGM 핸들 드래그 중
+
+  // 예약 발행 (ShotForm 쇼핑)
+  const [scheduledItems, setScheduledItems] = useState<ShoppingScheduleItem[]>([])
+  const [scheduleModalOpen, setScheduleModalOpen] = useState(false)
+  const [scheduleDate, setScheduleDate] = useState("")
+  const [scheduleTime, setScheduleTime] = useState("09:00")
+  const [isScheduling, setIsScheduling] = useState(false)
   const [draggingSfxHandle, setDraggingSfxHandle] = useState<"start" | "end" | null>(null) // 효과음 핸들 드래그 중
   const timelineRef = useRef<HTMLDivElement | null>(null) // 타임라인 재생바 ref
   const bgmTimelineRef = useRef<HTMLDivElement | null>(null) // BGM 타임라인 ref
@@ -284,6 +453,20 @@ export default function ShoppingPage() {
   const [projects, setProjects] = useState<ShoppingProject[]>([])
   const [currentProject, setCurrentProject] = useState<ShoppingProject | null>(null)
   const [showProjectList, setShowProjectList] = useState(true) // 프로젝트 목록 화면 표시 여부
+  const [showFactoryView, setShowFactoryView] = useState(false) // 예약 공장(공장 모드) 화면
+  const [factorySchedules, setFactorySchedules] = useState<FactoryScheduleItem[]>([])
+  const [showAddFactoryScheduleDialog, setShowAddFactoryScheduleDialog] = useState(false)
+  const [factoryCalendarMonth, setFactoryCalendarMonth] = useState(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
+  })
+  const [newFactoryDate, setNewFactoryDate] = useState("")
+  const [newFactoryTime, setNewFactoryTime] = useState("09:00")
+  const [newFactoryName, setNewFactoryName] = useState("")
+  const [newFactoryDesc, setNewFactoryDesc] = useState("")
+  const [newFactoryImage, setNewFactoryImage] = useState<string | null>(null)
+  const [newFactoryVoiceId, setNewFactoryVoiceId] = useState("ttsmaker-여성1")
+  const [factoryAutoRunItem, setFactoryAutoRunItem] = useState<FactoryScheduleItem | null>(null)
   const [isLoadingProjects, setIsLoadingProjects] = useState(false)
   const [isSavingProject, setIsSavingProject] = useState(false)
   const [newProjectName, setNewProjectName] = useState("")
@@ -399,6 +582,62 @@ export default function ShoppingPage() {
     
     fetchUserInfo()
   }, [])
+
+  // 예약 발행 목록 로드 (ShotForm 쇼핑)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SHOTFORM_SCHEDULES_STORAGE_KEY)
+      if (raw) {
+        const parsed = JSON.parse(raw) as ShoppingScheduleItem[]
+        setScheduledItems(Array.isArray(parsed) ? parsed : [])
+      }
+    } catch {
+      setScheduledItems([])
+    }
+  }, [])
+
+  const persistScheduledItems = (items: ShoppingScheduleItem[]) => {
+    setScheduledItems(items)
+    localStorage.setItem(SHOTFORM_SCHEDULES_STORAGE_KEY, JSON.stringify(items))
+  }
+
+  // 예약 공장 목록 로드
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(FACTORY_SCHEDULES_STORAGE_KEY)
+      if (raw) {
+        const parsed = JSON.parse(raw) as FactoryScheduleItem[]
+        setFactorySchedules(Array.isArray(parsed) ? parsed : [])
+      }
+    } catch {
+      setFactorySchedules([])
+    }
+  }, [])
+
+  const persistFactorySchedules = (items: FactoryScheduleItem[]) => {
+    setFactorySchedules(items)
+    localStorage.setItem(FACTORY_SCHEDULES_STORAGE_KEY, JSON.stringify(items))
+  }
+
+  // 공장 자동 실행 중일 때 현재 단계(activeStep)를 예약 항목에 반영
+  useEffect(() => {
+    if (!factoryAutoRunItem) return
+    const phase = activeStep
+    setFactorySchedules((prev) => {
+      const next = prev.map((s) =>
+        s.id === factoryAutoRunItem.id ? { ...s, status: "generating" as const, phase } : s
+      )
+      localStorage.setItem(FACTORY_SCHEDULES_STORAGE_KEY, JSON.stringify(next))
+      return next
+    })
+  }, [factoryAutoRunItem?.id, activeStep])
+
+  // 예약 추가 다이얼로그 열릴 때 수퍼톤 목록이 없으면 자동 로드
+  useEffect(() => {
+    if (showAddFactoryScheduleDialog && supertoneVoices.length === 0 && !isLoadingSupertoneVoices) {
+      fetchSupertoneVoices()
+    }
+  }, [showAddFactoryScheduleDialog])
 
   // 프로젝트 목록 불러오기
   useEffect(() => {
@@ -649,29 +888,31 @@ export default function ShoppingPage() {
 
     setIsSavingProject(true)
     try {
-      // TTS 오디오 URL이 임시 URL(blob:)이면 Supabase Storage에 업로드
+      // TTS: 화면에 나오는 오디오 URL 그대로 저장 (TTS 생성 시 이미 Supabase 업로드한 영구 URL이면 그대로, blob이면 업로드 후 URL로 저장)
       let finalTtsAudioUrl = ttsAudioUrl && ttsAudioUrl.trim() ? ttsAudioUrl : undefined
       if (finalTtsAudioUrl && finalTtsAudioUrl.startsWith("blob:")) {
+        const projectIdForUpload = currentProject?.id
+        if (projectIdForUpload) {
         try {
-          console.log("[Shopping] 임시 오디오 URL 감지, Supabase Storage에 업로드 중...")
           const audioResponse = await fetch(finalTtsAudioUrl)
           const audioBlob = await audioResponse.blob()
-          
-          // 프로젝트 ID 결정 (기존 프로젝트 또는 새로 생성될 프로젝트)
-          let projectIdForUpload = currentProject?.id
-          if (!projectIdForUpload && !isNewProject) {
-            // 프로젝트가 없으면 먼저 생성해야 함
-            console.warn("[Shopping] 프로젝트가 없어 오디오를 나중에 업로드합니다.")
-          } else if (projectIdForUpload) {
-            // 기존 프로젝트가 있으면 바로 업로드
             finalTtsAudioUrl = await uploadTTSAudio(audioBlob, projectIdForUpload, userId)
-            console.log("[Shopping] 오디오 파일 업로드 완료:", finalTtsAudioUrl)
-          }
         } catch (uploadError) {
-          console.error("[Shopping] 오디오 파일 업로드 실패:", uploadError)
-          // 업로드 실패해도 임시 URL 유지 (사용자 경험 유지)
+            console.error("[Shopping] 오디오 업로드 실패:", uploadError)
+            finalTtsAudioUrl = currentProject?.data?.ttsAudioUrl && !currentProject.data.ttsAudioUrl.startsWith("blob:") ? currentProject.data.ttsAudioUrl : undefined
+          }
+        } else {
+          finalTtsAudioUrl = undefined
         }
       }
+      if (currentProject && !isNewProject && finalTtsAudioUrl && finalTtsAudioUrl.startsWith("blob:")) {
+        finalTtsAudioUrl = currentProject.data?.ttsAudioUrl && !currentProject.data.ttsAudioUrl.startsWith("blob:") ? currentProject.data.ttsAudioUrl : undefined
+      }
+      // 기존 프로젝트 업데이트 시: final이 없어도 기존 ttsAudioUrl 덮어쓰지 않음 (업로드 실패 시 유지)
+      const ttsAudioUrlToSave =
+        currentProject && !isNewProject
+          ? (finalTtsAudioUrl !== undefined ? finalTtsAudioUrl : currentProject.data?.ttsAudioUrl)
+          : finalTtsAudioUrl
       
       const projectData: ShoppingProjectData = {
         productName: productName ?? undefined,
@@ -683,7 +924,7 @@ export default function ShoppingPage() {
         selectedVoiceId,
         selectedSupertoneVoiceId,
         selectedSupertoneStyle,
-        ttsAudioUrl: finalTtsAudioUrl,
+        ttsAudioUrl: ttsAudioUrlToSave,
         imageUrls,
         imagePrompts,
         convertedVideoUrls: Array.from(convertedVideoUrls.entries()).map(([index, url]) => ({ index, videoUrl: url })),
@@ -718,6 +959,9 @@ export default function ShoppingPage() {
           description: newProjectDescription || undefined,
           data: projectData,
         })
+        if (ttsAudioUrlToSave && !ttsAudioUrlToSave.startsWith("blob:")) {
+          setTtsAudioUrl(ttsAudioUrlToSave)
+        }
         alert("프로젝트가 저장되었습니다.")
       } else {
         // 새 프로젝트 생성 전에 모든 상태 초기화
@@ -3091,21 +3335,12 @@ export default function ShoppingPage() {
           )
           
           if (currentLine) {
-            // 텍스트를 10자씩 나누기
-            const fullText = currentLine.text
-            const chunkSize = 10
-            const chunks: string[] = []
-            for (let i = 0; i < fullText.length; i += chunkSize) {
-              chunks.push(fullText.slice(i, i + chunkSize))
-            }
-            
-            // 현재 시간 기준으로 몇 번째 청크를 보여줄지 계산
+            // 의미 단위(쉼표·마침표 기준)로 나눠 한 줄씩 순서대로 표시
+            const phrases = getSubtitlePhrases(currentLine.text)
             const lineDuration = currentLine.endTime - currentLine.startTime
-            const chunkDuration = lineDuration / chunks.length
             const timeInLine = elapsedMs - currentLine.startTime
-            const currentChunkIndex = Math.min(Math.floor(timeInLine / chunkDuration), chunks.length - 1)
-            const textToShow = chunks[currentChunkIndex] || chunks[0]
-            
+            const phraseIndex = phrases.length <= 1 ? 0 : Math.min(Math.floor((timeInLine / lineDuration) * phrases.length), phrases.length - 1)
+            const textToShow = phrases[phraseIndex] || currentLine.text
             const subtitleY = canvas.height * 0.38
             
             // 자막 텍스트 (배경 없음, 검정 테두리)
@@ -3212,6 +3447,10 @@ export default function ShoppingPage() {
   }
 
   // 미리보기 생성 (롱폼 방식: HTML video 엘리먼트 사용)
+  // [모바일에서 끊기는 이유]
+  // 1) 메모리: 영상 3개+오디오+썸네일을 한꺼번에 로드하면 메모리 부족으로 탭이 죽거나 끊길 수 있음.
+  // 2) iOS: canplaythrough가 재생 전에는 잘 안 뜨므로, 모바일에서는 canplay만 사용하고 타임아웃을 넉넉히 둠.
+  // 3) 다운로드(MediaRecorder): Safari/iOS는 video/webm;vp9를 지원하지 않아 녹화가 실패할 수 있음 → 지원 코덱으로 폴백 처리.
   const handleGeneratePreview = async () => {
     // 3개의 개별 영상이 모두 준비되어야 함
     if (convertedVideoUrls.size !== 3 || !ttsAudioUrl) {
@@ -3347,19 +3586,18 @@ export default function ShoppingPage() {
         // 모바일에서 더 나은 버퍼링을 위해 preload 설정
         const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
                         (typeof window !== "undefined" && window.innerWidth <= 768)
-        // 모바일에서도 auto로 설정하여 충분한 버퍼링 보장
+        // 모바일: canplay만 기다림 (iOS는 canplaythrough가 재생 전에 안 뜨어서 끊김·타임아웃 원인)
         video.preload = "auto"
         video.loop = false // 순차 재생이므로 루프 없음
         
         await new Promise<void>((resolve, reject) => {
           let metadataLoaded = false
           let canPlay = false
-          let canPlayThrough = false
           
           const checkReady = () => {
-            // 모바일에서는 canplaythrough까지 기다림
+            // 모바일: canplay만 만족하면 진행 (canplaythrough 대기 시 iOS에서 타임아웃만 나고 끊김)
             if (isMobile) {
-              if (metadataLoaded && canPlay && canPlayThrough) {
+              if (metadataLoaded && canPlay) {
                 const duration = video.duration || durationPerVideo
                 videoDurations.push(duration)
                 console.log(`[Shopping] 미리보기 영상 ${i + 1} 로드 완료 (모바일), 길이: ${duration.toFixed(2)}초, readyState=${video.readyState}`)
@@ -3387,11 +3625,9 @@ export default function ShoppingPage() {
             checkReady()
           }
           
-          // 모바일에서 버퍼링 개선
-          if (isMobile) {
+          if (!isMobile) {
             video.oncanplaythrough = () => {
-              canPlayThrough = true
-              console.log(`[Shopping] 미리보기 영상 ${i + 1} canplaythrough 이벤트 (모바일)`)
+              canPlay = true
               checkReady()
             }
           }
@@ -3399,21 +3635,19 @@ export default function ShoppingPage() {
           video.onerror = reject
           video.load()
           
-          const timeout = isMobile ? 30000 : 10000
+          const timeout = isMobile ? 45000 : 10000
           setTimeout(() => {
-            if (isMobile && (!metadataLoaded || !canPlay || !canPlayThrough)) {
+            if (metadataLoaded && canPlay) return
+            if (isMobile) {
               console.warn(`미리보기 비디오 ${i + 1} 로드 타임아웃 (모바일), 계속 진행 (readyState: ${video.readyState})`)
               if (video.readyState >= 2) {
-                // canplay 이상이면 계속 진행
-                metadataLoaded = true
                 canPlay = true
-                canPlayThrough = true
                 checkReady()
               } else {
               videoDurations.push(durationPerVideo)
               resolve()
             }
-            } else if (!isMobile && (!metadataLoaded || !canPlay)) {
+            } else {
               console.warn(`미리보기 비디오 ${i + 1} 로드 타임아웃, 계속 진행`)
               if (video.readyState >= 1) {
                 metadataLoaded = true
@@ -3765,21 +3999,12 @@ export default function ShoppingPage() {
           )
           
           if (currentLine) {
-            // 텍스트를 10자씩 나누기
-            const fullText = currentLine.text
-            const chunkSize = 10
-            const chunks: string[] = []
-            for (let i = 0; i < fullText.length; i += chunkSize) {
-              chunks.push(fullText.slice(i, i + chunkSize))
-            }
-            
+            // 의미 단위로 나눠 한 줄씩 순서대로 (쉼표·마침표 기준)
+            const phrases = getSubtitlePhrases(currentLine.text)
             const lineDuration = currentLine.endTime - currentLine.startTime
-            const chunkDuration = lineDuration / chunks.length
             const timeInLine = elapsedMs - currentLine.startTime
-            const currentChunkIndex = Math.min(Math.floor(timeInLine / chunkDuration), chunks.length - 1)
-            const textToShow = chunks[currentChunkIndex] || chunks[0]
-            
-            setCurrentSubtitle(textToShow)
+            const phraseIndex = phrases.length <= 1 ? 0 : Math.min(Math.floor((timeInLine / lineDuration) * phrases.length), phrases.length - 1)
+            setCurrentSubtitle(phrases[phraseIndex] ?? currentLine.text)
           } else {
             setCurrentSubtitle("")
           }
@@ -3897,8 +4122,8 @@ export default function ShoppingPage() {
     }
   }
 
-  // 최종 영상 렌더링 (미리보기와 동일: 롱폼 쇼츠 생성기 방식)
-  const handleRenderVideo = async () => {
+  // 최종 영상 렌더링 (미리보기와 동일). 예약 발행 시 onComplete로 blob 전달 후 저장.
+  const handleRenderVideo = async (options?: { onComplete?: (blob: Blob) => void }) => {
     // 3개의 개별 영상이 모두 준비되어야 함
     if (convertedVideoUrls.size !== 3 || !ttsAudioUrl || !canvasRef.current) {
       alert("3개의 영상과 TTS가 모두 준비되어야 합니다.")
@@ -4092,11 +4317,19 @@ export default function ShoppingPage() {
       const audioTrack = destination.stream.getAudioTracks()[0]
       const combinedStream = new MediaStream([videoTrack, audioTrack])
 
-      // 부드러운 렌더링을 위한 MediaRecorder 설정
-      const mediaRecorder = new MediaRecorder(combinedStream, {
-        mimeType: "video/webm;codecs=vp9,opus",
-        videoBitsPerSecond: 5000000, // 5Mbps (고품질)
-      })
+      // 부드러운 렌더링을 위한 MediaRecorder 설정 (Safari/iOS는 vp9 미지원 → 폴백으로 끊김 방지)
+      const recOptions: { mimeType?: string; videoBitsPerSecond?: number } = { videoBitsPerSecond: 5000000 }
+      if (typeof MediaRecorder !== "undefined") {
+        if (MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")) {
+          recOptions.mimeType = "video/webm;codecs=vp9,opus"
+        } else if (MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus")) {
+          recOptions.mimeType = "video/webm;codecs=vp8,opus"
+        } else if (MediaRecorder.isTypeSupported("video/webm")) {
+          recOptions.mimeType = "video/webm"
+        }
+      }
+      const mediaRecorder = new MediaRecorder(combinedStream, recOptions)
+      const recordedMimeType = recOptions.mimeType || "video/webm"
 
       const chunks: Blob[] = []
       mediaRecorder.ondataavailable = (e) => {
@@ -4106,33 +4339,31 @@ export default function ShoppingPage() {
       }
 
       mediaRecorder.onstop = () => {
-        const videoBlob = new Blob(chunks, { type: "video/webm" })
-        const videoUrl = URL.createObjectURL(videoBlob)
-        
+        const videoBlob = new Blob(chunks, { type: recordedMimeType })
+        const onComplete = options?.onComplete
+        if (onComplete) {
+          onComplete(videoBlob)
+          console.log("[Shopping] 영상 렌더링 완료 (예약 발행 저장용)")
+          setIsRendering(false)
+          return
+        }
+        const videoUrlForDownload = URL.createObjectURL(videoBlob)
         // 모바일 기기 감지
         const mobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
                       (window.innerWidth <= 768)
-        
         if (mobile) {
-          // 모바일에서는 자동 다운로드 대신 사용자에게 알림
           console.log("[Shopping] 영상 렌더링 완료 (모바일)")
-          setVideoUrl(videoUrl) // 상태에 저장하여 다운로드 버튼으로 다운로드 가능하게
+          setVideoUrl(videoUrlForDownload)
           setIsRendering(false)
           alert("영상 렌더링이 완료되었습니다.\n\n다운로드 버튼을 눌러 영상을 저장하세요.")
         } else {
-          // 데스크톱에서는 자동 다운로드 (롱폼 쇼츠 생성기 방식)
         const a = document.createElement("a")
-        a.href = videoUrl
+          a.href = videoUrlForDownload
         a.download = `${productName || "shopping"}_video_${Date.now()}.webm`
         document.body.appendChild(a)
         a.click()
         document.body.removeChild(a)
-        
-          // URL 정리 (다운로드 후 약간의 지연을 두고 정리)
-          setTimeout(() => {
-        URL.revokeObjectURL(videoUrl)
-          }, 1000)
-
+          setTimeout(() => URL.revokeObjectURL(videoUrlForDownload), 1000)
         console.log("[Shopping] 영상 렌더링 및 다운로드 완료")
         setIsRendering(false)
         }
@@ -4347,21 +4578,12 @@ export default function ShoppingPage() {
           )
           
           if (currentLine) {
-            // 텍스트를 10자씩 나누기 (미리보기와 동일)
-            const fullText = currentLine.text
-            const chunkSize = 10
-            const chunks: string[] = []
-            for (let i = 0; i < fullText.length; i += chunkSize) {
-              chunks.push(fullText.slice(i, i + chunkSize))
-            }
-            
-            // 현재 시간 기준으로 몇 번째 청크를 보여줄지 계산 (미리보기와 동일)
+            // 의미 단위로 나눠 한 줄씩 순서대로 (쉼표·마침표 기준)
+            const phrases = getSubtitlePhrases(currentLine.text)
             const lineDuration = currentLine.endTime - currentLine.startTime
-            const chunkDuration = lineDuration / chunks.length
             const timeInLine = elapsedMs - currentLine.startTime
-            const currentChunkIndex = Math.min(Math.floor(timeInLine / chunkDuration), chunks.length - 1)
-            const textToShow = chunks[currentChunkIndex] || chunks[0]
-            
+            const phraseIndex = phrases.length <= 1 ? 0 : Math.min(Math.floor((timeInLine / lineDuration) * phrases.length), phrases.length - 1)
+            const textToShow = phrases[phraseIndex] || currentLine.text
             // 자막 위치 계산 (subtitleStyle 설정 반영)
             // 캔버스 크기: 1080x1920, 미리보기 크기: 533px 기준
             // 미리보기에서는 fontSize * 0.6을 사용하므로, 렌더링에서도 동일한 비율 적용
@@ -4962,6 +5184,566 @@ export default function ShoppingPage() {
   }
 
   // 비디오 다운로드 (모바일 대응)
+  // 예약 발행 모달 열기 (기본값: 내일 09:00)
+  const handleOpenScheduleModal = () => {
+    const tomorrow = new Date()
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    setScheduleDate(tomorrow.toISOString().slice(0, 10))
+    setScheduleTime("09:00")
+    setScheduleModalOpen(true)
+  }
+
+  // 예약 발행 확정: 영상 렌더 후 blob 저장 → 목록에 추가
+  const handleConfirmSchedule = async () => {
+    if (!scheduleDate || !scheduleTime) {
+      alert("발행 날짜와 시간을 선택해주세요.")
+      return
+    }
+    const scheduledAt = new Date(`${scheduleDate}T${scheduleTime}`)
+    if (scheduledAt <= new Date()) {
+      alert("발행 일시는 현재보다 미래로 설정해주세요.")
+      return
+    }
+    const scheduleId = `schedule_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
+    const newItem: ShoppingScheduleItem = {
+      id: scheduleId,
+      productName: productName || "제품",
+      productDescription: productDescription || undefined,
+      scheduleAt: scheduledAt.toISOString(),
+      createdAt: new Date().toISOString(),
+      status: "scheduled",
+    }
+    setIsScheduling(true)
+    try {
+      await handleRenderVideo({
+        onComplete: async (blob) => {
+          await saveShotFormScheduleVideoBlob(scheduleId, blob)
+          setScheduledItems((prev) => {
+            const next = [...prev, newItem]
+            localStorage.setItem(SHOTFORM_SCHEDULES_STORAGE_KEY, JSON.stringify(next))
+            return next
+          })
+          setScheduleModalOpen(false)
+          setIsScheduling(false)
+          alert("예약 발행이 등록되었습니다. 해당 날짜에 예약 목록에서 다운로드할 수 있습니다.")
+        },
+      })
+    } catch (e) {
+      setIsScheduling(false)
+      setScheduleModalOpen(false)
+      alert("예약 발행 처리 중 오류가 발생했습니다.")
+    }
+  }
+
+  // 예약 목록에서 영상 다운로드
+  const handleDownloadScheduled = async (item: ShoppingScheduleItem) => {
+    const blob = await getShotFormScheduleVideoBlob(item.id)
+    if (!blob) {
+      alert("저장된 영상을 찾을 수 없습니다.")
+      return
+    }
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `${item.productName}_예약_${item.id.slice(0, 12)}.webm`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  // 예약 항목 삭제
+  const handleRemoveScheduled = (item: ShoppingScheduleItem) => {
+    if (!confirm(`"${item.productName}" 예약을 삭제할까요?`)) return
+    deleteShotFormScheduleVideoBlob(item.id).catch(() => {})
+    persistScheduledItems(scheduledItems.filter((s) => s.id !== item.id))
+  }
+
+  const factoryPipelineScriptStartedRef = useRef(false)
+
+  // 예약 공장: 해당 날짜 도래 시 수동으로 영상 생성 시작 (제작 화면으로 이동)
+  const startFactoryPipeline = (item: FactoryScheduleItem) => {
+    persistFactorySchedules(factorySchedules.map((s) => (s.id === item.id ? { ...s, status: "generating" as const } : s)))
+    setProductName(item.productName)
+    setProductDescription(item.productDescription || "")
+    setProductImage(item.productImageBase64)
+    setSelectedVoiceId(item.voiceId)
+    if (item.voiceId.startsWith("supertone-")) {
+      setSelectedSupertoneVoiceId(item.voiceId.replace("supertone-", ""))
+    }
+    setShowFactoryView(false)
+    setShowProjectList(false)
+    setActiveStep("product")
+    setFactoryAutoRunItem(item)
+    factoryPipelineScriptStartedRef.current = false
+  }
+
+  // 예약 공장: 상품 클릭 시 수동 모드로 진입 (프로젝트 있으면 불러오기, 없으면 제품 정보만 로드). 썸네일은 AI 생성으로 설정.
+  const openFactoryItemInManualMode = async (item: FactoryScheduleItem, e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation()
+      const target = e.target as HTMLElement
+      if (target.closest("button")) return
+    }
+    setFactoryAutoRunItem(null)
+    setThumbnailMode("ai")
+    if (item.projectId) {
+      try {
+        const project = await getShoppingProject(item.projectId)
+        if (project) {
+          const data = project.data
+          if (data.productName) setProductName(data.productName)
+          if (data.productDescription) setProductDescription(data.productDescription)
+          if (data.productImage) {
+            setProductImage(data.productImage)
+            const img = new Image()
+            img.onload = () => setProductImageAspectRatio(img.width / img.height)
+            img.src = data.productImage
+          }
+          if (data.videoDuration) setVideoDuration(data.videoDuration)
+          if (data.script) setScript(data.script)
+          if (data.editedScript) setEditedScript(data.editedScript)
+          if (data.selectedVoiceId) setSelectedVoiceId(data.selectedVoiceId)
+          if (data.selectedSupertoneVoiceId) setSelectedSupertoneVoiceId(data.selectedSupertoneVoiceId)
+          if (data.selectedSupertoneStyle) setSelectedSupertoneStyle(data.selectedSupertoneStyle)
+          setTtsAudioUrl(data.ttsAudioUrl && data.ttsAudioUrl.trim() ? data.ttsAudioUrl : "")
+          if (data.imageUrls) setImageUrls(data.imageUrls)
+          if (data.imagePrompts) {
+            setImagePrompts(data.imagePrompts)
+            setPromptsGenerated(data.imagePrompts.length > 0)
+          }
+          if (data.convertedVideoUrls) {
+            const videoMap = new Map<number, string>()
+            data.convertedVideoUrls.forEach(({ index, videoUrl }) => videoMap.set(index, videoUrl))
+            setConvertedVideoUrls(videoMap)
+          }
+          if (data.videoUrl) setVideoUrl(data.videoUrl)
+          if (data.subtitleStyle) setSubtitleStyle({ ...data.subtitleStyle, positionOffset: data.subtitleStyle?.positionOffset ?? 0 })
+          if (data.bgmUrl) setBgmUrl(data.bgmUrl)
+          if (data.bgmVolume !== undefined) setBgmVolume(data.bgmVolume)
+          if (data.bgmStartTime !== undefined) setBgmStartTime(data.bgmStartTime)
+          if (data.bgmEndTime !== undefined) setBgmEndTime(data.bgmEndTime)
+          if (data.sfxUrl) setSfxUrl(data.sfxUrl)
+          if (data.sfxVolume !== undefined) setSfxVolume(data.sfxVolume)
+          if (data.sfxStartTime !== undefined) setSfxStartTime(data.sfxStartTime)
+          if (data.sfxEndTime !== undefined) setSfxEndTime(data.sfxEndTime)
+          if (data.ttsVolume !== undefined) setTtsVolume(data.ttsVolume)
+          if (data.transitionEffect) setTransitionEffect(data.transitionEffect)
+          if (data.transitionDuration !== undefined) setTransitionDuration(data.transitionDuration)
+          if (data.youtubeTitle) setYoutubeTitle(data.youtubeTitle)
+          if (data.youtubeDescription) setYoutubeDescription(data.youtubeDescription)
+          if (data.youtubeTags) setYoutubeTags(data.youtubeTags)
+          if (data.thumbnailUrl) setThumbnailUrl(data.thumbnailUrl)
+          if (data.thumbnailHookingText) setThumbnailHookingText(data.thumbnailHookingText)
+          if (data.thumbnailImages) setThumbnailImages(data.thumbnailImages)
+          if (data.selectedThumbnailIndex !== undefined) setSelectedThumbnailIndex(data.selectedThumbnailIndex)
+          if (data.activeStep) setActiveStep(data.activeStep)
+          setCurrentProject(project)
+        } else {
+          setProductName(item.productName)
+          setProductDescription(item.productDescription || "")
+          setProductImage(item.productImageBase64)
+          setSelectedVoiceId(item.voiceId)
+          if (item.voiceId.startsWith("supertone-")) setSelectedSupertoneVoiceId(item.voiceId.replace("supertone-", ""))
+          setActiveStep("product")
+          setCurrentProject(null)
+        }
+      } catch (err) {
+        console.warn("[Factory] 프로젝트 불러오기 실패, 제품 정보만 로드:", err)
+        setProductName(item.productName)
+        setProductDescription(item.productDescription || "")
+        setProductImage(item.productImageBase64)
+        setSelectedVoiceId(item.voiceId)
+        if (item.voiceId.startsWith("supertone-")) setSelectedSupertoneVoiceId(item.voiceId.replace("supertone-", ""))
+        setActiveStep("product")
+        setCurrentProject(null)
+      }
+    } else {
+      setProductName(item.productName)
+      setProductDescription(item.productDescription || "")
+      setProductImage(item.productImageBase64)
+      setSelectedVoiceId(item.voiceId)
+      if (item.voiceId.startsWith("supertone-")) setSelectedSupertoneVoiceId(item.voiceId.replace("supertone-", ""))
+      setActiveStep("product")
+      setCurrentProject(null)
+    }
+    setShowFactoryView(false)
+    setShowProjectList(false)
+  }
+
+  // 예약 공장: 백그라운드에서 전체 파이프라인 실행 (화면 전환 없이 예약 공장에 머물며 진행 상황만 표시)
+  // 각 단계 완료 시 자동으로 프로젝트 생성·저장
+  const runFactoryPipelineInBackground = async (item: FactoryScheduleItem) => {
+    let projectId: string | null = item.projectId || null
+
+    const updatePhase = (phase: string, status?: "generating" | "ready" | "failed", errorMessage?: string) => {
+      setFactorySchedules((prev) => {
+        const next = prev.map((s) =>
+          s.id === item.id ? { ...s, phase, status: status ?? s.status, errorMessage } : s
+        )
+        localStorage.setItem(FACTORY_SCHEDULES_STORAGE_KEY, JSON.stringify(next))
+        return next
+      })
+    }
+    const setItemProjectId = (pid: string) => {
+      projectId = pid
+      setFactorySchedules((prev) => {
+        const next = prev.map((s) => (s.id === item.id ? { ...s, projectId: pid } : s))
+        localStorage.setItem(FACTORY_SCHEDULES_STORAGE_KEY, JSON.stringify(next))
+        return next
+      })
+    }
+    const saveProjectStep = async (dataPartial: Partial<ShoppingProjectData>) => {
+      if (!projectId) return
+      try {
+        const proj = await getShoppingProject(projectId)
+        const merged: ShoppingProjectData = { ...(proj?.data || {}), ...dataPartial }
+        await updateShoppingProject(projectId, { data: merged })
+      } catch (e) {
+        console.warn("[Factory] 프로젝트 단계 저장 실패:", e)
+      }
+    }
+
+    try {
+      const openaiKey = typeof window !== "undefined" ? localStorage.getItem("shotform_openai_api_key") || undefined : undefined
+      const replicateKey = typeof window !== "undefined" ? localStorage.getItem("shotform_replicate_api_key") || undefined : undefined
+      if (!openaiKey) {
+        updatePhase("product", "failed", "OpenAI API 키가 없습니다.")
+        return
+      }
+
+      updatePhase("script")
+      const script = await generateShoppingScript(
+        item.productName,
+        item.productDescription ? `${item.productName}. ${item.productDescription}` : item.productName,
+        openaiKey
+      )
+      const scenes = await splitScriptIntoScenes(script)
+      if (scenes.length < 3) {
+        updatePhase("script", "failed", "대본 분할 실패")
+        return
+      }
+
+      // 대본 완료 시: 프로젝트 자동 생성 및 1단계 저장
+      if (userId) {
+        try {
+          if (!projectId) {
+            const projectName = `${item.productName} (예약 ${item.scheduledDate} ${item.scheduledTime || "00:00"})`
+            const initialData: ShoppingProjectData = {
+              productName: item.productName,
+              productDescription: item.productDescription,
+              productImage: item.productImageBase64 ?? undefined,
+              script,
+              videoDuration: 12,
+              selectedVoiceId: item.voiceId,
+              activeStep: "script",
+            }
+            const newProject = await createShoppingProject(userId, projectName, undefined, initialData)
+            projectId = newProject.id
+            setItemProjectId(newProject.id)
+          } else {
+            await saveProjectStep({ script, activeStep: "script" })
+          }
+        } catch (e) {
+          console.warn("[Factory] 프로젝트 생성/저장 실패:", e)
+        }
+      }
+
+      updatePhase("video")
+      if (!replicateKey) {
+        updatePhase("video", "failed", "Replicate API 키가 없습니다.")
+        return
+      }
+      // 메인 플로우와 동일하게 이미지용 프롬프트를 먼저 생성 (대본 텍스트를 그대로 쓰면 nano-banana가 실패함)
+      let imagePromptsForFactory: Array<{ type: string; prompt: string; description: string; scriptText: string }> = []
+      try {
+        imagePromptsForFactory = await generateImagePromptsFromScript(
+          script,
+          item.productName,
+          item.productDescription || "",
+          item.productImageBase64 || undefined,
+          openaiKey
+        )
+      } catch (promptErr) {
+        console.warn("[Factory] 이미지 프롬프트 생성 실패, 장면 텍스트로 대체:", promptErr)
+      }
+      const imageUrls: string[] = []
+      for (let i = 0; i < 3; i++) {
+        const promptToUse =
+          imagePromptsForFactory[i]?.prompt?.trim() && imagePromptsForFactory[i].prompt.length > 30
+            ? imagePromptsForFactory[i].prompt
+            : scenes[i]
+        const url = await generateImageWithNanobanana(
+          promptToUse,
+          item.productName,
+          item.productImageBase64 || undefined,
+          replicateKey,
+          i,
+          item.productDescription,
+          "9:16"
+        )
+        imageUrls.push(url)
+      }
+      await saveProjectStep({ imageUrls, activeStep: "video" })
+
+      updatePhase("tts")
+      const ttsText = script.trim()
+      let ttsResponse: Response
+      const voiceId = item.voiceId
+      if (voiceId.startsWith("ttsmaker-")) {
+        const voiceName = voiceId.replace("ttsmaker-", "")
+        const pitch = voiceName === "남성5" ? 0.9 : 1.0
+        const ttsmakerKey = localStorage.getItem("shotform_ttsmaker_api_key") || undefined
+        if (!ttsmakerKey) {
+          updatePhase("tts", "failed", "TTSMaker API 키가 없습니다.")
+          return
+        }
+        ttsResponse = await fetch("/api/ttsmaker", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: ttsText, voice: voiceName, speed: 1.0, pitch, apiKey: ttsmakerKey }),
+        })
+      } else if (voiceId.startsWith("supertone-")) {
+        const sid = voiceId.replace("supertone-", "")
+        const supertoneKey = (localStorage.getItem("shotform_supertone_api_key") || "").trim()
+        if (!supertoneKey) {
+          updatePhase("tts", "failed", "수퍼톤 API 키가 없습니다.")
+          return
+        }
+        ttsResponse = await fetch("/api/supertone-tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: ttsText, voiceId: sid, apiKey: supertoneKey, style: "neutral", language: "ko" }),
+        })
+      } else if (voiceId.startsWith("elevenlabs-")) {
+        const eid = voiceId.replace("elevenlabs-", "")
+        const elevenKey = (localStorage.getItem("shotform_elevenlabs_api_key") || "").trim()
+        if (!elevenKey) {
+          updatePhase("tts", "failed", "ElevenLabs API 키가 없습니다.")
+          return
+        }
+        ttsResponse = await fetch("/api/elevenlabs-tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: ttsText, voiceId: eid, apiKey: elevenKey }),
+        })
+      } else {
+        updatePhase("tts", "failed", "지원하지 않는 목소리입니다.")
+        return
+      }
+      if (!ttsResponse.ok) {
+        const err = await ttsResponse.json().catch(() => ({}))
+        updatePhase("tts", "failed", err.error || "TTS 생성 실패")
+        return
+      }
+      const ttsData = await ttsResponse.json()
+      if (!ttsData.success || (!ttsData.audioBase64 && !ttsData.audioUrl)) {
+        updatePhase("tts", "failed", ttsData.error || "TTS 오디오 없음")
+        return
+      }
+      let audioBlob: Blob
+      if (ttsData.audioBase64) {
+        const bytes = Uint8Array.from(atob(ttsData.audioBase64), (c) => c.charCodeAt(0))
+        audioBlob = new Blob([bytes], { type: "audio/mpeg" })
+      } else {
+        const ar = await fetch(ttsData.audioUrl)
+        audioBlob = await ar.blob()
+      }
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const arrayBuffer = await audioBlob.arrayBuffer()
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
+      const actualAudioDuration = audioBuffer.duration
+      const wavBuffer = audioBufferToWav(audioBuffer)
+      const wavBlob = new Blob([wavBuffer], { type: "audio/wav" })
+      const ttsBlobUrl = URL.createObjectURL(wavBlob)
+      let ttsAudioUrlForProject = ttsBlobUrl
+      if (userId && projectId) {
+        try {
+          ttsAudioUrlForProject = await uploadTTSAudio(wavBlob, projectId, userId)
+          await saveProjectStep({ ttsAudioUrl: ttsAudioUrlForProject })
+        } catch (e) {
+          console.warn("[Factory] TTS 업로드/저장 실패:", e)
+        }
+      }
+      const totalChars = script.length
+      const scriptLines: ScriptLine[] = []
+      let currentTime = 0
+      for (let i = 0; i < scenes.length; i++) {
+        const scene = scenes[i]
+        const sentences = scene.split(/[.!?。！？]\s*/).filter((s) => s.trim().length > 0)
+        for (const sentence of sentences) {
+          const len = sentence.trim().length
+          const duration = (len / totalChars) * actualAudioDuration * 1000
+          scriptLines.push({
+            id: scriptLines.length + 1,
+            text: sentence.trim(),
+            startTime: currentTime,
+            endTime: currentTime + duration,
+          })
+          currentTime += duration
+        }
+      }
+
+      updatePhase("render")
+      const videoUrls: string[] = []
+      for (let i = 0; i < 3; i++) {
+        const vurl = await convertImageToVideoWithWan(imageUrls[i], scenes[i], undefined, replicateKey)
+        videoUrls.push(vurl)
+      }
+      await saveProjectStep({
+        convertedVideoUrls: videoUrls.map((url, index) => ({ index, videoUrl: url })),
+        activeStep: "render",
+      })
+
+      updatePhase("thumbnail")
+      try {
+        const hookingText = await generateThumbnailHookingText(item.productName, openaiKey)
+        const thumbUrl = await generateShortsThumbnail(
+          item.productName,
+          replicateKey,
+          item.productImageBase64 ?? undefined,
+          hookingText
+        )
+        await saveProjectStep({
+          thumbnailUrl: thumbUrl,
+          thumbnailHookingText: hookingText,
+          thumbnailImages: [{ url: thumbUrl, text: hookingText, isCustom: false }],
+          selectedThumbnailIndex: 0,
+          activeStep: "thumbnail",
+        })
+      } catch (thumbErr) {
+        console.warn("[Factory] AI 썸네일 생성 실패, 계속 진행:", thumbErr)
+      }
+
+      updatePhase("preview")
+      const canvas = document.createElement("canvas")
+      canvas.width = 1080
+      canvas.height = 1920
+      canvas.style.position = "fixed"
+      canvas.style.left = "-9999px"
+      canvas.style.top = "0"
+      document.body.appendChild(canvas)
+      const ctx = canvas.getContext("2d")!
+      const videoEls: HTMLVideoElement[] = []
+      const videoDurations: number[] = []
+      for (let i = 0; i < 3; i++) {
+        const v = document.createElement("video")
+        v.src = videoUrls[i]
+        v.muted = true
+        v.playsInline = true
+        v.crossOrigin = "anonymous"
+        await new Promise<void>((resolve, reject) => {
+          v.onloadedmetadata = () => {
+            videoDurations.push(v.duration || 10)
+            resolve()
+          }
+          v.onerror = reject
+          v.load()
+        })
+        videoEls.push(v)
+      }
+      let accumulated = 0
+      const videoStartTimes = videoDurations.map((d) => {
+        const t = accumulated
+        accumulated += d
+        return t
+      })
+      const audioEl = new Audio(ttsBlobUrl)
+      await new Promise<void>((resolve) => {
+        audioEl.onloadeddata = () => resolve()
+        audioEl.load()
+      })
+      const stream = canvas.captureStream(30)
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const source = audioCtx.createMediaElementSource(audioEl)
+      const dest = audioCtx.createMediaStreamDestination()
+      source.connect(dest)
+      const combined = new MediaStream([stream.getVideoTracks()[0], dest.stream.getAudioTracks()[0]])
+      const recorder = new MediaRecorder(combined, { mimeType: "video/webm;codecs=vp9,opus", videoBitsPerSecond: 5000000 })
+      const chunks: Blob[] = []
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data) }
+      const renderDone = new Promise<Blob>((resolve) => {
+        recorder.onstop = () => resolve(new Blob(chunks, { type: "video/webm" }))
+      })
+      recorder.start()
+      audioEl.play()
+      const THUMB = 0.0001
+      let lastIdx = -1
+      const draw = () => {
+        const elapsed = audioEl.currentTime
+        const adj = Math.max(0, elapsed - THUMB)
+        ctx.fillStyle = "black"
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+        if (elapsed >= THUMB) {
+          let idx = -1
+          for (let i = 0; i < videoStartTimes.length; i++) {
+            const end = i < videoStartTimes.length - 1 ? videoStartTimes[i + 1] : videoStartTimes[i] + videoDurations[i]
+            if (adj >= videoStartTimes[i] && adj < end) {
+              idx = i
+              break
+            }
+          }
+          if (idx !== lastIdx) {
+            if (lastIdx >= 0) videoEls[lastIdx].pause()
+            if (idx >= 0) {
+              videoEls[idx].currentTime = adj - videoStartTimes[idx]
+              videoEls[idx].play().catch(() => {})
+            }
+            lastIdx = idx
+          }
+          if (idx >= 0 && videoEls[idx].readyState >= 2) ctx.drawImage(videoEls[idx], 0, 0, canvas.width, canvas.height)
+        }
+        // 자막: 의미 단위로 나눠 한 줄씩 순서대로 (쉼표·마침표 기준)
+        const elapsedMs = elapsed * 1000
+        const currentLine = scriptLines.find((l) => elapsedMs >= l.startTime && elapsedMs < l.endTime)
+        if (currentLine) {
+          const phrases = getSubtitlePhrases(currentLine.text)
+          const lineDuration = currentLine.endTime - currentLine.startTime
+          const timeInLine = elapsedMs - currentLine.startTime
+          const phraseIndex = phrases.length <= 1 ? 0 : Math.min(Math.floor((timeInLine / lineDuration) * phrases.length), phrases.length - 1)
+          const textToShow = phrases[phraseIndex] || currentLine.text
+          const fontSize = 100
+          ctx.font = `bold ${fontSize}px "Noto Sans KR", sans-serif`
+          ctx.textAlign = "center"
+          ctx.textBaseline = "middle"
+          ctx.strokeStyle = "black"
+          ctx.lineWidth = 12
+          ctx.strokeText(textToShow, canvas.width / 2, canvas.height * 0.38)
+          ctx.fillStyle = "white"
+          ctx.fillText(textToShow, canvas.width / 2, canvas.height * 0.38)
+        }
+        if (elapsed >= actualAudioDuration) {
+          if (recorder.state === "recording") recorder.stop()
+          return
+        }
+        requestAnimationFrame(draw)
+      }
+      requestAnimationFrame(draw)
+      const blob = await renderDone
+      document.body.removeChild(canvas)
+      URL.revokeObjectURL(ttsBlobUrl)
+      await saveShotFormScheduleVideoBlob(item.id, blob)
+      await saveProjectStep({ activeStep: "preview" })
+      updatePhase("preview", "ready")
+    } catch (e) {
+      console.error("[Factory] 백그라운드 파이프라인 실패:", e)
+      setFactorySchedules((prev) => {
+        const next = prev.map((s) =>
+          s.id === item.id ? { ...s, status: "failed" as const, errorMessage: e instanceof Error ? e.message : String(e) } : s
+        )
+        localStorage.setItem(FACTORY_SCHEDULES_STORAGE_KEY, JSON.stringify(next))
+        return next
+      })
+    }
+  }
+
+  useEffect(() => {
+    if (!factoryAutoRunItem || factoryPipelineScriptStartedRef.current || activeStep !== "product") return
+    if (!productName) return
+    factoryPipelineScriptStartedRef.current = true
+    handleGenerateScript()
+  }, [factoryAutoRunItem, activeStep, productName])
+
   const handleDownload = () => {
     if (!videoUrl) return
 
@@ -7209,27 +7991,25 @@ export default function ShoppingPage() {
                       )}
                     </Button>
 
-                  {/* 렌더링 버튼 또는 다운로드 버튼 */}
-                    {videoUrl ? (
-                      // 렌더링 완료 후 다운로드 버튼 표시
-                      <Button
-                        onClick={handleDownload}
-                        className="w-full bg-green-500 hover:bg-green-600 text-white"
-                        size="lg"
-                      >
-                        <Download className="w-4 h-4 mr-2" />
-                        영상 다운로드
-                      </Button>
-                    ) : (
-                      // 렌더링 버튼
-                      <>
+                  {/* 렌더링 / 다운로드 / 예약 발행 버튼 */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {videoUrl ? (
                     <Button
-                      onClick={handleRenderVideo}
+                          onClick={handleDownload}
+                          className="bg-green-500 hover:bg-green-600 text-white"
+                          size="lg"
+                        >
+                          <Download className="w-4 h-4 mr-2" />
+                          영상 다운로드
+                        </Button>
+                      ) : (
+                        <Button
+                          onClick={() => handleRenderVideo()}
                       disabled={isRendering || !previewGenerated}
-                      className="w-full bg-orange-500 hover:bg-orange-600 text-white disabled:bg-gray-300 disabled:cursor-not-allowed"
+                          className="bg-orange-500 hover:bg-orange-600 text-white disabled:bg-gray-300 disabled:cursor-not-allowed"
                       size="lg"
                     >
-                      {isRendering ? (
+                          {isRendering && !isScheduling ? (
                         <>
                           <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                           렌더링 중...
@@ -7237,16 +8017,56 @@ export default function ShoppingPage() {
                       ) : (
                         <>
                         <Download className="w-4 h-4 mr-2" />
-                          영상 다운로드 (렌더링)
+                              영상 다운로드
                         </>
                       )}
                       </Button>
+                      )}
+                      <Button
+                        onClick={handleOpenScheduleModal}
+                        disabled={isRendering || !previewGenerated}
+                        variant="outline"
+                        className="border-orange-300 text-orange-700 hover:bg-orange-50 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                        size="lg"
+                      >
+                        {isScheduling ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            예약 생성 중...
+                          </>
+                        ) : (
+                          <>
+                            <CalendarClock className="w-4 h-4 mr-2" />
+                            예약 발행
+                          </>
+                        )}
+                      </Button>
+                      {factoryAutoRunItem && (
+                        <Button
+                          onClick={() => handleRenderVideo({
+                            onComplete: async (blob) => {
+                              if (!factoryAutoRunItem) return
+                              await saveShotFormScheduleVideoBlob(factoryAutoRunItem.id, blob)
+                              persistFactorySchedules(factorySchedules.map((s) => (s.id === factoryAutoRunItem.id ? { ...s, status: "ready" as const, videoBlobId: factoryAutoRunItem.id } : s)))
+                              setFactoryAutoRunItem(null)
+                              alert("공장 예약 완료. 예약 공장 목록에서 다운로드할 수 있습니다.")
+                              setShowProjectList(true)
+                              setShowFactoryView(true)
+                            },
+                          })}
+                          disabled={isRendering || !previewGenerated}
+                          className="col-span-full bg-amber-600 hover:bg-amber-700 text-white"
+                          size="lg"
+                        >
+                          {isRendering ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Factory className="w-4 h-4 mr-2" />}
+                          공장 예약 완료
+                        </Button>
+                      )}
+                    </div>
                     {!previewGenerated && (
                       <p className="text-sm text-gray-500 text-center">
                         먼저 미리보기를 생성해주세요
                       </p>
-                        )}
-                      </>
                     )}
                     </div>
 
@@ -8158,7 +8978,87 @@ export default function ShoppingPage() {
               </p>
             </div>
           )}
+          {factoryAutoRunItem && !showProjectList && (
+            <div className="mb-4 p-4 rounded-xl bg-amber-100/90 border-2 border-amber-400/60 flex items-center justify-center gap-2 flex-wrap">
+              <Factory className="w-5 h-5 text-amber-700" />
+              <span className="font-semibold text-amber-900">예약 공장 자동 생성:</span>
+              <span className="text-amber-800">{factoryAutoRunItem.productName}</span>
+              <span className="text-sm text-amber-700">· 완료 단계에서 「공장 예약 완료」를 누르면 예약 공장 목록에 저장됩니다.</span>
+            </div>
+          )}
         </div>
+
+        {/* 예약 발행 목록: 프로젝트 목록 화면에서만 표시 (수동 모드 제작 화면에서는 숨김) */}
+        {showProjectList && (
+          <Card className="mb-6 border-orange-200 bg-orange-50/50">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                <CalendarClock className="w-4 h-4 text-orange-600" />
+                예약 발행 목록
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                지정한 날짜에 영상을 다운로드할 수 있습니다. 완료 단계에서 「예약 발행」으로 등록하세요.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {scheduledItems.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center border border-dashed border-orange-200 rounded-lg">
+                  예약된 영상이 없습니다. 영상 제작 후 <strong>완료</strong> 단계에서 「예약 발행」 버튼을 눌러 등록하세요.
+                </p>
+              ) : (
+                scheduledItems
+                  .slice()
+                  .sort((a, b) => new Date(a.scheduleAt).getTime() - new Date(b.scheduleAt).getTime())
+                  .map((item) => {
+                    const at = new Date(item.scheduleAt)
+                    const isPast = at <= new Date()
+                    const dateStr = at.toLocaleDateString("ko-KR", {
+                      year: "numeric",
+                      month: "long",
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })
+                    return (
+                      <div
+                        key={item.id}
+                        className="flex items-center justify-between gap-2 rounded-lg border border-orange-200 bg-white p-3 text-sm"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium text-gray-900 truncate">{item.productName}</p>
+                          <p className="text-muted-foreground text-xs">{dateStr}</p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {isPast ? (
+                            <Button
+                              size="sm"
+                              className="bg-orange-500 hover:bg-orange-600"
+                              onClick={() => handleDownloadScheduled(item)}
+                            >
+                              <Download className="w-4 h-4 mr-1" />
+                              다운로드
+                            </Button>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              D-{Math.ceil((at.getTime() - Date.now()) / 86400000)}
+                            </span>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => handleRemoveScheduled(item)}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    )
+                  })
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* 진행 단계 표시 (프로젝트 목록이 아닐 때만 표시) */}
         {!showProjectList && (
@@ -8279,16 +9179,27 @@ export default function ShoppingPage() {
         {/* 메인 컨텐츠 */}
         {showProjectList ? (
           <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="relative inline-block mb-2">
-                  <div className="absolute inset-0 bg-gradient-to-r from-orange-200/40 to-amber-200/40 blur-2xl rounded-3xl"></div>
-                  <h2 className="relative text-3xl md:text-4xl font-bold bg-gradient-to-r from-orange-600 to-amber-600 bg-clip-text text-transparent">
+            {/* 프로젝트 목록 / 예약 공장 탭 */}
+            <div className="flex items-center justify-between flex-wrap gap-4">
+              <div className="flex items-center gap-3">
+                <Button
+                  variant={!showFactoryView ? "default" : "outline"}
+                  onClick={() => setShowFactoryView(false)}
+                  className={!showFactoryView ? "bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 text-white shadow-lg shadow-orange-500/50" : "border-orange-300 text-orange-700"}
+                >
+                  <FolderOpen className="w-4 h-4 mr-2" />
                     프로젝트 목록
-                  </h2>
+                </Button>
+                <Button
+                  variant={showFactoryView ? "default" : "outline"}
+                  onClick={() => setShowFactoryView(true)}
+                  className={showFactoryView ? "bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-lg shadow-amber-500/50" : "border-amber-300 text-amber-700"}
+                >
+                  <Factory className="w-4 h-4 mr-2" />
+                  예약 공장
+                </Button>
                 </div>
-                <p className="text-slate-600 mt-2 text-base">쇼핑 숏폼 프로젝트를 관리하세요</p>
-              </div>
+              {!showFactoryView ? (
               <Button
                 onClick={() => {
                   setShowCreateProjectDialog(true)
@@ -8300,6 +9211,23 @@ export default function ShoppingPage() {
                 <Plus className="w-4 h-4 mr-2" />
                 새 프로젝트 만들기
               </Button>
+              ) : (
+                <Button
+                  onClick={() => setShowAddFactoryScheduleDialog(true)}
+                  className="bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-semibold shadow-lg shadow-amber-500/50"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  예약 추가
+                </Button>
+              )}
+            </div>
+
+            {!showFactoryView ? (
+            <>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-slate-600 mt-2 text-base">쇼핑 숏폼 프로젝트를 관리하세요</p>
+              </div>
             </div>
 
             {/* 프로젝트 검색 */}
@@ -8532,6 +9460,478 @@ export default function ShoppingPage() {
                         생성
                       </>
                     )}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            </>
+            ) : (
+            /* 예약 공장 뷰: n8n 스타일 컨베이어 + 예약 목록 */
+            <div className="space-y-6">
+              <p className="text-slate-600 text-base">날짜·상품·이미지·목소리를 정해두면 해당 날에 영상을 자동 생성합니다.</p>
+              {/* 컨베이어 벨트 애니메이션 (n8n 스타일) */}
+              {(() => {
+                const generatingItem = factorySchedules.find((s) => s.status === "generating")
+                const currentPhaseLabel = generatingItem?.phase ? getFactoryPhaseDisplayText(generatingItem.phase) : null
+              return (
+              <>
+              <style>{`@keyframes factoryConveyor { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }`}</style>
+              <div className="relative overflow-hidden rounded-2xl border-2 border-amber-300/60 bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 p-4 shadow-inner">
+                <div className="absolute inset-0 flex items-center pointer-events-none">
+                  <div className="flex" style={{ width: "200%", animation: "factoryConveyor 20s linear infinite" }}>
+                    {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+                      <div key={i} className="flex items-center gap-4 shrink-0 px-8">
+                        <div className="w-14 h-14 rounded-xl bg-amber-200/80 border-2 border-amber-400/60 shadow-md flex items-center justify-center">
+                          <ShoppingBag className="w-7 h-7 text-amber-700" />
+                        </div>
+                        <div className="w-2 h-10 rounded-full bg-amber-400/50" />
+                        <div className="w-14 h-14 rounded-xl bg-orange-200/80 border-2 border-orange-400/60 shadow-md flex items-center justify-center">
+                          <Video className="w-7 h-7 text-orange-700" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="relative flex items-center justify-center py-6">
+                  <div className={`flex items-center gap-2 px-4 py-2 rounded-full border ${currentPhaseLabel ? "bg-amber-200/90 border-amber-500/80" : "bg-amber-100/90 border-amber-300/80"}`}>
+                    <Cog className="w-5 h-5 text-amber-700 animate-spin" style={{ animationDuration: "3s" }} />
+                    <span className="font-semibold text-amber-800">
+                      {currentPhaseLabel ? (
+                        <>작업 중 · 현재 단계: {currentPhaseLabel}</>
+                      ) : (
+                        <>예약 공장 · 해당 날짜에 자동 생성</>
+                      )}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              </>
+              )
+              })()}
+              {/* 예약 달력: 해당 날짜에 예약이 있는지 한눈에 */}
+              <div className="rounded-2xl border-2 border-amber-200/80 bg-white/95 p-4 md:p-5 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-base font-semibold text-amber-900 flex items-center gap-2">
+                    <CalendarClock className="w-5 h-5 text-amber-600" />
+                    예약 달력
+                  </h3>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 rounded-full text-amber-700 hover:bg-amber-100"
+                      onClick={() => {
+                        const [y, m] = factoryCalendarMonth.split("-").map(Number)
+                        const d = new Date(y, m - 2, 1)
+                        setFactoryCalendarMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`)
+                      }}
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </Button>
+                    <span className="text-sm font-medium text-slate-700 min-w-[7rem] text-center">
+                      {new Date(factoryCalendarMonth + "-01").toLocaleDateString("ko-KR", { year: "numeric", month: "long" })}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 rounded-full text-amber-700 hover:bg-amber-100"
+                      onClick={() => {
+                        const [y, m] = factoryCalendarMonth.split("-").map(Number)
+                        const d = new Date(y, m, 1)
+                        setFactoryCalendarMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`)
+                      }}
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+                {(() => {
+                  const [year, month] = factoryCalendarMonth.split("-").map(Number)
+                  const first = new Date(year, month - 1, 1)
+                  const last = new Date(year, month, 0)
+                  const startDay = first.getDay()
+                  const daysInMonth = last.getDate()
+                  const scheduledDates = new Set(
+                    factorySchedules.map((s) => s.scheduledDate).filter((d) => d.startsWith(factoryCalendarMonth))
+                  )
+                  const today = new Date()
+                  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`
+                  const weekDays = ["일", "월", "화", "수", "목", "금", "토"]
+                  const blanks = Array.from({ length: startDay }, (_, i) => <div key={`b-${i}`} className="min-h-[3.5rem]" />)
+                  const days = Array.from({ length: daysInMonth }, (_, i) => {
+                    const day = i + 1
+                    const dateStr = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`
+                    const itemsOnDate = factorySchedules.filter((s) => s.scheduledDate === dateStr)
+                    const hasSchedule = itemsOnDate.length > 0
+                    const isToday = dateStr === todayStr
+                    const count = itemsOnDate.length
+                    const productNames = itemsOnDate.map((s) => s.productName).filter(Boolean)
+                    const itemsWithTime = itemsOnDate.map((s) => `${s.productName}${s.scheduledTime ? ` ${s.scheduledTime}` : ""}`.trim())
+                    const titleText = hasSchedule
+                      ? `${dateStr}: ${itemsWithTime.length ? itemsWithTime.join(" · ") : "예약 " + count + "건"}`
+                      : undefined
+                    return (
+                      <div
+                        key={dateStr}
+                        className={`min-h-[3.5rem] flex flex-col items-center justify-start rounded-lg text-sm transition-all py-1 px-0.5 ${
+                          hasSchedule
+                            ? "bg-amber-100 text-amber-800 font-semibold ring-2 ring-amber-400/60"
+                            : "text-slate-600"
+                        } ${isToday ? "ring-2 ring-orange-400 ring-offset-2" : ""}`}
+                        title={titleText}
+                      >
+                        <span className="shrink-0">{day}</span>
+                        {hasSchedule && productNames.length > 0 && (
+                          <div className="mt-0.5 w-full overflow-hidden text-center">
+                            {count === 1 ? (
+                              <span className="block text-[10px] text-amber-700 font-medium truncate px-0.5" title={productNames[0]}>
+                                {productNames[0]}
+                              </span>
+                            ) : (
+                              <>
+                                <span className="block text-[10px] text-amber-700 font-medium truncate px-0.5" title={productNames[0]}>
+                                  {productNames[0]}
+                                </span>
+                                <span className="text-[9px] text-amber-600">외 {count - 1}건</span>
+                              </>
+                            )}
+                          </div>
+                        )}
+                        {hasSchedule && productNames.length === 0 && count > 0 && (
+                          <span className="text-[10px] text-amber-600 mt-0.5">예약 {count}건</span>
+                        )}
+                      </div>
+                    )
+                  })
+                  return (
+                    <div className="grid grid-cols-7 gap-1">
+                      {weekDays.map((w) => (
+                        <div key={w} className="aspect-square flex items-center justify-center text-xs font-medium text-slate-500">
+                          {w}
+                        </div>
+                      ))}
+                      {blanks}
+                      {days}
+                    </div>
+                  )
+                })()}
+                <p className="text-xs text-slate-500 mt-3 text-center">
+                  예약이 있는 날에 예약된 영상(상품명)이 표시됩니다.
+                </p>
+              </div>
+              {/* 예약 공장 6단계 프로세스 스테퍼 (수동 모드와 동일, 작업 중일 때만 표시) */}
+              {(() => {
+                const generatingItem = factorySchedules.find((s) => s.status === "generating")
+                const currentStepIndex = generatingItem ? getFactoryPhaseStepIndex(generatingItem.phase) : -1
+                const steps = [
+                  { step: "product", label: "제품 입력", icon: ShoppingBag },
+                  { step: "script", label: "대본 및 TTS 생성", icon: FileText },
+                  { step: "video", label: "이미지 생성", icon: ImageIcon },
+                  { step: "render", label: "영상 생성", icon: Video },
+                  { step: "thumbnail", label: "썸네일 생성", icon: ImageIcon },
+                  { step: "preview", label: "완료", icon: CheckCircle2 },
+                ] as const
+                if (currentStepIndex < 0) return null
+                return (
+                  <div className="rounded-2xl border-2 border-amber-200/80 bg-white/95 p-4 md:p-6 shadow-sm">
+                    <p className="text-sm font-medium text-amber-800 mb-4 text-center">
+                      {generatingItem?.productName ? `진행 중: ${generatingItem.productName}` : "자동 생성 진행 중"}
+                    </p>
+                    <div className="flex items-center justify-center gap-1 md:gap-2 flex-wrap">
+                      {steps.map((item, index) => {
+                        const Icon = item.icon
+                        const isActive = currentStepIndex === index
+                        const isCompleted = currentStepIndex > index
+                        return (
+                          <div key={item.step} className="flex items-center">
+                            <div className="flex flex-col items-center relative">
+                              {isActive && (
+                                <div className="absolute inset-0 rounded-full bg-orange-400/30 blur-xl animate-pulse" />
+                              )}
+                              {isCompleted && (
+                                <div className="absolute inset-0 rounded-full bg-green-400/20 blur-lg" />
+                              )}
+                              <div
+                                className={`relative w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center transition-all duration-500 ${
+                                  isActive
+                                    ? "bg-orange-100 text-orange-600 scale-110 shadow-lg shadow-orange-500/50 animate-pulse"
+                                    : isCompleted
+                                      ? "bg-green-100 text-green-600 scale-105 shadow-md shadow-green-500/30"
+                                      : "bg-slate-100 text-slate-400 border border-slate-200"
+                                }`}
+                              >
+                                <Icon className={`w-5 h-5 md:w-6 md:h-6 ${isActive ? "animate-bounce" : ""}`} />
+                                {isCompleted && (
+                                  <div className="absolute inset-0 flex items-center justify-center">
+                                    <CheckCircle2 className="w-6 h-6 md:w-7 md:h-7 text-green-600" />
+                                  </div>
+                                )}
+                              </div>
+                              <span
+                                className={`text-xs md:text-sm mt-2 text-center max-w-[4rem] md:max-w-[5rem] ${
+                                  isActive ? "text-orange-600 font-semibold" : isCompleted ? "text-green-600 font-medium" : "text-slate-500"
+                                }`}
+                              >
+                                {item.label}
+                              </span>
+                              {isActive && (
+                                <div className="relative w-full h-1 mt-1 rounded-full bg-orange-400 animate-pulse" />
+                              )}
+                            </div>
+                            {index < steps.length - 1 && (
+                              <div className="w-4 md:w-8 h-0.5 mx-1 border-t-2 border-dashed border-slate-300" />
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })()}
+              {/* 예약 목록 (날짜순) */}
+              <div className="grid gap-4">
+                {factorySchedules.length === 0 ? (
+                  <div className="text-center py-12 rounded-2xl border-2 border-dashed border-amber-200 bg-amber-50/50">
+                    <Factory className="w-12 h-12 mx-auto text-amber-500 mb-3" />
+                    <p className="text-slate-600 font-medium">예약이 없습니다</p>
+                    <p className="text-sm text-slate-500 mt-1">「예약 추가」로 날짜·상품·이미지·목소리를 정해두세요.</p>
+                  </div>
+                ) : (
+                  factorySchedules
+                    .slice()
+                    .sort((a, b) => {
+                      const at = `${a.scheduledDate}T${a.scheduledTime || "00:00"}`
+                      const bt = `${b.scheduledDate}T${b.scheduledTime || "00:00"}`
+                      return at.localeCompare(bt)
+                    })
+                    .map((item) => {
+                      const scheduledAt = `${item.scheduledDate}T${item.scheduledTime || "00:00"}`
+                      const isDue = scheduledAt <= new Date().toISOString().slice(0, 16)
+                      const isGenerating = item.status === "generating"
+                      const isReady = item.status === "ready"
+                      return (
+                        <Card key={item.id} className="overflow-hidden border-amber-200/80 bg-white/90">
+                          <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                            <div
+                              role="button"
+                              tabIndex={0}
+                              className="flex flex-1 min-w-0 items-start sm:items-center gap-4 cursor-pointer rounded-lg hover:bg-amber-50/80 transition-colors p-2 -m-2"
+                              onClick={() => openFactoryItemInManualMode(item)}
+                              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openFactoryItemInManualMode(item) } }}
+                            >
+                              <div className="w-20 h-20 rounded-xl bg-slate-100 overflow-hidden shrink-0 border border-slate-200">
+                                {item.productImageBase64 ? (
+                                  <img src={item.productImageBase64} alt="" className="w-full h-full object-cover" />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center">
+                                    <ShoppingBag className="w-8 h-8 text-slate-400" />
+                                  </div>
+                                )}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-semibold text-slate-900 truncate">{item.productName}</p>
+                                {item.status === "generating" && (
+                                  <p className="text-sm font-medium text-amber-700 mt-1 flex items-center gap-1.5">
+                                    <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                                    작업 중 · {getFactoryPhaseDisplayText(item.phase)}
+                                  </p>
+                                )}
+                                <p className="text-sm text-slate-500 mt-0.5">
+                                  발행: {new Date(item.scheduledDate + "T" + (item.scheduledTime || "00:00")).toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" })} {item.scheduledTime || "00:00"}
+                                </p>
+                                <p className="text-xs text-slate-400 mt-0.5">목소리: {item.voiceId.replace("ttsmaker-", "").replace("supertone-", "수퍼톤 ").replace("elevenlabs-", "ElevenLabs ")}</p>
+                                <p className="text-xs text-amber-600 mt-1">클릭하면 수동 편집</p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              {isReady && (
+                                <Button size="sm" className="bg-green-500 hover:bg-green-600" onClick={async () => {
+                                  const blob = await getShotFormScheduleVideoBlob(item.videoBlobId || item.id)
+                                  if (!blob) { alert("저장된 영상을 찾을 수 없습니다."); return }
+                                  const url = URL.createObjectURL(blob)
+                                  const a = document.createElement("a")
+                                  a.href = url
+                                  a.download = `${item.productName}_공장_${item.id.slice(0, 8)}.webm`
+                                  a.click()
+                                  URL.revokeObjectURL(url)
+                                }}>
+                                  <Download className="w-4 h-4 mr-1" />
+                                  다운로드
+                                </Button>
+                              )}
+                              {isDue && item.status === "pending" && (
+                                <Button
+                                  size="sm"
+                                  className="bg-amber-600 hover:bg-amber-700"
+                                  disabled={isGenerating}
+                                  onClick={() => startFactoryPipeline(item)}
+                                >
+                                  {isGenerating ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Play className="w-4 h-4 mr-1" />}
+                                  {isGenerating ? "생성 중..." : "영상 생성"}
+                                </Button>
+                              )}
+                              {item.status === "failed" && (
+                                <span className="text-xs text-red-600" title={item.errorMessage || ""}>
+                                  실패{item.errorMessage ? `: ${item.errorMessage}` : ""}
+                                </span>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-red-500 hover:text-red-600"
+                                onClick={() => {
+                                  if (!confirm(`"${item.productName}" 예약을 삭제할까요?`)) return
+                                  persistFactorySchedules(factorySchedules.filter((s) => s.id !== item.id))
+                                  if (item.videoBlobId) deleteShotFormScheduleVideoBlob(item.videoBlobId).catch(() => {})
+                                }}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      )
+                    })
+                )}
+              </div>
+            </div>
+            )}
+            {/* 예약 공장 - 예약 추가 다이얼로그 (공장 탭에서도 열리도록 showProjectList일 때 항상 렌더) */}
+            <Dialog open={showAddFactoryScheduleDialog} onOpenChange={setShowAddFactoryScheduleDialog}>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>예약 추가</DialogTitle>
+                  <DialogDescription>
+                    발행일·상품명·이미지·목소리를 정해두면 해당 날에 영상을 자동 생성할 수 있습니다.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="grid gap-2">
+                    <Label>발행일</Label>
+                    <Input type="date" value={newFactoryDate} onChange={(e) => setNewFactoryDate(e.target.value)} />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>발행 시간 (시·분)</Label>
+                    <Input type="time" value={newFactoryTime} onChange={(e) => setNewFactoryTime(e.target.value)} />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>상품명</Label>
+                    <Input placeholder="상품명" value={newFactoryName} onChange={(e) => setNewFactoryName(e.target.value)} />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>상품 설명 (선택)</Label>
+                    <Textarea placeholder="상품 설명" value={newFactoryDesc} onChange={(e) => setNewFactoryDesc(e.target.value)} rows={2} className="resize-none" />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>상품 이미지</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="file"
+                        accept="image/*"
+                        className="flex-1"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (!file) return
+                          const reader = new FileReader()
+                          reader.onload = () => {
+                            let data = reader.result as string
+                            const img = new Image()
+                            img.onload = () => {
+                              const max = 400
+                              if (img.width <= max && img.height <= max) {
+                                setNewFactoryImage(data)
+                                return
+                              }
+                              const c = document.createElement("canvas")
+                              const r = Math.min(max / img.width, max / img.height)
+                              c.width = img.width * r
+                              c.height = img.height * r
+                              const ctx = c.getContext("2d")
+                              if (ctx) {
+                                ctx.drawImage(img, 0, 0, c.width, c.height)
+                                setNewFactoryImage(c.toDataURL("image/jpeg", 0.85))
+                              } else setNewFactoryImage(data)
+                            }
+                            img.src = data
+                          }
+                          reader.readAsDataURL(file)
+                        }}
+                      />
+                      {newFactoryImage && (
+                        <Button type="button" variant="ghost" size="sm" onClick={() => setNewFactoryImage(null)} className="text-red-500">
+                          <X className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
+                    {newFactoryImage && <img src={newFactoryImage} alt="" className="mt-2 w-20 h-20 object-cover rounded-lg border" />}
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>목소리</Label>
+                    <Select value={newFactoryVoiceId} onValueChange={setNewFactoryVoiceId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="목소리 선택" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ttsmaker-여성1">TTSMaker 여성1</SelectItem>
+                        <SelectItem value="ttsmaker-여성2">TTSMaker 여성2</SelectItem>
+                        <SelectItem value="ttsmaker-여성6">TTSMaker 여성3</SelectItem>
+                        <SelectItem value="ttsmaker-남성1">TTSMaker 남성1</SelectItem>
+                        <SelectItem value="ttsmaker-남성4">TTSMaker 남성2</SelectItem>
+                        <SelectItem value="ttsmaker-남성5">TTSMaker 남성3</SelectItem>
+                        {supertoneVoices.map((v) => (
+                          <SelectItem key={v.voice_id} value={`supertone-${v.voice_id}`}>
+                            수퍼톤 {v.name}
+                          </SelectItem>
+                        ))}
+                        <SelectItem value="elevenlabs-jB1Cifc2UQbq1gR3wnb0">ElevenLabs Rachel</SelectItem>
+                        <SelectItem value="elevenlabs-8jHHF8rMqMlg8if2mOUe">ElevenLabs Voice 2</SelectItem>
+                        <SelectItem value="elevenlabs-uyVNoMrnUku1dZyVEXwD">ElevenLabs Voice 3</SelectItem>
+                        <SelectItem value="elevenlabs-1KNqBv4TutQtzSIACsMC">ElevenLabs Voice 4</SelectItem>
+                        <SelectItem value="elevenlabs-4JJwo477JUAx3HV0T7n7">ElevenLabs Voice 5</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {supertoneVoices.length === 0 && (
+                      <p className="text-xs text-slate-500">수퍼톤 목소리는 대본/TTS 단계에서 한 번 진입하면 목록이 불러와집니다.</p>
+                    )}
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setShowAddFactoryScheduleDialog(false)}>취소</Button>
+                  <Button
+                    onClick={() => {
+                      if (!newFactoryDate || !newFactoryName.trim()) {
+                        alert("발행일과 상품명을 입력해주세요.")
+                        return
+                      }
+                      const newItem: FactoryScheduleItem = {
+                        id: `factory_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+                        scheduledDate: newFactoryDate,
+                        scheduledTime: newFactoryTime,
+                        productName: newFactoryName.trim(),
+                        productDescription: newFactoryDesc.trim() || undefined,
+                        productImageBase64: newFactoryImage,
+                        voiceId: newFactoryVoiceId,
+                        status: "generating",
+                        phase: "product",
+                        createdAt: new Date().toISOString(),
+                      }
+                      const nextList = [...factorySchedules, newItem]
+                      persistFactorySchedules(nextList)
+                      setShowAddFactoryScheduleDialog(false)
+                      setNewFactoryDate("")
+                      setNewFactoryTime("09:00")
+                      setNewFactoryName("")
+                      setNewFactoryDesc("")
+                      setNewFactoryImage(null)
+                      setNewFactoryVoiceId("ttsmaker-여성1")
+                      runFactoryPipelineInBackground(newItem)
+                    }}
+                    className="bg-amber-600 hover:bg-amber-700"
+                  >
+                    추가
                   </Button>
                 </DialogFooter>
               </DialogContent>
@@ -8881,6 +10281,65 @@ export default function ShoppingPage() {
               ))
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 예약 발행 모달 (ShotForm 쇼핑) */}
+      <Dialog open={scheduleModalOpen} onOpenChange={setScheduleModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>예약 발행</DialogTitle>
+            <DialogDescription>
+              영상을 미리 생성해 두고, 선택한 날짜·시간이 되면 예약 목록에서 다운로드할 수 있습니다.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="schedule-date">발행 날짜</Label>
+              <Input
+                id="schedule-date"
+                type="date"
+                value={scheduleDate}
+                onChange={(e) => setScheduleDate(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="schedule-time">발행 시간</Label>
+              <Input
+                id="schedule-time"
+                type="time"
+                value={scheduleTime}
+                onChange={(e) => setScheduleTime(e.target.value)}
+              />
+            </div>
+            {productName && (
+              <p className="text-sm text-muted-foreground">
+                제품: <span className="font-medium text-foreground">{productName}</span>
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setScheduleModalOpen(false)} disabled={isScheduling}>
+              취소
+            </Button>
+            <Button
+              onClick={handleConfirmSchedule}
+              disabled={isScheduling || !scheduleDate || !scheduleTime}
+              className="bg-orange-500 hover:bg-orange-600"
+            >
+              {isScheduling ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  영상 생성 및 예약 중...
+                </>
+              ) : (
+                <>
+                  <CalendarClock className="w-4 h-4 mr-2" />
+                  예약하기
+                </>
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

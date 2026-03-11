@@ -6,10 +6,15 @@ export const runtime = 'nodejs' // Node.js 런타임 사용
 
 /**
  * Cloud Run을 통한 영상 렌더링 API
- * 
- * 환경 변수 설정:
- * 1. CLOUD_RUN_RENDER_URL: Cloud Run 서비스 URL (예: https://video-renderer-xxxxx.run.app)
- * 2. CLOUD_RUN_AUTH_TOKEN (선택사항): Cloud Run 인증 토큰 (인증이 필요한 경우)
+ *
+ * [롱폼] 환경 변수:
+ * - CLOUD_RUN_RENDER_URL: Cloud Run 서비스 URL
+ * - CLOUD_RUN_AUTH_TOKEN (선택): 인증 토큰
+ *
+ * [숏폼(쇼핑)] 별도 GCP 프로젝트 사용 시 환경 변수:
+ * - SHOPPING_CLOUD_RUN_RENDER_URL: 숏폼 전용 Cloud Run URL (다른 프로젝트 가능)
+ * - SHOPPING_CLOUD_RUN_AUTH_TOKEN (선택): 숏폼 전용 인증 토큰
+ * body에 type: "shopping" 이면 위 숏폼 전용 URL/토큰 사용 (롱폼과 충돌 방지)
  * 
  * 환경 변수 설정 방법:
  * - 로컬 개발: .env.local 파일에 추가
@@ -48,6 +53,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const body = await request.json()
+    const type = body.type // "shopping" | "longform" | 없음(롱폼)
+    const isShopping = type === "shopping"
+
     const {
       audioBase64,
       audioGcsUrl,
@@ -58,13 +67,27 @@ export async function POST(request: NextRequest) {
       autoImages,
       duration,
       config = { width: 1920, height: 1080, fps: 30 },
-    } = await request.json()
+    } = body
 
-    if ((!audioBase64 && !audioGcsUrl) || !subtitles || (!characterImage && !characterImageGcsUrl && !characterImageUrl)) {
-      return NextResponse.json(
-        { error: "audioBase64 또는 audioGcsUrl, subtitles, characterImage, characterImageGcsUrl 또는 characterImageUrl이 필요합니다." },
-        { status: 400 }
-      )
+    // 숏폼(쇼핑): 필수 항목이 다름 (썸네일 + 영상 3개)
+    if (isShopping) {
+      const hasAudio = !!(audioBase64 || audioGcsUrl)
+      const hasSubtitles = Array.isArray(subtitles) && subtitles.length > 0
+      const hasThumbnail = !!(body.thumbnailImage || body.thumbnailImageUrl || body.thumbnailImageGcsUrl)
+      const hasVideoSegments = Array.isArray(body.videoSegments) && body.videoSegments.length >= 3
+      if (!hasAudio || !hasSubtitles || !hasThumbnail || !hasVideoSegments) {
+        return NextResponse.json(
+          { error: "쇼핑 숏폼: audioBase64 또는 audioGcsUrl, subtitles, thumbnailImage/Url, videoSegments(3개)가 필요합니다." },
+          { status: 400 }
+        )
+      }
+    } else {
+      if ((!audioBase64 && !audioGcsUrl) || !subtitles || (!characterImage && !characterImageGcsUrl && !characterImageUrl)) {
+        return NextResponse.json(
+          { error: "audioBase64 또는 audioGcsUrl, subtitles, characterImage, characterImageGcsUrl 또는 characterImageUrl이 필요합니다." },
+          { status: 400 }
+        )
+      }
     }
 
     // 긴 영상(15분 이상)인 경우 경고 메시지 반환
@@ -83,14 +106,24 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log("[v0] Cloud Run 렌더링 API 호출 시작", { duration, durationMinutes: durationMinutes.toFixed(1) })
+    console.log("[v0] Cloud Run 렌더링 API 호출 시작", { type: type || "longform", duration, durationMinutes: durationMinutes.toFixed(1) })
 
-    // Cloud Run 서비스 URL (환경 변수에서 가져오기)
-    const CLOUD_RUN_URL = process.env.CLOUD_RUN_RENDER_URL
+    // 롱폼 vs 숏폼(쇼핑) 별도 GCP 프로젝트 사용 (충돌 방지)
+    // 숏폼은 SHOPPING_* 전용 사용, 롱폼 URL로 폴백하지 않음
+    const CLOUD_RUN_URL = isShopping
+      ? process.env.SHOPPING_CLOUD_RUN_RENDER_URL
+      : process.env.CLOUD_RUN_RENDER_URL
+    const CLOUD_RUN_AUTH = isShopping
+      ? process.env.SHOPPING_CLOUD_RUN_AUTH_TOKEN
+      : process.env.CLOUD_RUN_AUTH_TOKEN
 
     if (!CLOUD_RUN_URL) {
       return NextResponse.json(
-        { error: "CLOUD_RUN_RENDER_URL 환경 변수가 설정되지 않았습니다." },
+        {
+          error: isShopping
+            ? "숏폼(쇼핑)은 별도 GCP 프로젝트를 사용합니다. SHOPPING_CLOUD_RUN_RENDER_URL 환경 변수를 설정해주세요. (롱폼용 CLOUD_RUN_RENDER_URL과 분리)"
+            : "CLOUD_RUN_RENDER_URL 환경 변수가 설정되지 않았습니다.",
+        },
         { status: 500 }
       )
     }
@@ -108,23 +141,24 @@ export async function POST(request: NextRequest) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          // Cloud Run 인증이 필요한 경우 Authorization 헤더 추가
-          ...(process.env.CLOUD_RUN_AUTH_TOKEN && {
-            Authorization: `Bearer ${process.env.CLOUD_RUN_AUTH_TOKEN}`,
+          ...(CLOUD_RUN_AUTH && {
+            Authorization: `Bearer ${CLOUD_RUN_AUTH}`,
           }),
         },
-        body: JSON.stringify({
-          ...(audioGcsUrl ? { audioGcsUrl } : { audioBase64 }),
-          subtitles,
-          ...(characterImageGcsUrl 
-            ? { characterImageGcsUrl } 
-            : characterImageUrl 
-              ? { characterImageUrl } 
-              : { characterImage }),
-          autoImages: autoImages || [],
-          duration,
-          config,
-        }),
+        body: JSON.stringify(isShopping
+          ? body
+          : {
+              ...(audioGcsUrl ? { audioGcsUrl } : { audioBase64 }),
+              subtitles,
+              ...(characterImageGcsUrl
+                ? { characterImageGcsUrl }
+                : characterImageUrl
+                  ? { characterImageUrl }
+                  : { characterImage }),
+              autoImages: autoImages || [],
+              duration,
+              config,
+            }),
         signal: controller.signal,
       }
       
