@@ -4367,15 +4367,36 @@ export default function ShoppingPage() {
         throw new Error("응답에 videoUrl 또는 videoBase64가 없습니다.")
       }
 
-      // 사용자 PC로 영상 파일 다운로드 (공장 자동화 포함 항상 실행)
+      // 사용자 기기로 영상 저장 (모바일: 공유/새 창 열기, PC: 다운로드)
+      const fileName = `${(factoryAutoRunItem?.productName || productName) || "shopping"}_server_${Date.now()}.mp4`
       const downloadUrl = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = downloadUrl
-      a.download = `${(factoryAutoRunItem?.productName || productName) || "shopping"}_server_${Date.now()}.mp4`
-      a.click()
-      URL.revokeObjectURL(downloadUrl)
-      if (!factoryAutoRunItem) {
-        alert("서버 렌더링이 완료되었습니다. 다운로드가 시작됩니다.")
+      const mobile = typeof navigator !== "undefined" && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || (typeof window !== "undefined" && window.innerWidth <= 768))
+      if (mobile) {
+        // 모바일: Web Share API로 저장/공유 유도, 실패 시 새 창에서 열어 길게 눌러 저장
+        const file = new File([blob], fileName, { type: "video/mp4" })
+        const shared = typeof navigator !== "undefined" && navigator.share && (navigator.canShare?.({ files: [file] }) ?? true)
+        if (shared) {
+          try {
+            await navigator.share({ files: [file], title: fileName, text: "렌더링된 영상" })
+            if (!factoryAutoRunItem) alert("공유 화면에서 '저장' 또는 '파일에 저장'을 선택하세요.")
+          } catch (e) {
+            if ((e as Error)?.name !== "AbortError") {
+              window.open(downloadUrl, "_blank")
+              if (!factoryAutoRunItem) alert("영상이 새 창에서 열렸습니다.\n재생 화면을 길게 눌러 '동영상 저장' 또는 '다운로드'를 선택하세요.")
+            }
+          }
+        } else {
+          window.open(downloadUrl, "_blank")
+          if (!factoryAutoRunItem) alert("영상이 새 창에서 열렸습니다.\n재생 화면을 길게 눌러 '동영상 저장' 또는 '다운로드'를 선택하세요.")
+        }
+        setTimeout(() => URL.revokeObjectURL(downloadUrl), 60000)
+      } else {
+        const a = document.createElement("a")
+        a.href = downloadUrl
+        a.download = fileName
+        a.click()
+        setTimeout(() => URL.revokeObjectURL(downloadUrl), 2000)
+        if (!factoryAutoRunItem) alert("서버 렌더링이 완료되었습니다. 다운로드가 시작됩니다.")
       }
 
       // 공장 자동화 모드: 서버에서 받은 영상으로 저장 후 유튜브 자동 업로드
@@ -5587,21 +5608,37 @@ export default function ShoppingPage() {
     }
   }
 
-  // 예약 목록에서 영상 다운로드
+  // 예약 목록에서 영상 다운로드 (모바일: 공유/새 창)
   const handleDownloadScheduled = async (item: ShoppingScheduleItem) => {
     const blob = await getShotFormScheduleVideoBlob(item.id)
     if (!blob) {
       alert("저장된 영상을 찾을 수 없습니다.")
       return
     }
+    const fileName = `${item.productName}_예약_${item.id.slice(0, 12)}.webm`
     const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `${item.productName}_예약_${item.id.slice(0, 12)}.webm`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    const mobile = isMobile()
+    if (mobile) {
+      const file = new File([blob], fileName, { type: blob.type || "video/webm" })
+      if (navigator.share && navigator.canShare?.({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file], title: fileName })
+        } catch (e) {
+          if ((e as Error)?.name !== "AbortError") window.open(url, "_blank")
+        }
+      } else {
+        window.open(url, "_blank")
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 60000)
+    } else {
+      const a = document.createElement("a")
+      a.href = url
+      a.download = fileName
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      setTimeout(() => URL.revokeObjectURL(url), 2000)
+    }
   }
 
   // 예약 항목 삭제
@@ -6056,13 +6093,29 @@ export default function ShoppingPage() {
       }
       await saveShotFormScheduleVideoBlob(item.id, serverBlob)
 
-      // PC에 파일 다운로드
+      // 기기로 파일 저장 (모바일: 공유/새 창, PC: 다운로드)
+      const factoryFileName = `${item.productName}_공장_${item.id.slice(0, 8)}.mp4`
       const downloadUrl = URL.createObjectURL(serverBlob)
-      const link = document.createElement("a")
-      link.href = downloadUrl
-      link.download = `${item.productName}_공장_${item.id.slice(0, 8)}.mp4`
-      link.click()
-      URL.revokeObjectURL(downloadUrl)
+      const isMobileDevice = typeof navigator !== "undefined" && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || (typeof window !== "undefined" && window.innerWidth <= 768))
+      if (isMobileDevice) {
+        const file = new File([serverBlob], factoryFileName, { type: "video/mp4" })
+        if (typeof navigator !== "undefined" && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+          try {
+            await navigator.share({ files: [file], title: factoryFileName, text: "렌더링된 영상" })
+          } catch (_) {
+            window.open(downloadUrl, "_blank")
+          }
+        } else {
+          window.open(downloadUrl, "_blank")
+        }
+        setTimeout(() => URL.revokeObjectURL(downloadUrl), 60000)
+      } else {
+        const link = document.createElement("a")
+        link.href = downloadUrl
+        link.download = factoryFileName
+        link.click()
+        setTimeout(() => URL.revokeObjectURL(downloadUrl), 2000)
+      }
 
       // 유튜브 업로드용 제목·설명·태그 생성 (백그라운드에서는 항상 여기서 생성)
       let uploadTitle = item.youtubeTitle || item.productName
