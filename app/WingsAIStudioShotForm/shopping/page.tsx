@@ -36,6 +36,7 @@ import {
   Copy,
   Check,
   CalendarClock,
+  CalendarPlus,
 } from "lucide-react"
 import {
   Select,
@@ -197,7 +198,7 @@ function deleteShotFormScheduleVideoBlob(id: string): Promise<void> {
   })
 }
 
-// 공장 자동화 (공장 모드): 날짜별 상품·이미지·목소리만 정해두면 해당 날에 영상 자동 생성
+// 자동화 모드 (공장 모드): 날짜별 상품·이미지·목소리만 정해두면 해당 날에 영상 자동 생성
 const FACTORY_SCHEDULES_STORAGE_KEY = "wings_shotform_factory_schedules"
 
 export interface FactoryScheduleItem {
@@ -213,12 +214,12 @@ export interface FactoryScheduleItem {
   createdAt: string
   errorMessage?: string
   videoBlobId?: string // ready일 때 ShotForm schedule ID와 동일하게 사용 가능
-  projectId?: string // 공장 자동화 자동 생성 시 생성·저장되는 프로젝트 ID
+  projectId?: string // 자동화 모드 자동 생성 시 생성·저장되는 프로젝트 ID
   /** 예약 완료 시 유튜브 업로드에 사용 (제목/설명/태그 생성기 값) */
   youtubeTitle?: string
   youtubeDescription?: string
   youtubeTags?: string[]
-  /** 공장 자동화에서 자동 업로드 완료된 경우 true (목록에서 다운로드 버튼 대신 유튜브 업로드 완료 표시) */
+  /** 자동화 모드에서 자동 업로드 완료된 경우 true (목록에서 다운로드 버튼 대신 유튜브 업로드 완료 표시) */
   youtubeUploaded?: boolean
 }
 
@@ -231,7 +232,7 @@ const FACTORY_PHASE_LABELS: Record<string, string> = {
   preview: "미리보기·렌더링",
 }
 
-// 공장 자동화 단계 순서 및 단계별 이름 (완료/진행 중 표시용)
+// 자동화 모드 단계 순서 및 단계별 이름 (완료/진행 중 표시용)
 const FACTORY_PHASES_ORDER: Array<{ key: string; label: string }> = [
   { key: "script", label: "대본생성" },
   { key: "video", label: "이미지생성" },
@@ -283,7 +284,7 @@ function getSubtitlePhrases(text: string): string[] {
   return lines.length >= 1 ? lines : [merged]
 }
 
-// 공장 자동화 6단계 스테퍼용: phase → 스텝 인덱스 (0=제품입력, 1=대본·TTS, 2=이미지, 3=영상, 4=썸네일, 5=완료)
+// 자동화 모드 6단계 스테퍼용: phase → 스텝 인덱스 (0=제품입력, 1=대본·TTS, 2=이미지, 3=영상, 4=썸네일, 5=완료)
 function getFactoryPhaseStepIndex(phase: string | undefined): number {
   if (!phase) return 0
   const map: Record<string, number> = {
@@ -465,7 +466,7 @@ export default function ShoppingPage() {
   const [projects, setProjects] = useState<ShoppingProject[]>([])
   const [currentProject, setCurrentProject] = useState<ShoppingProject | null>(null)
   const [showProjectList, setShowProjectList] = useState(true) // 프로젝트 목록 화면 표시 여부
-  const [showFactoryView, setShowFactoryView] = useState(false) // 공장 자동화(공장 모드) 화면
+  const [showFactoryView, setShowFactoryView] = useState(false) // 자동화 모드(공장 모드) 화면
   const [factorySchedules, setFactorySchedules] = useState<FactoryScheduleItem[]>([])
   const [showAddFactoryScheduleDialog, setShowAddFactoryScheduleDialog] = useState(false)
   const [factoryCalendarMonth, setFactoryCalendarMonth] = useState(() => {
@@ -479,14 +480,16 @@ export default function ShoppingPage() {
   const [newFactoryImage, setNewFactoryImage] = useState<string | null>(null)
   const [newFactoryVoiceId, setNewFactoryVoiceId] = useState("ttsmaker-여성1")
   const [factoryAutoRunItem, setFactoryAutoRunItem] = useState<FactoryScheduleItem | null>(null)
-  /** 공장 자동화 백그라운드 파이프라인 대기 큐 (순차 처리용) */
+  /** 자동화 모드 백그라운드 파이프라인 대기 큐 (순차 처리용) */
   const [factoryPipelineQueue, setFactoryPipelineQueue] = useState<FactoryScheduleItem[]>([])
   /** 현재 파이프라인 실행 중인 예약 ID (목록에서 '작업 중' 표시용) */
   const [factoryPipelineRunningItemId, setFactoryPipelineRunningItemId] = useState<string | null>(null)
   const factoryPipelineRunningRef = useRef(false)
   const [showFactorySettingsDialog, setShowFactorySettingsDialog] = useState(false)
+  const [showFactoryPasswordDialog, setShowFactoryPasswordDialog] = useState(false)
+  const [factoryPasswordInput, setFactoryPasswordInput] = useState("")
   const [uploadingFactoryId, setUploadingFactoryId] = useState<string | null>(null)
-  const [youtubeChannelName, setYoutubeChannelName] = useState<string | null>(null) // 연동된 유튜브 채널명 (공장 자동화 → 자동 업로드용)
+  const [youtubeChannelName, setYoutubeChannelName] = useState<string | null>(null) // 연동된 유튜브 채널명 (자동화 모드 → 자동 업로드용)
   const [youtubeClientId, setYoutubeClientId] = useState("")
   const [youtubeClientSecret, setYoutubeClientSecret] = useState("")
   const [isLoadingProjects, setIsLoadingProjects] = useState(false)
@@ -623,7 +626,7 @@ export default function ShoppingPage() {
     localStorage.setItem(SHOTFORM_SCHEDULES_STORAGE_KEY, JSON.stringify(items))
   }
 
-  // 공장 자동화 목록 로드
+  // 자동화 모드 목록 로드
   useEffect(() => {
     try {
       const raw = localStorage.getItem(FACTORY_SCHEDULES_STORAGE_KEY)
@@ -661,7 +664,7 @@ export default function ShoppingPage() {
     }
   }, [showAddFactoryScheduleDialog])
 
-  // 공장 자동화: 유튜브 채널 연동 상태 로드 (localStorage) + OAuth 콜백 처리
+  // 자동화 모드: 유튜브 채널 연동 상태 로드 (localStorage) + OAuth 콜백 처리
   useEffect(() => {
     const key = "shopping_factory_youtube_channel"
     try {
@@ -4415,7 +4418,7 @@ export default function ShoppingPage() {
         if (!factoryAutoRunItem) alert("서버 렌더링이 완료되었습니다. 다운로드가 시작됩니다.")
       }
 
-      // 공장 자동화 모드: 서버에서 받은 영상으로 저장 후 유튜브 자동 업로드
+      // 자동화 모드 모드: 서버에서 받은 영상으로 저장 후 유튜브 자동 업로드
       if (factoryAutoRunItem) {
         await saveShotFormScheduleVideoBlob(factoryAutoRunItem.id, blob)
         let youtubeUploaded = false
@@ -4491,11 +4494,11 @@ export default function ShoppingPage() {
         }
         persistFactorySchedules(factorySchedules.map((s) => (s.id === factoryAutoRunItem.id ? updatedItem : s)))
         if (!youtubeChannelName) {
-          alert("공장 예약 완료. 공장 자동화 목록에서 다운로드할 수 있습니다.")
+          alert("공장 예약 완료. 자동화 모드 목록에서 다운로드할 수 있습니다.")
         }
       }
 
-      // 공장 자동화 모드였으면 완료 후 목록으로
+      // 자동화 모드 모드였으면 완료 후 목록으로
       if (factoryAutoRunItem) {
         setFactoryAutoRunItem(null)
         setShowProjectList(true)
@@ -5668,7 +5671,7 @@ export default function ShoppingPage() {
   const factoryServerDownloadTriggeredRef = useRef<string | null>(null)
   const factoryPreviewAutoTriggeredRef = useRef<string | null>(null)
 
-  // 공장 자동화: 해당 날짜 도래 시 수동으로 영상 생성 시작 (제작 화면으로 이동)
+  // 자동화 모드: 해당 날짜 도래 시 수동으로 영상 생성 시작 (제작 화면으로 이동)
   const startFactoryPipeline = (item: FactoryScheduleItem) => {
     persistFactorySchedules(factorySchedules.map((s) => (s.id === item.id ? { ...s, status: "generating" as const } : s)))
     setProductName(item.productName)
@@ -5685,7 +5688,7 @@ export default function ShoppingPage() {
     factoryPipelineScriptStartedRef.current = false
   }
 
-  // 공장 자동화: 상품 클릭 시 수동 모드로 진입 (프로젝트 있으면 불러오기, 없으면 제품 정보만 로드). 썸네일은 AI 생성으로 설정.
+  // 자동화 모드: 상품 클릭 시 수동 모드로 진입 (프로젝트 있으면 불러오기, 없으면 제품 정보만 로드). 썸네일은 AI 생성으로 설정.
   const openFactoryItemInManualMode = async (item: FactoryScheduleItem, e?: React.MouseEvent) => {
     if (e) {
       e.stopPropagation()
@@ -5778,7 +5781,7 @@ export default function ShoppingPage() {
     setShowProjectList(false)
   }
 
-  // 공장 자동화: 백그라운드에서 전체 파이프라인 실행 (화면 전환 없이 공장 자동화에 머물며 진행 상황만 표시)
+  // 자동화 모드: 백그라운드에서 전체 파이프라인 실행 (화면 전환 없이 자동화 모드에 머물며 진행 상황만 표시)
   // 각 단계 완료 시 자동으로 프로젝트 생성·저장
   const runFactoryPipelineInBackground = async (item: FactoryScheduleItem) => {
     let projectId: string | null = item.projectId || null
@@ -6216,7 +6219,7 @@ export default function ShoppingPage() {
     }
   }
 
-  // 공장 자동화 큐: 한 번에 하나씩만 백그라운드 파이프라인 실행 (순차 처리)
+  // 자동화 모드 큐: 한 번에 하나씩만 백그라운드 파이프라인 실행 (순차 처리)
   useEffect(() => {
     if (factoryPipelineQueue.length === 0 || factoryPipelineRunningRef.current) return
     const first = factoryPipelineQueue[0]
@@ -6237,7 +6240,7 @@ export default function ShoppingPage() {
     handleGenerateScript()
   }, [factoryAutoRunItem, activeStep, productName])
 
-  // 공장 자동화: 썸네일 준비되면 자동으로 미리보기 단계로 이동 (버튼 클릭 없이)
+  // 자동화 모드: 썸네일 준비되면 자동으로 미리보기 단계로 이동 (버튼 클릭 없이)
   useEffect(() => {
     if (!factoryAutoRunItem || activeStep !== "thumbnail") return
     const thumbReady = thumbnailUrl || thumbnailImages.length > 0
@@ -6246,7 +6249,7 @@ export default function ShoppingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 자동 진행용
   }, [factoryAutoRunItem?.id, activeStep, thumbnailUrl, thumbnailImages.length, convertedVideoUrls.size, ttsAudioUrl])
 
-  // 공장 자동화: 미리보기 단계 진입 시 미리보기 생성 자동 실행 (한 번만)
+  // 자동화 모드: 미리보기 단계 진입 시 미리보기 생성 자동 실행 (한 번만)
   useEffect(() => {
     if (!factoryAutoRunItem) {
       factoryPreviewAutoTriggeredRef.current = null
@@ -6260,7 +6263,7 @@ export default function ShoppingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- ref로 한 번만 호출
   }, [factoryAutoRunItem?.id, activeStep, previewGenerated, isGeneratingPreview, convertedVideoUrls.size, ttsAudioUrl])
 
-  // 공장 자동화: 미리보기 생성 완료 시 서버 다운로드(렌더) 자동 시작 (한 번만)
+  // 자동화 모드: 미리보기 생성 완료 시 서버 다운로드(렌더) 자동 시작 (한 번만)
   useEffect(() => {
     if (!factoryAutoRunItem) {
       factoryServerDownloadTriggeredRef.current = null
@@ -9567,15 +9570,15 @@ export default function ShoppingPage() {
           {factoryAutoRunItem && !showProjectList && (
             <div className="mb-4 p-4 rounded-xl bg-amber-100/90 border-2 border-amber-400/60 flex items-center justify-center gap-2 flex-wrap">
               <Factory className="w-5 h-5 text-amber-700" />
-              <span className="font-semibold text-amber-900">공장 자동화 자동 생성:</span>
+              <span className="font-semibold text-amber-900">자동화 모드 자동 생성:</span>
               <span className="text-amber-800">{factoryAutoRunItem.productName}</span>
-              <span className="text-sm text-amber-700">· 완료 단계에서 「공장 예약 완료」를 누르면 공장 자동화 목록에 저장됩니다.</span>
+              <span className="text-sm text-amber-700">· 완료 단계에서 「공장 예약 완료」를 누르면 자동화 모드 목록에 저장됩니다.</span>
             </div>
           )}
         </div>
 
-        {/* 예약 발행 목록: 프로젝트 목록 화면에서만 표시 (수동 모드 제작 화면에서는 숨김) */}
-        {showProjectList && (
+        {/* 예약 발행 목록: 자동화 모드일 때만 표시 */}
+        {showProjectList && showFactoryView && (
           <Card className="mb-6 border-orange-200 bg-orange-50/50">
             <CardHeader className="pb-2">
               <CardTitle className="text-base flex items-center gap-2">
@@ -9765,7 +9768,7 @@ export default function ShoppingPage() {
         {/* 메인 컨텐츠 */}
         {showProjectList ? (
           <div className="space-y-6">
-            {/* 프로젝트 목록 / 공장 자동화 탭 */}
+            {/* 프로젝트 목록 / 자동화 모드 탭 */}
             <div className="flex items-center justify-between flex-wrap gap-4">
               <div className="flex items-center gap-3">
                 <Button
@@ -9780,14 +9783,13 @@ export default function ShoppingPage() {
                   variant={showFactoryView ? "default" : "outline"}
                   onClick={() => {
                     if (showFactoryView) return
-                    const pw = prompt("테스트 진행중\n\n비밀번호를 입력하세요.")
-                    if (pw === "111") setShowFactoryView(true)
-                    else if (pw !== null) alert("비밀번호가 올바르지 않습니다.")
+                    setFactoryPasswordInput("")
+                    setShowFactoryPasswordDialog(true)
                   }}
                   className={showFactoryView ? "bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-lg shadow-amber-500/50" : "border-amber-300 text-amber-700"}
                 >
                   <Factory className="w-4 h-4 mr-2" />
-                  공장 자동화
+                  자동화 모드
                 </Button>
                 </div>
               {!showFactoryView ? (
@@ -9815,7 +9817,7 @@ export default function ShoppingPage() {
                     size="icon"
                     className="h-9 w-9 rounded-full text-amber-700 hover:bg-amber-100"
                     onClick={() => setShowFactorySettingsDialog(true)}
-                    title="공장 자동화 설정"
+                    title="자동화 모드 설정"
                   >
                     <Settings className="w-5 h-5" />
                   </Button>
@@ -10075,50 +10077,77 @@ export default function ShoppingPage() {
 
             </>
             ) : (
-            /* 공장 자동화 뷰: n8n 스타일 컨베이어 + 예약 목록 */
-            <div className="space-y-6">
-              <p className="text-slate-600 text-base">날짜·상품·이미지·목소리를 정해두면 해당 날에 영상을 자동 생성합니다.</p>
-              {/* 컨베이어 벨트 애니메이션 (n8n 스타일) */}
-              {(() => {
-                const generatingItem = factorySchedules.find((s) => s.status === "generating")
-                const currentPhaseLabel = generatingItem?.phase ? getFactoryPhaseDisplayText(generatingItem.phase) : null
-              return (
-              <>
-              <style>{`@keyframes factoryConveyor { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }`}</style>
-              <div className="relative overflow-hidden rounded-2xl border-2 border-amber-300/60 bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 p-4 shadow-inner">
-                <div className="absolute inset-0 flex items-center pointer-events-none">
-                  <div className="flex" style={{ width: "200%", animation: "factoryConveyor 20s linear infinite" }}>
-                    {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-                      <div key={i} className="flex items-center gap-4 shrink-0 px-8">
-                        <div className="w-14 h-14 rounded-xl bg-amber-200/80 border-2 border-amber-400/60 shadow-md flex items-center justify-center">
-                          <ShoppingBag className="w-7 h-7 text-amber-700" />
+            /* 자동화 모드 뷰: 프리미엄 UI + 영상 자동화 애니메이션 */
+            <>
+              <style>{`
+                @keyframes factoryConveyor { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+                @keyframes factoryGlow { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+                @keyframes factoryShine { 0% { background-position: -200% center; } 100% { background-position: 200% center; } }
+                @keyframes factoryPulseRing { 0%, 100% { transform: scale(1); opacity: 0.5; } 50% { transform: scale(1.15); opacity: 0; } }
+                @keyframes cardEnter { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+                @keyframes stepFlow { 0% { stroke-dashoffset: 24; } 100% { stroke-dashoffset: 0; } }
+                @keyframes floatIcon { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+              `}</style>
+              <div className="min-h-[60vh] space-y-8 animate-in fade-in duration-500">
+                {/* 상단 헤더 */}
+                <div className="rounded-2xl bg-gradient-to-br from-slate-800 via-slate-700 to-amber-900/40 p-6 text-white shadow-xl shadow-slate-900/30 border border-slate-600/50">
+                  <p className="text-slate-200 text-base font-medium tracking-tight">
+                    날짜·상품·이미지·목소리를 정해두면 <span className="text-amber-300 font-semibold">해당 날짜에 영상이 자동 생성</span>됩니다.
+                  </p>
+                </div>
+                {/* 컨베이어 벨트: 영상 자동화 파이프라인 */}
+                {(() => {
+                  const generatingItem = factorySchedules.find((s) => s.status === "generating")
+                  const currentPhaseLabel = generatingItem?.phase ? getFactoryPhaseDisplayText(generatingItem.phase) : null
+                return (
+                <div className="relative overflow-hidden rounded-2xl border border-amber-400/40 bg-gradient-to-b from-amber-50/90 to-orange-50/80 p-5 shadow-lg shadow-amber-500/10">
+                  <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-transparent via-amber-200/20 to-transparent bg-[length:200%_100%] pointer-events-none" style={{ animation: "factoryShine 6s linear infinite" }} />
+                  <div className="absolute inset-0 flex items-center pointer-events-none overflow-hidden rounded-2xl">
+                    <div className="flex" style={{ width: "200%", animation: "factoryConveyor 25s linear infinite" }}>
+                      {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+                        <div key={i} className="flex items-center gap-3 shrink-0 px-6">
+                          <div className="w-12 h-12 rounded-xl bg-amber-200/90 border border-amber-400/50 shadow-md flex items-center justify-center" style={{ animation: "floatIcon 2s ease-in-out infinite", animationDelay: `${i * 0.15}s` }}>
+                            <ShoppingBag className="w-6 h-6 text-amber-700" />
+                          </div>
+                          <div className="w-1.5 h-8 rounded-full bg-amber-400/40" />
+                          <div className="w-12 h-12 rounded-xl bg-sky-200/90 border border-sky-400/50 shadow-md flex items-center justify-center" style={{ animation: "floatIcon 2s ease-in-out infinite", animationDelay: `${i * 0.15 + 0.1}s` }}>
+                            <FileText className="w-6 h-6 text-sky-700" />
+                          </div>
+                          <div className="w-1.5 h-8 rounded-full bg-sky-400/40" />
+                          <div className="w-12 h-12 rounded-xl bg-violet-200/90 border border-violet-400/50 shadow-md flex items-center justify-center" style={{ animation: "floatIcon 2s ease-in-out infinite", animationDelay: `${i * 0.15 + 0.2}s` }}>
+                            <ImageIcon className="w-6 h-6 text-violet-700" />
+                          </div>
+                          <div className="w-1.5 h-8 rounded-full bg-violet-400/40" />
+                          <div className="w-12 h-12 rounded-xl bg-orange-200/90 border border-orange-400/50 shadow-md flex items-center justify-center" style={{ animation: "floatIcon 2s ease-in-out infinite", animationDelay: `${i * 0.15 + 0.3}s` }}>
+                            <Video className="w-6 h-6 text-orange-700" />
+                          </div>
+                          <div className="w-1.5 h-8 rounded-full bg-orange-400/40" />
+                          <div className="w-12 h-12 rounded-xl bg-emerald-200/90 border border-emerald-400/50 shadow-md flex items-center justify-center" style={{ animation: "floatIcon 2s ease-in-out infinite", animationDelay: `${i * 0.15 + 0.4}s` }}>
+                            <CheckCircle2 className="w-6 h-6 text-emerald-700" />
+                          </div>
                         </div>
-                        <div className="w-2 h-10 rounded-full bg-amber-400/50" />
-                        <div className="w-14 h-14 rounded-xl bg-orange-200/80 border-2 border-orange-400/60 shadow-md flex items-center justify-center">
-                          <Video className="w-7 h-7 text-orange-700" />
-                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="relative flex items-center justify-center py-8">
+                    <div className={`flex items-center gap-3 px-5 py-3 rounded-2xl border-2 shadow-lg ${currentPhaseLabel ? "bg-gradient-to-r from-amber-100 to-orange-100 border-amber-400/70 shadow-amber-500/20" : "bg-white/95 border-amber-300/60 shadow-slate-200/50"}`}>
+                      <div className="relative">
+                        <div className="absolute inset-0 rounded-full bg-amber-400/30 animate-ping" style={{ animationDuration: "2s" }} />
+                        <Cog className="relative w-6 h-6 text-amber-600 animate-spin" style={{ animationDuration: "3s" }} />
                       </div>
-                    ))}
+                      <span className="font-semibold text-slate-800">
+                        {currentPhaseLabel ? (
+                          <>작업 중 · {currentPhaseLabel}</>
+                        ) : (
+                          <>자동화 대기 · 해당 날짜에 자동 생성</>
+                        )}
+                      </span>
+                    </div>
                   </div>
                 </div>
-                <div className="relative flex items-center justify-center py-6">
-                  <div className={`flex items-center gap-2 px-4 py-2 rounded-full border ${currentPhaseLabel ? "bg-amber-200/90 border-amber-500/80" : "bg-amber-100/90 border-amber-300/80"}`}>
-                    <Cog className="w-5 h-5 text-amber-700 animate-spin" style={{ animationDuration: "3s" }} />
-                    <span className="font-semibold text-amber-800">
-                      {currentPhaseLabel ? (
-                        <>작업 중 · 현재 단계: {currentPhaseLabel}</>
-                      ) : (
-                        <>공장 자동화 · 해당 날짜에 자동 생성</>
-                      )}
-                    </span>
-                  </div>
-                </div>
-              </div>
-              </>
-              )
-              })()}
-              {/* 예약 달력: 해당 날짜에 예약이 있는지 한눈에 */}
-              <div className="rounded-2xl border-2 border-amber-200/80 bg-white/95 p-4 md:p-5 shadow-sm">
+                )})()}
+                {/* 예약 달력 */}
+                <div className="rounded-2xl border border-slate-200/80 bg-white/98 p-4 md:p-5 shadow-md shadow-slate-200/50 backdrop-blur-sm" style={{ animation: "cardEnter 0.5s ease-out both", animationDelay: "100ms" }}>
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-base font-semibold text-amber-900 flex items-center gap-2">
                     <CalendarClock className="w-5 h-5 text-amber-600" />
@@ -10184,12 +10213,25 @@ export default function ShoppingPage() {
                     return (
                       <div
                         key={dateStr}
-                        className={`min-h-[3.5rem] flex flex-col items-center justify-start rounded-lg text-sm transition-all py-1 px-0.5 ${
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => {
+                          setNewFactoryDate(dateStr)
+                          setShowAddFactoryScheduleDialog(true)
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault()
+                            setNewFactoryDate(dateStr)
+                            setShowAddFactoryScheduleDialog(true)
+                          }
+                        }}
+                        className={`min-h-[3.5rem] flex flex-col items-center justify-start rounded-lg text-sm transition-all py-1 px-0.5 cursor-pointer hover:bg-amber-50 hover:ring-2 hover:ring-amber-300/50 ${
                           hasSchedule
                             ? "bg-amber-100 text-amber-800 font-semibold ring-2 ring-amber-400/60"
                             : "text-slate-600"
                         } ${isToday ? "ring-2 ring-orange-400 ring-offset-2" : ""}`}
-                        title={titleText}
+                        title={titleText ? `${titleText}\n클릭하면 이 날짜로 예약 추가` : "클릭하면 이 날짜로 예약 추가"}
                       >
                         <span className="shrink-0">{day}</span>
                         {hasSchedule && productNames.length > 0 && (
@@ -10227,10 +10269,10 @@ export default function ShoppingPage() {
                   )
                 })()}
                 <p className="text-xs text-slate-500 mt-3 text-center">
-                  예약이 있는 날에 예약된 영상(상품명)이 표시됩니다.
+                  예약이 있는 날에 예약된 영상(상품명)이 표시됩니다. 날짜를 클릭하면 해당 날짜로 예약 추가할 수 있습니다.
                 </p>
               </div>
-              {/* 공장 자동화 6단계 프로세스 스테퍼 (실제 진행 중인 예약의 phase 기준) */}
+              {/* 자동화 모드 6단계 프로세스 스테퍼 */}
               {(() => {
                 const generatingItem = factoryPipelineRunningItemId
                   ? factorySchedules.find((s) => s.id === factoryPipelineRunningItemId)
@@ -10238,17 +10280,21 @@ export default function ShoppingPage() {
                 const currentStepIndex = generatingItem ? getFactoryPhaseStepIndex(generatingItem.phase) : -1
                 const steps = [
                   { step: "product", label: "제품 입력", icon: ShoppingBag },
-                  { step: "script", label: "대본 및 TTS 생성", icon: FileText },
+                  { step: "script", label: "대본 및 TTS", icon: FileText },
                   { step: "video", label: "이미지 생성", icon: ImageIcon },
                   { step: "render", label: "영상 생성", icon: Video },
-                  { step: "thumbnail", label: "썸네일 생성", icon: ImageIcon },
+                  { step: "thumbnail", label: "썸네일", icon: ImageIcon },
                   { step: "preview", label: "완료", icon: CheckCircle2 },
                 ] as const
                 if (currentStepIndex < 0) return null
                 return (
-                  <div className="rounded-2xl border-2 border-amber-200/80 bg-white/95 p-4 md:p-6 shadow-sm">
-                    <p className="text-sm font-medium text-amber-800 mb-4 text-center">
-                      {generatingItem?.productName ? `진행 중: ${generatingItem.productName}` : "자동 생성 진행 중"}
+                  <div className="rounded-2xl border border-slate-200/80 bg-white/98 p-5 md:p-6 shadow-md shadow-slate-200/50 backdrop-blur-sm" style={{ animation: "cardEnter 0.5s ease-out both", animationDelay: "200ms" }}>
+                    <p className="text-sm font-semibold text-slate-700 mb-5 text-center">
+                      {generatingItem?.productName ? (
+                        <span className="text-amber-700">진행 중: {generatingItem.productName}</span>
+                      ) : (
+                        "자동 생성 진행 중"
+                      )}
                     </p>
                     <div className="flex items-center justify-center gap-1 md:gap-2 flex-wrap">
                       {steps.map((item, index) => {
@@ -10256,43 +10302,43 @@ export default function ShoppingPage() {
                         const isActive = currentStepIndex === index
                         const isCompleted = currentStepIndex > index
                         return (
-                          <div key={item.step} className="flex items-center">
+                          <div key={item.step} className="flex items-center" style={{ animation: "cardEnter 0.5s ease-out both", animationDelay: `${250 + index * 50}ms` }}>
                             <div className="flex flex-col items-center relative">
                               {isActive && (
-                                <div className="absolute inset-0 rounded-full bg-orange-400/30 blur-xl animate-pulse" />
+                                <div className="absolute inset-0 rounded-full bg-amber-400/25 blur-xl animate-pulse" style={{ animationDuration: "1.5s" }} />
                               )}
                               {isCompleted && (
-                                <div className="absolute inset-0 rounded-full bg-green-400/20 blur-lg" />
+                                <div className="absolute inset-0 rounded-full bg-emerald-400/20 blur-lg" />
                               )}
                               <div
-                                className={`relative w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center transition-all duration-500 ${
+                                className={`relative w-10 h-10 md:w-12 md:h-12 rounded-xl flex items-center justify-center transition-all duration-500 ${
                                   isActive
-                                    ? "bg-orange-100 text-orange-600 scale-110 shadow-lg shadow-orange-500/50 animate-pulse"
+                                    ? "bg-gradient-to-br from-amber-400 to-orange-500 text-white scale-110 shadow-lg shadow-amber-500/40 ring-2 ring-amber-300/50"
                                     : isCompleted
-                                      ? "bg-green-100 text-green-600 scale-105 shadow-md shadow-green-500/30"
+                                      ? "bg-gradient-to-br from-emerald-100 to-emerald-50 text-emerald-600 scale-105 shadow-md border border-emerald-200/80"
                                       : "bg-slate-100 text-slate-400 border border-slate-200"
                                 }`}
                               >
-                                <Icon className={`w-5 h-5 md:w-6 md:h-6 ${isActive ? "animate-bounce" : ""}`} />
+                                <Icon className={`w-5 h-5 md:w-6 md:h-6 ${isActive ? "animate-bounce" : ""}`} style={isActive ? { animationDuration: "1s" } : undefined} />
                                 {isCompleted && (
-                                  <div className="absolute inset-0 flex items-center justify-center">
-                                    <CheckCircle2 className="w-6 h-6 md:w-7 md:h-7 text-green-600" />
+                                  <div className="absolute inset-0 flex items-center justify-center rounded-xl">
+                                    <CheckCircle2 className="w-6 h-6 md:w-7 md:h-7 text-emerald-500" />
                                   </div>
                                 )}
                               </div>
                               <span
-                                className={`text-xs md:text-sm mt-2 text-center max-w-[4rem] md:max-w-[5rem] ${
-                                  isActive ? "text-orange-600 font-semibold" : isCompleted ? "text-green-600 font-medium" : "text-slate-500"
+                                className={`text-xs md:text-sm mt-2 text-center max-w-[3.5rem] md:max-w-[4rem] font-medium ${
+                                  isActive ? "text-amber-700" : isCompleted ? "text-emerald-600" : "text-slate-500"
                                 }`}
                               >
                                 {item.label}
                               </span>
                               {isActive && (
-                                <div className="relative w-full h-1 mt-1 rounded-full bg-orange-400 animate-pulse" />
+                                <div className="relative w-full h-1 mt-1.5 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 animate-pulse" style={{ animationDuration: "1.2s" }} />
                               )}
                             </div>
                             {index < steps.length - 1 && (
-                              <div className="w-4 md:w-8 h-0.5 mx-1 border-t-2 border-dashed border-slate-300" />
+                              <div className="w-3 md:w-6 h-0.5 mx-0.5 border-t-2 border-dashed border-slate-200" />
                             )}
                           </div>
                         )
@@ -10304,10 +10350,10 @@ export default function ShoppingPage() {
               {/* 예약 목록 (날짜순) */}
               <div className="grid gap-4">
                 {factorySchedules.length === 0 ? (
-                  <div className="text-center py-12 rounded-2xl border-2 border-dashed border-amber-200 bg-amber-50/50">
-                    <Factory className="w-12 h-12 mx-auto text-amber-500 mb-3" />
-                    <p className="text-slate-600 font-medium">예약이 없습니다</p>
-                    <p className="text-sm text-slate-500 mt-1">「예약 추가」로 날짜·상품·이미지·목소리를 정해두세요.</p>
+                  <div className="text-center py-14 rounded-2xl border-2 border-dashed border-slate-200 bg-gradient-to-b from-slate-50 to-white animate-in fade-in duration-500">
+                    <Factory className="w-14 h-14 mx-auto text-slate-400 mb-4 opacity-80" />
+                    <p className="text-slate-600 font-semibold">예약이 없습니다</p>
+                    <p className="text-sm text-slate-500 mt-1.5">「예약 추가」로 날짜·상품·이미지·목소리를 정해두세요.</p>
                   </div>
                 ) : (
                   factorySchedules
@@ -10317,13 +10363,13 @@ export default function ShoppingPage() {
                       const bt = `${b.scheduledDate}T${b.scheduledTime || "00:00"}`
                       return at.localeCompare(bt)
                     })
-                    .map((item) => {
+                    .map((item, idx) => {
                       const scheduledAt = `${item.scheduledDate}T${item.scheduledTime || "00:00"}`
                       const isDue = scheduledAt <= new Date().toISOString().slice(0, 16)
                       const isGenerating = item.status === "generating"
                       const isReady = item.status === "ready"
                       return (
-                        <Card key={item.id} className="overflow-hidden border-amber-200/80 bg-white/90">
+                        <Card key={item.id} className="overflow-hidden border border-slate-200/80 bg-white/95 shadow-md shadow-slate-200/30 hover:shadow-lg hover:border-amber-200/60 transition-all duration-300" style={{ animation: "cardEnter 0.45s ease-out both", animationDelay: `${300 + idx * 40}ms` }}>
                           <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center gap-4">
                             <div
                               role="button"
@@ -10471,12 +10517,68 @@ export default function ShoppingPage() {
                 )}
               </div>
             </div>
+            </>
             )}
-            {/* 공장 자동화 설정 다이얼로그 (유튜브 연동) */}
+            {/* 자동화 모드 비밀번호 입력 (숫자 마스킹) */}
+            <Dialog open={showFactoryPasswordDialog} onOpenChange={(open) => { setShowFactoryPasswordDialog(open); if (!open) setFactoryPasswordInput("") }}>
+              <DialogContent className="sm:max-w-sm">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    자동화 모드
+                    <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded border border-amber-300">테스트</span>
+                  </DialogTitle>
+                  <DialogDescription>비밀번호를 입력하세요.</DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="factory-pw" className="text-sm text-slate-600">비밀번호</Label>
+                    <Input
+                      id="factory-pw"
+                      type="password"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      placeholder="비밀번호"
+                      value={factoryPasswordInput}
+                      onChange={(e) => setFactoryPasswordInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          if (factoryPasswordInput === "111") {
+                            setShowFactoryView(true)
+                            setShowFactoryPasswordDialog(false)
+                            setFactoryPasswordInput("")
+                          } else {
+                            alert("비밀번호가 올바르지 않습니다.")
+                          }
+                        }
+                      }}
+                      className="font-mono"
+                    />
+                  </div>
+                  <div className="flex gap-2 justify-end">
+                    <Button variant="outline" onClick={() => { setShowFactoryPasswordDialog(false); setFactoryPasswordInput("") }}>취소</Button>
+                    <Button
+                      className="bg-amber-600 hover:bg-amber-700"
+                      onClick={() => {
+                        if (factoryPasswordInput === "111") {
+                          setShowFactoryView(true)
+                          setShowFactoryPasswordDialog(false)
+                          setFactoryPasswordInput("")
+                        } else {
+                          alert("비밀번호가 올바르지 않습니다.")
+                        }
+                      }}
+                    >
+                      확인
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+            {/* 자동화 모드 설정 다이얼로그 (유튜브 연동) */}
             <Dialog open={showFactorySettingsDialog} onOpenChange={setShowFactorySettingsDialog}>
               <DialogContent className="sm:max-w-md">
                 <DialogHeader>
-                  <DialogTitle>공장 자동화 설정</DialogTitle>
+                  <DialogTitle>자동화 모드 설정</DialogTitle>
                   <DialogDescription>
                     예약 발행 시 유튜브 쇼츠 자동 업로드를 위해 채널을 연동할 수 있습니다.
                   </DialogDescription>
@@ -10609,107 +10711,133 @@ export default function ShoppingPage() {
                 </div>
               </DialogContent>
             </Dialog>
-            {/* 공장 자동화 - 예약 추가 다이얼로그 (공장 탭에서도 열리도록 showProjectList일 때 항상 렌더) */}
+            {/* 자동화 모드 - 예약 추가 다이얼로그 (공장 탭에서도 열리도록 showProjectList일 때 항상 렌더) */}
             <Dialog open={showAddFactoryScheduleDialog} onOpenChange={setShowAddFactoryScheduleDialog}>
-              <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                  <DialogTitle>예약 추가</DialogTitle>
-                  <DialogDescription>
-                    발행일·상품명·이미지·목소리를 정해두면 해당 날에 영상을 자동 생성할 수 있습니다.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div className="grid gap-2">
-                    <Label>발행일</Label>
-                    <Input type="date" value={newFactoryDate} onChange={(e) => setNewFactoryDate(e.target.value)} />
+              <DialogContent className="sm:max-w-lg rounded-2xl border-slate-200/80 shadow-xl shadow-slate-200/50 overflow-hidden p-0 gap-0">
+                <div className="bg-gradient-to-br from-amber-50 via-white to-orange-50/30 px-6 pt-6 pb-5 border-b border-amber-100/80">
+                  <DialogHeader>
+                    <DialogTitle className="text-xl font-semibold text-slate-800 flex items-center gap-2">
+                      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100 text-amber-600">
+                        <CalendarPlus className="w-5 h-5" />
+                      </span>
+                      예약 추가
+                    </DialogTitle>
+                    <DialogDescription className="text-slate-500 text-sm mt-1.5">
+                      발행일·상품 정보를 입력하면 해당 날짜에 영상이 자동 생성됩니다.
+                    </DialogDescription>
+                  </DialogHeader>
+                </div>
+                <div className="px-6 py-5 space-y-5 max-h-[60vh] overflow-y-auto">
+                  <div className="space-y-4">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-amber-700/90">날짜 · 시간</p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <Label className="text-sm font-medium text-slate-700">발행일</Label>
+                        <Input type="date" value={newFactoryDate} onChange={(e) => setNewFactoryDate(e.target.value)} className="rounded-xl border-slate-200 bg-white" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-sm font-medium text-slate-700">발행 시간</Label>
+                        <Input type="time" value={newFactoryTime} onChange={(e) => setNewFactoryTime(e.target.value)} className="rounded-xl border-slate-200 bg-white" />
+                      </div>
+                    </div>
                   </div>
-                  <div className="grid gap-2">
-                    <Label>발행 시간 (시·분)</Label>
-                    <Input type="time" value={newFactoryTime} onChange={(e) => setNewFactoryTime(e.target.value)} />
+                  <div className="h-px bg-gradient-to-r from-transparent via-amber-200/60 to-transparent" />
+                  <div className="space-y-4">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-amber-700/90">상품 정보</p>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium text-slate-700">상품명</Label>
+                      <Input placeholder="상품명을 입력하세요" value={newFactoryName} onChange={(e) => setNewFactoryName(e.target.value)} className="rounded-xl border-slate-200 bg-white placeholder:text-slate-400" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium text-slate-700">상품 설명 <span className="font-normal text-slate-400">(선택)</span></Label>
+                      <Textarea placeholder="상품에 대한 간단한 설명" value={newFactoryDesc} onChange={(e) => setNewFactoryDesc(e.target.value)} rows={2} className="resize-none rounded-xl border-slate-200 bg-white placeholder:text-slate-400" />
+                    </div>
                   </div>
-                  <div className="grid gap-2">
-                    <Label>상품명</Label>
-                    <Input placeholder="상품명" value={newFactoryName} onChange={(e) => setNewFactoryName(e.target.value)} />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label>상품 설명 (선택)</Label>
-                    <Textarea placeholder="상품 설명" value={newFactoryDesc} onChange={(e) => setNewFactoryDesc(e.target.value)} rows={2} className="resize-none" />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label>상품 이미지</Label>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        type="file"
-                        accept="image/*"
-                        className="flex-1"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0]
-                          if (!file) return
-                          const reader = new FileReader()
-                          reader.onload = () => {
-                            let data = reader.result as string
-                            const img = new Image()
-                            img.onload = () => {
-                              const max = 400
-                              if (img.width <= max && img.height <= max) {
-                                setNewFactoryImage(data)
-                                return
+                  <div className="h-px bg-gradient-to-r from-transparent via-amber-200/60 to-transparent" />
+                  <div className="space-y-4">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-amber-700/90">미디어 · 목소리</p>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium text-slate-700">상품 이미지</Label>
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                          <Input
+                            type="file"
+                            accept="image/*"
+                            className="rounded-xl border-slate-200 bg-white file:mr-3 file:rounded-lg file:border-0 file:bg-amber-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-amber-700"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0]
+                              if (!file) return
+                              const reader = new FileReader()
+                              reader.onload = () => {
+                                let data = reader.result as string
+                                const img = new Image()
+                                img.onload = () => {
+                                  const max = 400
+                                  if (img.width <= max && img.height <= max) {
+                                    setNewFactoryImage(data)
+                                    return
+                                  }
+                                  const c = document.createElement("canvas")
+                                  const r = Math.min(max / img.width, max / img.height)
+                                  c.width = img.width * r
+                                  c.height = img.height * r
+                                  const ctx = c.getContext("2d")
+                                  if (ctx) {
+                                    ctx.drawImage(img, 0, 0, c.width, c.height)
+                                    setNewFactoryImage(c.toDataURL("image/jpeg", 0.85))
+                                  } else setNewFactoryImage(data)
+                                }
+                                img.src = data
                               }
-                              const c = document.createElement("canvas")
-                              const r = Math.min(max / img.width, max / img.height)
-                              c.width = img.width * r
-                              c.height = img.height * r
-                              const ctx = c.getContext("2d")
-                              if (ctx) {
-                                ctx.drawImage(img, 0, 0, c.width, c.height)
-                                setNewFactoryImage(c.toDataURL("image/jpeg", 0.85))
-                              } else setNewFactoryImage(data)
-                            }
-                            img.src = data
-                          }
-                          reader.readAsDataURL(file)
-                        }}
-                      />
-                      {newFactoryImage && (
-                        <Button type="button" variant="ghost" size="sm" onClick={() => setNewFactoryImage(null)} className="text-red-500">
-                          <X className="w-4 h-4" />
-                        </Button>
+                              reader.readAsDataURL(file)
+                            }}
+                          />
+                        </div>
+                        {newFactoryImage && (
+                          <div className="relative shrink-0">
+                            <img src={newFactoryImage} alt="" className="w-16 h-16 object-cover rounded-xl border-2 border-amber-200/80 shadow-sm" />
+                            <Button type="button" variant="ghost" size="icon" onClick={() => setNewFactoryImage(null)} className="absolute -top-1.5 -right-1.5 h-6 w-6 rounded-full bg-slate-700 text-white hover:bg-red-500 shadow-md">
+                              <X className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium text-slate-700">목소리</Label>
+                      <Select value={newFactoryVoiceId} onValueChange={setNewFactoryVoiceId}>
+                        <SelectTrigger className="rounded-xl border-slate-200 bg-white">
+                          <SelectValue placeholder="목소리 선택" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="ttsmaker-여성1">TTSMaker 여성1</SelectItem>
+                          <SelectItem value="ttsmaker-여성2">TTSMaker 여성2</SelectItem>
+                          <SelectItem value="ttsmaker-여성6">TTSMaker 여성3</SelectItem>
+                          <SelectItem value="ttsmaker-남성1">TTSMaker 남성1</SelectItem>
+                          <SelectItem value="ttsmaker-남성4">TTSMaker 남성2</SelectItem>
+                          <SelectItem value="ttsmaker-남성5">TTSMaker 남성3</SelectItem>
+                          {supertoneVoices.map((v) => (
+                            <SelectItem key={v.voice_id} value={`supertone-${v.voice_id}`}>
+                              수퍼톤 {v.name}
+                            </SelectItem>
+                          ))}
+                          <SelectItem value="elevenlabs-jB1Cifc2UQbq1gR3wnb0">ElevenLabs Rachel</SelectItem>
+                          <SelectItem value="elevenlabs-8jHHF8rMqMlg8if2mOUe">ElevenLabs Voice 2</SelectItem>
+                          <SelectItem value="elevenlabs-uyVNoMrnUku1dZyVEXwD">ElevenLabs Voice 3</SelectItem>
+                          <SelectItem value="elevenlabs-1KNqBv4TutQtzSIACsMC">ElevenLabs Voice 4</SelectItem>
+                          <SelectItem value="elevenlabs-4JJwo477JUAx3HV0T7n7">ElevenLabs Voice 5</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {supertoneVoices.length === 0 && (
+                        <p className="text-xs text-slate-400">수퍼톤 목록은 대본/TTS 단계 진입 시 불러옵니다.</p>
                       )}
                     </div>
-                    {newFactoryImage && <img src={newFactoryImage} alt="" className="mt-2 w-20 h-20 object-cover rounded-lg border" />}
-                  </div>
-                  <div className="grid gap-2">
-                    <Label>목소리</Label>
-                    <Select value={newFactoryVoiceId} onValueChange={setNewFactoryVoiceId}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="목소리 선택" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="ttsmaker-여성1">TTSMaker 여성1</SelectItem>
-                        <SelectItem value="ttsmaker-여성2">TTSMaker 여성2</SelectItem>
-                        <SelectItem value="ttsmaker-여성6">TTSMaker 여성3</SelectItem>
-                        <SelectItem value="ttsmaker-남성1">TTSMaker 남성1</SelectItem>
-                        <SelectItem value="ttsmaker-남성4">TTSMaker 남성2</SelectItem>
-                        <SelectItem value="ttsmaker-남성5">TTSMaker 남성3</SelectItem>
-                        {supertoneVoices.map((v) => (
-                          <SelectItem key={v.voice_id} value={`supertone-${v.voice_id}`}>
-                            수퍼톤 {v.name}
-                          </SelectItem>
-                        ))}
-                        <SelectItem value="elevenlabs-jB1Cifc2UQbq1gR3wnb0">ElevenLabs Rachel</SelectItem>
-                        <SelectItem value="elevenlabs-8jHHF8rMqMlg8if2mOUe">ElevenLabs Voice 2</SelectItem>
-                        <SelectItem value="elevenlabs-uyVNoMrnUku1dZyVEXwD">ElevenLabs Voice 3</SelectItem>
-                        <SelectItem value="elevenlabs-1KNqBv4TutQtzSIACsMC">ElevenLabs Voice 4</SelectItem>
-                        <SelectItem value="elevenlabs-4JJwo477JUAx3HV0T7n7">ElevenLabs Voice 5</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {supertoneVoices.length === 0 && (
-                      <p className="text-xs text-slate-500">수퍼톤 목소리는 대본/TTS 단계에서 한 번 진입하면 목록이 불러와집니다.</p>
-                    )}
                   </div>
                 </div>
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setShowAddFactoryScheduleDialog(false)}>취소</Button>
+                <div className="px-6 py-4 bg-slate-50/80 border-t border-slate-200/80 flex justify-end gap-3">
+                  <Button variant="outline" onClick={() => setShowAddFactoryScheduleDialog(false)} className="rounded-xl border-slate-200 text-slate-600 hover:bg-white">
+                    취소
+                  </Button>
                   <Button
                     onClick={() => {
                       if (!newFactoryDate || !newFactoryName.trim()) {
@@ -10737,14 +10865,13 @@ export default function ShoppingPage() {
                       setNewFactoryDesc("")
                       setNewFactoryImage(null)
                       setNewFactoryVoiceId("ttsmaker-여성1")
-                      // 순차 처리: 큐에 넣기만 하고, 별도 useEffect에서 한 건씩 처리
                       setFactoryPipelineQueue((prev) => [...prev, newItem])
                     }}
-                    className="bg-amber-600 hover:bg-amber-700"
+                    className="rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-medium shadow-md shadow-amber-500/25 px-6"
                   >
-                    추가
+                    예약 추가
                   </Button>
-                </DialogFooter>
+                </div>
               </DialogContent>
             </Dialog>
           </div>
