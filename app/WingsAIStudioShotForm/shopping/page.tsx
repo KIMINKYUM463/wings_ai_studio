@@ -10370,11 +10370,26 @@ export default function ShoppingPage() {
                       const isReady = item.status === "ready"
                       return (
                         <Card key={item.id} className="overflow-hidden border border-slate-200/80 bg-white/95 shadow-md shadow-slate-200/30 hover:shadow-lg hover:border-amber-200/60 transition-all duration-300" style={{ animation: "cardEnter 0.45s ease-out both", animationDelay: `${300 + idx * 40}ms` }}>
-                          <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                          <CardContent className="relative p-4 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className="absolute top-2 left-2 z-20 h-8 w-8 rounded-full border border-slate-200/90 bg-white/95 text-red-500 hover:text-red-600 hover:bg-red-50 shadow-sm"
+                              title="예약 삭제"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                if (!confirm(`"${item.productName}" 예약을 삭제할까요?`)) return
+                                persistFactorySchedules(factorySchedules.filter((s) => s.id !== item.id))
+                                if (item.videoBlobId) deleteShotFormScheduleVideoBlob(item.videoBlobId).catch(() => {})
+                              }}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
                             <div
                               role="button"
                               tabIndex={0}
-                              className="flex flex-1 min-w-0 items-start sm:items-center gap-4 cursor-pointer rounded-lg hover:bg-amber-50/80 transition-colors p-2 -m-2"
+                              className="flex flex-1 min-w-0 items-start sm:items-center gap-4 cursor-pointer rounded-lg hover:bg-amber-50/80 transition-colors p-2 -m-2 pl-10 sm:pl-10"
                               onClick={() => openFactoryItemInManualMode(item)}
                               onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openFactoryItemInManualMode(item) } }}
                             >
@@ -10497,18 +10512,6 @@ export default function ShoppingPage() {
                                   실패{item.errorMessage ? `: ${item.errorMessage}` : ""}
                                 </span>
                               )}
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="text-red-500 hover:text-red-600"
-                                onClick={() => {
-                                  if (!confirm(`"${item.productName}" 예약을 삭제할까요?`)) return
-                                  persistFactorySchedules(factorySchedules.filter((s) => s.id !== item.id))
-                                  if (item.videoBlobId) deleteShotFormScheduleVideoBlob(item.videoBlobId).catch(() => {})
-                                }}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
                             </div>
                           </CardContent>
                         </Card>
