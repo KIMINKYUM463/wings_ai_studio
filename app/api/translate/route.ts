@@ -41,6 +41,8 @@ export async function POST(request: NextRequest) {
       "vi": "베트남어",
       "th": "태국어",
       "id": "인도네시아어",
+      "ms": "말레이어",
+      "tr": "터키어",
     }
 
     const sourceLangName = languageNames[sourceLanguage] || sourceLanguage

@@ -16,6 +16,23 @@ const alignToFrame = (time: number): number => {
   return Math.ceil((time - 0.0001) / FRAME_DURATION) * FRAME_DURATION
 }
 
+/** ElevenLabs 패널: selectedVoiceId → raw 음성 ID + 합성 언어 */
+function parseElevenLabsPanelSelection(fullId: string): { raw: string; lang: string } {
+  const m = fullId.match(/^elevenlabs-(en|zh|es|pt|de|fr|ja|it|tr|ru|ms|th)-(.+)$/)
+  if (m) return { lang: m[1], raw: m[2] }
+  if (fullId.startsWith("elevenlabs-")) {
+    return { lang: "ko", raw: fullId.replace(/^elevenlabs-/, "") }
+  }
+  return { lang: "ko", raw: "" }
+}
+
+function buildElevenLabsSelectedVoiceId(rawVoiceId: string, lang: string): string {
+  const id = rawVoiceId.trim()
+  if (!id) return "elevenlabs-jB1Cifc2UQbq1gR3wnb0"
+  if (lang === "ko") return `elevenlabs-${id}`
+  return `elevenlabs-${lang}-${id}`
+}
+
 // 커스텀 애니메이션 스타일 추가
 const customStyles = `
   @keyframes fade-in {
@@ -621,6 +638,7 @@ export default function LongformContentPage() {
   const [selectedVoiceId, setSelectedVoiceId] = useState<string>("ttsmaker-여성1") // 기본: TTSMaker 여성1
   const [customElevenLabsVoices, setCustomElevenLabsVoices] = useState<Array<{ id: string; name: string }>>([]) // 사용자 추가 일레븐랩스 목소리
   const [customElevenLabsVoiceId, setCustomElevenLabsVoiceId] = useState<string>("") // 사용자가 입력한 ElevenLabs 음성 ID
+  const [elevenLabsOutputLanguage, setElevenLabsOutputLanguage] = useState<string>("ko") // ElevenLabs 합성 언어 (ko=번역 없음, 그 외=번역 후 TTS)
   const [supertoneVoices, setSupertoneVoices] = useState<Array<{ voice_id: string; name: string; language: string[]; styles: string[]; thumbnail_image_url?: string }>>([]) // 수퍼톤 음성 목록
   const [isLoadingSupertoneVoices, setIsLoadingSupertoneVoices] = useState(false) // 수퍼톤 음성 목록 로딩 중
   const [selectedSupertoneVoiceId, setSelectedSupertoneVoiceId] = useState<string>("") // 선택된 수퍼톤 음성 ID
@@ -694,6 +712,14 @@ export default function LongformContentPage() {
   useEffect(() => {
     videoDataRef.current = videoData
   }, [videoData])
+
+  useEffect(() => {
+    if (!selectedVoiceId?.startsWith("elevenlabs-")) return
+    const { raw, lang } = parseElevenLabsPanelSelection(selectedVoiceId)
+    if (!raw) return
+    setCustomElevenLabsVoiceId(raw)
+    setElevenLabsOutputLanguage(lang)
+  }, [selectedVoiceId])
 
   // 설정 다이얼로그 상태
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
@@ -9244,12 +9270,14 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         { id: "ttsmaker-남성1", name: "TTSMaker 남성1", note: "ID: 5501", provider: "ttsmaker", language: "ko" },
         { id: "ttsmaker-남성4", name: "TTSMaker 남성2", note: "ID: 5888", provider: "ttsmaker", language: "ko" },
         { id: "ttsmaker-남성5", name: "TTSMaker 남성3", note: "ID: 5888 (음높이 -10%)", provider: "ttsmaker", language: "ko" },
+        { id: "elevenlabs-jB1Cifc2UQbq1gR3wnb0", name: "ElevenLabs Rachel", note: "한국어 대본 그대로 합성", provider: "elevenlabs", language: "ko" },
       ],
       "en": [
         { id: "ttsmaker-en-148", name: "TTSMaker 영어 1", note: "ID: 148", provider: "ttsmaker", language: "en" },
         { id: "ttsmaker-en-149", name: "TTSMaker 영어 2", note: "ID: 149", provider: "ttsmaker", language: "en" },
         { id: "ttsmaker-en-788", name: "TTSMaker 영어 3", note: "ID: 788", provider: "ttsmaker", language: "en" },
         { id: "ttsmaker-en-1788", name: "TTSMaker 영어 4", note: "ID: 1788", provider: "ttsmaker", language: "en" },
+        { id: "elevenlabs-en-jB1Cifc2UQbq1gR3wnb0", name: "ElevenLabs Rachel", note: "한국어→영어 번역 후 합성", provider: "elevenlabs", language: "en" },
       ],
       "zh": [
         { id: "ttsmaker-zh-204", name: "TTSMaker 중국어 1", note: "ID: 204", provider: "ttsmaker", language: "zh" },
@@ -9257,36 +9285,42 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         { id: "ttsmaker-zh-1349", name: "TTSMaker 중국어 3", note: "ID: 1349", provider: "ttsmaker", language: "zh" },
         { id: "ttsmaker-zh-999", name: "TTSMaker 중국어 4", note: "ID: 999", provider: "ttsmaker", language: "zh" },
         { id: "ttsmaker-zh-1406", name: "TTSMaker 중국어 5", note: "ID: 1406", provider: "ttsmaker", language: "zh" },
+        { id: "elevenlabs-zh-jB1Cifc2UQbq1gR3wnb0", name: "ElevenLabs Rachel", note: "한국어→중국어 번역 후 합성", provider: "elevenlabs", language: "zh" },
       ],
       "es": [
         { id: "ttsmaker-es-231", name: "TTSMaker 스페인어 1", note: "ID: 231", provider: "ttsmaker", language: "es" },
         { id: "ttsmaker-es-238", name: "TTSMaker 스페인어 2", note: "ID: 238", provider: "ttsmaker", language: "es" },
         { id: "ttsmaker-es-232", name: "TTSMaker 스페인어 3", note: "ID: 232", provider: "ttsmaker", language: "es" },
         { id: "ttsmaker-es-239", name: "TTSMaker 스페인어 4", note: "ID: 239", provider: "ttsmaker", language: "es" },
+        { id: "elevenlabs-es-jB1Cifc2UQbq1gR3wnb0", name: "ElevenLabs Rachel", note: "한국어→스페인어 번역 후 합성", provider: "elevenlabs", language: "es" },
       ],
       "pt": [
         { id: "ttsmaker-pt-260", name: "TTSMaker 포르투갈어 1", note: "ID: 260", provider: "ttsmaker", language: "pt" },
         { id: "ttsmaker-pt-261", name: "TTSMaker 포르투갈어 2", note: "ID: 261", provider: "ttsmaker", language: "pt" },
         { id: "ttsmaker-pt-266", name: "TTSMaker 포르투갈어 3", note: "ID: 266", provider: "ttsmaker", language: "pt" },
         { id: "ttsmaker-pt-821", name: "TTSMaker 포르투갈어 4", note: "ID: 821", provider: "ttsmaker", language: "pt" },
+        { id: "elevenlabs-pt-jB1Cifc2UQbq1gR3wnb0", name: "ElevenLabs Rachel", note: "한국어→포르투갈어 번역 후 합성", provider: "elevenlabs", language: "pt" },
       ],
       "de": [
         { id: "ttsmaker-de-289", name: "TTSMaker 독일어 1", note: "ID: 289", provider: "ttsmaker", language: "de" },
         { id: "ttsmaker-de-299", name: "TTSMaker 독일어 2", note: "ID: 299", provider: "ttsmaker", language: "de" },
         { id: "ttsmaker-de-290", name: "TTSMaker 독일어 3", note: "ID: 290", provider: "ttsmaker", language: "de" },
         { id: "ttsmaker-de-120091", name: "TTSMaker 독일어 4", note: "ID: 120091", provider: "ttsmaker", language: "de" },
+        { id: "elevenlabs-de-jB1Cifc2UQbq1gR3wnb0", name: "ElevenLabs Rachel", note: "한국어→독일어 번역 후 합성", provider: "elevenlabs", language: "de" },
       ],
       "fr": [
         { id: "ttsmaker-fr-256", name: "TTSMaker 프랑스어 1", note: "ID: 256", provider: "ttsmaker", language: "fr" },
         { id: "ttsmaker-fr-255", name: "TTSMaker 프랑스어 2", note: "ID: 255", provider: "ttsmaker", language: "fr" },
         { id: "ttsmaker-fr-259", name: "TTSMaker 프랑스어 3", note: "ID: 259", provider: "ttsmaker", language: "fr" },
         { id: "ttsmaker-fr-257", name: "TTSMaker 프랑스어 4", note: "ID: 257", provider: "ttsmaker", language: "fr" },
+        { id: "elevenlabs-fr-jB1Cifc2UQbq1gR3wnb0", name: "ElevenLabs Rachel", note: "한국어→프랑스어 번역 후 합성", provider: "elevenlabs", language: "fr" },
       ],
       "ja": [
         { id: "ttsmaker-ja-406", name: "TTSMaker 일본어 1", note: "ID: 406", provider: "ttsmaker", language: "ja" },
         { id: "ttsmaker-ja-407", name: "TTSMaker 일본어 2", note: "ID: 407", provider: "ttsmaker", language: "ja" },
         { id: "ttsmaker-ja-4501", name: "TTSMaker 일본어 3", note: "ID: 4501", provider: "ttsmaker", language: "ja" },
         { id: "ttsmaker-ja-4513", name: "TTSMaker 일본어 4", note: "ID: 4513", provider: "ttsmaker", language: "ja" },
+        { id: "elevenlabs-ja-jB1Cifc2UQbq1gR3wnb0", name: "ElevenLabs Rachel", note: "한국어→일본어 번역 후 합성", provider: "elevenlabs", language: "ja" },
       ],
       "it": [
         { id: "ttsmaker-it-221", name: "TTSMaker 이탈리아어 1", note: "ID: 221", provider: "ttsmaker", language: "it" },
@@ -9294,20 +9328,24 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         { id: "ttsmaker-it-140001", name: "TTSMaker 이탈리아어 3", note: "ID: 140001", provider: "ttsmaker", language: "it" },
         { id: "ttsmaker-it-140002", name: "TTSMaker 이탈리아어 4", note: "ID: 140002", provider: "ttsmaker", language: "it" },
         { id: "ttsmaker-it-140003", name: "TTSMaker 이탈리아어 5", note: "ID: 140003", provider: "ttsmaker", language: "it" },
+        { id: "elevenlabs-it-jB1Cifc2UQbq1gR3wnb0", name: "ElevenLabs Rachel", note: "한국어→이탈리아어 번역 후 합성", provider: "elevenlabs", language: "it" },
       ],
       "tr": [
         { id: "ttsmaker-tr-150001", name: "TTSMaker 터키어 1", note: "ID: 150001", provider: "ttsmaker", language: "tr" },
         { id: "ttsmaker-tr-150002", name: "TTSMaker 터키어 2", note: "ID: 150002", provider: "ttsmaker", language: "tr" },
+        { id: "elevenlabs-tr-jB1Cifc2UQbq1gR3wnb0", name: "ElevenLabs Rachel", note: "한국어→터키어 번역 후 합성", provider: "elevenlabs", language: "tr" },
       ],
       "ru": [
         { id: "ttsmaker-ru-567", name: "TTSMaker 러시아어 1", note: "ID: 567", provider: "ttsmaker", language: "ru" },
         { id: "ttsmaker-ru-70001", name: "TTSMaker 러시아어 2", note: "ID: 70001", provider: "ttsmaker", language: "ru" },
         { id: "ttsmaker-ru-831", name: "TTSMaker 러시아어 3", note: "ID: 831", provider: "ttsmaker", language: "ru" },
         { id: "ttsmaker-ru-70002", name: "TTSMaker 러시아어 4", note: "ID: 70002", provider: "ttsmaker", language: "ru" },
+        { id: "elevenlabs-ru-jB1Cifc2UQbq1gR3wnb0", name: "ElevenLabs Rachel", note: "한국어→러시아어 번역 후 합성", provider: "elevenlabs", language: "ru" },
       ],
       "ms": [
         { id: "ttsmaker-ms-160001", name: "TTSMaker 말레이어 1", note: "ID: 160001", provider: "ttsmaker", language: "ms" },
         { id: "ttsmaker-ms-160002", name: "TTSMaker 말레이어 2", note: "ID: 160002", provider: "ttsmaker", language: "ms" },
+        { id: "elevenlabs-ms-jB1Cifc2UQbq1gR3wnb0", name: "ElevenLabs Rachel", note: "한국어→말레이어 번역 후 합성", provider: "elevenlabs", language: "ms" },
       ],
       "th": [
         { id: "ttsmaker-th-399", name: "TTSMaker 태국어 1", note: "ID: 399", provider: "ttsmaker", language: "th" },
@@ -9315,9 +9353,22 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         { id: "ttsmaker-th-170002", name: "TTSMaker 태국어 3", note: "ID: 170002", provider: "ttsmaker", language: "th" },
         { id: "ttsmaker-th-179001", name: "TTSMaker 태국어 4", note: "ID: 179001", provider: "ttsmaker", language: "th" },
         { id: "ttsmaker-th-170003", name: "TTSMaker 태국어 5", note: "ID: 170003", provider: "ttsmaker", language: "th" },
+        { id: "elevenlabs-th-jB1Cifc2UQbq1gR3wnb0", name: "ElevenLabs Rachel", note: "한국어→태국어 번역 후 합성", provider: "elevenlabs", language: "th" },
       ],
     }
     return languageVoicesMap[language] || []
+  }
+
+  /** TTSMaker(ttsmaker-en-148) / ElevenLabs(elevenlabs-en-xxx) 외국어 음성 ID 패턴 */
+  const TTS_FOREIGN_LANGUAGE_PATTERN =
+    /^(?:ttsmaker|elevenlabs)-(en|zh|es|pt|de|fr|ja|it|tr|ru|ms|th)-/
+
+  const parseElevenLabsVoiceIdForApi = (fullVoiceId: string): string => {
+    const m = fullVoiceId.match(
+      /^elevenlabs-(?:en|zh|es|pt|de|fr|ja|it|tr|ru|ms|th)-(.+)$/
+    )
+    if (m) return m[1]
+    return fullVoiceId.replace(/^elevenlabs-/, "")
   }
 
   // 목소리 미리듣기 함수
@@ -9409,8 +9460,28 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           }),
         })
       } else if (voiceId?.startsWith("elevenlabs-")) {
-        // ElevenLabs인 경우 (새로운 형식: elevenlabs-{voiceId})
-        const actualVoiceId = voiceId.replace("elevenlabs-", "")
+        // ElevenLabs: elevenlabs-{voiceId} 또는 외국어 elevenlabs-{lang}-{voiceId}
+        const actualVoiceId = parseElevenLabsVoiceIdForApi(voiceId)
+        const elLangMatch = voiceId.match(TTS_FOREIGN_LANGUAGE_PATTERN)
+        let previewText = "여러분 환영합니다"
+        if (elLangMatch) {
+          const language = elLangMatch[1]
+          const previewTexts: Record<string, string> = {
+            en: "Welcome everyone",
+            zh: "欢迎大家",
+            es: "Bienvenidos todos",
+            pt: "Bem-vindos todos",
+            de: "Willkommen alle",
+            fr: "Bienvenue à tous",
+            ja: "皆さん、ようこそ",
+            it: "Benvenuti tutti",
+            tr: "Herkese hoş geldiniz",
+            ru: "Добро пожаловать всем",
+            ms: "Selamat datang semua",
+            th: "ยินดีต้อนรับทุกคน",
+          }
+          previewText = previewTexts[language] || "Welcome everyone"
+        }
         let elevenlabsApiKey = typeof window !== "undefined" 
           ? (localStorage.getItem("elevenlabs_api_key") || "").trim() 
           : null
@@ -9433,7 +9504,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            text: "여러분 환영합니다",
+            text: previewText,
             voiceId: actualVoiceId,
             apiKey: elevenlabsApiKey,
           }),
@@ -9558,9 +9629,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     // 숫자를 한글로 변환
     let convertedText = convertNumbersToKorean(line.text)
     
-    // 외국어 버전 TTSMaker 선택 시 번역 수행
-    const foreignLanguagePattern = /^ttsmaker-(en|zh|es|pt|de|fr|ja|it|tr|ru|ms|th)-/
-    const languageMatch = selectedVoiceId?.match(foreignLanguagePattern)
+    // 외국어 TTSMaker / ElevenLabs(ttsmaker-en-… / elevenlabs-en-…) 선택 시 번역 수행
+    const languageMatch = selectedVoiceId?.match(TTS_FOREIGN_LANGUAGE_PATTERN)
     if (languageMatch) {
       const targetLanguage = languageMatch[1] // en, zh, es, pt 등
       try {
@@ -9682,8 +9752,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
             signal: abortSignal, // AbortSignal 전달
           })
         } else if (selectedVoiceId?.startsWith("elevenlabs-")) {
-          // ElevenLabs인 경우 (새로운 형식: elevenlabs-{voiceId})
-          const voiceId = selectedVoiceId.replace("elevenlabs-", "")
+          // ElevenLabs: elevenlabs-{voiceId} 또는 elevenlabs-{lang}-{voiceId}
+          const voiceId = parseElevenLabsVoiceIdForApi(selectedVoiceId)
           // 미리듣기와 동일한 방식으로 API 키 가져오기
           let elevenlabsApiKey = getApiKey("elevenlabs_api_key") ?? null
           
@@ -18493,7 +18563,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                   ? "border-blue-500 bg-blue-50"
                                   : "border-gray-200 bg-white"
                               }`}>
-                                <div className="flex items-center justify-between mb-2">
+                                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                                   <div className="flex items-center space-x-2">
                                     <div
                                       className={`w-4 h-4 rounded-full border-2 cursor-pointer ${
@@ -18505,9 +18575,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                           setCustomElevenLabsVoiceId("")
                                         } else {
                                           if (customElevenLabsVoiceId) {
-                                            setSelectedVoiceId(`elevenlabs-${customElevenLabsVoiceId}`)
+                                            setSelectedVoiceId(buildElevenLabsSelectedVoiceId(customElevenLabsVoiceId, elevenLabsOutputLanguage))
                                           } else {
-                                            setSelectedVoiceId("elevenlabs-jB1Cifc2UQbq1gR3wnb0")
+                                            setSelectedVoiceId(buildElevenLabsSelectedVoiceId("jB1Cifc2UQbq1gR3wnb0", elevenLabsOutputLanguage))
                                           }
                                         }
                                       }}
@@ -18518,7 +18588,46 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                     </div>
                                     <p className={`text-sm font-medium ${selectedVoiceId?.startsWith("elevenlabs-") ? "text-blue-900" : "text-gray-700"}`}>ElevenLabs</p>
                                   </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs text-gray-600 whitespace-nowrap">합성 언어</span>
+                                    <Select
+                                      value={elevenLabsOutputLanguage}
+                                      onValueChange={(lang) => {
+                                        setElevenLabsOutputLanguage(lang)
+                                        if (selectedVoiceId?.startsWith("elevenlabs-")) {
+                                          const raw =
+                                            parseElevenLabsPanelSelection(selectedVoiceId).raw || customElevenLabsVoiceId
+                                          if (raw) {
+                                            setCustomElevenLabsVoiceId(raw)
+                                            setSelectedVoiceId(buildElevenLabsSelectedVoiceId(raw, lang))
+                                          }
+                                        }
+                                      }}
+                                    >
+                                      <SelectTrigger className="h-8 w-[128px] text-xs">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="ko">한국어 (번역 없음)</SelectItem>
+                                        <SelectItem value="en">영어</SelectItem>
+                                        <SelectItem value="zh">중국어</SelectItem>
+                                        <SelectItem value="es">스페인어</SelectItem>
+                                        <SelectItem value="pt">포르투갈어</SelectItem>
+                                        <SelectItem value="de">독일어</SelectItem>
+                                        <SelectItem value="fr">프랑스어</SelectItem>
+                                        <SelectItem value="ja">일본어</SelectItem>
+                                        <SelectItem value="it">이탈리아어</SelectItem>
+                                        <SelectItem value="tr">터키어</SelectItem>
+                                        <SelectItem value="ru">러시아어</SelectItem>
+                                        <SelectItem value="ms">말레이어</SelectItem>
+                                        <SelectItem value="th">태국어</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
                                 </div>
+                                <p className="text-xs text-gray-500 mb-2">
+                                  한국어: 대본 그대로 합성 · 그 외: 한국어 대본을 번역한 뒤 합성합니다 (OpenAI API 키 필요).
+                                </p>
                                 <div className="mt-3 space-y-2">
                                   <div className="flex gap-2">
                                     <Input
@@ -18529,7 +18638,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                         const voiceId = e.target.value.trim()
                                         setCustomElevenLabsVoiceId(voiceId)
                                         if (voiceId && selectedVoiceId?.startsWith("elevenlabs-")) {
-                                          setSelectedVoiceId(`elevenlabs-${voiceId}`)
+                                          setSelectedVoiceId(buildElevenLabsSelectedVoiceId(voiceId, elevenLabsOutputLanguage))
                                         }
                                       }}
                                       className="flex-1"
@@ -18554,9 +18663,13 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                           size="sm"
                                           onClick={() => {
                                             setCustomElevenLabsVoiceId(voice.id)
-                                            setSelectedVoiceId(`elevenlabs-${voice.id}`)
+                                            setSelectedVoiceId(buildElevenLabsSelectedVoiceId(voice.id, elevenLabsOutputLanguage))
                                           }}
-                                          className={selectedVoiceId === `elevenlabs-${voice.id}` ? "bg-blue-100 border-blue-500" : ""}
+                                          className={
+                                            selectedVoiceId === buildElevenLabsSelectedVoiceId(voice.id, elevenLabsOutputLanguage)
+                                              ? "bg-blue-100 border-blue-500"
+                                              : ""
+                                          }
                                         >
                                           {voice.name}
                                         </Button>
@@ -23360,7 +23473,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                           ? "border-blue-500 bg-blue-50"
                           : "border-gray-200 bg-white"
                       }`}>
-                        <div className="flex items-center justify-between mb-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                           <div className="flex items-center space-x-2">
                             <div
                               className={`w-4 h-4 rounded-full border-2 cursor-pointer ${
@@ -23368,15 +23481,13 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                               }`}
                               onClick={() => {
                                 if (selectedVoiceId?.startsWith("elevenlabs-")) {
-                                  // 이미 선택되어 있으면 해제
-                                  setSelectedVoiceId("ttsmaker-여성1") // 기본값으로 변경
+                                  setSelectedVoiceId("ttsmaker-여성1")
                                   setCustomElevenLabsVoiceId("")
                                 } else {
-                                  // 선택되지 않았으면 기본 목소리 선택
                                   if (customElevenLabsVoiceId) {
-                                    setSelectedVoiceId(`elevenlabs-${customElevenLabsVoiceId}`)
+                                    setSelectedVoiceId(buildElevenLabsSelectedVoiceId(customElevenLabsVoiceId, elevenLabsOutputLanguage))
                                   } else {
-                                    setSelectedVoiceId("elevenlabs-jB1Cifc2UQbq1gR3wnb0") // 기본 Rachel
+                                    setSelectedVoiceId(buildElevenLabsSelectedVoiceId("jB1Cifc2UQbq1gR3wnb0", elevenLabsOutputLanguage))
                                   }
                                 }
                               }}
@@ -23387,7 +23498,46 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                             </div>
                             <p className={`text-sm font-medium ${selectedVoiceId?.startsWith("elevenlabs-") ? "text-blue-900" : "text-gray-700"}`}>ElevenLabs</p>
                           </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-600 whitespace-nowrap">합성 언어</span>
+                            <Select
+                              value={elevenLabsOutputLanguage}
+                              onValueChange={(lang) => {
+                                setElevenLabsOutputLanguage(lang)
+                                if (selectedVoiceId?.startsWith("elevenlabs-")) {
+                                  const raw =
+                                    parseElevenLabsPanelSelection(selectedVoiceId).raw || customElevenLabsVoiceId
+                                  if (raw) {
+                                    setCustomElevenLabsVoiceId(raw)
+                                    setSelectedVoiceId(buildElevenLabsSelectedVoiceId(raw, lang))
+                                  }
+                                }
+                              }}
+                            >
+                              <SelectTrigger className="h-8 w-[128px] text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="ko">한국어 (번역 없음)</SelectItem>
+                                <SelectItem value="en">영어</SelectItem>
+                                <SelectItem value="zh">중국어</SelectItem>
+                                <SelectItem value="es">스페인어</SelectItem>
+                                <SelectItem value="pt">포르투갈어</SelectItem>
+                                <SelectItem value="de">독일어</SelectItem>
+                                <SelectItem value="fr">프랑스어</SelectItem>
+                                <SelectItem value="ja">일본어</SelectItem>
+                                <SelectItem value="it">이탈리아어</SelectItem>
+                                <SelectItem value="tr">터키어</SelectItem>
+                                <SelectItem value="ru">러시아어</SelectItem>
+                                <SelectItem value="ms">말레이어</SelectItem>
+                                <SelectItem value="th">태국어</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
                         </div>
+                        <p className="text-xs text-gray-500 mb-2">
+                          한국어: 대본 그대로 합성 · 그 외: 한국어 대본을 번역한 뒤 합성합니다 (OpenAI API 키 필요).
+                        </p>
                         <div className="mt-3 space-y-2">
                           <div className="flex gap-2">
                             <input
@@ -23398,7 +23548,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                 const voiceId = e.target.value.trim()
                                 setCustomElevenLabsVoiceId(voiceId)
                                 if (voiceId && selectedVoiceId?.startsWith("elevenlabs-")) {
-                                  setSelectedVoiceId(`elevenlabs-${voiceId}`)
+                                  setSelectedVoiceId(buildElevenLabsSelectedVoiceId(voiceId, elevenLabsOutputLanguage))
                                 }
                               }}
                               className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -23408,15 +23558,22 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                               size="sm"
                               onClick={() => {
                                 if (customElevenLabsVoiceId) {
-                                  handlePreviewVoice(`elevenlabs-${customElevenLabsVoiceId}`)
+                                  handlePreviewVoice(
+                                    buildElevenLabsSelectedVoiceId(customElevenLabsVoiceId, elevenLabsOutputLanguage)
+                                  )
                                 } else {
                                   alert("음성 ID를 입력해주세요.")
                                 }
                               }}
-                              disabled={!customElevenLabsVoiceId || previewingVoiceId === `elevenlabs-${customElevenLabsVoiceId}`}
+                              disabled={
+                                !customElevenLabsVoiceId ||
+                                previewingVoiceId ===
+                                  buildElevenLabsSelectedVoiceId(customElevenLabsVoiceId, elevenLabsOutputLanguage)
+                              }
                               className="whitespace-nowrap"
                             >
-                              {previewingVoiceId === `elevenlabs-${customElevenLabsVoiceId}` ? (
+                              {previewingVoiceId ===
+                              buildElevenLabsSelectedVoiceId(customElevenLabsVoiceId, elevenLabsOutputLanguage) ? (
                                 <>
                                   <Loader2 className="w-3 h-3 mr-1 animate-spin" />
                                   재생 중...
@@ -23449,9 +23606,13 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                 onClick={() => {
                                   const voiceId = "jB1Cifc2UQbq1gR3wnb0"
                                   setCustomElevenLabsVoiceId(voiceId)
-                                  setSelectedVoiceId(`elevenlabs-${voiceId}`)
+                                  setSelectedVoiceId(buildElevenLabsSelectedVoiceId(voiceId, elevenLabsOutputLanguage))
                                 }}
-                                className={selectedVoiceId === "elevenlabs-jB1Cifc2UQbq1gR3wnb0" ? "bg-blue-100 border-blue-500" : ""}
+                                className={
+                                  selectedVoiceId === buildElevenLabsSelectedVoiceId("jB1Cifc2UQbq1gR3wnb0", elevenLabsOutputLanguage)
+                                    ? "bg-blue-100 border-blue-500"
+                                    : ""
+                                }
                               >
                                 Rachel (기본)
                               </Button>
@@ -23461,9 +23622,13 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                 onClick={() => {
                                   const voiceId = "8jHHF8rMqMlg8if2mOUe"
                                   setCustomElevenLabsVoiceId(voiceId)
-                                  setSelectedVoiceId(`elevenlabs-${voiceId}`)
+                                  setSelectedVoiceId(buildElevenLabsSelectedVoiceId(voiceId, elevenLabsOutputLanguage))
                                 }}
-                                className={selectedVoiceId === "elevenlabs-8jHHF8rMqMlg8if2mOUe" ? "bg-blue-100 border-blue-500" : ""}
+                                className={
+                                  selectedVoiceId === buildElevenLabsSelectedVoiceId("8jHHF8rMqMlg8if2mOUe", elevenLabsOutputLanguage)
+                                    ? "bg-blue-100 border-blue-500"
+                                    : ""
+                                }
                               >
                                 Voice 2
                               </Button>
@@ -23473,9 +23638,13 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                 onClick={() => {
                                   const voiceId = "uyVNoMrnUku1dZyVEXwD"
                                   setCustomElevenLabsVoiceId(voiceId)
-                                  setSelectedVoiceId(`elevenlabs-${voiceId}`)
+                                  setSelectedVoiceId(buildElevenLabsSelectedVoiceId(voiceId, elevenLabsOutputLanguage))
                                 }}
-                                className={selectedVoiceId === "elevenlabs-uyVNoMrnUku1dZyVEXwD" ? "bg-blue-100 border-blue-500" : ""}
+                                className={
+                                  selectedVoiceId === buildElevenLabsSelectedVoiceId("uyVNoMrnUku1dZyVEXwD", elevenLabsOutputLanguage)
+                                    ? "bg-blue-100 border-blue-500"
+                                    : ""
+                                }
                               >
                                 Voice 3
                               </Button>
@@ -23485,9 +23654,13 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                 onClick={() => {
                                   const voiceId = "1KNqBv4TutQtzSIACsMC"
                                   setCustomElevenLabsVoiceId(voiceId)
-                                  setSelectedVoiceId(`elevenlabs-${voiceId}`)
+                                  setSelectedVoiceId(buildElevenLabsSelectedVoiceId(voiceId, elevenLabsOutputLanguage))
                                 }}
-                                className={selectedVoiceId === "elevenlabs-1KNqBv4TutQtzSIACsMC" ? "bg-blue-100 border-blue-500" : ""}
+                                className={
+                                  selectedVoiceId === buildElevenLabsSelectedVoiceId("1KNqBv4TutQtzSIACsMC", elevenLabsOutputLanguage)
+                                    ? "bg-blue-100 border-blue-500"
+                                    : ""
+                                }
                               >
                                 Voice 4
                               </Button>
@@ -23497,9 +23670,13 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                 onClick={() => {
                                   const voiceId = "4JJwo477JUAx3HV0T7n7"
                                   setCustomElevenLabsVoiceId(voiceId)
-                                  setSelectedVoiceId(`elevenlabs-${voiceId}`)
+                                  setSelectedVoiceId(buildElevenLabsSelectedVoiceId(voiceId, elevenLabsOutputLanguage))
                                 }}
-                                className={selectedVoiceId === "elevenlabs-4JJwo477JUAx3HV0T7n7" ? "bg-blue-100 border-blue-500" : ""}
+                                className={
+                                  selectedVoiceId === buildElevenLabsSelectedVoiceId("4JJwo477JUAx3HV0T7n7", elevenLabsOutputLanguage)
+                                    ? "bg-blue-100 border-blue-500"
+                                    : ""
+                                }
                               >
                                 Voice 5
                               </Button>
@@ -23509,11 +23686,15 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                 onClick={() => {
                                   const voiceId = "zgDzx5jLLCqEp6Fl7Kl7"
                                   setCustomElevenLabsVoiceId(voiceId)
-                                  setSelectedVoiceId(`elevenlabs-${voiceId}`)
+                                  setSelectedVoiceId(buildElevenLabsSelectedVoiceId(voiceId, elevenLabsOutputLanguage))
                                 }}
-                                className={selectedVoiceId === "elevenlabs-zgDzx5jLLCqEp6Fl7Kl7" ? "bg-blue-100 border-blue-500" : ""}
+                                className={
+                                  selectedVoiceId === buildElevenLabsSelectedVoiceId("zgDzx5jLLCqEp6Fl7Kl7", elevenLabsOutputLanguage)
+                                    ? "bg-blue-100 border-blue-500"
+                                    : ""
+                                }
                               >
-                                Voice 3
+                                Voice 6
                               </Button>
                               <Button
                                 variant="outline"
@@ -23521,11 +23702,15 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                 onClick={() => {
                                   const voiceId = "0mlAtfsvMzFpppUuNWkV"
                                   setCustomElevenLabsVoiceId(voiceId)
-                                  setSelectedVoiceId(`elevenlabs-${voiceId}`)
+                                  setSelectedVoiceId(buildElevenLabsSelectedVoiceId(voiceId, elevenLabsOutputLanguage))
                                 }}
-                                className={selectedVoiceId === "elevenlabs-0mlAtfsvMzFpppUuNWkV" ? "bg-blue-100 border-blue-500" : ""}
+                                className={
+                                  selectedVoiceId === buildElevenLabsSelectedVoiceId("0mlAtfsvMzFpppUuNWkV", elevenLabsOutputLanguage)
+                                    ? "bg-blue-100 border-blue-500"
+                                    : ""
+                                }
                               >
-                                Voice 4
+                                Voice 7
                               </Button>
                               <Button
                                 variant="outline"
@@ -23533,11 +23718,15 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                                 onClick={() => {
                                   const voiceId = "ETPP7D0aZVdEj12Aa7ho"
                                   setCustomElevenLabsVoiceId(voiceId)
-                                  setSelectedVoiceId(`elevenlabs-${voiceId}`)
+                                  setSelectedVoiceId(buildElevenLabsSelectedVoiceId(voiceId, elevenLabsOutputLanguage))
                                 }}
-                                className={selectedVoiceId === "elevenlabs-ETPP7D0aZVdEj12Aa7ho" ? "bg-blue-100 border-blue-500" : ""}
+                                className={
+                                  selectedVoiceId === buildElevenLabsSelectedVoiceId("ETPP7D0aZVdEj12Aa7ho", elevenLabsOutputLanguage)
+                                    ? "bg-blue-100 border-blue-500"
+                                    : ""
+                                }
                               >
-                                Voice 5
+                                Voice 8
                               </Button>
                             </div>
                           </div>
