@@ -3,6 +3,7 @@ import os from "os"
 import path from "path"
 import type { AutoEditJobResult } from "@/lib/shotform-auto-edit-types"
 import {
+  autoEditOutputStoragePath,
   downloadAutoEditOutputFromSupabase,
   loadAutoEditJobFromSupabase,
   persistAutoEditJobToSupabase,
@@ -154,8 +155,13 @@ export async function readAutoEditOutput(jobId: string): Promise<{ buffer: Buffe
   const job = await getAutoEditJobAsync(jobId)
   if (!job) return null
 
-  if (job.outputStoragePath) {
-    const remote = await downloadAutoEditOutputFromSupabase(job.outputStoragePath)
+  const storageCandidates = [
+    job.outputStoragePath,
+    autoEditOutputStoragePath(jobId),
+  ].filter((p, i, arr): p is string => Boolean(p) && arr.indexOf(p) === i)
+
+  for (const storagePath of storageCandidates) {
+    const remote = await downloadAutoEditOutputFromSupabase(storagePath)
     if (remote) {
       const title = job.analysis?.title || job.analyses?.[0]?.title || "shopping-short"
       const safe = title.slice(0, 32).replace(/[^\w\uac00-\ud7af\u4e00-\u9fff-]+/g, "_")

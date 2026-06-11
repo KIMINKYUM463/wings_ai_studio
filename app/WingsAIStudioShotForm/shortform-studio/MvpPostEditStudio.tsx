@@ -636,7 +636,11 @@ export function MvpPostEditStudio({
       await assertPreviewMp4Blob(blob)
       if (fetchedBlobRef.current) URL.revokeObjectURL(fetchedBlobRef.current)
       const url = URL.createObjectURL(blob)
-      await probeVideoElementPlayable(url)
+      try {
+        await probeVideoElementPlayable(url)
+      } catch {
+        /* blob URL은 유지 */
+      }
       fetchedBlobRef.current = url
       setResolvedVideoUrl(url)
       setErr(null)

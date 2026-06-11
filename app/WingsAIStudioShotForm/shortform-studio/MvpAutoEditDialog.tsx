@@ -158,29 +158,49 @@ export function MvpAutoEditDialog({
       const inlineUrl = downloadUrl.includes("inline=1")
         ? downloadUrl
         : autoEditDownloadUrl(jobId, { inline: true })
-      const res = await fetch(inlineUrl)
-      if (!res.ok) {
-        const detail = await res.text().catch(() => "")
-        let msg = `결과 MP4 조회 실패 (${res.status})`
+
+      let lastErr: Error | null = null
+      for (let attempt = 0; attempt < 4; attempt++) {
+        if (attempt > 0) await new Promise((r) => setTimeout(r, 1500 * attempt))
         try {
-          const j = JSON.parse(detail) as { error?: string }
-          if (j.error) msg = j.error
-        } catch {
-          /* ignore */
+          const res = await fetch(inlineUrl, { cache: "no-store" })
+          if (!res.ok) {
+            const detail = await res.text().catch(() => "")
+            let msg = `결과 MP4 조회 실패 (${res.status})`
+            try {
+              const j = JSON.parse(detail) as { error?: string }
+              if (j.error) msg = j.error
+            } catch {
+              /* ignore */
+            }
+            if (res.status === 404 && attempt < 3) {
+              lastErr = new Error(msg)
+              continue
+            }
+            throw new Error(msg)
+          }
+          const blob = await res.blob()
+          await assertPreviewMp4Blob(blob)
+          if (projectId && jobId) {
+            await saveMvpEditMp4(projectId, jobId, blob)
+          }
+          revokePreviewBlob()
+          const url = URL.createObjectURL(blob)
+          try {
+            await probeVideoElementPlayable(url)
+          } catch {
+            /* 코덱 경고만 — blob URL은 유지 */
+          }
+          previewBlobRef.current = url
+          setPreviewBlobUrl(url)
+          return { url, blob }
+        } catch (e) {
+          lastErr = e instanceof Error ? e : new Error(String(e))
+          if (attempt < 3 && /failed to fetch|network|load/i.test(lastErr.message)) continue
+          throw lastErr
         }
-        throw new Error(msg)
       }
-      const blob = await res.blob()
-      await assertPreviewMp4Blob(blob)
-      if (projectId && jobId) {
-        await saveMvpEditMp4(projectId, jobId, blob)
-      }
-      revokePreviewBlob()
-      const url = URL.createObjectURL(blob)
-      await probeVideoElementPlayable(url)
-      previewBlobRef.current = url
-      setPreviewBlobUrl(url)
-      return { url, blob }
+      throw lastErr ?? new Error("결과 MP4 조회 실패")
     },
     [revokePreviewBlob, projectId]
   )
