@@ -1,5 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  serverExternalPackages: ["ffmpeg-static", "ffprobe-static"],
+  outputFileTracingIncludes: {
+    "/api/shotform/auto-edit": [
+      "./node_modules/ffmpeg-static/**/*",
+      "./node_modules/ffprobe-static/bin/**/*",
+    ],
+  },
   async redirects() {
     return [
       {

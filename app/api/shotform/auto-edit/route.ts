@@ -5,7 +5,7 @@ import { createAutoEditWorkDir } from "@/lib/shotform-auto-edit-ffmpeg"
 import { getAutoEditJob, putAutoEditJob } from "@/lib/shotform-auto-edit-jobs"
 import { runAutoEditPipeline } from "@/lib/shotform-auto-edit-pipeline"
 
-export const maxDuration = 300
+export const maxDuration = 800
 
 const DURATIONS = new Set<number>([20, 30, 45, 60])
 

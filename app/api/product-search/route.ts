@@ -1300,7 +1300,7 @@ export async function POST(req: NextRequest) {
     ] as const
 
     const noticeSerp = serpApiKey
-        ? `YouTube: SerpApi YouTube 엔진 **최대 ${SERP_YOUTUBE_ENGINE_CAP}회**(serpPriorityQueries 상위 2키워드). 이번 요청 **${serpEngineCallsUsed}**회. (ShotForm SerpApi 키 또는 SERPAPI_KEY)`
+        ? `YouTube: SerpApi YouTube 엔진 **최대 ${SERP_YOUTUBE_ENGINE_CAP}회**(serpPriorityQueries 상위 2키워드). 이번 요청 **${serpEngineCallsUsed}**회. (서버 SERPAPI_KEY)`
         : "SerpApi 키가 없어 YouTube 실검색 후보를 붙이지 못했습니다. SerpApi 키 또는 YOUTUBE_API_KEY(쇼츠 폴백)를 설정하세요."
 
     const noticeApify = apifyToken

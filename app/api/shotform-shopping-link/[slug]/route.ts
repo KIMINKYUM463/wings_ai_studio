@@ -41,6 +41,12 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     ...body,
     profile: { ...body.profile, slug: safeBody },
   })
-  await writeShoppingLinkPage(safeBody, normalized)
+  try {
+    await writeShoppingLinkPage(safeBody, normalized)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "저장에 실패했습니다."
+    console.error("[shotform-shopping-link] PUT failed:", e)
+    return NextResponse.json({ error: msg }, { status: 500 })
+  }
   return NextResponse.json({ ok: true, slug: safeBody })
 }

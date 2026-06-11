@@ -127,11 +127,6 @@ function shotformYoutubeDataKey(): string | null {
   return (localStorage.getItem("shotform_youtube_data_api_key") || "").trim() || null
 }
 
-function shotformSerpApiKey(): string | null {
-  if (typeof window === "undefined") return null
-  return (localStorage.getItem("shotform_serpapi_key") || "").trim() || null
-}
-
 function shotformApifyToken(): string | null {
   if (typeof window === "undefined") return null
   return (localStorage.getItem("shotform_apify_token") || "").trim() || null
@@ -753,7 +748,6 @@ export function ProductUrlSearchView({ backHref, backLabel = "프로젝트로", 
           url: trimmed || undefined,
           openaiApiKey: openai,
           youtubeDataApiKey: shotformYoutubeDataKey() || undefined,
-          serpApiKey: shotformSerpApiKey() || undefined,
           apifyApiKey: shotformApifyToken() || undefined,
           ...(productImageDataUrl ? { productImageDataUrl } : {}),
           ...(rawCandidatesMode ? { skipVideoCandidateChecks: true as const } : {}),
@@ -1151,7 +1145,6 @@ export function ProductUrlSearchView({ backHref, backLabel = "프로젝트로", 
                         {data.keyframes && data.keyframes.length > 0 ? (
                           <KeyframeSearchGrid
                             keyframes={data.keyframes}
-                            serpApiKey={shotformSerpApiKey() || undefined}
                             onError={setErr}
                             onToast={setToast}
                           />

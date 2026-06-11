@@ -21,6 +21,7 @@ type Props = {
   onBack?: () => void
   saving?: boolean
   message?: string | null
+  messageVariant?: "success" | "error"
   isFirstSetup?: boolean
 }
 
@@ -40,6 +41,7 @@ export function ProfileSettingsForm({
   onBack,
   saving,
   message,
+  messageVariant = "success",
   isFirstSetup,
 }: Props) {
   const profileInputRef = useRef<HTMLInputElement>(null)
@@ -202,7 +204,16 @@ export function ProfileSettingsForm({
             <Input value={profile.coupangPartnerId} onChange={(e) => patch({ coupangPartnerId: e.target.value })} placeholder="AF1234567" className="border-slate-700 bg-slate-950 text-white" />
           </div>
 
-          {message || localMsg ? <p className="text-sm text-emerald-400">{message ?? localMsg}</p> : null}
+          {message || localMsg ? (
+            <p
+              className={cn(
+                "text-sm",
+                messageVariant === "error" || localMsg ? "text-red-400" : "text-emerald-400"
+              )}
+            >
+              {message ?? localMsg}
+            </p>
+          ) : null}
 
           <Button
             type="button"

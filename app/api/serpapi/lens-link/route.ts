@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
         source: key ? ("serpapi_fallback" as const) : ("direct" as const),
         notice: key
           ? "SerpApi 응답에 google_lens_url이 없어 직접 렌즈 링크로 열었습니다."
-          : "SerpApi 키가 없어 Google 렌즈 직접 링크로 열었습니다. ShotForm 설정에 SerpApi 키를 저장하거나 서버 SERPAPI_KEY를 설정하세요.",
+          : "SerpApi 키가 없어 Google 렌즈 직접 링크로 열었습니다. 서버 환경변수 SERPAPI_KEY를 설정하세요.",
       })
     }
 
@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
       source: key ? ("serpapi_fallback" as const) : ("direct" as const),
       notice: key
         ? "SerpApi 응답에 yandex_images_url이 없어 얀덱스 직접 링크로 열었습니다."
-        : "SerpApi 키가 없어 Yandex 이미지 직접 링크로 열었습니다. ShotForm 설정 또는 SERPAPI_KEY를 설정하세요.",
+        : "SerpApi 키가 없어 Yandex 이미지 직접 링크로 열었습니다. 서버 환경변수 SERPAPI_KEY를 설정하세요.",
     })
   } catch (e) {
     console.error("[serpapi/lens-link]", e)

@@ -3,15 +3,24 @@ import fs from "fs/promises"
 import os from "os"
 import path from "path"
 import { randomUUID } from "crypto"
+import { resolveFfmpegPath, resolveFfprobePath } from "@/lib/ffmpeg-binaries"
 import { fetchUpstreamVideo } from "@/lib/video-upstream-fetch"
 
+function ffmpegBin(): string {
+  return resolveFfmpegPath()
+}
+
+function ffprobeBin(): string {
+  return resolveFfprobePath()
+}
+
 export function hasFfmpeg(): boolean {
-  const r = spawnSync("ffmpeg", ["-version"], { encoding: "utf8", windowsHide: true })
+  const r = spawnSync(ffmpegBin(), ["-version"], { encoding: "utf8", windowsHide: true })
   return r.status === 0
 }
 
 export function hasFfprobe(): boolean {
-  const r = spawnSync("ffprobe", ["-version"], { encoding: "utf8", windowsHide: true })
+  const r = spawnSync(ffprobeBin(), ["-version"], { encoding: "utf8", windowsHide: true })
   return r.status === 0
 }
 
@@ -49,7 +58,7 @@ export async function probeHasVideoStream(filePath: string): Promise<boolean> {
   if (!hasFfprobe()) return true
   return new Promise((resolve) => {
     const proc = spawn(
-      "ffprobe",
+      ffprobeBin(),
       [
         "-v",
         "error",
@@ -76,14 +85,18 @@ export async function probeHasVideoStream(filePath: string): Promise<boolean> {
 
 export async function probeVideoDuration(filePath: string, required = false): Promise<number> {
   if (!hasFfprobe()) {
-    if (required) throw new Error("ffprobe가 필요합니다. ffmpeg full build를 설치해 주세요.")
+    if (required) {
+      throw new Error(
+        "ffprobe를 실행할 수 없습니다. 배포 환경이면 재배포 후 다시 시도해 주세요. 로컬이면 ffmpeg full build를 PATH에 설치해 주세요."
+      )
+    }
     const stat = await fs.stat(filePath)
     const guess = Math.max(15, Math.min(90, Math.round(stat.size / 180_000)))
     return guess
   }
   return new Promise((resolve, reject) => {
     const proc = spawn(
-      "ffprobe",
+      ffprobeBin(),
       [
         "-v",
         "error",
@@ -113,7 +126,7 @@ export async function probeVideoDuration(filePath: string, required = false): Pr
 
 function runFfmpeg(args: string[], timeoutMs = 180_000): Promise<void> {
   return new Promise((resolve, reject) => {
-    const proc = spawn("ffmpeg", args, { windowsHide: true })
+    const proc = spawn(ffmpegBin(), args, { windowsHide: true })
     let err = ""
     const timer = setTimeout(() => {
       proc.kill("SIGKILL")

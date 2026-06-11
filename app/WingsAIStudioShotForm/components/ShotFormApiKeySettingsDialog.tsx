@@ -25,7 +25,6 @@ type ApiKeysState = {
   youtubeClientId: string
   youtubeClientSecret: string
   youtubeDataApiKey: string
-  serpapi: string
   apify: string
   vmake: string
   vmakeSecret: string
@@ -41,7 +40,6 @@ const EMPTY_KEYS: ApiKeysState = {
   youtubeClientId: "",
   youtubeClientSecret: "",
   youtubeDataApiKey: "",
-  serpapi: "",
   apify: "",
   vmake: "",
   vmakeSecret: "",
@@ -59,7 +57,6 @@ function loadApiKeysFromStorage(): ApiKeysState {
     youtubeClientId: localStorage.getItem("shotform_youtube_client_id") || "",
     youtubeClientSecret: localStorage.getItem("shotform_youtube_client_secret") || "",
     youtubeDataApiKey: localStorage.getItem("shotform_youtube_data_api_key") || "",
-    serpapi: localStorage.getItem("shotform_serpapi_key") || "",
     apify: localStorage.getItem("shotform_apify_token") || "",
     vmake: localStorage.getItem("shotform_vmake_api_key") || "",
     vmakeSecret: localStorage.getItem("shotform_vmake_secret_access_key") || "",
@@ -76,7 +73,6 @@ function saveApiKeysToStorage(keys: ApiKeysState) {
   localStorage.setItem("shotform_youtube_client_id", keys.youtubeClientId)
   localStorage.setItem("shotform_youtube_client_secret", keys.youtubeClientSecret)
   localStorage.setItem("shotform_youtube_data_api_key", keys.youtubeDataApiKey)
-  localStorage.setItem("shotform_serpapi_key", keys.serpapi)
   localStorage.setItem("shotform_apify_token", keys.apify)
   localStorage.setItem("shotform_vmake_api_key", keys.vmake || "")
   localStorage.setItem("shotform_vmake_secret_access_key", keys.vmakeSecret || "")
@@ -208,16 +204,13 @@ ${apiKeys.typecast || "(미입력)"}
 7. YouTube Data API Key
 ${apiKeys.youtubeDataApiKey || "(미입력)"}
 
-8. SerpApi API Key
-${apiKeys.serpapi || "(미입력)"}
-
-9. 소스 검색 API Token
+8. 소스 검색 API Token
 ${apiKeys.apify || "(미입력)"}
 
-10. Vmake AI API Key
+9. Vmake AI API Key
 ${apiKeys.vmake || "(미입력)"}
 
-11. Vmake AI Secret Access Key
+10. Vmake AI Secret Access Key
 ${apiKeys.vmakeSecret || "(미입력)"}
 `
     const blob = new Blob([apiKeysText], { type: "text/plain;charset=utf-8" })
@@ -285,24 +278,6 @@ ${apiKeys.vmakeSecret || "(미입력)"}
               setTestResults((prev) => ({
                 ...prev,
                 [keyType]: { success: false, message: `연결 실패: ${error.error?.message || response.statusText}` },
-              }))
-            }
-            break
-          }
-          case "serpapi": {
-            const response = await fetch(
-              `https://serpapi.com/account.json?api_key=${encodeURIComponent(apiKeys.serpapi)}`
-            )
-            const data = await response.json().catch(() => ({}))
-            if (response.ok && !data.error) {
-              setTestResults((prev) => ({ ...prev, [keyType]: { success: true, message: "SerpApi 연결 성공!" } }))
-            } else {
-              setTestResults((prev) => ({
-                ...prev,
-                [keyType]: {
-                  success: false,
-                  message: `연결 실패: ${data.error || response.statusText || "키를 확인하세요"}`,
-                },
               }))
             }
             break
@@ -507,19 +482,6 @@ ${apiKeys.vmakeSecret || "(미입력)"}
             onChange={(v) => patchKey("youtubeDataApiKey", v)}
             onToggleShow={() => toggleShow("youtubeDataApiKey")}
             onTest={() => void testApiKey("youtubeDataApiKey")}
-          />
-          <ApiKeyField
-            id="serpapi-key"
-            label="SerpApi API Key"
-            value={apiKeys.serpapi}
-            placeholder="serpapi.com 대시보드에서 발급"
-            hint="제품 검색에서 YouTube Serp 검색·Google Lens 링크 생성 시 사용합니다."
-            show={!!showKeys.serpapi}
-            testing={!!testingKeys.serpapi}
-            testResult={testResults.serpapi}
-            onChange={(v) => patchKey("serpapi", v)}
-            onToggleShow={() => toggleShow("serpapi")}
-            onTest={() => void testApiKey("serpapi")}
           />
           <ApiKeyField
             id="apify-token"

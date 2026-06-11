@@ -27,6 +27,7 @@ export function ShoppingLinksView() {
   const [showProfileSettings, setShowProfileSettings] = useState(false)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  const [messageVariant, setMessageVariant] = useState<"success" | "error">("success")
 
   const hasProfile = Boolean(data.profile.slug.trim() && data.profile.displayName.trim())
 
@@ -69,9 +70,10 @@ export function ShoppingLinksView() {
     saveShoppingLinkDraft(next)
   }, [])
 
-  const flash = (text: string) => {
+  const flash = (text: string, variant: "success" | "error" = "success") => {
     setMessage(text)
-    window.setTimeout(() => setMessage(null), 2500)
+    setMessageVariant(variant)
+    window.setTimeout(() => setMessage(null), variant === "error" ? 5000 : 2500)
   }
 
   const publish = async (next: ShoppingLinkPageData) => {
@@ -79,10 +81,10 @@ export function ShoppingLinksView() {
     try {
       await publishShoppingLinkPage(next)
       setData(next)
-      flash("저장되었습니다!")
+      flash("저장되었습니다!", "success")
       setShowProfileSettings(false)
     } catch (e) {
-      flash(e instanceof Error ? e.message : "저장 실패")
+      flash(e instanceof Error ? e.message : "저장 실패", "error")
     } finally {
       setSaving(false)
     }
@@ -101,6 +103,7 @@ export function ShoppingLinksView() {
         isFirstSetup={!hasProfile}
         saving={saving}
         message={message}
+        messageVariant={messageVariant}
         onBack={hasProfile ? () => setShowProfileSettings(false) : undefined}
         onChange={(profile) => updateData(patchShoppingLinkDraft(data, { profile }))}
         onSave={async () => publish(patchShoppingLinkDraft(data, { profile: data.profile }))}
