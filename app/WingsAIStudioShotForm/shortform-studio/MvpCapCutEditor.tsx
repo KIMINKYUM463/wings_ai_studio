@@ -596,6 +596,9 @@ export function MvpCapCutEditor(props: Props) {
                       if (Number.isFinite(d) && d > 0.1) onVideoLoaded(d)
                       e.currentTarget.playbackRate = 1
                     }}
+                    onError={() => {
+                      console.error("[MvpCapCutEditor] video playback error", resolvedVideoUrl)
+                    }}
                     onPlay={onVideoPlay}
                     onTimeUpdate={onVideoTimeUpdate}
                     onEnded={onVideoEnded}

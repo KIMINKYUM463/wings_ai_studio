@@ -93,6 +93,8 @@ import {
   saveMvpEditMp4,
   saveMvpTtsAudio,
 } from "@/lib/mvp-local-media-cache"
+import { assertPreviewMp4Blob, probeVideoElementPlayable } from "@/lib/mvp-mp4-preview"
+import { autoEditDownloadUrl } from "@/lib/shotform-auto-edit-download"
 import { MvpCapCutEditor } from "./MvpCapCutEditor"
 import { MvpExportPanel } from "./MvpExportPanel"
 import { MvpScriptStyleEditor } from "./MvpScriptStyleEditor"
@@ -631,11 +633,13 @@ export function MvpPostEditStudio({
 
   const applyVideoBlob = useCallback(
     async (blob: Blob) => {
-      if (blob.size < 20_000) return
+      await assertPreviewMp4Blob(blob)
       if (fetchedBlobRef.current) URL.revokeObjectURL(fetchedBlobRef.current)
       const url = URL.createObjectURL(blob)
+      await probeVideoElementPlayable(url)
       fetchedBlobRef.current = url
       setResolvedVideoUrl(url)
+      setErr(null)
       if (projectId && result.jobId) {
         await saveMvpEditMp4(projectId, result.jobId, blob)
         markMp4Cached(result.jobId)
@@ -687,24 +691,39 @@ export function MvpPostEditStudio({
           return
         }
         const downloadTarget =
-          result.downloadUrl ||
-          (result.jobId ? `/api/shotform/auto-edit/download?jobId=${encodeURIComponent(result.jobId)}` : "")
+          (result.downloadUrl?.includes("inline=1")
+            ? result.downloadUrl
+            : result.jobId
+              ? autoEditDownloadUrl(result.jobId, { inline: true })
+              : result.downloadUrl) || ""
         if (!downloadTarget) {
           if (!cancelled) setErr("짜집기 MP4가 없습니다. 짜집기를 다시 실행해 주세요.")
           return
         }
         const res = await fetch(downloadTarget)
-        if (!res.ok) throw new Error(`MP4 조회 실패 (${res.status})`)
+        if (!res.ok) {
+          const detail = await res.text().catch(() => "")
+          let msg = `MP4 조회 실패 (${res.status})`
+          try {
+            const j = JSON.parse(detail) as { error?: string }
+            if (j.error) msg = j.error
+          } catch {
+            /* ignore */
+          }
+          throw new Error(msg)
+        }
         const blob = await res.blob()
-        if (cancelled || blob.size < 20_000) return
+        if (cancelled) return
         await applyVideoBlob(blob)
-      } catch {
+      } catch (e) {
         if (!cancelled) {
+          const detail = e instanceof Error ? e.message : ""
           const hadCache = editMp4CachedJobId === result.jobId
           setErr(
-            hadCache
-              ? "브라우저 로컬 캐시를 찾지 못했습니다(저장소 삭제·시크릿 모드 등). 짜집기를 다시 실행해 주세요."
-              : "짜집기 MP4를 불러오지 못했습니다. 짜집기를 다시 실행해 주세요."
+            detail ||
+              (hadCache
+                ? "브라우저 로컬 캐시를 찾지 못했습니다(저장소 삭제·시크릿 모드 등). 짜집기를 다시 실행해 주세요."
+                : "짜집기 MP4를 불러오지 못했습니다. 짜집기를 다시 실행해 주세요.")
           )
         }
       } finally {

@@ -149,13 +149,14 @@ def render_shotform_auto_edit(data):
             cmd = [
                 'ffmpeg', '-y', '-nostdin',
                 '-threads', '1',
-                '-ss', str(seg.get('source_start', 0)),
                 '-i', source_path,
+                '-ss', str(seg.get('source_start', 0)),
                 '-t', str(dur),
                 '-vf', vf,
                 '-r', '30', '-an',
                 '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28',
                 '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
+                '-avoid_negative_ts', 'make_zero',
                 out_seg,
             ]
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)

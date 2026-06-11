@@ -31,6 +31,7 @@ import {
   stripShotLabelFromDescription,
 } from "@/lib/shotform-visual-scene-match"
 import { autoEditDownloadUrl } from "@/lib/shotform-auto-edit-download"
+import { assertPreviewMp4Blob, probeVideoElementPlayable } from "@/lib/mvp-mp4-preview"
 import { saveMvpEditMp4 } from "@/lib/mvp-local-media-cache"
 import {
   formatShotformFetchError,
@@ -154,19 +155,29 @@ export function MvpAutoEditDialog({
 
   const fetchResultMp4 = useCallback(
     async (downloadUrl: string, jobId: string) => {
-      const res = await fetch(downloadUrl)
+      const inlineUrl = downloadUrl.includes("inline=1")
+        ? downloadUrl
+        : autoEditDownloadUrl(jobId, { inline: true })
+      const res = await fetch(inlineUrl)
       if (!res.ok) {
-        throw new Error(`결과 MP4 조회 실패 (${res.status}). 개발 서버 재시작 후 다시 시도해 주세요.`)
+        const detail = await res.text().catch(() => "")
+        let msg = `결과 MP4 조회 실패 (${res.status})`
+        try {
+          const j = JSON.parse(detail) as { error?: string }
+          if (j.error) msg = j.error
+        } catch {
+          /* ignore */
+        }
+        throw new Error(msg)
       }
       const blob = await res.blob()
-      if (blob.size < 20_000) {
-        throw new Error("결과 MP4 파일이 비어 있습니다.")
-      }
+      await assertPreviewMp4Blob(blob)
       if (projectId && jobId) {
         await saveMvpEditMp4(projectId, jobId, blob)
       }
       revokePreviewBlob()
       const url = URL.createObjectURL(blob)
+      await probeVideoElementPlayable(url)
       previewBlobRef.current = url
       setPreviewBlobUrl(url)
       return { url, blob }

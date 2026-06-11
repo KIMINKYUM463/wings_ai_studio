@@ -196,10 +196,10 @@ export async function renderEditPlanToMp4(args: {
       [
         "-y",
         ...(serverless ? ["-threads", "1"] : []),
-        "-ss",
-        String(seg.source_start),
         "-i",
         sourcePath,
+        "-ss",
+        String(seg.source_start),
         "-t",
         String(dur),
         "-vf",
