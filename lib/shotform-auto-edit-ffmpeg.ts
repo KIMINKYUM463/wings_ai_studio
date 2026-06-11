@@ -4,6 +4,7 @@ import os from "os"
 import path from "path"
 import { randomUUID } from "crypto"
 import {
+  assertFfmpegExecutable,
   hasFfmpeg,
   hasFfprobe,
   probeDurationViaFfmpeg,
@@ -129,22 +130,31 @@ export async function probeVideoDuration(filePath: string, required = false): Pr
 }
 
 function runFfmpeg(args: string[], timeoutMs = 180_000): Promise<void> {
+  const spawnArgs = isServerlessRender() ? ["-nostdin", ...args] : args
   return new Promise((resolve, reject) => {
-    const proc = spawn(ffmpegBin(), args, { windowsHide: true })
+    const proc = spawn(ffmpegBin(), spawnArgs, { windowsHide: true })
     let err = ""
     const timer = setTimeout(() => {
       proc.kill("SIGKILL")
-      reject(new Error("ffmpeg timeout"))
+      reject(new Error(`ffmpeg timeout (${Math.round(timeoutMs / 1000)}s)`))
     }, timeoutMs)
     proc.stderr.on("data", (d) => {
       err += String(d)
     })
+    proc.on("error", (e) => {
+      clearTimeout(timer)
+      reject(e)
+    })
     proc.on("close", (code) => {
       clearTimeout(timer)
       if (code === 0) resolve()
-      else reject(new Error(err.slice(-400) || `ffmpeg exit ${code}`))
+      else reject(new Error(err.slice(-500) || `ffmpeg exit ${code}`))
     })
   })
+}
+
+function isServerlessRender(): boolean {
+  return Boolean(process.env.VERCEL)
 }
 
 /** 9:16 쇼츠 — video_id별 소스에서 컷 후 concat, 목표 길이로 trim */
@@ -162,29 +172,34 @@ export async function renderEditPlanToMp4(args: {
   targetDuration: number
   defaultVideoId?: string
 }): Promise<void> {
+  assertFfmpegExecutable()
+
   const { sourcePaths, workDir, segments, outputPath, targetDuration, defaultVideoId } = args
-  const w = 1080
-  const h = 1920
+  const serverless = isServerlessRender()
+  const w = serverless ? 720 : 1080
+  const h = serverless ? 1280 : 1920
   const fallbackId =
     defaultVideoId || Object.keys(sourcePaths)[0] || "video_001"
   const scaled: string[] = []
 
-  const segPaths = await Promise.all(
-    segments.map(async (seg, i) => {
-      const vid = sourcePaths[seg.video_id] ? seg.video_id : fallbackId
-      const sourcePath = sourcePaths[vid]
-      if (!sourcePath) return null
+  const renderOneSegment = async (seg: (typeof segments)[number], i: number): Promise<string | null> => {
+    const vid = sourcePaths[seg.video_id] ? seg.video_id : fallbackId
+    const sourcePath = sourcePaths[vid]
+    if (!sourcePath) return null
 
-      const clipDur = Math.max(0.15, seg.output_end - seg.output_start)
-      const sourceAvail = Math.max(0.15, seg.source_end - seg.source_start)
-      const dur = Math.min(clipDur, sourceAvail)
-      const outSeg = path.join(workDir, `seg_${i}.mp4`)
-      await runFfmpeg([
+    const clipDur = Math.max(0.15, seg.output_end - seg.output_start)
+    const sourceAvail = Math.max(0.15, seg.source_end - seg.source_start)
+    const dur = Math.min(clipDur, sourceAvail)
+    const outSeg = path.join(workDir, `seg_${i}.mp4`)
+    const segTimeout = serverless ? 120_000 : 180_000
+    await runFfmpeg(
+      [
         "-y",
-        "-i",
-        sourcePath,
+        ...(serverless ? ["-threads", "1"] : []),
         "-ss",
         String(seg.source_start),
+        "-i",
+        sourcePath,
         "-t",
         String(dur),
         "-vf",
@@ -197,18 +212,28 @@ export async function renderEditPlanToMp4(args: {
         "-preset",
         "ultrafast",
         "-crf",
-        "26",
+        serverless ? "28" : "26",
         "-pix_fmt",
         "yuv420p",
         "-movflags",
         "+faststart",
         outSeg,
-      ])
-      return outSeg
-    })
-  )
-  for (const p of segPaths) {
-    if (p) scaled.push(p)
+      ],
+      segTimeout
+    )
+    return outSeg
+  }
+
+  if (serverless) {
+    for (let i = 0; i < segments.length; i++) {
+      const p = await renderOneSegment(segments[i]!, i)
+      if (p) scaled.push(p)
+    }
+  } else {
+    const segPaths = await Promise.all(segments.map((seg, i) => renderOneSegment(seg, i)))
+    for (const p of segPaths) {
+      if (p) scaled.push(p)
+    }
   }
 
   if (!scaled.length) {
@@ -225,10 +250,15 @@ export async function renderEditPlanToMp4(args: {
   const concatDur = await probeVideoDuration(rawOut, true)
   const padSec = Math.max(0, targetDuration - concatDur)
 
+  const finalPreset = serverless ? "ultrafast" : "fast"
+  const finalCrf = serverless ? "26" : "23"
+  const finalTimeout = serverless ? 180_000 : 120_000
+
   if (padSec > 0.12) {
     await runFfmpeg(
       [
         "-y",
+        ...(serverless ? ["-threads", "1"] : []),
         "-i",
         rawOut,
         "-vf",
@@ -238,9 +268,9 @@ export async function renderEditPlanToMp4(args: {
         "-c:v",
         "libx264",
         "-preset",
-        "fast",
+        finalPreset,
         "-crf",
-        "23",
+        finalCrf,
         "-an",
         "-pix_fmt",
         "yuv420p",
@@ -248,9 +278,9 @@ export async function renderEditPlanToMp4(args: {
         "+faststart",
         outputPath,
       ],
-      120_000
+      finalTimeout
     )
-  } else {
+  } else if (padSec <= 0.12 && !serverless) {
     await runFfmpeg(
       [
         "-y",
@@ -261,9 +291,9 @@ export async function renderEditPlanToMp4(args: {
         "-c:v",
         "libx264",
         "-preset",
-        "fast",
+        finalPreset,
         "-crf",
-        "23",
+        finalCrf,
         "-an",
         "-pix_fmt",
         "yuv420p",
@@ -271,7 +301,12 @@ export async function renderEditPlanToMp4(args: {
         "+faststart",
         outputPath,
       ],
-      120_000
+      finalTimeout
+    )
+  } else {
+    await runFfmpeg(
+      ["-y", "-i", rawOut, "-t", String(targetDuration), "-c", "copy", "-an", outputPath],
+      finalTimeout
     )
   }
 }

@@ -97,6 +97,23 @@ export function hasFfmpeg(): boolean {
   return spawnVersionCheck(resolveFfmpegPath())
 }
 
+/** 렌더 전 ffmpeg 실행 가능 여부 확인 (Vercel serverless) */
+export function assertFfmpegExecutable(): void {
+  const bin = resolveFfmpegPath()
+  if (bin === "ffmpeg") {
+    throw new Error("ffmpeg 바이너리를 찾지 못했습니다. 배포 환경을 재확인해 주세요.")
+  }
+  const r = spawnSync(bin, ["-version"], {
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 45_000,
+  })
+  if (r.error) throw r.error
+  if (r.status !== 0) {
+    throw new Error(r.stderr?.slice(0, 240) || "ffmpeg 실행 확인 실패")
+  }
+}
+
 export function hasFfprobe(): boolean {
   const bin = resolveFfprobePath()
   if (bin !== "ffprobe" && spawnVersionCheck(bin)) return true
