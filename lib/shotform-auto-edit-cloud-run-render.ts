@@ -5,13 +5,31 @@ import {
 } from "@/lib/shotform-auto-edit-job-store"
 import { hasFfmpeg } from "@/lib/ffmpeg-binaries"
 import type { EditPlanSegment } from "@/lib/shotform-auto-edit-types"
+import { unwrapProxyVideoUrl } from "@/lib/video-upstream-fetch"
 
+/** 짜집기 렌더 — shotform_auto_edit 가 my-project 에 배포됨 (wingsshort 보다 우선) */
 export function resolveShotformCloudRunRenderUrl(): string | null {
   const url =
-    process.env.SHOPPING_CLOUD_RUN_RENDER_URL?.trim() ||
+    process.env.SHOTFORM_CLOUD_RUN_RENDER_URL?.trim() ||
     process.env.CLOUD_RUN_RENDER_URL?.trim() ||
+    process.env.SHOPPING_CLOUD_RUN_RENDER_URL?.trim() ||
     ""
   return url || null
+}
+
+function resolveCloudRunSourceUrl(videoUrl: string): string {
+  const trimmed = videoUrl.trim()
+  if (trimmed.startsWith("http")) return trimmed
+  const upstream = unwrapProxyVideoUrl(trimmed)
+  if (upstream.startsWith("http")) return upstream
+  if (trimmed.startsWith("/api/proxy-video")) {
+    const origin =
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "") ||
+      process.env.NEXT_PUBLIC_SITE_URL ||
+      "https://wingsaistudio.com"
+    return `${origin.replace(/\/$/, "")}${trimmed}`
+  }
+  return trimmed
 }
 
 export function resolveShotformCloudRunAuthToken(): string | undefined {
@@ -44,12 +62,21 @@ async function buildSourceUrlMap(args: {
       }
     }
     const fallback = args.fallbackUrls?.[videoId]
-    if (fallback) out[videoId] = fallback
+    if (fallback) out[videoId] = resolveCloudRunSourceUrl(fallback)
   }
   if (!Object.keys(out).length) {
     throw new Error(
-      "렌더용 소스 URL을 준비하지 못했습니다. Supabase Storage 설정 또는 영상 URL을 확인해 주세요."
+      "렌더용 소스 URL을 준비하지 못했습니다. Supabase Storage·SUPABASE_SERVICE_ROLE_KEY 설정을 확인해 주세요."
     )
+  }
+  if (process.env.VERCEL) {
+    for (const [vid, url] of Object.entries(out)) {
+      if (!url.startsWith("http")) {
+        throw new Error(
+          `렌더 소스 URL이 유효하지 않습니다 (${vid}). Supabase 업로드가 실패했을 수 있습니다.`
+        )
+      }
+    }
   }
   return out
 }
@@ -109,12 +136,23 @@ export async function renderEditPlanOnCloudRun(args: {
     clearTimeout(timer)
   }
 
-  const payload = (await res.json().catch(() => null)) as {
+  const rawText = await res.text()
+  let payload: {
     success?: boolean
     error?: string
     videoBase64?: string
     videoUrl?: string
-  } | null
+  } | null = null
+  try {
+    payload = JSON.parse(rawText) as typeof payload
+  } catch {
+    const snippet = rawText.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 240)
+    throw new Error(
+      snippet
+        ? `Cloud Run 응답 오류 (HTTP ${res.status}): ${snippet}`
+        : `Cloud Run 렌더 실패 (HTTP ${res.status}). SHOPPING_CLOUD_RUN_RENDER_URL 대신 CLOUD_RUN_RENDER_URL(my-project)을 사용하는지 확인해 주세요.`
+    )
+  }
 
   if (!res.ok || !payload?.success) {
     throw new Error(payload?.error || `Cloud Run 렌더 실패 (HTTP ${res.status})`)

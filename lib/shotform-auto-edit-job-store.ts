@@ -103,11 +103,12 @@ export async function uploadAutoEditSourceToSupabase(
     const { data, error: signErr } = await supabase.storage
       .from(STORAGE_BUCKET)
       .createSignedUrl(storagePath, 3600)
-    if (signErr || !data?.signedUrl) {
+    if (!signErr && data?.signedUrl) return data.signedUrl
+    if (signErr) {
       console.error("[shotform-auto-edit-job-store] source signed url failed:", signErr)
-      return null
     }
-    return data.signedUrl
+    const { data: pub } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(storagePath)
+    return pub?.publicUrl || null
   } catch (e) {
     console.error("[shotform-auto-edit-job-store] source upload error:", e)
     return null

@@ -44,17 +44,38 @@ def after_request(response):
     """모든 응답 후 CORS 헤더 추가"""
     return add_cors_headers(response)
 
+def _upstream_referer(hostname):
+    host = (hostname or '').lower()
+    if host.endswith('.xhscdn.com') or host.endswith('.xhscdn.net'):
+        return 'https://www.xiaohongshu.com/'
+    if 'douyin' in host or 'ixigua' in host or 'amemv' in host:
+        return 'https://www.douyin.com/'
+    return 'https://www.douyin.com/'
+
+
 def _download_to_temp(url_or_b64, temp_dir, prefix, is_base64=False, default_ext='.bin'):
     """URL 또는 base64에서 파일 다운로드 후 경로 반환"""
     import requests
     import base64
+    from urllib.parse import urlparse
     if is_base64:
         data = base64.b64decode(url_or_b64)
         ext = default_ext
     else:
-        r = requests.get(url_or_b64, timeout=300, headers={'User-Agent': 'Mozilla/5.0'})
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'Accept': '*/*',
+        }
+        try:
+            host = urlparse(url_or_b64).hostname or ''
+            headers['Referer'] = _upstream_referer(host)
+        except Exception:
+            pass
+        r = requests.get(url_or_b64, timeout=300, headers=headers)
         r.raise_for_status()
         data = r.content
+        if len(data) < 20_000:
+            raise Exception(f'다운로드 파일이 너무 작습니다 ({len(data)} bytes): {url_or_b64[:120]}')
         ext = '.mp4' if 'video' in r.headers.get('Content-Type', '') else ('.jpg' if 'image' in r.headers.get('Content-Type', '') else default_ext)
     path = f"{temp_dir}/{prefix}{ext}"
     with open(path, 'wb') as f:
@@ -156,6 +177,12 @@ def render_shotform_auto_edit(data):
             ['ffmpeg', '-y', '-nostdin', '-f', 'concat', '-safe', '0', '-i', concat_list, '-c', 'copy', raw_out],
             capture_output=True, text=True, timeout=120,
         )
+        if result.returncode != 0:
+            result = subprocess.run(
+                ['ffmpeg', '-y', '-nostdin', '-f', 'concat', '-safe', '0', '-i', concat_list,
+                 '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28', '-an', '-pix_fmt', 'yuv420p', raw_out],
+                capture_output=True, text=True, timeout=180,
+            )
         if result.returncode != 0:
             raise Exception(result.stderr[-400:] or "concat 실패")
 
