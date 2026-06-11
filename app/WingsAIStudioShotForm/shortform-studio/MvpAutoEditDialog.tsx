@@ -31,7 +31,7 @@ import {
   stripShotLabelFromDescription,
 } from "@/lib/shotform-visual-scene-match"
 import { autoEditDownloadUrl } from "@/lib/shotform-auto-edit-download"
-import { assertPreviewMp4Blob, probeVideoElementPlayable } from "@/lib/mvp-mp4-preview"
+import { assertPreviewMp4Blob } from "@/lib/mvp-mp4-preview"
 import { saveMvpEditMp4 } from "@/lib/mvp-local-media-cache"
 import {
   formatShotformFetchError,
@@ -154,46 +154,61 @@ export function MvpAutoEditDialog({
   useEffect(() => () => revokePreviewBlob(), [revokePreviewBlob])
 
   const fetchResultMp4 = useCallback(
-    async (downloadUrl: string, jobId: string) => {
-      const inlineUrl = downloadUrl.includes("inline=1")
-        ? downloadUrl
-        : autoEditDownloadUrl(jobId, { inline: true })
-
+    async (_downloadUrl: string, jobId: string) => {
+      const metaUrl = autoEditDownloadUrl(jobId, { mode: "url" })
       let lastErr: Error | null = null
+
       for (let attempt = 0; attempt < 4; attempt++) {
         if (attempt > 0) await new Promise((r) => setTimeout(r, 1500 * attempt))
         try {
-          const res = await fetch(inlineUrl, { cache: "no-store" })
-          if (!res.ok) {
-            const detail = await res.text().catch(() => "")
-            let msg = `결과 MP4 조회 실패 (${res.status})`
-            try {
-              const j = JSON.parse(detail) as { error?: string }
-              if (j.error) msg = j.error
-            } catch {
-              /* ignore */
-            }
-            if (res.status === 404 && attempt < 3) {
+          const metaRes = await fetch(metaUrl, { cache: "no-store" })
+          const meta = (await metaRes.json().catch(() => ({}))) as {
+            url?: string
+            kind?: "supabase" | "api"
+            error?: string
+          }
+          if (!metaRes.ok || !meta.url) {
+            const msg = meta.error || `재생 URL 조회 실패 (${metaRes.status})`
+            if (metaRes.status === 404 && attempt < 3) {
               lastErr = new Error(msg)
               continue
             }
             throw new Error(msg)
           }
-          const blob = await res.blob()
-          await assertPreviewMp4Blob(blob)
-          if (projectId && jobId) {
-            await saveMvpEditMp4(projectId, jobId, blob)
+
+          if (meta.kind === "api") {
+            const res = await fetch(meta.url, { cache: "no-store" })
+            if (!res.ok) throw new Error(`결과 MP4 조회 실패 (${res.status})`)
+            const blob = await res.blob()
+            await assertPreviewMp4Blob(blob)
+            if (projectId && jobId) await saveMvpEditMp4(projectId, jobId, blob)
+            revokePreviewBlob()
+            const objectUrl = URL.createObjectURL(blob)
+            previewBlobRef.current = objectUrl
+            setPreviewBlobUrl(objectUrl)
+            return { url: objectUrl, blob }
           }
+
           revokePreviewBlob()
-          const url = URL.createObjectURL(blob)
+          previewBlobRef.current = meta.url
+          setPreviewBlobUrl(meta.url)
+
+          let blob: Blob | null = null
           try {
-            await probeVideoElementPlayable(url)
+            const res = await fetch(meta.url, { cache: "no-store" })
+            if (res.ok) {
+              const cached = await res.blob()
+              if (cached.size >= 50_000) {
+                await assertPreviewMp4Blob(cached)
+                blob = cached
+                if (projectId && jobId) await saveMvpEditMp4(projectId, jobId, cached)
+              }
+            }
           } catch {
-            /* 코덱 경고만 — blob URL은 유지 */
+            /* Storage CORS — video src 직접 재생으로 충분 */
           }
-          previewBlobRef.current = url
-          setPreviewBlobUrl(url)
-          return { url, blob }
+
+          return { url: meta.url, blob }
         } catch (e) {
           lastErr = e instanceof Error ? e : new Error(String(e))
           if (attempt < 3 && /failed to fetch|network|load/i.test(lastErr.message)) continue
@@ -311,9 +326,8 @@ export function MvpAutoEditDialog({
           setErr(
             "짜집기·대본은 완료됐지만 결과 MP4를 불러오지 못했습니다.\n\n" +
               (detail ? `${detail}\n\n` : "") +
-              "「편집 실행」을 한 번 더 누르거나, 편집기가 열렸다면 TTS·자막 단계를 이어가 주세요."
+              "편집기에서 다시 불러오거나 「편집 실행」을 한 번 더 눌러 주세요."
           )
-          return
         }
       } else if (canOpenStudio) {
         setErr("짜집기 MP4가 없습니다. 짜집기를 다시 실행해 주세요.")
@@ -323,8 +337,8 @@ export function MvpAutoEditDialog({
       if (onStudioReady && canOpenStudio) {
         onStudioReady({
           result: { ...json, downloadUrl: mp4DownloadUrl || json.downloadUrl },
-          videoBlobUrl,
-          videoBlob,
+          videoBlobUrl: videoBlobUrl || null,
+          videoBlob: videoBlob || null,
         })
       }
     } catch (e) {

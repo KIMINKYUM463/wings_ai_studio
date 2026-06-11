@@ -658,6 +658,20 @@ export function MvpPostEditStudio({
       return
     }
     if (videoBlobUrl) {
+      if (videoBlobUrl.startsWith("https://")) {
+        setResolvedVideoUrl(videoBlobUrl)
+        setErr(null)
+        void (async () => {
+          try {
+            const res = await fetch(videoBlobUrl, { cache: "no-store" })
+            const blob = await res.blob()
+            if (blob.size >= 50_000) await applyVideoBlob(blob)
+          } catch {
+            /* Supabase URL — video 태그 직접 재생 */
+          }
+        })()
+        return
+      }
       setResolvedVideoUrl(videoBlobUrl)
       void (async () => {
         try {
@@ -694,28 +708,41 @@ export function MvpPostEditStudio({
           }
           return
         }
-        const downloadTarget =
-          (result.downloadUrl?.includes("inline=1")
-            ? result.downloadUrl
-            : result.jobId
-              ? autoEditDownloadUrl(result.jobId, { inline: true })
-              : result.downloadUrl) || ""
-        if (!downloadTarget) {
+        if (!result.jobId) {
           if (!cancelled) setErr("짜집기 MP4가 없습니다. 짜집기를 다시 실행해 주세요.")
           return
         }
-        const res = await fetch(downloadTarget)
-        if (!res.ok) {
-          const detail = await res.text().catch(() => "")
-          let msg = `MP4 조회 실패 (${res.status})`
-          try {
-            const j = JSON.parse(detail) as { error?: string }
-            if (j.error) msg = j.error
-          } catch {
-            /* ignore */
-          }
-          throw new Error(msg)
+
+        const metaRes = await fetch(autoEditDownloadUrl(result.jobId, { mode: "url" }), {
+          cache: "no-store",
+        })
+        const meta = (await metaRes.json().catch(() => ({}))) as {
+          url?: string
+          kind?: "supabase" | "api"
+          error?: string
         }
+        if (!metaRes.ok || !meta.url) {
+          throw new Error(meta.error || `재생 URL 조회 실패 (${metaRes.status})`)
+        }
+        if (cancelled) return
+
+        if (meta.kind === "supabase") {
+          setResolvedVideoUrl(meta.url)
+          setErr(null)
+          try {
+            const res = await fetch(meta.url, { cache: "no-store" })
+            if (res.ok) {
+              const blob = await res.blob()
+              if (blob.size >= 50_000) await applyVideoBlob(blob)
+            }
+          } catch {
+            /* video src로 직접 재생 */
+          }
+          return
+        }
+
+        const res = await fetch(meta.url, { cache: "no-store" })
+        if (!res.ok) throw new Error(`MP4 조회 실패 (${res.status})`)
         const blob = await res.blob()
         if (cancelled) return
         await applyVideoBlob(blob)
