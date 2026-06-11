@@ -23,7 +23,8 @@
     },
     "app/api/shotform/auto-edit/route.ts": {
       "maxDuration": 800,
-      "memory": 3008
+      "memory": 3008,
+      "includeFiles": "vendor/**"
     },
     "app/api/shotform/auto-edit/download/route.ts": {
       "maxDuration": 120,

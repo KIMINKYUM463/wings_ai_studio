@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "next build",
+    "build": "node scripts/copy-ffmpeg-vendor.mjs && next build",
+    "postinstall": "node scripts/copy-ffmpeg-vendor.mjs",
     "dev": "next dev -p 3000",
     "dev:3001": "next dev -p 3001",
     "lint": "next lint",

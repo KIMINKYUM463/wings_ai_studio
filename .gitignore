@@ -10,6 +10,7 @@ service-account-key.json
 
 # Dependencies
 node_modules/
+vendor/
 .next/
 out/
 build/

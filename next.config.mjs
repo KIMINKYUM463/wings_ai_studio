@@ -9,15 +9,13 @@ const nextConfig = {
   },
   outputFileTracingIncludes: {
     "/api/shotform/auto-edit": [
-      "./node_modules/ffmpeg-static/ffmpeg",
-      "./node_modules/ffmpeg-static/ffmpeg.exe",
-      "./node_modules/ffprobe-static/bin/**/*",
+      "./vendor/ffmpeg/**",
+      "./vendor/ffprobe/**",
+      "./node_modules/ffmpeg-static/**",
+      "./node_modules/ffprobe-static/**",
     ],
-    "/*": [
-      "./node_modules/ffmpeg-static/ffmpeg",
-      "./node_modules/ffmpeg-static/ffmpeg.exe",
-      "./node_modules/ffprobe-static/bin/**/*",
-    ],
+    "/api/shotform/auto-edit/download": ["./vendor/ffmpeg/**", "./vendor/ffprobe/**"],
+    "/*": ["./vendor/ffmpeg/**", "./vendor/ffprobe/**"],
   },
   async redirects() {
     return [
