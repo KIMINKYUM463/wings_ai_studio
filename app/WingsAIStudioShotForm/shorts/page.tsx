@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 
 import type React from "react"
 import { useState, useEffect, useRef } from "react"
@@ -34,6 +34,7 @@ import {
   GripVertical,
   RefreshCw,
   Check,
+  Search,
 } from "lucide-react"
 import Link from "next/link"
 import { generateShortsScript, generateShortsTopics, generateShortsHookingTitle } from "./actions"
@@ -4452,16 +4453,30 @@ export default function ShortsPage() {
                   </div>
                   쇼츠 영상 제작
                 </CardTitle>
-                <Link href="/WingsAIStudioShotForm">
-                  <Button 
-                    variant="ghost" 
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    asChild
+                    type="button"
+                    variant="secondary"
                     size="sm"
-                    className="text-white hover:bg-white/20 hover:text-white"
+                    className="border border-white/30 bg-white/15 text-white hover:bg-white/25"
                   >
-                    <Home className="w-4 h-4 mr-2" />
-                    홈으로
+                    <Link href="/WingsAIStudioShotForm/product-search?from=shorts">
+                      <Search className="mr-2 h-4 w-4" />
+                      AI 쇼핑팩 (제품 URL → 쇼츠)
+                    </Link>
                   </Button>
-                </Link>
+                  <Link href="/WingsAIStudioShotForm">
+                    <Button 
+                      variant="ghost" 
+                      size="sm"
+                      className="text-white hover:bg-white/20 hover:text-white"
+                    >
+                      <Home className="w-4 h-4 mr-2" />
+                      홈으로
+                    </Button>
+                  </Link>
+                </div>
               </div>
               <p className="text-white/90 text-sm mt-2 ml-14">
                 AI로 쉽고 빠르게 쇼츠 영상을 만들어보세요

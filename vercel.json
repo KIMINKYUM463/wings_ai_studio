@@ -1,5 +1,11 @@
 {
   "functions": {
+    "app/api/shotform/mvp-keyword-source/route.ts": {
+      "maxDuration": 800
+    },
+    "app/api/product-search/route.ts": {
+      "maxDuration": 300
+    },
     "app/api/ai/render/route.ts": {
       "maxDuration": 300
     },
@@ -11,6 +17,9 @@
     },
     "app/api/generate-refined-script-part/route.ts": {
       "maxDuration": 180
+    },
+    "app/api/shotform/mvp-thumbnail/route.ts": {
+      "maxDuration": 300
     }
   },
   "headers": [

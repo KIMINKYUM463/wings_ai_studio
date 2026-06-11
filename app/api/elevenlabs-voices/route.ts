@@ -88,7 +88,8 @@ export async function GET(request: NextRequest) {
         return NextResponse.json(
           {
             success: false,
-            error: `ElevenLabs API 키 권한이 없습니다.\n\n오류: ${errorText}\n\n해결 방법:\n1. ElevenLabs 대시보드에서 API 키의 권한을 확인하세요\n2. 'voices_read' 권한이 있는 API 키를 사용하세요\n3. 또는 기본 목소리 ID를 직접 사용할 수 있습니다\n\n기본 목소리 ID:\n- Rachel: jB1Cifc2UQbq1gR3wnb0\n- Voice 2: 8jHHF8rMqMlg8if2mOUe\n- Voice 3: uyVNoMrnUku1dZyVEXwD`,
+            error: `voices_read 권한이 없어 목소리 목록을 가져올 수 없습니다. (${errorText}) TTS 합성은 음성 ID 직접 입력으로 가능합니다.`,
+            code: "voices_read_missing",
           },
           { status: response.status }
         )

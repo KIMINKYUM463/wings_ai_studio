@@ -2,10 +2,23 @@ import { type NextRequest, NextResponse } from "next/server"
 
 export async function POST(request: NextRequest) {
   try {
-    const { text, voiceId, apiKey, style, language, model } = await request.json()
+    const { text, voiceId, apiKey, style, language, model, speed: speedRaw } = await request.json()
+    const speed =
+      typeof speedRaw === "number" && Number.isFinite(speedRaw)
+        ? Math.min(2, Math.max(0.5, Math.round(speedRaw * 10) / 10))
+        : 1
 
-    if (!text) {
+    const trimmedText = String(text ?? "").trim()
+    if (!trimmedText) {
       return NextResponse.json({ error: "텍스트가 필요합니다." }, { status: 400 })
+    }
+    if (trimmedText.length < 2) {
+      return NextResponse.json(
+        {
+          error: `TTS 텍스트가 너무 짧습니다(${trimmedText.length}자). 대본이 잘렸거나 비어 있을 수 있습니다. 「대본만 다시쓰기」 후 다시 시도해 주세요.`,
+        },
+        { status: 400 }
+      )
     }
 
     if (!voiceId) {
@@ -17,11 +30,10 @@ export async function POST(request: NextRequest) {
     }
 
     console.log("[Superton] TTS 생성 시작, voiceId:", voiceId, "style:", style || "neutral", "language:", language || "ko")
-    console.log("[Superton] 텍스트 길이:", text.trim().length, "자")
+    console.log("[Superton] 텍스트 길이:", trimmedText.length, "자")
 
     // 수퍼톤 API는 텍스트가 300자 이하여야 함
     const MAX_TEXT_LENGTH = 300
-    const trimmedText = text.trim()
     
     // 텍스트가 300자를 초과하는 경우 여러 개로 나누기
     if (trimmedText.length > MAX_TEXT_LENGTH) {
@@ -94,6 +106,7 @@ export async function POST(request: NextRequest) {
             language: language || "ko",
             style: style || "neutral",
             model: model || "sona_speech_1",
+            voice_settings: { speed },
           }),
         })
         
@@ -222,6 +235,7 @@ export async function POST(request: NextRequest) {
         language: language || "ko", // 기본값: 한국어
         style: style || "neutral", // 사용자가 선택한 스타일 또는 기본값
         model: model || "sona_speech_1", // 기본 모델
+        voice_settings: { speed },
       }),
     })
 

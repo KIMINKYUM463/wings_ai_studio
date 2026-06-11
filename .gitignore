@@ -14,6 +14,8 @@ node_modules/
 out/
 build/
 dist/
+vmake-sdk/
+vmake-sdk.zip
 
 # Logs
 *.log
@@ -34,6 +36,19 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+
+# 로컬 Playwright 메타 보강 잡(파일 큐)
+.data/
+
+# ShotForm 쇼핑 링크 공개 페이지 데이터 (로컬 JSON)
+data/
+
+# 로컬 스크래치·복원 파일
+_extract_layout.txt
+_lines.txt
+_mvp_*.tsx
+tsconfig.tsbuildinfo
+__pycache__/
 
 
 

@@ -415,3 +415,20 @@
 .animate-progress-line {
   animation: progress-line 1s ease-out forwards;
 }
+
+/* MY 링크 — 상단 한줄 무한 좌측 스크롤 */
+@keyframes shopping-link-notice-marquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.shopping-link-notice-marquee-track {
+  display: flex;
+  width: max-content;
+  animation: shopping-link-notice-marquee 28s linear infinite;
+  will-change: transform;
+}

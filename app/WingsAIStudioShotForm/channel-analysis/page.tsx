@@ -68,7 +68,7 @@ export default function ChannelAnalysisPage() {
   const [isExtractingProducts, setIsExtractingProducts] = useState(false)
 
 
-  // 잘뜬 제품 찾기
+  // 잘뜬 제품 검색
   const handleFindProducts = async () => {
     if (!analysisResult) return
     
@@ -431,7 +431,7 @@ export default function ChannelAnalysisPage() {
                 </CardContent>
               </Card>
 
-              {/* 잘뜬 제품 찾기 버튼 */}
+              {/* 잘뜬 제품 검색 버튼 */}
               <div className="flex justify-center">
                 <Button
                   onClick={handleFindProducts}
@@ -447,7 +447,7 @@ export default function ChannelAnalysisPage() {
                   ) : (
                     <>
                       <ShoppingBag className="w-5 h-5 mr-2" />
-                      잘뜬 제품 찾기
+                      잘뜬 제품 검색
                     </>
                   )}
                 </Button>
@@ -842,13 +842,13 @@ export default function ChannelAnalysisPage() {
         </div>
       </main>
 
-      {/* 잘뜬 제품 찾기 다이얼로그 */}
+      {/* 잘뜬 제품 검색 다이얼로그 */}
       <Dialog open={showProductDialog} onOpenChange={setShowProductDialog}>
         <DialogContent className="max-w-3xl w-[90vw] max-h-[80vh] overflow-y-auto overflow-x-hidden bg-slate-800/95 backdrop-blur-xl border border-slate-700/50">
           <DialogHeader>
             <DialogTitle className="text-2xl font-bold text-white flex items-center gap-2">
               <ShoppingBag className="w-6 h-6 text-orange-400" />
-              잘뜬 제품 찾기
+              잘뜬 제품 검색
             </DialogTitle>
             <DialogDescription className="text-slate-400">
               조회수 높은 영상에서 추출한 제품 목록입니다. 각 제품을 클릭하면 쿠팡에서 검색됩니다.

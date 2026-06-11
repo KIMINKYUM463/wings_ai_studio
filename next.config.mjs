@@ -1,5 +1,19 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  async redirects() {
+    return [
+      {
+        source: "/WingsAIStudioShotForm/shopping-factory/:path*",
+        destination: "/WingsAIStudioShotForm/shoppingshotform/:path*",
+        permanent: true,
+      },
+      {
+        source: "/WingsAIStudioShotForm/shoppingshotform/s/:slug",
+        destination: "/WingsAIStudioShotForm/shoppingshotform/shopping/:slug",
+        permanent: true,
+      },
+    ]
+  },
   typescript: {
     ignoreBuildErrors: true,
   },

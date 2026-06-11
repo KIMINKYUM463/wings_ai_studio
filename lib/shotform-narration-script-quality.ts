@@ -1,0 +1,482 @@
+import {
+  extractVisualDescription,
+  formatSceneDescriptionHint,
+  isGenericTemplateNarration,
+  looksLikeDescriptiveSceneNarration,
+  looksLikeRawSceneCopy,
+  narrationTextLooksWeak,
+  pickUniqueNarrationLine,
+  rephraseSceneToShoppingNarration,
+  rephraseSceneToShoppingNarrationVariant,
+} from "@/lib/shotform-cut-narration"
+import {
+  formatNarrationForSceneDuration,
+  maxCharsForSceneDuration,
+  narrationLooksIncomplete,
+} from "@/lib/shotform-narration-timing"
+import type { CutScriptContext } from "@/lib/shotform-visual-scene-match"
+import { sanitizeNarrationForOutput } from "@/lib/shotform-natural-shorts-script"
+import {
+  narrationBlockSimilarity,
+  narrationLineIsDuplicateOfPrior,
+} from "@/lib/shotform-narration-similarity"
+
+const CLICHE_PATTERNS = [
+  /직접 써봤어요/,
+  /한번 보세요/,
+  /이 제품 한번/,
+  /제품 디테일/,
+  /실제로 써보면 이렇게 편해요/,
+  /직접 보면 차이가/,
+  /생각보다 편해요/,
+  /이렇게 쉬워요/,
+  /이렇게 편해요/,
+] as const
+
+const CONTINUITY_CONNECTORS =
+  /^(그래서|그리고|여기서|이어서|이렇게|바로|근데|자|그다음|다음엔|이제|그럼|또|게다가)\s/
+
+const LEADING_CONNECTOR_RE =
+  /^(그래서|그리고|여기서|이어서|이렇게|바로|근데|자|그다음|이제)\s+/
+
+/** 문장 앞 연결어 제거 */
+export function stripLeadingNarrationConnector(text: string): string {
+  let t = text.trim()
+  if (!t) return t
+  const lines = t.split("\n").map((line) => line.trim()).filter(Boolean)
+  if (!lines.length) return t
+  lines[0] = lines[0]!.replace(LEADING_CONNECTOR_RE, "")
+  return lines.join("\n")
+}
+
+/** 컷 전체에서 연결어 남발 완화 — 최대 약 20%만 허용 */
+export function limitConnectorsAcrossScript(lines: readonly string[]): string[] {
+  if (lines.length <= 2) {
+    return lines.map((line, i) => (i === 0 ? stripLeadingNarrationConnector(line) : line))
+  }
+  const maxWithConnector = Math.max(1, Math.floor(lines.length * 0.2))
+  let connectorCount = 0
+  return lines.map((line, i) => {
+    if (i === 0) return stripLeadingNarrationConnector(line)
+    const first = line.split("\n").map((l) => l.trim()).find(Boolean) ?? ""
+    if (!LEADING_CONNECTOR_RE.test(first)) return line
+    connectorCount++
+    if (connectorCount > maxWithConnector) {
+      return stripLeadingNarrationConnector(line)
+    }
+    return line
+  })
+}
+
+const SCENE_RESET_PATTERNS = [
+  /^이 제품/,
+  /^제품 디테일/,
+  /^실제로 써보면/,
+  /^직접 보면/,
+  /^한번 보세요/,
+  /^직접 써봤/,
+  /^장면/,
+] as const
+
+const FLOW_STOPWORDS = new Set([
+  "그리고",
+  "여기서",
+  "이렇게",
+  "바로",
+  "근데",
+  "그래서",
+  "이어서",
+  "이제",
+  "정말",
+  "진짜",
+  "완전",
+  "너무",
+  "이거",
+  "이건",
+  "저거",
+  "있어요",
+  "해요",
+  "돼요",
+  "되요",
+  "편해요",
+  "좋아요",
+  "쉬워요",
+])
+
+const VISUAL_THEME_RULES: Array<{ re: RegExp; theme: string; keywords: string[] }> = [
+  { re: /흡입|吸尘|vacuum|먼지|灰尘/, theme: "흡입", keywords: ["흡입", "빨아", "먼지", "쓸어", "싹"] },
+  { re: /필터|filter|세척|水洗|清洗/, theme: "필터", keywords: ["필터", "세척", "물", "쓱", "헹"] },
+  { re: /송풍|吹风|blow/, theme: "송풍", keywords: ["송풍", "바람", "시원", "불어"] },
+  { re: /노즐|吸嘴|喷嘴|tip/, theme: "노즐", keywords: ["노즐", "틈새", "구석", "끝"] },
+  { re: /차|车|운전|seat|시트/, theme: "차량", keywords: ["차", "시트", "운전", "차안", "필수템"] },
+  { re: /펼치|展开|fold|접/, theme: "펼침", keywords: ["펼치", "접", "보관", "휴대", "컴팩트"] },
+  { re: /버튼|按|누르|작동|开关/, theme: "작동", keywords: ["버튼", "작동", "켜", "한 번", "바로"] },
+  { re: /청소|清洁|clean|먼지|吸尘/, theme: "청소", keywords: ["청소", "깔끔", "구석", "관리"] },
+  { re: /칫솔|치아|牙刷|电动牙刷|전동칫솔/, theme: "칫솔", keywords: ["칫솔", "치아", "구석", "플라크"] },
+  { re: /투사|스크린|프로젝터|TV|티비|설치|screen/, theme: "스크린", keywords: ["스크린", "설치", "투사", "몰입", "영화"] },
+  { re: /틈새|缝隙|좁|缝/, theme: "틈새", keywords: ["틈새", "좁", "구석", "사이", "끝"] },
+  { re: /보여|展示|확인|特写|클로즈/, theme: "디테일", keywords: ["디테일", "확인", "보", "눈", "직접"] },
+  { re: /LED|디스플레이|화면|스크린|彩屏|显示屏|screen|곡면/, theme: "디스플레이", keywords: ["화면", "LED", "선명", "몰입", "야외"] },
+  { re: /월드컵|경기|중계|스포츠/, theme: "경기", keywords: ["경기", "중계", "현장", "몰입", "관람"] },
+  {
+    re: /배드민턴|셔틀콕|라켓|훈련기|badminton|shuttle/i,
+    theme: "배드민턴",
+    keywords: ["배드민턴", "라켓", "셔틀콕", "연습", "리턴", "혼자"],
+  },
+]
+
+const OPENING_HOOK_POOLS: Array<{ re: RegExp; hooks: string[] }> = [
+  {
+    re: /배드민턴|셔틀콕|라켓|훈련기/i,
+    hooks: [
+      "파트너 없어도 이렇게 연습된다고요?",
+      "이거 몰랐으면 연습 시간만 날렸어요",
+      "거실에서 혼자 치는데 리턴 연습이 돼요",
+      "연습할 사람 없을 때 이게 제일 먼저 떠올라요",
+    ],
+  },
+  {
+    re: /청소|먼지|흡입|吸尘/i,
+    hooks: [
+      "이거 몰라서 청소 시간만 늘었어요",
+      "구석 먼지, 이렇게 빨아들이는 거 있더라고요",
+      "와, 이 정도면 손이 안 놀아요",
+    ],
+  },
+]
+
+function openingHookForVisual(visualCard: string, productName: string, cutIndex: number): string | null {
+  const desc = extractVisualDescription(visualCard) + " " + productName
+  for (const pool of OPENING_HOOK_POOLS) {
+    if (pool.re.test(desc)) {
+      return pool.hooks[cutIndex % pool.hooks.length]!
+    }
+  }
+  const generic = [
+    "이거 몰랐으면 손해 봤을 것 같아요",
+    "와, 이건 왜 이제 알았죠?",
+    "저만 몰랐던 꿀템인데요",
+  ]
+  return generic[cutIndex % generic.length]!
+}
+
+/** 컷별 대본 — 동일·유사 문장 절대 금지 */
+export function enforceUniqueNarrationLines(
+  lines: readonly string[],
+  contexts: ReadonlyArray<{ visual_card: string; duration: number }>,
+  productName: string
+): string[] {
+  const prior: string[] = []
+  return lines.map((line, i) => {
+    const text = pickUniqueNarrationLine({
+      visualHint: contexts[i]!.visual_card,
+      productName,
+      duration: contexts[i]!.duration,
+      cutIndex: i,
+      priorLines: prior,
+      preferred: line,
+    })
+    prior.push(text)
+    return text
+  })
+}
+
+function enforceUniqueCutLines(
+  lines: readonly string[],
+  contexts: ReadonlyArray<{ visual_card: string; duration: number }>,
+  productName: string
+): string[] {
+  return enforceUniqueNarrationLines(lines, contexts, productName)
+}
+
+export function detectVisualThemes(visualCard: string): Array<{ theme: string; keywords: string[] }> {
+  const desc = extractVisualDescription(visualCard)
+  if (!desc) return []
+  const out: Array<{ theme: string; keywords: string[] }> = []
+  for (const rule of VISUAL_THEME_RULES) {
+    if (rule.re.test(desc)) out.push({ theme: rule.theme, keywords: rule.keywords })
+  }
+  return out
+}
+
+/** 화면 묘사와 대본의 연관도 (0~1) */
+export function visualGroundingScore(text: string, visualCard: string): number {
+  const themes = detectVisualThemes(visualCard)
+  if (!themes.length) return 0.55
+
+  const script = text.replace(/\n/g, " ")
+  let hits = 0
+  for (const { keywords } of themes) {
+    if (keywords.some((k) => script.includes(k))) hits++
+  }
+  return hits / themes.length
+}
+
+/** 프롬프트용 — 컷 화면에서 꼭 반영할 키워드 */
+export function visualKeywordsForScript(visualCard: string): string[] {
+  const themes = detectVisualThemes(visualCard)
+  const fromThemes = themes.flatMap((t) => t.keywords.slice(0, 2))
+  const desc = extractVisualDescription(visualCard)
+  const words = (desc.match(/[\uac00-\ud7a3]{2,}/g) ?? []).filter(
+    (w) => !/장면|모습|사용자|카메라|자막|보임|강조/.test(w)
+  )
+  return [...new Set([...fromThemes, ...words.slice(0, 4)])].slice(0, 6)
+}
+
+function lastSubLine(text: string): string {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean)
+  return lines[lines.length - 1] ?? text.trim()
+}
+
+function firstSubLine(text: string): string {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean)
+  return lines[0] ?? text.trim()
+}
+
+function hasContinuityConnector(text: string): boolean {
+  return CONTINUITY_CONNECTORS.test(text.trim())
+}
+
+function sharesTopicHint(prevLast: string, nextFirst: string): boolean {
+  const tokensA = (prevLast.match(/[\uac00-\ud7a3]{2,}/g) ?? []).filter((w) => !FLOW_STOPWORDS.has(w))
+  const tokensB = (nextFirst.match(/[\uac00-\ud7a3]{2,}/g) ?? []).slice(0, 4)
+  return tokensB.some((w) => tokensA.includes(w))
+}
+
+function looksLikeSceneReset(text: string, productName?: string): boolean {
+  const t = firstSubLine(text)
+  if (!t) return false
+  if (SCENE_RESET_PATTERNS.some((re) => re.test(t))) return true
+  const product = productName?.trim()
+  if (product && new RegExp(`^${product.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[,\\s]`).test(t)) {
+    return true
+  }
+  return looksLikeDescriptiveSceneNarration(t)
+}
+
+function continuityFromPrior(candidate: string, priorLine: string | undefined): number {
+  if (!priorLine) return 0
+  const first = firstSubLine(candidate)
+  const prevLast = lastSubLine(priorLine)
+  if (hasContinuityConnector(first)) return 0.18
+  if (sharesTopicHint(prevLast, first)) return 0.14
+  if (looksLikeSceneReset(first)) return -0.22
+  return 0
+}
+
+function pickContinuityConnector(cutIndex: number, totalCuts: number, prevLast: string): string {
+  if (cutIndex >= totalCuts - 1) return "그래서"
+  if (/[?？]$/.test(prevLast.trim())) return "이제"
+  const mids = ["그리고", "이어서", "여기서", "이렇게", "바로"] as const
+  return mids[cutIndex % mids.length]!
+}
+
+function prependConnectorToBlock(block: string, connector: string): string {
+  const lines = block.split("\n").map((l) => l.trim()).filter(Boolean)
+  if (!lines.length) return block
+  const first = lines[0]!
+  if (hasContinuityConnector(first)) return block
+  lines[0] = `${connector} ${first.replace(/^[,.\s]+/, "")}`
+  return lines.join("\n")
+}
+
+/** @deprecated limitConnectorsAcrossScript 사용 — 연결어 추가 대신 남발만 제거 */
+export function weaveNarrationContinuity(
+  lines: readonly string[],
+  _productName?: string
+): string[] {
+  return limitConnectorsAcrossScript(lines)
+}
+
+function lineNeedsPolish(
+  text: string,
+  visualCard: string,
+  priorLines: readonly string[],
+  grounding: number
+): boolean {
+  if (narrationTextLooksWeak(text, visualCard)) return true
+  if (looksLikeRawSceneCopy(text, visualCard)) return true
+  if (grounding < 0.35 && looksLikeDescriptiveSceneNarration(text)) return true
+  if (CLICHE_PATTERNS.some((re) => re.test(text))) return true
+
+  const themes = detectVisualThemes(visualCard)
+  if (themes.length > 0 && grounding < 0.2) return true
+
+  return priorLines.some((p) => narrationBlockSimilarity(p, text) >= 0.72)
+}
+
+function pickBetterLine(
+  current: string,
+  candidate: string,
+  visualCard: string,
+  priorLines: readonly string[]
+): string {
+  const priorLast = priorLines[priorLines.length - 1]
+  const curScore =
+    visualGroundingScore(current, visualCard) +
+    continuityFromPrior(current, priorLast) -
+    (priorLines.some((p) => narrationBlockSimilarity(p, current) >= 0.72) ? 0.35 : 0)
+  const candScore =
+    visualGroundingScore(candidate, visualCard) +
+    continuityFromPrior(candidate, priorLast) -
+    (priorLines.some((p) => narrationBlockSimilarity(p, candidate) >= 0.72) ? 0.35 : 0)
+
+  if (candScore > curScore + 0.05) return candidate
+  if (narrationTextLooksWeak(current, visualCard) || looksLikeRawSceneCopy(current, visualCard)) {
+    return candidate
+  }
+  return current
+}
+
+/** 프롬프트용 컷 블록 (mvp-narration-script·짜집기 파이프라인 공용) */
+export function buildNarrationCutsPromptBlock(
+  cuts: readonly CutScriptContext[],
+  naturalShorts: boolean
+): string {
+  return cuts
+    .map((c) => {
+      const maxChars = maxCharsForSceneDuration(c.duration)
+      const lineHint = c.duration <= 2.5 ? 2 : c.duration <= 4 ? 3 : Math.max(3, Math.round(c.duration / 1.4))
+      const role = naturalShorts
+        ? c.index === 1
+          ? "역할: ①초반 후킹"
+          : c.index === cuts.length
+            ? "역할: ⑤마무리·CTA"
+            : c.index === 2
+              ? "역할: ②일상 갈등"
+              : c.index <= Math.ceil(cuts.length * 0.45)
+                ? "역할: ③제품 발견·반전"
+                : "역할: ④사용·결과·제품 효과"
+        : c.index === 1
+          ? "역할: 오프닝·후킹"
+          : c.index === cuts.length
+            ? "역할: 마무리·CTA"
+            : c.index <= Math.ceil(cuts.length * 0.35)
+              ? "역할: 문제·관심 유지"
+              : "역할: 기능·데모·장점"
+      const shortCut =
+        c.duration < 2.5
+          ? " · **1초 내외 컷**: 완결된 짧은 호흡 한 줄 — 조사·명사로 끝나는 미완성 금지"
+          : ""
+      const vk = visualKeywordsForScript(c.visual_card)
+      const keywordHint = vk.length ? ` · 화면 키워드: ${vk.join(", ")}` : ""
+      return `${c.index}. 출력 ${c.output_start}-${c.output_end}s (${c.duration}초, ${lineHint}줄 권장, 최대 ${maxChars}자) · ${role}${shortCut}
+   소스 ${c.source_start.toFixed(1)}-${c.source_end.toFixed(1)}s
+   화면: ${formatSceneDescriptionHint(c.visual_card)}${keywordHint}`
+    })
+    .join("\n\n")
+}
+
+/** AI·폴백 대본 후처리 — 반복 완화·화면 정합성·컷 간 흐름 보정 */
+export function polishCutNarrationLines(
+  lines: readonly string[],
+  contexts: ReadonlyArray<{ visual_card: string; duration: number }>,
+  productName: string,
+  opts?: { allowTemplateFallback?: boolean; fitToDuration?: boolean }
+): string[] {
+  const allowTemplate = opts?.allowTemplateFallback !== false
+  const fitToDuration = opts?.fitToDuration === true
+  const prior: string[] = []
+
+  const polished = lines.map((raw, i) => {
+    const ctx = contexts[i]!
+    let text = sanitizeNarrationForOutput(raw.trim())
+    const grounding = visualGroundingScore(text, ctx.visual_card)
+
+    const duplicatePrior = narrationLineIsDuplicateOfPrior(text, prior)
+    const definitelyWeak =
+      !text ||
+      isGenericTemplateNarration(text) ||
+      narrationTextLooksWeak(text, ctx.visual_card) ||
+      looksLikeRawSceneCopy(text, ctx.visual_card)
+    const weakOpening = i === 0 && (definitelyWeak || /화면\s*보니까|장면\s*보면|바로\s*이해됐/.test(text))
+    const needsPolish = definitelyWeak || duplicatePrior || weakOpening
+
+    if (i === 0 && weakOpening) {
+      const hook = openingHookForVisual(ctx.visual_card, productName, 0)
+      if (hook) text = hook
+    }
+
+    if (needsPolish) {
+      const variantBase = duplicatePrior ? i * 7 + 3 : i * 5 + 1
+      const candidates = [
+        rephraseSceneToShoppingNarration(ctx.visual_card, productName, ctx.duration),
+        rephraseSceneToShoppingNarrationVariant(ctx.visual_card, productName, ctx.duration, variantBase),
+        rephraseSceneToShoppingNarrationVariant(ctx.visual_card, productName, ctx.duration, variantBase + 4),
+        rephraseSceneToShoppingNarrationVariant(ctx.visual_card, productName, ctx.duration, variantBase + 9),
+        rephraseSceneToShoppingNarrationVariant(ctx.visual_card, productName, ctx.duration, variantBase + 13),
+      ]
+      for (const cand of candidates) {
+        if (!allowTemplate && isGenericTemplateNarration(cand)) continue
+        text = pickBetterLine(text, cand, ctx.visual_card, prior)
+      }
+      if (narrationLineIsDuplicateOfPrior(text, prior)) {
+        text = rephraseSceneToShoppingNarrationVariant(
+          ctx.visual_card,
+          productName,
+          ctx.duration,
+          variantBase + 19
+        )
+      }
+    }
+
+    if (fitToDuration) {
+      text = formatNarrationForSceneDuration(text, ctx.duration)
+    } else {
+      text = sanitizeNarrationForOutput(text)
+    }
+    if (allowTemplate && fitToDuration && narrationLooksIncomplete(text)) {
+      const fallback = formatNarrationForSceneDuration(
+        rephraseSceneToShoppingNarrationVariant(ctx.visual_card, productName, ctx.duration, i + 17),
+        ctx.duration
+      )
+      if (!narrationLooksIncomplete(fallback)) {
+        text = fallback
+      }
+    }
+    text = pickUniqueNarrationLine({
+      visualHint: ctx.visual_card,
+      productName,
+      duration: ctx.duration,
+      cutIndex: i,
+      priorLines: prior,
+      preferred: text,
+    })
+    prior.push(text)
+    return sanitizeNarrationForOutput(text)
+  })
+
+  const woven = weaveNarrationContinuity(polished, productName).map(sanitizeNarrationForOutput)
+  return enforceUniqueCutLines(woven, contexts, productName).map(sanitizeNarrationForOutput)
+}
+
+/** OpenAI JSON lines 파싱 — 빈 컷도 슬롯 유지 (filter로 개수 줄어듦 방지) */
+export function parseNarrationLinesFromAi(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  return raw.map((l) => sanitizeNarrationForOutput(String(l ?? "").trim()))
+}
+
+/** AI가 컷 수를 어긋내도 편집 컷 수에 맞춤 — 부족·빈 줄은 화면 기반 완결 문장으로 채움 */
+export function alignNarrationLinesToCuts(
+  lines: readonly string[],
+  cuts: readonly Array<{ visual_card: string; duration: number }>,
+  productName: string
+): string[] {
+  const cutCount = cuts.length
+  if (!cutCount) return []
+
+  const out: string[] = []
+  for (let i = 0; i < cutCount; i++) {
+    let text = (lines[i] ?? "").trim()
+    if (!text) {
+      text = rephraseSceneToShoppingNarrationVariant(
+        cuts[i]!.visual_card,
+        productName,
+        cuts[i]!.duration,
+        i + 51
+      )
+    }
+    out.push(sanitizeNarrationForOutput(text))
+  }
+  return out
+}

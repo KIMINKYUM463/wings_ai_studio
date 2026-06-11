@@ -2,7 +2,11 @@ import { type NextRequest, NextResponse } from "next/server"
 
 export async function POST(request: NextRequest) {
   try {
-    const { text, voiceId, apiKey } = await request.json()
+    const { text, voiceId, apiKey, speed: speedRaw } = await request.json()
+    const speed =
+      typeof speedRaw === "number" && Number.isFinite(speedRaw)
+        ? Math.min(1.5, Math.max(0.8, Math.round(speedRaw * 10) / 10))
+        : 1
 
     if (!text) {
       return NextResponse.json({ error: "텍스트가 필요합니다." }, { status: 400 })
@@ -48,6 +52,7 @@ export async function POST(request: NextRequest) {
         voice_settings: {
           stability: 0.7, // 0.65에서 0.7로 증가 (더 안정적이고 자연스러운 음성, 기계음 감소)
           similarity_boost: 0.75, // 0.8에서 0.75로 조정 (너무 높으면 기계음이 나올 수 있음)
+          speed,
         },
       }),
     })
@@ -131,8 +136,9 @@ export async function POST(request: NextRequest) {
           text: ttsText,
           model_id: "eleven_multilingual_v2",
           voice_settings: {
-            stability: 0.7, // 0.65에서 0.7로 증가 (더 안정적이고 자연스러운 음성, 기계음 감소)
-            similarity_boost: 0.75, // 0.8에서 0.75로 조정 (너무 높으면 기계음이 나올 수 있음)
+            stability: 0.7,
+            similarity_boost: 0.75,
+            speed,
           },
         }),
       })

@@ -64,6 +64,16 @@ import { useRouter } from "next/navigation"
 // 숏폼 전용 서비스
 const shotFormServices = [
   {
+    id: "shortform-studio",
+    title: "숏폼 스튜디오",
+    icon: Sparkles,
+    description: "키워드·소스·짜집기·자막·썸네일 프로젝트",
+    url: "/WingsAIStudioShotForm/shortform-studio",
+    gradient: "from-violet-500 via-purple-500 to-fuchsia-500",
+    hoverGradient: "from-violet-600 via-purple-600 to-fuchsia-600",
+    featured: true,
+  },
+  {
     id: "shorts",
     title: "일반 숏폼",
     icon: Scissors,
