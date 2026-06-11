@@ -677,11 +677,23 @@ export function MvpPostEditStudio({
           await applyVideoBlob(cached)
           return
         }
-        if (!result.downloadUrl) {
+        if (result.renderSkipped) {
+          if (!cancelled) {
+            setErr(
+              result.renderSkipReason ||
+                "짜집기 MP4 렌더가 생략되었습니다. 짜집기를 다시 실행해 주세요."
+            )
+          }
+          return
+        }
+        const downloadTarget =
+          result.downloadUrl ||
+          (result.jobId ? `/api/shotform/auto-edit/download?jobId=${encodeURIComponent(result.jobId)}` : "")
+        if (!downloadTarget) {
           if (!cancelled) setErr("짜집기 MP4가 없습니다. 짜집기를 다시 실행해 주세요.")
           return
         }
-        const res = await fetch(result.downloadUrl)
+        const res = await fetch(downloadTarget)
         if (!res.ok) throw new Error(`MP4 조회 실패 (${res.status})`)
         const blob = await res.blob()
         if (cancelled || blob.size < 20_000) return

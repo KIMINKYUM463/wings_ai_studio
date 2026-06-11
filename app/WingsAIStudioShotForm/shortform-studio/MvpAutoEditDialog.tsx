@@ -30,6 +30,7 @@ import {
   formatBenchmarkSceneCard,
   stripShotLabelFromDescription,
 } from "@/lib/shotform-visual-scene-match"
+import { autoEditDownloadUrl } from "@/lib/shotform-auto-edit-download"
 import { saveMvpEditMp4 } from "@/lib/mvp-local-media-cache"
 import {
   formatShotformFetchError,
@@ -259,12 +260,19 @@ export function MvpAutoEditDialog({
       const hasScript = Boolean(json.script || json.editPlan)
       const canOpenStudio = json.step === "done" || hasScript
 
+      if (json.renderSkipped) {
+        setErr(json.renderSkipReason || "짜집기 MP4 렌더가 완료되지 않았습니다. 다시 실행해 주세요.")
+        return
+      }
+
       let videoBlobUrl: string | null = null
       let videoBlob: Blob | null = null
-      if (json.downloadUrl && json.jobId) {
+      const mp4DownloadUrl =
+        json.downloadUrl || (json.jobId ? autoEditDownloadUrl(json.jobId) : "")
+      if (mp4DownloadUrl && json.jobId) {
         setDownloadHint("결과 MP4 불러오는 중…")
         try {
-          const mp4 = await fetchResultMp4(json.downloadUrl, json.jobId)
+          const mp4 = await fetchResultMp4(mp4DownloadUrl, json.jobId)
           videoBlobUrl = mp4.url
           videoBlob = mp4.blob
         } catch (mp4Err) {
@@ -274,15 +282,19 @@ export function MvpAutoEditDialog({
               (detail ? `${detail}\n\n` : "") +
               "「편집 실행」을 한 번 더 누르거나, 편집기가 열렸다면 TTS·자막 단계를 이어가 주세요."
           )
-          if (onStudioReady && canOpenStudio) {
-            onStudioReady({ result: json, videoBlobUrl: null, videoBlob: null })
-          }
           return
         }
+      } else if (canOpenStudio) {
+        setErr("짜집기 MP4가 없습니다. 짜집기를 다시 실행해 주세요.")
+        return
       }
 
       if (onStudioReady && canOpenStudio) {
-        onStudioReady({ result: json, videoBlobUrl, videoBlob })
+        onStudioReady({
+          result: { ...json, downloadUrl: mp4DownloadUrl || json.downloadUrl },
+          videoBlobUrl,
+          videoBlob,
+        })
       }
     } catch (e) {
       setErr(formatShotformFetchError(e))

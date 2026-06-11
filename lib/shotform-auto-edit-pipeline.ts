@@ -13,10 +13,11 @@ import {
   enrichEditPlanWithCutCaptions,
   generateScriptFromMix,
 } from "@/lib/shotform-auto-edit-mix"
+import { autoEditDownloadUrl } from "@/lib/shotform-auto-edit-download"
+import { resolveFfmpegPath } from "@/lib/ffmpeg-binaries"
 import {
   createAutoEditWorkDir,
   downloadSourceVideo,
-  hasFfmpeg,
   renderEditPlanToMp4,
   saveUploadedVideoBuffer,
   validateRenderedMp4,
@@ -53,6 +54,8 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
   const excludedVideos: AutoEditJobResult["excludedVideos"] = []
 
   try {
+    resolveFfmpegPath()
+
     const sourcePaths: Record<string, string> = {}
     const uploads = input.uploadedVideos ?? {}
     const analysisMode = input.analysisMode ?? "fast"
@@ -201,6 +204,7 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
 
     let downloadUrl: string | undefined
     let outputDuration: number | undefined
+    let outputStoragePath: string | null | undefined
     let renderSkipped = false
     let renderSkipReason: string | undefined
     let subtitleRemovalSkipped = false
@@ -210,26 +214,18 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
       input.removeChineseSubtitles && input.vmakeApiKey?.trim() && input.vmakeSecretAccessKey?.trim()
     )
 
-    if (!hasFfmpeg()) {
-      renderSkipped = true
-      renderSkipReason = "서버에 ffmpeg가 설치되어 있지 않습니다. mix·편집 지시서만 생성했습니다."
-      if (shouldRemoveSubtitles) {
-        subtitleRemovalSkipped = true
-        subtitleRemovalWarning =
-          "짜집기 렌더(ffmpeg)가 없어 합성 영상에 Vmake 자막 제거를 적용할 수 없습니다."
-      }
-    } else {
-      putAutoEditJob({
-        ...base,
-        step: "render",
-        analyses: usable,
-        analysis: usable[0],
-        productAnalysis,
-        mixInfo,
-        editPlan,
-        excludedVideos,
-        createdAt,
-      })
+    putAutoEditJob({
+      ...base,
+      step: "render",
+      analyses: usable,
+      analysis: usable[0],
+      productAnalysis,
+      mixInfo,
+      editPlan,
+      excludedVideos,
+      createdAt,
+    })
+    try {
       await renderEditPlanToMp4({
         sourcePaths,
         workDir: dir,
@@ -273,7 +269,44 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
         }
       }
 
-      downloadUrl = `/api/shotform/auto-edit/download?jobId=${encodeURIComponent(jobId)}`
+      outputStoragePath = null
+      for (let attempt = 0; attempt < 2; attempt++) {
+        outputStoragePath = await uploadAutoEditOutputToSupabase(jobId, outputPath)
+        if (outputStoragePath) break
+      }
+      if (process.env.VERCEL && !outputStoragePath) {
+        throw new Error(
+          "렌더는 완료됐지만 MP4를 Storage에 저장하지 못했습니다. Supabase video-sources 버킷·업로드 권한을 확인해 주세요."
+        )
+      }
+
+      downloadUrl = autoEditDownloadUrl(jobId)
+      putAutoEditJob({
+        ...base,
+        step: "render",
+        analyses: usable,
+        analysis: usable[0],
+        productAnalysis,
+        mixInfo,
+        editPlan,
+        excludedVideos,
+        downloadUrl,
+        outputDuration,
+        createdAt,
+        outputPath,
+        outputStoragePath,
+      })
+    } catch (renderErr) {
+      renderSkipped = true
+      const msg = renderErr instanceof Error ? renderErr.message : String(renderErr)
+      renderSkipReason =
+        msg.includes("ffmpeg") || msg.includes("ENOENT")
+          ? "서버 ffmpeg 렌더에 실패했습니다. 잠시 후 짜집기를 다시 실행해 주세요."
+          : `짜집기 렌더 실패: ${msg.slice(0, 200)}`
+      if (shouldRemoveSubtitles) {
+        subtitleRemovalSkipped = true
+        subtitleRemovalWarning = "렌더가 완료되지 않아 Vmake 자막 제거를 적용할 수 없습니다."
+      }
     }
 
     putAutoEditJob({
@@ -306,11 +339,6 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
       script = buildQuickShoppingScript(productAnalysis, editPlan, usable, mixInfo)
     }
 
-    let outputStoragePath: string | null | undefined
-    if (!renderSkipped && outputPath) {
-      outputStoragePath = await uploadAutoEditOutputToSupabase(jobId, outputPath)
-    }
-
     const result: AutoEditJobResult = {
       jobId,
       step: "done",
@@ -332,7 +360,7 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
     putAutoEditJob({
       ...result,
       outputPath: renderSkipped ? undefined : outputPath,
-      outputStoragePath,
+      outputStoragePath: renderSkipped ? undefined : outputStoragePath ?? undefined,
       createdAt,
     })
     return result
