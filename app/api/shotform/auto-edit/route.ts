@@ -1,8 +1,10 @@
+import { waitUntil } from "@vercel/functions"
 import { type NextRequest, NextResponse } from "next/server"
 import type { AutoEditInput, AutoEditTargetDuration, AutoEditVideoInput } from "@/lib/shotform-auto-edit-types"
 import { MAX_AUTO_EDIT_VIDEOS, normalizeAutoEditAnalysisMode } from "@/lib/shotform-auto-edit-types"
 import { createAutoEditWorkDir } from "@/lib/shotform-auto-edit-ffmpeg"
-import { getAutoEditJob, putAutoEditJob } from "@/lib/shotform-auto-edit-jobs"
+import { persistAutoEditJobToSupabase } from "@/lib/shotform-auto-edit-job-store"
+import { getAutoEditJobAsync, putAutoEditJob } from "@/lib/shotform-auto-edit-jobs"
 import { runAutoEditPipeline } from "@/lib/shotform-auto-edit-pipeline"
 
 export const maxDuration = 800
@@ -124,13 +126,26 @@ function buildPipelineInput(
 async function startPipelineAsync(input: AutoEditInput) {
   const { dir, id: jobId } = await createAutoEditWorkDir()
   const createdAt = Date.now()
-  putAutoEditJob({
+  const initialJob = {
     jobId,
-    step: "download",
+    step: "download" as const,
     videoCount: input.videos.length,
     createdAt,
-  })
-  void runAutoEditPipeline({ ...input, presetWork: { dir, id: jobId } })
+  }
+  putAutoEditJob(initialJob)
+  if (process.env.VERCEL || process.env.NEXT_PUBLIC_SUPABASE_URL) {
+    try {
+      await persistAutoEditJobToSupabase({ job: initialJob, createdAt })
+    } catch (e) {
+      console.error("[auto-edit] initial Supabase persist failed:", e)
+    }
+  }
+  const pipeline = runAutoEditPipeline({ ...input, presetWork: { dir, id: jobId } })
+  if (process.env.VERCEL) {
+    waitUntil(pipeline)
+  } else {
+    void pipeline
+  }
   return { jobId, step: "download" as const, videoCount: input.videos.length }
 }
 
@@ -199,11 +214,12 @@ export async function GET(req: NextRequest) {
   if (!jobId) {
     return NextResponse.json({ error: "jobId가 필요합니다." }, { status: 400 })
   }
-  const job = getAutoEditJob(jobId)
+  const job = await getAutoEditJobAsync(jobId)
   if (!job) {
     return NextResponse.json(
       {
-        error: "작업을 찾을 수 없습니다. 만료되었거나 개발 서버가 재시작되었을 수 있습니다.",
+        error:
+          "작업을 찾을 수 없습니다. 만료되었거나 아직 시작 중일 수 있습니다. Supabase 테이블(shotform_auto_edit_jobs) 생성 여부도 확인해 주세요.",
       },
       { status: 404 }
     )

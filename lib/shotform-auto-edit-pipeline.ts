@@ -23,6 +23,7 @@ import {
 } from "@/lib/shotform-auto-edit-ffmpeg"
 import { filterAnalysesForProductEdit } from "@/lib/shotform-auto-edit-product-filter"
 import { putAutoEditJob } from "@/lib/shotform-auto-edit-jobs"
+import { uploadAutoEditOutputToSupabase } from "@/lib/shotform-auto-edit-job-store"
 import {
   isVmakeRouteNotFoundError,
   removeChineseSubtitlesFromLocalFile,
@@ -278,6 +279,11 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
       script = buildQuickShoppingScript(productAnalysis, editPlan, usable, mixInfo)
     }
 
+    let outputStoragePath: string | null | undefined
+    if (!renderSkipped && outputPath) {
+      outputStoragePath = await uploadAutoEditOutputToSupabase(jobId, outputPath)
+    }
+
     const result: AutoEditJobResult = {
       jobId,
       step: "done",
@@ -296,7 +302,12 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
       videoCount: usable.length,
       excludedVideos: excludedVideos.length ? excludedVideos : undefined,
     }
-    putAutoEditJob({ ...result, outputPath: renderSkipped ? undefined : outputPath, createdAt })
+    putAutoEditJob({
+      ...result,
+      outputPath: renderSkipped ? undefined : outputPath,
+      outputStoragePath,
+      createdAt,
+    })
     return result
   } catch (e) {
     const error = e instanceof Error ? e.message : "자동 편집 실패"
