@@ -1,9 +1,15 @@
-import { spawn, spawnSync } from "child_process"
+import { spawn } from "child_process"
 import fs from "fs/promises"
 import os from "os"
 import path from "path"
 import { randomUUID } from "crypto"
-import { resolveFfmpegPath, resolveFfprobePath } from "@/lib/ffmpeg-binaries"
+import {
+  hasFfmpeg,
+  hasFfprobe,
+  probeDurationViaFfmpeg,
+  resolveFfmpegPath,
+  resolveFfprobePath,
+} from "@/lib/ffmpeg-binaries"
 import { fetchUpstreamVideo } from "@/lib/video-upstream-fetch"
 
 function ffmpegBin(): string {
@@ -14,15 +20,7 @@ function ffprobeBin(): string {
   return resolveFfprobePath()
 }
 
-export function hasFfmpeg(): boolean {
-  const r = spawnSync(ffmpegBin(), ["-version"], { encoding: "utf8", windowsHide: true })
-  return r.status === 0
-}
-
-export function hasFfprobe(): boolean {
-  const r = spawnSync(ffprobeBin(), ["-version"], { encoding: "utf8", windowsHide: true })
-  return r.status === 0
-}
+export { hasFfmpeg, hasFfprobe }
 
 function assertMp4Buffer(buf: Buffer, label: string): void {
   if (buf.length < 50_000) {
@@ -85,9 +83,11 @@ export async function probeHasVideoStream(filePath: string): Promise<boolean> {
 
 export async function probeVideoDuration(filePath: string, required = false): Promise<number> {
   if (!hasFfprobe()) {
+    const viaFfmpeg = probeDurationViaFfmpeg(filePath)
+    if (viaFfmpeg != null) return viaFfmpeg
     if (required) {
       throw new Error(
-        "ffprobe를 실행할 수 없습니다. 배포 환경이면 재배포 후 다시 시도해 주세요. 로컬이면 ffmpeg full build를 PATH에 설치해 주세요."
+        "ffprobe/ffmpeg를 실행할 수 없습니다. Vercel 재배포 후 다시 시도해 주세요."
       )
     }
     const stat = await fs.stat(filePath)
@@ -119,7 +119,11 @@ export async function probeVideoDuration(filePath: string, required = false): Pr
     proc.on("close", (code) => {
       const n = parseFloat(out.trim())
       if (code === 0 && Number.isFinite(n) && n > 0) resolve(n)
-      else reject(new Error(err.slice(0, 200) || "ffprobe duration 실패"))
+      else {
+        const viaFfmpeg = probeDurationViaFfmpeg(filePath)
+        if (viaFfmpeg != null) resolve(viaFfmpeg)
+        else reject(new Error(err.slice(0, 200) || "ffprobe duration 실패"))
+      }
     })
   })
 }

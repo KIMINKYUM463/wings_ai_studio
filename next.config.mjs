@@ -1,9 +1,21 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   serverExternalPackages: ["ffmpeg-static", "ffprobe-static"],
+  experimental: {
+    serverComponentsExternalPackages: ["ffmpeg-static", "ffprobe-static"],
+    serverActions: {
+      bodySizeLimit: "50mb",
+    },
+  },
   outputFileTracingIncludes: {
     "/api/shotform/auto-edit": [
-      "./node_modules/ffmpeg-static/**/*",
+      "./node_modules/ffmpeg-static/ffmpeg",
+      "./node_modules/ffmpeg-static/ffmpeg.exe",
+      "./node_modules/ffprobe-static/bin/**/*",
+    ],
+    "/*": [
+      "./node_modules/ffmpeg-static/ffmpeg",
+      "./node_modules/ffmpeg-static/ffmpeg.exe",
       "./node_modules/ffprobe-static/bin/**/*",
     ],
   },
@@ -27,19 +39,14 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  experimental: {
-    serverActions: {
-      bodySizeLimit: '50mb', // Server Actions body size limit을 50MB로 증가 (프로젝트 저장 시 대용량 데이터 처리)
-    },
-  },
   webpack: (config, { isServer }) => {
     if (isServer) {
-      // 서버 사이드에서 undici를 external로 처리 (webpack 번들링 방지)
       config.externals = config.externals || []
+      const extra = ["undici", "ffmpeg-static", "ffprobe-static"]
       if (Array.isArray(config.externals)) {
-        config.externals.push('undici')
+        config.externals.push(...extra)
       } else {
-        config.externals = [config.externals, 'undici']
+        config.externals = [config.externals, ...extra]
       }
     }
     return config
