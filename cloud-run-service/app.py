@@ -62,6 +62,159 @@ def _download_to_temp(url_or_b64, temp_dir, prefix, is_base64=False, default_ext
     return path
 
 
+def _probe_video_duration(file_path):
+    """ffprobe로 영상 길이(초) 반환"""
+    try:
+        result = subprocess.run(
+            [
+                'ffprobe', '-v', 'error',
+                '-show_entries', 'format=duration',
+                '-of', 'default=noprint_wrappers=1:nokey=1',
+                file_path,
+            ],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode == 0:
+            n = float(result.stdout.strip())
+            if n > 0:
+                return n
+    except Exception:
+        pass
+    return None
+
+
+def render_shotform_auto_edit(data):
+    """숏폼 짜집기: 소스 URL별 컷 → concat → 목표 길이 trim (Vercel serverless 대체)"""
+    import tempfile
+    import base64
+    import time
+    import uuid
+    import shutil
+    import traceback
+
+    source_urls = data.get('sourceUrls') or {}
+    segments = data.get('segments') or []
+    target_duration = float(data.get('targetDuration', 20))
+    default_video_id = data.get('defaultVideoId')
+    serverless = bool(data.get('serverless', True))
+    w, h = (720, 1280) if serverless else (1080, 1920)
+
+    if not source_urls:
+        return jsonify({"success": False, "error": "sourceUrls가 필요합니다."}), 400
+    if not segments:
+        return jsonify({"success": False, "error": "segments가 필요합니다."}), 400
+
+    fallback_id = default_video_id or next(iter(source_urls.keys()), None)
+    unique_id = str(uuid.uuid4()).replace('-', '')[:12]
+    temp_dir = tempfile.mkdtemp()
+
+    try:
+        local_sources = {}
+        for vid, url in source_urls.items():
+            local_sources[vid] = _download_to_temp(url, temp_dir, f'source_{vid}', default_ext='.mp4')
+
+        scaled = []
+        for i, seg in enumerate(segments):
+            vid = seg.get('video_id') if seg.get('video_id') in local_sources else fallback_id
+            source_path = local_sources.get(vid)
+            if not source_path:
+                continue
+
+            clip_dur = max(0.15, float(seg.get('output_end', 0)) - float(seg.get('output_start', 0)))
+            source_avail = max(0.15, float(seg.get('source_end', 0)) - float(seg.get('source_start', 0)))
+            dur = min(clip_dur, source_avail)
+            out_seg = f"{temp_dir}/seg_{i}.mp4"
+            vf = f"scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}:(iw-{w})/2:(ih-{h})/2"
+            cmd = [
+                'ffmpeg', '-y', '-nostdin',
+                '-threads', '1',
+                '-ss', str(seg.get('source_start', 0)),
+                '-i', source_path,
+                '-t', str(dur),
+                '-vf', vf,
+                '-r', '30', '-an',
+                '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28',
+                '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
+                out_seg,
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            if result.returncode != 0:
+                raise Exception(result.stderr[-400:] or f"세그먼트 {i} 렌더 실패")
+            scaled.append(out_seg)
+
+        if not scaled:
+            raise Exception("렌더할 컷이 없습니다.")
+
+        concat_list = f"{temp_dir}/concat.txt"
+        with open(concat_list, 'w') as f:
+            for p in scaled:
+                safe = p.replace("'", "'\\''")
+                f.write(f"file '{safe}'\n")
+
+        raw_out = f"{temp_dir}/concat_raw.mp4"
+        result = subprocess.run(
+            ['ffmpeg', '-y', '-nostdin', '-f', 'concat', '-safe', '0', '-i', concat_list, '-c', 'copy', raw_out],
+            capture_output=True, text=True, timeout=120,
+        )
+        if result.returncode != 0:
+            raise Exception(result.stderr[-400:] or "concat 실패")
+
+        concat_dur = _probe_video_duration(raw_out) or 0
+        pad_sec = max(0, target_duration - concat_dur)
+        output_path = f"{temp_dir}/output.mp4"
+
+        if pad_sec > 0.12:
+            cmd = [
+                'ffmpeg', '-y', '-nostdin', '-threads', '1',
+                '-i', raw_out,
+                '-vf', f'tpad=stop_mode=clone:stop_duration={pad_sec:.3f}',
+                '-t', str(target_duration),
+                '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '26',
+                '-an', '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
+                output_path,
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        else:
+            cmd = [
+                'ffmpeg', '-y', '-nostdin',
+                '-i', raw_out, '-t', str(target_duration),
+                '-c', 'copy', '-an', output_path,
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+
+        if result.returncode != 0:
+            raise Exception(result.stderr[-400:] or "최종 렌더 실패")
+
+        if not os.path.exists(output_path) or os.path.getsize(output_path) < 20_000:
+            raise Exception("렌더 결과 MP4가 비어 있습니다.")
+
+        with open(output_path, 'rb') as f:
+            video_data = f.read()
+        size_mb = len(video_data) / 1024 / 1024
+        if size_mb > 30:
+            project_id = os.environ.get('SHOPPING_GOOGLE_CLOUD_PROJECT_ID') or os.environ.get('GOOGLE_CLOUD_PROJECT_ID')
+            bucket_name = os.environ.get('SHOPPING_GOOGLE_CLOUD_STORAGE_BUCKET') or os.environ.get('GOOGLE_CLOUD_STORAGE_BUCKET')
+            if project_id and bucket_name:
+                from google.cloud import storage
+                client = storage.Client(project=project_id)
+                bucket = client.bucket(bucket_name)
+                blob = bucket.blob(f"shotform_auto_edit_{int(time.time())}_{unique_id}.mp4")
+                blob.upload_from_string(video_data, content_type='video/mp4')
+                return jsonify({"success": True, "videoUrl": blob.public_url, "projectId": f"auto_edit_{unique_id}"})
+
+        video_base64 = base64.b64encode(video_data).decode('utf-8')
+        return jsonify({"success": True, "videoBase64": video_base64, "projectId": f"auto_edit_{unique_id}"})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"success": False, "error": f"짜집기 렌더 실패: {str(e)}"}), 500
+    finally:
+        if temp_dir and os.path.exists(temp_dir):
+            try:
+                shutil.rmtree(temp_dir)
+            except Exception:
+                pass
+
+
 def render_shopping(data):
     """쇼핑 숏폼: 썸네일(0.01초) + 영상 3개 concat + 자막 + TTS, 1080x1920"""
     import tempfile
@@ -304,6 +457,10 @@ def render_video():
                 "success": False,
                 "error": "요청 데이터가 없습니다."
             }), 400
+
+        # 숏폼 짜집기 (Vercel serverless ffmpeg 대체)
+        if data.get('type') == 'shotform_auto_edit':
+            return render_shotform_auto_edit(data)
 
         # 쇼핑 숏폼: type === "shopping" 이면 별도 파이프라인
         if data.get('type') == 'shopping':

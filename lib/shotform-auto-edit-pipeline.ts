@@ -22,6 +22,10 @@ import {
   saveUploadedVideoBuffer,
   validateRenderedMp4,
 } from "@/lib/shotform-auto-edit-ffmpeg"
+import {
+  renderEditPlanOnCloudRun,
+  shouldUseCloudRunForAutoEditRender,
+} from "@/lib/shotform-auto-edit-cloud-run-render"
 import { filterAnalysesForProductEdit } from "@/lib/shotform-auto-edit-product-filter"
 import { putAutoEditJob } from "@/lib/shotform-auto-edit-jobs"
 import { uploadAutoEditOutputToSupabase } from "@/lib/shotform-auto-edit-job-store"
@@ -226,14 +230,20 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
       createdAt,
     })
     try {
-      await renderEditPlanToMp4({
+      const renderArgs = {
         sourcePaths,
         workDir: dir,
         segments: editPlan.edit_plan,
         outputPath,
         targetDuration: editPlan.target_duration,
         defaultVideoId: usable[0]!.video_id,
-      })
+      }
+      if (shouldUseCloudRunForAutoEditRender()) {
+        const sourceUrls = Object.fromEntries(videos.map((v) => [v.video_id, v.videoUrl]))
+        await renderEditPlanOnCloudRun({ jobId, sourceUrls, ...renderArgs })
+      } else {
+        await renderEditPlanToMp4(renderArgs)
+      }
       outputDuration = await validateRenderedMp4(outputPath, 1, editPlan.target_duration)
 
       if (shouldRemoveSubtitles) {

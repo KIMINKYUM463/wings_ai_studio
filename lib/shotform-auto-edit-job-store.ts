@@ -76,6 +76,44 @@ export function autoEditOutputStoragePath(jobId: string): string {
   return `${STORAGE_PREFIX}/${jobId}/output.mp4`
 }
 
+export function autoEditSourceStoragePath(jobId: string, videoId: string): string {
+  return `${STORAGE_PREFIX}/${jobId}/source_${videoId}.mp4`
+}
+
+/** Cloud Run 렌더용 — 소스 MP4 업로드 후 signed URL 반환 */
+export async function uploadAutoEditSourceToSupabase(
+  jobId: string,
+  videoId: string,
+  localPath: string
+): Promise<string | null> {
+  if (!autoEditJobStoreEnabled()) return null
+  try {
+    const buf = await fs.readFile(localPath)
+    if (buf.length < 20_000) return null
+    const storagePath = autoEditSourceStoragePath(jobId, videoId)
+    const supabase = await createMvpProjectsClient()
+    const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(storagePath, buf, {
+      contentType: "video/mp4",
+      upsert: true,
+    })
+    if (error) {
+      console.error("[shotform-auto-edit-job-store] source upload failed:", error)
+      return null
+    }
+    const { data, error: signErr } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .createSignedUrl(storagePath, 3600)
+    if (signErr || !data?.signedUrl) {
+      console.error("[shotform-auto-edit-job-store] source signed url failed:", signErr)
+      return null
+    }
+    return data.signedUrl
+  } catch (e) {
+    console.error("[shotform-auto-edit-job-store] source upload error:", e)
+    return null
+  }
+}
+
 export async function uploadAutoEditOutputToSupabase(
   jobId: string,
   localOutputPath: string
