@@ -9,10 +9,9 @@ import {
   assertEditPlanMeetsTargetDuration,
   AUTO_EDIT_NO_USABLE_VIDEO_MESSAGE,
   buildEditPlanFromMix,
-  buildQuickShoppingScript,
   enrichEditPlanWithCutCaptions,
-  generateScriptFromMix,
 } from "@/lib/shotform-auto-edit-mix"
+import { resolveAutoEditScript } from "@/lib/shotform-auto-edit-script-step"
 import { autoEditDownloadUrl } from "@/lib/shotform-auto-edit-download"
 import { resolveFfmpegPath } from "@/lib/ffmpeg-binaries"
 import {
@@ -316,35 +315,35 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
       }
     }
 
-    putAutoEditJob({
+    const preScriptJob = {
       ...base,
-      step: "script",
       analyses: usable,
       analysis: usable[0],
       productAnalysis,
       mixInfo,
       editPlan,
       excludedVideos,
+      downloadUrl,
+      outputDuration,
+      renderSkipped,
+      renderSkipReason,
+      subtitleRemovalSkipped: subtitleRemovalSkipped || undefined,
+      subtitleRemovalWarning,
       createdAt,
-    })
-
-    let script: Awaited<ReturnType<typeof generateScriptFromMix>>
-    if (input.openaiApiKey?.trim()) {
-      try {
-        script = await generateScriptFromMix({
-          apiKey: input.openaiApiKey,
-          productAnalysis,
-          mixInfo,
-          editPlan,
-          analyses: usable,
-          scriptTopic: input.scriptTopic,
-        })
-      } catch {
-        script = buildQuickShoppingScript(productAnalysis, editPlan, usable, mixInfo)
-      }
-    } else {
-      script = buildQuickShoppingScript(productAnalysis, editPlan, usable, mixInfo)
+      outputPath: renderSkipped ? undefined : outputPath,
+      outputStoragePath: renderSkipped ? undefined : outputStoragePath ?? undefined,
     }
+
+    putAutoEditJob({ ...preScriptJob, step: "script" })
+
+    const script = await resolveAutoEditScript({
+      openaiApiKey: input.openaiApiKey,
+      scriptTopic: input.scriptTopic,
+      productAnalysis,
+      mixInfo,
+      editPlan,
+      analyses: usable,
+    })
 
     const result: AutoEditJobResult = {
       jobId,

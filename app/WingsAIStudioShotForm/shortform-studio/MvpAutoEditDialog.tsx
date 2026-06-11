@@ -72,8 +72,25 @@ function stepHintsForMode(mode: AutoEditAnalysisMode): Partial<Record<AutoEditJo
     mix: "영상 mix (picks) 생성 중…",
     edit_plan: mode === "precision" ? "짜집기 타임라인·컷별 Vision 캡션 중…" : "짜집기 타임라인 구성 중…",
     render: "ffmpeg 렌더 중…",
-    script: "장면맞춤 나레이션 생성 중…",
+    script: "장면맞춤 나레이션 생성 중… (2분 이상 지연 시 기본 대본으로 자동 완료)",
     done: "완료",
+  }
+}
+
+const SCRIPT_STEP_STALL_MS = 120_000
+
+async function recoverStalledScriptStep(jobId: string): Promise<AutoEditJobResult | null> {
+  try {
+    const res = await fetch("/api/shotform/auto-edit/finish-script", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jobId }),
+    })
+    const json = (await res.json().catch(() => ({}))) as AutoEditJobResult & { error?: string }
+    if (!res.ok) return null
+    return json
+  } catch {
+    return null
   }
 }
 
@@ -81,6 +98,9 @@ async function pollAutoEditJob(
   jobId: string,
   onProgress?: (partial: AutoEditJobResult) => void
 ): Promise<AutoEditJobResult> {
+  let scriptStepSince: number | null = null
+  let scriptRecoveryAttempted = false
+
   for (;;) {
     const res = await fetch(`/api/shotform/auto-edit?jobId=${encodeURIComponent(jobId)}`)
     const json = (await res.json().catch(() => ({}))) as AutoEditJobResult & { error?: string }
@@ -89,6 +109,25 @@ async function pollAutoEditJob(
     }
     onProgress?.(json)
     if (json.step === "done" || json.step === "error") return json
+
+    if (json.step === "script") {
+      if (!scriptStepSince) scriptStepSince = Date.now()
+      if (
+        !scriptRecoveryAttempted &&
+        Date.now() - scriptStepSince >= SCRIPT_STEP_STALL_MS
+      ) {
+        scriptRecoveryAttempted = true
+        const recovered = await recoverStalledScriptStep(jobId)
+        if (recovered?.step === "done") {
+          onProgress?.(recovered)
+          return recovered
+        }
+      }
+    } else {
+      scriptStepSince = null
+      scriptRecoveryAttempted = false
+    }
+
     await new Promise((r) => setTimeout(r, 2000))
   }
 }
