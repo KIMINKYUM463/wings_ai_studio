@@ -534,6 +534,9 @@ export default function ShotFormPage() {
   const [password, setPassword] = useState("")
   const [passwordError, setPasswordError] = useState("")
   const [isPasswordAuthenticated, setIsPasswordAuthenticated] = useState(false)
+  const [showShortformStudioPasswordDialog, setShowShortformStudioPasswordDialog] = useState(false)
+  const [shortformStudioPassword, setShortformStudioPassword] = useState("")
+  const [shortformStudioPasswordError, setShortformStudioPasswordError] = useState("")
 
   // 로그인 상태 확인 및 비밀번호 인증 확인
   useEffect(() => {
@@ -896,7 +899,31 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     }
   }
 
+  const handleShortformStudioPasswordSubmit = (e?: React.FormEvent) => {
+    e?.preventDefault()
+    setShortformStudioPasswordError("")
+
+    if (shortformStudioPassword === "9999") {
+      sessionStorage.setItem("wingsaistudio_shortform_studio_password_auth", "true")
+      setShowShortformStudioPasswordDialog(false)
+      setShortformStudioPassword("")
+      router.push("/WingsAIStudioShotForm/shortform-studio")
+      return
+    }
+
+    setShortformStudioPasswordError("비밀번호가 올바르지 않습니다.")
+    setShortformStudioPassword("")
+  }
+
   const handleServiceClick = (service: (typeof shotFormServices)[0]) => {
+    if (service.id === "shortform-studio") {
+      const shortformStudioAuth = sessionStorage.getItem("wingsaistudio_shortform_studio_password_auth")
+      if (shortformStudioAuth !== "true") {
+        setShowShortformStudioPasswordDialog(true)
+        return
+      }
+    }
+
     if (service.url.startsWith("http")) {
       window.open(service.url, "_blank")
     } else {
@@ -987,6 +1014,55 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-pink-50 via-white to-orange-100">
+      <Dialog
+        open={showShortformStudioPasswordDialog}
+        onOpenChange={setShowShortformStudioPasswordDialog}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Lock className="w-5 h-5" />
+              숏폼 스튜디오 접근 인증
+            </DialogTitle>
+            <DialogDescription>
+              숏폼 스튜디오에 접근하려면 비밀번호를 입력해주세요.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleShortformStudioPasswordSubmit}>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="shortform-studio-password-main">비밀번호</Label>
+                <Input
+                  id="shortform-studio-password-main"
+                  type="password"
+                  value={shortformStudioPassword}
+                  onChange={(e) => {
+                    setShortformStudioPassword(e.target.value)
+                    setShortformStudioPasswordError("")
+                  }}
+                  placeholder="비밀번호를 입력하세요"
+                  autoFocus
+                  className={shortformStudioPasswordError ? "border-red-500" : ""}
+                />
+                {shortformStudioPasswordError && (
+                  <p className="text-sm text-red-500">{shortformStudioPasswordError}</p>
+                )}
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowShortformStudioPasswordDialog(false)}
+              >
+                취소
+              </Button>
+              <Button type="submit">확인</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
       {/* 배경 장식 */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
         <div className="absolute top-0 left-0 w-96 h-96 bg-gradient-to-br from-pink-200/20 to-red-200/20 rounded-full blur-3xl" />
