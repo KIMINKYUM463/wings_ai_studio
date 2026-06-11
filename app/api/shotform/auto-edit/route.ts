@@ -102,6 +102,27 @@ function parsePayload(body: Record<string, unknown>) {
   return { videos, targetDuration }
 }
 
+function parseClientVideoMeta(
+  raw: unknown
+): AutoEditInput["clientVideoMeta"] | undefined {
+  if (!raw || typeof raw !== "object") return undefined
+  const out: NonNullable<AutoEditInput["clientVideoMeta"]> = {}
+  for (const [videoId, row] of Object.entries(raw as Record<string, unknown>)) {
+    if (!videoId.trim() || !row || typeof row !== "object") continue
+    const o = row as Record<string, unknown>
+    const duration = Number(o.duration)
+    const keyframeDataUrl = typeof o.keyframeDataUrl === "string" ? o.keyframeDataUrl : ""
+    const timeSec = Number(o.timeSec)
+    if (!keyframeDataUrl.startsWith("data:image/") || !Number.isFinite(duration) || duration <= 0) continue
+    out[videoId] = {
+      duration,
+      keyframeDataUrl,
+      timeSec: Number.isFinite(timeSec) ? timeSec : duration * 0.12,
+    }
+  }
+  return Object.keys(out).length ? out : undefined
+}
+
 function buildPipelineInput(
   body: Record<string, unknown>,
   videos: AutoEditVideoInput[],
@@ -120,6 +141,7 @@ function buildPipelineInput(
     uploadedVideos,
     analysisMode: normalizeAutoEditAnalysisMode(body.analysisMode),
     scriptTopic: typeof body.scriptTopic === "string" ? body.scriptTopic.trim() || undefined : undefined,
+    clientVideoMeta: parseClientVideoMeta(body.clientVideoMeta),
   }
 }
 

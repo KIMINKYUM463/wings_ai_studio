@@ -17,7 +17,7 @@ export const AUTO_EDIT_ANALYSIS_MODE_OPTIONS: Array<{
   {
     id: "fast",
     label: "고속",
-    hint: "영상당 키프레임 최소 · Vision 타임아웃 · 약 15~60초",
+    hint: "브라우저 미리 분석 + Vision 1회 · 약 10~40초",
   },
   {
     id: "balanced",
@@ -241,6 +241,15 @@ export type AutoEditInput = {
   scriptTopic?: string
   /** 제품·장면 분석 모드 (기본: fast) */
   analysisMode?: AutoEditAnalysisMode
+  /** 브라우저에서 미리 추출한 길이·키프레임 (서버 ffmpeg 분석 생략) */
+  clientVideoMeta?: Record<
+    string,
+    {
+      duration: number
+      keyframeDataUrl: string
+      timeSec: number
+    }
+  >
 }
 
 /** UI 선택용 */

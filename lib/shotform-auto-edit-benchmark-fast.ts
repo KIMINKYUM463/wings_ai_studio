@@ -29,9 +29,16 @@ import {
   inferShotType,
   normalizeBenchmarkVisualScenes,
 } from "@/lib/shotform-visual-scene-match"
+import type { ClientVideoMetaEntry } from "@/lib/shotform-client-video-meta"
 import { visionClassifyFramesBatch } from "@/lib/shotform-auto-edit-vision"
 
 const BENCHMARK_KEYFRAMES_PER_VIDEO = 4
+
+async function writeDataUrlToJpeg(dataUrl: string, destPath: string): Promise<void> {
+  const m = dataUrl.match(/^data:image\/\w+;base64,(.+)$/s)
+  if (!m?.[1]) throw new Error("키프레임 data URL이 올바르지 않습니다.")
+  await fs.writeFile(destPath, Buffer.from(m[1], "base64"))
+}
 
 /** 목표 길이별 키프레임 수 — 고속 모드: 짧은 쇼츠는 최소 프레임 */
 function keyframesForFastTarget(targetDuration: AutoEditTargetDuration): number {
@@ -47,7 +54,7 @@ function keyframesForBalancedTarget(targetDuration: AutoEditTargetDuration): num
   return BENCHMARK_KEYFRAMES_PER_VIDEO
 }
 
-const VISION_FAST_TIMEOUT_MS = 22_000
+const VISION_FAST_TIMEOUT_MS = 18_000
 
 type BenchmarkModeConfig = {
   keyframeCount: number
@@ -314,21 +321,48 @@ async function probeVideosForBenchmark(args: {
   workDir: string
   keyframeCount: number
   fastKeyframes?: boolean
+  clientVideoMeta?: Record<string, ClientVideoMetaEntry>
+  lightProbe?: boolean
 }): Promise<SourceProbe[]> {
-  const { videos, sourcePaths, workDir, keyframeCount, fastKeyframes } = args
+  const { videos, sourcePaths, workDir, keyframeCount, fastKeyframes, clientVideoMeta, lightProbe } = args
   const probes = await Promise.all(
     videos.map(async (v) => {
-      const sourcePath = sourcePaths[v.video_id]
-      if (!sourcePath) return null
-      const [duration, hasVideo] = await Promise.all([
-        probeVideoDuration(sourcePath, true),
-        probeHasVideoStream(sourcePath),
-      ])
-      if (!hasVideo) {
-        throw new Error(`${v.title || v.video_id}: 영상 화면 스트림이 없습니다.`)
-      }
+      const client = clientVideoMeta?.[v.video_id]
       const kfDir = path.join(workDir, `fast_kf_${v.video_id}`)
       await fs.mkdir(kfDir, { recursive: true })
+
+      if (client?.keyframeDataUrl && client.duration > 0) {
+        const framePath = path.join(kfDir, "client_kf.jpg")
+        try {
+          await writeDataUrlToJpeg(client.keyframeDataUrl, framePath)
+          return {
+            video: v,
+            sourcePath: sourcePaths[v.video_id] || "",
+            duration: client.duration,
+            keyframes: [{ path: framePath, timeSec: client.timeSec }],
+          }
+        } catch {
+          /* 클라이언트 키프레임 실패 시 서버 추출로 폴백 */
+        }
+      }
+
+      const sourcePath = sourcePaths[v.video_id]
+      if (!sourcePath) return null
+
+      let duration: number
+      if (lightProbe) {
+        duration = await probeVideoDuration(sourcePath, false)
+      } else {
+        const [dur, hasVideo] = await Promise.all([
+          probeVideoDuration(sourcePath, true),
+          probeHasVideoStream(sourcePath),
+        ])
+        if (!hasVideo) {
+          throw new Error(`${v.title || v.video_id}: 영상 화면 스트림이 없습니다.`)
+        }
+        duration = dur
+      }
+
       let keyframes: Array<{ path: string; timeSec: number }> = []
       try {
         keyframes = await extractVideoKeyframes(sourcePath, kfDir, duration, keyframeCount, {
@@ -351,12 +385,17 @@ export async function benchmarkFastAnalyzeAndMix(args: {
   workDir: string
   targetDuration: AutoEditTargetDuration
   analysisMode?: AutoEditAnalysisMode
+  clientVideoMeta?: Record<string, ClientVideoMetaEntry>
   onPhase?: (phase: "keyframes" | "vision" | "mix") => void
 }): Promise<{ analyses: VideoAnalysis[]; mixInfo: MixInfo }> {
-  const { apiKey, videos, sourcePaths, workDir, targetDuration, onPhase } = args
+  const { apiKey, videos, sourcePaths, workDir, targetDuration, onPhase, clientVideoMeta } = args
   const mode = args.analysisMode ?? AUTO_EDIT_ANALYSIS_MODE_DEFAULT
   const modeConfig = resolveBenchmarkModeConfig(mode, targetDuration)
   const { keyframeCount, visionOnly, fastKeyframes, visionTimeoutMs, productFitReason } = modeConfig
+  const allClientKeyframes =
+    clientVideoMeta &&
+    videos.length > 0 &&
+    videos.every((v) => clientVideoMeta[v.video_id]?.keyframeDataUrl)
 
   onPhase?.("keyframes")
   const probes = await probeVideosForBenchmark({
@@ -365,6 +404,8 @@ export async function benchmarkFastAnalyzeAndMix(args: {
     workDir,
     keyframeCount,
     fastKeyframes,
+    clientVideoMeta,
+    lightProbe: mode === "fast" || Boolean(allClientKeyframes),
   })
   if (!probes.length) throw new Error("분석할 영상이 없습니다.")
 

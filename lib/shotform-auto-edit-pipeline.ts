@@ -55,48 +55,75 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
   try {
     const sourcePaths: Record<string, string> = {}
     const uploads = input.uploadedVideos ?? {}
-
-    await Promise.all(
-      videos.map(async (v) => {
-        const sourcePath = path.join(dir, `source_${v.video_id}.mp4`)
-        const uploaded = uploads[v.video_id]
-        if (uploaded?.length) {
-          await saveUploadedVideoBuffer(uploaded, sourcePath)
-        } else {
-          await downloadSourceVideo(v.videoUrl, sourcePath)
-        }
-        sourcePaths[v.video_id] = sourcePath
-      })
-    )
-
-    putAutoEditJob({ ...base, step: "analyze", createdAt })
-
-    let analyses: Awaited<ReturnType<typeof runAutoEditAnalyzeAndMix>>["analyses"] = []
-    let mixInfo: Awaited<ReturnType<typeof runAutoEditAnalyzeAndMix>>["mixInfo"]
     const analysisMode = input.analysisMode ?? "fast"
+    const clientVideoMeta = input.clientVideoMeta
+    const canParallelAnalyze =
+      analysisMode !== "precision" &&
+      clientVideoMeta &&
+      videos.length > 0 &&
+      videos.every((v) => clientVideoMeta[v.video_id]?.keyframeDataUrl)
 
-    try {
-      const analyzed = await runAutoEditAnalyzeAndMix({
+    const downloadAllSources = async () => {
+      await Promise.all(
+        videos.map(async (v) => {
+          const sourcePath = path.join(dir, `source_${v.video_id}.mp4`)
+          const uploaded = uploads[v.video_id]
+          if (uploaded?.length) {
+            await saveUploadedVideoBuffer(uploaded, sourcePath)
+          } else {
+            await downloadSourceVideo(v.videoUrl, sourcePath)
+          }
+          sourcePaths[v.video_id] = sourcePath
+        })
+      )
+    }
+
+    const runAnalyze = async () => {
+      return runAutoEditAnalyzeAndMix({
         apiKey: input.openaiApiKey,
         videos,
-        sourcePaths,
+        sourcePaths: canParallelAnalyze ? {} : sourcePaths,
         workDir: dir,
         targetDuration: input.targetDuration,
         analysisMode,
+        clientVideoMeta,
         onPhase: (phase) => {
           if (phase === "mix") {
             putAutoEditJob({ ...base, step: "mix", createdAt })
           }
         },
       })
-      analyses = analyzed.analyses
-      mixInfo = analyzed.mixInfo
-      for (const fail of analyzed.failures) {
-        excludedVideos.push({
-          video_id: fail.video_id,
-          title: fail.title,
-          reason: fail.reason,
-        })
+    }
+
+    let analyses: Awaited<ReturnType<typeof runAutoEditAnalyzeAndMix>>["analyses"] = []
+    let mixInfo: Awaited<ReturnType<typeof runAutoEditAnalyzeAndMix>>["mixInfo"]
+
+    try {
+      if (canParallelAnalyze) {
+        putAutoEditJob({ ...base, step: "analyze", createdAt })
+        const [, analyzed] = await Promise.all([downloadAllSources(), runAnalyze()])
+        analyses = analyzed.analyses
+        mixInfo = analyzed.mixInfo
+        for (const fail of analyzed.failures) {
+          excludedVideos.push({
+            video_id: fail.video_id,
+            title: fail.title,
+            reason: fail.reason,
+          })
+        }
+      } else {
+        await downloadAllSources()
+        putAutoEditJob({ ...base, step: "analyze", createdAt })
+        const analyzed = await runAnalyze()
+        analyses = analyzed.analyses
+        mixInfo = analyzed.mixInfo
+        for (const fail of analyzed.failures) {
+          excludedVideos.push({
+            video_id: fail.video_id,
+            title: fail.title,
+            reason: fail.reason,
+          })
+        }
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "장면 분석 실패"

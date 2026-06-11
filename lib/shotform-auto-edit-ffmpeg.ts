@@ -337,7 +337,7 @@ async function extractSingleKeyframe(
   const safeTime = clampKeyframeTime(timeSec, duration)
   const src = sourcePath.replace(/\\/g, "/")
   const out = framePath.replace(/\\/g, "/")
-  const scale = opts?.fast ? "360:-1" : "480:-1"
+  const scale = opts?.fast ? "240:-1" : "480:-1"
   const vf = `scale=${scale}`
   const allAttempts: string[][] = [
     ["-y", "-ss", String(safeTime), "-i", src, "-map", "0:v:0", "-an", "-frames:v", "1", "-q:v", "5", "-vf", vf, out],
@@ -345,7 +345,7 @@ async function extractSingleKeyframe(
     ["-y", "-i", src, "-map", "0:v:0", "-an", "-frames:v", "1", "-q:v", "5", "-vf", vf, out],
   ]
   const attempts = opts?.fast ? allAttempts.slice(0, 1) : allAttempts
-  const timeoutMs = opts?.fast ? 12_000 : 45_000
+  const timeoutMs = opts?.fast ? 7_000 : 45_000
 
   let lastErr = ""
   for (const args of attempts) {

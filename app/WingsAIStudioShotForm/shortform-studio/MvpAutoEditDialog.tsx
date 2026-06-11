@@ -35,6 +35,7 @@ import {
   formatShotformFetchError,
   refreshExpiredMvpEditPicks,
 } from "@/lib/shotform-mvp-pick-video-download"
+import { extractClientVideoMetaForPicks } from "@/lib/shotform-client-video-meta"
 
 const DURATIONS: AutoEditTargetDuration[] = [20, 30, 45, 60]
 
@@ -56,7 +57,7 @@ function stepIndex(step: AutoEditJobResult["step"]): number {
 }
 
 const ANALYZE_STEP_HINTS: Record<AutoEditAnalysisMode, string> = {
-  fast: "키프레임 추출·Vision 분석 중… (고속: 영상당 1~3장·약 15~60초)",
+  fast: "Vision 분석 중… (고속: 브라우저 미리 분석·약 10~40초)",
   balanced: "키프레임 추출·Vision·장면 분석 중… (중간: 영상당 3~4장·약 1~3분)",
   precision: "영상별 심층 분석·mix 생성 중… (정밀: 영상당 8장·약 3~8분)",
 }
@@ -208,6 +209,16 @@ export function MvpAutoEditDialog({
       }
 
       const videos = toAutoEditVideoInputs(nextPicks)
+      let clientVideoMeta: Record<
+        string,
+        { duration: number; keyframeDataUrl: string; timeSec: number }
+      > | undefined
+      if (analysisMode !== "precision") {
+        setDownloadHint("브라우저에서 키프레임·길이 미리 추출 중…")
+        const meta = await extractClientVideoMetaForPicks(nextPicks, (msg) => setDownloadHint(msg))
+        if (Object.keys(meta).length > 0) clientVideoMeta = meta
+      }
+
       setDownloadHint("짜집기 작업 시작 중…")
       const res = await fetch("/api/shotform/auto-edit", {
         method: "POST",
@@ -221,6 +232,7 @@ export function MvpAutoEditDialog({
           removeChineseSubtitles: doRemoveChineseSubtitles,
           scriptTopic: projectName?.trim() || undefined,
           analysisMode,
+          clientVideoMeta,
         }),
       })
       const started = (await res.json().catch(() => ({}))) as AutoEditJobResult & { error?: string }

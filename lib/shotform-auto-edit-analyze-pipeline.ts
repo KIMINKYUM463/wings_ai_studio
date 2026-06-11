@@ -6,6 +6,7 @@ import type {
   VideoAnalysis,
 } from "@/lib/shotform-auto-edit-types"
 import { AUTO_EDIT_ANALYSIS_MODE_DEFAULT } from "@/lib/shotform-auto-edit-types"
+import type { ClientVideoMetaEntry } from "@/lib/shotform-client-video-meta"
 import { analyzeOneVideoForAutoEdit } from "@/lib/shotform-auto-edit-analyze-one"
 import {
   benchmarkFastAnalyzeAndMix,
@@ -28,6 +29,7 @@ export async function runAutoEditAnalyzeAndMix(args: {
   workDir: string
   targetDuration: AutoEditTargetDuration
   analysisMode?: AutoEditAnalysisMode
+  clientVideoMeta?: Record<string, ClientVideoMetaEntry>
   onPhase?: (phase: AutoEditAnalyzePhase) => void
 }): Promise<{
   analyses: VideoAnalysis[]
@@ -41,6 +43,7 @@ export async function runAutoEditAnalyzeAndMix(args: {
   const result = await benchmarkFastAnalyzeAndMix({
     ...args,
     analysisMode: mode,
+    clientVideoMeta: args.clientVideoMeta,
   })
   return { ...result, failures: [] }
 }
