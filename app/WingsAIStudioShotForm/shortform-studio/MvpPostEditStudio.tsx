@@ -523,14 +523,19 @@ export function MvpPostEditStudio({
     setPlaying(false)
   }, [])
 
-  const generateNarrationScript = useCallback(async (opts?: { rewrite?: boolean }) => {
+  const generateNarrationScript = useCallback(async (opts?: {
+    rewrite?: boolean
+    /** 자동 연쇄 다시쓰기 — 확인창 생략 */
+    autoChain?: boolean
+    skipAutoRewrite?: boolean
+  }) => {
     const rewrite = Boolean(opts?.rewrite)
     const openai = shotformOpenAIKey()
     if (!openai) {
       setErr("ShotForm 설정에 OpenAI API 키(shotform_openai_api_key)를 저장해 주세요.")
       return
     }
-    if (rewrite && audioUrl) {
+    if (rewrite && audioUrl && !opts?.autoChain) {
       const ok = window.confirm(
         "대본을 다시 쓰면 기존 TTS·자막 싱크가 초기화됩니다.\n영상은 그대로 두고 대본만 새로 작성할까요?"
       )
@@ -538,6 +543,7 @@ export function MvpPostEditStudio({
     }
     setScriptGenerating(true)
     setErr(null)
+    let chainAutoRewrite = false
     try {
       const currentScripts = fillScriptOverridesForAllCuts(baseSegments, scriptOverrides)
       const res = await fetch("/api/shotform/mvp-narration-script", {
@@ -620,11 +626,20 @@ export function MvpPostEditStudio({
       if (rewrite) {
         setPhase("edit")
       }
+
+      /** 첫 생성 직후 자동으로 「대본만 다시쓰기」 1회 — 수동 클릭 시와 동일한 고품질 경로 */
+      if (!rewrite && !opts?.skipAutoRewrite) {
+        chainAutoRewrite = true
+      }
     } catch (e) {
       if (!opts?.rewrite) autoScriptRequestedRef.current = null
       setErr(e instanceof Error ? e.message : rewrite ? "대본 다시쓰기 실패" : "AI 대본 생성 실패")
     } finally {
-      setScriptGenerating(false)
+      if (!chainAutoRewrite) setScriptGenerating(false)
+    }
+
+    if (chainAutoRewrite) {
+      await generateNarrationScript({ rewrite: true, autoChain: true, skipAutoRewrite: true })
     }
   }, [
     result,
