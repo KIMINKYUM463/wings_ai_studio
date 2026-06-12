@@ -24,13 +24,19 @@ export function shotformVmakeSecretAccessKey(): string {
 
 export async function fetchStudioVideoBlob(
   videoUrl: string | null,
-  opts?: { jobId?: string; projectId?: string; downloadUrl?: string | null }
+  opts?: {
+    jobId?: string
+    projectId?: string
+    downloadUrl?: string | null
+    skipLocalCache?: boolean
+  }
 ): Promise<Blob | null> {
   return resolveMvpStudioVideoBlob({
     videoUrl,
     downloadUrl: opts?.downloadUrl,
     jobId: opts?.jobId,
     projectId: opts?.projectId,
+    skipLocalCache: opts?.skipLocalCache,
   })
 }
 
@@ -45,17 +51,34 @@ function subtitleRemovalHttpError(status: number, message?: string): Error {
 }
 
 /** Vmake 완료 후 Storage에 저장된 MP4 — 배포 응답 본문 제한 우회 */
-async function fetchCleanedMp4FromJob(jobId: string): Promise<Blob> {
+async function fetchCleanedMp4FromJob(
+  jobId: string,
+  playableUrl?: string | null
+): Promise<Blob> {
   let lastErr: Error | null = null
   for (let attempt = 0; attempt < 5; attempt++) {
     if (attempt > 0) await new Promise((r) => setTimeout(r, 1200 * attempt))
     try {
-      const blob = await fetchStudioVideoBlob(null, { jobId })
+      if (playableUrl && attempt === 0) {
+        const direct = await fetch(playableUrl, { cache: "no-store" })
+        if (direct.ok) {
+          const blob = await direct.blob()
+          if (blob.size >= 50_000) {
+            await assertPreviewMp4Blob(blob)
+            return blob
+          }
+        }
+      }
+
+      const blob = await resolveMvpStudioVideoBlob({
+        videoUrl: null,
+        jobId,
+        skipLocalCache: true,
+      })
       if (!blob) {
         lastErr = new Error("처리된 영상을 불러오지 못했습니다.")
         continue
       }
-      await assertPreviewMp4Blob(blob)
       return blob
     } catch (e) {
       lastErr = e instanceof Error ? e : new Error(String(e))
@@ -74,13 +97,14 @@ async function parseSubtitleRemovalResponse(res: Response): Promise<Blob> {
     const json = (await res.json()) as {
       success?: boolean
       jobId?: string
+      playableUrl?: string
       error?: string
       delivery?: string
     }
     if (!json.success || !json.jobId) {
       throw new Error(json.error || "자막 제거 응답이 올바르지 않습니다.")
     }
-    return fetchCleanedMp4FromJob(json.jobId)
+    return fetchCleanedMp4FromJob(json.jobId, json.playableUrl)
   }
 
   const blob = await res.blob()

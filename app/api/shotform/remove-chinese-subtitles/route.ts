@@ -3,6 +3,7 @@ import os from "os"
 import path from "path"
 import { type NextRequest, NextResponse } from "next/server"
 import { isLikelyMp4Buffer } from "@/lib/mvp-mp4-preview"
+import { resolveAutoEditOutputPlayableUrl } from "@/lib/shotform-auto-edit-playable-url"
 import { readAutoEditOutput } from "@/lib/shotform-auto-edit-jobs"
 import { uploadAutoEditOutputToSupabase } from "@/lib/shotform-auto-edit-job-store"
 import { withTimeout } from "@/lib/shotform-auto-edit-script-step"
@@ -141,11 +142,13 @@ export async function POST(req: NextRequest) {
           { status: 502 }
         )
       }
+      const playable = await resolveAutoEditOutputPlayableUrl(jobId)
       return NextResponse.json({
         success: true,
         jobId,
         size: out.length,
         delivery: "storage",
+        playableUrl: playable?.url ?? undefined,
       })
     }
 
