@@ -38,6 +38,7 @@ import {
   refreshExpiredMvpEditPicks,
 } from "@/lib/shotform-mvp-pick-video-download"
 import { extractClientVideoMetaForPicks } from "@/lib/shotform-client-video-meta"
+import { uploadAutoEditSourcesFromBrowser } from "@/lib/shotform-auto-edit-client-source-upload"
 
 const DURATIONS: AutoEditTargetDuration[] = [20, 30, 45, 60]
 
@@ -66,7 +67,7 @@ const ANALYZE_STEP_HINTS: Record<AutoEditAnalysisMode, string> = {
 
 function stepHintsForMode(mode: AutoEditAnalysisMode): Partial<Record<AutoEditJobResult["step"], string>> {
   return {
-    download: "서버에서 원본 영상 다운로드 중…",
+    download: "서버에서 원본 영상 준비 중… (브라우저 업로드 완료 시 곧 분석 단계로 넘어갑니다)",
     subtitle_removal: "짜집기 완료 영상에서 중국어 자막 제거 중…",
     analyze: ANALYZE_STEP_HINTS[mode],
     mix: "영상 mix (picks) 생성 중…",
@@ -78,6 +79,7 @@ function stepHintsForMode(mode: AutoEditAnalysisMode): Partial<Record<AutoEditJo
 }
 
 const SCRIPT_STEP_STALL_MS = 120_000
+const DOWNLOAD_STEP_STALL_MS = 180_000
 
 async function recoverStalledScriptStep(jobId: string): Promise<AutoEditJobResult | null> {
   try {
@@ -100,6 +102,7 @@ async function pollAutoEditJob(
 ): Promise<AutoEditJobResult> {
   let scriptStepSince: number | null = null
   let scriptRecoveryAttempted = false
+  let downloadStepSince: number | null = null
 
   for (;;) {
     const res = await fetch(`/api/shotform/auto-edit?jobId=${encodeURIComponent(jobId)}`)
@@ -109,6 +112,19 @@ async function pollAutoEditJob(
     }
     onProgress?.(json)
     if (json.step === "done" || json.step === "error") return json
+
+    if (json.step === "download") {
+      if (!downloadStepSince) downloadStepSince = Date.now()
+      if (Date.now() - downloadStepSince >= DOWNLOAD_STEP_STALL_MS) {
+        throw new Error(
+          "서버 영상 다운로드가 3분 이상 지연되고 있습니다.\n\n" +
+            "배포 환경에서는 브라우저 업로드 경로를 사용합니다. 페이지를 새로고침한 뒤 「편집 실행」을 다시 눌러 주세요. " +
+            "반복되면 영상 CDN 링크가 만료됐을 수 있으니 소스 검색에서 영상을 다시 추가해 주세요."
+        )
+      }
+    } else {
+      downloadStepSince = null
+    }
 
     if (json.step === "script") {
       if (!scriptStepSince) scriptStepSince = Date.now()
@@ -295,6 +311,7 @@ export function MvpAutoEditDialog({
       }
 
       const videos = toAutoEditVideoInputs(nextPicks)
+      const preJobId = crypto.randomUUID()
       let clientVideoMeta: Record<
         string,
         { duration: number; keyframeDataUrl: string; timeSec: number }
@@ -303,6 +320,18 @@ export function MvpAutoEditDialog({
         setDownloadHint("브라우저에서 키프레임·길이 미리 추출 중…")
         const meta = await extractClientVideoMetaForPicks(nextPicks, (msg) => setDownloadHint(msg))
         if (Object.keys(meta).length > 0) clientVideoMeta = meta
+      }
+
+      const allMetaReady =
+        analysisMode !== "precision" &&
+        clientVideoMeta &&
+        nextPicks.every((p) => clientVideoMeta![p.video_id]?.keyframeDataUrl)
+
+      let sourcesPreUploaded = false
+      if (!allMetaReady) {
+        setDownloadHint("브라우저에서 영상을 받아 서버에 전달 중… (CDN 우회)")
+        await uploadAutoEditSourcesFromBrowser(preJobId, nextPicks, (msg) => setDownloadHint(msg))
+        sourcesPreUploaded = true
       }
 
       setDownloadHint("짜집기 작업 시작 중…")
@@ -319,6 +348,8 @@ export function MvpAutoEditDialog({
           scriptTopic: projectName?.trim() || undefined,
           analysisMode,
           clientVideoMeta,
+          clientJobId: preJobId,
+          sourcesPreUploaded,
         }),
       })
       const started = (await res.json().catch(() => ({}))) as AutoEditJobResult & { error?: string }

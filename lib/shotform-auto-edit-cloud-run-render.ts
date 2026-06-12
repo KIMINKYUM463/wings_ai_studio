@@ -53,8 +53,14 @@ async function buildSourceUrlMap(args: {
   fallbackUrls?: Record<string, string>
 }): Promise<Record<string, string>> {
   const out: Record<string, string> = {}
-  for (const [videoId, localPath] of Object.entries(args.sourcePaths)) {
-    if (autoEditJobStoreEnabled()) {
+  const videoIds = new Set([
+    ...Object.keys(args.sourcePaths),
+    ...Object.keys(args.fallbackUrls ?? {}),
+  ])
+
+  for (const videoId of videoIds) {
+    const localPath = args.sourcePaths[videoId]
+    if (localPath && autoEditJobStoreEnabled()) {
       const signed = await uploadAutoEditSourceToSupabase(args.jobId, videoId, localPath)
       if (signed) {
         out[videoId] = signed

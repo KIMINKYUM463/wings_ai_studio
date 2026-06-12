@@ -140,6 +140,52 @@ export async function uploadAutoEditOutputToSupabase(
   }
 }
 
+export async function createAutoEditSourceUploadUrl(
+  jobId: string,
+  videoId: string
+): Promise<{ signedUrl: string; token: string; path: string } | null> {
+  if (!autoEditJobStoreEnabled()) return null
+  try {
+    const storagePath = autoEditSourceStoragePath(jobId, videoId)
+    const supabase = await createMvpProjectsClient()
+    const { data, error } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .createSignedUploadUrl(storagePath, { upsert: true })
+    if (error || !data?.signedUrl) {
+      console.error("[shotform-auto-edit-job-store] signed upload url failed:", error)
+      return null
+    }
+    return {
+      signedUrl: data.signedUrl,
+      token: data.token,
+      path: data.path,
+    }
+  } catch (e) {
+    console.error("[shotform-auto-edit-job-store] signed upload url error:", e)
+    return null
+  }
+}
+
+export async function downloadAutoEditSourceFromSupabase(
+  jobId: string,
+  videoId: string
+): Promise<Buffer | null> {
+  return downloadAutoEditOutputFromSupabase(autoEditSourceStoragePath(jobId, videoId))
+}
+
+export async function autoEditSourceExistsInSupabase(
+  jobId: string,
+  videoId: string
+): Promise<boolean> {
+  if (!autoEditJobStoreEnabled()) return false
+  try {
+    const buf = await downloadAutoEditSourceFromSupabase(jobId, videoId)
+    return Boolean(buf && buf.length >= 50_000)
+  } catch {
+    return false
+  }
+}
+
 export async function downloadAutoEditOutputFromSupabase(
   storagePath: string
 ): Promise<Buffer | null> {

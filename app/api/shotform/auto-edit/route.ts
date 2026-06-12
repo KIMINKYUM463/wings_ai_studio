@@ -139,14 +139,15 @@ function buildPipelineInput(
     vmakeSubtitlePollPath: vmakeSubtitlePollPath(body),
     removeChineseSubtitles: parseRemoveChineseSubtitles(body),
     uploadedVideos,
+    sourcesPreUploaded: body.sourcesPreUploaded === true,
     analysisMode: normalizeAutoEditAnalysisMode(body.analysisMode),
     scriptTopic: typeof body.scriptTopic === "string" ? body.scriptTopic.trim() || undefined : undefined,
     clientVideoMeta: parseClientVideoMeta(body.clientVideoMeta),
   }
 }
 
-async function startPipelineAsync(input: AutoEditInput) {
-  const { dir, id: jobId } = await createAutoEditWorkDir()
+async function startPipelineAsync(input: AutoEditInput, clientJobId?: string) {
+  const { dir, id: jobId } = await createAutoEditWorkDir(clientJobId)
   const createdAt = Date.now()
   const initialJob = {
     jobId,
@@ -224,8 +225,13 @@ async function handleMultipart(req: NextRequest) {
     )
   }
 
+  const clientJobId =
+    typeof body.clientJobId === "string" && body.clientJobId.trim()
+      ? body.clientJobId.trim()
+      : undefined
   const started = await startPipelineAsync(
-    buildPipelineInput(body, videos, targetDuration, uploadedVideos)
+    buildPipelineInput(body, videos, targetDuration, uploadedVideos),
+    clientJobId
   )
   return NextResponse.json(started)
 }
@@ -289,7 +295,14 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const started = await startPipelineAsync(buildPipelineInput(body, videos, targetDuration))
+    const clientJobId =
+      typeof body.clientJobId === "string" && body.clientJobId.trim()
+        ? body.clientJobId.trim()
+        : undefined
+    const started = await startPipelineAsync(
+      buildPipelineInput(body, videos, targetDuration),
+      clientJobId
+    )
     return NextResponse.json(started)
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "오류" }, { status: 500 })

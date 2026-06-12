@@ -235,6 +235,8 @@ export type AutoEditInput = {
   removeChineseSubtitles?: boolean
   /** 브라우저에서 프록시로 받은 MP4 (video_id → bytes) */
   uploadedVideos?: Record<string, Buffer>
+  /** 브라우저가 Supabase Storage에 소스 MP4를 미리 올린 경우 */
+  sourcesPreUploaded?: boolean
   /** 비동기 job — 미리 생성한 작업 디렉터리 */
   presetWork?: { dir: string; id: string }
   /** 프로젝트명·주제 — 끝에 " 1"이면 자연스러운 스토리형 대본 */

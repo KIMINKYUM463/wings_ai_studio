@@ -62,7 +62,7 @@ export async function fetchUpstreamVideo(
   }
   if (init?.range) headers.Range = init.range
 
-  const timeoutMs = init?.range ? 45_000 : 300_000
+  const timeoutMs = init?.range ? 45_000 : process.env.VERCEL ? 90_000 : 300_000
   const res = await fetch(target.toString(), {
     headers,
     cache: "no-store",

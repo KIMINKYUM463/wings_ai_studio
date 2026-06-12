@@ -27,7 +27,10 @@ import {
 } from "@/lib/shotform-auto-edit-cloud-run-render"
 import { filterAnalysesForProductEdit } from "@/lib/shotform-auto-edit-product-filter"
 import { putAutoEditJob } from "@/lib/shotform-auto-edit-jobs"
-import { uploadAutoEditOutputToSupabase } from "@/lib/shotform-auto-edit-job-store"
+import {
+  downloadAutoEditSourceFromSupabase,
+  uploadAutoEditOutputToSupabase,
+} from "@/lib/shotform-auto-edit-job-store"
 import {
   isVmakeRouteNotFoundError,
   removeChineseSubtitlesFromLocalFile,
@@ -69,6 +72,14 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
       videos.length > 0 &&
       videos.every((v) => clientVideoMeta[v.video_id]?.keyframeDataUrl)
 
+    const useCloudRunRender = shouldUseCloudRunForAutoEditRender()
+    const hasUploadedBuffers = videos.every((v) => uploads[v.video_id]?.length)
+    const sourcesPreUploaded = Boolean(input.sourcesPreUploaded)
+    const skipServerCdnDownload =
+      hasUploadedBuffers ||
+      sourcesPreUploaded ||
+      (useCloudRunRender && canParallelAnalyze)
+
     const downloadAllSources = async () => {
       await Promise.all(
         videos.map(async (v) => {
@@ -76,9 +87,18 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
           const uploaded = uploads[v.video_id]
           if (uploaded?.length) {
             await saveUploadedVideoBuffer(uploaded, sourcePath)
-          } else {
-            await downloadSourceVideo(v.videoUrl, sourcePath)
+            sourcePaths[v.video_id] = sourcePath
+            return
           }
+          if (sourcesPreUploaded) {
+            const remote = await downloadAutoEditSourceFromSupabase(jobId, v.video_id)
+            if (remote?.length) {
+              await saveUploadedVideoBuffer(remote, sourcePath)
+              sourcePaths[v.video_id] = sourcePath
+              return
+            }
+          }
+          await downloadSourceVideo(v.videoUrl, sourcePath)
           sourcePaths[v.video_id] = sourcePath
         })
       )
@@ -107,7 +127,20 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
     try {
       if (canParallelAnalyze) {
         putAutoEditJob({ ...base, step: "analyze", createdAt })
-        const [, analyzed] = await Promise.all([downloadAllSources(), runAnalyze()])
+        const analyzed = await runAnalyze()
+        analyses = analyzed.analyses
+        mixInfo = analyzed.mixInfo
+        for (const fail of analyzed.failures) {
+          excludedVideos.push({
+            video_id: fail.video_id,
+            title: fail.title,
+            reason: fail.reason,
+          })
+        }
+      } else if (skipServerCdnDownload && sourcesPreUploaded) {
+        putAutoEditJob({ ...base, step: "analyze", createdAt })
+        await downloadAllSources()
+        const analyzed = await runAnalyze()
         analyses = analyzed.analyses
         mixInfo = analyzed.mixInfo
         for (const fail of analyzed.failures) {
@@ -118,6 +151,7 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
           })
         }
       } else {
+        putAutoEditJob({ ...base, step: "download", createdAt })
         await downloadAllSources()
         putAutoEditJob({ ...base, step: "analyze", createdAt })
         const analyzed = await runAnalyze()
@@ -237,11 +271,23 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
         targetDuration: editPlan.target_duration,
         defaultVideoId: usable[0]!.video_id,
       }
-      if (shouldUseCloudRunForAutoEditRender()) {
+      if (useCloudRunRender) {
         const sourceUrls = Object.fromEntries(videos.map((v) => [v.video_id, v.videoUrl]))
-        await renderEditPlanOnCloudRun({ jobId, sourceUrls, ...renderArgs })
+        const renderSourcePaths =
+          skipServerCdnDownload && Object.keys(sourcePaths).length < videos.length
+            ? {}
+            : sourcePaths
+        await renderEditPlanOnCloudRun({
+          jobId,
+          sourceUrls,
+          ...renderArgs,
+          sourcePaths: renderSourcePaths,
+        })
       } else {
-        await renderEditPlanToMp4(renderArgs)
+        if (Object.keys(sourcePaths).length < videos.length) {
+          await downloadAllSources()
+        }
+        await renderEditPlanToMp4({ ...renderArgs, sourcePaths })
       }
       outputDuration = await validateRenderedMp4(outputPath, 1, editPlan.target_duration)
 

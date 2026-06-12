@@ -94,16 +94,48 @@ export function extractClientVideoMeta(
   })
 }
 
+async function extractClientVideoMetaFromBlob(
+  blob: Blob,
+  timeRatio = 0.12
+): Promise<ClientVideoMetaEntry | null> {
+  const objectUrl = URL.createObjectURL(blob)
+  try {
+    return await extractClientVideoMeta(objectUrl, timeRatio)
+  } finally {
+    URL.revokeObjectURL(objectUrl)
+  }
+}
+
 /** 선택 영상 병렬 — 브라우저에서 키프레임·길이 미리 추출 */
 export async function extractClientVideoMetaForPicks(
   picks: AutoEditPick[],
   onProgress?: (message: string) => void
 ): Promise<Record<string, ClientVideoMetaEntry>> {
   const out: Record<string, ClientVideoMetaEntry> = {}
+  const { fetchMvpPickVideoBlob } = await import("@/lib/shotform-mvp-pick-video-download")
+
   await Promise.all(
     picks.map(async (pick, i) => {
       onProgress?.(`브라우저 미리 분석 ${i + 1}/${picks.length}…`)
-      const meta = await extractClientVideoMeta(pick.videoUrl)
+      let meta = await extractClientVideoMeta(pick.videoUrl)
+      if (!meta) {
+        try {
+          onProgress?.(`브라우저 미리 분석 ${i + 1}/${picks.length} — MP4 재시도…`)
+          const { blob } = await fetchMvpPickVideoBlob(
+            {
+              videoUrl: pick.videoUrl,
+              noteUrl: pick.noteUrl,
+              title: pick.title,
+              platform: pick.platform,
+              video_id: pick.video_id,
+            },
+            (hint) => onProgress?.(hint)
+          )
+          meta = await extractClientVideoMetaFromBlob(blob)
+        } catch {
+          /* 개별 영상 실패는 서버 업로드 경로로 폴백 */
+        }
+      }
       if (meta) out[pick.video_id] = meta
     })
   )
