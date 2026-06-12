@@ -18,8 +18,10 @@ import {
 import type { CutScriptContext } from "@/lib/shotform-visual-scene-match"
 import { sanitizeNarrationForOutput } from "@/lib/shotform-natural-shorts-script"
 import {
+  hasExcessiveScriptRepetition,
   narrationBlockSimilarity,
   narrationLineIsDuplicateOfPrior,
+  narrationSharesRepeatedPhrase,
 } from "@/lib/shotform-narration-similarity"
 
 const CLICHE_PATTERNS = [
@@ -161,22 +163,40 @@ function openingHookForVisual(visualCard: string, productName: string, cutIndex:
   return generic[cutIndex % generic.length]!
 }
 
-/** 컷별 대본 — 동일·유사 문장 절대 금지 */
+function enrichedContextsForNarration(
+  contexts: ReadonlyArray<{ visual_card: string; duration: number }>,
+  productName: string,
+  productContext?: string
+): Array<{ visual_card: string; duration: number }> {
+  return contexts.map((c, i) => ({
+    ...c,
+    visual_card: enrichVisualCardForNarration(c.visual_card, productName, i, productContext),
+  }))
+}
+
+/** 컷별 대본 — 동일·유사 문장·꼬리문구 반복 절대 금지 */
 export function enforceUniqueNarrationLines(
   lines: readonly string[],
   contexts: ReadonlyArray<{ visual_card: string; duration: number }>,
   productName: string,
-  rewriteSalt = 0
+  rewriteSalt = 0,
+  productContext?: string
 ): string[] {
+  const enriched = enrichedContextsForNarration(contexts, productName, productContext)
   const prior: string[] = []
   return lines.map((line, i) => {
+    const visualCard = enriched[i]!.visual_card
+    const duplicate =
+      narrationLineIsDuplicateOfPrior(line, prior) ||
+      prior.some((p) => narrationSharesRepeatedPhrase(p, line)) ||
+      looksLikeRawSceneCopy(line, visualCard)
     const text = pickUniqueNarrationLine({
-      visualHint: contexts[i]!.visual_card,
+      visualHint: visualCard,
       productName,
-      duration: contexts[i]!.duration,
-      cutIndex: i + rewriteSalt * 13,
+      duration: enriched[i]!.duration,
+      cutIndex: i + rewriteSalt * 13 + (duplicate ? prior.length * 5 : 0),
       priorLines: prior,
-      preferred: line,
+      preferred: duplicate ? undefined : line,
     })
     prior.push(text)
     return text
@@ -187,9 +207,20 @@ function enforceUniqueCutLines(
   lines: readonly string[],
   contexts: ReadonlyArray<{ visual_card: string; duration: number }>,
   productName: string,
-  rewriteSalt = 0
+  rewriteSalt = 0,
+  productContext?: string
 ): string[] {
-  return enforceUniqueNarrationLines(lines, contexts, productName, rewriteSalt)
+  let out = enforceUniqueNarrationLines(lines, contexts, productName, rewriteSalt, productContext)
+  if (hasExcessiveScriptRepetition(out)) {
+    out = enforceUniqueNarrationLines(
+      out.map(() => ""),
+      contexts,
+      productName,
+      rewriteSalt + 7,
+      productContext
+    )
+  }
+  return out
 }
 
 export function detectVisualThemes(visualCard: string): Array<{ theme: string; keywords: string[] }> {
@@ -263,13 +294,16 @@ function narrationNeedsPolish(
   rewriteMode: boolean
 ): boolean {
   const grounding = visualGroundingScore(text, visualCard)
-  const duplicatePrior = narrationLineIsDuplicateOfPrior(text, priorLines)
+  const duplicatePrior =
+    narrationLineIsDuplicateOfPrior(text, priorLines) ||
+    priorLines.some((p) => narrationSharesRepeatedPhrase(p, text))
   const definitelyWeak =
     !text ||
     isAbstractShoppingNarration(text) ||
     narrationTextLooksWeak(text, visualCard) ||
     looksLikeRawSceneCopy(text, visualCard) ||
-    looksLikeDescriptiveSceneNarration(text)
+    looksLikeDescriptiveSceneNarration(text) ||
+    duplicatePrior
 
   if (rewriteMode) {
     return Boolean(
@@ -382,14 +416,22 @@ function pickBetterLine(
   priorLines: readonly string[]
 ): string {
   const priorLast = priorLines[priorLines.length - 1]
+  const dupPenalty = (line: string) =>
+    priorLines.some(
+      (p) => narrationBlockSimilarity(p, line) >= 0.42 || narrationSharesRepeatedPhrase(p, line)
+    )
+      ? 0.45
+      : 0
   const curScore =
     visualGroundingScore(current, visualCard) +
     continuityFromPrior(current, priorLast) -
-    (priorLines.some((p) => narrationBlockSimilarity(p, current) >= 0.72) ? 0.35 : 0)
+    dupPenalty(current) -
+    (looksLikeRawSceneCopy(current, visualCard) ? 0.3 : 0)
   const candScore =
     visualGroundingScore(candidate, visualCard) +
     continuityFromPrior(candidate, priorLast) -
-    (priorLines.some((p) => narrationBlockSimilarity(p, candidate) >= 0.72) ? 0.35 : 0)
+    dupPenalty(candidate) -
+    (looksLikeRawSceneCopy(candidate, visualCard) ? 0.3 : 0)
 
   if (candScore > curScore + 0.05) return candidate
   if (narrationTextLooksWeak(current, visualCard) || looksLikeRawSceneCopy(current, visualCard)) {
@@ -535,7 +577,9 @@ export function polishCutNarrationLines(
   })
 
   const woven = weaveNarrationContinuity(polished, productName).map(sanitizeNarrationForOutput)
-  return enforceUniqueCutLines(woven, contexts, productName, rewriteSalt).map(sanitizeNarrationForOutput)
+  return enforceUniqueCutLines(woven, contexts, productName, rewriteSalt, productContext).map(
+    sanitizeNarrationForOutput
+  )
 }
 
 /** OpenAI JSON lines 파싱 — 빈 컷도 슬롯 유지 (filter로 개수 줄어듦 방지) */

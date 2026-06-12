@@ -16,6 +16,7 @@ import {
   hasExcessiveScriptRepetition,
   narrationBlockSimilarity,
   narrationLineIsDuplicateOfPrior,
+  narrationSharesRepeatedPhrase,
 } from "@/lib/shotform-narration-similarity"
 import { descriptionSuggestsPresenterOrFace } from "@/lib/shotform-auto-edit-product-filter"
 import {
@@ -251,6 +252,11 @@ function buildFallbackNarration(d: string, productName: string | undefined, rule
       "차 안 구석 먼지 관리가 이렇게 쉬워요",
       "좁은 틈새도 노즐로 싹 정리돼요",
       "운전석 발밑 먼지, 손 안 대고 빼내요",
+      "트렁크 구석 먼지까지 한 번에 정리돼요",
+      "문턱 틈새 먼지도 노즐이 쏙 들어가요",
+      "핸들 주변 먼지, 흡입 한 번이면 끝이에요",
+      "시트 레일 사이 먼지가 바로 빠져요",
+      "발밑 매트 먼지, 손끝 안 대고 싹 빼내요",
     ])
   }
   if (/청소|먼지|흡입|吸尘|진공|vacuum|닦(?:아|여|으|이|는|고)/.test(d)) {
@@ -356,7 +362,10 @@ export function pickUniqueNarrationLine(args: {
   preferred?: string
 }): string {
   const { visualHint, productName, duration, cutIndex, priorLines, preferred } = args
-  const isDup = (t: string) => narrationLineIsDuplicateOfPrior(t, priorLines)
+  const isDup = (t: string) =>
+    narrationLineIsDuplicateOfPrior(t, priorLines) ||
+    priorLines.some((p) => narrationSharesRepeatedPhrase(p, t)) ||
+    looksLikeRawSceneCopy(t, visualHint)
 
   const prefer = preferred?.trim()
   if (prefer && !isDup(prefer) && !isAbstractShoppingNarration(prefer)) {
@@ -366,12 +375,23 @@ export function pickUniqueNarrationLine(args: {
     }
   }
 
-  for (let attempt = 0; attempt < 36; attempt++) {
+  for (let attempt = 0; attempt < 48; attempt++) {
     const candidate = rephraseSceneToShoppingNarrationVariant(
       visualHint,
       productName,
       duration,
-      cutIndex * 13 + attempt * 9 + 1
+      cutIndex * 13 + attempt * 9 + priorLines.length * 31 + 1
+    )
+    if (!isDup(candidate) && !isAbstractShoppingNarration(candidate)) {
+      return candidate
+    }
+  }
+
+  for (let attempt = 0; attempt < 24; attempt++) {
+    const salt = cutIndex * 41 + priorLines.length * 11 + attempt * 17
+    const candidate = formatNarrationForSceneDuration(
+      rephraseSceneToShoppingNarrationVariant(visualHint, productName, duration, salt),
+      duration
     )
     if (!isDup(candidate) && !isAbstractShoppingNarration(candidate)) {
       return candidate
@@ -379,7 +399,7 @@ export function pickUniqueNarrationLine(args: {
   }
 
   return formatNarrationForSceneDuration(
-    rephraseSceneToShoppingNarrationVariant(visualHint, productName, duration, cutIndex * 41 + priorLines.length * 7),
+    rephraseSceneToShoppingNarrationVariant(visualHint, productName, duration, cutIndex * 97 + priorLines.length * 23),
     duration
   )
 }
@@ -464,23 +484,43 @@ function rephraseSceneCore(description: string, productName?: string, ruleOffset
       },
     },
     {
-      re: /차량\s*바닥|바닥.*먼지|매트/,
+      re: /차량의?\s*바닥|차량\s*바닥|바닥.*먼지|바닥.*청소|매트|발밑/,
       say: () => {
         const opts = [
-          "바닥 매트 먼지, 이렇게 싹 빨아들여요",
-          "발밑 먼지까지 한 번에 정리돼요",
-          "차 바닥 청소, 생각보다 빨라요",
+          "발밑 매트 먼지, 한 번에 흡입돼요",
+          "바닥 틈새까지 빨아들이는 속도가 빨라요",
+          "차 바닥에 남은 먼지, 손 안 대고 정리돼요",
+          "운전석 발밑도 노즐 한 번이면 끝이에요",
+          "바닥 구석 먼지가 흡입구로 쏙 들어가요",
+          "매트 위 잔먼지, 흡입 한 번에 싹 빠져요",
         ]
         return opts[ruleOffset % opts.length]!
       },
     },
     {
-      re: /차량\s*내부|차\s*안|운전석|시트|車内/,
+      re: /차량\s*시트|시트\s*위|시트.*먼지|등받이|쿠션/,
       say: () => {
         const opts = [
-          "차 안 틈새 먼지도 이렇게 빼낼 수 있어요",
-          "시트 사이 먼지, 손 안 대고 정리돼요",
-          "차량 내부 청소가 이렇게 간단해요",
+          "시트 쿠션 사이 먼지가 쏙 빠져요",
+          "등받이 틈새 먼지도 노즐로 닦아내요",
+          "시트에 붙은 먼지, 흡입 한 번이면 끝이에요",
+          "시트 표면 먼지가 바로 빨려 들어가요",
+          "쿠션 틈새까지 손끝 안 대고 정리돼요",
+          "시트 구석 먼지, 흡입력이 확실해요",
+        ]
+        return opts[ruleOffset % opts.length]!
+      },
+    },
+    {
+      re: /차량\s*내부|차\s*안|운전석|틈새|구석|콘솔|대시보드|車内/,
+      say: () => {
+        const opts = [
+          "문틈·콘솔 주변 먼지까지 싹 잡혀요",
+          "좁은 노즐로 구석 먼지가 바로 빨려요",
+          "손 닿기 힘든 틈새도 이렇게 정리돼요",
+          "대시보드 틈새 먼지도 한 번에 빼내요",
+          "차 안 구석까지 노즐이 쏙 들어가요",
+          "운전석 주변 먼지 관리가 이렇게 간단해요",
         ]
         return opts[ruleOffset % opts.length]!
       },
@@ -497,23 +537,16 @@ function rephraseSceneCore(description: string, productName?: string, ruleOffset
       },
     },
     {
-      re: /(.+?)을?\s*청소하는/,
-      say: (m) => {
-        const sub = m[1]!.trim()
-        if (descriptionSuggestsPresenterOrFace(sub)) {
-          return productName ? `${productName}로 먼지가 싹 빨려 들어가요` : "먼지가 싹 빨려 들어가요"
-        }
-        return `${sub} 청소, 먼지가 바로 빠져요`
-      },
-    },
-    {
-      re: /(.+?)을?\s*청소/,
-      say: (m) => {
-        const sub = m[1]!.trim()
-        if (descriptionSuggestsPresenterOrFace(sub)) {
-          return productName ? `${productName}로 구석 먼지까지 정리돼요` : "구석 먼지까지 정리돼요"
-        }
-        return `${sub} 먼지, 이렇게 빨아들여요`
+      re: /청소하는|청소\s*하는|清洁/,
+      say: () => {
+        const opts = [
+          productName ? `${productName}로 구석 먼지가 싹 정리돼요` : "구석 먼지가 한 번에 정리돼요",
+          "이렇게 닦으면 손이 덜 가요",
+          "좁은 곳까지 청소가 빨라져요",
+          "흡입 한 번이면 바닥이 훨씬 깔끔해요",
+          "먼지가 쌓이기 전에 이렇게 관리해요",
+        ]
+        return opts[ruleOffset % opts.length]!
       },
     },
     {
@@ -587,12 +620,10 @@ function rephraseSceneCore(description: string, productName?: string, ruleOffset
     },
   ]
 
-  const matched: string[] = []
   for (const { re, say } of rules) {
     const m = d.match(re)
-    if (m) matched.push(say(m))
+    if (m) return say(m)
   }
-  if (matched.length) return matched[ruleOffset % matched.length]!
 
   return buildFallbackNarration(d, productName, ruleOffset)
 }
@@ -801,7 +832,39 @@ export function looksLikeRawSceneCopy(scriptText: string, visualHint: string): b
   if (nv.includes(ns) || ns.includes(nv.slice(0, Math.min(nv.length, ns.length + 4)))) return true
   // 화면 설명 앞부분만 잘린 복사 (차량 시트에 흩어진 음 ← 음식물…)
   if (ns.length >= 6 && nv.startsWith(ns) && ns.length < nv.length * 0.72) return true
-  return script === visual || visual.includes(script)
+  if (script === visual || visual.includes(script)) return true
+
+  const visualCore = visual
+    .replace(/하는\s*모습\.?$/i, "")
+    .replace(/하는\s*장면\.?$/i, "")
+    .replace(/입니다\.?$/i, "")
+    .trim()
+  const nvCore = norm(visualCore)
+  if (nvCore.length >= 8) {
+    const prefixLen = Math.min(ns.length, nvCore.length)
+    if (prefixLen >= 8 && nvCore.startsWith(ns.slice(0, prefixLen))) return true
+    const scriptPrefix = norm(script.split(/[,，]/)[0] ?? script)
+    if (scriptPrefix.length >= 8 && nvCore.includes(scriptPrefix.slice(0, Math.min(scriptPrefix.length, 12)))) {
+      return true
+    }
+  }
+
+  if (/먼지가\s*바로\s*빠져요|이렇게\s*빨아들여요|이렇게\s*빼낼\s*수\s*있어요/.test(script)) {
+    const scriptLead = norm(script.split(/[,，]/)[0] ?? "")
+    if (scriptLead.length >= 6 && nv.includes(scriptLead.slice(0, Math.min(scriptLead.length, 14)))) {
+      return true
+    }
+  }
+
+  const visualTokens = (visualCore.match(/[\uac00-\ud7a3]{2,}/g) ?? []).filter(
+    (w) => !/모습|장면|청소|합니다|있습니다/.test(w)
+  )
+  if (visualTokens.length >= 2) {
+    const scriptFlat = script.replace(/\n/g, " ")
+    const overlap = visualTokens.filter((w) => scriptFlat.includes(w)).length
+    if (overlap >= 2 && overlap / visualTokens.length >= 0.55) return true
+  }
+  return false
 }
 
 function applyCutFlowHint(text: string, _cutIndex: number, _totalCuts: number): string {

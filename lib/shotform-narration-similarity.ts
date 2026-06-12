@@ -11,14 +11,33 @@ function bigrams(s: string): string[] {
   return out
 }
 
+function extractTailPhrase(text: string): string {
+  const flat = text.trim().replace(/\n/g, " ")
+  const tail = flat.split(/[,，]/).pop()?.trim() ?? flat
+  return normalizeNarrationForCompare(tail)
+}
+
+/** 동일 꼬리문구·핵심 표현 반복 (앞부분만 다르고 의미가 같은 경우) */
+export function narrationSharesRepeatedPhrase(a: string, b: string): boolean {
+  const ta = extractTailPhrase(a)
+  const tb = extractTailPhrase(b)
+  if (!ta || !tb) return false
+  if (ta === tb) return true
+  if (ta.length >= 7 && tb.length >= 7 && (ta.includes(tb) || tb.includes(ta))) return true
+  if (narrationBlockSimilarity(a, b) >= 0.68) return true
+  return false
+}
+
 /** 이전 컷들과 중복·유사한 대본인지 */
 export function narrationLineIsDuplicateOfPrior(
   text: string,
   prior: readonly string[],
-  threshold = 0.55
+  threshold = 0.42
 ): boolean {
   if (!text.trim()) return false
-  return prior.some((p) => narrationBlockSimilarity(p, text) >= threshold)
+  return prior.some(
+    (p) => narrationBlockSimilarity(p, text) >= threshold || narrationSharesRepeatedPhrase(p, text)
+  )
 }
 
 /** 컷 단위 대본 유사도 (0~1) */
