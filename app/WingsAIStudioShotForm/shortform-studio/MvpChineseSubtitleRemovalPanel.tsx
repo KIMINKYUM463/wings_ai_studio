@@ -87,7 +87,7 @@ export function MvpChineseSubtitleRemovalPanel({
         vmakeSecretAccessKey,
       })
 
-      setStatus("미리보기 영상 교체 중…")
+      setStatus("처리된 영상을 불러와 미리보기에 반영 중…")
       await onVideoReplaced(cleaned)
       setDone(true)
       setStatus("중국어 자막 제거가 완료되었습니다. 미리보기·보내기에 반영됩니다.")

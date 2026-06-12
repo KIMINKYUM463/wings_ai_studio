@@ -2,6 +2,7 @@ import fs from "fs/promises"
 import os from "os"
 import path from "path"
 import { type NextRequest, NextResponse } from "next/server"
+import { isLikelyMp4Buffer } from "@/lib/mvp-mp4-preview"
 import { readAutoEditOutput } from "@/lib/shotform-auto-edit-jobs"
 import { uploadAutoEditOutputToSupabase } from "@/lib/shotform-auto-edit-job-store"
 import { withTimeout } from "@/lib/shotform-auto-edit-script-step"
@@ -13,6 +14,9 @@ import {
 
 export const maxDuration = 800
 export const runtime = "nodejs"
+
+/** Vercel serverless 응답 본문 제한 — 이보다 크면 Storage 경유 JSON 응답 */
+const VERCEL_RESPONSE_MAX_BYTES = 4_000_000
 
 async function resolveSourceBuffer(input: {
   jobId?: string
@@ -78,6 +82,15 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       )
     }
+    if (!isLikelyMp4Buffer(sourceBuffer)) {
+      return NextResponse.json(
+        {
+          error:
+            "서버에 저장된 짜집기 영상이 유효한 MP4가 아닙니다. Supabase Storage 업로드를 확인한 뒤 짜집기를 다시 실행해 주세요.",
+        },
+        { status: 400 }
+      )
+    }
 
     await fs.mkdir(workDir, { recursive: true })
     await fs.writeFile(sourcePath, sourceBuffer)
@@ -105,11 +118,41 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Vmake 처리 결과 영상이 비어 있습니다." }, { status: 502 })
     }
 
+    const out = await fs.readFile(outputPath)
+    if (!isLikelyMp4Buffer(out)) {
+      return NextResponse.json(
+        { error: "Vmake 처리 결과가 유효한 MP4가 아닙니다. 잠시 후 다시 시도해 주세요." },
+        { status: 502 }
+      )
+    }
+
+    const preferStorageDelivery =
+      Boolean(jobId) &&
+      (process.env.VERCEL || out.length > VERCEL_RESPONSE_MAX_BYTES)
+
+    if (preferStorageDelivery && jobId) {
+      const storagePath = await uploadAutoEditOutputToSupabase(jobId, outputPath)
+      if (!storagePath) {
+        return NextResponse.json(
+          {
+            error:
+              "자막 제거는 완료됐지만 결과 MP4를 Storage에 저장하지 못했습니다. Supabase video-sources 버킷·권한을 확인해 주세요.",
+          },
+          { status: 502 }
+        )
+      }
+      return NextResponse.json({
+        success: true,
+        jobId,
+        size: out.length,
+        delivery: "storage",
+      })
+    }
+
     if (jobId) {
       await uploadAutoEditOutputToSupabase(jobId, outputPath).catch(() => undefined)
     }
 
-    const out = await fs.readFile(outputPath)
     return new NextResponse(new Uint8Array(out), {
       status: 200,
       headers: {

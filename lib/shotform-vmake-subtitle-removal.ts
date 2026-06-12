@@ -44,6 +44,57 @@ function subtitleRemovalHttpError(status: number, message?: string): Error {
   return new Error(message || `중국어 자막 제거 실패 (${status})`)
 }
 
+/** Vmake 완료 후 Storage에 저장된 MP4 — 배포 응답 본문 제한 우회 */
+async function fetchCleanedMp4FromJob(jobId: string): Promise<Blob> {
+  let lastErr: Error | null = null
+  for (let attempt = 0; attempt < 5; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 1200 * attempt))
+    try {
+      const blob = await fetchStudioVideoBlob(null, { jobId })
+      if (!blob) {
+        lastErr = new Error("처리된 영상을 불러오지 못했습니다.")
+        continue
+      }
+      await assertPreviewMp4Blob(blob)
+      return blob
+    } catch (e) {
+      lastErr = e instanceof Error ? e : new Error(String(e))
+    }
+  }
+  throw (
+    lastErr ??
+    new Error("자막 제거 후 영상을 불러오지 못했습니다. 새로고침 후 다시 시도해 주세요.")
+  )
+}
+
+async function parseSubtitleRemovalResponse(res: Response): Promise<Blob> {
+  const contentType = res.headers.get("content-type") || ""
+
+  if (contentType.includes("application/json")) {
+    const json = (await res.json()) as {
+      success?: boolean
+      jobId?: string
+      error?: string
+      delivery?: string
+    }
+    if (!json.success || !json.jobId) {
+      throw new Error(json.error || "자막 제거 응답이 올바르지 않습니다.")
+    }
+    return fetchCleanedMp4FromJob(json.jobId)
+  }
+
+  const blob = await res.blob()
+  if (blob.size < 50_000) {
+    const text = await blob.text().catch(() => "")
+    if (text.trimStart().startsWith("{")) {
+      const json = JSON.parse(text) as { error?: string }
+      throw new Error(json.error || "자막 제거 응답이 올바르지 않습니다.")
+    }
+  }
+  await assertPreviewMp4Blob(blob)
+  return blob
+}
+
 export async function requestChineseSubtitleRemoval(input: {
   videoBlob?: Blob | null
   jobId?: string
@@ -68,9 +119,7 @@ export async function requestChineseSubtitleRemoval(input: {
       const err = (await res.json().catch(() => ({}))) as { error?: string }
       throw subtitleRemovalHttpError(res.status, err.error)
     }
-    const blob = await res.blob()
-    await assertPreviewMp4Blob(blob)
-    return blob
+    return parseSubtitleRemovalResponse(res)
   }
 
   const videoBlob = input.videoBlob
@@ -93,7 +142,5 @@ export async function requestChineseSubtitleRemoval(input: {
     throw subtitleRemovalHttpError(res.status, err.error)
   }
 
-  const blob = await res.blob()
-  await assertPreviewMp4Blob(blob)
-  return blob
+  return parseSubtitleRemovalResponse(res)
 }
