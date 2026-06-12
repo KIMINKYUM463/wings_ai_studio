@@ -58,21 +58,28 @@ export function MvpChineseSubtitleRemovalPanel({
     setStatus("짜집기 영상 준비 중…")
 
     try {
-      let videoBlob = videoBlobRef?.current ?? null
-      if (!videoBlob || videoBlob.size < 20_000) {
-        videoBlob = await fetchStudioVideoBlob(videoUrl, {
-          jobId,
-          projectId,
-          downloadUrl,
-        })
-      }
-      if (!videoBlob) {
-        throw new Error(
-          "짜집기 영상을 불러오지 못했습니다. 편집 탭에서 미리보기가 재생되는지 확인한 뒤, 새로고침 후 다시 시도해 주세요."
-        )
+      let videoBlob: Blob | null = null
+      if (!jobId?.trim()) {
+        videoBlob = videoBlobRef?.current ?? null
+        if (!videoBlob || videoBlob.size < 20_000) {
+          videoBlob = await fetchStudioVideoBlob(videoUrl, {
+            jobId,
+            projectId,
+            downloadUrl,
+          })
+        }
+        if (!videoBlob) {
+          throw new Error(
+            "짜집기 영상을 불러오지 못했습니다. 편집 탭에서 미리보기가 재생되는지 확인한 뒤, 새로고침 후 다시 시도해 주세요."
+          )
+        }
       }
 
-      setStatus("Vmake AI로 중국어 자막 제거 중… (수 분 소요될 수 있습니다)")
+      setStatus(
+        jobId?.trim()
+          ? "서버에서 짜집기 영상을 불러와 Vmake AI 자막 제거 중… (수 분 소요)"
+          : "Vmake AI로 중국어 자막 제거 중… (수 분 소요될 수 있습니다)"
+      )
       const cleaned = await requestChineseSubtitleRemoval({
         videoBlob,
         jobId,

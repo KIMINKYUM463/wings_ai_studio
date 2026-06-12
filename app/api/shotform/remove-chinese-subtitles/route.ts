@@ -70,7 +70,11 @@ export async function POST(req: NextRequest) {
     const sourceBuffer = await resolveSourceBuffer({ jobId, videoFile })
     if (!sourceBuffer || sourceBuffer.length < 20_000) {
       return NextResponse.json(
-        { error: "처리할 짜집기 영상을 찾지 못했습니다. 미리보기 영상이 준비된 뒤 다시 시도해 주세요." },
+        {
+          error: jobId
+            ? "서버에 저장된 짜집기 영상을 찾지 못했습니다. 짜집기 완료 직후 다시 시도하거나, 미리보기가 재생되는지 확인해 주세요."
+            : "처리할 짜집기 영상을 찾지 못했습니다. 미리보기 영상이 준비된 뒤 다시 시도해 주세요.",
+        },
         { status: 400 }
       )
     }

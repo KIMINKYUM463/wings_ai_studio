@@ -34,17 +34,54 @@ export async function fetchStudioVideoBlob(
   })
 }
 
+function subtitleRemovalHttpError(status: number, message?: string): Error {
+  if (status === 413) {
+    return new Error(
+      "영상 업로드 용량이 서버 제한(약 4.5MB)을 초과했습니다. 페이지를 새로고침한 뒤 다시 시도해 주세요. " +
+        "같은 오류가 반복되면 짜집기를 다시 실행해 jobId가 연결된 상태에서 시도해 주세요."
+    )
+  }
+  return new Error(message || `중국어 자막 제거 실패 (${status})`)
+}
+
 export async function requestChineseSubtitleRemoval(input: {
-  videoBlob: Blob
+  videoBlob?: Blob | null
   jobId?: string
   vmakeApiKey: string
   vmakeSecretAccessKey: string
 }): Promise<Blob> {
+  const jobId = input.jobId?.trim()
+  const payload = {
+    jobId,
+    vmakeApiKey: input.vmakeApiKey,
+    vmakeSecretAccessKey: input.vmakeSecretAccessKey,
+  }
+
+  /** 배포(Vercel) 본문 4.5MB 제한 — jobId 있으면 서버가 Storage/API에서 MP4 직접 로드 */
+  if (jobId) {
+    const res = await fetch("/api/shotform/remove-chinese-subtitles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string }
+      throw subtitleRemovalHttpError(res.status, err.error)
+    }
+    const blob = await res.blob()
+    await assertPreviewMp4Blob(blob)
+    return blob
+  }
+
+  const videoBlob = input.videoBlob
+  if (!videoBlob || videoBlob.size < 20_000) {
+    throw new Error("처리할 짜집기 영상이 없습니다. 미리보기가 재생되는지 확인한 뒤 다시 시도해 주세요.")
+  }
+
   const form = new FormData()
-  form.append("video", input.videoBlob, "studio.mp4")
+  form.append("video", videoBlob, "studio.mp4")
   form.append("vmakeApiKey", input.vmakeApiKey)
   form.append("vmakeSecretAccessKey", input.vmakeSecretAccessKey)
-  if (input.jobId?.trim()) form.append("jobId", input.jobId.trim())
 
   const res = await fetch("/api/shotform/remove-chinese-subtitles", {
     method: "POST",
@@ -53,7 +90,7 @@ export async function requestChineseSubtitleRemoval(input: {
 
   if (!res.ok) {
     const err = (await res.json().catch(() => ({}))) as { error?: string }
-    throw new Error(err.error || `중국어 자막 제거 실패 (${res.status})`)
+    throw subtitleRemovalHttpError(res.status, err.error)
   }
 
   const blob = await res.blob()
