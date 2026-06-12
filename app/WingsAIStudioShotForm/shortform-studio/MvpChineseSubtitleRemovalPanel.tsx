@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useState } from "react"
+import { useCallback, useState, type MutableRefObject } from "react"
 import { Eraser, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -16,6 +16,9 @@ type Props = {
   videoUrl: string | null
   videoLoading?: boolean
   jobId?: string
+  projectId?: string
+  downloadUrl?: string | null
+  videoBlobRef?: MutableRefObject<Blob | null>
   onVideoReplaced: (blob: Blob) => void | Promise<void>
   className?: string
 }
@@ -24,6 +27,9 @@ export function MvpChineseSubtitleRemovalPanel({
   videoUrl,
   videoLoading = false,
   jobId,
+  projectId,
+  downloadUrl,
+  videoBlobRef,
   onVideoReplaced,
   className,
 }: Props) {
@@ -41,7 +47,7 @@ export function MvpChineseSubtitleRemovalPanel({
       setErr("Vmake API 키가 없습니다. 상단 설정에서 API Key / Secret Access Key를 입력해 주세요.")
       return
     }
-    if (!videoUrl) {
+    if (!videoUrl && !jobId && !videoBlobRef?.current) {
       setErr("짜집기 영상이 아직 준비되지 않았습니다.")
       return
     }
@@ -52,9 +58,18 @@ export function MvpChineseSubtitleRemovalPanel({
     setStatus("짜집기 영상 준비 중…")
 
     try {
-      const videoBlob = await fetchStudioVideoBlob(videoUrl)
+      let videoBlob = videoBlobRef?.current ?? null
+      if (!videoBlob || videoBlob.size < 20_000) {
+        videoBlob = await fetchStudioVideoBlob(videoUrl, {
+          jobId,
+          projectId,
+          downloadUrl,
+        })
+      }
       if (!videoBlob) {
-        throw new Error("현재 미리보기 영상을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.")
+        throw new Error(
+          "짜집기 영상을 불러오지 못했습니다. 편집 탭에서 미리보기가 재생되는지 확인한 뒤, 새로고침 후 다시 시도해 주세요."
+        )
       }
 
       setStatus("Vmake AI로 중국어 자막 제거 중… (수 분 소요될 수 있습니다)")
@@ -75,7 +90,7 @@ export function MvpChineseSubtitleRemovalPanel({
     } finally {
       setLoading(false)
     }
-  }, [videoUrl, jobId, onVideoReplaced])
+  }, [videoUrl, jobId, projectId, downloadUrl, videoBlobRef, onVideoReplaced])
 
   return (
     <div

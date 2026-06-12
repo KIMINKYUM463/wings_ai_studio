@@ -363,7 +363,7 @@ async function prepareCapCutMedia(input: FactoryCapCutExportInput): Promise<Prep
 
   if (!videoBlob || videoBlob.size < MIN_VIDEO_BLOB_BYTES) {
     throw new Error(
-      "CapCut용 미리보기 영상을 서버에서 불러오지 못했습니다. 인터넷 연결을 확인하고 새로고침 후 다시 시도해 주세요. (배포 서버에 public/samples MP4가 포함돼 있는지도 확인해 주세요.)"
+      "CapCut용 짜집기 영상(MP4)을 불러오지 못했습니다. 편집 탭에서 미리보기가 재생되는지 확인하고, 새로고침 후 다시 시도해 주세요. 반복되면 짜집기를 다시 실행해 주세요."
     )
   }
   if (!audioBlob || audioBlob.size < MIN_TTS_BLOB_BYTES) {

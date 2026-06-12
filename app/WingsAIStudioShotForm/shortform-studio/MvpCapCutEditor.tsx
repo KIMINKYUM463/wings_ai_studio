@@ -168,6 +168,8 @@ type Props = {
   onClose?: () => void
   onNext: () => void
   onVideoReplaced?: (blob: Blob) => void | Promise<void>
+  projectId?: string
+  videoBlobRef?: React.MutableRefObject<Blob | null>
   bgmClips: MvpBgmClip[]
   onBgmClipsChange: (next: MvpBgmClip[]) => void
 }
@@ -250,6 +252,8 @@ export function MvpCapCutEditor(props: Props) {
     onClose,
     onNext,
     onVideoReplaced,
+    projectId,
+    videoBlobRef,
     bgmClips,
     onBgmClipsChange,
   } = props
@@ -735,6 +739,9 @@ export function MvpCapCutEditor(props: Props) {
                     videoUrl={resolvedVideoUrl}
                     videoLoading={videoLoading}
                     jobId={result.jobId}
+                    projectId={projectId}
+                    downloadUrl={result.downloadUrl}
+                    videoBlobRef={videoBlobRef}
                     onVideoReplaced={onVideoReplaced}
                   />
                 ) : null}

@@ -12,8 +12,8 @@ import {
   buildMvpSubtitleSrt,
   exportMvpCapCutProject,
   fetchMvpTtsBlob,
-  fetchMvpVideoBlob,
 } from "@/lib/mvp-capcut-export"
+import { resolveMvpStudioVideoBlob } from "@/lib/mvp-studio-video-blob"
 import { renderMvpPreviewToBlob } from "@/lib/mvp-preview-render"
 import { mvpAssetDownloadFilename, mvpRenderDownloadFilename } from "@/lib/mvp-render-filename"
 import type { LineSubtitleCue } from "@/lib/shotform-mvp-edit-script"
@@ -24,8 +24,10 @@ import { StudioPageCard, studio } from "../components/ShotFormStudioUI"
 
 type Props = {
   projectName: string
+  projectId?: string
   result: AutoEditJobResult
   videoUrl: string | null
+  videoBlobRef?: React.MutableRefObject<Blob | null>
   audioUrl: string | null
   ttsBlobRef: React.MutableRefObject<Blob | null>
   voiceLineCues: VoiceLineCue[] | null
@@ -46,10 +48,31 @@ type Props = {
 
 type BusyKind = "capcut" | "render" | "mix" | "tts" | "srt" | null
 
+async function loadExportVideoBlob(
+  videoBlobRef: React.MutableRefObject<Blob | null> | undefined,
+  videoUrl: string | null,
+  result: AutoEditJobResult,
+  projectId?: string
+): Promise<Blob | null> {
+  if (videoBlobRef?.current && videoBlobRef.current.size >= 4096) {
+    return videoBlobRef.current
+  }
+  const blob = await resolveMvpStudioVideoBlob({
+    videoUrl,
+    downloadUrl: result.downloadUrl,
+    jobId: result.jobId,
+    projectId,
+  })
+  if (blob && videoBlobRef) videoBlobRef.current = blob
+  return blob
+}
+
 export function MvpExportPanel({
   projectName,
+  projectId,
   result,
   videoUrl,
+  videoBlobRef: parentVideoBlobRef,
   audioUrl,
   ttsBlobRef,
   voiceLineCues,
@@ -75,15 +98,14 @@ export function MvpExportPanel({
   const [busy, setBusy] = useState<BusyKind>(null)
   const [exportMsg, setExportMsg] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
-  const videoBlobRef = useRef<Blob | null>(null)
+  const localVideoBlobRef = useRef<Blob | null>(null)
+  const videoBlobRef = parentVideoBlobRef ?? localVideoBlobRef
 
   const buildInput = useCallback(async () => {
-    if (!videoBlobRef.current) {
-      videoBlobRef.current = await fetchMvpVideoBlob(videoUrl, result.downloadUrl)
-    }
+    const blob = await loadExportVideoBlob(videoBlobRef, videoUrl, result, projectId)
     return buildMvpCapCutExportInput({
       result,
-      videoBlob: videoBlobRef.current,
+      videoBlob: blob,
       videoUrl,
       audioUrl,
       ttsFallbackBlob: ttsBlobRef.current,
@@ -118,6 +140,8 @@ export function MvpExportPanel({
     audioDurationSec,
     scriptStyle,
     bgmClips,
+    projectId,
+    videoBlobRef,
   ])
 
   const handleCapCutExport = useCallback(async () => {
@@ -151,12 +175,12 @@ export function MvpExportPanel({
       if (!videoUrl && !result.downloadUrl) {
         throw new Error("영상 URL이 없습니다. 먼저 편집 단계에서 영상을 불러오세요.")
       }
-      const blob =
-        videoBlobRef.current ?? (await fetchMvpVideoBlob(videoUrl, result.downloadUrl))
+      const blob = await loadExportVideoBlob(videoBlobRef, videoUrl, result, projectId)
       if (!blob || blob.size < 4096) {
-        throw new Error("영상 파일을 읽을 수 없습니다. 다시 편집 후 시도하세요.")
+        throw new Error(
+          "짜집기 영상을 불러오지 못했습니다. 편집 탭에서 미리보기가 재생되는지 확인한 뒤 다시 시도해 주세요."
+        )
       }
-      videoBlobRef.current = blob
       downloadBlob(blob, mvpAssetDownloadFilename(projectName, "mix", "mp4"))
       setExportMsg("짜집기 영상(MP4)을 다운로드했습니다.")
     } catch (e) {
@@ -164,7 +188,7 @@ export function MvpExportPanel({
     } finally {
       setBusy(null)
     }
-  }, [projectName, videoUrl, result.downloadUrl])
+  }, [projectName, projectId, videoUrl, result, videoBlobRef])
 
   const handleDownloadTts = useCallback(async () => {
     setBusy("tts")

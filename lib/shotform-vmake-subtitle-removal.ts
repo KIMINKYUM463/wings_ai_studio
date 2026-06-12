@@ -1,4 +1,5 @@
 import { assertPreviewMp4Blob } from "@/lib/mvp-mp4-preview"
+import { resolveMvpStudioVideoBlob } from "@/lib/mvp-studio-video-blob"
 
 export const VMAKE_SUBTITLE_REMOVAL_SLOW_HINT =
   "30초 영상도 보통 2~8분, 서버가 바쁘면 10분 이상 걸릴 수 있습니다. 렌더 후 AI 처리 단계이니 창을 닫지 마세요."
@@ -21,17 +22,16 @@ export function shotformVmakeSecretAccessKey(): string {
   return (localStorage.getItem("shotform_vmake_secret_access_key") || "").trim()
 }
 
-export async function fetchStudioVideoBlob(videoUrl: string | null): Promise<Blob | null> {
-  if (!videoUrl?.trim()) return null
-  try {
-    const res = await fetch(videoUrl, { cache: "no-store" })
-    if (!res.ok) return null
-    const blob = await res.blob()
-    if (blob.size < 20_000) return null
-    return blob
-  } catch {
-    return null
-  }
+export async function fetchStudioVideoBlob(
+  videoUrl: string | null,
+  opts?: { jobId?: string; projectId?: string; downloadUrl?: string | null }
+): Promise<Blob | null> {
+  return resolveMvpStudioVideoBlob({
+    videoUrl,
+    downloadUrl: opts?.downloadUrl,
+    jobId: opts?.jobId,
+    projectId: opts?.projectId,
+  })
 }
 
 export async function requestChineseSubtitleRemoval(input: {

@@ -187,6 +187,7 @@ export function MvpPostEditStudio({
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const fetchedBlobRef = useRef<string | null>(null)
+  const mp4BlobRef = useRef<Blob | null>(null)
 
   const [resolvedVideoUrl, setResolvedVideoUrl] = useState<string | null>(videoBlobUrl)
   const [videoLoading, setVideoLoading] = useState(false)
@@ -666,6 +667,7 @@ export function MvpPostEditStudio({
         /* blob URL은 유지 */
       }
       fetchedBlobRef.current = url
+      mp4BlobRef.current = blob
       setResolvedVideoUrl(url)
       setErr(null)
       if (projectId && result.jobId) {
@@ -832,6 +834,7 @@ export function MvpPostEditStudio({
         URL.revokeObjectURL(fetchedBlobRef.current)
         fetchedBlobRef.current = null
       }
+      mp4BlobRef.current = null
       if (fetchedTtsUrlRef.current) {
         URL.revokeObjectURL(fetchedTtsUrlRef.current)
         fetchedTtsUrlRef.current = null
@@ -1347,8 +1350,10 @@ export function MvpPostEditStudio({
       {studioPhase === "export" ? (
         <MvpExportPanel
           projectName={projectName}
+          projectId={projectId}
           result={result}
           videoUrl={resolvedVideoUrl}
+          videoBlobRef={mp4BlobRef}
           audioUrl={audioUrl}
           ttsBlobRef={ttsBlobRef}
           voiceLineCues={voiceLineCues}
@@ -1468,6 +1473,8 @@ export function MvpPostEditStudio({
           onClose={onClose}
           onNext={() => setPhase("script-style")}
           onVideoReplaced={applyVideoBlob}
+          projectId={projectId}
+          videoBlobRef={mp4BlobRef}
         />
       ) : null}
     </div>
