@@ -153,6 +153,36 @@ export function visionFrameNearest(
   return bestDist <= maxDeltaSec ? best : null
 }
 
+/** 소스 구간 안·근처 Vision 캡션 — 「제품 사용 장면」 폴백 대신 실제 화면 묘사 */
+function visionCaptionForSourceRange(
+  analysis: VideoAnalysis,
+  sourceStart: number,
+  sourceEnd: number
+): string | null {
+  const frames = analysis.vision_frames?.filter((f) => f.caption?.trim()) ?? []
+  if (!frames.length) return null
+
+  const inRange = frames.filter(
+    (f) => f.timeSec >= sourceStart - 0.6 && f.timeSec <= sourceEnd + 0.6
+  )
+  for (const f of inRange) {
+    const cap = f.caption!.trim()
+    if (!descriptionSuggestsPresenterOrFace(cap)) return cap
+  }
+
+  const mid = (sourceStart + sourceEnd) / 2
+  const nearest = visionFrameNearest(analysis, mid, 6)
+  if (nearest?.caption?.trim() && !descriptionSuggestsPresenterOrFace(nearest.caption)) {
+    return nearest.caption.trim()
+  }
+
+  for (const f of frames) {
+    const cap = f.caption!.trim()
+    if (!descriptionSuggestsPresenterOrFace(cap)) return cap
+  }
+  return null
+}
+
 const VEHICLE_HINT = /차량|자동차|차안|차\s*내부|시트|대시보드|트렁크|운전석|조수석|car\s*interior|vehicle|dashboard|car\s*seat/i
 
 function captionConflictsWithText(caption: string, text: string): boolean {
@@ -177,6 +207,11 @@ export function describeSourceRangeFromAnalysis(
   const vf = visionFrameNearest(analysis, mid, 5)
   if (vf?.caption?.trim() && !descriptionSuggestsPresenterOrFace(vf.caption)) {
     return vf.caption.trim()
+  }
+
+  const visionCaption = visionCaptionForSourceRange(analysis, sourceStart, sourceEnd)
+  if (visionCaption) {
+    return visionCaption
   }
 
   const hasVisionCaptions = analysis.vision_frames?.some((f) => f.caption?.trim())

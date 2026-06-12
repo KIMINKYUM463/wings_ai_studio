@@ -65,6 +65,17 @@ const GENERIC_TEMPLATE_PATTERNS = [
   /실사용하면\s*차이가/,
   /이렇게\s*쓰면\s*바로\s*편해져요/,
   /쓰다\s*보면\s*왜\s*필요한지/,
+  /이\s*정도면\s*충분히\s*만족/,
+  /이\s*포인트,?\s*놓치면/,
+  /이\s*부분이\s*핵심/,
+  /이\s*제품으로\s*해결/,
+  /포인트가\s*딱\s*보여/,
+  /생각보다\s*편해요/,
+  /이렇게\s*쉬워요/,
+  /이렇게\s*활용하면/,
+  /한번\s*써보면\s*계속\s*손이/,
+  /설치하고\s*나면\s*바로\s*체감/,
+  /실제로\s*쓰면\s*이렇게/,
 ] as const
 
 /** 중복 시 순환할 고유 폴백 대본 */
@@ -102,6 +113,20 @@ const SCENE_READOUT_PATTERNS = [
   /모습이\s*멋져요/,
   /(?:남성|여성)이\s*.+?(?:치는|휘두르|움직이)/,
 ] as const
+
+/** 화면과 무관한 추상 쇼핑 클리셰 */
+export function isAbstractShoppingNarration(text: string): boolean {
+  const t = text.trim().replace(/\n/g, " ")
+  if (!t) return true
+  if (isGenericTemplateNarration(t)) return true
+  const hasConcreteVisual =
+    /먼지|청소|흡입|시트|바닥|노즐|필터|차|구석|틈새|매트|진공|닦|빨아|제거|정리/.test(t)
+  if (/^(이|그)\s*(포인트|부분)/.test(t) && !hasConcreteVisual) return true
+  if (/해결하세요|놓치면 아쉬워|핵심이에요|만족할 거예요|손이 가요/.test(t) && !hasConcreteVisual) {
+    return true
+  }
+  return false
+}
 
 /** 템플릿 폴백 대본 — AI 미생성·후처리 오염 */
 export function isGenericTemplateNarration(text: string): boolean {
@@ -219,11 +244,21 @@ function buildFallbackNarration(d: string, productName: string | undefined, rule
       "플라크 걱정, 이렇게 줄여보세요",
     ])
   }
-  if (/청소|먼지|흡입|吸尘|닦(?:아|여|으|이|는|고)/.test(d)) {
+  if (/차량|차\s*안|자동차|시트|운전석|바닥|車|车载|car/i.test(d)) {
     pools.push([
-      `${product}로 청소가 생각보다 쉬워요`,
-      "이렇게 닦으면 먼지가 싹 빠져요",
-      "구석구석까지 깔끔하게 관리해요",
+      "차 시트 틈새 먼지도 이렇게 빨아들여요",
+      "바닥 매트에 낀 먼지, 한 번에 흡입돼요",
+      "차 안 구석 먼지 관리가 이렇게 쉬워요",
+      "좁은 틈새도 노즐로 싹 정리돼요",
+      "운전석 발밑 먼지, 손 안 대고 빼내요",
+    ])
+  }
+  if (/청소|먼지|흡입|吸尘|진공|vacuum|닦(?:아|여|으|이|는|고)/.test(d)) {
+    pools.push([
+      `${product}로 먼지가 싹 빨려 들어가요`,
+      "이렇게 흡입하면 구석 먼지가 바로 빠져요",
+      "손이 안 가도 바닥 먼지가 정리돼요",
+      "좁은 곳 먼지도 힘 안 들고 빼내요",
     ])
   }
   if (/버튼|작동|켜|开关/.test(d)) {
@@ -260,10 +295,8 @@ function buildFallbackNarration(d: string, productName: string | undefined, rule
 
   if (!pools.length) {
     pools.push([
-      `${product}, 써보니 생각보다 다르더라고요`,
-      "이거 왜 이제 알았는지 모르겠어요",
-      "쓰다 보면 왜 필요한지 바로 느껴져요",
-      "설치하고 나면 분위기가 확 달라져요",
+      product ? `${product}, 이 장면에서 체감이 확 와요` : "이 장면에서 체감이 확 와요",
+      product ? `${product} 쓰는 모습, 생각보다 실용적이에요` : "쓰는 모습, 생각보다 실용적이에요",
     ])
   }
 
@@ -326,7 +359,7 @@ export function pickUniqueNarrationLine(args: {
   const isDup = (t: string) => narrationLineIsDuplicateOfPrior(t, priorLines)
 
   const prefer = preferred?.trim()
-  if (prefer && !isDup(prefer) && !isGenericTemplateNarration(prefer)) {
+  if (prefer && !isDup(prefer) && !isAbstractShoppingNarration(prefer)) {
     const fitted = formatNarrationForSceneDuration(prefer, duration)
     if (fitted && !narrationLooksIncomplete(fitted.replace(/\n/g, " "))) {
       return fitted
@@ -340,17 +373,9 @@ export function pickUniqueNarrationLine(args: {
       duration,
       cutIndex * 13 + attempt * 9 + 1
     )
-    if (!isDup(candidate) && !isGenericTemplateNarration(candidate)) {
+    if (!isDup(candidate) && !isAbstractShoppingNarration(candidate)) {
       return candidate
     }
-  }
-
-  for (let attempt = 0; attempt < UNIQUE_NARRATION_FALLBACKS.length; attempt++) {
-    const candidate = formatNarrationForSceneDuration(
-      UNIQUE_NARRATION_FALLBACKS[(cutIndex + attempt) % UNIQUE_NARRATION_FALLBACKS.length]!,
-      duration
-    )
-    if (!isDup(candidate)) return candidate
   }
 
   return formatNarrationForSceneDuration(
@@ -439,13 +464,46 @@ function rephraseSceneCore(description: string, productName?: string, ruleOffset
       },
     },
     {
+      re: /차량\s*바닥|바닥.*먼지|매트/,
+      say: () => {
+        const opts = [
+          "바닥 매트 먼지, 이렇게 싹 빨아들여요",
+          "발밑 먼지까지 한 번에 정리돼요",
+          "차 바닥 청소, 생각보다 빨라요",
+        ]
+        return opts[ruleOffset % opts.length]!
+      },
+    },
+    {
+      re: /차량\s*내부|차\s*안|운전석|시트|車内/,
+      say: () => {
+        const opts = [
+          "차 안 틈새 먼지도 이렇게 빼낼 수 있어요",
+          "시트 사이 먼지, 손 안 대고 정리돼요",
+          "차량 내부 청소가 이렇게 간단해요",
+        ]
+        return opts[ruleOffset % opts.length]!
+      },
+    },
+    {
+      re: /진공\s*청소|핸디\s*청소|吸尘|vacuum/i,
+      say: () => {
+        const opts = [
+          productName ? `${productName} 흡입력, 먼지가 바로 빨려 들어가요` : "흡입력이 생각보다 확실해요",
+          "좁은 노즐로 구석 먼지까지 싹",
+          "핸디 사이즈인데 흡입은 꽤 세요",
+        ]
+        return opts[ruleOffset % opts.length]!
+      },
+    },
+    {
       re: /(.+?)을?\s*청소하는/,
       say: (m) => {
         const sub = m[1]!.trim()
         if (descriptionSuggestsPresenterOrFace(sub)) {
-          return productName ? `${productName}로 청소, 생각보다 편해요` : "이렇게 청소하면 편해요"
+          return productName ? `${productName}로 먼지가 싹 빨려 들어가요` : "먼지가 싹 빨려 들어가요"
         }
-        return `${sub} 청소, 생각보다 편해요`
+        return `${sub} 청소, 먼지가 바로 빠져요`
       },
     },
     {
@@ -453,9 +511,9 @@ function rephraseSceneCore(description: string, productName?: string, ruleOffset
       say: (m) => {
         const sub = m[1]!.trim()
         if (descriptionSuggestsPresenterOrFace(sub)) {
-          return productName ? `${productName}로 청소가 이렇게 쉬워요` : "이렇게 청소하면 쉬워요"
+          return productName ? `${productName}로 구석 먼지까지 정리돼요` : "구석 먼지까지 정리돼요"
         }
-        return `${sub} 청소가 이렇게 쉬워요`
+        return `${sub} 먼지, 이렇게 빨아들여요`
       },
     },
     {
@@ -515,34 +573,13 @@ function rephraseSceneCore(description: string, productName?: string, ruleOffset
       },
     },
     {
-      re: /제품 사용 장면|사용 장면/,
-      say: () => {
-        const opts = [
-          productName ? `${productName}, 실제로 쓰면 이렇게예요` : "실제로 쓰면 이렇게예요",
-          "설치하고 나면 바로 체감돼요",
-          "써보면 왜 필요한지 납득돼요",
-          "이렇게 쓰니까 손이 덜 가요",
-          "쓰는 순간 편해지는 느낌이에요",
-          "이 장면에서 장점이 딱 보여요",
-        ]
-        return opts[ruleOffset % opts.length]!
-      },
-    },
-    {
-      re: /사용|쓰는|활용/,
-      say: () => {
-        const opts = [
-          "이렇게 쓰면 바로 편해져요",
-          "쓰다 보면 왜 필요한지 느껴져요",
-          "실제로 쓰면 체감이 달라요",
-          "이렇게 활용하면 훨씬 깔끔해요",
-          "한번 써보면 계속 손이 가요",
-          "이 정도면 충분히 만족할 거예요",
-          "보는 것보다 직접 쓰면 더 와닿아요",
-          "이 포인트, 놓치면 아쉬워요",
-        ]
-        return opts[ruleOffset % opts.length]!
-      },
+      re: /제품 사용 장면|사용 장면|제품 장면/,
+      say: () =>
+        buildFallbackNarration(
+          `${productName || ""} 차량 바닥 먼지 청소 흡입`,
+          productName,
+          ruleOffset
+        ),
     },
     {
       re: /보여|확인/,

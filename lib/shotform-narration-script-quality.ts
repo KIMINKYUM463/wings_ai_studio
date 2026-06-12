@@ -1,6 +1,7 @@
 import {
   extractVisualDescription,
   formatSceneDescriptionHint,
+  isAbstractShoppingNarration,
   isGenericTemplateNarration,
   looksLikeDescriptiveSceneNarration,
   looksLikeRawSceneCopy,
@@ -214,6 +215,73 @@ export function visualGroundingScore(text: string, visualCard: string): number {
   return hits / themes.length
 }
 
+const WEAK_VISUAL_RE = /^(제품 사용 장면|제품 장면|장면|사용 장면)$/
+
+const CAR_VACUUM_SCENE_HINTS = [
+  "차량 시트 틈새에 낀 먼지를 핸디청소기로 빨아들이는 장면",
+  "차량 바닥 매트 위 먼지를 진공청소기로 흡입하는 장면",
+  "차 안 구석 먼지를 좁은 노즐로 제거하는 장면",
+  "운전석 발밑 먼지를 손 대지 않고 빨아들이는 장면",
+  "차량 내부 바닥 청소가 한 번에 되는 장면",
+  "핸디청소기로 대시보드·문턱 먼지를 정리하는 장면",
+  "차 트렁크 구석 먼지를 흡입하는 장면",
+  "좁은 틈새 노즐로 시트 사이 먼지를 빼내는 장면",
+  "차량 바닥 먼지가 흡입구에 바로 빨려 들어가는 장면",
+] as const
+
+function productSuggestsCarVacuum(productName: string, productContext?: string): boolean {
+  const blob = `${productName} ${productContext || ""}`
+  return /차량|차\s*안|자동차|진공|청소|핸디|车载|吸尘|vacuum|車|먼지/.test(blob)
+}
+
+/** 「제품 사용 장면」 등 빈 화면 설명을 제품·컷 맥락으로 보강 */
+export function enrichVisualCardForNarration(
+  visualCard: string,
+  productName: string,
+  cutIndex: number,
+  productContext?: string
+): string {
+  const desc = extractVisualDescription(visualCard)
+  if (!WEAK_VISUAL_RE.test(desc)) return visualCard
+
+  if (productSuggestsCarVacuum(productName, productContext)) {
+    return CAR_VACUUM_SCENE_HINTS[cutIndex % CAR_VACUUM_SCENE_HINTS.length]!
+  }
+
+  const genericHints = [
+    `${productName}으로 구석 먼지를 정리하는 장면`,
+    `${productName} 실사용으로 체감되는 장면`,
+    `${productName} 핵심 기능이 보이는 장면`,
+  ]
+  return genericHints[cutIndex % genericHints.length]!
+}
+
+function narrationNeedsPolish(
+  text: string,
+  visualCard: string,
+  priorLines: readonly string[],
+  rewriteMode: boolean
+): boolean {
+  const grounding = visualGroundingScore(text, visualCard)
+  const duplicatePrior = narrationLineIsDuplicateOfPrior(text, priorLines)
+  const definitelyWeak =
+    !text ||
+    isAbstractShoppingNarration(text) ||
+    narrationTextLooksWeak(text, visualCard) ||
+    looksLikeRawSceneCopy(text, visualCard) ||
+    looksLikeDescriptiveSceneNarration(text)
+
+  if (rewriteMode) {
+    return Boolean(
+      definitelyWeak ||
+        duplicatePrior ||
+        grounding < 0.34 ||
+        narrationLooksIncomplete(text.replace(/\n/g, " "))
+    )
+  }
+  return definitelyWeak || duplicatePrior || (grounding < 0.2 && priorLines.length > 0)
+}
+
 /** 프롬프트용 — 컷 화면에서 꼭 반영할 키워드 */
 export function visualKeywordsForScript(visualCard: string): string[] {
   const themes = detectVisualThemes(visualCard)
@@ -361,10 +429,14 @@ export function buildNarrationCutsPromptBlock(
           ? " · **1초 내외 컷**: 완결된 짧은 호흡 한 줄 — 조사·명사로 끝나는 미완성 금지"
           : ""
       const vk = visualKeywordsForScript(c.visual_card)
-      const keywordHint = vk.length ? ` · 화면 키워드: ${vk.join(", ")}` : ""
+      const keywordHint = vk.length ? ` · **반드시 포함**: ${vk.join(", ")}` : ""
+      const mustMention =
+        vk.length > 0
+          ? ` · 이 컷 대본에 위 키워드 중 1개 이상·구체 행동(빨아들이다/흡입/닦다 등) 필수`
+          : " · 화면에 보이는 사물·행동을 구체적으로 말할 것"
       return `${c.index}. 출력 ${c.output_start}-${c.output_end}s (${c.duration}초, ${lineHint}줄 권장, 최대 ${maxChars}자) · ${role}${shortCut}
    소스 ${c.source_start.toFixed(1)}-${c.source_end.toFixed(1)}s
-   화면: ${formatSceneDescriptionHint(c.visual_card)}${keywordHint}`
+   화면: ${formatSceneDescriptionHint(c.visual_card)}${keywordHint}${mustMention}`
     })
     .join("\n\n")
 }
@@ -380,55 +452,53 @@ export function polishCutNarrationLines(
     /** 대본 다시쓰기 — AI 문장 유지·결정론적 폴백 회피 */
     rewriteMode?: boolean
     rewriteSalt?: number
+    productContext?: string
   }
 ): string[] {
   const allowTemplate = opts?.allowTemplateFallback !== false
   const fitToDuration = opts?.fitToDuration === true
   const rewriteMode = Boolean(opts?.rewriteMode)
   const rewriteSalt = opts?.rewriteSalt ?? 0
+  const productContext = opts?.productContext
   const prior: string[] = []
 
   const polished = lines.map((raw, i) => {
     const ctx = contexts[i]!
+    const visualCard = enrichVisualCardForNarration(
+      ctx.visual_card,
+      productName,
+      i,
+      productContext
+    )
     let text = sanitizeNarrationForOutput(raw.trim())
-    const grounding = visualGroundingScore(text, ctx.visual_card)
-
     const duplicatePrior = narrationLineIsDuplicateOfPrior(text, prior)
-    const definitelyWeak =
-      !text ||
-      isGenericTemplateNarration(text) ||
-      narrationTextLooksWeak(text, ctx.visual_card) ||
-      looksLikeRawSceneCopy(text, ctx.visual_card)
-    const weakOpening = i === 0 && (definitelyWeak || /화면\s*보니까|장면\s*보면|바로\s*이해됐/.test(text))
-    const needsPolish = rewriteMode
-      ? Boolean(
-          !text ||
-            looksLikeRawSceneCopy(text, ctx.visual_card) ||
-            narrationLooksIncomplete(text.replace(/\n/g, " "))
-        )
-      : definitelyWeak || duplicatePrior || weakOpening
+    const weakOpening =
+      i === 0 &&
+      (narrationNeedsPolish(text, visualCard, prior, rewriteMode) ||
+        /화면\s*보니까|장면\s*보면|바로\s*이해됐/.test(text))
+    const needsPolish = narrationNeedsPolish(text, visualCard, prior, rewriteMode) || weakOpening
 
     if (i === 0 && weakOpening) {
-      const hook = openingHookForVisual(ctx.visual_card, productName, 0)
-      if (hook) text = hook
+      const hook = openingHookForVisual(visualCard, productName, 0)
+      if (hook && !isAbstractShoppingNarration(hook)) text = hook
     }
 
     if (needsPolish) {
       const variantBase = (duplicatePrior ? i * 7 + 3 : i * 5 + 1) + rewriteSalt
       const candidates = [
-        rephraseSceneToShoppingNarration(ctx.visual_card, productName, ctx.duration),
-        rephraseSceneToShoppingNarrationVariant(ctx.visual_card, productName, ctx.duration, variantBase),
-        rephraseSceneToShoppingNarrationVariant(ctx.visual_card, productName, ctx.duration, variantBase + 4),
-        rephraseSceneToShoppingNarrationVariant(ctx.visual_card, productName, ctx.duration, variantBase + 9),
-        rephraseSceneToShoppingNarrationVariant(ctx.visual_card, productName, ctx.duration, variantBase + 13),
+        rephraseSceneToShoppingNarration(visualCard, productName, ctx.duration),
+        rephraseSceneToShoppingNarrationVariant(visualCard, productName, ctx.duration, variantBase),
+        rephraseSceneToShoppingNarrationVariant(visualCard, productName, ctx.duration, variantBase + 4),
+        rephraseSceneToShoppingNarrationVariant(visualCard, productName, ctx.duration, variantBase + 9),
+        rephraseSceneToShoppingNarrationVariant(visualCard, productName, ctx.duration, variantBase + 13),
       ]
       for (const cand of candidates) {
-        if (!allowTemplate && isGenericTemplateNarration(cand)) continue
-        text = pickBetterLine(text, cand, ctx.visual_card, prior)
+        if (!allowTemplate && isAbstractShoppingNarration(cand)) continue
+        text = pickBetterLine(text, cand, visualCard, prior)
       }
-      if (narrationLineIsDuplicateOfPrior(text, prior)) {
+      if (narrationLineIsDuplicateOfPrior(text, prior) || isAbstractShoppingNarration(text)) {
         text = rephraseSceneToShoppingNarrationVariant(
-          ctx.visual_card,
+          visualCard,
           productName,
           ctx.duration,
           variantBase + 19
@@ -443,27 +513,22 @@ export function polishCutNarrationLines(
     }
     if (fitToDuration && narrationLooksIncomplete(text)) {
       const fallback = formatNarrationForSceneDuration(
-        rephraseSceneToShoppingNarrationVariant(ctx.visual_card, productName, ctx.duration, i + 17),
+        rephraseSceneToShoppingNarrationVariant(visualCard, productName, ctx.duration, i + 17),
         ctx.duration
       )
       if (fallback && !narrationLooksIncomplete(fallback.replace(/\n/g, " "))) {
         text = fallback
       } else {
-        text = rephraseSceneToShoppingNarrationVariant(
-          ctx.visual_card,
-          productName,
-          ctx.duration,
-          i + 31
-        )
+        text = rephraseSceneToShoppingNarrationVariant(visualCard, productName, ctx.duration, i + 31)
       }
     }
     text = pickUniqueNarrationLine({
-      visualHint: ctx.visual_card,
+      visualHint: visualCard,
       productName,
       duration: ctx.duration,
       cutIndex: i + rewriteSalt * 13,
       priorLines: prior,
-      preferred: text,
+      preferred: isAbstractShoppingNarration(text) ? undefined : text,
     })
     prior.push(text)
     return sanitizeNarrationForOutput(text)

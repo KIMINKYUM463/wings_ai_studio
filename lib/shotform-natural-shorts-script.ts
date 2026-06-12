@@ -151,6 +151,7 @@ export function sanitizeNarrationForOutput(text: string): string {
   t = t.replace(/\d+\s*[x×*]\s*\d+(?:\s*(?:cm|mm|m))?/gi, "")
   t = t.replace(/(?:가로|세로|너비|높이|두께|길이)\s*\d+/gi, "")
   t = t.replace(/[*#]\s*\d+\s*[.!！，,]*/g, "")
+  t = t.replace(/^[,，、.!！\s]+/g, "")
   t = t.replace(/[!！，,]{2,}/g, " ")
   t = t.replace(/^[0-9*#.,!！\s]+$/gm, "")
 
