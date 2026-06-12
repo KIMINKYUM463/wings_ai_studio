@@ -11,7 +11,8 @@ import {
   buildEditPlanFromMix,
   enrichEditPlanWithCutCaptions,
 } from "@/lib/shotform-auto-edit-mix"
-import { resolveAutoEditScript } from "@/lib/shotform-auto-edit-script-step"
+import { resolveAutoEditScript, withTimeout } from "@/lib/shotform-auto-edit-script-step"
+import { VMAKE_SUBTITLE_REMOVAL_TIMEOUT_MS } from "@/lib/shotform-vmake-subtitle-removal"
 import { autoEditDownloadUrl } from "@/lib/shotform-auto-edit-download"
 import { resolveFfmpegPath } from "@/lib/ffmpeg-binaries"
 import {
@@ -291,39 +292,6 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
       }
       outputDuration = await validateRenderedMp4(outputPath, 1, editPlan.target_duration)
 
-      if (shouldRemoveSubtitles) {
-        putAutoEditJob({
-          ...base,
-          step: "subtitle_removal",
-          analyses: usable,
-          analysis: usable[0],
-          productAnalysis,
-          mixInfo,
-          editPlan,
-          excludedVideos,
-          createdAt,
-        })
-        const cleanedPath = path.join(dir, "output_clean.mp4")
-        try {
-          await removeChineseSubtitlesFromLocalFile({
-            apiKey: input.vmakeApiKey,
-            secretAccessKey: input.vmakeSecretAccessKey,
-            sourcePath: outputPath,
-            outputPath: cleanedPath,
-          })
-          await fs.rename(cleanedPath, outputPath)
-          outputDuration = await validateRenderedMp4(outputPath, 1, editPlan.target_duration)
-        } catch (e) {
-          if (isVmakeRouteNotFoundError(e)) {
-            subtitleRemovalSkipped = true
-            subtitleRemovalWarning = `${e.message} 짜집기 영상은 자막 제거 없이 사용합니다.`
-            await fs.rm(cleanedPath, { force: true }).catch(() => undefined)
-          } else {
-            throw e
-          }
-        }
-      }
-
       outputStoragePath = null
       for (let attempt = 0; attempt < 2; attempt++) {
         outputStoragePath = await uploadAutoEditOutputToSupabase(jobId, outputPath)
@@ -351,6 +319,48 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
         outputPath,
         outputStoragePath,
       })
+
+      if (shouldRemoveSubtitles) {
+        putAutoEditJob({
+          ...base,
+          step: "subtitle_removal",
+          analyses: usable,
+          analysis: usable[0],
+          productAnalysis,
+          mixInfo,
+          editPlan,
+          excludedVideos,
+          downloadUrl,
+          outputDuration,
+          createdAt,
+          outputPath,
+          outputStoragePath,
+        })
+        const cleanedPath = path.join(dir, "output_clean.mp4")
+        try {
+          await withTimeout(
+            removeChineseSubtitlesFromLocalFile({
+              apiKey: input.vmakeApiKey,
+              secretAccessKey: input.vmakeSecretAccessKey,
+              sourcePath: outputPath,
+              outputPath: cleanedPath,
+            }),
+            VMAKE_SUBTITLE_REMOVAL_TIMEOUT_MS,
+            "Vmake 자막 제거 시간 초과(약 7분). 짜집기 영상은 자막 제거 없이 사용합니다."
+          )
+          await fs.rename(cleanedPath, outputPath)
+          outputDuration = await validateRenderedMp4(outputPath, 1, editPlan.target_duration)
+          outputStoragePath =
+            (await uploadAutoEditOutputToSupabase(jobId, outputPath)) ?? outputStoragePath
+        } catch (e) {
+          subtitleRemovalSkipped = true
+          const msg = e instanceof Error ? e.message : String(e)
+          subtitleRemovalWarning = isVmakeRouteNotFoundError(e)
+            ? `${msg} 짜집기 영상은 자막 제거 없이 사용합니다.`
+            : `${msg} 정보 탭에서 나중에 다시 시도할 수 있습니다.`
+          await fs.rm(cleanedPath, { force: true }).catch(() => undefined)
+        }
+      }
     } catch (renderErr) {
       renderSkipped = true
       const msg = renderErr instanceof Error ? renderErr.message : String(renderErr)

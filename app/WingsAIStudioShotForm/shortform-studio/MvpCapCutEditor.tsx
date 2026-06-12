@@ -72,6 +72,7 @@ import { MvpSubtitleStylePanel } from "./MvpSubtitleStylePanel"
 import { MvpTtsSpeedPicker } from "./MvpTtsSpeedPicker"
 import { MvpThumbnailPanel } from "./MvpThumbnailPanel"
 import { MvpAutoEditProductIntro } from "./MvpAutoEditProductIntro"
+import { MvpChineseSubtitleRemovalPanel } from "./MvpChineseSubtitleRemovalPanel"
 import { MvpVisualSceneList } from "./MvpVisualSceneList"
 import { MvpVoicePickerDialog } from "./MvpVoicePickerDialog"
 import {
@@ -166,6 +167,7 @@ type Props = {
   activeScene: number
   onClose?: () => void
   onNext: () => void
+  onVideoReplaced?: (blob: Blob) => void | Promise<void>
   bgmClips: MvpBgmClip[]
   onBgmClipsChange: (next: MvpBgmClip[]) => void
 }
@@ -247,6 +249,7 @@ export function MvpCapCutEditor(props: Props) {
     activeScene,
     onClose,
     onNext,
+    onVideoReplaced,
     bgmClips,
     onBgmClipsChange,
   } = props
@@ -725,12 +728,24 @@ export function MvpCapCutEditor(props: Props) {
           </div>
 
           <div className="flex-1 overflow-y-auto p-3">
-            {inspectorTab === "info" && result.productAnalysis ? (
-              <MvpAutoEditProductIntro
-                result={result}
-                videoUrl={resolvedVideoUrl}
-                playhead={playhead}
-              />
+            {inspectorTab === "info" ? (
+              <div className="space-y-3">
+                {onVideoReplaced ? (
+                  <MvpChineseSubtitleRemovalPanel
+                    videoUrl={resolvedVideoUrl}
+                    videoLoading={videoLoading}
+                    jobId={result.jobId}
+                    onVideoReplaced={onVideoReplaced}
+                  />
+                ) : null}
+                {result.productAnalysis ? (
+                  <MvpAutoEditProductIntro
+                    result={result}
+                    videoUrl={resolvedVideoUrl}
+                    playhead={playhead}
+                  />
+                ) : null}
+              </div>
             ) : null}
 
             {inspectorTab === "subtitle" ? (

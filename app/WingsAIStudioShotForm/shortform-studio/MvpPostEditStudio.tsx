@@ -1467,6 +1467,7 @@ export function MvpPostEditStudio({
           activeScene={activeScene}
           onClose={onClose}
           onNext={() => setPhase("script-style")}
+          onVideoReplaced={applyVideoBlob}
         />
       ) : null}
     </div>

@@ -468,7 +468,7 @@ async function pollAlgorithmTask(
     .filter(Boolean)
     .map((d) => Math.max(1000, Number(d) || 3000))
 
-  const minTotalMs = Number(process.env.VMAKE_POLL_MIN_TOTAL_MS || 3_600_000)
+  const minTotalMs = Number(process.env.VMAKE_POLL_MIN_TOTAL_MS || 600_000)
   let total = durations.reduce((sum, d) => sum + d, 0)
   const extended = [...durations]
   while (total < minTotalMs) {
