@@ -17,7 +17,7 @@ export const AUTO_EDIT_ANALYSIS_MODE_OPTIONS: Array<{
   {
     id: "fast",
     label: "고속",
-    hint: "브라우저 미리 분석 + Vision 1회 · 약 10~40초",
+    hint: "브라우저 미리 분석 + Vision 1회 · 영상 1~2개 10~40초, 3개↑ CDN이면 1~2분",
   },
   {
     id: "balanced",
@@ -248,8 +248,8 @@ export type AutoEditInput = {
     string,
     {
       duration: number
-      keyframeDataUrl: string
-      timeSec: number
+      keyframeDataUrl?: string
+      timeSec?: number
     }
   >
 }

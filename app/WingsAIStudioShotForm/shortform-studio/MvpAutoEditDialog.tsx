@@ -64,7 +64,7 @@ function stepIndex(step: AutoEditJobResult["step"]): number {
 }
 
 const ANALYZE_STEP_HINTS: Record<AutoEditAnalysisMode, string> = {
-  fast: "Vision 분석 중… (고속: 브라우저 미리 분석·약 10~40초)",
+  fast: "Vision 분석 중… (고속: 스트리밍 미리분석 후 Vision 1회, 보통 15~45초)",
   balanced: "키프레임 추출·Vision·장면 분석 중… (중간: 영상당 3~4장·약 1~3분)",
   precision: "영상별 심층 분석·mix 생성 중… (정밀: 영상당 8장·약 3~8분)",
 }
@@ -364,12 +364,14 @@ export function MvpAutoEditDialog({
       const preJobId = crypto.randomUUID()
       let clientVideoMeta: Record<
         string,
-        { duration: number; keyframeDataUrl: string; timeSec: number }
+        { duration: number; keyframeDataUrl?: string; timeSec?: number }
       > | undefined
+      let prefetchedBlobs: Record<string, Blob> | undefined
       if (analysisMode !== "precision") {
         setDownloadHint("브라우저에서 키프레임·길이 미리 추출 중…")
-        const meta = await extractClientVideoMetaForPicks(nextPicks, (msg) => setDownloadHint(msg))
-        if (Object.keys(meta).length > 0) clientVideoMeta = meta
+        const extracted = await extractClientVideoMetaForPicks(nextPicks, (msg) => setDownloadHint(msg))
+        if (Object.keys(extracted.meta).length > 0) clientVideoMeta = extracted.meta
+        if (Object.keys(extracted.blobs).length > 0) prefetchedBlobs = extracted.blobs
       }
 
       const allMetaReady =
@@ -377,10 +379,23 @@ export function MvpAutoEditDialog({
         clientVideoMeta &&
         nextPicks.every((p) => clientVideoMeta![p.video_id]?.keyframeDataUrl)
 
+      const allHaveDuration =
+        analysisMode === "fast" &&
+        clientVideoMeta &&
+        nextPicks.every((p) => (clientVideoMeta![p.video_id]?.duration ?? 0) > 0)
+
+      /** 고속+길이 확보 시 분석은 서버 병렬 — 업로드는 렌더 직전 CDN으로 (로컬·분석 체감 속도 우선) */
+      const skipBrowserUploadForFastAnalyze = Boolean(allHaveDuration)
+
       let sourcesPreUploaded = false
-      if (!allMetaReady) {
+      if (!allMetaReady && !skipBrowserUploadForFastAnalyze) {
         setDownloadHint("브라우저에서 영상을 받아 서버에 전달 중… (CDN 우회)")
-        await uploadAutoEditSourcesFromBrowser(preJobId, nextPicks, (msg) => setDownloadHint(msg))
+        await uploadAutoEditSourcesFromBrowser(
+          preJobId,
+          nextPicks,
+          (msg) => setDownloadHint(msg),
+          prefetchedBlobs
+        )
         sourcesPreUploaded = true
       }
 

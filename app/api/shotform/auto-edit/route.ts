@@ -113,12 +113,13 @@ function parseClientVideoMeta(
     const duration = Number(o.duration)
     const keyframeDataUrl = typeof o.keyframeDataUrl === "string" ? o.keyframeDataUrl : ""
     const timeSec = Number(o.timeSec)
-    if (!keyframeDataUrl.startsWith("data:image/") || !Number.isFinite(duration) || duration <= 0) continue
-    out[videoId] = {
-      duration,
-      keyframeDataUrl,
-      timeSec: Number.isFinite(timeSec) ? timeSec : duration * 0.12,
+    if (!Number.isFinite(duration) || duration <= 0) continue
+    const entry: NonNullable<AutoEditInput["clientVideoMeta"]>[string] = { duration }
+    if (keyframeDataUrl.startsWith("data:image/")) {
+      entry.keyframeDataUrl = keyframeDataUrl
+      entry.timeSec = Number.isFinite(timeSec) ? timeSec : duration * 0.12
     }
+    out[videoId] = entry
   }
   return Object.keys(out).length ? out : undefined
 }

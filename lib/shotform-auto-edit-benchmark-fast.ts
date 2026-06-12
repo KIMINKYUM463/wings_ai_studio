@@ -54,7 +54,7 @@ function keyframesForBalancedTarget(targetDuration: AutoEditTargetDuration): num
   return BENCHMARK_KEYFRAMES_PER_VIDEO
 }
 
-const VISION_FAST_TIMEOUT_MS = 18_000
+const VISION_FAST_TIMEOUT_MS = 12_000
 
 type BenchmarkModeConfig = {
   keyframeCount: number
@@ -331,18 +331,27 @@ async function probeVideosForBenchmark(args: {
       const kfDir = path.join(workDir, `fast_kf_${v.video_id}`)
       await fs.mkdir(kfDir, { recursive: true })
 
-      if (client?.keyframeDataUrl && client.duration > 0) {
-        const framePath = path.join(kfDir, "client_kf.jpg")
-        try {
-          await writeDataUrlToJpeg(client.keyframeDataUrl, framePath)
+      if (client && client.duration > 0) {
+        if (client.keyframeDataUrl) {
+          const framePath = path.join(kfDir, "client_kf.jpg")
+          try {
+            await writeDataUrlToJpeg(client.keyframeDataUrl, framePath)
+            return {
+              video: v,
+              sourcePath: sourcePaths[v.video_id] || "",
+              duration: client.duration,
+              keyframes: [{ path: framePath, timeSec: client.timeSec ?? client.duration * 0.12 }],
+            }
+          } catch {
+            /* 클라이언트 키프레임 실패 시 서버 추출로 폴백 */
+          }
+        } else if (lightProbe) {
           return {
             video: v,
             sourcePath: sourcePaths[v.video_id] || "",
             duration: client.duration,
-            keyframes: [{ path: framePath, timeSec: client.timeSec }],
+            keyframes: [],
           }
-        } catch {
-          /* 클라이언트 키프레임 실패 시 서버 추출로 폴백 */
         }
       }
 

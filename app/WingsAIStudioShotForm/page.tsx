@@ -60,9 +60,23 @@ import {
   Edit,
 } from "lucide-react"
 import { useRouter } from "next/navigation"
+import type { LucideIcon } from "lucide-react"
+
+type ShotFormServiceItem = {
+  id: string
+  title: string
+  icon: LucideIcon
+  description: string
+  url: string
+  gradient: string
+  hoverGradient: string
+  featured?: boolean
+  isNew?: boolean
+  locked?: boolean
+}
 
 // 숏폼 전용 서비스
-const shotFormServices = [
+const shotFormServices: ShotFormServiceItem[] = [
   {
     id: "shorts",
     title: "일반 숏폼",
@@ -94,17 +108,7 @@ const shotFormServices = [
 ]
 
 // 분석 & 도구 서비스
-const analysisToolsServices = [
-  {
-    id: "shortform-studio",
-    title: "숏폼 스튜디오",
-    icon: Sparkles,
-    description: "키워드·소스·짜집기·자막·썸네일 프로젝트",
-    url: "/WingsAIStudioShotForm/shortform-studio",
-    gradient: "from-violet-500 via-purple-500 to-fuchsia-500",
-    hoverGradient: "from-violet-600 via-purple-600 to-fuchsia-600",
-    featured: true,
-  },
+const analysisToolsServices: ShotFormServiceItem[] = [
   {
     id: "analytics",
     title: "유튜브 분석",
@@ -131,6 +135,20 @@ const analysisToolsServices = [
     url: "/WingsAIStudioShotForm/wings-chatbot",
     gradient: "from-green-500 via-emerald-500 to-teal-500",
     hoverGradient: "from-green-600 via-emerald-600 to-teal-600",
+  },
+]
+
+// 숏폼 짜집기 (분석 & 도구 아래)
+const shortformMixServices: ShotFormServiceItem[] = [
+  {
+    id: "shortform-studio",
+    title: "숏폼 스튜디오",
+    icon: Sparkles,
+    description: "키워드·소스·짜집기·자막·썸네일 프로젝트",
+    url: "/WingsAIStudioShotForm/shortform-studio",
+    gradient: "from-violet-500 via-purple-500 to-fuchsia-500",
+    hoverGradient: "from-violet-600 via-purple-600 to-fuchsia-600",
+    isNew: true,
   },
 ]
 
@@ -381,11 +399,9 @@ function FeatureCard({
   index,
   onServiceClick,
 }: {
-  service: (typeof shotFormServices)[number] | (typeof analysisToolsServices)[number]
+  service: ShotFormServiceItem
   index: number
-  onServiceClick: (
-    service: (typeof shotFormServices)[number] | (typeof analysisToolsServices)[number]
-  ) => void
+  onServiceClick: (service: ShotFormServiceItem) => void
 }) {
   const Icon = service.icon
   const isLocked = 'locked' in service && service.locked
@@ -397,7 +413,11 @@ function FeatureCard({
           ? "cursor-not-allowed opacity-60" 
           : "hover:shadow-2xl cursor-pointer hover:scale-[1.02]"
       } ${
-        'featured' in service && service.featured ? "ring-2 ring-pink-200 ring-offset-2" : ""
+        service.isNew
+          ? "ring-2 ring-violet-200 ring-offset-2"
+          : service.featured
+            ? "ring-2 ring-pink-200 ring-offset-2"
+            : ""
       }`}
       onClick={() => !isLocked && onServiceClick(service)}
       style={{
@@ -411,14 +431,20 @@ function FeatureCard({
         </div>
       )}
 
-      {/* 추천 배지 */}
-      {'featured' in service && service.featured && (
+      {/* New / 추천 배지 */}
+      {service.isNew ? (
+        <div className="absolute top-3 left-3 z-10">
+          <Badge className="bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white border-0 shadow-md">
+            New
+          </Badge>
+        </div>
+      ) : service.featured ? (
         <div className="absolute top-3 left-3 z-10">
           <Badge className="bg-gradient-to-r from-pink-500 to-orange-500 text-white border-0 shadow-md">
             추천
           </Badge>
         </div>
-      )}
+      ) : null}
 
       {/* 호버 그라데이션 배경 */}
       {!isLocked && (
@@ -472,8 +498,8 @@ function FeatureSection({
 }: {
   title: string
   subtitle: string
-  services: typeof shotFormServices | typeof analysisToolsServices
-  onServiceClick: (service: (typeof services)[0]) => void
+  services: ShotFormServiceItem[]
+  onServiceClick: (service: ShotFormServiceItem) => void
   columns?: number
 }) {
   const gridCols = columns === 5 
@@ -917,9 +943,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     setShortformStudioPassword("")
   }
 
-  const handleServiceClick = (
-    service: (typeof shotFormServices)[number] | (typeof analysisToolsServices)[number]
-  ) => {
+  const handleServiceClick = (service: ShotFormServiceItem) => {
     if (service.id === "shortform-studio") {
       const shortformStudioAuth = sessionStorage.getItem("wingsaistudio_shortform_studio_password_auth")
       if (shortformStudioAuth !== "true") {
@@ -1098,6 +1122,14 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               title="분석 & 도구"
               subtitle="채널 성장과 운영을 돕는 보조 도구"
               services={analysisToolsServices}
+              onServiceClick={handleServiceClick}
+            />
+
+            {/* 숏폼 짜집기 섹션 */}
+            <FeatureSection
+              title="숏폼 짜집기"
+              subtitle="소스 영상을 골라 AI로 짧은 컷으로 이어 붙이고 자막·썸네일까지 완성하세요"
+              services={shortformMixServices}
               onServiceClick={handleServiceClick}
             />
           </div>

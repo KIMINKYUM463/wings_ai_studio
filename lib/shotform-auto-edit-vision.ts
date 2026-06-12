@@ -195,7 +195,7 @@ JSON: {"frames":[{"imageIndex":0,"srcIndex":0,"timeSec":1.2,"content_type":"prod
         },
       ],
     }),
-    signal: AbortSignal.timeout(flat.length <= 8 ? 45_000 : 75_000),
+    signal: AbortSignal.timeout(flat.length <= 4 ? 22_000 : flat.length <= 8 ? 40_000 : 75_000),
   })
 
   if (!res.ok) {

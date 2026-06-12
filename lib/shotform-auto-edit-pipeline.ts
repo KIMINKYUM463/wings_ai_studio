@@ -71,7 +71,12 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
       analysisMode !== "precision" &&
       clientVideoMeta &&
       videos.length > 0 &&
-      videos.every((v) => clientVideoMeta[v.video_id]?.keyframeDataUrl)
+      videos.every((v) => {
+        const meta = clientVideoMeta[v.video_id]
+        if (!meta || meta.duration <= 0) return false
+        if (meta.keyframeDataUrl) return true
+        return analysisMode === "fast"
+      })
 
     const useCloudRunRender = shouldUseCloudRunForAutoEditRender()
     const hasUploadedBuffers = videos.every((v) => uploads[v.video_id]?.length)
