@@ -64,16 +64,6 @@ import { useRouter } from "next/navigation"
 // 숏폼 전용 서비스
 const shotFormServices = [
   {
-    id: "shortform-studio",
-    title: "숏폼 스튜디오",
-    icon: Sparkles,
-    description: "키워드·소스·짜집기·자막·썸네일 프로젝트",
-    url: "/WingsAIStudioShotForm/shortform-studio",
-    gradient: "from-violet-500 via-purple-500 to-fuchsia-500",
-    hoverGradient: "from-violet-600 via-purple-600 to-fuchsia-600",
-    featured: true,
-  },
-  {
     id: "shorts",
     title: "일반 숏폼",
     icon: Scissors,
@@ -105,6 +95,16 @@ const shotFormServices = [
 
 // 분석 & 도구 서비스
 const analysisToolsServices = [
+  {
+    id: "shortform-studio",
+    title: "숏폼 스튜디오",
+    icon: Sparkles,
+    description: "키워드·소스·짜집기·자막·썸네일 프로젝트",
+    url: "/WingsAIStudioShotForm/shortform-studio",
+    gradient: "from-violet-500 via-purple-500 to-fuchsia-500",
+    hoverGradient: "from-violet-600 via-purple-600 to-fuchsia-600",
+    featured: true,
+  },
   {
     id: "analytics",
     title: "유튜브 분석",
@@ -381,9 +381,11 @@ function FeatureCard({
   index,
   onServiceClick,
 }: {
-  service: (typeof shotFormServices)[0]
+  service: (typeof shotFormServices)[number] | (typeof analysisToolsServices)[number]
   index: number
-  onServiceClick: (service: (typeof shotFormServices)[0]) => void
+  onServiceClick: (
+    service: (typeof shotFormServices)[number] | (typeof analysisToolsServices)[number]
+  ) => void
 }) {
   const Icon = service.icon
   const isLocked = 'locked' in service && service.locked
@@ -915,7 +917,9 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     setShortformStudioPassword("")
   }
 
-  const handleServiceClick = (service: (typeof shotFormServices)[0]) => {
+  const handleServiceClick = (
+    service: (typeof shotFormServices)[number] | (typeof analysisToolsServices)[number]
+  ) => {
     if (service.id === "shortform-studio") {
       const shortformStudioAuth = sessionStorage.getItem("wingsaistudio_shortform_studio_password_auth")
       if (shortformStudioAuth !== "true") {

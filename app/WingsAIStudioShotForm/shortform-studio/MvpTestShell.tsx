@@ -21,6 +21,7 @@ const SHORTFORM_STUDIO_PASSWORD = "9999"
 
 export function MvpTestShell() {
   const router = useRouter()
+  const [projectListKey, setProjectListKey] = useState(0)
   const [isCheckingAuth, setIsCheckingAuth] = useState(true)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [showPasswordDialog, setShowPasswordDialog] = useState(false)
@@ -122,8 +123,14 @@ export function MvpTestShell() {
   }
 
   return (
-    <ShotFormTrendResearchShell activeRoute="shortform-studio" hideSidebar appTitle="Wings AI ShotForm">
-      <MvpProjectManager />
+    <ShotFormTrendResearchShell
+      activeRoute="shortform-studio"
+      hideSidebar
+      appTitle="Wings AI ShotForm"
+      logoHref="/WingsAIStudioShotForm/shortform-studio"
+      onLogoClick={() => setProjectListKey((k) => k + 1)}
+    >
+      <MvpProjectManager key={projectListKey} />
     </ShotFormTrendResearchShell>
   )
 }

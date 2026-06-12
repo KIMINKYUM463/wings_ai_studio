@@ -94,6 +94,10 @@ export type ShotFormTrendResearchShellProps = {
   /** 사이드바 없이 상단 헤더만 (메인 ShotForm 화면) */
   hideSidebar?: boolean
   appTitle?: string
+  /** hideSidebar 헤더 로고 클릭 시 이동 경로 (기본: ShotForm 메인) */
+  logoHref?: string
+  /** 로고 클릭 시 추가 동작 (예: 프로젝트 목록으로 복귀) */
+  onLogoClick?: () => void
 }
 
 function hasOpenAIKey(): boolean {
@@ -108,6 +112,8 @@ export function ShotFormTrendResearchShell({
   backLabel = "ShotForm 홈",
   hideSidebar = false,
   appTitle = "Wings AI ShotForm",
+  logoHref = "/WingsAIStudioShotForm",
+  onLogoClick,
 }: ShotFormTrendResearchShellProps) {
   const [apiKeyReady, setApiKeyReady] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -231,21 +237,43 @@ export function ShotFormTrendResearchShell({
           )}
         >
           {hideSidebar ? (
-            <Link href="/WingsAIStudioShotForm" className="group flex items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-violet-600 to-indigo-600 shadow-lg shadow-violet-900/40">
-                <Sparkles className="h-4 w-4 text-white" aria-hidden />
-              </span>
-              <span className="text-base font-bold tracking-tight text-white">
-                {appTitle.includes(" ") ? (
-                  <>
-                    {appTitle.split(" ")[0]}{" "}
-                    <span className="text-violet-300">{appTitle.split(" ").slice(1).join(" ")}</span>
-                  </>
-                ) : (
-                  appTitle
-                )}
-              </span>
-            </Link>
+            onLogoClick ? (
+              <button
+                type="button"
+                onClick={onLogoClick}
+                className="group flex items-center gap-2 text-left"
+              >
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-violet-600 to-indigo-600 shadow-lg shadow-violet-900/40">
+                  <Sparkles className="h-4 w-4 text-white" aria-hidden />
+                </span>
+                <span className="text-base font-bold tracking-tight text-white">
+                  {appTitle.includes(" ") ? (
+                    <>
+                      {appTitle.split(" ")[0]}{" "}
+                      <span className="text-violet-300">{appTitle.split(" ").slice(1).join(" ")}</span>
+                    </>
+                  ) : (
+                    appTitle
+                  )}
+                </span>
+              </button>
+            ) : (
+              <Link href={logoHref} className="group flex items-center gap-2">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-violet-600 to-indigo-600 shadow-lg shadow-violet-900/40">
+                  <Sparkles className="h-4 w-4 text-white" aria-hidden />
+                </span>
+                <span className="text-base font-bold tracking-tight text-white">
+                  {appTitle.includes(" ") ? (
+                    <>
+                      {appTitle.split(" ")[0]}{" "}
+                      <span className="text-violet-300">{appTitle.split(" ").slice(1).join(" ")}</span>
+                    </>
+                  ) : (
+                    appTitle
+                  )}
+                </span>
+              </Link>
+            )
           ) : null}
           <div className="flex items-center gap-2">
             <Link
