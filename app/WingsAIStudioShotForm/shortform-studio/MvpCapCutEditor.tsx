@@ -98,6 +98,7 @@ type Props = {
   ttsNeedsRegen?: boolean
   onGenerateScript: () => void
   onRewriteScript: () => void
+  scriptRevision?: number
   videoReady?: boolean
   resolvedVideoUrl: string | null
   videoLoading: boolean
@@ -186,6 +187,7 @@ export function MvpCapCutEditor(props: Props) {
     speedNeedsRegen = false,
     onGenerateScript,
     onRewriteScript,
+    scriptRevision = 0,
     videoReady = false,
     resolvedVideoUrl,
     videoLoading,
@@ -1120,7 +1122,7 @@ export function MvpCapCutEditor(props: Props) {
                     const visualDesc = segmentVisualHints[i]
                     return (
                       <li
-                        key={`${seg.start}-${i}`}
+                        key={`${seg.start}-${i}-${scriptRevision}`}
                         className={cn(
                           "rounded-md border p-2",
                           activeScene === i ? "border-emerald-500/35 bg-emerald-950/20" : "border-white/5"

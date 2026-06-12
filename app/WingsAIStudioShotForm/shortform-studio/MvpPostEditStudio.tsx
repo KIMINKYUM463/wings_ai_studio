@@ -151,9 +151,12 @@ export function MvpPostEditStudio({
   const [scriptOverrides, setScriptOverrides] = useState<Record<string, string>>(scriptOverridesProp)
 
   useEffect(() => {
-    setScriptOverrides(fillScriptOverridesForAllCuts(baseSegments, scriptOverridesProp))
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- jobId 변경 시에만 부모에서 복원
-  }, [result.jobId])
+    const filled = fillScriptOverridesForAllCuts(baseSegments, scriptOverridesProp)
+    setScriptOverrides((prev) => {
+      if (JSON.stringify(prev) === JSON.stringify(filled)) return prev
+      return filled
+    })
+  }, [result.jobId, scriptOverridesProp, baseSegments])
 
   const updateOverride = useCallback(
     (sceneId: number, text: string) => {
@@ -236,6 +239,7 @@ export function MvpPostEditStudio({
   const [voiceLineCues, setVoiceLineCues] = useState<VoiceLineCue[] | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [scriptGenerating, setScriptGenerating] = useState(false)
+  const [scriptRevision, setScriptRevision] = useState(0)
   const [phase, setPhase] = useState<MvpStudioPhase>(() => normalizeStudioPhase(studioPersist?.phase))
   const [scriptStyle, setScriptStyle] = useState<MvpScriptStyleState>(() =>
     studioPersist?.scriptStyle ?? scriptStyleFromBundle(result.script?.bundle)
@@ -562,38 +566,58 @@ export function MvpPostEditStudio({
         error?: string
       }
       if (!res.ok) throw new Error(data.error || "AI 대본 생성 실패")
-      if (data.overrides && Object.keys(data.overrides).length) {
-        const formatted = fillScriptOverridesForAllCuts(baseSegments, data.overrides)
-        setScriptOverrides(formatted)
-        onScriptOverridesChange?.(formatted)
-        autoScriptRequestedRef.current = result.jobId
-        if (data.naturalShorts && data.scriptExtras) {
-          const conversionScript = (data.lines ?? Object.values(formatted)).join("\n")
-          const headcopies =
-            data.scriptExtras.headcopies?.length
-              ? data.scriptExtras.headcopies
-              : [["", ""]]
-          setScriptStyle((prev) => ({
-            ...prev,
-            conversionScript,
-            storytellingScript: conversionScript,
-            headcopies,
-            commentKeyword: data.scriptExtras?.commentKeyword || prev.commentKeyword,
-          }))
-          const hook = headcopies[0]
-          if (hook?.[0] || hook?.[1] || data.scriptExtras.thumbnailTitle) {
-            setThumbnailHookingText({
-              line1: hook?.[0] || data.scriptExtras.thumbnailTitle || "",
-              line2: hook?.[1] || data.scriptExtras.thumbnailTitle || "",
-            })
-          }
+
+      const rawOverrides =
+        data.overrides && Object.keys(data.overrides).length
+          ? data.overrides
+          : data.lines?.length
+            ? Object.fromEntries(data.lines.map((line, i) => [String(i + 1), line]))
+            : null
+      if (!rawOverrides || !Object.keys(rawOverrides).length) {
+        throw new Error("AI가 대본을 반환하지 않았습니다. 잠시 후 다시 시도해 주세요.")
+      }
+
+      const beforeJson = JSON.stringify(fillScriptOverridesForAllCuts(baseSegments, scriptOverrides))
+      const formatted = fillScriptOverridesForAllCuts(baseSegments, rawOverrides)
+      const afterJson = JSON.stringify(formatted)
+
+      setScriptOverrides(formatted)
+      setScriptRevision((r) => r + 1)
+      onScriptOverridesChange?.(formatted)
+      autoScriptRequestedRef.current = result.jobId
+
+      if (rewrite && beforeJson === afterJson) {
+        setErr("생성된 대본이 이전과 동일합니다. 잠시 후 다시 「대본만 다시쓰기」를 눌러 주세요.")
+      } else if (rewrite) {
+        setErr(null)
+      }
+
+      if (data.naturalShorts && data.scriptExtras) {
+        const conversionScript = (data.lines ?? Object.values(formatted)).join("\n")
+        const headcopies =
+          data.scriptExtras.headcopies?.length
+            ? data.scriptExtras.headcopies
+            : [["", ""]]
+        setScriptStyle((prev) => ({
+          ...prev,
+          conversionScript,
+          storytellingScript: conversionScript,
+          headcopies,
+          commentKeyword: data.scriptExtras?.commentKeyword || prev.commentKeyword,
+        }))
+        const hook = headcopies[0]
+        if (hook?.[0] || hook?.[1] || data.scriptExtras.thumbnailTitle) {
+          setThumbnailHookingText({
+            line1: hook?.[0] || data.scriptExtras.thumbnailTitle || "",
+            line2: hook?.[1] || data.scriptExtras.thumbnailTitle || "",
+          })
         }
-        if (rewrite || audioUrl || voiceLineCues?.length) {
-          clearTtsAfterScriptChange()
-        }
-        if (rewrite) {
-          setPhase("edit")
-        }
+      }
+      if (rewrite || audioUrl || voiceLineCues?.length) {
+        clearTtsAfterScriptChange()
+      }
+      if (rewrite) {
+        setPhase("edit")
       }
     } catch (e) {
       if (!opts?.rewrite) autoScriptRequestedRef.current = null
@@ -1364,6 +1388,7 @@ export function MvpPostEditStudio({
           speedNeedsRegen={speedNeedsRegen}
           onGenerateScript={() => void generateNarrationScript()}
           onRewriteScript={() => void generateNarrationScript({ rewrite: true })}
+          scriptRevision={scriptRevision}
           videoReady={Boolean(resolvedVideoUrl)}
           resolvedVideoUrl={resolvedVideoUrl}
           videoLoading={videoLoading}

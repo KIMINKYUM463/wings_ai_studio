@@ -496,10 +496,18 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
       if (JSON.stringify(prev) === key) return prev
       return data
     })
+    if (data.scriptOverrides && Object.keys(data.scriptOverrides).length) {
+      setPostEditScriptOverrides((prev) => {
+        const key = JSON.stringify(data.scriptOverrides)
+        if (JSON.stringify(prev) === key) return prev
+        return data.scriptOverrides!
+      })
+    }
     if (workspaceRef.current) {
       workspaceRef.current = {
         ...workspaceRef.current,
         postEditStudioData: data,
+        postEditScriptOverrides: data.scriptOverrides ?? workspaceRef.current.postEditScriptOverrides,
       }
     }
   }, [])

@@ -90,6 +90,7 @@ export async function POST(request: NextRequest) {
     }
 
     const mode = body.mode === "rewrite" ? "rewrite" : "generate"
+    const rewriteSalt = mode === "rewrite" ? Math.floor(Math.random() * 400) + 1 : 0
     const previousScripts = body.previousScripts ?? {}
 
     const previousScriptBlock =
@@ -202,7 +203,12 @@ ${previousScriptBlock}
         lines.map((line) => stripLeadingNarrationConnector(line)),
         cuts.map((c) => ({ visual_card: c.visual_card, duration: c.duration })),
         productName,
-        { allowTemplateFallback: false, fitToDuration: false }
+        {
+          allowTemplateFallback: false,
+          fitToDuration: false,
+          rewriteMode: mode === "rewrite",
+          rewriteSalt,
+        }
       )
     )
     const polished = polishedRaw.map((text, i) => {

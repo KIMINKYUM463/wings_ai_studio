@@ -164,7 +164,8 @@ function openingHookForVisual(visualCard: string, productName: string, cutIndex:
 export function enforceUniqueNarrationLines(
   lines: readonly string[],
   contexts: ReadonlyArray<{ visual_card: string; duration: number }>,
-  productName: string
+  productName: string,
+  rewriteSalt = 0
 ): string[] {
   const prior: string[] = []
   return lines.map((line, i) => {
@@ -172,7 +173,7 @@ export function enforceUniqueNarrationLines(
       visualHint: contexts[i]!.visual_card,
       productName,
       duration: contexts[i]!.duration,
-      cutIndex: i,
+      cutIndex: i + rewriteSalt * 13,
       priorLines: prior,
       preferred: line,
     })
@@ -184,9 +185,10 @@ export function enforceUniqueNarrationLines(
 function enforceUniqueCutLines(
   lines: readonly string[],
   contexts: ReadonlyArray<{ visual_card: string; duration: number }>,
-  productName: string
+  productName: string,
+  rewriteSalt = 0
 ): string[] {
-  return enforceUniqueNarrationLines(lines, contexts, productName)
+  return enforceUniqueNarrationLines(lines, contexts, productName, rewriteSalt)
 }
 
 export function detectVisualThemes(visualCard: string): Array<{ theme: string; keywords: string[] }> {
@@ -372,10 +374,18 @@ export function polishCutNarrationLines(
   lines: readonly string[],
   contexts: ReadonlyArray<{ visual_card: string; duration: number }>,
   productName: string,
-  opts?: { allowTemplateFallback?: boolean; fitToDuration?: boolean }
+  opts?: {
+    allowTemplateFallback?: boolean
+    fitToDuration?: boolean
+    /** 대본 다시쓰기 — AI 문장 유지·결정론적 폴백 회피 */
+    rewriteMode?: boolean
+    rewriteSalt?: number
+  }
 ): string[] {
   const allowTemplate = opts?.allowTemplateFallback !== false
   const fitToDuration = opts?.fitToDuration === true
+  const rewriteMode = Boolean(opts?.rewriteMode)
+  const rewriteSalt = opts?.rewriteSalt ?? 0
   const prior: string[] = []
 
   const polished = lines.map((raw, i) => {
@@ -390,7 +400,13 @@ export function polishCutNarrationLines(
       narrationTextLooksWeak(text, ctx.visual_card) ||
       looksLikeRawSceneCopy(text, ctx.visual_card)
     const weakOpening = i === 0 && (definitelyWeak || /화면\s*보니까|장면\s*보면|바로\s*이해됐/.test(text))
-    const needsPolish = definitelyWeak || duplicatePrior || weakOpening
+    const needsPolish = rewriteMode
+      ? Boolean(
+          !text ||
+            looksLikeRawSceneCopy(text, ctx.visual_card) ||
+            narrationLooksIncomplete(text.replace(/\n/g, " "))
+        )
+      : definitelyWeak || duplicatePrior || weakOpening
 
     if (i === 0 && weakOpening) {
       const hook = openingHookForVisual(ctx.visual_card, productName, 0)
@@ -398,7 +414,7 @@ export function polishCutNarrationLines(
     }
 
     if (needsPolish) {
-      const variantBase = duplicatePrior ? i * 7 + 3 : i * 5 + 1
+      const variantBase = (duplicatePrior ? i * 7 + 3 : i * 5 + 1) + rewriteSalt
       const candidates = [
         rephraseSceneToShoppingNarration(ctx.visual_card, productName, ctx.duration),
         rephraseSceneToShoppingNarrationVariant(ctx.visual_card, productName, ctx.duration, variantBase),
@@ -445,7 +461,7 @@ export function polishCutNarrationLines(
       visualHint: ctx.visual_card,
       productName,
       duration: ctx.duration,
-      cutIndex: i,
+      cutIndex: i + rewriteSalt * 13,
       priorLines: prior,
       preferred: text,
     })
@@ -454,7 +470,7 @@ export function polishCutNarrationLines(
   })
 
   const woven = weaveNarrationContinuity(polished, productName).map(sanitizeNarrationForOutput)
-  return enforceUniqueCutLines(woven, contexts, productName).map(sanitizeNarrationForOutput)
+  return enforceUniqueCutLines(woven, contexts, productName, rewriteSalt).map(sanitizeNarrationForOutput)
 }
 
 /** OpenAI JSON lines 파싱 — 빈 컷도 슬롯 유지 (filter로 개수 줄어듦 방지) */
