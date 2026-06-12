@@ -425,13 +425,20 @@ export function polishCutNarrationLines(
     } else {
       text = sanitizeNarrationForOutput(text)
     }
-    if (allowTemplate && fitToDuration && narrationLooksIncomplete(text)) {
+    if (fitToDuration && narrationLooksIncomplete(text)) {
       const fallback = formatNarrationForSceneDuration(
         rephraseSceneToShoppingNarrationVariant(ctx.visual_card, productName, ctx.duration, i + 17),
         ctx.duration
       )
-      if (!narrationLooksIncomplete(fallback)) {
+      if (fallback && !narrationLooksIncomplete(fallback.replace(/\n/g, " "))) {
         text = fallback
+      } else {
+        text = rephraseSceneToShoppingNarrationVariant(
+          ctx.visual_card,
+          productName,
+          ctx.duration,
+          i + 31
+        )
       }
     }
     text = pickUniqueNarrationLine({

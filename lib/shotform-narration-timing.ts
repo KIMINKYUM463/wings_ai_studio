@@ -81,8 +81,9 @@ export function maxCharsForSceneDuration(sceneDurationSec: number, ratio = 0.9):
 
 
 
+/** 완결 어미 — 단독 `음`은 제외 (음식물·음향 등 명사 어간 오인 방지) */
 const NARRATION_COMPLETE_ENDINGS =
-  /(?:해요|해요요|합니다|하세요|하죠|하네요|하네|했어요|됐어요|됐죠|이에요|예요|거예요|어요|아요|네요|죠|요|다|음|네|죠|세요|십시오|보세요|닦여요|빨아요|편해요|좋아요|깔끔해요|개운해요)$/
+  /(?:해요|해요요|합니다|하세요|하죠|하네요|하네|했어요|됐어요|됐죠|이에요|예요|거예요|어요|아요|네요|죠|요|다|네|세요|십시오|보세요|닦여요|빨아요|편해요|좋아요|깔끔해요|개운해요)$/
 
 /** 한 줄이 완결된 나레이션인지 */
 function narrationLineLooksIncomplete(line: string): boolean {
@@ -100,6 +101,8 @@ function narrationLineLooksIncomplete(line: string): boolean {
   if (/[가-힣]{2,}게$/.test(t)) return true
   const lastWord = t.split(/\s+/).pop() ?? t
   if (lastWord.length <= 2 && !/[요죠네다음다]$/.test(lastWord)) return true
+  // 명사·수식어 어간에서 한 글자만 남은 경우 (흩어진 음 ← 음식물)
+  if (/[가-힣]{2,}\s+[가-힣]$/.test(t) && lastWord.length === 1) return true
   if (t.length <= 18 && !NARRATION_COMPLETE_ENDINGS.test(t) && !/[.!?…]$/.test(t)) return true
   return false
 }
@@ -486,7 +489,7 @@ export function formatNarrationForSceneDuration(text: string, sceneDurationSec: 
     .find((line) => line && !narrationLineLooksIncomplete(line))
   if (completeLine) return completeLine
 
-  return cleanNarrationLineBreaks(trimmed)
+  return ""
 
 }
 

@@ -327,7 +327,10 @@ export function pickUniqueNarrationLine(args: {
 
   const prefer = preferred?.trim()
   if (prefer && !isDup(prefer) && !isGenericTemplateNarration(prefer)) {
-    return formatNarrationForSceneDuration(prefer, duration)
+    const fitted = formatNarrationForSceneDuration(prefer, duration)
+    if (fitted && !narrationLooksIncomplete(fitted.replace(/\n/g, " "))) {
+      return fitted
+    }
   }
 
   for (let attempt = 0; attempt < 36; attempt++) {
@@ -759,6 +762,8 @@ export function looksLikeRawSceneCopy(scriptText: string, visualHint: string): b
   const ns = norm(script)
   const nv = norm(visual)
   if (nv.includes(ns) || ns.includes(nv.slice(0, Math.min(nv.length, ns.length + 4)))) return true
+  // 화면 설명 앞부분만 잘린 복사 (차량 시트에 흩어진 음 ← 음식물…)
+  if (ns.length >= 6 && nv.startsWith(ns) && ns.length < nv.length * 0.72) return true
   return script === visual || visual.includes(script)
 }
 
