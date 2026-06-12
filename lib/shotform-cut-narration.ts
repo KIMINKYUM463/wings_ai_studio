@@ -77,7 +77,55 @@ const GENERIC_TEMPLATE_PATTERNS = [
   /한번\s*써보면\s*계속\s*손이/,
   /설치하고\s*나면\s*바로\s*체감/,
   /실제로\s*쓰면\s*이렇게/,
+  /이\s*장면에서\s*체감이\s*확\s*와요/,
+  /생각보다\s*실용적/,
+  /쓰는\s*모습,?\s*생각보다/,
+  /^실용적이에요$/,
+  /^편해요$/,
+  /^좋아요$/,
 ] as const
+
+const INVALID_NARRATION_PRODUCT_NAME =
+  /^(unboxing|review|test|demo|product|item|goods|shopping|tiktok|shorts|video|제품|쇼핑\s*제품)$/i
+
+/** 나레이션에 쓸 제품명 — unboxing·review 같은 검색어·영문 라벨 제외 */
+export function sanitizeProductNameForNarration(
+  productName?: string,
+  hints?: {
+    category?: string
+    summary?: string
+    visualHint?: string
+    analysisTitles?: readonly string[]
+  }
+): string | undefined {
+  const raw = productName?.trim() || ""
+  const koreanInRaw = (raw.match(/[\uac00-\ud7a3]/g) || []).length
+  if (
+    raw &&
+    !INVALID_NARRATION_PRODUCT_NAME.test(raw) &&
+    (koreanInRaw >= 2 || (koreanInRaw >= 1 && !/^[a-z\s]+$/i.test(raw)))
+  ) {
+    return raw
+  }
+
+  const blob = [
+    hints?.category,
+    hints?.summary,
+    hints?.visualHint,
+    ...(hints?.analysisTitles || []),
+  ]
+    .filter(Boolean)
+    .join(" ")
+
+  if (/선풍기|风扇|fan|쿨링/i.test(blob)) return "미니 선풍기"
+  if (/차량|차\s*안|자동차|车载|vacuum|청소|吸尘|먼지/i.test(blob)) return "차량용 핸디청소기"
+  if (/칫솔|牙刷|전동칫솔/i.test(blob)) return "전동칫솔"
+  if (/배드민턴|셔틀콕|라켓/i.test(blob)) return "배드민턴 훈련기"
+  if (/프로젝터|스크린|티비|TV/i.test(blob)) return "홈시어터 스크린"
+
+  if (koreanInRaw >= 1) return raw
+  return undefined
+}
 
 /** 중복 시 순환할 고유 폴백 대본 */
 const UNIQUE_NARRATION_FALLBACKS = [
@@ -120,13 +168,22 @@ export function isAbstractShoppingNarration(text: string): boolean {
   const t = text.trim().replace(/\n/g, " ")
   if (!t) return true
   if (isGenericTemplateNarration(t)) return true
+  if (narrationContainsEnglishLeak(t)) return true
   const hasConcreteVisual =
-    /먼지|청소|흡입|시트|바닥|노즐|필터|차|구석|틈새|매트|진공|닦|빨아|제거|정리/.test(t)
+    /먼지|청소|흡입|시트|바닥|노즐|필터|차|구석|틈새|매트|진공|닦|빨아|제거|정리|선풍기|바람|포장|가방|손바닥|휴대/.test(
+      t
+    )
   if (/^(이|그)\s*(포인트|부분)/.test(t) && !hasConcreteVisual) return true
-  if (/해결하세요|놓치면 아쉬워|핵심이에요|만족할 거예요|손이 가요/.test(t) && !hasConcreteVisual) {
+  if (/해결하세요|놓치면 아쉬워|핵심이에요|만족할 거예요|손이 가요|체감이\s*확\s*와요/.test(t) && !hasConcreteVisual) {
     return true
   }
+  if (t.length <= 10 && /^(실용|편|좋|쉬|가벼|시원|깔끔)적?이에요$/.test(t)) return true
   return false
+}
+
+/** 한국어 나레이션에 영문 검색어·라벨이 섞였는지 */
+export function narrationContainsEnglishLeak(text: string): boolean {
+  return /[a-zA-Z]{3,}/.test(text.replace(/\n/g, " "))
 }
 
 /** 템플릿 폴백 대본 — AI 미생성·후처리 오염 */
@@ -223,9 +280,33 @@ export function looksLikeDescriptiveSceneNarration(text: string): boolean {
 }
 
 function buildFallbackNarration(d: string, productName: string | undefined, ruleOffset: number): string {
-  const product = productName?.trim() || "이 제품"
+  const product =
+    sanitizeProductNameForNarration(productName, { visualHint: d }) || "이 제품"
 
   const pools: string[][] = []
+
+  if (/선풍기|风扇|fan|휴대용\s*선풍|미니\s*선풍|쿨링|手持风扇/i.test(d)) {
+    pools.push([
+      "손바닥만 한 사이즈, 가방에 쏙 들어가요",
+      "이렇게 작은데 바람이 꽤 시원해요",
+      "바람 세기 조절해보니 실내용으로 딱이에요",
+      "들고 다니기 좋은 미니 선풍기예요",
+      "책상 위에 두니 소음도 생각보다 적어요",
+      "여름에 밖에 들고 나가기 좋은 사이즈예요",
+      "한 손에 쥐어도 가벼워서 휴대하기 좋아요",
+      "작은데 바람 세기가 꽤 알차요",
+    ])
+  }
+  if (/포장|포장지|비닐|싸인|언박싱|unboxing|开箱|包装/i.test(d)) {
+    pools.push([
+      "포장 뜯자마자 사이즈에 놀랐어요",
+      "개봉만 해도 휴대용 느낌이 확 와요",
+      "포장 상태 깔끔하고 바로 쓸 수 있어요",
+      "언박싱하니 손바닥만 한 사이즈예요",
+      "비닐 벗기자 색감이 꽤 예뻐요",
+      "박스 열자마자 들고 다니고 싶어져요",
+    ])
+  }
 
   if (/TV|티비|투사|스크린|프로젝터|projector|숨겨진|설치/.test(d)) {
     pools.push([
@@ -301,8 +382,14 @@ function buildFallbackNarration(d: string, productName: string | undefined, rule
 
   if (!pools.length) {
     pools.push([
-      product ? `${product}, 이 장면에서 체감이 확 와요` : "이 장면에서 체감이 확 와요",
-      product ? `${product} 쓰는 모습, 생각보다 실용적이에요` : "쓰는 모습, 생각보다 실용적이에요",
+      "손에 들었을 때 사이즈 감이 바로 와요",
+      "이렇게 쓰니 생각보다 편하더라고요",
+      "직접 보면 디테일이 꽤 살아 있어요",
+      "여기 포인트가 딱 보이는 장면이에요",
+      "영상으로 봐도 체감이 되는 부분이에요",
+      "작은데 기능이 꽤 알차 보여요",
+      "이 장면이 제일 설득력 있어요",
+      product ? `${product}, 손에 들었을 때 감이 와요` : "손에 들었을 때 감이 와요",
     ])
   }
 
@@ -332,23 +419,21 @@ export function rephraseSceneToShoppingNarrationVariant(
 }
 
 function productNarrationFallback(productName: string | undefined, ruleOffset: number): string {
-  const fallbacks = productName
-    ? [
-        `${productName}, 이렇게 쓰면 편해요`,
-        `${productName} 포인트가 확실해요`,
-        `${productName} 실사용이 이렇게예요`,
-        `${productName}, 써보니 생각보다 달라요`,
-        `${productName}로 공간이 깔끔해져요`,
-        `${productName}, 이 부분이 마음에 들어요`,
-      ]
-    : [
-        "이렇게 쓰면 편해요",
-        "실사용 장면이에요",
-        "이 포인트가 꽤 확실해요",
-        "써보니 생각보다 다르더라고요",
-        "이렇게 활용하면 깔끔해요",
-        "보는 것보다 직접 쓰면 와닿아요",
-      ]
+  const product = sanitizeProductNameForNarration(productName) || "이 제품"
+  const fallbacks = [
+    `${product}, 이렇게 쓰면 편해요`,
+    `${product} 포인트가 확실해요`,
+    `${product} 실사용이 이렇게예요`,
+    `${product}, 써보니 생각보다 달라요`,
+    `${product}로 공간이 깔끔해져요`,
+    `${product}, 이 부분이 마음에 들어요`,
+    "이렇게 쓰면 편해요",
+    "실사용 장면이에요",
+    "이 포인트가 꽤 확실해요",
+    "써보니 생각보다 다르더라고요",
+    "이렇게 활용하면 깔끔해요",
+    "보는 것보다 직접 쓰면 와닿아요",
+  ]
   return fallbacks[ruleOffset % fallbacks.length]!
 }
 
@@ -406,17 +491,70 @@ export function pickUniqueNarrationLine(args: {
 
 function rephraseSceneCore(description: string, productName?: string, ruleOffset = 0): string {
   let d = stripSceneMeta(extractVisualDescription(description))
+  const product = sanitizeProductNameForNarration(productName, { visualHint: d })
   if (
     descriptionSuggestsPresenterOrFace(description) ||
     descriptionSuggestsPresenterOrFace(d)
   ) {
-    return productNarrationFallback(productName, ruleOffset)
+    return productNarrationFallback(product, ruleOffset)
   }
   if (!d || d === "장면" || d === "제품 장면") {
-    return productNarrationFallback(productName, ruleOffset)
+    return productNarrationFallback(product, ruleOffset)
   }
 
   const rules: Array<{ re: RegExp; say: (m: RegExpMatchArray) => string }> = [
+    {
+      re: /포장|포장지|비닐|싸인|언박싱|unboxing|开箱|包装|wrap/i,
+      say: () => {
+        const opts = [
+          "포장 뜯자마자 사이즈에 놀랐어요",
+          "개봉만 해도 휴대용 느낌이 확 와요",
+          "포장 상태 깔끔하고 바로 쓸 수 있어요",
+          "언박싱하니 손바닥만 한 사이즈예요",
+          "비닐 벗기자 색감이 꽤 예뻐요",
+          "박스 열자마자 들고 다니고 싶어져요",
+        ]
+        return opts[ruleOffset % opts.length]!
+      },
+    },
+    {
+      re: /선풍기|风扇|fan|휴대용\s*선풍|미니\s*선풍|쿨링|手持风扇/i,
+      say: () => {
+        const opts = [
+          product ? `${product}, 손바닥만 해서 가방에 쏙 들어가요` : "손바닥만 한 사이즈, 가방에 쏙 들어가요",
+          "이렇게 작은데 바람이 꽤 시원해요",
+          "바람 세기 조절해보니 실내용으로 딱이에요",
+          "들고 다니기 좋은 미니 선풍기예요",
+          "책상 위에 두니 소음도 생각보다 적어요",
+          "여름에 밖에 들고 나가기 좋은 사이즈예요",
+        ]
+        return opts[ruleOffset % opts.length]!
+      },
+    },
+    {
+      re: /손에\s*들|手持|held\s*in\s*hand/i,
+      say: () => {
+        const opts = [
+          "한 손에 쥐어도 가벼워서 들고 다니기 좋아요",
+          "그립감도 괜찮고 휴대하기 딱이에요",
+          "이렇게 들어보면 사이즈 감이 바로 와요",
+          "손에 들었을 때 무게가 생각보다 가벼워요",
+        ]
+        return opts[ruleOffset % opts.length]!
+      },
+    },
+    {
+      re: /블루|연보라|보라|색상|컬러|purple|blue/i,
+      say: () => {
+        const opts = [
+          "색감이 깔끔해서 선물용으로도 괜찮아요",
+          "연보라 톤이 은은해서 예뻐요",
+          "블루 컬러, 사진으로 봐도 색이 살아요",
+          "색 선택이 다양해서 취향대로 고르기 좋아요",
+        ]
+        return opts[ruleOffset % opts.length]!
+      },
+    },
     {
       re: /(.+?)로\s*(.+?)의?\s*먼지를?\s*흡입/,
       say: (m) => `${m[2]!.trim()} 먼지도 이렇게 싹 빨아들여요`,
@@ -625,7 +763,7 @@ function rephraseSceneCore(description: string, productName?: string, ruleOffset
     if (m) return say(m)
   }
 
-  return buildFallbackNarration(d, productName, ruleOffset)
+  return buildFallbackNarration(d, product, ruleOffset)
 }
 
 /** @deprecated rephraseSceneToShoppingNarration 사용 */
@@ -663,11 +801,14 @@ export function narrationTextLooksWeak(text: string, visualHint?: string): boole
   if (looksLikeSceneCardMetadata(t)) return true
   if (descriptionSuggestsPresenterOrFace(t)) return true
   if (/[\u4e00-\u9fff]/.test(t)) return true
+  if (narrationContainsEnglishLeak(t)) return true
   if (GENERIC_NARRATION.test(t)) return true
   if (isGenericTemplateNarration(t)) return true
+  if (isAbstractShoppingNarration(t)) return true
   if (visualHint && looksLikeRawSceneCopy(t, visualHint)) return true
   if (looksLikeDescriptiveSceneNarration(t)) return true
   if (narrationLooksIncomplete(t)) return true
+  if (narrationPlainCharCount(t) < 8 && !/선풍기|바람|먼지|시트|바닥|포장/.test(t)) return true
   return false
 }
 
@@ -882,6 +1023,10 @@ export function buildNarrationSegmentsFromEditPlan(
   const plan = editPlan.edit_plan
   if (!plan.length) return []
 
+  const safeProductName = sanitizeProductNameForNarration(productName, {
+    analysisTitles: analyses.map((a) => a.title),
+  })
+
   const byId = analysisByVideoId(analyses)
   const aligned = scriptLinesAligned(plan, scriptLines)
   const priorTexts: string[] = []
@@ -897,7 +1042,7 @@ export function buildNarrationSegmentsFromEditPlan(
           visualSceneForSourceRange(analysis, seg.source_start, seg.source_end)?.description || seg.reason
         )
       : seg.reason
-    const fromVisual = narrationTextForEditSegment(seg, analysis, productName)
+    const fromVisual = narrationTextForEditSegment(seg, analysis, safeProductName)
     const fromBundle = bundleTextForEditCut(i, plan, bundleScenes ?? undefined)
     const rawScript = aligned ? scriptLines![i]!.text.trim() : ""
     const scriptUsable =
@@ -932,7 +1077,7 @@ export function buildNarrationSegmentsFromEditPlan(
 
     const text = pickUniqueNarrationLine({
       visualHint,
-      productName,
+      productName: safeProductName,
       duration: dur,
       cutIndex: i,
       priorLines: priorTexts,

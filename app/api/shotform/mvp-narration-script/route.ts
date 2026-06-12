@@ -9,7 +9,7 @@ import {
   parseTopicWithStyleMode,
   sanitizeNarrationForOutput,
 } from "@/lib/shotform-natural-shorts-script"
-import { rephraseSceneToShoppingNarrationVariant } from "@/lib/shotform-cut-narration"
+import { rephraseSceneToShoppingNarrationVariant, sanitizeProductNameForNarration } from "@/lib/shotform-cut-narration"
 import { narrationLooksIncomplete } from "@/lib/shotform-narration-timing"
 import {
   alignNarrationLinesToCuts,
@@ -101,7 +101,13 @@ export async function POST(request: NextRequest) {
             .join("\n")
         : ""
 
-    const productName = result.productAnalysis?.productName || "제품"
+    const rawProductName = result.productAnalysis?.productName || "제품"
+    const productName =
+      sanitizeProductNameForNarration(rawProductName, {
+        category: result.productAnalysis?.category,
+        summary: result.productAnalysis?.summary,
+        analysisTitles: analyses.map((a) => a.title),
+      }) || "제품"
     const styleSource = body.topic?.trim() || body.projectName?.trim() || productName
     const { topic, naturalShorts } = parseTopicWithStyleMode(styleSource)
 
@@ -134,7 +140,7 @@ ${benchmarkScriptFewShotJson()}
 - 컷마다 화면 키워드(먼지/바닥/시트/흡입/노즐/차량 등) 중 **최소 1개** 반드시 포함
 - 스토리 골격: ①문제·후킹 → ②해결책·제품 → ③~N-1 화면별 데모(앞 컷 맥락 이어받기) → ④마무리·구매
 - **금지 문구**: "이 포인트", "이 부분이 핵심", "충분히 만족", "손이 가요", "이렇게 활용하면", "생각보다 편해요", "이렇게 쉬워요", "제품 사용 장면" 읽기
-- **중국어·치수(cm/mm/m/인치) 사용 금지**
+- **중국어·영문(unboxing/review 등) 그대로 읽기 금지** — 한국어 구어체만
 - **그리고/그래서/바로/이어서로 문장 시작 금지** — 접속사 남발 없이 내용으로 이어질 것
 - lines[i] = i번째 컷 (\\n = 자막 줄). 완결된 구어체. 장면 설명·중국어 그대로 읽기 금지
 

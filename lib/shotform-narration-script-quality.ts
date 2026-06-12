@@ -9,6 +9,7 @@ import {
   pickUniqueNarrationLine,
   rephraseSceneToShoppingNarration,
   rephraseSceneToShoppingNarrationVariant,
+  sanitizeProductNameForNarration,
 } from "@/lib/shotform-cut-narration"
 import {
   formatNarrationForSceneDuration,
@@ -114,7 +115,8 @@ const VISUAL_THEME_RULES: Array<{ re: RegExp; theme: string; keywords: string[] 
   { re: /차|车|운전|seat|시트/, theme: "차량", keywords: ["차", "시트", "운전", "차안", "필수템"] },
   { re: /펼치|展开|fold|접/, theme: "펼침", keywords: ["펼치", "접", "보관", "휴대", "컴팩트"] },
   { re: /버튼|按|누르|작동|开关/, theme: "작동", keywords: ["버튼", "작동", "켜", "한 번", "바로"] },
-  { re: /청소|清洁|clean|먼지|吸尘/, theme: "청소", keywords: ["청소", "깔끔", "구석", "관리"] },
+  { re: /선풍기|风扇|fan|미니|휴대|바람|쿨링/, theme: "선풍기", keywords: ["선풍기", "바람", "시원", "휴대", "손바닥", "가방"] },
+  { re: /포장|언박싱|unboxing|开箱/, theme: "포장", keywords: ["포장", "개봉", "언박싱", "사이즈", "색감"] },
   { re: /칫솔|치아|牙刷|电动牙刷|전동칫솔/, theme: "칫솔", keywords: ["칫솔", "치아", "구석", "플라크"] },
   { re: /투사|스크린|프로젝터|TV|티비|설치|screen/, theme: "스크린", keywords: ["스크린", "설치", "투사", "몰입", "영화"] },
   { re: /틈새|缝隙|좁|缝/, theme: "틈새", keywords: ["틈새", "좁", "구석", "사이", "끝"] },
@@ -136,6 +138,14 @@ const OPENING_HOOK_POOLS: Array<{ re: RegExp; hooks: string[] }> = [
       "이거 몰랐으면 연습 시간만 날렸어요",
       "거실에서 혼자 치는데 리턴 연습이 돼요",
       "연습할 사람 없을 때 이게 제일 먼저 떠올라요",
+    ],
+  },
+  {
+    re: /선풍기|fan|미니|휴대/i,
+    hooks: [
+      "이거 몰랐으면 여름에 손만 더 땀났을 것 같아요",
+      "손바닥만 한 선풍기, 바람이 이렇게 세다고요?",
+      "가방에 쏙 들어가는 선풍기 찾으셨죠?",
     ],
   },
   {
@@ -260,6 +270,20 @@ const CAR_VACUUM_SCENE_HINTS = [
   "차량 바닥 먼지가 흡입구에 바로 빨려 들어가는 장면",
 ] as const
 
+const MINI_FAN_SCENE_HINTS = [
+  "손에 들고 있는 블루 색상 미니 선풍기를 보여주는 장면",
+  "흰색 포장지에 싸인 연보라색 미니 선풍기 언박싱 장면",
+  "미니 선풍기 바람 세기를 조절하는 장면",
+  "가방에 넣기 좋은 손바닥 크기 선풍기를 들고 있는 장면",
+  "책상 위에 올려둔 미니 선풍기 작동 장면",
+  "연보라색 미니 선풍기 색감을 클로즈업하는 장면",
+] as const
+
+function productSuggestsMiniFan(productName: string, productContext?: string): boolean {
+  const blob = `${productName} ${productContext || ""}`
+  return /선풍기|风扇|fan|미니|휴대|쿨링|手持风扇/i.test(blob)
+}
+
 function productSuggestsCarVacuum(productName: string, productContext?: string): boolean {
   const blob = `${productName} ${productContext || ""}`
   return /차량|차\s*안|자동차|진공|청소|핸디|车载|吸尘|vacuum|車|먼지/.test(blob)
@@ -275,14 +299,24 @@ export function enrichVisualCardForNarration(
   const desc = extractVisualDescription(visualCard)
   if (!WEAK_VISUAL_RE.test(desc)) return visualCard
 
-  if (productSuggestsCarVacuum(productName, productContext)) {
+  const safeProductName =
+    sanitizeProductNameForNarration(productName, {
+      category: productContext,
+      visualHint: visualCard,
+    }) || productName || "제품"
+
+  if (productSuggestsCarVacuum(safeProductName, productContext)) {
     return CAR_VACUUM_SCENE_HINTS[cutIndex % CAR_VACUUM_SCENE_HINTS.length]!
   }
 
+  if (productSuggestsMiniFan(safeProductName, productContext)) {
+    return MINI_FAN_SCENE_HINTS[cutIndex % MINI_FAN_SCENE_HINTS.length]!
+  }
+
   const genericHints = [
-    `${productName}으로 구석 먼지를 정리하는 장면`,
-    `${productName} 실사용으로 체감되는 장면`,
-    `${productName} 핵심 기능이 보이는 장면`,
+    `${safeProductName} 실사용으로 체감되는 장면`,
+    `${safeProductName} 핵심 기능이 보이는 장면`,
+    `${safeProductName} 디테일이 보이는 장면`,
   ]
   return genericHints[cutIndex % genericHints.length]!
 }
@@ -502,13 +536,15 @@ export function polishCutNarrationLines(
   const rewriteMode = Boolean(opts?.rewriteMode)
   const rewriteSalt = opts?.rewriteSalt ?? 0
   const productContext = opts?.productContext
+  const safeProductName =
+    sanitizeProductNameForNarration(productName, { category: productContext }) || productName || "제품"
   const prior: string[] = []
 
   const polished = lines.map((raw, i) => {
     const ctx = contexts[i]!
     const visualCard = enrichVisualCardForNarration(
       ctx.visual_card,
-      productName,
+      safeProductName,
       i,
       productContext
     )
@@ -521,18 +557,18 @@ export function polishCutNarrationLines(
     const needsPolish = narrationNeedsPolish(text, visualCard, prior, rewriteMode) || weakOpening
 
     if (i === 0 && weakOpening) {
-      const hook = openingHookForVisual(visualCard, productName, 0)
+      const hook = openingHookForVisual(visualCard, safeProductName, 0)
       if (hook && !isAbstractShoppingNarration(hook)) text = hook
     }
 
     if (needsPolish) {
       const variantBase = (duplicatePrior ? i * 7 + 3 : i * 5 + 1) + rewriteSalt
       const candidates = [
-        rephraseSceneToShoppingNarration(visualCard, productName, ctx.duration),
-        rephraseSceneToShoppingNarrationVariant(visualCard, productName, ctx.duration, variantBase),
-        rephraseSceneToShoppingNarrationVariant(visualCard, productName, ctx.duration, variantBase + 4),
-        rephraseSceneToShoppingNarrationVariant(visualCard, productName, ctx.duration, variantBase + 9),
-        rephraseSceneToShoppingNarrationVariant(visualCard, productName, ctx.duration, variantBase + 13),
+        rephraseSceneToShoppingNarration(visualCard, safeProductName, ctx.duration),
+        rephraseSceneToShoppingNarrationVariant(visualCard, safeProductName, ctx.duration, variantBase),
+        rephraseSceneToShoppingNarrationVariant(visualCard, safeProductName, ctx.duration, variantBase + 4),
+        rephraseSceneToShoppingNarrationVariant(visualCard, safeProductName, ctx.duration, variantBase + 9),
+        rephraseSceneToShoppingNarrationVariant(visualCard, safeProductName, ctx.duration, variantBase + 13),
       ]
       for (const cand of candidates) {
         if (!allowTemplate && isAbstractShoppingNarration(cand)) continue
@@ -541,7 +577,7 @@ export function polishCutNarrationLines(
       if (narrationLineIsDuplicateOfPrior(text, prior) || isAbstractShoppingNarration(text)) {
         text = rephraseSceneToShoppingNarrationVariant(
           visualCard,
-          productName,
+          safeProductName,
           ctx.duration,
           variantBase + 19
         )
@@ -555,18 +591,18 @@ export function polishCutNarrationLines(
     }
     if (fitToDuration && narrationLooksIncomplete(text)) {
       const fallback = formatNarrationForSceneDuration(
-        rephraseSceneToShoppingNarrationVariant(visualCard, productName, ctx.duration, i + 17),
+        rephraseSceneToShoppingNarrationVariant(visualCard, safeProductName, ctx.duration, i + 17),
         ctx.duration
       )
       if (fallback && !narrationLooksIncomplete(fallback.replace(/\n/g, " "))) {
         text = fallback
       } else {
-        text = rephraseSceneToShoppingNarrationVariant(visualCard, productName, ctx.duration, i + 31)
+        text = rephraseSceneToShoppingNarrationVariant(visualCard, safeProductName, ctx.duration, i + 31)
       }
     }
     text = pickUniqueNarrationLine({
       visualHint: visualCard,
-      productName,
+      productName: safeProductName,
       duration: ctx.duration,
       cutIndex: i + rewriteSalt * 13,
       priorLines: prior,
@@ -576,8 +612,8 @@ export function polishCutNarrationLines(
     return sanitizeNarrationForOutput(text)
   })
 
-  const woven = weaveNarrationContinuity(polished, productName).map(sanitizeNarrationForOutput)
-  return enforceUniqueCutLines(woven, contexts, productName, rewriteSalt, productContext).map(
+  const woven = weaveNarrationContinuity(polished, safeProductName).map(sanitizeNarrationForOutput)
+  return enforceUniqueCutLines(woven, contexts, safeProductName, rewriteSalt, productContext).map(
     sanitizeNarrationForOutput
   )
 }
