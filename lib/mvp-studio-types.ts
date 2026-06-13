@@ -47,6 +47,17 @@ export type MvpThumbnailHookingText = {
   line2: string
 }
 
+/** 유튜브·숏폼 업로드용 제목·설명·태그 */
+export type MvpStudioSeoMeta = {
+  title: string
+  recommendedTitles?: string[]
+  description: string
+  tags: string[]
+  hashtags: string[]
+  hookShort?: string
+  commentCue?: string
+}
+
 export type MvpThumbnailSource = "ai" | "studio"
 
 export type MvpThumbnailVariant = {
@@ -218,6 +229,8 @@ export type MvpStudioPersistData = {
   editTtsCachedJobId?: string
   /** 배경음·효과음 통합 클립 */
   bgmClips?: MvpBgmClip[]
+  /** 제목·설명·태그 (SEO) */
+  seoMeta?: MvpStudioSeoMeta
   /** @deprecated */
   bgm?: MvpBgmSettings
   /** @deprecated */

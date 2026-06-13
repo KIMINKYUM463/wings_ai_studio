@@ -18,7 +18,8 @@ import { renderMvpPreviewToBlob } from "@/lib/mvp-preview-render"
 import { mvpAssetDownloadFilename, mvpRenderDownloadFilename } from "@/lib/mvp-render-filename"
 import type { LineSubtitleCue } from "@/lib/shotform-mvp-edit-script"
 import type { PlacedStudioOverlay } from "@/lib/shotform-studio-overlay-catalog"
-import type { MvpBgmClip, MvpScriptStyleState, MvpSubtitleStyle } from "@/lib/mvp-studio-types"
+import type { MvpBgmClip, MvpScriptStyleState, MvpStudioSeoMeta, MvpSubtitleStyle } from "@/lib/mvp-studio-types"
+import { mvpSeoMetaToCapCutSeo } from "@/lib/mvp-studio-seo"
 import { cn } from "@/lib/utils"
 import { StudioPageCard, studio } from "../components/ShotFormStudioUI"
 
@@ -43,6 +44,7 @@ type Props = {
   placedOverlays: PlacedStudioOverlay[]
   thumbnailUrl?: string
   thumbnailIntroOn: boolean
+  seoMeta?: MvpStudioSeoMeta
   bgmClips: MvpBgmClip[]
 }
 
@@ -88,6 +90,7 @@ export function MvpExportPanel({
   placedOverlays,
   thumbnailUrl,
   thumbnailIntroOn,
+  seoMeta,
   bgmClips,
 }: Props) {
   const exportTileBtn = cn(
@@ -117,15 +120,17 @@ export function MvpExportPanel({
       audioDurationSec,
       projectLabel: result.productAnalysis?.productName,
       bgmClips,
-      seo: scriptStyle.commentKeyword
-        ? {
-            title: scriptStyle.headcopies[0]?.[0] || scriptStyle.commentKeyword,
-            description: scriptStyle.conversionScript.slice(0, 200),
-            tags: [scriptStyle.commentKeyword],
-            hashtags: [`#${scriptStyle.commentKeyword}`],
-            hookShort: scriptStyle.headcopies[0]?.join(" ") || "",
-          }
-        : undefined,
+      seo:
+        mvpSeoMetaToCapCutSeo(seoMeta) ??
+        (scriptStyle.commentKeyword
+          ? {
+              title: scriptStyle.headcopies[0]?.[0] || scriptStyle.commentKeyword,
+              description: scriptStyle.conversionScript.slice(0, 200),
+              tags: [scriptStyle.commentKeyword],
+              hashtags: [`#${scriptStyle.commentKeyword}`],
+              hookShort: scriptStyle.headcopies[0]?.join(" ") || "",
+            }
+          : undefined),
     })
   }, [
     result,
@@ -139,6 +144,7 @@ export function MvpExportPanel({
     videoDurationSec,
     audioDurationSec,
     scriptStyle,
+    seoMeta,
     bgmClips,
     projectId,
     videoBlobRef,

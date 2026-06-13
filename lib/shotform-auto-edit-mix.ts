@@ -1108,7 +1108,7 @@ ${benchmarkScriptFewShotJson()}
 필수 JSON:
 {
   "scripts": { "conversion": "sceneSubtitles.conversion의 text를 순서대로 \\n으로 이어붙인 전체", "storytelling": "sceneSubtitles.storytelling의 text를 순서대로 \\n으로 이어붙인 전체" },
-  "headcopies": [["첫줄","둘째줄"], ...] 4~5세트,
+  "headcopies": [["첫줄","둘째줄"], ...] 4~5세트 — **각 세트는 썸네일 위·아래 후킹, 합쳐 읽으면 한 메시지**,
   "commentKeyword": "키워드",
   "sceneSubtitles": {
     "conversion": [{"start":0,"end":12.5,"text":"줄1\\n줄2\\n..."}, ...] — **정확히 ${sceneCount}개**,
@@ -1372,11 +1372,11 @@ function normalizeScriptBundle(
 
 function buildDefaultHeadcopies(productName: string): string[][] {
   return [
-    ["이거 진짜 대박", "써본 사람만 안다"],
-    ["후회 없는 선택", productName.slice(0, 12)],
-    ["요즘 난리난 그 제품", "직접 써봤어요"],
-    ["왜 이제 알았지?", "생활이 달라져요"],
-    ["가성비 끝판왕", "지금 확인하세요"],
+    ["이거 모르면", "100% 손해"],
+    ["요즘 난리난", "이유 공개"],
+    ["안 쓰면 진짜", "후회각"],
+    ["왜 이제야", productName.slice(0, 7) || "알았지"],
+    ["가성비 1위", "오늘 마감"],
   ]
 }
 

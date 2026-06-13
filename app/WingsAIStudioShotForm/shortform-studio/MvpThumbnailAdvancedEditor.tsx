@@ -983,7 +983,17 @@ export function MvpThumbnailAdvancedEditor({
       setAiTextLoadingId(textLayer.id)
       setErr(null)
       try {
-        const otherLines = design.texts.filter((t) => t.id !== textLayer.id).map((t) => t.text)
+        const hook1 = design.texts.find((t) => t.role === "hook1")
+        const hook2 = design.texts.find((t) => t.role === "hook2")
+        const pairedLine =
+          textLayer.role === "hook1"
+            ? hook2?.text?.trim()
+            : textLayer.role === "hook2"
+              ? hook1?.text?.trim()
+              : undefined
+        const otherLines = pairedLine
+          ? [pairedLine]
+          : design.texts.filter((t) => t.id !== textLayer.id).map((t) => t.text)
         const res = await fetch("/api/shotform/mvp-thumbnail", {
           method: "POST",
           headers: { "Content-Type": "application/json" },

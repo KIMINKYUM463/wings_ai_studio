@@ -79,9 +79,11 @@ import type {
   MvpStudioPersistData,
   MvpStudioPhase,
   MvpScriptStyleState,
+  MvpStudioSeoMeta,
   MvpThumbnailHookingText,
   MvpThumbnailVariant,
 } from "@/lib/mvp-studio-types"
+import { emptyMvpStudioSeoMeta } from "@/lib/mvp-studio-seo"
 import { normalizePlacedOverlays } from "@/lib/mvp-overlay-utils"
 import type { PlacedStudioOverlay } from "@/lib/shotform-studio-overlay-catalog"
 import {
@@ -270,6 +272,9 @@ export function MvpPostEditStudio({
       studioPersist?.thumbnailIntroOn ??
       Boolean(migrateThumbnailGallery(studioPersist).selectedId)
   )
+  const [seoMeta, setSeoMeta] = useState<MvpStudioSeoMeta>(
+    () => studioPersist?.seoMeta ?? emptyMvpStudioSeoMeta()
+  )
   const activeThumbnail = useMemo(
     () => selectedThumbnailVariant(thumbnailGallery, selectedThumbnailId),
     [thumbnailGallery, selectedThumbnailId]
@@ -314,6 +319,7 @@ export function MvpPostEditStudio({
     setThumbnailIntroOn(
       studioPersist?.thumbnailIntroOn ?? Boolean(migrated.selectedId)
     )
+    setSeoMeta(studioPersist?.seoMeta ?? emptyMvpStudioSeoMeta())
     setBgmClips(migrateStudioAudioToBgmClips(studioPersist, totalSec || 30))
     if (fetchedTtsUrlRef.current) {
       URL.revokeObjectURL(fetchedTtsUrlRef.current)
@@ -340,6 +346,13 @@ export function MvpPostEditStudio({
       thumbnailGallery: thumbnailGallery.length ? thumbnailGallery : undefined,
       selectedThumbnailId: selectedThumbnailId ?? undefined,
       thumbnailIntroOn: thumbnailUrl ? thumbnailIntroOn : undefined,
+      seoMeta:
+        seoMeta.title ||
+        seoMeta.description ||
+        seoMeta.tags.length ||
+        seoMeta.hashtags.length
+          ? seoMeta
+          : undefined,
       voiceLineCues: voiceLineCues ?? undefined,
       selectedVoiceId,
       supertoneStyle,
@@ -363,6 +376,7 @@ export function MvpPostEditStudio({
     selectedThumbnailId,
     thumbnailHookingText,
     thumbnailIntroOn,
+    seoMeta,
     voiceLineCues,
     selectedVoiceId,
     supertoneStyle,
@@ -1447,6 +1461,7 @@ export function MvpPostEditStudio({
           placedOverlays={placedOverlays}
           thumbnailUrl={thumbnailUrl || undefined}
           thumbnailIntroOn={thumbnailIntroOn}
+          seoMeta={seoMeta}
           bgmClips={bgmClips}
         />
       ) : null}
@@ -1501,6 +1516,12 @@ export function MvpPostEditStudio({
           onRemoveThumbnail={handleRemoveThumbnail}
           onThumbnailHookingTextChange={setThumbnailHookingText}
           onThumbnailIntroOnChange={setThumbnailIntroOn}
+          projectName={projectName}
+          sourceKeywords={
+            result.sourceKeywords?.length ? result.sourceKeywords : sourceKeywords
+          }
+          seoMeta={seoMeta}
+          onSeoMetaChange={setSeoMeta}
           voiceCatalog={voiceCatalog}
           voicesLoading={voicesLoading}
           voiceLoadErrors={voiceLoadErrors}

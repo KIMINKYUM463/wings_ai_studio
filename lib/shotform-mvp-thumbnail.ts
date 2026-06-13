@@ -22,22 +22,29 @@ export const THUMBNAIL_HOOKING_SYSTEM_PROMPT = `당신은 유튜브 쇼핑숏폼
 3. 각 줄에 반드시 숫자 포함 (99%, 3초, 1위, 10배, 7일, 50% 등)
 4. 짧고 굵게, 클릭·충격·긴박감·호기심 유발
 5. 제품명 그대로 나열 금지 — 후킹 문구만
-6. line1·line2 단어 중복 금지, 서로 다른 내용
-7. line1=충격·호기심, line2=결과·긴박감
+6. line1·line2 단어 중복 금지
+7. **line1+line2는 위·아래 합쳐 한 메시지** — 따로 노는 독립 문구 금지
+8. line1=앞반(궁금증·충격·후킹), line2=뒷반(결론·제품 핵심·긴박) — 이어 읽으면 자연스러워야 함
 
-좋은 예:
-{"line1":"99% 손해","line2":"3초 완판"}
-{"line1":"1위 비밀","line2":"7일 효과"}
+연결된 좋은 예 (위+아래 = 한 세트):
+{"line1":"99% 손해","line2":"3초 완판"} → 몰라서 99% 손해 / 3초 만에 완판
+{"line1":"안 쓰면","line2":"100% 손해"}
+{"line1":"1위 비밀","line2":"7일 만에"}
 {"line1":"10배 싸게","line2":"오늘 마감"}
+{"line1":"요즘 난리","line2":"이거 때문"}
 
-나쁜 예 (너무 김·약함):
-{"line1":"이 제품 쓰면 좋아요","line2":"지금 구매하세요"}`
+나쁜 예 (각각 따로 노는 것):
+{"line1":"99% 손해","line2":"7일 효과"} — 앞뒤 무관
+{"line1":"10배 싸게","line2":"1위 비밀"} — 연결 없음
+{"line1":"이 제품 쓰면 좋아요","line2":"지금 구매하세요"} — 너무 김·약함`
 
 export function buildThumbnailHookingUserPrompt(productName: string): string {
   return `제품명: ${productName}
 
 위 제품에 맞는 쇼츠 썸네일 후킹 2줄을 작성하세요.
-각 줄 ${THUMBNAIL_HOOKING_MAX_CHARS}자 이내, 숫자 필수, 짧고 굵게.
+- 위 줄(line1)+아래 줄(line2)을 합쳐 읽었을 때 **한 문장·한 후킹**처럼 이어져야 합니다.
+- line1은 궁금증/충격, line2는 그에 대한 결론/제품 핵심.
+- 각 줄 ${THUMBNAIL_HOOKING_MAX_CHARS}자 이내, 숫자 필수, 짧고 굵게.
 
 {"line1":"...","line2":"..."}`
 }
@@ -55,49 +62,54 @@ function normalizeHookingText(raw: { line1?: string; line2?: string }): Thumbnai
   }
 }
 
-const HOOK1_FALLBACKS = [
-  "99% 손해",
-  "3초 완판",
-  "1위 비밀",
-  "10배 싸게",
-  "7일 효과",
-  "50% 할인",
-  "5초 충전",
-] as const
-
-const HOOK2_FALLBACKS = [
-  "충격 가격",
-  "이유 공개",
-  "꿀템 정체",
-  "오늘 마감",
-  "숨긴 비밀",
-  "지금 아니면",
-  "품절 임박",
+const HOOKING_PAIRS: readonly ThumbnailHookingText[] = [
+  { line1: "99% 손해", line2: "3초 완판" },
+  { line1: "안 쓰면", line2: "100% 손해" },
+  { line1: "1위 비밀", line2: "7일 만에" },
+  { line1: "10배 싸게", line2: "오늘 마감" },
+  { line1: "요즘 난리", line2: "이거 때문" },
+  { line1: "50% 할인", line2: "품절 임박" },
+  { line1: "5초 충전", line2: "이유 공개" },
 ] as const
 
 const BADGE_FALLBACKS = ["한정", "오늘만", "마감", "최저가", "1+1"] as const
 
-function pickFallbackText(role: ThumbnailTextRole | undefined, currentText: string, otherLines: string[]): string {
-  const pool =
-    role === "hook2"
-      ? HOOK2_FALLBACKS
-      : role === "badge"
-        ? BADGE_FALLBACKS
-        : role === "hook1"
-          ? HOOK1_FALLBACKS
-          : [...HOOK1_FALLBACKS, ...HOOK2_FALLBACKS]
-  const blocked = new Set([currentText.trim(), ...otherLines.map((l) => l.trim())].filter(Boolean))
-  const candidates = pool.filter((t) => !blocked.has(t))
-  const list = candidates.length ? candidates : [...pool]
-  return list[Math.floor(Math.random() * list.length)]
+function pickHookingPairFallback(otherLine?: string, role?: ThumbnailTextRole): ThumbnailHookingText {
+  const other = otherLine?.trim()
+  if (other && (role === "hook1" || role === "hook2")) {
+    const matched = HOOKING_PAIRS.find((p) =>
+      role === "hook1" ? p.line2 === other : p.line1 === other
+    )
+    if (matched) return matched
+  }
+  return HOOKING_PAIRS[Math.floor(Math.random() * HOOKING_PAIRS.length)]!
+}
+
+function pickFallbackText(
+  role: ThumbnailTextRole | undefined,
+  currentText: string,
+  otherLines: string[]
+): string {
+  if (role === "hook1" || role === "hook2") {
+    const pair = pickHookingPairFallback(otherLines[0], role)
+    return role === "hook1" ? pair.line1 : pair.line2
+  }
+  if (role === "badge") {
+    const blocked = new Set([currentText.trim(), ...otherLines.map((l) => l.trim())].filter(Boolean))
+    const candidates = BADGE_FALLBACKS.filter((t) => !blocked.has(t))
+    const list = candidates.length ? candidates : [...BADGE_FALLBACKS]
+    return list[Math.floor(Math.random() * list.length)]
+  }
+  const pair = pickHookingPairFallback()
+  return pair.line1
 }
 
 function rolePromptHint(role: ThumbnailTextRole | undefined): string {
   if (role === "hook1") {
-    return `첫 번째 후킹 줄: 숫자 + 충격·호기심 (${THUMBNAIL_HOOKING_MAX_CHARS}자 이내), 상단 문구`
+    return `첫 번째 후킹 줄(상단): 숫자 + 궁금증·충격 (${THUMBNAIL_HOOKING_MAX_CHARS}자 이내). 아래 줄과 합쳐 한 메시지가 되도록 앞반만 작성`
   }
   if (role === "hook2") {
-    return `두 번째 후킹 줄: 숫자 + 결과·긴박감 (${THUMBNAIL_HOOKING_MAX_CHARS}자 이내), 하단 문구`
+    return `두 번째 후킹 줄(하단): 숫자 + 결론·제품 핵심·긴박 (${THUMBNAIL_HOOKING_MAX_CHARS}자 이내). 위 줄과 합쳐 한 메시지가 되도록 뒷반만 작성`
   }
   if (role === "badge") {
     return `뱃지 라벨: 숫자 포함, 2~${THUMBNAIL_HOOKING_MAX_CHARS}자, 짧고 강렬`
@@ -106,10 +118,14 @@ function rolePromptHint(role: ThumbnailTextRole | undefined): string {
 }
 
 function buildThumbnailRewriteSystemPrompt(role?: ThumbnailTextRole): string {
+  const pairRule =
+    role === "hook1" || role === "hook2"
+      ? "\n- **짝 줄과 한 세트**: 위+아래 합쳐 읽으면 하나의 후킹 메시지. 짝 줄 문구는 유지하고, 수정하는 줄만 짝과 자연스럽게 이어지게 작성"
+      : ""
   return `${THUMBNAIL_HOOKING_SYSTEM_PROMPT}
 
 추가 규칙 (한 줄 리라이트):
-- ${rolePromptHint(role)}
+- ${rolePromptHint(role)}${pairRule}
 - 반드시 한 줄만 출력: {"text": "새 문구"}
 - 현재 문구와 완전히 다른 새 문구`
 }
@@ -174,7 +190,9 @@ export async function rewriteThumbnailLayerText(
 
   const otherHint =
     otherLines.length > 0
-      ? `\n다른 줄에 이미 사용된 문구(단어 중복 금지): ${otherLines.join(" / ")}`
+      ? role === "hook1" || role === "hook2"
+        ? `\n짝이 되는 다른 줄(반드시 이어 읽기): 「${otherLines[0]}」\n위·아래를 합치면 하나의 후킹이 되도록, ${role === "hook1" ? "상단(앞반)" : "하단(뒷반)"}만 새로 작성`
+        : `\n다른 줄에 이미 사용된 문구(단어 중복 금지): ${otherLines.join(" / ")}`
       : ""
 
   try {
@@ -236,14 +254,7 @@ export async function generateThumbnailHookingText(
   const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
 
   if (!GPT_API_KEY) {
-    const defaultHooks: ThumbnailHookingText[] = [
-      { line1: "99% 손해", line2: "3초 완판" },
-      { line1: "1위 비밀", line2: "7일 효과" },
-      { line1: "10배 싸게", line2: "오늘 마감" },
-      { line1: "50% 할인", line2: "품절 임박" },
-      { line1: "5초 충전", line2: "이유 공개" },
-    ]
-    return defaultHooks[Math.floor(Math.random() * defaultHooks.length)]
+    return HOOKING_PAIRS[Math.floor(Math.random() * HOOKING_PAIRS.length)]!
   }
 
   try {
@@ -261,7 +272,7 @@ export async function generateThumbnailHookingText(
         ],
         response_format: { type: "json_object" },
         max_tokens: 80,
-        temperature: 1.0,
+        temperature: 0.85,
       }),
     })
 

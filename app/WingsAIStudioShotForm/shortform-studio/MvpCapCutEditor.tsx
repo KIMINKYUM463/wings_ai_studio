@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import {
   ChevronRight,
   FilePenLine,
+  FileText,
   Hash,
   ImageIcon,
   Info,
@@ -50,6 +51,7 @@ import {
 } from "@/lib/shotform-narration-timing"
 import type {
   MvpScriptStyleState,
+  MvpStudioSeoMeta,
   MvpSubtitleStyle,
   MvpThumbnailHookingText,
   MvpThumbnailVariant,
@@ -71,6 +73,7 @@ import { MvpOverlayLayer } from "./MvpOverlayLayer"
 import { MvpSubtitleStylePanel } from "./MvpSubtitleStylePanel"
 import { MvpTtsSpeedPicker } from "./MvpTtsSpeedPicker"
 import { MvpThumbnailPanel } from "./MvpThumbnailPanel"
+import { MvpSeoMetaPanel } from "./MvpSeoMetaPanel"
 import { MvpAutoEditProductIntro } from "./MvpAutoEditProductIntro"
 import { MvpChineseSubtitleRemovalPanel } from "./MvpChineseSubtitleRemovalPanel"
 import { MvpVisualSceneList } from "./MvpVisualSceneList"
@@ -132,6 +135,10 @@ type Props = {
   onRemoveThumbnail: (id: string) => void
   onThumbnailIntroOnChange: (on: boolean) => void
   onThumbnailHookingTextChange: (text: MvpThumbnailHookingText) => void
+  projectName?: string
+  sourceKeywords?: string[]
+  seoMeta: MvpStudioSeoMeta
+  onSeoMetaChange: (next: MvpStudioSeoMeta) => void
   voiceCatalog: Record<TtsProviderId, ShotformTtsVoice[]>
   voicesLoading: Record<TtsProviderId, boolean>
   voiceLoadErrors: Record<TtsProviderId, string | null>
@@ -219,6 +226,10 @@ export function MvpCapCutEditor(props: Props) {
     onRemoveThumbnail,
     onThumbnailIntroOnChange,
     onThumbnailHookingTextChange,
+    projectName,
+    sourceKeywords = [],
+    seoMeta,
+    onSeoMetaChange,
     voiceCatalog,
     voicesLoading,
     voiceLoadErrors,
@@ -263,7 +274,7 @@ export function MvpCapCutEditor(props: Props) {
   const [selectedCueIndex, setSelectedCueIndex] = useState(-1)
   const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(null)
   const [inspectorTab, setInspectorTab] = useState<
-    "info" | "subtitle" | "thumbnail" | "script" | "audio"
+    "info" | "subtitle" | "thumbnail" | "seo" | "script" | "audio"
   >("subtitle")
   const [selectedBgmClipId, setSelectedBgmClipId] = useState<string | null>(null)
   const [pendingCatalogId, setPendingCatalogId] = useState(
@@ -711,6 +722,7 @@ export function MvpCapCutEditor(props: Props) {
                 ["subtitle", "자막", Type],
                 ["audio", "음악", Music2],
                 ["thumbnail", "썸네일", ImageIcon],
+                ["seo", "제목·태그", FileText],
                 ["script", "대본", Sparkles],
               ] as const
             ).map(([id, label, Icon]) => (
@@ -1085,6 +1097,21 @@ export function MvpCapCutEditor(props: Props) {
                 onRemoveThumbnail={onRemoveThumbnail}
                 onThumbnailIntroOnChange={onThumbnailIntroOnChange}
                 onHookingTextChange={onThumbnailHookingTextChange}
+              />
+            ) : null}
+
+            {inspectorTab === "seo" ? (
+              <MvpSeoMetaPanel
+                productName={thumbnailProductName}
+                projectName={projectName}
+                sourceKeywords={sourceKeywords}
+                referenceTitles={
+                  scriptStyle.commentKeyword ? [scriptStyle.commentKeyword] : undefined
+                }
+                segments={segments}
+                videoDurationSec={previewTotalSec}
+                value={seoMeta}
+                onChange={onSeoMetaChange}
               />
             ) : null}
 
