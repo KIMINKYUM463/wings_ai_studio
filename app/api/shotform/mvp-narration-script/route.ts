@@ -20,6 +20,10 @@ import {
   stripLeadingNarrationConnector,
   visualGroundingScore,
 } from "@/lib/shotform-narration-script-quality"
+import {
+  buildCutNarrationSceneMetas,
+  buildRepeatedSceneGroupsPrompt,
+} from "@/lib/shotform-narration-scene-groups"
 import { buildCutScriptContexts } from "@/lib/shotform-visual-scene-match"
 import {
   buildNarrationProductContext,
@@ -140,7 +144,13 @@ export async function POST(request: NextRequest) {
       naturalShorts,
     })
 
-    const cutsBlock = buildNarrationCutsPromptBlock(cuts, naturalShorts)
+    const sceneMetas = buildCutNarrationSceneMetas(cuts, {
+      keywords: userKeywords.length ? userKeywords : result.productAnalysis?.targetKeywords,
+      summary: result.productAnalysis?.summary,
+      category: result.productAnalysis?.category,
+    })
+    const cutsBlock = buildNarrationCutsPromptBlock(cuts, naturalShorts, sceneMetas)
+    const repeatGroupsBlock = buildRepeatedSceneGroupsPrompt(cuts, sceneMetas)
 
     const systemContent = naturalShorts
       ? buildNaturalShortsNarrationSystemPrompt({ cutCount: cuts.length, mode })
@@ -192,7 +202,9 @@ ${previousScriptBlock}
 - 차량 청소 영상이면 시트/바닥/먼지/흡입/노즐/구석 등 **눈에 보이는 요소**를 컷마다 다르게 언급하세요.
 - 모든 컷에 같은 추상 문장(「이 포인트」「핵심」「만족」) 반복 금지.
 - **동일 꼬리문구·동일 의미 반복 절대 금지** (예: 「먼지가 바로 빠져요」「이렇게 빼낼 수 있어요」를 여러 컷에 쓰지 말 것)
+- **같은·유사 화면이 반복되면** 문장을 복사하지 말고 **앞 컷 나레이션을 이어** 제품 장점을 깊이 있게 전개
 - 화면 설명을 앞에 붙이고 뒤에 고정 문구만 바꾸는 패턴 금지 — 컷마다 **새로운 구체 표현**으로 작성
+${repeatGroupsBlock}
 
 위 ${cuts.length}개 컷이 **한 편의 쇼핑숏폼**처럼 읽히도록 lines 배열을 ${mode === "rewrite" ? "다시" : ""} 작성하세요.`
 
@@ -244,6 +256,7 @@ ${previousScriptBlock}
           rewriteSalt,
           productContext,
           previousScripts: mode === "rewrite" ? previousScripts : undefined,
+          sceneMetas,
         }
       )
     )

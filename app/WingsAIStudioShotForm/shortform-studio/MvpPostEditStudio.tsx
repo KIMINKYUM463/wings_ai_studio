@@ -72,7 +72,7 @@ import {
   polishCutNarrationLines,
 } from "@/lib/shotform-narration-script-quality"
 import { normalizeUserSourceKeywords } from "@/lib/shotform-user-keyword-product"
-import { analysisByVideoId } from "@/lib/shotform-visual-scene-match"
+import { analysisByVideoId, buildCutScriptContexts } from "@/lib/shotform-visual-scene-match"
 import { cleanNarrationLineBreaks } from "@/lib/shotform-narration-timing"
 import { sanitizeNarrationForOutput } from "@/lib/shotform-natural-shorts-script"
 import type {
@@ -641,6 +641,30 @@ export function MvpPostEditStudio({
           visual_card: segmentVisualHints[i] || seg.text,
           duration: narrationSegmentDuration(seg),
         }))
+        const analyses = result.analyses?.length
+          ? result.analyses
+          : result.analysis
+            ? [result.analysis]
+            : []
+        const cuts =
+          result.editPlan?.edit_plan?.length && analyses.length
+            ? buildCutScriptContexts(result.editPlan, analyses, result.mixInfo)
+            : contexts.map((c, i) => ({
+                index: i + 1,
+                output_start: baseSegments[i]!.start,
+                output_end: baseSegments[i]!.end,
+                duration: c.duration,
+                video_id: result.editPlan?.edit_plan[i]?.video_id ?? `cut-${i}`,
+                source_start: result.editPlan?.edit_plan[i]?.source_start ?? baseSegments[i]!.start,
+                source_end: result.editPlan?.edit_plan[i]?.source_end ?? baseSegments[i]!.end,
+                visual_card: c.visual_card,
+                reason: c.visual_card,
+              }))
+        const sceneMetas = buildCutNarrationSceneMetas(cuts, {
+          keywords: userKeywords.length ? userKeywords : result.productAnalysis?.targetKeywords,
+          summary: result.productAnalysis?.summary,
+          category: result.productAnalysis?.category,
+        })
         const repolished = limitConnectorsAcrossScript(
           polishCutNarrationLines(
             baseSegments.map((_, i) => formatted[String(i + 1)] ?? ""),
@@ -653,6 +677,7 @@ export function MvpPostEditStudio({
               rewriteSalt: Math.floor(Math.random() * 400) + (Date.now() % 97) + 1,
               productContext,
               previousScripts: currentScripts,
+              sceneMetas,
             }
           )
         )

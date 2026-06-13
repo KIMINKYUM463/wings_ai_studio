@@ -19,6 +19,8 @@ import {
 } from "@/lib/shotform-narration-timing"
 import type { CutScriptContext } from "@/lib/shotform-visual-scene-match"
 import { sanitizeNarrationForOutput } from "@/lib/shotform-natural-shorts-script"
+import type { CutNarrationSceneMeta } from "@/lib/shotform-narration-scene-groups"
+import { narrationForRepeatedScene } from "@/lib/shotform-narration-scene-groups"
 import {
   hasExcessiveScriptRepetition,
   narrationBlockSimilarity,
@@ -509,10 +511,12 @@ function pickBetterLine(
 /** 프롬프트용 컷 블록 (mvp-narration-script·짜집기 파이프라인 공용) */
 export function buildNarrationCutsPromptBlock(
   cuts: readonly CutScriptContext[],
-  naturalShorts: boolean
+  naturalShorts: boolean,
+  sceneMetas?: readonly CutNarrationSceneMeta[]
 ): string {
   return cuts
-    .map((c) => {
+    .map((c, i) => {
+      const meta = sceneMetas?.[i]
       const maxChars = maxCharsForSceneDuration(c.duration)
       const lineHint = c.duration <= 2.5 ? 2 : c.duration <= 4 ? 3 : Math.max(3, Math.round(c.duration / 1.4))
       const role = naturalShorts
@@ -536,15 +540,25 @@ export function buildNarrationCutsPromptBlock(
         c.duration < 2.5
           ? " · **1초 내외 컷**: 완결된 짧은 호흡 한 줄 — 조사·명사로 끝나는 미완성 금지"
           : ""
+      const visualForPrompt = meta?.enrichedVisual ?? formatSceneDescriptionHint(c.visual_card)
       const vk = visualKeywordsForScript(c.visual_card)
       const keywordHint = vk.length ? ` · **반드시 포함**: ${vk.join(", ")}` : ""
+      const benefitHint = meta?.productBenefitHint
+        ? ` · **제품 장점 각도**: ${meta.productBenefitHint}`
+        : ""
+      const repeatHint =
+        meta?.isRepeat && meta.occurrence > 1
+          ? ` · **반복 장면 ${meta.occurrence}/${meta.groupSize}** — 앞 등장 컷 나레이션을 이어 깊이 추가 (같은 문장 금지)`
+          : meta?.isRepeat && meta.occurrence === 1
+            ? ` · **반복 장면 그룹 첫 등장** — 이 화면의 제품 장점을 소개`
+            : ""
       const mustMention =
         vk.length > 0
           ? ` · 이 컷 대본에 위 키워드 중 1개 이상·구체 행동(빨아들이다/흡입/닦다 등) 필수`
           : " · 화면에 보이는 사물·행동을 구체적으로 말할 것"
       return `${c.index}. 출력 ${c.output_start}-${c.output_end}s (${c.duration}초, ${lineHint}줄 권장, 최대 ${maxChars}자) · ${role}${shortCut}
    소스 ${c.source_start.toFixed(1)}-${c.source_end.toFixed(1)}s
-   화면: ${formatSceneDescriptionHint(c.visual_card)}${keywordHint}${mustMention}`
+   화면: ${visualForPrompt}${keywordHint}${benefitHint}${repeatHint}${mustMention}`
     })
     .join("\n\n")
 }
@@ -563,6 +577,8 @@ export function polishCutNarrationLines(
     productContext?: string
     /** 다시쓰기 시 이전 컷별 대본 — 동일 문장이면 강제 교체 */
     previousScripts?: Record<string, string>
+    /** 반복 장면 그룹·제품 장점 힌트 */
+    sceneMetas?: readonly CutNarrationSceneMeta[]
   }
 ): string[] {
   const allowTemplate = opts?.allowTemplateFallback !== false
@@ -571,19 +587,44 @@ export function polishCutNarrationLines(
   const rewriteSalt = opts?.rewriteSalt ?? 0
   const productContext = opts?.productContext
   const previousScripts = opts?.previousScripts ?? {}
+  const sceneMetas = opts?.sceneMetas
   const safeProductName =
     sanitizeProductNameForNarration(productName, { category: productContext }) || productName || "제품"
   const prior: string[] = []
+  const groupLastNarration = new Map<number, string>()
 
   const polished = lines.map((raw, i) => {
     const ctx = contexts[i]!
+    const sceneMeta = sceneMetas?.[i]
+    const priorInGroup = sceneMeta ? groupLastNarration.get(sceneMeta.groupId) : undefined
     const visualCard = enrichVisualCardForNarration(
-      ctx.visual_card,
+      sceneMeta?.enrichedVisual ?? ctx.visual_card,
       safeProductName,
       i,
       productContext
     )
     let text = sanitizeNarrationForOutput(raw.trim())
+
+    if (sceneMeta?.isRepeat && sceneMeta.occurrence > 1 && priorInGroup) {
+      const dupWithGroup =
+        narrationLineIsDuplicateOfPrior(text, prior) ||
+        text.trim() === priorInGroup.trim() ||
+        narrationBlockSimilarity(text, priorInGroup) >= 0.55
+      if (dupWithGroup || narrationNeedsPolish(text, visualCard, prior, rewriteMode)) {
+        const continued = narrationForRepeatedScene({
+          occurrence: sceneMeta.occurrence,
+          groupSize: sceneMeta.groupSize,
+          productBenefitHint: sceneMeta.productBenefitHint,
+          priorInGroup,
+          visualHint: ctx.visual_card,
+          cutIndex: i,
+        })
+        if (continued && !narrationLineIsDuplicateOfPrior(continued, prior)) {
+          text = continued
+        }
+      }
+    }
+
     const duplicatePrior = narrationLineIsDuplicateOfPrior(text, prior)
     const variantBase = (duplicatePrior ? i * 7 + 3 : i * 5 + 1) + rewriteSalt
     const weakOpening =
@@ -672,8 +713,11 @@ export function polishCutNarrationLines(
         isAbstractShoppingNarration(text) || narrationMismatchesVisualProduct(text, visualCard)
           ? undefined
           : text,
+      sceneMeta,
+      priorInGroup,
     })
     prior.push(text)
+    if (sceneMeta) groupLastNarration.set(sceneMeta.groupId, text)
     return sanitizeNarrationForOutput(text)
   })
 

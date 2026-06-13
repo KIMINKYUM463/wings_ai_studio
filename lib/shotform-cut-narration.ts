@@ -24,7 +24,11 @@ import {
   formatCutVisualCard,
   visualSceneForSourceRange,
 } from "@/lib/shotform-visual-scene-match"
-
+import type { CutNarrationSceneMeta } from "@/lib/shotform-narration-scene-groups"
+import {
+  buildCutNarrationSceneMetas,
+  narrationForRepeatedScene,
+} from "@/lib/shotform-narration-scene-groups"
 import { sanitizeNarrationForOutput } from "@/lib/shotform-natural-shorts-script"
 
 /** 벤치마크 UI용 — [샷] + 장면 묘사 */
@@ -487,6 +491,59 @@ function productNarrationFallback(productName: string | undefined, ruleOffset: n
   return fallbacks[ruleOffset % fallbacks.length]!
 }
 
+/** 중복·유사 문장이면 화면·컷 인덱스로 강제 분기 */
+function forceUniqueNarrationLine(args: {
+  visualHint: string
+  productName?: string
+  duration: number
+  cutIndex: number
+  priorLines: readonly string[]
+}): string {
+  const { visualHint, productName, duration, cutIndex, priorLines } = args
+  const isDup = (t: string) =>
+    narrationLineIsDuplicateOfPrior(t, priorLines) ||
+    priorLines.some((p) => narrationSharesRepeatedPhrase(p, t)) ||
+    isAbstractShoppingNarration(t)
+
+  const desc = extractVisualDescription(visualHint)
+  const augmented = [
+    desc,
+    `손잡이 ${desc}`,
+    `부속품 ${desc}`,
+    `바닥 ${desc}`,
+    `시트 ${desc}`,
+    `노즐 ${desc}`,
+    `케이스 ${desc}`,
+    `사용 중 ${desc}`,
+    `차량 바닥 ${desc}`,
+    `차량 시트 ${desc}`,
+  ]
+
+  for (let attempt = 0; attempt < 96; attempt++) {
+    const hint = augmented[attempt % augmented.length]!
+    const salt = cutIndex * 53 + attempt * 19 + priorLines.length * 41
+    const core = rephraseSceneCore(hint, productName, salt)
+    const candidate = formatNarrationForSceneDuration(
+      wrapNarrationShortLines(core, duration),
+      duration
+    )
+    if (candidate && !isDup(candidate)) return candidate
+
+    const fb = buildFallbackNarration(hint, productName, salt)
+    const candidate2 = formatNarrationForSceneDuration(fb, duration)
+    if (candidate2 && !isDup(candidate2)) return candidate2
+  }
+
+  const words = (desc.match(/[\uac00-\ud7a3]{2,}/g) ?? []).filter(
+    (w) => !/장면|모습|사용자|카메라|자막|보임|강조|부분|담긴|보입니다|함께/.test(w)
+  )
+  const kw = words[(cutIndex + priorLines.length) % Math.max(words.length, 1)]
+  const emergency = kw
+    ? `${kw} 포인트, 여기도 한 번에 정리돼요`
+    : `이 장면 ${cutIndex + 1}, 직접 보면 차이가 나요`
+  return formatNarrationForSceneDuration(emergency, duration)
+}
+
 /** 컷마다 절대 중복되지 않는 나레이션 선택 */
 export function pickUniqueNarrationLine(args: {
   visualHint: string
@@ -495,13 +552,33 @@ export function pickUniqueNarrationLine(args: {
   cutIndex: number
   priorLines: readonly string[]
   preferred?: string
+  sceneMeta?: CutNarrationSceneMeta
+  priorInGroup?: string
 }): string {
-  const { visualHint, productName, duration, cutIndex, priorLines, preferred } = args
+  const { visualHint, productName, duration, cutIndex, priorLines, preferred, sceneMeta, priorInGroup } =
+    args
   const isDup = (t: string) =>
     narrationLineIsDuplicateOfPrior(t, priorLines) ||
     priorLines.some((p) => narrationSharesRepeatedPhrase(p, t)) ||
     looksLikeRawSceneCopy(t, visualHint) ||
     narrationMismatchesVisualProduct(t, visualHint)
+
+  if (sceneMeta?.isRepeat && sceneMeta.occurrence > 1 && priorInGroup?.trim()) {
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const continued = narrationForRepeatedScene({
+        occurrence: sceneMeta.occurrence,
+        groupSize: sceneMeta.groupSize,
+        productBenefitHint: sceneMeta.productBenefitHint,
+        priorInGroup,
+        visualHint,
+        cutIndex: cutIndex + attempt,
+      })
+      const fitted = formatNarrationForSceneDuration(continued, duration)
+      if (fitted && !isDup(fitted) && !isAbstractShoppingNarration(fitted)) {
+        return fitted
+      }
+    }
+  }
 
   const prefer = preferred?.trim()
   if (prefer && !isDup(prefer) && !isAbstractShoppingNarration(prefer)) {
@@ -534,10 +611,13 @@ export function pickUniqueNarrationLine(args: {
     }
   }
 
-  return formatNarrationForSceneDuration(
-    rephraseSceneToShoppingNarrationVariant(visualHint, productName, duration, cutIndex * 97 + priorLines.length * 23),
-    duration
-  )
+  return forceUniqueNarrationLine({
+    visualHint,
+    productName,
+    duration,
+    cutIndex,
+    priorLines,
+  })
 }
 
 function rephraseSceneCore(description: string, productName?: string, ruleOffset = 0): string {
@@ -715,6 +795,78 @@ function rephraseSceneCore(description: string, productName?: string, ruleOffset
       },
     },
     {
+      re: /부속품|액세서리|노즐.*모음|브러시|툴킷|툴\s*세트|여러\s*개의?\s*부속/i,
+      say: () => {
+        const opts = [
+          "노즐·브러시까지 이렇게 풀세트예요",
+          "틈새용 노즐이 여러 개라 활용도가 높아요",
+          "부속품만 봐도 차량 청소 커버가 넓어요",
+          "좁은 노즐부터 브러시까지 다 들어있어요",
+          "케이스에 부속 정리돼 있어서 바로 쓰기 좋아요",
+          "노즐 바꿔 끼우면 구석·평면 다 닦여요",
+          "부속품 구성이 알차서 차량 안팎 다 커버돼요",
+          "여러 노즐 덕분에 시트·바닥·틈새 한 번에 돼요",
+          "브러시 노즐로 시트 표면 먼지도 싹 빼내요",
+          "부속 구성만 봐도 가성비가 괜찮아 보여요",
+        ]
+        return opts[ruleOffset % opts.length]!
+      },
+    },
+    {
+      re: /손잡이|핸들|그립|握把|handle/i,
+      say: () => {
+        const opts = [
+          "손잡이 그립감이 좋아서 오래 써도 편해요",
+          "핸들 잡고 들면 가볍게 움직이기 좋아요",
+          "손잡이 각도가 딱 맞아서 구석 청소가 수월해요",
+          "한 손으로 핸들 잡고 틈새까지 쏙 들어가요",
+          "손잡이 마감이 단단해서 쓸 때 안 흔들려요",
+          "핸들 길이 덕분에 시트 아래까지 닿기 좋아요",
+          "그립이 편해서 차 안 오래 돌려도 손이 안 아파요",
+          "손잡이로 들어 올려보니 사이즈가 딱 차량용이에요",
+          "핸들 주변까지 노즐이 잘 들어가요",
+          "손잡이 잡는 각도가 청소하기 편하게 설계됐어요",
+        ]
+        return opts[ruleOffset % opts.length]!
+      },
+    },
+    {
+      re: /박스|케이스|보관함|수납|담긴\s*박스|담긴\s*케이스/i,
+      say: () => {
+        const opts = [
+          "케이스에 담아 보관하니 차 트렁크에도 쏙 들어가요",
+          "부속품 박스 정리가 깔끔해서 꺼내 쓰기 편해요",
+          "휴대 케이스에 들어 있어서 들고 다니기 좋아요",
+          "박스만 봐도 구성이 알차다는 게 느껴져요",
+          "케이스에 쏙 넣어두면 차 안에서도 안 흩어져요",
+          "보관함에 정리돼 있어서 쓰고 바로 넣기 좋아요",
+          "부속품이 케이스에 담겨 있어 분실 걱정이 없어요",
+          "작은 케이스에 다 들어가서 공간 차지도 적어요",
+          "박스 구성 보면 바로 쓸 부속이 다 있어요",
+          "케이스 덮으면 차량용 청소 준비 끝이에요",
+        ]
+        return opts[ruleOffset % opts.length]!
+      },
+    },
+    {
+      re: /사용\s*중|쓰는\s*모습|작동\s*하는|청소하는|흡입하는/i,
+      say: () => {
+        const opts = [
+          "실제로 써보니 흡입 소리부터 힘이 느껴져요",
+          "사용할 때 먼지가 눈앞에서 바로 빨려 들어가요",
+          "돌려보니 좁은 구석도 한 번에 정리돼요",
+          "직접 돌려보니 생각보다 흡입력이 확실해요",
+          "차 안에서 쓰니 손이 덜 가고 깔끔해져요",
+          "쓰는 순간 먼지가 흡입구로 쏙 들어가는 게 보여요",
+          "실사용해보니 바닥 매트 먼지가 한 번에 빠져요",
+          "이렇게 쓰면 시트 틈새까지 손 안 대고 정리돼요",
+          "돌려보니 문틈 먼지도 금방 빠져요",
+          "사용 장면 보니까 흡입 속도가 꽤 빨라요",
+        ]
+        return opts[ruleOffset % opts.length]!
+      },
+    },
+    {
       re: /차량\s*내부|차\s*안|운전석|틈새|구석|콘솔|대시보드|車内/,
       say: () => {
         const opts = [
@@ -735,6 +887,15 @@ function rephraseSceneCore(description: string, productName?: string, ruleOffset
           productName ? `${productName} 흡입력, 먼지가 바로 빨려 들어가요` : "흡입력이 생각보다 확실해요",
           "좁은 노즐로 구석 먼지까지 싹",
           "핸디 사이즈인데 흡입은 꽤 세요",
+          "차량용이라 틈새까지 노즐이 잘 들어가요",
+          "작은데 흡입 소리만 들어도 힘이 느껴져요",
+          "먼지통 열어보니 쌓인 양이 꽤 나와요",
+          "핸디형이라 한 손으로 들고 돌리기 편해요",
+          "진공 청소 한 번이면 바닥이 훨씬 깔끔해요",
+          "흡입구로 먼지가 쏙 빨려 들어가는 속도가 빨라요",
+          "차 안 먼지 관리용으로 사이즈 딱이에요",
+          "노즐만 바꿔도 평면·구석 다 닦여요",
+          "흡입력 테스트해보니 생각보다 알차요",
         ]
         return opts[ruleOffset % opts.length]!
       },
@@ -1074,9 +1235,29 @@ export function looksLikeRawSceneCopy(scriptText: string, visualHint: string): b
   return false
 }
 
-function applyCutFlowHint(text: string, _cutIndex: number, _totalCuts: number): string {
-  return text.trim()
+function applyCutFlowHint(
+  text: string,
+  cutIndex: number,
+  _totalCuts: number,
+  sceneMeta?: CutNarrationSceneMeta,
+  priorInGroup?: string
+): string {
+  const t = text.trim()
+  if (!sceneMeta?.isRepeat || sceneMeta.occurrence <= 1 || !priorInGroup?.trim()) return t
+  if (!narrationLineIsDuplicateOfPrior(t, [priorInGroup]) && narrationBlockSimilarity(t, priorInGroup) < 0.5) {
+    return t
+  }
+  return narrationForRepeatedScene({
+    occurrence: sceneMeta.occurrence,
+    groupSize: sceneMeta.groupSize,
+    productBenefitHint: sceneMeta.productBenefitHint,
+    priorInGroup,
+    visualHint: sceneMeta.enrichedVisual,
+    cutIndex,
+  })
 }
+
+export { buildCutNarrationSceneMetas }
 
 /** 짜집기 편집 컷 = 나레이션 구간 1:1 */
 export function buildNarrationSegmentsFromEditPlan(
@@ -1096,6 +1277,32 @@ export function buildNarrationSegmentsFromEditPlan(
   const byId = analysisByVideoId(analyses)
   const aligned = scriptLinesAligned(plan, scriptLines)
   const priorTexts: string[] = []
+  const cutContexts = plan.map((seg, i) => {
+    const analysis = byId.get(seg.video_id)
+    const visual_card = analysis
+      ? formatCutVisualCard(
+          analysis,
+          seg.source_start,
+          seg.source_end,
+          visualSceneForSourceRange(analysis, seg.source_start, seg.source_end)?.description || seg.reason
+        )
+      : seg.reason
+    return {
+      index: i + 1,
+      output_start: seg.output_start,
+      output_end: seg.output_end,
+      duration: Math.round((seg.output_end - seg.output_start) * 10) / 10,
+      video_id: seg.video_id,
+      source_start: seg.source_start,
+      source_end: seg.source_end,
+      visual_card,
+      reason: seg.reason,
+    }
+  })
+  const sceneMetas = buildCutNarrationSceneMetas(cutContexts, {
+    keywords: productName ? [productName] : undefined,
+  })
+  const groupLast = new Map<number, string>()
 
   return plan.map((seg, i) => {
     const dur = Math.max(0.5, seg.output_end - seg.output_start)
@@ -1131,7 +1338,13 @@ export function buildNarrationSegmentsFromEditPlan(
 
     let preferred = fromScript || fromVisual
     if (!fromScript && !isGenericTemplateNarration(preferred)) {
-      preferred = applyCutFlowHint(preferred, i, plan.length)
+      preferred = applyCutFlowHint(
+        preferred,
+        i,
+        plan.length,
+        sceneMetas[i],
+        groupLast.get(sceneMetas[i]!.groupId)
+      )
     }
     if (
       looksLikeSceneCardMetadata(preferred) ||
@@ -1142,14 +1355,17 @@ export function buildNarrationSegmentsFromEditPlan(
     }
 
     const text = pickUniqueNarrationLine({
-      visualHint,
+      visualHint: sceneMetas[i]!.enrichedVisual || visualHint,
       productName: safeProductName,
       duration: dur,
       cutIndex: i,
       priorLines: priorTexts,
       preferred,
+      sceneMeta: sceneMetas[i],
+      priorInGroup: groupLast.get(sceneMetas[i]!.groupId),
     })
     priorTexts.push(text)
+    groupLast.set(sceneMetas[i]!.groupId, text)
 
     return {
       start: seg.output_start,

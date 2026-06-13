@@ -62,6 +62,10 @@ import {
   stripLeadingNarrationConnector,
 } from "@/lib/shotform-narration-script-quality"
 import {
+  buildCutNarrationSceneMetas,
+  buildRepeatedSceneGroupsPrompt,
+} from "@/lib/shotform-narration-scene-groups"
+import {
   assembleScriptBundleFromScenes,
   benchmarkScriptFewShotJson,
   buildBenchmarkSceneBlocksFromEditPlan,
@@ -969,6 +973,12 @@ async function tryGenerateNaturalShortsScript(args: {
   const cuts = buildCutScriptContexts(editPlan, analyses, mixInfo)
   if (!cuts.length) return null
 
+  const sceneMetas = buildCutNarrationSceneMetas(cuts, {
+    keywords: productAnalysis.targetKeywords,
+    summary: productAnalysis.summary,
+    category: productAnalysis.category,
+  })
+
   const vs = productAnalysis.videoStructure
   const productContext = [
     `제품명: ${productAnalysis.productName}`,
@@ -990,7 +1000,7 @@ async function tryGenerateNaturalShortsScript(args: {
       topic: storyTopic,
       productName: productAnalysis.productName,
       productContext,
-      cutsBlock: buildNarrationCutsPromptBlock(cuts, true),
+      cutsBlock: buildNarrationCutsPromptBlock(cuts, true, sceneMetas),
       cutCount: cuts.length,
       mode: "generate",
     }),
@@ -1009,7 +1019,7 @@ async function tryGenerateNaturalShortsScript(args: {
       rawLines.map((line) => stripLeadingNarrationConnector(line)),
       cuts.map((c) => ({ visual_card: c.visual_card, duration: c.duration })),
       productAnalysis.productName,
-      { allowTemplateFallback: false, fitToDuration: false }
+      { allowTemplateFallback: false, fitToDuration: false, sceneMetas }
     )
   )
   const polished = polishedRaw.map((text, i) => {
