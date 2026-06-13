@@ -1,4 +1,9 @@
 import { descriptionSuggestsPresenterOrFace } from "@/lib/shotform-auto-edit-product-filter"
+import {
+  collectSceneDescriptionsForRange,
+  collectVisionCaptionsForRange,
+  extractTitleVisualHints,
+} from "@/lib/shotform-source-video-narration"
 import type {
   EditPlan,
   MixInfo,
@@ -214,11 +219,6 @@ export function describeSourceRangeFromAnalysis(
     return visionCaption
   }
 
-  const hasVisionCaptions = analysis.vision_frames?.some((f) => f.caption?.trim())
-  if (hasVisionCaptions) {
-    return "제품 사용 장면"
-  }
-
   const atMid = visualSceneAtTime(analysis, mid)
   if (atMid && mid >= atMid.start - 0.15 && mid <= atMid.end + 0.15) {
     const sceneDesc = atMid.description.replace(/^\[[^\]]+\]\s*/, "").trim() || atMid.description
@@ -228,6 +228,27 @@ export function describeSourceRangeFromAnalysis(
     ) {
       return sceneDesc
     }
+  }
+
+  const rangeScenes = collectSceneDescriptionsForRange(analysis, sourceStart, sourceEnd)
+  if (rangeScenes.length) {
+    return rangeScenes[0]!
+  }
+
+  const titleHint = extractTitleVisualHints(analysis.title)
+  const summaryHint = analysis.summary?.trim()
+  if (titleHint || summaryHint) {
+    return [titleHint, summaryHint].filter(Boolean).join(" — ").slice(0, 120)
+  }
+
+  const anyVision = collectVisionCaptionsForRange(analysis, sourceStart, sourceEnd)
+  if (anyVision.length) {
+    return anyVision[0]!
+  }
+
+  const hasVisionCaptions = analysis.vision_frames?.some((f) => f.caption?.trim())
+  if (hasVisionCaptions) {
+    return "제품 사용 장면"
   }
 
   const fb = (fallback || "제품 장면").trim()

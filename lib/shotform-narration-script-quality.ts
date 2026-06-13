@@ -289,7 +289,8 @@ const MINI_FAN_SCENE_HINTS = [
 
 function productSuggestsMiniFan(productName: string, productContext?: string): boolean {
   const blob = `${productName} ${productContext || ""}`
-  return /선풍기|风扇|fan|미니|휴대|쿨링|手持风扇/i.test(blob)
+  if (/청소|吸尘|vacuum|진공/i.test(blob)) return false
+  return /선풍기|车载风扇|車載風扇|风扇|風扇|fan|미니\s*팬|휴대\s*선풍|쿨링\s*팬|手持风扇/i.test(blob)
 }
 
 const GAMING_MOUSE_PAD_SCENE_HINTS = [
@@ -317,15 +318,18 @@ export function enrichVisualCardForNarration(
   visualCard: string,
   productName: string,
   cutIndex: number,
-  productContext?: string
+  productContext?: string,
+  userKeywords?: readonly string[]
 ): string {
   const desc = extractVisualDescription(visualCard)
-  if (!WEAK_VISUAL_RE.test(desc)) return visualCard
+  if (/Vision화면|원본제목|분석장면|원본요약/.test(visualCard)) return visualCard
+  if (!WEAK_VISUAL_RE.test(desc) && desc.length >= 10) return visualCard
 
   const safeProductName =
     sanitizeProductNameForNarration(productName, {
       category: productContext,
       visualHint: visualCard,
+      userKeywords,
     }) || productName || "제품"
 
   if (productSuggestsCarVacuum(safeProductName, productContext)) {
@@ -375,7 +379,7 @@ function narrationNeedsPolish(
         narrationLooksIncomplete(text.replace(/\n/g, " "))
     )
   }
-  return definitelyWeak || duplicatePrior || (grounding < 0.2 && priorLines.length > 0)
+  return definitelyWeak || duplicatePrior || grounding < 0.22
 }
 
 /** 프롬프트용 — 컷 화면에서 꼭 반영할 키워드 */
@@ -517,7 +521,7 @@ export function buildNarrationCutsPromptBlock(
 ): string {
   const kwBlock =
     userKeywords?.length
-      ? `**키워드 제품**: ${userKeywords.join(", ")} — 각 컷 화면 + 이 제품 장점을 결합\n\n`
+      ? `**키워드 제품 (최우선)**: ${userKeywords.join(", ")} — 각 컷 「화면」+ 원본 참고와 결합. 키워드 제품만 홍보.\n\n`
       : ""
   return (
     kwBlock +
@@ -564,7 +568,7 @@ export function buildNarrationCutsPromptBlock(
           ? ` · 이 컷 대본에 위 키워드 중 1개 이상·구체 행동(빨아들이다/흡입/닦다 등) 필수`
           : " · 화면에 보이는 사물·행동을 구체적으로 말할 것"
       return `${c.index}. 출력 ${c.output_start}-${c.output_end}s (${c.duration}초, ${lineHint}줄 권장, 최대 ${maxChars}자) · ${role}${shortCut}
-   소스 ${c.source_start.toFixed(1)}-${c.source_end.toFixed(1)}s
+   소스 ${c.source_start.toFixed(1)}-${c.source_end.toFixed(1)}s · video ${c.video_id}
    화면: ${visualForPrompt}${keywordHint}${benefitHint}${repeatHint}${mustMention}`
     })
     .join("\n\n")
@@ -616,7 +620,8 @@ export function polishCutNarrationLines(
       sceneMeta?.enrichedVisual ?? ctx.visual_card,
       safeProductName,
       i,
-      productContext
+      productContext,
+      userKeywords
     )
     let text = sanitizeNarrationForOutput(raw.trim())
 
@@ -751,7 +756,7 @@ export function parseNarrationLinesFromAi(raw: unknown): string[] {
 /** AI가 컷 수를 어긋내도 편집 컷 수에 맞춤 — 부족·빈 줄은 화면 기반 완결 문장으로 채움 */
 export function alignNarrationLinesToCuts(
   lines: readonly string[],
-  cuts: readonly Array<{ visual_card: string; duration: number }>,
+  cuts: ReadonlyArray<{ visual_card: string; duration: number }>,
   productName: string
 ): string[] {
   const cutCount = cuts.length

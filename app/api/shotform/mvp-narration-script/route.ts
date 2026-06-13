@@ -25,6 +25,7 @@ import {
   buildRepeatedSceneGroupsPrompt,
 } from "@/lib/shotform-narration-scene-groups"
 import { buildCutScriptContexts } from "@/lib/shotform-visual-scene-match"
+import { buildSourceVideosNarrationBlock } from "@/lib/shotform-source-video-narration"
 import {
   buildNarrationProductContext,
   normalizeUserSourceKeywords,
@@ -143,11 +144,16 @@ export async function POST(request: NextRequest) {
       naturalShorts,
     })
 
-    const sceneMetas = buildCutNarrationSceneMetas(cuts, {
-      keywords: userKeywords.length ? userKeywords : result.productAnalysis?.targetKeywords,
-      summary: result.productAnalysis?.summary,
-      category: result.productAnalysis?.category,
-    })
+    const sceneMetas = buildCutNarrationSceneMetas(
+      cuts,
+      {
+        keywords: userKeywords.length ? userKeywords : result.productAnalysis?.targetKeywords,
+        summary: result.productAnalysis?.summary,
+        category: result.productAnalysis?.category,
+      },
+      analyses
+    )
+    const sourceVideosBlock = buildSourceVideosNarrationBlock(analyses)
     const cutsBlock = buildNarrationCutsPromptBlock(cuts, naturalShorts, sceneMetas, userKeywords)
     const repeatGroupsBlock = buildRepeatedSceneGroupsPrompt(cuts, sceneMetas)
 
@@ -160,6 +166,7 @@ ${benchmarkScriptFewShotJson()}
 
 필수:
 - **사용자 입력 키워드가 있으면 그 제품 기준으로만** 대본을 작성 (영상 분석 제품명과 다르면 키워드 우선)
+- **원본 중국 숏폼 제목·Vision·장면 분석**을 참고해 각 컷 화면에 실제로 보이는 사물·행동을 한국어로 구체적으로 말할 것
 - **키워드 제품 + 각 컷 화면**을 한 문장으로 결합 (화면만 읽거나 키워드만 말하기 금지)
 - lines는 **${cuts.length}개 컷이 하나의 대본**으로 자연스럽게 이어져야 함 (독립 문장 나열 금지)
 - **각 lines[i]는 i번째 컷의 「화면」에 실제로 보이는 사물·행동을 구체적으로 말할 것** (추상 칭찬만 금지)
@@ -184,12 +191,19 @@ JSON: {"lines":["나레이션줄1\\n줄2", ...]} — lines 길이 = ${cuts.lengt
         })
       : `${productContext}
 ${
+  sourceVideosBlock
+    ? `
+${sourceVideosBlock}
+`
+    : ""
+}${
   userKeywords.length
     ? `
 **사용자 입력 키워드 + 영상 결합 (필수)**:
-- 키워드: ${userKeywords.join(", ")} = 홍보 제품. 각 컷 「화면」에 보이는 행동·사물과 **키워드 제품 장점**을 한 문장으로 연결하세요.
+- 키워드: ${userKeywords.join(", ")} = 홍보 제품. 각 컷 「화면」·원본 참고에 보이는 행동·사물과 **키워드 제품 장점**을 한 문장으로 연결하세요.
 - 영상에 다른 제품이 보여도 나레이션은 키워드 제품만 언급. 화면은 연출·데모로 활용.
 - 「${userKeywords[0]}」 또는 키워드 핵심어를 전체 lines에 고르게 분산 (컷마다 화면 요소 + 키워드 제품 이점).
+- 원본 중국어 제목·자막은 **한국어로 바꿔** 화면에 맞게 설명 (중국어 그대로 읽기 금지).
 `
     : ""
 }
@@ -207,7 +221,8 @@ ${previousScriptBlock}
 
 **화면 정합성 (최우선)**:
 - **사용자 입력 키워드 = 홍보 제품**. 영상 분석이 다른 제품으로 보여도 키워드 제품 기준으로만 작성.
-- 각 컷의 「화면」 설명에 나온 장소·행동·제품 상태를 대본에 반영하세요.
+- 각 컷의 「화면」·원본 Vision·장면 설명에 나온 **장소·행동·제품 상태**를 대본에 반드시 반영하세요.
+- 화면과 무관한 추상 칭찬·다른 제품 기능 지어내기 금지.
 - 차량 청소 영상이면 시트/바닥/먼지/흡입/노즐/구석 등 **눈에 보이는 요소**를 컷마다 다르게 언급하세요.
 - 모든 컷에 같은 추상 문장(「이 포인트」「핵심」「만족」) 반복 금지.
 - **동일 꼬리문구·동일 의미 반복 절대 금지** (예: 「먼지가 바로 빠져요」「이렇게 빼낼 수 있어요」를 여러 컷에 쓰지 말 것)

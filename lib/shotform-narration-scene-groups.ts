@@ -1,4 +1,10 @@
 import type { CutScriptContext } from "@/lib/shotform-visual-scene-match"
+import { analysisByVideoId } from "@/lib/shotform-visual-scene-match"
+import type { VideoAnalysis } from "@/lib/shotform-auto-edit-types"
+import {
+  buildCutSourceReference,
+  mergeCutVisualWithSourceReference,
+} from "@/lib/shotform-source-video-narration"
 import { narrationBlockSimilarity } from "@/lib/shotform-narration-similarity"
 
 function visualDescFromCard(visualCard: string): string {
@@ -93,10 +99,12 @@ export function buildCutNarrationSceneMetas(
     keywords?: readonly string[]
     summary?: string
     category?: string
-  }
+  },
+  analyses?: readonly VideoAnalysis[]
 ): CutNarrationSceneMeta[] {
   const keywords = productHints?.keywords ?? []
   const summary = productHints?.summary ?? productHints?.category ?? ""
+  const byVideoId = analyses?.length ? analysisByVideoId([...analyses]) : null
 
   const groups: Array<{
     id: number
@@ -109,9 +117,14 @@ export function buildCutNarrationSceneMetas(
 
   for (let i = 0; i < cuts.length; i++) {
     const ctx = cuts[i]!
-    const visualKey = normalizeVisualSceneKey(ctx.visual_card)
+    const analysis = byVideoId?.get(ctx.video_id)
+    const sourceRef = analysis
+      ? buildCutSourceReference(analysis, ctx.source_start, ctx.source_end)
+      : ""
+    const mergedCard = mergeCutVisualWithSourceReference(ctx.visual_card, sourceRef)
+    const visualKey = normalizeVisualSceneKey(mergedCard)
     const sourceKey = cutSourceRangeKey(ctx)
-    const visualDesc = visualDescFromCard(ctx.visual_card)
+    const visualDesc = visualDescFromCard(mergedCard)
 
     let group = groups.find(
       (g) => g.repSourceKey === sourceKey || visualKeysSimilar(g.repVisualKey, visualKey)
@@ -131,6 +144,7 @@ export function buildCutNarrationSceneMetas(
     const benefit = inferProductBenefitForVisual(visualDesc, keywords, summary)
     const enrichedVisual = [
       visualDesc,
+      sourceRef && !visualDesc.includes(sourceRef.slice(0, 20)) ? sourceRef : "",
       `제품 장점 각도: ${benefit}`,
       occurrence > 1 ? `반복 장면 ${occurrence}/${group.cutIndices.length} — 앞 등장과 이어지되 문장은 새로` : "",
     ]

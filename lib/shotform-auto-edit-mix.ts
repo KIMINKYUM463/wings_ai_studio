@@ -65,6 +65,7 @@ import {
   buildCutNarrationSceneMetas,
   buildRepeatedSceneGroupsPrompt,
 } from "@/lib/shotform-narration-scene-groups"
+import { buildSourceVideosNarrationBlock } from "@/lib/shotform-source-video-narration"
 import {
   assembleScriptBundleFromScenes,
   benchmarkScriptFewShotJson,
@@ -973,12 +974,17 @@ async function tryGenerateNaturalShortsScript(args: {
   const cuts = buildCutScriptContexts(editPlan, analyses, mixInfo)
   if (!cuts.length) return null
 
-  const sceneMetas = buildCutNarrationSceneMetas(cuts, {
-    keywords: productAnalysis.targetKeywords,
-    summary: productAnalysis.summary,
-    category: productAnalysis.category,
-  })
+  const sceneMetas = buildCutNarrationSceneMetas(
+    cuts,
+    {
+      keywords: productAnalysis.targetKeywords,
+      summary: productAnalysis.summary,
+      category: productAnalysis.category,
+    },
+    analyses
+  )
 
+  const sourceVideosBlock = buildSourceVideosNarrationBlock(analyses)
   const vs = productAnalysis.videoStructure
   const productContext = [
     `제품명: ${productAnalysis.productName}`,
@@ -989,6 +995,7 @@ async function tryGenerateNaturalShortsScript(args: {
     vs?.body ? `본문 방향: ${vs.body}` : "",
     vs?.cta ? `마무리/CTA: ${vs.cta}` : "",
     analyses.map((a) => `[${a.video_id}] ${a.title}`).join("\n"),
+    sourceVideosBlock,
   ]
     .filter(Boolean)
     .join("\n")
@@ -1000,7 +1007,12 @@ async function tryGenerateNaturalShortsScript(args: {
       topic: storyTopic,
       productName: productAnalysis.productName,
       productContext,
-      cutsBlock: buildNarrationCutsPromptBlock(cuts, true, sceneMetas),
+      cutsBlock: buildNarrationCutsPromptBlock(
+        cuts,
+        true,
+        sceneMetas,
+        productAnalysis.targetKeywords
+      ),
       cutCount: cuts.length,
       mode: "generate",
     }),
@@ -1019,7 +1031,7 @@ async function tryGenerateNaturalShortsScript(args: {
       rawLines.map((line) => stripLeadingNarrationConnector(line)),
       cuts.map((c) => ({ visual_card: c.visual_card, duration: c.duration })),
       productAnalysis.productName,
-      { allowTemplateFallback: false, fitToDuration: false, sceneMetas }
+      { allowTemplateFallback: false, fitToDuration: false, sceneMetas, userKeywords: productAnalysis.targetKeywords }
     )
   )
   const polished = polishedRaw.map((text, i) => {

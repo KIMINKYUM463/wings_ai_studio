@@ -75,6 +75,9 @@ import {
   normalizeUserSourceKeywords,
   resolveNarrationSourceKeywords,
 } from "@/lib/shotform-user-keyword-product"
+import {
+  buildCutNarrationSceneMetas,
+} from "@/lib/shotform-narration-scene-groups"
 import { analysisByVideoId, buildCutScriptContexts } from "@/lib/shotform-visual-scene-match"
 import { cleanNarrationLineBreaks } from "@/lib/shotform-narration-timing"
 import { sanitizeNarrationForOutput } from "@/lib/shotform-natural-shorts-script"
@@ -640,7 +643,9 @@ export function MvpPostEditStudio({
           .join("\n")
         const contexts = baseSegments.map((seg, i) => ({
           visual_card: segmentVisualHints[i] || seg.text,
-          duration: narrationSegmentDuration(seg),
+          duration:
+            Number(narrationSegmentDuration(seg)) ||
+            Math.max(0.5, (seg.end ?? 0) - (seg.start ?? 0)),
         }))
         const analyses = result.analyses?.length
           ? result.analyses
@@ -654,18 +659,22 @@ export function MvpPostEditStudio({
                 index: i + 1,
                 output_start: baseSegments[i]!.start,
                 output_end: baseSegments[i]!.end,
-                duration: c.duration,
+                duration: Number(c.duration) || 2,
                 video_id: result.editPlan?.edit_plan[i]?.video_id ?? `cut-${i}`,
                 source_start: result.editPlan?.edit_plan[i]?.source_start ?? baseSegments[i]!.start,
                 source_end: result.editPlan?.edit_plan[i]?.source_end ?? baseSegments[i]!.end,
                 visual_card: c.visual_card,
                 reason: c.visual_card,
               }))
-        const sceneMetas = buildCutNarrationSceneMetas(cuts, {
-          keywords: userKeywords.length ? userKeywords : result.productAnalysis?.targetKeywords,
-          summary: result.productAnalysis?.summary,
-          category: result.productAnalysis?.category,
-        })
+        const sceneMetas = buildCutNarrationSceneMetas(
+          cuts,
+          {
+            keywords: userKeywords.length ? userKeywords : result.productAnalysis?.targetKeywords,
+            summary: result.productAnalysis?.summary,
+            category: result.productAnalysis?.category,
+          },
+          analyses
+        )
         const repolished = limitConnectorsAcrossScript(
           polishCutNarrationLines(
             baseSegments.map((_, i) => formatted[String(i + 1)] ?? ""),

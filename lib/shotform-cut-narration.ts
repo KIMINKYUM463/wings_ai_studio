@@ -1312,7 +1312,7 @@ export function buildNarrationSegmentsFromEditPlan(
   })
   const sceneMetas = buildCutNarrationSceneMetas(cutContexts, {
     keywords: productName ? [productName] : undefined,
-  })
+  }, analyses)
   const groupLast = new Map<number, string>()
 
   return plan.map((seg, i) => {
