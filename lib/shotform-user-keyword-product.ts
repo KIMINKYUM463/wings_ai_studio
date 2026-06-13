@@ -1,5 +1,15 @@
 import type { ProductAnalysis, ProductVideoStructure } from "@/lib/shotform-auto-edit-types"
 
+/** 대본·SEO — UI 1단계 입력이 job 저장값보다 우선 */
+export function resolveNarrationSourceKeywords(
+  liveInput?: readonly string[],
+  jobStored?: readonly string[]
+): string[] {
+  const live = normalizeUserSourceKeywords(liveInput)
+  if (live.length) return live
+  return normalizeUserSourceKeywords(jobStored)
+}
+
 /** 1단계에서 사용자가 입력한 한국어 키워드 정규화 */
 export function normalizeUserSourceKeywords(raw?: readonly string[]): string[] {
   if (!raw?.length) return []
@@ -69,7 +79,12 @@ export function buildNarrationProductContext(args: {
   const vs = args.videoStructure
   return [
     kw.length
-      ? `**사용자 입력 키워드 (최우선·제품 정체성 기준)**: ${kw.join(", ")}`
+      ? [
+          `**사용자 입력 키워드 (최우선·제품 정체성 기준)**: ${kw.join(", ")}`,
+          `- 대본은 **이 키워드 제품**을 홍보하는 쇼핑숏폼. 영상 화면(각 컷)과 키워드를 **함께** 반영.`,
+          `- 영상 분석 제품명·다른 물건이 보여도 나레이션은 키워드 제품 기준으로만 작성.`,
+          `- 키워드「${kw[0]}」또는 핵심어를 전체 대본에 고르게 녹일 것 (추상 칭찬만 금지).`,
+        ].join("\n")
       : "",
     `제품명: ${args.productName}`,
     args.naturalShorts && args.topic ? `스토리 주제: ${args.topic}` : "",

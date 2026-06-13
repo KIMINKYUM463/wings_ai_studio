@@ -29,6 +29,7 @@ import {
   buildNarrationProductContext,
   normalizeUserSourceKeywords,
   primaryProductLabelFromKeywords,
+  resolveNarrationSourceKeywords,
 } from "@/lib/shotform-user-keyword-product"
 
 async function requestNarrationJson(args: {
@@ -112,9 +113,7 @@ export async function POST(request: NextRequest) {
             .join("\n")
         : ""
 
-    const userKeywords = normalizeUserSourceKeywords(
-      result.sourceKeywords?.length ? result.sourceKeywords : body.sourceKeywords
-    )
+    const userKeywords = resolveNarrationSourceKeywords(body.sourceKeywords, result.sourceKeywords)
     const visualBlob = cuts.map((c) => c.visual_card).join("\n")
     const rawProductName = primaryProductLabelFromKeywords(
       userKeywords,
@@ -149,7 +148,7 @@ export async function POST(request: NextRequest) {
       summary: result.productAnalysis?.summary,
       category: result.productAnalysis?.category,
     })
-    const cutsBlock = buildNarrationCutsPromptBlock(cuts, naturalShorts, sceneMetas)
+    const cutsBlock = buildNarrationCutsPromptBlock(cuts, naturalShorts, sceneMetas, userKeywords)
     const repeatGroupsBlock = buildRepeatedSceneGroupsPrompt(cuts, sceneMetas)
 
     const systemContent = naturalShorts
@@ -161,6 +160,7 @@ ${benchmarkScriptFewShotJson()}
 
 필수:
 - **사용자 입력 키워드가 있으면 그 제품 기준으로만** 대본을 작성 (영상 분석 제품명과 다르면 키워드 우선)
+- **키워드 제품 + 각 컷 화면**을 한 문장으로 결합 (화면만 읽거나 키워드만 말하기 금지)
 - lines는 **${cuts.length}개 컷이 하나의 대본**으로 자연스럽게 이어져야 함 (독립 문장 나열 금지)
 - **각 lines[i]는 i번째 컷의 「화면」에 실제로 보이는 사물·행동을 구체적으로 말할 것** (추상 칭찬만 금지)
 - 컷마다 화면 키워드(먼지/바닥/시트/흡입/노즐/차량 등) 중 **최소 1개** 반드시 포함
@@ -183,7 +183,16 @@ JSON: {"lines":["나레이션줄1\\n줄2", ...]} — lines 길이 = ${cuts.lengt
           mode,
         })
       : `${productContext}
-
+${
+  userKeywords.length
+    ? `
+**사용자 입력 키워드 + 영상 결합 (필수)**:
+- 키워드: ${userKeywords.join(", ")} = 홍보 제품. 각 컷 「화면」에 보이는 행동·사물과 **키워드 제품 장점**을 한 문장으로 연결하세요.
+- 영상에 다른 제품이 보여도 나레이션은 키워드 제품만 언급. 화면은 연출·데모로 활용.
+- 「${userKeywords[0]}」 또는 키워드 핵심어를 전체 lines에 고르게 분산 (컷마다 화면 요소 + 키워드 제품 이점).
+`
+    : ""
+}
 편집 타임라인 컷 ${cuts.length}개 (영상 블록과 1:1):
 ${cutsBlock}
 
@@ -255,6 +264,7 @@ ${repeatGroupsBlock}
           rewriteMode: mode === "rewrite",
           rewriteSalt,
           productContext,
+          userKeywords,
           previousScripts: mode === "rewrite" ? previousScripts : undefined,
           sceneMetas,
         }

@@ -107,8 +107,19 @@ export function sanitizeProductNameForNarration(
   const userKw = (hints?.userKeywords ?? [])
     .map((k) => k.trim())
     .filter(Boolean)
+
+  /** 1단계 키워드가 있으면 영상 분석·화면 추론보다 최우선 */
+  if (userKw.length) {
+    const primary = userKw[0]!
+    if (!INVALID_NARRATION_PRODUCT_NAME.test(primary)) {
+      const korean = (primary.match(/[\uac00-\ud7a3]/g) || []).length
+      if (korean >= 1 || primary.length >= 2) {
+        return primary.length > 56 ? `${primary.slice(0, 53)}…` : primary
+      }
+    }
+  }
+
   const blob = [
-    userKw.join(" "),
     hints?.category,
     hints?.summary,
     hints?.visualHint,
@@ -117,7 +128,7 @@ export function sanitizeProductNameForNarration(
     .filter(Boolean)
     .join(" ")
 
-  // 화면·분석 힌트가 제품명보다 우선 — 이전 프로젝트 제품명이 남아 있어도 장면 기준으로 판정
+  // 키워드 없을 때만 화면·분석 힌트로 제품 추론
   if (/마우스\s*패드|mouse\s*pad|게이밍\s*패드|데스크\s*매트|keyboard|키보드|gaming|RGB|LED/i.test(blob)) {
     return "게이밍 마우스 패드"
   }

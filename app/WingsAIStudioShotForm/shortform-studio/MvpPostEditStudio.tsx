@@ -71,7 +71,10 @@ import {
   limitConnectorsAcrossScript,
   polishCutNarrationLines,
 } from "@/lib/shotform-narration-script-quality"
-import { normalizeUserSourceKeywords } from "@/lib/shotform-user-keyword-product"
+import {
+  normalizeUserSourceKeywords,
+  resolveNarrationSourceKeywords,
+} from "@/lib/shotform-user-keyword-product"
 import { analysisByVideoId, buildCutScriptContexts } from "@/lib/shotform-visual-scene-match"
 import { cleanNarrationLineBreaks } from "@/lib/shotform-narration-timing"
 import { sanitizeNarrationForOutput } from "@/lib/shotform-natural-shorts-script"
@@ -571,9 +574,7 @@ export function MvpPostEditStudio({
     let chainAutoRewrite = false
     try {
       const currentScripts = fillScriptOverridesForAllCuts(baseSegments, scriptOverrides)
-      const userKeywords = normalizeUserSourceKeywords(
-        result.sourceKeywords?.length ? result.sourceKeywords : sourceKeywords
-      )
+      const userKeywords = resolveNarrationSourceKeywords(sourceKeywords, result.sourceKeywords)
       const res = await fetch("/api/shotform/mvp-narration-script", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -678,6 +679,7 @@ export function MvpPostEditStudio({
               productContext,
               previousScripts: currentScripts,
               sceneMetas,
+              userKeywords,
             }
           )
         )

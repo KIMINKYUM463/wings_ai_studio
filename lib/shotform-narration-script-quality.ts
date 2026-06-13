@@ -512,9 +512,16 @@ function pickBetterLine(
 export function buildNarrationCutsPromptBlock(
   cuts: readonly CutScriptContext[],
   naturalShorts: boolean,
-  sceneMetas?: readonly CutNarrationSceneMeta[]
+  sceneMetas?: readonly CutNarrationSceneMeta[],
+  userKeywords?: readonly string[]
 ): string {
-  return cuts
+  const kwBlock =
+    userKeywords?.length
+      ? `**키워드 제품**: ${userKeywords.join(", ")} — 각 컷 화면 + 이 제품 장점을 결합\n\n`
+      : ""
+  return (
+    kwBlock +
+    cuts
     .map((c, i) => {
       const meta = sceneMetas?.[i]
       const maxChars = maxCharsForSceneDuration(c.duration)
@@ -561,6 +568,7 @@ export function buildNarrationCutsPromptBlock(
    화면: ${visualForPrompt}${keywordHint}${benefitHint}${repeatHint}${mustMention}`
     })
     .join("\n\n")
+  )
 }
 
 /** AI·폴백 대본 후처리 — 반복 완화·화면 정합성·컷 간 흐름 보정 */
@@ -579,6 +587,8 @@ export function polishCutNarrationLines(
     previousScripts?: Record<string, string>
     /** 반복 장면 그룹·제품 장점 힌트 */
     sceneMetas?: readonly CutNarrationSceneMeta[]
+    /** 1단계 사용자 키워드 */
+    userKeywords?: readonly string[]
   }
 ): string[] {
   const allowTemplate = opts?.allowTemplateFallback !== false
@@ -588,8 +598,13 @@ export function polishCutNarrationLines(
   const productContext = opts?.productContext
   const previousScripts = opts?.previousScripts ?? {}
   const sceneMetas = opts?.sceneMetas
+  const userKeywords = opts?.userKeywords
   const safeProductName =
-    sanitizeProductNameForNarration(productName, { category: productContext }) || productName || "제품"
+    sanitizeProductNameForNarration(productName, {
+      category: productContext,
+      userKeywords,
+      visualHint: productContext,
+    }) || productName || "제품"
   const prior: string[] = []
   const groupLastNarration = new Map<number, string>()
 
