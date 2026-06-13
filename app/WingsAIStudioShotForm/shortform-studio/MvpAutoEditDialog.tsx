@@ -39,12 +39,15 @@ import {
 } from "@/lib/shotform-mvp-pick-video-download"
 import { extractClientVideoMetaForPicks } from "@/lib/shotform-client-video-meta"
 import { uploadAutoEditSourcesFromBrowser } from "@/lib/shotform-auto-edit-client-source-upload"
+import { isAutoEditNoUsableVideoError } from "@/lib/shotform-auto-edit-mix"
 import {
   VMAKE_SUBTITLE_REMOVAL_SLOW_HINT,
   VMAKE_SUBTITLE_REMOVAL_STALL_HINT,
 } from "@/lib/shotform-vmake-subtitle-removal"
 
 const DURATIONS: AutoEditTargetDuration[] = [20, 30, 45, 60]
+/** 「쓸수있는 영상 없음」 간헐 오류 — 자동 재시도 횟수 (총 1+2=3회 시도) */
+const AUTO_EDIT_USABLE_VIDEO_MAX_RETRIES = 2
 
 const STEPS: Array<{ key: AutoEditJobResult["step"]; label: string }> = [
   { key: "download", label: "영상 다운로드" },
@@ -384,149 +387,195 @@ export function MvpAutoEditDialog({
     setErr(null)
     setDownloadHint("")
     revokePreviewBlob()
-    setResult({ jobId: "", step: "download", videoCount: picks.length })
 
+    let completed = false
     try {
-      setDownloadHint("선택 영상 URL 확인·갱신 중…")
-      const { picks: nextPicks, errors: refreshErrors } = await refreshExpiredMvpEditPicks(
-        picks,
-        (msg) => setDownloadHint(msg)
-      )
-
-      if (refreshErrors.length === picks.length) {
-        throw new Error(refreshErrors.join("\n\n"))
-      }
-
-      if (onPicksUpdated && nextPicks.some((p, i) => p.videoUrl !== picks[i]?.videoUrl)) {
-        onPicksUpdated(nextPicks)
-      }
-
-      const videos = toAutoEditVideoInputs(nextPicks)
-      const preJobId = crypto.randomUUID()
-      let clientVideoMeta: Record<
-        string,
-        { duration: number; keyframeDataUrl?: string; timeSec?: number }
-      > | undefined
-      let prefetchedBlobs: Record<string, Blob> | undefined
-      if (analysisMode !== "precision") {
-        setDownloadHint("브라우저에서 키프레임·길이 미리 추출 중…")
-        const extracted = await extractClientVideoMetaForPicks(nextPicks, (msg) => setDownloadHint(msg))
-        if (Object.keys(extracted.meta).length > 0) clientVideoMeta = extracted.meta
-        if (Object.keys(extracted.blobs).length > 0) prefetchedBlobs = extracted.blobs
-      }
-
-      const allMetaReady =
-        analysisMode !== "precision" &&
-        clientVideoMeta &&
-        nextPicks.every((p) => clientVideoMeta![p.video_id]?.keyframeDataUrl)
-
-      const allHaveDuration =
-        analysisMode === "fast" &&
-        clientVideoMeta &&
-        nextPicks.every((p) => (clientVideoMeta![p.video_id]?.duration ?? 0) > 0)
-
-      /** 고속+길이 확보 시 분석은 서버 병렬 — 업로드는 렌더 직전 CDN으로 (로컬·분석 체감 속도 우선) */
-      const skipBrowserUploadForFastAnalyze = Boolean(allHaveDuration)
-
-      let sourcesPreUploaded = false
-      if (!allMetaReady && !skipBrowserUploadForFastAnalyze) {
-        setDownloadHint("브라우저에서 영상을 받아 서버에 전달 중… (CDN 우회)")
-        await uploadAutoEditSourcesFromBrowser(
-          preJobId,
-          nextPicks,
-          (msg) => setDownloadHint(msg),
-          prefetchedBlobs
-        )
-        sourcesPreUploaded = true
-      }
-
-      setDownloadHint("짜집기 작업 시작 중…")
-      const res = await fetch("/api/shotform/auto-edit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          videos,
-          targetDuration,
-          openaiApiKey,
-          vmakeApiKey: vmakeApiKey || undefined,
-          vmakeSecretAccessKey: vmakeSecretAccessKey || undefined,
-          removeChineseSubtitles: doRemoveChineseSubtitles,
-          scriptTopic: projectName?.trim() || undefined,
-          sourceKeywords: sourceKeywords.filter(Boolean),
-          analysisMode,
-          clientVideoMeta,
-          clientJobId: preJobId,
-          sourcesPreUploaded,
-        }),
-      })
-      const started = (await res.json().catch(() => ({}))) as AutoEditJobResult & { error?: string }
-      if (!res.ok || !started.jobId) {
-        setErr(started.error || "자동 편집 시작 실패")
-        setResult(started.step ? started : { jobId: "", step: "error", error: started.error })
-        return
-      }
-
-      const hints = stepHintsForMode(analysisMode, doRemoveChineseSubtitles)
-      const json = await pollAutoEditJob(
-        started.jobId,
-        (partial) => {
-          setResult(partial)
-          setDownloadHint(hints[partial.step] || "짜집기 진행 중…")
-        },
-        { analysisMode }
-      )
-      setResult(json)
-      if (json.step === "error") {
-        setErr(json.error || "자동 편집 실패")
-        return
-      }
-      if (json.script || json.editPlan || json.step === "done" || json.downloadUrl) {
-        onPipelineComplete?.({ targetDuration })
-      }
-
-      const hasScript = Boolean(json.script || json.editPlan)
-      const canOpenStudio = json.step === "done" || hasScript
-
-      if (json.renderSkipped) {
-        setErr(json.renderSkipReason || "짜집기 MP4 렌더가 완료되지 않았습니다. 다시 실행해 주세요.")
-        return
-      }
-
-      let videoBlobUrl: string | null = null
-      let videoBlob: Blob | null = null
-      const mp4DownloadUrl =
-        json.downloadUrl || (json.jobId ? autoEditDownloadUrl(json.jobId) : "")
-      if (mp4DownloadUrl && json.jobId) {
-        setDownloadHint("결과 MP4 불러오는 중…")
-        try {
-          const mp4 = await fetchResultMp4(mp4DownloadUrl, json.jobId)
-          videoBlobUrl = mp4.url
-          videoBlob = mp4.blob
-        } catch (mp4Err) {
-          const detail = mp4Err instanceof Error ? mp4Err.message : ""
-          setErr(
-            "짜집기·대본은 완료됐지만 결과 MP4를 불러오지 못했습니다.\n\n" +
-              (detail ? `${detail}\n\n` : "") +
-              "편집기에서 다시 불러오거나 「편집 실행」을 한 번 더 눌러 주세요."
+      for (let usableRetry = 0; usableRetry <= AUTO_EDIT_USABLE_VIDEO_MAX_RETRIES; usableRetry++) {
+        if (usableRetry > 0) {
+          setErr(null)
+          setDownloadHint(
+            `쓸 수 있는 영상을 찾지 못했습니다. 자동 재시도 ${usableRetry}/${AUTO_EDIT_USABLE_VIDEO_MAX_RETRIES}…`
           )
+          setResult({ jobId: "", step: "download", videoCount: picks.length })
+          await new Promise((r) => setTimeout(r, 1200 * usableRetry))
+        } else {
+          setResult({ jobId: "", step: "download", videoCount: picks.length })
         }
-      } else if (canOpenStudio) {
-        setErr("짜집기 MP4가 없습니다. 짜집기를 다시 실행해 주세요.")
-        return
-      }
 
-      if (onStudioReady && canOpenStudio) {
-        onStudioReady({
-          result: { ...json, downloadUrl: mp4DownloadUrl || json.downloadUrl },
-          videoBlobUrl: videoBlobUrl || null,
-          videoBlob: videoBlob || null,
-        })
+        try {
+          setDownloadHint(
+            usableRetry > 0
+              ? `영상 URL 다시 확인 중… (재시도 ${usableRetry}/${AUTO_EDIT_USABLE_VIDEO_MAX_RETRIES})`
+              : "선택 영상 URL 확인·갱신 중…"
+          )
+          const { picks: nextPicks, errors: refreshErrors } = await refreshExpiredMvpEditPicks(
+            picks,
+            (msg) => setDownloadHint(msg)
+          )
+
+          if (refreshErrors.length === picks.length) {
+            throw new Error(refreshErrors.join("\n\n"))
+          }
+
+          if (onPicksUpdated && nextPicks.some((p, i) => p.videoUrl !== picks[i]?.videoUrl)) {
+            onPicksUpdated(nextPicks)
+          }
+
+          const videos = toAutoEditVideoInputs(nextPicks)
+          const preJobId = crypto.randomUUID()
+          let clientVideoMeta: Record<
+            string,
+            { duration: number; keyframeDataUrl?: string; timeSec?: number }
+          > | undefined
+          let prefetchedBlobs: Record<string, Blob> | undefined
+          if (analysisMode !== "precision") {
+            setDownloadHint("브라우저에서 키프레임·길이 미리 추출 중…")
+            const extracted = await extractClientVideoMetaForPicks(nextPicks, (msg) =>
+              setDownloadHint(msg)
+            )
+            if (Object.keys(extracted.meta).length > 0) clientVideoMeta = extracted.meta
+            if (Object.keys(extracted.blobs).length > 0) prefetchedBlobs = extracted.blobs
+          }
+
+          const allMetaReady =
+            analysisMode !== "precision" &&
+            clientVideoMeta &&
+            nextPicks.every((p) => clientVideoMeta![p.video_id]?.keyframeDataUrl)
+
+          const allHaveDuration =
+            analysisMode === "fast" &&
+            clientVideoMeta &&
+            nextPicks.every((p) => (clientVideoMeta![p.video_id]?.duration ?? 0) > 0)
+
+          const skipBrowserUploadForFastAnalyze = Boolean(allHaveDuration)
+
+          let sourcesPreUploaded = false
+          if (!allMetaReady && !skipBrowserUploadForFastAnalyze) {
+            setDownloadHint("브라우저에서 영상을 받아 서버에 전달 중… (CDN 우회)")
+            await uploadAutoEditSourcesFromBrowser(
+              preJobId,
+              nextPicks,
+              (msg) => setDownloadHint(msg),
+              prefetchedBlobs
+            )
+            sourcesPreUploaded = true
+          }
+
+          setDownloadHint("짜집기 작업 시작 중…")
+          const res = await fetch("/api/shotform/auto-edit", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              videos,
+              targetDuration,
+              openaiApiKey,
+              vmakeApiKey: vmakeApiKey || undefined,
+              vmakeSecretAccessKey: vmakeSecretAccessKey || undefined,
+              removeChineseSubtitles: doRemoveChineseSubtitles,
+              scriptTopic: projectName?.trim() || undefined,
+              sourceKeywords: sourceKeywords.filter(Boolean),
+              analysisMode,
+              clientVideoMeta,
+              clientJobId: preJobId,
+              sourcesPreUploaded,
+            }),
+          })
+          const started = (await res.json().catch(() => ({}))) as AutoEditJobResult & {
+            error?: string
+          }
+          if (!res.ok || !started.jobId) {
+            const startErr = started.error || "자동 편집 시작 실패"
+            if (
+              isAutoEditNoUsableVideoError(startErr) &&
+              usableRetry < AUTO_EDIT_USABLE_VIDEO_MAX_RETRIES
+            ) {
+              continue
+            }
+            setErr(startErr)
+            setResult(started.step ? started : { jobId: "", step: "error", error: started.error })
+            break
+          }
+
+          const hints = stepHintsForMode(analysisMode, doRemoveChineseSubtitles)
+          const json = await pollAutoEditJob(
+            started.jobId,
+            (partial) => {
+              setResult(partial)
+              setDownloadHint(hints[partial.step] || "짜집기 진행 중…")
+            },
+            { analysisMode }
+          )
+          setResult(json)
+          if (json.step === "error") {
+            const failMsg = json.error || "자동 편집 실패"
+            if (
+              isAutoEditNoUsableVideoError(failMsg) &&
+              usableRetry < AUTO_EDIT_USABLE_VIDEO_MAX_RETRIES
+            ) {
+              continue
+            }
+            setErr(failMsg)
+            break
+          }
+          if (json.script || json.editPlan || json.step === "done" || json.downloadUrl) {
+            onPipelineComplete?.({ targetDuration })
+          }
+
+          const hasScript = Boolean(json.script || json.editPlan)
+          const canOpenStudio = json.step === "done" || hasScript
+
+          if (json.renderSkipped) {
+            setErr(json.renderSkipReason || "짜집기 MP4 렌더가 완료되지 않았습니다. 다시 실행해 주세요.")
+            break
+          }
+
+          let videoBlobUrl: string | null = null
+          let videoBlob: Blob | null = null
+          const mp4DownloadUrl =
+            json.downloadUrl || (json.jobId ? autoEditDownloadUrl(json.jobId) : "")
+          if (mp4DownloadUrl && json.jobId) {
+            setDownloadHint("결과 MP4 불러오는 중…")
+            try {
+              const mp4 = await fetchResultMp4(mp4DownloadUrl, json.jobId)
+              videoBlobUrl = mp4.url
+              videoBlob = mp4.blob
+            } catch (mp4Err) {
+              const detail = mp4Err instanceof Error ? mp4Err.message : ""
+              setErr(
+                "짜집기·대본은 완료됐지만 결과 MP4를 불러오지 못했습니다.\n\n" +
+                  (detail ? `${detail}\n\n` : "") +
+                  "편집기에서 다시 불러오거나 「편집 실행」을 한 번 더 눌러 주세요."
+              )
+            }
+          } else if (canOpenStudio) {
+            setErr("짜집기 MP4가 없습니다. 짜집기를 다시 실행해 주세요.")
+            break
+          }
+
+          if (onStudioReady && canOpenStudio) {
+            onStudioReady({
+              result: { ...json, downloadUrl: mp4DownloadUrl || json.downloadUrl },
+              videoBlobUrl: videoBlobUrl || null,
+              videoBlob: videoBlob || null,
+            })
+          }
+          completed = true
+          break
+        } catch (attemptErr) {
+          const msg = formatShotformFetchError(attemptErr)
+          if (
+            isAutoEditNoUsableVideoError(msg) &&
+            usableRetry < AUTO_EDIT_USABLE_VIDEO_MAX_RETRIES
+          ) {
+            continue
+          }
+          setErr(msg)
+          break
+        }
       }
-    } catch (e) {
-      setErr(formatShotformFetchError(e))
     } finally {
       setLoading(false)
-      setDownloadHint("")
+      if (completed) setDownloadHint("")
     }
   }, [
     picks,
@@ -536,6 +585,8 @@ export function MvpAutoEditDialog({
     revokePreviewBlob,
     fetchResultMp4,
     projectId,
+    projectName,
+    sourceKeywords,
     onPipelineComplete,
     onPicksUpdated,
     onStudioReady,
