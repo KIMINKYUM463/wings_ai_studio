@@ -14,6 +14,7 @@ import { narrationLooksIncomplete } from "@/lib/shotform-narration-timing"
 import {
   alignNarrationLinesToCuts,
   buildNarrationCutsPromptBlock,
+  ensureRewriteDiffersFromPrevious,
   limitConnectorsAcrossScript,
   parseNarrationLinesFromAi,
   polishCutNarrationLines,
@@ -81,6 +82,8 @@ export async function POST(request: NextRequest) {
       topic?: string
       /** 1단계 사용자 키워드 — result에 없을 때 보조 */
       sourceKeywords?: string[]
+      /** 다시쓰기 시 클라이언트 nonce — 동일 대본 방지 */
+      rewriteNonce?: number
     }
     const apiKey = body.openaiApiKey?.trim()
     const result = body.result
@@ -103,7 +106,10 @@ export async function POST(request: NextRequest) {
     }
 
     const mode = body.mode === "rewrite" ? "rewrite" : "generate"
-    const rewriteSalt = mode === "rewrite" ? Math.floor(Math.random() * 400) + 1 : 0
+    const rewriteSalt =
+      mode === "rewrite"
+        ? Math.floor((body.rewriteNonce ?? Date.now()) % 9000) + 101
+        : 0
     const previousScripts = body.previousScripts ?? {}
 
     const previousScriptBlock =
@@ -212,8 +218,10 @@ ${cutsBlock}
 
 ${
   mode === "rewrite" && previousScriptBlock
-    ? `이전 대본 (참고만 — 문장·표현을 재사용하지 말고 새로 작성):
+    ? `이전 대본 (참고만 — **문장·표현을 재사용하지 말고 완전히 새로** 작성):
 ${previousScriptBlock}
+
+**다시쓰기 필수**: 이전 대본과 **동일·유사한 문장 금지**. 각 컷 화면에 맞는 **새 구어체**만.
 
 `
     : ""
@@ -232,7 +240,7 @@ ${repeatGroupsBlock}
 
 위 ${cuts.length}개 컷이 **한 편의 쇼핑숏폼**처럼 읽히도록 lines 배열을 ${mode === "rewrite" ? "다시" : ""} 작성하세요.`
 
-    const temperature = mode === "rewrite" ? 0.55 : naturalShorts ? 0.45 : 0.35
+    const temperature = mode === "rewrite" ? 0.82 : naturalShorts ? 0.45 : 0.35
     const maxTokens = naturalShorts ? 4000 : 3200
 
     let parsed = await requestNarrationJson({
@@ -285,7 +293,7 @@ ${repeatGroupsBlock}
         }
       )
     )
-    const polished = polishedRaw.map((text, i) => {
+    let polished = polishedRaw.map((text, i) => {
       let t = ensureNaturalShortsCtaOnLastLine(
         sanitizeNarrationForOutput(text),
         naturalShorts && i === polishedRaw.length - 1
@@ -301,6 +309,16 @@ ${repeatGroupsBlock}
       }
       return t
     })
+
+    if (mode === "rewrite" && Object.keys(previousScripts).length) {
+      polished = ensureRewriteDiffersFromPrevious(
+        polished,
+        previousScripts,
+        cuts.map((c) => ({ visual_card: c.visual_card, duration: c.duration })),
+        productName,
+        rewriteSalt
+      )
+    }
 
     const overrides: Record<string, string> = {}
     polished.forEach((text, i) => {

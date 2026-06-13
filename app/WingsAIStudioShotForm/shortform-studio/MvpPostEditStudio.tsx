@@ -68,17 +68,13 @@ import {
   sanitizeProductNameForNarration,
 } from "@/lib/shotform-cut-narration"
 import {
-  limitConnectorsAcrossScript,
-  polishCutNarrationLines,
+  ensureRewriteDiffersFromPrevious,
 } from "@/lib/shotform-narration-script-quality"
 import {
   normalizeUserSourceKeywords,
   resolveNarrationSourceKeywords,
 } from "@/lib/shotform-user-keyword-product"
-import {
-  buildCutNarrationSceneMetas,
-} from "@/lib/shotform-narration-scene-groups"
-import { analysisByVideoId, buildCutScriptContexts } from "@/lib/shotform-visual-scene-match"
+import { analysisByVideoId } from "@/lib/shotform-visual-scene-match"
 import { cleanNarrationLineBreaks } from "@/lib/shotform-narration-timing"
 import { sanitizeNarrationForOutput } from "@/lib/shotform-natural-shorts-script"
 import type {
@@ -578,6 +574,7 @@ export function MvpPostEditStudio({
     try {
       const currentScripts = fillScriptOverridesForAllCuts(baseSegments, scriptOverrides)
       const userKeywords = resolveNarrationSourceKeywords(sourceKeywords, result.sourceKeywords)
+      const rewriteNonce = rewrite ? Date.now() : undefined
       const res = await fetch("/api/shotform/mvp-narration-script", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -588,6 +585,7 @@ export function MvpPostEditStudio({
           sourceKeywords: userKeywords.length ? userKeywords : undefined,
           mode: rewrite ? "rewrite" : "generate",
           previousScripts: rewrite ? currentScripts : undefined,
+          rewriteNonce,
         }),
       })
       const data = (await res.json().catch(() => ({}))) as {
@@ -633,68 +631,22 @@ export function MvpPostEditStudio({
               userKeywords,
             }
           ) || projectName || "제품"
-        const productContext = [
-          userKeywords.length ? `사용자 키워드: ${userKeywords.join(", ")}` : "",
-          result.productAnalysis?.category,
-          result.productAnalysis?.summary,
-          visualBlob,
-        ]
-          .filter(Boolean)
-          .join("\n")
         const contexts = baseSegments.map((seg, i) => ({
           visual_card: segmentVisualHints[i] || seg.text,
           duration:
             Number(narrationSegmentDuration(seg)) ||
             Math.max(0.5, (seg.end ?? 0) - (seg.start ?? 0)),
         }))
-        const analyses = result.analyses?.length
-          ? result.analyses
-          : result.analysis
-            ? [result.analysis]
-            : []
-        const cuts =
-          result.editPlan?.edit_plan?.length && analyses.length
-            ? buildCutScriptContexts(result.editPlan, analyses, result.mixInfo)
-            : contexts.map((c, i) => ({
-                index: i + 1,
-                output_start: baseSegments[i]!.start,
-                output_end: baseSegments[i]!.end,
-                duration: Number(c.duration) || 2,
-                video_id: result.editPlan?.edit_plan[i]?.video_id ?? `cut-${i}`,
-                source_start: result.editPlan?.edit_plan[i]?.source_start ?? baseSegments[i]!.start,
-                source_end: result.editPlan?.edit_plan[i]?.source_end ?? baseSegments[i]!.end,
-                visual_card: c.visual_card,
-                reason: c.visual_card,
-              }))
-        const sceneMetas = buildCutNarrationSceneMetas(
-          cuts,
-          {
-            keywords: userKeywords.length ? userKeywords : result.productAnalysis?.targetKeywords,
-            summary: result.productAnalysis?.summary,
-            category: result.productAnalysis?.category,
-          },
-          analyses
-        )
-        const repolished = limitConnectorsAcrossScript(
-          polishCutNarrationLines(
-            baseSegments.map((_, i) => formatted[String(i + 1)] ?? ""),
-            contexts,
-            productName,
-            {
-              allowTemplateFallback: false,
-              fitToDuration: true,
-              rewriteMode: true,
-              rewriteSalt: Math.floor(Math.random() * 400) + (Date.now() % 97) + 1,
-              productContext,
-              previousScripts: currentScripts,
-              sceneMetas,
-              userKeywords,
-            }
-          )
+        const forced = ensureRewriteDiffersFromPrevious(
+          baseSegments.map((_, i) => formatted[String(i + 1)] ?? ""),
+          currentScripts,
+          contexts,
+          productName,
+          (rewriteNonce ?? Date.now()) % 9000 + 201
         )
         formatted = fillScriptOverridesForAllCuts(
           baseSegments,
-          Object.fromEntries(repolished.map((line, i) => [String(i + 1), line]))
+          Object.fromEntries(forced.map((line, i) => [String(i + 1), line]))
         )
         afterJson = JSON.stringify(formatted)
       }

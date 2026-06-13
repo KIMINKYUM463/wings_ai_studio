@@ -698,9 +698,11 @@ export function polishCutNarrationLines(
     }
     if (rewriteMode) {
       const prevLine = previousScripts[String(i + 1)]?.trim().replace(/\r/g, "")
+      const tooSimilar =
+        Boolean(prevLine) &&
+        (text.trim() === prevLine || narrationBlockSimilarity(text, prevLine) >= 0.48)
       const mustReplace =
-        narrationMismatchesVisualProduct(text, visualCard) ||
-        Boolean(prevLine && text.trim() === prevLine)
+        narrationMismatchesVisualProduct(text, visualCard) || tooSimilar
       if (mustReplace) {
         for (let attempt = 0; attempt < 16; attempt++) {
           const forced = rephraseSceneToShoppingNarrationVariant(
@@ -745,6 +747,46 @@ export function polishCutNarrationLines(
   return enforceUniqueCutLines(woven, contexts, safeProductName, rewriteSalt, productContext).map(
     sanitizeNarrationForOutput
   )
+}
+
+/** 다시쓰기 — 이전 대본과 동일·유사하면 화면 기반으로 강제 교체 */
+export function ensureRewriteDiffersFromPrevious(
+  lines: readonly string[],
+  previousScripts: Record<string, string>,
+  contexts: ReadonlyArray<{ visual_card: string; duration: number }>,
+  productName: string,
+  rewriteSalt: number
+): string[] {
+  const prior: string[] = []
+  return lines.map((line, i) => {
+    const prev = previousScripts[String(i + 1)]?.trim().replace(/\r/g, "") ?? ""
+    const ctx = contexts[i]!
+    let text = sanitizeNarrationForOutput(line.trim())
+    const tooSimilar =
+      Boolean(prev) &&
+      (text === prev || narrationBlockSimilarity(text, prev) >= 0.48)
+    if (tooSimilar) {
+      for (let attempt = 0; attempt < 28; attempt++) {
+        const forced = rephraseSceneToShoppingNarrationVariant(
+          ctx.visual_card,
+          productName,
+          ctx.duration,
+          rewriteSalt + i * 19 + attempt * 11
+        )
+        if (
+          forced.trim() &&
+          forced.trim() !== prev &&
+          narrationBlockSimilarity(forced, prev) < 0.42 &&
+          !narrationLineIsDuplicateOfPrior(forced, prior)
+        ) {
+          text = forced
+          break
+        }
+      }
+    }
+    prior.push(text)
+    return sanitizeNarrationForOutput(text)
+  })
 }
 
 /** OpenAI JSON lines 파싱 — 빈 컷도 슬롯 유지 (filter로 개수 줄어듦 방지) */
