@@ -21,6 +21,11 @@ import {
   visualGroundingScore,
 } from "@/lib/shotform-narration-script-quality"
 import { buildCutScriptContexts } from "@/lib/shotform-visual-scene-match"
+import {
+  buildNarrationProductContext,
+  normalizeUserSourceKeywords,
+  primaryProductLabelFromKeywords,
+} from "@/lib/shotform-user-keyword-product"
 
 async function requestNarrationJson(args: {
   apiKey: string
@@ -68,6 +73,8 @@ export async function POST(request: NextRequest) {
       /** 프로젝트명 — 끝에 " 1"이면 자연스러운 스토리형 모드 */
       projectName?: string
       topic?: string
+      /** 1단계 사용자 키워드 — result에 없을 때 보조 */
+      sourceKeywords?: string[]
     }
     const apiKey = body.openaiApiKey?.trim()
     const result = body.result
@@ -101,29 +108,37 @@ export async function POST(request: NextRequest) {
             .join("\n")
         : ""
 
-    const rawProductName = result.productAnalysis?.productName || "제품"
+    const userKeywords = normalizeUserSourceKeywords(
+      result.sourceKeywords?.length ? result.sourceKeywords : body.sourceKeywords
+    )
+    const visualBlob = cuts.map((c) => c.visual_card).join("\n")
+    const rawProductName = primaryProductLabelFromKeywords(
+      userKeywords,
+      result.productAnalysis?.productName || "제품"
+    )
     const productName =
       sanitizeProductNameForNarration(rawProductName, {
         category: result.productAnalysis?.category,
         summary: result.productAnalysis?.summary,
         analysisTitles: analyses.map((a) => a.title),
-      }) || "제품"
+        visualHint: `${userKeywords.join(" ")}\n${visualBlob}`,
+        userKeywords,
+      }) || rawProductName
     const styleSource = body.topic?.trim() || body.projectName?.trim() || productName
     const { topic, naturalShorts } = parseTopicWithStyleMode(styleSource)
 
     const vs = result.productAnalysis?.videoStructure
-    const productContext = [
-      `제품명: ${productName}`,
-      naturalShorts && topic ? `스토리 주제: ${topic}` : "",
-      result.productAnalysis?.category ? `카테고리: ${result.productAnalysis.category}` : "",
-      result.productAnalysis?.summary ? `요약: ${result.productAnalysis.summary}` : "",
-      vs?.hook ? `후킹 방향: ${vs.hook}` : "",
-      vs?.body ? `본문 방향: ${vs.body}` : "",
-      vs?.cta ? `마무리/CTA: ${vs.cta}` : "",
-      analyses.map((a) => `[${a.video_id}] ${a.title}`).join("\n"),
-    ]
-      .filter(Boolean)
-      .join("\n")
+    const productContext = buildNarrationProductContext({
+      userKeywords,
+      productName,
+      category: result.productAnalysis?.category,
+      summary: result.productAnalysis?.summary,
+      videoStructure: vs,
+      analysisTitles: analyses.map((a) => a.title),
+      visualBlob,
+      topic: naturalShorts ? topic : undefined,
+      naturalShorts,
+    })
 
     const cutsBlock = buildNarrationCutsPromptBlock(cuts, naturalShorts)
 
@@ -135,6 +150,7 @@ ${mode === "rewrite" ? "\n**모드: 대본 다시쓰기** — 영상·컷 구성
 ${benchmarkScriptFewShotJson()}
 
 필수:
+- **사용자 입력 키워드가 있으면 그 제품 기준으로만** 대본을 작성 (영상 분석 제품명과 다르면 키워드 우선)
 - lines는 **${cuts.length}개 컷이 하나의 대본**으로 자연스럽게 이어져야 함 (독립 문장 나열 금지)
 - **각 lines[i]는 i번째 컷의 「화면」에 실제로 보이는 사물·행동을 구체적으로 말할 것** (추상 칭찬만 금지)
 - 컷마다 화면 키워드(먼지/바닥/시트/흡입/노즐/차량 등) 중 **최소 1개** 반드시 포함
@@ -171,6 +187,7 @@ ${previousScriptBlock}
 }스토리 골격: 문제·후킹 → 제품·해결 → 화면별 데모 → 마무리·CTA.
 
 **화면 정합성 (최우선)**:
+- **사용자 입력 키워드 = 홍보 제품**. 영상 분석이 다른 제품으로 보여도 키워드 제품 기준으로만 작성.
 - 각 컷의 「화면」 설명에 나온 장소·행동·제품 상태를 대본에 반영하세요.
 - 차량 청소 영상이면 시트/바닥/먼지/흡입/노즐/구석 등 **눈에 보이는 요소**를 컷마다 다르게 언급하세요.
 - 모든 컷에 같은 추상 문장(「이 포인트」「핵심」「만족」) 반복 금지.
@@ -226,6 +243,7 @@ ${previousScriptBlock}
           rewriteMode: mode === "rewrite",
           rewriteSalt,
           productContext,
+          previousScripts: mode === "rewrite" ? previousScripts : undefined,
         }
       )
     )

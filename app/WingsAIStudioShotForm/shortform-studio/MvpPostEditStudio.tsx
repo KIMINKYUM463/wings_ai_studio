@@ -65,7 +65,13 @@ import {
   cutVisualHintForSegment,
   formatSceneDescriptionHint,
   needsAiNarrationFromScenes,
+  sanitizeProductNameForNarration,
 } from "@/lib/shotform-cut-narration"
+import {
+  limitConnectorsAcrossScript,
+  polishCutNarrationLines,
+} from "@/lib/shotform-narration-script-quality"
+import { normalizeUserSourceKeywords } from "@/lib/shotform-user-keyword-product"
 import { analysisByVideoId } from "@/lib/shotform-visual-scene-match"
 import { cleanNarrationLineBreaks } from "@/lib/shotform-narration-timing"
 import { sanitizeNarrationForOutput } from "@/lib/shotform-natural-shorts-script"
@@ -105,6 +111,8 @@ type Props = {
   projectId: string
   projectName: string
   result: AutoEditJobResult
+  /** 1단계 사용자 입력 키워드 — 대본 제품 정체성 기준 */
+  sourceKeywords?: string[]
   videoBlobUrl: string | null
   /** 짜집기 직후 메모리 blob — IndexedDB 저장 전에도 미리보기 */
   videoBlob?: Blob | null
@@ -124,6 +132,7 @@ export function MvpPostEditStudio({
   projectId,
   projectName,
   result,
+  sourceKeywords = [],
   videoBlobUrl,
   videoBlob = null,
   scriptOverrides: scriptOverridesProp = {},
@@ -148,14 +157,16 @@ export function MvpPostEditStudio({
       return hint ? formatSceneDescriptionHint(hint) : ""
     })
   }, [result])
-  const [scriptOverrides, setScriptOverrides] = useState<Record<string, string>>(scriptOverridesProp)
+  const [scriptOverrides, setScriptOverrides] = useState<Record<string, string>>(() =>
+    fillScriptOverridesForAllCuts(baseSegments, scriptOverridesProp)
+  )
+  const syncedOverridesJobIdRef = useRef<string | null>(null)
 
+  /** 프로젝트(job) 전환 시에만 부모 overrides 복원 — 매 렌더마다 덮어쓰면 「대본만 다시쓰기」가 무효화됨 */
   useEffect(() => {
-    const filled = fillScriptOverridesForAllCuts(baseSegments, scriptOverridesProp)
-    setScriptOverrides((prev) => {
-      if (JSON.stringify(prev) === JSON.stringify(filled)) return prev
-      return filled
-    })
+    if (syncedOverridesJobIdRef.current === result.jobId) return
+    syncedOverridesJobIdRef.current = result.jobId
+    setScriptOverrides(fillScriptOverridesForAllCuts(baseSegments, scriptOverridesProp))
   }, [result.jobId, scriptOverridesProp, baseSegments])
 
   const updateOverride = useCallback(
@@ -546,6 +557,9 @@ export function MvpPostEditStudio({
     let chainAutoRewrite = false
     try {
       const currentScripts = fillScriptOverridesForAllCuts(baseSegments, scriptOverrides)
+      const userKeywords = normalizeUserSourceKeywords(
+        result.sourceKeywords?.length ? result.sourceKeywords : sourceKeywords
+      )
       const res = await fetch("/api/shotform/mvp-narration-script", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -553,6 +567,7 @@ export function MvpPostEditStudio({
           openaiApiKey: openai,
           result,
           projectName,
+          sourceKeywords: userKeywords.length ? userKeywords : undefined,
           mode: rewrite ? "rewrite" : "generate",
           previousScripts: rewrite ? currentScripts : undefined,
         }),
@@ -585,8 +600,54 @@ export function MvpPostEditStudio({
       }
 
       const beforeJson = JSON.stringify(fillScriptOverridesForAllCuts(baseSegments, scriptOverrides))
-      const formatted = fillScriptOverridesForAllCuts(baseSegments, rawOverrides)
-      const afterJson = JSON.stringify(formatted)
+      let formatted = fillScriptOverridesForAllCuts(baseSegments, rawOverrides)
+      let afterJson = JSON.stringify(formatted)
+
+      if (rewrite && beforeJson === afterJson) {
+        const visualBlob = segmentVisualHints.join("\n")
+        const productName =
+          sanitizeProductNameForNarration(
+            userKeywords[0] || result.productAnalysis?.productName || projectName,
+            {
+              category: result.productAnalysis?.category,
+              summary: result.productAnalysis?.summary,
+              visualHint: `${userKeywords.join(" ")}\n${visualBlob}`,
+              userKeywords,
+            }
+          ) || projectName || "제품"
+        const productContext = [
+          userKeywords.length ? `사용자 키워드: ${userKeywords.join(", ")}` : "",
+          result.productAnalysis?.category,
+          result.productAnalysis?.summary,
+          visualBlob,
+        ]
+          .filter(Boolean)
+          .join("\n")
+        const contexts = baseSegments.map((seg, i) => ({
+          visual_card: segmentVisualHints[i] || seg.text,
+          duration: narrationSegmentDuration(seg),
+        }))
+        const repolished = limitConnectorsAcrossScript(
+          polishCutNarrationLines(
+            baseSegments.map((_, i) => formatted[String(i + 1)] ?? ""),
+            contexts,
+            productName,
+            {
+              allowTemplateFallback: false,
+              fitToDuration: true,
+              rewriteMode: true,
+              rewriteSalt: Math.floor(Math.random() * 400) + (Date.now() % 97) + 1,
+              productContext,
+              previousScripts: currentScripts,
+            }
+          )
+        )
+        formatted = fillScriptOverridesForAllCuts(
+          baseSegments,
+          Object.fromEntries(repolished.map((line, i) => [String(i + 1), line]))
+        )
+        afterJson = JSON.stringify(formatted)
+      }
 
       setScriptOverrides(formatted)
       setScriptRevision((r) => r + 1)
@@ -650,6 +711,8 @@ export function MvpPostEditStudio({
     voiceLineCues,
     clearTtsAfterScriptChange,
     projectName,
+    segmentVisualHints,
+    sourceKeywords,
   ])
 
   const autoScriptRequestedRef = useRef<string | null>(null)

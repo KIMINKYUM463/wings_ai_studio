@@ -5,6 +5,7 @@ import {
   isGenericTemplateNarration,
   looksLikeDescriptiveSceneNarration,
   looksLikeRawSceneCopy,
+  narrationMismatchesVisualProduct,
   narrationTextLooksWeak,
   pickUniqueNarrationLine,
   rephraseSceneToShoppingNarration,
@@ -116,6 +117,11 @@ const VISUAL_THEME_RULES: Array<{ re: RegExp; theme: string; keywords: string[] 
   { re: /펼치|展开|fold|접/, theme: "펼침", keywords: ["펼치", "접", "보관", "휴대", "컴팩트"] },
   { re: /버튼|按|누르|작동|开关/, theme: "작동", keywords: ["버튼", "작동", "켜", "한 번", "바로"] },
   { re: /선풍기|风扇|fan|미니|휴대|바람|쿨링/, theme: "선풍기", keywords: ["선풍기", "바람", "시원", "휴대", "손바닥", "가방"] },
+  {
+    re: /마우스\s*패드|mouse\s*pad|게이밍|keyboard|키보드|RGB|LED|데스크\s*매트/i,
+    theme: "마우스패드",
+    keywords: ["마우스", "패드", "게이밍", "키보드", "책상", "손목"],
+  },
   { re: /포장|언박싱|unboxing|开箱/, theme: "포장", keywords: ["포장", "개봉", "언박싱", "사이즈", "색감"] },
   { re: /칫솔|치아|牙刷|电动牙刷|전동칫솔/, theme: "칫솔", keywords: ["칫솔", "치아", "구석", "플라크"] },
   { re: /투사|스크린|프로젝터|TV|티비|설치|screen/, theme: "스크린", keywords: ["스크린", "설치", "투사", "몰입", "영화"] },
@@ -284,9 +290,24 @@ function productSuggestsMiniFan(productName: string, productContext?: string): b
   return /선풍기|风扇|fan|미니|휴대|쿨링|手持风扇/i.test(blob)
 }
 
+const GAMING_MOUSE_PAD_SCENE_HINTS = [
+  "고급스러운 디자인의 대형 게이밍 마우스 패드 사용 장면",
+  "게이밍 마우스 패드 위에서 마우스를 움직이는 장면",
+  "키보드와 마우스가 함께 올려진 데스크 매트 장면",
+  "RGB 분위기의 게이밍 데스크 셋업 장면",
+  "넓은 사이즈 마우스 패드로 손목이 편한 장면",
+  "책상 위 게이밍 패드 질감을 보여주는 장면",
+] as const
+
+function productSuggestsGamingMousePad(productName: string, productContext?: string): boolean {
+  const blob = `${productName} ${productContext || ""}`
+  return /마우스\s*패드|mouse\s*pad|게이밍\s*패드|데스크\s*매트|keyboard|키보드|gaming|RGB|LED/i.test(blob)
+}
+
 function productSuggestsCarVacuum(productName: string, productContext?: string): boolean {
   const blob = `${productName} ${productContext || ""}`
-  return /차량|차\s*안|자동차|진공|청소|핸디|车载|吸尘|vacuum|車|먼지/.test(blob)
+  if (productSuggestsGamingMousePad(productName, productContext)) return false
+  return /차량|차\s*안|자동차|진공\s*청소|핸디\s*청소|车载|吸尘|vacuum|車|차량용|운전석|시트.*청소|바닥.*청소/i.test(blob)
 }
 
 /** 「제품 사용 장면」 등 빈 화면 설명을 제품·컷 맥락으로 보강 */
@@ -307,6 +328,10 @@ export function enrichVisualCardForNarration(
 
   if (productSuggestsCarVacuum(safeProductName, productContext)) {
     return CAR_VACUUM_SCENE_HINTS[cutIndex % CAR_VACUUM_SCENE_HINTS.length]!
+  }
+
+  if (productSuggestsGamingMousePad(safeProductName, productContext)) {
+    return GAMING_MOUSE_PAD_SCENE_HINTS[cutIndex % GAMING_MOUSE_PAD_SCENE_HINTS.length]!
   }
 
   if (productSuggestsMiniFan(safeProductName, productContext)) {
@@ -337,6 +362,7 @@ function narrationNeedsPolish(
     narrationTextLooksWeak(text, visualCard) ||
     looksLikeRawSceneCopy(text, visualCard) ||
     looksLikeDescriptiveSceneNarration(text) ||
+    narrationMismatchesVisualProduct(text, visualCard) ||
     duplicatePrior
 
   if (rewriteMode) {
@@ -449,6 +475,12 @@ function pickBetterLine(
   visualCard: string,
   priorLines: readonly string[]
 ): string {
+  if (
+    narrationMismatchesVisualProduct(current, visualCard) &&
+    !narrationMismatchesVisualProduct(candidate, visualCard)
+  ) {
+    return candidate
+  }
   const priorLast = priorLines[priorLines.length - 1]
   const dupPenalty = (line: string) =>
     priorLines.some(
@@ -529,6 +561,8 @@ export function polishCutNarrationLines(
     rewriteMode?: boolean
     rewriteSalt?: number
     productContext?: string
+    /** 다시쓰기 시 이전 컷별 대본 — 동일 문장이면 강제 교체 */
+    previousScripts?: Record<string, string>
   }
 ): string[] {
   const allowTemplate = opts?.allowTemplateFallback !== false
@@ -536,6 +570,7 @@ export function polishCutNarrationLines(
   const rewriteMode = Boolean(opts?.rewriteMode)
   const rewriteSalt = opts?.rewriteSalt ?? 0
   const productContext = opts?.productContext
+  const previousScripts = opts?.previousScripts ?? {}
   const safeProductName =
     sanitizeProductNameForNarration(productName, { category: productContext }) || productName || "제품"
   const prior: string[] = []
@@ -550,6 +585,7 @@ export function polishCutNarrationLines(
     )
     let text = sanitizeNarrationForOutput(raw.trim())
     const duplicatePrior = narrationLineIsDuplicateOfPrior(text, prior)
+    const variantBase = (duplicatePrior ? i * 7 + 3 : i * 5 + 1) + rewriteSalt
     const weakOpening =
       i === 0 &&
       (narrationNeedsPolish(text, visualCard, prior, rewriteMode) ||
@@ -562,7 +598,6 @@ export function polishCutNarrationLines(
     }
 
     if (needsPolish) {
-      const variantBase = (duplicatePrior ? i * 7 + 3 : i * 5 + 1) + rewriteSalt
       const candidates = [
         rephraseSceneToShoppingNarration(visualCard, safeProductName, ctx.duration),
         rephraseSceneToShoppingNarrationVariant(visualCard, safeProductName, ctx.duration, variantBase),
@@ -600,13 +635,43 @@ export function polishCutNarrationLines(
         text = rephraseSceneToShoppingNarrationVariant(visualCard, safeProductName, ctx.duration, i + 31)
       }
     }
+    if (rewriteMode) {
+      const prevLine = previousScripts[String(i + 1)]?.trim().replace(/\r/g, "")
+      const mustReplace =
+        narrationMismatchesVisualProduct(text, visualCard) ||
+        Boolean(prevLine && text.trim() === prevLine)
+      if (mustReplace) {
+        for (let attempt = 0; attempt < 16; attempt++) {
+          const forced = rephraseSceneToShoppingNarrationVariant(
+            visualCard,
+            safeProductName,
+            ctx.duration,
+            variantBase + rewriteSalt * 3 + attempt * 11 + i * 7
+          )
+          if (
+            forced.trim() &&
+            forced.trim() !== prevLine &&
+            !narrationMismatchesVisualProduct(forced, visualCard) &&
+            !narrationLineIsDuplicateOfPrior(forced, prior) &&
+            !isAbstractShoppingNarration(forced)
+          ) {
+            text = forced
+            break
+          }
+        }
+      }
+    }
+
     text = pickUniqueNarrationLine({
       visualHint: visualCard,
       productName: safeProductName,
       duration: ctx.duration,
       cutIndex: i + rewriteSalt * 13,
       priorLines: prior,
-      preferred: isAbstractShoppingNarration(text) ? undefined : text,
+      preferred:
+        isAbstractShoppingNarration(text) || narrationMismatchesVisualProduct(text, visualCard)
+          ? undefined
+          : text,
     })
     prior.push(text)
     return sanitizeNarrationForOutput(text)

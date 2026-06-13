@@ -58,7 +58,7 @@ export function fillScriptOverridesForAllCuts(
   baseSegments: readonly NarrationSegment[],
   overrides: Record<string, string>
 ): Record<string, string> {
-  const out: Record<string, string> = { ...overrides }
+  const out: Record<string, string> = {}
   for (let i = 0; i < baseSegments.length; i++) {
     const key = String(i + 1)
     const explicit = overrides[key]?.trim()

@@ -219,6 +219,7 @@ export function MvpAutoEditDialog({
   picks,
   projectId,
   projectName,
+  sourceKeywords = [],
   onPipelineComplete,
   onPicksUpdated,
   onStudioReady,
@@ -228,6 +229,8 @@ export function MvpAutoEditDialog({
   picks: AutoEditPick[]
   projectId: string
   projectName?: string
+  /** 1단계 사용자 입력 키워드 */
+  sourceKeywords?: string[]
   onPicksUpdated?: (picks: AutoEditPick[]) => void
   onPipelineComplete?: (args: { targetDuration: AutoEditTargetDuration }) => void
   /** 짜집기 완료 → MVP 내 TTS·자막 스튜디오 */
@@ -411,6 +414,7 @@ export function MvpAutoEditDialog({
           vmakeSecretAccessKey: vmakeSecretAccessKey || undefined,
           removeChineseSubtitles: doRemoveChineseSubtitles,
           scriptTopic: projectName?.trim() || undefined,
+          sourceKeywords: sourceKeywords.filter(Boolean),
           analysisMode,
           clientVideoMeta,
           clientJobId: preJobId,

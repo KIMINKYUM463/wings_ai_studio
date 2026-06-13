@@ -96,19 +96,15 @@ export function sanitizeProductNameForNarration(
     summary?: string
     visualHint?: string
     analysisTitles?: readonly string[]
+    /** 1단계 사용자 입력 키워드 — 최우선 */
+    userKeywords?: readonly string[]
   }
 ): string | undefined {
-  const raw = productName?.trim() || ""
-  const koreanInRaw = (raw.match(/[\uac00-\ud7a3]/g) || []).length
-  if (
-    raw &&
-    !INVALID_NARRATION_PRODUCT_NAME.test(raw) &&
-    (koreanInRaw >= 2 || (koreanInRaw >= 1 && !/^[a-z\s]+$/i.test(raw)))
-  ) {
-    return raw
-  }
-
+  const userKw = (hints?.userKeywords ?? [])
+    .map((k) => k.trim())
+    .filter(Boolean)
   const blob = [
+    userKw.join(" "),
     hints?.category,
     hints?.summary,
     hints?.visualHint,
@@ -117,8 +113,27 @@ export function sanitizeProductNameForNarration(
     .filter(Boolean)
     .join(" ")
 
+  // 화면·분석 힌트가 제품명보다 우선 — 이전 프로젝트 제품명이 남아 있어도 장면 기준으로 판정
+  if (/마우스\s*패드|mouse\s*pad|게이밍\s*패드|데스크\s*매트|keyboard|키보드|gaming|RGB|LED/i.test(blob)) {
+    return "게이밍 마우스 패드"
+  }
   if (/선풍기|风扇|fan|쿨링/i.test(blob)) return "미니 선풍기"
-  if (/차량|차\s*안|자동차|车载|vacuum|청소|吸尘|먼지/i.test(blob)) return "차량용 핸디청소기"
+  if (/차량|차\s*안|자동차|车载|vacuum|吸尘|車|핸디\s*청소|진공\s*청소|차량용/i.test(blob)) {
+    return "차량용 핸디청소기"
+  }
+
+  const raw = productName?.trim() || ""
+  const koreanInRaw = (raw.match(/[\uac00-\ud7a3]/g) || []).length
+  if (
+    raw &&
+    !INVALID_NARRATION_PRODUCT_NAME.test(raw) &&
+    (koreanInRaw >= 2 || (koreanInRaw >= 1 && !/^[a-z\s]+$/i.test(raw)))
+  ) {
+    if (/마우스\s*패드|mouse\s*pad|게이밍/i.test(blob) && /청소|vacuum|吸尘|차량/i.test(raw)) {
+      return "게이밍 마우스 패드"
+    }
+    return raw
+  }
   if (/칫솔|牙刷|전동칫솔/i.test(blob)) return "전동칫솔"
   if (/배드민턴|셔틀콕|라켓/i.test(blob)) return "배드민턴 훈련기"
   if (/프로젝터|스크린|티비|TV/i.test(blob)) return "홈시어터 스크린"
@@ -326,7 +341,12 @@ function buildFallbackNarration(d: string, productName: string | undefined, rule
       "플라크 걱정, 이렇게 줄여보세요",
     ])
   }
-  if (/차량|차\s*안|자동차|시트|운전석|바닥|車|车载|car/i.test(d)) {
+  const isMousePadScene =
+    /마우스\s*패드|mouse\s*pad|게이밍\s*패드|데스크\s*매트|keyboard|키보드|gaming|RGB|LED/i.test(d)
+  if (
+    !isMousePadScene &&
+    /차량|차\s*안|자동차|시트|운전석|車|车载|운전|트렁크|대시보드|핸들\s*주변|차\s*바닥|바닥\s*매트/i.test(d)
+  ) {
     pools.push([
       "차 시트 틈새 먼지도 이렇게 빨아들여요",
       "바닥 매트에 낀 먼지, 한 번에 흡입돼요",
@@ -338,6 +358,18 @@ function buildFallbackNarration(d: string, productName: string | undefined, rule
       "핸들 주변 먼지, 흡입 한 번이면 끝이에요",
       "시트 레일 사이 먼지가 바로 빠져요",
       "발밑 매트 먼지, 손끝 안 대고 싹 빼내요",
+    ])
+  }
+  if (/마우스\s*패드|mouse\s*pad|게이밍\s*패드|데스크\s*매트|키보드|keyboard|gaming|RGB|LED/i.test(d)) {
+    pools.push([
+      "손목 각도가 편해서 장시간 게임해도 괜찮아요",
+      "미끄럼 방지라 마우스 움직임이 훨씬 안정적이에요",
+      "패드 사이즈가 커서 키보드랑 같이 쓰기 좋아요",
+      "게이밍할 때 이 정도 면적이면 충분해요",
+      "책상 위가 깔끔해지니까 집중이 잘 돼요",
+      "RGB 분위기까지 책상 분위기가 확 살아요",
+      "큰 사이즈라 팔 움직임이 훨씬 자유로워요",
+      "마감이 깔끔해서 고급스럽게 보여요",
     ])
   }
   if (/청소|먼지|흡입|吸尘|진공|vacuum|닦(?:아|여|으|이|는|고)/.test(d)) {
@@ -397,6 +429,24 @@ function buildFallbackNarration(d: string, productName: string | undefined, rule
   return flat[ruleOffset % flat.length]!
 }
 
+/** 청소기·차량 대본이 마우스패드 등 다른 제품 화면에 붙은 경우 */
+export function narrationMismatchesVisualProduct(text: string, visualCard: string): boolean {
+  const script = text.trim().replace(/\n/g, " ")
+  const visual = extractVisualDescription(visualCard)
+  if (!script || !visual) return false
+
+  const vacuumScript =
+    /흡입|먼지가\s*바로\s*빠져|노즐|핸들\s*주변\s*먼지|차\s*안|시트.*먼지|진공|청소기/.test(script)
+  const mouseVisual = /마우스\s*패드|mouse\s*pad|게이밍|keyboard|키보드|RGB|LED|책상|데스크\s*매트/i.test(visual)
+  if (vacuumScript && mouseVisual) return true
+
+  const fanScript = /선풍기|바람\s*세기|휴대용\s*느낌|언박싱하니/.test(script)
+  const carVisual = /차량|차\s*안|운전석|시트|바닥\s*매트|트렁크/i.test(visual)
+  if (fanScript && carVisual) return true
+
+  return false
+}
+
 /** 장면 분석 → 짧은 줄 나레이션 (줄바꿈 = 자막 한 줄) */
 export function rephraseSceneToShoppingNarration(
   description: string,
@@ -450,7 +500,8 @@ export function pickUniqueNarrationLine(args: {
   const isDup = (t: string) =>
     narrationLineIsDuplicateOfPrior(t, priorLines) ||
     priorLines.some((p) => narrationSharesRepeatedPhrase(p, t)) ||
-    looksLikeRawSceneCopy(t, visualHint)
+    looksLikeRawSceneCopy(t, visualHint) ||
+    narrationMismatchesVisualProduct(t, visualHint)
 
   const prefer = preferred?.trim()
   if (prefer && !isDup(prefer) && !isAbstractShoppingNarration(prefer)) {
@@ -622,7 +673,21 @@ function rephraseSceneCore(description: string, productName?: string, ruleOffset
       },
     },
     {
-      re: /차량의?\s*바닥|차량\s*바닥|바닥.*먼지|바닥.*청소|매트|발밑/,
+      re: /마우스\s*패드|mouse\s*pad|게이밍\s*패드|데스크\s*매트|키보드|keyboard|gaming|RGB|LED|책상\s*위/i,
+      say: () => {
+        const opts = [
+          "손목 각도가 편해서 장시간 게임해도 괜찮아요",
+          "미끄럼 방지라 마우스 움직임이 훨씬 안정적이에요",
+          "패드 사이즈가 커서 키보드랑 같이 쓰기 좋아요",
+          "게이밍할 때 이 정도 면적이면 충분해요",
+          "큰 사이즈라 팔 움직임이 훨씬 자유로워요",
+          "마감이 깔끔해서 고급스럽게 보여요",
+        ]
+        return opts[ruleOffset % opts.length]!
+      },
+    },
+    {
+      re: /차량의?\s*바닥|차량\s*바닥|바닥.*먼지|바닥.*청소|차량.*매트|발밑.*매트|운전석.*매트/,
       say: () => {
         const opts = [
           "발밑 매트 먼지, 한 번에 흡입돼요",
@@ -747,8 +812,8 @@ function rephraseSceneCore(description: string, productName?: string, ruleOffset
       re: /제품 사용 장면|사용 장면|제품 장면/,
       say: () =>
         buildFallbackNarration(
-          `${productName || ""} 차량 바닥 먼지 청소 흡입`,
-          productName,
+          `${productName || ""} ${d}`.trim(),
+          product,
           ruleOffset
         ),
     },
@@ -805,6 +870,7 @@ export function narrationTextLooksWeak(text: string, visualHint?: string): boole
   if (GENERIC_NARRATION.test(t)) return true
   if (isGenericTemplateNarration(t)) return true
   if (isAbstractShoppingNarration(t)) return true
+  if (visualHint && narrationMismatchesVisualProduct(t, visualHint)) return true
   if (visualHint && looksLikeRawSceneCopy(t, visualHint)) return true
   if (looksLikeDescriptiveSceneNarration(t)) return true
   if (narrationLooksIncomplete(t)) return true

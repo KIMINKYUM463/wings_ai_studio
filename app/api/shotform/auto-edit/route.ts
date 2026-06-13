@@ -124,6 +124,11 @@ function parseClientVideoMeta(
   return Object.keys(out).length ? out : undefined
 }
 
+function parseSourceKeywords(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  return raw.map((k) => String(k ?? "").trim()).filter(Boolean)
+}
+
 function buildPipelineInput(
   body: Record<string, unknown>,
   videos: AutoEditVideoInput[],
@@ -143,6 +148,7 @@ function buildPipelineInput(
     sourcesPreUploaded: body.sourcesPreUploaded === true,
     analysisMode: normalizeAutoEditAnalysisMode(body.analysisMode),
     scriptTopic: typeof body.scriptTopic === "string" ? body.scriptTopic.trim() || undefined : undefined,
+    sourceKeywords: parseSourceKeywords(body.sourceKeywords),
     clientVideoMeta: parseClientVideoMeta(body.clientVideoMeta),
   }
 }

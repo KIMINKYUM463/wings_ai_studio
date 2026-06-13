@@ -1243,6 +1243,7 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
           <MvpPostEditStudio
             projectId={project.id}
             projectName={projectName}
+            sourceKeywords={koInputs}
             result={postEditStudio.result}
             videoBlobUrl={postEditStudio.videoBlobUrl}
             videoBlob={postEditStudio.videoBlob}
@@ -1273,6 +1274,7 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
 
       <MvpAutoEditDialog
         projectName={projectName}
+        sourceKeywords={koInputs}
         open={autoEditOpen && editPicks.length > 0}
         onOpenChange={setAutoEditOpen}
         picks={editPicks}

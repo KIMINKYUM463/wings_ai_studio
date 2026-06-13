@@ -202,6 +202,8 @@ export type AutoEditVideoInput = {
 export type AutoEditJobResult = {
   jobId: string
   step: AutoEditPipelineStep
+  /** 1단계 사용자 입력 키워드 — 대본·제품 정체성 기준 */
+  sourceKeywords?: string[]
   /** @deprecated 단일 영상 — analyses 사용 */
   analysis?: VideoAnalysis
   analyses?: VideoAnalysis[]
@@ -241,6 +243,8 @@ export type AutoEditInput = {
   presetWork?: { dir: string; id: string }
   /** 프로젝트명·주제 — 끝에 " 1"이면 자연스러운 스토리형 대본 */
   scriptTopic?: string
+  /** 1단계 사용자 입력 한국어 키워드 — 제품·대본 정체성의 기준 */
+  sourceKeywords?: string[]
   /** 제품·장면 분석 모드 (기본: fast) */
   analysisMode?: AutoEditAnalysisMode
   /** 브라우저에서 미리 추출한 길이·키프레임 (서버 ffmpeg 분석 생략) */

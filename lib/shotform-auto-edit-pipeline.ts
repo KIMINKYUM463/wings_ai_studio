@@ -4,6 +4,10 @@ import type { AutoEditInput, AutoEditJobResult, AutoEditVideoInput } from "@/lib
 import { MAX_AUTO_EDIT_VIDEOS } from "@/lib/shotform-auto-edit-types"
 import { runAutoEditAnalyzeAndMix } from "@/lib/shotform-auto-edit-analyze-pipeline"
 import { benchmarkProductAnalysisFromAnalyses } from "@/lib/shotform-auto-edit-benchmark-fast"
+import {
+  applyUserKeywordsToProductAnalysis,
+  normalizeUserSourceKeywords,
+} from "@/lib/shotform-user-keyword-product"
 import { buildOutputTimelineScenes } from "@/lib/shotform-visual-scene-match"
 import {
   assertEditPlanMeetsTargetDuration,
@@ -55,7 +59,13 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
 
   const { dir, id: jobId } = input.presetWork ?? (await createAutoEditWorkDir())
   const createdAt = Date.now()
-  const base: AutoEditJobResult = { jobId, step: "download", videoCount: videos.length }
+  const sourceKeywords = normalizeUserSourceKeywords(input.sourceKeywords)
+  const base: AutoEditJobResult = {
+    jobId,
+    step: "download",
+    videoCount: videos.length,
+    sourceKeywords: sourceKeywords.length ? sourceKeywords : undefined,
+  }
   putAutoEditJob({ ...base, createdAt })
 
   const excludedVideos: AutoEditJobResult["excludedVideos"] = []
@@ -189,7 +199,10 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
       throw new Error(AUTO_EDIT_NO_USABLE_VIDEO_MESSAGE)
     }
 
-    let productAnalysis = benchmarkProductAnalysisFromAnalyses(usable)
+    let productAnalysis = applyUserKeywordsToProductAnalysis(
+      benchmarkProductAnalysisFromAnalyses(usable),
+      sourceKeywords
+    )
 
     putAutoEditJob({
       ...base,
@@ -409,6 +422,7 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
     const result: AutoEditJobResult = {
       jobId,
       step: "done",
+      sourceKeywords: sourceKeywords.length ? sourceKeywords : undefined,
       analyses: usable,
       analysis: usable[0],
       productAnalysis,
