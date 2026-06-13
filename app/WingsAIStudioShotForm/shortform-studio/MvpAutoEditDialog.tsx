@@ -64,9 +64,9 @@ function stepIndex(step: AutoEditJobResult["step"]): number {
 }
 
 const ANALYZE_STEP_HINTS: Record<AutoEditAnalysisMode, string> = {
-  fast: "Vision 분석 중… (고속: 스트리밍 미리분석 후 Vision 1회, 보통 15~45초)",
-  balanced: "키프레임 추출·Vision·장면 분석 중… (중간: 영상당 3~4장·약 1~3분)",
-  precision: "영상별 심층 분석·mix 생성 중… (정밀: 영상당 8장·약 3~8분)",
+  fast: "Vision 분석 중… (고속: 보통 15~45초, 2분 넘으면 자동 안내)",
+  balanced: "키프레임 추출·Vision·장면 분석 중… (중간: 약 1~3분, 4분 넘으면 자동 안내)",
+  precision: "영상별 심층 분석·mix 생성 중… (정밀: 약 3~8분, 10분 넘으면 자동 안내)",
 }
 
 function stepHintsForMode(
@@ -90,6 +90,31 @@ function stepHintsForMode(
 const SCRIPT_STEP_STALL_MS = 120_000
 const DOWNLOAD_STEP_STALL_MS = 180_000
 const SUBTITLE_REMOVAL_STALL_MS = 660_000
+
+function analyzeStallMsForMode(mode: AutoEditAnalysisMode): number {
+  switch (mode) {
+    case "fast":
+      return 120_000
+    case "balanced":
+      return 240_000
+    case "precision":
+      return 600_000
+    default:
+      return 180_000
+  }
+}
+
+function analyzeStallMessage(mode: AutoEditAnalysisMode): string {
+  const waitLabel =
+    mode === "fast" ? "2분" : mode === "balanced" ? "4분" : "10분"
+  return (
+    `제품·장면 분석이 ${waitLabel} 이상 지연되고 있습니다.\n\n` +
+    "① 페이지 새로고침 후 「편집 실행」을 다시 눌러 주세요.\n" +
+    "② ShotForm 설정의 OpenAI API 키(shotform_openai_api_key)와 잔액을 확인해 주세요.\n" +
+    "③ 영상 CDN 링크가 만료됐을 수 있으니 소스 검색에서 영상을 다시 추가해 주세요.\n" +
+    "④ 로컬 npm run dev에서는 dev 서버를 재시작한 뒤, 가능하면 배포 사이트에서 다시 시도해 주세요."
+  )
+}
 
 async function recoverStalledSubtitleRemoval(jobId: string): Promise<AutoEditJobResult | null> {
   try {
@@ -123,11 +148,15 @@ async function recoverStalledScriptStep(jobId: string): Promise<AutoEditJobResul
 
 async function pollAutoEditJob(
   jobId: string,
-  onProgress?: (partial: AutoEditJobResult) => void
+  onProgress?: (partial: AutoEditJobResult) => void,
+  opts?: { analysisMode?: AutoEditAnalysisMode }
 ): Promise<AutoEditJobResult> {
+  const analysisMode = opts?.analysisMode ?? "fast"
+  const analyzeStallMs = analyzeStallMsForMode(analysisMode)
   let scriptStepSince: number | null = null
   let scriptRecoveryAttempted = false
   let downloadStepSince: number | null = null
+  let analyzeStepSince: number | null = null
   let subtitleStepSince: number | null = null
   let subtitleRecoveryAttempted = false
 
@@ -151,6 +180,15 @@ async function pollAutoEditJob(
       }
     } else {
       downloadStepSince = null
+    }
+
+    if (json.step === "analyze") {
+      if (!analyzeStepSince) analyzeStepSince = Date.now()
+      if (Date.now() - analyzeStepSince >= analyzeStallMs) {
+        throw new Error(analyzeStallMessage(analysisMode))
+      }
+    } else {
+      analyzeStepSince = null
     }
 
     if (json.step === "subtitle_removal") {
@@ -429,10 +467,14 @@ export function MvpAutoEditDialog({
       }
 
       const hints = stepHintsForMode(analysisMode, doRemoveChineseSubtitles)
-      const json = await pollAutoEditJob(started.jobId, (partial) => {
-        setResult(partial)
-        setDownloadHint(hints[partial.step] || "짜집기 진행 중…")
-      })
+      const json = await pollAutoEditJob(
+        started.jobId,
+        (partial) => {
+          setResult(partial)
+          setDownloadHint(hints[partial.step] || "짜집기 진행 중…")
+        },
+        { analysisMode }
+      )
       setResult(json)
       if (json.step === "error") {
         setErr(json.error || "자동 편집 실패")
