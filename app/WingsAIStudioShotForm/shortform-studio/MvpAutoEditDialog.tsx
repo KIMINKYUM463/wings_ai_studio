@@ -39,7 +39,7 @@ import {
 } from "@/lib/shotform-mvp-pick-video-download"
 import { extractClientVideoMetaForPicks } from "@/lib/shotform-client-video-meta"
 import { uploadAutoEditSourcesFromBrowser } from "@/lib/shotform-auto-edit-client-source-upload"
-import { isAutoEditNoUsableVideoError } from "@/lib/shotform-auto-edit-mix"
+import { isAutoEditNoUsableVideoError } from "@/lib/shotform-auto-edit-errors"
 import {
   VMAKE_SUBTITLE_REMOVAL_SLOW_HINT,
   VMAKE_SUBTITLE_REMOVAL_STALL_HINT,
