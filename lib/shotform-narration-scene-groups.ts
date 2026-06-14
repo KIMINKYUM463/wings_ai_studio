@@ -6,6 +6,13 @@ import {
   mergeCutVisualWithSourceReference,
 } from "@/lib/shotform-source-video-narration"
 import { narrationBlockSimilarity } from "@/lib/shotform-narration-similarity"
+import {
+  combineVisualAndProductNarration,
+  extractVisualNarrationCue,
+  isOrganizerOrStorageProduct,
+  isRepeatMetaNarration,
+  isToothbrushHolderProduct,
+} from "@/lib/shotform-shopping-visual-cues"
 
 function visualDescFromCard(visualCard: string): string {
   return visualCard
@@ -53,6 +60,22 @@ export function inferProductBenefitForVisual(
   summary?: string
 ): string {
   const d = visualDesc
+  const kwBlob = keywords.join(" ")
+  const blob = `${d} ${kwBlob} ${summary || ""}`
+
+  if (isToothbrushHolderProduct(blob)) {
+    if (/벽에\s*걸|벽걸이|걸린/i.test(d)) return "벽걸이로 젖은 칫솔·바닥 물기 분리"
+    if (/퍼즐|puzzle/i.test(d)) return "퍼즐 디자인·세면대 위 칫솔·치약 수납"
+    if (/거치대|꽂/i.test(d)) return "칫솔·치약 한곳에 꽂아 정리"
+    return "욕실 칫솔 수납·세면대 정돈"
+  }
+  if (isOrganizerOrStorageProduct(blob)) {
+    if (/컵|필기구|펜|연필/i.test(d)) return "소품·필기구 한 컵에 모아 정리"
+    if (/벽|걸/i.test(d)) return "벽 활용 수납·공간 절약"
+    if (/욕실|세면대|싱크/i.test(d)) return "욕실·세면대 위 깔끔한 정리"
+    if (/책상|데스크/i.test(d)) return "책상 위 어지러운 소품 정돈"
+    return "한곳에 모아 찾기 쉬운 수납"
+  }
   if (/부속|액세서리|노즐|브러시|툴|케이스|보관/i.test(d)) {
     return "다양한 부속으로 차량 곳곳 청소"
   }
@@ -210,13 +233,7 @@ export function buildRepeatedSceneGroupsPrompt(
   return lines.join("\n")
 }
 
-function shortenBenefit(benefit: string, max = 18): string {
-  const t = benefit.trim()
-  if (t.length <= max) return t
-  return t.slice(0, max - 1) + "…"
-}
-
-/** 반복 장면 2회차 이후 — 앞 컷과 이어지는 나레이션 */
+/** 반복 장면 — 화면 단서 + 제품명 결합 (메타 반복 문구 금지) */
 export function narrationForRepeatedScene(args: {
   occurrence: number
   groupSize: number
@@ -224,36 +241,63 @@ export function narrationForRepeatedScene(args: {
   priorInGroup: string
   visualHint: string
   cutIndex: number
+  productName?: string
 }): string {
-  const { occurrence, productBenefitHint, priorInGroup, visualHint, cutIndex } = args
-  const benefit = shortenBenefit(productBenefitHint)
+  const { occurrence, productBenefitHint, priorInGroup, visualHint, cutIndex, productName } = args
   const desc = visualDescFromCard(visualHint)
+  const product =
+    productName?.trim() ||
+    (productBenefitHint.length <= 24 && !/제품|핵심|장점/.test(productBenefitHint)
+      ? productBenefitHint
+      : "이 제품")
+  const cue = extractVisualNarrationCue(desc)
 
-  const templates: string[] = []
-  if (occurrence === 2) {
-    templates.push(
-      `방금 그 ${benefit}, 여기서도 똑같이 보여요`,
-      `앞 장면 이어서 보면 ${benefit}이 확실해요`,
-      `${benefit} 포인트, 이 화면에서도 그대로예요`,
-      `같은 제품인데 ${desc.includes("부속") ? "부속 구성" : "이 각도"}에서도 ${benefit}`,
-      `아까 말한 ${benefit}, 반복 봐도 체감돼요`
+  const candidates: string[] = []
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const line = combineVisualAndProductNarration({
+      visualDesc: desc,
+      productName: product,
+      cutIndex: cutIndex + attempt * 3,
+      occurrence,
+      role: occurrence >= 3 ? "repeat" : "demo",
+    })
+    if (line && !isRepeatMetaNarration(line)) candidates.push(line)
+  }
+
+  if (cue.kind === "wall_mount") {
+    candidates.push(
+      `${product} 벽걸이로 세면대 주변이 훨씬 넓어 보여요`,
+      `벽에 걸어두니 젖은 칫솔 바닥에 안 둬도 돼요`
     )
-  } else if (occurrence >= 3) {
-    templates.push(
-      `몇 번 봐도 ${benefit}, 꾸준히 느껴져요`,
-      `또 나와도 ${benefit}은 동일해요`,
-      `반복 장면이지만 ${benefit} 포인트는 확실해요`,
-      `이어서 보면 ${benefit}이 더 와닿아요`,
-      `${benefit}, 여러 번 확인해도 만족스러워요`
+  }
+  if (cue.kind === "puzzle_holder") {
+    candidates.push(
+      `퍼즐 모양 ${product}, 다른 각도에서도 수납이 안정적이에요`,
+      `${product} 디자인 포인트가 이 컷에서도 또 보여요`
+    )
+  }
+  if (cue.kind === "cup_organizer" && isToothbrushHolderProduct(product)) {
+    candidates.push(
+      `욕실 소품 정리도 ${product}처럼 한곳에 모으면 끝이에요`,
+      `세면대 어지러우면 ${product}로 이렇게 정돈해보세요`
     )
   }
 
-  const priorTail = priorInGroup.replace(/\n/g, " ").split(/[,，]/).pop()?.trim() ?? ""
-  const idx = (cutIndex + occurrence * 3) % Math.max(templates.length, 1)
-  let line = templates[idx] ?? templates[0] ?? `${benefit}, 여기서도 체감돼요`
-
-  if (priorTail && line.includes(priorTail.slice(0, 8))) {
-    line = templates[(idx + 2) % templates.length] ?? line
+  const priorNorm = priorInGroup.replace(/\n/g, " ").trim()
+  const idx = (cutIndex + occurrence * 7) % Math.max(candidates.length, 1)
+  for (let i = 0; i < candidates.length; i++) {
+    const line = candidates[(idx + i) % candidates.length]!
+    if (!line) continue
+    if (priorNorm && narrationBlockSimilarity(line, priorNorm) >= 0.52) continue
+    if (isRepeatMetaNarration(line)) continue
+    return line
   }
-  return line
+
+  return combineVisualAndProductNarration({
+    visualDesc: desc,
+    productName: product,
+    cutIndex: cutIndex + occurrence,
+    occurrence,
+    role: "repeat",
+  })
 }

@@ -30,6 +30,12 @@ import {
   narrationForRepeatedScene,
 } from "@/lib/shotform-narration-scene-groups"
 import { sanitizeNarrationForOutput } from "@/lib/shotform-natural-shorts-script"
+import {
+  combineVisualAndProductNarration,
+  isOrganizerOrStorageProduct,
+  isRepeatMetaNarration,
+  isToothbrushHolderProduct,
+} from "@/lib/shotform-shopping-visual-cues"
 
 /** 벤치마크 UI용 — [샷] + 장면 묘사 */
 export function formatSceneDescriptionHint(visualCard: string): string {
@@ -87,6 +93,20 @@ const GENERIC_TEMPLATE_PATTERNS = [
   /^실용적이에요$/,
   /^편해요$/,
   /^좋아요$/,
+  /몇\s*번\s*봐도/,
+  /아까\s*말한/,
+  /반복\s*봐도/,
+  /이어서\s*보면/,
+  /이\s*화면에서도\s*그대로/,
+  /포인트,?\s*이\s*화면에서도/,
+  /또\s*나와도/,
+  /여러\s*번\s*확인해도/,
+  /같은\s*제품인데/,
+  /꾸준히\s*느껴져요/,
+  /색감이\s*깔끔해서\s*선물용/,
+  /방금\s*그\s*.+?,?\s*여기서도/,
+  /앞\s*장면\s*이어서\s*보면/,
+  /반복\s*장면이지만/,
 ] as const
 
 const INVALID_NARRATION_PRODUCT_NAME =
@@ -149,7 +169,10 @@ export function sanitizeProductNameForNarration(
     }
     return raw
   }
-  if (/칫솔|牙刷|전동칫솔/i.test(blob)) return "전동칫솔"
+  if (/칫솔|牙刷|전동칫솔/i.test(blob)) {
+    if (/거치대|꽂|스탠드|홀더|벽걸이|수납|정리/i.test(blob)) return "칫솔 거치대"
+    return "전동칫솔"
+  }
   if (/배드민턴|셔틀콕|라켓/i.test(blob)) return "배드민턴 훈련기"
   if (/프로젝터|스크린|티비|TV/i.test(blob)) return "홈시어터 스크린"
 
@@ -200,7 +223,7 @@ export function isAbstractShoppingNarration(text: string): boolean {
   if (isGenericTemplateNarration(t)) return true
   if (narrationContainsEnglishLeak(t)) return true
   const hasConcreteVisual =
-    /먼지|청소|흡입|시트|바닥|노즐|필터|차|구석|틈새|매트|진공|닦|빨아|제거|정리|선풍기|바람|포장|가방|손바닥|휴대/.test(
+    /먼지|청소|흡입|시트|바닥|노즐|필터|차|구석|틈새|매트|진공|닦|빨아|제거|정리|선풍기|바람|포장|가방|손바닥|휴대|욕실|세면대|거치대|수납|꽂|벽걸이|퍼즐|칫솔|책상|컵/.test(
       t
     )
   if (/^(이|그)\s*(포인트|부분)/.test(t) && !hasConcreteVisual) return true
@@ -208,6 +231,7 @@ export function isAbstractShoppingNarration(text: string): boolean {
     return true
   }
   if (t.length <= 10 && /^(실용|편|좋|쉬|가벼|시원|깔끔)적?이에요$/.test(t)) return true
+  if (isRepeatMetaNarration(t)) return true
   return false
 }
 
@@ -348,13 +372,24 @@ function buildFallbackNarration(d: string, productName: string | undefined, rule
   }
 
   if (/칫솔|치아|칫솔질|전동칫솔|电动牙刷|牙刷/.test(d)) {
-    pools.push([
-      `${product}로 치아 사이까지 쓱 닦여요`,
-      "이렇게 닦으면 입안이 개운해요",
-      "전동칫솔, 구석구석 닦이는 게 포인트예요",
-      "매일 이 습관이면 확실히 달라져요",
-      "플라크 걱정, 이렇게 줄여보세요",
-    ])
+    if (isToothbrushHolderProduct(`${product || ""} ${d}`)) {
+      pools.push([
+        `${product}에 꽂아두니 세면대가 한눈에 정리돼요`,
+        `퍼즐 모양 ${product}, 귀여운데 수납도 딱이에요`,
+        `벽에 걸어두면 젖은 칫솔 바닥에 안 둬도 돼요`,
+        `칫솔 두 개 꽂아도 흔들림 없이 안정적이에요`,
+        `${product} 덕분에 욕실 찾기 귀찮은 일이 줄어요`,
+        `세면대 위 어지러우면 ${product} 하나로 정돈돼요`,
+      ])
+    } else {
+      pools.push([
+        `${product}로 치아 사이까지 쓱 닦여요`,
+        "이렇게 닦으면 입안이 개운해요",
+        "전동칫솔, 구석구석 닦이는 게 포인트예요",
+        "매일 이 습관이면 확실히 달라져요",
+        "플라크 걱정, 이렇게 줄여보세요",
+      ])
+    }
   }
   const isMousePadScene =
     /마우스\s*패드|mouse\s*pad|게이밍\s*패드|데스크\s*매트|keyboard|키보드|gaming|RGB|LED/i.test(d)
@@ -458,6 +493,14 @@ export function narrationMismatchesVisualProduct(text: string, visualCard: strin
   const fanScript = /선풍기|바람\s*세기|휴대용\s*느낌|언박싱하니/.test(script)
   const carVisual = /차량|차\s*안|운전석|시트|바닥\s*매트|트렁크/i.test(visual)
   if (fanScript && carVisual) return true
+
+  const brushingScript = /입안이\s*개운|치아\s*사이|플라크|칫솔질|닦으면/.test(script)
+  const holderVisual = /거치대|꽂|벽에\s*걸|퍼즐|수납|정리/i.test(visual)
+  const holderProduct = isToothbrushHolderProduct(script)
+  if (brushingScript && (holderVisual || holderProduct)) return true
+
+  const giftScript = /선물용|색감이\s*깔끔/.test(script)
+  if (giftScript && holderProduct && /칫솔|거치대|욕실|세면대/i.test(visual)) return true
 
   return false
 }
@@ -583,9 +626,15 @@ export function pickUniqueNarrationLine(args: {
         priorInGroup,
         visualHint,
         cutIndex: cutIndex + attempt,
+        productName,
       })
       const fitted = formatNarrationForSceneDuration(continued, duration)
-      if (fitted && !isDup(fitted) && !isAbstractShoppingNarration(fitted)) {
+      if (
+        fitted &&
+        !isDup(fitted) &&
+        !isAbstractShoppingNarration(fitted) &&
+        !isRepeatMetaNarration(fitted)
+      ) {
         return fitted
       }
     }
@@ -634,6 +683,7 @@ export function pickUniqueNarrationLine(args: {
 function rephraseSceneCore(description: string, productName?: string, ruleOffset = 0): string {
   let d = stripSceneMeta(extractVisualDescription(description))
   const product = sanitizeProductNameForNarration(productName, { visualHint: d })
+  const productBlob = `${product || ""} ${d}`
   if (
     descriptionSuggestsPresenterOrFace(description) ||
     descriptionSuggestsPresenterOrFace(d)
@@ -641,10 +691,80 @@ function rephraseSceneCore(description: string, productName?: string, ruleOffset
     return productNarrationFallback(product, ruleOffset)
   }
   if (!d || d === "장면" || d === "제품 장면") {
+    if (product && isToothbrushHolderProduct(product)) {
+      return combineVisualAndProductNarration({
+        visualDesc: d || "욕실 정리",
+        productName: product,
+        cutIndex: ruleOffset,
+        role: ruleOffset === 0 ? "hook" : "demo",
+      })
+    }
     return productNarrationFallback(product, ruleOffset)
   }
 
   const rules: Array<{ re: RegExp; say: (m: RegExpMatchArray) => string }> = [
+    {
+      re: /벽에\s*걸|벽걸이|걸린|wall/i,
+      say: () => {
+        const p = product || "칫솔 거치대"
+        const opts = [
+          `바닥에 젖은 칫솔 두던 분? ${p} 벽에 걸면 깔끔해요`,
+          `${p} 벽걸이형이라 세면대 위가 한눈에 정리돼요`,
+          `벽 활용하니 욕실 공간도 넓어 보여요`,
+          `걸어두기만 해도 물기·칫솔 분리하기 좋아요`,
+        ]
+        return opts[ruleOffset % opts.length]!
+      },
+    },
+    {
+      re: /퍼즐|puzzle/i,
+      say: () => {
+        const p = product || "칫솔 거치대"
+        const opts = [
+          `퍼즐 모양 ${p}, 귀여운데 칫솔 꽂기도 딱이에요`,
+          `${p} 퍼즐 디자인이 욕실 인테리어 포인트돼요`,
+          `세면대 위에 두니 칫솔·치약이 한곳에 모여요`,
+          `이 각도에서 ${p} 수납 슬롯이 잘 보여요`,
+        ]
+        return opts[ruleOffset % opts.length]!
+      },
+    },
+    {
+      re: /거치대|꽂혀|꽂아|스탠드|holder/i,
+      say: () => {
+        if (!/칫솔|牙刷|욕실|세면대/i.test(d) && !isToothbrushHolderProduct(productBlob)) {
+          return buildFallbackNarration(d, product, ruleOffset)
+        }
+        const p = product || "칫솔 거치대"
+        const opts = [
+          `${p}에 꽂아두니 세면대가 바로 정리돼요`,
+          `칫솔 두 개 꽂아도 흔들림 없이 안정적이에요`,
+          `${p} 덕분에 칫솔·치약 찾기가 쉬워져요`,
+          `꽂아두기만 해도 욕실이 정돈된 느낌이에요`,
+        ]
+        return opts[ruleOffset % opts.length]!
+      },
+    },
+    {
+      re: /컵|필기구|펜|연필|pen|pencil/i,
+      say: () => {
+        if (isToothbrushHolderProduct(productBlob)) {
+          const p = product || "칫솔 거치대"
+          const opts = [
+            `욕실 소품도 ${p}처럼 한곳에 모으면 찾기 쉬워요`,
+            `세면대 어지러우면 ${p}로 이렇게 정돈해보세요`,
+            `작은 소품까지 ${p}로 정리하면 끝이에요`,
+          ]
+          return opts[ruleOffset % opts.length]!
+        }
+        const opts = [
+          "컵 하나에 필기구 쏙 넣으니 책상이 바로 정리돼요",
+          "색감도 예쁘고 수납도 되는 구성이에요",
+          "책상 위 어지러운 펜·소품, 이렇게 모아두세요",
+        ]
+        return opts[ruleOffset % opts.length]!
+      },
+    },
     {
       re: /포장|포장지|비닐|싸인|언박싱|unboxing|开箱|包装|wrap/i,
       say: () => {
@@ -686,8 +806,17 @@ function rephraseSceneCore(description: string, productName?: string, ruleOffset
       },
     },
     {
-      re: /블루|연보라|보라|색상|컬러|purple|blue/i,
+      re: /블루|연보라|보라|색상|컬러|purple|blue|다채로운\s*색상/i,
       say: () => {
+        if (isToothbrushHolderProduct(productBlob) || isOrganizerOrStorageProduct(productBlob)) {
+          const opts = [
+            "파스텔 컬러라 욕실 인테리어에도 잘 어울려요",
+            "색 조합이 깔끔해서 정리템으로 보기 좋아요",
+            "은은한 색감이라 세면대 위에 두기 좋아요",
+            "컬러가 예뻐서 욕실 분위기까지 살려줘요",
+          ]
+          return opts[ruleOffset % opts.length]!
+        }
         const opts = [
           "색감이 깔끔해서 선물용으로도 괜찮아요",
           "연보라 톤이 은은해서 예뻐요",
@@ -752,8 +881,29 @@ function rephraseSceneCore(description: string, productName?: string, ruleOffset
       },
     },
     {
-      re: /전동\s*칫솔|电动牙刷|칫솔|치아|칫솔질/,
+      re: /전동\s*칫솔|电动牙刷|칫솔질|플라크/,
       say: () => {
+        const opts = [
+          productName ? `${productName}로 치아 사이까지 깔끔해요` : "전동칫솔로 구석구석 닦아요",
+          "이렇게 닦으면 입안이 개운해요",
+          "매일 쓰기 좋은 전동칫솔이에요",
+          "플라크 걱정, 이렇게 줄여보세요",
+        ]
+        return opts[ruleOffset % opts.length]!
+      },
+    },
+    {
+      re: /칫솔|치아|牙刷/,
+      say: () => {
+        if (isToothbrushHolderProduct(productBlob)) {
+          const p = product || "칫솔 거치대"
+          return combineVisualAndProductNarration({
+            visualDesc: d,
+            productName: p,
+            cutIndex: ruleOffset,
+            role: ruleOffset % 5 === 0 ? "hook" : "demo",
+          })
+        }
         const opts = [
           productName ? `${productName}로 치아 사이까지 깔끔해요` : "전동칫솔로 구석구석 닦아요",
           "이렇게 닦으면 입안이 개운해요",

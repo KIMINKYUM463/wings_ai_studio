@@ -21,6 +21,7 @@ import type { CutScriptContext } from "@/lib/shotform-visual-scene-match"
 import { sanitizeNarrationForOutput } from "@/lib/shotform-natural-shorts-script"
 import type { CutNarrationSceneMeta } from "@/lib/shotform-narration-scene-groups"
 import { narrationForRepeatedScene } from "@/lib/shotform-narration-scene-groups"
+import { isRepeatMetaNarration } from "@/lib/shotform-shopping-visual-cues"
 import {
   hasExcessiveScriptRepetition,
   narrationBlockSimilarity,
@@ -38,6 +39,14 @@ const CLICHE_PATTERNS = [
   /생각보다 편해요/,
   /이렇게 쉬워요/,
   /이렇게 편해요/,
+  /몇\s*번\s*봐도/,
+  /아까\s*말한/,
+  /이어서\s*보면/,
+  /이\s*화면에서도\s*그대로/,
+  /또\s*나와도/,
+  /색감이\s*깔끔해서\s*선물용/,
+  /입안이\s*개운/,
+  /치아\s*사이까지/,
 ] as const
 
 const CONTINUITY_CONNECTORS =
@@ -125,7 +134,8 @@ const VISUAL_THEME_RULES: Array<{ re: RegExp; theme: string; keywords: string[] 
     keywords: ["마우스", "패드", "게이밍", "키보드", "책상", "손목"],
   },
   { re: /포장|언박싱|unboxing|开箱/, theme: "포장", keywords: ["포장", "개봉", "언박싱", "사이즈", "색감"] },
-  { re: /칫솔|치아|牙刷|电动牙刷|전동칫솔/, theme: "칫솔", keywords: ["칫솔", "치아", "구석", "플라크"] },
+  { re: /칫솔|치아|牙刷|电动牙刷|전동칫솔|거치대|꽂|벽걸이|퍼즐/, theme: "칫솔수납", keywords: ["칫솔", "거치대", "욕실", "세면대", "정리", "꽂"] },
+  { re: /수납|정리|거치|홀더|organiz|收纳|컵|필기구/, theme: "수납", keywords: ["수납", "정리", "거치", "한곳", "깔끔"] },
   { re: /투사|스크린|프로젝터|TV|티비|설치|screen/, theme: "스크린", keywords: ["스크린", "설치", "투사", "몰입", "영화"] },
   { re: /틈새|缝隙|좁|缝/, theme: "틈새", keywords: ["틈새", "좁", "구석", "사이", "끝"] },
   { re: /보여|展示|확인|特写|클로즈/, theme: "디테일", keywords: ["디테일", "확인", "보", "눈", "직접"] },
@@ -162,6 +172,15 @@ const OPENING_HOOK_POOLS: Array<{ re: RegExp; hooks: string[] }> = [
       "이거 몰라서 청소 시간만 늘었어요",
       "구석 먼지, 이렇게 빨아들이는 거 있더라고요",
       "와, 이 정도면 손이 안 놀아요",
+    ],
+  },
+  {
+    re: /칫솔|거치대|욕실|세면대|꽂|벽걸이|퍼즐|수납|정리/i,
+    hooks: [
+      "욕실 칫솔 뒤죽박죽이신 분? 이거 하나면 끝이에요",
+      "세면대 위 어지러우셨죠? 이 정리템 보세요",
+      "젖은 칫솔 바닥에 두시나요? 이거 쓰면 바로 달라져요",
+      "이거 몰랐으면 욕실 정리 시간만 늘었어요",
     ],
   },
 ]
@@ -365,6 +384,7 @@ function narrationNeedsPolish(
   const definitelyWeak =
     !text ||
     isAbstractShoppingNarration(text) ||
+    isRepeatMetaNarration(text) ||
     narrationTextLooksWeak(text, visualCard) ||
     looksLikeRawSceneCopy(text, visualCard) ||
     looksLikeDescriptiveSceneNarration(text) ||
@@ -521,7 +541,21 @@ export function buildNarrationCutsPromptBlock(
 ): string {
   const kwBlock =
     userKeywords?.length
-      ? `**키워드 제품 (최우선)**: ${userKeywords.join(", ")} — 각 컷 「화면」+ 원본 참고와 결합. 키워드 제품만 홍보.\n\n`
+      ? `**키워드 제품 (최우선)**: ${userKeywords.join(", ")} — 각 컷 「화면에 보이는 사물·행동」+ 키워드 제품 이점을 **한 문장**으로 결합. 화면만 읽기·키워드만 반복 금지.
+
+**쇼핑숏폼 공식**: ①문제·후킹(욕실/책상 어지러움 등) → ②키워드 제품 소개 → ③화면별 데모(퍼즐 거치대/벽걸이/컵 수납 등 **다른 각도**) → ④마무리·CTA
+
+**좋은 예 (키워드: 칫솔 거치대)**:
+- 컷1(퍼즐 거치대): "욕실 칫솔 뒤죽박죽이신 분? 퍼즐 모양 칫솔 거치대 하나면 끝이에요"
+- 컷2(컵·필기구): "욕실 소품도 한곳에 모으면 찾기 쉬워요, 칫솔 거치대로 세면대 정돈해보세요"
+- 컷3(벽걸이): "벽에 걸어두니 젖은 칫솔 바닥에 안 둬도 돼요"
+
+**나쁜 예 (금지)**:
+- "색감이 깔끔해서 선물용" (화면·제품 무관)
+- "몇 번 봐도 칫솔 거치대" / "아까 말한 칫솔 거치대" (메타 반복)
+- "치아 사이까지 깔끔해요" (거치대인데 칫솔질 기능 지어내기)
+
+`
       : ""
   return (
     kwBlock +
@@ -630,17 +664,34 @@ export function polishCutNarrationLines(
         narrationLineIsDuplicateOfPrior(text, prior) ||
         text.trim() === priorInGroup.trim() ||
         narrationBlockSimilarity(text, priorInGroup) >= 0.55
-      if (dupWithGroup || narrationNeedsPolish(text, visualCard, prior, rewriteMode)) {
-        const continued = narrationForRepeatedScene({
-          occurrence: sceneMeta.occurrence,
-          groupSize: sceneMeta.groupSize,
-          productBenefitHint: sceneMeta.productBenefitHint,
-          priorInGroup,
-          visualHint: ctx.visual_card,
-          cutIndex: i,
-        })
-        if (continued && !narrationLineIsDuplicateOfPrior(continued, prior)) {
-          text = continued
+      const weakRepeat = isRepeatMetaNarration(text) || narrationNeedsPolish(text, visualCard, prior, rewriteMode)
+      if (dupWithGroup || weakRepeat) {
+        const variant = rephraseSceneToShoppingNarrationVariant(
+          visualCard,
+          safeProductName,
+          ctx.duration,
+          i * 11 + sceneMeta.occurrence * 7 + rewriteSalt
+        )
+        if (
+          variant &&
+          !narrationLineIsDuplicateOfPrior(variant, prior) &&
+          !isAbstractShoppingNarration(variant) &&
+          !isRepeatMetaNarration(variant)
+        ) {
+          text = variant
+        } else {
+          const continued = narrationForRepeatedScene({
+            occurrence: sceneMeta.occurrence,
+            groupSize: sceneMeta.groupSize,
+            productBenefitHint: sceneMeta.productBenefitHint,
+            priorInGroup,
+            visualHint: ctx.visual_card,
+            cutIndex: i,
+            productName: safeProductName,
+          })
+          if (continued && !narrationLineIsDuplicateOfPrior(continued, prior) && !isRepeatMetaNarration(continued)) {
+            text = continued
+          }
         }
       }
     }
@@ -650,7 +701,8 @@ export function polishCutNarrationLines(
     const weakOpening =
       i === 0 &&
       (narrationNeedsPolish(text, visualCard, prior, rewriteMode) ||
-        /화면\s*보니까|장면\s*보면|바로\s*이해됐/.test(text))
+        /화면\s*보니까|장면\s*보면|바로\s*이해됐/.test(text) ||
+        isRepeatMetaNarration(text))
     const needsPolish = narrationNeedsPolish(text, visualCard, prior, rewriteMode) || weakOpening
 
     if (i === 0 && weakOpening) {
