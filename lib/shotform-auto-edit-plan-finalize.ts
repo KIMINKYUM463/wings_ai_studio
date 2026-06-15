@@ -281,6 +281,27 @@ export function buildSceneBasedEditPlan(
   return finalizeEditPlan({ target_duration: targetDuration, edit_plan }, analyses)
 }
 
+/** finalizeEditPlan 정규화 실패 시 — buildSceneBasedEditPlan 재호출 금지 (스택 오버플로 방지) */
+function minimalEditPlanFallback(analyses: VideoAnalysis[], target: number): EditPlan {
+  const a = analyses.find((x) => x.duration > 0.3) ?? analyses[0]
+  if (!a) return { target_duration: target, edit_plan: [] }
+
+  const dur = ROUND(Math.min(target, Math.max(0.5, a.duration)))
+  return {
+    target_duration: target,
+    edit_plan: [
+      {
+        video_id: a.video_id,
+        source_start: 0,
+        source_end: dur,
+        output_start: 0,
+        output_end: dur,
+        reason: a.title || a.scenes[0]?.description || "제품 장면",
+      },
+    ],
+  }
+}
+
 /** output 타임라인 = targetDuration, 소스는 필요한 만큼만 trim */
 export function finalizeEditPlan(plan: EditPlan, analyses: VideoAnalysis[]): EditPlan {
   const target = plan.target_duration
@@ -321,7 +342,7 @@ export function finalizeEditPlan(plan: EditPlan, analyses: VideoAnalysis[]): Edi
   }
 
   if (normalized.length === 0) {
-    return buildSceneBasedEditPlan(analyses, target)
+    return minimalEditPlanFallback(analyses, target)
   }
 
   if (Math.abs(outCursor - target) > 0.15) {
