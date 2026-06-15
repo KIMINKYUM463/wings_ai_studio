@@ -444,17 +444,20 @@ export function MvpAutoEditDialog({
             { duration: number; keyframeDataUrl?: string; timeSec?: number }
           > | undefined
           let prefetchedBlobs: Record<string, Blob> | undefined
-          if (analysisMode !== "precision") {
-            setDownloadHint("브라우저에서 키프레임·길이 미리 추출 중…")
-            const extracted = await extractClientVideoMetaForPicks(nextPicks, (msg) =>
-              setDownloadHint(msg)
-            )
-            if (Object.keys(extracted.meta).length > 0) clientVideoMeta = extracted.meta
-            if (Object.keys(extracted.blobs).length > 0) prefetchedBlobs = extracted.blobs
-          }
+
+          setDownloadHint(
+            analysisMode === "precision"
+              ? "정밀 분석용 — 브라우저에서 영상·길이 준비 중…"
+              : "브라우저에서 키프레임·길이 미리 추출 중…"
+          )
+          const extracted = await extractClientVideoMetaForPicks(nextPicks, (msg) =>
+            setDownloadHint(msg)
+          )
+          if (Object.keys(extracted.meta).length > 0) clientVideoMeta = extracted.meta
+          if (Object.keys(extracted.blobs).length > 0) prefetchedBlobs = extracted.blobs
 
           const allMetaReady =
-            analysisMode !== "precision" &&
+            analysisMode === "fast" &&
             clientVideoMeta &&
             nextPicks.every((p) => clientVideoMeta![p.video_id]?.keyframeDataUrl)
 
@@ -466,8 +469,14 @@ export function MvpAutoEditDialog({
           const skipBrowserUploadForFastAnalyze = Boolean(allHaveDuration)
 
           let sourcesPreUploaded = false
-          if (!allMetaReady && !skipBrowserUploadForFastAnalyze) {
-            setDownloadHint("브라우저에서 영상을 받아 서버에 전달 중… (CDN 우회)")
+          const requireBrowserUpload =
+            analysisMode === "precision" || (!allMetaReady && !skipBrowserUploadForFastAnalyze)
+          if (requireBrowserUpload) {
+            setDownloadHint(
+              analysisMode === "precision"
+                ? "정밀 분석 — 브라우저에서 영상을 서버에 전달 중…"
+                : "브라우저에서 영상을 받아 서버에 전달 중… (CDN 우회)"
+            )
             await uploadAutoEditSourcesFromBrowser(
               preJobId,
               nextPicks,

@@ -63,26 +63,30 @@ async function runPrecisionAnalyzeAndMix(args: {
   const { apiKey, videos, sourcePaths, workDir, targetDuration, onPhase } = args
   onPhase?.("keyframes")
 
-  const results = await Promise.all(
-    videos.map((video, srcIndex) => {
-      const sourcePath = sourcePaths[video.video_id]
-      if (!sourcePath) {
-        return Promise.resolve({
-          ok: false as const,
-          video_id: video.video_id,
-          title: video.title || video.video_id,
-          reason: "원본 영상 경로를 찾지 못했습니다.",
-        })
-      }
-      return analyzeOneVideoPrecision({
+  const results: Awaited<ReturnType<typeof analyzeOneVideoPrecision>>[] = []
+
+  for (let srcIndex = 0; srcIndex < videos.length; srcIndex++) {
+    const video = videos[srcIndex]!
+    const sourcePath = sourcePaths[video.video_id]
+    if (!sourcePath) {
+      results.push({
+        ok: false,
+        video_id: video.video_id,
+        title: video.title || video.video_id,
+        reason: "원본 영상 경로를 찾지 못했습니다.",
+      })
+      continue
+    }
+    results.push(
+      await analyzeOneVideoPrecision({
         apiKey,
         video,
         sourcePath,
         workDir,
         srcIndex,
       })
-    })
-  )
+    )
+  }
 
   const analyses: VideoAnalysis[] = []
   const failures: AutoEditAnalyzeFailure[] = []

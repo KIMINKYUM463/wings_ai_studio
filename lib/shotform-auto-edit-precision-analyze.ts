@@ -1,7 +1,11 @@
 import fs from "fs/promises"
 import path from "path"
 import type { AutoEditVideoInput, SceneContentType, VideoAnalysis } from "@/lib/shotform-auto-edit-types"
-import { extractVideoKeyframeAtTime, probeHasVideoStream, probeVideoDuration } from "@/lib/shotform-auto-edit-ffmpeg"
+import {
+  extractPrecisionKeyframes,
+  probeHasVideoStream,
+  probeVideoDuration,
+} from "@/lib/shotform-auto-edit-ffmpeg"
 import { filterScenesForEdit } from "@/lib/shotform-auto-edit-product-filter"
 import { boostSceneImportance, compareScenesByEditorialPriority } from "@/lib/shotform-scene-priority"
 import {
@@ -16,7 +20,7 @@ import { visionClassifyFramesBatch } from "@/lib/shotform-auto-edit-vision"
 export const PRECISION_MAX_SOURCE_ANALYSIS_SEC = 120
 
 /** 정밀 모드 키프레임 수 (2분 구간에 골고루) */
-export const PRECISION_KEYFRAME_COUNT = 36
+export const PRECISION_KEYFRAME_COUNT = 28
 
 export type PrecisionAnalyzeResult =
   | { ok: true; analysis: VideoAnalysis; src_index: number }
@@ -46,6 +50,26 @@ export async function analyzeOneVideoPrecision(args: {
   const { apiKey, video, sourcePath, workDir, srcIndex } = args
   const title = video.title || video.video_id
 
+  try {
+    await fs.access(sourcePath)
+    const stat = await fs.stat(sourcePath)
+    if (stat.size < 50_000) {
+      return {
+        ok: false,
+        video_id: video.video_id,
+        title,
+        reason: "원본 영상 파일이 비어 있습니다. 브라우저 업로드 후 다시 시도해 주세요.",
+      }
+    }
+  } catch {
+    return {
+      ok: false,
+      video_id: video.video_id,
+      title,
+      reason: "원본 영상 파일이 서버에 없습니다. 페이지 새로고침 후 다시 실행해 주세요.",
+    }
+  }
+
   let duration: number
   try {
     duration = await probeVideoDuration(sourcePath, true)
@@ -62,14 +86,17 @@ export async function analyzeOneVideoPrecision(args: {
   await fs.mkdir(kfDir, { recursive: true })
 
   const times = sampleKeyframeTimesAcrossDuration(analysisSpan, PRECISION_KEYFRAME_COUNT)
-  const keyframes: Array<{ path: string; timeSec: number }> = []
+  let keyframes: Array<{ path: string; timeSec: number }> = []
 
-  for (let i = 0; i < times.length; i++) {
-    try {
-      const row = await extractVideoKeyframeAtTime(sourcePath, kfDir, duration, times[i]!, `pkf${i}`)
-      keyframes.push(row)
-    } catch {
-      /* 일부 프레임 실패 허용 */
+  try {
+    keyframes = await extractPrecisionKeyframes(sourcePath, kfDir, duration, times)
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e)
+    return {
+      ok: false,
+      video_id: video.video_id,
+      title,
+      reason: `정밀 분석용 키프레임 추출 실패: ${detail.slice(0, 120)}`,
     }
   }
 

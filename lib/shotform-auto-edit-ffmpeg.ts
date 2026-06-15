@@ -439,10 +439,51 @@ export async function extractVideoKeyframeAtTime(
   workDir: string,
   duration: number,
   timeSec: number,
-  label = "cut"
+  label = "cut",
+  opts?: { fast?: boolean }
 ): Promise<{ path: string; timeSec: number }> {
   const t = clampKeyframeTime(timeSec, duration)
   const framePath = path.join(workDir, `${label}_${t.toFixed(2).replace(".", "_")}.jpg`)
-  await extractSingleKeyframe(sourcePath, framePath, t, duration)
+  await extractSingleKeyframe(sourcePath, framePath, t, duration, opts)
   return { path: framePath, timeSec: t }
+}
+
+const PRECISION_KF_MIN = 6
+
+/** 정밀 분석 — 비율 기반 bulk + 시각별 배치 추출 폴백 */
+export async function extractPrecisionKeyframes(
+  sourcePath: string,
+  workDir: string,
+  duration: number,
+  times: number[]
+): Promise<Array<{ path: string; timeSec: number }>> {
+  await fs.mkdir(workDir, { recursive: true })
+  const want = Math.min(times.length, 28)
+
+  try {
+    const bulk = await extractVideoKeyframes(sourcePath, workDir, duration, Math.min(20, want), {
+      fast: false,
+    })
+    if (bulk.length >= PRECISION_KF_MIN) return bulk
+  } catch {
+    /* per-time 폴백 */
+  }
+
+  const out: Array<{ path: string; timeSec: number }> = []
+  const concurrency = 3
+  for (let i = 0; i < times.length; i += concurrency) {
+    const chunk = times.slice(i, i + concurrency)
+    const rows = await Promise.all(
+      chunk.map((timeSec, j) =>
+        extractVideoKeyframeAtTime(sourcePath, workDir, duration, timeSec, `pkf${i + j}`, { fast: true }).catch(
+          () => null
+        )
+      )
+    )
+    for (const r of rows) if (r) out.push(r)
+    if (out.length >= 12) break
+  }
+  if (out.length >= PRECISION_KF_MIN) return out
+
+  return extractVideoKeyframes(sourcePath, workDir, duration, 12, { fast: true })
 }
