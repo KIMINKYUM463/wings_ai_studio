@@ -47,6 +47,7 @@ export const ACTION_SCENE_MERGE_SYSTEM_PROMPT = `쇼핑 숏폼 행동 기반 장
 - scene_role: 문제 제기|설치 방법|사용 방법|기능 소개|수납 효과|추가 활용|세척|관리|구매 포인트|마무리|데모
 - scene_description: 80~160자. [샷타입] + 손 행동 + 제품 사용 + OCR(있으면) + 상태 변화. 추상 칭찬 금지.
 - script_lines: 1~3줄, 줄당 8~14자, 쇼츠 광고 톤, "~입니다" 최소화, 장면 행동 기반, 제품명 반복 금지
+- **장면마다 script_lines 문장 구조·표현이 달라야 함** (같은 꼬리·클리셰 반복 금지)
 
 규칙:
 - 같은 scene_role이 연속으로 나오지 않게

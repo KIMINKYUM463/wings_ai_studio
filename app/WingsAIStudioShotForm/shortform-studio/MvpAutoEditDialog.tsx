@@ -93,12 +93,16 @@ function stepHintsForMode(
     mix: "영상 mix (picks) 생성 중…",
     edit_plan: mode === "precision" ? "짜집기 타임라인·컷별 Vision 캡션 중…" : "짜집기 타임라인 구성 중…",
     render: "ffmpeg 렌더 중…",
-    script: "장면맞춤 나레이션 생성 중… (2분 이상 지연 시 기본 대본으로 자동 완료)",
+    script:
+      mode === "precision"
+        ? "정밀 대본 — 구조 분석·후킹·구매 전환 검증 중… (약 1~2분)"
+        : "장면맞춤 나레이션 생성 중… (2분 이상 지연 시 기본 대본으로 자동 완료)",
     done: "완료",
   }
 }
 
 const SCRIPT_STEP_STALL_MS = 120_000
+const SCRIPT_STEP_STALL_PRECISION_MS = 150_000
 const DOWNLOAD_STEP_STALL_MS = 180_000
 const SUBTITLE_REMOVAL_STALL_MS = 660_000
 
@@ -154,6 +158,10 @@ async function recoverStalledScriptStep(jobId: string): Promise<AutoEditJobResul
   }
 }
 
+function scriptStallMsForMode(mode: AutoEditAnalysisMode): number {
+  return mode === "precision" ? SCRIPT_STEP_STALL_PRECISION_MS : SCRIPT_STEP_STALL_MS
+}
+
 async function pollAutoEditJob(
   jobId: string,
   onProgress?: (partial: AutoEditJobResult) => void,
@@ -161,6 +169,7 @@ async function pollAutoEditJob(
 ): Promise<AutoEditJobResult> {
   const analysisMode = opts?.analysisMode ?? "fast"
   const analyzeStallMs = analyzeStallMsForMode(analysisMode)
+  const scriptStallMs = scriptStallMsForMode(analysisMode)
   let scriptStepSince: number | null = null
   let scriptRecoveryAttempted = false
   let downloadStepSince: number | null = null
@@ -226,7 +235,7 @@ async function pollAutoEditJob(
       if (!scriptStepSince) scriptStepSince = Date.now()
       if (
         !scriptRecoveryAttempted &&
-        Date.now() - scriptStepSince >= SCRIPT_STEP_STALL_MS
+        Date.now() - scriptStepSince >= scriptStallMs
       ) {
         scriptRecoveryAttempted = true
         const recovered = await recoverStalledScriptStep(jobId)
