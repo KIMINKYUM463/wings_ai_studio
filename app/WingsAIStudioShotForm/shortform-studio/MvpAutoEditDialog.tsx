@@ -19,6 +19,7 @@ import type {
   AutoEditJobResult,
   AutoEditPick,
   AutoEditTargetDuration,
+  ClientVideoMetaEntry,
 } from "@/lib/shotform-auto-edit-types"
 import {
   AUTO_EDIT_ANALYSIS_MODE_DEFAULT,
@@ -439,22 +440,39 @@ export function MvpAutoEditDialog({
 
           const videos = toAutoEditVideoInputs(nextPicks)
           const preJobId = crypto.randomUUID()
-          let clientVideoMeta: Record<
-            string,
-            { duration: number; keyframeDataUrl?: string; timeSec?: number }
-          > | undefined
+          let clientVideoMeta: Record<string, ClientVideoMetaEntry> | undefined
           let prefetchedBlobs: Record<string, Blob> | undefined
 
           setDownloadHint(
             analysisMode === "precision"
-              ? "정밀 분석용 — 브라우저에서 영상·길이 준비 중…"
+              ? "정밀 분석용 — 브라우저에서 영상·키프레임 준비 중…"
               : "브라우저에서 키프레임·길이 미리 추출 중…"
           )
-          const extracted = await extractClientVideoMetaForPicks(nextPicks, (msg) =>
-            setDownloadHint(msg)
+          const extracted = await extractClientVideoMetaForPicks(
+            nextPicks,
+            (msg) => setDownloadHint(msg),
+            analysisMode === "precision" ? { precision: true } : undefined
           )
           if (Object.keys(extracted.meta).length > 0) clientVideoMeta = extracted.meta
           if (Object.keys(extracted.blobs).length > 0) prefetchedBlobs = extracted.blobs
+
+          if (analysisMode === "precision") {
+            const missingPrecision = nextPicks.filter(
+              (p) => (clientVideoMeta?.[p.video_id]?.precisionKeyframes?.length ?? 0) < 6
+            )
+            if (missingPrecision.length > 0) {
+              throw new Error(
+                [
+                  "정밀 분석용 브라우저 키프레임 캡처에 실패했습니다.",
+                  ...missingPrecision.map(
+                    (p) =>
+                      `· ${p.title || p.video_id}: 영상 링크가 만료됐거나 재생이 차단됐을 수 있습니다.`
+                  ),
+                  "소스를 다시 추가한 뒤 정밀 모드로 실행해 주세요.",
+                ].join("\n")
+              )
+            }
+          }
 
           const allMetaReady =
             analysisMode === "fast" &&

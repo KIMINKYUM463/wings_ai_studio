@@ -1,6 +1,6 @@
 import { waitUntil } from "@vercel/functions"
 import { type NextRequest, NextResponse } from "next/server"
-import type { AutoEditInput, AutoEditTargetDuration, AutoEditVideoInput } from "@/lib/shotform-auto-edit-types"
+import type { AutoEditInput, AutoEditTargetDuration, AutoEditVideoInput, ClientVideoMetaEntry } from "@/lib/shotform-auto-edit-types"
 import { MAX_AUTO_EDIT_VIDEOS, normalizeAutoEditAnalysisMode, normalizeAutoEditTargetDuration } from "@/lib/shotform-auto-edit-types"
 import { createAutoEditWorkDir } from "@/lib/shotform-auto-edit-ffmpeg"
 import { persistAutoEditJobToSupabase } from "@/lib/shotform-auto-edit-job-store"
@@ -111,10 +111,29 @@ function parseClientVideoMeta(
     const keyframeDataUrl = typeof o.keyframeDataUrl === "string" ? o.keyframeDataUrl : ""
     const timeSec = Number(o.timeSec)
     if (!Number.isFinite(duration) || duration <= 0) continue
-    const entry: NonNullable<AutoEditInput["clientVideoMeta"]>[string] = { duration }
+    const entry: ClientVideoMetaEntry = { duration }
     if (keyframeDataUrl.startsWith("data:image/")) {
       entry.keyframeDataUrl = keyframeDataUrl
       entry.timeSec = Number.isFinite(timeSec) ? timeSec : duration * 0.12
+    }
+    const pkRaw = o.precisionKeyframes
+    if (Array.isArray(pkRaw)) {
+      const precisionKeyframes: ClientVideoMetaEntry["precisionKeyframes"] = []
+      for (const row of pkRaw) {
+        if (!row || typeof row !== "object") continue
+        const r = row as Record<string, unknown>
+        const t = Number(r.timeSec)
+        const dataUrl = typeof r.keyframeDataUrl === "string" ? r.keyframeDataUrl : ""
+        if (!dataUrl.startsWith("data:image/") || !Number.isFinite(t)) continue
+        precisionKeyframes.push({ timeSec: t, keyframeDataUrl: dataUrl })
+      }
+      if (precisionKeyframes.length >= 6) {
+        entry.precisionKeyframes = precisionKeyframes
+        if (!entry.keyframeDataUrl) {
+          entry.keyframeDataUrl = precisionKeyframes[0]!.keyframeDataUrl
+          entry.timeSec = precisionKeyframes[0]!.timeSec
+        }
+      }
     }
     out[videoId] = entry
   }

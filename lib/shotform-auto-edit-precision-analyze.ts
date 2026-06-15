@@ -1,6 +1,6 @@
 import fs from "fs/promises"
 import path from "path"
-import type { AutoEditVideoInput, SceneContentType, VideoAnalysis } from "@/lib/shotform-auto-edit-types"
+import type { AutoEditVideoInput, ClientVideoMetaEntry, SceneContentType, VideoAnalysis } from "@/lib/shotform-auto-edit-types"
 import {
   extractPrecisionKeyframes,
   probeHasVideoStream,
@@ -26,6 +26,12 @@ export type PrecisionAnalyzeResult =
   | { ok: true; analysis: VideoAnalysis; src_index: number }
   | { ok: false; video_id: string; title: string; reason: string }
 
+async function writeDataUrlToJpeg(dataUrl: string, destPath: string): Promise<void> {
+  const m = dataUrl.match(/^data:image\/\w+;base64,([\s\S]+)$/)
+  if (!m?.[1]) throw new Error("키프레임 data URL이 올바르지 않습니다.")
+  await fs.writeFile(destPath, Buffer.from(m[1], "base64"))
+}
+
 function durationFallbackScenes(duration: number, title: string): VideoAnalysis["scenes"] {
   const segmentCount = Math.min(8, Math.max(4, Math.ceil(duration / 10)))
   const span = duration / segmentCount
@@ -39,6 +45,26 @@ function durationFallbackScenes(duration: number, title: string): VideoAnalysis[
   })).filter((sc) => sc.end > sc.start + 0.15)
 }
 
+async function keyframesFromClientMeta(
+  clientMeta: ClientVideoMetaEntry | undefined,
+  kfDir: string,
+  duration: number,
+  analysisSpan: number
+): Promise<Array<{ path: string; timeSec: number }> | null> {
+  const clientFrames = clientMeta?.precisionKeyframes?.filter((f) => f.keyframeDataUrl?.startsWith("data:image/"))
+  if (clientFrames && clientFrames.length >= 6) {
+    const out: Array<{ path: string; timeSec: number }> = []
+    for (let i = 0; i < clientFrames.length; i++) {
+      const row = clientFrames[i]!
+      const framePath = path.join(kfDir, `client_${i}.jpg`)
+      await writeDataUrlToJpeg(row.keyframeDataUrl, framePath)
+      out.push({ path: framePath, timeSec: row.timeSec })
+    }
+    return out
+  }
+  return null
+}
+
 /** 정밀 모드 — URL 1개 최대 2분 구간 행동 기반 심층 분석 */
 export async function analyzeOneVideoPrecision(args: {
   apiKey: string
@@ -46,62 +72,84 @@ export async function analyzeOneVideoPrecision(args: {
   sourcePath: string
   workDir: string
   srcIndex: number
+  clientMeta?: ClientVideoMetaEntry
 }): Promise<PrecisionAnalyzeResult> {
-  const { apiKey, video, sourcePath, workDir, srcIndex } = args
+  const { apiKey, video, sourcePath, workDir, srcIndex, clientMeta } = args
   const title = video.title || video.video_id
 
-  try {
-    await fs.access(sourcePath)
-    const stat = await fs.stat(sourcePath)
-    if (stat.size < 50_000) {
-      return {
-        ok: false,
-        video_id: video.video_id,
-        title,
-        reason: "원본 영상 파일이 비어 있습니다. 브라우저 업로드 후 다시 시도해 주세요.",
+  let duration = clientMeta?.duration ?? 0
+  if (!duration || duration <= 0) {
+    try {
+      await fs.access(sourcePath)
+      duration = await probeVideoDuration(sourcePath, true)
+    } catch {
+      if (!clientMeta?.precisionKeyframes?.length) {
+        return {
+          ok: false,
+          video_id: video.video_id,
+          title,
+          reason: "원본 영상을 읽지 못했습니다. 브라우저에서 영상 준비가 끝난 뒤 다시 실행해 주세요.",
+        }
       }
+      duration = Math.max(
+        ...clientMeta.precisionKeyframes.map((f) => f.timeSec),
+        PRECISION_MAX_SOURCE_ANALYSIS_SEC * 0.5
+      )
     }
-  } catch {
-    return {
-      ok: false,
-      video_id: video.video_id,
-      title,
-      reason: "원본 영상 파일이 서버에 없습니다. 페이지 새로고침 후 다시 실행해 주세요.",
-    }
-  }
-
-  let duration: number
-  try {
-    duration = await probeVideoDuration(sourcePath, true)
-  } catch {
-    return { ok: false, video_id: video.video_id, title, reason: "영상 길이를 읽지 못했습니다." }
-  }
-
-  if (!(await probeHasVideoStream(sourcePath))) {
-    return { ok: false, video_id: video.video_id, title, reason: "영상 화면 스트림이 없습니다." }
   }
 
   const analysisSpan = Math.min(duration, PRECISION_MAX_SOURCE_ANALYSIS_SEC)
   const kfDir = path.join(workDir, `precision_kf_${video.video_id}`)
   await fs.mkdir(kfDir, { recursive: true })
 
-  const times = sampleKeyframeTimesAcrossDuration(analysisSpan, PRECISION_KEYFRAME_COUNT)
-  let keyframes: Array<{ path: string; timeSec: number }> = []
+  let keyframes: Array<{ path: string; timeSec: number }> | null = await keyframesFromClientMeta(
+    clientMeta,
+    kfDir,
+    duration,
+    analysisSpan
+  )
 
-  try {
-    keyframes = await extractPrecisionKeyframes(sourcePath, kfDir, duration, times)
-  } catch (e) {
-    const detail = e instanceof Error ? e.message : String(e)
+  if (!keyframes?.length) {
+    try {
+      await fs.access(sourcePath)
+      const stat = await fs.stat(sourcePath)
+      if (stat.size < 50_000) {
+        return {
+          ok: false,
+          video_id: video.video_id,
+          title,
+          reason: "원본 영상 파일이 비어 있습니다. 페이지 새로고침 후 다시 시도해 주세요.",
+        }
+      }
+      if (!(await probeHasVideoStream(sourcePath))) {
+        return {
+          ok: false,
+          video_id: video.video_id,
+          title,
+          reason: "서버 영상 디코딩 실패. 정밀 모드는 브라우저 키프레임 캡처가 필요합니다 — 잠시 후 재시도해 주세요.",
+        }
+      }
+      const times = sampleKeyframeTimesAcrossDuration(analysisSpan, PRECISION_KEYFRAME_COUNT)
+      keyframes = await extractPrecisionKeyframes(sourcePath, kfDir, duration, times)
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : String(e)
+      return {
+        ok: false,
+        video_id: video.video_id,
+        title,
+        reason: `정밀 분석용 키프레임 추출 실패: ${detail.slice(0, 120)}`,
+      }
+    }
+  }
+
+  if (!keyframes?.length) {
     return {
       ok: false,
       video_id: video.video_id,
       title,
-      reason: `정밀 분석용 키프레임 추출 실패: ${detail.slice(0, 120)}`,
+      reason:
+        "브라우저 키프레임 캡처에 실패했습니다. 영상 링크가 만료됐을 수 있으니 소스를 다시 추가한 뒤 정밀 모드로 실행해 주세요.",
     }
-  }
-
-  if (!keyframes.length) {
-    return { ok: false, video_id: video.video_id, title, reason: "정밀 분석용 키프레임 추출에 실패했습니다." }
   }
 
   const visionBySrc = await visionClassifyFramesBatch(apiKey, [
@@ -174,7 +222,7 @@ export async function analyzeOneVideoPrecision(args: {
         cta: "구매·마무리",
       },
       product_fit: "approved",
-      product_fit_reason: `정밀 행동 분석 (${keyframes.length}프레임·${analysisSpan.toFixed(0)}초)`,
+      product_fit_reason: `정밀 행동 분석 (${keyframes.length}프레임·${analysisSpan.toFixed(0)}초${clientMeta?.precisionKeyframes?.length ? "·브라우저" : ""})`,
       vision_frames: visionFrames,
       src_index: srcIndex,
     },

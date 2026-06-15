@@ -283,6 +283,15 @@ export type AutoEditJobResult = {
   excludedVideos?: Array<{ video_id: string; title: string; reason: string }>
 }
 
+/** 브라우저에서 미리 추출한 영상 메타 */
+export type ClientVideoMetaEntry = {
+  duration: number
+  keyframeDataUrl?: string
+  timeSec?: number
+  /** 정밀 모드 — 브라우저 다중 키프레임 (서버 ffmpeg 우회) */
+  precisionKeyframes?: Array<{ timeSec: number; keyframeDataUrl: string }>
+}
+
 export type AutoEditInput = {
   videos: AutoEditVideoInput[]
   targetDuration: AutoEditTargetDuration
@@ -306,14 +315,7 @@ export type AutoEditInput = {
   /** 제품·장면 분석 모드 (기본: fast) */
   analysisMode?: AutoEditAnalysisMode
   /** 브라우저에서 미리 추출한 길이·키프레임 (서버 ffmpeg 분석 생략) */
-  clientVideoMeta?: Record<
-    string,
-    {
-      duration: number
-      keyframeDataUrl?: string
-      timeSec?: number
-    }
-  >
+  clientVideoMeta?: Record<string, ClientVideoMetaEntry>
 }
 
 /** UI 선택용 */

@@ -54,13 +54,14 @@ async function runPrecisionAnalyzeAndMix(args: {
   sourcePaths: Record<string, string>
   workDir: string
   targetDuration: AutoEditTargetDuration
+  clientVideoMeta?: Record<string, ClientVideoMetaEntry>
   onPhase?: (phase: AutoEditAnalyzePhase) => void
 }): Promise<{
   analyses: VideoAnalysis[]
   mixInfo: MixInfo
   failures: AutoEditAnalyzeFailure[]
 }> {
-  const { apiKey, videos, sourcePaths, workDir, targetDuration, onPhase } = args
+  const { apiKey, videos, sourcePaths, workDir, targetDuration, clientVideoMeta, onPhase } = args
   onPhase?.("keyframes")
 
   const results: Awaited<ReturnType<typeof analyzeOneVideoPrecision>>[] = []
@@ -84,6 +85,7 @@ async function runPrecisionAnalyzeAndMix(args: {
         sourcePath,
         workDir,
         srcIndex,
+        clientMeta: clientVideoMeta?.[video.video_id],
       })
     )
   }
