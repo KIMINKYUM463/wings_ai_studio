@@ -262,7 +262,6 @@ export function buildSceneBasedEditPlan(
         { type: "problem", ratio: 0.1, label: "문제" },
       ]
 
-  const pool = collectTaggedScenes(analyses)
   const videoIds = analyses.map((a) => a.video_id)
   const usedSceneKeys = new Set<string>()
   const usedClips: UsedClip[] = []
