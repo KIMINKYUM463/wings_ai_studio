@@ -13,7 +13,9 @@ import type {
 } from "@/lib/shotform-auto-edit-types"
 import {
   descriptionSuggestsPresenterOrFace,
+  emergencyScenesForAnalysis,
   filteredScenesForMixPick,
+  filterAnalysesForEmergencyEdit,
   isProductSafeContentType,
   pickIntervalIsProductSafe,
 } from "@/lib/shotform-auto-edit-product-filter"
@@ -121,6 +123,166 @@ export function assertEditPlanMeetsTargetDuration(plan: EditPlan): void {
   if (!editPlanMeetsTargetDuration(plan)) {
     throw new Error(AUTO_EDIT_NO_USABLE_VIDEO_MESSAGE)
   }
+}
+
+/** 긴급 폴백 — 이 길이(초) 이상이면 짧은 영상으로라도 성공 처리 */
+export const EMERGENCY_MIN_OUTPUT_SECONDS = 3
+
+function isPickWithinBounds(pick: MixPick, analysis: VideoAnalysis | undefined): boolean {
+  if (!analysis) return false
+  if (pick.end <= pick.start) return false
+  if (pick.start < -0.05 || pick.end > analysis.duration + 0.55) return false
+  return pick.end - pick.start >= 0.3
+}
+
+function emergencyScenePoolForAnalysis(a: VideoAnalysis): VideoAnalysis["scenes"] {
+  const pool = a.scenes?.length ? a.scenes : emergencyScenesForAnalysis(a)
+  return scenesForPickingDiverse(pool)
+}
+
+function sanitizeEditPlanSegmentsRelaxed(plan: EditPlan, analyses: VideoAnalysis[]): EditPlan {
+  const byId = new Map(analyses.map((a) => [a.video_id, a]))
+  const kept: EditPlan["edit_plan"] = []
+  let cursor = 0
+
+  for (const seg of plan.edit_plan) {
+    const analysis = byId.get(seg.video_id)
+    if (!analysis) continue
+    const maxSrc = Math.max(0.25, analysis.duration - seg.source_start)
+    const dur = Math.max(0.25, Math.min(seg.source_end - seg.source_start, maxSrc))
+    if (dur < 0.2) continue
+    kept.push({
+      ...seg,
+      source_start: ROUND(seg.source_start),
+      source_end: ROUND(seg.source_start + dur),
+      output_start: ROUND(cursor),
+      output_end: ROUND(cursor + dur),
+    })
+    cursor += dur
+  }
+
+  return { target_duration: plan.target_duration, edit_plan: kept }
+}
+
+/** 안전 필터 실패 시 — 완화 규칙으로 짧은 mix 생성 */
+export function buildEmergencyMix(
+  analyses: VideoAnalysis[],
+  targetDuration: AutoEditTargetDuration
+): MixInfo {
+  const effectiveCap = Math.min(
+    targetDuration,
+    Math.max(EMERGENCY_MIN_OUTPUT_SECONDS, Math.min(18, analyses.reduce((s, a) => s + a.duration * 0.35, 0)))
+  )
+  const picks: MixPick[] = []
+  let total = 0
+  const clipLens = [0.9, 1.1, 1.3, 1.6, 1.0, 0.75]
+  let attempt = 0
+  const seen = new Set<string>()
+
+  while (total < effectiveCap - 0.05 && picks.length < 20 && attempt < analyses.length * 30) {
+    attempt++
+    const slot = picks.length
+    const a = analyses[slot % analyses.length]!
+    const srcIndex = a.src_index ?? slot % analyses.length
+    const clipLen = Math.min(clipLens[slot % clipLens.length]!, effectiveCap - total)
+    const pool = emergencyScenePoolForAnalysis(a)
+    if (!pool.length) continue
+    const usedFromSrc = picks.filter((p) => p.srcIndex === srcIndex).length
+    const sc = pool[(usedFromSrc * 2 + slot) % pool.length]!
+    const span = Math.max(0.3, sc.end - sc.start - clipLen)
+    const offset = (usedFromSrc * 3.7 + slot * 1.9) % span
+    const start = ROUND(Math.min(sc.start + offset, Math.max(0, a.duration - clipLen - 0.05)))
+    const end = ROUND(Math.min(a.duration, start + clipLen))
+
+    const pick: MixPick = {
+      srcIndex,
+      start,
+      end,
+      reason: describeSourceRangeFromAnalysis(a, start, end, sc.description).slice(0, 80) || "영상 장면",
+    }
+    const key = pickKey(pick)
+    if (seen.has(key) || !isPickWithinBounds(pick, a)) continue
+    if (picks.some((p) => mixPicksTooClose(p, pick, 0.6))) continue
+    seen.add(key)
+    picks.push(pick)
+    total += end - start
+  }
+
+  if (!picks.length && analyses[0]) {
+    const a = analyses[0]!
+    const dur = ROUND(Math.min(a.duration, effectiveCap, 4))
+    if (dur >= 0.35) {
+      picks.push({
+        srcIndex: a.src_index ?? 0,
+        start: 0,
+        end: dur,
+        reason: a.title || "영상 장면",
+      })
+      total = dur
+    }
+  }
+
+  return {
+    sourceCount: analyses.length,
+    targetDuration,
+    actualDuration: ROUND(total),
+    picks,
+  }
+}
+
+export function buildEmergencyEditPlan(
+  allAnalyses: VideoAnalysis[],
+  videoIds: string[],
+  targetDuration: AutoEditTargetDuration
+): { mixInfo: MixInfo; editPlan: EditPlan } | null {
+  const analyses = filterAnalysesForEmergencyEdit(allAnalyses)
+  if (!analyses.length) return null
+
+  const mixInfo = buildEmergencyMix(analyses, targetDuration)
+  if (!mixInfo.picks.length) return null
+
+  let editPlan = mixPicksToEditPlan(mixInfo, videoIds, targetDuration)
+  editPlan = enrichEditPlanWithVisualReasons(sanitizeEditPlanSegmentsRelaxed(editPlan, analyses), analyses)
+
+  const outputSec = editPlanOutputSeconds(editPlan)
+  if (outputSec < EMERGENCY_MIN_OUTPUT_SECONDS) return null
+
+  return {
+    mixInfo: { ...mixInfo, actualDuration: ROUND(outputSec) },
+    editPlan,
+  }
+}
+
+/** 목표 미달·장면 부족 시 긴급 폴백으로 짧은 영상이라도 생성 */
+export function ensureEditPlanOrEmergencyFallback(args: {
+  mix: MixInfo
+  analyses: VideoAnalysis[]
+  allAnalyses: VideoAnalysis[]
+  videoIds: string[]
+  targetDuration: AutoEditTargetDuration
+}): { mixInfo: MixInfo; editPlan: EditPlan; usedEmergency: boolean } {
+  let { mixInfo, editPlan } = buildEditPlanFromMix(
+    args.mix,
+    args.analyses,
+    args.videoIds,
+    args.targetDuration
+  )
+  const outputSec = editPlanOutputSeconds(editPlan)
+
+  if (editPlan.edit_plan.length > 0 && editPlanMeetsTargetDuration(editPlan)) {
+    return { mixInfo, editPlan, usedEmergency: false }
+  }
+
+  const emergency = buildEmergencyEditPlan(args.allAnalyses, args.videoIds, args.targetDuration)
+  if (emergency?.editPlan.edit_plan.length) {
+    return { mixInfo: emergency.mixInfo, editPlan: emergency.editPlan, usedEmergency: true }
+  }
+
+  if (editPlan.edit_plan.length > 0 && outputSec >= EMERGENCY_MIN_OUTPUT_SECONDS) {
+    return { mixInfo, editPlan, usedEmergency: false }
+  }
+
+  throw new Error(AUTO_EDIT_NO_USABLE_VIDEO_MESSAGE)
 }
 
 const PRESENTER_PICK_DESC =

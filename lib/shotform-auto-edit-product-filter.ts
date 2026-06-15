@@ -176,6 +176,7 @@ function scenesFromVisualTimeline(analysis: Pick<VideoAnalysis, "visual_scenes" 
     }))
 }
 
+/** 안전 필터 통과 실패 시 — visual·전체 영상 등 최소 장면 */
 function fallbackScenesForAnalysis(a: VideoAnalysis): VideoScene[] {
   const fromVisual = scenesFromVisualTimeline(a)
   if (fromVisual.length) return fromVisual
@@ -192,6 +193,60 @@ function fallbackScenesForAnalysis(a: VideoAnalysis): VideoScene[] {
     ]
   }
   return []
+}
+
+/** 긴급 폴백 — 분석 장면·visual·전체 영상까지 활용 */
+export function emergencyScenesForAnalysis(a: VideoAnalysis): VideoScene[] {
+  const fromFallback = fallbackScenesForAnalysis(a)
+  if (fromFallback.length) return fromFallback
+  if (a.scenes?.length) {
+    return a.scenes
+      .filter((sc) => sc.end > sc.start + 0.1)
+      .map((sc) => ({
+        ...sc,
+        content_type: "product_in_use" as const,
+        has_person_presenting: false,
+      }))
+  }
+  if (a.duration > 0.2) {
+    return [
+      {
+        start: 0,
+        end: Math.round(a.duration * 10) / 10,
+        description: a.title || "영상 장면",
+        importance: 5,
+        visual_type: "demo",
+        content_type: "product_in_use",
+      },
+    ]
+  }
+  return []
+}
+
+/** 편집 안전 장면이 없을 때 — 어떻게든 짧게라도 만들기 위한 완화 분석 목록 */
+export function filterAnalysesForEmergencyEdit(analyses: VideoAnalysis[]): VideoAnalysis[] {
+  return analyses
+    .filter((a) => a.duration > 0.2)
+    .map((a) => {
+      const scenes = emergencyScenesForAnalysis(a)
+      return {
+        ...a,
+        scenes: scenes.length
+          ? scenes
+          : [
+              {
+                start: 0,
+                end: Math.max(0.5, Math.round(a.duration * 10) / 10),
+                description: a.title || "영상 장면",
+                importance: 5,
+                visual_type: "demo" as const,
+                content_type: "product_in_use" as const,
+              },
+            ],
+        product_fit: "partial" as const,
+      }
+    })
+    .filter((a) => a.scenes.length > 0)
 }
 
 /** 제목·설명 휴리스틱 — 인물 소개형 가능성 */

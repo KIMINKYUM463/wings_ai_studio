@@ -10,10 +10,10 @@ import {
 } from "@/lib/shotform-user-keyword-product"
 import { buildOutputTimelineScenes } from "@/lib/shotform-visual-scene-match"
 import {
-  assertEditPlanMeetsTargetDuration,
   AUTO_EDIT_NO_USABLE_VIDEO_MESSAGE,
   buildEditPlanFromMix,
   enrichEditPlanWithCutCaptions,
+  ensureEditPlanOrEmergencyFallback,
 } from "@/lib/shotform-auto-edit-mix"
 import { resolveAutoEditScript, withTimeout } from "@/lib/shotform-auto-edit-script-step"
 import { VMAKE_SUBTITLE_REMOVAL_TIMEOUT_MS } from "@/lib/shotform-vmake-subtitle-removal"
@@ -30,7 +30,7 @@ import {
   renderEditPlanOnCloudRun,
   shouldUseCloudRunForAutoEditRender,
 } from "@/lib/shotform-auto-edit-cloud-run-render"
-import { filterAnalysesForProductEdit } from "@/lib/shotform-auto-edit-product-filter"
+import { filterAnalysesForEmergencyEdit, filterAnalysesForProductEdit } from "@/lib/shotform-auto-edit-product-filter"
 import { putAutoEditJob } from "@/lib/shotform-auto-edit-jobs"
 import {
   downloadAutoEditSourceFromSupabase,
@@ -186,7 +186,8 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
       throw new Error(msg)
     }
 
-    const usable = filterAnalysesForProductEdit(analyses)
+    let usable = filterAnalysesForProductEdit(analyses)
+    let usedEmergencyAnalyses = false
     for (const a of analyses) {
       if (usable.some((u) => u.video_id === a.video_id)) continue
       excludedVideos.push({
@@ -194,6 +195,17 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
         title: a.title || a.video_id,
         reason: a.product_fit_reason || "분석 후 편집용 장면을 찾지 못해 제외했습니다.",
       })
+    }
+    if (!usable.length) {
+      usable = filterAnalysesForEmergencyEdit(analyses)
+      usedEmergencyAnalyses = usable.length > 0
+      if (usedEmergencyAnalyses) {
+        excludedVideos.push({
+          video_id: "_mix_fallback",
+          title: "짧은 버전 편집",
+          reason: "편집용 안전 장면이 부족해 완화 규칙으로 짧은 영상을 만듭니다.",
+        })
+      }
     }
     if (!usable.length) {
       throw new Error(AUTO_EDIT_NO_USABLE_VIDEO_MESSAGE)
@@ -216,14 +228,16 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
     })
 
     const videoIds = usable.map((a) => a.video_id)
-    let { mixInfo: mixFinal, editPlan } = buildEditPlanFromMix(
-      mixInfo,
-      usable,
+    const planResolved = ensureEditPlanOrEmergencyFallback({
+      mix: mixInfo,
+      analyses: usable,
+      allAnalyses: analyses,
       videoIds,
-      input.targetDuration
-    )
+      targetDuration: input.targetDuration,
+    })
+    let mixFinal = planResolved.mixInfo
+    let editPlan = planResolved.editPlan
     mixInfo = mixFinal
-    assertEditPlanMeetsTargetDuration(editPlan)
 
     if (analysisMode === "precision" && input.openaiApiKey?.trim()) {
       const enriched = await enrichEditPlanWithCutCaptions({
