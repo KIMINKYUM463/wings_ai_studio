@@ -77,7 +77,7 @@ function stepIndex(step: AutoEditJobResult["step"]): number {
 
 const ANALYZE_STEP_HINTS: Record<AutoEditAnalysisMode, string> = {
   fast: "행동 기반 Vision 분석 중… (URL 1개·CDN: 보통 60~120초)",
-  precision: "최대 2분 구간 심층 행동 분석 중… (약 3~10분)",
+  precision: "최대 2분 구간 심층 행동 분석 중… (영상 2개·약 5~12분)",
 }
 
 function stepHintsForMode(
@@ -111,14 +111,14 @@ function analyzeStallMsForMode(mode: AutoEditAnalysisMode): number {
     case "fast":
       return 120_000
     case "precision":
-      return 600_000
+      return 900_000
     default:
       return 180_000
   }
 }
 
 function analyzeStallMessage(mode: AutoEditAnalysisMode): string {
-  const waitLabel = mode === "fast" ? "2분" : "10분"
+  const waitLabel = mode === "fast" ? "2분" : mode === "precision" ? "15분" : "3분"
   return (
     `제품·장면 분석이 ${waitLabel} 이상 지연되고 있습니다.\n\n` +
     "① 페이지 새로고침 후 「편집 실행」을 다시 눌러 주세요.\n" +
@@ -176,6 +176,7 @@ async function pollAutoEditJob(
   let analyzeStepSince: number | null = null
   let subtitleStepSince: number | null = null
   let subtitleRecoveryAttempted = false
+  let lastAnalyzeProgress: string | undefined
 
   for (;;) {
     const res = await fetch(`/api/shotform/auto-edit?jobId=${encodeURIComponent(jobId)}`)
@@ -200,6 +201,10 @@ async function pollAutoEditJob(
     }
 
     if (json.step === "analyze") {
+      if (json.analyzeProgress && json.analyzeProgress !== lastAnalyzeProgress) {
+        lastAnalyzeProgress = json.analyzeProgress
+        analyzeStepSince = Date.now()
+      }
       if (!analyzeStepSince) analyzeStepSince = Date.now()
       if (Date.now() - analyzeStepSince >= analyzeStallMs) {
         throw new Error(analyzeStallMessage(analysisMode))
@@ -564,7 +569,11 @@ export function MvpAutoEditDialog({
             started.jobId,
             (partial) => {
               setResult(partial)
-              setDownloadHint(hints[partial.step] || "짜집기 진행 중…")
+              setDownloadHint(
+                partial.step === "analyze" && partial.analyzeProgress
+                  ? partial.analyzeProgress
+                  : hints[partial.step] || "짜집기 진행 중…"
+              )
             },
             { analysisMode }
           )

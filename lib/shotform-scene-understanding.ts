@@ -184,10 +184,12 @@ export function estimateAutoEditAnalyzeSeconds(args: {
   const dur = Math.max(15, maxSourceDurationSec)
 
   if (mode === "precision") {
-    const base = 180 + pickCount * 120 + Math.min(180, dur * 0.5)
+    const perVideo = 100 + Math.min(160, dur * 0.35)
+    const parallelFactor = pickCount > 1 ? 0.55 : 1
+    const base = 90 + perVideo * parallelFactor * pickCount + 75
     return {
-      min: Math.round(base * 0.75),
-      max: Math.round(base * 1.4),
+      min: Math.round(base * 0.7),
+      max: Math.round(base * 1.55),
       label: "정밀",
     }
   }

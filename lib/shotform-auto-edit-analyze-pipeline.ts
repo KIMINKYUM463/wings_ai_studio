@@ -31,6 +31,7 @@ export async function runAutoEditAnalyzeAndMix(args: {
   analysisMode?: AutoEditAnalysisMode
   clientVideoMeta?: Record<string, ClientVideoMetaEntry>
   onPhase?: (phase: AutoEditAnalyzePhase) => void
+  onAnalyzeProgress?: (message: string) => void
 }): Promise<{
   analyses: VideoAnalysis[]
   mixInfo: MixInfo
@@ -56,39 +57,44 @@ async function runPrecisionAnalyzeAndMix(args: {
   targetDuration: AutoEditTargetDuration
   clientVideoMeta?: Record<string, ClientVideoMetaEntry>
   onPhase?: (phase: AutoEditAnalyzePhase) => void
+  onAnalyzeProgress?: (message: string) => void
 }): Promise<{
   analyses: VideoAnalysis[]
   mixInfo: MixInfo
   failures: AutoEditAnalyzeFailure[]
 }> {
-  const { apiKey, videos, sourcePaths, workDir, targetDuration, clientVideoMeta, onPhase } = args
+  const { apiKey, videos, sourcePaths, workDir, targetDuration, clientVideoMeta, onPhase, onAnalyzeProgress } =
+    args
   onPhase?.("keyframes")
 
-  const results: Awaited<ReturnType<typeof analyzeOneVideoPrecision>>[] = []
-
-  for (let srcIndex = 0; srcIndex < videos.length; srcIndex++) {
+  const analyzeOne = async (srcIndex: number) => {
     const video = videos[srcIndex]!
     const sourcePath = sourcePaths[video.video_id]
+    const label = video.title || video.video_id
     if (!sourcePath) {
-      results.push({
-        ok: false,
+      return {
+        ok: false as const,
         video_id: video.video_id,
-        title: video.title || video.video_id,
+        title: label,
         reason: "원본 영상 경로를 찾지 못했습니다.",
-      })
-      continue
+      }
     }
-    results.push(
-      await analyzeOneVideoPrecision({
-        apiKey,
-        video,
-        sourcePath,
-        workDir,
-        srcIndex,
-        clientMeta: clientVideoMeta?.[video.video_id],
-      })
-    )
+    onAnalyzeProgress?.(`정밀 Vision 분석 중… (${srcIndex + 1}/${videos.length}) ${label}`)
+    const result = await analyzeOneVideoPrecision({
+      apiKey,
+      video,
+      sourcePath,
+      workDir,
+      srcIndex,
+      clientMeta: clientVideoMeta?.[video.video_id],
+    })
+    if (result.ok) {
+      onAnalyzeProgress?.(`정밀 장면 정리 완료 (${srcIndex + 1}/${videos.length}) ${label}`)
+    }
+    return result
   }
+
+  const results = await Promise.all(videos.map((_, srcIndex) => analyzeOne(srcIndex)))
 
   const analyses: VideoAnalysis[] = []
   const failures: AutoEditAnalyzeFailure[] = []
@@ -114,6 +120,7 @@ async function runPrecisionAnalyzeAndMix(args: {
   }
 
   onPhase?.("vision")
+  onAnalyzeProgress?.("영상 mix (picks) AI 설계 중…")
   onPhase?.("mix")
 
   const productAnalysis = benchmarkProductAnalysisFromAnalyses(analyses)

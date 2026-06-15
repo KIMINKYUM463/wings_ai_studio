@@ -166,6 +166,34 @@ export function dedupeEditPlanSegments(plan: EditPlan): EditPlan {
 
 type TaggedScene = VideoScene & { video_id: string; title: string }
 
+/** 장면 pool이 비었을 때 — 영상 앞구간 최소 타임라인 (finalizeEditPlan↔buildSceneBasedEditPlan 무한 재귀 방지) */
+export function buildMinimalDurationEditPlan(
+  analyses: VideoAnalysis[],
+  targetDuration: AutoEditTargetDuration
+): EditPlan {
+  const edit_plan: EditPlanSegment[] = []
+  let outCursor = 0
+  const share = Math.max(1.2, targetDuration / Math.max(1, analyses.length))
+
+  for (const a of analyses) {
+    if (outCursor >= targetDuration - 0.08) break
+    const dur = Math.min(share, Math.max(0.8, a.duration * 0.35), targetDuration - outCursor)
+    if (dur < 0.5 || a.duration < 0.5) continue
+    const start = Math.min(0.6, Math.max(0, a.duration - dur - 0.08))
+    edit_plan.push({
+      video_id: a.video_id,
+      source_start: ROUND(start),
+      source_end: ROUND(Math.min(a.duration, start + dur)),
+      output_start: ROUND(outCursor),
+      output_end: ROUND(outCursor + dur),
+      reason: a.title || "제품 장면",
+    })
+    outCursor += dur
+  }
+
+  return { target_duration: targetDuration, edit_plan }
+}
+
 function collectTaggedScenes(analyses: VideoAnalysis[]): TaggedScene[] {
   if (analyses.length > 1) return interleaveScenesByVideo(analyses)
 
@@ -211,6 +239,11 @@ export function buildSceneBasedEditPlan(
   analyses: VideoAnalysis[],
   targetDuration: AutoEditTargetDuration
 ): EditPlan {
+  const pool = collectTaggedScenes(analyses)
+  if (!pool.length) {
+    return buildMinimalDurationEditPlan(analyses, targetDuration)
+  }
+
   const byId = analysisMap(analyses)
   const multi = analyses.length > 1
 
@@ -321,7 +354,7 @@ export function finalizeEditPlan(plan: EditPlan, analyses: VideoAnalysis[]): Edi
   }
 
   if (normalized.length === 0) {
-    return buildSceneBasedEditPlan(analyses, target)
+    return buildMinimalDurationEditPlan(analyses, target)
   }
 
   if (Math.abs(outCursor - target) > 0.15) {
