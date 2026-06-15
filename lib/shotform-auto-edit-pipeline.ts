@@ -18,7 +18,7 @@ import {
 import { resolveAutoEditScript, withTimeout } from "@/lib/shotform-auto-edit-script-step"
 import { VMAKE_SUBTITLE_REMOVAL_TIMEOUT_MS } from "@/lib/shotform-vmake-subtitle-removal"
 import { autoEditDownloadUrl } from "@/lib/shotform-auto-edit-download"
-import { resolveFfmpegPath } from "@/lib/ffmpeg-binaries"
+import { resolveFfmpegPath, hasFfmpeg } from "@/lib/ffmpeg-binaries"
 import {
   createAutoEditWorkDir,
   downloadSourceVideo,
@@ -33,6 +33,7 @@ import {
 import { filterAnalysesForEmergencyEdit, filterAnalysesForProductEdit } from "@/lib/shotform-auto-edit-product-filter"
 import { putAutoEditJob } from "@/lib/shotform-auto-edit-jobs"
 import {
+  downloadAutoEditPrecisionMetaFromSupabase,
   downloadAutoEditSourceFromSupabase,
   uploadAutoEditOutputToSupabase,
 } from "@/lib/shotform-auto-edit-job-store"
@@ -76,7 +77,17 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
     const sourcePaths: Record<string, string> = {}
     const uploads = input.uploadedVideos ?? {}
     const analysisMode = input.analysisMode ?? "fast"
-    const clientVideoMeta = input.clientVideoMeta
+    let clientVideoMeta = input.clientVideoMeta
+    if (analysisMode === "precision") {
+      const merged: NonNullable<AutoEditInput["clientVideoMeta"]> = { ...(clientVideoMeta ?? {}) }
+      for (const v of videos) {
+        const existing = merged[v.video_id]
+        if ((existing?.precisionKeyframes?.length ?? 0) >= 6) continue
+        const remote = await downloadAutoEditPrecisionMetaFromSupabase(jobId, v.video_id)
+        if (remote) merged[v.video_id] = { ...existing, ...remote }
+      }
+      if (Object.keys(merged).length) clientVideoMeta = merged
+    }
     const canParallelAnalyze =
       analysisMode !== "precision" &&
       clientVideoMeta &&
@@ -239,18 +250,22 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
     let editPlan = planResolved.editPlan
     mixInfo = mixFinal
 
-    if (analysisMode === "precision" && input.openaiApiKey?.trim()) {
-      const enriched = await enrichEditPlanWithCutCaptions({
-        apiKey: input.openaiApiKey,
-        editPlan,
-        analyses: usable,
-        sourcePaths,
-        workDir: dir,
-      })
-      editPlan = enriched.editPlan
-      for (const updated of enriched.analyses) {
-        const idx = usable.findIndex((a) => a.video_id === updated.video_id)
-        if (idx >= 0) usable[idx] = updated
+    if (analysisMode === "precision" && input.openaiApiKey?.trim() && hasFfmpeg()) {
+      try {
+        const enriched = await enrichEditPlanWithCutCaptions({
+          apiKey: input.openaiApiKey,
+          editPlan,
+          analyses: usable,
+          sourcePaths,
+          workDir: dir,
+        })
+        editPlan = enriched.editPlan
+        for (const updated of enriched.analyses) {
+          const idx = usable.findIndex((a) => a.video_id === updated.video_id)
+          if (idx >= 0) usable[idx] = updated
+        }
+      } catch (e) {
+        console.warn("[auto-edit] precision cut captions skipped (no ffmpeg):", e)
       }
     }
 

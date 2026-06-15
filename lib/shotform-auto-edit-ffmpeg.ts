@@ -143,6 +143,15 @@ function runFfmpeg(args: string[], timeoutMs = 180_000): Promise<void> {
     })
     proc.on("error", (e) => {
       clearTimeout(timer)
+      const msg = e instanceof Error ? e.message : String(e)
+      if (msg.includes("ENOENT")) {
+        reject(
+          new Error(
+            "ffmpeg 바이너리를 찾지 못했습니다. 정밀 모드는 브라우저 키프레임 캡처가 필요합니다 — 페이지 새로고침 후 다시 시도해 주세요."
+          )
+        )
+        return
+      }
       reject(e)
     })
     proc.on("close", (code) => {

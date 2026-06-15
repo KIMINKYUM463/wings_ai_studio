@@ -22,7 +22,7 @@ function captureVideoFrameDataUrl(video: HTMLVideoElement, timeSec: number): Pro
     const onSeeked = () => {
       video.removeEventListener("seeked", onSeeked)
       try {
-        const w = Math.min(400, video.videoWidth || 360)
+        const w = Math.min(320, video.videoWidth || 360)
         const h = Math.max(1, Math.round((w * (video.videoHeight || 640)) / Math.max(1, video.videoWidth || 360)))
         const canvas = document.createElement("canvas")
         canvas.width = w
@@ -33,7 +33,7 @@ function captureVideoFrameDataUrl(video: HTMLVideoElement, timeSec: number): Pro
           return
         }
         ctx.drawImage(video, 0, 0, w, h)
-        resolve(canvas.toDataURL("image/jpeg", 0.52))
+        resolve(canvas.toDataURL("image/jpeg", 0.42))
       } catch {
         resolve(null)
       }

@@ -3,6 +3,7 @@ import path from "path"
 import type { AutoEditVideoInput, ClientVideoMetaEntry, SceneContentType, VideoAnalysis } from "@/lib/shotform-auto-edit-types"
 import {
   extractPrecisionKeyframes,
+  hasFfmpeg,
   probeHasVideoStream,
   probeVideoDuration,
 } from "@/lib/shotform-auto-edit-ffmpeg"
@@ -110,6 +111,15 @@ export async function analyzeOneVideoPrecision(args: {
   )
 
   if (!keyframes?.length) {
+    if (!hasFfmpeg()) {
+      return {
+        ok: false,
+        video_id: video.video_id,
+        title,
+        reason:
+          "브라우저 키프레임이 서버에 전달되지 않았습니다. 페이지를 새로고침한 뒤 정밀 모드로 다시 실행해 주세요.",
+      }
+    }
     try {
       await fs.access(sourcePath)
       const stat = await fs.stat(sourcePath)

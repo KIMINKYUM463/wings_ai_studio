@@ -80,6 +80,75 @@ export function autoEditSourceStoragePath(jobId: string, videoId: string): strin
   return `${STORAGE_PREFIX}/${jobId}/source_${videoId}.mp4`
 }
 
+export function autoEditPrecisionMetaStoragePath(jobId: string, videoId: string): string {
+  return `${STORAGE_PREFIX}/${jobId}/meta_${videoId}.json`
+}
+
+/** 정밀 모드 — 브라우저 키프레임 메타 (요청 본문 크기 초과 방지) */
+export async function uploadAutoEditPrecisionMetaToSupabase(
+  jobId: string,
+  videoId: string,
+  meta: { duration: number; precisionKeyframes: Array<{ timeSec: number; keyframeDataUrl: string }> }
+): Promise<boolean> {
+  if (!autoEditJobStoreEnabled()) return false
+  if (!meta.precisionKeyframes?.length) return false
+  try {
+    const storagePath = autoEditPrecisionMetaStoragePath(jobId, videoId)
+    const supabase = await createMvpProjectsClient()
+    const body = JSON.stringify(meta)
+    const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(storagePath, body, {
+      contentType: "application/json",
+      upsert: true,
+    })
+    if (error) {
+      console.error("[shotform-auto-edit-job-store] precision meta upload failed:", error)
+      return false
+    }
+    return true
+  } catch (e) {
+    console.error("[shotform-auto-edit-job-store] precision meta upload error:", e)
+    return false
+  }
+}
+
+export async function downloadAutoEditPrecisionMetaFromSupabase(
+  jobId: string,
+  videoId: string
+): Promise<{
+  duration: number
+  precisionKeyframes?: Array<{ timeSec: number; keyframeDataUrl: string }>
+  keyframeDataUrl?: string
+  timeSec?: number
+} | null> {
+  const buf = await downloadAutoEditOutputFromSupabase(autoEditPrecisionMetaStoragePath(jobId, videoId), 200)
+  if (!buf?.length) return null
+  try {
+    const parsed = JSON.parse(buf.toString("utf8")) as {
+      duration?: number
+      precisionKeyframes?: Array<{ timeSec: number; keyframeDataUrl: string }>
+    }
+    const duration = Number(parsed.duration)
+    const precisionKeyframes = Array.isArray(parsed.precisionKeyframes)
+      ? parsed.precisionKeyframes.filter(
+          (f) =>
+            f &&
+            Number.isFinite(f.timeSec) &&
+            typeof f.keyframeDataUrl === "string" &&
+            f.keyframeDataUrl.startsWith("data:image/")
+        )
+      : []
+    if (!Number.isFinite(duration) || duration <= 0 || precisionKeyframes.length < 6) return null
+    return {
+      duration,
+      precisionKeyframes,
+      keyframeDataUrl: precisionKeyframes[0]?.keyframeDataUrl,
+      timeSec: precisionKeyframes[0]?.timeSec,
+    }
+  } catch {
+    return null
+  }
+}
+
 /** Cloud Run 렌더용 — 소스 MP4 업로드 후 signed URL 반환 */
 export async function uploadAutoEditSourceToSupabase(
   jobId: string,
@@ -166,6 +235,32 @@ export async function createAutoEditSourceUploadUrl(
   }
 }
 
+export async function createAutoEditPrecisionMetaUploadUrl(
+  jobId: string,
+  videoId: string
+): Promise<{ signedUrl: string; token: string; path: string } | null> {
+  if (!autoEditJobStoreEnabled()) return null
+  try {
+    const storagePath = autoEditPrecisionMetaStoragePath(jobId, videoId)
+    const supabase = await createMvpProjectsClient()
+    const { data, error } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .createSignedUploadUrl(storagePath, { upsert: true })
+    if (error || !data?.signedUrl) {
+      console.error("[shotform-auto-edit-job-store] precision meta signed url failed:", error)
+      return null
+    }
+    return {
+      signedUrl: data.signedUrl,
+      token: data.token,
+      path: data.path,
+    }
+  } catch (e) {
+    console.error("[shotform-auto-edit-job-store] precision meta signed url error:", e)
+    return null
+  }
+}
+
 export async function downloadAutoEditSourceFromSupabase(
   jobId: string,
   videoId: string
@@ -187,7 +282,8 @@ export async function autoEditSourceExistsInSupabase(
 }
 
 export async function downloadAutoEditOutputFromSupabase(
-  storagePath: string
+  storagePath: string,
+  minBytes = 20_000
 ): Promise<Buffer | null> {
   if (!autoEditJobStoreEnabled()) return null
   try {
@@ -198,7 +294,7 @@ export async function downloadAutoEditOutputFromSupabase(
       return null
     }
     const buf = Buffer.from(await data.arrayBuffer())
-    return buf.length >= 20_000 ? buf : null
+    return buf.length >= minBytes ? buf : null
   } catch (e) {
     console.error("[shotform-auto-edit-job-store] storage download error:", e)
     return null

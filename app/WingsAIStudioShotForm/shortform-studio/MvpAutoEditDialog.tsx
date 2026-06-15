@@ -499,10 +499,21 @@ export function MvpAutoEditDialog({
               preJobId,
               nextPicks,
               (msg) => setDownloadHint(msg),
-              prefetchedBlobs
+              prefetchedBlobs,
+              clientVideoMeta
             )
             sourcesPreUploaded = true
           }
+
+          const clientVideoMetaForApi =
+            analysisMode === "precision" && sourcesPreUploaded && clientVideoMeta
+              ? Object.fromEntries(
+                  Object.entries(clientVideoMeta).map(([id, meta]) => [
+                    id,
+                    { duration: meta.duration, timeSec: meta.timeSec },
+                  ])
+                )
+              : clientVideoMeta
 
           setDownloadHint("짜집기 작업 시작 중…")
           const res = await fetch("/api/shotform/auto-edit", {
@@ -518,7 +529,7 @@ export function MvpAutoEditDialog({
               scriptTopic: projectName?.trim() || undefined,
               sourceKeywords: sourceKeywords.filter(Boolean),
               analysisMode,
-              clientVideoMeta,
+              clientVideoMeta: clientVideoMetaForApi,
               clientJobId: preJobId,
               sourcesPreUploaded,
             }),
