@@ -183,22 +183,11 @@ export function estimateAutoEditAnalyzeSeconds(args: {
   const dur = Math.max(15, maxSourceDurationSec)
 
   if (mode === "precision") {
-    const base = 120 + pickCount * 90 + Math.min(120, dur * 0.4)
+    const base = 180 + pickCount * 120 + Math.min(180, dur * 0.5)
     return {
       min: Math.round(base * 0.75),
-      max: Math.round(base * 1.35),
+      max: Math.round(base * 1.4),
       label: "정밀",
-    }
-  }
-  if (mode === "balanced") {
-    let base = 40 + pickCount * 25
-    if (!skipServerDownload) base += 20
-    base += Math.min(50, dur / 3)
-    if (!hasClientKeyframe) base += 12
-    return {
-      min: Math.round(base * 0.7),
-      max: Math.round(base * 1.3),
-      label: "중간",
     }
   }
 

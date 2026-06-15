@@ -236,14 +236,15 @@ export function buildSceneBasedEditPlan(
   const edit_plan: EditPlanSegment[] = []
   let outCursor = 0
   let lastVideoId: string | null = null
+  let slotIdx = 0
 
-  for (let i = 0; i < arc.length; i++) {
-    const slot = arc[i]!
-    const isLast = i === arc.length - 1
-    let slotDur = isLast ? targetDuration - outCursor : targetDuration * slot.ratio
-    slotDur = Math.min(4, Math.max(0.35, slotDur))
-    if (outCursor + slotDur > targetDuration + 0.01) slotDur = targetDuration - outCursor
-    if (slotDur < 0.2) break
+  while (outCursor < targetDuration - 0.12 && slotIdx < 120) {
+    const slot = arc[slotIdx % arc.length]!
+    const remaining = targetDuration - outCursor
+    const isLast = remaining <= 3.5 || slotIdx >= arc.length * 8
+    let slotDur = isLast ? remaining : Math.max(1.2, Math.min(remaining, targetDuration * slot.ratio))
+    if (slotDur > remaining) slotDur = remaining
+    if (slotDur < 0.35) break
 
     const picked = pickSceneWithUniqueClip(
       pool,
@@ -255,12 +256,15 @@ export function buildSceneBasedEditPlan(
       lastVideoId,
       videoIds
     )
-    if (!picked) break
+    if (!picked) {
+      slotIdx++
+      continue
+    }
 
     const { scene, clip } = picked
     registerUsedClip(usedSceneKeys, usedClips, scene, clip)
     lastVideoId = scene.video_id
-    const clipDur = clip.source_end - clip.source_start
+    const clipDur = Math.min(clip.source_end - clip.source_start, remaining)
 
     edit_plan.push({
       video_id: scene.video_id,
@@ -271,6 +275,7 @@ export function buildSceneBasedEditPlan(
       reason: `${slot.label}: ${scene.description}`,
     })
     outCursor += clipDur
+    slotIdx++
   }
 
   return finalizeEditPlan({ target_duration: targetDuration, edit_plan }, analyses)
@@ -334,6 +339,98 @@ export function finalizeEditPlan(plan: EditPlan, analyses: VideoAnalysis[]): Edi
   }
 
   return { target_duration: target, edit_plan: normalized }
+}
+
+/** 목표 쇼츠 길이에 맞게 부족한 output 구간을 소스에서 채움 */
+export function forceFillEditPlanToTarget(
+  plan: EditPlan,
+  analyses: VideoAnalysis[],
+  minRatio = 0.92
+): EditPlan {
+  const target = plan.target_duration
+  if (!analyses.length) return plan
+
+  let edit_plan = [...finalizeEditPlan(plan, analyses).edit_plan]
+  let outCursor = editPlanTotalOutputSeconds({ target_duration: target, edit_plan })
+
+  if (outCursor >= target * minRatio - 0.1) {
+    return stretchEditPlanLastSegment({ target_duration: target, edit_plan }, analyses)
+  }
+
+  const clipLens = [2.2, 2.5, 1.8, 2.0, 2.8, 1.6, 2.4]
+  let round = 0
+
+  while (outCursor < target - 0.12 && round < 100) {
+    round++
+    let added = false
+    for (const a of analyses) {
+      if (outCursor >= target - 0.12) break
+      const need = target - outCursor
+      const clipLen = Math.min(clipLens[round % clipLens.length]!, need, a.duration)
+      if (clipLen < 0.35) continue
+      const maxStart = Math.max(0, a.duration - clipLen - 0.05)
+      const start = ROUND((round * 2.4 + analyses.indexOf(a) * 1.7) % Math.max(0.3, maxStart))
+      const end = ROUND(Math.min(a.duration, start + clipLen))
+      const dur = end - start
+      if (dur < 0.35) continue
+
+      edit_plan.push({
+        video_id: a.video_id,
+        source_start: start,
+        source_end: end,
+        output_start: ROUND(outCursor),
+        output_end: ROUND(outCursor + dur),
+        reason: a.title || "제품 장면",
+      })
+      outCursor += dur
+      added = true
+    }
+    if (!added) break
+  }
+
+  edit_plan = finalizeEditPlan({ target_duration: target, edit_plan }, analyses).edit_plan
+  return stretchEditPlanLastSegment({ target_duration: target, edit_plan }, analyses)
+}
+
+function stretchEditPlanLastSegment(plan: EditPlan, analyses: VideoAnalysis[]): EditPlan {
+  const target = plan.target_duration
+  const edit_plan = plan.edit_plan.map((s) => ({ ...s }))
+  let out = editPlanTotalOutputSeconds({ target_duration: target, edit_plan })
+  if (out >= target - 0.08 || !edit_plan.length) {
+    if (out > target + 0.05 && edit_plan.length) {
+      const last = edit_plan[edit_plan.length - 1]!
+      last.output_end = ROUND(target)
+      last.source_end = ROUND(last.source_start + (last.output_end - last.output_start))
+    }
+    return { target_duration: target, edit_plan }
+  }
+
+  const last = edit_plan[edit_plan.length - 1]!
+  const a = analyses.find((x) => x.video_id === last.video_id) ?? analyses[0]!
+  const need = target - out
+  const srcRoom = Math.max(0, a.duration - last.source_end)
+  const add = Math.min(need, srcRoom)
+  if (add > 0.08) {
+    last.output_end = ROUND(last.output_end + add)
+    last.source_end = ROUND(last.source_end + add)
+    out = editPlanTotalOutputSeconds({ target_duration: target, edit_plan })
+  }
+
+  if (out < target - 0.15) {
+    const need2 = target - out
+    const dur = Math.min(need2, a.duration)
+    const start = ROUND(Math.min(a.duration - dur, (last.source_end + 0.5) % Math.max(0.3, a.duration - dur)))
+    edit_plan.push({
+      video_id: a.video_id,
+      source_start: start,
+      source_end: ROUND(start + dur),
+      output_start: ROUND(out),
+      output_end: ROUND(target),
+      reason: a.title || "제품 장면",
+    })
+  }
+
+  return { target_duration: target, edit_plan }
 }
 
 export function editPlanTotalOutputSeconds(plan: EditPlan): number {

@@ -38,6 +38,12 @@ import {
 import { narrationLooksIncomplete } from "@/lib/shotform-narration-timing"
 import { buildDesiredBeatSequence, reorderMixPicksByStoryFlow } from "@/lib/shotform-story-flow"
 import {
+  buildSceneBasedEditPlan,
+  editPlanTotalOutputSeconds,
+  finalizeEditPlan,
+  forceFillEditPlanToTarget,
+} from "@/lib/shotform-auto-edit-plan-finalize"
+import {
   buildCutScriptContexts,
   buildSceneSubtitleBlocksFromCuts,
   describeSourceRangeFromAnalysis,
@@ -128,6 +134,9 @@ export function assertEditPlanMeetsTargetDuration(plan: EditPlan): void {
 /** 긴급 폴백 — 이 길이(초) 이상이면 짧은 영상으로라도 성공 처리 */
 export const EMERGENCY_MIN_OUTPUT_SECONDS = 3
 
+/** 목표 쇼츠 길이 대비 최소 채움 비율 */
+export const TARGET_FILL_MIN_RATIO = 0.92
+
 function isPickWithinBounds(pick: MixPick, analysis: VideoAnalysis | undefined): boolean {
   if (!analysis) return false
   if (pick.end <= pick.start) return false
@@ -164,15 +173,12 @@ function sanitizeEditPlanSegmentsRelaxed(plan: EditPlan, analyses: VideoAnalysis
   return { target_duration: plan.target_duration, edit_plan: kept }
 }
 
-/** 안전 필터 실패 시 — 완화 규칙으로 짧은 mix 생성 */
+/** 안전 필터 실패 시 — 완화 규칙으로 mix 생성 (목표 길이에 최대한 맞춤) */
 export function buildEmergencyMix(
   analyses: VideoAnalysis[],
   targetDuration: AutoEditTargetDuration
 ): MixInfo {
-  const effectiveCap = Math.min(
-    targetDuration,
-    Math.max(EMERGENCY_MIN_OUTPUT_SECONDS, Math.min(18, analyses.reduce((s, a) => s + a.duration * 0.35, 0)))
-  )
+  const effectiveCap = targetDuration
   const picks: MixPick[] = []
   let total = 0
   const clipLens = [0.9, 1.1, 1.3, 1.6, 1.0, 0.75]
@@ -267,19 +273,42 @@ export function ensureEditPlanOrEmergencyFallback(args: {
     args.videoIds,
     args.targetDuration
   )
-  const outputSec = editPlanOutputSeconds(editPlan)
-
   if (editPlan.edit_plan.length > 0 && editPlanMeetsTargetDuration(editPlan)) {
+    editPlan = forceFillEditPlanToTarget(editPlan, args.analyses)
+    mixInfo = { ...mixInfo, actualDuration: ROUND(editPlanTotalOutputSeconds(editPlan)) }
     return { mixInfo, editPlan, usedEmergency: false }
   }
 
   const emergency = buildEmergencyEditPlan(args.allAnalyses, args.videoIds, args.targetDuration)
   if (emergency?.editPlan.edit_plan.length) {
-    return { mixInfo: emergency.mixInfo, editPlan: emergency.editPlan, usedEmergency: true }
+    const filled = forceFillEditPlanToTarget(emergency.editPlan, args.analyses)
+    return {
+      mixInfo: { ...emergency.mixInfo, actualDuration: ROUND(editPlanTotalOutputSeconds(filled)) },
+      editPlan: filled,
+      usedEmergency: true,
+    }
   }
 
-  if (editPlan.edit_plan.length > 0 && outputSec >= EMERGENCY_MIN_OUTPUT_SECONDS) {
-    return { mixInfo, editPlan, usedEmergency: false }
+  if (editPlan.edit_plan.length > 0) {
+    editPlan = forceFillEditPlanToTarget(editPlan, args.analyses)
+    const filledSec = editPlanTotalOutputSeconds(editPlan)
+    if (filledSec >= args.targetDuration * TARGET_FILL_MIN_RATIO - 0.15) {
+      return {
+        mixInfo: { ...mixInfo, actualDuration: ROUND(filledSec) },
+        editPlan,
+        usedEmergency: false,
+      }
+    }
+  }
+
+  const scenePlan = buildSceneBasedEditPlan(args.analyses, args.targetDuration)
+  const filledScene = forceFillEditPlanToTarget(scenePlan, args.analyses)
+  if (editPlanTotalOutputSeconds(filledScene) >= args.targetDuration * TARGET_FILL_MIN_RATIO - 0.15) {
+    return {
+      mixInfo: { ...mixInfo, actualDuration: ROUND(editPlanTotalOutputSeconds(filledScene)) },
+      editPlan: filledScene,
+      usedEmergency: false,
+    }
   }
 
   throw new Error(AUTO_EDIT_NO_USABLE_VIDEO_MESSAGE)
@@ -959,11 +988,17 @@ export function buildEditPlanFromMix(
     )
   }
 
-  const actualEnd = editPlan.edit_plan.at(-1)?.output_end ?? targetDuration
+  const actualEnd = editPlanTotalOutputSeconds(editPlan)
   mixInfo = {
     ...mixInfo,
     targetDuration,
     actualDuration: ROUND(Math.min(targetDuration, actualEnd)),
+  }
+
+  editPlan = forceFillEditPlanToTarget(editPlan, analyses)
+  mixInfo = {
+    ...mixInfo,
+    actualDuration: ROUND(editPlanTotalOutputSeconds(editPlan)),
   }
 
   return { mixInfo, editPlan }

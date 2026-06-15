@@ -23,7 +23,7 @@ export function normalizeAutoEditTargetDuration(
 export const MAX_AUTO_EDIT_VIDEOS = 5
 
 /** 짜집기 제품·장면 분석 속도/정확도 */
-export type AutoEditAnalysisMode = "fast" | "balanced" | "precision"
+export type AutoEditAnalysisMode = "fast" | "precision"
 
 export const AUTO_EDIT_ANALYSIS_MODE_DEFAULT: AutoEditAnalysisMode = "fast"
 
@@ -35,22 +35,17 @@ export const AUTO_EDIT_ANALYSIS_MODE_OPTIONS: Array<{
   {
     id: "fast",
     label: "고속",
-    hint: "소스 전 구간에서 핵심 프레임만 샘플 · URL 1개(CDN) 약 1~2분, 브라우저 업로드 완료 시 20~50초",
-  },
-  {
-    id: "balanced",
-    label: "중간",
-    hint: "키프레임·장면 분석 균형 · 약 1~3분",
+    hint: "소스 전 구간 핵심 프레임 샘플 · URL 1개(CDN) 약 1~2분",
   },
   {
     id: "precision",
     label: "정밀",
-    hint: "영상별 심층 분석 + 컷별 Vision 캡션 · 약 3~8분",
+    hint: "URL 1개 최대 2분 구간 심층 행동 분석 + 컷별 Vision · 약 3~10분",
   },
 ]
 
 export function normalizeAutoEditAnalysisMode(raw: unknown): AutoEditAnalysisMode {
-  if (raw === "balanced" || raw === "precision" || raw === "fast") return raw
+  if (raw === "precision" || raw === "fast") return raw
   return AUTO_EDIT_ANALYSIS_MODE_DEFAULT
 }
 

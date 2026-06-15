@@ -56,10 +56,6 @@ function keyframesForFastTarget(targetDuration: AutoEditTargetDuration): number 
   return Math.min(12, keyframesForActionAnalysis(targetDuration, "fast"))
 }
 
-function keyframesForBalancedTarget(targetDuration: AutoEditTargetDuration): number {
-  return Math.min(18, keyframesForActionAnalysis(targetDuration, "balanced"))
-}
-
 const VISION_FAST_TIMEOUT_MS = 12_000
 
 type BenchmarkModeConfig = {
@@ -74,20 +70,11 @@ function resolveBenchmarkModeConfig(
   mode: AutoEditAnalysisMode,
   targetDuration: AutoEditTargetDuration
 ): BenchmarkModeConfig {
-  if (mode === "balanced") {
-    return {
-      keyframeCount: keyframesForBalancedTarget(targetDuration),
-      visionOnly: false,
-      fastKeyframes: false,
-      visionTimeoutMs: null,
-      productFitReason: "중간 모드 분석",
-    }
-  }
   const visionOnly = false
   return {
     keyframeCount: keyframesForFastTarget(targetDuration),
     visionOnly,
-    fastKeyframes: mode === "fast",
+    fastKeyframes: true,
     visionTimeoutMs: VISION_FAST_TIMEOUT_MS,
     productFitReason: "고속 행동 기반 Vision 분석",
   }

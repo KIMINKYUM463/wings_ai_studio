@@ -75,9 +75,8 @@ function stepIndex(step: AutoEditJobResult["step"]): number {
 }
 
 const ANALYZE_STEP_HINTS: Record<AutoEditAnalysisMode, string> = {
-  fast: "행동 기반 Vision 분석 중… (URL 1개·CDN: 보통 60~120초, 업로드 완료 시 20~50초)",
-  balanced: "키프레임 추출·행동 분석·장면 병합 중… (중간: 약 1~3분)",
-  precision: "영상별 심층 행동 분석·mix 생성 중… (정밀: 약 3~8분)",
+  fast: "행동 기반 Vision 분석 중… (URL 1개·CDN: 보통 60~120초)",
+  precision: "최대 2분 구간 심층 행동 분석 중… (약 3~10분)",
 }
 
 function stepHintsForMode(
@@ -106,8 +105,6 @@ function analyzeStallMsForMode(mode: AutoEditAnalysisMode): number {
   switch (mode) {
     case "fast":
       return 120_000
-    case "balanced":
-      return 240_000
     case "precision":
       return 600_000
     default:
@@ -116,8 +113,7 @@ function analyzeStallMsForMode(mode: AutoEditAnalysisMode): number {
 }
 
 function analyzeStallMessage(mode: AutoEditAnalysisMode): string {
-  const waitLabel =
-    mode === "fast" ? "2분" : mode === "balanced" ? "4분" : "10분"
+  const waitLabel = mode === "fast" ? "2분" : "10분"
   return (
     `제품·장면 분석이 ${waitLabel} 이상 지연되고 있습니다.\n\n` +
     "① 페이지 새로고침 후 「편집 실행」을 다시 눌러 주세요.\n" +
@@ -652,7 +648,7 @@ export function MvpAutoEditDialog({
         <div className="space-y-4">
           <div>
             <p className="mb-2 text-xs font-medium text-slate-400">분석 모드</p>
-            <div className="grid gap-2 sm:grid-cols-3">
+            <div className="grid gap-2 sm:grid-cols-2">
               {AUTO_EDIT_ANALYSIS_MODE_OPTIONS.map((opt) => (
                 <button
                   key={opt.id}

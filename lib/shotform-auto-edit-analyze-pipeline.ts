@@ -7,7 +7,7 @@ import type {
 } from "@/lib/shotform-auto-edit-types"
 import { AUTO_EDIT_ANALYSIS_MODE_DEFAULT } from "@/lib/shotform-auto-edit-types"
 import type { ClientVideoMetaEntry } from "@/lib/shotform-client-video-meta"
-import { analyzeOneVideoForAutoEdit } from "@/lib/shotform-auto-edit-analyze-one"
+import { analyzeOneVideoPrecision } from "@/lib/shotform-auto-edit-precision-analyze"
 import {
   benchmarkFastAnalyzeAndMix,
   benchmarkProductAnalysisFromAnalyses,
@@ -74,7 +74,7 @@ async function runPrecisionAnalyzeAndMix(args: {
           reason: "원본 영상 경로를 찾지 못했습니다.",
         })
       }
-      return analyzeOneVideoForAutoEdit({
+      return analyzeOneVideoPrecision({
         apiKey,
         video,
         sourcePath,
