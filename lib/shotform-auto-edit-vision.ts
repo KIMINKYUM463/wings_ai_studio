@@ -149,32 +149,93 @@ export type LabeledVisionFrame = {
   timeSec: number
 }
 
-const VISION_BATCH_CHUNK_SIZE = 8
+/** 여러 소스 키프레임 — Vision API 1회 (벤치마킹 속도) */
+export async function visionClassifyFramesBatch(
+  apiKey: string,
+  sources: Array<{ srcIndex: number; title: string; frames: Array<{ path: string; timeSec: number }> }>
+): Promise<Array<FrameVisionResult & { srcIndex: number }>> {
+  const flat: LabeledVisionFrame[] = []
+  for (const s of sources) {
+    for (const f of s.frames) {
+      flat.push({ srcIndex: s.srcIndex, path: f.path, timeSec: f.timeSec })
+    }
+  }
+  if (!flat.length) return []
 
-function mapVisionBatchRows(
-  flat: LabeledVisionFrame[],
-  raw: unknown[],
-  imageIndexOffset: number
-): Array<FrameVisionResult & { srcIndex: number }> {
+  const images = await Promise.all(
+    flat.map(async (f) => {
+      const buf = await fs.readFile(f.path)
+      return { ...f, b64: buf.toString("base64") }
+    })
+  )
+
+  const labelLines = sources
+    .map((s) => `소스${s.srcIndex}: ${s.title || "(제목 없음)"} — 프레임 ${s.frames.length}장`)
+    .join("\n")
+
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      temperature: 0.1,
+      max_tokens: Math.min(3200, 600 + flat.length * 180),
+      response_format: { type: "json_object" as const },
+      messages: [
+        {
+          role: "system" as const,
+          content: ACTION_VISION_FRAME_SYSTEM_PROMPT + `
+
+imageIndex·srcIndex·timeSec 매핑 필수.
+JSON: {"frames":[{"imageIndex":0,"srcIndex":0,"timeSec":1.2,"content_type":"product_in_use","shot_type":"클로즈업","hand_action":"손이 칫솔을 거치대에 꽂는 중","product":"칫솔 거치대","product_use":"칫솔 수납","ocr_text":"","scene_hint":"수납"}]}`,
+        },
+        {
+          role: "user" as const,
+          content: [
+            {
+              type: "text",
+              text: `${labelLines}\n이미지 ${images.length}장, imageIndex 0부터 순서대로.\n각 caption은 해당 프레임에 실제 보이는 것만.`,
+            },
+            ...images.map((img) => ({
+              type: "image_url" as const,
+              image_url: { url: `data:image/jpeg;base64,${img.b64}`, detail: "low" as const },
+            })),
+          ],
+        },
+      ],
+    }),
+    signal: AbortSignal.timeout(flat.length <= 4 ? 22_000 : flat.length <= 8 ? 40_000 : 75_000),
+  })
+
+  if (!res.ok) {
+    const t = await res.text().catch(() => "")
+    throw new Error(`Vision 배치 실패 (${res.status}): ${t.slice(0, 120)}`)
+  }
+
+  const data = await res.json()
+  const content = data.choices?.[0]?.message?.content
+  if (!content) throw new Error("Vision 배치 응답 비어 있음")
+
+  const parsed = JSON.parse(content) as { frames?: unknown }
+  const raw = Array.isArray(parsed.frames) ? parsed.frames : []
   const out: Array<FrameVisionResult & { srcIndex: number }> = []
+
   for (let i = 0; i < flat.length; i++) {
     const f = flat[i]!
-    const globalIndex = imageIndexOffset + i
-    const row = raw.find((r) => (r as Record<string, unknown>)?.imageIndex === globalIndex) as
+    const row = raw.find((r) => (r as Record<string, unknown>)?.imageIndex === i) as
       | Record<string, unknown>
       | undefined
-    const rowFallback = raw.find((r) => (r as Record<string, unknown>)?.imageIndex === i) as
-      | Record<string, unknown>
-      | undefined
-    const rowByOrder = raw[i] as Record<string, unknown> | undefined
-    const picked = row || rowFallback || rowByOrder
-    const srcIndex = Number(picked?.srcIndex ?? f.srcIndex)
-    const timeSec = Number(picked?.timeSec ?? f.timeSec)
-    const ctRaw = String(picked?.content_type || "other")
+    const rowFallback = raw[i] as Record<string, unknown> | undefined
+    const srcIndex = Number((row || rowFallback)?.srcIndex ?? f.srcIndex)
+    const timeSec = Number((row || rowFallback)?.timeSec ?? f.timeSec)
+    const ctRaw = String((row || rowFallback)?.content_type || "other")
     let ct = ctRaw as SceneContentType
     if (ctRaw === "subtitle") ct = "text_overlay"
     const parsed = parseActionFrameFromVisionRow(
-      (picked || {}) as Record<string, unknown>,
+      (row || rowFallback || {}) as Record<string, unknown>,
       Number.isFinite(timeSec) ? timeSec : f.timeSec,
       CONTENT_TYPES.includes(ct) ? ct : "other"
     )
@@ -201,108 +262,6 @@ function mapVisionBatchRows(
     })
   }
   return out
-}
-
-async function visionClassifyFramesBatchOnce(
-  apiKey: string,
-  labelLines: string,
-  flat: LabeledVisionFrame[],
-  images: Array<LabeledVisionFrame & { b64: string }>,
-  imageIndexOffset: number
-): Promise<Array<FrameVisionResult & { srcIndex: number }>> {
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "gpt-4o-mini",
-      temperature: 0.1,
-      max_tokens: Math.min(3200, 600 + flat.length * 180),
-      response_format: { type: "json_object" as const },
-      messages: [
-        {
-          role: "system" as const,
-          content: ACTION_VISION_FRAME_SYSTEM_PROMPT + `
-
-imageIndex·srcIndex·timeSec 매핑 필수.
-JSON: {"frames":[{"imageIndex":${imageIndexOffset},"srcIndex":0,"timeSec":1.2,"content_type":"product_in_use","shot_type":"클로즈업","hand_action":"손이 칫솔을 거치대에 꽂는 중","product":"칫솔 거치대","product_use":"칫솔 수납","ocr_text":"","scene_hint":"수납"}]}`,
-        },
-        {
-          role: "user" as const,
-          content: [
-            {
-              type: "text",
-              text: `${labelLines}\n이미지 ${images.length}장, imageIndex ${imageIndexOffset}부터 순서대로.\n각 caption은 해당 프레임에 실제 보이는 것만.`,
-            },
-            ...images.map((img) => ({
-              type: "image_url" as const,
-              image_url: { url: `data:image/jpeg;base64,${img.b64}`, detail: "low" as const },
-            })),
-          ],
-        },
-      ],
-    }),
-    signal: AbortSignal.timeout(flat.length <= 4 ? 28_000 : 50_000),
-  })
-
-  if (!res.ok) {
-    const t = await res.text().catch(() => "")
-    throw new Error(`Vision 배치 실패 (${res.status}): ${t.slice(0, 120)}`)
-  }
-
-  const data = await res.json()
-  const content = data.choices?.[0]?.message?.content
-  if (!content) throw new Error("Vision 배치 응답 비어 있음")
-
-  const parsed = JSON.parse(content) as { frames?: unknown }
-  const raw = Array.isArray(parsed.frames) ? parsed.frames : []
-  return mapVisionBatchRows(flat, raw, imageIndexOffset)
-}
-
-/** 여러 소스 키프레임 — Vision API (8장 단위 청크로 타임아웃·실패 완화) */
-export async function visionClassifyFramesBatch(
-  apiKey: string,
-  sources: Array<{ srcIndex: number; title: string; frames: Array<{ path: string; timeSec: number }> }>
-): Promise<Array<FrameVisionResult & { srcIndex: number }>> {
-  const flat: LabeledVisionFrame[] = []
-  for (const s of sources) {
-    for (const f of s.frames) {
-      flat.push({ srcIndex: s.srcIndex, path: f.path, timeSec: f.timeSec })
-    }
-  }
-  if (!flat.length) return []
-
-  const images = await Promise.all(
-    flat.map(async (f) => {
-      const buf = await fs.readFile(f.path)
-      return { ...f, b64: buf.toString("base64") }
-    })
-  )
-
-  const labelLines = sources
-    .map((s) => `소스${s.srcIndex}: ${s.title || "(제목 없음)"} — 프레임 ${s.frames.length}장`)
-    .join("\n")
-
-  if (flat.length <= VISION_BATCH_CHUNK_SIZE) {
-    return visionClassifyFramesBatchOnce(apiKey, labelLines, flat, images, 0)
-  }
-
-  const merged: Array<FrameVisionResult & { srcIndex: number }> = []
-  for (let off = 0; off < flat.length; off += VISION_BATCH_CHUNK_SIZE) {
-    const chunkFlat = flat.slice(off, off + VISION_BATCH_CHUNK_SIZE)
-    const chunkImages = images.slice(off, off + VISION_BATCH_CHUNK_SIZE)
-    const chunk = await visionClassifyFramesBatchOnce(
-      apiKey,
-      labelLines,
-      chunkFlat,
-      chunkImages,
-      off
-    )
-    merged.push(...chunk)
-  }
-  return merged
 }
 
 function decideProductFit(frames: FrameVisionResult[], _title: string): VideoVisionScreenResult {

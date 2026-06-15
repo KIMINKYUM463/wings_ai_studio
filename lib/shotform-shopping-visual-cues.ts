@@ -21,38 +21,6 @@ export function isToothbrushHolderProduct(blob: string): boolean {
   return /거치대|꽂|스탠드|홀더|holder|벽걸이|수납|정리|收纳|트레이/i.test(t) && /칫솔|牙刷/i.test(t)
 }
 
-/** 스마트폰·차량용 거치대 — 청소기·칫솔 거치대와 구분 */
-export function isPhoneMountProduct(blob: string): boolean {
-  const t = blob.trim()
-  if (!t) return false
-  if (isToothbrushHolderProduct(t)) return false
-  if (
-    /청소기|진공\s*청소|핸디\s*청소|vacuum|吸尘|먼지.*흡입|흡입력|노즐/i.test(t) &&
-    !/거치|홀더|mount|holder|마운트|支架/i.test(t)
-  ) {
-    return false
-  }
-  if (/차량용\s*거치|车载支架|车用手机|car\s*mount|dashboard\s*mount|手机支架/i.test(t)) return true
-  const mount = /거치대|홀더|마운트|브라켓|holder|mount|支架/i.test(t)
-  const phone = /스마트폰|휴대폰|핸드폰|phone|手机|내비|네비|navigation/i.test(t)
-  const inCar = /차량|차\s*안|자동차|车载|車|대시보드|dashboard/i.test(t)
-  return (mount && phone) || (mount && inCar && !/먼지|흡입|청소|노즐|시트\s*틈/i.test(t))
-}
-
-/** 청소기·진공 대본/제품 여부 */
-export function isVacuumCleanerContext(blob: string): boolean {
-  const t = blob.trim()
-  if (!t) return false
-  if (isPhoneMountProduct(t)) return false
-  return /청소기|진공\s*청소|핸디\s*청소|vacuum|吸尘|먼지.*흡입|흡입력|노즐|빨아\s*들/i.test(t)
-}
-
-export function isVacuumNarrationText(text: string): boolean {
-  const t = text.trim().replace(/\n/g, " ")
-  if (!t) return false
-  return /흡입|먼지가\s*바로\s*빠져|노즐|진공|청소기|빨아\s*들|싹\s*빨아|흡입력|먼지통|핸들\s*주변\s*먼지/i.test(t)
-}
-
 export function isOrganizerOrStorageProduct(blob: string): boolean {
   return /거치대|수납|정리|트레이|홀더|organiz|收纳|정돈|보관/i.test(blob)
 }

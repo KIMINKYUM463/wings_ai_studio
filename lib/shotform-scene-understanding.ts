@@ -40,7 +40,7 @@ text_overlay: 제품 없이 텍스트·CTA만 있는 화면`
 export const ACTION_SCENE_MERGE_SYSTEM_PROMPT = `쇼핑 숏폼 행동 기반 장면 편집 PD. JSON만 출력.
 
 입력: 프레임별 행동 분석 목록 (timeSec 순)
-출력: 행동이 바뀌는 시점마다 장면 분리. **영상 전체를 1구간으로 합치지 말 것** (20초 영상이면 최소 4~6구간).
+출력: 행동이 바뀌는 시점마다 장면 분리. 비슷한 장면은 합치고, 같은 설명 반복 금지.
 
 각 장면:
 - shot_type
@@ -142,114 +142,6 @@ function framesSimilar(a: ActionFrameRow, b: ActionFrameRow): boolean {
   return false
 }
 
-/** 정밀 분석 — 영상·프레임 수에 따른 최소 행동 장면 수 */
-export function minimumActionSceneCount(duration: number, frameCount: number): number {
-  const byDuration = Math.max(4, Math.ceil(duration / 5))
-  const byFrames = Math.max(4, Math.min(8, Math.ceil(frameCount / 2)))
-  return Math.min(8, Math.max(byDuration, byFrames))
-}
-
-const MAX_ACTION_CLUSTER_SPAN_SEC = 4.5
-
-function nearestFrameAtTime(frames: ActionFrameRow[], timeSec: number): ActionFrameRow | undefined {
-  if (!frames.length) return undefined
-  let best = frames[0]!
-  let bestDist = Math.abs(best.timeSec - timeSec)
-  for (const f of frames) {
-    const d = Math.abs(f.timeSec - timeSec)
-    if (d < bestDist) {
-      bestDist = d
-      best = f
-    }
-  }
-  return best
-}
-
-function splitActionSceneByTime(
-  sc: ActionScene,
-  parts: number,
-  frames: ActionFrameRow[]
-): ActionScene[] {
-  const count = Math.max(2, Math.min(parts, 4))
-  const span = (sc.end - sc.start) / count
-  return Array.from({ length: count }, (_, i) => {
-    const start = i === 0 ? sc.start : Math.round((sc.start + i * span) * 10) / 10
-    const end = i === count - 1 ? sc.end : Math.round((sc.start + (i + 1) * span) * 10) / 10
-    const mid = (start + end) / 2
-    const frame = nearestFrameAtTime(frames, mid)
-    const scene_role = frame ? inferSceneRoleFromFrame(frame) : sc.scene_role
-    const scene_description = frame ? composeActionSceneDescription(frame) : sc.scene_description
-    return {
-      ...sc,
-      start,
-      end: Math.max(start + 0.25, end),
-      scene_role,
-      scene_description,
-      script_lines: generateScriptLinesLocal({
-        scene_role,
-        scene_description,
-        hand_action_hint: frame?.hand_action || frame?.product_use,
-      }),
-      ocr_text: frame?.ocr_text ?? sc.ocr_text,
-      content_type: frame?.content_type ?? sc.content_type,
-    }
-  })
-}
-
-/** 정밀 모드 — 1구간으로 뭉개지지 않게 최소 장면 수 보장 */
-export function ensureMinimumActionScenes(
-  scenes: ActionScene[],
-  frames: ActionFrameRow[],
-  duration: number
-): ActionScene[] {
-  const min = minimumActionSceneCount(duration, frames.length)
-  let result = scenes.length ? scenes.map((s) => ({ ...s })) : []
-
-  if (result.length >= min) {
-    return dedupeActionScenes(result, { minCount: min })
-  }
-
-  if (!result.length) {
-    const frameBased = buildActionScenesFromFrames(frames, duration, { minCount: min })
-    if (frameBased.length >= min) return frameBased
-    result = frameBased.length
-      ? frameBased
-      : [
-          {
-            start: 0,
-            end: Math.round(duration * 10) / 10,
-            shot_type: "미디엄샷",
-            scene_role: "데모" as SceneRole,
-            scene_description: frames[0]
-              ? composeActionSceneDescription(frames[0])
-              : "제품 사용 장면",
-            script_lines: ["제품을", "직접 보면", "와닿아요"],
-          },
-        ]
-  }
-
-  let guard = 0
-  while (result.length < min && guard < 12) {
-    guard++
-    let longestIdx = 0
-    let longestLen = 0
-    for (let i = 0; i < result.length; i++) {
-      const len = result[i]!.end - result[i]!.start
-      if (len > longestLen) {
-        longestLen = len
-        longestIdx = i
-      }
-    }
-    const longest = result[longestIdx]!
-    if (longestLen < 2.2) break
-    const slices = Math.min(3, Math.max(2, Math.ceil(longestLen / 3.5)))
-    const split = splitActionSceneByTime(longest, slices, frames)
-    result.splice(longestIdx, 1, ...split)
-  }
-
-  return dedupeActionScenes(result, { minCount: min })
-}
-
 /** 0.5~1초 간격 키프레임 시각 목록 (최대 24장) */
 export function keyframeTimesForActionAnalysis(duration: number, intervalSec = 1): number[] {
   const interval = Math.max(0.5, Math.min(1, intervalSec))
@@ -292,12 +184,10 @@ export function estimateAutoEditAnalyzeSeconds(args: {
   const dur = Math.max(15, maxSourceDurationSec)
 
   if (mode === "precision") {
-    const perVideo = 100 + Math.min(160, dur * 0.35)
-    const parallelFactor = pickCount > 1 ? 0.55 : 1
-    const base = 90 + perVideo * parallelFactor * pickCount + 75
+    const base = 180 + pickCount * 120 + Math.min(180, dur * 0.5)
     return {
-      min: Math.round(base * 0.7),
-      max: Math.round(base * 1.55),
+      min: Math.round(base * 0.75),
+      max: Math.round(base * 1.4),
       label: "정밀",
     }
   }
@@ -390,8 +280,7 @@ function generateScriptLinesLocal(scene: {
 /** 프레임 클러스터링 → 행동 기반 장면 */
 export function buildActionScenesFromFrames(
   frames: ActionFrameRow[],
-  duration: number,
-  options?: { minCount?: number }
+  duration: number
 ): ActionScene[] {
   const usable = frames
     .filter((f) => f.content_type !== "text_overlay" || f.ocr_text?.trim())
@@ -408,8 +297,7 @@ export function buildActionScenesFromFrames(
     }
     const last = current[current.length - 1]!
     const gap = f.timeSec - last.timeSec
-    const clusterSpan = f.timeSec - current[0]!.timeSec
-    if (gap < 1.3 && framesSimilar(f, last) && clusterSpan < MAX_ACTION_CLUSTER_SPAN_SEC) {
+    if (gap < 1.3 && framesSimilar(f, last)) {
       current.push(f)
     } else {
       clusters.push(current)
@@ -443,33 +331,21 @@ export function buildActionScenesFromFrames(
     }
   })
 
-  const minCount = options?.minCount ?? 0
-  const deduped = dedupeActionScenes(raw, { minCount })
-  if (minCount > 0 && deduped.length < minCount) {
-    return ensureMinimumActionScenes(deduped, usable, duration)
-  }
-  return deduped
+  return dedupeActionScenes(raw)
 }
 
 /** 같은 역할·유사 설명 병합 + 연속 동일 role 방지 */
-export function dedupeActionScenes(
-  scenes: ActionScene[],
-  options?: { minCount?: number }
-): ActionScene[] {
+export function dedupeActionScenes(scenes: ActionScene[]): ActionScene[] {
   if (scenes.length <= 1) return scenes
 
-  const minCount = options?.minCount ?? 0
   const merged: ActionScene[] = []
-  for (let i = 0; i < scenes.length; i++) {
-    const sc = scenes[i]!
+  for (const sc of scenes) {
     const prev = merged[merged.length - 1]
-    const remaining = scenes.length - i
-    const canMerge =
+    if (
       prev &&
-      merged.length + remaining > minCount &&
       (prev.scene_role === sc.scene_role ||
-        narrationBlockSimilarity(prev.scene_description, sc.scene_description) >= 0.72)
-    if (canMerge) {
+        narrationBlockSimilarity(prev.scene_description, sc.scene_description) >= 0.62)
+    ) {
       prev.end = sc.end
       if (sc.ocr_text && !prev.ocr_text) prev.ocr_text = sc.ocr_text
       if (sc.scene_description.length > prev.scene_description.length) {
@@ -582,7 +458,6 @@ export async function refineActionScenesWithOpenAi(args: {
   const { apiKey, productTitle, duration, frames } = args
   if (!frames.length) return []
 
-  const minScenes = minimumActionSceneCount(duration, frames.length)
   const frameSummary = frames.map((f, i) => ({
     index: i,
     timeSec: f.timeSec,
@@ -612,7 +487,6 @@ export async function refineActionScenesWithOpenAi(args: {
           role: "user",
           content: `제품: ${productTitle}
 영상 길이: ${duration}초
-**최소 ${minScenes}개 장면** — 전체를 1구간으로 합치지 마세요. 행동·샷·OCR이 바뀌는 시점마다 분리.
 
 프레임 행동 분석:
 ${JSON.stringify(frameSummary, null, 0)}
@@ -625,16 +499,16 @@ ${JSON.stringify(frameSummary, null, 0)}
   })
 
   if (!res.ok) {
-    return buildActionScenesFromFrames(frames, duration, { minCount: minScenes })
+    return buildActionScenesFromFrames(frames, duration)
   }
 
   const data = await res.json()
   const content = data.choices?.[0]?.message?.content
-  if (!content) return buildActionScenesFromFrames(frames, duration, { minCount: minScenes })
+  if (!content) return buildActionScenesFromFrames(frames, duration)
 
   try {
     const parsed = JSON.parse(content) as { scenes?: unknown }
-    if (!Array.isArray(parsed.scenes)) return buildActionScenesFromFrames(frames, duration, { minCount: minScenes })
+    if (!Array.isArray(parsed.scenes)) return buildActionScenesFromFrames(frames, duration)
 
     const scenes: ActionScene[] = []
     for (const row of parsed.scenes) {
@@ -658,10 +532,10 @@ ${JSON.stringify(frameSummary, null, 0)}
       })
     }
 
-    if (!scenes.length) return buildActionScenesFromFrames(frames, duration, { minCount: minScenes })
-    return ensureMinimumActionScenes(dedupeActionScenes(scenes, { minCount: minScenes }), frames, duration)
+    if (!scenes.length) return buildActionScenesFromFrames(frames, duration)
+    return dedupeActionScenes(scenes)
   } catch {
-    return buildActionScenesFromFrames(frames, duration, { minCount: minScenes })
+    return buildActionScenesFromFrames(frames, duration)
   }
 }
 

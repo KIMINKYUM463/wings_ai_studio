@@ -281,8 +281,6 @@ export type AutoEditJobResult = {
   error?: string
   videoCount?: number
   excludedVideos?: Array<{ video_id: string; title: string; reason: string }>
-  /** analyze 단계 세부 진행 — 폴링 스톨 타이머 리셋·UI 안내 */
-  analyzeProgress?: string
 }
 
 /** 브라우저에서 미리 추출한 영상 메타 */

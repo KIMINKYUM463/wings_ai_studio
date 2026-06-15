@@ -145,9 +145,6 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
             putAutoEditJob({ ...base, step: "mix", createdAt })
           }
         },
-        onAnalyzeProgress: (message) => {
-          putAutoEditJob({ ...base, step: "analyze", analyzeProgress: message, createdAt })
-        },
       })
     }
 
@@ -168,19 +165,8 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
           })
         }
       } else if (skipServerCdnDownload && sourcesPreUploaded) {
-        putAutoEditJob({
-          ...base,
-          step: "analyze",
-          analyzeProgress: `업로드된 영상 ${videos.length}개 서버 준비 중…`,
-          createdAt,
-        })
+        putAutoEditJob({ ...base, step: "analyze", createdAt })
         await downloadAllSources()
-        putAutoEditJob({
-          ...base,
-          step: "analyze",
-          analyzeProgress: "제품·장면 분석 시작…",
-          createdAt,
-        })
         const analyzed = await runAnalyze()
         analyses = analyzed.analyses
         mixInfo = analyzed.mixInfo

@@ -40,10 +40,8 @@ import { buildDesiredBeatSequence, reorderMixPicksByStoryFlow } from "@/lib/shot
 import {
   buildSceneBasedEditPlan,
   editPlanTotalOutputSeconds,
-  ensureJumpCutEditPlan,
   finalizeEditPlan,
   forceFillEditPlanToTarget,
-  isRealMixEditPlan,
 } from "@/lib/shotform-auto-edit-plan-finalize"
 import {
   buildCutScriptContexts,
@@ -275,39 +273,17 @@ export function ensureEditPlanOrEmergencyFallback(args: {
     args.videoIds,
     args.targetDuration
   )
-  const meetsDuration = editPlan.edit_plan.length > 0 && editPlanMeetsTargetDuration(editPlan)
-  const isRealMix = isRealMixEditPlan(editPlan, args.analyses)
-
-  if (meetsDuration && isRealMix) {
+  if (editPlan.edit_plan.length > 0 && editPlanMeetsTargetDuration(editPlan)) {
     editPlan = forceFillEditPlanToTarget(editPlan, args.analyses)
-    editPlan = ensureJumpCutEditPlan(editPlan, args.analyses)
-    mixInfo = syncMixInfoFromEditPlan(mixInfo, editPlan, args.analyses)
+    mixInfo = { ...mixInfo, actualDuration: ROUND(editPlanTotalOutputSeconds(editPlan)) }
     return { mixInfo, editPlan, usedEmergency: false }
-  }
-
-  if (meetsDuration && !isRealMix) {
-    const scenePlan = buildSceneBasedEditPlan(args.analyses, args.targetDuration)
-    const filledScene = forceFillEditPlanToTarget(
-      ensureJumpCutEditPlan(scenePlan, args.analyses),
-      args.analyses
-    )
-    if (editPlanTotalOutputSeconds(filledScene) >= args.targetDuration * TARGET_FILL_MIN_RATIO - 0.15) {
-      return {
-        mixInfo: syncMixInfoFromEditPlan(mixInfo, filledScene, args.analyses),
-        editPlan: filledScene,
-        usedEmergency: false,
-      }
-    }
   }
 
   const emergency = buildEmergencyEditPlan(args.allAnalyses, args.videoIds, args.targetDuration)
   if (emergency?.editPlan.edit_plan.length) {
-    const filled = forceFillEditPlanToTarget(
-      ensureJumpCutEditPlan(emergency.editPlan, args.analyses),
-      args.analyses
-    )
+    const filled = forceFillEditPlanToTarget(emergency.editPlan, args.analyses)
     return {
-      mixInfo: syncMixInfoFromEditPlan(emergency.mixInfo, filled, args.analyses),
+      mixInfo: { ...emergency.mixInfo, actualDuration: ROUND(editPlanTotalOutputSeconds(filled)) },
       editPlan: filled,
       usedEmergency: true,
     }
@@ -315,11 +291,10 @@ export function ensureEditPlanOrEmergencyFallback(args: {
 
   if (editPlan.edit_plan.length > 0) {
     editPlan = forceFillEditPlanToTarget(editPlan, args.analyses)
-    editPlan = ensureJumpCutEditPlan(editPlan, args.analyses)
     const filledSec = editPlanTotalOutputSeconds(editPlan)
     if (filledSec >= args.targetDuration * TARGET_FILL_MIN_RATIO - 0.15) {
       return {
-        mixInfo: syncMixInfoFromEditPlan(mixInfo, editPlan, args.analyses),
+        mixInfo: { ...mixInfo, actualDuration: ROUND(filledSec) },
         editPlan,
         usedEmergency: false,
       }
@@ -327,13 +302,10 @@ export function ensureEditPlanOrEmergencyFallback(args: {
   }
 
   const scenePlan = buildSceneBasedEditPlan(args.analyses, args.targetDuration)
-  const filledScene = forceFillEditPlanToTarget(
-    ensureJumpCutEditPlan(scenePlan, args.analyses),
-    args.analyses
-  )
+  const filledScene = forceFillEditPlanToTarget(scenePlan, args.analyses)
   if (editPlanTotalOutputSeconds(filledScene) >= args.targetDuration * TARGET_FILL_MIN_RATIO - 0.15) {
     return {
-      mixInfo: syncMixInfoFromEditPlan(mixInfo, filledScene, args.analyses),
+      mixInfo: { ...mixInfo, actualDuration: ROUND(editPlanTotalOutputSeconds(filledScene)) },
       editPlan: filledScene,
       usedEmergency: false,
     }
@@ -626,36 +598,6 @@ function pickTotalDuration(picks: MixPick[]): number {
 
 function minimumPickCountForTarget(targetDuration: number): number {
   return Math.ceil(targetDuration / 2.4)
-}
-
-/** 편집 지시서 → mix picks (UI·대본 동기화) */
-export function mixPicksFromEditPlan(editPlan: EditPlan, analyses: VideoAnalysis[]): MixInfo {
-  const byId = new Map(analyses.map((a) => [a.video_id, a]))
-  const picks: MixPick[] = editPlan.edit_plan.map((seg) => {
-    const a = byId.get(seg.video_id) ?? analyses[0]!
-    return {
-      srcIndex: a.src_index ?? 0,
-      start: ROUND(seg.source_start),
-      end: ROUND(seg.source_end),
-      reason: seg.reason || "제품 장면",
-    }
-  })
-  return {
-    sourceCount: analyses.length,
-    targetDuration: editPlan.target_duration,
-    actualDuration: ROUND(editPlanTotalOutputSeconds(editPlan)),
-    picks,
-  }
-}
-
-function syncMixInfoFromEditPlan(mixInfo: MixInfo, editPlan: EditPlan, analyses: VideoAnalysis[]): MixInfo {
-  const synced = mixPicksFromEditPlan(editPlan, analyses)
-  return {
-    ...mixInfo,
-    picks: synced.picks,
-    targetDuration: synced.targetDuration,
-    actualDuration: synced.actualDuration,
-  }
 }
 
 /** 분석 장면을 슬라이스해 서로 다른 소스 구간 pick을 최대한 수확 */
@@ -1054,8 +996,10 @@ export function buildEditPlanFromMix(
   }
 
   editPlan = forceFillEditPlanToTarget(editPlan, analyses)
-  editPlan = ensureJumpCutEditPlan(editPlan, analyses)
-  mixInfo = syncMixInfoFromEditPlan(mixInfo, editPlan, analyses)
+  mixInfo = {
+    ...mixInfo,
+    actualDuration: ROUND(editPlanTotalOutputSeconds(editPlan)),
+  }
 
   return { mixInfo, editPlan }
 }
@@ -1145,7 +1089,6 @@ picks[]: srcIndex(0부터), start, end(소스 영상 초), reason(한국어 한 
 
 규칙:
 - pick당 **2~3.5초**. 약 ${pickCount}~${pickCount + 4}개 picks.
-- **전체 영상을 1개 pick(0~끝)으로 덮지 말 것** — 최소 ${Math.max(2, Math.ceil(targetDuration / 3))}개 picks 필수.
 - scenes에 있는 **의미 장면** 안에서 start/end를 고를 것 (촘촘한 키프레임 나열 금지).
 - 인물·제품·설치·시연·결과 화면 모두 사용 가능 (口播·인물 장면도 허용).
 - **첫 pick**: 후킹(투사 화면·임팩트 데모). 이후 기능→설치→화질→마무리 흐름.
@@ -1178,17 +1121,13 @@ JSON: {"picks":[{"srcIndex":0,"start":0,"end":2,"reason":"제품 클로즈업 �
     }
 
     if (raw.length) {
-      const hasOversizedPick = raw.some((p) => p.end - p.start > 4.5)
-      const rawTotal = raw.reduce((s, p) => s + (p.end - p.start), 0)
-      if (raw.length >= 2 && !hasOversizedPick && rawTotal >= targetDuration - 4) {
-        let mix = finalizeMixPicks(raw, analyses, targetDuration)
-        mix = fillMixToTargetDuration(mix, analyses, targetDuration)
-        const srcUsed = new Set(mix.picks.map((p) => p.srcIndex)).size
-        if (multi && srcUsed < analyses.length) {
-          mix = fillMixToTargetDuration(buildFallbackMix(analyses, targetDuration), analyses, targetDuration)
-        }
-        if (mix.picks.length >= 2 && mix.actualDuration >= targetDuration - 2) return mix
+      let mix = finalizeMixPicks(raw, analyses, targetDuration)
+      mix = fillMixToTargetDuration(mix, analyses, targetDuration)
+      const srcUsed = new Set(mix.picks.map((p) => p.srcIndex)).size
+      if (multi && srcUsed < analyses.length) {
+        mix = fillMixToTargetDuration(buildFallbackMix(analyses, targetDuration), analyses, targetDuration)
       }
+      if (mix.picks.length >= 2 && mix.actualDuration >= targetDuration - 2) return mix
     }
   } catch {
     /* fallback */
@@ -1398,7 +1337,6 @@ ${benchmarkScriptFewShotJson()}
 
 규칙:
 - **전체가 한 편의 쇼핑숏폼**처럼 앞뒤가 이어져야 함 (장면별 독립 문장 나열 금지).
-- **제품(${productAnalysis.productName})만** 홍보. 청소기·흡입·노즐·먼지 등 **다른 카테고리 언급 절대 금지** (거치대·홀더 제품이면 내비·고정·시야만).
 - 아래 visual 블록 순서는 **이미 스토리 흐름**(후킹→소개→설치→데모→결과→마무리)에 맞게 짜집기된 타임라인임. 순서를 바꾸지 말고 이 흐름에 맞는 대본만 작성.
 - 첫 장면: 후킹·관심, 중간: 기능·데모, 마지막: 정리·구매 욕구.
 - sceneSubtitles.conversion[i].text = 해당 장면 visual에 맞는 **완결된 구어체 문장** (한 줄 10~20자, 끊긴 명사구·조사만 있는 줄 금지, 요/죠/네/다로 마무리). 다음 장면과 어색한 주제 점프 금지.
@@ -1462,7 +1400,7 @@ ${JSON.stringify(
           ),
           sceneContexts,
           productAnalysis.productName,
-          { allowTemplateFallback: false, fitToDuration: false, userKeywords: productAnalysis.targetKeywords }
+          { allowTemplateFallback: false, fitToDuration: false }
         )
       )
       const scenes = bundle.sceneSubtitles.conversion.map((block, i) => {
@@ -1743,7 +1681,6 @@ export function buildQuickShoppingScript(
   const polished = polishCutNarrationLines(rawLines, contexts, productAnalysis.productName, {
     allowTemplateFallback: false,
     fitToDuration: true,
-    userKeywords: productAnalysis.targetKeywords,
   })
 
   const sceneBlocks: SceneSubtitleBlock[] = benchmarkScenes.map((s, i) => ({

@@ -33,11 +33,8 @@ import { sanitizeNarrationForOutput } from "@/lib/shotform-natural-shorts-script
 import {
   combineVisualAndProductNarration,
   isOrganizerOrStorageProduct,
-  isPhoneMountProduct,
   isRepeatMetaNarration,
   isToothbrushHolderProduct,
-  isVacuumCleanerContext,
-  isVacuumNarrationText,
 } from "@/lib/shotform-shopping-visual-cues"
 import { actionScriptTextForSourceRange } from "@/lib/shotform-scene-understanding"
 import { PRECISION_SCRIPT_TONE } from "@/lib/shotform-auto-edit-precision-script"
@@ -354,29 +351,9 @@ export function looksLikeDescriptiveSceneNarration(text: string): boolean {
   return false
 }
 
-function phoneMountNarrationLines(product: string, ruleOffset: number): string {
-  const p = product || "차량용 거치대"
-  const opts = [
-    `${p}, 운전 중에도 내비 보기 훨씬 편해요`,
-    `이렇게 고정하니 스마트폰 흔들림이 줄어요`,
-    `${p} 하나면 차 안 시야가 깔끔해져요`,
-    `주행할 때 스마트폰 각도 잡기 쉬워요`,
-    `대시보드에 붙이니 내비가 잘 보여요`,
-    `${p}로 통화·내비 같이 쓰기 좋아요`,
-    `운전 중 한 손으로 조작하기 편해져요`,
-    `차 안에서 폰 보기 불편하셨죠? ${p}면 해결돼요`,
-  ]
-  return opts[ruleOffset % opts.length]!
-}
-
 function buildFallbackNarration(d: string, productName: string | undefined, ruleOffset: number): string {
   const product =
     sanitizeProductNameForNarration(productName, { visualHint: d }) || "이 제품"
-  const productBlob = `${product} ${d}`
-
-  if (isPhoneMountProduct(productBlob)) {
-    return phoneMountNarrationLines(product, ruleOffset)
-  }
 
   const pools: string[][] = []
 
@@ -434,11 +411,8 @@ function buildFallbackNarration(d: string, productName: string | undefined, rule
   }
   const isMousePadScene =
     /마우스\s*패드|mouse\s*pad|게이밍\s*패드|데스크\s*매트|keyboard|키보드|gaming|RGB|LED/i.test(d)
-  const vacuumContext = isVacuumCleanerContext(productBlob) || /청소|먼지|흡입|노즐|진공/i.test(d)
   if (
     !isMousePadScene &&
-    !isPhoneMountProduct(productBlob) &&
-    vacuumContext &&
     /차량|차\s*안|자동차|시트|운전석|車|车载|운전|트렁크|대시보드|핸들\s*주변|차\s*바닥|바닥\s*매트/i.test(d)
   ) {
     pools.push([
@@ -466,11 +440,7 @@ function buildFallbackNarration(d: string, productName: string | undefined, rule
       "마감이 깔끔해서 고급스럽게 보여요",
     ])
   }
-  if (
-    !isPhoneMountProduct(productBlob) &&
-    isVacuumCleanerContext(productBlob) &&
-    /청소|먼지|흡입|吸尘|진공|vacuum|닦(?:아|여|으|이|는|고)/.test(d)
-  ) {
+  if (/청소|먼지|흡입|吸尘|진공|vacuum|닦(?:아|여|으|이|는|고)/.test(d)) {
     pools.push([
       `${product}로 먼지가 싹 빨려 들어가요`,
       "이렇게 흡입하면 구석 먼지가 바로 빠져요",
@@ -533,13 +503,10 @@ export function narrationMismatchesVisualProduct(text: string, visualCard: strin
   const visual = extractVisualDescription(visualCard)
   if (!script || !visual) return false
 
-  const vacuumScript = isVacuumNarrationText(script)
+  const vacuumScript =
+    /흡입|먼지가\s*바로\s*빠져|노즐|핸들\s*주변\s*먼지|차\s*안|시트.*먼지|진공|청소기/.test(script)
   const mouseVisual = /마우스\s*패드|mouse\s*pad|게이밍|keyboard|키보드|RGB|LED|책상|데스크\s*매트/i.test(visual)
   if (vacuumScript && mouseVisual) return true
-
-  const mountVisual = isPhoneMountProduct(`${visual} ${visualCard}`)
-  if (vacuumScript && mountVisual) return true
-  if (vacuumScript && /거치대|스마트폰|휴대폰|홀더|마운트|holder|mount|내비/i.test(visual)) return true
 
   const fanScript = /선풍기|바람\s*세기|휴대용\s*느낌|언박싱하니/.test(script)
   const carVisual = /차량|차\s*안|운전석|시트|바닥\s*매트|트렁크/i.test(visual)
@@ -781,11 +748,8 @@ function rephraseSceneCore(description: string, productName?: string, ruleOffset
       },
     },
     {
-      re: /거치대|꽂혀|꽂아|스탠드|holder|mount|마운트|홀더/i,
+      re: /거치대|꽂혀|꽂아|스탠드|holder/i,
       say: () => {
-        if (isPhoneMountProduct(productBlob)) {
-          return phoneMountNarrationLines(product || "차량용 거치대", ruleOffset)
-        }
         if (!/칫솔|牙刷|욕실|세면대/i.test(d) && !isToothbrushHolderProduct(productBlob)) {
           return buildFallbackNarration(d, product, ruleOffset)
         }

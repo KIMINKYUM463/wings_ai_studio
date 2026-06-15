@@ -12,7 +12,6 @@ import { boostSceneImportance, compareScenesByEditorialPriority } from "@/lib/sh
 import {
   actionScenesToVideoScenes,
   actionScenesToVisualScenes,
-  ensureMinimumActionScenes,
   refineActionScenesWithOpenAi,
   sampleKeyframeTimesAcrossDuration,
 } from "@/lib/shotform-scene-understanding"
@@ -194,16 +193,12 @@ export async function analyzeOneVideoPrecision(args: {
     ocr_text: r.ocr_text,
     scene_hint: r.scene_hint,
   }))
-  const action_scenes = ensureMinimumActionScenes(
-    await refineActionScenesWithOpenAi({
-      apiKey,
-      productTitle: title,
-      duration: analysisSpan,
-      frames: actionFrames,
-    }),
-    actionFrames,
-    analysisSpan
-  )
+  const action_scenes = await refineActionScenesWithOpenAi({
+    apiKey,
+    productTitle: title,
+    duration: analysisSpan,
+    frames: actionFrames,
+  })
 
   const visual_scenes = actionScenesToVisualScenes(action_scenes)
   let scenes = filterScenesForEdit(actionScenesToVideoScenes(action_scenes), visionFrames)

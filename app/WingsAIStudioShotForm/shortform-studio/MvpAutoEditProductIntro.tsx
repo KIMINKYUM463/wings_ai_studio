@@ -2,7 +2,7 @@
 
 import { Clock, Sparkles, Tag } from "lucide-react"
 import { cn } from "@/lib/utils"
-import type { AutoEditJobResult, VisualScene } from "@/lib/shotform-auto-edit-types"
+import type { AutoEditJobResult } from "@/lib/shotform-auto-edit-types"
 import { formatBenchmarkSceneCard } from "@/lib/shotform-visual-scene-match"
 
 type Props = {
@@ -19,23 +19,6 @@ export function MvpAutoEditProductIntro({ result, videoUrl, playhead = 0, classN
   const duration =
     result.mixInfo?.actualDuration ?? result.outputDuration ?? pa.videoDuration ?? 0
   const outputScenes = pa.scenes ?? []
-  const precisionAnalysisScenes: VisualScene[] | undefined = result.analyses?.[0]?.visual_scenes?.length
-    ? result.analyses[0].visual_scenes
-    : result.analyses?.[0]?.action_scenes?.map((s) => ({
-        start: s.start,
-        end: s.end,
-        description: s.scene_description,
-        shot_type: s.shot_type,
-      }))
-  const minExpectedScenes = Math.max(3, Math.ceil(duration / 6))
-  const displayScenes =
-    outputScenes.length >= minExpectedScenes || !precisionAnalysisScenes?.length
-      ? outputScenes
-      : precisionAnalysisScenes
-  const sceneListLabel =
-    displayScenes === outputScenes
-      ? "짜집기 장면 분석"
-      : "정밀 행동 장면 분석"
   const vs = pa.videoStructure
   const hasStructure = Boolean(vs?.hook?.trim() || vs?.body?.trim() || vs?.cta?.trim())
 
@@ -125,18 +108,16 @@ export function MvpAutoEditProductIntro({ result, videoUrl, playhead = 0, classN
         </details>
       ) : null}
 
-      {displayScenes.length > 0 ? (
+      {outputScenes.length > 0 ? (
         <div className="rounded-lg border border-violet-500/20 bg-violet-950/15 p-2.5">
           <p className="text-[10px] font-semibold text-violet-200">
-            {sceneListLabel} ({displayScenes.length}구간)
+            짜집기 장면 분석 ({outputScenes.length}구간)
           </p>
           <p className="mt-0.5 text-[9px] text-slate-500">
-            {displayScenes === outputScenes
-              ? "출력 타임라인 구간별 화면 설명 — 대본 sceneSubtitles와 맞춥니다."
-              : "Vision·행동 분석 구간 — 짜집기 전 정밀 분석 결과입니다."}
+            출력 타임라인 구간별 화면 설명 — 대본 sceneSubtitles와 맞춥니다.
           </p>
           <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto">
-            {displayScenes.map((sc, i) => {
+            {outputScenes.map((sc, i) => {
               const active = playhead >= sc.start - 0.05 && playhead < sc.end - 0.02
               return (
                 <li

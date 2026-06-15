@@ -21,7 +21,7 @@ import type { CutScriptContext } from "@/lib/shotform-visual-scene-match"
 import { sanitizeNarrationForOutput } from "@/lib/shotform-natural-shorts-script"
 import type { CutNarrationSceneMeta } from "@/lib/shotform-narration-scene-groups"
 import { narrationForRepeatedScene } from "@/lib/shotform-narration-scene-groups"
-import { isRepeatMetaNarration, isPhoneMountProduct, isVacuumNarrationText } from "@/lib/shotform-shopping-visual-cues"
+import { isRepeatMetaNarration } from "@/lib/shotform-shopping-visual-cues"
 import {
   hasExcessiveScriptRepetition,
   narrationBlockSimilarity,
@@ -150,15 +150,6 @@ const VISUAL_THEME_RULES: Array<{ re: RegExp; theme: string; keywords: string[] 
 
 const OPENING_HOOK_POOLS: Array<{ re: RegExp; hooks: string[] }> = [
   {
-    re: /스마트폰|휴대폰|핸드폰|차량용|手机|车载|dashboard|car\s*mount|내비|네비|대시보드/i,
-    hooks: [
-      "운전 중 폰 보기 불편하셨죠? 이 거치대면 해결돼요",
-      "차 안에서 내비 각도 잡기 힘드셨죠? 이거 보세요",
-      "이거 몰랐으면 운전할 때마다 폰 찾느라 고생했을 것 같아요",
-      "주행 중 스마트폰 흔들림, 거치대 하나로 잡혀요",
-    ],
-  },
-  {
     re: /배드민턴|셔틀콕|라켓|훈련기/i,
     hooks: [
       "파트너 없어도 이렇게 연습된다고요?",
@@ -176,7 +167,7 @@ const OPENING_HOOK_POOLS: Array<{ re: RegExp; hooks: string[] }> = [
     ],
   },
   {
-    re: /청소|먼지|흡입|吸尘|노즐|진공/i,
+    re: /청소|먼지|흡입|吸尘/i,
     hooks: [
       "이거 몰라서 청소 시간만 늘었어요",
       "구석 먼지, 이렇게 빨아들이는 거 있더라고요",
@@ -184,7 +175,7 @@ const OPENING_HOOK_POOLS: Array<{ re: RegExp; hooks: string[] }> = [
     ],
   },
   {
-    re: /칫솔|牙刷|욕실|세면대|퍼즐|전동칫솔/i,
+    re: /칫솔|거치대|욕실|세면대|꽂|벽걸이|퍼즐|수납|정리/i,
     hooks: [
       "욕실 칫솔 뒤죽박죽이신 분? 이거 하나면 끝이에요",
       "세면대 위 어지러우셨죠? 이 정리템 보세요",
@@ -196,15 +187,8 @@ const OPENING_HOOK_POOLS: Array<{ re: RegExp; hooks: string[] }> = [
 
 function openingHookForVisual(visualCard: string, productName: string, cutIndex: number): string | null {
   const desc = extractVisualDescription(visualCard) + " " + productName
-  if (isPhoneMountProduct(desc)) {
-    const hooks = OPENING_HOOK_POOLS[0]!.hooks
-    return hooks[cutIndex % hooks.length]!
-  }
   for (const pool of OPENING_HOOK_POOLS) {
     if (pool.re.test(desc)) {
-      if (/청소|먼지|흡입|노즐|진공/i.test(pool.hooks[0] || "") && !/청소|먼지|흡입|노즐|진공/i.test(desc)) {
-        continue
-      }
       return pool.hooks[cutIndex % pool.hooks.length]!
     }
   }
