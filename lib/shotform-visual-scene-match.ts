@@ -292,7 +292,12 @@ export function visualSceneForSourceRange(
 export function formatBenchmarkSceneCard(scene: VisualScene): string {
   const dur = sceneDurationLabel(scene.start, scene.end)
   const desc = stripShotLabelFromDescription(scene.description)
-  return `${formatBenchmarkSceneRange(scene.start, scene.end)} (${dur}초) ${desc}`
+  const role = scene.scene_role ? `[${scene.scene_role}] ` : ""
+  const script =
+    scene.script_lines?.length && scene.script_lines.some((l) => l.trim())
+      ? ` · 대본: ${scene.script_lines.filter((l) => l.trim()).join(" / ")}`
+      : ""
+  return `${formatBenchmarkSceneRange(scene.start, scene.end)} (${dur}초) ${role}${desc}${script}`
 }
 
 /** 편집 컷 — 소스 영상에서 실제로 자른 구간 기준 카드 */

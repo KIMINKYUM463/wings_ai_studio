@@ -1,15 +1,13 @@
 import { waitUntil } from "@vercel/functions"
 import { type NextRequest, NextResponse } from "next/server"
 import type { AutoEditInput, AutoEditTargetDuration, AutoEditVideoInput } from "@/lib/shotform-auto-edit-types"
-import { MAX_AUTO_EDIT_VIDEOS, normalizeAutoEditAnalysisMode } from "@/lib/shotform-auto-edit-types"
+import { MAX_AUTO_EDIT_VIDEOS, normalizeAutoEditAnalysisMode, normalizeAutoEditTargetDuration } from "@/lib/shotform-auto-edit-types"
 import { createAutoEditWorkDir } from "@/lib/shotform-auto-edit-ffmpeg"
 import { persistAutoEditJobToSupabase } from "@/lib/shotform-auto-edit-job-store"
 import { getAutoEditJobAsync, putAutoEditJob } from "@/lib/shotform-auto-edit-jobs"
 import { runAutoEditPipeline } from "@/lib/shotform-auto-edit-pipeline"
 
 export const maxDuration = 800
-
-const DURATIONS = new Set<number>([20, 30, 45, 60])
 
 function openaiKey(body: Record<string, unknown>): string {
   return (
@@ -97,8 +95,7 @@ function parsePayload(body: Record<string, unknown>) {
       })
     }
   }
-  const targetRaw = Number(body.targetDuration ?? 30)
-  const targetDuration = (DURATIONS.has(targetRaw) ? targetRaw : 30) as AutoEditTargetDuration
+  const targetDuration = normalizeAutoEditTargetDuration(body.targetDuration, 30)
   return { videos, targetDuration }
 }
 

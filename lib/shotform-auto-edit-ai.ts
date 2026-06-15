@@ -20,6 +20,7 @@ import {
   mergeVisionIntoScenes,
 } from "@/lib/shotform-auto-edit-product-filter"
 import { boostSceneImportance, compareScenesByEditorialPriority, sceneEditorialScore } from "@/lib/shotform-scene-priority"
+import { ACTION_SCENE_MERGE_SYSTEM_PROMPT } from "@/lib/shotform-scene-understanding"
 import { normalizeBenchmarkVisualScenes } from "@/lib/shotform-visual-scene-match"
 
 const BENCHMARK_VISION_HINT_MAX = 8
@@ -144,15 +145,17 @@ export async function analyzeVideoWithAi(args: {
       edit_scenes?: unknown
     }>(
       apiKey,
-      `쇼핑 숏폼 영상 분석가. JSON만 출력. **대본·나레이션 작성 금지** — 벤치마킹 프로그램처럼 **장면 분할**만.
+      `쇼핑 숏폼·릴스 **행동 기반 장면 분석**. 이미지 캡션 금지. JSON만 출력.
 
-productName, category, targetKeywords[](한국어), videoStructure{hook,body,cta}, summary(한국어),
+${ACTION_SCENE_MERGE_SYSTEM_PROMPT}
 
-scenes[{start,end,shot_type,description}] — **영상 전체**를 장면 전환 기준으로 3~12구간.
-- shot_type: 미디엄샷|와이드샷|클로즈업|익스트림클로즈업|오버헤드샷|풀샷|기타
-- description: 한국어, **반드시 [클로즈업] 또는 [와이드샷] 등 shot_type을 대괄호로 문장 맨 앞에 붙인 뒤** 화면 설명 (50~120자). Vision caption과 **같은 시각**이면 내용이 일치해야 함. 제목·제품 카테고리로 **추측·환각 금지** (예: 화면에 차량이 없으면 차량 내부라고 쓰지 말 것). **중국어 자막·하단 텍스트·배경 글자가 보이면 해당 구간은 edit_scenes에서 제외**하고 scenes에는 [자막있음] 표시.
-- edit_scenes[{start,end,description,importance,visual_type,content_type}] — **편집에 쓸** 장면. 인물·제품·시연·결과 화면 모두 포함 (인물이 나와도 편집 가능). **중국어 자막·하단 텍스트만 제외**.
-importance 9~10: 임팩트 있는 후킹·제품 클로즈업·실사용 데모.`,
+추가 필드:
+productName, category, targetKeywords[](한국어), videoStructure{hook,body,cta}, summary(한국어)
+
+edit_scenes[{start,end,description,importance,visual_type,content_type,scene_role,script_lines}] — 편집용.
+- description = scene_description (행동 중심, [샷타입] 포함)
+- importance 9~10: 후킹·설치·실사용 데모
+- **중국어 자막·하단 텍스트만 있는 구간은 제외**`,
       `제목: ${title || "(없음)"}
 플랫폼: ${platform}
 영상 길이: ${duration.toFixed(1)}초
@@ -173,7 +176,6 @@ JSON: {"productName":"","category":"","targetKeywords":[],"videoStructure":{"hoo
       2000
     )
     const semanticScenes = normalizeVisualScenes(parsed.scenes, duration)
-    const visual_scenes = semanticScenes.length ? semanticScenes : undefined
     const keywords = Array.isArray(parsed.targetKeywords)
       ? parsed.targetKeywords.map((k) => String(k).trim()).filter(Boolean)
       : []
@@ -196,7 +198,7 @@ JSON: {"productName":"","category":"","targetKeywords":[],"videoStructure":{"hoo
       duration,
       source_url: sourceUrl,
       scenes,
-      visual_scenes: visual_scenes.length ? visual_scenes : undefined,
+      visual_scenes: semanticScenes.length ? semanticScenes : undefined,
       productName: parsed.productName || title,
       category: parsed.category || "쇼핑",
       targetKeywords: keywords,
@@ -239,16 +241,9 @@ JSON: {"productName":"","category":"","targetKeywords":[],"videoStructure":{"hoo
 }
 
 function targetLineCount(td: AutoEditTargetDuration): { min: number; max: number } {
-  switch (td) {
-    case 20:
-      return { min: 6, max: 8 }
-    case 30:
-      return { min: 8, max: 10 }
-    case 45:
-      return { min: 12, max: 14 }
-    case 60:
-      return { min: 16, max: 18 }
-  }
+  const min = Math.max(4, Math.round(td / 4))
+  const max = Math.min(22, Math.max(min + 2, Math.round(td / 3.2)))
+  return { min, max }
 }
 
 function scenesForPrompt(analyses: VideoAnalysis[]) {

@@ -36,6 +36,7 @@ import {
   isRepeatMetaNarration,
   isToothbrushHolderProduct,
 } from "@/lib/shotform-shopping-visual-cues"
+import { actionScriptTextForSourceRange } from "@/lib/shotform-scene-understanding"
 
 /** 벤치마크 UI용 — [샷] + 장면 묘사 */
 export function formatSceneDescriptionHint(visualCard: string): string {
@@ -1164,6 +1165,12 @@ export function narrationTextForEditSegment(
   productName?: string
 ): string {
   const dur = Math.max(0.5, seg.output_end - seg.output_start)
+  if (analysis) {
+    const fromAction = actionScriptTextForSourceRange(analysis, seg.source_start, seg.source_end)
+    if (fromAction && !isGenericTemplateNarration(fromAction) && !narrationTextLooksWeak(fromAction)) {
+      return formatNarrationForSceneDuration(fromAction, dur)
+    }
+  }
   const direct = seg.visual_caption || seg.reason
   if (!analysis) {
     return rephraseSceneToShoppingNarration(direct, productName, dur)
@@ -1477,6 +1484,16 @@ export function buildNarrationSegmentsFromEditPlan(
         )
       : seg.reason
     const fromVisual = narrationTextForEditSegment(seg, analysis, safeProductName)
+    const fromAction =
+      analysis && !aligned
+        ? actionScriptTextForSourceRange(analysis, seg.source_start, seg.source_end)
+        : ""
+    const actionUsable =
+      Boolean(fromAction) &&
+      !looksLikeRawSceneCopy(fromAction, visualHint) &&
+      !isGenericTemplateNarration(fromAction) &&
+      !narrationTextLooksWeak(fromAction, visualHint) &&
+      !narrationLooksIncomplete(fromAction.replace(/\n/g, " "))
     const fromBundle = bundleTextForEditCut(i, plan, bundleScenes ?? undefined)
     const rawScript = aligned ? scriptLines![i]!.text.trim() : ""
     const scriptUsable =
@@ -1493,9 +1510,11 @@ export function buildNarrationSegmentsFromEditPlan(
 
     const fromScript = scriptUsable
       ? formatNarrationForSceneDuration(rawScript, dur)
-      : bundleUsable
-        ? formatNarrationForSceneDuration(fromBundle, dur)
-        : ""
+      : actionUsable
+        ? formatNarrationForSceneDuration(fromAction, dur)
+        : bundleUsable
+          ? formatNarrationForSceneDuration(fromBundle, dur)
+          : ""
 
     let preferred = fromScript || fromVisual
     if (!fromScript && !isGenericTemplateNarration(preferred)) {

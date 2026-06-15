@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Check, Download, Loader2, Scissors, Sparkles } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -23,6 +23,7 @@ import type {
 import {
   AUTO_EDIT_ANALYSIS_MODE_DEFAULT,
   AUTO_EDIT_ANALYSIS_MODE_OPTIONS,
+  AUTO_EDIT_DURATION_OPTIONS,
 } from "@/lib/shotform-auto-edit-types"
 import { toAutoEditVideoInputs } from "@/lib/shotform-auto-edit-types"
 import { editPlanTotalOutputSeconds } from "@/lib/shotform-auto-edit-plan-finalize"
@@ -44,8 +45,15 @@ import {
   VMAKE_SUBTITLE_REMOVAL_SLOW_HINT,
   VMAKE_SUBTITLE_REMOVAL_STALL_HINT,
 } from "@/lib/shotform-vmake-subtitle-removal"
+import { estimateAutoEditAnalyzeSeconds } from "@/lib/shotform-scene-understanding"
 
-const DURATIONS: AutoEditTargetDuration[] = [20, 30, 45, 60]
+
+/** 목표 쇼츠 길이 — 5초 단위 슬라이더 인덱스 */
+function durationSliderIndex(duration: AutoEditTargetDuration): number {
+  const idx = AUTO_EDIT_DURATION_OPTIONS.indexOf(duration)
+  return idx >= 0 ? idx : AUTO_EDIT_DURATION_OPTIONS.indexOf(30)
+}
+
 /** 「쓸수있는 영상 없음」 간헐 오류 — 자동 재시도 횟수 (총 1+2=3회 시도) */
 const AUTO_EDIT_USABLE_VIDEO_MAX_RETRIES = 2
 
@@ -67,9 +75,9 @@ function stepIndex(step: AutoEditJobResult["step"]): number {
 }
 
 const ANALYZE_STEP_HINTS: Record<AutoEditAnalysisMode, string> = {
-  fast: "Vision 분석 중… (고속: 보통 15~45초, 2분 넘으면 자동 안내)",
-  balanced: "키프레임 추출·Vision·장면 분석 중… (중간: 약 1~3분, 4분 넘으면 자동 안내)",
-  precision: "영상별 심층 분석·mix 생성 중… (정밀: 약 3~8분, 10분 넘으면 자동 안내)",
+  fast: "행동 기반 Vision 분석 중… (URL 1개·CDN: 보통 60~120초, 업로드 완료 시 20~50초)",
+  balanced: "키프레임 추출·행동 분석·장면 병합 중… (중간: 약 1~3분)",
+  precision: "영상별 심층 행동 분석·mix 생성 중… (정밀: 약 3~8분)",
 }
 
 function stepHintsForMode(
@@ -291,6 +299,18 @@ export function MvpAutoEditDialog({
   const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null)
   const previewBlobRef = useRef<string | null>(null)
   const picksKey = picks.map((p) => p.key).join("|")
+
+  const analyzeEta = useMemo(
+    () =>
+      estimateAutoEditAnalyzeSeconds({
+        pickCount: Math.max(1, picks.length),
+        maxSourceDurationSec: 90,
+        mode: analysisMode,
+        hasClientKeyframe: false,
+        skipServerDownload: false,
+      }),
+    [picks.length, analysisMode]
+  )
 
   const revokePreviewBlob = useCallback(() => {
     if (previewBlobRef.current) {
@@ -614,6 +634,10 @@ export function MvpAutoEditDialog({
           </DialogTitle>
           <DialogDescription className="text-slate-400">
             {picks.length}개 영상 선택됨 · 목표 {targetDuration}초 쇼츠
+            <span className="mt-0.5 block text-[10px] font-normal text-slate-500">
+              분석 예상 약 {analyzeEta.min}~{analyzeEta.max}초 · 소스 영상 길이(예: 2분)와 목표 쇼츠 길이는
+              별개입니다
+            </span>
           </DialogDescription>
         </DialogHeader>
 
@@ -657,25 +681,36 @@ export function MvpAutoEditDialog({
           </div>
 
           <div>
-            <p className="mb-2 text-xs font-medium text-slate-400">목표 쇼츠 길이</p>
-            <div className="flex flex-wrap gap-2">
-              {DURATIONS.map((d) => (
-                <Button
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <p className="text-xs font-medium text-slate-400">목표 쇼츠 길이</p>
+              <p className="text-sm font-semibold tabular-nums text-violet-200">{targetDuration}초</p>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={AUTO_EDIT_DURATION_OPTIONS.length - 1}
+              step={1}
+              value={durationSliderIndex(targetDuration)}
+              disabled={loading}
+              onChange={(e) => {
+                const idx = Number(e.target.value)
+                const next = AUTO_EDIT_DURATION_OPTIONS[idx]
+                if (next != null) setTargetDuration(next)
+              }}
+              className="h-2 w-full cursor-pointer appearance-none rounded-full bg-white/10 accent-violet-500 disabled:opacity-50"
+              aria-label="목표 쇼츠 길이"
+            />
+            <div className="mt-1.5 flex justify-between px-0.5 text-[9px] tabular-nums text-slate-600">
+              {AUTO_EDIT_DURATION_OPTIONS.map((d) => (
+                <span
                   key={d}
-                  type="button"
-                  size="sm"
-                  variant={targetDuration === d ? "default" : "outline"}
                   className={cn(
-                    "h-8 min-w-[3rem]",
-                    targetDuration === d
-                      ? studio.btnSegmentActive
-                      : "border-white/15 bg-black/40 text-slate-300"
+                    "w-4 text-center",
+                    targetDuration === d ? "font-semibold text-violet-300" : ""
                   )}
-                  disabled={loading}
-                  onClick={() => setTargetDuration(d)}
                 >
-                  {d}초
-                </Button>
+                  {d}
+                </span>
               ))}
             </div>
           </div>

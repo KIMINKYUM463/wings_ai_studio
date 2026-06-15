@@ -4,12 +4,22 @@ import {
   descriptionSuggestsProductInUse,
   type SceneContentType,
 } from "@/lib/shotform-auto-edit-product-filter"
+import {
+  ACTION_VISION_FRAME_SYSTEM_PROMPT,
+  parseActionFrameFromVisionRow,
+} from "@/lib/shotform-scene-understanding"
 import { extractVideoKeyframes } from "@/lib/shotform-auto-edit-ffmpeg"
 
 type FrameVisionResult = {
   timeSec: number
   content_type: SceneContentType
   caption?: string
+  shot_type?: string
+  hand_action?: string
+  product?: string
+  product_use?: string
+  ocr_text?: string
+  scene_hint?: string
 }
 
 export type VideoVisionScreenResult = {
@@ -54,17 +64,9 @@ export async function visionClassifyFrames(
       messages: [
         {
           role: "system" as const,
-          content: `쇼핑 숏폼 영상 프레임 분류기. JSON만 출력.
-각 프레임마다 content_type + caption(한국어 30~70자, **이 프레임에 실제로 보이는** 배경·제품·행동만. 제목·추측·이전 장면 맥락 금지).
-content_type:
-- product_only: 제품만 클로즈업·와이드 (사람 없음)
-- product_in_use: **제품을 사용·시연·조작**하는 장면. 손·팔·몸·얼굴 일부가 보여도 **제품 사용이 화면 주제**면 이 타입
-- person_presenting: 카메라를 보며 **소개·讲解·口播** (제품 사용이 아닌 말하기)
-- talking_head: 얼굴 클로즈업·口播·립싱크 중심
-- mixed: 제품과 인물이 함께이지만 **사용/시연 중**이면 product_in_use 로 분류
-- text_overlay: 로고·문구·CTA 버튼만 있고 **실제 제품 영상이 없는** 화면 (검은 배경 엔딩, 记得点赞, 获取更多, 팔로우 버튼 등)
+          content: ACTION_VISION_FRAME_SYSTEM_PROMPT + `
 
-**분류 참고**: text_overlay는 제품 없이 텍스트·로고·버튼만 보일 때. 제품 시연 위 작은 자막은 product_in_use.`,
+JSON: {"frames":[{"index":0,"content_type":"product_in_use","shot_type":"클로즈업","hand_action":"손이 벽에 거치대를 눌러 붙이는 중","product":"칫솔 거치대","product_use":"무타공 벽면 부착","ocr_text":"无需打孔","scene_hint":"설치"}]}`,
         },
         {
           role: "user" as const,
@@ -74,7 +76,7 @@ content_type:
               text: `제목: ${title || "(없음)"}
 프레임 ${images.length}장, index 0=앞 구간 순.
 
-JSON: {"frames":[{"index":0,"content_type":"product_only","caption":"[클로즈업] 손에 든 검은색 핸디청소기, 빨간 풍선이 노즐에 붙어 있음. 실내 바닥 배경."}]}`,
+JSON: {"frames":[{"index":0,"content_type":"product_in_use","shot_type":"클로즈업","hand_action":"손이 벽에 거치대를 눌러 붙이는 중","product":"칫솔 거치대","product_use":"무타공 벽면 부착","ocr_text":"","scene_hint":"설치"}]}`,
             },
             ...images.map((img) => ({
               type: "image_url" as const,
@@ -108,18 +110,30 @@ JSON: {"frames":[{"index":0,"content_type":"product_only","caption":"[클로즈�
     const ctRaw = String((row || rowFallback)?.content_type || "other")
     let ct = ctRaw as SceneContentType
     if (ctRaw === "subtitle") ct = "text_overlay"
-    const caption = String((row || rowFallback)?.caption || "").trim().slice(0, 120)
+    const parsed = parseActionFrameFromVisionRow(
+      (row || rowFallback || {}) as Record<string, unknown>,
+      frames[i]!.timeSec,
+      CONTENT_TYPES.includes(ct) ? ct : "other"
+    )
     if (
-      (ct === "mixed" || ct === "person_presenting" || ct === "talking_head") &&
-      caption &&
-      descriptionSuggestsProductInUse(caption)
+      (parsed.content_type === "mixed" ||
+        parsed.content_type === "person_presenting" ||
+        parsed.content_type === "talking_head") &&
+      parsed.hand_action &&
+      descriptionSuggestsProductInUse(parsed.hand_action)
     ) {
-      ct = "product_in_use"
+      parsed.content_type = "product_in_use"
     }
     out.push({
       timeSec: frames[i]!.timeSec,
-      content_type: CONTENT_TYPES.includes(ct) ? ct : "other",
-      ...(caption ? { caption } : {}),
+      content_type: parsed.content_type,
+      ...(parsed.caption ? { caption: parsed.caption } : {}),
+      ...(parsed.shot_type ? { shot_type: parsed.shot_type } : {}),
+      ...(parsed.hand_action ? { hand_action: parsed.hand_action } : {}),
+      ...(parsed.product ? { product: parsed.product } : {}),
+      ...(parsed.product_use ? { product_use: parsed.product_use } : {}),
+      ...(parsed.ocr_text ? { ocr_text: parsed.ocr_text } : {}),
+      ...(parsed.scene_hint ? { scene_hint: parsed.scene_hint } : {}),
     })
   }
 
@@ -173,12 +187,10 @@ export async function visionClassifyFramesBatch(
       messages: [
         {
           role: "system" as const,
-          content: `쇼핑 숏폼 프레임 분류기. JSON만 출력.
-각 이미지마다 srcIndex, timeSec, content_type, caption(한국어 30~70자).
-content_type: product_only|product_in_use|person_presenting|talking_head|mixed|text_overlay|other
-text_overlay: 로고·문구·CTA 버튼만 있고 실제 제품 영상이 없는 화면 (검은 배경 엔딩카드, 记得点赞, 获取更多 등)
-인물·제품·시연 장면은 편집에 사용 가능 — 화면에 실제 보이는 것만 caption에 기술.
-JSON: {"frames":[{"imageIndex":0,"srcIndex":0,"timeSec":1.2,"content_type":"product_in_use","caption":"..."}]}`,
+          content: ACTION_VISION_FRAME_SYSTEM_PROMPT + `
+
+imageIndex·srcIndex·timeSec 매핑 필수.
+JSON: {"frames":[{"imageIndex":0,"srcIndex":0,"timeSec":1.2,"content_type":"product_in_use","shot_type":"클로즈업","hand_action":"손이 칫솔을 거치대에 꽂는 중","product":"칫솔 거치대","product_use":"칫솔 수납","ocr_text":"","scene_hint":"수납"}]}`,
         },
         {
           role: "user" as const,
@@ -222,19 +234,31 @@ JSON: {"frames":[{"imageIndex":0,"srcIndex":0,"timeSec":1.2,"content_type":"prod
     const ctRaw = String((row || rowFallback)?.content_type || "other")
     let ct = ctRaw as SceneContentType
     if (ctRaw === "subtitle") ct = "text_overlay"
-    const caption = String((row || rowFallback)?.caption || "").trim().slice(0, 120)
+    const parsed = parseActionFrameFromVisionRow(
+      (row || rowFallback || {}) as Record<string, unknown>,
+      Number.isFinite(timeSec) ? timeSec : f.timeSec,
+      CONTENT_TYPES.includes(ct) ? ct : "other"
+    )
     if (
-      (ct === "mixed" || ct === "person_presenting" || ct === "talking_head") &&
-      caption &&
-      descriptionSuggestsProductInUse(caption)
+      (parsed.content_type === "mixed" ||
+        parsed.content_type === "person_presenting" ||
+        parsed.content_type === "talking_head") &&
+      parsed.hand_action &&
+      descriptionSuggestsProductInUse(parsed.hand_action)
     ) {
-      ct = "product_in_use"
+      parsed.content_type = "product_in_use"
     }
     out.push({
       srcIndex: Number.isFinite(srcIndex) ? srcIndex : f.srcIndex,
       timeSec: Number.isFinite(timeSec) ? timeSec : f.timeSec,
-      content_type: CONTENT_TYPES.includes(ct) ? ct : "other",
-      ...(caption ? { caption } : {}),
+      content_type: parsed.content_type,
+      ...(parsed.caption ? { caption: parsed.caption } : {}),
+      ...(parsed.shot_type ? { shot_type: parsed.shot_type } : {}),
+      ...(parsed.hand_action ? { hand_action: parsed.hand_action } : {}),
+      ...(parsed.product ? { product: parsed.product } : {}),
+      ...(parsed.product_use ? { product_use: parsed.product_use } : {}),
+      ...(parsed.ocr_text ? { ocr_text: parsed.ocr_text } : {}),
+      ...(parsed.scene_hint ? { scene_hint: parsed.scene_hint } : {}),
     })
   }
   return out

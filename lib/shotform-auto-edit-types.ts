@@ -1,6 +1,24 @@
 /** 쇼핑 숏폼 자동 편집 — 공통 타입 */
 
-export type AutoEditTargetDuration = 20 | 30 | 45 | 60
+/** 목표 쇼츠 길이 (5초 단위) */
+export const AUTO_EDIT_DURATION_OPTIONS = [
+  5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60,
+] as const
+
+export type AutoEditTargetDuration = (typeof AUTO_EDIT_DURATION_OPTIONS)[number]
+
+export function normalizeAutoEditTargetDuration(
+  raw: unknown,
+  fallback: AutoEditTargetDuration = 30
+): AutoEditTargetDuration {
+  const n = Number(raw)
+  if (AUTO_EDIT_DURATION_OPTIONS.includes(n as AutoEditTargetDuration)) {
+    return n as AutoEditTargetDuration
+  }
+  const snapped = Math.round(n / 5) * 5
+  if (snapped >= 5 && snapped <= 60) return snapped as AutoEditTargetDuration
+  return fallback
+}
 
 export const MAX_AUTO_EDIT_VIDEOS = 5
 
@@ -17,7 +35,7 @@ export const AUTO_EDIT_ANALYSIS_MODE_OPTIONS: Array<{
   {
     id: "fast",
     label: "고속",
-    hint: "브라우저 미리 분석 + Vision 1회 · 영상 1~2개 10~40초, 3개↑ CDN이면 1~2분",
+    hint: "소스 전 구간에서 핵심 프레임만 샘플 · URL 1개(CDN) 약 1~2분, 브라우저 업로드 완료 시 20~50초",
   },
   {
     id: "balanced",
@@ -44,6 +62,32 @@ export type SceneVisualType =
   | "cta"
   | "other"
 
+/** 행동 기반 장면 역할 — 연속 중복 금지 */
+export type SceneRole =
+  | "문제 제기"
+  | "설치 방법"
+  | "사용 방법"
+  | "기능 소개"
+  | "수납 효과"
+  | "추가 활용"
+  | "세척"
+  | "관리"
+  | "구매 포인트"
+  | "마무리"
+  | "데모"
+
+/** 행동 기반 장면 분석 결과 */
+export type ActionScene = {
+  start: number
+  end: number
+  shot_type: string
+  scene_role: SceneRole
+  scene_description: string
+  script_lines: string[]
+  ocr_text?: string
+  content_type?: SceneContentType
+}
+
 /** 장면에 사람이 나와 소개하는지 등 — 짜집기 필터용 */
 export type SceneContentType =
   | "product_only"
@@ -64,6 +108,10 @@ export type VideoScene = {
   visual_type: SceneVisualType
   content_type?: SceneContentType
   has_person_presenting?: boolean
+  shot_type?: string
+  scene_role?: SceneRole
+  script_lines?: string[]
+  ocr_text?: string
 }
 
 /** 벤치마크 스타일 — 분석용 시각 장면 (대본 없음) */
@@ -72,6 +120,9 @@ export type VisualScene = {
   end: number
   description: string
   shot_type?: string
+  scene_role?: SceneRole
+  script_lines?: string[]
+  ocr_text?: string
 }
 
 export type ProductVideoStructure = {
@@ -123,7 +174,19 @@ export type VideoAnalysis = {
   src_index?: number
   product_fit?: VideoProductFit
   product_fit_reason?: string
-  vision_frames?: Array<{ timeSec: number; content_type: SceneContentType; caption?: string }>
+  vision_frames?: Array<{
+    timeSec: number
+    content_type: SceneContentType
+    caption?: string
+    shot_type?: string
+    hand_action?: string
+    product?: string
+    product_use?: string
+    ocr_text?: string
+    scene_hint?: string
+  }>
+  /** 행동 기반 장면 분석 (Scene Understanding) */
+  action_scenes?: ActionScene[]
 }
 
 export type EditPlanSegment = {
