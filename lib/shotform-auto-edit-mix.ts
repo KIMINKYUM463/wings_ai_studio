@@ -1337,6 +1337,7 @@ ${benchmarkScriptFewShotJson()}
 
 규칙:
 - **전체가 한 편의 쇼핑숏폼**처럼 앞뒤가 이어져야 함 (장면별 독립 문장 나열 금지).
+- **제품(${productAnalysis.productName})만** 홍보. 청소기·흡입·노즐·먼지 등 **다른 카테고리 언급 절대 금지** (거치대·홀더 제품이면 내비·고정·시야만).
 - 아래 visual 블록 순서는 **이미 스토리 흐름**(후킹→소개→설치→데모→결과→마무리)에 맞게 짜집기된 타임라인임. 순서를 바꾸지 말고 이 흐름에 맞는 대본만 작성.
 - 첫 장면: 후킹·관심, 중간: 기능·데모, 마지막: 정리·구매 욕구.
 - sceneSubtitles.conversion[i].text = 해당 장면 visual에 맞는 **완결된 구어체 문장** (한 줄 10~20자, 끊긴 명사구·조사만 있는 줄 금지, 요/죠/네/다로 마무리). 다음 장면과 어색한 주제 점프 금지.
@@ -1400,7 +1401,7 @@ ${JSON.stringify(
           ),
           sceneContexts,
           productAnalysis.productName,
-          { allowTemplateFallback: false, fitToDuration: false }
+          { allowTemplateFallback: false, fitToDuration: false, userKeywords: productAnalysis.targetKeywords }
         )
       )
       const scenes = bundle.sceneSubtitles.conversion.map((block, i) => {
@@ -1681,6 +1682,7 @@ export function buildQuickShoppingScript(
   const polished = polishCutNarrationLines(rawLines, contexts, productAnalysis.productName, {
     allowTemplateFallback: false,
     fitToDuration: true,
+    userKeywords: productAnalysis.targetKeywords,
   })
 
   const sceneBlocks: SceneSubtitleBlock[] = benchmarkScenes.map((s, i) => ({
