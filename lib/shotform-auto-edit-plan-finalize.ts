@@ -386,7 +386,11 @@ export function forceFillEditPlanToTarget(
   let outCursor = editPlanTotalOutputSeconds({ target_duration: target, edit_plan })
 
   if (outCursor >= target * minRatio - 0.1) {
-    return stretchEditPlanLastSegment({ target_duration: target, edit_plan }, analyses)
+    edit_plan = ensureJumpCutEditPlan(
+      stretchEditPlanLastSegment({ target_duration: target, edit_plan }, analyses),
+      analyses
+    ).edit_plan
+    return { target_duration: target, edit_plan }
   }
 
   const clipLens = [2.2, 2.5, 1.8, 2.0, 2.8, 1.6, 2.4]
@@ -421,7 +425,11 @@ export function forceFillEditPlanToTarget(
   }
 
   edit_plan = finalizeEditPlan({ target_duration: target, edit_plan }, analyses).edit_plan
-  return stretchEditPlanLastSegment({ target_duration: target, edit_plan }, analyses)
+  edit_plan = ensureJumpCutEditPlan(
+    stretchEditPlanLastSegment({ target_duration: target, edit_plan }, analyses),
+    analyses
+  ).edit_plan
+  return { target_duration: target, edit_plan }
 }
 
 function stretchEditPlanLastSegment(plan: EditPlan, analyses: VideoAnalysis[]): EditPlan {
@@ -440,11 +448,11 @@ function stretchEditPlanLastSegment(plan: EditPlan, analyses: VideoAnalysis[]): 
   const last = edit_plan[edit_plan.length - 1]!
   const a = analyses.find((x) => x.video_id === last.video_id) ?? analyses[0]!
   const need = target - out
-  const srcRoom = Math.max(0, a.duration - last.source_end)
-  const add = Math.min(need, srcRoom)
-  if (add > 0.08) {
-    last.output_end = ROUND(last.output_end + add)
-    last.source_end = ROUND(last.source_end + add)
+
+  // 짜집기: 마지막 컷을 소스에서 연속으로 늘리지 않음 (한 영상 통째 재생 방지)
+  if (need > 0.15 && need <= 1.2 && last.source_end + need <= a.duration + 0.05) {
+    last.output_end = ROUND(last.output_end + need)
+    last.source_end = ROUND(last.source_end + need)
     out = editPlanTotalOutputSeconds({ target_duration: target, edit_plan })
   }
 
@@ -469,6 +477,110 @@ export function editPlanTotalOutputSeconds(plan: EditPlan): number {
   if (!plan.edit_plan.length) return 0
   const last = plan.edit_plan[plan.edit_plan.length - 1]!
   return last.output_end
+}
+
+/** 목표 길이 대비 짜집기 최소 컷 수 (2~3초 리듬) */
+export function minimumEditSegmentsForTarget(targetDuration: number): number {
+  return Math.max(2, Math.ceil(targetDuration / 3))
+}
+
+/** 소스에서 연속 재생(한 영상 통째)인지 — 짜집기(점프컷)가 아님 */
+export function isSequentialSourcePlaybackPlan(plan: EditPlan): boolean {
+  const segs = [...plan.edit_plan].sort((a, b) => a.output_start - b.output_start)
+  if (segs.length <= 1) return true
+  for (let i = 1; i < segs.length; i++) {
+    const prev = segs[i - 1]!
+    const cur = segs[i]!
+    if (prev.video_id !== cur.video_id) return false
+    if (Math.abs(cur.source_start - prev.source_end) > 0.4) return false
+  }
+  return true
+}
+
+function sourceSpanSeconds(plan: EditPlan): number {
+  const byVideo = new Map<string, { min: number; max: number }>()
+  for (const seg of plan.edit_plan) {
+    const row = byVideo.get(seg.video_id) ?? { min: seg.source_start, max: seg.source_end }
+    row.min = Math.min(row.min, seg.source_start)
+    row.max = Math.max(row.max, seg.source_end)
+    byVideo.set(seg.video_id, row)
+  }
+  let span = 0
+  for (const row of byVideo.values()) span += row.max - row.min
+  return span
+}
+
+/** 실제 짜집기인지 — 컷 수·점프컷 여부 */
+export function isRealMixEditPlan(plan: EditPlan, analyses: VideoAnalysis[]): boolean {
+  const minSegs = minimumEditSegmentsForTarget(plan.target_duration)
+  if (plan.edit_plan.length < minSegs) return false
+
+  if (!isSequentialSourcePlaybackPlan(plan)) return true
+
+  const a = analyses[0]
+  if (!a || analyses.length > 1) return plan.edit_plan.length >= minSegs + 1
+
+  const span = sourceSpanSeconds(plan)
+  const maxSequentialSpan = Math.min(a.duration * 0.55, plan.target_duration * 0.65)
+  return span <= maxSequentialSpan + 0.5
+}
+
+/** 한 덩어리 연속 재생 → 장면 pool 기반 점프컷으로 재구성 */
+export function ensureJumpCutEditPlan(plan: EditPlan, analyses: VideoAnalysis[]): EditPlan {
+  if (isRealMixEditPlan(plan, analyses)) return plan
+
+  const rebuilt = buildSceneBasedEditPlan(analyses, plan.target_duration)
+  const rebuiltSec = editPlanTotalOutputSeconds(rebuilt)
+  if (
+    rebuilt.edit_plan.length >= 2 &&
+    isRealMixEditPlan(rebuilt, analyses) &&
+    rebuiltSec >= plan.target_duration * 0.85 - 0.1
+  ) {
+    return rebuilt
+  }
+
+  const target = plan.target_duration
+  const a = analyses[0]
+  if (!a) return plan
+
+  const pool = collectTaggedScenes(analyses)
+  if (!pool.length) return plan
+
+  const clipLens = [2.0, 2.4, 1.8, 2.2, 2.6, 1.6]
+  const usedClips: UsedClip[] = []
+  const edit_plan: EditPlanSegment[] = []
+  let outCursor = 0
+  let slot = 0
+
+  while (outCursor < target - 0.12 && edit_plan.length < 30 && slot < 50) {
+    const clipLen = Math.min(clipLens[slot % clipLens.length]!, target - outCursor, 3.2)
+    const sc = pool[slot % pool.length]!
+    const analysis = analysisMap(analyses).get(sc.video_id) ?? a
+    const clip = pickUniqueClipFromScene(sc, clipLen, analysis.duration, usedClips, analysis, slot)
+    if (!clip) {
+      slot++
+      continue
+    }
+    const dur = Math.min(clip.source_end - clip.source_start, target - outCursor)
+    if (dur < 0.35) {
+      slot++
+      continue
+    }
+    usedClips.push({ video_id: sc.video_id, source_start: clip.source_start, source_end: clip.source_end })
+    edit_plan.push({
+      video_id: sc.video_id,
+      source_start: clip.source_start,
+      source_end: clip.source_end,
+      output_start: ROUND(outCursor),
+      output_end: ROUND(outCursor + dur),
+      reason: sc.description.slice(0, 80) || "제품 장면",
+    })
+    outCursor += dur
+    slot++
+  }
+
+  if (edit_plan.length < 2) return plan
+  return finalizeEditPlan({ target_duration: target, edit_plan }, analyses)
 }
 
 const ARC_TYPES: SceneVisualType[] = ["demo", "product_showcase", "result", "problem", "cta"]

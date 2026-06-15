@@ -356,9 +356,44 @@ export function pickIntervalIsProductSafe(
   return true
 }
 
+const ROUND_SCENE = (n: number) => Math.round(n * 10) / 10
+
+/** mix·짜집기용 — 1개 장면이 영상 대부분을 덮으면 시간축으로 분할 */
+export function expandLongScenesForMix(scenes: VideoScene[], duration: number): VideoScene[] {
+  if (!scenes.length || duration <= 0.3) return scenes
+
+  const minSegments = Math.min(8, Math.max(4, Math.ceil(duration / 5)))
+  if (scenes.length >= minSegments) return scenes
+
+  const expanded: VideoScene[] = []
+  for (const sc of scenes) {
+    const len = sc.end - sc.start
+    if (len <= 5.5 && scenes.length > 1) {
+      expanded.push(sc)
+      continue
+    }
+    const slices = Math.max(2, Math.min(minSegments, Math.ceil(len / 4)))
+    const step = len / slices
+    for (let i = 0; i < slices; i++) {
+      const start = i === 0 ? sc.start : ROUND_SCENE(sc.start + i * step)
+      const end = i === slices - 1 ? sc.end : ROUND_SCENE(sc.start + (i + 1) * step)
+      expanded.push({
+        ...sc,
+        start,
+        end: Math.max(start + 0.2, end),
+        description:
+          slices > 1 && i > 0
+            ? `${sc.description} (${i + 1}/${slices}구간)`
+            : sc.description,
+      })
+    }
+  }
+  return expanded.length ? expanded : scenes
+}
+
 export function filteredScenesForMixPick(analysis: VideoAnalysis): VideoScene[] {
   const scenes = filterScenesForEdit(analysis.scenes, analysis.vision_frames)
-  if (scenes.length) return scenes
+  if (scenes.length) return expandLongScenesForMix(scenes, analysis.duration)
   return fallbackScenesForAnalysis(analysis)
 }
 
