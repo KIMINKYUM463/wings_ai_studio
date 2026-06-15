@@ -5,7 +5,8 @@ import {
   formatSubtitleDisplayText,
 } from "@/lib/shotform-factory-line-tts"
 import { narrationSubLineAtPlayhead } from "@/lib/shotform-factory-narration-script"
-import { buildNarrationSegmentsFromEditPlan, isGenericTemplateNarration } from "@/lib/shotform-cut-narration"
+import { buildNarrationSegmentsFromEditPlan, bundleTextForEditCut, isGenericTemplateNarration } from "@/lib/shotform-cut-narration"
+import { PRECISION_SCRIPT_TONE } from "@/lib/shotform-auto-edit-precision-script"
 import { sanitizeNarrationForOutput } from "@/lib/shotform-natural-shorts-script"
 import {
   cleanNarrationLineBreaks,
@@ -130,6 +131,26 @@ export function narrationSegmentsFromAutoEdit(result: AutoEditJobResult): Narrat
       ? [result.analysis]
       : []
   const bundleScenes = result.script?.bundle?.sceneSubtitles?.conversion
+  const isPrecisionScript = result.script?.tone === PRECISION_SCRIPT_TONE
+
+  if (plan?.length && isPrecisionScript && bundleScenes?.length) {
+    return plan.map((seg, i) => {
+      const text = bundleTextForEditCut(i, plan, bundleScenes) || bundleScenes[0]?.text || ""
+      return {
+        start: seg.output_start,
+        end: seg.output_end,
+        text: text.trim() || "한번 보세요",
+      }
+    })
+  }
+
+  if (plan?.length && isPrecisionScript && result.script?.script?.length === plan.length) {
+    return result.script.script.map((line) => ({
+      start: line.start,
+      end: line.end,
+      text: line.text.trim(),
+    }))
+  }
 
   if (plan?.length) {
     return buildNarrationSegmentsFromEditPlan(

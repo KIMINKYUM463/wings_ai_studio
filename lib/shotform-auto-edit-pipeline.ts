@@ -447,6 +447,7 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
       editPlan,
       analyses: usable,
       analysisMode,
+      sourceKeywords,
     })
 
     const result: AutoEditJobResult = {

@@ -11,7 +11,7 @@ import { buildQuickShoppingScript, generateScriptFromMix } from "@/lib/shotform-
 import { generatePrecisionScriptFromMix } from "@/lib/shotform-auto-edit-precision-script"
 
 export const AUTO_EDIT_SCRIPT_TIMEOUT_MS = 75_000
-export const AUTO_EDIT_PRECISION_SCRIPT_TIMEOUT_MS = 130_000
+export const AUTO_EDIT_PRECISION_SCRIPT_TIMEOUT_MS = 150_000
 
 export async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -35,6 +35,7 @@ export async function resolveAutoEditScript(args: {
   editPlan: EditPlan
   analyses: VideoAnalysis[]
   analysisMode?: AutoEditAnalysisMode
+  sourceKeywords?: readonly string[]
   timeoutMs?: number
 }): Promise<ShoppingScript> {
   const quick = buildQuickShoppingScript(
@@ -61,6 +62,7 @@ export async function resolveAutoEditScript(args: {
           editPlan: args.editPlan,
           analyses: args.analyses,
           scriptTopic: args.scriptTopic,
+          sourceKeywords: args.sourceKeywords,
         }),
         timeout,
         "정밀 모드 대본 검증 시간 초과"

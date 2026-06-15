@@ -37,6 +37,7 @@ import {
   isToothbrushHolderProduct,
 } from "@/lib/shotform-shopping-visual-cues"
 import { actionScriptTextForSourceRange } from "@/lib/shotform-scene-understanding"
+import { PRECISION_SCRIPT_TONE } from "@/lib/shotform-auto-edit-precision-script"
 
 /** 벤치마크 UI용 — [샷] + 장면 묘사 */
 export function formatSceneDescriptionHint(visualCard: string): string {
@@ -149,13 +150,29 @@ export function sanitizeProductNameForNarration(
     .filter(Boolean)
     .join(" ")
 
+  const mountProduct =
+    /거치대|홀더|마운트|브라켓|holder|mount|대시보드|스마트폰\s*거치|휴대폰\s*거치/i.test(
+      `${userKw.join(" ")} ${blob}`
+    )
+  if (mountProduct) {
+    const mountLabel =
+      userKw.find((k) => /거치|홀더|마운트|holder|mount/i.test(k)) ||
+      (/\uac00-\ud7a3/.test(blob) && /거치대|홀더/.test(blob) ? "차량용 거치대" : userKw[0])
+    if (mountLabel?.trim()) {
+      return mountLabel.trim().length > 56 ? `${mountLabel.trim().slice(0, 53)}…` : mountLabel.trim()
+    }
+  }
+
   // 키워드 없을 때만 화면·분석 힌트로 제품 추론
   if (/마우스\s*패드|mouse\s*pad|게이밍\s*패드|데스크\s*매트|keyboard|키보드|gaming|RGB|LED/i.test(blob)) {
     return "게이밍 마우스 패드"
   }
   if (/선풍기|风扇|fan|쿨링/i.test(blob)) return "미니 선풍기"
-  if (/차량|차\s*안|자동차|车载|vacuum|吸尘|車|핸디\s*청소|진공\s*청소|차량용/i.test(blob)) {
-    return "차량용 핸디청소기"
+  if (
+    /먼지|흡입|吸尘|vacuum|진공\s*청소|핸디\s*청소/i.test(blob) &&
+    !/거치대|홀더|마운트|holder|mount|대시보드/i.test(blob)
+  ) {
+    if (/차량|차\s*안|자동차|车载|車/i.test(blob)) return "차량용 핸디청소기"
   }
 
   const raw = productName?.trim() || ""
@@ -1572,6 +1589,9 @@ export function needsAiNarrationFromScenes(
   scriptOverrides: Record<string, string>
 ): boolean {
   if (Object.keys(scriptOverrides).length > 0) return false
+  if (result.script?.tone === PRECISION_SCRIPT_TONE && result.script.bundle?.sceneSubtitles?.conversion?.length) {
+    return false
+  }
 
   const plan = result.editPlan?.edit_plan
   if (!plan?.length) return false
