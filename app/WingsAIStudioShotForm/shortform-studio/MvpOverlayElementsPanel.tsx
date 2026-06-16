@@ -19,11 +19,19 @@ import {
 } from "@/lib/shotform-studio-overlay-catalog"
 import { mosaicOverlaySummary } from "@/lib/mvp-mosaic-overlay-utils"
 import {
+  buildMosaicBoundaryTimes,
   buildMosaicRefineTimes,
   captureMosaicFramesAtTimes,
   captureMosaicScanFramesFromVideo,
+  effectiveMosaicCaptureDuration,
+  MOSAIC_BOUNDARY_CAPTURE_WIDTH,
 } from "@/lib/mvp-mosaic-frame-capture"
-import { mergeMosaicRowsToOverlays, type MosaicFrameDetectRow } from "@/lib/mvp-mosaic-merge"
+import {
+  buildMosaicTracks,
+  mergeMosaicRowsToOverlays,
+  tracksToWindows,
+  type MosaicFrameDetectRow,
+} from "@/lib/mvp-mosaic-merge"
 import { readFetchJson } from "@/lib/mvp-fetch-json"
 import { formatNarrationClock } from "@/lib/shotform-factory-narration-script"
 import { studio } from "../components/ShotFormStudioUI"
@@ -133,12 +141,23 @@ export function MvpOverlayElementsPanel({
       setAiErr("짜집기 영상이 준비된 뒤 다시 시도해 주세요.")
       return
     }
+    const captureDurationSec = effectiveMosaicCaptureDuration(video, videoDurationSec)
+    if (captureDurationSec < 0.2) {
+      setAiErr("영상 길이를 읽을 수 없습니다. 영상이 로드된 뒤 다시 시도해 주세요.")
+      return
+    }
 
     setAiLoading(true)
     setAiErr(null)
     setAiStatus("1차 스캔 · 프레임 캡처 중…")
 
     try {
+      const mergeRows = (rows: MosaicFrameDetectRow[]) => {
+        const byTime = new Map<number, MosaicFrameDetectRow>()
+        for (const r of rows) byTime.set(Math.round(r.timeSec * 1000) / 1000, r)
+        return [...byTime.values()].sort((a, b) => a.timeSec - b.timeSec)
+      }
+
       const detectBatch = async (frames: { timeSec: number; imageBase64: string }[], label: string) => {
         const batchSize = 2
         const rows: MosaicFrameDetectRow[] = []
@@ -164,28 +183,47 @@ export function MvpOverlayElementsPanel({
         return rows
       }
 
-      const coarseFrames = await captureMosaicScanFramesFromVideo(video, videoDurationSec, {
+      const coarseFrames = await captureMosaicScanFramesFromVideo(video, captureDurationSec, {
+        maxWidth: 640,
         onProgress: (done, total) => setAiStatus(`1차 캡처 ${done}/${total}…`),
       })
 
       const coarseRows = await detectBatch(coarseFrames, "1차")
-      let allRows = [...coarseRows]
+      let allRows = mergeRows(coarseRows)
+      const scannedTimes = allRows.map((r) => r.timeSec)
 
-      const refineTimes = buildMosaicRefineTimes(coarseRows, videoDurationSec)
+      const refineTimes = buildMosaicRefineTimes(allRows, captureDurationSec, {
+        existingTimes: scannedTimes,
+      })
       if (refineTimes.length) {
         setAiStatus(`2차 정밀 캡처 0/${refineTimes.length}…`)
         const refineFrames = await captureMosaicFramesAtTimes(video, refineTimes, {
-          maxWidth: 640,
+          maxWidth: 768,
           onProgress: (done, total) => setAiStatus(`2차 정밀 캡처 ${done}/${total}…`),
         })
         const refineRows = await detectBatch(refineFrames, "2차")
-        const byTime = new Map<number, MosaicFrameDetectRow>()
-        for (const r of allRows) byTime.set(r.timeSec, r)
-        for (const r of refineRows) byTime.set(r.timeSec, r)
-        allRows = [...byTime.values()].sort((a, b) => a.timeSec - b.timeSec)
+        allRows = mergeRows([...allRows, ...refineRows])
       }
 
-      const detected = mergeMosaicRowsToOverlays(allRows, videoDurationSec).filter(
+      const preliminaryTracks = buildMosaicTracks(allRows)
+      if (preliminaryTracks.length) {
+        const boundaryTimes = buildMosaicBoundaryTimes(
+          tracksToWindows(preliminaryTracks),
+          captureDurationSec,
+          { existingTimes: allRows.map((r) => r.timeSec) }
+        )
+        if (boundaryTimes.length) {
+          setAiStatus(`3차 경계 스캔 0/${boundaryTimes.length}…`)
+          const boundaryFrames = await captureMosaicFramesAtTimes(video, boundaryTimes, {
+            maxWidth: MOSAIC_BOUNDARY_CAPTURE_WIDTH,
+            onProgress: (done, total) => setAiStatus(`3차 경계 스캔 ${done}/${total}…`),
+          })
+          const boundaryRows = await detectBatch(boundaryFrames, "3차")
+          allRows = mergeRows([...allRows, ...boundaryRows])
+        }
+      }
+
+      const detected = mergeMosaicRowsToOverlays(allRows, captureDurationSec).filter(
         (ov) =>
           Number.isFinite(ov.x) &&
           Number.isFinite(ov.y) &&
@@ -219,7 +257,7 @@ export function MvpOverlayElementsPanel({
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold text-cyan-100">AI 중국어 모자이크</p>
             <p className="mt-1 text-[10px] leading-relaxed text-cyan-100/75">
-              1차 전체 스캔 후 중국어가 보이는 구간만 2차 정밀 분석합니다. 글자 크기·위치에 맞춘 타이트
+              1차 전체 스캔 → 2차 위치 정밀 → 3차 등장·퇴장 경계 분석. 글자 크기·위치에 맞춘 타이트
               모자이크가 타임라인에 표시됩니다.
             </p>
           </div>

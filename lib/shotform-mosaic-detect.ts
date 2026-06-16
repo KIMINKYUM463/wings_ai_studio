@@ -15,23 +15,46 @@ export type MosaicDetectFrameInput = {
 
 const CHINESE_RE = /[\u4e00-\u9fff\u3400-\u4dbf]/
 
-const MOSAIC_VISION_SYSTEM = `You are a precise OCR/localization model for burned-in Chinese text in vertical short-form videos.
+const MOSAIC_VISION_SYSTEM = `You are a precise OCR/localization model for burned-in Chinese text in vertical short-form videos (9:16).
 
 Detect ONLY Chinese characters (Simplified or Traditional) that appear as:
-- hard subtitles, burned captions, floating on-screen text overlays
+- hard subtitles, burned captions, floating on-screen text overlays, product title cards in Chinese
 
-DO NOT include: Korean/English TTS subtitles, product packaging micro-text, logos, faces, backgrounds.
+DO NOT include: Korean/English TTS subtitles, product packaging micro-text, logos, faces, backgrounds, watermarks without Chinese.
 
-For each Chinese text region return a TIGHT bounding box covering the glyphs with ~2% margin—not the entire lower third.
-Multiple lines = separate boxes.
+For each Chinese text region return a TIGHT bounding box covering ONLY the glyph pixels with ~1-2% margin.
+- Multiple separate text lines = separate boxes
+- Small corner tags = small tight boxes at that corner
+- Do NOT return a box for the entire lower-third safe area
 
-Prefer left_pct, top_pct, right_pct, bottom_pct (0-100 of full frame).
+Coordinates are percentages of the FULL image frame (0=left/top, 100=right/bottom).
+Prefer left_pct, top_pct, right_pct, bottom_pct.
 Or center_x_pct, center_y_pct, width_pct, height_pct.
 
 If no Chinese overlay text in a frame, return empty boxes array.`
 
 function clampPct(n: number): number {
   return Math.min(100, Math.max(0, n))
+}
+
+function padBox(box: DetectedChineseMosaicBox, padPct = 1.8): DetectedChineseMosaicBox {
+  const rect = {
+    left: box.center_x_pct - box.width_pct / 2,
+    top: box.center_y_pct - box.height_pct / 2,
+    right: box.center_x_pct + box.width_pct / 2,
+    bottom: box.center_y_pct + box.height_pct / 2,
+  }
+  const left = clampPct(rect.left - padPct)
+  const top = clampPct(rect.top - padPct)
+  const right = clampPct(rect.right + padPct)
+  const bottom = clampPct(rect.bottom + padPct)
+  return {
+    center_x_pct: (left + right) / 2,
+    center_y_pct: (top + bottom) / 2,
+    width_pct: Math.max(2, right - left),
+    height_pct: Math.max(1.5, bottom - top),
+    text: box.text,
+  }
 }
 
 function parseBox(raw: unknown): DetectedChineseMosaicBox | null {
@@ -63,15 +86,15 @@ function parseBox(raw: unknown): DetectedChineseMosaicBox | null {
   if (![cx, cy, w, h].every(Number.isFinite)) return null
   const text = typeof o.text === "string" ? o.text.trim() : undefined
   if (text && !CHINESE_RE.test(text)) return null
-  if (w < 1.2 || h < 0.8) return null
+  if (w < 1.0 || h < 0.7) return null
 
-  return {
+  return padBox({
     center_x_pct: clampPct(cx),
     center_y_pct: clampPct(cy),
     width_pct: clampPct(w),
     height_pct: clampPct(h),
     text,
-  }
+  })
 }
 
 export async function visionDetectMosaicBatch(
@@ -109,7 +132,8 @@ JSON: {"frames":[{"index":0,"boxes":[{"left_pct":8,"top_pct":82,"right_pct":92,"
             {
               type: "text",
               text: `프레임 ${images.length}장 (9:16 세로). index 순 = timeSec 순.
-각 프레임마다 보이는 중국어 자막/오버레이만 글자에 딱 맞게 boxes에 넣으세요. 큰 띠 박스 금지.`,
+각 프레임마다 보이는 중국어 자막/오버레이만 글자 픽셀에 딱 맞게 boxes에 넣으세요.
+하단 전체 띠·화면 절반 크기 박스는 금지. 작은 글자는 작은 박스로.`,
             },
             ...images.flatMap((img, index) => [
               { type: "text" as const, text: `index ${index} · timeSec ${img.timeSec}s` },
