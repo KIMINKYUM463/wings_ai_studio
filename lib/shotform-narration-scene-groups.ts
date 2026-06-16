@@ -13,6 +13,7 @@ import {
   isRepeatMetaNarration,
   isToothbrushHolderProduct,
 } from "@/lib/shotform-shopping-visual-cues"
+import { isCarMountOrHolderProduct } from "@/lib/shotform-user-keyword-product"
 
 function visualDescFromCard(visualCard: string): string {
   return visualCard
@@ -274,6 +275,14 @@ export function narrationForRepeatedScene(args: {
     candidates.push(
       `퍼즐 모양 ${product}, 다른 각도에서도 수납이 안정적이에요`,
       `${product} 디자인 포인트가 이 컷에서도 또 보여요`
+    )
+  }
+  if (cue.kind === "car_mount" || isCarMountOrHolderProduct(`${product} ${desc}`)) {
+    candidates.push(
+      `다른 각도에서 봐도 ${product} 고정력은 똑같이 안정적이에요`,
+      `각도만 달라도 ${product} 화면 보기가 편해요`,
+      `같은 장착인데 시야각만 살짝 달라 보여요`,
+      `운전석에서 ${product} 각도 조절이 수월해요`
     )
   }
   if (cue.kind === "cup_organizer" && isToothbrushHolderProduct(product)) {

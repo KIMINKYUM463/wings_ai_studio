@@ -1,12 +1,22 @@
 /** 화면 설명에서 쇼핑숏폼 나레이션에 쓸 구체 시각 단서 추출 */
 
+import { isCarMountOrHolderProduct } from "@/lib/shotform-user-keyword-product"
+
 export type VisualNarrationCue = {
   /** 나레이션에 넣을 짧은 화면 요소 (예: 퍼즐 모양 거치대) */
   label: string
   /** 후킹·데모에 쓸 장소 (욕실/책상 등) */
   place?: string
   /** 화면 유형 */
-  kind: "wall_mount" | "puzzle_holder" | "cup_organizer" | "toothbrush_holder" | "desk" | "bathroom" | "generic"
+  kind:
+    | "wall_mount"
+    | "puzzle_holder"
+    | "cup_organizer"
+    | "toothbrush_holder"
+    | "car_mount"
+    | "desk"
+    | "bathroom"
+    | "generic"
 }
 
 const STOPWORDS =
@@ -53,6 +63,15 @@ export const REPEAT_META_PATTERNS = [
 
 export function extractVisualNarrationCue(visualDesc: string): VisualNarrationCue {
   const d = visualDesc.trim()
+  if (
+    /거치대|홀더|마운트|holder|mount|支架/i.test(d) &&
+    /차량|대시보드|운전|핸들|스마트폰|핸드폰|车载|dashboard|내비|네비/i.test(d)
+  ) {
+    return { label: "차량용 거치", place: "운전석", kind: "car_mount" }
+  }
+  if (/차량용|车载/i.test(d) && /거치|붙이|장착|安装|대시보드/i.test(d)) {
+    return { label: "대시보드 장착", place: "차량", kind: "car_mount" }
+  }
   if (/벽에\s*걸|벽걸이|걸린|wall/i.test(d)) {
     return { label: "벽에 거는 수납", place: "욕실", kind: "wall_mount" }
   }
@@ -91,7 +110,37 @@ export function combineVisualAndProductNarration(args: {
   const { visualDesc, productName, cutIndex, occurrence = 1, role = "demo" } = args
   const product = productName.trim() || "이 제품"
   const cue = extractVisualNarrationCue(visualDesc)
+  const isMount = cue.kind === "car_mount" || isCarMountOrHolderProduct(`${product} ${visualDesc}`)
   const idx = (cutIndex + occurrence * 5) % 12
+
+  if (isMount) {
+    if (role === "hook" || (cutIndex === 0 && occurrence === 1)) {
+      const hooks = [
+        `운전 중 폰 거치 불편하셨죠? ${product} 하나면 끝이에요`,
+        `대시보드에 억지로 끼우시나요? ${product}로 깔끔하게 고정해보세요`,
+        `내비 보려고 고개 숙이시나요? ${product} 쓰면 각도가 편해져요`,
+      ]
+      return hooks[idx % hooks.length]!
+    }
+    if (occurrence > 1) {
+      const lines = [
+        `다른 각도에서 봐도 ${product} 고정력은 똑같이 안정적이에요`,
+        `각도만 달라도 ${product} 화면 보기가 편해요`,
+        `같은 장착인데 시야각만 살짝 달라 보여요`,
+        `반복 장면이어도 ${product} 흔들림은 거의 없어요`,
+        `다른 컷이어도 ${product} 각도 조절 포인트는 같아요`,
+      ]
+      return lines[idx % lines.length]!
+    }
+    const lines = [
+      `${product}, 대시보드에 붙이기도 간단해요`,
+      `한 손으로 고정해도 ${product} 흔들림이 적어요`,
+      `이 각도에서 ${product} 시야가 딱 맞아요`,
+      `운전석에서 ${product}로 내비 보기 편해져요`,
+      `${product} 장착하면 바로 쓸 수 있어요`,
+    ]
+    return lines[idx % lines.length]!
+  }
 
   if (role === "hook" || (cutIndex === 0 && occurrence === 1)) {
     const hooks = [
