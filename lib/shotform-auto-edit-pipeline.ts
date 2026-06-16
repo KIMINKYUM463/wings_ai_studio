@@ -523,7 +523,10 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
     } catch (renderErr) {
       renderSkipped = true
       const msg = renderErr instanceof Error ? renderErr.message : String(renderErr)
-      renderSkipReason = `짜집기 렌더 실패: ${formatAutoEditRenderError(msg)}`
+      const cleaned = msg.replace(/^짜집기 렌더 실패:\s*/i, "")
+      renderSkipReason = cleaned.startsWith("짜집기 렌더")
+        ? cleaned
+        : `짜집기 렌더 실패: ${formatAutoEditRenderError(cleaned)}`
       if (shouldRemoveSubtitles) {
         subtitleRemovalSkipped = true
         subtitleRemovalWarning = "렌더가 완료되지 않아 Vmake 자막 제거를 적용할 수 없습니다."

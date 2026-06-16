@@ -141,27 +141,46 @@ def render_shotform_auto_edit(data):
             if not source_path:
                 continue
 
+            source_dur = _probe_video_duration(source_path)
             clip_dur = max(0.15, float(seg.get('output_end', 0)) - float(seg.get('output_start', 0)))
             source_avail = max(0.15, float(seg.get('source_end', 0)) - float(seg.get('source_start', 0)))
             dur = min(clip_dur, source_avail)
+            ss = max(0.0, float(seg.get('source_start', 0)))
+            if source_dur and source_dur > 0.25:
+                max_ss = max(0.0, source_dur - 0.2)
+                if ss > max_ss:
+                    ss = max_ss
+                dur = min(dur, max(0.15, source_dur - ss))
+
             out_seg = f"{temp_dir}/seg_{i}.mp4"
             vf = f"scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}:(iw-{w})/2:(ih-{h})/2"
-            cmd = [
-                'ffmpeg', '-y', '-nostdin',
-                '-threads', '1',
-                '-i', source_path,
-                '-ss', str(seg.get('source_start', 0)),
-                '-t', str(dur),
-                '-vf', vf,
-                '-r', '30', '-an',
-                '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28',
-                '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
-                '-avoid_negative_ts', 'make_zero',
-                out_seg,
-            ]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+
+            def _run_seg(start_sec, seg_dur):
+                cmd = [
+                    'ffmpeg', '-y', '-nostdin',
+                    '-threads', '1',
+                    '-i', source_path,
+                    '-ss', str(start_sec),
+                    '-t', str(seg_dur),
+                    '-map', '0:v:0?',
+                    '-sn', '-dn',
+                    '-vf', vf,
+                    '-r', '30', '-an',
+                    '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28',
+                    '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
+                    '-avoid_negative_ts', 'make_zero',
+                    out_seg,
+                ]
+                return subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+
+            result = _run_seg(ss, dur)
+            if result.returncode != 0 or not os.path.exists(out_seg) or os.path.getsize(out_seg) < 20_000:
+                retry_dur = min(dur, source_dur) if source_dur else dur
+                result = _run_seg(0, max(0.15, retry_dur))
             if result.returncode != 0:
-                raise Exception(result.stderr[-400:] or f"세그먼트 {i} 렌더 실패")
+                raise Exception(result.stderr[-400:] or f"세그먼트 {i} 렌더 실패 ({vid})")
+            if not os.path.exists(out_seg) or os.path.getsize(out_seg) < 20_000:
+                raise Exception(f"세그먼트 {i} 결과가 비어 있습니다 ({vid})")
             scaled.append(out_seg)
 
         if not scaled:

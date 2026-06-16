@@ -11,7 +11,10 @@ import {
   resolveFfmpegPath,
   resolveFfprobePath,
 } from "@/lib/ffmpeg-binaries"
-import { fetchUpstreamVideo } from "@/lib/video-upstream-fetch"
+import {
+  clampEditSegmentTiming,
+  segmentFfmpegOutputArgs,
+} from "@/lib/shotform-edit-segment-clamp"
 
 function ffmpegBin(): string {
   return resolveFfmpegPath()
@@ -196,40 +199,48 @@ export async function renderEditPlanToMp4(args: {
     const sourcePath = sourcePaths[vid]
     if (!sourcePath) return null
 
-    const clipDur = Math.max(0.15, seg.output_end - seg.output_start)
-    const sourceAvail = Math.max(0.15, seg.source_end - seg.source_start)
-    const dur = Math.min(clipDur, sourceAvail)
+    let sourceDuration: number | undefined
+    try {
+      sourceDuration = await probeVideoDuration(sourcePath, false)
+    } catch {
+      /* ffprobe 실패 시 clamp 생략 */
+    }
+    const { sourceStart, duration } = clampEditSegmentTiming(seg, sourceDuration)
     const outSeg = path.join(workDir, `seg_${i}.mp4`)
     const segTimeout = serverless ? 120_000 : 180_000
-    await runFfmpeg(
-      [
-        "-y",
-        ...(serverless ? ["-threads", "1"] : []),
-        "-i",
-        sourcePath,
-        "-ss",
-        String(seg.source_start),
-        "-t",
-        String(dur),
-        "-vf",
-        `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}:(iw-${w})/2:(ih-${h})/2`,
-        "-r",
-        "30",
-        "-an",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "ultrafast",
-        "-crf",
-        serverless ? "28" : "26",
-        "-pix_fmt",
-        "yuv420p",
-        "-movflags",
-        "+faststart",
-        outSeg,
-      ],
-      segTimeout
-    )
+    const crf = serverless ? "28" : "26"
+
+    const runSeg = async (ss: number, dur: number) => {
+      await runFfmpeg(
+        [
+          "-y",
+          ...(serverless ? ["-threads", "1"] : []),
+          "-i",
+          sourcePath,
+          "-ss",
+          String(ss),
+          "-t",
+          String(dur),
+          ...segmentFfmpegOutputArgs(outSeg, w, h, crf),
+        ],
+        segTimeout
+      )
+    }
+
+    try {
+      await runSeg(sourceStart, duration)
+    } catch (firstErr) {
+      const retryStart = 0
+      const retryDur =
+        sourceDuration != null && sourceDuration > 0.25
+          ? Math.min(duration, Math.max(0.15, sourceDuration - retryStart))
+          : duration
+      if (retryStart !== sourceStart || Math.abs(retryDur - duration) > 0.05) {
+        await runSeg(retryStart, retryDur)
+      } else {
+        throw firstErr
+      }
+    }
     return outSeg
   }
 

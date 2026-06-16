@@ -805,36 +805,50 @@ export function MvpAutoEditDialog({
               : "") ||
             ""
           ).trim()
-          const needsLocalMp4 =
+          const shouldTryLocalMp4 =
             renderMode === "local" &&
             Boolean(json.editPlan?.edit_plan?.length) &&
-            Boolean(workDirForLocal) &&
-            (json.localRenderPending || !json.downloadUrl)
+            Boolean(workDirForLocal && json.jobId) &&
+            (json.localRenderPending || !json.downloadUrl || json.renderSkipped)
 
-          if (needsLocalMp4) {
-            const { blob, localOutputPath: localOut } = await resolveLocalCompanionMp4({
-              localWorkDir: workDirForLocal,
-              jobId: json.jobId,
-              editPlan: json.editPlan,
-              localRenderPending: json.localRenderPending,
-              companionUrl,
-              onProgress: (msg) => setDownloadHint(msg),
-            })
-            await assertPreviewMp4Blob(blob)
-            if (projectId && json.jobId) await saveMvpEditMp4(projectId, json.jobId, blob)
-            revokePreviewBlob()
-            const objectUrl = URL.createObjectURL(blob)
-            previewBlobRef.current = objectUrl
-            setPreviewBlobUrl(objectUrl)
-            companionVideoBlob = blob
-            companionVideoUrl = objectUrl
-            json = {
-              ...json,
-              localRenderPending: false,
-              renderSkipped: false,
-              renderMode: "local",
-              localWorkDir: workDirForLocal,
-              localOutputPath: localOut,
+          if (shouldTryLocalMp4 && !companionVideoBlob) {
+            setDownloadHint(
+              json.renderSkipped ? "서버 렌더 실패 — 로컬 에이전트에서 재렌더 중…" : "로컬 MP4 렌더 중…"
+            )
+            try {
+              const { blob, localOutputPath: localOut } = await resolveLocalCompanionMp4({
+                localWorkDir: workDirForLocal,
+                jobId: json.jobId,
+                editPlan: json.editPlan,
+                localRenderPending: json.localRenderPending ?? json.renderSkipped,
+                companionUrl,
+                onProgress: (msg) => setDownloadHint(msg),
+              })
+              await assertPreviewMp4Blob(blob)
+              if (projectId && json.jobId) await saveMvpEditMp4(projectId, json.jobId, blob)
+              revokePreviewBlob()
+              const objectUrl = URL.createObjectURL(blob)
+              previewBlobRef.current = objectUrl
+              setPreviewBlobUrl(objectUrl)
+              companionVideoBlob = blob
+              companionVideoUrl = objectUrl
+              json = {
+                ...json,
+                localRenderPending: false,
+                renderSkipped: false,
+                renderSkipReason: undefined,
+                renderMode: "local",
+                localWorkDir: workDirForLocal,
+                localOutputPath: localOut,
+              }
+            } catch (localRenderErr) {
+              if (!json.renderSkipped) {
+                const detail = localRenderErr instanceof Error ? localRenderErr.message : ""
+                throw new Error(
+                  detail ||
+                    "로컬 에이전트 렌더가 완료되지 않았습니다. npm run shotform:install-agent 후 다시 시도해 주세요."
+                )
+              }
             }
           } else if (json.localRenderPending && renderMode === "local" && !companionVideoBlob) {
             throw new Error(
@@ -860,7 +874,7 @@ export function MvpAutoEditDialog({
           const hasScript = Boolean(json.script || json.editPlan)
           const canOpenStudio = json.step === "done" || hasScript
 
-          if (json.renderSkipped) {
+          if (json.renderSkipped && !companionVideoBlob) {
             const skipMsg =
               json.renderSkipReason ||
               "짜집기 MP4 렌더가 완료되지 않았습니다. 타임라인·나레이션은 사용할 수 있습니다."
