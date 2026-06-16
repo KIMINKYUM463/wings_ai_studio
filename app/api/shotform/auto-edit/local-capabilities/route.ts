@@ -5,12 +5,14 @@ import {
   isLocalRenderAllowedOnServer,
 } from "@/lib/shotform-local-render-dir"
 
-/** GET — 로컬 ffmpeg 렌더 사용 가능 여부 (npm run dev 전용) */
+/** GET — 로컬 ffmpeg 렌더 (dev 서버) 또는 동반 에이전트 안내 */
 export async function GET() {
   if (!isLocalRenderAllowedOnServer()) {
     return NextResponse.json({
       available: false,
-      reason: "배포 사이트에서는 서버(Cloud Run) 렌더만 사용할 수 있습니다.",
+      companionRecommended: true,
+      defaultCompanionUrl: "http://127.0.0.1:3847",
+      reason: "배포 사이트에서는 PC에서 npm run shotform:local-agent 실행 후 로컬 렌더를 사용하세요.",
     })
   }
   if (!hasFfmpeg()) {

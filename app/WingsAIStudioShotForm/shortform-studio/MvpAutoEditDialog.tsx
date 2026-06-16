@@ -43,6 +43,15 @@ import {
 import { extractClientVideoMetaForPicks } from "@/lib/shotform-client-video-meta"
 import { uploadAutoEditSourcesFromBrowser } from "@/lib/shotform-auto-edit-client-source-upload"
 import { uploadAutoEditSourcesToLocalDir } from "@/lib/shotform-auto-edit-client-local-source-upload"
+import {
+  DEFAULT_LOCAL_COMPANION_URL,
+  fetchCompanionOutputMp4,
+  LOCAL_COMPANION_URL_STORAGE_KEY,
+  probeLocalCompanion,
+  renderEditPlanOnCompanion,
+  resolveLocalCompanionUrl,
+  uploadAutoEditSourcesToCompanion,
+} from "@/lib/shotform-local-companion-client"
 import type { AutoEditRenderMode } from "@/lib/shotform-local-render-dir"
 import { isAutoEditNoUsableVideoError } from "@/lib/shotform-auto-edit-errors"
 import {
@@ -364,7 +373,12 @@ export function MvpAutoEditDialog({
     defaultWorkDir?: string
     reason?: string
     layout?: Record<string, string>
+    companionRecommended?: boolean
+    defaultCompanionUrl?: string
   } | null>(null)
+  const [companionOnline, setCompanionOnline] = useState(false)
+  const [companionUrl, setCompanionUrl] = useState(DEFAULT_LOCAL_COMPANION_URL)
+  const [companionHint, setCompanionHint] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<AutoEditJobResult | null>(null)
   const [err, setErr] = useState<string | null>(null)
@@ -398,32 +412,65 @@ export function MvpAutoEditDialog({
   useEffect(() => {
     const saved = localStorage.getItem(LOCAL_WORK_DIR_STORAGE_KEY)
     if (saved) setLocalWorkDir(saved)
+    const savedCompanion = localStorage.getItem(LOCAL_COMPANION_URL_STORAGE_KEY)
+    if (savedCompanion) setCompanionUrl(savedCompanion)
   }, [])
 
   useEffect(() => {
     if (!open) return
     const host = window.location.hostname
-    if (host !== "localhost" && host !== "127.0.0.1") {
-      setLocalRenderCap({ available: false, reason: "배포 사이트에서는 서버 렌더만 사용됩니다." })
-      return
-    }
-    void fetch("/api/shotform/auto-edit/local-capabilities")
-      .then((r) => r.json())
-      .then((json: { available?: boolean; defaultWorkDir?: string; reason?: string; layout?: Record<string, string> }) => {
-        setLocalRenderCap({
-          available: Boolean(json.available),
-          defaultWorkDir: json.defaultWorkDir,
-          reason: json.reason,
-          layout: json.layout,
-        })
-        if (json.defaultWorkDir) {
-          setLocalWorkDir((prev) => prev.trim() || json.defaultWorkDir || "")
-        }
-      })
-      .catch(() => setLocalRenderCap({ available: false, reason: "로컬 렌더 상태를 확인하지 못했습니다." }))
-  }, [open])
+    const isLocalHost = host === "localhost" || host === "127.0.0.1"
 
-  const localRenderAvailable = Boolean(localRenderCap?.available)
+    void (async () => {
+      const companion = await probeLocalCompanion(companionUrl)
+      setCompanionOnline(Boolean(companion.ok && companion.ffmpeg))
+      if (!companion.ok) {
+        setCompanionHint(companion.error || null)
+      } else {
+        setCompanionHint(null)
+        if (companion.defaultWorkDir) {
+          setLocalWorkDir((prev) => prev.trim() || companion.defaultWorkDir || "")
+        }
+      }
+
+      if (isLocalHost) {
+        try {
+          const r = await fetch("/api/shotform/auto-edit/local-capabilities")
+          const json = (await r.json()) as {
+            available?: boolean
+            defaultWorkDir?: string
+            reason?: string
+            layout?: Record<string, string>
+            companionRecommended?: boolean
+            defaultCompanionUrl?: string
+          }
+          setLocalRenderCap({
+            available: Boolean(json.available),
+            defaultWorkDir: json.defaultWorkDir,
+            reason: json.reason,
+            layout: json.layout,
+            companionRecommended: json.companionRecommended,
+            defaultCompanionUrl: json.defaultCompanionUrl,
+          })
+          if (json.defaultWorkDir) {
+            setLocalWorkDir((prev) => prev.trim() || json.defaultWorkDir || "")
+          }
+        } catch {
+          setLocalRenderCap({ available: false, reason: "로컬 렌더 상태를 확인하지 못했습니다." })
+        }
+      } else {
+        setLocalRenderCap({
+          available: false,
+          companionRecommended: true,
+          defaultCompanionUrl: DEFAULT_LOCAL_COMPANION_URL,
+          reason: "배포 사이트 — PC에서 npm run shotform:local-agent 실행 후 로컬 렌더 선택",
+        })
+      }
+    })()
+  }, [open, companionUrl])
+
+  const localDevFfmpegAvailable = Boolean(localRenderCap?.available)
+  const localRenderAvailable = companionOnline || localDevFfmpegAvailable
 
   const fetchResultMp4 = useCallback(
     async (_downloadUrl: string, jobId: string) => {
@@ -599,25 +646,41 @@ export function MvpAutoEditDialog({
 
           let sourcesPreUploaded = false
           const requireBrowserUpload =
-            renderMode !== "local" &&
-            (analysisMode === "precision" ||
-              hasPrefetchedBlobs ||
-              requireBrowserUploadForRender ||
-              (!allMetaReady && !skipBrowserUploadForFastAnalyze))
+            analysisMode === "precision" ||
+            hasPrefetchedBlobs ||
+            requireBrowserUploadForRender ||
+            (!allMetaReady && !skipBrowserUploadForFastAnalyze)
 
           if (renderMode === "local") {
             const workDir = localWorkDir.trim()
             if (!workDir) {
               throw new Error("로컬 작업 폴더 경로를 입력해 주세요.")
             }
+            if (!localRenderAvailable) {
+              throw new Error(
+                "로컬 렌더를 사용할 수 없습니다.\n\n" +
+                  "PC에서 터미널을 열고 프로젝트 폴더에서 npm run shotform:local-agent 를 실행한 뒤 다시 시도해 주세요."
+              )
+            }
             localStorage.setItem(LOCAL_WORK_DIR_STORAGE_KEY, workDir)
-            setDownloadHint("로컬 작업 폴더에 소스 영상 저장 중…")
-            await uploadAutoEditSourcesToLocalDir(
-              workDir,
-              nextPicks,
-              (msg) => setDownloadHint(msg),
-              prefetchedBlobs
-            )
+            if (companionOnline) {
+              setDownloadHint("로컬 에이전트 작업 폴더에 소스 영상 저장 중…")
+              await uploadAutoEditSourcesToCompanion(
+                companionUrl,
+                workDir,
+                nextPicks,
+                (msg) => setDownloadHint(msg),
+                prefetchedBlobs
+              )
+            } else if (localDevFfmpegAvailable) {
+              setDownloadHint("로컬 작업 폴더에 소스 영상 저장 중…")
+              await uploadAutoEditSourcesToLocalDir(
+                workDir,
+                nextPicks,
+                (msg) => setDownloadHint(msg),
+                prefetchedBlobs
+              )
+            }
           } else if (requireBrowserUpload) {
             setDownloadHint(
               analysisMode === "precision"
@@ -684,7 +747,7 @@ export function MvpAutoEditDialog({
           }
 
           const hints = stepHintsForMode(analysisMode, doRemoveChineseSubtitles)
-          const json = await pollAutoEditJob(
+          let json = await pollAutoEditJob(
             started.jobId,
             (partial) => {
               setResult(partial)
@@ -696,6 +759,47 @@ export function MvpAutoEditDialog({
               scriptTopic: projectName?.trim() || undefined,
             }
           )
+          let companionVideoBlob: Blob | null = null
+          let companionVideoUrl: string | null = null
+          if (
+            json.localRenderPending &&
+            renderMode === "local" &&
+            json.editPlan &&
+            companionOnline
+          ) {
+            const workDir = localWorkDir.trim()
+            setDownloadHint("로컬 에이전트에서 ffmpeg 렌더 중…")
+            const { outputPath: localOut } = await renderEditPlanOnCompanion({
+              companionUrl,
+              localWorkDir: workDir,
+              jobId: json.jobId,
+              editPlan: json.editPlan,
+            })
+            const blob = await fetchCompanionOutputMp4({
+              companionUrl,
+              localWorkDir: workDir,
+              jobId: json.jobId,
+            })
+            await assertPreviewMp4Blob(blob)
+            if (projectId && json.jobId) await saveMvpEditMp4(projectId, json.jobId, blob)
+            revokePreviewBlob()
+            const objectUrl = URL.createObjectURL(blob)
+            previewBlobRef.current = objectUrl
+            setPreviewBlobUrl(objectUrl)
+            companionVideoBlob = blob
+            companionVideoUrl = objectUrl
+            json = {
+              ...json,
+              localRenderPending: false,
+              renderSkipped: false,
+              localOutputPath: localOut,
+            }
+          }
+          if (json.localRenderPending && renderMode === "local" && !companionVideoBlob) {
+            throw new Error(
+              "로컬 에이전트 렌더가 완료되지 않았습니다. npm run shotform:local-agent 가 실행 중인지 확인해 주세요."
+            )
+          }
           setResult(json)
           if (json.step === "error") {
             const failMsg = json.error || "자동 편집 실패"
@@ -733,11 +837,11 @@ export function MvpAutoEditDialog({
             break
           }
 
-          let videoBlobUrl: string | null = null
-          let videoBlob: Blob | null = null
+          let videoBlobUrl: string | null = companionVideoUrl
+          let videoBlob: Blob | null = companionVideoBlob
           const mp4DownloadUrl =
             json.downloadUrl || (json.jobId ? autoEditDownloadUrl(json.jobId) : "")
-          if (mp4DownloadUrl && json.jobId) {
+          if (!videoBlob && mp4DownloadUrl && json.jobId) {
             setDownloadHint("결과 MP4 불러오는 중…")
             try {
               const mp4 = await fetchResultMp4(mp4DownloadUrl, json.jobId)
@@ -788,6 +892,9 @@ export function MvpAutoEditDialog({
     removeChineseSubtitles,
     renderMode,
     localWorkDir,
+    companionOnline,
+    companionUrl,
+    localDevFfmpegAvailable,
     revokePreviewBlob,
     fetchResultMp4,
     projectId,
@@ -901,9 +1008,19 @@ export function MvpAutoEditDialog({
             </div>
           </div>
 
-          {localRenderAvailable ? (
-            <div className="rounded-lg border border-emerald-500/25 bg-emerald-950/10 px-3 py-2.5">
+          <div className="rounded-lg border border-emerald-500/25 bg-emerald-950/10 px-3 py-2.5">
               <p className="mb-2 text-xs font-medium text-emerald-200/90">ffmpeg 렌더 방식</p>
+              {companionOnline ? (
+                <p className="mb-2 text-[10px] text-emerald-400">로컬 에이전트 연결됨 · 배포 사이트에서도 PC 폴더 렌더 가능</p>
+              ) : localRenderCap?.companionRecommended ? (
+                <p className="mb-2 text-[10px] text-amber-300/90">
+                  로컬 렌더: PC에서 <span className="font-mono">npm run shotform:local-agent</span> 실행 후
+                  선택
+                </p>
+              ) : null}
+              {companionHint && !companionOnline && renderMode === "local" ? (
+                <p className="mb-2 text-[10px] text-amber-300/80">{companionHint}</p>
+              ) : null}
               <div className="grid gap-2 sm:grid-cols-2">
                 <button
                   type="button"
@@ -953,7 +1070,6 @@ export function MvpAutoEditDialog({
                 </div>
               ) : null}
             </div>
-          ) : null}
 
           <div
             className={cn(

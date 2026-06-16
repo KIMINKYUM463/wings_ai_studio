@@ -285,6 +285,8 @@ export type AutoEditJobResult = {
   renderMode?: "server" | "local"
   localWorkDir?: string
   localOutputPath?: string
+  /** 배포 서버 분석 후 PC 동반 에이전트에서 렌더 대기 */
+  localRenderPending?: boolean
 }
 
 /** 브라우저에서 미리 추출한 영상 메타 */

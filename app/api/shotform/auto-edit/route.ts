@@ -327,16 +327,8 @@ export async function POST(req: NextRequest) {
     const renderMode = normalizeAutoEditRenderMode(body.renderMode)
     const localWorkDir =
       typeof body.localWorkDir === "string" ? body.localWorkDir.trim() : ""
-    if (renderMode === "local") {
-      if (process.env.VERCEL) {
-        return NextResponse.json(
-          { error: "로컬 렌더는 npm run dev 로 실행한 로컬 서버에서만 사용할 수 있습니다." },
-          { status: 400 }
-        )
-      }
-      if (!localWorkDir) {
-        return NextResponse.json({ error: "localWorkDir(작업 폴더 경로)가 필요합니다." }, { status: 400 })
-      }
+    if (renderMode === "local" && !localWorkDir) {
+      return NextResponse.json({ error: "localWorkDir(작업 폴더 경로)가 필요합니다." }, { status: 400 })
     }
 
     const openaiApiKey = openaiKey(body)

@@ -89,7 +89,12 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
     input.renderMode === "local" &&
     Boolean(input.localWorkDir?.trim()) &&
     isLocalRenderAllowedOnServer()
+  const deferLocalCompanionRender =
+    input.renderMode === "local" &&
+    Boolean(input.localWorkDir?.trim()) &&
+    !isLocalRenderAllowedOnServer()
   const localWorkRoot = useLocalRender ? normalizeLocalWorkDir(input.localWorkDir!) : null
+  const companionWorkDir = deferLocalCompanionRender ? input.localWorkDir!.trim() : undefined
 
   const { dir, id: jobId } =
     input.presetWork ??
@@ -103,8 +108,8 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
     step: "download",
     videoCount: videos.length,
     sourceKeywords: sourceKeywords.length ? sourceKeywords : undefined,
-    renderMode: useLocalRender ? "local" : "server",
-    localWorkDir: localWorkRoot ?? undefined,
+    renderMode: useLocalRender || deferLocalCompanionRender ? "local" : "server",
+    localWorkDir: localWorkRoot ?? companionWorkDir,
   }
   putAutoEditJob({ ...base, createdAt })
 
@@ -143,7 +148,8 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
         return analysisMode === "fast"
       })
 
-    const useCloudRunRender = !useLocalRender && shouldUseCloudRunForAutoEditRender()
+    const useCloudRunRender =
+      !useLocalRender && !deferLocalCompanionRender && shouldUseCloudRunForAutoEditRender()
     const hasUploadedBuffers = videos.every((v) => uploads[v.video_id]?.length)
     const sourcesPreUploaded = Boolean(input.sourcesPreUploaded)
     const skipServerCdnDownload =
@@ -359,6 +365,7 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
     let renderSkipReason: string | undefined
     let subtitleRemovalSkipped = false
     let subtitleRemovalWarning: string | undefined
+    let localRenderPending = false
     const outputPath = path.join(dir, "output.mp4")
     const shouldRemoveSubtitles = Boolean(
       input.removeChineseSubtitles && input.vmakeApiKey?.trim() && input.vmakeSecretAccessKey?.trim()
@@ -375,6 +382,9 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
       excludedVideos,
       createdAt,
     })
+    if (deferLocalCompanionRender) {
+      localRenderPending = true
+    } else {
     try {
       const renderArgs = {
         sourcePaths,
@@ -502,6 +512,7 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
         subtitleRemovalWarning = "렌더가 완료되지 않아 Vmake 자막 제거를 적용할 수 없습니다."
       }
     }
+    }
 
     const preScriptJob = {
       ...base,
@@ -522,6 +533,7 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
       outputStoragePath: renderSkipped ? undefined : outputStoragePath ?? undefined,
       localOutputPath:
         !renderSkipped && localWorkRoot ? localJobOutputPath(localWorkRoot, jobId) : undefined,
+      localRenderPending: localRenderPending || undefined,
     }
 
     putAutoEditJob({ ...preScriptJob, step: "script" })
@@ -541,10 +553,11 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
       jobId,
       step: "done",
       sourceKeywords: sourceKeywords.length ? sourceKeywords : undefined,
-      renderMode: useLocalRender ? "local" : "server",
-      localWorkDir: localWorkRoot ?? undefined,
+      renderMode: useLocalRender || deferLocalCompanionRender ? "local" : "server",
+      localWorkDir: localWorkRoot ?? companionWorkDir,
       localOutputPath:
         !renderSkipped && localWorkRoot ? localJobOutputPath(localWorkRoot, jobId) : undefined,
+      localRenderPending: localRenderPending || undefined,
       analyses: usable,
       analysis: usable[0],
       productAnalysis,
