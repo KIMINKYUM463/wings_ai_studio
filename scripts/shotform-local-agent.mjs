@@ -203,6 +203,27 @@ async function handleRender(req, res) {
   })
 }
 
+function handleSourceMeta(req, res, videoId, workDirRaw) {
+  try {
+    const workDir = normalizeWorkDir(workDirRaw)
+    if (!videoId || !/^[a-zA-Z0-9_-]+$/.test(videoId)) {
+      json(res, req, 400, { error: "유효하지 않은 videoId" })
+      return
+    }
+    const src = sourcePath(workDir, videoId)
+    if (!fs.existsSync(src)) {
+      json(res, req, 200, { exists: false, hasVideo: false })
+      return
+    }
+    const stat = fs.statSync(src)
+    const sig = fs.readFileSync(src, { start: 4, end: 8 }).toString("ascii")
+    const hasVideo = stat.size >= 50_000 && sig === "ftyp" && probeHasVideoStream(src)
+    json(res, req, 200, { exists: true, hasVideo, bytes: stat.size })
+  } catch (e) {
+    json(res, req, 400, { error: e instanceof Error ? e.message : "오류" })
+  }
+}
+
 function handleSourceGet(req, res, videoId, workDirRaw) {
   try {
     const workDir = normalizeWorkDir(workDirRaw)
@@ -285,9 +306,13 @@ const server = http.createServer(async (req, res) => {
       return
     }
 
-    const sourceMatch = pathname.match(/^\/sources\/([^/]+)$/)
+    const sourceMatch = pathname.match(/^\/sources\/([^/]+)(?:\/meta)?$/)
     if (sourceMatch) {
       const videoId = decodeURIComponent(sourceMatch[1])
+      if (pathname.endsWith("/meta") && req.method === "GET") {
+        handleSourceMeta(req, res, videoId, url.searchParams.get("workDir"))
+        return
+      }
       if (req.method === "POST") {
         await handleSourcesPut(req, res, videoId)
         return

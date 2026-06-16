@@ -9,7 +9,7 @@ export async function uploadAutoEditSourcesToLocalDir(
   prefetchedBlobs?: Record<string, Blob>
 ): Promise<void> {
   const { fetchMvpPickVideoBlob } = await import("@/lib/shotform-mvp-pick-video-download")
-  const { probeCompanionSourceExists } = await import("@/lib/shotform-local-companion-client")
+  const { probeCompanionSourceMeta } = await import("@/lib/shotform-local-companion-client")
   const form = new FormData()
   form.set("localWorkDir", localWorkDir)
 
@@ -21,12 +21,12 @@ export async function uploadAutoEditSourcesToLocalDir(
 
     let blob = prefetchedBlobs?.[pick.video_id]
     if (!blob?.size) {
-      const alreadyLocal = await probeCompanionSourceExists({
+      const meta = await probeCompanionSourceMeta({
         localWorkDir,
         videoId: pick.video_id,
       })
-      if (alreadyLocal) {
-        onProgress?.(`로컬 폴더에 이미 있음 — ${label} 건너뜀`)
+      if (meta.exists && meta.hasVideo) {
+        onProgress?.(`로컬 폴더에 유효한 영상 있음 — ${label} 건너뜀`)
         continue
       }
       onProgress?.(`영상 ${i + 1}/${total} 다운로드 중… (${label})`)

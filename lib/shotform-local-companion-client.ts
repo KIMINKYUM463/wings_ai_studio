@@ -114,17 +114,37 @@ export async function probeCompanionSourceExists(args: {
   localWorkDir: string
   videoId: string
 }): Promise<boolean> {
+  const meta = await probeCompanionSourceMeta(args)
+  return meta.exists
+}
+
+/** 로컬 sources/{videoId}.mp4 존재·영상 스트림 여부 */
+export async function probeCompanionSourceMeta(args: {
+  companionUrl?: string
+  localWorkDir: string
+  videoId: string
+}): Promise<{ exists: boolean; hasVideo: boolean; bytes?: number }> {
   const companionUrl = args.companionUrl || resolveLocalCompanionUrl()
   const base = companionUrl.replace(/\/$/, "")
   const q = new URLSearchParams({ workDir: args.localWorkDir.trim() })
   try {
     const res = await fetch(
-      `${base}/sources/${encodeURIComponent(args.videoId)}?${q.toString()}`,
-      { method: "HEAD", cache: "no-store" }
+      `${base}/sources/${encodeURIComponent(args.videoId)}/meta?${q.toString()}`,
+      { cache: "no-store" }
     )
-    return res.ok
+    const json = (await res.json().catch(() => ({}))) as {
+      exists?: boolean
+      hasVideo?: boolean
+      bytes?: number
+    }
+    if (!res.ok) return { exists: false, hasVideo: false }
+    return {
+      exists: Boolean(json.exists),
+      hasVideo: Boolean(json.hasVideo),
+      bytes: json.bytes,
+    }
   } catch {
-    return false
+    return { exists: false, hasVideo: false }
   }
 }
 
@@ -167,14 +187,17 @@ export async function uploadAutoEditSourcesToCompanion(
     const label = pick.title || pick.video_id
     onProgress?.(`로컬 에이전트 저장 ${i + 1}/${total}… (${label})`)
 
-    const alreadyLocal = await probeCompanionSourceExists({
+    const meta = await probeCompanionSourceMeta({
       companionUrl,
       localWorkDir,
       videoId: pick.video_id,
     })
-    if (alreadyLocal) {
-      onProgress?.(`로컬 폴더에 이미 있음 — ${label} 건너뜀`)
+    if (meta.exists && meta.hasVideo) {
+      onProgress?.(`로컬 폴더에 유효한 영상 있음 — ${label} 건너뜀`)
       continue
+    }
+    if (meta.exists && !meta.hasVideo) {
+      onProgress?.(`손상된 소스 감지 — ${label} 다시 저장 중…`)
     }
 
     let blob = prefetchedBlobs?.[pick.video_id]

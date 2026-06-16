@@ -706,7 +706,8 @@ export function MvpAutoEditDialog({
           // 고속: 브라우저 메타만으로 분석하면 서버 CDN 다운로드를 생략함 → 렌더(Cloud Run)는
           // 프록시 없이 CDN 직접 접근이라 만료·차단에 취약. 저장 프로젝트 재실행도 Supabase 업로드 필수.
           const requireBrowserUploadForRender =
-            analysisMode === "fast" && Boolean(allHaveDuration)
+            renderMode === "server" ||
+            (analysisMode === "fast" && Boolean(allHaveDuration))
 
           let sourcesPreUploaded = false
           const requireBrowserUpload =
