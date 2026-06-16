@@ -16,6 +16,12 @@ if (-not (Test-Path $AgentScript)) {
 
 # 시작 프로그램 바로가기
 $Startup = [Environment]::GetFolderPath("Startup")
+if (-not $Startup) {
+  $Startup = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Startup"
+}
+if (-not (Test-Path $Startup)) {
+  New-Item -ItemType Directory -Path $Startup -Force | Out-Null
+}
 $ShortcutPath = Join-Path $Startup "ShotForm Local Agent.lnk"
 $Wsh = New-Object -ComObject WScript.Shell
 $Sc = $Wsh.CreateShortcut($ShortcutPath)
