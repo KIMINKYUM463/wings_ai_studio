@@ -122,7 +122,7 @@ export function detectObviousProductCategoryLeak(
   if (!isMount) return []
 
   const forbidden =
-    /핸디\s*청소|청소기|먼지|흡입|노즐|빨아들|진공|흡입구|먼지통|영화관|몰입감|프로젝터|스크린|경기\s*볼|야외에\s*설치|밝기가\s*확실|화면이\s*이렇게\s*선명|현장감이\s*살|정리\s*포인트|수납력이\s*또/i
+    /핸디\s*청소|청소기|먼지|흡입|노즐|빨아들|진공|흡입구|먼지통|영화관|몰입감|프로젝터|스크린|경기\s*볼|야외에\s*설치|밝기가\s*확실|화면이\s*이렇게\s*선명|현장감이\s*살|정리\s*포인트|각도\s*조절\s*포인트|다른\s*컷|포인트|수납력이\s*또/i
   const leaks: string[] = []
   for (const line of lines) {
     const t = line.replace(/\n/g, " ").trim()

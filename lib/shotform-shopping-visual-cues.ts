@@ -55,7 +55,10 @@ export const REPEAT_META_PATTERNS = [
   /꾸준히\s*느껴져요/,
   /방금\s*그\s*.+?,?\s*여기서도\s*똑같이/,
   /앞\s*장면\s*이어서\s*보면/,
-  /반복\s*장면이지만/,
+  /반복\s*장면/,
+  /다른\s*컷/,
+  /(각도\s*조절|정리|디자인|핵심|체감)\s*포인트/,
+  /포인트는\s*같/,
   /여기서도\s*체감/,
   /그대로\s*예요$/,
   /동일해요$/,
@@ -123,13 +126,22 @@ export function combineVisualAndProductNarration(args: {
       return hooks[idx % hooks.length]!
     }
     if (occurrence > 1) {
-      const lines = [
-        `다른 각도에서 봐도 ${product} 고정력은 똑같이 안정적이에요`,
-        `각도만 달라도 ${product} 화면 보기가 편해요`,
-        `같은 장착인데 시야각만 살짝 달라 보여요`,
-        `반복 장면이어도 ${product} 흔들림은 거의 없어요`,
-        `다른 컷이어도 ${product} 각도 조절 포인트는 같아요`,
-      ]
+      const installing = /붙이|설치|장착|끼우|고정/i.test(visualDesc)
+      const lines = installing
+        ? [
+            `대시보드에 눌러 붙이기만 해도 ${product} 고정이 단단해요`,
+            `한 손으로 끼워 넣어도 흔들림이 거의 없어요`,
+            `붙이는 위치만 달라도 내비 보기 각도가 편해요`,
+            `설치도 간단한데 고정력은 그대로예요`,
+            `각도만 살짝 돌려도 화면이 눈높이에 맞아요`,
+          ]
+        : [
+            `다른 각도에서 봐도 ${product} 고정력은 똑같이 안정적이에요`,
+            `각도만 달라도 ${product} 화면 보기가 편해요`,
+            `같은 장착인데 시야각만 살짝 달라 보여요`,
+            `운전석에서 ${product}로 내비 보기 편해져요`,
+            `진동에도 ${product} 흔들림은 거의 없어요`,
+          ]
       return lines[idx % lines.length]!
     }
     const lines = [
@@ -168,7 +180,7 @@ export function combineVisualAndProductNarration(args: {
   if (cue.kind === "puzzle_holder") {
     const lines = [
       `퍼즐 모양 ${product}, 귀여운데 칫솔 꽂기도 딱이에요`,
-      `${product} 퍼즐 디자인이라 욕실 인테리어 포인트돼요`,
+      `${product} 퍼즐 디자인이라 욕실 분위기까지 살아나요`,
       `세면대 위에 두니 칫솔·치약이 한곳에 모여요`,
       `이 각도 보면 ${product} 수납 슬롯이 잘 보여요`,
     ]
@@ -205,8 +217,8 @@ export function combineVisualAndProductNarration(args: {
   if (occurrence > 1) {
     const lines = [
       `${cue.label} 보면 ${product} 수납력이 또 보여요`,
-      `다른 각도인데도 ${product} 정리 포인트는 같아요`,
-      `${product}, ${cue.label}에서도 쓰임이 확실해요`,
+      `다른 각도에서 봐도 ${product} 정리가 깔끔해요`,
+      `${product}, ${cue.label}에서도 쓸모가 확실해요`,
     ]
     return lines[idx % lines.length]!
   }
@@ -214,7 +226,7 @@ export function combineVisualAndProductNarration(args: {
   const lines = [
     `${cue.label} 보니까 ${product} 쓰임이 바로 와닿아요`,
     `${product}로 ${cue.place || "공간"} 정리가 이렇게 쉬워요`,
-    `이 장면에서 ${product} 포인트가 딱 보여요`,
+    `이 장면 보니 ${product} 장점이 바로 느껴져요`,
   ]
   return lines[idx % lines.length]!
 }

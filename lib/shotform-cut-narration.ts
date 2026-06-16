@@ -113,7 +113,12 @@ const GENERIC_TEMPLATE_PATTERNS = [
   /색감이\s*깔끔해서\s*선물용/,
   /방금\s*그\s*.+?,?\s*여기서도/,
   /앞\s*장면\s*이어서\s*보면/,
-  /반복\s*장면이지만/,
+  /반복\s*장면/,
+  /다른\s*컷/,
+  /각도\s*조절\s*포인트/,
+  /정리\s*포인트/,
+  /디자인\s*포인트/,
+  /포인트는\s*같/,
 ] as const
 
 const INVALID_NARRATION_PRODUCT_NAME =
@@ -233,7 +238,7 @@ function vacuumNarrationAllowed(productBlob: string): boolean {
 /** 중복 시 순환할 고유 폴백 대본 */
 const UNIQUE_NARRATION_FALLBACKS = [
   "이 장면, 직접 보면 체감이 달라요",
-  "여기 포인트가 꽤 확실해요",
+  "여기가 꽤 마음에 드는 부분이에요",
   "이렇게 쓰니까 손이 훨씬 덜 가요",
   "설치 후 바로 느껴지는 차이예요",
   "실제로 보면 왜 쓰는지 납득돼요",
@@ -245,10 +250,10 @@ const UNIQUE_NARRATION_FALLBACKS = [
   "공간 분위기까지 확 바뀌어요",
   "이건 확실히 체감되는 타입이에요",
   "쓰는 순간 바로 편해지는 느낌이에요",
-  "이 포인트, 놓치면 아쉬워요",
+  "놓치면 아쉬운 부분이에요",
   "보는 것보다 직접 쓰면 더 와닿아요",
   "이렇게 활용하면 훨씬 깔끔해요",
-  "매일 쓰기 좋은 포인트가 있어요",
+  "매일 쓰기 좋은 타입이에요",
   "이 장면에서 장점이 딱 보여요",
   "쓰다 보면 왜 추천하는지 알 거예요",
   "이건 영상으로 봐도 매력이 확실해요",
@@ -276,7 +281,8 @@ export function isAbstractShoppingNarration(text: string): boolean {
     /먼지|청소|흡입|시트|바닥|노즐|필터|차|구석|틈새|매트|진공|닦|빨아|제거|정리|선풍기|바람|포장|가방|손바닥|휴대|욕실|세면대|거치대|수납|꽂|벽걸이|퍼즐|칫솔|책상|컵/.test(
       t
     )
-  if (/^(이|그)\s*(포인트|부분)/.test(t) && !hasConcreteVisual) return true
+  if (/포인트/.test(t)) return true
+  if (/^(이|그)\s*(부분)/.test(t) && !hasConcreteVisual) return true
   if (/해결하세요|놓치면 아쉬워|핵심이에요|만족할 거예요|손이 가요|체감이\s*확\s*와요/.test(t) && !hasConcreteVisual) {
     return true
   }
@@ -637,14 +643,14 @@ function productNarrationFallback(productName: string | undefined, ruleOffset: n
   const product = sanitizeProductNameForNarration(productName) || "이 제품"
   const fallbacks = [
     `${product}, 이렇게 쓰면 편해요`,
-    `${product} 포인트가 확실해요`,
+    `${product} 쓰임새가 확실해요`,
     `${product} 실사용이 이렇게예요`,
     `${product}, 써보니 생각보다 달라요`,
     `${product}로 공간이 깔끔해져요`,
     `${product}, 이 부분이 마음에 들어요`,
     "이렇게 쓰면 편해요",
     "실사용 장면이에요",
-    "이 포인트가 꽤 확실해요",
+    "이 부분이 꽤 마음에 들어요",
     "써보니 생각보다 다르더라고요",
     "이렇게 활용하면 깔끔해요",
     "보는 것보다 직접 쓰면 와닿아요",
@@ -701,7 +707,7 @@ function forceUniqueNarrationLine(args: {
   )
   const kw = words[(cutIndex + priorLines.length) % Math.max(words.length, 1)]
   const emergency = kw
-    ? `${kw} 포인트, 여기도 한 번에 정리돼요`
+    ? `${kw}, 여기서도 한 번에 정리돼요`
     : `이 장면 ${cutIndex + 1}, 직접 보면 차이가 나요`
   return formatNarrationForSceneDuration(emergency, duration)
 }

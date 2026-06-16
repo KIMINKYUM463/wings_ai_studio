@@ -274,15 +274,18 @@ export function narrationForRepeatedScene(args: {
   if (cue.kind === "puzzle_holder") {
     candidates.push(
       `퍼즐 모양 ${product}, 다른 각도에서도 수납이 안정적이에요`,
-      `${product} 디자인 포인트가 이 컷에서도 또 보여요`
+      `퍼즐 디자인 ${product}, 욕실에 두기에도 예뻐요`
     )
   }
   if (cue.kind === "car_mount" || isCarMountOrHolderProduct(`${product} ${desc}`)) {
+    const installing = /붙이|설치|장착|끼우|고정/i.test(desc)
     candidates.push(
-      `다른 각도에서 봐도 ${product} 고정력은 똑같이 안정적이에요`,
+      installing
+        ? `대시보드에 눌러 붙이기만 해도 ${product} 고정이 단단해요`
+        : `다른 각도에서 봐도 ${product} 고정력은 똑같이 안정적이에요`,
       `각도만 달라도 ${product} 화면 보기가 편해요`,
       `같은 장착인데 시야각만 살짝 달라 보여요`,
-      `운전석에서 ${product} 각도 조절이 수월해요`
+      `운전석에서 ${product} 각도만 돌려도 내비가 잘 보여요`
     )
   }
   if (cue.kind === "cup_organizer" && isToothbrushHolderProduct(product)) {
