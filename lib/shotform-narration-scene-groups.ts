@@ -13,7 +13,7 @@ import {
   isRepeatMetaNarration,
   isToothbrushHolderProduct,
 } from "@/lib/shotform-shopping-visual-cues"
-import { isCarMountOrHolderProduct } from "@/lib/shotform-user-keyword-product"
+import { isCarMountOrHolderProduct, isFurnitureSofaProduct } from "@/lib/shotform-user-keyword-product"
 
 function visualDescFromCard(visualCard: string): string {
   return visualCard
@@ -77,10 +77,18 @@ export function inferProductBenefitForVisual(
     if (/책상|데스크/i.test(d)) return "책상 위 어지러운 소품 정돈"
     return "한곳에 모아 찾기 쉬운 수납"
   }
+  if (isFurnitureSofaProduct(blob)) {
+    if (/쿠션|등받|좌석|앉|누워|침대|躺/i.test(d)) return "넓은 좌석·푹신한 쿠션"
+    if (/거실|인테리어|공간|거실|living/i.test(d)) return "거실 분위기·공간감"
+    if (/패브릭|원단|천|촉감|fabric/i.test(d)) return "패브릭 촉감·마감"
+    if (/팔걸|arm|扶手/i.test(d)) return "편한 팔걸이·릴랙스"
+    if (/색|컬러|color/i.test(d)) return "인테리어에 맞는 색감"
+    return "넓은 좌석·편안한 거실 소파"
+  }
   if (/부속|액세서리|노즐|브러시|툴|케이스|보관/i.test(d)) {
     return "다양한 부속으로 차량 곳곳 청소"
   }
-  if (/손잡이|핸들|그립/i.test(d)) {
+  if (!isFurnitureSofaProduct(blob) && /손잡이|핸들|그립/i.test(d)) {
     return "그립감 좋은 핸들·한 손 조작"
   }
   if (/박스|포장|케이스|수납/i.test(d)) {

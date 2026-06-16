@@ -23,6 +23,7 @@ import {
   normalizeUserSourceKeywords,
   primaryProductLabelFromKeywords,
 } from "@/lib/shotform-user-keyword-product"
+import { applyFlowRhythmToScript } from "@/lib/shotform-narration-flow-rhythm"
 
 export const AUTO_EDIT_SCRIPT_TIMEOUT_MS = 120_000
 export const AUTO_EDIT_PRECISION_SCRIPT_TIMEOUT_MS = 150_000
@@ -100,12 +101,13 @@ async function auditFastModeScript(args: {
     scenes.map((s) => s.text),
     primary
   )
+  const flowed = applyFlowRhythmToScript(mitigated)
   scenes = scenes.map((s, i) => {
     const seg = editPlan.edit_plan[i]
     const dur = seg ? Math.max(0.5, seg.output_end - seg.output_start) : s.end - s.start
     return {
       ...s,
-      text: formatSceneNarrationLines(mitigated[i] ?? s.text, dur),
+      text: formatSceneNarrationLines(flowed[i] ?? mitigated[i] ?? s.text, dur),
     }
   })
 

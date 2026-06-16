@@ -42,6 +42,7 @@ import { PRECISION_SCRIPT_TONE } from "@/lib/shotform-auto-edit-precision-script
 import {
   detectObviousProductCategoryLeak,
   isCarMountOrHolderProduct,
+  isFurnitureSofaProduct,
 } from "@/lib/shotform-user-keyword-product"
 
 /** 벤치마크 UI용 — [샷] + 장면 묘사 */
@@ -400,8 +401,26 @@ function buildFallbackNarration(
     sanitizeProductNameForNarration(productName, { visualHint: d, userKeywords }) || "이 제품"
   const productBlob = `${userKeywords?.join(" ") || ""} ${product} ${d}`
   const isMount = isCarMountOrHolderProduct(productBlob)
+  const isFurniture = isFurnitureSofaProduct(productBlob)
 
   const pools: string[][] = []
+
+  if (isFurniture) {
+    pools.push([
+      "거실 분위기가 확 살아나는 사이즈예요",
+      "쿠션 감촉이 푹신해서 앉자마자 편해요",
+      "패브릭 마감이 고급스럽게 보여요",
+      "좌석이 넓어서 누워도 여유 있어요",
+      "색감이 인테리어에 잘 어울려요",
+      "팔걸이 높이가 편해서 오래 앉아도 좋아요",
+      "거실이 넓어 보이는 비율이에요",
+      "쿠션 포인트가 몸을 잘 받쳐줘요",
+      "원단 질감이 손에 닿는 느낌이 좋아요",
+      "대형 좌석이라 가족이 같이 앉기 좋아요",
+      "마감 디테일이 깔끔해서 거실이 정돈돼 보여요",
+      "앉았을 때 허리·목 받침이 편해요",
+    ])
+  }
 
   if (/선풍기|风扇|fan|휴대용\s*선풍|미니\s*선풍|쿨링|手持风扇/i.test(d)) {
     pools.push([
@@ -581,6 +600,9 @@ export function narrationMismatchesVisualProduct(
     return true
   }
   const kwBlob = userKeywords?.join(" ") || ""
+  if (isFurnitureSofaProduct(kwBlob) && /핸들|그립|손잡|손에\s*쥐|노즐|흡입|먼지|청소기|진공|차\s*안|운전/.test(script)) {
+    return true
+  }
   if (isCarMountOrHolderProduct(kwBlob) && /흡입|먼지|노즐|빨아|진공|청소기|몰입감|영화관|프로젝터/.test(script)) {
     return true
   }
@@ -628,9 +650,20 @@ export function rephraseSceneToShoppingNarrationVariant(
   return wrapNarrationShortLines(single, sceneDurationSec)
 }
 
-function isWrongCategoryNarrationRule(re: RegExp, sceneHint: string, isMount: boolean): boolean {
-  if (!isMount) return false
+function isWrongCategoryNarrationRule(re: RegExp, sceneHint: string, productBlob: string): boolean {
+  const isMount = isCarMountOrHolderProduct(productBlob)
+  const isFurniture = isFurnitureSofaProduct(productBlob)
   const s = re.source
+
+  if (isFurniture) {
+    if (/손잡이|핸들|그립|握把|handle/i.test(s)) return true
+    if (/먼지|흡입|청소|vacuum|吸尘|노즐|진공|시트|바닥|부속품|브러시|흡입하는|청소하는|진공\s*청소|핸디\s*청소|차량|운전|콘솔|대시보드|트렁크/.test(s)) {
+      return true
+    }
+    if (/손에\s*쥐|휴대|가벼워서\s*들고|한\s*손\s*조작/.test(s)) return true
+  }
+
+  if (!isMount) return false
   if (/먼지|흡입|청소|vacuum|吸尘|노즐|진공|바닥|시트|부속품|브러시|흡입하는|청소하는|진공\s*청소|핸디\s*청소/.test(s)) {
     return true
   }
@@ -675,18 +708,21 @@ function forceUniqueNarrationLine(args: {
     isAbstractShoppingNarration(t)
 
   const desc = extractVisualDescription(visualHint)
-  const augmented = [
-    desc,
-    `손잡이 ${desc}`,
-    `부속품 ${desc}`,
-    `바닥 ${desc}`,
-    `시트 ${desc}`,
-    `노즐 ${desc}`,
-    `케이스 ${desc}`,
-    `사용 중 ${desc}`,
-    `차량 바닥 ${desc}`,
-    `차량 시트 ${desc}`,
-  ]
+  const productBlob = `${userKeywords?.join(" ") || ""} ${productName || ""} ${desc}`
+  const augmented = isFurnitureSofaProduct(productBlob)
+    ? [desc, `쿠션 ${desc}`, `거실 ${desc}`, `좌석 ${desc}`, `패브릭 ${desc}`, `인테리어 ${desc}`]
+    : [
+        desc,
+        `손잡이 ${desc}`,
+        `부속품 ${desc}`,
+        `바닥 ${desc}`,
+        `시트 ${desc}`,
+        `노즐 ${desc}`,
+        `케이스 ${desc}`,
+        `사용 중 ${desc}`,
+        `차량 바닥 ${desc}`,
+        `차량 시트 ${desc}`,
+      ]
 
   for (let attempt = 0; attempt < 96; attempt++) {
     const hint = augmented[attempt % augmented.length]!
@@ -817,6 +853,7 @@ function rephraseSceneCore(
   const product = sanitizeProductNameForNarration(productName, { visualHint: d, userKeywords })
   const productBlob = `${userKeywords?.join(" ") || ""} ${product || ""} ${d}`
   const isMount = isCarMountOrHolderProduct(productBlob)
+  const isFurniture = isFurnitureSofaProduct(productBlob)
   if (
     descriptionSuggestsPresenterOrFace(description) ||
     descriptionSuggestsPresenterOrFace(d)
@@ -836,6 +873,25 @@ function rephraseSceneCore(
   }
 
   const rules: Array<{ re: RegExp; say: (m: RegExpMatchArray) => string }> = [
+    {
+      re: /소파|쇼파|쿠션|좌석|거실|패브릭|리클라|躺|沙发|sofa|couch|沙發|leather/i,
+      say: () => {
+        const p = product || "이 소파"
+        const opts = [
+          `${p}, 거실 분위기가 확 살아나요`,
+          "쿠션 감촉이 푹신해서 앉자마자 편해요",
+          "좌석이 넓어서 누워도 여유 있어요",
+          "패브릭 마감이 고급스럽게 보여요",
+          "색감이 인테리어에 잘 어울려요",
+          "팔걸이 높이가 편해서 오래 앉아도 좋아요",
+          "대형 좌석이라 가족이 같이 앉기 좋아요",
+          "원단 질감이 손에 닿는 느낌이 좋아요",
+          "거실이 넓어 보이는 비율이에요",
+          "마감 디테일이 깔끔해서 공간이 정돈돼 보여요",
+        ]
+        return opts[ruleOffset % opts.length]!
+      },
+    },
     {
       re: /벽에\s*걸|벽걸이|걸린|wall/i,
       say: () => {
@@ -1283,7 +1339,10 @@ function rephraseSceneCore(
   for (const { re, say } of rules) {
     const m = d.match(re)
     if (!m) continue
-    if (isWrongCategoryNarrationRule(re, d, isMount)) {
+    if (isWrongCategoryNarrationRule(re, d, productBlob)) {
+      if (isFurniture) {
+        return buildFallbackNarration(d, product, ruleOffset, userKeywords)
+      }
       return carMountNarrationLine(product, ruleOffset, d)
     }
     return say(m)

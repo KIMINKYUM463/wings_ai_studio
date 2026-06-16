@@ -37,6 +37,7 @@ import {
 } from "@/lib/shotform-natural-shorts-script"
 import { narrationLooksIncomplete } from "@/lib/shotform-narration-timing"
 import { NARRATION_PRODUCT_NAME_USAGE_RULE } from "@/lib/shotform-narration-script-audit"
+import { NARRATION_FLOW_RHYTHM_PROMPT } from "@/lib/shotform-narration-flow-rhythm"
 import { buildDesiredBeatSequence, reorderMixPicksByStoryFlow } from "@/lib/shotform-story-flow"
 import {
   buildSceneBasedEditPlan,
@@ -1349,6 +1350,7 @@ ${benchmarkScriptFewShotJson()}
 - 첫 장면: 후킹·관심, 중간: 기능·데모, 마지막: 정리·구매 욕구.
 - sceneSubtitles.conversion[i].text = 해당 장면 visual에 맞는 **구어체 문장** (한 줄 10~20자, 끊긴 명사구·조사만 있는 줄 금지). **2번째~마지막 직전 컷**은 ~고/~며/~는데 등 **이어 말하기** 어미로 끝내고, **첫·마지막 컷만** ~요/~세요 완결. 매 컷 ~요로 끝내면 이탈↑. 다음 장면과 어색한 주제 점프 금지.
 - ${NARRATION_PRODUCT_NAME_USAGE_RULE}
+- ${NARRATION_FLOW_RHYTHM_PROMPT}
 - **금지 번역체**: 「클릭해보세요 완벽하게 작동」「모든 것이 해결」「설치가 이렇게 간편」「사용이 이렇게 간단」 — 컷마다 다른 구체 표현.
 - 장면 길이(초)에 맞게 target_lines 개수 전후로 작성.
 - scripts.conversion = 모든 장면 text를 \\n으로 연결 (장면 사이도 \\n, 추가 빈줄 없음).
