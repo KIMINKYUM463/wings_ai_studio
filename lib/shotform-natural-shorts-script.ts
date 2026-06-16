@@ -4,6 +4,7 @@
  */
 
 import { cleanNarrationLineBreaks } from "@/lib/shotform-narration-timing"
+import { NARRATION_FLOW_RHYTHM_PROMPT } from "@/lib/shotform-narration-flow-rhythm"
 
 export const NATURAL_SHORTS_CTA = "영상 속 링크를 클릭해보세요"
 
@@ -91,8 +92,9 @@ ${FEW_SHOT_LINES.map((l, i) => `${i + 1}. ${l}`).join("\n")}
 
 ## lines 규칙
 - ${cutCount}개 컷이 **한 명이 말하는 한 편**처럼 이어질 것
+- ${NARRATION_FLOW_RHYTHM_PROMPT}
 - 각 컷: 해당 화면(visual) 동작·대상 반영 + **제품 가치가 스토리에 녹아 있을 것**
-- 컷 길이(초)×4.5자 **권장** — 짧은 컷은 8~14자 한 줄, **컷마다 완결된 한 문장**(…하는/…하게/…되는 으로 끝나면 안 됨, 다음 컷과 이어 붙이기 금지)
+- 컷 길이(초)×4.5자 **권장** — 짧은 컷은 8~14자 한 줄, **…하는/…하게/…되는** 으로 끊기지 않게 (중간 컷은 ~고/~며 연결, 첫·마지막만 ~요 완결)
 - **? ! 는 앞 문장에 붙여 쓰기** (예: 번거롭죠?) — 구두점만 따로 한 줄·공백 뒤 ? 금지
 - 화면에 없는 기능·스펙 지어내기 금지
 - lines 각 요소에 **「컷1」「컷2」·컷 번호·장면 번호를 넣지 말 것** — TTS에 그대로 읽힘`

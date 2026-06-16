@@ -1,8 +1,10 @@
 /** 쇼핑숏폼 한국어 나레이션 — 벤치마크 기준 약 4.5자/초 */
 
-
-
 export const KOREAN_NARRATION_CHARS_PER_SEC = 4.5
+
+/** TTS·자막에서 완결로 인정하는 이어 말하기 어미 */
+export const NARRATION_FLOWING_ENDINGS =
+  /(?:하고|이며|으며|면서|는데|지만|해서|거나|니까|라서|다가|거든|인데|치고|편하고|쉽고|좋고|되고|있고|보이고|나오고|적이고|안정적이고|간단하고|확실하고|수월하고|깔끔하고|편한데|좋은데|쉬운데|깔끔한데|같고)$/
 
 const ORPHAN_PUNCTUATION_LINE = /^[.!?。！？…,，、:·\s]+$/
 
@@ -91,10 +93,11 @@ function narrationLineLooksIncomplete(line: string): boolean {
   if (!t) return true
   if (/[.!?…]$/.test(t)) return false
   if (NARRATION_COMPLETE_ENDINGS.test(t)) return false
+  if (NARRATION_FLOWING_ENDINGS.test(t)) return false
   if (/[요죠네다음][.!?]?$/.test(t)) return false
   if (/[을를이가의에과와도로으로]$/.test(t)) return true
-  // 관형형·연결 어미에서 끊김 (설치하는, 간편하게 등 — 다음 컷과 이어지지 않음)
-  if (/[가-힣]+(?:하는|되는|할|한|하고|이며|면서|는데|지만|해서|으며|거나|인|된)$/.test(t)) return true
+  // 관형형·미완성 연결 (설치하는, 간편하게 등 — 고/며 없이 끊김)
+  if (/[가-힣]+(?:하는|되는|할|한)$/.test(t)) return true
   if (/하게$/.test(t) && !/하게요/.test(t)) return true
   // 형용사·부사 어간에서 끊김 (깨끗하, 부드러우 등)
   if (/[가-힣]{2,}하$/.test(t) && !/하(세요|십시오|면|니|네요|나요|죠)?$/.test(t)) return true

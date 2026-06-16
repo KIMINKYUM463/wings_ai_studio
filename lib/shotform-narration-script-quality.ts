@@ -17,6 +17,7 @@ import {
   maxCharsForSceneDuration,
   narrationLooksIncomplete,
 } from "@/lib/shotform-narration-timing"
+import { applyFlowRhythmToScript } from "@/lib/shotform-narration-flow-rhythm"
 import type { CutScriptContext } from "@/lib/shotform-visual-scene-match"
 import { sanitizeNarrationForOutput } from "@/lib/shotform-natural-shorts-script"
 import type { CutNarrationSceneMeta } from "@/lib/shotform-narration-scene-groups"
@@ -583,7 +584,11 @@ export function buildNarrationCutsPromptBlock(
               : "역할: 기능·데모·장점"
       const shortCut =
         c.duration < 2.5
-          ? " · **1초 내외 컷**: 완결된 짧은 호흡 한 줄 — 조사·명사로 끝나는 미완성 금지"
+          ? " · **1초 내외 컷**: 짧은 호흡 한 줄 — 조사·명사로 끝나는 미완성 금지"
+          : ""
+      const rhythmHint =
+        c.index > 1 && c.index < cuts.length
+          ? " · **중간 컷**: ~고/~며/~는데 등 이어 말하기 어미 (~요만 반복 금지)"
           : ""
       const visualForPrompt = meta?.enrichedVisual ?? formatSceneDescriptionHint(c.visual_card)
       const vk = visualKeywordsForScript(c.visual_card)
@@ -601,7 +606,7 @@ export function buildNarrationCutsPromptBlock(
         vk.length > 0
           ? ` · 이 컷 대본에 위 키워드 중 1개 이상·구체 행동(빨아들이다/흡입/닦다 등) 필수`
           : " · 화면에 보이는 사물·행동을 구체적으로 말할 것"
-      return `${c.index}. 출력 ${c.output_start}-${c.output_end}s (${c.duration}초, ${lineHint}줄 권장, 최대 ${maxChars}자) · ${role}${shortCut}
+      return `${c.index}. 출력 ${c.output_start}-${c.output_end}s (${c.duration}초, ${lineHint}줄 권장, 최대 ${maxChars}자) · ${role}${shortCut}${rhythmHint}
    소스 ${c.source_start.toFixed(1)}-${c.source_end.toFixed(1)}s · video ${c.video_id}
    화면: ${visualForPrompt}${keywordHint}${benefitHint}${repeatHint}${mustMention}`
     })
@@ -796,9 +801,10 @@ export function polishCutNarrationLines(
   })
 
   const woven = weaveNarrationContinuity(polished, safeProductName).map(sanitizeNarrationForOutput)
-  return enforceUniqueCutLines(woven, contexts, safeProductName, rewriteSalt, productContext).map(
+  const unique = enforceUniqueCutLines(woven, contexts, safeProductName, rewriteSalt, productContext).map(
     sanitizeNarrationForOutput
   )
+  return applyFlowRhythmToScript(unique)
 }
 
 /** 다시쓰기 — 이전 대본과 동일·유사하면 화면 기반으로 강제 교체 */
@@ -869,5 +875,5 @@ export function alignNarrationLinesToCuts(
     }
     out.push(sanitizeNarrationForOutput(text))
   }
-  return out
+  return applyFlowRhythmToScript(out)
 }

@@ -12,6 +12,7 @@ import {
   wrapNarrationShortLines,
   narrationPlainCharCount,
 } from "@/lib/shotform-narration-timing"
+import { applyFlowRhythmToLine } from "@/lib/shotform-narration-flow-rhythm"
 import {
   hasExcessiveScriptRepetition,
   narrationBlockSimilarity,
@@ -1688,7 +1689,7 @@ export function buildNarrationSegmentsFromEditPlan(
     return {
       start: seg.output_start,
       end: seg.output_end,
-      text,
+      text: applyFlowRhythmToLine(text, i, plan.length),
     }
   })
 }
