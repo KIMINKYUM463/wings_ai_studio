@@ -45,6 +45,7 @@ import { uploadAutoEditSourcesFromBrowser } from "@/lib/shotform-auto-edit-clien
 import { uploadAutoEditSourcesToLocalDir } from "@/lib/shotform-auto-edit-client-local-source-upload"
 import {
   DEFAULT_LOCAL_COMPANION_URL,
+  ensureLocalCompanionRunning,
   fetchCompanionOutputMp4,
   LOCAL_COMPANION_URL_STORAGE_KEY,
   probeLocalCompanion,
@@ -423,13 +424,26 @@ export function MvpAutoEditDialog({
 
     void (async () => {
       const companion = await probeLocalCompanion(companionUrl)
-      setCompanionOnline(Boolean(companion.ok && companion.ffmpeg))
-      if (!companion.ok) {
-        setCompanionHint(companion.error || null)
-      } else {
+      if (companion.ok && companion.ffmpeg) {
+        setCompanionOnline(true)
         setCompanionHint(null)
         if (companion.defaultWorkDir) {
           setLocalWorkDir((prev) => prev.trim() || companion.defaultWorkDir || "")
+        }
+      } else {
+        setCompanionOnline(false)
+        const ensured = await ensureLocalCompanionRunning({
+          companionUrl,
+          onProgress: (msg) => setCompanionHint(msg),
+        })
+        if (ensured.ok && ensured.ffmpeg) {
+          setCompanionOnline(true)
+          setCompanionHint(null)
+          if (ensured.defaultWorkDir) {
+            setLocalWorkDir((prev) => prev.trim() || ensured.defaultWorkDir || "")
+          }
+        } else {
+          setCompanionHint(ensured.error || companion.error || null)
         }
       }
 
@@ -656,31 +670,29 @@ export function MvpAutoEditDialog({
             if (!workDir) {
               throw new Error("로컬 작업 폴더 경로를 입력해 주세요.")
             }
-            if (!localRenderAvailable) {
+            setDownloadHint("로컬 에이전트 연결·시작 중…")
+            const ensured = await ensureLocalCompanionRunning({
+              companionUrl,
+              onProgress: (msg) => setDownloadHint(msg),
+            })
+            if (!ensured.ok || !ensured.ffmpeg) {
               throw new Error(
-                "로컬 렌더를 사용할 수 없습니다.\n\n" +
-                  "PC에서 터미널을 열고 프로젝트 폴더에서 npm run shotform:local-agent 를 실행한 뒤 다시 시도해 주세요."
+                ensured.error ||
+                  "로컬 에이전트를 시작하지 못했습니다.\n\n" +
+                    "프로젝트 폴더에서 한 번만 실행: npm run shotform:install-agent\n" +
+                    "(Windows 시작 프로그램 등록 + 자동 기동)"
               )
             }
+            setCompanionOnline(true)
             localStorage.setItem(LOCAL_WORK_DIR_STORAGE_KEY, workDir)
-            if (companionOnline) {
-              setDownloadHint("로컬 에이전트 작업 폴더에 소스 영상 저장 중…")
-              await uploadAutoEditSourcesToCompanion(
-                companionUrl,
-                workDir,
-                nextPicks,
-                (msg) => setDownloadHint(msg),
-                prefetchedBlobs
-              )
-            } else if (localDevFfmpegAvailable) {
-              setDownloadHint("로컬 작업 폴더에 소스 영상 저장 중…")
-              await uploadAutoEditSourcesToLocalDir(
-                workDir,
-                nextPicks,
-                (msg) => setDownloadHint(msg),
-                prefetchedBlobs
-              )
-            }
+            setDownloadHint("로컬 에이전트 작업 폴더에 소스 영상 저장 중…")
+            await uploadAutoEditSourcesToCompanion(
+              companionUrl,
+              workDir,
+              nextPicks,
+              (msg) => setDownloadHint(msg),
+              prefetchedBlobs
+            )
           } else if (requireBrowserUpload) {
             setDownloadHint(
               analysisMode === "precision"
@@ -1014,12 +1026,32 @@ export function MvpAutoEditDialog({
                 <p className="mb-2 text-[10px] text-emerald-400">로컬 에이전트 연결됨 · 배포 사이트에서도 PC 폴더 렌더 가능</p>
               ) : localRenderCap?.companionRecommended ? (
                 <p className="mb-2 text-[10px] text-amber-300/90">
-                  로컬 렌더: PC에서 <span className="font-mono">npm run shotform:local-agent</span> 실행 후
-                  선택
+                  최초 1회: 프로젝트 폴더에서{" "}
+                  <span className="font-mono">npm run shotform:install-agent</span> 실행 → 이후 자동 연결
                 </p>
               ) : null}
-              {companionHint && !companionOnline && renderMode === "local" ? (
+              {companionHint && !companionOnline ? (
                 <p className="mb-2 text-[10px] text-amber-300/80">{companionHint}</p>
+              ) : null}
+              {!companionOnline && renderMode === "local" ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mb-2 h-8 w-full border-emerald-500/40 text-[11px] text-emerald-200"
+                  disabled={loading}
+                  onClick={() => {
+                    void ensureLocalCompanionRunning({
+                      companionUrl,
+                      onProgress: (msg) => setCompanionHint(msg),
+                    }).then((h) => {
+                      setCompanionOnline(Boolean(h.ok && h.ffmpeg))
+                      setCompanionHint(h.ok ? null : h.error || null)
+                    })
+                  }}
+                >
+                  에이전트 지금 시작 시도
+                </Button>
               ) : null}
               <div className="grid gap-2 sm:grid-cols-2">
                 <button

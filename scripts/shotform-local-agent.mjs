@@ -5,6 +5,7 @@
  * 기본: http://127.0.0.1:3847
  */
 import http from "http"
+import net from "net"
 import fs from "fs"
 import path from "path"
 import { spawnSync } from "child_process"
@@ -224,6 +225,22 @@ const server = http.createServer(async (req, res) => {
     json(res, req, 500, { error: e instanceof Error ? e.message : "오류" })
   }
 })
+
+function isPortTaken(port, host) {
+  return new Promise((resolve) => {
+    const tester = net
+      .createServer()
+      .once("error", (err) => resolve(err?.code === "EADDRINUSE"))
+      .once("listening", () => tester.close(() => resolve(false)))
+      .listen(port, host)
+  })
+}
+
+const taken = await isPortTaken(PORT, HOST)
+if (taken) {
+  console.log(`[shotform-local-agent] 이미 실행 중 — http://${HOST}:${PORT}`)
+  process.exit(0)
+}
 
 server.listen(PORT, HOST, () => {
   console.log(`[shotform-local-agent] http://${HOST}:${PORT}`)

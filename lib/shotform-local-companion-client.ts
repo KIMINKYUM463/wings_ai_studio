@@ -19,6 +19,10 @@ export function resolveLocalCompanionUrl(): string {
   ).replace(/\/$/, "")
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms))
+}
+
 export async function probeLocalCompanion(
   baseUrl = resolveLocalCompanionUrl()
 ): Promise<LocalCompanionHealth> {
@@ -44,9 +48,64 @@ export async function probeLocalCompanion(
   } catch {
     return {
       ok: false,
-      error:
-        "로컬 에이전트에 연결하지 못했습니다. PC에서 npm run shotform:local-agent 를 실행했는지 확인해 주세요.",
+      error: "로컬 에이전트에 연결하지 못했습니다.",
     }
+  }
+}
+
+/** 에이전트 자동 기동 — localhost API · shotform-agent:// · 재시도 */
+export async function ensureLocalCompanionRunning(opts?: {
+  companionUrl?: string
+  onProgress?: (message: string) => void
+}): Promise<LocalCompanionHealth> {
+  const baseUrl = opts?.companionUrl || resolveLocalCompanionUrl()
+  const onProgress = opts?.onProgress
+
+  let health = await probeLocalCompanion(baseUrl)
+  if (health.ok && health.ffmpeg) return health
+
+  const isLocalHost =
+    typeof window !== "undefined" &&
+    (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
+
+  if (isLocalHost) {
+    onProgress?.("로컬 에이전트 자동 시작 중…")
+    try {
+      await fetch("/api/shotform/local-agent/start", { method: "POST" })
+      for (let i = 0; i < 6; i++) {
+        await sleep(500)
+        health = await probeLocalCompanion(baseUrl)
+        if (health.ok && health.ffmpeg) return health
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+
+  if (typeof window !== "undefined") {
+    onProgress?.("로컬 에이전트 실행 요청 중…")
+    try {
+      const iframe = document.createElement("iframe")
+      iframe.style.display = "none"
+      iframe.src = "shotform-agent://start"
+      document.body.appendChild(iframe)
+      window.setTimeout(() => iframe.remove(), 2000)
+    } catch {
+      /* protocol not registered */
+    }
+    for (let i = 0; i < 8; i++) {
+      await sleep(400)
+      health = await probeLocalCompanion(baseUrl)
+      if (health.ok && health.ffmpeg) return health
+    }
+  }
+
+  return {
+    ok: false,
+    ffmpeg: false,
+    error:
+      health.error ||
+      "로컬 에이전트를 시작하지 못했습니다. 프로젝트 폴더에서 npm run shotform:install-agent 를 한 번 실행해 주세요.",
   }
 }
 

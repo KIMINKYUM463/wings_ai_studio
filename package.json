@@ -5,13 +5,15 @@
   "scripts": {
     "build": "node scripts/copy-ffmpeg-vendor.mjs && next build",
     "postinstall": "node scripts/copy-ffmpeg-vendor.mjs",
-    "dev": "next dev -p 3000",
+    "dev": "node scripts/start-dev-with-agent.mjs",
+    "dev:next-only": "next dev -p 3000",
     "dev:3001": "next dev -p 3001",
     "lint": "next lint",
     "start": "next start -p 3000",
     "start:3001": "next start -p 3001",
     "shotform:local-render": "node scripts/shotform-local-render.mjs",
-    "shotform:local-agent": "node scripts/shotform-local-agent.mjs"
+    "shotform:local-agent": "node scripts/shotform-local-agent.mjs",
+    "shotform:install-agent": "powershell -ExecutionPolicy Bypass -File scripts/install-shotform-agent-windows.ps1"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",
