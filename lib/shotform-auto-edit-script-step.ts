@@ -8,7 +8,12 @@ import type {
   VideoAnalysis,
 } from "@/lib/shotform-auto-edit-types"
 import { buildQuickShoppingScript, generateScriptFromMix } from "@/lib/shotform-auto-edit-mix"
-import { generatePrecisionScriptFromMix } from "@/lib/shotform-auto-edit-precision-script"
+import {
+  auditShoppingScriptProductIdentity,
+  generatePrecisionScriptFromMix,
+} from "@/lib/shotform-auto-edit-precision-script"
+import { detectObviousProductCategoryLeak, normalizeUserSourceKeywords } from "@/lib/shotform-user-keyword-product"
+import { formatSceneNarrationLines } from "@/lib/shotform-benchmark-script"
 
 export const AUTO_EDIT_SCRIPT_TIMEOUT_MS = 75_000
 export const AUTO_EDIT_PRECISION_SCRIPT_TIMEOUT_MS = 150_000
@@ -38,11 +43,15 @@ export async function resolveAutoEditScript(args: {
   sourceKeywords?: readonly string[]
   timeoutMs?: number
 }): Promise<ShoppingScript> {
+  const userKeywords = normalizeUserSourceKeywords(
+    args.sourceKeywords?.length ? args.sourceKeywords : args.productAnalysis.targetKeywords
+  )
   const quick = buildQuickShoppingScript(
     args.productAnalysis,
     args.editPlan,
     args.analyses,
-    args.mixInfo
+    args.mixInfo,
+    userKeywords
   )
   const apiKey = args.openaiApiKey?.trim()
   if (!apiKey) return quick
@@ -62,13 +71,13 @@ export async function resolveAutoEditScript(args: {
           editPlan: args.editPlan,
           analyses: args.analyses,
           scriptTopic: args.scriptTopic,
-          sourceKeywords: args.sourceKeywords,
+          sourceKeywords: userKeywords,
         }),
         timeout,
         "정밀 모드 대본 검증 시간 초과"
       )
     }
-    return await withTimeout(
+    let script = await withTimeout(
       generateScriptFromMix({
         apiKey,
         productAnalysis: args.productAnalysis,
@@ -76,10 +85,69 @@ export async function resolveAutoEditScript(args: {
         editPlan: args.editPlan,
         analyses: args.analyses,
         scriptTopic: args.scriptTopic,
+        sourceKeywords: userKeywords,
       }),
       timeout,
       "장면맞춤 나레이션 생성 시간 초과"
     )
+
+    if (userKeywords.length && script.bundle?.sceneSubtitles?.conversion?.length) {
+      let scenes = script.bundle.sceneSubtitles.conversion
+      let leaks = detectObviousProductCategoryLeak(
+        scenes.map((s) => s.text),
+        userKeywords
+      )
+      if (leaks.length) {
+        scenes = await auditShoppingScriptProductIdentity({
+          apiKey,
+          userKeywords,
+          productAnalysis: args.productAnalysis,
+          editPlan: args.editPlan,
+          analyses: args.analyses,
+          scenes,
+          targetDuration: args.editPlan.target_duration,
+          leakSamples: leaks,
+        })
+        scenes = scenes.map((s, i) => {
+          const hint = args.editPlan.edit_plan[i]
+          const dur = hint ? Math.max(0.5, hint.output_end - hint.output_start) : s.end - s.start
+          return { ...s, text: formatSceneNarrationLines(s.text, dur) }
+        })
+        leaks = detectObviousProductCategoryLeak(
+          scenes.map((s) => s.text),
+          userKeywords
+        )
+        if (leaks.length) {
+          scenes = await auditShoppingScriptProductIdentity({
+            apiKey,
+            userKeywords,
+            productAnalysis: args.productAnalysis,
+            editPlan: args.editPlan,
+            analyses: args.analyses,
+            scenes,
+            targetDuration: args.editPlan.target_duration,
+            leakSamples: leaks,
+          })
+        }
+        script = {
+          ...script,
+          bundle: {
+            ...script.bundle!,
+            sceneSubtitles: {
+              ...script.bundle!.sceneSubtitles,
+              conversion: scenes,
+            },
+          },
+          script: args.editPlan.edit_plan.map((seg, i) => ({
+            start: seg.output_start,
+            end: seg.output_end,
+            text: scenes[i]?.text ?? "",
+            video_id: seg.video_id,
+          })),
+        }
+      }
+    }
+    return script
   } catch (e) {
     console.warn("[auto-edit] AI narration failed, using quick script:", e)
     return quick

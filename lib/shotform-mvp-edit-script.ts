@@ -158,7 +158,8 @@ export function narrationSegmentsFromAutoEdit(result: AutoEditJobResult): Narrat
       analyses,
       result.script?.script,
       result.productAnalysis?.productName,
-      bundleScenes
+      bundleScenes,
+      result.sourceKeywords
     )
   }
 

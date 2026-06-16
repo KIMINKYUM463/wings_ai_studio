@@ -24,6 +24,7 @@ import {
 } from "@/lib/shotform-scene-understanding"
 import {
   buildNarrationProductContext,
+  detectObviousProductCategoryLeak,
   normalizeUserSourceKeywords,
   primaryProductLabelFromKeywords,
 } from "@/lib/shotform-user-keyword-product"
@@ -210,23 +211,46 @@ function productIdentityBlock(userKeywords: string[], productAnalysis: ProductAn
   })
 }
 
-/** 로컬 휴리스틱 — 키워드 제품과 명백히 다른 카테고리 용어 */
-export function detectObviousProductCategoryLeak(
-  lines: readonly string[],
-  userKeywords: readonly string[]
-): string[] {
-  const kw = userKeywords.join(" ")
-  const isMount = /거치대|홀더|마운트|holder|mount|브라켓/i.test(kw)
-  if (!isMount) return []
+export { detectObviousProductCategoryLeak }
 
-  const forbidden =
-    /핸디\s*청소|청소기|먼지|흡입|노즐|트렁크|시트\s*틈|진공|영화관|몰입감|프로젝터|스크린|경기\s*볼|야외에\s*설치|밝기가\s*확실|화면이\s*이렇게\s*선명/i
-  const leaks: string[] = []
-  for (const line of lines) {
-    const t = line.replace(/\n/g, " ").trim()
-    if (t && forbidden.test(t)) leaks.push(t.slice(0, 48))
-  }
-  return leaks
+/** 고속·벤치마크 대본 — 키워드 제품 정체성 AI 검수 */
+export async function auditShoppingScriptProductIdentity(args: {
+  apiKey: string
+  userKeywords: readonly string[]
+  productAnalysis: ProductAnalysis
+  editPlan: EditPlan
+  analyses: VideoAnalysis[]
+  scenes: SceneSubtitleBlock[]
+  targetDuration: number
+  leakSamples?: string[]
+}): Promise<SceneSubtitleBlock[]> {
+  const blueprint: PrecisionScriptSceneBlueprint[] = buildBenchmarkSceneBlocksFromEditPlan(
+    args.editPlan,
+    args.analyses,
+    undefined,
+    args.productAnalysis.scenes
+  ).map((b, i) => ({
+    index: i + 1,
+    start: b.start,
+    end: b.end,
+    duration: b.duration,
+    target_lines: b.target_lines,
+    visual_card: b.visual_card,
+    story_beat: "demo" as StoryBeat,
+    scene_role: "demo",
+    action_hint: args.scenes[i]?.text?.slice(0, 40) || b.visual_card,
+    purchase_angle: primaryProductLabelFromKeywords(args.userKeywords, args.productAnalysis.productName),
+  }))
+
+  return auditProductIdentityWithAi({
+    apiKey: args.apiKey,
+    userKeywords: [...args.userKeywords],
+    productAnalysis: args.productAnalysis,
+    blueprint,
+    scenes: args.scenes,
+    targetDuration: args.targetDuration,
+    leakSamples: args.leakSamples,
+  })
 }
 
 /** 제품 정체성·화면 정합 — AI 최종 검수 (하드코딩 폴백 대신 전면 재작성) */

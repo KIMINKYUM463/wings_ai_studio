@@ -99,3 +99,34 @@ export function buildNarrationProductContext(args: {
     .filter(Boolean)
     .join("\n")
 }
+
+/** 차량용·스마트폰 거치대 등 마운트 제품 여부 */
+export function isCarMountOrHolderProduct(blob: string): boolean {
+  const b = blob.trim()
+  if (!b) return false
+  if (/청소기|吸尘|vacuum|진공\s*청소|핸디\s*청소/i.test(b) && !/거치|홀더|마운트|holder|mount|브라켓|支架/i.test(b)) {
+    return false
+  }
+  return /거치대|홀더|마운트|holder|mount|브라켓|휴대폰\s*거치|스마트폰\s*거치|手机支架|车载|차량용\s*거치|대시보드\s*거치/i.test(
+    b
+  )
+}
+
+/** 키워드 제품과 명백히 다른 카테고리 용어가 대본에 섞였는지 */
+export function detectObviousProductCategoryLeak(
+  lines: readonly string[],
+  userKeywords: readonly string[]
+): string[] {
+  const kw = userKeywords.join(" ")
+  const isMount = isCarMountOrHolderProduct(kw)
+  if (!isMount) return []
+
+  const forbidden =
+    /핸디\s*청소|청소기|먼지|흡입|노즐|빨아들|진공|흡입구|먼지통|영화관|몰입감|프로젝터|스크린|경기\s*볼|야외에\s*설치|밝기가\s*확실|화면이\s*이렇게\s*선명|현장감이\s*살/i
+  const leaks: string[] = []
+  for (const line of lines) {
+    const t = line.replace(/\n/g, " ").trim()
+    if (t && forbidden.test(t)) leaks.push(t.slice(0, 48))
+  }
+  return leaks
+}

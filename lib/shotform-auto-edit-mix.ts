@@ -1140,14 +1140,16 @@ function alignShoppingScriptToEditCuts(
   script: ShoppingScript,
   editPlan: EditPlan,
   analyses: VideoAnalysis[],
-  productName?: string
+  productName?: string,
+  userKeywords?: readonly string[]
 ): ShoppingScript {
   const segments = buildNarrationSegmentsFromEditPlan(
     editPlan,
     analyses,
     script.script,
     productName,
-    script.bundle?.sceneSubtitles?.conversion
+    script.bundle?.sceneSubtitles?.conversion,
+    userKeywords
   )
   const plan = editPlan.edit_plan
   const scriptLines: ScriptLine[] = segments.map((seg, i) => ({
@@ -1272,8 +1274,10 @@ export async function generateScriptFromMix(args: {
   editPlan: EditPlan
   analyses: VideoAnalysis[]
   scriptTopic?: string
+  sourceKeywords?: readonly string[]
 }): Promise<ShoppingScript> {
-  const { apiKey, productAnalysis, mixInfo, editPlan, analyses, scriptTopic } = args
+  const { apiKey, productAnalysis, mixInfo, editPlan, analyses, scriptTopic, sourceKeywords } = args
+  const userKeywords = sourceKeywords?.length ? sourceKeywords : productAnalysis.targetKeywords
   const targetDuration = editPlan.target_duration
   const { topic: storyTopic, naturalShorts } = parseTopicWithStyleMode(
     scriptTopic?.trim() || productAnalysis.productName || ""
@@ -1294,7 +1298,8 @@ export async function generateScriptFromMix(args: {
           nsScript,
           editPlan,
           analyses,
-          productAnalysis.productName
+          productAnalysis.productName,
+          userKeywords
         )
       }
     } catch {
@@ -1400,7 +1405,7 @@ ${JSON.stringify(
           ),
           sceneContexts,
           productAnalysis.productName,
-          { allowTemplateFallback: false, fitToDuration: false }
+          { allowTemplateFallback: false, fitToDuration: false, userKeywords }
         )
       )
       const scenes = bundle.sceneSubtitles.conversion.map((block, i) => {
@@ -1424,7 +1429,8 @@ ${JSON.stringify(
         },
         editPlan,
         analyses,
-        productAnalysis.productName
+        productAnalysis.productName,
+        userKeywords
       )
     }
   } catch {
@@ -1432,10 +1438,11 @@ ${JSON.stringify(
   }
 
   return alignShoppingScriptToEditCuts(
-    buildQuickShoppingScript(productAnalysis, editPlan, analyses, mixInfo),
+    buildQuickShoppingScript(productAnalysis, editPlan, analyses, mixInfo, userKeywords),
     editPlan,
     analyses,
-    productAnalysis.productName
+    productAnalysis.productName,
+    userKeywords
   )
 }
 
@@ -1658,8 +1665,10 @@ export function buildQuickShoppingScript(
   productAnalysis: ProductAnalysis,
   editPlan: EditPlan,
   analyses: VideoAnalysis[],
-  mixInfo?: MixInfo
+  mixInfo?: MixInfo,
+  userKeywords?: readonly string[]
 ): ShoppingScript {
+  const kw = userKeywords?.length ? userKeywords : productAnalysis.targetKeywords
   const benchmarkScenes = buildBenchmarkSceneBlocksFromEditPlan(
     editPlan,
     analyses,
@@ -1675,12 +1684,14 @@ export function buildQuickShoppingScript(
       s.visual_card,
       productAnalysis.productName,
       s.duration,
-      i * 3 + 1
+      i * 3 + 1,
+      kw
     )
   )
   const polished = polishCutNarrationLines(rawLines, contexts, productAnalysis.productName, {
     allowTemplateFallback: false,
     fitToDuration: true,
+    userKeywords: kw,
   })
 
   const sceneBlocks: SceneSubtitleBlock[] = benchmarkScenes.map((s, i) => ({

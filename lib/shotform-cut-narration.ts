@@ -38,6 +38,10 @@ import {
 } from "@/lib/shotform-shopping-visual-cues"
 import { actionScriptTextForSourceRange } from "@/lib/shotform-scene-understanding"
 import { PRECISION_SCRIPT_TONE } from "@/lib/shotform-auto-edit-precision-script"
+import {
+  detectObviousProductCategoryLeak,
+  isCarMountOrHolderProduct,
+} from "@/lib/shotform-user-keyword-product"
 
 /** 벤치마크 UI용 — [샷] + 장면 묘사 */
 export function formatSceneDescriptionHint(visualCard: string): string {
@@ -198,6 +202,33 @@ export function sanitizeProductNameForNarration(
   return undefined
 }
 
+function carMountNarrationLine(product: string | undefined, ruleOffset: number, sceneHint = ""): string {
+  const p = product || "차량용 거치대"
+  const nav = /내비|네비|navigation|길\s*안내|지도/i.test(sceneHint)
+  const opts = [
+    `${p}, 대시보드에 붙이기도 간단해요`,
+    `한 손으로 고정해도 흔들림이 적어요`,
+    `각도만 조절해도 ${nav ? "네비" : "화면"} 보기 편해요`,
+    `이렇게 장착하면 바로 ${nav ? "내비" : "폰"} 켜기 좋아요`,
+    `운전석에서 화면 각도가 딱 맞아요`,
+    `손잡고 운전해도 거치가 안정적이에요`,
+    `좁은 대시보드에도 콤팩트하게 붙어요`,
+    `스마트폰 끼우니 길 안내 보기 편해요`,
+    `설치도 간단하고 바로 쓸 수 있어요`,
+    `핸드폰 거치하니 운전 중에도 화면이 잘 보여요`,
+    `진동에도 흔들림 없이 고정력 좋아요`,
+    `${p}, 차량용이라 각도 조절이 수월해요`,
+    `대시보드에 붙이면 선반 공간도 덜 차지해요`,
+    `핸들 잡고 있어도 ${p}가 안정적이에요`,
+  ]
+  return opts[ruleOffset % opts.length]!
+}
+
+function vacuumNarrationAllowed(productBlob: string): boolean {
+  if (isCarMountOrHolderProduct(productBlob)) return false
+  return /청소|먼지|흡입|吸尘|vacuum|진공|노즐/i.test(productBlob)
+}
+
 /** 중복 시 순환할 고유 폴백 대본 */
 const UNIQUE_NARRATION_FALLBACKS = [
   "이 장면, 직접 보면 체감이 달라요",
@@ -351,9 +382,16 @@ export function looksLikeDescriptiveSceneNarration(text: string): boolean {
   return false
 }
 
-function buildFallbackNarration(d: string, productName: string | undefined, ruleOffset: number): string {
+function buildFallbackNarration(
+  d: string,
+  productName: string | undefined,
+  ruleOffset: number,
+  userKeywords?: readonly string[]
+): string {
   const product =
-    sanitizeProductNameForNarration(productName, { visualHint: d }) || "이 제품"
+    sanitizeProductNameForNarration(productName, { visualHint: d, userKeywords }) || "이 제품"
+  const productBlob = `${userKeywords?.join(" ") || ""} ${product} ${d}`
+  const isMount = isCarMountOrHolderProduct(productBlob)
 
   const pools: string[][] = []
 
@@ -381,12 +419,21 @@ function buildFallbackNarration(d: string, productName: string | undefined, rule
   }
 
   if (/TV|티비|투사|스크린|프로젝터|projector|숨겨진|설치/.test(d)) {
-    pools.push([
-      "설치도 간단하고 공간도 깔끔해요",
-      "버튼만 누르면 스크린이 쑥 올라와요",
-      "집에서도 영화관 같은 몰입감이에요",
-      "이렇게 설치하면 바로 쓸 수 있어요",
-    ])
+    if (isMount) {
+      pools.push([
+        "설치도 간단하고 바로 쓸 수 있어요",
+        `${product}, 대시보드에 붙이기도 간단해요`,
+        "한 손으로 고정해도 흔들림 없이 안정적이에요",
+        "이렇게 장착하면 바로 내비 켜기 좋아요",
+      ])
+    } else {
+      pools.push([
+        "설치도 간단하고 공간도 깔끔해요",
+        "버튼만 누르면 스크린이 쑥 올라와요",
+        "집에서도 영화관 같은 몰입감이에요",
+        "이렇게 설치하면 바로 쓸 수 있어요",
+      ])
+    }
   }
 
   if (/칫솔|치아|칫솔질|전동칫솔|电动牙刷|牙刷/.test(d)) {
@@ -415,18 +462,24 @@ function buildFallbackNarration(d: string, productName: string | undefined, rule
     !isMousePadScene &&
     /차량|차\s*안|자동차|시트|운전석|車|车载|운전|트렁크|대시보드|핸들\s*주변|차\s*바닥|바닥\s*매트/i.test(d)
   ) {
-    pools.push([
-      "차 시트 틈새 먼지도 이렇게 빨아들여요",
-      "바닥 매트에 낀 먼지, 한 번에 흡입돼요",
-      "차 안 구석 먼지 관리가 이렇게 쉬워요",
-      "좁은 틈새도 노즐로 싹 정리돼요",
-      "운전석 발밑 먼지, 손 안 대고 빼내요",
-      "트렁크 구석 먼지까지 한 번에 정리돼요",
-      "문턱 틈새 먼지도 노즐이 쏙 들어가요",
-      "핸들 주변 먼지, 흡입 한 번이면 끝이에요",
-      "시트 레일 사이 먼지가 바로 빠져요",
-      "발밑 매트 먼지, 손끝 안 대고 싹 빼내요",
-    ])
+    if (isMount) {
+      pools.push(
+        Array.from({ length: 8 }, (_, i) => carMountNarrationLine(product, ruleOffset + i, d))
+      )
+    } else if (vacuumNarrationAllowed(productBlob)) {
+      pools.push([
+        "차 시트 틈새 먼지도 이렇게 빨아들여요",
+        "바닥 매트에 낀 먼지, 한 번에 흡입돼요",
+        "차 안 구석 먼지 관리가 이렇게 쉬워요",
+        "좁은 틈새도 노즐로 싹 정리돼요",
+        "운전석 발밑 먼지, 손 안 대고 빼내요",
+        "트렁크 구석 먼지까지 한 번에 정리돼요",
+        "문턱 틈새 먼지도 노즐이 쏙 들어가요",
+        "핸들 주변 먼지, 흡입 한 번이면 끝이에요",
+        "시트 레일 사이 먼지가 바로 빠져요",
+        "발밑 매트 먼지, 손끝 안 대고 싹 빼내요",
+      ])
+    }
   }
   if (/마우스\s*패드|mouse\s*pad|게이밍\s*패드|데스크\s*매트|키보드|keyboard|gaming|RGB|LED/i.test(d)) {
     pools.push([
@@ -440,7 +493,7 @@ function buildFallbackNarration(d: string, productName: string | undefined, rule
       "마감이 깔끔해서 고급스럽게 보여요",
     ])
   }
-  if (/청소|먼지|흡입|吸尘|진공|vacuum|닦(?:아|여|으|이|는|고)/.test(d)) {
+  if (/청소|먼지|흡입|吸尘|진공|vacuum|닦(?:아|여|으|이|는|고)/.test(d) && vacuumNarrationAllowed(productBlob)) {
     pools.push([
       `${product}로 먼지가 싹 빨려 들어가요`,
       "이렇게 흡입하면 구석 먼지가 바로 빠져요",
@@ -453,12 +506,21 @@ function buildFallbackNarration(d: string, productName: string | undefined, rule
   }
 
   if (/LED|디스플레이|화면|스크린|screen|월드컵|경기|곡면|彩屏|显示屏/i.test(d)) {
-    pools.push([
-      "곡면이라 몰입감이 확 다르죠",
-      "이렇게 크게 보니 현장감이 살아요",
-      "야외에 설치해도 화면이 선명해요",
-      "영상 볼 때 이게 진짜 체감되는 포인트예요",
-    ])
+    if (isMount && /스마트폰|핸드폰|내비|네비|phone|navigation|거치/i.test(d)) {
+      pools.push([
+        "운전석에서 화면 각도가 딱 맞아요",
+        "스마트폰 거치하니 길 안내 보기 편해요",
+        "핸드폰 화면이 운전 중에도 잘 보여요",
+        "각도 조절해보니 네비 보기 편해요",
+      ])
+    } else if (!isMount) {
+      pools.push([
+        "곡면이라 몰입감이 확 다르죠",
+        "이렇게 크게 보니 현장감이 살아요",
+        "야외에 설치해도 화면이 선명해요",
+        "영상 볼 때 이게 진짜 체감되는 포인트예요",
+      ])
+    }
   }
 
   if (/배드민턴|셔틀콕|라켓|훈련기|badminton|shuttle/i.test(d)) {
@@ -498,10 +560,22 @@ function buildFallbackNarration(d: string, productName: string | undefined, rule
 }
 
 /** 청소기·차량 대본이 마우스패드 등 다른 제품 화면에 붙은 경우 */
-export function narrationMismatchesVisualProduct(text: string, visualCard: string): boolean {
+export function narrationMismatchesVisualProduct(
+  text: string,
+  visualCard: string,
+  userKeywords?: readonly string[]
+): boolean {
   const script = text.trim().replace(/\n/g, " ")
   const visual = extractVisualDescription(visualCard)
   if (!script || !visual) return false
+
+  if (userKeywords?.length && detectObviousProductCategoryLeak([script], userKeywords).length) {
+    return true
+  }
+  const kwBlob = userKeywords?.join(" ") || ""
+  if (isCarMountOrHolderProduct(kwBlob) && /흡입|먼지|노즐|빨아|진공|청소기|몰입감|영화관|프로젝터/.test(script)) {
+    return true
+  }
 
   const vacuumScript =
     /흡입|먼지가\s*바로\s*빠져|노즐|핸들\s*주변\s*먼지|차\s*안|시트.*먼지|진공|청소기/.test(script)
@@ -527,9 +601,10 @@ export function narrationMismatchesVisualProduct(text: string, visualCard: strin
 export function rephraseSceneToShoppingNarration(
   description: string,
   productName?: string,
-  sceneDurationSec = 5
+  sceneDurationSec = 5,
+  userKeywords?: readonly string[]
 ): string {
-  const single = rephraseSceneCore(description, productName)
+  const single = rephraseSceneCore(description, productName, 0, userKeywords)
   return wrapNarrationShortLines(single, sceneDurationSec)
 }
 
@@ -538,10 +613,23 @@ export function rephraseSceneToShoppingNarrationVariant(
   description: string,
   productName: string | undefined,
   sceneDurationSec: number,
-  variantIndex: number
+  variantIndex: number,
+  userKeywords?: readonly string[]
 ): string {
-  const single = rephraseSceneCore(description, productName, Math.max(0, variantIndex))
+  const single = rephraseSceneCore(description, productName, Math.max(0, variantIndex), userKeywords)
   return wrapNarrationShortLines(single, sceneDurationSec)
+}
+
+function isWrongCategoryNarrationRule(re: RegExp, sceneHint: string, isMount: boolean): boolean {
+  if (!isMount) return false
+  const s = re.source
+  if (/먼지|흡입|청소|vacuum|吸尘|노즐|진공|바닥|시트|부속품|브러시|흡입하는|청소하는|진공\s*청소|핸디\s*청소/.test(s)) {
+    return true
+  }
+  if (/스크린|프로젝터|투사|월드컵|경기|곡면|몰입|디스플레이|화면|screen|LED|티비|TV/.test(s)) {
+    return !/스마트폰|핸드폰|내비|네비|거치|phone|navigation/i.test(sceneHint)
+  }
+  return false
 }
 
 function productNarrationFallback(productName: string | undefined, ruleOffset: number): string {
@@ -570,8 +658,9 @@ function forceUniqueNarrationLine(args: {
   duration: number
   cutIndex: number
   priorLines: readonly string[]
+  userKeywords?: readonly string[]
 }): string {
-  const { visualHint, productName, duration, cutIndex, priorLines } = args
+  const { visualHint, productName, duration, cutIndex, priorLines, userKeywords } = args
   const isDup = (t: string) =>
     narrationLineIsDuplicateOfPrior(t, priorLines) ||
     priorLines.some((p) => narrationSharesRepeatedPhrase(p, t)) ||
@@ -594,14 +683,14 @@ function forceUniqueNarrationLine(args: {
   for (let attempt = 0; attempt < 96; attempt++) {
     const hint = augmented[attempt % augmented.length]!
     const salt = cutIndex * 53 + attempt * 19 + priorLines.length * 41
-    const core = rephraseSceneCore(hint, productName, salt)
+    const core = rephraseSceneCore(hint, productName, salt, userKeywords)
     const candidate = formatNarrationForSceneDuration(
       wrapNarrationShortLines(core, duration),
       duration
     )
     if (candidate && !isDup(candidate)) return candidate
 
-    const fb = buildFallbackNarration(hint, productName, salt)
+    const fb = buildFallbackNarration(hint, productName, salt, userKeywords)
     const candidate2 = formatNarrationForSceneDuration(fb, duration)
     if (candidate2 && !isDup(candidate2)) return candidate2
   }
@@ -626,14 +715,24 @@ export function pickUniqueNarrationLine(args: {
   preferred?: string
   sceneMeta?: CutNarrationSceneMeta
   priorInGroup?: string
+  userKeywords?: readonly string[]
 }): string {
-  const { visualHint, productName, duration, cutIndex, priorLines, preferred, sceneMeta, priorInGroup } =
-    args
+  const {
+    visualHint,
+    productName,
+    duration,
+    cutIndex,
+    priorLines,
+    preferred,
+    sceneMeta,
+    priorInGroup,
+    userKeywords,
+  } = args
   const isDup = (t: string) =>
     narrationLineIsDuplicateOfPrior(t, priorLines) ||
     priorLines.some((p) => narrationSharesRepeatedPhrase(p, t)) ||
     looksLikeRawSceneCopy(t, visualHint) ||
-    narrationMismatchesVisualProduct(t, visualHint)
+    narrationMismatchesVisualProduct(t, visualHint, userKeywords)
 
   if (sceneMeta?.isRepeat && sceneMeta.occurrence > 1 && priorInGroup?.trim()) {
     for (let attempt = 0; attempt < 6; attempt++) {
@@ -671,7 +770,8 @@ export function pickUniqueNarrationLine(args: {
       visualHint,
       productName,
       duration,
-      cutIndex * 13 + attempt * 9 + priorLines.length * 31 + 1
+      cutIndex * 13 + attempt * 9 + priorLines.length * 31 + 1,
+      userKeywords
     )
     if (!isDup(candidate) && !isAbstractShoppingNarration(candidate)) {
       return candidate
@@ -681,7 +781,7 @@ export function pickUniqueNarrationLine(args: {
   for (let attempt = 0; attempt < 24; attempt++) {
     const salt = cutIndex * 41 + priorLines.length * 11 + attempt * 17
     const candidate = formatNarrationForSceneDuration(
-      rephraseSceneToShoppingNarrationVariant(visualHint, productName, duration, salt),
+      rephraseSceneToShoppingNarrationVariant(visualHint, productName, duration, salt, userKeywords),
       duration
     )
     if (!isDup(candidate) && !isAbstractShoppingNarration(candidate)) {
@@ -695,13 +795,20 @@ export function pickUniqueNarrationLine(args: {
     duration,
     cutIndex,
     priorLines,
+    userKeywords,
   })
 }
 
-function rephraseSceneCore(description: string, productName?: string, ruleOffset = 0): string {
+function rephraseSceneCore(
+  description: string,
+  productName?: string,
+  ruleOffset = 0,
+  userKeywords?: readonly string[]
+): string {
   let d = stripSceneMeta(extractVisualDescription(description))
-  const product = sanitizeProductNameForNarration(productName, { visualHint: d })
-  const productBlob = `${product || ""} ${d}`
+  const product = sanitizeProductNameForNarration(productName, { visualHint: d, userKeywords })
+  const productBlob = `${userKeywords?.join(" ") || ""} ${product || ""} ${d}`
+  const isMount = isCarMountOrHolderProduct(productBlob)
   if (
     descriptionSuggestsPresenterOrFace(description) ||
     descriptionSuggestsPresenterOrFace(d)
@@ -751,7 +858,8 @@ function rephraseSceneCore(description: string, productName?: string, ruleOffset
       re: /거치대|꽂혀|꽂아|스탠드|holder/i,
       say: () => {
         if (!/칫솔|牙刷|욕실|세면대/i.test(d) && !isToothbrushHolderProduct(productBlob)) {
-          return buildFallbackNarration(d, product, ruleOffset)
+          if (isMount) return carMountNarrationLine(product, ruleOffset, d)
+          return buildFallbackNarration(d, product, ruleOffset, userKeywords)
         }
         const p = product || "칫솔 거치대"
         const opts = [
@@ -1154,7 +1262,8 @@ function rephraseSceneCore(description: string, productName?: string, ruleOffset
         buildFallbackNarration(
           `${productName || ""} ${d}`.trim(),
           product,
-          ruleOffset
+          ruleOffset,
+          userKeywords
         ),
     },
     {
@@ -1165,10 +1274,14 @@ function rephraseSceneCore(description: string, productName?: string, ruleOffset
 
   for (const { re, say } of rules) {
     const m = d.match(re)
-    if (m) return say(m)
+    if (!m) continue
+    if (isWrongCategoryNarrationRule(re, d, isMount)) {
+      return carMountNarrationLine(product, ruleOffset, d)
+    }
+    return say(m)
   }
 
-  return buildFallbackNarration(d, product, ruleOffset)
+  return buildFallbackNarration(d, product, ruleOffset, userKeywords)
 }
 
 /** @deprecated rephraseSceneToShoppingNarration 사용 */
@@ -1206,7 +1319,11 @@ const GENERIC_NARRATION =
   /^(이 제품 한번 보세요|제품 디테일 한번 보세요|제품 디테일 보세요|직접 써봤어요|장면|제품 장면|실제로 써보면)/
 
 /** 대본이 비었거나, 중국어·장면설명 그대로·너무 뻔한 문구인지 */
-export function narrationTextLooksWeak(text: string, visualHint?: string): boolean {
+export function narrationTextLooksWeak(
+  text: string,
+  visualHint?: string,
+  userKeywords?: readonly string[]
+): boolean {
   const t = text.trim()
   if (!t) return true
   if (looksLikeSceneCardMetadata(t)) return true
@@ -1216,7 +1333,8 @@ export function narrationTextLooksWeak(text: string, visualHint?: string): boole
   if (GENERIC_NARRATION.test(t)) return true
   if (isGenericTemplateNarration(t)) return true
   if (isAbstractShoppingNarration(t)) return true
-  if (visualHint && narrationMismatchesVisualProduct(t, visualHint)) return true
+  if (userKeywords?.length && detectObviousProductCategoryLeak([t], userKeywords).length) return true
+  if (visualHint && narrationMismatchesVisualProduct(t, visualHint, userKeywords)) return true
   if (visualHint && looksLikeRawSceneCopy(t, visualHint)) return true
   if (looksLikeDescriptiveSceneNarration(t)) return true
   if (narrationLooksIncomplete(t)) return true
@@ -1450,13 +1568,15 @@ export function buildNarrationSegmentsFromEditPlan(
   analyses: VideoAnalysis[],
   scriptLines?: Array<{ start: number; end: number; text: string }> | null,
   productName?: string,
-  bundleScenes?: readonly SceneSubtitleBlock[] | null
+  bundleScenes?: readonly SceneSubtitleBlock[] | null,
+  userKeywords?: readonly string[]
 ): NarrationSegment[] {
   const plan = editPlan.edit_plan
   if (!plan.length) return []
 
   const safeProductName = sanitizeProductNameForNarration(productName, {
     analysisTitles: analyses.map((a) => a.title),
+    userKeywords,
   })
 
   const byId = analysisByVideoId(analyses)
@@ -1485,7 +1605,7 @@ export function buildNarrationSegmentsFromEditPlan(
     }
   })
   const sceneMetas = buildCutNarrationSceneMetas(cutContexts, {
-    keywords: productName ? [productName] : undefined,
+    keywords: userKeywords?.length ? [...userKeywords] : productName ? [productName] : undefined,
   }, analyses)
   const groupLast = new Map<number, string>()
 
@@ -1509,7 +1629,7 @@ export function buildNarrationSegmentsFromEditPlan(
       Boolean(fromAction) &&
       !looksLikeRawSceneCopy(fromAction, visualHint) &&
       !isGenericTemplateNarration(fromAction) &&
-      !narrationTextLooksWeak(fromAction, visualHint) &&
+      !narrationTextLooksWeak(fromAction, visualHint, userKeywords) &&
       !narrationLooksIncomplete(fromAction.replace(/\n/g, " "))
     const fromBundle = bundleTextForEditCut(i, plan, bundleScenes ?? undefined)
     const rawScript = aligned ? scriptLines![i]!.text.trim() : ""
@@ -1517,12 +1637,12 @@ export function buildNarrationSegmentsFromEditPlan(
       Boolean(rawScript) &&
       !looksLikeRawSceneCopy(rawScript, visualHint) &&
       !isGenericTemplateNarration(rawScript) &&
-      !narrationTextLooksWeak(rawScript, visualHint) &&
+      !narrationTextLooksWeak(rawScript, visualHint, userKeywords) &&
       !narrationLooksIncomplete(rawScript.replace(/\n/g, " "))
     const bundleUsable =
       Boolean(fromBundle) &&
       !isGenericTemplateNarration(fromBundle) &&
-      !narrationTextLooksWeak(fromBundle, visualHint) &&
+      !narrationTextLooksWeak(fromBundle, visualHint, userKeywords) &&
       !narrationLooksIncomplete(fromBundle.replace(/\n/g, " "))
 
     const fromScript = scriptUsable
@@ -1546,7 +1666,7 @@ export function buildNarrationSegmentsFromEditPlan(
     if (
       looksLikeSceneCardMetadata(preferred) ||
       isGenericTemplateNarration(preferred) ||
-      narrationTextLooksWeak(preferred, visualHint)
+      narrationTextLooksWeak(preferred, visualHint, userKeywords)
     ) {
       preferred = ""
     }
@@ -1560,6 +1680,7 @@ export function buildNarrationSegmentsFromEditPlan(
       preferred,
       sceneMeta: sceneMetas[i],
       priorInGroup: groupLast.get(sceneMetas[i]!.groupId),
+      userKeywords,
     })
     priorTexts.push(text)
     groupLast.set(sceneMetas[i]!.groupId, text)
@@ -1606,7 +1727,8 @@ export function needsAiNarrationFromScenes(
     analyses,
     scriptLines,
     result.productAnalysis?.productName,
-    bundleScenes
+    bundleScenes,
+    result.productAnalysis?.targetKeywords
   )
 
   if (!scriptLines?.length || scriptLines.length !== plan.length) return true
