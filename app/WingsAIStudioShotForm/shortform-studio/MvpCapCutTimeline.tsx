@@ -311,7 +311,7 @@ export function MvpCapCutTimeline({
         </span>
       </div>
 
-      <div ref={scrollRef} className="overflow-x-auto overflow-y-hidden">
+      <div ref={scrollRef} className="max-h-[300px] overflow-x-auto overflow-y-auto">
         <div style={{ width: timelineWidth + TRACK_LABEL_W + 24, minWidth: "100%" }}>
           <div className="relative flex border-b border-white/10" style={{ height: 28, marginLeft: TRACK_LABEL_W }}>
             <div
@@ -502,11 +502,9 @@ export function MvpCapCutTimeline({
             </div>
           </div>
 
-          </div>
-
           <div className="flex border-b border-white/5" style={{ height: 44 }}>
             <div
-              className="flex shrink-0 items-center border-r border-white/10 bg-[#0f0f0f] px-2 text-[9px] text-cyan-400/90"
+              className="flex shrink-0 items-center border-r border-white/10 bg-[#0f0f0f] px-2 text-[9px] font-semibold text-cyan-300"
               style={{ width: TRACK_LABEL_W }}
             >
               모자이크
