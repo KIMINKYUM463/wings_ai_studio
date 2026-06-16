@@ -227,6 +227,20 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
         putAutoEditJob({ ...base, step: "analyze", createdAt })
         if (sourcesPreUploaded || hasUploadedBuffers) {
           await downloadAllSources()
+        } else if (deferLocalCompanionRender && !canParallelAnalyze) {
+          const missingMeta = videos.filter((v) => {
+            const m = clientVideoMeta?.[v.video_id]
+            if (analysisMode === "precision") {
+              return (m?.precisionKeyframes?.length ?? 0) < 6
+            }
+            return !m || m.duration <= 0
+          })
+          if (missingMeta.length > 0) {
+            throw new Error(
+              "로컬 렌더 모드에서는 브라우저에서 영상 메타(길이·키프레임) 추출이 먼저 끝나야 합니다. " +
+                "로컬 sources/ 폴더와 에이전트 실행 상태를 확인한 뒤 다시 시도해 주세요."
+            )
+          }
         }
         const analyzed = await runAnalyze()
         analyses = analyzed.analyses

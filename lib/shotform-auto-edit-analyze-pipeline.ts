@@ -68,13 +68,18 @@ async function runPrecisionAnalyzeAndMix(args: {
 
   for (let srcIndex = 0; srcIndex < videos.length; srcIndex++) {
     const video = videos[srcIndex]!
+    const clientMeta = clientVideoMeta?.[video.video_id]
+    const hasClientPrecisionKeyframes =
+      (clientMeta?.precisionKeyframes?.filter((f) => f.keyframeDataUrl?.startsWith("data:image/"))
+        .length ?? 0) >= 6
     const sourcePath = sourcePaths[video.video_id]
-    if (!sourcePath) {
+    if (!sourcePath && !hasClientPrecisionKeyframes) {
       results.push({
         ok: false,
         video_id: video.video_id,
         title: video.title || video.video_id,
-        reason: "원본 영상 경로를 찾지 못했습니다.",
+        reason:
+          "원본 영상 경로를 찾지 못했습니다. 로컬 렌더 모드면 브라우저 키프레임 준비 후 다시 실행해 주세요.",
       })
       continue
     }
@@ -82,10 +87,10 @@ async function runPrecisionAnalyzeAndMix(args: {
       await analyzeOneVideoPrecision({
         apiKey,
         video,
-        sourcePath,
+        sourcePath: sourcePath || "",
         workDir,
         srcIndex,
-        clientMeta: clientVideoMeta?.[video.video_id],
+        clientMeta,
       })
     )
   }

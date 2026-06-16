@@ -609,6 +609,36 @@ export function MvpAutoEditDialog({
           let clientVideoMeta: Record<string, ClientVideoMetaEntry> | undefined
           let prefetchedBlobs: Record<string, Blob> | undefined
 
+          if (renderMode === "local") {
+            const workDir = localWorkDir.trim()
+            if (!workDir) {
+              throw new Error("로컬 작업 폴더 경로를 입력해 주세요.")
+            }
+            setDownloadHint("로컬 에이전트 연결·시작 중…")
+            const ensured = await ensureLocalCompanionRunning({
+              companionUrl,
+              onProgress: (msg) => setDownloadHint(msg),
+            })
+            if (!ensured.ok || !ensured.ffmpeg) {
+              throw new Error(
+                ensured.error ||
+                  "로컬 에이전트를 시작하지 못했습니다.\n\n" +
+                    "프로젝트 폴더에서 한 번만 실행: npm run shotform:install-agent\n" +
+                    "(Windows 시작 프로그램 등록 + 자동 기동)"
+              )
+            }
+            setCompanionOnline(true)
+            localStorage.setItem(LOCAL_WORK_DIR_STORAGE_KEY, workDir)
+            setDownloadHint("로컬 작업 폴더 소스 영상 확인·저장 중…")
+            await uploadAutoEditSourcesToCompanion(
+              companionUrl,
+              workDir,
+              nextPicks,
+              (msg) => setDownloadHint(msg),
+              prefetchedBlobs
+            )
+          }
+
           setDownloadHint(
             analysisMode === "precision"
               ? "정밀 분석용 — 브라우저에서 영상·키프레임 준비 중…"
@@ -644,6 +674,23 @@ export function MvpAutoEditDialog({
             }
           }
 
+          if (analysisMode === "fast" && renderMode === "local") {
+            const missingMeta = nextPicks.filter(
+              (p) => (clientVideoMeta?.[p.video_id]?.duration ?? 0) <= 0
+            )
+            if (missingMeta.length > 0) {
+              throw new Error(
+                [
+                  "로컬 렌더 — 브라우저에서 영상 길이를 읽지 못했습니다.",
+                  ...missingMeta.map(
+                    (p) => `· ${p.title || p.video_id}: 작업 폴더 sources/ 또는 CDN 확인`
+                  ),
+                  "로컬 에이전트가 실행 중인지, 작업 폴더 경로가 맞는지 확인해 주세요.",
+                ].join("\n")
+              )
+            }
+          }
+
           const allMetaReady =
             analysisMode === "fast" &&
             clientVideoMeta &&
@@ -669,33 +716,7 @@ export function MvpAutoEditDialog({
             (!allMetaReady && !skipBrowserUploadForFastAnalyze)
 
           if (renderMode === "local") {
-            const workDir = localWorkDir.trim()
-            if (!workDir) {
-              throw new Error("로컬 작업 폴더 경로를 입력해 주세요.")
-            }
-            setDownloadHint("로컬 에이전트 연결·시작 중…")
-            const ensured = await ensureLocalCompanionRunning({
-              companionUrl,
-              onProgress: (msg) => setDownloadHint(msg),
-            })
-            if (!ensured.ok || !ensured.ffmpeg) {
-              throw new Error(
-                ensured.error ||
-                  "로컬 에이전트를 시작하지 못했습니다.\n\n" +
-                    "프로젝트 폴더에서 한 번만 실행: npm run shotform:install-agent\n" +
-                    "(Windows 시작 프로그램 등록 + 자동 기동)"
-              )
-            }
-            setCompanionOnline(true)
-            localStorage.setItem(LOCAL_WORK_DIR_STORAGE_KEY, workDir)
-            setDownloadHint("로컬 에이전트 작업 폴더에 소스 영상 저장 중…")
-            await uploadAutoEditSourcesToCompanion(
-              companionUrl,
-              workDir,
-              nextPicks,
-              (msg) => setDownloadHint(msg),
-              prefetchedBlobs
-            )
+            /* 소스는 위에서 companion/sources 에 먼저 저장됨 */
           } else if (requireBrowserUpload) {
             setDownloadHint(
               analysisMode === "precision"
