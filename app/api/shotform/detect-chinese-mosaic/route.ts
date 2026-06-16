@@ -1,14 +1,13 @@
 import { type NextRequest, NextResponse } from "next/server"
 import {
-  mergeMosaicRowsToOverlays,
   visionDetectMosaicBatch,
   type MosaicDetectFrameInput,
 } from "@/lib/shotform-mosaic-detect"
-import type { MosaicFrameDetectRow } from "@/lib/mvp-mosaic-merge"
+import { mergeMosaicRowsToOverlays } from "@/lib/mvp-mosaic-merge"
 
 export const maxDuration = 300
 
-const MAX_FRAMES_PER_REQUEST = 4
+const MAX_FRAMES_PER_REQUEST = 2
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,8 +15,8 @@ export async function POST(request: NextRequest) {
       openaiApiKey?: string
       durationSec?: number
       frames?: MosaicDetectFrameInput[]
-      /** true면 rows만 반환(클라이언트 배치). false/생략이면 rows 병합 후 overlays 반환 */
       rowsOnly?: boolean
+      highDetail?: boolean
     }
 
     const openaiApiKey =
@@ -25,6 +24,7 @@ export async function POST(request: NextRequest) {
     const durationSec = Number(body.durationSec)
     const frames = Array.isArray(body.frames) ? body.frames : []
     const rowsOnly = body.rowsOnly !== false
+    const highDetail = body.highDetail !== false
 
     if (!openaiApiKey) {
       return NextResponse.json(
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
     }
     if (frames.length > MAX_FRAMES_PER_REQUEST) {
       return NextResponse.json(
-        { error: `한 번에 최대 ${MAX_FRAMES_PER_REQUEST}장까지 보낼 수 있습니다. 클라이언트에서 나눠 호출해 주세요.` },
+        { error: `한 번에 최대 ${MAX_FRAMES_PER_REQUEST}장까지 보낼 수 있습니다.` },
         { status: 400 }
       )
     }
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
       }))
       .slice(0, MAX_FRAMES_PER_REQUEST)
 
-    const rows: MosaicFrameDetectRow[] = await visionDetectMosaicBatch(openaiApiKey, sanitized)
+    const rows = await visionDetectMosaicBatch(openaiApiKey, sanitized, { highDetail })
 
     if (rowsOnly) {
       return NextResponse.json({ rows, count: rows.length })

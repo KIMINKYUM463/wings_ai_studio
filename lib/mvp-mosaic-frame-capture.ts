@@ -1,8 +1,11 @@
-/** AI 모자이크 스캔용 — 짜집기 영상에서 균등 샘플 프레임 캡처 */
+/** AI 모자이크 스캔용 — 짜집기 영상에서 균등·정밀 샘플 프레임 캡처 */
 
-const DEFAULT_INTERVAL_SEC = 0.5
-const DEFAULT_MAX_FRAMES = 24
-const DEFAULT_MAX_WIDTH = 384
+import type { MosaicFrameDetectRow } from "@/lib/mvp-mosaic-merge"
+
+const DEFAULT_INTERVAL_SEC = 0.28
+const DEFAULT_MAX_FRAMES = 44
+const DEFAULT_MAX_WIDTH = 512
+const REFINE_MAX_WIDTH = 640
 
 export type MosaicScanFrame = {
   timeSec: number
@@ -20,7 +23,7 @@ function stripDataUrlPrefix(dataUrl: string): string {
   return i >= 0 ? dataUrl.slice(i + 1) : dataUrl
 }
 
-async function resizeJpegBase64(dataUrl: string, maxWidth: number): Promise<string> {
+async function resizeJpegBase64(dataUrl: string, maxWidth: number, quality = 0.76): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image()
     img.onload = () => {
@@ -36,14 +39,19 @@ async function resizeJpegBase64(dataUrl: string, maxWidth: number): Promise<stri
         return
       }
       ctx.drawImage(img, 0, 0, w, h)
-      resolve(stripDataUrlPrefix(canvas.toDataURL("image/jpeg", 0.72)))
+      resolve(stripDataUrlPrefix(canvas.toDataURL("image/jpeg", quality)))
     }
     img.onerror = () => reject(new Error("프레임 리사이즈 실패"))
     img.src = dataUrl
   })
 }
 
-function captureFrameAtTime(video: HTMLVideoElement, timeSec: number, maxWidth: number): Promise<string> {
+async function captureFrameAtTime(
+  video: HTMLVideoElement,
+  timeSec: number,
+  maxWidth: number,
+  quality = 0.8
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const onSeeked = () => {
       video.removeEventListener("seeked", onSeeked)
@@ -62,7 +70,9 @@ function captureFrameAtTime(video: HTMLVideoElement, timeSec: number, maxWidth: 
         return
       }
       ctx.drawImage(video, 0, 0, w, h)
-      void resizeJpegBase64(canvas.toDataURL("image/jpeg", 0.78), maxWidth).then(resolve).catch(reject)
+      void resizeJpegBase64(canvas.toDataURL("image/jpeg", quality), maxWidth, quality)
+        .then(resolve)
+        .catch(reject)
     }
     video.addEventListener("seeked", onSeeked)
     video.currentTime = clampSeekTime(video, timeSec)
@@ -73,19 +83,83 @@ export function buildMosaicScanTimes(
   durationSec: number,
   options?: { intervalSec?: number; maxFrames?: number }
 ): number[] {
-  const interval = options?.intervalSec ?? DEFAULT_INTERVAL_SEC
-  const maxFrames = options?.maxFrames ?? DEFAULT_MAX_FRAMES
   const safeDur = Math.max(0.5, durationSec)
+  const interval =
+    options?.intervalSec ??
+    (safeDur <= 18 ? 0.22 : safeDur <= 35 ? 0.28 : safeDur <= 55 ? 0.34 : 0.42)
+  const maxFrames = options?.maxFrames ?? DEFAULT_MAX_FRAMES
   const times: number[] = []
-  for (let t = 0.08; t < safeDur - 0.05 && times.length < maxFrames; t += interval) {
-    times.push(Math.round(t * 100) / 100)
+  for (let t = 0.06; t < safeDur - 0.04 && times.length < maxFrames; t += interval) {
+    times.push(Math.round(t * 1000) / 1000)
   }
   if (!times.length) times.push(0.1)
   const last = times[times.length - 1]!
-  if (safeDur - last > interval * 0.6 && times.length < maxFrames) {
-    times.push(Math.round((safeDur - 0.08) * 100) / 100)
+  if (safeDur - last > interval * 0.5 && times.length < maxFrames) {
+    times.push(Math.round((safeDur - 0.06) * 1000) / 1000)
   }
   return times
+}
+
+/** 1차 감지 결과 주변을 더 촘촘히 재샘플 */
+export function buildMosaicRefineTimes(
+  rows: MosaicFrameDetectRow[],
+  durationSec: number,
+  options?: { maxExtra?: number }
+): number[] {
+  const maxExtra = options?.maxExtra ?? 24
+  const hits = rows.filter((r) => r.boxes.length > 0).map((r) => r.timeSec)
+  if (!hits.length) return []
+
+  const extra: number[] = []
+  const push = (t: number) => {
+    const clamped = Math.round(Math.min(Math.max(0.05, t), durationSec - 0.05) * 1000) / 1000
+    if (!extra.some((x) => Math.abs(x - clamped) < 0.06)) extra.push(clamped)
+  }
+
+  for (const t of hits) {
+    push(t - 0.1)
+    push(t - 0.05)
+    push(t + 0.05)
+    push(t + 0.1)
+  }
+
+  for (let i = 0; i < hits.length - 1; i++) {
+    const a = hits[i]!
+    const b = hits[i + 1]!
+    if (b - a > 0.14 && b - a < 1.2) push((a + b) / 2)
+  }
+
+  return extra.slice(0, maxExtra).sort((a, b) => a - b)
+}
+
+export async function captureMosaicFramesAtTimes(
+  video: HTMLVideoElement,
+  times: number[],
+  options?: { maxWidth?: number; onProgress?: (done: number, total: number) => void }
+): Promise<MosaicScanFrame[]> {
+  const maxWidth = options?.maxWidth ?? DEFAULT_MAX_WIDTH
+  const savedTime = video.currentTime
+  const wasPaused = video.paused
+  const out: MosaicScanFrame[] = []
+
+  try {
+    video.pause()
+    for (let i = 0; i < times.length; i++) {
+      const timeSec = times[i]!
+      const imageBase64 = await captureFrameAtTime(
+        video,
+        timeSec,
+        maxWidth,
+        maxWidth >= REFINE_MAX_WIDTH ? 0.84 : 0.78
+      )
+      out.push({ timeSec, imageBase64 })
+      options?.onProgress?.(i + 1, times.length)
+    }
+  } finally {
+    video.currentTime = savedTime
+    if (!wasPaused) void video.play().catch(() => {})
+  }
+  return out
 }
 
 /** 편집 중인 video 엘리먼트에서 프레임 추출 — 재생 위치 복원 */
@@ -100,24 +174,5 @@ export async function captureMosaicScanFramesFromVideo(
   }
 ): Promise<MosaicScanFrame[]> {
   const times = buildMosaicScanTimes(durationSec, options)
-  const maxWidth = options?.maxWidth ?? DEFAULT_MAX_WIDTH
-  const savedTime = video.currentTime
-  const wasPaused = video.paused
-
-  const out: MosaicScanFrame[] = []
-  try {
-    video.pause()
-    for (let i = 0; i < times.length; i++) {
-      const timeSec = times[i]!
-      const imageBase64 = await captureFrameAtTime(video, timeSec, maxWidth)
-      out.push({ timeSec, imageBase64 })
-      options?.onProgress?.(i + 1, times.length)
-    }
-  } finally {
-    video.currentTime = savedTime
-    if (!wasPaused) {
-      void video.play().catch(() => {})
-    }
-  }
-  return out
+  return captureMosaicFramesAtTimes(video, times, options)
 }

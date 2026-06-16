@@ -18,7 +18,11 @@ import {
   type StudioOverlayCategory,
 } from "@/lib/shotform-studio-overlay-catalog"
 import { mosaicOverlaySummary } from "@/lib/mvp-mosaic-overlay-utils"
-import { captureMosaicScanFramesFromVideo } from "@/lib/mvp-mosaic-frame-capture"
+import {
+  buildMosaicRefineTimes,
+  captureMosaicFramesAtTimes,
+  captureMosaicScanFramesFromVideo,
+} from "@/lib/mvp-mosaic-frame-capture"
 import { mergeMosaicRowsToOverlays, type MosaicFrameDetectRow } from "@/lib/mvp-mosaic-merge"
 import { readFetchJson } from "@/lib/mvp-fetch-json"
 import { formatNarrationClock } from "@/lib/shotform-factory-narration-script"
@@ -88,10 +92,18 @@ export function MvpOverlayElementsPanel({
   const addOverlayFromCatalog = useCallback(
     (catalogId: string) => {
       const next = createOverlayFromCatalog(catalogId, overlays, overlayPickColor, overlayIdRef)
-      onOverlaysChange([...overlays, { ...next, source: "manual" }])
+      const withTime = isMosaicOverlay(catalogId)
+        ? {
+            ...next,
+            source: "manual" as const,
+            startSec: Math.max(0, playheadSec),
+            endSec: Math.min(videoDurationSec || playheadSec + 2.5, Math.max(playheadSec + 0.35, playheadSec + 2.5)),
+          }
+        : { ...next, source: "manual" as const }
+      onOverlaysChange([...overlays, withTime])
       onSelectId(next.id)
     },
-    [overlayPickColor, onOverlaysChange, onSelectId, overlays]
+    [overlayPickColor, onOverlaysChange, onSelectId, overlays, playheadSec, videoDurationSec]
   )
 
   const removeSelectedOverlay = useCallback(() => {
@@ -124,33 +136,53 @@ export function MvpOverlayElementsPanel({
 
     setAiLoading(true)
     setAiErr(null)
-    setAiStatus("영상 프레임 캡처 중…")
+    setAiStatus("1차 스캔 · 프레임 캡처 중…")
 
     try {
-      const frames = await captureMosaicScanFramesFromVideo(video, videoDurationSec, {
-        onProgress: (done, total) => setAiStatus(`프레임 캡처 ${done}/${total}…`),
+      const detectBatch = async (frames: { timeSec: number; imageBase64: string }[], label: string) => {
+        const batchSize = 2
+        const rows: MosaicFrameDetectRow[] = []
+        for (let i = 0; i < frames.length; i += batchSize) {
+          const batch = frames.slice(i, i + batchSize)
+          const done = Math.min(i + batch.length, frames.length)
+          setAiStatus(`${label} AI 분석 ${done}/${frames.length}장…`)
+
+          const res = await fetch("/api/shotform/detect-chinese-mosaic", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              openaiApiKey: openai,
+              frames: batch,
+              rowsOnly: true,
+              highDetail: true,
+            }),
+          })
+          const data = await readFetchJson<{ rows?: MosaicFrameDetectRow[]; error?: string }>(res)
+          if (!res.ok) throw new Error(data.error || "AI 모자이크 감지 실패")
+          if (data.rows?.length) rows.push(...data.rows)
+        }
+        return rows
+      }
+
+      const coarseFrames = await captureMosaicScanFramesFromVideo(video, videoDurationSec, {
+        onProgress: (done, total) => setAiStatus(`1차 캡처 ${done}/${total}…`),
       })
 
-      const batchSize = 4
-      const allRows: MosaicFrameDetectRow[] = []
+      const coarseRows = await detectBatch(coarseFrames, "1차")
+      let allRows = [...coarseRows]
 
-      for (let i = 0; i < frames.length; i += batchSize) {
-        const batch = frames.slice(i, i + batchSize)
-        const done = Math.min(i + batch.length, frames.length)
-        setAiStatus(`AI 분석 중… ${done}/${frames.length}장`)
-
-        const res = await fetch("/api/shotform/detect-chinese-mosaic", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            openaiApiKey: openai,
-            frames: batch,
-            rowsOnly: true,
-          }),
+      const refineTimes = buildMosaicRefineTimes(coarseRows, videoDurationSec)
+      if (refineTimes.length) {
+        setAiStatus(`2차 정밀 캡처 0/${refineTimes.length}…`)
+        const refineFrames = await captureMosaicFramesAtTimes(video, refineTimes, {
+          maxWidth: 640,
+          onProgress: (done, total) => setAiStatus(`2차 정밀 캡처 ${done}/${total}…`),
         })
-        const data = await readFetchJson<{ rows?: MosaicFrameDetectRow[]; error?: string }>(res)
-        if (!res.ok) throw new Error(data.error || "AI 모자이크 감지 실패")
-        if (data.rows?.length) allRows.push(...data.rows)
+        const refineRows = await detectBatch(refineFrames, "2차")
+        const byTime = new Map<number, MosaicFrameDetectRow>()
+        for (const r of allRows) byTime.set(r.timeSec, r)
+        for (const r of refineRows) byTime.set(r.timeSec, r)
+        allRows = [...byTime.values()].sort((a, b) => a.timeSec - b.timeSec)
       }
 
       const detected = mergeMosaicRowsToOverlays(allRows, videoDurationSec)
@@ -181,8 +213,8 @@ export function MvpOverlayElementsPanel({
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold text-cyan-100">AI 중국어 모자이크</p>
             <p className="mt-1 text-[10px] leading-relaxed text-cyan-100/75">
-              영상 전체를 분석해 중국어 자막·오버레이 위치와 시작·끝 초를 자동으로 모자이크합니다. 감쪽같은
-              픽셀 모자이크로 가려집니다.
+              1차 전체 스캔 후 중국어가 보이는 구간만 2차 정밀 분석합니다. 글자 크기·위치에 맞춘 타이트
+              모자이크가 타임라인에 표시됩니다.
             </p>
           </div>
         </div>

@@ -67,14 +67,43 @@ export function pctBoxToMosaicOverlay(args: {
     size: 48,
     color: "#ffffff",
     rotation: 0,
-    mosaicW: Math.round((args.widthPct / 100) * stageW),
-    mosaicH: Math.round((args.heightPct / 100) * stageH),
+    mosaicW: Math.max(28, Math.round((args.widthPct / 100) * stageW)),
+    mosaicH: Math.max(18, Math.round((args.heightPct / 100) * stageH)),
     mosaicBlock: MVP_MOSAIC_DEFAULT_BLOCK,
     startSec: Math.max(0, args.startSec),
     endSec: Math.max(args.startSec + 0.1, args.endSec),
     source: "ai",
     label: args.detectedText?.slice(0, 40),
   }
+}
+
+export const MVP_MOSAIC_CLIP_MIN_SEC = 0.12
+
+export function mosaicTimelineClips(overlays: PlacedStudioOverlay[], durationSec: number) {
+  return overlays
+    .filter((o) => isMosaicOverlay(o.catalogId))
+    .map((ov) => ({
+      id: ov.id,
+      label: ov.label?.trim() || (ov.source === "ai" ? "AI 中文" : "모자이크"),
+      startSec: ov.startSec ?? 0,
+      endSec: ov.endSec ?? durationSec,
+    }))
+}
+
+export function patchMosaicOverlayTime(
+  overlays: PlacedStudioOverlay[],
+  id: string,
+  patch: { startSec?: number; endSec?: number },
+  durationSec: number
+): PlacedStudioOverlay[] {
+  return overlays.map((o) => {
+    if (o.id !== id) return o
+    let startSec = patch.startSec ?? o.startSec ?? 0
+    let endSec = patch.endSec ?? o.endSec ?? durationSec
+    startSec = Math.max(0, Math.min(durationSec - MVP_MOSAIC_CLIP_MIN_SEC, startSec))
+    endSec = Math.min(durationSec, Math.max(startSec + MVP_MOSAIC_CLIP_MIN_SEC, endSec))
+    return { ...o, startSec, endSec }
+  })
 }
 
 export function mosaicOverlaySummary(ov: PlacedStudioOverlay): string {

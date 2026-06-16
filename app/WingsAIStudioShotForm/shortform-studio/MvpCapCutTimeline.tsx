@@ -8,6 +8,11 @@ import type { LineSubtitleCue } from "@/lib/shotform-mvp-edit-script"
 import { formatNarrationClock } from "@/lib/shotform-factory-narration-script"
 import { videoRangeFromVoiceCue } from "@/lib/shotform-mvp-preview-sync"
 import { MVP_BGM_CLIP_MIN_SEC, type MvpBgmClip } from "@/lib/mvp-studio-types"
+import {
+  isMosaicOverlay,
+  patchMosaicOverlayTime,
+} from "@/lib/mvp-mosaic-overlay-utils"
+import type { PlacedStudioOverlay } from "@/lib/shotform-studio-overlay-catalog"
 import { cn } from "@/lib/utils"
 import { isMvpThumbnailIntroTime } from "@/lib/mvp-thumbnail-intro"
 
@@ -30,10 +35,23 @@ type Props = {
   onSelectBgmClipId?: (id: string | null) => void
   onBgmClipsChange?: (next: MvpBgmClip[]) => void
   onPlaceBgmAt?: (startSec: number) => void
+  placedOverlays?: PlacedStudioOverlay[]
+  selectedOverlayId?: string | null
+  onSelectOverlayId?: (id: string | null) => void
+  onPlacedOverlaysChange?: (next: PlacedStudioOverlay[]) => void
 }
 
 type DragState = {
   clipId: string
+  mode: "start" | "end" | "move"
+  trackEl: HTMLElement
+  originStart: number
+  originEnd: number
+  pointerX0: number
+}
+
+type MosaicDragState = {
+  overlayId: string
   mode: "start" | "end" | "move"
   trackEl: HTMLElement
   originStart: number
@@ -63,10 +81,16 @@ export function MvpCapCutTimeline({
   onSelectBgmClipId,
   onBgmClipsChange,
   onPlaceBgmAt,
+  placedOverlays = [],
+  selectedOverlayId = null,
+  onSelectOverlayId,
+  onPlacedOverlaysChange,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<DragState | null>(null)
+  const mosaicDragRef = useRef<MosaicDragState | null>(null)
   const [draggingClipId, setDraggingClipId] = useState<string | null>(null)
+  const [draggingMosaicId, setDraggingMosaicId] = useState<string | null>(null)
 
   const duration = Math.max(0.5, durationSec)
   const plan = result.editPlan?.edit_plan ?? []
@@ -108,6 +132,27 @@ export function MvpCapCutTimeline({
   const timelineWidth = Math.max(640, duration * pxPerSec)
   const headSec = previewTimelineSec ?? playhead
   const atThumbnailIntro = Boolean(thumbnailUrl) && isMvpThumbnailIntroTime(headSec)
+
+  const mosaicClips = useMemo(
+    () =>
+      placedOverlays
+        .filter((o) => isMosaicOverlay(o.catalogId))
+        .map((ov) => ({
+          id: ov.id,
+          label: ov.label?.trim() || (ov.source === "ai" ? "AI 中文" : "모자이크"),
+          startSec: ov.startSec ?? 0,
+          endSec: ov.endSec ?? duration,
+        })),
+    [placedOverlays, duration]
+  )
+
+  const activeMosaicIdx = useMemo(() => {
+    for (let i = 0; i < mosaicClips.length; i++) {
+      const c = mosaicClips[i]!
+      if (playhead >= c.startSec - 0.02 && playhead <= c.endSec + 0.02) return i
+    }
+    return -1
+  }, [mosaicClips, playhead])
 
   const pct = useCallback((t: number) => `${Math.min(100, Math.max(0, (t / duration) * 100))}%`, [duration])
 
@@ -151,27 +196,55 @@ export function MvpCapCutTimeline({
     [bgmClips, onBgmClipsChange, duration]
   )
 
+  const patchMosaicClip = useCallback(
+    (overlayId: string, patch: { startSec?: number; endSec?: number }) => {
+      if (!onPlacedOverlaysChange) return
+      onPlacedOverlaysChange(patchMosaicOverlayTime(placedOverlays, overlayId, patch, duration))
+    },
+    [onPlacedOverlaysChange, placedOverlays, duration]
+  )
+
   useEffect(() => {
     const onMove = (e: PointerEvent) => {
       const drag = dragRef.current
-      if (!drag || !onBgmClipsChange) return
-      const rect = drag.trackEl.getBoundingClientRect()
-      const dt = ((e.clientX - drag.pointerX0) / Math.max(1, rect.width)) * duration
+      if (drag && onBgmClipsChange) {
+        const rect = drag.trackEl.getBoundingClientRect()
+        const dt = ((e.clientX - drag.pointerX0) / Math.max(1, rect.width)) * duration
 
-      if (drag.mode === "start") {
-        patchClip(drag.clipId, { startSec: drag.originStart + dt })
-      } else if (drag.mode === "end") {
-        patchClip(drag.clipId, { endSec: drag.originEnd + dt })
-      } else {
-        const span = drag.originEnd - drag.originStart
-        let start = drag.originStart + dt
-        start = Math.max(0, Math.min(duration - span, start))
-        patchClip(drag.clipId, { startSec: start, endSec: start + span })
+        if (drag.mode === "start") {
+          patchClip(drag.clipId, { startSec: drag.originStart + dt })
+        } else if (drag.mode === "end") {
+          patchClip(drag.clipId, { endSec: drag.originEnd + dt })
+        } else {
+          const span = drag.originEnd - drag.originStart
+          let start = drag.originStart + dt
+          start = Math.max(0, Math.min(duration - span, start))
+          patchClip(drag.clipId, { startSec: start, endSec: start + span })
+        }
+      }
+
+      const mDrag = mosaicDragRef.current
+      if (mDrag && onPlacedOverlaysChange) {
+        const rect = mDrag.trackEl.getBoundingClientRect()
+        const dt = ((e.clientX - mDrag.pointerX0) / Math.max(1, rect.width)) * duration
+
+        if (mDrag.mode === "start") {
+          patchMosaicClip(mDrag.overlayId, { startSec: mDrag.originStart + dt })
+        } else if (mDrag.mode === "end") {
+          patchMosaicClip(mDrag.overlayId, { endSec: mDrag.originEnd + dt })
+        } else {
+          const span = mDrag.originEnd - mDrag.originStart
+          let start = mDrag.originStart + dt
+          start = Math.max(0, Math.min(duration - span, start))
+          patchMosaicClip(mDrag.overlayId, { startSec: start, endSec: start + span })
+        }
       }
     }
     const onUp = () => {
       dragRef.current = null
+      mosaicDragRef.current = null
       setDraggingClipId(null)
+      setDraggingMosaicId(null)
     }
     window.addEventListener("pointermove", onMove)
     window.addEventListener("pointerup", onUp)
@@ -179,7 +252,7 @@ export function MvpCapCutTimeline({
       window.removeEventListener("pointermove", onMove)
       window.removeEventListener("pointerup", onUp)
     }
-  }, [onBgmClipsChange, timeFromClientX, patchClip, duration])
+  }, [onBgmClipsChange, onPlacedOverlaysChange, patchClip, patchMosaicClip, duration])
 
   const beginDrag = (
     e: React.PointerEvent,
@@ -199,6 +272,26 @@ export function MvpCapCutTimeline({
       pointerX0: e.clientX,
     }
     setDraggingClipId(clip.id)
+  }
+
+  const beginMosaicDrag = (
+    e: React.PointerEvent,
+    clip: { id: string; startSec: number; endSec: number },
+    mode: MosaicDragState["mode"],
+    trackEl: HTMLElement
+  ) => {
+    e.stopPropagation()
+    e.preventDefault()
+    onSelectOverlayId?.(clip.id)
+    mosaicDragRef.current = {
+      overlayId: clip.id,
+      mode,
+      trackEl,
+      originStart: clip.startSec,
+      originEnd: clip.endSec,
+      pointerX0: e.clientX,
+    }
+    setDraggingMosaicId(clip.id)
   }
 
   const playheadMarker = (
@@ -403,6 +496,87 @@ export function MvpCapCutTimeline({
               ) : (
                 <span className="absolute inset-0 flex items-center px-2 text-[10px] text-slate-600">
                   음원 선택 후 이 트랙 클릭 · 핸들로 구간 조절 · Delete 삭제
+                </span>
+              )}
+              {playheadMarker}
+            </div>
+          </div>
+
+          </div>
+
+          <div className="flex border-b border-white/5" style={{ height: 44 }}>
+            <div
+              className="flex shrink-0 items-center border-r border-white/10 bg-[#0f0f0f] px-2 text-[9px] text-cyan-400/90"
+              style={{ width: TRACK_LABEL_W }}
+            >
+              모자이크
+            </div>
+            <div
+              data-mosaic-track
+              className="relative flex-1 cursor-pointer bg-[#1a1a1a]"
+              onClick={(e) => {
+                if (draggingMosaicId) return
+                seekFromClientX(e.clientX, e.currentTarget)
+              }}
+              role="presentation"
+            >
+              {mosaicClips.length ? (
+                mosaicClips.map((clip, i) => {
+                  const selected = selectedOverlayId === clip.id
+                  const active = activeMosaicIdx === i
+                  const span = clip.endSec - clip.startSec
+                  return (
+                    <div
+                      key={clip.id}
+                      className={cn(
+                        "absolute top-2 flex h-7 overflow-hidden rounded border text-[8px] leading-tight",
+                        selected || active
+                          ? "z-10 border-cyan-300 bg-cyan-500/75 text-white ring-1 ring-cyan-200/40"
+                          : "border-cyan-600/40 bg-cyan-900/55 text-cyan-50 hover:bg-cyan-700/60"
+                      )}
+                      style={{
+                        left: pct(clip.startSec),
+                        width: `max(12px, calc(${pct(span)} - 2px))`,
+                      }}
+                      title={`${clip.label} · ${formatNarrationClock(clip.startSec)}–${formatNarrationClock(clip.endSec)}`}
+                    >
+                      <div
+                        className="z-20 shrink-0 cursor-ew-resize bg-white/25 hover:bg-white/45"
+                        style={{ width: HANDLE_W }}
+                        onPointerDown={(e) => {
+                          const track = (e.currentTarget as HTMLElement).closest("[data-mosaic-track]")
+                          if (track) beginMosaicDrag(e, clip, "start", track as HTMLElement)
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="min-w-0 flex-1 cursor-grab truncate px-0.5 text-left active:cursor-grabbing"
+                        onPointerDown={(e) => {
+                          const track = (e.currentTarget as HTMLElement).closest("[data-mosaic-track]")
+                          if (track) beginMosaicDrag(e, clip, "move", track as HTMLElement)
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onSelectOverlayId?.(clip.id)
+                          onSeek(clip.startSec)
+                        }}
+                      >
+                        {clip.label}
+                      </button>
+                      <div
+                        className="z-20 shrink-0 cursor-ew-resize bg-white/25 hover:bg-white/45"
+                        style={{ width: HANDLE_W }}
+                        onPointerDown={(e) => {
+                          const track = (e.currentTarget as HTMLElement).closest("[data-mosaic-track]")
+                          if (track) beginMosaicDrag(e, clip, "end", track as HTMLElement)
+                        }}
+                      />
+                    </div>
+                  )
+                })
+              ) : (
+                <span className="absolute inset-0 flex items-center px-2 text-[10px] text-slate-600">
+                  AI·수동 모자이크 추가 시 구간 클립 표시 · 핸들로 시간 조절
                 </span>
               )}
               {playheadMarker}

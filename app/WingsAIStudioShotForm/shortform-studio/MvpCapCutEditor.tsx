@@ -705,6 +705,7 @@ export function MvpCapCutEditor(props: Props) {
               selectedCueIndex={selectedCueIndex}
               onSelectCue={(i) => {
                 setSelectedCueIndex(i)
+                setSelectedOverlayId(null)
                 setInspectorTab("subtitle")
               }}
               onSeek={onSeek}
@@ -713,6 +714,16 @@ export function MvpCapCutEditor(props: Props) {
               onSelectBgmClipId={setSelectedBgmClipId}
               onBgmClipsChange={onBgmClipsChange}
               onPlaceBgmAt={(t) => void placeBgmAt(t)}
+              placedOverlays={placedOverlays}
+              selectedOverlayId={selectedOverlayId}
+              onSelectOverlayId={(id) => {
+                setSelectedOverlayId(id)
+                if (id) {
+                  setSelectedCueIndex(-1)
+                  setInspectorTab("subtitle")
+                }
+              }}
+              onPlacedOverlaysChange={onPlacedOverlaysChange}
             />
           </div>
         </div>
