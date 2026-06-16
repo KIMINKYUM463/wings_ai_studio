@@ -111,6 +111,14 @@ export type PlacedStudioOverlay = {
   mosaicH?: number
   /** 모자이크 블록 크기 (작을수록 거침, 4~24) */
   mosaicBlock?: number
+  /** 표시 시작(영상 초). 미설정 시 항상 표시 */
+  startSec?: number
+  /** 표시 끝(영상 초). 미설정 시 영상 끝까지 */
+  endSec?: number
+  /** manual | ai — AI 자동 감지 여부 */
+  source?: "manual" | "ai"
+  /** AI 감지 텍스트 등 메모 */
+  label?: string
 }
 
 export function isMosaicOverlay(catalogId: string): boolean {

@@ -70,6 +70,7 @@ import {
   type MvpBgmClip,
 } from "@/lib/mvp-studio-types"
 import { MvpOverlayLayer } from "./MvpOverlayLayer"
+import { MvpOverlayElementsPanel } from "./MvpOverlayElementsPanel"
 import { MvpSubtitleStylePanel } from "./MvpSubtitleStylePanel"
 import { MvpTtsSpeedPicker } from "./MvpTtsSpeedPicker"
 import { MvpThumbnailPanel } from "./MvpThumbnailPanel"
@@ -644,6 +645,9 @@ export function MvpCapCutEditor(props: Props) {
                   onSelectId={setSelectedOverlayId}
                   onUpdateOverlay={updateOverlayById}
                   stageRef={previewStageRef}
+                  videoRef={videoRef}
+                  videoTimeSec={playhead}
+                  videoDurationSec={previewTotalSec}
                   onOverlayPointerDown={() => setInspectorTab("subtitle")}
                 />
                 {previewSubtitleText ? (
@@ -1064,6 +1068,20 @@ export function MvpCapCutEditor(props: Props) {
                     미리보기 영상 위에서 실시간으로 반영됩니다.
                   </p>
                   <MvpSubtitleStylePanel value={subStyle} onChange={onSubtitleStyleChange} />
+                </div>
+
+                <div className="space-y-2 rounded-xl border border-cyan-500/20 bg-black/30 p-3">
+                  <p className="text-xs font-medium text-white">중국어 모자이크</p>
+                  <MvpOverlayElementsPanel
+                    overlays={placedOverlays}
+                    selectedId={selectedOverlayId}
+                    onOverlaysChange={onPlacedOverlaysChange}
+                    onSelectId={setSelectedOverlayId}
+                    videoRef={videoRef}
+                    videoDurationSec={previewTotalSec}
+                    playheadSec={playhead}
+                    onSeek={onSeek}
+                  />
                 </div>
               </div>
             ) : null}

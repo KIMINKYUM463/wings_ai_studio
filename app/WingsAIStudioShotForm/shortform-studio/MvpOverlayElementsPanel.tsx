@@ -1,31 +1,59 @@
 "use client"
 
 import { useCallback, useMemo, useRef, useState } from "react"
-import { Trash2 } from "lucide-react"
+import { Loader2, Sparkles, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Slider } from "@/components/ui/slider"
 import { cn } from "@/lib/utils"
-import { MVP_OVERLAY_COLOR_PRESETS } from "@/lib/mvp-overlay-utils"
+import { createOverlayFromCatalog, MVP_OVERLAY_COLOR_PRESETS } from "@/lib/mvp-overlay-utils"
 import {
+  isMosaicOverlay,
+  mosaicOverlayBlockSize,
+  mosaicOverlayDimensions,
   STUDIO_OVERLAY_CATALOG,
   STUDIO_OVERLAY_CATEGORIES,
   type PlacedStudioOverlay,
   type StudioOverlayCategory,
 } from "@/lib/shotform-studio-overlay-catalog"
+import { mosaicOverlaySummary } from "@/lib/mvp-mosaic-overlay-utils"
+import { captureMosaicScanFramesFromVideo } from "@/lib/mvp-mosaic-frame-capture"
+import { formatNarrationClock } from "@/lib/shotform-factory-narration-script"
 import { studio } from "../components/ShotFormStudioUI"
 import { StudioOverlayCatalogThumb, StudioOverlayGraphic } from "../shoppingshotform/StudioOverlayGraphic"
+
+function shotformOpenAIKey(): string {
+  if (typeof window === "undefined") return ""
+  return (localStorage.getItem("shotform_openai_api_key") || "").trim()
+}
 
 type Props = {
   overlays: PlacedStudioOverlay[]
   selectedId: string | null
   onOverlaysChange: (next: PlacedStudioOverlay[]) => void
   onSelectId: (id: string | null) => void
+  videoRef?: React.RefObject<HTMLVideoElement | null>
+  videoDurationSec?: number
+  playheadSec?: number
+  onSeek?: (sec: number) => void
 }
 
-export function MvpOverlayElementsPanel({ overlays, selectedId, onOverlaysChange, onSelectId }: Props) {
-  const [overlayCategory, setOverlayCategory] = useState<StudioOverlayCategory>("shapes")
+export function MvpOverlayElementsPanel({
+  overlays,
+  selectedId,
+  onOverlaysChange,
+  onSelectId,
+  videoRef,
+  videoDurationSec = 0,
+  playheadSec = 0,
+  onSeek,
+}: Props) {
+  const [overlayCategory, setOverlayCategory] = useState<StudioOverlayCategory>("effects")
   const [overlayPickColor, setOverlayPickColor] = useState("#ffffff")
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiStatus, setAiStatus] = useState("")
+  const [aiErr, setAiErr] = useState<string | null>(null)
   const overlayIdRef = useRef(0)
 
   const filteredCatalog = useMemo(
@@ -37,6 +65,8 @@ export function MvpOverlayElementsPanel({ overlays, selectedId, onOverlaysChange
     () => overlays.find((o) => o.id === selectedId) ?? null,
     [overlays, selectedId]
   )
+
+  const mosaicOverlays = useMemo(() => overlays.filter((o) => isMosaicOverlay(o.catalogId)), [overlays])
 
   const updateOverlayById = useCallback(
     (id: string, patch: Partial<PlacedStudioOverlay>) => {
@@ -55,25 +85,9 @@ export function MvpOverlayElementsPanel({ overlays, selectedId, onOverlaysChange
 
   const addOverlayFromCatalog = useCallback(
     (catalogId: string) => {
-      let max = overlayIdRef.current
-      for (const o of overlays) {
-        const m = /^ov-(\d+)$/.exec(o.id)
-        if (m) max = Math.max(max, Number(m[1]))
-      }
-      max += 1
-      overlayIdRef.current = max
-      const id = `ov-${max}`
-      const next: PlacedStudioOverlay = {
-        id,
-        catalogId,
-        x: 50,
-        y: 42,
-        size: 48,
-        color: overlayPickColor,
-        rotation: 0,
-      }
-      onOverlaysChange([...overlays, next])
-      onSelectId(id)
+      const next = createOverlayFromCatalog(catalogId, overlays, overlayPickColor, overlayIdRef)
+      onOverlaysChange([...overlays, { ...next, source: "manual" }])
+      onSelectId(next.id)
     },
     [overlayPickColor, onOverlaysChange, onSelectId, overlays]
   )
@@ -84,17 +98,134 @@ export function MvpOverlayElementsPanel({ overlays, selectedId, onOverlaysChange
     onSelectId(null)
   }, [onOverlaysChange, onSelectId, overlays, selectedId])
 
+  const setPlayheadAsStart = useCallback(() => {
+    if (!selectedId) return
+    updateSelectedOverlay({ startSec: Math.max(0, playheadSec) })
+  }, [playheadSec, selectedId, updateSelectedOverlay])
+
+  const setPlayheadAsEnd = useCallback(() => {
+    if (!selectedId) return
+    updateSelectedOverlay({ endSec: Math.max(0, playheadSec) })
+  }, [playheadSec, selectedId, updateSelectedOverlay])
+
+  const runAiMosaic = useCallback(async () => {
+    const openai = shotformOpenAIKey()
+    if (!openai) {
+      setAiErr("ShotForm 설정에 OpenAI API 키(shotform_openai_api_key)를 저장해 주세요.")
+      return
+    }
+    const video = videoRef?.current
+    if (!video || !videoDurationSec) {
+      setAiErr("짜집기 영상이 준비된 뒤 다시 시도해 주세요.")
+      return
+    }
+
+    setAiLoading(true)
+    setAiErr(null)
+    setAiStatus("영상 프레임 캡처 중…")
+
+    try {
+      const frames = await captureMosaicScanFramesFromVideo(video, videoDurationSec, {
+        onProgress: (done, total) => setAiStatus(`프레임 캡처 ${done}/${total}…`),
+      })
+      setAiStatus("AI가 중국어 텍스트 분석 중… (30초~2분)")
+
+      const res = await fetch("/api/shotform/detect-chinese-mosaic", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          openaiApiKey: openai,
+          durationSec: videoDurationSec,
+          frames,
+        }),
+      })
+      const data = (await res.json()) as { overlays?: PlacedStudioOverlay[]; error?: string }
+      if (!res.ok) throw new Error(data.error || "AI 모자이크 감지 실패")
+
+      const detected = data.overlays ?? []
+      if (!detected.length) {
+        setAiStatus("감지된 중국어 오버레이가 없습니다. 수동 모자이크를 추가해 보세요.")
+        return
+      }
+
+      const nonMosaic = overlays.filter((o) => !isMosaicOverlay(o.catalogId))
+      onOverlaysChange([...nonMosaic, ...detected])
+      onSelectId(detected[0]?.id ?? null)
+      setAiStatus(`AI 모자이크 ${detected.length}구간 적용됨. 위치·시간은 미리보기에서 조정할 수 있습니다.`)
+    } catch (e) {
+      setAiErr(e instanceof Error ? e.message : "AI 모자이크 실패")
+      setAiStatus("")
+    } finally {
+      setAiLoading(false)
+    }
+  }, [onOverlaysChange, onSelectId, overlays, videoDurationSec, videoRef])
+
+  const selectedMosaic = selectedOverlay && isMosaicOverlay(selectedOverlay.catalogId)
+
   return (
     <div className="space-y-4">
-      <div>
-        <p className="text-xs font-medium text-white">도형 · 화살표 · 아이콘</p>
-        <p className="mt-1 text-[10px] leading-relaxed text-slate-500">
-          아이콘을 누르면 미리보기 중앙에 추가됩니다. 드래그로 이동, ↻ 핸들로 회전하세요.
-        </p>
+      <div className="rounded-xl border border-cyan-500/25 bg-gradient-to-br from-cyan-950/25 to-transparent p-3">
+        <div className="flex items-start gap-2">
+          <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-cyan-300" />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold text-cyan-100">AI 중국어 모자이크</p>
+            <p className="mt-1 text-[10px] leading-relaxed text-cyan-100/75">
+              영상 전체를 분석해 중국어 자막·오버레이 위치와 시작·끝 초를 자동으로 모자이크합니다. 감쪽같은
+              픽셀 모자이크로 가려집니다.
+            </p>
+          </div>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          className="mt-3 h-9 w-full gap-2 border border-cyan-500/30 bg-cyan-500/10 text-xs text-cyan-100 hover:bg-cyan-500/20"
+          disabled={aiLoading || !videoDurationSec}
+          onClick={() => void runAiMosaic()}
+        >
+          {aiLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+          {aiLoading ? "AI 분석 중…" : "AI 자동 모자이크"}
+        </Button>
+        {aiStatus ? <p className="mt-2 text-[10px] leading-relaxed text-cyan-100/90">{aiStatus}</p> : null}
+        {aiErr ? <p className="mt-2 text-[10px] leading-relaxed text-red-300">{aiErr}</p> : null}
       </div>
 
       <div>
-        <Label className="text-[10px] text-slate-400">추가할 색상</Label>
+        <p className="text-xs font-medium text-white">수동 모자이크 · 도형</p>
+        <p className="mt-1 text-[10px] leading-relaxed text-slate-500">
+          「효과」에서 모자이크를 추가한 뒤 드래그·핸들로 크기를 맞추세요. 재생 헤드로 구간 시작·끝을 지정할 수
+          있습니다.
+        </p>
+      </div>
+
+      {mosaicOverlays.length > 0 ? (
+        <div className="max-h-[140px] space-y-1 overflow-y-auto rounded-lg border border-white/10 bg-black/25 p-2">
+          {mosaicOverlays.map((ov) => (
+            <button
+              key={ov.id}
+              type="button"
+              className={cn(
+                "w-full rounded border px-2 py-1.5 text-left text-[10px] transition",
+                selectedId === ov.id
+                  ? "border-violet-500/40 bg-violet-950/25 text-violet-100"
+                  : "border-white/5 text-slate-400 hover:bg-white/5"
+              )}
+              onClick={() => {
+                onSelectId(ov.id)
+                if (ov.startSec != null) onSeek?.(ov.startSec)
+              }}
+            >
+              <span className="font-mono text-cyan-400/80">
+                {formatNarrationClock(ov.startSec ?? 0)}–{formatNarrationClock(ov.endSec ?? videoDurationSec)}
+              </span>{" "}
+              {ov.source === "ai" ? "AI" : "수동"} · {mosaicOverlaySummary(ov)}
+              {ov.label ? ` · ${ov.label}` : ""}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      <div>
+        <Label className="text-[10px] text-slate-400">추가할 색상 (도형·화살표)</Label>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           {MVP_OVERLAY_COLOR_PRESETS.map((c) => (
             <button
@@ -169,34 +300,144 @@ export function MvpOverlayElementsPanel({ overlays, selectedId, onOverlaysChange
               삭제
             </Button>
           </div>
-          <div className="flex justify-center py-1">
-            <StudioOverlayGraphic
-              catalogId={selectedOverlay.catalogId}
-              color={selectedOverlay.color}
-              size={Math.min(56, selectedOverlay.size)}
-              filled={selectedOverlay.filled}
-            />
-          </div>
-          <div>
-            <Label className="text-[10px] text-slate-400">색상</Label>
-            <input
-              type="color"
-              value={selectedOverlay.color}
-              onChange={(e) => updateSelectedOverlay({ color: e.target.value })}
-              className="mt-1.5 h-8 w-full cursor-pointer rounded border border-white/10 bg-black/50"
-            />
-          </div>
-          <div>
-            <Label className="text-[10px] text-slate-400">크기 {selectedOverlay.size}px</Label>
-            <Slider
-              className="mt-2"
-              min={20}
-              max={120}
-              step={2}
-              value={[selectedOverlay.size]}
-              onValueChange={(v) => updateSelectedOverlay({ size: v[0] ?? 48 })}
-            />
-          </div>
+          {!selectedMosaic ? (
+            <div className="flex justify-center py-1">
+              <StudioOverlayGraphic
+                catalogId={selectedOverlay.catalogId}
+                color={selectedOverlay.color}
+                size={Math.min(56, selectedOverlay.size)}
+                filled={selectedOverlay.filled}
+              />
+            </div>
+          ) : null}
+
+          {selectedMosaic ? (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-[10px] text-slate-400">
+                    가로 · {mosaicOverlayDimensions(selectedOverlay).w}px
+                  </Label>
+                  <Slider
+                    className="mt-2"
+                    min={24}
+                    max={280}
+                    step={2}
+                    value={[mosaicOverlayDimensions(selectedOverlay).w]}
+                    onValueChange={(v) =>
+                      updateSelectedOverlay({ mosaicW: v[0] ?? mosaicOverlayDimensions(selectedOverlay).w })
+                    }
+                  />
+                </div>
+                <div>
+                  <Label className="text-[10px] text-slate-400">
+                    세로 · {mosaicOverlayDimensions(selectedOverlay).h}px
+                  </Label>
+                  <Slider
+                    className="mt-2"
+                    min={24}
+                    max={200}
+                    step={2}
+                    value={[mosaicOverlayDimensions(selectedOverlay).h]}
+                    onValueChange={(v) =>
+                      updateSelectedOverlay({ mosaicH: v[0] ?? mosaicOverlayDimensions(selectedOverlay).h })
+                    }
+                  />
+                </div>
+              </div>
+              <div>
+                <Label className="text-[10px] text-slate-400">
+                  모자이크 강도 · {mosaicOverlayBlockSize(selectedOverlay)} (작을수록 더 촘촘·자연스러움)
+                </Label>
+                <Slider
+                  className="mt-2"
+                  min={4}
+                  max={18}
+                  step={1}
+                  value={[mosaicOverlayBlockSize(selectedOverlay)]}
+                  onValueChange={(v) =>
+                    updateSelectedOverlay({ mosaicBlock: v[0] ?? mosaicOverlayBlockSize(selectedOverlay) })
+                  }
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-[10px] text-slate-400">시작(초)</Label>
+                  <Input
+                    type="number"
+                    step={0.05}
+                    className="mt-0.5 h-7 border-white/10 bg-black/40 text-xs"
+                    value={Math.round((selectedOverlay.startSec ?? 0) * 100) / 100}
+                    onChange={(e) =>
+                      updateSelectedOverlay({ startSec: Math.max(0, Number(e.target.value) || 0) })
+                    }
+                  />
+                </div>
+                <div>
+                  <Label className="text-[10px] text-slate-400">끝(초)</Label>
+                  <Input
+                    type="number"
+                    step={0.05}
+                    className="mt-0.5 h-7 border-white/10 bg-black/40 text-xs"
+                    value={
+                      Math.round(
+                        (selectedOverlay.endSec ?? videoDurationSec || 999) * 100
+                      ) / 100
+                    }
+                    onChange={(e) =>
+                      updateSelectedOverlay({
+                        endSec: Math.max(0, Number(e.target.value) || videoDurationSec),
+                      })
+                    }
+                  />
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 flex-1 border-white/15 text-[10px]"
+                  onClick={setPlayheadAsStart}
+                >
+                  현재 시각 → 시작
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 flex-1 border-white/15 text-[10px]"
+                  onClick={setPlayheadAsEnd}
+                >
+                  현재 시각 → 끝
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <Label className="text-[10px] text-slate-400">색상</Label>
+                <input
+                  type="color"
+                  value={selectedOverlay.color}
+                  onChange={(e) => updateSelectedOverlay({ color: e.target.value })}
+                  className="mt-1.5 h-8 w-full cursor-pointer rounded border border-white/10 bg-black/50"
+                />
+              </div>
+              <div>
+                <Label className="text-[10px] text-slate-400">크기 {selectedOverlay.size}px</Label>
+                <Slider
+                  className="mt-2"
+                  min={20}
+                  max={120}
+                  step={2}
+                  value={[selectedOverlay.size]}
+                  onValueChange={(v) => updateSelectedOverlay({ size: v[0] ?? 48 })}
+                />
+              </div>
+            </>
+          )}
+
           <div>
             <Label className="text-[10px] text-slate-400">회전 {selectedOverlay.rotation}°</Label>
             <Slider

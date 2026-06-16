@@ -23,9 +23,15 @@ import {
   type MvpSubtitleStyle,
 } from "@/lib/mvp-studio-types"
 import {
+  isMosaicCircleOverlay,
+  isMosaicOverlay,
+  mosaicOverlayBlockSize,
+  mosaicOverlayDimensions,
   studioOverlayById,
   type PlacedStudioOverlay,
 } from "@/lib/shotform-studio-overlay-catalog"
+import { filterOverlaysAtVideoTime } from "@/lib/mvp-mosaic-overlay-utils"
+import { drawVideoMosaicOnCanvas } from "@/lib/mvp-video-mosaic"
 import {
   subtitleFromSchedule,
   type LineSubtitleCue,
@@ -153,8 +159,24 @@ function drawOverlay(
   ov: PlacedStudioOverlay,
   cw: number,
   ch: number,
-  previewW: number
+  previewW: number,
+  video?: HTMLVideoElement
 ) {
+  if (isMosaicOverlay(ov.catalogId) && video && video.readyState >= 2) {
+    const dims = mosaicOverlayDimensions(ov)
+    drawVideoMosaicOnCanvas(ctx, video, cw, ch, {
+      previewW,
+      centerXPct: ov.x,
+      centerYPct: ov.y,
+      patchW: dims.w,
+      patchH: dims.h,
+      blockPx: mosaicOverlayBlockSize(ov),
+      circle: isMosaicCircleOverlay(ov.catalogId),
+      rotation: ov.rotation,
+    })
+    return
+  }
+
   const scale = cw / previewW
   const x = (ov.x / 100) * cw
   const y = (ov.y / 100) * ch
@@ -478,8 +500,8 @@ export async function renderMvpPreviewToBlob(
         drawVideoContain(ctx, video, canvas.width, canvas.height)
       }
 
-      for (const ov of placedOverlays) {
-        drawOverlay(ctx, ov, canvas.width, canvas.height, MVP_PREVIEW_STAGE_WIDTH_PX)
+      for (const ov of filterOverlaysAtVideoTime(placedOverlays, videoT, videoDur)) {
+        drawOverlay(ctx, ov, canvas.width, canvas.height, MVP_PREVIEW_STAGE_WIDTH_PX, video)
       }
 
       const subText = resolveSubtitleText(

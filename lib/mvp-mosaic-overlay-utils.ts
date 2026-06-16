@@ -1,0 +1,88 @@
+import {
+  isMosaicOverlay,
+  mosaicOverlayBlockSize,
+  mosaicOverlayDimensions,
+  studioOverlayById,
+  type PlacedStudioOverlay,
+} from "@/lib/shotform-studio-overlay-catalog"
+
+/** CapCut 미리보기 스테이지 너비 — `MvpCapCutEditor` max-w-[280px] */
+export const MVP_PREVIEW_STAGE_WIDTH_PX = 280
+
+export const MVP_MOSAIC_DEFAULT_BLOCK = 6
+
+export function mosaicStageHeightPx(stageWidth = MVP_PREVIEW_STAGE_WIDTH_PX): number {
+  return Math.round(stageWidth * (16 / 9))
+}
+
+/** 모자이크 오버레이가 현재 영상 시각에 표시되는지 */
+export function overlayVisibleAtVideoTime(
+  ov: PlacedStudioOverlay,
+  videoTimeSec: number,
+  totalSec?: number
+): boolean {
+  const start = ov.startSec ?? 0
+  const end = ov.endSec ?? totalSec ?? Number.POSITIVE_INFINITY
+  return videoTimeSec >= start - 0.02 && videoTimeSec <= end + 0.02
+}
+
+export function filterOverlaysAtVideoTime(
+  overlays: PlacedStudioOverlay[],
+  videoTimeSec: number,
+  totalSec?: number
+): PlacedStudioOverlay[] {
+  return overlays.filter((ov) => overlayVisibleAtVideoTime(ov, videoTimeSec, totalSec))
+}
+
+export function defaultMosaicOverlayFields(catalogId: string): Partial<PlacedStudioOverlay> {
+  const entry = studioOverlayById(catalogId)
+  if (!entry || !isMosaicOverlay(catalogId)) return {}
+  const circle = entry.kind === "mosaic-circle"
+  return {
+    mosaicW: circle ? 100 : 200,
+    mosaicH: circle ? 100 : 56,
+    mosaicBlock: MVP_MOSAIC_DEFAULT_BLOCK,
+    x: 50,
+    y: circle ? 50 : 82,
+  }
+}
+
+export function pctBoxToMosaicOverlay(args: {
+  centerXPct: number
+  centerYPct: number
+  widthPct: number
+  heightPct: number
+  startSec: number
+  endSec: number
+  detectedText?: string
+  id: string
+}): PlacedStudioOverlay {
+  const stageW = MVP_PREVIEW_STAGE_WIDTH_PX
+  const stageH = mosaicStageHeightPx(stageW)
+  return {
+    id: args.id,
+    catalogId: "partial-mosaic",
+    x: Math.min(95, Math.max(5, args.centerXPct)),
+    y: Math.min(95, Math.max(5, args.centerYPct)),
+    size: 48,
+    color: "#ffffff",
+    rotation: 0,
+    mosaicW: Math.round((args.widthPct / 100) * stageW),
+    mosaicH: Math.round((args.heightPct / 100) * stageH),
+    mosaicBlock: MVP_MOSAIC_DEFAULT_BLOCK,
+    startSec: Math.max(0, args.startSec),
+    endSec: Math.max(args.startSec + 0.1, args.endSec),
+    source: "ai",
+    label: args.detectedText?.slice(0, 40),
+  }
+}
+
+export function mosaicOverlaySummary(ov: PlacedStudioOverlay): string {
+  const dims = mosaicOverlayDimensions(ov)
+  const block = mosaicOverlayBlockSize(ov)
+  const time =
+    ov.startSec != null || ov.endSec != null
+      ? ` · ${(ov.startSec ?? 0).toFixed(1)}–${(ov.endSec ?? 0).toFixed(1)}s`
+      : ""
+  return `${dims.w}×${dims.h}px · 블록 ${block}${time}`
+}
