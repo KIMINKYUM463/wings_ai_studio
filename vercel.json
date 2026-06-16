@@ -33,6 +33,9 @@
     "app/api/shotform/remove-chinese-subtitles/route.ts": {
       "maxDuration": 800,
       "memory": 3008
+    },
+    "app/api/shotform/detect-chinese-mosaic/route.ts": {
+      "maxDuration": 300
     }
   },
   "headers": [

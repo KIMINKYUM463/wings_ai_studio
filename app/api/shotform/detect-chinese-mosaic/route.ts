@@ -1,7 +1,14 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { detectChineseMosaicOverlays, type MosaicDetectFrameInput } from "@/lib/shotform-mosaic-detect"
+import {
+  mergeMosaicRowsToOverlays,
+  visionDetectMosaicBatch,
+  type MosaicDetectFrameInput,
+} from "@/lib/shotform-mosaic-detect"
+import type { MosaicFrameDetectRow } from "@/lib/mvp-mosaic-merge"
 
 export const maxDuration = 300
+
+const MAX_FRAMES_PER_REQUEST = 4
 
 export async function POST(request: NextRequest) {
   try {
@@ -9,12 +16,15 @@ export async function POST(request: NextRequest) {
       openaiApiKey?: string
       durationSec?: number
       frames?: MosaicDetectFrameInput[]
+      /** true면 rows만 반환(클라이언트 배치). false/생략이면 rows 병합 후 overlays 반환 */
+      rowsOnly?: boolean
     }
 
     const openaiApiKey =
       body.openaiApiKey?.trim() || process.env.OPENAI_API_KEY?.trim() || ""
     const durationSec = Number(body.durationSec)
     const frames = Array.isArray(body.frames) ? body.frames : []
+    const rowsOnly = body.rowsOnly !== false
 
     if (!openaiApiKey) {
       return NextResponse.json(
@@ -22,14 +32,14 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
-    if (!Number.isFinite(durationSec) || durationSec <= 0) {
-      return NextResponse.json({ error: "영상 길이(durationSec)가 필요합니다." }, { status: 400 })
-    }
     if (!frames.length) {
       return NextResponse.json({ error: "분석할 프레임이 없습니다." }, { status: 400 })
     }
-    if (frames.length > 40) {
-      return NextResponse.json({ error: "프레임이 너무 많습니다. (최대 40장)" }, { status: 400 })
+    if (frames.length > MAX_FRAMES_PER_REQUEST) {
+      return NextResponse.json(
+        { error: `한 번에 최대 ${MAX_FRAMES_PER_REQUEST}장까지 보낼 수 있습니다. 클라이언트에서 나눠 호출해 주세요.` },
+        { status: 400 }
+      )
     }
 
     const sanitized = frames
@@ -38,15 +48,20 @@ export async function POST(request: NextRequest) {
         timeSec: Number(f.timeSec),
         imageBase64: f.imageBase64.trim(),
       }))
-      .slice(0, 40)
+      .slice(0, MAX_FRAMES_PER_REQUEST)
 
-    const overlays = await detectChineseMosaicOverlays({
-      apiKey: openaiApiKey,
-      frames: sanitized,
-      durationSec,
-    })
+    const rows: MosaicFrameDetectRow[] = await visionDetectMosaicBatch(openaiApiKey, sanitized)
 
-    return NextResponse.json({ overlays, count: overlays.length })
+    if (rowsOnly) {
+      return NextResponse.json({ rows, count: rows.length })
+    }
+
+    if (!Number.isFinite(durationSec) || durationSec <= 0) {
+      return NextResponse.json({ error: "영상 길이(durationSec)가 필요합니다." }, { status: 400 })
+    }
+
+    const overlays = mergeMosaicRowsToOverlays(rows, durationSec)
+    return NextResponse.json({ overlays, rows, count: overlays.length })
   } catch (e) {
     const msg = e instanceof Error ? e.message : "AI 모자이크 감지 실패"
     console.error("[detect-chinese-mosaic]", msg, e)

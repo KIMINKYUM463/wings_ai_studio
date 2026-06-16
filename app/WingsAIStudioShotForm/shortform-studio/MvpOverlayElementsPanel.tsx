@@ -19,6 +19,8 @@ import {
 } from "@/lib/shotform-studio-overlay-catalog"
 import { mosaicOverlaySummary } from "@/lib/mvp-mosaic-overlay-utils"
 import { captureMosaicScanFramesFromVideo } from "@/lib/mvp-mosaic-frame-capture"
+import { mergeMosaicRowsToOverlays, type MosaicFrameDetectRow } from "@/lib/mvp-mosaic-merge"
+import { readFetchJson } from "@/lib/mvp-fetch-json"
 import { formatNarrationClock } from "@/lib/shotform-factory-narration-script"
 import { studio } from "../components/ShotFormStudioUI"
 import { StudioOverlayCatalogThumb, StudioOverlayGraphic } from "../shoppingshotform/StudioOverlayGraphic"
@@ -128,21 +130,30 @@ export function MvpOverlayElementsPanel({
       const frames = await captureMosaicScanFramesFromVideo(video, videoDurationSec, {
         onProgress: (done, total) => setAiStatus(`프레임 캡처 ${done}/${total}…`),
       })
-      setAiStatus("AI가 중국어 텍스트 분석 중… (30초~2분)")
 
-      const res = await fetch("/api/shotform/detect-chinese-mosaic", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          openaiApiKey: openai,
-          durationSec: videoDurationSec,
-          frames,
-        }),
-      })
-      const data = (await res.json()) as { overlays?: PlacedStudioOverlay[]; error?: string }
-      if (!res.ok) throw new Error(data.error || "AI 모자이크 감지 실패")
+      const batchSize = 4
+      const allRows: MosaicFrameDetectRow[] = []
 
-      const detected = data.overlays ?? []
+      for (let i = 0; i < frames.length; i += batchSize) {
+        const batch = frames.slice(i, i + batchSize)
+        const done = Math.min(i + batch.length, frames.length)
+        setAiStatus(`AI 분석 중… ${done}/${frames.length}장`)
+
+        const res = await fetch("/api/shotform/detect-chinese-mosaic", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            openaiApiKey: openai,
+            frames: batch,
+            rowsOnly: true,
+          }),
+        })
+        const data = await readFetchJson<{ rows?: MosaicFrameDetectRow[]; error?: string }>(res)
+        if (!res.ok) throw new Error(data.error || "AI 모자이크 감지 실패")
+        if (data.rows?.length) allRows.push(...data.rows)
+      }
+
+      const detected = mergeMosaicRowsToOverlays(allRows, videoDurationSec)
       if (!detected.length) {
         setAiStatus("감지된 중국어 오버레이가 없습니다. 수동 모자이크를 추가해 보세요.")
         return

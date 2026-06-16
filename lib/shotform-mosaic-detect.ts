@@ -1,22 +1,16 @@
 import type { PlacedStudioOverlay } from "@/lib/shotform-studio-overlay-catalog"
-import { pctBoxToMosaicOverlay } from "@/lib/mvp-mosaic-overlay-utils"
+import {
+  mergeMosaicRowsToOverlays,
+  type DetectedChineseMosaicBox,
+  type MosaicFrameDetectRow,
+} from "@/lib/mvp-mosaic-merge"
+
+export type { DetectedChineseMosaicBox, MosaicFrameDetectRow }
+export { mergeMosaicRowsToOverlays }
 
 export type MosaicDetectFrameInput = {
   timeSec: number
   imageBase64: string
-}
-
-export type DetectedChineseMosaicBox = {
-  center_x_pct: number
-  center_y_pct: number
-  width_pct: number
-  height_pct: number
-  text?: string
-}
-
-type FrameDetectRow = {
-  timeSec: number
-  boxes: DetectedChineseMosaicBox[]
 }
 
 const CHINESE_RE = /[\u4e00-\u9fff\u3400-\u4dbf]/
@@ -52,10 +46,10 @@ function parseBox(raw: unknown): DetectedChineseMosaicBox | null {
   }
 }
 
-async function visionDetectBatch(
+export async function visionDetectMosaicBatch(
   apiKey: string,
   frames: MosaicDetectFrameInput[]
-): Promise<FrameDetectRow[]> {
+): Promise<MosaicFrameDetectRow[]> {
   const images = frames.map((f) => ({
     timeSec: f.timeSec,
     b64: f.imageBase64.replace(/^data:image\/\w+;base64,/, ""),
@@ -113,7 +107,7 @@ JSON: {"frames":[{"index":0,"boxes":[{"center_x_pct":50,"center_y_pct":86,"width
 
   const parsed = JSON.parse(content) as { frames?: unknown }
   const rawFrames = Array.isArray(parsed.frames) ? parsed.frames : []
-  const out: FrameDetectRow[] = []
+  const out: MosaicFrameDetectRow[] = []
 
   for (let i = 0; i < frames.length; i++) {
     const row = rawFrames.find((r) => (r as Record<string, unknown>)?.index === i) as
@@ -134,103 +128,26 @@ JSON: {"frames":[{"index":0,"boxes":[{"center_x_pct":50,"center_y_pct":86,"width
   return out
 }
 
-type Track = {
-  centerXPct: number
-  centerYPct: number
-  widthPct: number
-  heightPct: number
-  text?: string
-  startSec: number
-  endSec: number
-}
-
-function trackDistance(box: DetectedChineseMosaicBox, track: Track): number {
-  return Math.hypot(box.center_x_pct - track.centerXPct, box.center_y_pct - track.centerYPct)
-}
-
-function mergeFrameRows(rows: FrameDetectRow[]): Track[] {
-  const tracks: Track[] = []
-  const gapToleranceSec = 0.55
-  const positionTolerance = 14
-
-  for (const row of rows.sort((a, b) => a.timeSec - b.timeSec)) {
-    for (const box of row.boxes) {
-      let matched: Track | null = null
-      for (const track of tracks) {
-        if (row.timeSec - track.endSec > gapToleranceSec) continue
-        if (trackDistance(box, track) > positionTolerance) continue
-        if (
-          box.text &&
-          track.text &&
-          box.text !== track.text &&
-          trackDistance(box, track) > positionTolerance * 0.45
-        ) {
-          continue
-        }
-        matched = track
-        break
-      }
-
-      if (matched) {
-        matched.endSec = row.timeSec
-        matched.centerXPct = (matched.centerXPct + box.center_x_pct) / 2
-        matched.centerYPct = (matched.centerYPct + box.center_y_pct) / 2
-        matched.widthPct = Math.max(matched.widthPct, box.width_pct)
-        matched.heightPct = Math.max(matched.heightPct, box.height_pct)
-        if (box.text) matched.text = box.text
-      } else {
-        tracks.push({
-          centerXPct: box.center_x_pct,
-          centerYPct: box.center_y_pct,
-          widthPct: box.width_pct,
-          heightPct: box.height_pct,
-          text: box.text,
-          startSec: row.timeSec,
-          endSec: row.timeSec,
-        })
-      }
-    }
-  }
-
-  return tracks
-}
-
-function tracksToOverlays(tracks: Track[], durationSec: number): PlacedStudioOverlay[] {
-  const pad = 0.18
-  return tracks.map((t, i) =>
-    pctBoxToMosaicOverlay({
-      id: `ov-ai-${i + 1}`,
-      centerXPct: t.centerXPct,
-      centerYPct: t.centerYPct,
-      widthPct: Math.min(98, t.widthPct + 4),
-      heightPct: Math.min(40, t.heightPct + 3),
-      startSec: Math.max(0, t.startSec - pad),
-      endSec: Math.min(durationSec, t.endSec + pad + 0.35),
-      detectedText: t.text,
-    })
-  )
-}
-
+/** API·서버 일괄 처리 — 요청당 프레임 수는 작게 유지 */
 export async function detectChineseMosaicOverlays(args: {
   apiKey: string
   frames: MosaicDetectFrameInput[]
   durationSec: number
+  batchSize?: number
   onProgress?: (phase: string, ratio: number) => void
 }): Promise<PlacedStudioOverlay[]> {
-  const { apiKey, frames, durationSec, onProgress } = args
+  const { apiKey, frames, durationSec, batchSize = 4, onProgress } = args
   if (!frames.length) return []
 
-  const batchSize = 6
-  const allRows: FrameDetectRow[] = []
+  const allRows: MosaicFrameDetectRow[] = []
 
   for (let i = 0; i < frames.length; i += batchSize) {
     const batch = frames.slice(i, i + batchSize)
     onProgress?.("vision", Math.min(0.92, (i + batch.length) / frames.length))
-    const rows = await visionDetectBatch(apiKey, batch)
+    const rows = await visionDetectMosaicBatch(apiKey, batch)
     allRows.push(...rows)
   }
 
-  const tracks = mergeFrameRows(allRows)
   onProgress?.("merge", 0.98)
-  return tracksToOverlays(tracks, durationSec)
+  return mergeMosaicRowsToOverlays(allRows, durationSec)
 }

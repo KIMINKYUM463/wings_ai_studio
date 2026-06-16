@@ -1,8 +1,8 @@
 /** AI 모자이크 스캔용 — 짜집기 영상에서 균등 샘플 프레임 캡처 */
 
-const DEFAULT_INTERVAL_SEC = 0.45
-const DEFAULT_MAX_FRAMES = 36
-const DEFAULT_MAX_WIDTH = 720
+const DEFAULT_INTERVAL_SEC = 0.5
+const DEFAULT_MAX_FRAMES = 24
+const DEFAULT_MAX_WIDTH = 384
 
 export type MosaicScanFrame = {
   timeSec: number
@@ -36,7 +36,7 @@ async function resizeJpegBase64(dataUrl: string, maxWidth: number): Promise<stri
         return
       }
       ctx.drawImage(img, 0, 0, w, h)
-      resolve(stripDataUrlPrefix(canvas.toDataURL("image/jpeg", 0.82)))
+      resolve(stripDataUrlPrefix(canvas.toDataURL("image/jpeg", 0.72)))
     }
     img.onerror = () => reject(new Error("프레임 리사이즈 실패"))
     img.src = dataUrl
@@ -62,7 +62,7 @@ function captureFrameAtTime(video: HTMLVideoElement, timeSec: number, maxWidth: 
         return
       }
       ctx.drawImage(video, 0, 0, w, h)
-      void resizeJpegBase64(canvas.toDataURL("image/jpeg", 0.88), maxWidth).then(resolve).catch(reject)
+      void resizeJpegBase64(canvas.toDataURL("image/jpeg", 0.78), maxWidth).then(resolve).catch(reject)
     }
     video.addEventListener("seeked", onSeeked)
     video.currentTime = clampSeekTime(video, timeSec)
