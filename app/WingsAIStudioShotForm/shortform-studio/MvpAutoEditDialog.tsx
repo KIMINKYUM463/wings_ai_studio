@@ -494,10 +494,13 @@ export function MvpAutoEditDialog({
             nextPicks.every((p) => (clientVideoMeta![p.video_id]?.duration ?? 0) > 0)
 
           const skipBrowserUploadForFastAnalyze = Boolean(allHaveDuration)
+          const hasPrefetchedBlobs = Object.keys(prefetchedBlobs ?? {}).length > 0
 
           let sourcesPreUploaded = false
           const requireBrowserUpload =
-            analysisMode === "precision" || (!allMetaReady && !skipBrowserUploadForFastAnalyze)
+            analysisMode === "precision" ||
+            hasPrefetchedBlobs ||
+            (!allMetaReady && !skipBrowserUploadForFastAnalyze)
           if (requireBrowserUpload) {
             setDownloadHint(
               analysisMode === "precision"

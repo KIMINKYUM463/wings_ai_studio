@@ -52,6 +52,24 @@ function normalizeVideos(input: AutoEditInput): AutoEditVideoInput[] {
     }))
 }
 
+function formatAutoEditRenderError(msg: string): string {
+  const lower = msg.toLowerCase()
+  if (
+    /다운로드 파일이 너무 작|invalid url|no scheme|403|404|forbidden|expired|video_mp4/i.test(
+      lower
+    )
+  ) {
+    return (
+      "소스 영상 CDN 링크가 만료되었거나 렌더 서버에서 받을 수 없습니다. " +
+      "「편집 실행」을 다시 누르거나, 소스 검색·URL 직접 입력으로 영상을 다시 추가해 주세요."
+    )
+  }
+  if (/렌더용 소스 url|supabase|storage/i.test(lower)) {
+    return msg.slice(0, 280)
+  }
+  return msg.length > 280 ? `${msg.slice(0, 280)}…` : msg
+}
+
 export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEditJobResult> {
   const videos = normalizeVideos(input)
   if (!videos.length) {
@@ -110,6 +128,7 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
     const downloadAllSources = async () => {
       await Promise.all(
         videos.map(async (v) => {
+          if (sourcePaths[v.video_id]) return
           const sourcePath = path.join(dir, `source_${v.video_id}.mp4`)
           const uploaded = uploads[v.video_id]
           if (uploaded?.length) {
@@ -320,16 +339,20 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
         defaultVideoId: usable[0]!.video_id,
       }
       if (useCloudRunRender) {
+        if (videos.some((v) => !sourcePaths[v.video_id])) {
+          await downloadAllSources()
+        }
+        if (videos.some((v) => !sourcePaths[v.video_id])) {
+          throw new Error(
+            "렌더용 소스 영상을 준비하지 못했습니다. CDN 링크 만료일 수 있으니 영상을 다시 추가한 뒤 실행해 주세요."
+          )
+        }
         const sourceUrls = Object.fromEntries(videos.map((v) => [v.video_id, v.videoUrl]))
-        const renderSourcePaths =
-          skipServerCdnDownload && Object.keys(sourcePaths).length < videos.length
-            ? {}
-            : sourcePaths
         await renderEditPlanOnCloudRun({
           jobId,
           sourceUrls,
           ...renderArgs,
-          sourcePaths: renderSourcePaths,
+          sourcePaths,
         })
       } else {
         if (Object.keys(sourcePaths).length < videos.length) {
@@ -411,7 +434,7 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
     } catch (renderErr) {
       renderSkipped = true
       const msg = renderErr instanceof Error ? renderErr.message : String(renderErr)
-      renderSkipReason = `짜집기 렌더 실패: ${msg.slice(-320)}`
+      renderSkipReason = `짜집기 렌더 실패: ${formatAutoEditRenderError(msg)}`
       if (shouldRemoveSubtitles) {
         subtitleRemovalSkipped = true
         subtitleRemovalWarning = "렌더가 완료되지 않아 Vmake 자막 제거를 적용할 수 없습니다."

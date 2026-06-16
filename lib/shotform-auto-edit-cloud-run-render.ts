@@ -19,7 +19,9 @@ export function resolveShotformCloudRunRenderUrl(): string | null {
 
 function resolveCloudRunSourceUrl(videoUrl: string): string {
   const trimmed = videoUrl.trim()
-  if (trimmed.startsWith("http")) return trimmed
+  if (!trimmed) {
+    throw new Error("렌더 소스 URL이 비어 있습니다.")
+  }
   const upstream = unwrapProxyVideoUrl(trimmed)
   if (upstream.startsWith("http")) return upstream
   if (trimmed.startsWith("/api/proxy-video")) {
@@ -29,7 +31,10 @@ function resolveCloudRunSourceUrl(videoUrl: string): string {
       "https://wingsaistudio.com"
     return `${origin.replace(/\/$/, "")}${trimmed}`
   }
-  return trimmed
+  if (trimmed.startsWith("http")) return trimmed
+  throw new Error(
+    `렌더 소스 URL이 유효하지 않습니다 (${trimmed.slice(0, 80)}). 브라우저 업로드 또는 CDN URL 갱신 후 다시 시도해 주세요.`
+  )
 }
 
 export function resolveShotformCloudRunAuthToken(): string | undefined {
