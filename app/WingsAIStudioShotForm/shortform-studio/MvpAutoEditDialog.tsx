@@ -550,17 +550,24 @@ export function MvpAutoEditDialog({
 
           const skipBrowserUploadForFastAnalyze = Boolean(allHaveDuration)
           const hasPrefetchedBlobs = Object.keys(prefetchedBlobs ?? {}).length > 0
+          // 고속: 브라우저 메타만으로 분석하면 서버 CDN 다운로드를 생략함 → 렌더(Cloud Run)는
+          // 프록시 없이 CDN 직접 접근이라 만료·차단에 취약. 저장 프로젝트 재실행도 Supabase 업로드 필수.
+          const requireBrowserUploadForRender =
+            analysisMode === "fast" && Boolean(allHaveDuration)
 
           let sourcesPreUploaded = false
           const requireBrowserUpload =
             analysisMode === "precision" ||
             hasPrefetchedBlobs ||
+            requireBrowserUploadForRender ||
             (!allMetaReady && !skipBrowserUploadForFastAnalyze)
           if (requireBrowserUpload) {
             setDownloadHint(
               analysisMode === "precision"
                 ? "정밀 분석 — 브라우저에서 영상을 서버에 전달 중…"
-                : "브라우저에서 영상을 받아 서버에 전달 중… (CDN 우회)"
+                : requireBrowserUploadForRender
+                  ? "렌더용 — 브라우저에서 영상을 서버에 전달 중… (CDN 만료·저장 프로젝트 재실행 대비)"
+                  : "브라우저에서 영상을 받아 서버에 전달 중… (CDN 우회)"
             )
             await uploadAutoEditSourcesFromBrowser(
               preJobId,
