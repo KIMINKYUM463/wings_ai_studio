@@ -13,7 +13,8 @@ import {
 } from "@/lib/ffmpeg-binaries"
 import {
   clampEditSegmentTiming,
-  segmentFfmpegOutputArgs,
+  segmentScaleCropFilter,
+  segmentScalePadFilter,
 } from "@/lib/shotform-edit-segment-clamp"
 
 function ffmpegBin(): string {
@@ -209,38 +210,62 @@ export async function renderEditPlanToMp4(args: {
     const outSeg = path.join(workDir, `seg_${i}.mp4`)
     const segTimeout = serverless ? 120_000 : 180_000
     const crf = serverless ? "28" : "26"
+    const cropVf = segmentScaleCropFilter(w, h)
+    const padVf = segmentScalePadFilter(w, h)
 
-    const runSeg = async (ss: number, dur: number) => {
+    if (!(await probeHasVideoStream(sourcePath))) {
+      throw new Error(`${vid}: 영상 화면 스트림이 없습니다. sources/ MP4를 다시 저장해 주세요.`)
+    }
+
+    const runSeg = async (inputArgs: string[], vf: string) => {
       await runFfmpeg(
         [
           "-y",
           ...(serverless ? ["-threads", "1"] : []),
-          "-i",
-          sourcePath,
-          "-ss",
-          String(ss),
-          "-t",
-          String(dur),
-          ...segmentFfmpegOutputArgs(outSeg, w, h, crf),
+          ...inputArgs,
+          "-vf",
+          vf,
+          "-r",
+          "30",
+          "-an",
+          "-sn",
+          "-dn",
+          "-c:v",
+          "libx264",
+          "-preset",
+          "ultrafast",
+          "-crf",
+          crf,
+          "-pix_fmt",
+          "yuv420p",
+          outSeg,
         ],
         segTimeout
       )
     }
 
-    try {
-      await runSeg(sourceStart, duration)
-    } catch (firstErr) {
-      const retryStart = 0
-      const retryDur =
-        sourceDuration != null && sourceDuration > 0.25
-          ? Math.min(duration, Math.max(0.15, sourceDuration - retryStart))
-          : duration
-      if (retryStart !== sourceStart || Math.abs(retryDur - duration) > 0.05) {
-        await runSeg(retryStart, retryDur)
-      } else {
-        throw firstErr
+    const retryDur =
+      sourceDuration != null && sourceDuration > 0.25
+        ? Math.min(duration, Math.max(0.15, sourceDuration))
+        : duration
+    const tries: Array<{ input: string[]; vf: string }> = [
+      { input: ["-i", sourcePath, "-ss", String(sourceStart), "-t", String(duration)], vf: cropVf },
+      { input: ["-ss", String(sourceStart), "-i", sourcePath, "-t", String(duration)], vf: cropVf },
+      { input: ["-i", sourcePath, "-t", String(retryDur)], vf: cropVf },
+      { input: ["-i", sourcePath, "-ss", String(sourceStart), "-t", String(duration)], vf: padVf },
+    ]
+
+    let lastErr: Error | null = null
+    for (const attempt of tries) {
+      try {
+        await runSeg(attempt.input, attempt.vf)
+        lastErr = null
+        break
+      } catch (e) {
+        lastErr = e instanceof Error ? e : new Error(String(e))
       }
     }
+    if (lastErr) throw lastErr
     return outSeg
   }
 

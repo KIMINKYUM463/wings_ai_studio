@@ -1,4 +1,4 @@
-/** shotform-local-render.mjs — CommonJS runner (ffmpeg-static 로드) */
+/** shotform-local-render — CommonJS runner (ffmpeg-static 로드) */
 const fs = require("fs")
 const path = require("path")
 const { spawnSync } = require("child_process")
@@ -44,6 +44,25 @@ function probeDuration(sourcePath) {
   return Number.isFinite(n) && n > 0 ? n : null
 }
 
+function probeHasVideo(sourcePath) {
+  const r = spawnSync(
+    ffprobeBin(),
+    [
+      "-v",
+      "error",
+      "-select_streams",
+      "v:0",
+      "-show_entries",
+      "stream=codec_type",
+      "-of",
+      "csv=p=0",
+      sourcePath,
+    ],
+    { encoding: "utf8" }
+  )
+  return r.status === 0 && String(r.stdout || "").trim().toLowerCase().includes("video")
+}
+
 function clampSeg(seg, sourceDuration) {
   const clipDur = Math.max(0.15, seg.output_end - seg.output_start)
   const sourceAvail = Math.max(0.15, seg.source_end - seg.source_start)
@@ -59,32 +78,28 @@ function clampSeg(seg, sourceDuration) {
 
 function runFfmpeg(args) {
   const bin = ffmpegBin()
-  const r = spawnSync(bin, ["-nostdin", "-y", ...args], { encoding: "utf8" })
+  const r = spawnSync(bin, ["-nostdin", "-y", ...args], { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 })
   if (r.status !== 0) {
-    console.error(r.stderr?.slice(-800) || `ffmpeg exit ${r.status}`)
-    return false
+    return { ok: false, err: r.stderr?.slice(-900) || `ffmpeg exit ${r.status}` }
   }
-  return true
+  return { ok: true, err: "" }
 }
 
-function renderSeg(sourcePath, outSeg, sourceStart, dur, w, h) {
-  const vf = `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}:(iw-${w})/2:(ih-${h})/2`
-  return runFfmpeg([
-    "-i",
-    sourcePath,
-    "-ss",
-    String(sourceStart),
-    "-t",
-    String(dur),
-    "-map",
-    "0:v:0?",
-    "-sn",
-    "-dn",
-    "-vf",
-    vf,
+function cropVf(w, h) {
+  return `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}:(iw-${w})/2:(ih-${h})/2`
+}
+
+function padVf(w, h) {
+  return `scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:black`
+}
+
+function encodeTail(outSeg) {
+  return [
     "-r",
     "30",
     "-an",
+    "-sn",
+    "-dn",
     "-c:v",
     "libx264",
     "-preset",
@@ -93,12 +108,35 @@ function renderSeg(sourcePath, outSeg, sourceStart, dur, w, h) {
     "23",
     "-pix_fmt",
     "yuv420p",
-    "-movflags",
-    "+faststart",
-    "-avoid_negative_ts",
-    "make_zero",
     outSeg,
-  ])
+  ]
+}
+
+function renderSegAttempts(sourcePath, outSeg, sourceStart, duration, sourceDuration, w, h) {
+  const retryDur =
+    sourceDuration != null
+      ? Math.min(duration, Math.max(0.15, sourceDuration))
+      : duration
+  const tries = [
+    { input: ["-i", sourcePath, "-ss", String(sourceStart), "-t", String(duration)], vf: cropVf(w, h) },
+    { input: ["-ss", String(sourceStart), "-i", sourcePath, "-t", String(duration)], vf: cropVf(w, h) },
+    { input: ["-i", sourcePath, "-t", String(retryDur)], vf: cropVf(w, h) },
+    { input: ["-i", sourcePath, "-ss", String(sourceStart), "-t", String(duration)], vf: padVf(w, h) },
+  ]
+  let lastErr = ""
+  for (const t of tries) {
+    if (fs.existsSync(outSeg)) {
+      try {
+        fs.unlinkSync(outSeg)
+      } catch {
+        /* ignore */
+      }
+    }
+    const r = runFfmpeg([...t.input, "-vf", t.vf, ...encodeTail(outSeg)])
+    if (r.ok && fs.existsSync(outSeg) && fs.statSync(outSeg).size >= 20_000) return { ok: true, err: "" }
+    lastErr = r.err
+  }
+  return { ok: false, err: lastErr }
 }
 
 const scaled = []
@@ -115,19 +153,16 @@ for (let i = 0; i < segments.length; i++) {
     console.error(`소스 없음: ${sourcePath}`)
     process.exit(1)
   }
+  if (!probeHasVideo(sourcePath)) {
+    console.error(`${vid}: 영상 화면 스트림이 없습니다 (${sourcePath}). sources/ MP4를 다시 저장해 주세요.`)
+    process.exit(1)
+  }
   const sourceDuration = probeDuration(sourcePath)
   const { sourceStart, duration } = clampSeg(seg, sourceDuration)
   const outSeg = path.join(jobDir, `seg_${i}.mp4`)
-  let ok = renderSeg(sourcePath, outSeg, sourceStart, duration, w, h)
-  if (!ok || !fs.existsSync(outSeg) || fs.statSync(outSeg).size < 20_000) {
-    const retryDur =
-      sourceDuration != null
-        ? Math.min(duration, Math.max(0.15, sourceDuration))
-        : duration
-    ok = renderSeg(sourcePath, outSeg, 0, retryDur, w, h)
-  }
-  if (!ok || !fs.existsSync(outSeg) || fs.statSync(outSeg).size < 20_000) {
-    console.error(`세그먼트 ${i} 렌더 실패 (${vid}, ss=${sourceStart}, t=${duration})`)
+  const rendered = renderSegAttempts(sourcePath, outSeg, sourceStart, duration, sourceDuration, w, h)
+  if (!rendered.ok) {
+    console.error(`세그먼트 ${i} 렌더 실패 (${vid}, ss=${sourceStart}, t=${duration})\n${rendered.err}`)
     process.exit(1)
   }
   scaled.push(outSeg)
@@ -140,7 +175,7 @@ fs.writeFileSync(
   "utf8"
 )
 const rawOut = path.join(jobDir, "concat_raw.mp4")
-if (!runFfmpeg(["-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", rawOut])) process.exit(1)
+if (!runFfmpeg(["-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", rawOut]).ok) process.exit(1)
 if (
   !runFfmpeg([
     "-i",
@@ -159,7 +194,7 @@ if (
     "-movflags",
     "+faststart",
     outputPath,
-  ])
+  ]).ok
 ) {
   process.exit(1)
 }

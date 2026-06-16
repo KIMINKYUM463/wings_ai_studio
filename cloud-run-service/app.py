@@ -104,6 +104,23 @@ def _probe_video_duration(file_path):
     return None
 
 
+def _probe_has_video_stream(file_path):
+    try:
+        result = subprocess.run(
+            [
+                'ffprobe', '-v', 'error',
+                '-select_streams', 'v:0',
+                '-show_entries', 'stream=codec_type',
+                '-of', 'csv=p=0',
+                file_path,
+            ],
+            capture_output=True, text=True, timeout=30,
+        )
+        return result.returncode == 0 and 'video' in (result.stdout or '').lower()
+    except Exception:
+        return False
+
+
 def render_shotform_auto_edit(data):
     """숏폼 짜집기: 소스 URL별 컷 → concat → 목표 길이 trim (Vercel serverless 대체)"""
     import tempfile
@@ -133,6 +150,8 @@ def render_shotform_auto_edit(data):
         local_sources = {}
         for vid, url in source_urls.items():
             local_sources[vid] = _download_to_temp(url, temp_dir, f'source_{vid}', default_ext='.mp4')
+            if not _probe_has_video_stream(local_sources[vid]):
+                raise Exception(f'{vid}: 영상 화면 스트림이 없습니다. CDN/업로드 소스를 확인해 주세요.')
 
         scaled = []
         for i, seg in enumerate(segments):
@@ -153,32 +172,58 @@ def render_shotform_auto_edit(data):
                 dur = min(dur, max(0.15, source_dur - ss))
 
             out_seg = f"{temp_dir}/seg_{i}.mp4"
-            vf = f"scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}:(iw-{w})/2:(ih-{h})/2"
+            crop_vf = f"scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}:(iw-{w})/2:(ih-{h})/2"
+            pad_vf = f"scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black"
+            retry_dur = min(dur, source_dur) if source_dur else dur
 
-            def _run_seg(start_sec, seg_dur):
+            def _run_seg(start_sec, seg_dur, vf):
                 cmd = [
                     'ffmpeg', '-y', '-nostdin',
                     '-threads', '1',
                     '-i', source_path,
                     '-ss', str(start_sec),
                     '-t', str(seg_dur),
-                    '-map', '0:v:0?',
-                    '-sn', '-dn',
                     '-vf', vf,
-                    '-r', '30', '-an',
+                    '-r', '30', '-an', '-sn', '-dn',
                     '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28',
-                    '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
-                    '-avoid_negative_ts', 'make_zero',
+                    '-pix_fmt', 'yuv420p',
                     out_seg,
                 ]
                 return subprocess.run(cmd, capture_output=True, text=True, timeout=120)
 
-            result = _run_seg(ss, dur)
-            if result.returncode != 0 or not os.path.exists(out_seg) or os.path.getsize(out_seg) < 20_000:
-                retry_dur = min(dur, source_dur) if source_dur else dur
-                result = _run_seg(0, max(0.15, retry_dur))
-            if result.returncode != 0:
-                raise Exception(result.stderr[-400:] or f"세그먼트 {i} 렌더 실패 ({vid})")
+            def _run_seg_input_seek(start_sec, seg_dur, vf):
+                cmd = [
+                    'ffmpeg', '-y', '-nostdin',
+                    '-threads', '1',
+                    '-ss', str(start_sec),
+                    '-i', source_path,
+                    '-t', str(seg_dur),
+                    '-vf', vf,
+                    '-r', '30', '-an', '-sn', '-dn',
+                    '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28',
+                    '-pix_fmt', 'yuv420p',
+                    out_seg,
+                ]
+                return subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+
+            attempts = [
+                lambda: _run_seg(ss, dur, crop_vf),
+                lambda: _run_seg_input_seek(ss, dur, crop_vf),
+                lambda: _run_seg(0, max(0.15, retry_dur), crop_vf),
+                lambda: _run_seg(ss, dur, pad_vf),
+            ]
+            result = None
+            for attempt in attempts:
+                if os.path.exists(out_seg):
+                    try:
+                        os.remove(out_seg)
+                    except Exception:
+                        pass
+                result = attempt()
+                if result.returncode == 0 and os.path.exists(out_seg) and os.path.getsize(out_seg) >= 20_000:
+                    break
+            if not result or result.returncode != 0:
+                raise Exception(result.stderr[-400:] if result else f"세그먼트 {i} 렌더 실패 ({vid})")
             if not os.path.exists(out_seg) or os.path.getsize(out_seg) < 20_000:
                 raise Exception(f"세그먼트 {i} 결과가 비어 있습니다 ({vid})")
             scaled.append(out_seg)

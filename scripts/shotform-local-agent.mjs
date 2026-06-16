@@ -57,6 +57,33 @@ function ffmpegBin() {
   }
 }
 
+function ffprobeBin() {
+  try {
+    return require("ffprobe-static").path
+  } catch {
+    return "ffprobe"
+  }
+}
+
+function probeHasVideoStream(filePath) {
+  const r = spawnSync(
+    ffprobeBin(),
+    [
+      "-v",
+      "error",
+      "-select_streams",
+      "v:0",
+      "-show_entries",
+      "stream=codec_type",
+      "-of",
+      "csv=p=0",
+      filePath,
+    ],
+    { encoding: "utf8" }
+  )
+  return r.status === 0 && String(r.stdout || "").trim().toLowerCase().includes("video")
+}
+
 function hasFfmpeg() {
   const r = spawnSync(ffmpegBin(), ["-version"], { encoding: "utf8" })
   return r.status === 0
@@ -98,9 +125,25 @@ async function handleSourcesPut(req, res, videoId) {
     json(res, req, 400, { error: "MP4가 너무 작습니다." })
     return
   }
+  const sig = buf.subarray(4, 8).toString("ascii")
+  if (sig !== "ftyp") {
+    json(res, req, 400, { error: "유효한 MP4가 아닙니다. CDN 만료·다운로드 실패일 수 있습니다." })
+    return
+  }
   const dest = sourcePath(workDir, videoId)
   fs.mkdirSync(path.dirname(dest), { recursive: true })
   fs.writeFileSync(dest, buf)
+  if (!probeHasVideoStream(dest)) {
+    try {
+      fs.unlinkSync(dest)
+    } catch {
+      /* ignore */
+    }
+    json(res, req, 400, {
+      error: "영상 화면 스트림이 없습니다. 소스를 다시 추가하거나 URL을 갱신해 주세요.",
+    })
+    return
+  }
   json(res, req, 200, { ok: true, path: dest, bytes: buf.length })
 }
 

@@ -25,18 +25,24 @@ export function clampEditSegmentTiming(
   return { sourceStart, duration }
 }
 
-export function segmentFfmpegOutputArgs(outPath: string, w: number, h: number, crf: string): string[] {
-  const vf = `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}:(iw-${w})/2:(ih-${h})/2`
+export function segmentScaleCropFilter(w: number, h: number): string {
+  return `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}:(iw-${w})/2:(ih-${h})/2`
+}
+
+export function segmentScalePadFilter(w: number, h: number): string {
+  return `scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:black`
+}
+
+/** 세그먼트 mp4 — -map 0:v:0? 는 디코드 실패 시 빈 출력을 만들어 사용하지 않음 */
+export function segmentFfmpegEncodeTail(w: number, h: number, crf: string, outPath: string): string[] {
   return [
-    "-map",
-    "0:v:0?",
-    "-sn",
-    "-dn",
     "-vf",
-    vf,
+    segmentScaleCropFilter(w, h),
     "-r",
     "30",
     "-an",
+    "-sn",
+    "-dn",
     "-c:v",
     "libx264",
     "-preset",
@@ -45,10 +51,15 @@ export function segmentFfmpegOutputArgs(outPath: string, w: number, h: number, c
     crf,
     "-pix_fmt",
     "yuv420p",
-    "-movflags",
-    "+faststart",
-    "-avoid_negative_ts",
-    "make_zero",
     outPath,
+  ]
+}
+
+export function segmentFfmpegInputArgs(sourceStart: number, duration: number): string[][] {
+  const ss = String(sourceStart)
+  const t = String(duration)
+  return [
+    ["-i", "SOURCE", "-ss", ss, "-t", t],
+    ["-ss", ss, "-i", "SOURCE", "-t", t],
   ]
 }
