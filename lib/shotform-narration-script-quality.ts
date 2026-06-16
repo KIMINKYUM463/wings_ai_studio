@@ -18,6 +18,10 @@ import {
   narrationLooksIncomplete,
 } from "@/lib/shotform-narration-timing"
 import { applyFlowRhythmToScript } from "@/lib/shotform-narration-flow-rhythm"
+import {
+  mitigateProductNameSpam,
+  NARRATION_PRODUCT_NAME_USAGE_RULE,
+} from "@/lib/shotform-narration-script-audit"
 import type { CutScriptContext } from "@/lib/shotform-visual-scene-match"
 import { sanitizeNarrationForOutput } from "@/lib/shotform-natural-shorts-script"
 import type { CutNarrationSceneMeta } from "@/lib/shotform-narration-scene-groups"
@@ -542,9 +546,10 @@ export function buildNarrationCutsPromptBlock(
 ): string {
   const kwBlock =
     userKeywords?.length
-      ? `**키워드 제품 (최우선)**: ${userKeywords.join(", ")} — 각 컷 「화면에 보이는 사물·행동」+ 키워드 제품 이점을 **한 문장**으로 결합. 화면만 읽기·키워드만 반복 금지.
+      ? `**키워드 제품 (최우선)**: ${userKeywords.join(", ")} — 각 컷 「화면에 보이는 사물·행동」+ 제품 이점을 **한 문장**으로 결합. 화면만 읽기 금지.
+${NARRATION_PRODUCT_NAME_USAGE_RULE}
 
-**쇼핑숏폼 공식**: ①문제·후킹(욕실/책상 어지러움 등) → ②키워드 제품 소개 → ③화면별 데모(퍼즐 거치대/벽걸이/컵 수납 등 **다른 각도**) → ④마무리·CTA
+**쇼핑숏폼 공식**: ①문제·후킹 → ②제품 가치 → ③화면별 데모(각도 다르게) → ④마무리·CTA
 
 **좋은 예 (키워드: 칫솔 거치대)**:
 - 컷1(퍼즐 거치대): "욕실 칫솔 뒤죽박죽이신 분? 퍼즐 모양 칫솔 거치대 하나면 끝이에요"
@@ -804,7 +809,9 @@ export function polishCutNarrationLines(
   const unique = enforceUniqueCutLines(woven, contexts, safeProductName, rewriteSalt, productContext).map(
     sanitizeNarrationForOutput
   )
-  return applyFlowRhythmToScript(unique)
+  const primaryLabel = userKeywords?.[0]?.trim() || safeProductName
+  const rhythm = applyFlowRhythmToScript(unique)
+  return mitigateProductNameSpam(rhythm, primaryLabel).map(sanitizeNarrationForOutput)
 }
 
 /** 다시쓰기 — 이전 대본과 동일·유사하면 화면 기반으로 강제 교체 */

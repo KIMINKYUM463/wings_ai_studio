@@ -28,6 +28,7 @@ import {
   normalizeUserSourceKeywords,
   primaryProductLabelFromKeywords,
 } from "@/lib/shotform-user-keyword-product"
+import { NARRATION_PRODUCT_NAME_USAGE_RULE } from "@/lib/shotform-narration-script-audit"
 import { buildDesiredBeatSequence, type StoryBeat } from "@/lib/shotform-story-flow"
 import { analysisByVideoId, buildCutScriptContexts } from "@/lib/shotform-visual-scene-match"
 
@@ -213,8 +214,8 @@ function productIdentityBlock(userKeywords: string[], productAnalysis: ProductAn
 
 export { detectObviousProductCategoryLeak }
 
-/** 고속·벤치마크 대본 — 키워드 제품 정체성 AI 검수 */
-export async function auditShoppingScriptProductIdentity(args: {
+/** 고속·벤치마크 대본 — 화면 정합·제품명·품질 AI 검수 (초안 생성 직후 항상) */
+export async function auditShoppingScriptWithAi(args: {
   apiKey: string
   userKeywords: readonly string[]
   productAnalysis: ProductAnalysis
@@ -222,7 +223,7 @@ export async function auditShoppingScriptProductIdentity(args: {
   analyses: VideoAnalysis[]
   scenes: SceneSubtitleBlock[]
   targetDuration: number
-  leakSamples?: string[]
+  issueSamples?: string[]
 }): Promise<SceneSubtitleBlock[]> {
   const blueprint: PrecisionScriptSceneBlueprint[] = buildBenchmarkSceneBlocksFromEditPlan(
     args.editPlan,
@@ -249,7 +250,24 @@ export async function auditShoppingScriptProductIdentity(args: {
     blueprint,
     scenes: args.scenes,
     targetDuration: args.targetDuration,
-    leakSamples: args.leakSamples,
+    leakSamples: args.issueSamples,
+  })
+}
+
+/** @deprecated auditShoppingScriptWithAi 사용 */
+export async function auditShoppingScriptProductIdentity(args: {
+  apiKey: string
+  userKeywords: readonly string[]
+  productAnalysis: ProductAnalysis
+  editPlan: EditPlan
+  analyses: VideoAnalysis[]
+  scenes: SceneSubtitleBlock[]
+  targetDuration: number
+  leakSamples?: string[]
+}): Promise<SceneSubtitleBlock[]> {
+  return auditShoppingScriptWithAi({
+    ...args,
+    issueSamples: args.leakSamples,
   })
 }
 
@@ -272,13 +290,15 @@ async function auditProductIdentityWithAi(args: {
     issues?: string[]
   }>(
     apiKey,
-    `쇼핑 숏폼 **제품 정체성 검수 PD**. JSON만 출력.
+    `쇼핑 숏폼 **대본 검수 PD**. JSON만 출력.
 
 **절대 규칙**
 - 홍보 제품은 사용자 키워드 제품 **하나**뿐. 다른 카테고리 제품·기능으로 바꾸면 **전면 실패**.
-- 화면(visual_card)에 보이는 행동·사물과 대본이 일치해야 함.
+- **visual_card에 보이는 행동·사물과 대본이 일치** (USB 정리 화면에 설치 언급 X, 클릭 화면에만 클릭 언급).
 - 장면 설명을 그대로 읽지 말고 **구매 설득 나레이션**으로 변환.
-- 중복 문장·같은 꼬리표현 금지. 후킹(1번)·CTA(마지막) 필수.
+- ${NARRATION_PRODUCT_NAME_USAGE_RULE}
+- **금지 번역체**: 「클릭해보세요 완벽하게 작동」「모든 것이 해결」「설치가 이렇게 간편」「사용이 이렇게 간단」
+- **동일·유사 문장 2회 이상 금지**. 후킹(1번)·CTA(마지막) 필수. 컷마다 **다른 구체 표현**.
 
 **금지 예시 (키워드가 거치대·홀더일 때)**
 청소기, 핸디청소, 먼지, 흡입, 노즐, 트렁크, 영화관, 프로젝터, 스크린 선명, 경기 관람, 야외 설치

@@ -282,6 +282,7 @@ export function isAbstractShoppingNarration(text: string): boolean {
       t
     )
   if (/포인트/.test(t)) return true
+  if (/설치가 (이렇게 )?간편|사용이 이렇게 간|완벽하게 작동|클릭만 하면|모든 것이 해결/.test(t)) return true
   if (/^(이|그)\s*(부분)/.test(t) && !hasConcreteVisual) return true
   if (/해결하세요|놓치면 아쉬워|핵심이에요|만족할 거예요|손이 가요|체감이\s*확\s*와요/.test(t) && !hasConcreteVisual) {
     return true

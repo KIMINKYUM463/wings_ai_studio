@@ -4,18 +4,27 @@ import type {
   EditPlan,
   MixInfo,
   ProductAnalysis,
+  SceneSubtitleBlock,
   ShoppingScript,
   VideoAnalysis,
 } from "@/lib/shotform-auto-edit-types"
+import { formatSceneNarrationLines } from "@/lib/shotform-benchmark-script"
 import { buildQuickShoppingScript, generateScriptFromMix } from "@/lib/shotform-auto-edit-mix"
 import {
-  auditShoppingScriptProductIdentity,
+  auditShoppingScriptWithAi,
   generatePrecisionScriptFromMix,
 } from "@/lib/shotform-auto-edit-precision-script"
-import { detectObviousProductCategoryLeak, normalizeUserSourceKeywords } from "@/lib/shotform-user-keyword-product"
-import { formatSceneNarrationLines } from "@/lib/shotform-benchmark-script"
+import {
+  detectShoppingScriptQualityIssues,
+  mitigateProductNameSpam,
+} from "@/lib/shotform-narration-script-audit"
+import {
+  detectObviousProductCategoryLeak,
+  normalizeUserSourceKeywords,
+  primaryProductLabelFromKeywords,
+} from "@/lib/shotform-user-keyword-product"
 
-export const AUTO_EDIT_SCRIPT_TIMEOUT_MS = 75_000
+export const AUTO_EDIT_SCRIPT_TIMEOUT_MS = 120_000
 export const AUTO_EDIT_PRECISION_SCRIPT_TIMEOUT_MS = 150_000
 
 export async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
@@ -30,6 +39,77 @@ export async function withTimeout<T>(promise: Promise<T>, ms: number, message: s
   } finally {
     if (timer) clearTimeout(timer)
   }
+}
+
+function mergeAuditedScenesIntoScript(
+  script: ShoppingScript,
+  scenes: SceneSubtitleBlock[],
+  editPlan: EditPlan
+): ShoppingScript {
+  const bundle = script.bundle
+  if (!bundle) return script
+  return {
+    ...script,
+    bundle: {
+      ...bundle,
+      sceneSubtitles: {
+        ...bundle.sceneSubtitles,
+        conversion: scenes,
+      },
+    },
+    script: editPlan.edit_plan.map((seg, i) => ({
+      start: seg.output_start,
+      end: seg.output_end,
+      text: scenes[i]?.text ?? "",
+      video_id: seg.video_id,
+    })),
+  }
+}
+
+async function auditFastModeScript(args: {
+  apiKey: string
+  script: ShoppingScript
+  productAnalysis: ProductAnalysis
+  editPlan: EditPlan
+  analyses: VideoAnalysis[]
+  userKeywords: readonly string[]
+}): Promise<ShoppingScript> {
+  const { apiKey, script, productAnalysis, editPlan, analyses, userKeywords } = args
+  const conversion = script.bundle?.sceneSubtitles?.conversion
+  if (!conversion?.length) return script
+
+  const primary = primaryProductLabelFromKeywords(userKeywords, productAnalysis.productName)
+  const lines = conversion.map((s) => s.text)
+  const issueSamples = [
+    ...detectObviousProductCategoryLeak(lines, userKeywords),
+    ...detectShoppingScriptQualityIssues(lines, primary),
+  ]
+
+  let scenes = await auditShoppingScriptWithAi({
+    apiKey,
+    userKeywords,
+    productAnalysis,
+    editPlan,
+    analyses,
+    scenes: conversion,
+    targetDuration: editPlan.target_duration,
+    issueSamples,
+  })
+
+  const mitigated = mitigateProductNameSpam(
+    scenes.map((s) => s.text),
+    primary
+  )
+  scenes = scenes.map((s, i) => {
+    const seg = editPlan.edit_plan[i]
+    const dur = seg ? Math.max(0.5, seg.output_end - seg.output_start) : s.end - s.start
+    return {
+      ...s,
+      text: formatSceneNarrationLines(mitigated[i] ?? s.text, dur),
+    }
+  })
+
+  return mergeAuditedScenesIntoScript(script, scenes, editPlan)
 }
 
 export async function resolveAutoEditScript(args: {
@@ -77,76 +157,30 @@ export async function resolveAutoEditScript(args: {
         "정밀 모드 대본 검증 시간 초과"
       )
     }
-    let script = await withTimeout(
-      generateScriptFromMix({
-        apiKey,
-        productAnalysis: args.productAnalysis,
-        mixInfo: args.mixInfo,
-        editPlan: args.editPlan,
-        analyses: args.analyses,
-        scriptTopic: args.scriptTopic,
-        sourceKeywords: userKeywords,
-      }),
-      timeout,
-      "장면맞춤 나레이션 생성 시간 초과"
-    )
-
-    if (userKeywords.length && script.bundle?.sceneSubtitles?.conversion?.length) {
-      let scenes = script.bundle.sceneSubtitles.conversion
-      let leaks = detectObviousProductCategoryLeak(
-        scenes.map((s) => s.text),
-        userKeywords
-      )
-      if (leaks.length) {
-        scenes = await auditShoppingScriptProductIdentity({
+    const script = await withTimeout(
+      (async () => {
+        const draft = await generateScriptFromMix({
           apiKey,
-          userKeywords,
+          productAnalysis: args.productAnalysis,
+          mixInfo: args.mixInfo,
+          editPlan: args.editPlan,
+          analyses: args.analyses,
+          scriptTopic: args.scriptTopic,
+          sourceKeywords: userKeywords,
+        })
+        return auditFastModeScript({
+          apiKey,
+          script: draft,
           productAnalysis: args.productAnalysis,
           editPlan: args.editPlan,
           analyses: args.analyses,
-          scenes,
-          targetDuration: args.editPlan.target_duration,
-          leakSamples: leaks,
+          userKeywords,
         })
-        scenes = scenes.map((s, i) => {
-          const hint = args.editPlan.edit_plan[i]
-          const dur = hint ? Math.max(0.5, hint.output_end - hint.output_start) : s.end - s.start
-          return { ...s, text: formatSceneNarrationLines(s.text, dur) }
-        })
-        leaks = detectObviousProductCategoryLeak(
-          scenes.map((s) => s.text),
-          userKeywords
-        )
-        if (leaks.length) {
-          scenes = await auditShoppingScriptProductIdentity({
-            apiKey,
-            userKeywords,
-            productAnalysis: args.productAnalysis,
-            editPlan: args.editPlan,
-            analyses: args.analyses,
-            scenes,
-            targetDuration: args.editPlan.target_duration,
-            leakSamples: leaks,
-          })
-        }
-        script = {
-          ...script,
-          bundle: {
-            ...script.bundle!,
-            sceneSubtitles: {
-              ...script.bundle!.sceneSubtitles,
-              conversion: scenes,
-            },
-          },
-          script: args.editPlan.edit_plan.map((seg, i) => ({
-            start: seg.output_start,
-            end: seg.output_end,
-            text: scenes[i]?.text ?? "",
-            video_id: seg.video_id,
-          })),
-        }
-      }
-    }
+      })(),
+      timeout,
+      "장면맞춤 나레이션 생성·검수 시간 초과"
+    )
+
     return script
   } catch (e) {
     console.warn("[auto-edit] AI narration failed, using quick script:", e)

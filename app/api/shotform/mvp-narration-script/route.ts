@@ -33,6 +33,13 @@ import {
   primaryProductLabelFromKeywords,
   resolveNarrationSourceKeywords,
 } from "@/lib/shotform-user-keyword-product"
+import {
+  detectShoppingScriptQualityIssues,
+  mitigateProductNameSpam,
+  NARRATION_PRODUCT_NAME_USAGE_RULE,
+} from "@/lib/shotform-narration-script-audit"
+import { auditShoppingScriptWithAi } from "@/lib/shotform-auto-edit-precision-script"
+import { formatSceneNarrationLines } from "@/lib/shotform-benchmark-script"
 
 async function requestNarrationJson(args: {
   apiKey: string
@@ -181,7 +188,8 @@ ${benchmarkScriptFewShotJson()}
 - **각 lines[i]는 i번째 컷의 「화면」에 실제로 보이는 사물·행동을 구체적으로 말할 것** (추상 칭찬만 금지)
 - 컷마다 화면 키워드(먼지/바닥/시트/흡입/노즐/차량 등) 중 **최소 1개** 반드시 포함
 - 스토리 골격: ①문제·후킹 → ②해결책·제품 → ③~N-1 화면별 데모(앞 컷 맥락 이어받기) → ④마무리·구매
-- **금지 문구**: "이 포인트", "이 부분이 핵심", "충분히 만족", "손이 가요", "이렇게 활용하면", "생각보다 편해요", "이렇게 쉬워요", "제품 사용 장면" 읽기
+- **금지 문구**: "이 포인트", "이 부분이 핵심", "충분히 만족", "손이 가요", "이렇게 활용하면", "생각보다 편해요", "이렇게 쉬워요", "제품 사용 장면" 읽기, "완벽하게 작동", "모든 것이 해결", "설치가 이렇게 간편"
+- ${NARRATION_PRODUCT_NAME_USAGE_RULE}
 - **중국어·영문(unboxing/review 등) 그대로 읽기 금지** — 한국어 구어체만
 - **그리고/그래서/바로/이어서로 문장 시작 금지** — 접속사 남발 없이 내용으로 이어질 것
 - lines[i] = i번째 컷 (\\n = 자막 줄). 완결된 구어체. 장면 설명·중국어 그대로 읽기 금지
@@ -209,9 +217,9 @@ ${sourceVideosBlock}
   userKeywords.length
     ? `
 **사용자 입력 키워드 + 영상 결합 (필수)**:
-- 키워드: ${userKeywords.join(", ")} = 홍보 제품. 각 컷 「화면」·원본 참고에 보이는 행동·사물과 **키워드 제품 장점**을 한 문장으로 연결하세요.
-- 영상에 다른 제품이 보여도 나레이션은 키워드 제품만 언급. 화면은 연출·데모로 활용.
-- 「${userKeywords[0]}」 또는 키워드 핵심어를 전체 lines에 고르게 분산 (컷마다 **화면 사물·행동** + 키워드 제품 이점).
+- 키워드: ${userKeywords.join(", ")} = 홍보 제품. 각 컷 「화면」·원본 참고에 보이는 행동·사물과 **제품 장점**을 한 문장으로 연결하세요.
+- 영상에 다른 제품이 보여도 나레이션은 키워드 제품 기준. 화면은 연출·데모로 활용.
+- **키워드 전체 명칭은 후킹 1회·마지막 CTA 1회만**. 중간 컷은 이거/마우스/손에 쥔 이 친구 등으로 지칭.
 - 반복 화면이어도 「몇 번 봐도」「아까 말한」 금지 — **다른 각도·다른 구체 표현**으로 데모.
 - 원본 중국어 제목·자막은 **한국어로 바꿔** 화면에 맞게 설명 (중국어 그대로 읽기 금지).
 `
@@ -323,6 +331,35 @@ ${repeatGroupsBlock}
         rewriteSalt
       )
     }
+
+    if (result.productAnalysis && result.editPlan) {
+      try {
+        const sceneBlocks = cuts.map((c, i) => ({
+          start: c.output_start,
+          end: c.output_end,
+          text: polished[i] ?? "",
+        }))
+        const issueSamples = detectShoppingScriptQualityIssues(polished, productName)
+        const audited = await auditShoppingScriptWithAi({
+          apiKey,
+          userKeywords,
+          productAnalysis: result.productAnalysis,
+          editPlan: result.editPlan,
+          analyses,
+          scenes: sceneBlocks,
+          targetDuration: result.editPlan.target_duration,
+          issueSamples,
+        })
+        polished = audited.map((s, i) => {
+          const dur = cuts[i]!.duration
+          return formatSceneNarrationLines(s.text, dur)
+        })
+      } catch (auditErr) {
+        console.warn("[mvp-narration-script] AI audit skipped:", auditErr)
+      }
+    }
+
+    polished = mitigateProductNameSpam(polished, productName)
 
     const overrides: Record<string, string> = {}
     polished.forEach((text, i) => {
