@@ -42,6 +42,8 @@ import {
   editPlanTotalOutputSeconds,
   finalizeEditPlan,
   forceFillEditPlanToTarget,
+  IDEAL_EDIT_SEGMENT_SEC,
+  MAX_EDIT_SEGMENT_SEC,
 } from "@/lib/shotform-auto-edit-plan-finalize"
 import {
   buildCutScriptContexts,
@@ -382,7 +384,7 @@ export function mixPicksToEditPlan(
     if (!video_id) continue
 
     const srcAvail = Math.max(0.2, pick.end - pick.start)
-    const clipDur = Math.min(srcAvail, targetDuration - outCursor)
+    const clipDur = Math.min(srcAvail, targetDuration - outCursor, MAX_EDIT_SEGMENT_SEC)
     if (clipDur < 0.15) continue
 
     edit_plan.push({
@@ -431,8 +433,8 @@ export function finalizeMixPicks(
 
     let dur = pick.end - pick.start
     if (dur < 0.8) continue
-    if (dur > 3.5) {
-      pick.end = ROUND(pick.start + 3)
+    if (dur > MAX_EDIT_SEGMENT_SEC) {
+      pick.end = ROUND(pick.start + MAX_EDIT_SEGMENT_SEC)
       dur = pick.end - pick.start
     }
 
@@ -597,7 +599,7 @@ function pickTotalDuration(picks: MixPick[]): number {
 }
 
 function minimumPickCountForTarget(targetDuration: number): number {
-  return Math.ceil(targetDuration / 2.4)
+  return Math.ceil(targetDuration / IDEAL_EDIT_SEGMENT_SEC)
 }
 
 /** 분석 장면을 슬라이스해 서로 다른 소스 구간 pick을 최대한 수확 */
@@ -612,7 +614,7 @@ function harvestUniquePicksFromAnalyses(
   if (total >= targetDuration - 0.08) return picks
 
   const seen = new Set(picks.map(pickKey))
-  const clipLens = [1.5, 1.8, 2.0, 2.2, 2.5, 2.8, 1.6, 2.4]
+  const clipLens = [4, 4.5, 5, 5.5, MAX_EDIT_SEGMENT_SEC, 4, 5]
 
   for (let pass = 0; pass < 4 && total < targetDuration - 0.08 && picks.length < 55; pass++) {
     const gap = pass >= 2 ? 0.5 : minGapSec
@@ -816,7 +818,7 @@ export function fillMixToTargetDuration(
   }
 
   for (const p of picks) {
-    if (p.end - p.start > 3.5) p.end = ROUND(p.start + 3)
+    if (p.end - p.start > MAX_EDIT_SEGMENT_SEC) p.end = ROUND(p.start + MAX_EDIT_SEGMENT_SEC)
   }
   total = pickTotalDuration(picks)
 
@@ -1007,7 +1009,7 @@ export function buildEditPlanFromMix(
 export function buildFallbackMix(analyses: VideoAnalysis[], targetDuration: AutoEditTargetDuration): MixInfo {
   const picks: MixPick[] = []
   let total = 0
-  const clipLens = [1.4, 1.8, 2.2, 2.6, 2.0, 1.6]
+  const clipLens = [4, 4.5, 5, 5.5, MAX_EDIT_SEGMENT_SEC, 4.5, 5]
   let attempt = 0
 
   while (total < targetDuration - 0.05 && picks.length < 28 && attempt < analyses.length * 40) {
@@ -1088,7 +1090,7 @@ export async function createMixPlanWithAi(args: {
 picks[]: srcIndex(0부터), start, end(소스 영상 초), reason(한국어 한 줄).
 
 규칙:
-- pick당 **2~3.5초**. 약 ${pickCount}~${pickCount + 4}개 picks.
+- pick당 **4~6초** (최대 ${MAX_EDIT_SEGMENT_SEC}초). 약 ${pickCount}~${pickCount + 4}개 picks — 한 pick을 길게 늘리지 말고 구간을 나눠 중복 소스 사용 최소화.
 - scenes에 있는 **의미 장면** 안에서 start/end를 고를 것 (촘촘한 키프레임 나열 금지).
 - 인물·제품·설치·시연·결과 화면 모두 사용 가능 (口播·인물 장면도 허용).
 - **첫 pick**: 후킹(투사 화면·임팩트 데모). 이후 기능→설치→화질→마무리 흐름.
