@@ -185,7 +185,13 @@ export function MvpOverlayElementsPanel({
         allRows = [...byTime.values()].sort((a, b) => a.timeSec - b.timeSec)
       }
 
-      const detected = mergeMosaicRowsToOverlays(allRows, videoDurationSec)
+      const detected = mergeMosaicRowsToOverlays(allRows, videoDurationSec).filter(
+        (ov) =>
+          Number.isFinite(ov.x) &&
+          Number.isFinite(ov.y) &&
+          Number.isFinite(ov.mosaicW) &&
+          Number.isFinite(ov.mosaicH)
+      )
       if (!detected.length) {
         setAiStatus("감지된 중국어 오버레이가 없습니다. 수동 모자이크를 추가해 보세요.")
         return
@@ -423,9 +429,7 @@ export function MvpOverlayElementsPanel({
                     step={0.05}
                     className="mt-0.5 h-7 border-white/10 bg-black/40 text-xs"
                     value={
-                      Math.round(
-                        (selectedOverlay.endSec ?? videoDurationSec || 999) * 100
-                      ) / 100
+                      Math.round((selectedOverlay.endSec ?? videoDurationSec ?? 999) * 100) / 100
                     }
                     onChange={(e) =>
                       updateSelectedOverlay({

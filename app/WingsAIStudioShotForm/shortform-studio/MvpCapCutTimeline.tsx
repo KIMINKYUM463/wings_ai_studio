@@ -443,7 +443,7 @@ export function MvpCapCutTimeline({
               {bgmClips.length ? (
                 bgmClips.map((clip) => {
                   const selected = selectedBgmClipId === clip.id
-                  const span = clip.endSec - clip.startSec
+                  const span = Math.max(0.05, clip.endSec - clip.startSec)
                   return (
                     <div
                       key={clip.id}
@@ -522,7 +522,7 @@ export function MvpCapCutTimeline({
                 mosaicClips.map((clip, i) => {
                   const selected = selectedOverlayId === clip.id
                   const active = activeMosaicIdx === i
-                  const span = clip.endSec - clip.startSec
+                  const span = Math.max(0.05, clip.endSec - clip.startSec)
                   return (
                     <div
                       key={clip.id}

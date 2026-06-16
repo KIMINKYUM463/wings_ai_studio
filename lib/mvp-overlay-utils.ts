@@ -13,6 +13,11 @@ export function clampOverlayPct(n: number): number {
   return Math.min(95, Math.max(5, n))
 }
 
+function finiteOr(n: unknown, fallback: number): number {
+  const v = Number(n)
+  return Number.isFinite(v) ? v : fallback
+}
+
 export function normalizePlacedOverlays(list?: PlacedStudioOverlay[] | null): PlacedStudioOverlay[] {
   if (!list?.length) return []
   return list
@@ -20,9 +25,9 @@ export function normalizePlacedOverlays(list?: PlacedStudioOverlay[] | null): Pl
     .map((o) => ({
       id: String(o.id),
       catalogId: o.catalogId,
-      x: clampOverlayPct(Number(o.x) || 50),
-      y: clampOverlayPct(Number(o.y) || 42),
-      size: Math.min(120, Math.max(20, Number(o.size) || 48)),
+      x: clampOverlayPct(finiteOr(o.x, 50)),
+      y: clampOverlayPct(finiteOr(o.y, 42)),
+      size: Math.min(120, Math.max(20, finiteOr(o.size, 48))),
       color: o.color?.startsWith("#") ? o.color : "#ffffff",
       rotation: Math.min(180, Math.max(-180, Math.round(Number(o.rotation) || 0))),
       ...(typeof o.filled === "boolean" ? { filled: o.filled } : {}),

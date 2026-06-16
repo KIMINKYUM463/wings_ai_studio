@@ -58,7 +58,6 @@ export function VideoMosaicLayer({
     stageWidth,
     stageH,
     refreshKey,
-    video?.currentTime,
     video?.videoWidth,
   ])
 
