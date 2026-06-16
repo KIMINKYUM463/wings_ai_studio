@@ -267,12 +267,16 @@ export type ClientVideoMetaExtraction = {
 export async function extractClientVideoMetaForPicks(
   picks: AutoEditPick[],
   onProgress?: (message: string) => void,
-  opts?: { precision?: boolean }
+  opts?: { precision?: boolean; localWorkDir?: string; companionUrl?: string }
 ): Promise<ClientVideoMetaExtraction> {
   const meta: Record<string, ClientVideoMetaEntry> = {}
   const blobs: Record<string, Blob> = {}
   const { fetchMvpPickVideoBlob } = await import("@/lib/shotform-mvp-pick-video-download")
   const precision = opts?.precision === true
+  const fetchOpts = {
+    localWorkDir: opts?.localWorkDir,
+    companionUrl: opts?.companionUrl,
+  }
 
   await Promise.all(
     picks.map(async (pick, i) => {
@@ -283,7 +287,7 @@ export async function extractClientVideoMetaForPicks(
       if (precision) {
         onProgress?.(`정밀 분석 ${i + 1}/${picks.length} — 영상 다운로드…`)
         try {
-          const fetched = await fetchMvpPickVideoBlob(pick, (hint) => onProgress?.(hint))
+          const fetched = await fetchMvpPickVideoBlob(pick, (hint) => onProgress?.(hint), fetchOpts)
           blob = fetched.blob
           blobs[pick.video_id] = blob
           onProgress?.(`정밀 분석 ${i + 1}/${picks.length} — 키프레임 ${16}장 캡처…`)
@@ -314,7 +318,7 @@ export async function extractClientVideoMetaForPicks(
         try {
           if (!blob) {
             onProgress?.(`브라우저 미리 분석 ${i + 1}/${picks.length} — MP4…`)
-            const fetched = await fetchMvpPickVideoBlob(pick, (hint) => onProgress?.(hint))
+            const fetched = await fetchMvpPickVideoBlob(pick, (hint) => onProgress?.(hint), fetchOpts)
             blob = fetched.blob
           }
           if (blob) {

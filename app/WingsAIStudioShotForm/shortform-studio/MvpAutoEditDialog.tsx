@@ -46,10 +46,9 @@ import { uploadAutoEditSourcesToLocalDir } from "@/lib/shotform-auto-edit-client
 import {
   DEFAULT_LOCAL_COMPANION_URL,
   ensureLocalCompanionRunning,
-  fetchCompanionOutputMp4,
   LOCAL_COMPANION_URL_STORAGE_KEY,
   probeLocalCompanion,
-  renderEditPlanOnCompanion,
+  resolveLocalCompanionMp4,
   resolveLocalCompanionUrl,
   uploadAutoEditSourcesToCompanion,
 } from "@/lib/shotform-local-companion-client"
@@ -618,7 +617,11 @@ export function MvpAutoEditDialog({
           const extracted = await extractClientVideoMetaForPicks(
             nextPicks,
             (msg) => setDownloadHint(msg),
-            analysisMode === "precision" ? { precision: true } : undefined
+            analysisMode === "precision"
+              ? { precision: true, localWorkDir: renderMode === "local" ? localWorkDir.trim() : undefined, companionUrl }
+              : renderMode === "local"
+                ? { localWorkDir: localWorkDir.trim(), companionUrl }
+                : undefined
           )
           if (Object.keys(extracted.meta).length > 0) clientVideoMeta = extracted.meta
           if (Object.keys(extracted.blobs).length > 0) prefetchedBlobs = extracted.blobs
@@ -773,24 +776,28 @@ export function MvpAutoEditDialog({
           )
           let companionVideoBlob: Blob | null = null
           let companionVideoUrl: string | null = null
-          if (
-            json.localRenderPending &&
+          const workDirForLocal = (
+            localWorkDir.trim() ||
+            json.localWorkDir ||
+            (typeof window !== "undefined"
+              ? localStorage.getItem(LOCAL_WORK_DIR_STORAGE_KEY)?.trim()
+              : "") ||
+            ""
+          ).trim()
+          const needsLocalMp4 =
             renderMode === "local" &&
-            json.editPlan &&
-            companionOnline
-          ) {
-            const workDir = localWorkDir.trim()
-            setDownloadHint("로컬 에이전트에서 ffmpeg 렌더 중…")
-            const { outputPath: localOut } = await renderEditPlanOnCompanion({
-              companionUrl,
-              localWorkDir: workDir,
+            Boolean(json.editPlan?.edit_plan?.length) &&
+            Boolean(workDirForLocal) &&
+            (json.localRenderPending || !json.downloadUrl)
+
+          if (needsLocalMp4) {
+            const { blob, localOutputPath: localOut } = await resolveLocalCompanionMp4({
+              localWorkDir: workDirForLocal,
               jobId: json.jobId,
               editPlan: json.editPlan,
-            })
-            const blob = await fetchCompanionOutputMp4({
+              localRenderPending: json.localRenderPending,
               companionUrl,
-              localWorkDir: workDir,
-              jobId: json.jobId,
+              onProgress: (msg) => setDownloadHint(msg),
             })
             await assertPreviewMp4Blob(blob)
             if (projectId && json.jobId) await saveMvpEditMp4(projectId, json.jobId, blob)
@@ -804,12 +811,13 @@ export function MvpAutoEditDialog({
               ...json,
               localRenderPending: false,
               renderSkipped: false,
+              renderMode: "local",
+              localWorkDir: workDirForLocal,
               localOutputPath: localOut,
             }
-          }
-          if (json.localRenderPending && renderMode === "local" && !companionVideoBlob) {
+          } else if (json.localRenderPending && renderMode === "local" && !companionVideoBlob) {
             throw new Error(
-              "로컬 에이전트 렌더가 완료되지 않았습니다. npm run shotform:local-agent 가 실행 중인지 확인해 주세요."
+              "로컬 에이전트 렌더가 완료되지 않았습니다. npm run shotform:install-agent 후 다시 시도해 주세요."
             )
           }
           setResult(json)
@@ -867,14 +875,60 @@ export function MvpAutoEditDialog({
                   "편집기에서 다시 불러오거나 「편집 실행」을 한 번 더 눌러 주세요."
               )
             }
-          } else if (canOpenStudio) {
-            setErr("짜집기 MP4가 없습니다. 짜집기를 다시 실행해 주세요.")
-            break
+          } else if (canOpenStudio && !videoBlob) {
+            if (renderMode === "local" && workDirForLocal && json.jobId) {
+              setDownloadHint("로컬 MP4 재시도 중…")
+              try {
+                const { blob, localOutputPath: localOut } = await resolveLocalCompanionMp4({
+                  localWorkDir: workDirForLocal,
+                  jobId: json.jobId,
+                  editPlan: json.editPlan,
+                  companionUrl,
+                  onProgress: (msg) => setDownloadHint(msg),
+                })
+                await assertPreviewMp4Blob(blob)
+                if (projectId) await saveMvpEditMp4(projectId, json.jobId, blob)
+                const objectUrl = URL.createObjectURL(blob)
+                previewBlobRef.current = objectUrl
+                setPreviewBlobUrl(objectUrl)
+                videoBlobUrl = objectUrl
+                videoBlob = blob
+                json = { ...json, localOutputPath: localOut, renderMode: "local", localWorkDir: workDirForLocal }
+              } catch (localErr) {
+                const detail = localErr instanceof Error ? localErr.message : ""
+                if (onStudioReady) {
+                  onStudioReady({
+                    result: {
+                      ...json,
+                      renderMode: "local",
+                      localWorkDir: workDirForLocal,
+                    },
+                    videoBlobUrl: null,
+                    videoBlob: null,
+                  })
+                }
+                setErr(
+                  "로컬 폴더에는 영상이 저장됐지만 앱으로 가져오지 못했습니다.\n\n" +
+                    (detail ? `${detail}\n\n` : "") +
+                    `파일 위치: ${workDirForLocal}\\jobs\\${json.jobId}\\output.mp4`
+                )
+                completed = true
+                break
+              }
+            } else {
+              setErr("짜집기 MP4가 없습니다. 짜집기를 다시 실행해 주세요.")
+              break
+            }
           }
 
           if (onStudioReady && canOpenStudio) {
             onStudioReady({
-              result: { ...json, downloadUrl: mp4DownloadUrl || json.downloadUrl },
+              result: {
+                ...json,
+                downloadUrl: mp4DownloadUrl || json.downloadUrl,
+                renderMode: renderMode === "local" ? "local" : json.renderMode,
+                localWorkDir: workDirForLocal || json.localWorkDir,
+              },
               videoBlobUrl: videoBlobUrl || null,
               videoBlob: videoBlob || null,
             })

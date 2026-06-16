@@ -36,6 +36,10 @@ export function slimPostEditResultForPersist(result: AutoEditJobResult): AutoEdi
     renderSkipReason: result.renderSkipReason,
     subtitleRemovalSkipped: result.subtitleRemovalSkipped,
     subtitleRemovalWarning: result.subtitleRemovalWarning,
+    renderMode: result.renderMode,
+    localWorkDir: result.localWorkDir,
+    localOutputPath: result.localOutputPath,
+    localRenderPending: result.localRenderPending,
   }
 
   if (result.analyses?.length) {

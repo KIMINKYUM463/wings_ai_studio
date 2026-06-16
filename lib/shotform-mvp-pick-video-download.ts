@@ -235,6 +235,14 @@ export function formatShotformFetchError(e: unknown, context?: string): string {
       "반복되면 CDN 링크 만료일 수 있으니 소스 검색·URL 직접 입력으로 영상을 다시 추가해 주세요."
     )
   }
+  if (/403|forbidden|upstream fetch/i.test(raw)) {
+    return (
+      `${prefix}영상 CDN 링크가 만료되었거나 접근이 거부되었습니다(403).\n\n` +
+      "로컬 렌더 모드면 PC 작업 폴더 sources/ 에 영상이 있는지 확인하고, " +
+      "抖音 영상은 ShotForm 설정에 소스 검색(Apify) 토큰이 있어야 URL을 다시 조회할 수 있습니다. " +
+      "또는 소스 검색·URL 직접 입력으로 영상을 다시 추가해 주세요."
+    )
+  }
   if (/timeout|timed out|aborted/i.test(raw)) {
     return (
       `${prefix}영상 다운로드 시간이 초과됐습니다.\n\n` +
@@ -271,21 +279,69 @@ function isXhsPick(pick: MvpPickDownloadInput): boolean {
   )
 }
 
+export type MvpPickFetchOptions = {
+  /** 로컬 작업 폴더 sources/ 에 있으면 CDN 대신 에이전트에서 읽기 */
+  localWorkDir?: string
+  companionUrl?: string
+}
+
+async function tryFetchFromLocalCompanion(
+  pick: MvpPickDownloadInput,
+  opts?: MvpPickFetchOptions,
+  onHint?: (hint: string) => void
+): Promise<{ blob: Blob } | null> {
+  const workDir = opts?.localWorkDir?.trim()
+  if (!workDir) return null
+  const { probeCompanionSourceExists, fetchCompanionSourceMp4 } = await import(
+    "@/lib/shotform-local-companion-client"
+  )
+  const exists = await probeCompanionSourceExists({
+    companionUrl: opts?.companionUrl,
+    localWorkDir: workDir,
+    videoId: pick.video_id,
+  })
+  if (!exists) return null
+  onHint?.("로컬 작업 폴더에 저장된 영상 사용…")
+  const blob = await fetchCompanionSourceMp4({
+    companionUrl: opts?.companionUrl,
+    localWorkDir: workDir,
+    videoId: pick.video_id,
+  })
+  return { blob }
+}
+
 /**
  * 저장 프로젝트 등에서 CDN URL이 만료된 경우 노트 페이지에서 URL을 다시 조회합니다.
  */
 export async function fetchMvpPickVideoBlob(
   pick: MvpPickDownloadInput,
-  onHint?: (hint: string) => void
+  onHint?: (hint: string) => void,
+  opts?: MvpPickFetchOptions
 ): Promise<{ blob: Blob; refreshedVideoUrl?: string }> {
   const label = pick.title || pick.video_id
 
+  try {
+    const local = await tryFetchFromLocalCompanion(pick, opts, onHint)
+    if (local) return local
+  } catch {
+    /* CDN 폴백 */
+  }
+
   onHint?.("저장된 영상 URL로 다운로드 시도…")
   let resolved = await resolveDownloadUrl(pick, false)
+  let firstFetchError: string | undefined
   if (resolved.downloadUrl) {
-    const blob = await fetchBlobFromDownloadUrl(resolved.downloadUrl)
-    if (blob) {
-      return { blob, refreshedVideoUrl: resolved.refreshedVideoUrl }
+    try {
+      const blob = await fetchBlobFromDownloadUrl(resolved.downloadUrl)
+      if (blob) {
+        return { blob, refreshedVideoUrl: resolved.refreshedVideoUrl }
+      }
+    } catch (e) {
+      firstFetchError = e instanceof Error ? e.message : String(e)
+      const is403 = /403|forbidden|upstream fetch|만료|거부/i.test(firstFetchError)
+      if (!is403 && !canRefreshFromNote(pick)) {
+        throw e
+      }
     }
   }
 
@@ -317,6 +373,8 @@ export async function fetchMvpPickVideoBlob(
       : "영상 CDN 링크가 만료되었을 수 있습니다."
 
   throw new Error(
-    `영상 다운로드 실패: ${label}\n\n${platformHint}${resolved.error ? `\n(${resolved.error})` : ""}`
+    `영상 다운로드 실패: ${label}\n\n${platformHint}${
+      resolved.error ? `\n(${resolved.error})` : ""
+    }${firstFetchError ? `\n(${firstFetchError})` : ""}`
   )
 }

@@ -105,11 +105,14 @@ import {
 } from "@/lib/mvp-local-media-cache"
 import { assertPreviewMp4Blob, probeVideoElementPlayable } from "@/lib/mvp-mp4-preview"
 import { autoEditDownloadUrl } from "@/lib/shotform-auto-edit-download"
+import { resolveLocalCompanionMp4 } from "@/lib/shotform-local-companion-client"
 import { MvpCapCutEditor } from "./MvpCapCutEditor"
 import { MvpExportPanel } from "./MvpExportPanel"
 import { MvpScriptStyleEditor } from "./MvpScriptStyleEditor"
 import { MvpStudioStepNav } from "./MvpStudioStepNav"
 import { MvpThumbnailGenerator } from "./MvpThumbnailGenerator"
+
+const LOCAL_WORK_DIR_STORAGE_KEY = "shotform_local_work_dir"
 
 type Props = {
   projectId: string
@@ -805,7 +808,7 @@ export function MvpPostEditStudio({
           await applyVideoBlob(cached)
           return
         }
-        if (result.renderSkipped) {
+        if (result.renderSkipped && result.renderMode !== "local" && !result.localRenderPending) {
           if (!cancelled) {
             setErr(
               result.renderSkipReason ||
@@ -814,6 +817,49 @@ export function MvpPostEditStudio({
           }
           return
         }
+
+        const localWorkDir =
+          result.localWorkDir?.trim() ||
+          (typeof window !== "undefined"
+            ? localStorage.getItem(LOCAL_WORK_DIR_STORAGE_KEY)?.trim()
+            : "") ||
+          ""
+        const shouldTryLocalCompanion =
+          Boolean(localWorkDir && result.jobId) &&
+          (result.renderMode === "local" ||
+            result.localRenderPending ||
+            Boolean(result.localOutputPath))
+
+        if (shouldTryLocalCompanion) {
+          try {
+            const { blob } = await resolveLocalCompanionMp4({
+              localWorkDir,
+              jobId: result.jobId,
+              editPlan: result.editPlan,
+              localRenderPending: result.localRenderPending,
+              onProgress: () => {
+                /* studio 로드 — 별도 힌트 UI 없음 */
+              },
+            })
+            if (!cancelled) {
+              await applyVideoBlob(blob)
+              await saveMvpEditMp4(projectId, result.jobId, blob)
+            }
+            return
+          } catch (localErr) {
+            if (!cancelled) {
+              const detail = localErr instanceof Error ? localErr.message : ""
+              const pathHint = `${localWorkDir}\\jobs\\${result.jobId}\\output.mp4`
+              setErr(
+                detail
+                  ? `${detail}\n\n로컬 파일: ${pathHint}`
+                  : `로컬 MP4를 불러오지 못했습니다.\n\n파일 위치: ${pathHint}\n\n로컬 에이전트(npm run shotform:local-agent)가 실행 중인지 확인해 주세요.`
+              )
+            }
+            return
+          }
+        }
+
         if (!result.jobId) {
           if (!cancelled) setErr("짜집기 MP4가 없습니다. 짜집기를 다시 실행해 주세요.")
           return
@@ -875,6 +921,12 @@ export function MvpPostEditStudio({
     videoBlobUrl,
     result.downloadUrl,
     result.jobId,
+    result.renderMode,
+    result.localWorkDir,
+    result.localRenderPending,
+    result.localOutputPath,
+    result.editPlan,
+    result.renderSkipped,
     projectId,
     applyVideoBlob,
     editMp4CachedJobId,

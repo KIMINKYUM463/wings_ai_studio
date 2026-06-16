@@ -155,6 +155,7 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
     const skipServerCdnDownload =
       hasUploadedBuffers ||
       sourcesPreUploaded ||
+      deferLocalCompanionRender ||
       (useCloudRunRender && canParallelAnalyze)
 
     const downloadAllSources = async () => {
@@ -222,9 +223,11 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
             reason: fail.reason,
           })
         }
-      } else if (skipServerCdnDownload && sourcesPreUploaded) {
+      } else if (skipServerCdnDownload) {
         putAutoEditJob({ ...base, step: "analyze", createdAt })
-        await downloadAllSources()
+        if (sourcesPreUploaded || hasUploadedBuffers) {
+          await downloadAllSources()
+        }
         const analyzed = await runAnalyze()
         analyses = analyzed.analyses
         mixInfo = analyzed.mixInfo

@@ -160,6 +160,45 @@ async function handleRender(req, res) {
   })
 }
 
+function handleSourceGet(req, res, videoId, workDirRaw) {
+  try {
+    const workDir = normalizeWorkDir(workDirRaw)
+    if (!videoId || !/^[a-zA-Z0-9_-]+$/.test(videoId)) {
+      json(res, req, 400, { error: "유효하지 않은 videoId" })
+      return
+    }
+    const src = sourcePath(workDir, videoId)
+    if (!fs.existsSync(src)) {
+      json(res, req, 404, { error: "source 없음" })
+      return
+    }
+    const stat = fs.statSync(src)
+    if (stat.size < 50_000) {
+      json(res, req, 404, { error: "source 파일이 너무 작습니다" })
+      return
+    }
+    setCors(res, req)
+    if (req.method === "HEAD") {
+      res.writeHead(200, {
+        "Content-Type": "video/mp4",
+        "Content-Length": String(stat.size),
+        "Cache-Control": "no-store",
+      })
+      res.end()
+      return
+    }
+    const buf = fs.readFileSync(src)
+    res.writeHead(200, {
+      "Content-Type": "video/mp4",
+      "Content-Length": String(buf.length),
+      "Cache-Control": "no-store",
+    })
+    res.end(buf)
+  } catch (e) {
+    json(res, req, 400, { error: e instanceof Error ? e.message : "오류" })
+  }
+}
+
 function handleOutput(req, res, jobId, workDirRaw) {
   try {
     const workDir = normalizeWorkDir(workDirRaw)
@@ -204,9 +243,16 @@ const server = http.createServer(async (req, res) => {
     }
 
     const sourceMatch = pathname.match(/^\/sources\/([^/]+)$/)
-    if (req.method === "POST" && sourceMatch) {
-      await handleSourcesPut(req, res, decodeURIComponent(sourceMatch[1]))
-      return
+    if (sourceMatch) {
+      const videoId = decodeURIComponent(sourceMatch[1])
+      if (req.method === "POST") {
+        await handleSourcesPut(req, res, videoId)
+        return
+      }
+      if (req.method === "GET" || req.method === "HEAD") {
+        handleSourceGet(req, res, videoId, url.searchParams.get("workDir"))
+        return
+      }
     }
 
     if (req.method === "POST" && pathname === "/render") {

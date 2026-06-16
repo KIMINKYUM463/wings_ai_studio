@@ -54,22 +54,39 @@ export async function fetchUpstreamVideo(
     throw new Error(`허용되지 않은 영상 호스트: ${target.hostname}`)
   }
 
-  const headers: Record<string, string> = {
+  const hostname = target.hostname
+  const referer = upstreamReferer(hostname)
+  const baseHeaders: Record<string, string> = {
     "User-Agent":
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    Referer: upstreamReferer(target.hostname),
+    Referer: referer,
     Accept: "*/*",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,ko;q=0.7",
   }
-  if (init?.range) headers.Range = init.range
+  if (hostname.endsWith(".xhscdn.com") || hostname.endsWith(".xhscdn.net")) {
+    baseHeaders.Origin = "https://www.xiaohongshu.com"
+  }
+  if (init?.range) baseHeaders.Range = init.range
 
   const timeoutMs = init?.range ? 45_000 : process.env.VERCEL ? 90_000 : 300_000
-  const res = await fetch(target.toString(), {
-    headers,
-    cache: "no-store",
-    signal: init?.signal ?? AbortSignal.timeout(timeoutMs),
-  })
-  if (!res.ok && res.status !== 206) {
-    throw new Error(`영상 upstream fetch 실패 (${res.status})`)
+  const signal = init?.signal ?? AbortSignal.timeout(timeoutMs)
+
+  const attempts: Record<string, string>[] = [baseHeaders]
+  if (hostname.includes("douyin") || hostname.includes("amemv")) {
+    attempts.push({
+      ...baseHeaders,
+      Referer: "https://www.douyin.com/",
+      Origin: "https://www.douyin.com",
+    })
   }
-  return res
+
+  let lastStatus = 0
+  for (const headers of attempts) {
+    const res = await fetch(target.toString(), { headers, cache: "no-store", signal })
+    if (res.ok || res.status === 206) return res
+    lastStatus = res.status
+    if (res.status !== 403 && res.status !== 401) break
+  }
+
+  throw new Error(`영상 upstream fetch 실패 (${lastStatus || 0})`)
 }
