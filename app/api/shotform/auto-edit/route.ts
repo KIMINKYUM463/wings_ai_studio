@@ -186,7 +186,21 @@ async function startPipelineAsync(input: AutoEditInput, clientJobId?: string) {
       console.error("[auto-edit] initial Supabase persist failed:", e)
     }
   }
-  const pipeline = runAutoEditPipeline({ ...input, presetWork: { dir, id: jobId } })
+  const pipeline = runAutoEditPipeline({ ...input, presetWork: { dir, id: jobId } }).catch(
+    async (e) => {
+      const job = await getAutoEditJobAsync(jobId)
+      if (job && job.step !== "done" && job.step !== "error") {
+        const msg = e instanceof Error ? e.message : "자동 편집 실패"
+        putAutoEditJob({
+          ...job,
+          step: "error",
+          error: msg,
+          createdAt,
+        })
+      }
+      console.error("[auto-edit] pipeline failed:", e)
+    }
+  )
   if (process.env.VERCEL) {
     waitUntil(pipeline)
   } else {
