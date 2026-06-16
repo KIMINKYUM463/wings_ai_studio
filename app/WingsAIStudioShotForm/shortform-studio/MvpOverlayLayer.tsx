@@ -44,10 +44,14 @@ export function MvpOverlayLayer({
     startResizeMosaicCorner,
   } = useMvpOverlayInteraction(stageRef, onUpdateOverlay)
 
-  const visible = filterOverlaysAtVideoTime(overlays, videoTimeSec, videoDurationSec)
+  const video = videoRef?.current ?? null
+  const effectiveVideoTime =
+    video && Number.isFinite(video.currentTime) ? video.currentTime : videoTimeSec
+
+  const visible = filterOverlaysAtVideoTime(overlays, effectiveVideoTime, videoDurationSec)
   if (!visible.length) return null
 
-  const video = videoRef?.current ?? null
+  const videoForMosaic = video
 
   return (
     <>
@@ -88,11 +92,11 @@ export function MvpOverlayLayer({
                 startMove(e, ov, () => onSelectId(ov.id))
               }}
             >
-              {mosaic && video ? (
+              {mosaic && videoForMosaic ? (
                 <VideoMosaicLayer
-                  video={video}
+                  video={videoForMosaic}
                   overlay={ov}
-                  refreshKey={Math.round(videoTimeSec * 20)}
+                  refreshKey={Math.round(effectiveVideoTime * 30)}
                 />
               ) : mosaic ? (
                 <div className="flex h-full w-full items-center justify-center rounded-md border-2 border-dashed border-violet-400/40 bg-violet-500/10 text-[9px] text-violet-200/80">

@@ -25,8 +25,12 @@ import {
   captureMosaicScanFramesFromVideo,
   effectiveMosaicCaptureDuration,
   MOSAIC_BOUNDARY_CAPTURE_WIDTH,
+  nativeMosaicCaptureWidth,
+  prepareVideoForMosaicCapture,
+  type MosaicSceneSegment,
 } from "@/lib/mvp-mosaic-frame-capture"
 import {
+  buildMosaicPositionRefineTimes,
   buildMosaicTracks,
   mergeMosaicRowsToOverlays,
   tracksToWindows,
@@ -51,6 +55,7 @@ type Props = {
   videoDurationSec?: number
   playheadSec?: number
   onSeek?: (sec: number) => void
+  sceneSegments?: MosaicSceneSegment[]
 }
 
 export function MvpOverlayElementsPanel({
@@ -62,6 +67,7 @@ export function MvpOverlayElementsPanel({
   videoDurationSec = 0,
   playheadSec = 0,
   onSeek,
+  sceneSegments,
 }: Props) {
   const [overlayCategory, setOverlayCategory] = useState<StudioOverlayCategory>("effects")
   const [overlayPickColor, setOverlayPickColor] = useState("#ffffff")
@@ -120,6 +126,13 @@ export function MvpOverlayElementsPanel({
     onSelectId(null)
   }, [onOverlaysChange, onSelectId, overlays, selectedId])
 
+  const removeAllMosaics = useCallback(() => {
+    if (!mosaicOverlays.length) return
+    if (!window.confirm(`모자이크 ${mosaicOverlays.length}개를 모두 삭제할까요?`)) return
+    onOverlaysChange(overlays.filter((o) => !isMosaicOverlay(o.catalogId)))
+    onSelectId(null)
+  }, [mosaicOverlays.length, onOverlaysChange, onSelectId, overlays])
+
   const setPlayheadAsStart = useCallback(() => {
     if (!selectedId) return
     updateSelectedOverlay({ startSec: Math.max(0, playheadSec) })
@@ -149,9 +162,16 @@ export function MvpOverlayElementsPanel({
 
     setAiLoading(true)
     setAiErr(null)
-    setAiStatus("1차 스캔 · 프레임 캡처 중…")
+    setAiStatus("영상 1배속 고정 · 1차 스캔 준비…")
+
+    let captureSession: { restore: () => void } | null = null
 
     try {
+      captureSession = await prepareVideoForMosaicCapture(video)
+      const videoW = video.videoWidth
+      const videoH = video.videoHeight
+      const refineWidth = nativeMosaicCaptureWidth(video, MOSAIC_BOUNDARY_CAPTURE_WIDTH)
+
       const mergeRows = (rows: MosaicFrameDetectRow[]) => {
         const byTime = new Map<number, MosaicFrameDetectRow>()
         for (const r of rows) byTime.set(Math.round(r.timeSec * 1000) / 1000, r)
@@ -184,7 +204,8 @@ export function MvpOverlayElementsPanel({
       }
 
       const coarseFrames = await captureMosaicScanFramesFromVideo(video, captureDurationSec, {
-        maxWidth: 640,
+        maxWidth: nativeMosaicCaptureWidth(video, 720),
+        segments: sceneSegments,
         onProgress: (done, total) => setAiStatus(`1차 캡처 ${done}/${total}…`),
       })
 
@@ -198,7 +219,7 @@ export function MvpOverlayElementsPanel({
       if (refineTimes.length) {
         setAiStatus(`2차 정밀 캡처 0/${refineTimes.length}…`)
         const refineFrames = await captureMosaicFramesAtTimes(video, refineTimes, {
-          maxWidth: 768,
+          maxWidth: refineWidth,
           onProgress: (done, total) => setAiStatus(`2차 정밀 캡처 ${done}/${total}…`),
         })
         const refineRows = await detectBatch(refineFrames, "2차")
@@ -215,15 +236,32 @@ export function MvpOverlayElementsPanel({
         if (boundaryTimes.length) {
           setAiStatus(`3차 경계 스캔 0/${boundaryTimes.length}…`)
           const boundaryFrames = await captureMosaicFramesAtTimes(video, boundaryTimes, {
-            maxWidth: MOSAIC_BOUNDARY_CAPTURE_WIDTH,
+            maxWidth: refineWidth,
             onProgress: (done, total) => setAiStatus(`3차 경계 스캔 ${done}/${total}…`),
           })
           const boundaryRows = await detectBatch(boundaryFrames, "3차")
           allRows = mergeRows([...allRows, ...boundaryRows])
         }
+
+        const positionTimes = buildMosaicPositionRefineTimes(
+          tracksToWindows(buildMosaicTracks(allRows)),
+          allRows.map((r) => r.timeSec)
+        )
+        if (positionTimes.length) {
+          setAiStatus(`4차 위치 정밀 0/${positionTimes.length}…`)
+          const positionFrames = await captureMosaicFramesAtTimes(video, positionTimes, {
+            maxWidth: refineWidth,
+            onProgress: (done, total) => setAiStatus(`4차 위치 정밀 ${done}/${total}…`),
+          })
+          const positionRows = await detectBatch(positionFrames, "4차")
+          allRows = mergeRows([...allRows, ...positionRows])
+        }
       }
 
-      const detected = mergeMosaicRowsToOverlays(allRows, captureDurationSec).filter(
+      const detected = mergeMosaicRowsToOverlays(allRows, captureDurationSec, {
+        videoW,
+        videoH,
+      }).filter(
         (ov) =>
           Number.isFinite(ov.x) &&
           Number.isFinite(ov.y) &&
@@ -243,9 +281,10 @@ export function MvpOverlayElementsPanel({
       setAiErr(e instanceof Error ? e.message : "AI 모자이크 실패")
       setAiStatus("")
     } finally {
+      captureSession?.restore()
       setAiLoading(false)
     }
-  }, [onOverlaysChange, onSelectId, overlays, videoDurationSec, videoRef])
+  }, [onOverlaysChange, onSelectId, overlays, sceneSegments, videoDurationSec, videoRef])
 
   const selectedMosaic = selectedOverlay && isMosaicOverlay(selectedOverlay.catalogId)
 
@@ -257,8 +296,7 @@ export function MvpOverlayElementsPanel({
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold text-cyan-100">AI 중국어 모자이크</p>
             <p className="mt-1 text-[10px] leading-relaxed text-cyan-100/75">
-              1차 전체 스캔 → 2차 위치 정밀 → 3차 등장·퇴장 경계 분석. 글자 크기·위치에 맞춘 타이트
-              모자이크가 타임라인에 표시됩니다.
+              1차 장면별 스캔 → 2차 위치 → 3차 시간 경계 → 4차 위치 정밀. TTS 배속과 무관하게 영상 타임스탬프 기준입니다.
             </p>
           </div>
         </div>
@@ -285,7 +323,21 @@ export function MvpOverlayElementsPanel({
       </div>
 
       {mosaicOverlays.length > 0 ? (
-        <div className="max-h-[140px] space-y-1 overflow-y-auto rounded-lg border border-white/10 bg-black/25 p-2">
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[10px] text-slate-400">모자이크 목록 · {mosaicOverlays.length}개</p>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-[10px] text-rose-300 hover:bg-rose-500/10 hover:text-rose-200"
+              onClick={removeAllMosaics}
+            >
+              <Trash2 className="mr-1 h-3 w-3" />
+              전체 삭제
+            </Button>
+          </div>
+          <div className="max-h-[140px] space-y-1 overflow-y-auto rounded-lg border border-white/10 bg-black/25 p-2">
           {mosaicOverlays.map((ov) => (
             <button
               key={ov.id}
@@ -308,6 +360,7 @@ export function MvpOverlayElementsPanel({
               {ov.label ? ` · ${ov.label}` : ""}
             </button>
           ))}
+          </div>
         </div>
       ) : null}
 

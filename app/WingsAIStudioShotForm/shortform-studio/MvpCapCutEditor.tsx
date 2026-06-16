@@ -59,7 +59,7 @@ import type {
 import { normalizeSubtitleStyle } from "@/lib/mvp-studio-types"
 import { buildSubtitleOverlayStyle } from "@/lib/mvp-subtitle-style"
 import { StudioPageCard, studio } from "../components/ShotFormStudioUI"
-import type { PlacedStudioOverlay } from "@/lib/shotform-studio-overlay-catalog"
+import { isMosaicOverlay, type PlacedStudioOverlay } from "@/lib/shotform-studio-overlay-catalog"
 import { MvpCapCutTimeline } from "./MvpCapCutTimeline"
 import { MvpAudioMixPanel } from "./MvpAudioMixPanel"
 import { MVP_AUDIO_CATALOG } from "@/lib/mvp-studio-audio-catalog"
@@ -288,25 +288,36 @@ export function MvpCapCutEditor(props: Props) {
     setSelectedBgmClipId(null)
   }, [selectedBgmClipId, bgmClips, onBgmClipsChange])
 
+  const deleteSelectedOverlay = useCallback(() => {
+    if (!selectedOverlayId) return false
+    const target = placedOverlays.find((o) => o.id === selectedOverlayId)
+    if (!target || !isMosaicOverlay(target.catalogId)) return false
+    onPlacedOverlaysChange(placedOverlays.filter((o) => o.id !== selectedOverlayId))
+    setSelectedOverlayId(null)
+    return true
+  }, [selectedOverlayId, placedOverlays, onPlacedOverlaysChange])
+
   useEffect(() => {
+    const isTypingTarget = (el: Element | null) =>
+      el instanceof HTMLInputElement ||
+      el instanceof HTMLTextAreaElement ||
+      el instanceof HTMLSelectElement ||
+      (el instanceof HTMLElement && el.isContentEditable)
+
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Delete" && e.key !== "Backspace") return
-      if (!selectedBgmClipId) return
-      const el = document.activeElement
-      if (
-        el instanceof HTMLInputElement ||
-        el instanceof HTMLTextAreaElement ||
-        el instanceof HTMLSelectElement ||
-        (el instanceof HTMLElement && el.isContentEditable)
-      ) {
+      if (isTypingTarget(document.activeElement)) return
+      if (deleteSelectedOverlay()) {
+        e.preventDefault()
         return
       }
+      if (!selectedBgmClipId) return
       e.preventDefault()
       deleteSelectedBgmClip()
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [selectedBgmClipId, deleteSelectedBgmClip])
+  }, [selectedBgmClipId, selectedOverlayId, deleteSelectedBgmClip, deleteSelectedOverlay])
 
   const placeBgmAt = useCallback(
     async (startSec: number) => {
@@ -711,7 +722,10 @@ export function MvpCapCutEditor(props: Props) {
               onSeek={onSeek}
               bgmClips={bgmClips}
               selectedBgmClipId={selectedBgmClipId}
-              onSelectBgmClipId={setSelectedBgmClipId}
+              onSelectBgmClipId={(id) => {
+                setSelectedBgmClipId(id)
+                if (id) setSelectedOverlayId(null)
+              }}
               onBgmClipsChange={onBgmClipsChange}
               onPlaceBgmAt={(t) => void placeBgmAt(t)}
               placedOverlays={placedOverlays}
@@ -720,6 +734,7 @@ export function MvpCapCutEditor(props: Props) {
                 setSelectedOverlayId(id)
                 if (id) {
                   setSelectedCueIndex(-1)
+                  setSelectedBgmClipId(null)
                   setInspectorTab("subtitle")
                 }
               }}
@@ -1092,6 +1107,7 @@ export function MvpCapCutEditor(props: Props) {
                     videoDurationSec={previewTotalSec}
                     playheadSec={playhead}
                     onSeek={onSeek}
+                    sceneSegments={segments}
                   />
                 </div>
               </div>
@@ -1102,7 +1118,10 @@ export function MvpCapCutEditor(props: Props) {
                 bgmClips={bgmClips}
                 onBgmClipsChange={onBgmClipsChange}
                 selectedBgmClipId={selectedBgmClipId}
-                onSelectBgmClipId={setSelectedBgmClipId}
+                onSelectBgmClipId={(id) => {
+                  setSelectedBgmClipId(id)
+                  if (id) setSelectedOverlayId(null)
+                }}
                 pendingCatalogId={pendingCatalogId}
                 onPendingCatalogIdChange={setPendingCatalogId}
                 durationSec={previewTotalSec}

@@ -5,6 +5,7 @@ import {
   studioOverlayById,
   type PlacedStudioOverlay,
 } from "@/lib/shotform-studio-overlay-catalog"
+import { videoContainRect } from "@/lib/mvp-video-mosaic"
 
 /** CapCut 미리보기 스테이지 너비 — `MvpCapCutEditor` max-w-[280px] */
 export const MVP_PREVIEW_STAGE_WIDTH_PX = 280
@@ -47,6 +48,33 @@ export function defaultMosaicOverlayFields(catalogId: string): Partial<PlacedStu
   }
 }
 
+export function videoFrameBoxToStageOverlay(args: {
+  centerXPct: number
+  centerYPct: number
+  widthPct: number
+  heightPct: number
+  videoW: number
+  videoH: number
+  stageW?: number
+}): { x: number; y: number; mosaicW: number; mosaicH: number } {
+  const stageW = args.stageW ?? MVP_PREVIEW_STAGE_WIDTH_PX
+  const stageH = mosaicStageHeightPx(stageW)
+  const { drawX, drawY, drawW, drawH } = videoContainRect(
+    stageW,
+    stageH,
+    args.videoW,
+    args.videoH
+  )
+  const stageX = drawX + (args.centerXPct / 100) * drawW
+  const stageY = drawY + (args.centerYPct / 100) * drawH
+  return {
+    x: Math.min(95, Math.max(5, (stageX / stageW) * 100)),
+    y: Math.min(95, Math.max(5, (stageY / stageH) * 100)),
+    mosaicW: Math.max(28, Math.round((args.widthPct / 100) * drawW)),
+    mosaicH: Math.max(18, Math.round((args.heightPct / 100) * drawH)),
+  }
+}
+
 export function pctBoxToMosaicOverlay(args: {
   centerXPct: number
   centerYPct: number
@@ -56,19 +84,38 @@ export function pctBoxToMosaicOverlay(args: {
   endSec: number
   detectedText?: string
   id: string
+  videoW?: number
+  videoH?: number
 }): PlacedStudioOverlay {
   const stageW = MVP_PREVIEW_STAGE_WIDTH_PX
   const stageH = mosaicStageHeightPx(stageW)
+  const mapped =
+    args.videoW && args.videoH && args.videoW > 0 && args.videoH > 0
+      ? videoFrameBoxToStageOverlay({
+          centerXPct: args.centerXPct,
+          centerYPct: args.centerYPct,
+          widthPct: args.widthPct,
+          heightPct: args.heightPct,
+          videoW: args.videoW,
+          videoH: args.videoH,
+          stageW,
+        })
+      : {
+          x: Math.min(95, Math.max(5, args.centerXPct)),
+          y: Math.min(95, Math.max(5, args.centerYPct)),
+          mosaicW: Math.max(28, Math.round((args.widthPct / 100) * stageW)),
+          mosaicH: Math.max(18, Math.round((args.heightPct / 100) * stageH)),
+        }
   return {
     id: args.id,
     catalogId: "partial-mosaic",
-    x: Math.min(95, Math.max(5, args.centerXPct)),
-    y: Math.min(95, Math.max(5, args.centerYPct)),
+    x: mapped.x,
+    y: mapped.y,
     size: 48,
     color: "#ffffff",
     rotation: 0,
-    mosaicW: Math.max(28, Math.round((args.widthPct / 100) * stageW)),
-    mosaicH: Math.max(18, Math.round((args.heightPct / 100) * stageH)),
+    mosaicW: mapped.mosaicW,
+    mosaicH: mapped.mosaicH,
     mosaicBlock: MVP_MOSAIC_DEFAULT_BLOCK,
     startSec: Math.max(0, args.startSec),
     endSec: Math.max(args.startSec + 0.1, args.endSec),

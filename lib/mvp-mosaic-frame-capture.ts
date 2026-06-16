@@ -2,10 +2,12 @@
 
 import type { MosaicFrameDetectRow } from "@/lib/mvp-mosaic-merge"
 
-const DEFAULT_MAX_FRAMES = 72
-const DEFAULT_MAX_WIDTH = 640
-const REFINE_MAX_WIDTH = 768
-const BOUNDARY_MAX_WIDTH = 768
+const DEFAULT_MAX_FRAMES = 88
+const DEFAULT_MAX_WIDTH = 720
+const REFINE_MAX_WIDTH = 960
+const BOUNDARY_MAX_WIDTH = 960
+
+export type MosaicSceneSegment = { start: number; end: number }
 
 export type MosaicScanFrame = {
   timeSec: number
@@ -13,6 +15,30 @@ export type MosaicScanFrame = {
   imageBase64: string
 }
 
+export function nativeMosaicCaptureWidth(video: HTMLVideoElement, cap = REFINE_MAX_WIDTH): number {
+  const vw = video.videoWidth
+  if (!vw) return cap
+  return Math.min(cap, vw)
+}
+
+/** 배속 재생 중에도 정확한 프레임 캡처 — 1배속 고정 후 스캔 */
+export async function prepareVideoForMosaicCapture(
+  video: HTMLVideoElement
+): Promise<{ restore: () => void }> {
+  const savedTime = video.currentTime
+  const wasPaused = video.paused
+  const savedRate = video.playbackRate
+  video.pause()
+  video.playbackRate = 1
+  await seekVideoAccurate(video, savedTime)
+  return {
+    restore: () => {
+      video.playbackRate = savedRate > 0 ? savedRate : 1
+      video.currentTime = savedTime
+      if (!wasPaused) void video.play().catch(() => {})
+    },
+  }
+}
 export function effectiveMosaicCaptureDuration(
   video: HTMLVideoElement,
   timelineDurationSec: number
@@ -135,6 +161,39 @@ export function buildMosaicScanTimes(
   return times
 }
 
+/** 장면(컷) 구간마다 더 촘촘히 샘플 — TTS 배속 편집에서도 영상 타임스탬프 기준 */
+export function buildMosaicScanTimesForSegments(
+  durationSec: number,
+  segments: MosaicSceneSegment[],
+  options?: { maxFrames?: number }
+): number[] {
+  const maxFrames = options?.maxFrames ?? DEFAULT_MAX_FRAMES
+  const times: number[] = []
+  const valid = segments
+    .filter((s) => Number.isFinite(s.start) && Number.isFinite(s.end) && s.end > s.start + 0.05)
+    .sort((a, b) => a.start - b.start)
+
+  if (!valid.length) return buildMosaicScanTimes(durationSec, options)
+
+  for (const seg of valid) {
+    const segDur = Math.max(0.08, seg.end - seg.start)
+    const interval = segDur <= 2.5 ? 0.08 : segDur <= 5 ? 0.1 : segDur <= 10 ? 0.13 : 0.16
+    for (let t = seg.start + 0.03; t < seg.end - 0.02 && times.length < maxFrames; t += interval) {
+      times.push(Math.round(t * 1000) / 1000)
+    }
+  }
+
+  const merged = uniqueSortedTimes(times, 0.03)
+  if (merged.length < Math.min(12, maxFrames)) {
+    const fallback = buildMosaicScanTimes(durationSec, {
+      ...options,
+      maxFrames: maxFrames - merged.length,
+    })
+    return uniqueSortedTimes([...merged, ...fallback]).slice(0, maxFrames)
+  }
+  return merged.slice(0, maxFrames)
+}
+
 /** 1차 감지 결과 주변을 더 촘촘히 재샘플 */
 export function buildMosaicRefineTimes(
   rows: MosaicFrameDetectRow[],
@@ -232,6 +291,7 @@ export async function captureMosaicFramesAtTimes(
 
   try {
     video.pause()
+    video.playbackRate = 1
     for (let i = 0; i < times.length; i++) {
       const timeSec = times[i]!
       const quality = maxWidth >= REFINE_MAX_WIDTH ? 0.88 : maxWidth >= 640 ? 0.84 : 0.8
@@ -254,12 +314,16 @@ export async function captureMosaicScanFramesFromVideo(
     intervalSec?: number
     maxFrames?: number
     maxWidth?: number
+    segments?: MosaicSceneSegment[]
     onProgress?: (done: number, total: number) => void
   }
 ): Promise<MosaicScanFrame[]> {
   const captureDur = effectiveMosaicCaptureDuration(video, durationSec)
-  const times = buildMosaicScanTimes(captureDur, options)
-  return captureMosaicFramesAtTimes(video, times, options)
+  const times = options?.segments?.length
+    ? buildMosaicScanTimesForSegments(captureDur, options.segments, options)
+    : buildMosaicScanTimes(captureDur, options)
+  const maxWidth = options?.maxWidth ?? nativeMosaicCaptureWidth(video, DEFAULT_MAX_WIDTH)
+  return captureMosaicFramesAtTimes(video, times, { ...options, maxWidth })
 }
 
 export const MOSAIC_BOUNDARY_CAPTURE_WIDTH = BOUNDARY_MAX_WIDTH

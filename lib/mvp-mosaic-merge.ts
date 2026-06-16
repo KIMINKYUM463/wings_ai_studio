@@ -88,17 +88,79 @@ function boxMatchesTrack(box: DetectedChineseMosaicBox, track: Track): boolean {
   return false
 }
 
+function isSuspiciousMosaicBox(box: DetectedChineseMosaicBox): boolean {
+  const { center_x_pct: cy, width_pct: w, height_pct: h } = box
+  if (w > 78 && h > 16 && cy > 62) return true
+  if (w > 88 && h > 10) return true
+  if (h > 28) return true
+  return false
+}
+
+function filterReliableHits(hits: { timeSec: number; box: DetectedChineseMosaicBox }[]) {
+  const clean = hits.filter((h) => !isSuspiciousMosaicBox(h.box))
+  return clean.length >= Math.max(1, Math.ceil(hits.length * 0.35)) ? clean : hits
+}
+
+function buildTrackFromHits(
+  hits: { timeSec: number; box: DetectedChineseMosaicBox }[],
+  text?: string
+): Track {
+  const reliable = filterReliableHits(hits)
+  const midT = reliable[Math.floor(reliable.length / 2)]?.timeSec ?? hits[0]!.timeSec
+  const sorted = [...reliable].sort((a, b) => Math.abs(a.timeSec - midT) - Math.abs(b.timeSec - midT))
+  const core = sorted.slice(0, Math.max(2, Math.ceil(sorted.length * 0.7)))
+  const times = reliable.map((h) => h.timeSec)
+  return {
+    centerXPct: median(core.map((h) => h.box.center_x_pct)),
+    centerYPct: median(core.map((h) => h.box.center_y_pct)),
+    widthPct: median(core.map((h) => h.box.width_pct)),
+    heightPct: median(core.map((h) => h.box.height_pct)),
+    text: text ?? core.find((h) => h.box.text)?.box.text,
+    startSec: Math.min(...times),
+    endSec: Math.max(...times),
+    samples: reliable.length,
+    hits: reliable,
+  }
+}
+
+function positionClusterDistance(a: DetectedChineseMosaicBox, b: DetectedChineseMosaicBox): number {
+  return Math.hypot(a.center_x_pct - b.center_x_pct, a.center_y_pct - b.center_y_pct)
+}
+
+/** 위치가 크게 바뀌면 구간별로 트랙 분리 */
+function explodeTracksByPosition(tracks: Track[]): Track[] {
+  const out: Track[] = []
+  for (const track of tracks) {
+    if (track.hits.length <= 2) {
+      out.push(track)
+      continue
+    }
+    const sorted = [...track.hits].sort((a, b) => a.timeSec - b.timeSec)
+    let bucket: typeof sorted = []
+    for (const hit of sorted) {
+      if (!bucket.length || positionClusterDistance(bucket[bucket.length - 1]!.box, hit.box) <= 7) {
+        bucket.push(hit)
+      } else {
+        out.push(buildTrackFromHits(bucket, track.text))
+        bucket = [hit]
+      }
+    }
+    if (bucket.length) out.push(buildTrackFromHits(bucket, track.text))
+  }
+  return out
+}
+
 function recomputeTrackGeometry(track: Track): void {
-  if (!track.hits.length) return
-  const midT = (track.startSec + track.endSec) / 2
-  const sorted = [...track.hits].sort(
-    (a, b) => Math.abs(a.timeSec - midT) - Math.abs(b.timeSec - midT)
-  )
-  const core = sorted.slice(0, Math.max(3, Math.ceil(sorted.length * 0.6)))
-  track.centerXPct = median(core.map((h) => h.box.center_x_pct))
-  track.centerYPct = median(core.map((h) => h.box.center_y_pct))
-  track.widthPct = median(core.map((h) => h.box.width_pct))
-  track.heightPct = median(core.map((h) => h.box.height_pct))
+  const rebuilt = buildTrackFromHits(track.hits, track.text)
+  track.centerXPct = rebuilt.centerXPct
+  track.centerYPct = rebuilt.centerYPct
+  track.widthPct = rebuilt.widthPct
+  track.heightPct = rebuilt.heightPct
+  track.startSec = Math.min(track.startSec, rebuilt.startSec)
+  track.endSec = Math.max(track.endSec, rebuilt.endSec)
+  track.hits = rebuilt.hits
+  track.samples = rebuilt.samples
+  if (rebuilt.text) track.text = rebuilt.text
 }
 
 function mergeFrameRows(rows: MosaicFrameDetectRow[]): Track[] {
@@ -108,6 +170,7 @@ function mergeFrameRows(rows: MosaicFrameDetectRow[]): Track[] {
 
   for (const row of rows.sort((a, b) => a.timeSec - b.timeSec)) {
     for (const box of row.boxes) {
+      if (isSuspiciousMosaicBox(box)) continue
       let matched: Track | null = null
       let bestScore = 0
 
@@ -214,7 +277,7 @@ function estimateSampleStep(rows: MosaicFrameDetectRow[]): number {
 }
 
 export function buildMosaicTracks(rows: MosaicFrameDetectRow[]): Track[] {
-  const tracks = mergeFrameRows(rows)
+  const tracks = explodeTracksByPosition(mergeFrameRows(rows))
   if (tracks.length) refineTrackBoundaries(tracks, rows)
   return tracks
 }
@@ -232,25 +295,42 @@ export function tracksToWindows(tracks: Array<Pick<Track, "startSec" | "endSec" 
 
 export function mergeMosaicRowsToOverlays(
   rows: MosaicFrameDetectRow[],
-  durationSec: number
+  durationSec: number,
+  options?: { videoW?: number; videoH?: number }
 ): PlacedStudioOverlay[] {
   const tracks = buildMosaicTracks(rows)
   if (!tracks.length) return []
 
   const step = estimateSampleStep(rows)
-  const padStart = Math.min(0.14, Math.max(0.05, step * 0.55))
-  const padEnd = Math.min(0.18, Math.max(0.06, step * 0.65))
+  const padStart = Math.min(0.16, Math.max(0.06, step * 0.6))
+  const padEnd = Math.min(0.2, Math.max(0.08, step * 0.7))
 
   return tracks.map((t, i) =>
     pctBoxToMosaicOverlay({
       id: `ov-ai-${i + 1}`,
       centerXPct: t.centerXPct,
       centerYPct: t.centerYPct,
-      widthPct: Math.min(96, t.widthPct + 2.4),
-      heightPct: Math.min(40, t.heightPct + 1.6),
+      widthPct: Math.min(92, t.widthPct + 2.8),
+      heightPct: Math.min(36, t.heightPct + 2),
       startSec: Math.max(0, t.startSec - padStart),
       endSec: Math.min(durationSec, t.endSec + padEnd),
       detectedText: t.text,
+      videoW: options?.videoW,
+      videoH: options?.videoH,
     })
   )
+}
+
+/** 트랙 중심 시각 — 위치 재정밀 캡처용 */
+export function buildMosaicPositionRefineTimes(
+  tracks: MosaicTrackWindow[],
+  existingTimes: number[]
+): number[] {
+  const existing = new Set(existingTimes.map((t) => Math.round(t * 1000) / 1000))
+  const times: number[] = []
+  for (const track of tracks) {
+    const mid = Math.round(((track.startSec + track.endSec) / 2) * 1000) / 1000
+    if (!existing.has(mid)) times.push(mid)
+  }
+  return times
 }

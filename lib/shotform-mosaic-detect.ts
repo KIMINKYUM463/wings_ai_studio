@@ -20,7 +20,10 @@ const MOSAIC_VISION_SYSTEM = `You are a precise OCR/localization model for burne
 Detect ONLY Chinese characters (Simplified or Traditional) that appear as:
 - hard subtitles, burned captions, floating on-screen text overlays, product title cards in Chinese
 
-DO NOT include: Korean/English TTS subtitles, product packaging micro-text, logos, faces, backgrounds, watermarks without Chinese.
+DO NOT include: Korean/English TTS subtitles (usually top or bottom safe-area bars), product packaging micro-text, logos, faces, backgrounds.
+
+Korean narration subtitles are often in a dark bar at the TOP — never use that region as Chinese.
+Chinese product captions are usually CENTER or lower-middle with white/yellow outlined glyphs — return tight boxes on those glyphs only.
 
 For each Chinese text region return a TIGHT bounding box covering ONLY the glyph pixels with ~1-2% margin.
 - Multiple separate text lines = separate boxes
@@ -87,6 +90,9 @@ function parseBox(raw: unknown): DetectedChineseMosaicBox | null {
   const text = typeof o.text === "string" ? o.text.trim() : undefined
   if (text && !CHINESE_RE.test(text)) return null
   if (w < 1.0 || h < 0.7) return null
+  if (w > 78 && h > 16 && cy > 62) return null
+  if (w > 88 && h > 10) return null
+  if (h > 28) return null
 
   return padBox({
     center_x_pct: clampPct(cx),
@@ -124,7 +130,7 @@ export async function visionDetectMosaicBatch(
           role: "system" as const,
           content: `${MOSAIC_VISION_SYSTEM}
 
-JSON: {"frames":[{"index":0,"boxes":[{"left_pct":8,"top_pct":82,"right_pct":92,"bottom_pct":91,"text":"无需打孔"}]}]}`,
+JSON: {"frames":[{"index":0,"boxes":[{"left_pct":14,"top_pct":43,"right_pct":86,"bottom_pct":51,"text":"车载吸尘器"}]}]}`,
         },
         {
           role: "user" as const,

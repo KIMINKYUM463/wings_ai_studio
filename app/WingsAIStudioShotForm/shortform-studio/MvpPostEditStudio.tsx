@@ -1601,9 +1601,6 @@ export function MvpPostEditStudio({
           onVideoEnded={() => {
             if (!audioUrl) pausePreview()
           }}
-          onVideoPlay={() => {
-            if (videoRef.current) videoRef.current.playbackRate = 1
-          }}
           onAudioLoaded={setAudioDuration}
           onAudioTimeUpdate={handleAudioTimeUpdate}
           onAudioEnded={pausePreview}
