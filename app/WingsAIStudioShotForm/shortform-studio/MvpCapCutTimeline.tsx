@@ -10,9 +10,9 @@ import { videoRangeFromVoiceCue } from "@/lib/shotform-mvp-preview-sync"
 import { MVP_BGM_CLIP_MIN_SEC, type MvpBgmClip } from "@/lib/mvp-studio-types"
 import {
   isMosaicOverlay,
-  patchMosaicOverlayTime,
-} from "@/lib/mvp-mosaic-overlay-utils"
-import type { PlacedStudioOverlay } from "@/lib/shotform-studio-overlay-catalog"
+  type PlacedStudioOverlay,
+} from "@/lib/shotform-studio-overlay-catalog"
+import { patchMosaicOverlayTime } from "@/lib/mvp-mosaic-overlay-utils"
 import { cn } from "@/lib/utils"
 import { isMvpThumbnailIntroTime } from "@/lib/mvp-thumbnail-intro"
 
