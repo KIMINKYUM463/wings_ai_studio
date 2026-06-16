@@ -12,6 +12,7 @@ import {
 type JobRecord = AutoEditJobResult & {
   outputPath?: string
   outputStoragePath?: string | null
+  localOutputPath?: string
   createdAt: number
 }
 
@@ -169,7 +170,21 @@ export async function readAutoEditOutput(jobId: string): Promise<{ buffer: Buffe
     }
   }
 
-  if (!job.outputPath) return null
+  if (!job.outputPath) {
+    const localPath = job.localOutputPath
+    if (localPath) {
+      try {
+        const buffer = await fs.readFile(localPath)
+        if (buffer.length < 20_000) return null
+        const title = job.analysis?.title || job.analyses?.[0]?.title || "shopping-short"
+        const safe = title.slice(0, 32).replace(/[^\w\uac00-\ud7af\u4e00-\u9fff-]+/g, "_")
+        return { buffer, filename: `${safe || "auto-edit"}_${jobId.slice(0, 8)}.mp4` }
+      } catch {
+        /* fall through */
+      }
+    }
+    return null
+  }
   try {
     const buffer = await fs.readFile(job.outputPath)
     if (buffer.length < 20_000) return null

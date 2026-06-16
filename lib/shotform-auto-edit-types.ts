@@ -281,6 +281,10 @@ export type AutoEditJobResult = {
   error?: string
   videoCount?: number
   excludedVideos?: Array<{ video_id: string; title: string; reason: string }>
+  /** 로컬 ffmpeg 렌더 — 작업·결과 폴더 */
+  renderMode?: "server" | "local"
+  localWorkDir?: string
+  localOutputPath?: string
 }
 
 /** 브라우저에서 미리 추출한 영상 메타 */
@@ -316,6 +320,10 @@ export type AutoEditInput = {
   analysisMode?: AutoEditAnalysisMode
   /** 브라우저에서 미리 추출한 길이·키프레임 (서버 ffmpeg 분석 생략) */
   clientVideoMeta?: Record<string, ClientVideoMetaEntry>
+  /** server=Cloud Run(배포 기본) | local=지정 폴더 ffmpeg (로컬 dev 전용) */
+  renderMode?: "server" | "local"
+  /** 로컬 렌더 작업 루트 — sources/ · jobs/{jobId}/output.mp4 */
+  localWorkDir?: string
 }
 
 /** UI 선택용 */

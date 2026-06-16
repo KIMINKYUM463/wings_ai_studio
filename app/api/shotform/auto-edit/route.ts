@@ -3,6 +3,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import type { AutoEditInput, AutoEditTargetDuration, AutoEditVideoInput, ClientVideoMetaEntry } from "@/lib/shotform-auto-edit-types"
 import { MAX_AUTO_EDIT_VIDEOS, normalizeAutoEditAnalysisMode, normalizeAutoEditTargetDuration } from "@/lib/shotform-auto-edit-types"
 import { createAutoEditWorkDir } from "@/lib/shotform-auto-edit-ffmpeg"
+import { createLocalAutoEditWorkDir, normalizeAutoEditRenderMode } from "@/lib/shotform-local-render-dir"
 import { persistAutoEditJobToSupabase } from "@/lib/shotform-auto-edit-job-store"
 import { getAutoEditJobAsync, putAutoEditJob } from "@/lib/shotform-auto-edit-jobs"
 import { runAutoEditPipeline } from "@/lib/shotform-auto-edit-pipeline"
@@ -166,17 +167,29 @@ function buildPipelineInput(
     scriptTopic: typeof body.scriptTopic === "string" ? body.scriptTopic.trim() || undefined : undefined,
     sourceKeywords: parseSourceKeywords(body.sourceKeywords),
     clientVideoMeta: parseClientVideoMeta(body.clientVideoMeta),
+    renderMode: normalizeAutoEditRenderMode(body.renderMode),
+    localWorkDir:
+      typeof body.localWorkDir === "string" && body.localWorkDir.trim()
+        ? body.localWorkDir.trim()
+        : undefined,
   }
 }
 
 async function startPipelineAsync(input: AutoEditInput, clientJobId?: string) {
-  const { dir, id: jobId } = await createAutoEditWorkDir(clientJobId)
+  const useLocal =
+    input.renderMode === "local" && Boolean(input.localWorkDir?.trim()) && !process.env.VERCEL
+  const preset = useLocal
+    ? await createLocalAutoEditWorkDir(input.localWorkDir!, clientJobId)
+    : await createAutoEditWorkDir(clientJobId)
+  const { dir, id: jobId } = preset
   const createdAt = Date.now()
   const initialJob = {
     jobId,
     step: "download" as const,
     videoCount: input.videos.length,
     createdAt,
+    renderMode: useLocal ? ("local" as const) : ("server" as const),
+    localWorkDir: useLocal ? preset.workRoot : undefined,
   }
   putAutoEditJob(initialJob)
   if (process.env.VERCEL || process.env.NEXT_PUBLIC_SUPABASE_URL) {
@@ -309,6 +322,21 @@ export async function POST(req: NextRequest) {
         { error: `videos(1~${MAX_AUTO_EDIT_VIDEOS}개) 또는 videoUrl이 필요합니다.` },
         { status: 400 }
       )
+    }
+
+    const renderMode = normalizeAutoEditRenderMode(body.renderMode)
+    const localWorkDir =
+      typeof body.localWorkDir === "string" ? body.localWorkDir.trim() : ""
+    if (renderMode === "local") {
+      if (process.env.VERCEL) {
+        return NextResponse.json(
+          { error: "로컬 렌더는 npm run dev 로 실행한 로컬 서버에서만 사용할 수 있습니다." },
+          { status: 400 }
+        )
+      }
+      if (!localWorkDir) {
+        return NextResponse.json({ error: "localWorkDir(작업 폴더 경로)가 필요합니다." }, { status: 400 })
+      }
     }
 
     const openaiApiKey = openaiKey(body)

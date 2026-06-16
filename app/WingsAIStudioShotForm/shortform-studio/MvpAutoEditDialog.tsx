@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils"
 import { studio } from "../components/ShotFormStudioUI"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
 import type {
   AutoEditAnalysisMode,
   AutoEditJobResult,
@@ -41,6 +42,8 @@ import {
 } from "@/lib/shotform-mvp-pick-video-download"
 import { extractClientVideoMetaForPicks } from "@/lib/shotform-client-video-meta"
 import { uploadAutoEditSourcesFromBrowser } from "@/lib/shotform-auto-edit-client-source-upload"
+import { uploadAutoEditSourcesToLocalDir } from "@/lib/shotform-auto-edit-client-local-source-upload"
+import type { AutoEditRenderMode } from "@/lib/shotform-local-render-dir"
 import { isAutoEditNoUsableVideoError } from "@/lib/shotform-auto-edit-errors"
 import {
   VMAKE_SUBTITLE_REMOVAL_SLOW_HINT,
@@ -57,6 +60,7 @@ function durationSliderIndex(duration: AutoEditTargetDuration): number {
 
 /** 「쓸수있는 영상 없음」 간헐 오류 — 자동 재시도 횟수 (총 1+2=3회 시도) */
 const AUTO_EDIT_USABLE_VIDEO_MAX_RETRIES = 2
+const LOCAL_WORK_DIR_STORAGE_KEY = "shotform_local_work_dir"
 
 const STEPS: Array<{ key: AutoEditJobResult["step"]; label: string }> = [
   { key: "download", label: "영상 다운로드" },
@@ -353,6 +357,14 @@ export function MvpAutoEditDialog({
   const [targetDuration, setTargetDuration] = useState<AutoEditTargetDuration>(30)
   const [analysisMode, setAnalysisMode] = useState<AutoEditAnalysisMode>(AUTO_EDIT_ANALYSIS_MODE_DEFAULT)
   const [removeChineseSubtitles, setRemoveChineseSubtitles] = useState(false)
+  const [renderMode, setRenderMode] = useState<AutoEditRenderMode>("server")
+  const [localWorkDir, setLocalWorkDir] = useState("")
+  const [localRenderCap, setLocalRenderCap] = useState<{
+    available: boolean
+    defaultWorkDir?: string
+    reason?: string
+    layout?: Record<string, string>
+  } | null>(null)
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<AutoEditJobResult | null>(null)
   const [err, setErr] = useState<string | null>(null)
@@ -382,6 +394,36 @@ export function MvpAutoEditDialog({
   }, [])
 
   useEffect(() => () => revokePreviewBlob(), [revokePreviewBlob])
+
+  useEffect(() => {
+    const saved = localStorage.getItem(LOCAL_WORK_DIR_STORAGE_KEY)
+    if (saved) setLocalWorkDir(saved)
+  }, [])
+
+  useEffect(() => {
+    if (!open) return
+    const host = window.location.hostname
+    if (host !== "localhost" && host !== "127.0.0.1") {
+      setLocalRenderCap({ available: false, reason: "배포 사이트에서는 서버 렌더만 사용됩니다." })
+      return
+    }
+    void fetch("/api/shotform/auto-edit/local-capabilities")
+      .then((r) => r.json())
+      .then((json: { available?: boolean; defaultWorkDir?: string; reason?: string; layout?: Record<string, string> }) => {
+        setLocalRenderCap({
+          available: Boolean(json.available),
+          defaultWorkDir: json.defaultWorkDir,
+          reason: json.reason,
+          layout: json.layout,
+        })
+        if (json.defaultWorkDir) {
+          setLocalWorkDir((prev) => prev.trim() || json.defaultWorkDir || "")
+        }
+      })
+      .catch(() => setLocalRenderCap({ available: false, reason: "로컬 렌더 상태를 확인하지 못했습니다." }))
+  }, [open])
+
+  const localRenderAvailable = Boolean(localRenderCap?.available)
 
   const fetchResultMp4 = useCallback(
     async (_downloadUrl: string, jobId: string) => {
@@ -557,11 +599,26 @@ export function MvpAutoEditDialog({
 
           let sourcesPreUploaded = false
           const requireBrowserUpload =
-            analysisMode === "precision" ||
-            hasPrefetchedBlobs ||
-            requireBrowserUploadForRender ||
-            (!allMetaReady && !skipBrowserUploadForFastAnalyze)
-          if (requireBrowserUpload) {
+            renderMode !== "local" &&
+            (analysisMode === "precision" ||
+              hasPrefetchedBlobs ||
+              requireBrowserUploadForRender ||
+              (!allMetaReady && !skipBrowserUploadForFastAnalyze))
+
+          if (renderMode === "local") {
+            const workDir = localWorkDir.trim()
+            if (!workDir) {
+              throw new Error("로컬 작업 폴더 경로를 입력해 주세요.")
+            }
+            localStorage.setItem(LOCAL_WORK_DIR_STORAGE_KEY, workDir)
+            setDownloadHint("로컬 작업 폴더에 소스 영상 저장 중…")
+            await uploadAutoEditSourcesToLocalDir(
+              workDir,
+              nextPicks,
+              (msg) => setDownloadHint(msg),
+              prefetchedBlobs
+            )
+          } else if (requireBrowserUpload) {
             setDownloadHint(
               analysisMode === "precision"
                 ? "정밀 분석 — 브라우저에서 영상을 서버에 전달 중…"
@@ -606,6 +663,8 @@ export function MvpAutoEditDialog({
               clientVideoMeta: clientVideoMetaForApi,
               clientJobId: preJobId,
               sourcesPreUploaded,
+              renderMode,
+              localWorkDir: renderMode === "local" ? localWorkDir.trim() : undefined,
             }),
           })
           const started = (await res.json().catch(() => ({}))) as AutoEditJobResult & {
@@ -727,6 +786,8 @@ export function MvpAutoEditDialog({
     targetDuration,
     analysisMode,
     removeChineseSubtitles,
+    renderMode,
+    localWorkDir,
     revokePreviewBlob,
     fetchResultMp4,
     projectId,
@@ -839,6 +900,60 @@ export function MvpAutoEditDialog({
               ))}
             </div>
           </div>
+
+          {localRenderAvailable ? (
+            <div className="rounded-lg border border-emerald-500/25 bg-emerald-950/10 px-3 py-2.5">
+              <p className="mb-2 text-xs font-medium text-emerald-200/90">ffmpeg 렌더 방식</p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => setRenderMode("server")}
+                  className={cn(
+                    "rounded-lg border px-3 py-2 text-left transition",
+                    renderMode === "server"
+                      ? "border-violet-500/60 bg-violet-500/15 ring-1 ring-violet-500/40"
+                      : "border-white/10 bg-black/30 hover:border-white/20"
+                  )}
+                >
+                  <p className="text-xs font-semibold text-slate-200">서버 (Cloud Run)</p>
+                  <p className="mt-0.5 text-[10px] text-slate-500">배포와 동일 · Vercel 경유</p>
+                </button>
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => setRenderMode("local")}
+                  className={cn(
+                    "rounded-lg border px-3 py-2 text-left transition",
+                    renderMode === "local"
+                      ? "border-emerald-500/60 bg-emerald-500/15 ring-1 ring-emerald-500/40"
+                      : "border-white/10 bg-black/30 hover:border-white/20"
+                  )}
+                >
+                  <p className="text-xs font-semibold text-emerald-200">로컬 (ffmpeg)</p>
+                  <p className="mt-0.5 text-[10px] text-slate-500">지정 폴더 · CDN 만료 우회</p>
+                </button>
+              </div>
+              {renderMode === "local" ? (
+                <div className="mt-3 space-y-2">
+                  <Label htmlFor="shotform-local-work-dir" className="text-[10px] text-slate-400">
+                    작업 폴더 (sources · jobs 하위 생성)
+                  </Label>
+                  <Input
+                    id="shotform-local-work-dir"
+                    value={localWorkDir}
+                    disabled={loading}
+                    onChange={(e) => setLocalWorkDir(e.target.value)}
+                    placeholder={localRenderCap?.defaultWorkDir || "C:\\Users\\이름\\ShotForm\\auto-edit"}
+                    className="border-white/10 bg-black/40 text-xs text-slate-200"
+                  />
+                  <p className="text-[10px] leading-snug text-slate-500">
+                    소스: sources/video_001.mp4 · 결과: jobs/&#123;jobId&#125;/output.mp4
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           <div
             className={cn(
@@ -1164,6 +1279,12 @@ export function MvpAutoEditDialog({
                 )}
               </pre>
             </details>
+          ) : null}
+
+          {result?.localOutputPath ? (
+            <p className="break-all text-xs text-emerald-300/90">
+              로컬 저장: {result.localOutputPath}
+            </p>
           ) : null}
 
           {result?.renderSkipped ? (

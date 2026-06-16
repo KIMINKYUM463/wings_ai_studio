@@ -33,6 +33,15 @@ import {
 import { filterAnalysesForEmergencyEdit, filterAnalysesForProductEdit } from "@/lib/shotform-auto-edit-product-filter"
 import { putAutoEditJob } from "@/lib/shotform-auto-edit-jobs"
 import {
+  copyCachedSourceToJob,
+  createLocalAutoEditWorkDir,
+  isLocalRenderAllowedOnServer,
+  localJobOutputPath,
+  normalizeLocalWorkDir,
+  persistSourceToLocalCache,
+  writeLocalJobArtifacts,
+} from "@/lib/shotform-local-render-dir"
+import {
   downloadAutoEditPrecisionMetaFromSupabase,
   downloadAutoEditSourceFromSupabase,
   uploadAutoEditOutputToSupabase,
@@ -76,7 +85,17 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
     return { jobId: "", step: "error", error: "편집할 영상이 없습니다." }
   }
 
-  const { dir, id: jobId } = input.presetWork ?? (await createAutoEditWorkDir())
+  const useLocalRender =
+    input.renderMode === "local" &&
+    Boolean(input.localWorkDir?.trim()) &&
+    isLocalRenderAllowedOnServer()
+  const localWorkRoot = useLocalRender ? normalizeLocalWorkDir(input.localWorkDir!) : null
+
+  const { dir, id: jobId } =
+    input.presetWork ??
+    (useLocalRender && localWorkRoot
+      ? await createLocalAutoEditWorkDir(localWorkRoot)
+      : await createAutoEditWorkDir())
   const createdAt = Date.now()
   const sourceKeywords = normalizeUserSourceKeywords(input.sourceKeywords)
   const base: AutoEditJobResult = {
@@ -84,6 +103,8 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
     step: "download",
     videoCount: videos.length,
     sourceKeywords: sourceKeywords.length ? sourceKeywords : undefined,
+    renderMode: useLocalRender ? "local" : "server",
+    localWorkDir: localWorkRoot ?? undefined,
   }
   putAutoEditJob({ ...base, createdAt })
 
@@ -91,6 +112,11 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
 
   try {
     resolveFfmpegPath()
+    if (useLocalRender && !hasFfmpeg()) {
+      throw new Error(
+        "로컬 ffmpeg를 찾지 못했습니다. npm install 후 npm run dev 로 실행하거나, 서버 렌더 모드를 사용해 주세요."
+      )
+    }
 
     const sourcePaths: Record<string, string> = {}
     const uploads = input.uploadedVideos ?? {}
@@ -117,7 +143,7 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
         return analysisMode === "fast"
       })
 
-    const useCloudRunRender = shouldUseCloudRunForAutoEditRender()
+    const useCloudRunRender = !useLocalRender && shouldUseCloudRunForAutoEditRender()
     const hasUploadedBuffers = videos.every((v) => uploads[v.video_id]?.length)
     const sourcesPreUploaded = Boolean(input.sourcesPreUploaded)
     const skipServerCdnDownload =
@@ -130,10 +156,15 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
         videos.map(async (v) => {
           if (sourcePaths[v.video_id]) return
           const sourcePath = path.join(dir, `source_${v.video_id}.mp4`)
+          if (localWorkRoot && (await copyCachedSourceToJob(localWorkRoot, v.video_id, sourcePath))) {
+            sourcePaths[v.video_id] = sourcePath
+            return
+          }
           const uploaded = uploads[v.video_id]
           if (uploaded?.length) {
             await saveUploadedVideoBuffer(uploaded, sourcePath)
             sourcePaths[v.video_id] = sourcePath
+            if (localWorkRoot) await persistSourceToLocalCache(localWorkRoot, v.video_id, sourcePath)
             return
           }
           if (sourcesPreUploaded) {
@@ -141,11 +172,13 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
             if (remote?.length) {
               await saveUploadedVideoBuffer(remote, sourcePath)
               sourcePaths[v.video_id] = sourcePath
+              if (localWorkRoot) await persistSourceToLocalCache(localWorkRoot, v.video_id, sourcePath)
               return
             }
           }
           await downloadSourceVideo(v.videoUrl, sourcePath)
           sourcePaths[v.video_id] = sourcePath
+          if (localWorkRoot) await persistSourceToLocalCache(localWorkRoot, v.video_id, sourcePath)
         })
       )
     }
@@ -305,6 +338,19 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
       excludedVideos,
       createdAt,
     })
+    if (localWorkRoot) {
+      await writeLocalJobArtifacts({
+        workRoot: localWorkRoot,
+        jobId,
+        meta: {
+          step: "edit_plan",
+          targetDuration: input.targetDuration,
+          videoCount: videos.length,
+          titles: videos.map((v) => v.title || v.video_id),
+        },
+        editPlan,
+      })
+    }
 
     let downloadUrl: string | undefined
     let outputDuration: number | undefined
@@ -363,14 +409,30 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
       outputDuration = await validateRenderedMp4(outputPath, 1, editPlan.target_duration)
 
       outputStoragePath = null
-      for (let attempt = 0; attempt < 2; attempt++) {
-        outputStoragePath = await uploadAutoEditOutputToSupabase(jobId, outputPath)
-        if (outputStoragePath) break
+      if (!useLocalRender) {
+        for (let attempt = 0; attempt < 2; attempt++) {
+          outputStoragePath = await uploadAutoEditOutputToSupabase(jobId, outputPath)
+          if (outputStoragePath) break
+        }
+        if (process.env.VERCEL && !outputStoragePath) {
+          throw new Error(
+            "렌더는 완료됐지만 MP4를 Storage에 저장하지 못했습니다. Supabase video-sources 버킷·업로드 권한을 확인해 주세요."
+          )
+        }
       }
-      if (process.env.VERCEL && !outputStoragePath) {
-        throw new Error(
-          "렌더는 완료됐지만 MP4를 Storage에 저장하지 못했습니다. Supabase video-sources 버킷·업로드 권한을 확인해 주세요."
-        )
+
+      if (localWorkRoot) {
+        await writeLocalJobArtifacts({
+          workRoot: localWorkRoot,
+          jobId,
+          meta: {
+            step: "render",
+            outputPath,
+            outputDuration,
+            localOutputPath: localJobOutputPath(localWorkRoot, jobId),
+          },
+          editPlan,
+        })
       }
 
       downloadUrl = autoEditDownloadUrl(jobId)
@@ -458,6 +520,8 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
       createdAt,
       outputPath: renderSkipped ? undefined : outputPath,
       outputStoragePath: renderSkipped ? undefined : outputStoragePath ?? undefined,
+      localOutputPath:
+        !renderSkipped && localWorkRoot ? localJobOutputPath(localWorkRoot, jobId) : undefined,
     }
 
     putAutoEditJob({ ...preScriptJob, step: "script" })
@@ -477,6 +541,10 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
       jobId,
       step: "done",
       sourceKeywords: sourceKeywords.length ? sourceKeywords : undefined,
+      renderMode: useLocalRender ? "local" : "server",
+      localWorkDir: localWorkRoot ?? undefined,
+      localOutputPath:
+        !renderSkipped && localWorkRoot ? localJobOutputPath(localWorkRoot, jobId) : undefined,
       analyses: usable,
       analysis: usable[0],
       productAnalysis,
@@ -496,6 +564,7 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
       ...result,
       outputPath: renderSkipped ? undefined : outputPath,
       outputStoragePath: renderSkipped ? undefined : outputStoragePath ?? undefined,
+      localOutputPath: result.localOutputPath,
       createdAt,
     })
     return result
