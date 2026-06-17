@@ -2,6 +2,9 @@
 
 import { MAX_AUTO_EDIT_VIDEOS } from "@/lib/shotform-auto-edit-types"
 
+/** 재가공 AI편집(YouTube·TikTok) 탭 — 일시 비노출 */
+export const MVP_REPROCESS_SOURCE_ENABLED = false
+
 export const MVP_LABELS = {
   sourceFind: "1. 소스 찾기",
   tabKeyword: "키워드로 소스 찾기",

@@ -40,8 +40,8 @@ import { convertWebmBlobToMp4 } from "@/lib/mvp-webm-to-mp4"
 import type { EditPlanSegment } from "@/lib/shotform-auto-edit-types"
 import {
   drawVideoContainWithSourceTransform,
-  editPlanSegmentAtOutputTime,
-  getMvpVideoSourceTransform,
+  editPlanSegmentIndexAtOutputTime,
+  getMvpEditPlanClipTransform,
   isDefaultMvpVideoSourceTransform,
   type MvpVideoSourceTransforms,
 } from "@/lib/mvp-video-source-transform"
@@ -509,11 +509,8 @@ export async function renderMvpPreviewToBlob(
       if (showThumbnail && thumbnailImg) {
         drawImageCover(ctx, thumbnailImg, canvas.width, canvas.height)
       } else if (video.readyState >= 2) {
-        const activeSeg = editPlan.length ? editPlanSegmentAtOutputTime(editPlan, videoT) : null
-        const sourceTransform = getMvpVideoSourceTransform(
-          videoSourceTransforms,
-          activeSeg?.video_id
-        )
+        const clipIndex = editPlan.length ? editPlanSegmentIndexAtOutputTime(editPlan, videoT) : 0
+        const sourceTransform = getMvpEditPlanClipTransform(videoSourceTransforms, clipIndex)
         if (isDefaultMvpVideoSourceTransform(sourceTransform)) {
           drawVideoContain(ctx, video, canvas.width, canvas.height)
         } else {

@@ -69,6 +69,42 @@ export function editPlanSegmentAtOutputTime(
   return plan[0]!
 }
 
+/** 출력 타임라인 기준 짜집기 클립 인덱스 */
+export function editPlanSegmentIndexAtOutputTime(
+  plan: readonly EditPlanSegment[],
+  outputSec: number
+): number {
+  if (!plan.length) return 0
+  for (let i = 0; i < plan.length; i++) {
+    const seg = plan[i]!
+    if (outputSec >= seg.output_start - 0.02 && outputSec < seg.output_end - 0.01) return i
+  }
+  const last = plan.length - 1
+  if (outputSec >= plan[last]!.output_start - 0.02) return last
+  return 0
+}
+
+export const MVP_EDIT_PLAN_CLIP_KEY_PREFIX = "clip:"
+
+/** 짜집기 타임라인 클립별 transform 키 (video_id 공유 클립도 개별 조정) */
+export function mvpEditPlanClipKey(clipIndex: number): string {
+  return `${MVP_EDIT_PLAN_CLIP_KEY_PREFIX}${clipIndex}`
+}
+
+export function parseMvpEditPlanClipKey(key: string): number | null {
+  if (!key.startsWith(MVP_EDIT_PLAN_CLIP_KEY_PREFIX)) return null
+  const n = parseInt(key.slice(MVP_EDIT_PLAN_CLIP_KEY_PREFIX.length), 10)
+  return Number.isFinite(n) && n >= 0 ? n : null
+}
+
+export function getMvpEditPlanClipTransform(
+  map: MvpVideoSourceTransforms,
+  clipIndex: number | null | undefined
+): MvpVideoSourceTransform {
+  if (clipIndex == null || clipIndex < 0) return defaultMvpVideoSourceTransform()
+  return getMvpVideoSourceTransform(map, mvpEditPlanClipKey(clipIndex))
+}
+
 export function isDefaultMvpVideoSourceTransform(transform: MvpVideoSourceTransform): boolean {
   return !transform.flipH && clampMvpVideoSourceScale(transform.scale) <= 1.001
 }

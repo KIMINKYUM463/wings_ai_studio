@@ -85,8 +85,9 @@ import {
   mvpPreviewTimelineSec,
 } from "@/lib/mvp-thumbnail-intro"
 import {
-  editPlanSegmentAtOutputTime,
-  getMvpVideoSourceTransform,
+  editPlanSegmentIndexAtOutputTime,
+  getMvpEditPlanClipTransform,
+  mvpEditPlanClipKey,
   mvpVideoSourceTransformStyle,
   videoSourceLabel,
   type MvpVideoSourceTransform,
@@ -292,7 +293,7 @@ export function MvpCapCutEditor(props: Props) {
     "info" | "subtitle" | "thumbnail" | "seo" | "script" | "audio"
   >("subtitle")
   const [selectedBgmClipId, setSelectedBgmClipId] = useState<string | null>(null)
-  const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null)
+  const [selectedEditPlanIndex, setSelectedEditPlanIndex] = useState<number | null>(null)
   const [pendingCatalogId, setPendingCatalogId] = useState(
     MVP_AUDIO_CATALOG[0]?.id ?? "bgm-1"
   )
@@ -502,34 +503,36 @@ export function MvpCapCutEditor(props: Props) {
   const showThumbnailIntro =
     thumbnailIntroOn && Boolean(thumbnailUrl) && isMvpThumbnailIntroTime(previewTimelineSec)
   const editPlan = result.editPlan?.edit_plan ?? []
-  const activeVideoSegment = useMemo(
-    () => editPlanSegmentAtOutputTime(editPlan, previewTimelineSec),
-    [editPlan, previewTimelineSec]
+  const previewClipIndex = editPlanSegmentIndexAtOutputTime(editPlan, previewTimelineSec)
+  const previewTransform = getMvpEditPlanClipTransform(videoSourceTransforms, previewClipIndex)
+  const selectedClipSegment =
+    selectedEditPlanIndex != null ? editPlan[selectedEditPlanIndex] ?? null : null
+  const selectedVideoTransform = getMvpEditPlanClipTransform(
+    videoSourceTransforms,
+    selectedEditPlanIndex
   )
-  const previewVideoId = activeVideoSegment?.video_id ?? selectedVideoId
-  const previewTransform = getMvpVideoSourceTransform(videoSourceTransforms, previewVideoId)
-  const selectedVideoTransform = getMvpVideoSourceTransform(videoSourceTransforms, selectedVideoId)
 
   const patchVideoSourceTransform = useCallback(
-    (videoId: string, patch: Partial<MvpVideoSourceTransform>) => {
-      const prev = getMvpVideoSourceTransform(videoSourceTransforms, videoId)
+    (clipIndex: number, patch: Partial<MvpVideoSourceTransform>) => {
+      const key = mvpEditPlanClipKey(clipIndex)
+      const prev = getMvpEditPlanClipTransform(videoSourceTransforms, clipIndex)
       const next = { ...prev, ...patch }
       if (next.scale === 1 && !next.flipH) {
-        const { [videoId]: _removed, ...rest } = videoSourceTransforms
+        const { [key]: _removed, ...rest } = videoSourceTransforms
         onVideoSourceTransformsChange(rest)
         return
       }
-      onVideoSourceTransformsChange({ ...videoSourceTransforms, [videoId]: next })
+      onVideoSourceTransformsChange({ ...videoSourceTransforms, [key]: next })
     },
     [videoSourceTransforms, onVideoSourceTransformsChange]
   )
 
   const videoZoom = useMvpVideoSourceZoom({
-    enabled: Boolean(selectedVideoId) && !showThumbnailIntro,
+    enabled: selectedEditPlanIndex != null && !showThumbnailIntro,
     scale: selectedVideoTransform.scale,
     onScaleChange: (scale) => {
-      if (!selectedVideoId) return
-      patchVideoSourceTransform(selectedVideoId, { scale })
+      if (selectedEditPlanIndex == null) return
+      patchVideoSourceTransform(selectedEditPlanIndex, { scale })
     },
   })
   const previewSubtitleText = showThumbnailIntro
@@ -654,7 +657,7 @@ export function MvpCapCutEditor(props: Props) {
                 ref={previewStageRef}
                 className={cn(
                   "relative aspect-[9/16] bg-black",
-                  selectedVideoId && !showThumbnailIntro && "cursor-ns-resize"
+                  selectedEditPlanIndex != null && !showThumbnailIntro && "cursor-ns-resize"
                 )}
                 onPointerDown={(e) => {
                   const t = e.target as HTMLElement
@@ -721,13 +724,13 @@ export function MvpCapCutEditor(props: Props) {
                 {previewSubtitleText ? (
                   <div style={buildSubtitleOverlayStyle(subStyle)}>{previewSubtitleText}</div>
                 ) : null}
-                {selectedVideoId && !showThumbnailIntro ? (
+                {selectedEditPlanIndex != null && selectedClipSegment && !showThumbnailIntro ? (
                   <div
                     data-video-zoom-skip
                     className="pointer-events-none absolute bottom-2 left-2 right-2 rounded-md border border-white/15 bg-black/55 px-2 py-1 text-center text-[9px] text-slate-200"
                   >
-                    {videoSourceLabel(result, selectedVideoId)} · 휠·드래그 확대 ·{" "}
-                    {Math.round(selectedVideoTransform.scale * 100)}%
+                    컷 {selectedEditPlanIndex + 1} · {videoSourceLabel(result, selectedClipSegment.video_id)} ·
+                    휠·드래그 확대 · {Math.round(selectedVideoTransform.scale * 100)}%
                     {selectedVideoTransform.flipH ? " · 반전" : ""}
                   </div>
                 ) : null}
@@ -784,7 +787,7 @@ export function MvpCapCutEditor(props: Props) {
               onSelectCue={(i) => {
                 setSelectedCueIndex(i)
                 setSelectedOverlayId(null)
-                setSelectedVideoId(null)
+                setSelectedEditPlanIndex(null)
                 setInspectorTab("subtitle")
               }}
               onSeek={onSeek}
@@ -794,7 +797,7 @@ export function MvpCapCutEditor(props: Props) {
                 setSelectedBgmClipId(id)
                 if (id) {
                   setSelectedOverlayId(null)
-                  setSelectedVideoId(null)
+                  setSelectedEditPlanIndex(null)
                 }
               }}
               onBgmClipsChange={onBgmClipsChange}
@@ -806,15 +809,15 @@ export function MvpCapCutEditor(props: Props) {
                 if (id) {
                   setSelectedCueIndex(-1)
                   setSelectedBgmClipId(null)
-                  setSelectedVideoId(null)
+                  setSelectedEditPlanIndex(null)
                   setInspectorTab("subtitle")
                 }
               }}
               onPlacedOverlaysChange={onPlacedOverlaysChange}
-              selectedVideoId={selectedVideoId}
-              onSelectVideoId={(videoId) => {
-                setSelectedVideoId(videoId)
-                if (videoId) {
+              selectedEditPlanIndex={selectedEditPlanIndex}
+              onSelectEditPlanIndex={(index) => {
+                setSelectedEditPlanIndex(index)
+                if (index != null) {
                   setSelectedCueIndex(-1)
                   setSelectedOverlayId(null)
                   setSelectedBgmClipId(null)
@@ -858,15 +861,16 @@ export function MvpCapCutEditor(props: Props) {
           <div className="flex-1 overflow-y-auto p-3">
             {inspectorTab === "info" ? (
               <div className="space-y-3">
-                {selectedVideoId ? (
+                {selectedEditPlanIndex != null && selectedClipSegment ? (
                   <div className="rounded-xl border border-emerald-500/25 bg-emerald-950/20 p-3">
-                    <p className="text-xs font-medium text-emerald-100">영상 소스 · 화면 조정</p>
+                    <p className="text-xs font-medium text-emerald-100">짜집기 클립 · 화면 조정</p>
                     <p className="mt-1 text-[10px] leading-relaxed text-slate-400">
-                      타임라인 「영상」 트랙에서 선택한 소스입니다. 미리보기에서 휠·위아래 드래그로
-                      확대하고, 좌우 반전을 켤 수 있습니다.
+                      타임라인 「영상」 트랙에서 선택한 컷만 확대·좌우 반전됩니다. 미리보기에서 휠·
+                      위아래 드래그로 확대할 수 있습니다.
                     </p>
-                    <p className="mt-2 truncate text-[11px] font-medium text-white">
-                      {videoSourceLabel(result, selectedVideoId)}
+                    <p className="mt-2 text-[11px] font-medium text-white">
+                      컷 {selectedEditPlanIndex + 1} ·{" "}
+                      {videoSourceLabel(result, selectedClipSegment.video_id)}
                     </p>
                     <div className="mt-3 space-y-2">
                       <div className="flex items-center justify-between gap-2">
@@ -881,7 +885,9 @@ export function MvpCapCutEditor(props: Props) {
                         step={1}
                         value={[Math.round(selectedVideoTransform.scale * 100)]}
                         onValueChange={(v) =>
-                          patchVideoSourceTransform(selectedVideoId, { scale: (v[0] ?? 100) / 100 })
+                          patchVideoSourceTransform(selectedEditPlanIndex, {
+                            scale: (v[0] ?? 100) / 100,
+                          })
                         }
                       />
                       <div className="flex flex-wrap gap-2">
@@ -889,9 +895,14 @@ export function MvpCapCutEditor(props: Props) {
                           type="button"
                           size="sm"
                           variant={selectedVideoTransform.flipH ? "default" : "outline"}
-                          className="h-8 gap-1.5 text-xs"
+                          className={cn(
+                            "h-8 gap-1.5 text-xs font-medium",
+                            selectedVideoTransform.flipH
+                              ? "border-emerald-400 bg-emerald-600 text-white hover:bg-emerald-500"
+                              : "border-emerald-500/50 bg-slate-900 text-emerald-100 hover:bg-emerald-950/60"
+                          )}
                           onClick={() =>
-                            patchVideoSourceTransform(selectedVideoId, {
+                            patchVideoSourceTransform(selectedEditPlanIndex, {
                               flipH: !selectedVideoTransform.flipH,
                             })
                           }
@@ -903,9 +914,12 @@ export function MvpCapCutEditor(props: Props) {
                           type="button"
                           size="sm"
                           variant="ghost"
-                          className="h-8 text-xs text-slate-400"
+                          className="h-8 text-xs text-slate-300 hover:bg-white/10 hover:text-white"
                           onClick={() =>
-                            patchVideoSourceTransform(selectedVideoId, { scale: 1, flipH: false })
+                            patchVideoSourceTransform(selectedEditPlanIndex, {
+                              scale: 1,
+                              flipH: false,
+                            })
                           }
                         >
                           초기화
@@ -915,7 +929,8 @@ export function MvpCapCutEditor(props: Props) {
                   </div>
                 ) : (
                   <p className="rounded-lg border border-white/10 bg-black/25 px-3 py-2 text-[10px] text-slate-500">
-                    타임라인 「영상」 트랙의 클립을 클릭하면 소스별 확대·좌우 반전을 조절할 수 있습니다.
+                    타임라인 「영상」 트랙의 짜집기 클립을 클릭하면 컷별 확대·좌우 반전을 조절할 수
+                    있습니다.
                   </p>
                 )}
                 {onVideoReplaced ? (

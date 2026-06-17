@@ -40,8 +40,8 @@ type Props = {
   selectedOverlayId?: string | null
   onSelectOverlayId?: (id: string | null) => void
   onPlacedOverlaysChange?: (next: PlacedStudioOverlay[]) => void
-  selectedVideoId?: string | null
-  onSelectVideoId?: (videoId: string | null) => void
+  selectedEditPlanIndex?: number | null
+  onSelectEditPlanIndex?: (index: number | null) => void
 }
 
 type DragState = {
@@ -88,8 +88,8 @@ export function MvpCapCutTimeline({
   selectedOverlayId = null,
   onSelectOverlayId,
   onPlacedOverlaysChange,
-  selectedVideoId = null,
-  onSelectVideoId,
+  selectedEditPlanIndex = null,
+  onSelectEditPlanIndex,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<DragState | null>(null)
@@ -367,13 +367,13 @@ export function MvpCapCutTimeline({
                 />
               ) : null}
               {plan.map((seg, i) => {
-                const selected = Boolean(selectedVideoId && seg.video_id === selectedVideoId)
+                const selected = selectedEditPlanIndex === i
                 const label = videoSourceLabel(result, seg.video_id)
                 return (
                   <button
                     key={`v-${i}`}
                     type="button"
-                    title={`${label} · ${seg.reason}`}
+                    title={`컷 ${i + 1} · ${label} · ${seg.reason}`}
                     className={cn(
                       "absolute top-1.5 h-8 overflow-hidden rounded border px-0.5 text-left text-[8px] leading-tight transition",
                       selected
@@ -386,11 +386,14 @@ export function MvpCapCutTimeline({
                     }}
                     onClick={(e) => {
                       e.stopPropagation()
-                      onSelectVideoId?.(seg.video_id)
+                      onSelectEditPlanIndex?.(i)
                       onSeek(seg.output_start)
                     }}
                   >
-                    <span className="block truncate px-0.5 pt-1">{label}</span>
+                    <span className="block truncate px-0.5 pt-0.5 font-semibold text-[7px] text-emerald-100/90">
+                      {i + 1}
+                    </span>
+                    <span className="block truncate px-0.5">{label}</span>
                   </button>
                 )
               })}

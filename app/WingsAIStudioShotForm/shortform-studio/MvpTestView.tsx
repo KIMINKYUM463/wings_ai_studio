@@ -44,7 +44,7 @@ import { MvpVideoSaveButton } from "./MvpVideoSaveButton"
 import { MvpVideoUrlKeywordPanel } from "./MvpVideoUrlKeywordPanel"
 import { MvpXhsInlineVideoPreview } from "./MvpXhsMediaPreview"
 import { formatMediaDurationLabel } from "@/lib/serpapi-product-search"
-import { formatSearchRetryNotice, formatVideoPickLabel, MVP_LABELS as L } from "./mvp-test-view-labels"
+import { formatSearchRetryNotice, formatVideoPickLabel, MVP_LABELS as L, MVP_REPROCESS_SOURCE_ENABLED } from "./mvp-test-view-labels"
 
 function shotformOpenAIKey(): string | null {
   if (typeof window === "undefined") return null
@@ -303,13 +303,15 @@ function PlatformResultSection({
 }
 
 function inferMvpSourceMode(d: MvpTestProjectData): MvpSourceMode {
-  if (d.sourceMode === "reprocess" || d.reprocessUrlText) return "reprocess"
-  if (d.sourceMode === "direct_url" || d.directUrlText) return "direct_url"
-  if (d.editPicks?.length && !d.sourceResult) {
-    const platform = d.editPicks[0]?.platform
-    if (platform === "youtube" || platform === "tiktok") return "reprocess"
-    return "direct_url"
+  if (MVP_REPROCESS_SOURCE_ENABLED) {
+    if (d.sourceMode === "reprocess" || d.reprocessUrlText) return "reprocess"
+    if (d.editPicks?.length && !d.sourceResult) {
+      const platform = d.editPicks[0]?.platform
+      if (platform === "youtube" || platform === "tiktok") return "reprocess"
+    }
   }
+  if (d.sourceMode === "direct_url" || d.directUrlText) return "direct_url"
+  if (d.editPicks?.length && !d.sourceResult) return "direct_url"
   return "keyword"
 }
 
@@ -779,6 +781,7 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
   )
 
   const switchSourceMode = useCallback((mode: MvpSourceMode) => {
+    if (mode === "reprocess" && !MVP_REPROCESS_SOURCE_ENABLED) return
     if (mode === sourceMode) return
     setSourceMode(mode)
     setErr(null)
@@ -1100,17 +1103,19 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
           >
             {L.tabDirectUrl}
           </button>
-          <button
-            type="button"
-            onClick={() => switchSourceMode("reprocess")}
-            disabled={loading}
-            className={cn(
-              "rounded-lg border px-3 py-2 text-sm transition",
-              sourceMode === "reprocess" ? studio.btnTabActive : studio.btnTabIdle
-            )}
-          >
-            {L.tabReprocess}
-          </button>
+          {MVP_REPROCESS_SOURCE_ENABLED ? (
+            <button
+              type="button"
+              onClick={() => switchSourceMode("reprocess")}
+              disabled={loading}
+              className={cn(
+                "rounded-lg border px-3 py-2 text-sm transition",
+                sourceMode === "reprocess" ? studio.btnTabActive : studio.btnTabIdle
+              )}
+            >
+              {L.tabReprocess}
+            </button>
+          ) : null}
         </div>
 
         {sourceMode === "keyword" ? (
@@ -1214,7 +1219,7 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
               onError={setErr}
             />
           </>
-        ) : (
+        ) : MVP_REPROCESS_SOURCE_ENABLED && sourceMode === "reprocess" ? (
           <>
             <p className="mt-3 text-xs text-slate-500">{L.reprocessHint}</p>
             <MvpReprocessUrlPanel
@@ -1231,7 +1236,7 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
               onError={setErr}
             />
           </>
-        )}
+        ) : null}
 
         {err ? <p className="mt-3 text-sm text-red-300">{err}</p> : null}
         {sourceMode === "keyword" && data?.notice ? (
@@ -1264,7 +1269,7 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
         </StudioPageCard>
       ) : null}
 
-      {sourceMode === "reprocess" && editPicks.length > 0 ? (
+      {MVP_REPROCESS_SOURCE_ENABLED && sourceMode === "reprocess" && editPicks.length > 0 ? (
         <StudioPageCard className="bg-white/[0.02]">
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
             <StepBadge done={stepsDone.s1} n={1} label={L.steps.urlInput} />
