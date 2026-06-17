@@ -15,9 +15,12 @@ export type { MvpReprocessPlatform, MvpReprocessResolvedItem } from "@/lib/shotf
 export { detectReprocessUrlPlatform } from "@/lib/shotform-mvp-reprocess-url-shared"
 
 const DEFAULT_TIKTOK_VIDEO_ACTOR = "clockworks/tiktok-video-scraper"
-/** MP4 직접 URL 반환 — streamers/youtube-scraper(메타만) 대신 다운로드 Actor */
-const DEFAULT_YOUTUBE_ACTOR = "easyapi/youtube-video-and-mp3-downloader"
-const YOUTUBE_APIFY_FALLBACK_ACTOR = "streamers/youtube-scraper"
+/** Pay-per-use MP4 (Apify KV) — easyapi는 월 구독($9.99+) 필요 */
+const DEFAULT_YOUTUBE_ACTOR = "bytepulselabs/youtube-video-downloader"
+const YOUTUBE_APIFY_FALLBACK_ACTORS = [
+  "streamers/youtube-scraper",
+  "easyapi/youtube-video-and-mp3-downloader",
+] as const
 
 function formatApifyError(raw: string, actorSlug: string): string {
   const trimmed = raw.trim()
@@ -29,6 +32,9 @@ function formatApifyError(raw: string, actorSlug: string): string {
     if (msg) {
       if (/run did not succeed|run-failed|status:\s*FAILED/i.test(msg)) {
         return `Apify ${actorSlug} 실행 실패. Actor 구독·입력 형식을 확인하거나 잠시 후 다시 시도해 주세요.`
+      }
+      if (/subscription|not subscribed|rent|billing|payment required|paid actor/i.test(msg)) {
+        return `Apify ${actorSlug} — Store에서 Actor를 추가(구독)하거나, 월정액 Actor 대신 bytepulselabs/youtube-video-downloader(Pay-per-use)를 사용하세요.`
       }
       return msg.length > 220 ? `${msg.slice(0, 220)}…` : msg
     }
@@ -131,7 +137,9 @@ function pickPlayUrlFromRaw(raw: unknown): string {
     const urls: string[] = []
     collectHttpStrings(o, urls)
     play =
-      urls.find((u) => /\.mp4(\?|$)/i.test(u) || u.includes("tiktokcdn") || u.includes("googlevideo")) || ""
+      urls.find((u) => u.includes("api.apify.com") && /\.mp4/i.test(u)) ||
+      urls.find((u) => /\.mp4(\?|$)/i.test(u) || u.includes("tiktokcdn") || u.includes("googlevideo")) ||
+      ""
   }
   return play
 }
@@ -140,7 +148,7 @@ function youtubeApifyActorCandidates(): string[] {
   const env = (process.env.APIFY_YOUTUBE_ACTOR || "").trim()
   const out: string[] = []
   if (env) out.push(env)
-  for (const slug of [DEFAULT_YOUTUBE_ACTOR, YOUTUBE_APIFY_FALLBACK_ACTOR]) {
+  for (const slug of [DEFAULT_YOUTUBE_ACTOR, ...YOUTUBE_APIFY_FALLBACK_ACTORS]) {
     if (!out.includes(slug)) out.push(slug)
   }
   return out
@@ -148,14 +156,21 @@ function youtubeApifyActorCandidates(): string[] {
 
 function buildYoutubeApifyInput(actorSlug: string, noteUrl: string): Record<string, unknown> {
   const slug = actorSlug.toLowerCase()
+  if (slug.includes("bytepulselabs")) {
+    return {
+      urls: [{ url: noteUrl }],
+      quality: "480",
+      proxy: { useApifyProxy: false },
+    }
+  }
   if (slug.includes("easyapi") || slug.includes("youtube-video-and-mp3-downloader")) {
     return { links: [noteUrl] }
   }
   if (slug.includes("sovanza") || slug.includes("youtube-downloader-tool")) {
     return { startUrls: [{ url: noteUrl }], quality: "720", includeFailedVideos: true }
   }
-  if (slug.includes("hasnainnisar67") || slug.includes("youtube-downloader")) {
-    return { urls: [noteUrl] }
+  if (slug.includes("express_kingfisher")) {
+    return { urls: [noteUrl], quality: "480" }
   }
   return {
     startUrls: [{ url: noteUrl }],
@@ -257,7 +272,7 @@ async function resolveYoutubeViaApify(
         apifyToken,
         actor,
         buildYoutubeApifyInput(actor, noteUrl),
-        { timeoutSec: Number(process.env.APIFY_YOUTUBE_TIMEOUT_SEC || 240), maxItems: 3 }
+        { timeoutSec: Number(process.env.APIFY_YOUTUBE_TIMEOUT_SEC || 360), maxItems: 3 }
       )
       const raw = items.find((row) => pickPlayUrlFromRaw(row).startsWith("http")) ?? items[0]
       const videoUrl = pickPlayUrlFromRaw(raw)
@@ -332,7 +347,7 @@ async function resolveYoutubeForServer(
     !token && isVercelDeploy()
       ? " ShotForm 설정 또는 Vercel에 Apify(소스 검색) 토큰을 설정하세요."
       : isVercelDeploy()
-        ? " Apify YouTube Actor 구독·APIFY_YOUTUBE_ACTOR를 확인하세요."
+        ? " Apify Store에서 bytepulselabs/youtube-video-downloader Actor를 추가(무료 Pay-per-use)했는지 확인하세요."
         : " 로컬: npm run dev + yt-dlp 설치를 권장합니다."
 
   throw new Error(

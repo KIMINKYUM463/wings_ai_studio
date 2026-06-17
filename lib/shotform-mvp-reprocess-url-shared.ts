@@ -25,10 +25,20 @@ export function parseReprocessUrl(text: string): string | null {
   return detectReprocessUrlPlatform(u) ? u : null
 }
 
+/** Apify KV에 저장된 MP4 (bytepulselabs 등) */
+export function isApifyHostedVideoUrl(url: string): boolean {
+  try {
+    return new URL(url.trim()).hostname.includes("api.apify.com")
+  } catch {
+    return false
+  }
+}
+
 /** 재가공 CDN URL → 브라우저/서버 프록시 경로 */
 export function reprocessVideoPlayUrl(videoUrl: string): string {
   const url = videoUrl.trim()
   if (!url.startsWith("http")) return url
+  if (isApifyHostedVideoUrl(url)) return url
   try {
     const host = new URL(url).hostname
     if (

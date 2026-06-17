@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { MAX_AUTO_EDIT_VIDEOS } from "@/lib/shotform-auto-edit-types"
 import { resolveDouyinNoteUrl } from "@/lib/shotform-mvp-resolve-urls"
 import { detectReprocessUrlPlatform, resolveReprocessUrl } from "@/lib/shotform-mvp-reprocess-url"
+import { isApifyHostedVideoUrl } from "@/lib/shotform-mvp-reprocess-url-shared"
 import { fetchXhsNoteVideoUrl } from "@/lib/xhs-video"
 import { isAllowedVideoHost } from "@/lib/video-upstream-fetch"
 
@@ -59,7 +60,9 @@ export async function POST(req: NextRequest) {
       if (direct.startsWith("http")) {
         try {
           const host = new URL(direct).hostname
-          if (
+          if (isApifyHostedVideoUrl(direct)) {
+            downloadUrl = direct
+          } else if (
             host.includes("douyinvod") ||
             host.includes("xhscdn") ||
             host.includes("tiktokcdn") ||
@@ -81,7 +84,9 @@ export async function POST(req: NextRequest) {
           const resolved = await resolveReprocessUrl(apifyToken, pageUrl)
           if (resolved.videoUrl.startsWith("http")) {
             refreshedVideoUrl = resolved.videoUrl
-            downloadUrl = `/api/proxy-video?url=${encodeURIComponent(resolved.videoUrl)}`
+            downloadUrl = isApifyHostedVideoUrl(resolved.videoUrl)
+              ? resolved.videoUrl
+              : `/api/proxy-video?url=${encodeURIComponent(resolved.videoUrl)}`
           } else {
             error = resolved.error || "YouTube·TikTok 재생 URL 조회 실패"
           }

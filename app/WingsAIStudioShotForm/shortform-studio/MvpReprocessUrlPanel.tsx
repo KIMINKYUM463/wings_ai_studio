@@ -331,7 +331,7 @@ export function MvpReprocessUrlPanel({
         />
 
         <span className="text-xs text-slate-500">
-          YouTube·TikTok → Apify Actor · 토큰 없으면 브라우저/Piped · 실패 시 MP4 업로드
+          YouTube·TikTok → Apify · YouTube는 Store에서 bytepulselabs Actor 추가 · 실패 시 MP4 업로드
         </span>
       </div>
 
