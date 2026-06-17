@@ -29,6 +29,7 @@ Short yellow product labels (2–4 characters, e.g. 地刷) at lower-middle are 
 Chinese product captions may also appear at center or lower-middle.
 
 For each Chinese text region return a TIGHT bounding box covering ONLY the glyph pixels with ~0.5% margin.
+- The "text" field and the box MUST describe the SAME visible Chinese line — never put OCR in text while the box covers floor/wall/blank area below.
 - ONE line of text = height roughly 3–7% of frame height only — never include blank margin above/below the glyphs
 - Multiple separate text lines = separate boxes (do NOT merge lines into one tall box)
 - Small corner tags = small tight boxes at that corner
@@ -94,6 +95,8 @@ function parseBox(raw: unknown): DetectedChineseMosaicBox | null {
   const text = typeof o.text === "string" ? o.text.trim() : undefined
   if (text && !CHINESE_RE.test(text)) return null
   if (w < 0.8 || h < 0.5) return null
+  // OCR는 있는데 bbox만 화면 최하단(바닥) — 글자와 좌표 불일치
+  if (text && CHINESE_RE.test(text) && cy > 77 && h < 9) return null
   // 상단 한국어 TTS 띠만 제외 (하단 넓은 중국어 자막은 허용)
   if (cy < 20 && w > 55 && h > 7) return null
 
@@ -142,7 +145,7 @@ JSON: {"frames":[{"index":0,"boxes":[{"left_pct":10,"top_pct":76,"right_pct":90,
               type: "text",
               text: `프레임 ${images.length}장 (9:16 세로). index 순 = timeSec 순.
 각 프레임마다 보이는 중국어 자막/오버레이만 글자 픽셀에 딱 맞게 boxes에 넣으세요.
-바닥·소파·벽 위 흰색/노란 중국어 자막도 빠짐없이. 하단 전체 띠·화면 절반 크기 박스는 금지.`,
+바닥·소파·벽 위 흰색/노란 중국어 자막도 빠짐없이. text와 box는 반드시 같은 글자 줄. 바닥 여백만 덮는 box 금지.`,
             },
             ...images.flatMap((img, index) => [
               { type: "text" as const, text: `index ${index} · timeSec ${img.timeSec}s` },

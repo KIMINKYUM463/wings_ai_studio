@@ -105,13 +105,66 @@ const CHINESE_RE = /[\u4e00-\u9fff\u3400-\u4dbf]/
 
 function isSuspiciousMosaicBox(box: DetectedChineseMosaicBox): boolean {
   const { center_x_pct: cx, center_y_pct: cy, width_pct: w, height_pct: h } = box
-  if (box.text && CHINESE_RE.test(box.text)) return false
-  // 상단 한국어 TTS 자막 띠 (중국어는 보통 중·하단)
+  const hasChinese = Boolean(box.text && CHINESE_RE.test(box.text))
+  if (hasChinese) {
+    // OCR 있는데 화면 최하단(바닥·여백)만 덮는 박스 — 글자와 bbox 불일치
+    if (cy > 74 && h < 8 && w < 50) return true
+    return false
+  }
+  // 상단 한국어 TTS 자막 띠
   if (cy < 22 && w > 55 && h > 8) return true
-  // 화면 거의 전체를 덮는 박스만 제외 (하단 중국어 1~2줄은 허용)
+  // OCR 없이 하단·바닥 영역 — 중국어 오탐 다수
+  if (cy > 66) return true
   if (w > 94 && h > 38) return true
   if (w > 88 && h > 48) return true
   return false
+}
+
+/** 같은 트랙 안에서 Y가 비슷한 히트만 모아, 구간 중앙 프레임 1장 기준으로 위치 산출 */
+function geometryHitsForTrack(
+  hits: { timeSec: number; box: DetectedChineseMosaicBox }[]
+): DetectedChineseMosaicBox[] {
+  const reliable = filterReliableHits(hits)
+  if (!reliable.length) return hits.map((h) => h.box)
+  if (reliable.length === 1) return [reliable[0]!.box]
+
+  const withText = reliable.filter((h) => h.box.text && CHINESE_RE.test(h.box.text))
+  const pool = withText.length >= 1 ? withText : reliable
+
+  const clusters: (typeof reliable)[] = []
+  const sorted = [...pool].sort((a, b) => a.box.center_y_pct - b.box.center_y_pct)
+  let bucket: typeof reliable = []
+  for (const h of sorted) {
+    if (!bucket.length || Math.abs(h.box.center_y_pct - bucket[bucket.length - 1]!.box.center_y_pct) <= 5.5) {
+      bucket.push(h)
+    } else {
+      clusters.push(bucket)
+      bucket = [h]
+    }
+  }
+  if (bucket.length) clusters.push(bucket)
+
+  const scoreCluster = (cl: typeof reliable) => {
+    const textN = cl.filter((h) => h.box.text && CHINESE_RE.test(h.box.text)).length
+    const avgY = cl.reduce((s, h) => s + h.box.center_y_pct, 0) / cl.length
+    return textN * 12 + cl.length + (avgY < 62 ? 4 : avgY < 72 ? 1 : -3)
+  }
+  clusters.sort((a, b) => scoreCluster(b) - scoreCluster(a))
+  const best = clusters[0] ?? reliable
+
+  const t0 = Math.min(...reliable.map((h) => h.timeSec))
+  const t1 = Math.max(...reliable.map((h) => h.timeSec))
+  const midT = (t0 + t1) / 2
+
+  let anchor =
+    best.find((h) => h.box.text && CHINESE_RE.test(h.box.text) && Math.abs(h.timeSec - midT) < 0.35) ??
+    best.reduce((a, h) => (Math.abs(h.timeSec - midT) < Math.abs(a.timeSec - midT) ? h : a))
+
+  const yBand = best.filter(
+    (h) => Math.abs(h.box.center_y_pct - anchor.box.center_y_pct) <= 4.5
+  )
+  if (yBand.length >= 2) return yBand.map((h) => h.box)
+  return [anchor.box]
 }
 
 function filterReliableHits(hits: { timeSec: number; box: DetectedChineseMosaicBox }[]) {
@@ -155,7 +208,7 @@ function buildTrackFromHits(
 ): Track {
   const reliable = filterReliableHits(hits)
   const times = reliable.map((h) => h.timeSec)
-  const boxes = reliable.map((h) => h.box)
+  const boxes = geometryHitsForTrack(reliable)
   const tight = tightBoxFromHits(boxes)
 
   return {
@@ -237,7 +290,7 @@ function mergeFrameRows(rows: MosaicFrameDetectRow[]): Track[] {
         const dist = trackDistance(box, track)
         const score = iou * 2.2 + Math.max(0, 1 - dist / positionTolerance)
         if (iou < 0.05 && dist > positionTolerance) continue
-        if (Math.abs(box.center_y_pct - track.centerYPct) > 9 && iou < 0.12) continue
+        if (Math.abs(box.center_y_pct - track.centerYPct) > 7 && iou < 0.1) continue
         if (
           box.text &&
           track.text &&
@@ -395,7 +448,7 @@ function bridgeAdjacentTracks(tracks: Track[]): Track[] {
   for (const t of sorted) {
     const prev = out[out.length - 1]
     const gap = t.startSec - (prev?.endSec ?? -1)
-    const sameBand = prev && Math.abs(prev.centerYPct - t.centerYPct) < 5
+    const sameBand = prev && Math.abs(prev.centerYPct - t.centerYPct) < 4
     const closeEnough = gap > 0.02 && gap < 0.95
     const overlapping = prev && t.startSec <= prev.endSec + 0.03
 
