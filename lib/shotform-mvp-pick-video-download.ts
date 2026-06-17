@@ -1,6 +1,7 @@
 /** MVP 짜집기 — 선택 영상 MP4 다운로드 (만료 CDN URL 재조회 포함) */
 
 import type { AutoEditPick } from "@/lib/shotform-auto-edit-types"
+import { fetchGoogleVideoBlobInBrowser } from "@/lib/shotform-youtube-browser-resolve"
 import { isAllowedVideoHost } from "@/lib/video-upstream-fetch"
 
 function shotformApifyToken(): string | null {
@@ -351,6 +352,21 @@ export async function fetchMvpPickVideoBlob(
   }
 
   onHint?.("저장된 영상 URL로 다운로드 시도…")
+
+  const isYoutubeGoogleVideo =
+    pick.platform === "youtube" ||
+    pick.videoUrl.includes("googlevideo.com") ||
+    isReprocessNotePage(pick.noteUrl)
+
+  if (isYoutubeGoogleVideo && pick.videoUrl.includes("googlevideo.com")) {
+    try {
+      const blob = await fetchGoogleVideoBlobInBrowser(pick.videoUrl, onHint)
+      return { blob }
+    } catch {
+      onHint?.("브라우저 직접 수신 실패 — 서버 프록시 재시도…")
+    }
+  }
+
   let resolved = await resolveDownloadUrl(pick, false)
   let firstFetchError: string | undefined
   if (resolved.downloadUrl) {

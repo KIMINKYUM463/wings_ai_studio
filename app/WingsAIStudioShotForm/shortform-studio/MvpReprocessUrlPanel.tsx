@@ -4,7 +4,12 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { Loader2, Zap } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { type AutoEditPick, videoPickKey } from "@/lib/shotform-auto-edit-types"
-import { parseReprocessUrl, type MvpReprocessResolvedItem } from "@/lib/shotform-mvp-reprocess-url-shared"
+import {
+  detectReprocessUrlPlatform,
+  parseReprocessUrl,
+  type MvpReprocessResolvedItem,
+} from "@/lib/shotform-mvp-reprocess-url-shared"
+import { resolveYoutubeInBrowser } from "@/lib/shotform-youtube-browser-resolve"
 import { studio } from "../components/ShotFormStudioUI"
 
 type Props = {
@@ -110,25 +115,50 @@ export function MvpReprocessUrlPanel({
         return
       }
 
-      onResolvedChange(item)
+      let resolvedItem = item
+      const platform = detectReprocessUrlPlatform(url)
+      if (
+        platform === "youtube" &&
+        (!resolvedItem.videoUrl.startsWith("http") || resolvedItem.error)
+      ) {
+        setStatusHint("서버 해석 실패 — 브라우저에서 YouTube 재시도…")
+        try {
+          const browser = await resolveYoutubeInBrowser(url)
+          resolvedItem = {
+            ...resolvedItem,
+            videoUrl: browser.videoUrl,
+            title: browser.title || resolvedItem.title,
+            error: undefined,
+          }
+        } catch (browserErr) {
+          const serverMsg = formatResolveError(resolvedItem.error)
+          const browserMsg =
+            browserErr instanceof Error ? browserErr.message : "브라우저 해석 실패"
+          onError?.(`${serverMsg}\n\n브라우저 재시도: ${browserMsg}`)
+          onResolvedChange(resolvedItem)
+          return
+        }
+      }
 
-      if (!item.videoUrl.startsWith("http") || item.error) {
-        onError?.(formatResolveError(item.error) + (needsApifyHint ? ` ${needsApifyHint}` : ""))
+      onResolvedChange(resolvedItem)
+
+      if (!resolvedItem.videoUrl.startsWith("http") || resolvedItem.error) {
+        onError?.(formatResolveError(resolvedItem.error) + (needsApifyHint ? ` ${needsApifyHint}` : ""))
         return
       }
 
       const picks: AutoEditPick[] = [
         {
-          key: videoPickKey(item.noteUrl, item.videoUrl),
+          key: videoPickKey(resolvedItem.noteUrl, resolvedItem.videoUrl),
           video_id: "video_001",
-          videoUrl: item.videoUrl,
-          title: item.title,
-          noteUrl: item.noteUrl,
-          platform: item.platform,
+          videoUrl: resolvedItem.videoUrl,
+          title: resolvedItem.title,
+          noteUrl: resolvedItem.noteUrl,
+          platform: resolvedItem.platform,
         },
       ]
       setStatusHint("AI 짜집기 시작…")
-      onPicksReady(picks, item)
+      onPicksReady(picks, resolvedItem)
     } catch (e) {
       onError?.(e instanceof Error ? e.message : "네트워크 오류")
     } finally {
@@ -184,7 +214,7 @@ export function MvpReprocessUrlPanel({
           )}
         </button>
         <span className="text-xs text-slate-500">
-          URL 입력 후 Enter 또는 AI 짜집기 · 배포는 Cloud Run yt-dlp, TikTok은 Apify
+          URL 입력 후 Enter 또는 AI 짜집기 · YouTube는 브라우저 해석, TikTok은 Apify
         </span>
       </div>
 
