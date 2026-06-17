@@ -155,7 +155,7 @@ JSON: {"frames":[{"index":0,"boxes":[{"left_pct":10,"top_pct":76,"right_pct":90,
         },
       ],
     }),
-    signal: AbortSignal.timeout(120_000),
+    signal: AbortSignal.timeout(55_000),
   })
 
   if (!res.ok) {

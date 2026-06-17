@@ -38,6 +38,11 @@ import {
   type MosaicFrameDetectRow,
 } from "@/lib/mvp-mosaic-merge"
 import { readFetchJson } from "@/lib/mvp-fetch-json"
+import {
+  compressMosaicFramesForApi,
+  isRetryableMosaicApiError,
+  sleepMs,
+} from "@/lib/mvp-mosaic-api-compress"
 import { formatNarrationClock } from "@/lib/shotform-factory-narration-script"
 import { studio } from "../components/ShotFormStudioUI"
 import { StudioOverlayCatalogThumb, StudioOverlayGraphic } from "../shoppingshotform/StudioOverlayGraphic"
@@ -198,29 +203,58 @@ export function MvpOverlayElementsPanel({
         return [...byTime.values()].sort((a, b) => a.timeSec - b.timeSec)
       }
 
-      const detectBatch = async (frames: { timeSec: number; imageBase64: string }[], label: string) => {
-        const batchSize = 2
+      const detectBatch = async (
+        frames: { timeSec: number; imageBase64: string }[],
+        label: string,
+        options?: { highDetail?: boolean; maxWidth?: number }
+      ) => {
+        const highDetail = options?.highDetail ?? false
+        const maxWidth = options?.maxWidth ?? (highDetail ? 560 : 480)
         const rows: MosaicFrameDetectRow[] = []
-        for (let i = 0; i < frames.length; i += batchSize) {
-          if (signal.aborted) throw new DOMException("Aborted", "AbortError")
-          const batch = frames.slice(i, i + batchSize)
-          const done = Math.min(i + batch.length, frames.length)
-          setAiStatus(`${label} AI 분석 ${done}/${frames.length}장…`)
 
-          const res = await fetch("/api/shotform/detect-chinese-mosaic", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              openaiApiKey: openai,
-              frames: batch,
-              rowsOnly: true,
-              highDetail: true,
-            }),
-            signal,
+        for (let i = 0; i < frames.length; i++) {
+          if (signal.aborted) throw new DOMException("Aborted", "AbortError")
+          const frame = frames[i]!
+          setAiStatus(`${label} AI 분석 ${i + 1}/${frames.length}장…`)
+
+          const [compressed] = await compressMosaicFramesForApi([frame], {
+            maxWidth,
+            quality: highDetail ? 0.76 : 0.7,
           })
-          const data = await readFetchJson<{ rows?: MosaicFrameDetectRow[]; error?: string }>(res)
-          if (!res.ok) throw new Error(data.error || "AI 모자이크 감지 실패")
-          if (data.rows?.length) rows.push(...data.rows)
+
+          let lastErr: Error | null = null
+          for (let attempt = 0; attempt < 3; attempt++) {
+            if (signal.aborted) throw new DOMException("Aborted", "AbortError")
+            try {
+              if (attempt > 0) {
+                setAiStatus(`${label} 재시도 ${attempt + 1}/3 · ${i + 1}/${frames.length}장…`)
+                await sleepMs(1800 * attempt)
+              }
+
+              const res = await fetch("/api/shotform/detect-chinese-mosaic", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  openaiApiKey: openai,
+                  frames: [compressed],
+                  rowsOnly: true,
+                  highDetail,
+                }),
+                signal,
+              })
+              const data = await readFetchJson<{ rows?: MosaicFrameDetectRow[]; error?: string }>(res)
+              if (!res.ok) throw new Error(data.error || `AI 모자이크 감지 실패 (${res.status})`)
+              if (data.rows?.length) rows.push(...data.rows)
+              lastErr = null
+              break
+            } catch (e) {
+              lastErr = e instanceof Error ? e : new Error(String(e))
+              if (!isRetryableMosaicApiError(lastErr) || attempt >= 2) throw lastErr
+            }
+          }
+          if (lastErr) throw lastErr
+
+          await sleepMs(120)
         }
         return rows
       }
@@ -232,7 +266,10 @@ export function MvpOverlayElementsPanel({
         onProgress: (done, total) => setAiStatus(`1차 캡처 ${done}/${total}…`),
       })
 
-      const coarseRows = await detectBatch(coarseFrames, "1차")
+      const coarseRows = await detectBatch(coarseFrames, "1차", {
+        highDetail: false,
+        maxWidth: 480,
+      })
       let allRows = mergeRows(coarseRows)
       const scannedTimes = allRows.map((r) => r.timeSec)
 
@@ -245,7 +282,10 @@ export function MvpOverlayElementsPanel({
             signal,
             onProgress: (done, total) => setAiStatus(`미감지 장면 재스캔 ${done}/${total}…`),
           })
-          const missedRows = await detectBatch(missedFrames, "재스캔")
+          const missedRows = await detectBatch(missedFrames, "재스캔", {
+            highDetail: true,
+            maxWidth: 560,
+          })
           allRows = mergeRows([...allRows, ...missedRows])
         }
       }
@@ -260,7 +300,10 @@ export function MvpOverlayElementsPanel({
           signal,
           onProgress: (done, total) => setAiStatus(`2차 정밀 캡처 ${done}/${total}…`),
         })
-        const refineRows = await detectBatch(refineFrames, "2차")
+        const refineRows = await detectBatch(refineFrames, "2차", {
+          highDetail: true,
+          maxWidth: 560,
+        })
         allRows = mergeRows([...allRows, ...refineRows])
       }
 
@@ -278,7 +321,10 @@ export function MvpOverlayElementsPanel({
             signal,
             onProgress: (done, total) => setAiStatus(`3차 경계 스캔 ${done}/${total}…`),
           })
-          const boundaryRows = await detectBatch(boundaryFrames, "3차")
+          const boundaryRows = await detectBatch(boundaryFrames, "3차", {
+            highDetail: true,
+            maxWidth: 560,
+          })
           allRows = mergeRows([...allRows, ...boundaryRows])
         }
       }

@@ -7,7 +7,7 @@ import { mergeMosaicRowsToOverlays } from "@/lib/mvp-mosaic-merge"
 
 export const maxDuration = 300
 
-const MAX_FRAMES_PER_REQUEST = 2
+const MAX_FRAMES_PER_REQUEST = 1
 
 export async function POST(request: NextRequest) {
   try {
