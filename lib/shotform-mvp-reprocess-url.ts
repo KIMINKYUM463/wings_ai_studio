@@ -15,7 +15,9 @@ export type { MvpReprocessPlatform, MvpReprocessResolvedItem } from "@/lib/shotf
 export { detectReprocessUrlPlatform } from "@/lib/shotform-mvp-reprocess-url-shared"
 
 const DEFAULT_TIKTOK_VIDEO_ACTOR = "clockworks/tiktok-video-scraper"
-const DEFAULT_YOUTUBE_ACTOR = "streamers/youtube-scraper"
+/** MP4 직접 URL 반환 — streamers/youtube-scraper(메타만) 대신 다운로드 Actor */
+const DEFAULT_YOUTUBE_ACTOR = "easyapi/youtube-video-and-mp3-downloader"
+const YOUTUBE_APIFY_FALLBACK_ACTOR = "streamers/youtube-scraper"
 
 function formatApifyError(raw: string, actorSlug: string): string {
   const trimmed = raw.trim()
@@ -98,11 +100,31 @@ function pickPlayUrlFromRaw(raw: unknown): string {
   const o = raw as Record<string, unknown>
   const vm = o.videoMeta as Record<string, unknown> | undefined
   let play =
-    pickStr(o, ["downloadUrl", "videoUrl", "playUrl", "mediaUrl"]) ||
+    pickStr(o, ["downloadUrl", "videoUrl", "playUrl", "mediaUrl", "bestCombinedUrl", "bestVideoUrl"]) ||
     (vm ? pickStr(vm, ["downloadAddr", "downloadUrl", "playAddr", "playUrl", "videoUrl"]) : "")
 
   if (!play && Array.isArray(o.mediaUrls)) {
     play = o.mediaUrls.find((u): u is string => typeof u === "string" && u.startsWith("http")) || ""
+  }
+
+  if (!play && Array.isArray(o.medias)) {
+    type Media = { url?: string; quality?: string; is_audio?: boolean; extension?: string }
+    const medias = o.medias.filter((m): m is Media => Boolean(m && typeof m === "object"))
+    const mp4Videos = medias
+      .filter((m) => !m.is_audio && m.url?.startsWith("http"))
+      .filter((m) => !m.extension || /mp4/i.test(m.extension))
+    const sorted = mp4Videos.sort((a, b) => {
+      const rank = (q?: string) => {
+        const n = parseInt(String(q || ""), 10)
+        if (Number.isFinite(n) && n > 0) return n
+        if (String(q || "").includes("1080")) return 1080
+        if (String(q || "").includes("720")) return 720
+        if (String(q || "").includes("480")) return 480
+        return 0
+      }
+      return rank(b.quality) - rank(a.quality)
+    })
+    play = sorted[0]?.url || ""
   }
 
   if (!play) {
@@ -112,6 +134,34 @@ function pickPlayUrlFromRaw(raw: unknown): string {
       urls.find((u) => /\.mp4(\?|$)/i.test(u) || u.includes("tiktokcdn") || u.includes("googlevideo")) || ""
   }
   return play
+}
+
+function youtubeApifyActorCandidates(): string[] {
+  const env = (process.env.APIFY_YOUTUBE_ACTOR || "").trim()
+  const out: string[] = []
+  if (env) out.push(env)
+  for (const slug of [DEFAULT_YOUTUBE_ACTOR, YOUTUBE_APIFY_FALLBACK_ACTOR]) {
+    if (!out.includes(slug)) out.push(slug)
+  }
+  return out
+}
+
+function buildYoutubeApifyInput(actorSlug: string, noteUrl: string): Record<string, unknown> {
+  const slug = actorSlug.toLowerCase()
+  if (slug.includes("easyapi") || slug.includes("youtube-video-and-mp3-downloader")) {
+    return { links: [noteUrl] }
+  }
+  if (slug.includes("sovanza") || slug.includes("youtube-downloader-tool")) {
+    return { startUrls: [{ url: noteUrl }], quality: "720", includeFailedVideos: true }
+  }
+  if (slug.includes("hasnainnisar67") || slug.includes("youtube-downloader")) {
+    return { urls: [noteUrl] }
+  }
+  return {
+    startUrls: [{ url: noteUrl }],
+    maxResults: 1,
+    downloadSubtitles: false,
+  }
 }
 
 function pickTitleFromRaw(raw: unknown, fallback = "(영상)"): string {
@@ -200,33 +250,36 @@ async function resolveYoutubeViaApify(
   apifyToken: string,
   noteUrl: string
 ): Promise<{ videoUrl: string; title: string }> {
-  const actor = (process.env.APIFY_YOUTUBE_ACTOR || DEFAULT_YOUTUBE_ACTOR).trim()
-  const videoId = noteUrl.match(/[?&]v=([\w-]{11})/)?.[1]
-  const items = await apifyRunSyncGetDatasetItems(
-    apifyToken,
-    actor,
-    {
-      startUrls: [{ url: noteUrl }],
-      maxResults: 1,
-      downloadSubtitles: false,
-    },
-    { timeoutSec: Number(process.env.APIFY_YOUTUBE_TIMEOUT_SEC || 240), maxItems: 2 }
+  const errors: string[] = []
+  for (const actor of youtubeApifyActorCandidates()) {
+    try {
+      const items = await apifyRunSyncGetDatasetItems(
+        apifyToken,
+        actor,
+        buildYoutubeApifyInput(actor, noteUrl),
+        { timeoutSec: Number(process.env.APIFY_YOUTUBE_TIMEOUT_SEC || 240), maxItems: 3 }
+      )
+      const raw = items.find((row) => pickPlayUrlFromRaw(row).startsWith("http")) ?? items[0]
+      const videoUrl = pickPlayUrlFromRaw(raw)
+      if (!videoUrl.startsWith("http")) {
+        errors.push(`${actor}: 재생 URL 없음`)
+        continue
+      }
+      return {
+        videoUrl,
+        title: pickTitleFromRaw(raw, "(YouTube 영상)"),
+      }
+    } catch (e) {
+      errors.push(
+        `${actor}: ${e instanceof Error ? e.message : "실패"}`.slice(0, 160)
+      )
+    }
+  }
+  throw new Error(
+    errors[0]
+      ? `YouTube Apify 실패 (${errors[0]})`
+      : "YouTube 영상 다운로드 URL을 Apify에서 찾지 못했습니다."
   )
-  const raw = items[0]
-  let videoUrl = pickPlayUrlFromRaw(raw)
-  if (!videoUrl.startsWith("http") && videoId) {
-    const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {}
-    videoUrl =
-      pickStr(o, ["downloadUrl", "videoUrl", "streamingUrl", "hlsUrl"]) ||
-      pickPlayUrlFromRaw(o)
-  }
-  if (!videoUrl.startsWith("http")) {
-    throw new Error("YouTube 영상 다운로드 URL을 Apify에서 찾지 못했습니다.")
-  }
-  return {
-    videoUrl,
-    title: pickTitleFromRaw(raw, "(YouTube 영상)"),
-  }
 }
 
 type YoutubeResolveStep = {
@@ -245,12 +298,12 @@ async function resolveYoutubeForServer(
   const attempts: string[] = []
   const token = apifyToken.trim()
 
-  const steps: YoutubeResolveStep[] = isVercelDeploy()
+  const fallbackSteps: YoutubeResolveStep[] = isVercelDeploy()
     ? [
-        { label: "Cloud Run yt-dlp", run: () => resolveMediaUrlViaCloudRun(noteUrl) },
         { label: "Piped", run: () => resolveYoutubeViaPiped(noteUrl) },
         { label: "Invidious", run: () => resolveYoutubeViaInvidious(noteUrl) },
         { label: "InnerTube", run: () => resolveYoutubeStreamUrl(noteUrl) },
+        { label: "Cloud Run yt-dlp", run: () => resolveMediaUrlViaCloudRun(noteUrl) },
       ]
     : [
         { label: "InnerTube", run: () => resolveYoutubeStreamUrl(noteUrl) },
@@ -259,12 +312,9 @@ async function resolveYoutubeForServer(
         { label: "Invidious", run: () => resolveYoutubeViaInvidious(noteUrl) },
       ]
 
-  if (token) {
-    steps.push({
-      label: "Apify",
-      run: () => resolveYoutubeViaApify(token, noteUrl),
-    })
-  }
+  const steps: YoutubeResolveStep[] = token
+    ? [{ label: "Apify YouTube", run: () => resolveYoutubeViaApify(token, noteUrl) }, ...fallbackSteps]
+    : fallbackSteps
 
   for (const step of steps) {
     try {
@@ -278,12 +328,15 @@ async function resolveYoutubeForServer(
     }
   }
 
-  const vercelHint = isVercelDeploy()
-    ? " Vercel: SHOPPING_CLOUD_RUN_RENDER_URL 설정 후 cloud-run-service(yt-dlp) 재배포를 확인하세요."
-    : " 로컬: npm run dev + yt-dlp 설치를 권장합니다."
+  const vercelHint =
+    !token && isVercelDeploy()
+      ? " ShotForm 설정 또는 Vercel에 Apify(소스 검색) 토큰을 설정하세요."
+      : isVercelDeploy()
+        ? " Apify YouTube Actor 구독·APIFY_YOUTUBE_ACTOR를 확인하세요."
+        : " 로컬: npm run dev + yt-dlp 설치를 권장합니다."
 
   throw new Error(
-    `YouTube 영상을 가져오지 못했습니다.${vercelHint} (${attempts.slice(0, 3).join(" · ")})`
+    `YouTube 영상을 가져오지 못했습니다.${vercelHint} (${attempts.slice(0, 4).join(" · ")})`
   )
 }
 
@@ -335,27 +388,39 @@ export async function resolveReprocessUrl(
     }
 
     if (platform === "tiktok") {
+      const token = apifyToken.trim()
+      if (token) {
+        try {
+          const r = await resolveTiktokViaApify(token, noteUrl)
+          return {
+            ...base,
+            videoUrl: r.videoUrl,
+            title: r.title,
+            durationSec: r.durationSec,
+          }
+        } catch (apifyErr) {
+          try {
+            const cloud = await resolveMediaUrlViaCloudRun(noteUrl)
+            return { ...base, videoUrl: cloud.videoUrl, title: cloud.title }
+          } catch {
+            return {
+              ...base,
+              error: apifyErr instanceof Error ? apifyErr.message : "TikTok URL 해석 실패",
+            }
+          }
+        }
+      }
+
       try {
         const cloud = await resolveMediaUrlViaCloudRun(noteUrl)
         return { ...base, videoUrl: cloud.videoUrl, title: cloud.title }
       } catch {
-        /* Apify 폴백 */
+        /* Apify 필수 */
       }
 
-      const token = apifyToken.trim()
-      if (!token) {
-        return {
-          ...base,
-          error: "TikTok URL 해석에 yt-dlp(서버)·Cloud Run 또는 소스 검색 토큰(Apify)이 필요합니다.",
-        }
-      }
-
-      const r = await resolveTiktokViaApify(token, noteUrl)
       return {
         ...base,
-        videoUrl: r.videoUrl,
-        title: r.title,
-        durationSec: r.durationSec,
+        error: "TikTok URL 해석에 Apify(소스 검색) 토큰이 필요합니다.",
       }
     }
 

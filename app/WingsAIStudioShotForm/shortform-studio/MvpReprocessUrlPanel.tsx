@@ -137,8 +137,8 @@ export function MvpReprocessUrlPanel({
     const platform = detectReprocessUrlPlatform(url)
     const apify = shotformApifyToken()
     const needsApifyHint =
-      !apify && platform === "tiktok" && typeof window !== "undefined"
-        ? " TikTok은 ShotForm 설정의 소스 검색 토큰이 필요할 수 있습니다."
+      !apify && typeof window !== "undefined"
+        ? " YouTube·TikTok 모두 ShotForm 설정의 Apify(소스 검색) 토큰이 필요합니다."
         : ""
 
     setLoading(true)
@@ -176,9 +176,10 @@ export function MvpReprocessUrlPanel({
 
       if (
         platform === "youtube" &&
+        !apify &&
         (!resolvedItem?.videoUrl.startsWith("http") || resolvedItem?.error)
       ) {
-        setStatusHint("서버 해석 실패 — 브라우저(Piped·Invidious) 재시도…")
+        setStatusHint("Apify 토큰 없음 — 브라우저(Piped·Invidious) 재시도…")
         try {
           const browser = await resolveYoutubeInBrowser(url)
           resolvedItem = {
@@ -330,7 +331,7 @@ export function MvpReprocessUrlPanel({
         />
 
         <span className="text-xs text-slate-500">
-          YouTube는 브라우저(Piped) · TikTok은 Apify · URL 실패 시 MP4 업로드
+          YouTube·TikTok → Apify Actor · 토큰 없으면 브라우저/Piped · 실패 시 MP4 업로드
         </span>
       </div>
 

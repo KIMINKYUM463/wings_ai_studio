@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
       success: ok,
       notice: ok
         ? "영상 URL 해석 완료 — AI 짜집기로 이어갈 수 있습니다."
-        : "영상 URL을 찾지 못했습니다. URL·토큰·서버 yt-dlp 설정을 확인해 주세요.",
+        : "영상 URL을 찾지 못했습니다. Apify 토큰·Actor 구독 또는 MP4 업로드를 확인해 주세요.",
     })
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "URL 해석 오류" }, { status: 500 })
