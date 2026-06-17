@@ -24,6 +24,7 @@ import {
   buildMosaicMissedSegmentTimes,
   buildMosaicPartialSegmentTimes,
   buildMosaicRefineTimes,
+  buildMosaicSparseSegmentTimes,
   captureMosaicFramesAtTimes,
   captureMosaicScanFramesFromVideo,
   effectiveMosaicCaptureDuration,
@@ -35,6 +36,7 @@ import {
 } from "@/lib/mvp-mosaic-frame-capture"
 import {
   buildMosaicAppearanceProbeTimes,
+  buildMosaicPositionRefineTimes,
   buildMosaicTracks,
   mergeMosaicRowsToOverlays,
   tracksToWindows,
@@ -270,17 +272,18 @@ export function MvpOverlayElementsPanel({
         return rows
       }
 
+      const coarseHighDetail = captureDurationSec <= 35
       const coarseFrames = await captureMosaicScanFramesFromVideo(video, captureDurationSec, {
-        maxWidth: nativeMosaicCaptureWidth(video, 640),
-        maxFrames: 72,
+        maxWidth: nativeMosaicCaptureWidth(video, coarseHighDetail ? 560 : 640),
+        maxFrames: coarseHighDetail ? 80 : 72,
         segments: sceneSegments,
         signal,
         onProgress: (done, total) => setAiStatus(`1차 캡처 ${done}/${total}…`),
       })
 
       const coarseRows = await detectBatch(coarseFrames, "1차", {
-        highDetail: false,
-        maxWidth: 480,
+        highDetail: coarseHighDetail,
+        maxWidth: coarseHighDetail ? 560 : 480,
       })
       let allRows = mergeRows(coarseRows)
       const scannedTimes = allRows.map((r) => r.timeSec)
@@ -318,6 +321,25 @@ export function MvpOverlayElementsPanel({
             maxWidth: 560,
           })
           allRows = mergeRows([...allRows, ...partialRows])
+        }
+
+        const sparseTimes = buildMosaicSparseSegmentTimes(
+          allRows,
+          sceneSegments,
+          allRows.map((r) => r.timeSec)
+        )
+        if (sparseTimes.length) {
+          setAiStatus(`장면 촘촘 스캔 0/${sparseTimes.length}…`)
+          const sparseFrames = await captureMosaicFramesAtTimes(video, sparseTimes, {
+            maxWidth: refineWidth,
+            signal,
+            onProgress: (done, total) => setAiStatus(`장면 촘촘 스캔 ${done}/${total}…`),
+          })
+          const sparseRows = await detectBatch(sparseFrames, "촘촘", {
+            highDetail: true,
+            maxWidth: 560,
+          })
+          allRows = mergeRows([...allRows, ...sparseRows])
         }
       }
 
@@ -396,6 +418,25 @@ export function MvpOverlayElementsPanel({
             maxWidth: 560,
           })
           allRows = mergeRows([...allRows, ...gapRows])
+        }
+
+        const positionTimes = buildMosaicPositionRefineTimes(
+          tracksToWindows(buildMosaicTracks(allRows)),
+          allRows.map((r) => r.timeSec),
+          { maxExtra: 36 }
+        )
+        if (positionTimes.length) {
+          setAiStatus(`위치 정밀 스캔 0/${positionTimes.length}…`)
+          const positionFrames = await captureMosaicFramesAtTimes(video, positionTimes, {
+            maxWidth: refineWidth,
+            signal,
+            onProgress: (done, total) => setAiStatus(`위치 정밀 스캔 ${done}/${total}…`),
+          })
+          const positionRows = await detectBatch(positionFrames, "위치", {
+            highDetail: true,
+            maxWidth: 640,
+          })
+          allRows = mergeRows([...allRows, ...positionRows])
         }
       }
 

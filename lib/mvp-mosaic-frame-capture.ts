@@ -330,6 +330,35 @@ export function buildMosaicPartialSegmentTimes(
   return uniqueSortedTimes(extra, 0.035).slice(0, 28)
 }
 
+/** 감지가 1~2프레임뿐인 장면 — 위치·누락 보완용 촘촘 스캔 */
+export function buildMosaicSparseSegmentTimes(
+  rows: MosaicFrameDetectRow[],
+  segments: MosaicSceneSegment[],
+  existingTimes: number[]
+): number[] {
+  const existing = new Set(existingTimes.map((t) => Math.round(t * 1000) / 1000))
+  const extra: number[] = []
+  const push = (t: number) => {
+    const rounded = Math.round(t * 1000) / 1000
+    if (existing.has(rounded)) return
+    if (!extra.some((x) => Math.abs(x - rounded) < 0.03)) extra.push(rounded)
+  }
+
+  for (const seg of segments) {
+    if (!Number.isFinite(seg.start) || !Number.isFinite(seg.end) || seg.end <= seg.start + 0.08) continue
+    const segDur = seg.end - seg.start
+    const hits = rows.filter(
+      (r) => r.timeSec >= seg.start - 0.04 && r.timeSec <= seg.end + 0.04 && r.boxes.length > 0
+    )
+    if (hits.length >= 4) continue
+
+    const step = segDur <= 2 ? 0.1 : segDur <= 4 ? 0.14 : 0.18
+    for (let t = seg.start + 0.05; t < seg.end - 0.03; t += step) push(t)
+  }
+
+  return uniqueSortedTimes(extra, 0.03).slice(0, 32)
+}
+
 /** 인접 모자이크 트랙 사이 빈 구간 — 중간 시각 재탐색 */
 export function buildMosaicInterTrackGapTimes(
   tracks: MosaicTrackWindow[],

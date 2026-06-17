@@ -24,6 +24,7 @@ DO NOT include: Korean/English TTS subtitles (usually top or bottom safe-area ba
 
 Korean narration subtitles are often in a dark bar at the TOP — never use that region as Chinese.
 Chinese burned-in subtitles are VERY COMMON at bottom-center (top_pct 72–88%) as 1–2 white/yellow outlined lines spanning most of the width — you MUST detect these.
+Chinese text also appears MID-FRAME (top_pct 35–72%): white/yellow captions on floor, sofa, wall, product — detect every line separately.
 Short yellow product labels (2–4 characters, e.g. 地刷) at lower-middle are Chinese — detect them with a small tight box.
 Chinese product captions may also appear at center or lower-middle.
 
@@ -141,7 +142,7 @@ JSON: {"frames":[{"index":0,"boxes":[{"left_pct":10,"top_pct":76,"right_pct":90,
               type: "text",
               text: `프레임 ${images.length}장 (9:16 세로). index 순 = timeSec 순.
 각 프레임마다 보이는 중국어 자막/오버레이만 글자 픽셀에 딱 맞게 boxes에 넣으세요.
-하단 전체 띠·화면 절반 크기 박스는 금지. 작은 글자는 작은 박스로.`,
+바닥·소파·벽 위 흰색/노란 중국어 자막도 빠짐없이. 하단 전체 띠·화면 절반 크기 박스는 금지.`,
             },
             ...images.flatMap((img, index) => [
               { type: "text" as const, text: `index ${index} · timeSec ${img.timeSec}s` },

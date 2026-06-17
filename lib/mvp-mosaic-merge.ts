@@ -119,27 +119,51 @@ function filterReliableHits(hits: { timeSec: number; box: DetectedChineseMosaicB
   return clean.length >= Math.max(1, Math.ceil(hits.length * 0.35)) ? clean : hits
 }
 
+function tightBoxFromHits(
+  hits: DetectedChineseMosaicBox[]
+): Pick<Track, "centerXPct" | "centerYPct" | "widthPct" | "heightPct"> {
+  const withText = hits.filter((h) => h.text && CHINESE_RE.test(h.text))
+  const pool =
+    withText.length >= Math.max(1, Math.ceil(hits.length * 0.35)) ? withText : hits
+
+  const quantile = (nums: number[], p: number) => {
+    const sorted = [...nums].sort((a, b) => a - b)
+    return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))]!
+  }
+
+  const lefts = pool.map((h) => h.center_x_pct - h.width_pct / 2)
+  const rights = pool.map((h) => h.center_x_pct + h.width_pct / 2)
+  const tops = pool.map((h) => h.center_y_pct - h.height_pct / 2)
+  const bottoms = pool.map((h) => h.center_y_pct + h.height_pct / 2)
+
+  const left = quantile(lefts, 0.18)
+  const right = quantile(rights, 0.82)
+  const top = quantile(tops, 0.12)
+  const bottom = quantile(bottoms, 0.78)
+
+  return {
+    centerXPct: (left + right) / 2,
+    centerYPct: (top + bottom) / 2,
+    widthPct: Math.max(2, right - left),
+    heightPct: Math.max(1.5, Math.min(12, bottom - top)),
+  }
+}
+
 function buildTrackFromHits(
   hits: { timeSec: number; box: DetectedChineseMosaicBox }[],
   text?: string
 ): Track {
   const reliable = filterReliableHits(hits)
-  const midT = reliable[Math.floor(reliable.length / 2)]?.timeSec ?? hits[0]!.timeSec
-  const sorted = [...reliable].sort((a, b) => Math.abs(a.timeSec - midT) - Math.abs(b.timeSec - midT))
-  const core = sorted.slice(0, Math.max(2, Math.ceil(sorted.length * 0.65)))
   const times = reliable.map((h) => h.timeSec)
-
-  const heights = core.map((h) => h.box.height_pct).sort((a, b) => a - b)
-  const widths = core.map((h) => h.box.width_pct).sort((a, b) => a - b)
-  const hIdx = Math.floor(heights.length * 0.3)
-  const wIdx = Math.floor(widths.length * 0.45)
+  const boxes = reliable.map((h) => h.box)
+  const tight = tightBoxFromHits(boxes)
 
   return {
-    centerXPct: median(core.map((h) => h.box.center_x_pct)),
-    centerYPct: median(core.map((h) => h.box.center_y_pct)),
-    widthPct: widths[wIdx] ?? widths[0]!,
-    heightPct: heights[hIdx] ?? heights[0]!,
-    text: text ?? core.find((h) => h.box.text)?.box.text,
+    centerXPct: tight.centerXPct,
+    centerYPct: tight.centerYPct,
+    widthPct: tight.widthPct,
+    heightPct: tight.heightPct,
+    text: text ?? reliable.find((h) => h.box.text)?.box.text,
     startSec: Math.min(...times),
     endSec: Math.max(...times),
     samples: reliable.length,
@@ -171,7 +195,7 @@ function explodeTracksByPosition(tracks: Track[]): Track[] {
     const sorted = [...track.hits].sort((a, b) => a.timeSec - b.timeSec)
     let bucket: typeof sorted = []
     for (const hit of sorted) {
-      if (!bucket.length || positionClusterDistance(bucket[bucket.length - 1]!.box, hit.box) <= 7) {
+      if (!bucket.length || positionClusterDistance(bucket[bucket.length - 1]!.box, hit.box) <= 5) {
         bucket.push(hit)
       } else {
         out.push(buildTrackFromHits(bucket, track.text))
@@ -213,6 +237,7 @@ function mergeFrameRows(rows: MosaicFrameDetectRow[]): Track[] {
         const dist = trackDistance(box, track)
         const score = iou * 2.2 + Math.max(0, 1 - dist / positionTolerance)
         if (iou < 0.05 && dist > positionTolerance) continue
+        if (Math.abs(box.center_y_pct - track.centerYPct) > 9 && iou < 0.12) continue
         if (
           box.text &&
           track.text &&
@@ -324,6 +349,20 @@ function tracksOverlapInTime(a: Track, b: Track): boolean {
   return a.startSec < b.endSec - 0.02 && b.startSec < a.endSec - 0.02
 }
 
+function mergeTracksByHits(into: Track, other: Track): void {
+  into.startSec = Math.min(into.startSec, other.startSec)
+  into.endSec = Math.max(into.endSec, other.endSec)
+  into.hits.push(...other.hits)
+  into.samples += other.samples
+  if (other.text) {
+    into.text =
+      into.text && into.text !== other.text
+        ? `${into.text.slice(0, 18)}…${other.text.slice(0, 18)}`
+        : other.text
+  }
+  recomputeTrackGeometry(into)
+}
+
 function mergeTrackUnion(into: Track, other: Track): void {
   const ra = boxRect(into)
   const rb = boxRect(other)
@@ -356,12 +395,12 @@ function bridgeAdjacentTracks(tracks: Track[]): Track[] {
   for (const t of sorted) {
     const prev = out[out.length - 1]
     const gap = t.startSec - (prev?.endSec ?? -1)
-    const sameBand = prev && Math.abs(prev.centerYPct - t.centerYPct) < 7
+    const sameBand = prev && Math.abs(prev.centerYPct - t.centerYPct) < 5
     const closeEnough = gap > 0.02 && gap < 0.95
     const overlapping = prev && t.startSec <= prev.endSec + 0.03
 
     if (prev && sameBand && (overlapping || closeEnough)) {
-      mergeTrackUnion(prev, t)
+      mergeTracksByHits(prev, t)
       continue
     }
     out.push({ ...t, hits: [...t.hits] })
@@ -394,8 +433,8 @@ function consolidateOverlappingTracks(tracks: Track[]): Track[] {
 
       if (stackedLines) continue
 
-      if (iou > 0.12 || vertGap < 4.5) {
-        mergeTrackUnion(existing, t)
+      if (iou > 0.18 || (vertGap < 3.2 && iou > 0.04)) {
+        mergeTracksByHits(existing, t)
         merged = true
         break
       }
@@ -530,16 +569,29 @@ export function mergeMosaicRowsToOverlays(
   })
 }
 
-/** 트랙 중심 시각 — 위치 재정밀 캡처용 */
+/** 트랙별 위치 재정밀 캡처 — 시작·중간·끝 시각 */
 export function buildMosaicPositionRefineTimes(
   tracks: MosaicTrackWindow[],
-  existingTimes: number[]
+  existingTimes: number[],
+  options?: { maxExtra?: number }
 ): number[] {
+  const maxExtra = options?.maxExtra ?? 36
   const existing = new Set(existingTimes.map((t) => Math.round(t * 1000) / 1000))
   const times: number[] = []
-  for (const track of tracks) {
-    const mid = Math.round(((track.startSec + track.endSec) / 2) * 1000) / 1000
-    if (!existing.has(mid)) times.push(mid)
+  const push = (t: number) => {
+    const rounded = Math.round(t * 1000) / 1000
+    if (existing.has(rounded)) return
+    if (!times.some((x) => Math.abs(x - rounded) < 0.03)) times.push(rounded)
   }
-  return times
+
+  for (const track of tracks) {
+    const dur = Math.max(0.08, track.endSec - track.startSec)
+    push(track.startSec + 0.04)
+    if (dur > 0.28) push(track.startSec + dur * 0.33)
+    push(track.startSec + dur * 0.5)
+    if (dur > 0.28) push(track.startSec + dur * 0.67)
+    push(Math.max(track.startSec + 0.04, track.endSec - 0.04))
+  }
+
+  return times.slice(0, maxExtra)
 }
