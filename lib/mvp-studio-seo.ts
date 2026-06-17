@@ -52,6 +52,47 @@ export function inferMvpSeoProductName(
   return "쇼핑 숏폼 제품"
 }
 
+export function deriveHashtagsFromTags(tags: readonly string[], max = 8): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const raw of tags) {
+    const core = String(raw).trim().replace(/^#+/, "")
+    if (!core) continue
+    const key = core.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(`#${core}`)
+    if (out.length >= max) break
+  }
+  return out
+}
+
+/** 설명 첫 줄에 해시태그가 없으면 자동 삽입 */
+export function mergeHashtagsIntoDescription(description: string, hashtags: readonly string[]): string {
+  const line = hashtags.map((h) => (h.startsWith("#") ? h : `#${h}`)).join(" ").trim()
+  if (!line) return description
+  const trimmed = description.trim()
+  if (!trimmed) return line
+  const firstLine = trimmed.split("\n")[0]?.trim() ?? ""
+  if (firstLine.includes("#") && hashtags.some((h) => trimmed.includes(h.replace(/^#/, "")))) {
+    return description
+  }
+  if (trimmed.startsWith(line)) return description
+  return `${line}\n\n${trimmed}`
+}
+
+export function syncSeoMetaFromTags(meta: MvpStudioSeoMeta): MvpStudioSeoMeta {
+  const tags = meta.tags.map((t) => t.trim()).filter(Boolean)
+  const hashtags =
+    meta.hashtags.length > 0 ? meta.hashtags : deriveHashtagsFromTags(tags, 8)
+  return {
+    ...meta,
+    tags,
+    hashtags,
+    description: mergeHashtagsIntoDescription(meta.description, hashtags),
+  }
+}
+
 export function mvpSeoMetaToCapCutSeo(meta: MvpStudioSeoMeta | undefined) {
   if (!meta?.title?.trim()) return undefined
   return {

@@ -5,12 +5,7 @@ import { ShoppingLinksView } from "./ShoppingLinksView"
 
 export function ShoppingLinksShell() {
   return (
-    <ShotFormTrendResearchShell
-      activeRoute="shopping-links"
-      hideSidebar
-      appTitle="Wings AI ShotForm"
-      logoHref="/WingsAIStudioShotForm/shortform-studio"
-    >
+    <ShotFormTrendResearchShell activeRoute="shopping-links" hideSidebar appTitle="Wings AI ShotForm">
       <ShoppingLinksView />
     </ShotFormTrendResearchShell>
   )

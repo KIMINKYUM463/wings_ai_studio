@@ -6,6 +6,7 @@ import {
   Factory,
   Film,
   FlaskConical,
+  FolderOpen,
   KeyRound,
   Search,
   Settings,
@@ -98,6 +99,9 @@ export type ShotFormTrendResearchShellProps = {
   logoHref?: string
   /** 로고 클릭 시 추가 동작 (예: 프로젝트 목록으로 복귀) */
   onLogoClick?: () => void
+  /** 프로젝트 목록 클릭 (숏폼 스튜디오 내 목록 복귀). 미설정 시 shortform-studio로 이동 */
+  onProjectListClick?: () => void
+  projectListHref?: string
 }
 
 function hasOpenAIKey(): boolean {
@@ -114,6 +118,8 @@ export function ShotFormTrendResearchShell({
   appTitle = "Wings AI ShotForm",
   logoHref = "/WingsAIStudioShotForm",
   onLogoClick,
+  onProjectListClick,
+  projectListHref = "/WingsAIStudioShotForm/shortform-studio",
 }: ShotFormTrendResearchShellProps) {
   const [apiKeyReady, setApiKeyReady] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -128,6 +134,44 @@ export function ShotFormTrendResearchShell({
       window.removeEventListener(SHOTFORM_API_KEYS_UPDATED_EVENT, refresh)
     }
   }, [])
+
+  const projectListActive = activeRoute === "shortform-studio"
+  const projectListSidebarCls = cn(
+    "flex flex-1 items-center justify-center gap-1.5 rounded-xl px-2.5 py-3 text-sm font-semibold transition-all",
+    projectListActive
+      ? "bg-violet-500/20 text-violet-100 ring-1 ring-violet-400/35"
+      : "bg-white/[0.06] text-slate-200 hover:bg-white/[0.1] hover:text-white"
+  )
+  const projectListHeaderCls = cn(
+    "inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm transition",
+    projectListActive
+      ? cn(studio.btnSegmentActive, "rounded-lg")
+      : "text-slate-400 hover:bg-white/[0.04] hover:text-white"
+  )
+
+  const projectListSidebar = onProjectListClick ? (
+    <button type="button" onClick={onProjectListClick} className={projectListSidebarCls}>
+      <FolderOpen className="h-4 w-4 shrink-0" aria-hidden />
+      <span className="truncate">프로젝트 목록</span>
+    </button>
+  ) : (
+    <Link href={projectListHref} className={projectListSidebarCls}>
+      <FolderOpen className="h-4 w-4 shrink-0" aria-hidden />
+      <span className="truncate">프로젝트 목록</span>
+    </Link>
+  )
+
+  const projectListHeader = onProjectListClick ? (
+    <button type="button" onClick={onProjectListClick} className={projectListHeaderCls}>
+      <FolderOpen className="h-4 w-4" aria-hidden />
+      프로젝트 목록
+    </button>
+  ) : (
+    <Link href={projectListHref} className={projectListHeaderCls}>
+      <FolderOpen className="h-4 w-4" aria-hidden />
+      프로젝트 목록
+    </Link>
+  )
 
   return (
     <div className={cn("flex min-h-screen", studio.page)}>
@@ -158,18 +202,19 @@ export function ShotFormTrendResearchShell({
         </div>
 
         <nav className="flex-1 overflow-y-auto px-3 py-4">
-          <div className="mb-6 px-1">
+          <div className="mb-6 flex gap-2 px-1">
+            {projectListSidebar}
             <Link
               href="/WingsAIStudioShotForm/shopping-links"
               className={cn(
-                "flex w-full items-center gap-2.5 rounded-xl px-3.5 py-3 text-sm font-semibold transition-all",
+                "flex flex-1 items-center justify-center gap-1.5 rounded-xl px-2.5 py-3 text-sm font-semibold transition-all",
                 activeRoute === "shopping-links"
                   ? "bg-gradient-to-r from-pink-500 to-violet-600 text-white shadow-lg shadow-violet-900/40 ring-2 ring-white/20"
                   : "bg-gradient-to-r from-pink-600/85 to-violet-700/85 text-white shadow-md hover:from-pink-500 hover:to-violet-600"
               )}
             >
               <ShoppingBag className="h-4 w-4 shrink-0" aria-hidden />
-              My 링크
+              <span className="truncate">My 링크</span>
             </Link>
           </div>
 
@@ -276,6 +321,7 @@ export function ShotFormTrendResearchShell({
             )
           ) : null}
           <div className="flex items-center gap-2">
+            {projectListHeader}
             <Link
               href="/WingsAIStudioShotForm/shopping-links"
               className={cn(

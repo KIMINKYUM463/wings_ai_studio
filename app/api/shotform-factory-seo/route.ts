@@ -1,4 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server"
+import {
+  deriveHashtagsFromTags,
+  mergeHashtagsIntoDescription,
+} from "@/lib/mvp-studio-seo"
 
 type SeoRequestBody = {
   apiKey?: string
@@ -95,9 +99,8 @@ export async function POST(request: NextRequest) {
 - 모든 문장은 자연스러운 한국어
 - 제목(title): 100자 이내, 클릭을 유도하되 과장·클릭베이트 남용 금지
 - recommendedTitles: 서로 다른 스타일의 대안 제목 5개 (각 100자 이내)
-- description: 400~800자, 제품 특징·사용 상황·구매 유도, 이모지 2~4개 허용
-- tags: 업로드용 태그 15~20개 (# 없이)
-- hashtags: 설명 첫 줄 등에 쓸 해시태그 8~10개 (# 포함)
+- description: 400~800자, 제품 특징·사용 상황·구매 유도, 이모지 2~4개 허용 (해시태그 줄은 넣지 마세요 — 앱에서 태그로부터 자동 추가)
+- tags: 유튜브 업로드용 태그 15~20개 (# 없이, 쉼표 구분 개념)
 - hookShort: 15자 내외 짧은 후킹 멘트 (CTA 앞에 붙는 문구)
 - commentCue: 댓글 유도용 짧은 키워드 1~3단어 (예: 꿀템, 링크)
 
@@ -107,7 +110,6 @@ JSON 형식:
   "recommendedTitles": ["...", "...", "...", "...", "..."],
   "description": "...",
   "tags": ["..."],
-  "hashtags": ["#..."],
   "hookShort": "...",
   "commentCue": "..."
 }`,
@@ -149,15 +151,25 @@ ${script.slice(0, 3500)}
       .filter(Boolean)
       .slice(0, 5)
 
+    const tags = normalizeTags(parsed.tags, productName)
+    const hashtags =
+      normalizeHashtags(parsed.hashtags).length > 0
+        ? normalizeHashtags(parsed.hashtags)
+        : deriveHashtagsFromTags(tags, 8)
+    const description = mergeHashtagsIntoDescription(
+      (parsed.description || script).trim(),
+      hashtags
+    )
+
     return NextResponse.json({
       title,
       recommendedTitles:
         recommendedTitles.length >= 3
           ? recommendedTitles
           : [title, `${productName} 솔직 리뷰`, `${productName} 꿀템 추천`].slice(0, 5),
-      description: (parsed.description || script).trim(),
-      tags: normalizeTags(parsed.tags, productName),
-      hashtags: normalizeHashtags(parsed.hashtags),
+      description,
+      tags,
+      hashtags,
       hookShort: (parsed.hookShort || `${productName}, 이거 실화?`).trim().slice(0, 30),
       commentCue: (parsed.commentCue || "꿀템").trim().slice(0, 20),
     })

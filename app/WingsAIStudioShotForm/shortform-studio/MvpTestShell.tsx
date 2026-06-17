@@ -129,6 +129,7 @@ export function MvpTestShell() {
       appTitle="Wings AI ShotForm"
       logoHref="/WingsAIStudioShotForm/shortform-studio"
       onLogoClick={() => setProjectListKey((k) => k + 1)}
+      onProjectListClick={() => setProjectListKey((k) => k + 1)}
     >
       <MvpProjectManager key={projectListKey} />
     </ShotFormTrendResearchShell>

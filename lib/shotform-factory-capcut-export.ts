@@ -145,11 +145,8 @@ export function buildFactorySeoText(seo: NonNullable<FactoryCapCutExportInput["s
     "",
     seo.description.trim(),
     "",
-    "태그:",
+    "업로드 태그 (유튜브 스튜디오 태그란):",
     seo.tags.join(", "),
-    "",
-    "해시태그:",
-    seo.hashtags.join(" "),
   ]
   const hook = seo.hookShort.trim()
   if (hook) {

@@ -12,6 +12,7 @@ import {
   collectMvpReferenceTitles,
   inferMvpSeoProductName,
   MVP_SEO_TITLE_MAX,
+  syncSeoMetaFromTags,
 } from "@/lib/mvp-studio-seo"
 import type { MvpStudioSeoMeta } from "@/lib/mvp-studio-types"
 import type { NarrationSegment } from "@/lib/shotform-factory-narration-script"
@@ -60,22 +61,22 @@ export function MvpSeoMetaPanel({
     [onChange, value]
   )
 
-  const removeHashtag = useCallback(
-    (tag: string) => patch({ hashtags: value.hashtags.filter((h) => h !== tag) }),
-    [patch, value.hashtags]
-  )
-
   const removeTag = useCallback(
-    (tag: string) => patch({ tags: value.tags.filter((t) => t !== tag) }),
-    [patch, value.tags]
+    (tag: string) => {
+      const tags = value.tags.filter((t) => t !== tag)
+      onChange(syncSeoMetaFromTags({ ...value, tags }))
+    },
+    [onChange, value]
   )
 
   const addTagFromDraft = useCallback(() => {
     const t = tagDraft.trim().replace(/^#/, "")
     if (!t) return
-    if (!value.tags.includes(t)) patch({ tags: [...value.tags, t] })
+    if (!value.tags.includes(t)) {
+      onChange(syncSeoMetaFromTags({ ...value, tags: [...value.tags, t] }))
+    }
     setTagDraft("")
-  }, [patch, tagDraft, value.tags])
+  }, [onChange, tagDraft, value])
 
   const generate = useCallback(async () => {
     const apiKey = shotformOpenAiKey()
@@ -113,15 +114,17 @@ export function MvpSeoMetaPanel({
       }
       if (!res.ok) throw new Error(data.error || "제목·설명·태그 생성에 실패했습니다.")
 
-      onChange({
-        title: typeof data.title === "string" ? data.title : value.title,
-        recommendedTitles: Array.isArray(data.recommendedTitles) ? data.recommendedTitles : [],
-        description: typeof data.description === "string" ? data.description : value.description,
-        tags: Array.isArray(data.tags) ? data.tags : value.tags,
-        hashtags: Array.isArray(data.hashtags) ? data.hashtags : value.hashtags,
-        hookShort: typeof data.hookShort === "string" ? data.hookShort : value.hookShort,
-        commentCue: typeof data.commentCue === "string" ? data.commentCue : value.commentCue,
-      })
+      onChange(
+        syncSeoMetaFromTags({
+          title: typeof data.title === "string" ? data.title : value.title,
+          recommendedTitles: Array.isArray(data.recommendedTitles) ? data.recommendedTitles : [],
+          description: typeof data.description === "string" ? data.description : value.description,
+          tags: Array.isArray(data.tags) ? data.tags : value.tags,
+          hashtags: Array.isArray(data.hashtags) ? data.hashtags : [],
+          hookShort: typeof data.hookShort === "string" ? data.hookShort : value.hookShort,
+          commentCue: typeof data.commentCue === "string" ? data.commentCue : value.commentCue,
+        })
+      )
     } catch (e) {
       setErr(e instanceof Error ? e.message : "SEO 생성 실패")
     } finally {
@@ -239,10 +242,16 @@ export function MvpSeoMetaPanel({
 
       <div className="rounded-lg border border-white/10 bg-black/30 p-2.5">
         <div className="mb-1.5 flex items-center justify-between gap-2">
-          <span className="text-[10px] font-medium text-slate-400">태그</span>
+          <div>
+            <span className="text-[10px] font-medium text-slate-400">업로드 태그</span>
+            <p className="mt-0.5 text-[9px] text-slate-600">
+              유튜브 스튜디오 <strong className="font-medium text-slate-500">태그</strong>란에 붙여넣기. 상위
+              키워드는 설명 첫 줄 해시태그로 자동 반영됩니다.
+            </p>
+          </div>
           <button
             type="button"
-            className="text-[9px] text-violet-300 hover:text-violet-200"
+            className="shrink-0 text-[9px] text-violet-300 hover:text-violet-200"
             onClick={() => void copyPlain("태그를 복사했습니다.", value.tags.join(", "))}
           >
             복사
@@ -278,39 +287,6 @@ export function MvpSeoMetaPanel({
             추가
           </Button>
         </div>
-      </div>
-
-      <div className="rounded-lg border border-white/10 bg-black/30 p-2.5">
-        <div className="mb-1.5 flex items-center justify-between gap-2">
-          <span className="text-[10px] font-medium text-slate-400">해시태그</span>
-          <button
-            type="button"
-            className="text-[9px] text-violet-300 hover:text-violet-200"
-            onClick={() => void copyPlain("해시태그를 복사했습니다.", value.hashtags.join(" "))}
-          >
-            전체 복사
-          </button>
-        </div>
-        <div className="flex flex-wrap gap-1">
-          {value.hashtags.map((h) => (
-            <span
-              key={h}
-              className="inline-flex items-center gap-0.5 rounded-full border border-violet-500/40 bg-violet-950/30 px-2 py-0.5 text-[10px] text-violet-100"
-            >
-              {h}
-              <button type="button" className="text-rose-400" onClick={() => removeHashtag(h)} aria-label={`${h} 제거`}>
-                <X className="h-2.5 w-2.5" />
-              </button>
-            </span>
-          ))}
-        </div>
-        {value.hashtags.length > 0 ? (
-          <p className="mt-2 rounded border border-white/5 bg-black/25 px-2 py-1 text-[10px] leading-relaxed text-slate-400">
-            {value.hashtags.join(" ")}
-          </p>
-        ) : (
-          <p className="mt-2 text-[10px] text-slate-600">「AI 생성」 후 해시태그가 채워집니다.</p>
-        )}
       </div>
     </div>
   )

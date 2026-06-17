@@ -6,6 +6,7 @@ import {
   Factory,
   Film,
   FlaskConical,
+  FolderOpen,
   KeyRound,
   Search,
   Settings,
@@ -209,13 +210,20 @@ export function ProductSearchLayout({
         </div>
 
         <nav className="flex-1 overflow-y-auto px-3 py-4">
-          <div className="mb-6 px-1">
+          <div className="mb-6 flex gap-2 px-1">
+            <Link
+              href="/WingsAIStudioShotForm/shortform-studio"
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-white px-2.5 py-3 text-sm font-semibold text-stone-700 shadow-sm ring-1 ring-[#1c1917]/[0.08] transition hover:bg-[#fff0ec] hover:text-[#ff4d3d]"
+            >
+              <FolderOpen className="h-4 w-4 shrink-0" aria-hidden />
+              <span className="truncate">프로젝트 목록</span>
+            </Link>
             <Link
               href="/WingsAIStudioShotForm/shopping-links"
-              className="flex w-full items-center gap-2.5 rounded-xl bg-gradient-to-r from-[#ff4d3d] to-[#ff8a65] px-3.5 py-3 text-sm font-semibold text-white shadow-md transition hover:brightness-105"
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-[#ff4d3d] to-[#ff8a65] px-2.5 py-3 text-sm font-semibold text-white shadow-md transition hover:brightness-105"
             >
               <ShoppingBag className="h-4 w-4 shrink-0" aria-hidden />
-              My 링크
+              <span className="truncate">My 링크</span>
             </Link>
           </div>
 

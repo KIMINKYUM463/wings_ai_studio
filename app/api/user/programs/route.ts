@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
     const wingsAIStudioShortFormProgram = {
       id: "wingsaistudioshortform",
       program_name: "WingsAIStudioShortForm",
-      program_path: "/WingsAIStudioShotForm/shortform-studio",
+      program_path: "/WingsAIStudioShotForm",
       program_description: "AI 기반 숏폼 영상 제작 플랫폼"
     }
 
@@ -91,12 +91,7 @@ export async function GET(request: NextRequest) {
 
     // WingsAIStudio와 WingsAIStudioShortForm이 이미 목록에 있는지 확인
     const hasWingsAIStudio = programs?.some((p: any) => p.id === "wingsaistudio" || p.program_path === "/WingsAIStudio")
-    const hasWingsAIStudioShortForm = programs?.some(
-      (p: any) =>
-        p.id === "wingsaistudioshortform" ||
-        p.program_path === "/WingsAIStudioShotForm" ||
-        p.program_path === "/WingsAIStudioShotForm/shortform-studio"
-    )
+    const hasWingsAIStudioShortForm = programs?.some((p: any) => p.id === "wingsaistudioshortform" || p.program_path === "/WingsAIStudioShotForm")
     
     // 기본 프로그램들을 맨 앞에 추가 (없는 경우만)
     const defaultPrograms: any[] = []
