@@ -19,7 +19,7 @@ export const MVP_LABELS = {
   directUrlHint:
     `抖音·小红书 URL을 입력한 뒤 「URL 해석」으로 영상을 확인하세요. 하단 「AI 짜집기」로 편집을 시작합니다. 기본 2칸, + 버튼으로 최대 ${MAX_AUTO_EDIT_VIDEOS}개까지 넣을 수 있으며, 짜집기는 버튼을 눌러야 시작됩니다.`,
   reprocessHint:
-    "YouTube·TikTok URL을 입력하면 자동으로 해석됩니다. 준비되면 하단 「AI 짜집기」를 눌러 주세요.",
+    "YouTube·TikTok URL을 넣고 「AI 짜집기」를 누르면 영상을 받아온 뒤 바로 짜집기가 시작됩니다.",
   apifyLoading: "抖音 · 小红书 Apify 검색 중… (최대 수 분)",
   steps: {
     urlInput: "URL 입력",

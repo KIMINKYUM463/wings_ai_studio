@@ -28,8 +28,7 @@ import { StudioPageCard, StudioPageHeader, studio } from "../components/ShotForm
 import { updateMvpTestProject } from "./project-actions"
 import type { MvpSourceMode, MvpTestProject, MvpTestProjectData } from "./project-types"
 import { MvpDirectUrlPickPanel } from "./MvpDirectUrlPickPanel"
-import { MvpReprocessUrlPanel, type MvpReprocessUrlPanelHandle } from "./MvpReprocessUrlPanel"
-import { parseReprocessUrl } from "@/lib/shotform-mvp-reprocess-url-shared"
+import { MvpReprocessUrlPanel } from "./MvpReprocessUrlPanel"
 import type { MvpResolvedUrlItem } from "@/lib/shotform-mvp-resolve-urls"
 import type { MvpReprocessResolvedItem } from "@/lib/shotform-mvp-reprocess-url-shared"
 import type { MvpStudioPersistData } from "@/lib/mvp-studio-types"
@@ -393,8 +392,6 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
   const [reprocessUrlText, setReprocessUrlText] = useState("")
   const [directUrlResolved, setDirectUrlResolved] = useState<MvpResolvedUrlItem[]>([])
   const [reprocessResolved, setReprocessResolved] = useState<MvpReprocessResolvedItem | null>(null)
-  const [reprocessResolving, setReprocessResolving] = useState(false)
-  const reprocessPanelRef = useRef<MvpReprocessUrlPanelHandle>(null)
   const [keywordText, setKeywordText] = useState("")
   const [multiKeyword, setMultiKeyword] = useState(false)
   const [keywordPairs, setKeywordPairs] = useState<KoZhKeywordPair[]>([])
@@ -744,19 +741,9 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
   }, [project.id])
 
   const handleOpenAutoEdit = useCallback(async () => {
-    if (sourceMode === "reprocess") {
-      if (!parseReprocessUrl(reprocessUrlText)) {
-        setErr("YouTube 또는 TikTok URL을 입력해 주세요.")
-        return
-      }
-      if (!editPicksRef.current.length) {
-        const ok = await reprocessPanelRef.current?.resolveNow()
-        if (!ok) return
-      }
-    }
     await refreshSelectedPickUrls()
     setAutoEditOpen(true)
-  }, [sourceMode, reprocessUrlText, refreshSelectedPickUrls])
+  }, [refreshSelectedPickUrls])
 
   const handleDirectUrlPicksReady = useCallback(
     (picks: AutoEditPick[], resolved: MvpResolvedUrlItem[]) => {
@@ -780,6 +767,7 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
       studioPicksKeyRef.current = null
       setErr(null)
       skipSaveRef.current = true
+      setAutoEditOpen(true)
     },
     []
   )
@@ -788,10 +776,6 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
     if (mode === sourceMode) return
     setSourceMode(mode)
     setErr(null)
-    if (workspaceRef.current) {
-      workspaceRef.current = { ...workspaceRef.current, sourceMode: mode }
-    }
-    skipSaveRef.current = false
   }, [sourceMode])
 
   const applyKeywordsFromVideo = useCallback((keywords: string[]) => {
@@ -1060,7 +1044,7 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
   }, [onBackToProjects])
 
   return (
-    <div className="space-y-6 pb-28">
+    <div className="space-y-6 pb-16">
       <MvpProjectToolbar
         projectName={projectName}
         onProjectNameChange={setProjectName}
@@ -1228,14 +1212,12 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
           <>
             <p className="mt-3 text-xs text-slate-500">{L.reprocessHint}</p>
             <MvpReprocessUrlPanel
-              ref={reprocessPanelRef}
               disabled={loading}
               urlText={reprocessUrlText}
               onUrlTextChange={setReprocessUrlText}
               resolved={reprocessResolved}
               onResolvedChange={setReprocessResolved}
               onPicksReady={handleReprocessPicksReady}
-              onResolvingChange={setReprocessResolving}
               onPicksClear={() => {
                 setEditPicks([])
                 setAutoEditOpen(false)
@@ -1361,13 +1343,12 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
         </div>
       ) : null}
 
-      {(editPicks.length > 0 || postEditStudio || sourceMode === "reprocess") ? (
+      {(editPicks.length > 0 || postEditStudio) ? (
         <MvpEditPicksBar
           picks={editPicks}
           editComplete={postEditStudio != null}
-          visibleWithoutPicks={sourceMode === "reprocess"}
-          urlRefreshing={pickUrlRefreshing || reprocessResolving}
-          urlRefreshMsg={reprocessResolving ? "영상 URL 해석 중…" : pickUrlRefreshMsg}
+          urlRefreshing={pickUrlRefreshing}
+          urlRefreshMsg={pickUrlRefreshMsg}
           onClearPicks={clearEditPicks}
           onRefreshUrls={() => void refreshSelectedPickUrls()}
           onOpenAutoEdit={() => void handleOpenAutoEdit()}
