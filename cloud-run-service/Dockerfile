@@ -1,10 +1,13 @@
 FROM python:3.11-slim
 
-# FFmpeg 및 한글 폰트 설치
+# FFmpeg 및 한글 폰트·yt-dlp 설치
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     fonts-noto-cjk \
     fonts-noto-core \
+    curl \
+    && curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
+    && chmod a+rx /usr/local/bin/yt-dlp \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

@@ -3,6 +3,7 @@ import {
   type MvpReprocessPlatform,
   type MvpReprocessResolvedItem,
 } from "@/lib/shotform-mvp-reprocess-url-shared"
+import { resolveMediaUrlViaCloudRun } from "@/lib/shotform-cloud-run-media-resolve"
 import { isYtDlpAvailable, resolveMediaUrlWithYtDlp } from "@/lib/shotform-ytdlp"
 import { resolveYoutubeStreamUrl } from "@/lib/shotform-youtube-stream-url"
 
@@ -260,50 +261,61 @@ export async function resolveReprocessUrl(
     }
 
     if (platform === "youtube") {
+      const attempts: string[] = []
+
       try {
         const r = await resolveYoutubeStreamUrl(noteUrl)
-        return {
-          ...base,
-          videoUrl: r.videoUrl,
-          title: r.title,
-        }
+        return { ...base, videoUrl: r.videoUrl, title: r.title }
       } catch (innertubeErr) {
-        const token = apifyToken.trim()
-        if (!token) {
-          const hint =
-            innertubeErr instanceof Error ? innertubeErr.message : "YouTube URL 해석 실패"
-          return {
-            ...base,
-            error: `${hint} (Apify 토큰 없음 — TikTok·폴백용)`,
-          }
+        attempts.push(innertubeErr instanceof Error ? innertubeErr.message : "InnerTube 실패")
+      }
+
+      try {
+        const cloud = await resolveMediaUrlViaCloudRun(noteUrl)
+        if (cloud?.videoUrl.startsWith("http")) {
+          return { ...base, videoUrl: cloud.videoUrl, title: cloud.title }
         }
+      } catch (cloudErr) {
+        attempts.push(cloudErr instanceof Error ? cloudErr.message : "Cloud Run 실패")
+      }
+
+      const token = apifyToken.trim()
+      if (token) {
         try {
           const r = await resolveYoutubeViaApify(token, noteUrl)
-          return {
-            ...base,
-            videoUrl: r.videoUrl,
-            title: r.title,
-          }
+          return { ...base, videoUrl: r.videoUrl, title: r.title }
         } catch (apifyErr) {
-          const a = apifyErr instanceof Error ? apifyErr.message : "Apify 오류"
-          const i = innertubeErr instanceof Error ? innertubeErr.message : "InnerTube 오류"
-          return {
-            ...base,
-            error: `${i} · Apify 폴백: ${a}`,
-          }
+          attempts.push(apifyErr instanceof Error ? apifyErr.message : "Apify 실패")
         }
       }
-    }
 
-    const token = apifyToken.trim()
-    if (!token) {
       return {
         ...base,
-        error: "TikTok URL 해석에 yt-dlp(서버) 또는 소스 검색 토큰(Apify)이 필요합니다.",
+        error:
+          "YouTube 영상을 서버에서 가져오지 못했습니다. Cloud Run에 yt-dlp 엔드포인트 배포가 필요할 수 있습니다. " +
+          "로컬에서는 npm run dev로 시도해 보세요. " +
+          (attempts[0] ? `(${attempts[0].slice(0, 160)})` : ""),
       }
     }
 
     if (platform === "tiktok") {
+      try {
+        const cloud = await resolveMediaUrlViaCloudRun(noteUrl)
+        if (cloud?.videoUrl.startsWith("http")) {
+          return { ...base, videoUrl: cloud.videoUrl, title: cloud.title }
+        }
+      } catch {
+        /* Apify 폴백 */
+      }
+
+      const token = apifyToken.trim()
+      if (!token) {
+        return {
+          ...base,
+          error: "TikTok URL 해석에 yt-dlp(서버)·Cloud Run 또는 소스 검색 토큰(Apify)이 필요합니다.",
+        }
+      }
+
       const r = await resolveTiktokViaApify(token, noteUrl)
       return {
         ...base,

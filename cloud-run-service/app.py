@@ -1407,6 +1407,53 @@ def render_video():
             "error": f"오류 발생: {str(e)}"
         }), 500
 
+@app.route('/resolve-media-url', methods=['POST', 'OPTIONS'])
+def resolve_media_url():
+    """YouTube·TikTok 페이지 URL → 직접 재생 URL (yt-dlp) — Vercel 재가공용"""
+    if request.method == 'OPTIONS':
+        response = jsonify({})
+        return add_cors_headers(response), 200
+
+    data = request.get_json(silent=True) or {}
+    url = (data.get('url') or '').strip()
+    if not url.startswith('http'):
+        return jsonify({'error': 'url이 필요합니다.'}), 400
+
+    try:
+        result = subprocess.run(
+            [
+                'yt-dlp',
+                '--no-warnings',
+                '--no-update',
+                '-f', '18/best[ext=mp4]/best[ext=mp4]/best',
+                '--print', '%(title)s',
+                '--print', '%(url)s',
+                url,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        if result.returncode != 0:
+            err = (result.stderr or result.stdout or 'yt-dlp 실패').strip()
+            return jsonify({'error': err[:400]}), 502
+
+        lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        video_url = next((line for line in lines if line.startswith('http')), '')
+        title = next((line for line in lines if not line.startswith('http')), '')
+        if not video_url:
+            return jsonify({'error': '재생 URL을 찾지 못했습니다.'}), 502
+
+        return jsonify({
+            'videoUrl': video_url,
+            'title': (title or '(영상)')[:200],
+        })
+    except subprocess.TimeoutExpired:
+        return jsonify({'error': 'yt-dlp 시간 초과'}), 504
+    except Exception as e:
+        return jsonify({'error': str(e)[:400]}), 500
+
+
 @app.route('/', methods=['GET'])
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -1418,6 +1465,7 @@ def health_check():
         "version": "1.0.0",
         "endpoints": {
             "render": "POST /render",
+            "resolveMediaUrl": "POST /resolve-media-url",
             "health": "GET /health"
         }
     }), 200

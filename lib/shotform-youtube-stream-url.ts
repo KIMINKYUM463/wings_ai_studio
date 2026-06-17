@@ -1,10 +1,10 @@
 /**
- * YouTube 페이지 URL → googlevideo 직접 재생 URL (Vercel·서버리스용)
- * ANDROID InnerTube player — Apify/yt-dlp 없이 동작
+ * YouTube 페이지 URL → googlevideo 직접 재생 URL
+ * Vercel 등 데이터센터 IP — ANDROID_VR·visitorData 등 여러 InnerTube 클라이언트 시도
  */
 
-const YT_UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+const YT_MOBILE_UA =
+  "Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
 
 type YtStreamFormat = {
   url?: string
@@ -18,6 +18,21 @@ type YtStreamingData = {
   formats?: YtStreamFormat[]
   adaptiveFormats?: YtStreamFormat[]
 }
+
+type YtPlayerClient = Record<string, string | number>
+
+const STATIC_PLAYER_CLIENTS: YtPlayerClient[] = [
+  {
+    clientName: "ANDROID_VR",
+    clientVersion: "1.65.10",
+    deviceModel: "Quest 3",
+    osName: "Android",
+    osVersion: "12L",
+    androidSdkVersion: 32,
+  },
+  { clientName: "ANDROID", clientVersion: "20.10.38" },
+  { clientName: "ANDROID", clientVersion: "19.17.34" },
+]
 
 export function youtubeIdFromUrl(link: string): string | null {
   try {
@@ -34,6 +49,15 @@ export function youtubeIdFromUrl(link: string): string | null {
     return null
   }
   return null
+}
+
+function decodeVisitorData(raw: string | undefined): string | undefined {
+  if (!raw?.trim()) return undefined
+  try {
+    return raw.replace(/\\u002F/g, "/").replace(/\\\//g, "/")
+  } catch {
+    return raw
+  }
 }
 
 function extractTitleFromWatchHtml(html: string): string {
@@ -66,6 +90,63 @@ function pickProgressiveMp4Url(streamingData: YtStreamingData | undefined): stri
   return anyMp4[0]?.url || null
 }
 
+function buildPlayerClients(webClientVersion: string | undefined, visitorData: string | undefined): YtPlayerClient[] {
+  const clients = [...STATIC_PLAYER_CLIENTS]
+  if (webClientVersion) {
+    clients.push({ clientName: "WEB", clientVersion: webClientVersion })
+    clients.push({ clientName: "MWEB", clientVersion: webClientVersion })
+  }
+  if (visitorData) {
+    return clients.map((c) => ({ ...c, visitorData }))
+  }
+  return clients
+}
+
+async function fetchPlayerResponse(
+  videoId: string,
+  apiKey: string,
+  client: YtPlayerClient,
+  visitorData: string | undefined
+): Promise<{
+  streamingData?: YtStreamingData
+  videoDetails?: { title?: string }
+  playabilityStatus?: { status?: string; reason?: string }
+}> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "User-Agent": YT_MOBILE_UA,
+    Accept: "*/*",
+    "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+  }
+  if (visitorData) headers["X-Goog-Visitor-Id"] = visitorData
+
+  const res = await fetch(`https://www.youtube.com/youtubei/v1/player?key=${encodeURIComponent(apiKey)}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      context: {
+        client: {
+          ...client,
+          hl: "ko",
+          gl: "KR",
+        },
+      },
+      videoId,
+    }),
+    signal: AbortSignal.timeout(25_000),
+  })
+
+  if (!res.ok) {
+    throw new Error(`YouTube 재생 API 실패 (${res.status})`)
+  }
+
+  return (await res.json().catch(() => ({}))) as {
+    streamingData?: YtStreamingData
+    videoDetails?: { title?: string }
+    playabilityStatus?: { status?: string; reason?: string }
+  }
+}
+
 /** YouTube watch URL → googlevideo MP4 URL + 제목 */
 export async function resolveYoutubeStreamUrl(
   pageUrl: string
@@ -76,7 +157,11 @@ export async function resolveYoutubeStreamUrl(
   }
 
   const watchRes = await fetch(`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`, {
-    headers: { "User-Agent": YT_UA, Accept: "text/html" },
+    headers: {
+      "User-Agent": YT_MOBILE_UA,
+      Accept: "text/html",
+      "Accept-Language": "ko-KR,ko;q=0.9",
+    },
     redirect: "follow",
     signal: AbortSignal.timeout(20_000),
   })
@@ -89,52 +174,40 @@ export async function resolveYoutubeStreamUrl(
     throw new Error("YouTube 재생 정보를 가져오지 못했습니다.")
   }
 
-  const playerRes = await fetch(
-    `https://www.youtube.com/youtubei/v1/player?key=${encodeURIComponent(apiKey)}`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "User-Agent": YT_UA,
-      },
-      body: JSON.stringify({
-        context: {
-          client: {
-            clientName: "ANDROID",
-            clientVersion: "20.10.38",
-            hl: "ko",
-            gl: "KR",
-          },
-        },
-        videoId,
-      }),
-      signal: AbortSignal.timeout(25_000),
+  const visitorData = decodeVisitorData(html.match(/"VISITOR_DATA":"([^"]+)"/)?.[1])
+  const webClientVersion = html.match(/"INNERTUBE_CLIENT_VERSION":"([^"]+)"/)?.[1]
+  const fallbackTitle = extractTitleFromWatchHtml(html)
+
+  const errors: string[] = []
+  for (const client of buildPlayerClients(webClientVersion, visitorData)) {
+    try {
+      const data = await fetchPlayerResponse(videoId, apiKey, client, visitorData)
+      const status = data.playabilityStatus?.status
+      if (status && status !== "OK") {
+        const reason = data.playabilityStatus?.reason?.trim()
+        errors.push(
+          `${String(client.clientName)}: ${reason || status}`.slice(0, 120)
+        )
+        continue
+      }
+      const videoUrl = pickProgressiveMp4Url(data.streamingData)
+      if (!videoUrl?.startsWith("http")) {
+        errors.push(`${String(client.clientName)}: MP4 URL 없음`)
+        continue
+      }
+      const title =
+        (typeof data.videoDetails?.title === "string" && data.videoDetails.title.trim().slice(0, 200)) ||
+        fallbackTitle
+      return { videoUrl, title }
+    } catch (e) {
+      errors.push(
+        `${String(client.clientName)}: ${e instanceof Error ? e.message : "오류"}`.slice(0, 120)
+      )
     }
+  }
+
+  const tail = errors.length ? ` (${errors[0]})` : ""
+  throw new Error(
+    `YouTube가 서버에서 영상 재생을 허용하지 않았습니다. 데이터센터 IP 차단일 수 있습니다.${tail}`
   )
-  if (!playerRes.ok) {
-    throw new Error(`YouTube 재생 API 실패 (${playerRes.status})`)
-  }
-
-  const data = (await playerRes.json().catch(() => null)) as {
-    streamingData?: YtStreamingData
-    videoDetails?: { title?: string }
-    playabilityStatus?: { status?: string; reason?: string }
-  } | null
-
-  const status = data?.playabilityStatus?.status
-  if (status && status !== "OK") {
-    const reason = data?.playabilityStatus?.reason?.trim()
-    throw new Error(reason || `YouTube 영상을 재생할 수 없습니다 (${status})`)
-  }
-
-  const videoUrl = pickProgressiveMp4Url(data?.streamingData)
-  if (!videoUrl?.startsWith("http")) {
-    throw new Error("YouTube MP4 스트림 URL을 찾지 못했습니다.")
-  }
-
-  const title =
-    (typeof data?.videoDetails?.title === "string" && data.videoDetails.title.trim().slice(0, 200)) ||
-    extractTitleFromWatchHtml(html)
-
-  return { videoUrl, title }
 }

@@ -184,7 +184,7 @@ export function MvpReprocessUrlPanel({
           )}
         </button>
         <span className="text-xs text-slate-500">
-          URL 입력 후 Enter 또는 AI 짜집기 · YouTube는 서버 InnerTube, TikTok은 Apify 토큰
+          URL 입력 후 Enter 또는 AI 짜집기 · 배포는 Cloud Run yt-dlp, TikTok은 Apify
         </span>
       </div>
 
