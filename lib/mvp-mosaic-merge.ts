@@ -126,19 +126,34 @@ function buildTrackFromHits(
   const reliable = filterReliableHits(hits)
   const midT = reliable[Math.floor(reliable.length / 2)]?.timeSec ?? hits[0]!.timeSec
   const sorted = [...reliable].sort((a, b) => Math.abs(a.timeSec - midT) - Math.abs(b.timeSec - midT))
-  const core = sorted.slice(0, Math.max(2, Math.ceil(sorted.length * 0.7)))
+  const core = sorted.slice(0, Math.max(2, Math.ceil(sorted.length * 0.65)))
   const times = reliable.map((h) => h.timeSec)
+
+  const heights = core.map((h) => h.box.height_pct).sort((a, b) => a - b)
+  const widths = core.map((h) => h.box.width_pct).sort((a, b) => a - b)
+  const hIdx = Math.floor(heights.length * 0.3)
+  const wIdx = Math.floor(widths.length * 0.45)
+
   return {
     centerXPct: median(core.map((h) => h.box.center_x_pct)),
     centerYPct: median(core.map((h) => h.box.center_y_pct)),
-    widthPct: median(core.map((h) => h.box.width_pct)),
-    heightPct: median(core.map((h) => h.box.height_pct)),
+    widthPct: widths[wIdx] ?? widths[0]!,
+    heightPct: heights[hIdx] ?? heights[0]!,
     text: text ?? core.find((h) => h.box.text)?.box.text,
     startSec: Math.min(...times),
     endSec: Math.max(...times),
     samples: reliable.length,
     hits: reliable,
   }
+}
+
+function tightenTrackGeometry(track: Track): void {
+  if (track.hits.length < 2) return
+  const rebuilt = buildTrackFromHits(track.hits, track.text)
+  track.centerXPct = rebuilt.centerXPct
+  track.centerYPct = rebuilt.centerYPct
+  track.widthPct = rebuilt.widthPct
+  track.heightPct = rebuilt.heightPct
 }
 
 function positionClusterDistance(a: DetectedChineseMosaicBox, b: DetectedChineseMosaicBox): number {
@@ -254,7 +269,7 @@ function refineTrackBoundaries(tracks: Track[], rows: MosaicFrameDetectRow[]): v
     let earliest = track.startSec
     for (const row of sortedRows) {
       if (row.timeSec > track.endSec + 0.05) break
-      if (row.timeSec < track.startSec - 0.3) continue
+      if (row.timeSec < track.startSec - 0.45) continue
       const hit = row.boxes.some((b) => boxMatchesTrack(b, track))
       if (hit) earliest = Math.min(earliest, row.timeSec)
     }
@@ -364,66 +379,42 @@ function consolidateOverlappingTracks(tracks: Track[]): Track[] {
   return out
 }
 
-/** 같은 장면 안의 가까운 트랙을 세로로 묶어 1개 박스로 (2줄 자막) */
-function groupStackedLinesInScene(tracks: Track[], segments?: MosaicSceneSegment[]): Track[] {
-  if (!segments?.length || tracks.length < 2) return tracks
+/** 같은 장면 안 2줄은 각각 유지 (세로 합치면 위아래 과다 모자이크) — 비활성 */
 
-  const out: Track[] = []
-  const used = new Set<Track>()
+function resolveTrackTiming(
+  track: Track,
+  durationSec: number,
+  step: number,
+  seg: MosaicSceneSegment | null
+): { startSec: number; endSec: number } {
+  const leadSec = Math.min(0.28, Math.max(0.1, step * 0.65))
+  const tailSec = Math.min(0.1, Math.max(0.03, step * 0.22))
 
-  for (const seg of segments) {
-    const inSeg = tracks.filter(
-      (t) =>
-        !used.has(t) &&
-        (t.startSec + t.endSec) / 2 >= seg.start - 0.05 &&
-        (t.startSec + t.endSec) / 2 <= seg.end + 0.05
-    )
-    if (!inSeg.length) continue
+  let startSec = Math.max(0, track.startSec - leadSec)
+  let endSec = Math.min(durationSec, track.endSec + tailSec)
 
-    inSeg.sort((a, b) => a.centerYPct - b.centerYPct)
-    let cluster: Track[] = []
-
-    const flushCluster = () => {
-      if (!cluster.length) return
-      if (cluster.length === 1) {
-        out.push(cluster[0]!)
-        used.add(cluster[0]!)
-      } else {
-        const merged = { ...cluster[0]!, hits: [...cluster[0]!.hits] }
-        for (let i = 1; i < cluster.length; i++) mergeTrackUnion(merged, cluster[i]!)
-        out.push(merged)
-        for (const c of cluster) used.add(c)
-      }
-      cluster = []
+  if (seg) {
+    const segDur = Math.max(0.12, seg.end - seg.start)
+    const detectDelay = track.startSec - seg.start
+    if (detectDelay > 0.05 && detectDelay < segDur * 0.7) {
+      startSec = Math.min(startSec, seg.start + 0.02)
     }
-
-    for (const t of inSeg) {
-      if (!cluster.length) {
-        cluster = [t]
-        continue
-      }
-      const last = cluster[cluster.length - 1]!
-      const vertGap = t.centerYPct - last.centerYPct
-      if (vertGap > 2 && vertGap < 22) {
-        cluster.push(t)
-      } else {
-        flushCluster()
-        cluster = [t]
-      }
+    const coverRatio = (track.endSec - track.startSec) / segDur
+    if (coverRatio >= 0.62) {
+      startSec = Math.min(startSec, seg.start + 0.02)
+      endSec = Math.max(endSec, seg.end - 0.02)
     }
-    flushCluster()
   }
 
-  for (const t of tracks) {
-    if (!used.has(t)) out.push(t)
-  }
-  return out
+  return { startSec, endSec }
 }
 
 export function buildMosaicTracks(rows: MosaicFrameDetectRow[]): Track[] {
   const tracks = explodeTracksByPosition(mergeFrameRows(rows))
   if (tracks.length) refineTrackBoundaries(tracks, rows)
-  return consolidateOverlappingTracks(tracks)
+  const consolidated = consolidateOverlappingTracks(tracks)
+  for (const t of consolidated) tightenTrackGeometry(t)
+  return consolidated
 }
 
 export function tracksToWindows(tracks: Array<Pick<Track, "startSec" | "endSec" | "centerXPct" | "centerYPct" | "widthPct" | "heightPct">>): MosaicTrackWindow[] {
@@ -437,43 +428,53 @@ export function tracksToWindows(tracks: Array<Pick<Track, "startSec" | "endSec" 
   }))
 }
 
+/** 트랙 등장 직전 프레임 — 글자보다 늦게 켜지는 현상 보정 */
+export function buildMosaicAppearanceProbeTimes(
+  tracks: Array<Pick<Track, "startSec">>,
+  existingTimes: number[],
+  options?: { maxExtra?: number }
+): number[] {
+  const maxExtra = options?.maxExtra ?? 24
+  const existing = new Set(existingTimes.map((t) => Math.round(t * 1000) / 1000))
+  const extra: number[] = []
+  const push = (t: number) => {
+    const clamped = Math.round(Math.max(0.04, t) * 1000) / 1000
+    if (existing.has(clamped)) return
+    if (!extra.some((x) => Math.abs(x - clamped) < 0.025)) extra.push(clamped)
+  }
+
+  for (const track of tracks) {
+    for (const d of [-0.2, -0.14, -0.09, -0.05, -0.02]) push(track.startSec + d)
+  }
+
+  return extra.slice(0, maxExtra)
+}
+
 export function mergeMosaicRowsToOverlays(
   rows: MosaicFrameDetectRow[],
   durationSec: number,
   options?: { videoW?: number; videoH?: number; sceneSegments?: MosaicSceneSegment[] }
 ): PlacedStudioOverlay[] {
-  let tracks = buildMosaicTracks(rows)
-  tracks = groupStackedLinesInScene(tracks, options?.sceneSegments)
+  const tracks = buildMosaicTracks(rows)
   if (!tracks.length) return []
 
   const step = estimateSampleStep(rows)
-  const padStart = Math.min(0.12, Math.max(0.04, step * 0.45))
-  const padEnd = Math.min(0.14, Math.max(0.05, step * 0.55))
 
   return tracks.map((t, i) => {
-    let startSec = Math.max(0, t.startSec - padStart)
-    let endSec = Math.min(durationSec, t.endSec + padEnd)
-
     const trackMid = (t.startSec + t.endSec) / 2
     const seg =
       sceneSegmentAtTime(options?.sceneSegments, trackMid) ??
       sceneSegmentAtTime(options?.sceneSegments, t.startSec) ??
       sceneSegmentAtTime(options?.sceneSegments, t.endSec)
-    if (seg) {
-      const segDur = Math.max(0.12, seg.end - seg.start)
-      const trackDur = Math.max(0.1, t.endSec - t.startSec)
-      if (trackDur >= segDur * 0.32) {
-        startSec = Math.max(0, seg.start)
-        endSec = Math.min(durationSec, seg.end)
-      }
-    }
+
+    const { startSec, endSec } = resolveTrackTiming(t, durationSec, step, seg)
 
     return pctBoxToMosaicOverlay({
       id: `ov-ai-${i + 1}`,
       centerXPct: t.centerXPct,
       centerYPct: t.centerYPct,
-      widthPct: Math.min(96, t.widthPct + 3.2),
-      heightPct: Math.min(42, t.heightPct + 2.4),
+      widthPct: Math.min(94, t.widthPct + 1.2),
+      heightPct: Math.min(14, t.heightPct + 0.5),
       startSec,
       endSec,
       detectedText: t.text,

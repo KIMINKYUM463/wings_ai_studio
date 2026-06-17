@@ -26,8 +26,9 @@ Korean narration subtitles are often in a dark bar at the TOP — never use that
 Chinese burned-in subtitles are VERY COMMON at bottom-center (top_pct 72–88%) as 1–2 white/yellow outlined lines spanning most of the width — you MUST detect these.
 Chinese product captions may also appear at center or lower-middle.
 
-For each Chinese text region return a TIGHT bounding box covering ONLY the glyph pixels with ~1-2% margin.
-- Multiple separate text lines = separate boxes
+For each Chinese text region return a TIGHT bounding box covering ONLY the glyph pixels with ~0.5% margin.
+- ONE line of text = height roughly 3–7% of frame height only — never include blank margin above/below the glyphs
+- Multiple separate text lines = separate boxes (do NOT merge lines into one tall box)
 - Small corner tags = small tight boxes at that corner
 - Do NOT return a box for the entire lower-third safe area
 
@@ -41,7 +42,7 @@ function clampPct(n: number): number {
   return Math.min(100, Math.max(0, n))
 }
 
-function padBox(box: DetectedChineseMosaicBox, padPct = 1.8): DetectedChineseMosaicBox {
+function padBox(box: DetectedChineseMosaicBox, padPct = 0.55): DetectedChineseMosaicBox {
   const rect = {
     left: box.center_x_pct - box.width_pct / 2,
     top: box.center_y_pct - box.height_pct / 2,

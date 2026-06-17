@@ -17,7 +17,7 @@ export function mosaicStageHeightPx(stageWidth = MVP_PREVIEW_STAGE_WIDTH_PX): nu
   return Math.round(stageWidth * (16 / 9))
 }
 
-/** 모자이크 오버레이가 현재 영상 시각에 표시되는지 */
+/** 모자이크가 글자보다 먼저 켜지도록 (표시 전용) */
 export function overlayVisibleAtVideoTime(
   ov: PlacedStudioOverlay,
   videoTimeSec: number,
@@ -25,8 +25,7 @@ export function overlayVisibleAtVideoTime(
 ): boolean {
   const start = ov.startSec ?? 0
   const end = ov.endSec ?? totalSec ?? Number.POSITIVE_INFINITY
-  const pad = 0.06
-  return videoTimeSec >= start - pad && videoTimeSec <= end + pad
+  return videoTimeSec >= start - 0.1 && videoTimeSec <= end + 0.02
 }
 
 export function filterOverlaysAtVideoTime(

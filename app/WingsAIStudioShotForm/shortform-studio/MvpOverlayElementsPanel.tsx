@@ -32,6 +32,7 @@ import {
   type MosaicSceneSegment,
 } from "@/lib/mvp-mosaic-frame-capture"
 import {
+  buildMosaicAppearanceProbeTimes,
   buildMosaicTracks,
   mergeMosaicRowsToOverlays,
   tracksToWindows,
@@ -309,8 +310,27 @@ export function MvpOverlayElementsPanel({
 
       const preliminaryTracks = buildMosaicTracks(allRows)
       if (preliminaryTracks.length) {
+        const appearanceTimes = buildMosaicAppearanceProbeTimes(
+          preliminaryTracks,
+          allRows.map((r) => r.timeSec),
+          { maxExtra: 20 }
+        )
+        if (appearanceTimes.length) {
+          setAiStatus(`등장 시각 보정 0/${appearanceTimes.length}…`)
+          const appearanceFrames = await captureMosaicFramesAtTimes(video, appearanceTimes, {
+            maxWidth: refineWidth,
+            signal,
+            onProgress: (done, total) => setAiStatus(`등장 시각 보정 ${done}/${total}…`),
+          })
+          const appearanceRows = await detectBatch(appearanceFrames, "등장", {
+            highDetail: true,
+            maxWidth: 560,
+          })
+          allRows = mergeRows([...allRows, ...appearanceRows])
+        }
+
         const boundaryTimes = buildMosaicBoundaryTimes(
-          tracksToWindows(preliminaryTracks),
+          tracksToWindows(buildMosaicTracks(allRows)),
           captureDurationSec,
           { existingTimes: allRows.map((r) => r.timeSec) }
         )
