@@ -10,6 +10,17 @@ interface Program {
   program_description: string | null
 }
 
+/** ShotForm 프로그램은 프로젝트 목록(숏폼 스튜디오)으로 연결 */
+function resolveProgramHref(program: Program): string {
+  if (
+    program.id === 'wingsaistudioshortform' ||
+    program.program_path === '/WingsAIStudioShotForm'
+  ) {
+    return '/WingsAIStudioShotForm/shortform-studio'
+  }
+  return program.program_path
+}
+
 export default function HomePage() {
   const router = useRouter()
   const [isLoggedIn, setIsLoggedIn] = useState(false)
@@ -47,8 +58,10 @@ export default function HomePage() {
 
     if (kakaoLogin === 'success') {
       checkLoginStatus()
-      // URL에서 파라미터 제거
-      window.history.replaceState({}, '', '/')
+      const params = new URLSearchParams(window.location.search)
+      params.delete('kakao_login')
+      const qs = params.toString()
+      window.history.replaceState({}, '', qs ? `/?${qs}` : '/')
     }
 
     if (kakaoError) {
@@ -89,6 +102,16 @@ export default function HomePage() {
 
     loadPrograms()
   }, [isLoggedIn])
+
+  // 로그인 후 redirect 파라미터 처리 (ShotForm 등 비로그인 리다이렉트 복귀)
+  useEffect(() => {
+    if (isLoading || !isLoggedIn) return
+    const redirect = new URLSearchParams(window.location.search).get('redirect')
+    if (!redirect || !redirect.startsWith('/') || redirect.startsWith('//')) return
+    const clean = window.location.pathname
+    window.history.replaceState({}, '', clean)
+    router.push(redirect)
+  }, [isLoggedIn, isLoading, router])
 
   // 카카오 로그인 시작
   const handleKakaoLogin = () => {
@@ -284,7 +307,7 @@ export default function HomePage() {
                 {programs.map((program) => (
                   <a
                     key={program.id}
-                    href={program.program_path}
+                    href={resolveProgramHref(program)}
                     className="group flex flex-col rounded-lg border border-border bg-card p-6 hover:border-primary transition-colors"
                   >
                     <h3 className="text-lg font-semibold mb-2 group-hover:text-primary transition-colors">
