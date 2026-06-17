@@ -1,13 +1,10 @@
 import type { NarrationSegment } from "@/lib/shotform-factory-narration-script"
 import {
-  voiceLineCueAtTime,
   voiceSubtitleAtLineCues,
   type VoiceLineCue,
 } from "@/lib/shotform-factory-line-tts"
 import { isMvpThumbnailIntroTime } from "@/lib/mvp-thumbnail-intro"
 import {
-  previewPlaybackRateForCue,
-  videoRangeFromVoiceCue,
   videoTimeFromAudioCueSync,
 } from "@/lib/shotform-mvp-preview-sync"
 import {
@@ -67,9 +64,42 @@ export type MvpPreviewRenderInput = {
   onProgress?: (ratio: number) => void
 }
 
-type SyncState = {
-  lastScene: number
-  lastCueKey: string
+function computeExportVideoTime(
+  audioT: number,
+  cues: readonly VoiceLineCue[] | null | undefined,
+  segments: readonly NarrationSegment[],
+  videoDur: number,
+  audioDur: number,
+  hasAudio: boolean
+): number {
+  if (hasAudio && cues?.length && segments.length) {
+    return videoTimeFromAudioCueSync(audioT, cues, segments, videoDur, audioDur)
+  }
+  if (videoDur > 0 && audioDur > 0) {
+    return Math.min(videoDur, (audioT / audioDur) * videoDur)
+  }
+  return Math.min(videoDur, Math.max(0, audioT))
+}
+
+/**보내기 — playbackRate 대신 오디오 시각에 맞춰 매 프레임 seek (끝에서 영상 멈춤 방지) */
+function seekVideoForExportFrame(
+  video: HTMLVideoElement,
+  videoT: number,
+  videoDur: number
+): void {
+  const fileDur =
+    Number.isFinite(video.duration) && video.duration > 0 ? video.duration : videoDur
+  const maxT = Math.max(0, fileDur - 0.02)
+  const target = Math.min(maxT, Math.max(0, videoT))
+  if (!Number.isFinite(target)) return
+
+  if (video.ended || Math.abs(video.currentTime - target) > 0.025) {
+    video.currentTime = target
+  }
+  video.playbackRate = 1
+  if (video.paused) {
+    void video.play().catch(() => {})
+  }
 }
 
 function loadImage(url: string): Promise<HTMLImageElement> {
@@ -280,53 +310,6 @@ function drawSubtitle(
   ctx.shadowOffsetY = 0
 }
 
-function applyVideoSync(
-  video: HTMLVideoElement,
-  audioT: number,
-  cues: readonly VoiceLineCue[] | null | undefined,
-  segments: readonly NarrationSegment[],
-  videoDur: number,
-  audioDur: number,
-  state: SyncState
-) {
-  if (!cues?.length) {
-    if (videoDur > 0 && audioDur > 0) {
-      const target = Math.min(videoDur, (audioT / audioDur) * videoDur)
-      if (Math.abs(video.currentTime - target) > 0.08) {
-        video.currentTime = target
-      }
-    }
-    video.playbackRate = 1
-    return
-  }
-
-  const cue = voiceLineCueAtTime(cues, audioT)
-  if (!cue) return
-
-  const { startSec: vidStart, endSec: vidEnd } = videoRangeFromVoiceCue(cue, segments, cues)
-  video.playbackRate = previewPlaybackRateForCue(cue, segments, cues)
-
-  const cueKey = `${cue.sceneIndex}:${cue.startSec.toFixed(3)}`
-  const sceneChanged = cue.sceneIndex !== state.lastScene
-  const cueChanged = cueKey !== state.lastCueKey
-
-  if (cueChanged) {
-    state.lastCueKey = cueKey
-    if (sceneChanged) {
-      video.currentTime = vidStart
-      state.lastScene = cue.sceneIndex
-    } else if (video.currentTime < vidStart - 0.12 || video.currentTime > vidEnd + 0.08) {
-      video.currentTime = vidStart
-    }
-  }
-
-  if (video.currentTime < vidStart - 0.2) {
-    video.currentTime = vidStart
-  } else if (video.currentTime > vidEnd + 0.15) {
-    video.currentTime = Math.max(vidStart, vidEnd - 0.04)
-  }
-}
-
 function resolveSubtitleText(
   audioT: number,
   videoT: number,
@@ -450,11 +433,19 @@ export async function renderMvpPreviewToBlob(
     recorder.onerror = () => reject(new Error("recorder failed"))
   })
 
-  const syncState: SyncState = { lastScene: -1, lastCueKey: "" }
-
   video.currentTime = 0
   audio.currentTime = 0
-  void video.play().catch(() => {})
+  video.onended = () => {
+    const videoT = computeExportVideoTime(
+      audio.currentTime,
+      voiceLineCues,
+      segments,
+      videoDur,
+      audioDur,
+      Boolean(audioUrl)
+    )
+    seekVideoForExportFrame(video, videoT, videoDur)
+  }
 
   recorder.start(100)
   await audio.play()
@@ -481,27 +472,25 @@ export async function renderMvpPreviewToBlob(
       const audioT = audio.currentTime
       onProgress?.(Math.min(0.82, (audioT / audioDur) * 0.82))
 
-      applyVideoSync(
-        video,
+      const videoT = computeExportVideoTime(
         audioT,
         voiceLineCues,
         segments,
         videoDur,
         audioDur,
-        syncState
+        Boolean(audioUrl)
       )
-
-      const videoT =
-        voiceLineCues?.length && audioUrl
-          ? videoTimeFromAudioCueSync(audioT, voiceLineCues, segments, videoDur, audioDur)
-          : video.currentTime
-
-      renderLayers.syncLayers(videoT, !audio.paused)
 
       const showThumbnail =
         Boolean(thumbnailImg) &&
         thumbnailIntroOn &&
         isMvpThumbnailIntroTime(videoT)
+
+      if (!showThumbnail) {
+        seekVideoForExportFrame(video, videoT, videoDur)
+      }
+
+      renderLayers.syncLayers(videoT, !audio.paused)
 
       ctx.fillStyle = "#000000"
       ctx.fillRect(0, 0, canvas.width, canvas.height)
@@ -524,11 +513,7 @@ export async function renderMvpPreviewToBlob(
         }
       }
 
-      // 미리보기와 동일 — 모자이크 구간은 영상 currentTime 기준 (TTS 배속·분석 시각과 어긋남 방지)
-      const overlayTimeSec =
-        Number.isFinite(video.currentTime) && video.currentTime >= 0
-          ? video.currentTime
-          : videoT
+      const overlayTimeSec = videoT
 
       for (const ov of filterOverlaysAtVideoTime(placedOverlays, overlayTimeSec, videoDur)) {
         drawOverlay(ctx, ov, canvas.width, canvas.height, MVP_PREVIEW_STAGE_WIDTH_PX, video)
