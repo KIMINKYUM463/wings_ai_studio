@@ -9,6 +9,8 @@ import { MAX_AUTO_EDIT_VIDEOS, type AutoEditPick } from "@/lib/shotform-auto-edi
 type Props = {
   picks: AutoEditPick[]
   editComplete?: boolean
+  /** 재가공 등 — picks 없어도 하단 바·AI 짜집기 버튼 표시 */
+  visibleWithoutPicks?: boolean
   urlRefreshing?: boolean
   urlRefreshMsg?: string
   onClearPicks: () => void
@@ -30,20 +32,24 @@ function PlatformChip({ label, count }: { label: string; count: number }) {
 export function MvpEditPicksBar({
   picks,
   editComplete,
+  visibleWithoutPicks,
   urlRefreshing,
   urlRefreshMsg,
   onClearPicks,
   onRefreshUrls,
   onOpenAutoEdit,
 }: Props) {
-  if (picks.length === 0 && !editComplete) return null
+  if (picks.length === 0 && !editComplete && !visibleWithoutPicks) return null
+
+  const pendingReprocess = picks.length === 0 && visibleWithoutPicks && !editComplete
 
   const douyinCount = picks.filter((p) => p.platform === "douyin").length
   const xhsCount = picks.filter((p) => p.platform === "xiaohongshu").length
 
   if (picks.length === 0 && editComplete) {
     return (
-      <div className="sticky bottom-4 z-20 mx-auto max-w-3xl px-2">
+      <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 px-2">
+        <div className="pointer-events-auto mx-auto max-w-3xl">
         <div className="flex items-start gap-3 rounded-2xl border border-emerald-400/30 bg-[#0a1210]/95 px-4 py-3.5 shadow-2xl backdrop-blur-md">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15 ring-1 ring-emerald-400/30">
             <CheckCircle2 className="h-5 w-5 text-emerald-300" />
@@ -55,12 +61,14 @@ export function MvpEditPicksBar({
             </p>
           </div>
         </div>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="sticky bottom-4 z-20 mx-auto max-w-3xl px-2">
+    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 px-2">
+      <div className="pointer-events-auto mx-auto max-w-3xl">
       <div
         className={cn(
           "flex flex-col gap-3 rounded-2xl border px-4 py-3.5 shadow-2xl backdrop-blur-md sm:flex-row sm:items-center sm:justify-between",
@@ -82,15 +90,25 @@ export function MvpEditPicksBar({
           </span>
           <div className="min-w-0">
             <p className="text-sm font-semibold text-white">
-              <span className={editComplete ? "text-emerald-300" : "text-violet-300"}>{picks.length}</span>
-              <span className="text-slate-500"> / {MAX_AUTO_EDIT_VIDEOS}</span>
-              <span className="text-slate-300"> 선택</span>
-              <span className="text-slate-500"> · </span>
-              <span>AI 짜집기</span>
+              {pendingReprocess ? (
+                <>
+                  <span className="text-violet-300">재가공 소스</span>
+                  <span className="text-slate-500"> · </span>
+                  <span>AI 짜집기</span>
+                </>
+              ) : (
+                <>
+                  <span className={editComplete ? "text-emerald-300" : "text-violet-300"}>{picks.length}</span>
+                  <span className="text-slate-500"> / {MAX_AUTO_EDIT_VIDEOS}</span>
+                  <span className="text-slate-300"> 선택</span>
+                  <span className="text-slate-500"> · </span>
+                  <span>AI 짜집기</span>
+                </>
+              )}
             </p>
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              <PlatformChip label="抖音" count={douyinCount} />
-              <PlatformChip label="小红书" count={xhsCount} />
+              {!pendingReprocess ? <PlatformChip label="抖音" count={douyinCount} /> : null}
+              {!pendingReprocess ? <PlatformChip label="小红书" count={xhsCount} /> : null}
               {editComplete ? (
                 <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-100">
                   <CheckCircle2 className="h-3 w-3" />
@@ -108,7 +126,7 @@ export function MvpEditPicksBar({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
-          {onRefreshUrls ? (
+          {onRefreshUrls && !pendingReprocess ? (
             <Button
               type="button"
               size="sm"
@@ -125,16 +143,18 @@ export function MvpEditPicksBar({
               URL 갱신
             </Button>
           ) : null}
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className="h-8 gap-1.5 rounded-lg border border-rose-400/40 bg-rose-950/40 px-3 text-xs font-medium text-rose-100 shadow-sm hover:border-rose-400/60 hover:bg-rose-900/50 hover:text-white"
-            onClick={onClearPicks}
-          >
-            <X className="h-3.5 w-3.5" />
-            선택 해제
-          </Button>
+          {!pendingReprocess ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-8 gap-1.5 rounded-lg border border-rose-400/40 bg-rose-950/40 px-3 text-xs font-medium text-rose-100 shadow-sm hover:border-rose-400/60 hover:bg-rose-900/50 hover:text-white"
+              onClick={onClearPicks}
+            >
+              <X className="h-3.5 w-3.5" />
+              선택 해제
+            </Button>
+          ) : null}
           <Button
             type="button"
             size="sm"
@@ -152,6 +172,7 @@ export function MvpEditPicksBar({
             {editComplete ? "짜집기 다시" : "AI 짜집기"}
           </Button>
         </div>
+      </div>
       </div>
     </div>
   )

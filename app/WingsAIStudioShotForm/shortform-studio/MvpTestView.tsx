@@ -788,6 +788,10 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
     if (mode === sourceMode) return
     setSourceMode(mode)
     setErr(null)
+    if (workspaceRef.current) {
+      workspaceRef.current = { ...workspaceRef.current, sourceMode: mode }
+    }
+    skipSaveRef.current = false
   }, [sourceMode])
 
   const applyKeywordsFromVideo = useCallback((keywords: string[]) => {
@@ -1056,7 +1060,7 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
   }, [onBackToProjects])
 
   return (
-    <div className="space-y-6 pb-16">
+    <div className="space-y-6 pb-28">
       <MvpProjectToolbar
         projectName={projectName}
         onProjectNameChange={setProjectName}
@@ -1357,12 +1361,11 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
         </div>
       ) : null}
 
-      {(editPicks.length > 0 ||
-        postEditStudio ||
-        (sourceMode === "reprocess" && Boolean(parseReprocessUrl(reprocessUrlText)))) ? (
+      {(editPicks.length > 0 || postEditStudio || sourceMode === "reprocess") ? (
         <MvpEditPicksBar
           picks={editPicks}
           editComplete={postEditStudio != null}
+          visibleWithoutPicks={sourceMode === "reprocess"}
           urlRefreshing={pickUrlRefreshing || reprocessResolving}
           urlRefreshMsg={reprocessResolving ? "영상 URL 해석 중…" : pickUrlRefreshMsg}
           onClearPicks={clearEditPicks}
