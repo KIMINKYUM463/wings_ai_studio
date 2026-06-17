@@ -32,6 +32,14 @@ const STATIC_PLAYER_CLIENTS: YtPlayerClient[] = [
   },
   { clientName: "ANDROID", clientVersion: "20.10.38" },
   { clientName: "ANDROID", clientVersion: "19.17.34" },
+  {
+    clientName: "IOS",
+    clientVersion: "19.45.4",
+    deviceModel: "iPhone14,3",
+    osName: "iPhone",
+    osVersion: "17.2.1",
+  },
+  { clientName: "TVHTML5_SIMPLY_EMBEDDED_PLAYER", clientVersion: "2.0" },
 ]
 
 export function youtubeIdFromUrl(link: string): string | null {

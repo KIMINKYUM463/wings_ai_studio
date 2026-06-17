@@ -5,6 +5,7 @@ import {
 } from "@/lib/shotform-mvp-reprocess-url-shared"
 import { resolveMediaUrlViaCloudRun } from "@/lib/shotform-cloud-run-media-resolve"
 import { isYtDlpAvailable, resolveMediaUrlWithYtDlp } from "@/lib/shotform-ytdlp"
+import { resolveYoutubeViaPiped } from "@/lib/shotform-youtube-piped-fallback"
 import { resolveYoutubeStreamUrl } from "@/lib/shotform-youtube-stream-url"
 
 export type { MvpReprocessPlatform, MvpReprocessResolvedItem } from "@/lib/shotform-mvp-reprocess-url-shared"
@@ -225,6 +226,62 @@ async function resolveYoutubeViaApify(
   }
 }
 
+type YoutubeResolveStep = {
+  label: string
+  run: () => Promise<{ videoUrl: string; title: string }>
+}
+
+function isVercelDeploy(): boolean {
+  return Boolean(process.env.VERCEL)
+}
+
+async function resolveYoutubeForServer(
+  apifyToken: string,
+  noteUrl: string
+): Promise<{ videoUrl: string; title: string }> {
+  const attempts: string[] = []
+  const token = apifyToken.trim()
+
+  const steps: YoutubeResolveStep[] = isVercelDeploy()
+    ? [
+        { label: "Cloud Run yt-dlp", run: () => resolveMediaUrlViaCloudRun(noteUrl) },
+        { label: "Piped", run: () => resolveYoutubeViaPiped(noteUrl) },
+        { label: "InnerTube", run: () => resolveYoutubeStreamUrl(noteUrl) },
+      ]
+    : [
+        { label: "InnerTube", run: () => resolveYoutubeStreamUrl(noteUrl) },
+        { label: "Cloud Run yt-dlp", run: () => resolveMediaUrlViaCloudRun(noteUrl) },
+        { label: "Piped", run: () => resolveYoutubeViaPiped(noteUrl) },
+      ]
+
+  if (token) {
+    steps.push({
+      label: "Apify",
+      run: () => resolveYoutubeViaApify(token, noteUrl),
+    })
+  }
+
+  for (const step of steps) {
+    try {
+      const r = await step.run()
+      if (r.videoUrl.startsWith("http")) return r
+      attempts.push(`${step.label}: 재생 URL 없음`)
+    } catch (e) {
+      attempts.push(
+        `${step.label}: ${e instanceof Error ? e.message : "실패"}`.slice(0, 180)
+      )
+    }
+  }
+
+  const vercelHint = isVercelDeploy()
+    ? " Vercel: SHOPPING_CLOUD_RUN_RENDER_URL 설정 후 cloud-run-service(yt-dlp) 재배포를 확인하세요."
+    : " 로컬: npm run dev + yt-dlp 설치를 권장합니다."
+
+  throw new Error(
+    `YouTube 영상을 가져오지 못했습니다.${vercelHint} (${attempts.slice(0, 3).join(" · ")})`
+  )
+}
+
 /** YouTube·TikTok 페이지 URL → playUrl (yt-dlp 우선, 없으면 Apify) */
 export async function resolveReprocessUrl(
   apifyToken: string,
@@ -261,49 +318,21 @@ export async function resolveReprocessUrl(
     }
 
     if (platform === "youtube") {
-      const attempts: string[] = []
-
       try {
-        const r = await resolveYoutubeStreamUrl(noteUrl)
+        const r = await resolveYoutubeForServer(apifyToken, noteUrl)
         return { ...base, videoUrl: r.videoUrl, title: r.title }
-      } catch (innertubeErr) {
-        attempts.push(innertubeErr instanceof Error ? innertubeErr.message : "InnerTube 실패")
-      }
-
-      try {
-        const cloud = await resolveMediaUrlViaCloudRun(noteUrl)
-        if (cloud?.videoUrl.startsWith("http")) {
-          return { ...base, videoUrl: cloud.videoUrl, title: cloud.title }
+      } catch (e) {
+        return {
+          ...base,
+          error: e instanceof Error ? e.message : "YouTube URL 해석 실패",
         }
-      } catch (cloudErr) {
-        attempts.push(cloudErr instanceof Error ? cloudErr.message : "Cloud Run 실패")
-      }
-
-      const token = apifyToken.trim()
-      if (token) {
-        try {
-          const r = await resolveYoutubeViaApify(token, noteUrl)
-          return { ...base, videoUrl: r.videoUrl, title: r.title }
-        } catch (apifyErr) {
-          attempts.push(apifyErr instanceof Error ? apifyErr.message : "Apify 실패")
-        }
-      }
-
-      return {
-        ...base,
-        error:
-          "YouTube 영상을 서버에서 가져오지 못했습니다. Cloud Run에 yt-dlp 엔드포인트 배포가 필요할 수 있습니다. " +
-          "로컬에서는 npm run dev로 시도해 보세요. " +
-          (attempts[0] ? `(${attempts[0].slice(0, 160)})` : ""),
       }
     }
 
     if (platform === "tiktok") {
       try {
         const cloud = await resolveMediaUrlViaCloudRun(noteUrl)
-        if (cloud?.videoUrl.startsWith("http")) {
-          return { ...base, videoUrl: cloud.videoUrl, title: cloud.title }
-        }
+        return { ...base, videoUrl: cloud.videoUrl, title: cloud.title }
       } catch {
         /* Apify 폴백 */
       }
