@@ -294,10 +294,136 @@ function estimateSampleStep(rows: MosaicFrameDetectRow[]): number {
   return gaps[Math.floor(gaps.length / 2)] ?? 0.15
 }
 
+function trackIoUTracks(a: Track, b: Track): number {
+  const ra = boxRect(a)
+  const rb = boxRect(b)
+  const ix = Math.max(0, Math.min(ra.right, rb.right) - Math.max(ra.left, rb.left))
+  const iy = Math.max(0, Math.min(ra.bottom, rb.bottom) - Math.max(ra.top, rb.top))
+  const inter = ix * iy
+  if (inter <= 0) return 0
+  const union = ra.w * ra.h + rb.w * rb.h - inter
+  return union > 0 ? inter / union : 0
+}
+
+function tracksOverlapInTime(a: Track, b: Track): boolean {
+  return a.startSec < b.endSec - 0.02 && b.startSec < a.endSec - 0.02
+}
+
+function mergeTrackUnion(into: Track, other: Track): void {
+  const ra = boxRect(into)
+  const rb = boxRect(other)
+  const left = Math.min(ra.left, rb.left)
+  const top = Math.min(ra.top, rb.top)
+  const right = Math.max(ra.right, rb.right)
+  const bottom = Math.max(ra.bottom, rb.bottom)
+  into.centerXPct = (left + right) / 2
+  into.centerYPct = (top + bottom) / 2
+  into.widthPct = right - left
+  into.heightPct = bottom - top
+  into.startSec = Math.min(into.startSec, other.startSec)
+  into.endSec = Math.max(into.endSec, other.endSec)
+  into.hits.push(...other.hits)
+  into.samples += other.samples
+  if (other.text) {
+    into.text =
+      into.text && into.text !== other.text
+        ? `${into.text.slice(0, 18)}…${other.text.slice(0, 18)}`
+        : other.text
+  }
+}
+
+/** 같은 구간·겹치는 위치의 중복 트랙을 하나로 합침 */
+function consolidateOverlappingTracks(tracks: Track[]): Track[] {
+  const sorted = [...tracks].sort((a, b) => a.startSec - b.startSec || a.centerYPct - b.centerYPct)
+  const out: Track[] = []
+
+  for (const t of sorted) {
+    let merged = false
+    for (const existing of out) {
+      if (!tracksOverlapInTime(existing, t)) continue
+
+      const vertGap = Math.abs(existing.centerYPct - t.centerYPct)
+      const iou = trackIoUTracks(existing, t)
+      const stackedLines = vertGap >= 5 && vertGap <= 20 && trackIoUTracks(existing, t) < 0.08
+
+      if (stackedLines) continue
+
+      if (iou > 0.12 || vertGap < 4.5) {
+        mergeTrackUnion(existing, t)
+        merged = true
+        break
+      }
+    }
+    if (!merged) {
+      out.push({
+        ...t,
+        hits: [...t.hits],
+      })
+    }
+  }
+  return out
+}
+
+/** 같은 장면 안의 가까운 트랙을 세로로 묶어 1개 박스로 (2줄 자막) */
+function groupStackedLinesInScene(tracks: Track[], segments?: MosaicSceneSegment[]): Track[] {
+  if (!segments?.length || tracks.length < 2) return tracks
+
+  const out: Track[] = []
+  const used = new Set<Track>()
+
+  for (const seg of segments) {
+    const inSeg = tracks.filter(
+      (t) =>
+        !used.has(t) &&
+        (t.startSec + t.endSec) / 2 >= seg.start - 0.05 &&
+        (t.startSec + t.endSec) / 2 <= seg.end + 0.05
+    )
+    if (!inSeg.length) continue
+
+    inSeg.sort((a, b) => a.centerYPct - b.centerYPct)
+    let cluster: Track[] = []
+
+    const flushCluster = () => {
+      if (!cluster.length) return
+      if (cluster.length === 1) {
+        out.push(cluster[0]!)
+        used.add(cluster[0]!)
+      } else {
+        const merged = { ...cluster[0]!, hits: [...cluster[0]!.hits] }
+        for (let i = 1; i < cluster.length; i++) mergeTrackUnion(merged, cluster[i]!)
+        out.push(merged)
+        for (const c of cluster) used.add(c)
+      }
+      cluster = []
+    }
+
+    for (const t of inSeg) {
+      if (!cluster.length) {
+        cluster = [t]
+        continue
+      }
+      const last = cluster[cluster.length - 1]!
+      const vertGap = t.centerYPct - last.centerYPct
+      if (vertGap > 2 && vertGap < 22) {
+        cluster.push(t)
+      } else {
+        flushCluster()
+        cluster = [t]
+      }
+    }
+    flushCluster()
+  }
+
+  for (const t of tracks) {
+    if (!used.has(t)) out.push(t)
+  }
+  return out
+}
+
 export function buildMosaicTracks(rows: MosaicFrameDetectRow[]): Track[] {
   const tracks = explodeTracksByPosition(mergeFrameRows(rows))
   if (tracks.length) refineTrackBoundaries(tracks, rows)
-  return tracks
+  return consolidateOverlappingTracks(tracks)
 }
 
 export function tracksToWindows(tracks: Array<Pick<Track, "startSec" | "endSec" | "centerXPct" | "centerYPct" | "widthPct" | "heightPct">>): MosaicTrackWindow[] {
@@ -316,7 +442,8 @@ export function mergeMosaicRowsToOverlays(
   durationSec: number,
   options?: { videoW?: number; videoH?: number; sceneSegments?: MosaicSceneSegment[] }
 ): PlacedStudioOverlay[] {
-  const tracks = buildMosaicTracks(rows)
+  let tracks = buildMosaicTracks(rows)
+  tracks = groupStackedLinesInScene(tracks, options?.sceneSegments)
   if (!tracks.length) return []
 
   const step = estimateSampleStep(rows)
@@ -333,8 +460,12 @@ export function mergeMosaicRowsToOverlays(
       sceneSegmentAtTime(options?.sceneSegments, t.startSec) ??
       sceneSegmentAtTime(options?.sceneSegments, t.endSec)
     if (seg) {
-      startSec = Math.max(0, seg.start)
-      endSec = Math.min(durationSec, seg.end)
+      const segDur = Math.max(0.12, seg.end - seg.start)
+      const trackDur = Math.max(0.1, t.endSec - t.startSec)
+      if (trackDur >= segDur * 0.32) {
+        startSec = Math.max(0, seg.start)
+        endSec = Math.min(durationSec, seg.end)
+      }
     }
 
     return pctBoxToMosaicOverlay({

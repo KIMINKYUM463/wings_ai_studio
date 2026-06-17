@@ -15,7 +15,6 @@ type Props = {
   overlay: PlacedStudioOverlay
   stageWidth?: number
   stageHeight?: number
-  /** 타임라인 playhead — 재생 중 프레임 동기 */
   videoTimeSec?: number
   playing?: boolean
 }
@@ -94,18 +93,10 @@ export function VideoMosaicLayer({
   ])
 
   return (
-    <div className="relative overflow-hidden" style={{ width: w, height: h }}>
-      {/* 픽셀 모자이크가 한 프레임 늦어도 글자가 비치지 않도록 불투명 백킹 */}
-      <div
-        className="absolute inset-0 bg-neutral-700/95"
-        style={{ borderRadius: circle ? "9999px" : "2px" }}
-        aria-hidden
-      />
-      <canvas
-        ref={canvasRef}
-        className="pointer-events-none relative z-[1] block max-w-none"
-        style={{ width: w, height: h }}
-      />
-    </div>
+    <canvas
+      ref={canvasRef}
+      className="pointer-events-none block max-w-none"
+      style={{ width: w, height: h }}
+    />
   )
 }

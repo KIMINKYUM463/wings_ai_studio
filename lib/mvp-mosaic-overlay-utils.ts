@@ -10,7 +10,8 @@ import { videoContainRect } from "@/lib/mvp-video-mosaic"
 /** CapCut 미리보기 스테이지 너비 — `MvpCapCutEditor` max-w-[280px] */
 export const MVP_PREVIEW_STAGE_WIDTH_PX = 280
 
-export const MVP_MOSAIC_DEFAULT_BLOCK = 6
+export const MVP_MOSAIC_DEFAULT_BLOCK = 5
+export const MVP_MOSAIC_AI_BLOCK = 4
 
 export function mosaicStageHeightPx(stageWidth = MVP_PREVIEW_STAGE_WIDTH_PX): number {
   return Math.round(stageWidth * (16 / 9))
@@ -117,7 +118,7 @@ export function pctBoxToMosaicOverlay(args: {
     rotation: 0,
     mosaicW: mapped.mosaicW,
     mosaicH: mapped.mosaicH,
-    mosaicBlock: MVP_MOSAIC_DEFAULT_BLOCK,
+    mosaicBlock: MVP_MOSAIC_AI_BLOCK,
     startSec: Math.max(0, args.startSec),
     endSec: Math.max(args.startSec + 0.1, args.endSec),
     source: "ai",

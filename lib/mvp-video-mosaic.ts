@@ -42,6 +42,52 @@ export type VideoMosaicPatchOptions = {
   patchH: number
   blockPx: number
   circle?: boolean
+  /** 가장자리를 배경과 블렌딩 (px) */
+  featherPx?: number
+}
+
+function applySoftEdgeMask(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  featherPx: number,
+  circle?: boolean
+): void {
+  if (featherPx <= 0) return
+  const mask = document.createElement("canvas")
+  mask.width = w
+  mask.height = h
+  const m = mask.getContext("2d")
+  if (!m) return
+
+  m.clearRect(0, 0, w, h)
+  m.fillStyle = "#fff"
+  if (circle) {
+    m.beginPath()
+    m.arc(w / 2, h / 2, Math.max(1, Math.min(w, h) / 2 - featherPx), 0, Math.PI * 2)
+    m.fill()
+  } else {
+    const inset = Math.min(featherPx, w / 4, h / 4)
+    if (typeof m.roundRect === "function") {
+      m.roundRect(inset, inset, w - inset * 2, h - inset * 2, Math.min(6, inset))
+    } else {
+      m.fillRect(inset, inset, w - inset * 2, h - inset * 2)
+    }
+    m.fill()
+  }
+
+  const blurred = document.createElement("canvas")
+  blurred.width = w
+  blurred.height = h
+  const b = blurred.getContext("2d")
+  if (!b) return
+  b.filter = `blur(${Math.max(1, featherPx)}px)`
+  b.drawImage(mask, 0, 0)
+
+  ctx.save()
+  ctx.globalCompositeOperation = "destination-in"
+  ctx.drawImage(blurred, 0, 0)
+  ctx.restore()
 }
 
 function drawMosaicFromSourceRect(
@@ -54,11 +100,12 @@ function drawMosaicFromSourceRect(
   patchW: number,
   patchH: number,
   blockPx: number,
-  circle?: boolean
+  circle?: boolean,
+  featherPx = 0
 ): void {
   const patchWInt = Math.max(8, Math.round(patchW))
   const patchHInt = Math.max(8, Math.round(patchH))
-  const block = Math.max(4, Math.min(24, blockPx))
+  const block = Math.max(3, Math.min(20, blockPx))
   const smallW = Math.max(1, Math.floor(patchWInt / block))
   const smallH = Math.max(1, Math.floor(patchHInt / block))
 
@@ -80,6 +127,8 @@ function drawMosaicFromSourceRect(
   ctx.imageSmoothingEnabled = false
   ctx.drawImage(tmp, 0, 0, smallW, smallH, 0, 0, patchWInt, patchHInt)
   if (circle) ctx.restore()
+
+  if (featherPx > 0) applySoftEdgeMask(ctx, patchWInt, patchHInt, featherPx, circle)
 }
 
 /** HTMLVideoElement 프레임에서 모자이크 패치 캔버스 생성 */
@@ -92,7 +141,7 @@ export function renderVideoMosaicPatchToCanvas(
   const vh = video.videoHeight
   if (!vw || !vh || video.readyState < 2) return
 
-  const { stageW, stageH, centerXPct, centerYPct, patchW, patchH, blockPx, circle } = opts
+  const { stageW, stageH, centerXPct, centerYPct, patchW, patchH, blockPx, circle, featherPx } = opts
   const patchWInt = Math.max(8, Math.round(patchW))
   const patchHInt = Math.max(8, Math.round(patchH))
   canvas.width = patchWInt
@@ -112,7 +161,21 @@ export function renderVideoMosaicPatchToCanvas(
   const sw = (patchWInt / drawW) * vw
   const sh = (patchHInt / drawH) * vh
 
-  drawMosaicFromSourceRect(ctx, video, sx, sy, sw, sh, patchWInt, patchHInt, blockPx, circle)
+  const feather = featherPx ?? Math.max(2, Math.min(6, Math.round(patchWInt / 48)))
+
+  drawMosaicFromSourceRect(
+    ctx,
+    video,
+    sx,
+    sy,
+    sw,
+    sh,
+    patchWInt,
+    patchHInt,
+    blockPx,
+    circle,
+    feather
+  )
 }
 
 /** Canvas export 경로 — 이미 그려진 영상 프레임 위에 모자이크 */
