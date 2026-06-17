@@ -2,10 +2,11 @@
 
 import type { MosaicFrameDetectRow } from "@/lib/mvp-mosaic-merge"
 
-const DEFAULT_MAX_FRAMES = 88
-const DEFAULT_MAX_WIDTH = 720
-const REFINE_MAX_WIDTH = 960
-const BOUNDARY_MAX_WIDTH = 960
+const DEFAULT_MAX_FRAMES = 40
+const DEFAULT_MAX_WIDTH = 640
+const REFINE_MAX_WIDTH = 768
+const BOUNDARY_MAX_WIDTH = 768
+const SEEK_TIMEOUT_MS = 2500
 
 export type MosaicSceneSegment = { start: number; end: number }
 
@@ -21,16 +22,13 @@ export function nativeMosaicCaptureWidth(video: HTMLVideoElement, cap = REFINE_M
   return Math.min(cap, vw)
 }
 
-/** 배속 재생 중에도 정확한 프레임 캡처 — 1배속 고정 후 스캔 */
-export async function prepareVideoForMosaicCapture(
-  video: HTMLVideoElement
-): Promise<{ restore: () => void }> {
+/** 배속 재생 중에도 정확한 프레임 캡처 — 1배속 고정 (seek 없이 즉시 반환) */
+export function prepareVideoForMosaicCapture(video: HTMLVideoElement): { restore: () => void } {
   const savedTime = video.currentTime
   const wasPaused = video.paused
   const savedRate = video.playbackRate
   video.pause()
   video.playbackRate = 1
-  await seekVideoAccurate(video, savedTime)
   return {
     restore: () => {
       video.playbackRate = savedRate > 0 ? savedRate : 1
@@ -59,33 +57,67 @@ function stripDataUrlPrefix(dataUrl: string): string {
   return i >= 0 ? dataUrl.slice(i + 1) : dataUrl
 }
 
-async function waitForVideoFrame(video: HTMLVideoElement): Promise<void> {
-  const rvfc = (video as HTMLVideoElement & { requestVideoFrameCallback?: (cb: () => void) => void })
-    .requestVideoFrameCallback
-  if (rvfc) {
-    await new Promise<void>((resolve) => rvfc.call(video, () => resolve()))
-    return
-  }
-  await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+export async function waitForVideoReady(video: HTMLVideoElement, timeoutMs = 8000): Promise<void> {
+  if (video.readyState >= 2) return
+  await new Promise<void>((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      cleanup()
+      reject(new Error("영상 로드 시간 초과. MP4가 준비된 뒤 다시 시도해 주세요."))
+    }, timeoutMs)
+    const onReady = () => {
+      cleanup()
+      resolve()
+    }
+    const onErr = () => {
+      cleanup()
+      reject(new Error("영상을 불러올 수 없습니다."))
+    }
+    const cleanup = () => {
+      clearTimeout(timer)
+      video.removeEventListener("loadeddata", onReady)
+      video.removeEventListener("canplay", onReady)
+      video.removeEventListener("error", onErr)
+    }
+    video.addEventListener("loadeddata", onReady)
+    video.addEventListener("canplay", onReady)
+    video.addEventListener("error", onErr)
+  })
 }
 
 async function seekVideoAccurate(video: HTMLVideoElement, timeSec: number): Promise<void> {
   const target = clampSeekTime(video, timeSec)
+  if (Math.abs(video.currentTime - target) < 0.04) return
 
-  const seekOnce = () =>
-    new Promise<void>((resolve) => {
-      const onSeeked = () => {
-        video.removeEventListener("seeked", onSeeked)
-        void waitForVideoFrame(video).then(() => resolve())
-      }
-      video.addEventListener("seeked", onSeeked)
+  await new Promise<void>((resolve, reject) => {
+    let settled = false
+    const cleanup = () => {
+      clearTimeout(timer)
+      video.removeEventListener("seeked", onSeeked)
+    }
+    const finish = () => {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolve()
+    }
+    const fail = (msg: string) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      reject(new Error(msg))
+    }
+    const onSeeked = () => finish()
+    const timer = window.setTimeout(() => {
+      if (Math.abs(video.currentTime - target) < 0.25) finish()
+      else fail(`영상 프레임 이동 시간 초과 (${target.toFixed(1)}초)`)
+    }, SEEK_TIMEOUT_MS)
+    video.addEventListener("seeked", onSeeked)
+    try {
       video.currentTime = target
-    })
-
-  await seekOnce()
-  if (Math.abs(video.currentTime - target) > 0.06) {
-    await seekOnce()
-  }
+    } catch {
+      fail("영상 시간 이동에 실패했습니다.")
+    }
+  })
 }
 
 async function resizeJpegBase64(dataUrl: string, maxWidth: number, quality = 0.76): Promise<string> {
@@ -200,7 +232,7 @@ export function buildMosaicRefineTimes(
   durationSec: number,
   options?: { maxExtra?: number; existingTimes?: number[] }
 ): number[] {
-  const maxExtra = options?.maxExtra ?? 40
+  const maxExtra = options?.maxExtra ?? 18
   const existing = new Set((options?.existingTimes ?? []).map((t) => Math.round(t * 1000) / 1000))
   const hits = rows.filter((r) => r.boxes.length > 0).map((r) => r.timeSec)
   if (!hits.length) return []
@@ -242,7 +274,7 @@ export function buildMosaicBoundaryTimes(
   durationSec: number,
   options?: { existingTimes?: number[]; maxExtra?: number }
 ): number[] {
-  const maxExtra = options?.maxExtra ?? 48
+  const maxExtra = options?.maxExtra ?? 20
   const existing = new Set((options?.existingTimes ?? []).map((t) => Math.round(t * 1000) / 1000))
   const extra: number[] = []
   const push = (t: number) => {
@@ -265,7 +297,11 @@ export function buildMosaicBoundaryTimes(
 export async function captureMosaicFramesAtTimes(
   video: HTMLVideoElement,
   times: number[],
-  options?: { maxWidth?: number; onProgress?: (done: number, total: number) => void }
+  options?: {
+    maxWidth?: number
+    onProgress?: (done: number, total: number) => void
+    signal?: AbortSignal
+  }
 ): Promise<MosaicScanFrame[]> {
   const maxWidth = options?.maxWidth ?? DEFAULT_MAX_WIDTH
   const savedTime = video.currentTime
@@ -273,28 +309,16 @@ export async function captureMosaicFramesAtTimes(
   const out: MosaicScanFrame[] = []
 
   if (video.readyState < 2) {
-    await new Promise<void>((resolve, reject) => {
-      const onReady = () => {
-        video.removeEventListener("loadeddata", onReady)
-        video.removeEventListener("error", onErr)
-        resolve()
-      }
-      const onErr = () => {
-        video.removeEventListener("loadeddata", onReady)
-        video.removeEventListener("error", onErr)
-        reject(new Error("영상 데이터를 불러올 수 없습니다."))
-      }
-      video.addEventListener("loadeddata", onReady)
-      video.addEventListener("error", onErr)
-    })
+    await waitForVideoReady(video)
   }
 
   try {
     video.pause()
     video.playbackRate = 1
     for (let i = 0; i < times.length; i++) {
+      if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError")
       const timeSec = times[i]!
-      const quality = maxWidth >= REFINE_MAX_WIDTH ? 0.88 : maxWidth >= 640 ? 0.84 : 0.8
+      const quality = maxWidth >= REFINE_MAX_WIDTH ? 0.86 : maxWidth >= 640 ? 0.82 : 0.78
       const imageBase64 = await captureFrameAtTime(video, timeSec, maxWidth, quality)
       out.push({ timeSec, imageBase64 })
       options?.onProgress?.(i + 1, times.length)
@@ -306,7 +330,6 @@ export async function captureMosaicFramesAtTimes(
   return out
 }
 
-/** 편집 중인 video 엘리먼트에서 프레임 추출 — 재생 위치 복원 */
 export async function captureMosaicScanFramesFromVideo(
   video: HTMLVideoElement,
   durationSec: number,
@@ -316,6 +339,7 @@ export async function captureMosaicScanFramesFromVideo(
     maxWidth?: number
     segments?: MosaicSceneSegment[]
     onProgress?: (done: number, total: number) => void
+    signal?: AbortSignal
   }
 ): Promise<MosaicScanFrame[]> {
   const captureDur = effectiveMosaicCaptureDuration(video, durationSec)

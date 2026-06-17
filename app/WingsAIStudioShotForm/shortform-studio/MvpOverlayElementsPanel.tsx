@@ -27,10 +27,10 @@ import {
   MOSAIC_BOUNDARY_CAPTURE_WIDTH,
   nativeMosaicCaptureWidth,
   prepareVideoForMosaicCapture,
+  waitForVideoReady,
   type MosaicSceneSegment,
 } from "@/lib/mvp-mosaic-frame-capture"
 import {
-  buildMosaicPositionRefineTimes,
   buildMosaicTracks,
   mergeMosaicRowsToOverlays,
   tracksToWindows,
@@ -75,6 +75,7 @@ export function MvpOverlayElementsPanel({
   const [aiStatus, setAiStatus] = useState("")
   const [aiErr, setAiErr] = useState<string | null>(null)
   const overlayIdRef = useRef(0)
+  const aiAbortRef = useRef<AbortController | null>(null)
 
   const filteredCatalog = useMemo(
     () => STUDIO_OVERLAY_CATALOG.filter((e) => e.category === overlayCategory),
@@ -143,6 +144,13 @@ export function MvpOverlayElementsPanel({
     updateSelectedOverlay({ endSec: Math.max(0, playheadSec) })
   }, [playheadSec, selectedId, updateSelectedOverlay])
 
+  const cancelAiMosaic = useCallback(() => {
+    aiAbortRef.current?.abort()
+    aiAbortRef.current = null
+    setAiLoading(false)
+    setAiStatus("분석이 취소되었습니다.")
+  }, [])
+
   const runAiMosaic = useCallback(async () => {
     const openai = shotformOpenAIKey()
     if (!openai) {
@@ -162,12 +170,22 @@ export function MvpOverlayElementsPanel({
 
     setAiLoading(true)
     setAiErr(null)
-    setAiStatus("영상 1배속 고정 · 1차 스캔 준비…")
+    aiAbortRef.current?.abort()
+    const abort = new AbortController()
+    aiAbortRef.current = abort
+    const { signal } = abort
 
     let captureSession: { restore: () => void } | null = null
 
     try {
-      captureSession = await prepareVideoForMosaicCapture(video)
+      if (video.readyState < 2) {
+        setAiStatus("영상 로드 대기…")
+        await waitForVideoReady(video)
+      }
+      if (signal.aborted) return
+
+      captureSession = prepareVideoForMosaicCapture(video)
+      setAiStatus("1차 스캔 · 프레임 캡처 중…")
       const videoW = video.videoWidth
       const videoH = video.videoHeight
       const refineWidth = nativeMosaicCaptureWidth(video, MOSAIC_BOUNDARY_CAPTURE_WIDTH)
@@ -182,6 +200,7 @@ export function MvpOverlayElementsPanel({
         const batchSize = 2
         const rows: MosaicFrameDetectRow[] = []
         for (let i = 0; i < frames.length; i += batchSize) {
+          if (signal.aborted) throw new DOMException("Aborted", "AbortError")
           const batch = frames.slice(i, i + batchSize)
           const done = Math.min(i + batch.length, frames.length)
           setAiStatus(`${label} AI 분석 ${done}/${frames.length}장…`)
@@ -195,6 +214,7 @@ export function MvpOverlayElementsPanel({
               rowsOnly: true,
               highDetail: true,
             }),
+            signal,
           })
           const data = await readFetchJson<{ rows?: MosaicFrameDetectRow[]; error?: string }>(res)
           if (!res.ok) throw new Error(data.error || "AI 모자이크 감지 실패")
@@ -204,8 +224,9 @@ export function MvpOverlayElementsPanel({
       }
 
       const coarseFrames = await captureMosaicScanFramesFromVideo(video, captureDurationSec, {
-        maxWidth: nativeMosaicCaptureWidth(video, 720),
+        maxWidth: nativeMosaicCaptureWidth(video, 640),
         segments: sceneSegments,
+        signal,
         onProgress: (done, total) => setAiStatus(`1차 캡처 ${done}/${total}…`),
       })
 
@@ -220,6 +241,7 @@ export function MvpOverlayElementsPanel({
         setAiStatus(`2차 정밀 캡처 0/${refineTimes.length}…`)
         const refineFrames = await captureMosaicFramesAtTimes(video, refineTimes, {
           maxWidth: refineWidth,
+          signal,
           onProgress: (done, total) => setAiStatus(`2차 정밀 캡처 ${done}/${total}…`),
         })
         const refineRows = await detectBatch(refineFrames, "2차")
@@ -237,24 +259,11 @@ export function MvpOverlayElementsPanel({
           setAiStatus(`3차 경계 스캔 0/${boundaryTimes.length}…`)
           const boundaryFrames = await captureMosaicFramesAtTimes(video, boundaryTimes, {
             maxWidth: refineWidth,
+            signal,
             onProgress: (done, total) => setAiStatus(`3차 경계 스캔 ${done}/${total}…`),
           })
           const boundaryRows = await detectBatch(boundaryFrames, "3차")
           allRows = mergeRows([...allRows, ...boundaryRows])
-        }
-
-        const positionTimes = buildMosaicPositionRefineTimes(
-          tracksToWindows(buildMosaicTracks(allRows)),
-          allRows.map((r) => r.timeSec)
-        )
-        if (positionTimes.length) {
-          setAiStatus(`4차 위치 정밀 0/${positionTimes.length}…`)
-          const positionFrames = await captureMosaicFramesAtTimes(video, positionTimes, {
-            maxWidth: refineWidth,
-            onProgress: (done, total) => setAiStatus(`4차 위치 정밀 ${done}/${total}…`),
-          })
-          const positionRows = await detectBatch(positionFrames, "4차")
-          allRows = mergeRows([...allRows, ...positionRows])
         }
       }
 
@@ -278,10 +287,15 @@ export function MvpOverlayElementsPanel({
       onSelectId(detected[0]?.id ?? null)
       setAiStatus(`AI 모자이크 ${detected.length}구간 적용됨. 위치·시간은 미리보기에서 조정할 수 있습니다.`)
     } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") {
+        setAiStatus("분석이 취소되었습니다.")
+        return
+      }
       setAiErr(e instanceof Error ? e.message : "AI 모자이크 실패")
       setAiStatus("")
     } finally {
       captureSession?.restore()
+      aiAbortRef.current = null
       setAiLoading(false)
     }
   }, [onOverlaysChange, onSelectId, overlays, sceneSegments, videoDurationSec, videoRef])
@@ -296,20 +310,32 @@ export function MvpOverlayElementsPanel({
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold text-cyan-100">AI 중국어 모자이크</p>
             <p className="mt-1 text-[10px] leading-relaxed text-cyan-100/75">
-              1차 장면별 스캔 → 2차 위치 → 3차 시간 경계 → 4차 위치 정밀. TTS 배속과 무관하게 영상 타임스탬프 기준입니다.
+              1차 장면 스캔 → 2차 위치 정밀 → 3차 시간 경계. 보통 2~5분 소요됩니다.
             </p>
           </div>
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          className="mt-3 h-9 w-full gap-2 border border-cyan-500/30 bg-cyan-500/10 text-xs text-cyan-100 hover:bg-cyan-500/20"
-          disabled={aiLoading || !videoDurationSec}
-          onClick={() => void runAiMosaic()}
-        >
-          {aiLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-          {aiLoading ? "AI 분석 중…" : "AI 자동 모자이크"}
-        </Button>
+        <div className="mt-3 flex gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-9 flex-1 gap-2 border border-cyan-500/30 bg-cyan-500/10 text-xs text-cyan-100 hover:bg-cyan-500/20"
+            disabled={aiLoading || !videoDurationSec}
+            onClick={() => void runAiMosaic()}
+          >
+            {aiLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+            {aiLoading ? "AI 분석 중…" : "AI 자동 모자이크"}
+          </Button>
+          {aiLoading ? (
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-9 shrink-0 border border-white/15 px-3 text-xs text-slate-300 hover:bg-white/10"
+              onClick={cancelAiMosaic}
+            >
+              취소
+            </Button>
+          ) : null}
+        </div>
         {aiStatus ? <p className="mt-2 text-[10px] leading-relaxed text-cyan-100/90">{aiStatus}</p> : null}
         {aiErr ? <p className="mt-2 text-[10px] leading-relaxed text-red-300">{aiErr}</p> : null}
       </div>
