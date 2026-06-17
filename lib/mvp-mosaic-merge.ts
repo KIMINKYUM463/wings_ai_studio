@@ -23,6 +23,19 @@ export type MosaicTrackWindow = {
   heightPct: number
 }
 
+export type MosaicSceneSegment = { start: number; end: number }
+
+function sceneSegmentAtTime(
+  segments: MosaicSceneSegment[] | undefined,
+  timeSec: number
+): MosaicSceneSegment | null {
+  if (!segments?.length) return null
+  for (const seg of segments) {
+    if (timeSec >= seg.start - 0.05 && timeSec <= seg.end + 0.05) return seg
+  }
+  return null
+}
+
 type Track = {
   centerXPct: number
   centerYPct: number
@@ -88,11 +101,16 @@ function boxMatchesTrack(box: DetectedChineseMosaicBox, track: Track): boolean {
   return false
 }
 
+const CHINESE_RE = /[\u4e00-\u9fff\u3400-\u4dbf]/
+
 function isSuspiciousMosaicBox(box: DetectedChineseMosaicBox): boolean {
-  const { center_x_pct: cy, width_pct: w, height_pct: h } = box
-  if (w > 78 && h > 16 && cy > 62) return true
-  if (w > 88 && h > 10) return true
-  if (h > 28) return true
+  const { center_x_pct: cx, center_y_pct: cy, width_pct: w, height_pct: h } = box
+  if (box.text && CHINESE_RE.test(box.text)) return false
+  // 상단 한국어 TTS 자막 띠 (중국어는 보통 중·하단)
+  if (cy < 22 && w > 55 && h > 8) return true
+  // 화면 거의 전체를 덮는 박스만 제외 (하단 중국어 1~2줄은 허용)
+  if (w > 94 && h > 38) return true
+  if (w > 88 && h > 48) return true
   return false
 }
 
@@ -296,29 +314,42 @@ export function tracksToWindows(tracks: Array<Pick<Track, "startSec" | "endSec" 
 export function mergeMosaicRowsToOverlays(
   rows: MosaicFrameDetectRow[],
   durationSec: number,
-  options?: { videoW?: number; videoH?: number }
+  options?: { videoW?: number; videoH?: number; sceneSegments?: MosaicSceneSegment[] }
 ): PlacedStudioOverlay[] {
   const tracks = buildMosaicTracks(rows)
   if (!tracks.length) return []
 
   const step = estimateSampleStep(rows)
-  const padStart = Math.min(0.16, Math.max(0.06, step * 0.6))
-  const padEnd = Math.min(0.2, Math.max(0.08, step * 0.7))
+  const padStart = Math.min(0.12, Math.max(0.04, step * 0.45))
+  const padEnd = Math.min(0.14, Math.max(0.05, step * 0.55))
 
-  return tracks.map((t, i) =>
-    pctBoxToMosaicOverlay({
+  return tracks.map((t, i) => {
+    let startSec = Math.max(0, t.startSec - padStart)
+    let endSec = Math.min(durationSec, t.endSec + padEnd)
+
+    const trackMid = (t.startSec + t.endSec) / 2
+    const seg =
+      sceneSegmentAtTime(options?.sceneSegments, trackMid) ??
+      sceneSegmentAtTime(options?.sceneSegments, t.startSec) ??
+      sceneSegmentAtTime(options?.sceneSegments, t.endSec)
+    if (seg) {
+      startSec = Math.max(0, seg.start)
+      endSec = Math.min(durationSec, seg.end)
+    }
+
+    return pctBoxToMosaicOverlay({
       id: `ov-ai-${i + 1}`,
       centerXPct: t.centerXPct,
       centerYPct: t.centerYPct,
-      widthPct: Math.min(92, t.widthPct + 2.8),
-      heightPct: Math.min(36, t.heightPct + 2),
-      startSec: Math.max(0, t.startSec - padStart),
-      endSec: Math.min(durationSec, t.endSec + padEnd),
+      widthPct: Math.min(96, t.widthPct + 3.2),
+      heightPct: Math.min(42, t.heightPct + 2.4),
+      startSec,
+      endSec,
       detectedText: t.text,
       videoW: options?.videoW,
       videoH: options?.videoH,
     })
-  )
+  })
 }
 
 /** 트랙 중심 시각 — 위치 재정밀 캡처용 */

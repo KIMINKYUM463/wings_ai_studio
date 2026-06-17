@@ -2,7 +2,7 @@
 
 import type { MosaicFrameDetectRow } from "@/lib/mvp-mosaic-merge"
 
-const DEFAULT_MAX_FRAMES = 40
+const DEFAULT_MAX_FRAMES = 52
 const DEFAULT_MAX_WIDTH = 640
 const REFINE_MAX_WIDTH = 768
 const BOUNDARY_MAX_WIDTH = 768
@@ -193,37 +193,38 @@ export function buildMosaicScanTimes(
   return times
 }
 
-/** 장면(컷) 구간마다 더 촘촘히 샘플 — TTS 배속 편집에서도 영상 타임스탬프 기준 */
+/** 장면(컷) 구간마다 더 촘촘히 샘플 — 프레임 예산을 장면 길이에 비례 배분 */
 export function buildMosaicScanTimesForSegments(
   durationSec: number,
   segments: MosaicSceneSegment[],
   options?: { maxFrames?: number }
 ): number[] {
   const maxFrames = options?.maxFrames ?? DEFAULT_MAX_FRAMES
-  const times: number[] = []
   const valid = segments
     .filter((s) => Number.isFinite(s.start) && Number.isFinite(s.end) && s.end > s.start + 0.05)
     .sort((a, b) => a.start - b.start)
 
   if (!valid.length) return buildMosaicScanTimes(durationSec, options)
 
+  const totalSegDur = valid.reduce((a, s) => a + (s.end - s.start), 0)
+  const times: number[] = []
+
   for (const seg of valid) {
     const segDur = Math.max(0.08, seg.end - seg.start)
-    const interval = segDur <= 2.5 ? 0.08 : segDur <= 5 ? 0.1 : segDur <= 10 ? 0.13 : 0.16
-    for (let t = seg.start + 0.03; t < seg.end - 0.02 && times.length < maxFrames; t += interval) {
+    const budget = Math.max(3, Math.round((segDur / totalSegDur) * maxFrames))
+    const interval =
+      segDur / budget <= 0.12 ? 0.1 : segDur / budget <= 0.2 ? 0.14 : segDur / budget <= 0.35 ? 0.18 : 0.22
+
+    let count = 0
+    for (let t = seg.start + 0.04; t < seg.end - 0.02 && count < budget; t += interval) {
       times.push(Math.round(t * 1000) / 1000)
+      count++
     }
+    times.push(Math.round(((seg.start + seg.end) / 2) * 1000) / 1000)
+    times.push(Math.round((seg.end - 0.05) * 1000) / 1000)
   }
 
-  const merged = uniqueSortedTimes(times, 0.03)
-  if (merged.length < Math.min(12, maxFrames)) {
-    const fallback = buildMosaicScanTimes(durationSec, {
-      ...options,
-      maxFrames: maxFrames - merged.length,
-    })
-    return uniqueSortedTimes([...merged, ...fallback]).slice(0, maxFrames)
-  }
-  return merged.slice(0, maxFrames)
+  return uniqueSortedTimes(times, 0.03).slice(0, maxFrames)
 }
 
 /** 1차 감지 결과 주변을 더 촘촘히 재샘플 */
@@ -259,6 +260,37 @@ export function buildMosaicRefineTimes(
   }
 
   return uniqueSortedTimes(extra).slice(0, maxExtra)
+}
+
+/** 1차에서 중국어가 안 잡힌 장면의 중간·끝 프레임 재스캔 */
+export function buildMosaicMissedSegmentTimes(
+  rows: MosaicFrameDetectRow[],
+  segments: MosaicSceneSegment[],
+  existingTimes: number[]
+): number[] {
+  const existing = new Set(existingTimes.map((t) => Math.round(t * 1000) / 1000))
+  const extra: number[] = []
+  const push = (t: number) => {
+    const rounded = Math.round(t * 1000) / 1000
+    if (existing.has(rounded)) return
+    if (!extra.some((x) => Math.abs(x - rounded) < 0.04)) extra.push(rounded)
+  }
+
+  for (const seg of segments) {
+    if (!Number.isFinite(seg.start) || !Number.isFinite(seg.end) || seg.end <= seg.start + 0.05) continue
+    const hasHit = rows.some(
+      (r) =>
+        r.timeSec >= seg.start - 0.05 &&
+        r.timeSec <= seg.end + 0.05 &&
+        r.boxes.length > 0
+    )
+    if (hasHit) continue
+    push(seg.start + (seg.end - seg.start) * 0.35)
+    push((seg.start + seg.end) / 2)
+    push(seg.end - (seg.end - seg.start) * 0.15)
+  }
+
+  return uniqueSortedTimes(extra, 0.04)
 }
 
 export type MosaicTrackWindow = {

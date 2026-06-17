@@ -20,6 +20,7 @@ import {
 import { mosaicOverlaySummary } from "@/lib/mvp-mosaic-overlay-utils"
 import {
   buildMosaicBoundaryTimes,
+  buildMosaicMissedSegmentTimes,
   buildMosaicRefineTimes,
   captureMosaicFramesAtTimes,
   captureMosaicScanFramesFromVideo,
@@ -234,6 +235,20 @@ export function MvpOverlayElementsPanel({
       let allRows = mergeRows(coarseRows)
       const scannedTimes = allRows.map((r) => r.timeSec)
 
+      if (sceneSegments?.length) {
+        const missedTimes = buildMosaicMissedSegmentTimes(allRows, sceneSegments, scannedTimes)
+        if (missedTimes.length) {
+          setAiStatus(`미감지 장면 재스캔 0/${missedTimes.length}…`)
+          const missedFrames = await captureMosaicFramesAtTimes(video, missedTimes, {
+            maxWidth: refineWidth,
+            signal,
+            onProgress: (done, total) => setAiStatus(`미감지 장면 재스캔 ${done}/${total}…`),
+          })
+          const missedRows = await detectBatch(missedFrames, "재스캔")
+          allRows = mergeRows([...allRows, ...missedRows])
+        }
+      }
+
       const refineTimes = buildMosaicRefineTimes(allRows, captureDurationSec, {
         existingTimes: scannedTimes,
       })
@@ -270,6 +285,7 @@ export function MvpOverlayElementsPanel({
       const detected = mergeMosaicRowsToOverlays(allRows, captureDurationSec, {
         videoW,
         videoH,
+        sceneSegments,
       }).filter(
         (ov) =>
           Number.isFinite(ov.x) &&
