@@ -12,7 +12,6 @@ import {
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import { studio } from "../components/ShotFormStudioUI"
-import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import type {
@@ -54,10 +53,6 @@ import {
 } from "@/lib/shotform-local-companion-client"
 import type { AutoEditRenderMode } from "@/lib/shotform-local-render-dir"
 import { isAutoEditNoUsableVideoError } from "@/lib/shotform-auto-edit-errors"
-import {
-  VMAKE_SUBTITLE_REMOVAL_SLOW_HINT,
-  VMAKE_SUBTITLE_REMOVAL_STALL_HINT,
-} from "@/lib/shotform-vmake-subtitle-removal"
 import { estimateAutoEditAnalyzeSeconds } from "@/lib/shotform-scene-understanding"
 
 
@@ -77,13 +72,16 @@ const STEPS: Array<{ key: AutoEditJobResult["step"]; label: string }> = [
   { key: "mix", label: "영상 mix (picks)" },
   { key: "edit_plan", label: "짜집기 타임라인" },
   { key: "render", label: "ffmpeg 렌더" },
-  { key: "subtitle_removal", label: "Vmake 중국어 자막 제거" },
   { key: "script", label: "장면맞춤 나레이션" },
   { key: "done", label: "완료" },
 ]
 
 function stepIndex(step: AutoEditJobResult["step"]): number {
   if (step === "error") return -1
+  if (step === "subtitle_removal") {
+    const renderIdx = STEPS.findIndex((s) => s.key === "render")
+    return renderIdx >= 0 ? renderIdx : STEPS.length - 1
+  }
   const i = STEPS.findIndex((s) => s.key === step)
   return i >= 0 ? i : STEPS.length - 1
 }
@@ -94,14 +92,10 @@ const ANALYZE_STEP_HINTS: Record<AutoEditAnalysisMode, string> = {
 }
 
 function stepHintsForMode(
-  mode: AutoEditAnalysisMode,
-  withSubtitleRemoval = false
+  mode: AutoEditAnalysisMode
 ): Partial<Record<AutoEditJobResult["step"], string>> {
   return {
     download: "서버에서 원본 영상 준비 중… (브라우저 업로드 완료 시 곧 분석 단계로 넘어갑니다)",
-    subtitle_removal: withSubtitleRemoval
-      ? `Vmake AI 중국어 자막 제거 중… (${VMAKE_SUBTITLE_REMOVAL_SLOW_HINT})`
-      : "짜집기 완료 영상에서 중국어 자막 제거 중…",
     analyze: ANALYZE_STEP_HINTS[mode],
     mix: "영상 mix (picks) 생성 중…",
     edit_plan: mode === "precision" ? "짜집기 타임라인·컷별 Vision 캡션 중…" : "짜집기 타임라인 구성 중…",
@@ -118,7 +112,6 @@ const SCRIPT_STEP_STALL_MS = 120_000
 const SCRIPT_STEP_STALL_PRECISION_MS = 150_000
 const DOWNLOAD_STEP_STALL_MS = 180_000
 const RENDER_STEP_STALL_MS = 840_000
-const SUBTITLE_REMOVAL_STALL_MS = 660_000
 
 function analyzeStallMsForMode(mode: AutoEditAnalysisMode): number {
   switch (mode) {
@@ -140,21 +133,6 @@ function analyzeStallMessage(mode: AutoEditAnalysisMode): string {
     "③ 영상 CDN 링크가 만료됐을 수 있으니 소스 검색에서 영상을 다시 추가해 주세요.\n" +
     "④ 로컬 npm run dev에서는 dev 서버를 재시작한 뒤, 가능하면 배포 사이트에서 다시 시도해 주세요."
   )
-}
-
-async function recoverStalledSubtitleRemoval(jobId: string): Promise<AutoEditJobResult | null> {
-  try {
-    const res = await fetch("/api/shotform/auto-edit/skip-subtitle-removal", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jobId }),
-    })
-    const json = (await res.json().catch(() => ({}))) as AutoEditJobResult & { error?: string }
-    if (!res.ok) return null
-    return json
-  } catch {
-    return null
-  }
 }
 
 async function recoverStalledScriptStep(jobId: string): Promise<AutoEditJobResult | null> {
@@ -217,8 +195,6 @@ async function pollAutoEditJob(
   let analyzeStepSince: number | null = null
   let renderStepSince: number | null = null
   let renderRecoveryAttempted = false
-  let subtitleStepSince: number | null = null
-  let subtitleRecoveryAttempted = false
 
   for (;;) {
     const res = await fetch(`/api/shotform/auto-edit?jobId=${encodeURIComponent(jobId)}`)
@@ -249,29 +225,6 @@ async function pollAutoEditJob(
       }
     } else {
       analyzeStepSince = null
-    }
-
-    if (json.step === "subtitle_removal") {
-      if (!subtitleStepSince) subtitleStepSince = Date.now()
-      if (
-        !subtitleRecoveryAttempted &&
-        Date.now() - subtitleStepSince >= SUBTITLE_REMOVAL_STALL_MS
-      ) {
-        subtitleRecoveryAttempted = true
-        const recovered = await recoverStalledSubtitleRemoval(jobId)
-        if (recovered?.step === "done") {
-          onProgress?.(recovered)
-          return recovered
-        }
-        throw new Error(
-          "Vmake 자막 제거가 11분 이상 지연되고 있습니다.\n\n" +
-            "배포 서버 시간 제한으로 처리가 끊겼을 수 있습니다. " +
-            "자막 제거를 OFF로 두고 짜집기를 다시 실행한 뒤, 편집 스튜디오 정보 탭에서 자막 제거를 시도해 주세요."
-        )
-      }
-    } else {
-      subtitleStepSince = null
-      subtitleRecoveryAttempted = false
     }
 
     if (json.step === "render") {
@@ -326,16 +279,6 @@ function shotformOpenAIKey(): string {
   return (localStorage.getItem("shotform_openai_api_key") || "").trim()
 }
 
-function shotformVmakeKey(): string {
-  if (typeof window === "undefined") return ""
-  return (localStorage.getItem("shotform_vmake_api_key") || "").trim()
-}
-
-function shotformVmakeSecretKey(): string {
-  if (typeof window === "undefined") return ""
-  return (localStorage.getItem("shotform_vmake_secret_access_key") || "").trim()
-}
-
 export function MvpAutoEditDialog({
   open,
   onOpenChange,
@@ -365,7 +308,6 @@ export function MvpAutoEditDialog({
 }) {
   const [targetDuration, setTargetDuration] = useState<AutoEditTargetDuration>(30)
   const [analysisMode, setAnalysisMode] = useState<AutoEditAnalysisMode>(AUTO_EDIT_ANALYSIS_MODE_DEFAULT)
-  const [removeChineseSubtitles, setRemoveChineseSubtitles] = useState(false)
   const [renderMode, setRenderMode] = useState<AutoEditRenderMode>("server")
   const [localWorkDir, setLocalWorkDir] = useState("")
   const [localRenderCap, setLocalRenderCap] = useState<{
@@ -558,10 +500,6 @@ export function MvpAutoEditDialog({
       setErr("OpenAI API 키(shotform_openai_api_key)를 설정해 주세요.")
       return
     }
-    const vmakeApiKey = shotformVmakeKey()
-    const vmakeSecretAccessKey = shotformVmakeSecretKey()
-    const doRemoveChineseSubtitles =
-      removeChineseSubtitles && Boolean(vmakeApiKey && vmakeSecretAccessKey)
     if (!picks.length) {
       setErr("선택된 영상이 없습니다.")
       return
@@ -754,9 +692,7 @@ export function MvpAutoEditDialog({
               videos,
               targetDuration,
               openaiApiKey,
-              vmakeApiKey: vmakeApiKey || undefined,
-              vmakeSecretAccessKey: vmakeSecretAccessKey || undefined,
-              removeChineseSubtitles: doRemoveChineseSubtitles,
+              removeChineseSubtitles: false,
               scriptTopic: projectName?.trim() || undefined,
               sourceKeywords: sourceKeywords.filter(Boolean),
               analysisMode,
@@ -783,7 +719,7 @@ export function MvpAutoEditDialog({
             break
           }
 
-          const hints = stepHintsForMode(analysisMode, doRemoveChineseSubtitles)
+          const hints = stepHintsForMode(analysisMode)
           let json = await pollAutoEditJob(
             started.jobId,
             (partial) => {
@@ -991,7 +927,6 @@ export function MvpAutoEditDialog({
     picks,
     targetDuration,
     analysisMode,
-    removeChineseSubtitles,
     renderMode,
     localWorkDir,
     companionOnline,
@@ -1112,17 +1047,6 @@ export function MvpAutoEditDialog({
 
           <div className="rounded-lg border border-emerald-500/25 bg-emerald-950/10 px-3 py-2.5">
               <p className="mb-2 text-xs font-medium text-emerald-200/90">ffmpeg 렌더 방식</p>
-              {companionOnline ? (
-                <p className="mb-2 text-[10px] text-emerald-400">로컬 에이전트 연결됨 · 배포 사이트에서도 PC 폴더 렌더 가능</p>
-              ) : localRenderCap?.companionRecommended ? (
-                <p className="mb-2 text-[10px] text-amber-300/90">
-                  최초 1회: 프로젝트 폴더에서{" "}
-                  <span className="font-mono">npm run shotform:install-agent</span> 실행 → 이후 자동 연결
-                </p>
-              ) : null}
-              {companionHint && !companionOnline ? (
-                <p className="mb-2 text-[10px] text-amber-300/80">{companionHint}</p>
-              ) : null}
               {!companionOnline && renderMode === "local" ? (
                 <Button
                   type="button"
@@ -1143,34 +1067,35 @@ export function MvpAutoEditDialog({
                   에이전트 지금 시작 시도
                 </Button>
               ) : null}
+              {companionHint && !companionOnline ? (
+                <p className="mb-2 text-[10px] text-amber-300/80">{companionHint}</p>
+              ) : null}
               <div className="grid gap-2 sm:grid-cols-2">
                 <button
                   type="button"
                   disabled={loading}
                   onClick={() => setRenderMode("server")}
                   className={cn(
-                    "rounded-lg border px-3 py-2 text-left transition",
+                    "rounded-lg border px-3 py-2.5 text-center transition",
                     renderMode === "server"
                       ? "border-violet-500/60 bg-violet-500/15 ring-1 ring-violet-500/40"
                       : "border-white/10 bg-black/30 hover:border-white/20"
                   )}
                 >
-                  <p className="text-xs font-semibold text-slate-200">서버 (Cloud Run)</p>
-                  <p className="mt-0.5 text-[10px] text-slate-500">배포와 동일 · Vercel 경유</p>
+                  <span className="text-xs font-semibold text-slate-200">서버</span>
                 </button>
                 <button
                   type="button"
                   disabled={loading}
                   onClick={() => setRenderMode("local")}
                   className={cn(
-                    "rounded-lg border px-3 py-2 text-left transition",
+                    "rounded-lg border px-3 py-2.5 text-center transition",
                     renderMode === "local"
                       ? "border-emerald-500/60 bg-emerald-500/15 ring-1 ring-emerald-500/40"
                       : "border-white/10 bg-black/30 hover:border-white/20"
                   )}
                 >
-                  <p className="text-xs font-semibold text-emerald-200">로컬 (ffmpeg)</p>
-                  <p className="mt-0.5 text-[10px] text-slate-500">지정 폴더 · CDN 만료 우회</p>
+                  <span className="text-xs font-semibold text-emerald-200">로컬</span>
                 </button>
               </div>
               {renderMode === "local" ? (
@@ -1193,67 +1118,20 @@ export function MvpAutoEditDialog({
               ) : null}
             </div>
 
-          <div
-            className={cn(
-              "rounded-lg border px-3 py-2.5",
-              removeChineseSubtitles
-                ? "border-amber-500/30 bg-amber-950/15"
-                : "border-white/10 bg-black/30"
-            )}
-          >
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <Label htmlFor="mvp-remove-cn-subtitles" className="cursor-pointer text-xs text-slate-200">
-                  Vmake AI 중국어 자막 제거
-                </Label>
-                <p className="mt-0.5 text-[10px] text-slate-500">
-                  짜집기(ffmpeg 렌더)가 끝난 합성 영상 1개에만 적용됩니다.
-                </p>
-              </div>
-              <Switch
-                id="mvp-remove-cn-subtitles"
-                checked={removeChineseSubtitles}
-                onCheckedChange={setRemoveChineseSubtitles}
-                disabled={loading}
-              />
-            </div>
-            {removeChineseSubtitles ? (
-              <div className="mt-2 space-y-1 border-t border-amber-500/20 pt-2 text-[10px] leading-relaxed text-amber-100/90">
-                <p className="font-medium text-amber-200">⏱ 처리 시간 안내</p>
-                <p>{VMAKE_SUBTITLE_REMOVAL_SLOW_HINT}</p>
-                <p className="text-amber-200/70">{VMAKE_SUBTITLE_REMOVAL_STALL_HINT}</p>
-                <p className="text-amber-200/70">
-                  배포 환경에서는 짜집기 후 <strong className="text-amber-100">정보 탭</strong>에서 자막 제거하는
-                  것을 권장합니다.
-                </p>
-                {!shotformVmakeKey() || !shotformVmakeSecretKey() ? (
-                  <p className="text-amber-300/80">
-                    Vmake API 키가 설정되지 않아 실행 시 이 단계는 자동으로 건너뜁니다.
-                  </p>
-                ) : null}
-              </div>
-            ) : (
-              <p className="mt-1 text-[10px] text-slate-500">Vmake 키가 없으면 건너뜁니다.</p>
-            )}
-          </div>
-
           {!loading && !result?.editPlan ? (
             <p className="text-xs text-slate-500">
               선택한 {picks.length}개 영상에서 장면을 골라 <strong className="text-slate-300">짧은 컷으로 이어 붙입니다</strong>
               (ffmpeg). 같은 키워드 영상끼리는 화면이 비슷할 수 있어,{" "}
               <strong className="text-violet-200">서로 다른 영상·다른 장면</strong>을 고르면 믹스 차이가 큽니다.
+              <span className="mt-1 block text-[10px] text-slate-600">
+                중국어 자막 제거(Vmake)는 짜집기 완료 후 편집 스튜디오 <strong className="text-slate-500">정보</strong> 탭에서
+                실행하세요.
+              </span>
             </p>
           ) : null}
 
           {downloadHint ? (
-            <p
-              className={cn(
-                "text-xs leading-relaxed",
-                result?.step === "subtitle_removal" ? "text-amber-200/90" : "text-violet-300"
-              )}
-            >
-              {downloadHint}
-            </p>
+            <p className="text-xs leading-relaxed text-violet-300">{downloadHint}</p>
           ) : null}
 
           <Button
@@ -1303,20 +1181,8 @@ export function MvpAutoEditDialog({
                   )
                 })}
               </ul>
-              {loading && result?.step === "subtitle_removal" && removeChineseSubtitles ? (
-                <p className="mt-2 border-t border-amber-500/20 pt-2 text-[10px] leading-relaxed text-amber-100/80">
-                  {VMAKE_SUBTITLE_REMOVAL_SLOW_HINT}
-                </p>
-              ) : null}
             </div>
           )}
-
-          {result?.subtitleRemovalSkipped && result.subtitleRemovalWarning ? (
-            <div className="rounded-lg border border-amber-500/30 bg-amber-950/20 p-2 text-xs text-amber-100/90">
-              <p className="font-medium text-amber-200">Vmake 자막 제거 건너뜀</p>
-              <p className="mt-1 text-[10px] leading-relaxed">{result.subtitleRemovalWarning}</p>
-            </div>
-          ) : null}
 
           {result?.excludedVideos?.length ? (
             <div className="rounded-lg border border-amber-500/30 bg-amber-950/20 p-2 text-xs">

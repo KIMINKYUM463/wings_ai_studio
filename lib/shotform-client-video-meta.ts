@@ -114,7 +114,7 @@ function toPlayableUrl(videoUrl: string): string {
   if (!url.startsWith("http")) return url
   try {
     const host = new URL(url).hostname
-    if (isAllowedVideoHost(host) || host.includes("tiktokcdn")) {
+    if (isAllowedVideoHost(host) || host.includes("tiktokcdn") || host.includes("googlevideo.com")) {
       return `/api/proxy-video?url=${encodeURIComponent(url)}`
     }
   } catch {

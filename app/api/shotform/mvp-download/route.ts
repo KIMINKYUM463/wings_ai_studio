@@ -1,6 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { resolveDouyinNoteUrl } from "@/lib/shotform-mvp-resolve-urls"
+import { detectReprocessUrlPlatform, resolveReprocessUrl } from "@/lib/shotform-mvp-reprocess-url"
 import { fetchXhsNoteVideoUrl } from "@/lib/xhs-video"
+import { isAllowedVideoHost } from "@/lib/video-upstream-fetch"
 
 export const maxDuration = 300
 
@@ -56,13 +58,15 @@ export async function POST(req: NextRequest) {
       if (direct.startsWith("http")) {
         try {
           const host = new URL(direct).hostname
-          if (host.includes("youtube.com") || host.includes("googlevideo.com")) {
-            downloadUrl = direct
-          } else if (
+          if (
             host.includes("douyinvod") ||
             host.includes("xhscdn") ||
             host.includes("tiktokcdn") ||
-            host.includes("bytecdn")
+            host.includes("tiktokv") ||
+            host.includes("muscdn") ||
+            host.includes("googlevideo.com") ||
+            host.includes("bytecdn") ||
+            isAllowedVideoHost(host)
           ) {
             downloadUrl = `/api/proxy-video?url=${encodeURIComponent(direct)}`
           } else {
@@ -70,6 +74,18 @@ export async function POST(req: NextRequest) {
           }
         } catch {
           downloadUrl = direct
+        }
+      } else if (detectReprocessUrlPlatform(pageUrl)) {
+        try {
+          const resolved = await resolveReprocessUrl(apifyToken, pageUrl)
+          if (resolved.videoUrl.startsWith("http")) {
+            refreshedVideoUrl = resolved.videoUrl
+            downloadUrl = `/api/proxy-video?url=${encodeURIComponent(resolved.videoUrl)}`
+          } else {
+            error = resolved.error || "YouTube·TikTok 재생 URL 조회 실패"
+          }
+        } catch (e) {
+          error = e instanceof Error ? e.message : "YouTube·TikTok 영상 URL 조회 실패"
         }
       } else if (
         (item.platform === "xiaohongshu" || pageUrl.includes("xiaohongshu.com")) &&
@@ -107,8 +123,6 @@ export async function POST(req: NextRequest) {
             error = e instanceof Error ? e.message : "抖音 노트 영상 URL 조회 실패"
           }
         }
-      } else if (pageUrl.includes("youtube.com") || pageUrl.includes("youtu.be")) {
-        error = "YouTube는 페이지 URL 직접 다운로드 대신 yt-dlp 워커 연동 예정"
       } else {
         error = "직접 MP4(videoUrl) 없음 — playUrl이 포함된 항목을 선택하세요"
       }

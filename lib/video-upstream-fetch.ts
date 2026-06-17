@@ -10,6 +10,12 @@ const ALLOWED_HOST_SUFFIXES = [
   ".amemv.com",
   ".xhscdn.com",
   ".xhscdn.net",
+  ".googlevideo.com",
+  ".tiktokcdn.com",
+  ".tiktokcdn-us.com",
+  ".tiktokv.com",
+  ".tiktokv.eu",
+  ".muscdn.com",
 ]
 
 export function isAllowedVideoHost(hostname: string): boolean {
@@ -19,6 +25,12 @@ export function isAllowedVideoHost(hostname: string): boolean {
 export function upstreamReferer(hostname: string): string {
   if (hostname.endsWith(".xhscdn.com") || hostname.endsWith(".xhscdn.net")) {
     return "https://www.xiaohongshu.com/"
+  }
+  if (hostname.includes("googlevideo.com")) {
+    return "https://www.youtube.com/"
+  }
+  if (hostname.includes("tiktokcdn") || hostname.includes("tiktokv") || hostname.includes("muscdn")) {
+    return "https://www.tiktok.com/"
   }
   if (hostname.includes("douyin") || hostname.includes("ixigua") || hostname.includes("amemv")) {
     return "https://www.douyin.com/"
@@ -65,6 +77,12 @@ export async function fetchUpstreamVideo(
   }
   if (hostname.endsWith(".xhscdn.com") || hostname.endsWith(".xhscdn.net")) {
     baseHeaders.Origin = "https://www.xiaohongshu.com"
+  }
+  if (hostname.includes("googlevideo.com")) {
+    baseHeaders.Origin = "https://www.youtube.com"
+  }
+  if (hostname.includes("tiktokcdn") || hostname.includes("tiktokv") || hostname.includes("muscdn")) {
+    baseHeaders.Origin = "https://www.tiktok.com"
   }
   if (init?.range) baseHeaders.Range = init.range
 

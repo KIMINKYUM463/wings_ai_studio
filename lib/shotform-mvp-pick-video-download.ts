@@ -29,11 +29,24 @@ function isCdnPlayUrl(url: string): boolean {
       host.includes("douyinvod") ||
       host.includes("xhscdn") ||
       host.includes("bytecdn") ||
-      host.includes("tiktokcdn")
+      host.includes("tiktokcdn") ||
+      host.includes("tiktokv") ||
+      host.includes("muscdn") ||
+      host.includes("googlevideo.com")
     )
   } catch {
     return false
   }
+}
+
+function isReprocessNotePage(url: string): boolean {
+  const u = url.trim()
+  if (!u.startsWith("http")) return false
+  return (
+    u.includes("youtube.com") ||
+    u.includes("youtu.be") ||
+    (u.includes("tiktok.com") && !isCdnPlayUrl(u))
+  )
 }
 
 function isDouyinNotePage(url: string): boolean {
@@ -91,7 +104,11 @@ function canRefreshFromNote(pick: MvpPickDownloadInput): boolean {
     pick.noteUrl.includes("v.douyin.com")
   const isXhs =
     isXhsPick(pick) && pick.noteUrl.includes("xiaohongshu")
-  return isDouyinPick || isXhs
+  const isReprocess =
+    pick.platform === "youtube" ||
+    pick.platform === "tiktok" ||
+    isReprocessNotePage(pick.noteUrl)
+  return isDouyinPick || isXhs || isReprocess
 }
 
 /** 저장된 CDN URL이 아직 다운로드 가능한지 가볍게 확인 */
@@ -102,7 +119,13 @@ export async function probeMvpPickVideoUrl(videoUrl: string): Promise<boolean> {
   let probe = url
   try {
     const host = new URL(url).hostname
-    if (isAllowedVideoHost(host) || host.includes("tiktokcdn")) {
+    if (
+      isAllowedVideoHost(host) ||
+      host.includes("tiktokcdn") ||
+      host.includes("tiktokv") ||
+      host.includes("muscdn") ||
+      host.includes("googlevideo.com")
+    ) {
       probe = `/api/proxy-video?url=${encodeURIComponent(url)}`
     }
   } catch {
@@ -350,12 +373,18 @@ export async function fetchMvpPickVideoBlob(
     pick.noteUrl.includes("douyin.com") ||
     pick.noteUrl.includes("iesdouyin.com") ||
     pick.noteUrl.includes("v.douyin.com")
+  const isReprocessPick =
+    pick.platform === "youtube" ||
+    pick.platform === "tiktok" ||
+    isReprocessNotePage(pick.noteUrl)
 
   if (canRefreshFromNote(pick)) {
     onHint?.(
       isDouyinPick
         ? "만료된 링크 감지 — 抖音 노트에서 영상 URL 재조회…"
-        : "만료된 링크 감지 — 샤오홍슈 노트에서 영상 URL 재조회…"
+        : isReprocessPick
+          ? "만료된 링크 감지 — YouTube·TikTok에서 영상 URL 재조회…"
+          : "만료된 링크 감지 — 샤오홍슈 노트에서 영상 URL 재조회…"
     )
     resolved = await resolveDownloadUrl(pick, true)
     if (resolved.downloadUrl) {

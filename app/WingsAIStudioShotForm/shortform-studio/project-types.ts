@@ -13,11 +13,12 @@ export interface MvpTestProject {
   updated_at: string
 }
 
-export type MvpSourceMode = "keyword" | "direct_url"
+export type MvpSourceMode = "keyword" | "direct_url" | "reprocess"
 
 export interface MvpTestProjectData {
   sourceMode?: MvpSourceMode
   directUrlText?: string
+  reprocessUrlText?: string
   keywordText?: string
   multiKeyword?: boolean
   keywordPairs?: KoZhKeywordPair[]

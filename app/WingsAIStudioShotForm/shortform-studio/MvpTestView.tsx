@@ -28,7 +28,10 @@ import { StudioPageCard, StudioPageHeader, studio } from "../components/ShotForm
 import { updateMvpTestProject } from "./project-actions"
 import type { MvpSourceMode, MvpTestProject, MvpTestProjectData } from "./project-types"
 import { MvpDirectUrlPickPanel } from "./MvpDirectUrlPickPanel"
+import { MvpReprocessUrlPanel, type MvpReprocessUrlPanelHandle } from "./MvpReprocessUrlPanel"
+import { parseReprocessUrl } from "@/lib/shotform-mvp-reprocess-url-shared"
 import type { MvpResolvedUrlItem } from "@/lib/shotform-mvp-resolve-urls"
+import type { MvpReprocessResolvedItem } from "@/lib/shotform-mvp-reprocess-url-shared"
 import type { MvpStudioPersistData } from "@/lib/mvp-studio-types"
 import { normalizeStudioPhase } from "@/lib/mvp-studio-types"
 import { prepareMvpProjectDataForSave } from "@/lib/mvp-project-persist"
@@ -300,9 +303,21 @@ function PlatformResultSection({
   )
 }
 
+function inferMvpSourceMode(d: MvpTestProjectData): MvpSourceMode {
+  if (d.sourceMode === "reprocess" || d.reprocessUrlText) return "reprocess"
+  if (d.sourceMode === "direct_url" || d.directUrlText) return "direct_url"
+  if (d.editPicks?.length && !d.sourceResult) {
+    const platform = d.editPicks[0]?.platform
+    if (platform === "youtube" || platform === "tiktok") return "reprocess"
+    return "direct_url"
+  }
+  return "keyword"
+}
+
 function buildProjectData(args: {
   sourceMode: MvpSourceMode
   directUrlText: string
+  reprocessUrlText: string
   keywordText: string
   multiKeyword: boolean
   keywordPairs: KoZhKeywordPair[]
@@ -316,6 +331,7 @@ function buildProjectData(args: {
   return {
     sourceMode: args.sourceMode,
     directUrlText: args.directUrlText || undefined,
+    reprocessUrlText: args.reprocessUrlText || undefined,
     keywordText: args.keywordText,
     multiKeyword: args.multiKeyword,
     keywordPairs: args.keywordPairs,
@@ -356,6 +372,7 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
   const workspaceRef = useRef<{
     sourceMode: MvpSourceMode
     directUrlText: string
+    reprocessUrlText: string
     keywordText: string
     multiKeyword: boolean
     keywordPairs: KoZhKeywordPair[]
@@ -373,7 +390,11 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
   projectNameRef.current = projectName
   const [sourceMode, setSourceMode] = useState<MvpSourceMode>("keyword")
   const [directUrlText, setDirectUrlText] = useState("")
+  const [reprocessUrlText, setReprocessUrlText] = useState("")
   const [directUrlResolved, setDirectUrlResolved] = useState<MvpResolvedUrlItem[]>([])
+  const [reprocessResolved, setReprocessResolved] = useState<MvpReprocessResolvedItem | null>(null)
+  const [reprocessResolving, setReprocessResolving] = useState(false)
+  const reprocessPanelRef = useRef<MvpReprocessUrlPanelHandle>(null)
   const [keywordText, setKeywordText] = useState("")
   const [multiKeyword, setMultiKeyword] = useState(false)
   const [keywordPairs, setKeywordPairs] = useState<KoZhKeywordPair[]>([])
@@ -405,6 +426,7 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
   workspaceRef.current = {
     sourceMode,
     directUrlText,
+    reprocessUrlText,
     keywordText,
     multiKeyword,
     keywordPairs,
@@ -440,13 +462,11 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
     studioPicksKeyRef.current = null
     skipTranslateOnceRef.current = Boolean(d.sourceResult || d.keywordPairs?.length)
     skipSaveRef.current = true
-    setSourceMode(
-      d.sourceMode === "direct_url" || d.directUrlText || (d.editPicks?.length && !d.sourceResult)
-        ? "direct_url"
-        : "keyword"
-    )
+    setSourceMode(inferMvpSourceMode(d))
     setDirectUrlText(d.directUrlText ?? "")
+    setReprocessUrlText(d.reprocessUrlText ?? "")
     setDirectUrlResolved([])
+    setReprocessResolved(null)
     setKeywordText(d.keywordText ?? "")
     setMultiKeyword(Boolean(d.multiKeyword))
     setKeywordPairs(d.keywordPairs ?? [])
@@ -471,11 +491,9 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
       setPostEditStudioData({})
     }
     lastSavedKeyRef.current = projectDataSnapshot({
-      sourceMode:
-        d.sourceMode === "direct_url" || d.directUrlText || (d.editPicks?.length && !d.sourceResult)
-          ? "direct_url"
-          : "keyword",
+      sourceMode: inferMvpSourceMode(d),
       directUrlText: d.directUrlText ?? "",
+      reprocessUrlText: d.reprocessUrlText ?? "",
       keywordText: d.keywordText ?? "",
       multiKeyword: Boolean(d.multiKeyword),
       keywordPairs: d.keywordPairs ?? [],
@@ -589,6 +607,7 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
   }, [
     sourceMode,
     directUrlText,
+    reprocessUrlText,
     keywordText,
     multiKeyword,
     keywordPairs,
@@ -725,13 +744,36 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
   }, [project.id])
 
   const handleOpenAutoEdit = useCallback(async () => {
+    if (sourceMode === "reprocess") {
+      if (!parseReprocessUrl(reprocessUrlText)) {
+        setErr("YouTube 또는 TikTok URL을 입력해 주세요.")
+        return
+      }
+      if (!editPicksRef.current.length) {
+        const ok = await reprocessPanelRef.current?.resolveNow()
+        if (!ok) return
+      }
+    }
     await refreshSelectedPickUrls()
     setAutoEditOpen(true)
-  }, [refreshSelectedPickUrls])
+  }, [sourceMode, reprocessUrlText, refreshSelectedPickUrls])
 
   const handleDirectUrlPicksReady = useCallback(
     (picks: AutoEditPick[], resolved: MvpResolvedUrlItem[]) => {
       setDirectUrlResolved(resolved)
+      setEditPicks(picks)
+      setPostEditStudio(null)
+      setPostEditScriptOverrides({})
+      studioPicksKeyRef.current = null
+      setErr(null)
+      skipSaveRef.current = true
+    },
+    []
+  )
+
+  const handleReprocessPicksReady = useCallback(
+    (picks: AutoEditPick[], resolved: MvpReprocessResolvedItem) => {
+      setReprocessResolved(resolved)
       setEditPicks(picks)
       setPostEditStudio(null)
       setPostEditScriptOverrides({})
@@ -945,12 +987,19 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
 
   const stepsDone = useMemo(() => {
     const isDirect = sourceMode === "direct_url"
+    const isReprocess = sourceMode === "reprocess"
     return {
-      s1: isDirect ? directUrlText.trim().length > 0 : koInputs.length > 0,
-      s2: isDirect
-        ? directUrlResolved.some((i) => i.videoUrl.startsWith("http"))
-        : keywordPairs.length > 0 || Boolean(data?.searchQueries.length),
-      s3: isDirect
+      s1: isReprocess
+        ? reprocessUrlText.trim().length > 0
+        : isDirect
+          ? directUrlText.trim().length > 0
+          : koInputs.length > 0,
+      s2: isReprocess
+        ? Boolean(reprocessResolved?.videoUrl.startsWith("http"))
+        : isDirect
+          ? directUrlResolved.some((i) => i.videoUrl.startsWith("http"))
+          : keywordPairs.length > 0 || Boolean(data?.searchQueries.length),
+      s3: isReprocess || isDirect
         ? editPicks.length > 0
         : Boolean(data && (data.douyin.videos.length > 0 || data.xhs.videos.length > 0)),
       s4: editPicks.length > 0,
@@ -962,7 +1011,9 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
   }, [
     sourceMode,
     directUrlText,
+    reprocessUrlText,
     directUrlResolved,
+    reprocessResolved,
     koInputs.length,
     keywordPairs.length,
     data,
@@ -1055,6 +1106,17 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
           >
             {L.tabDirectUrl}
           </button>
+          <button
+            type="button"
+            onClick={() => switchSourceMode("reprocess")}
+            disabled={loading}
+            className={cn(
+              "rounded-lg border px-3 py-2 text-sm transition",
+              sourceMode === "reprocess" ? studio.btnTabActive : studio.btnTabIdle
+            )}
+          >
+            {L.tabReprocess}
+          </button>
         </div>
 
         {sourceMode === "keyword" ? (
@@ -1141,7 +1203,7 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
               </button>
             </div>
           </>
-        ) : (
+        ) : sourceMode === "direct_url" ? (
           <>
             <p className="mt-3 text-xs text-slate-500">{L.directUrlHint}</p>
             <MvpDirectUrlPickPanel
@@ -1151,6 +1213,25 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
               resolved={directUrlResolved}
               onResolvedChange={setDirectUrlResolved}
               onPicksReady={handleDirectUrlPicksReady}
+              onPicksClear={() => {
+                setEditPicks([])
+                setAutoEditOpen(false)
+              }}
+              onError={setErr}
+            />
+          </>
+        ) : (
+          <>
+            <p className="mt-3 text-xs text-slate-500">{L.reprocessHint}</p>
+            <MvpReprocessUrlPanel
+              ref={reprocessPanelRef}
+              disabled={loading}
+              urlText={reprocessUrlText}
+              onUrlTextChange={setReprocessUrlText}
+              resolved={reprocessResolved}
+              onResolvedChange={setReprocessResolved}
+              onPicksReady={handleReprocessPicksReady}
+              onResolvingChange={setReprocessResolving}
               onPicksClear={() => {
                 setEditPicks([])
                 setAutoEditOpen(false)
@@ -1188,6 +1269,22 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
           <p className="mt-2 text-xs text-slate-500">
             {L.footer.direct.replace("{count}", String(editPicks.length))}
           </p>
+        </StudioPageCard>
+      ) : null}
+
+      {sourceMode === "reprocess" && editPicks.length > 0 ? (
+        <StudioPageCard className="bg-white/[0.02]">
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+            <StepBadge done={stepsDone.s1} n={1} label={L.steps.urlInput} />
+            <StepBadge done={stepsDone.s2} n={2} label={L.steps.urlResolve} />
+            <StepBadge done={stepsDone.s3} n={3} label={formatVideoPickLabel(editPicks.length, MAX_AUTO_EDIT_VIDEOS)} />
+            <StepBadge done={stepsDone.s4} n={4} label={L.steps.aiEdit} />
+            <StepBadge done={stepsDone.s5} n={5} label={L.steps.videoEdit} />
+            <StepBadge done={stepsDone.s6} n={6} label={L.steps.scriptSubtitle} />
+            <StepBadge done={stepsDone.s7} n={7} label={L.steps.thumbnail} />
+            <StepBadge done={stepsDone.s8} n={8} label={L.steps.export} />
+          </div>
+          <p className="mt-2 text-xs text-slate-500">{L.footer.reprocess}</p>
         </StudioPageCard>
       ) : null}
 
@@ -1260,12 +1357,14 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
         </div>
       ) : null}
 
-      {(editPicks.length > 0 || postEditStudio) ? (
+      {(editPicks.length > 0 ||
+        postEditStudio ||
+        (sourceMode === "reprocess" && Boolean(parseReprocessUrl(reprocessUrlText)))) ? (
         <MvpEditPicksBar
           picks={editPicks}
           editComplete={postEditStudio != null}
-          urlRefreshing={pickUrlRefreshing}
-          urlRefreshMsg={pickUrlRefreshMsg}
+          urlRefreshing={pickUrlRefreshing || reprocessResolving}
+          urlRefreshMsg={reprocessResolving ? "영상 URL 해석 중…" : pickUrlRefreshMsg}
           onClearPicks={clearEditPicks}
           onRefreshUrls={() => void refreshSelectedPickUrls()}
           onOpenAutoEdit={() => void handleOpenAutoEdit()}

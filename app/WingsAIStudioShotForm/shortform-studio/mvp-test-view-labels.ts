@@ -6,6 +6,7 @@ export const MVP_LABELS = {
   sourceFind: "1. 소스 찾기",
   tabKeyword: "키워드로 소스 찾기",
   tabDirectUrl: `URL 직접 입력 (多源混剪, 최대 ${MAX_AUTO_EDIT_VIDEOS}개)`,
+  tabReprocess: "재가공 AI편집 (YouTube·TikTok)",
   keywordHint:
     "한국어로 입력하면 GPT가 간체 中文로 바꿉니다. 「소스찾기」를 누르면 抖音·小红书에서 비슷한 영상을 동시에 찾습니다.",
   multiKeyword: "여러 키워드 (줄바꿈·쉼표)",
@@ -17,6 +18,8 @@ export const MVP_LABELS = {
   searchBtn: "소스찾기",
   directUrlHint:
     `抖音·小红书 URL을 입력한 뒤 「URL 해석」으로 영상을 확인하세요. 하단 「AI 짜집기」로 편집을 시작합니다. 기본 2칸, + 버튼으로 최대 ${MAX_AUTO_EDIT_VIDEOS}개까지 넣을 수 있으며, 짜집기는 버튼을 눌러야 시작됩니다.`,
+  reprocessHint:
+    "YouTube·TikTok URL을 입력하면 자동으로 해석됩니다. 준비되면 하단 「AI 짜집기」를 눌러 주세요.",
   apifyLoading: "抖音 · 小红书 Apify 검색 중… (최대 수 분)",
   steps: {
     urlInput: "URL 입력",
@@ -35,6 +38,8 @@ export const MVP_LABELS = {
   footer: {
     direct:
       "URL을 해석하면 최대 {count}개 영상이 소스로 선택됩니다. 하단 「AI 짜집기」로 편집을 시작하세요. 이후 TTS·자막·썸네일·보내기 순으로 진행합니다.",
+    reprocess:
+      "URL 해석 후 AI 짜집기가 바로 실행됩니다. 이후 TTS·자막·썸네일·보내기까지 기존과 같습니다.",
     keyword:
       "抖音·小红书에서 영상을 최대 {max}개까지 골라 AI 짜집기를 실행하세요. 이후 영상 편집에서 TTS·자막을 만들고 썸네일·보내기까지 이어갑니다.",
   },
