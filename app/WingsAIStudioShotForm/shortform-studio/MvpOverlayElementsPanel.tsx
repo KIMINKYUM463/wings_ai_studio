@@ -171,6 +171,7 @@ export function MvpOverlayElementsPanel({
 
     setAiLoading(true)
     setAiErr(null)
+    onOverlaysChange(overlays.filter((o) => !isMosaicOverlay(o.catalogId)))
     aiAbortRef.current?.abort()
     const abort = new AbortController()
     aiAbortRef.current = abort
@@ -352,6 +353,11 @@ export function MvpOverlayElementsPanel({
             </Button>
           ) : null}
         </div>
+        {aiLoading ? (
+          <p className="mt-2 text-[10px] leading-relaxed text-amber-200/90">
+            분석이 끝나야 미리보기·타임라인에 모자이크가 적용됩니다. 완료까지 기다려 주세요.
+          </p>
+        ) : null}
         {aiStatus ? <p className="mt-2 text-[10px] leading-relaxed text-cyan-100/90">{aiStatus}</p> : null}
         {aiErr ? <p className="mt-2 text-[10px] leading-relaxed text-red-300">{aiErr}</p> : null}
       </div>
@@ -364,7 +370,7 @@ export function MvpOverlayElementsPanel({
         </p>
       </div>
 
-      {mosaicOverlays.length > 0 ? (
+      {mosaicOverlays.length > 0 && !aiLoading ? (
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-2">
             <p className="text-[10px] text-slate-400">모자이크 목록 · {mosaicOverlays.length}개</p>

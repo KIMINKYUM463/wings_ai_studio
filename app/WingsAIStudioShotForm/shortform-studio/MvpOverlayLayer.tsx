@@ -21,6 +21,7 @@ type Props = {
   videoRef?: React.RefObject<HTMLVideoElement | null>
   videoTimeSec?: number
   videoDurationSec?: number
+  playing?: boolean
   onOverlayPointerDown?: () => void
 }
 
@@ -33,6 +34,7 @@ export function MvpOverlayLayer({
   videoRef,
   videoTimeSec = 0,
   videoDurationSec,
+  playing = false,
   onOverlayPointerDown,
 }: Props) {
   const {
@@ -45,13 +47,8 @@ export function MvpOverlayLayer({
   } = useMvpOverlayInteraction(stageRef, onUpdateOverlay)
 
   const video = videoRef?.current ?? null
-  const effectiveVideoTime =
-    video && Number.isFinite(video.currentTime) ? video.currentTime : videoTimeSec
-
-  const visible = filterOverlaysAtVideoTime(overlays, effectiveVideoTime, videoDurationSec)
+  const visible = filterOverlaysAtVideoTime(overlays, videoTimeSec, videoDurationSec)
   if (!visible.length) return null
-
-  const videoForMosaic = video
 
   return (
     <>
@@ -92,11 +89,12 @@ export function MvpOverlayLayer({
                 startMove(e, ov, () => onSelectId(ov.id))
               }}
             >
-              {mosaic && videoForMosaic ? (
+              {mosaic && video ? (
                 <VideoMosaicLayer
-                  video={videoForMosaic}
+                  video={video}
                   overlay={ov}
-                  refreshKey={Math.round(effectiveVideoTime * 30)}
+                  videoTimeSec={videoTimeSec}
+                  playing={playing}
                 />
               ) : mosaic ? (
                 <div className="flex h-full w-full items-center justify-center rounded-md border-2 border-dashed border-violet-400/40 bg-violet-500/10 text-[9px] text-violet-200/80">

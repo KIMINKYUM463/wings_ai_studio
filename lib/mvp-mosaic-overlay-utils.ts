@@ -24,7 +24,8 @@ export function overlayVisibleAtVideoTime(
 ): boolean {
   const start = ov.startSec ?? 0
   const end = ov.endSec ?? totalSec ?? Number.POSITIVE_INFINITY
-  return videoTimeSec >= start - 0.02 && videoTimeSec <= end + 0.02
+  const pad = 0.06
+  return videoTimeSec >= start - pad && videoTimeSec <= end + pad
 }
 
 export function filterOverlaysAtVideoTime(

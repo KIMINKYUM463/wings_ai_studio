@@ -659,6 +659,7 @@ export function MvpCapCutEditor(props: Props) {
                   videoRef={videoRef}
                   videoTimeSec={playhead}
                   videoDurationSec={previewTotalSec}
+                  playing={playing}
                   onOverlayPointerDown={() => setInspectorTab("subtitle")}
                 />
                 {previewSubtitleText ? (
