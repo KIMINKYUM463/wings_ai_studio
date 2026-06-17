@@ -391,6 +391,7 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
   const [directUrlText, setDirectUrlText] = useState("")
   const [reprocessUrlText, setReprocessUrlText] = useState("")
   const [directUrlResolved, setDirectUrlResolved] = useState<MvpResolvedUrlItem[]>([])
+  const [reprocessPrefetchedBlobs, setReprocessPrefetchedBlobs] = useState<Record<string, Blob>>({})
   const [reprocessResolved, setReprocessResolved] = useState<MvpReprocessResolvedItem | null>(null)
   const [keywordText, setKeywordText] = useState("")
   const [multiKeyword, setMultiKeyword] = useState(false)
@@ -759,8 +760,13 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
   )
 
   const handleReprocessPicksReady = useCallback(
-    (picks: AutoEditPick[], resolved: MvpReprocessResolvedItem) => {
+    (
+      picks: AutoEditPick[],
+      resolved: MvpReprocessResolvedItem,
+      opts?: { prefetchedBlobs?: Record<string, Blob> }
+    ) => {
       setReprocessResolved(resolved)
+      setReprocessPrefetchedBlobs(opts?.prefetchedBlobs ?? {})
       setEditPicks(picks)
       setPostEditStudio(null)
       setPostEditScriptOverrides({})
@@ -1359,11 +1365,15 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
         projectName={projectName}
         sourceKeywords={koInputs}
         open={autoEditOpen && editPicks.length > 0}
-        onOpenChange={setAutoEditOpen}
+        onOpenChange={(open) => {
+          setAutoEditOpen(open)
+          if (!open) setReprocessPrefetchedBlobs({})
+        }}
         picks={editPicks}
         projectId={project.id}
         onPicksUpdated={setEditPicks}
         onStudioReady={handleStudioReady}
+        initialPrefetchedBlobs={reprocessPrefetchedBlobs}
       />
     </div>
   )

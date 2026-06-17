@@ -286,6 +286,7 @@ export function MvpAutoEditDialog({
   projectId,
   projectName,
   sourceKeywords = [],
+  initialPrefetchedBlobs,
   onPipelineComplete,
   onPicksUpdated,
   onStudioReady,
@@ -297,6 +298,8 @@ export function MvpAutoEditDialog({
   projectName?: string
   /** 1단계 사용자 입력 키워드 */
   sourceKeywords?: string[]
+  /** 재가공 YouTube — URL 해석 직후 브라우저에서 미리 받은 MP4 */
+  initialPrefetchedBlobs?: Record<string, Blob>
   onPicksUpdated?: (picks: AutoEditPick[]) => void
   onPipelineComplete?: (args: { targetDuration: AutoEditTargetDuration }) => void
   /** 짜집기 완료 → MVP 내 TTS·자막 스튜디오 */
@@ -534,7 +537,11 @@ export function MvpAutoEditDialog({
             (msg) => setDownloadHint(msg)
           )
 
-          if (refreshErrors.length === picks.length) {
+          const hasInitialBlobs =
+            Boolean(initialPrefetchedBlobs) &&
+            picks.every((p) => (initialPrefetchedBlobs![p.video_id]?.size ?? 0) > 0)
+
+          if (refreshErrors.length === picks.length && !hasInitialBlobs) {
             throw new Error(refreshErrors.join("\n\n"))
           }
 
@@ -545,7 +552,10 @@ export function MvpAutoEditDialog({
           const videos = toAutoEditVideoInputs(nextPicks)
           const preJobId = crypto.randomUUID()
           let clientVideoMeta: Record<string, ClientVideoMetaEntry> | undefined
-          let prefetchedBlobs: Record<string, Blob> | undefined
+          let prefetchedBlobs: Record<string, Blob> | undefined =
+            initialPrefetchedBlobs && Object.keys(initialPrefetchedBlobs).length > 0
+              ? { ...initialPrefetchedBlobs }
+              : undefined
 
           if (renderMode === "local") {
             const workDir = localWorkDir.trim()

@@ -5,7 +5,10 @@ import {
 } from "@/lib/shotform-mvp-reprocess-url-shared"
 import { resolveMediaUrlViaCloudRun } from "@/lib/shotform-cloud-run-media-resolve"
 import { isYtDlpAvailable, resolveMediaUrlWithYtDlp } from "@/lib/shotform-ytdlp"
-import { resolveYoutubeViaPiped } from "@/lib/shotform-youtube-piped-fallback"
+import {
+  resolveYoutubeViaInvidious,
+  resolveYoutubeViaPiped,
+} from "@/lib/shotform-youtube-piped-fallback"
 import { resolveYoutubeStreamUrl } from "@/lib/shotform-youtube-stream-url"
 
 export type { MvpReprocessPlatform, MvpReprocessResolvedItem } from "@/lib/shotform-mvp-reprocess-url-shared"
@@ -246,12 +249,14 @@ async function resolveYoutubeForServer(
     ? [
         { label: "Cloud Run yt-dlp", run: () => resolveMediaUrlViaCloudRun(noteUrl) },
         { label: "Piped", run: () => resolveYoutubeViaPiped(noteUrl) },
+        { label: "Invidious", run: () => resolveYoutubeViaInvidious(noteUrl) },
         { label: "InnerTube", run: () => resolveYoutubeStreamUrl(noteUrl) },
       ]
     : [
         { label: "InnerTube", run: () => resolveYoutubeStreamUrl(noteUrl) },
         { label: "Cloud Run yt-dlp", run: () => resolveMediaUrlViaCloudRun(noteUrl) },
         { label: "Piped", run: () => resolveYoutubeViaPiped(noteUrl) },
+        { label: "Invidious", run: () => resolveYoutubeViaInvidious(noteUrl) },
       ]
 
   if (token) {

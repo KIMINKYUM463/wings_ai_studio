@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Loader2, Zap } from "lucide-react"
+import { Loader2, Upload, Zap } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { type AutoEditPick, videoPickKey } from "@/lib/shotform-auto-edit-types"
 import {
@@ -9,8 +9,15 @@ import {
   parseReprocessUrl,
   type MvpReprocessResolvedItem,
 } from "@/lib/shotform-mvp-reprocess-url-shared"
-import { resolveYoutubeInBrowser } from "@/lib/shotform-youtube-browser-resolve"
+import {
+  fetchReprocessVideoBlobInBrowser,
+  resolveYoutubeInBrowser,
+} from "@/lib/shotform-youtube-browser-resolve"
 import { studio } from "../components/ShotFormStudioUI"
+
+export type MvpReprocessPicksReadyOptions = {
+  prefetchedBlobs?: Record<string, Blob>
+}
 
 type Props = {
   disabled?: boolean
@@ -18,7 +25,11 @@ type Props = {
   onUrlTextChange: (text: string) => void
   resolved: MvpReprocessResolvedItem | null
   onResolvedChange: (item: MvpReprocessResolvedItem | null) => void
-  onPicksReady: (picks: AutoEditPick[], resolved: MvpReprocessResolvedItem) => void
+  onPicksReady: (
+    picks: AutoEditPick[],
+    resolved: MvpReprocessResolvedItem,
+    opts?: MvpReprocessPicksReadyOptions
+  ) => void
   onPicksClear?: () => void
   onError?: (msg: string | null) => void
 }
@@ -48,6 +59,17 @@ function formatResolveError(raw: string | undefined): string {
   return msg.length > 280 ? `${msg.slice(0, 280)}…` : msg
 }
 
+function buildPickFromResolved(item: MvpReprocessResolvedItem): AutoEditPick {
+  return {
+    key: videoPickKey(item.noteUrl, item.videoUrl),
+    video_id: "video_001",
+    videoUrl: item.videoUrl,
+    title: item.title,
+    noteUrl: item.noteUrl,
+    platform: item.platform,
+  }
+}
+
 export function MvpReprocessUrlPanel({
   disabled,
   urlText,
@@ -60,6 +82,8 @@ export function MvpReprocessUrlPanel({
 }: Props) {
   const [loading, setLoading] = useState(false)
   const [statusHint, setStatusHint] = useState("")
+  const [lastError, setLastError] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const lastEmittedTextRef = useRef(urlText)
 
   useEffect(() => {
@@ -69,11 +93,38 @@ export function MvpReprocessUrlPanel({
       onResolvedChange(null)
       onPicksClear?.()
       setStatusHint("")
+      setLastError(null)
     }
   }, [urlText, onResolvedChange, onPicksClear])
 
+  const prefetchYoutubeBlob = useCallback(
+    async (item: MvpReprocessResolvedItem): Promise<Record<string, Blob> | undefined> => {
+      if (item.platform !== "youtube" || !item.videoUrl.startsWith("http")) return undefined
+      try {
+        setStatusHint("브라우저에서 영상 수신 중… (CDN 우회)")
+        const blob = await fetchReprocessVideoBlobInBrowser(item.videoUrl, (msg) => setStatusHint(msg))
+        return { video_001: blob }
+      } catch {
+        return undefined
+      }
+    },
+    []
+  )
+
+  const finishWithPicks = useCallback(
+    async (item: MvpReprocessResolvedItem) => {
+      onResolvedChange(item)
+      const picks = [buildPickFromResolved(item)]
+      const prefetchedBlobs = await prefetchYoutubeBlob(item)
+      setStatusHint("AI 짜집기 시작…")
+      onPicksReady(picks, item, prefetchedBlobs ? { prefetchedBlobs } : undefined)
+    },
+    [onPicksReady, onResolvedChange, prefetchYoutubeBlob]
+  )
+
   const runAutoEdit = useCallback(async () => {
     onError?.(null)
+    setLastError(null)
     onResolvedChange(null)
     setStatusHint("")
 
@@ -83,89 +134,132 @@ export function MvpReprocessUrlPanel({
       return
     }
 
+    const platform = detectReprocessUrlPlatform(url)
     const apify = shotformApifyToken()
     const needsApifyHint =
-      !apify && typeof window !== "undefined"
-        ? "배포 서버에 yt-dlp가 없으면 ShotForm 설정의 소스 검색 토큰이 필요할 수 있습니다."
+      !apify && platform === "tiktok" && typeof window !== "undefined"
+        ? " TikTok은 ShotForm 설정의 소스 검색 토큰이 필요할 수 있습니다."
         : ""
 
     setLoading(true)
     setStatusHint("영상 URL 해석 중…")
     try {
-      const res = await fetch("/api/shotform/mvp-reprocess-url", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url,
-          apifyApiKey: apify || undefined,
-        }),
-      })
-      const json = (await res.json().catch(() => ({}))) as {
-        item?: MvpReprocessResolvedItem
-        error?: string
-      }
-      if (!res.ok) {
-        onError?.(formatResolveError(json.error || `영상 해석 실패 (${res.status})`))
-        return
+      let resolvedItem: MvpReprocessResolvedItem | null = null
+      let serverError: string | null = null
+
+      try {
+        const res = await fetch("/api/shotform/mvp-reprocess-url", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url,
+            apifyApiKey: apify || undefined,
+          }),
+        })
+        const json = (await res.json().catch(() => ({}))) as {
+          item?: MvpReprocessResolvedItem
+          error?: string
+        }
+        if (!res.ok) {
+          serverError = formatResolveError(json.error || `영상 해석 실패 (${res.status})`)
+        } else if (json.item) {
+          resolvedItem = json.item
+          if (!resolvedItem.videoUrl.startsWith("http") || resolvedItem.error) {
+            serverError = formatResolveError(resolvedItem.error)
+          }
+        } else {
+          serverError = "응답에 영상 정보가 없습니다."
+        }
+      } catch (e) {
+        serverError = e instanceof Error ? e.message : "네트워크 오류"
       }
 
-      const item = json.item
-      if (!item) {
-        onError?.("응답에 영상 정보가 없습니다.")
-        return
-      }
-
-      let resolvedItem = item
-      const platform = detectReprocessUrlPlatform(url)
       if (
         platform === "youtube" &&
-        (!resolvedItem.videoUrl.startsWith("http") || resolvedItem.error)
+        (!resolvedItem?.videoUrl.startsWith("http") || resolvedItem?.error)
       ) {
-        setStatusHint("서버 해석 실패 — 브라우저에서 YouTube 재시도…")
+        setStatusHint("서버 해석 실패 — 브라우저(Piped·Invidious) 재시도…")
         try {
           const browser = await resolveYoutubeInBrowser(url)
           resolvedItem = {
-            ...resolvedItem,
+            inputUrl: url,
+            noteUrl: resolvedItem?.noteUrl || url,
             videoUrl: browser.videoUrl,
-            title: browser.title || resolvedItem.title,
-            error: undefined,
+            title: browser.title || resolvedItem?.title || "(YouTube 영상)",
+            platform: "youtube",
           }
+          serverError = null
         } catch (browserErr) {
-          const serverMsg = formatResolveError(resolvedItem.error)
           const browserMsg =
             browserErr instanceof Error ? browserErr.message : "브라우저 해석 실패"
-          onError?.(`${serverMsg}\n\n브라우저 재시도: ${browserMsg}`)
-          onResolvedChange(resolvedItem)
+          const combined = [serverError, `브라우저 재시도: ${browserMsg}`]
+            .filter(Boolean)
+            .join("\n\n")
+          setLastError(combined + needsApifyHint)
+          onError?.(combined + needsApifyHint)
+          if (resolvedItem) onResolvedChange(resolvedItem)
           return
         }
       }
 
-      onResolvedChange(resolvedItem)
-
-      if (!resolvedItem.videoUrl.startsWith("http") || resolvedItem.error) {
-        onError?.(formatResolveError(resolvedItem.error) + (needsApifyHint ? ` ${needsApifyHint}` : ""))
+      if (!resolvedItem?.videoUrl.startsWith("http")) {
+        const msg = (serverError || "영상 URL을 찾지 못했습니다.") + needsApifyHint
+        setLastError(msg)
+        onError?.(msg)
         return
       }
 
-      const picks: AutoEditPick[] = [
-        {
-          key: videoPickKey(resolvedItem.noteUrl, resolvedItem.videoUrl),
-          video_id: "video_001",
-          videoUrl: resolvedItem.videoUrl,
-          title: resolvedItem.title,
-          noteUrl: resolvedItem.noteUrl,
-          platform: resolvedItem.platform,
-        },
-      ]
-      setStatusHint("AI 짜집기 시작…")
-      onPicksReady(picks, resolvedItem)
+      await finishWithPicks(resolvedItem)
     } catch (e) {
-      onError?.(e instanceof Error ? e.message : "네트워크 오류")
+      const msg = e instanceof Error ? e.message : "네트워크 오류"
+      setLastError(msg)
+      onError?.(msg)
     } finally {
       setLoading(false)
       setStatusHint("")
     }
-  }, [urlText, onPicksReady, onError, onResolvedChange])
+  }, [urlText, onPicksReady, onError, onResolvedChange, finishWithPicks])
+
+  const handleFileUpload = useCallback(
+    async (file: File | undefined) => {
+      if (!file) return
+      onError?.(null)
+      setLastError(null)
+      setLoading(true)
+      setStatusHint("업로드한 영상 준비 중…")
+      try {
+        if (!file.type.startsWith("video/") && !/\.mp4$/i.test(file.name)) {
+          throw new Error("MP4 등 영상 파일만 업로드할 수 있습니다.")
+        }
+        if (file.size < 50_000) {
+          throw new Error("영상 파일이 너무 작습니다.")
+        }
+
+        const noteUrl = `local-upload://${file.name}`
+        const blobUrl = URL.createObjectURL(file)
+        const item: MvpReprocessResolvedItem = {
+          inputUrl: noteUrl,
+          noteUrl,
+          videoUrl: blobUrl,
+          platform: "youtube",
+          title: file.name.replace(/\.[^.]+$/, "") || "(업로드 영상)",
+        }
+        const picks: AutoEditPick[] = [buildPickFromResolved(item)]
+        onResolvedChange(item)
+        setStatusHint("AI 짜집기 시작…")
+        onPicksReady(picks, item, { prefetchedBlobs: { video_001: file } })
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "업로드 오류"
+        setLastError(msg)
+        onError?.(msg)
+      } finally {
+        setLoading(false)
+        setStatusHint("")
+        if (fileInputRef.current) fileInputRef.current.value = ""
+      }
+    },
+    [onError, onPicksReady, onResolvedChange]
+  )
 
   const hasUrlInput = Boolean(parseReprocessUrl(urlText))
 
@@ -181,6 +275,7 @@ export function MvpReprocessUrlPanel({
           if (!parseReprocessUrl(next)) {
             onResolvedChange(null)
             onPicksClear?.()
+            setLastError(null)
           }
         }}
         disabled={disabled || loading}
@@ -213,10 +308,37 @@ export function MvpReprocessUrlPanel({
             </>
           )}
         </button>
+
+        <button
+          type="button"
+          disabled={disabled || loading}
+          onClick={() => fileInputRef.current?.click()}
+          className={cn(
+            studio.btnSecondary,
+            "inline-flex items-center gap-2 px-3 py-2 text-sm disabled:opacity-50"
+          )}
+        >
+          <Upload className="h-4 w-4" />
+          MP4 업로드
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="video/mp4,video/*"
+          className="hidden"
+          onChange={(e) => void handleFileUpload(e.target.files?.[0])}
+        />
+
         <span className="text-xs text-slate-500">
-          URL 입력 후 Enter 또는 AI 짜집기 · YouTube는 브라우저 해석, TikTok은 Apify
+          YouTube는 브라우저(Piped) · TikTok은 Apify · URL 실패 시 MP4 업로드
         </span>
       </div>
+
+      {lastError && !loading ? (
+        <p className="text-xs text-amber-400/90">
+          URL 해석이 안 되면 PC에 저장한 MP4를 「MP4 업로드」로 바로 짜집기할 수 있습니다.
+        </p>
+      ) : null}
 
       {resolved?.title && !loading ? (
         <p className="text-xs text-slate-400">

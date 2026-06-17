@@ -195,7 +195,22 @@ export async function refreshExpiredMvpEditPicks(
     }
 
     onProgress?.(`선택 영상 ${i + 1}/${next.length} 만료 — URL 갱신 중…`)
-    const { videoUrl, error } = await refreshMvpPickVideoUrl(pickToDownloadInput(pick))
+    let { videoUrl, error } = await refreshMvpPickVideoUrl(pickToDownloadInput(pick))
+    if (
+      !videoUrl &&
+      pick.platform === "youtube" &&
+      typeof window !== "undefined" &&
+      pick.noteUrl.includes("youtube")
+    ) {
+      try {
+        const { resolveYoutubeInBrowser } = await import("@/lib/shotform-youtube-browser-resolve")
+        const browser = await resolveYoutubeInBrowser(pick.noteUrl)
+        videoUrl = browser.videoUrl
+        error = undefined
+      } catch {
+        /* 서버 오류 메시지 유지 */
+      }
+    }
     if (videoUrl) {
       next[i] = { ...pick, videoUrl }
       refreshedCount++
