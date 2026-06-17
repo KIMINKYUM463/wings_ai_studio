@@ -9,7 +9,7 @@ import {
   parseTopicWithStyleMode,
   sanitizeNarrationForOutput,
 } from "@/lib/shotform-natural-shorts-script"
-import { rephraseSceneToShoppingNarrationVariant, sanitizeProductNameForNarration } from "@/lib/shotform-cut-narration"
+import { sanitizeProductNameForNarration } from "@/lib/shotform-cut-narration"
 import { narrationLooksIncomplete } from "@/lib/shotform-narration-timing"
 import {
   alignNarrationLinesToCuts,
@@ -186,7 +186,7 @@ ${benchmarkScriptFewShotJson()}
 - **금지**: 거치대·수납 제품에 칫솔질·플라크 기능 지어내기 / 화면 무관 「선물용 색감」
 - lines는 **${cuts.length}개 컷이 하나의 대본**으로 자연스럽게 이어져야 함 (독립 문장 나열 금지)
 - **각 lines[i]는 i번째 컷의 「화면」에 실제로 보이는 사물·행동을 구체적으로 말할 것** (추상 칭찬만 금지)
-- 컷마다 화면 키워드(먼지/바닥/시트/흡입/노즐/차량 등) 중 **최소 1개** 반드시 포함
+- 컷마다 화면 키워드(장면에 실제로 보이는 사물·행동·장소) 중 **최소 1개** 반드시 포함
 - 스토리 골격: ①문제·후킹 → ②해결책·제품 → ③~N-1 화면별 데모(앞 컷 맥락 이어받기) → ④마무리·구매
 - **금지 문구**: "이 포인트", "이 부분이 핵심", "충분히 만족", "손이 가요", "이렇게 활용하면", "생각보다 편해요", "이렇게 쉬워요", "제품 사용 장면" 읽기, "완벽하게 작동", "모든 것이 해결", "설치가 이렇게 간편"
 - ${NARRATION_PRODUCT_NAME_USAGE_RULE}
@@ -243,7 +243,7 @@ ${previousScriptBlock}
 - **사용자 입력 키워드 = 홍보 제품**. 영상 분석이 다른 제품으로 보여도 키워드 제품 기준으로만 작성.
 - 각 컷의 「화면」·원본 Vision·장면 설명에 나온 **장소·행동·제품 상태**를 대본에 반드시 반영하세요.
 - 화면과 무관한 추상 칭찬·다른 제품 기능 지어내기 금지.
-- 차량 청소 영상이면 시트/바닥/먼지/흡입/노즐/구석 등 **눈에 보이는 요소**를 컷마다 다르게 언급하세요.
+- **모든 제품 공통**: 각 컷 「화면」·원본 Vision에 나온 사물·행동·장소를 대본에 반영. 키워드 제품 장점과 연결.
 - 모든 컷에 같은 추상 문장(「이 포인트」「핵심」「만족」) 반복 금지.
 - **동일 꼬리문구·동일 의미 반복 절대 금지** (예: 「먼지가 바로 빠져요」「이렇게 빼낼 수 있어요」를 여러 컷에 쓰지 말 것)
 - **같은·유사 화면이 반복되면** 문장을 복사하지 말고 **앞 컷 나레이션을 이어** 제품 장점을 깊이 있게 전개
@@ -305,22 +305,44 @@ ${repeatGroupsBlock}
         }
       )
     )
-    let polished = polishedRaw.map((text, i) => {
-      let t = ensureNaturalShortsCtaOnLastLine(
+    let polished = polishedRaw.map((text, i) =>
+      ensureNaturalShortsCtaOnLastLine(
         sanitizeNarrationForOutput(text),
         naturalShorts && i === polishedRaw.length - 1
       )
-      if (narrationLooksIncomplete(t.replace(/\n/g, " "))) {
-        t = rephraseSceneToShoppingNarrationVariant(
-          cuts[i]!.visual_card,
-          productName,
-          cuts[i]!.duration,
-          i + 21
-        )
-        t = sanitizeNarrationForOutput(t)
+    )
+
+    const weakIndices = polished
+      .map((text, i) => ({ i, weak: !text.trim() || narrationLooksIncomplete(text.replace(/\n/g, " ")) }))
+      .filter((x) => x.weak)
+      .map((x) => x.i)
+
+    if (weakIndices.length) {
+      try {
+        const patchParsed = await requestNarrationJson({
+          apiKey,
+          systemContent,
+          userContent: `${userContent}
+
+**필수 수정**: 아래 컷 번호의 lines가 비었거나 문장이 끊겼습니다. **해당 컷만** 키워드 제품 + 화면에 맞는 완결 구어체로 다시 작성하세요.
+문제 컷: ${weakIndices.map((i) => i + 1).join(", ")}
+전체 lines 길이는 반드시 ${cuts.length}개 유지.`,
+          temperature: Math.min(temperature + 0.1, 0.85),
+          maxTokens,
+        })
+        const patchLines = alignNarrationLinesToCuts(parseNarrationLinesFromAi(patchParsed.lines), cuts, productName)
+        for (const i of weakIndices) {
+          const patched = patchLines[i]?.trim()
+          if (patched && !narrationLooksIncomplete(patched.replace(/\n/g, " "))) {
+            polished[i] = sanitizeNarrationForOutput(
+              formatSceneNarrationLines(patched, cuts[i]!.duration)
+            )
+          }
+        }
+      } catch {
+        /* AI 패치 실패 시 기존 줄 유지 */
       }
-      return t
-    })
+    }
 
     if (mode === "rewrite" && Object.keys(previousScripts).length) {
       polished = ensureRewriteDiffersFromPrevious(

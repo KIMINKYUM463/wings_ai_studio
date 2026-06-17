@@ -61,8 +61,6 @@ import {
   bundleTextForEditCut,
   extractVisualDescription,
   looksLikeSceneCardMetadata,
-  rephraseSceneToShoppingNarration,
-  rephraseSceneToShoppingNarrationVariant,
   sanitizeSceneSubtitleText,
 } from "@/lib/shotform-cut-narration"
 import {
@@ -1237,19 +1235,9 @@ async function tryGenerateNaturalShortsScript(args: {
       { allowTemplateFallback: false, fitToDuration: false, sceneMetas, userKeywords: productAnalysis.targetKeywords }
     )
   )
-  const polished = polishedRaw.map((text, i) => {
-    let t = ensureNaturalShortsCtaOnLastLine(text, i === polishedRaw.length - 1)
-    if (narrationLooksIncomplete(t.replace(/\n/g, " "))) {
-      t = rephraseSceneToShoppingNarrationVariant(
-        cuts[i]!.visual_card,
-        productAnalysis.productName,
-        cuts[i]!.duration,
-        i + 21
-      )
-      t = sanitizeNarrationForOutput(t)
-    }
-    return t
-  })
+  const polished = polishedRaw.map((text, i) =>
+    ensureNaturalShortsCtaOnLastLine(sanitizeNarrationForOutput(text), i === polishedRaw.length - 1)
+  )
 
   const scenes: SceneSubtitleBlock[] = cuts.map((c, i) => ({
     start: c.output_start,
@@ -1460,10 +1448,7 @@ function scriptLinesFromSceneBlocks(blocks: SceneSubtitleBlock[], editPlan: Edit
   return plan.map((seg, i) => {
     const raw = bundleTextForEditCut(i, plan, blocks)
     const dur = Math.max(0.5, seg.output_end - seg.output_start)
-    const text =
-      raw && !looksLikeSceneCardMetadata(raw)
-        ? raw
-        : rephraseSceneToShoppingNarration(seg.visual_caption || seg.reason, undefined, dur)
+    const text = raw && !looksLikeSceneCardMetadata(raw) ? raw : ""
     return {
       start: seg.output_start,
       end: seg.output_end,
@@ -1642,11 +1627,7 @@ function deriveScriptLinesFromBundle(
           ) || ""
 
     if (!text || looksLikeSceneCardMetadata(text)) {
-      text = rephraseSceneToShoppingNarration(
-        seg.visual_caption || seg.reason,
-        undefined,
-        seg.output_end - seg.output_start
-      )
+      text = ""
     }
 
     return {
@@ -1673,38 +1654,18 @@ export function buildQuickShoppingScript(
   editPlan: EditPlan,
   analyses: VideoAnalysis[],
   mixInfo?: MixInfo,
-  userKeywords?: readonly string[]
+  _userKeywords?: readonly string[]
 ): ShoppingScript {
-  const kw = userKeywords?.length ? userKeywords : productAnalysis.targetKeywords
   const benchmarkScenes = buildBenchmarkSceneBlocksFromEditPlan(
     editPlan,
     analyses,
     mixInfo,
     productAnalysis.scenes
   )
-  const contexts = benchmarkScenes.map((s) => ({
-    visual_card: s.visual_card,
-    duration: s.duration,
-  }))
-  const rawLines = benchmarkScenes.map((s, i) =>
-    rephraseSceneToShoppingNarrationVariant(
-      s.visual_card,
-      productAnalysis.productName,
-      s.duration,
-      i * 3 + 1,
-      kw
-    )
-  )
-  const polished = polishCutNarrationLines(rawLines, contexts, productAnalysis.productName, {
-    allowTemplateFallback: false,
-    fitToDuration: true,
-    userKeywords: kw,
-  })
-
-  const sceneBlocks: SceneSubtitleBlock[] = benchmarkScenes.map((s, i) => ({
+  const sceneBlocks: SceneSubtitleBlock[] = benchmarkScenes.map((s) => ({
     start: s.start,
     end: s.end,
-    text: formatSceneNarrationLines(polished[i] ?? rawLines[i]!, s.duration),
+    text: "",
   }))
 
   const bundle = assembleScriptBundleFromScenes(

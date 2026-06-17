@@ -26,21 +26,14 @@ import {
   visualSceneForSourceRange,
 } from "@/lib/shotform-visual-scene-match"
 import type { CutNarrationSceneMeta } from "@/lib/shotform-narration-scene-groups"
-import {
-  buildCutNarrationSceneMetas,
-  narrationForRepeatedScene,
-} from "@/lib/shotform-narration-scene-groups"
+import { buildCutNarrationSceneMetas } from "@/lib/shotform-narration-scene-groups"
 import { sanitizeNarrationForOutput } from "@/lib/shotform-natural-shorts-script"
-import {
-  combineVisualAndProductNarration,
-  isOrganizerOrStorageProduct,
-  isRepeatMetaNarration,
-  isToothbrushHolderProduct,
-} from "@/lib/shotform-shopping-visual-cues"
+import { isRepeatMetaNarration, isToothbrushHolderProduct } from "@/lib/shotform-shopping-visual-cues"
 import { actionScriptTextForSourceRange } from "@/lib/shotform-scene-understanding"
 import { PRECISION_SCRIPT_TONE } from "@/lib/shotform-auto-edit-precision-script"
 import {
   detectObviousProductCategoryLeak,
+  isAquariumFishTankProduct,
   isCarMountOrHolderProduct,
   isFurnitureSofaProduct,
 } from "@/lib/shotform-user-keyword-product"
@@ -204,61 +197,15 @@ export function sanitizeProductNameForNarration(
   }
   if (/배드민턴|셔틀콕|라켓/i.test(blob)) return "배드민턴 훈련기"
   if (/프로젝터|스크린|티비|TV/i.test(blob)) return "홈시어터 스크린"
+  if (/어항|수조|鱼缸|aquarium|fish\s*tank/i.test(blob)) {
+    const fromKw = userKw.find((k) => /어항|수조/i.test(k))
+    if (fromKw) return fromKw
+    return "미니 어항"
+  }
 
   if (koreanInRaw >= 1) return raw
   return undefined
 }
-
-function carMountNarrationLine(product: string | undefined, ruleOffset: number, sceneHint = ""): string {
-  const p = product || "차량용 거치대"
-  const nav = /내비|네비|navigation|길\s*안내|지도/i.test(sceneHint)
-  const opts = [
-    `${p}, 대시보드에 붙이기도 간단해요`,
-    `한 손으로 고정해도 흔들림이 적어요`,
-    `각도만 조절해도 ${nav ? "네비" : "화면"} 보기 편해요`,
-    `이렇게 장착하면 바로 ${nav ? "내비" : "폰"} 켜기 좋아요`,
-    `운전석에서 화면 각도가 딱 맞아요`,
-    `손잡고 운전해도 거치가 안정적이에요`,
-    `좁은 대시보드에도 콤팩트하게 붙어요`,
-    `스마트폰 끼우니 길 안내 보기 편해요`,
-    `설치도 간단하고 바로 쓸 수 있어요`,
-    `핸드폰 거치하니 운전 중에도 화면이 잘 보여요`,
-    `진동에도 흔들림 없이 고정력 좋아요`,
-    `${p}, 차량용이라 각도 조절이 수월해요`,
-    `대시보드에 붙이면 선반 공간도 덜 차지해요`,
-    `핸들 잡고 있어도 ${p}가 안정적이에요`,
-  ]
-  return opts[ruleOffset % opts.length]!
-}
-
-function vacuumNarrationAllowed(productBlob: string): boolean {
-  if (isCarMountOrHolderProduct(productBlob)) return false
-  return /청소|먼지|흡입|吸尘|vacuum|진공|노즐/i.test(productBlob)
-}
-
-/** 중복 시 순환할 고유 폴백 대본 */
-const UNIQUE_NARRATION_FALLBACKS = [
-  "이 장면, 직접 보면 체감이 달라요",
-  "여기가 꽤 마음에 드는 부분이에요",
-  "이렇게 쓰니까 손이 훨씬 덜 가요",
-  "설치 후 바로 느껴지는 차이예요",
-  "실제로 보면 왜 쓰는지 납득돼요",
-  "이 부분이 제일 마음에 들었어요",
-  "써보니 생각보다 훨씬 편하더라고요",
-  "이런 디테일이 쓰는 맛을 살려요",
-  "한번 써보면 계속 손이 가요",
-  "이 정도면 충분히 만족할 거예요",
-  "공간 분위기까지 확 바뀌어요",
-  "이건 확실히 체감되는 타입이에요",
-  "쓰는 순간 바로 편해지는 느낌이에요",
-  "놓치면 아쉬운 부분이에요",
-  "보는 것보다 직접 쓰면 더 와닿아요",
-  "이렇게 활용하면 훨씬 깔끔해요",
-  "매일 쓰기 좋은 타입이에요",
-  "이 장면에서 장점이 딱 보여요",
-  "쓰다 보면 왜 추천하는지 알 거예요",
-  "이건 영상으로 봐도 매력이 확실해요",
-] as const
 
 /** 장면 묘사를 그대로 읽는 나레이션 (인물·소품 나열) */
 const SCENE_READOUT_PATTERNS = [
@@ -391,201 +338,6 @@ export function looksLikeDescriptiveSceneNarration(text: string): boolean {
   return false
 }
 
-function buildFallbackNarration(
-  d: string,
-  productName: string | undefined,
-  ruleOffset: number,
-  userKeywords?: readonly string[]
-): string {
-  const product =
-    sanitizeProductNameForNarration(productName, { visualHint: d, userKeywords }) || "이 제품"
-  const productBlob = `${userKeywords?.join(" ") || ""} ${product} ${d}`
-  const isMount = isCarMountOrHolderProduct(productBlob)
-  const isFurniture = isFurnitureSofaProduct(productBlob)
-
-  const pools: string[][] = []
-
-  if (isFurniture) {
-    pools.push([
-      "거실 분위기가 확 살아나는 사이즈예요",
-      "쿠션 감촉이 푹신해서 앉자마자 편해요",
-      "패브릭 마감이 고급스럽게 보여요",
-      "좌석이 넓어서 누워도 여유 있어요",
-      "색감이 인테리어에 잘 어울려요",
-      "팔걸이 높이가 편해서 오래 앉아도 좋아요",
-      "거실이 넓어 보이는 비율이에요",
-      "쿠션 포인트가 몸을 잘 받쳐줘요",
-      "원단 질감이 손에 닿는 느낌이 좋아요",
-      "대형 좌석이라 가족이 같이 앉기 좋아요",
-      "마감 디테일이 깔끔해서 거실이 정돈돼 보여요",
-      "앉았을 때 허리·목 받침이 편해요",
-    ])
-  }
-
-  if (/선풍기|风扇|fan|휴대용\s*선풍|미니\s*선풍|쿨링|手持风扇/i.test(d)) {
-    pools.push([
-      "손바닥만 한 사이즈, 가방에 쏙 들어가요",
-      "이렇게 작은데 바람이 꽤 시원해요",
-      "바람 세기 조절해보니 실내용으로 딱이에요",
-      "들고 다니기 좋은 미니 선풍기예요",
-      "책상 위에 두니 소음도 생각보다 적어요",
-      "여름에 밖에 들고 나가기 좋은 사이즈예요",
-      "한 손에 쥐어도 가벼워서 휴대하기 좋아요",
-      "작은데 바람 세기가 꽤 알차요",
-    ])
-  }
-  if (/포장|포장지|비닐|싸인|언박싱|unboxing|开箱|包装/i.test(d)) {
-    pools.push([
-      "포장 뜯자마자 사이즈에 놀랐어요",
-      "개봉만 해도 휴대용 느낌이 확 와요",
-      "포장 상태 깔끔하고 바로 쓸 수 있어요",
-      "언박싱하니 손바닥만 한 사이즈예요",
-      "비닐 벗기자 색감이 꽤 예뻐요",
-      "박스 열자마자 들고 다니고 싶어져요",
-    ])
-  }
-
-  if (/TV|티비|투사|스크린|프로젝터|projector|숨겨진|설치/.test(d)) {
-    if (isMount) {
-      pools.push([
-        "설치도 간단하고 바로 쓸 수 있어요",
-        `${product}, 대시보드에 붙이기도 간단해요`,
-        "한 손으로 고정해도 흔들림 없이 안정적이에요",
-        "이렇게 장착하면 바로 내비 켜기 좋아요",
-      ])
-    } else {
-      pools.push([
-        "설치도 간단하고 공간도 깔끔해요",
-        "버튼만 누르면 스크린이 쑥 올라와요",
-        "집에서도 영화관 같은 몰입감이에요",
-        "이렇게 설치하면 바로 쓸 수 있어요",
-      ])
-    }
-  }
-
-  if (/칫솔|치아|칫솔질|전동칫솔|电动牙刷|牙刷/.test(d)) {
-    if (isToothbrushHolderProduct(`${product || ""} ${d}`)) {
-      pools.push([
-        `${product}에 꽂아두니 세면대가 한눈에 정리돼요`,
-        `퍼즐 모양 ${product}, 귀여운데 수납도 딱이에요`,
-        `벽에 걸어두면 젖은 칫솔 바닥에 안 둬도 돼요`,
-        `칫솔 두 개 꽂아도 흔들림 없이 안정적이에요`,
-        `${product} 덕분에 욕실 찾기 귀찮은 일이 줄어요`,
-        `세면대 위 어지러우면 ${product} 하나로 정돈돼요`,
-      ])
-    } else {
-      pools.push([
-        `${product}로 치아 사이까지 쓱 닦여요`,
-        "이렇게 닦으면 입안이 개운해요",
-        "전동칫솔, 구석구석 닦이는 게 포인트예요",
-        "매일 이 습관이면 확실히 달라져요",
-        "플라크 걱정, 이렇게 줄여보세요",
-      ])
-    }
-  }
-  const isMousePadScene =
-    /마우스\s*패드|mouse\s*pad|게이밍\s*패드|데스크\s*매트|keyboard|키보드|gaming|RGB|LED/i.test(d)
-  if (
-    !isMousePadScene &&
-    /차량|차\s*안|자동차|시트|운전석|車|车载|운전|트렁크|대시보드|핸들\s*주변|차\s*바닥|바닥\s*매트/i.test(d)
-  ) {
-    if (isMount) {
-      pools.push(
-        Array.from({ length: 8 }, (_, i) => carMountNarrationLine(product, ruleOffset + i, d))
-      )
-    } else if (vacuumNarrationAllowed(productBlob)) {
-      pools.push([
-        "차 시트 틈새 먼지도 이렇게 빨아들여요",
-        "바닥 매트에 낀 먼지, 한 번에 흡입돼요",
-        "차 안 구석 먼지 관리가 이렇게 쉬워요",
-        "좁은 틈새도 노즐로 싹 정리돼요",
-        "운전석 발밑 먼지, 손 안 대고 빼내요",
-        "트렁크 구석 먼지까지 한 번에 정리돼요",
-        "문턱 틈새 먼지도 노즐이 쏙 들어가요",
-        "핸들 주변 먼지, 흡입 한 번이면 끝이에요",
-        "시트 레일 사이 먼지가 바로 빠져요",
-        "발밑 매트 먼지, 손끝 안 대고 싹 빼내요",
-      ])
-    }
-  }
-  if (/마우스\s*패드|mouse\s*pad|게이밍\s*패드|데스크\s*매트|키보드|keyboard|gaming|RGB|LED/i.test(d)) {
-    pools.push([
-      "손목 각도가 편해서 장시간 게임해도 괜찮아요",
-      "미끄럼 방지라 마우스 움직임이 훨씬 안정적이에요",
-      "패드 사이즈가 커서 키보드랑 같이 쓰기 좋아요",
-      "게이밍할 때 이 정도 면적이면 충분해요",
-      "책상 위가 깔끔해지니까 집중이 잘 돼요",
-      "RGB 분위기까지 책상 분위기가 확 살아요",
-      "큰 사이즈라 팔 움직임이 훨씬 자유로워요",
-      "마감이 깔끔해서 고급스럽게 보여요",
-    ])
-  }
-  if (/청소|먼지|흡입|吸尘|진공|vacuum|닦(?:아|여|으|이|는|고)/.test(d) && vacuumNarrationAllowed(productBlob)) {
-    pools.push([
-      `${product}로 먼지가 싹 빨려 들어가요`,
-      "이렇게 흡입하면 구석 먼지가 바로 빠져요",
-      "손이 안 가도 바닥 먼지가 정리돼요",
-      "좁은 곳 먼지도 힘 안 들고 빼내요",
-    ])
-  }
-  if (/버튼|작동|켜|开关/.test(d)) {
-    pools.push(["버튼 한 번이면 바로 작동해요", "이렇게 켜면 바로 쓸 수 있어요"])
-  }
-
-  if (/LED|디스플레이|화면|스크린|screen|월드컵|경기|곡면|彩屏|显示屏/i.test(d)) {
-    if (isMount && /스마트폰|핸드폰|내비|네비|phone|navigation|거치/i.test(d)) {
-      pools.push([
-        "운전석에서 화면 각도가 딱 맞아요",
-        "스마트폰 거치하니 길 안내 보기 편해요",
-        "핸드폰 화면이 운전 중에도 잘 보여요",
-        "각도 조절해보니 네비 보기 편해요",
-      ])
-    } else if (!isMount) {
-      pools.push([
-        "곡면이라 몰입감이 확 다르죠",
-        "이렇게 크게 보니 현장감이 살아요",
-        "야외에 설치해도 화면이 선명해요",
-        "영상 볼 때 이게 진짜 체감되는 포인트예요",
-      ])
-    }
-  }
-
-  if (/배드민턴|셔틀콕|라켓|훈련기|badminton|shuttle/i.test(d)) {
-    pools.push([
-      "파트너 없어도 이렇게 연습할 수 있어요",
-      "혼자서도 셔틀콕 리턴 연습이 돼요",
-      "거실에서 라켓 휘둘러도 부담 없어요",
-      "공이 알아서 떨어지니 집중만 하면 돼요",
-      "연습 시간 늘리고 싶으면 이게 답이에요",
-      "실내에서도 스윙 감각 유지하기 좋아요",
-    ])
-  }
-
-  if (/운동|스포츠|훈련|연습|fitness/i.test(d)) {
-    pools.push([
-      "혼자서도 루틴 채우기 좋아요",
-      "집에서 이렇게 움직이니까 손이 안 놀아요",
-      "연습할 때마다 체감이 달라져요",
-    ])
-  }
-
-  if (!pools.length) {
-    pools.push([
-      "손에 들었을 때 사이즈 감이 바로 와요",
-      "이렇게 쓰니 생각보다 편하더라고요",
-      "직접 보면 디테일이 꽤 살아 있어요",
-      "여기 포인트가 딱 보이는 장면이에요",
-      "영상으로 봐도 체감이 되는 부분이에요",
-      "작은데 기능이 꽤 알차 보여요",
-      "이 장면이 제일 설득력 있어요",
-      product ? `${product}, 손에 들었을 때 감이 와요` : "손에 들었을 때 감이 와요",
-    ])
-  }
-
-  const flat = pools.flat()
-  return flat[ruleOffset % flat.length]!
-}
-
 /** 청소기·차량 대본이 마우스패드 등 다른 제품 화면에 붙은 경우 */
 export function narrationMismatchesVisualProduct(
   text: string,
@@ -601,6 +353,9 @@ export function narrationMismatchesVisualProduct(
   }
   const kwBlob = userKeywords?.join(" ") || ""
   if (isFurnitureSofaProduct(kwBlob) && /핸들|그립|손잡|손에\s*쥐|노즐|흡입|먼지|청소기|진공|차\s*안|운전/.test(script)) {
+    return true
+  }
+  if (isAquariumFishTankProduct(kwBlob) && /차량|차\s*안|트렁크|운전|시트|노즐|흡입|먼지|청소기|진공|부속품|브러시|휴대\s*케이스|바닥\s*매트|대시보드|핸들/.test(script)) {
     return true
   }
   if (isCarMountOrHolderProduct(kwBlob) && /흡입|먼지|노즐|빨아|진공|청소기|몰입감|영화관|프로젝터/.test(script)) {
@@ -627,129 +382,28 @@ export function narrationMismatchesVisualProduct(
   return false
 }
 
-/** 장면 분석 → 짧은 줄 나레이션 (줄바꿈 = 자막 한 줄) */
+/** @deprecated 규칙 기반 생성 제거 — AI 대본만 사용 */
 export function rephraseSceneToShoppingNarration(
-  description: string,
-  productName?: string,
-  sceneDurationSec = 5,
-  userKeywords?: readonly string[]
+  _description: string,
+  _productName?: string,
+  _sceneDurationSec = 5,
+  _userKeywords?: readonly string[]
 ): string {
-  const single = rephraseSceneCore(description, productName, 0, userKeywords)
-  return wrapNarrationShortLines(single, sceneDurationSec)
+  return ""
 }
 
-/** 동일 장면이라도 ruleOffset으로 다른 구어체 후보 생성 */
+/** @deprecated 규칙 기반 생성 제거 — AI 대본만 사용 */
 export function rephraseSceneToShoppingNarrationVariant(
-  description: string,
-  productName: string | undefined,
-  sceneDurationSec: number,
-  variantIndex: number,
-  userKeywords?: readonly string[]
+  _description: string,
+  _productName?: string,
+  _sceneDurationSec = 5,
+  _variantIndex = 0,
+  _userKeywords?: readonly string[]
 ): string {
-  const single = rephraseSceneCore(description, productName, Math.max(0, variantIndex), userKeywords)
-  return wrapNarrationShortLines(single, sceneDurationSec)
+  return ""
 }
 
-function isWrongCategoryNarrationRule(re: RegExp, sceneHint: string, productBlob: string): boolean {
-  const isMount = isCarMountOrHolderProduct(productBlob)
-  const isFurniture = isFurnitureSofaProduct(productBlob)
-  const s = re.source
-
-  if (isFurniture) {
-    if (/손잡이|핸들|그립|握把|handle/i.test(s)) return true
-    if (/먼지|흡입|청소|vacuum|吸尘|노즐|진공|시트|바닥|부속품|브러시|흡입하는|청소하는|진공\s*청소|핸디\s*청소|차량|운전|콘솔|대시보드|트렁크/.test(s)) {
-      return true
-    }
-    if (/손에\s*쥐|휴대|가벼워서\s*들고|한\s*손\s*조작/.test(s)) return true
-  }
-
-  if (!isMount) return false
-  if (/먼지|흡입|청소|vacuum|吸尘|노즐|진공|바닥|시트|부속품|브러시|흡입하는|청소하는|진공\s*청소|핸디\s*청소/.test(s)) {
-    return true
-  }
-  if (/스크린|프로젝터|투사|월드컵|경기|곡면|몰입|디스플레이|화면|screen|LED|티비|TV/.test(s)) {
-    return !/스마트폰|핸드폰|내비|네비|거치|phone|navigation/i.test(sceneHint)
-  }
-  return false
-}
-
-function productNarrationFallback(productName: string | undefined, ruleOffset: number): string {
-  const product = sanitizeProductNameForNarration(productName) || "이 제품"
-  const fallbacks = [
-    `${product}, 이렇게 쓰면 편해요`,
-    `${product} 쓰임새가 확실해요`,
-    `${product} 실사용이 이렇게예요`,
-    `${product}, 써보니 생각보다 달라요`,
-    `${product}로 공간이 깔끔해져요`,
-    `${product}, 이 부분이 마음에 들어요`,
-    "이렇게 쓰면 편해요",
-    "실사용 장면이에요",
-    "이 부분이 꽤 마음에 들어요",
-    "써보니 생각보다 다르더라고요",
-    "이렇게 활용하면 깔끔해요",
-    "보는 것보다 직접 쓰면 와닿아요",
-  ]
-  return fallbacks[ruleOffset % fallbacks.length]!
-}
-
-/** 중복·유사 문장이면 화면·컷 인덱스로 강제 분기 */
-function forceUniqueNarrationLine(args: {
-  visualHint: string
-  productName?: string
-  duration: number
-  cutIndex: number
-  priorLines: readonly string[]
-  userKeywords?: readonly string[]
-}): string {
-  const { visualHint, productName, duration, cutIndex, priorLines, userKeywords } = args
-  const isDup = (t: string) =>
-    narrationLineIsDuplicateOfPrior(t, priorLines) ||
-    priorLines.some((p) => narrationSharesRepeatedPhrase(p, t)) ||
-    isAbstractShoppingNarration(t)
-
-  const desc = extractVisualDescription(visualHint)
-  const productBlob = `${userKeywords?.join(" ") || ""} ${productName || ""} ${desc}`
-  const augmented = isFurnitureSofaProduct(productBlob)
-    ? [desc, `쿠션 ${desc}`, `거실 ${desc}`, `좌석 ${desc}`, `패브릭 ${desc}`, `인테리어 ${desc}`]
-    : [
-        desc,
-        `손잡이 ${desc}`,
-        `부속품 ${desc}`,
-        `바닥 ${desc}`,
-        `시트 ${desc}`,
-        `노즐 ${desc}`,
-        `케이스 ${desc}`,
-        `사용 중 ${desc}`,
-        `차량 바닥 ${desc}`,
-        `차량 시트 ${desc}`,
-      ]
-
-  for (let attempt = 0; attempt < 96; attempt++) {
-    const hint = augmented[attempt % augmented.length]!
-    const salt = cutIndex * 53 + attempt * 19 + priorLines.length * 41
-    const core = rephraseSceneCore(hint, productName, salt, userKeywords)
-    const candidate = formatNarrationForSceneDuration(
-      wrapNarrationShortLines(core, duration),
-      duration
-    )
-    if (candidate && !isDup(candidate)) return candidate
-
-    const fb = buildFallbackNarration(hint, productName, salt, userKeywords)
-    const candidate2 = formatNarrationForSceneDuration(fb, duration)
-    if (candidate2 && !isDup(candidate2)) return candidate2
-  }
-
-  const words = (desc.match(/[\uac00-\ud7a3]{2,}/g) ?? []).filter(
-    (w) => !/장면|모습|사용자|카메라|자막|보임|강조|부분|담긴|보입니다|함께/.test(w)
-  )
-  const kw = words[(cutIndex + priorLines.length) % Math.max(words.length, 1)]
-  const emergency = kw
-    ? `${kw}, 여기서도 한 번에 정리돼요`
-    : `이 장면 ${cutIndex + 1}, 직접 보면 차이가 나요`
-  return formatNarrationForSceneDuration(emergency, duration)
-}
-
-/** 컷마다 절대 중복되지 않는 나레이션 선택 */
+/** AI·스크립트에서 온 preferred만 통과 — 규칙 폴백 없음 */
 export function pickUniqueNarrationLine(args: {
   visualHint: string
   productName?: string
@@ -761,596 +415,29 @@ export function pickUniqueNarrationLine(args: {
   priorInGroup?: string
   userKeywords?: readonly string[]
 }): string {
-  const {
-    visualHint,
-    productName,
-    duration,
-    cutIndex,
-    priorLines,
-    preferred,
-    sceneMeta,
-    priorInGroup,
-    userKeywords,
-  } = args
+  const { visualHint, duration, priorLines, preferred, userKeywords } = args
   const isDup = (t: string) =>
     narrationLineIsDuplicateOfPrior(t, priorLines) ||
     priorLines.some((p) => narrationSharesRepeatedPhrase(p, t)) ||
     looksLikeRawSceneCopy(t, visualHint) ||
     narrationMismatchesVisualProduct(t, visualHint, userKeywords)
 
-  if (sceneMeta?.isRepeat && sceneMeta.occurrence > 1 && priorInGroup?.trim()) {
-    for (let attempt = 0; attempt < 6; attempt++) {
-      const continued = narrationForRepeatedScene({
-        occurrence: sceneMeta.occurrence,
-        groupSize: sceneMeta.groupSize,
-        productBenefitHint: sceneMeta.productBenefitHint,
-        priorInGroup,
-        visualHint,
-        cutIndex: cutIndex + attempt,
-        productName,
-      })
-      const fitted = formatNarrationForSceneDuration(continued, duration)
-      if (
-        fitted &&
-        !isDup(fitted) &&
-        !isAbstractShoppingNarration(fitted) &&
-        !isRepeatMetaNarration(fitted)
-      ) {
-        return fitted
-      }
-    }
-  }
-
   const prefer = preferred?.trim()
-  if (prefer && !isDup(prefer) && !isAbstractShoppingNarration(prefer)) {
-    const fitted = formatNarrationForSceneDuration(prefer, duration)
-    if (fitted && !narrationLooksIncomplete(fitted.replace(/\n/g, " "))) {
-      return fitted
-    }
-  }
-
-  for (let attempt = 0; attempt < 48; attempt++) {
-    const candidate = rephraseSceneToShoppingNarrationVariant(
-      visualHint,
-      productName,
-      duration,
-      cutIndex * 13 + attempt * 9 + priorLines.length * 31 + 1,
-      userKeywords
-    )
-    if (!isDup(candidate) && !isAbstractShoppingNarration(candidate)) {
-      return candidate
-    }
-  }
-
-  for (let attempt = 0; attempt < 24; attempt++) {
-    const salt = cutIndex * 41 + priorLines.length * 11 + attempt * 17
-    const candidate = formatNarrationForSceneDuration(
-      rephraseSceneToShoppingNarrationVariant(visualHint, productName, duration, salt, userKeywords),
-      duration
-    )
-    if (!isDup(candidate) && !isAbstractShoppingNarration(candidate)) {
-      return candidate
-    }
-  }
-
-  return forceUniqueNarrationLine({
-    visualHint,
-    productName,
-    duration,
-    cutIndex,
-    priorLines,
-    userKeywords,
-  })
+  if (!prefer) return ""
+  if (isDup(prefer) || isAbstractShoppingNarration(prefer)) return ""
+  const fitted = formatNarrationForSceneDuration(wrapNarrationShortLines(prefer, duration), duration)
+  if (!fitted || narrationLooksIncomplete(fitted.replace(/\n/g, " "))) return ""
+  return fitted
 }
 
 function rephraseSceneCore(
-  description: string,
-  productName?: string,
-  ruleOffset = 0,
-  userKeywords?: readonly string[]
+  _description: string,
+  _productName?: string,
+  _ruleOffset = 0,
+  _userKeywords?: readonly string[]
 ): string {
-  let d = stripSceneMeta(extractVisualDescription(description))
-  const product = sanitizeProductNameForNarration(productName, { visualHint: d, userKeywords })
-  const productBlob = `${userKeywords?.join(" ") || ""} ${product || ""} ${d}`
-  const isMount = isCarMountOrHolderProduct(productBlob)
-  const isFurniture = isFurnitureSofaProduct(productBlob)
-  if (
-    descriptionSuggestsPresenterOrFace(description) ||
-    descriptionSuggestsPresenterOrFace(d)
-  ) {
-    return productNarrationFallback(product, ruleOffset)
-  }
-  if (!d || d === "장면" || d === "제품 장면") {
-    if (product && isToothbrushHolderProduct(product)) {
-      return combineVisualAndProductNarration({
-        visualDesc: d || "욕실 정리",
-        productName: product,
-        cutIndex: ruleOffset,
-        role: ruleOffset === 0 ? "hook" : "demo",
-      })
-    }
-    return productNarrationFallback(product, ruleOffset)
-  }
-
-  const rules: Array<{ re: RegExp; say: (m: RegExpMatchArray) => string }> = [
-    {
-      re: /소파|쇼파|쿠션|좌석|거실|패브릭|리클라|躺|沙发|sofa|couch|沙發|leather/i,
-      say: () => {
-        const p = product || "이 소파"
-        const opts = [
-          `${p}, 거실 분위기가 확 살아나요`,
-          "쿠션 감촉이 푹신해서 앉자마자 편해요",
-          "좌석이 넓어서 누워도 여유 있어요",
-          "패브릭 마감이 고급스럽게 보여요",
-          "색감이 인테리어에 잘 어울려요",
-          "팔걸이 높이가 편해서 오래 앉아도 좋아요",
-          "대형 좌석이라 가족이 같이 앉기 좋아요",
-          "원단 질감이 손에 닿는 느낌이 좋아요",
-          "거실이 넓어 보이는 비율이에요",
-          "마감 디테일이 깔끔해서 공간이 정돈돼 보여요",
-        ]
-        return opts[ruleOffset % opts.length]!
-      },
-    },
-    {
-      re: /벽에\s*걸|벽걸이|걸린|wall/i,
-      say: () => {
-        const p = product || "칫솔 거치대"
-        const opts = [
-          `바닥에 젖은 칫솔 두던 분? ${p} 벽에 걸면 깔끔해요`,
-          `${p} 벽걸이형이라 세면대 위가 한눈에 정리돼요`,
-          `벽 활용하니 욕실 공간도 넓어 보여요`,
-          `걸어두기만 해도 물기·칫솔 분리하기 좋아요`,
-        ]
-        return opts[ruleOffset % opts.length]!
-      },
-    },
-    {
-      re: /퍼즐|puzzle/i,
-      say: () => {
-        const p = product || "칫솔 거치대"
-        const opts = [
-          `퍼즐 모양 ${p}, 귀여운데 칫솔 꽂기도 딱이에요`,
-          `${p} 퍼즐 디자인이 욕실 인테리어 포인트돼요`,
-          `세면대 위에 두니 칫솔·치약이 한곳에 모여요`,
-          `이 각도에서 ${p} 수납 슬롯이 잘 보여요`,
-        ]
-        return opts[ruleOffset % opts.length]!
-      },
-    },
-    {
-      re: /거치대|꽂혀|꽂아|스탠드|holder/i,
-      say: () => {
-        if (!/칫솔|牙刷|욕실|세면대/i.test(d) && !isToothbrushHolderProduct(productBlob)) {
-          if (isMount) return carMountNarrationLine(product, ruleOffset, d)
-          return buildFallbackNarration(d, product, ruleOffset, userKeywords)
-        }
-        const p = product || "칫솔 거치대"
-        const opts = [
-          `${p}에 꽂아두니 세면대가 바로 정리돼요`,
-          `칫솔 두 개 꽂아도 흔들림 없이 안정적이에요`,
-          `${p} 덕분에 칫솔·치약 찾기가 쉬워져요`,
-          `꽂아두기만 해도 욕실이 정돈된 느낌이에요`,
-        ]
-        return opts[ruleOffset % opts.length]!
-      },
-    },
-    {
-      re: /컵|필기구|펜|연필|pen|pencil/i,
-      say: () => {
-        if (isToothbrushHolderProduct(productBlob)) {
-          const p = product || "칫솔 거치대"
-          const opts = [
-            `욕실 소품도 ${p}처럼 한곳에 모으면 찾기 쉬워요`,
-            `세면대 어지러우면 ${p}로 이렇게 정돈해보세요`,
-            `작은 소품까지 ${p}로 정리하면 끝이에요`,
-          ]
-          return opts[ruleOffset % opts.length]!
-        }
-        const opts = [
-          "컵 하나에 필기구 쏙 넣으니 책상이 바로 정리돼요",
-          "색감도 예쁘고 수납도 되는 구성이에요",
-          "책상 위 어지러운 펜·소품, 이렇게 모아두세요",
-        ]
-        return opts[ruleOffset % opts.length]!
-      },
-    },
-    {
-      re: /포장|포장지|비닐|싸인|언박싱|unboxing|开箱|包装|wrap/i,
-      say: () => {
-        const opts = [
-          "포장 뜯자마자 사이즈에 놀랐어요",
-          "개봉만 해도 휴대용 느낌이 확 와요",
-          "포장 상태 깔끔하고 바로 쓸 수 있어요",
-          "언박싱하니 손바닥만 한 사이즈예요",
-          "비닐 벗기자 색감이 꽤 예뻐요",
-          "박스 열자마자 들고 다니고 싶어져요",
-        ]
-        return opts[ruleOffset % opts.length]!
-      },
-    },
-    {
-      re: /선풍기|风扇|fan|휴대용\s*선풍|미니\s*선풍|쿨링|手持风扇/i,
-      say: () => {
-        const opts = [
-          product ? `${product}, 손바닥만 해서 가방에 쏙 들어가요` : "손바닥만 한 사이즈, 가방에 쏙 들어가요",
-          "이렇게 작은데 바람이 꽤 시원해요",
-          "바람 세기 조절해보니 실내용으로 딱이에요",
-          "들고 다니기 좋은 미니 선풍기예요",
-          "책상 위에 두니 소음도 생각보다 적어요",
-          "여름에 밖에 들고 나가기 좋은 사이즈예요",
-        ]
-        return opts[ruleOffset % opts.length]!
-      },
-    },
-    {
-      re: /손에\s*들|手持|held\s*in\s*hand/i,
-      say: () => {
-        const opts = [
-          "한 손에 쥐어도 가벼워서 들고 다니기 좋아요",
-          "그립감도 괜찮고 휴대하기 딱이에요",
-          "이렇게 들어보면 사이즈 감이 바로 와요",
-          "손에 들었을 때 무게가 생각보다 가벼워요",
-        ]
-        return opts[ruleOffset % opts.length]!
-      },
-    },
-    {
-      re: /블루|연보라|보라|색상|컬러|purple|blue|다채로운\s*색상/i,
-      say: () => {
-        if (isToothbrushHolderProduct(productBlob) || isOrganizerOrStorageProduct(productBlob)) {
-          const opts = [
-            "파스텔 컬러라 욕실 인테리어에도 잘 어울려요",
-            "색 조합이 깔끔해서 정리템으로 보기 좋아요",
-            "은은한 색감이라 세면대 위에 두기 좋아요",
-            "컬러가 예뻐서 욕실 분위기까지 살려줘요",
-          ]
-          return opts[ruleOffset % opts.length]!
-        }
-        const opts = [
-          "색감이 깔끔해서 선물용으로도 괜찮아요",
-          "연보라 톤이 은은해서 예뻐요",
-          "블루 컬러, 사진으로 봐도 색이 살아요",
-          "색 선택이 다양해서 취향대로 고르기 좋아요",
-        ]
-        return opts[ruleOffset % opts.length]!
-      },
-    },
-    {
-      re: /(.+?)로\s*(.+?)의?\s*먼지를?\s*흡입/,
-      say: (m) => `${m[2]!.trim()} 먼지도 이렇게 싹 빨아들여요`,
-    },
-    {
-      re: /(.+?)로\s*(.+?)을?\s*흡입/,
-      say: (m) => `${m[2]!.trim()}도 이렇게 싹 빨아들이는데요`,
-    },
-    {
-      re: /필터|세척|수도꼭지/,
-      say: () => "필터 세척도 간편하게 쓱",
-    },
-    {
-      re: /운전석|차\s*안|자동차.*앉/,
-      say: () => "차 안 필수템 깔끔하게 관리하세요",
-    },
-    {
-      re: /휴대|가방|보관/,
-      say: () => "휴대도 보관도 너무 편리하죠",
-    },
-    {
-      re: /시트\s*아래/,
-      say: () => "시트 아래까지 손이 잘 닿아요",
-    },
-    {
-      re: /挡风|windshield|유리|낙叶|落叶|티새|틈새|缝隙/,
-      say: () => "유리 틈새까지 이렇게 깔끔하게",
-    },
-    {
-      re: /구석구석/,
-      say: () => "구석구석까지 이렇게 깔끔하게 닦여요",
-    },
-    {
-      re: /투사|스크린|프로젝터|projector|숨겨진|전동.*올라|screen/i,
-      say: () => {
-        const opts = [
-          "버튼만 누르면 스크린이 쑥 올라와요",
-          "설치도 간단하고 공간도 깔끔해요",
-          "집에서도 영화관 같은 몰입감이에요",
-        ]
-        return opts[ruleOffset % opts.length]!
-      },
-    },
-    {
-      re: /TV|티비|설치/,
-      say: () => {
-        const opts = [
-          "설치 번거로우셨죠? 이건 훨씬 간편해요",
-          "이렇게 설치하면 바로 쓸 수 있어요",
-          "두 사람이어도 금방 끝나요",
-        ]
-        return opts[ruleOffset % opts.length]!
-      },
-    },
-    {
-      re: /전동\s*칫솔|电动牙刷|칫솔질|플라크/,
-      say: () => {
-        const opts = [
-          productName ? `${productName}로 치아 사이까지 깔끔해요` : "전동칫솔로 구석구석 닦아요",
-          "이렇게 닦으면 입안이 개운해요",
-          "매일 쓰기 좋은 전동칫솔이에요",
-          "플라크 걱정, 이렇게 줄여보세요",
-        ]
-        return opts[ruleOffset % opts.length]!
-      },
-    },
-    {
-      re: /칫솔|치아|牙刷/,
-      say: () => {
-        if (isToothbrushHolderProduct(productBlob)) {
-          const p = product || "칫솔 거치대"
-          return combineVisualAndProductNarration({
-            visualDesc: d,
-            productName: p,
-            cutIndex: ruleOffset,
-            role: ruleOffset % 5 === 0 ? "hook" : "demo",
-          })
-        }
-        const opts = [
-          productName ? `${productName}로 치아 사이까지 깔끔해요` : "전동칫솔로 구석구석 닦아요",
-          "이렇게 닦으면 입안이 개운해요",
-          "매일 쓰기 좋은 전동칫솔이에요",
-          "플라크 걱정, 이렇게 줄여보세요",
-        ]
-        return opts[ruleOffset % opts.length]!
-      },
-    },
-    {
-      re: /마우스\s*패드|mouse\s*pad|게이밍\s*패드|데스크\s*매트|키보드|keyboard|gaming|RGB|LED|책상\s*위/i,
-      say: () => {
-        const opts = [
-          "손목 각도가 편해서 장시간 게임해도 괜찮아요",
-          "미끄럼 방지라 마우스 움직임이 훨씬 안정적이에요",
-          "패드 사이즈가 커서 키보드랑 같이 쓰기 좋아요",
-          "게이밍할 때 이 정도 면적이면 충분해요",
-          "큰 사이즈라 팔 움직임이 훨씬 자유로워요",
-          "마감이 깔끔해서 고급스럽게 보여요",
-        ]
-        return opts[ruleOffset % opts.length]!
-      },
-    },
-    {
-      re: /차량의?\s*바닥|차량\s*바닥|바닥.*먼지|바닥.*청소|차량.*매트|발밑.*매트|운전석.*매트/,
-      say: () => {
-        const opts = [
-          "발밑 매트 먼지, 한 번에 흡입돼요",
-          "바닥 틈새까지 빨아들이는 속도가 빨라요",
-          "차 바닥에 남은 먼지, 손 안 대고 정리돼요",
-          "운전석 발밑도 노즐 한 번이면 끝이에요",
-          "바닥 구석 먼지가 흡입구로 쏙 들어가요",
-          "매트 위 잔먼지, 흡입 한 번에 싹 빠져요",
-        ]
-        return opts[ruleOffset % opts.length]!
-      },
-    },
-    {
-      re: /차량\s*시트|시트\s*위|시트.*먼지|등받이|쿠션/,
-      say: () => {
-        const opts = [
-          "시트 쿠션 사이 먼지가 쏙 빠져요",
-          "등받이 틈새 먼지도 노즐로 닦아내요",
-          "시트에 붙은 먼지, 흡입 한 번이면 끝이에요",
-          "시트 표면 먼지가 바로 빨려 들어가요",
-          "쿠션 틈새까지 손끝 안 대고 정리돼요",
-          "시트 구석 먼지, 흡입력이 확실해요",
-        ]
-        return opts[ruleOffset % opts.length]!
-      },
-    },
-    {
-      re: /부속품|액세서리|노즐.*모음|브러시|툴킷|툴\s*세트|여러\s*개의?\s*부속/i,
-      say: () => {
-        const opts = [
-          "노즐·브러시까지 이렇게 풀세트예요",
-          "틈새용 노즐이 여러 개라 활용도가 높아요",
-          "부속품만 봐도 차량 청소 커버가 넓어요",
-          "좁은 노즐부터 브러시까지 다 들어있어요",
-          "케이스에 부속 정리돼 있어서 바로 쓰기 좋아요",
-          "노즐 바꿔 끼우면 구석·평면 다 닦여요",
-          "부속품 구성이 알차서 차량 안팎 다 커버돼요",
-          "여러 노즐 덕분에 시트·바닥·틈새 한 번에 돼요",
-          "브러시 노즐로 시트 표면 먼지도 싹 빼내요",
-          "부속 구성만 봐도 가성비가 괜찮아 보여요",
-        ]
-        return opts[ruleOffset % opts.length]!
-      },
-    },
-    {
-      re: /손잡이|핸들|그립|握把|handle/i,
-      say: () => {
-        const opts = [
-          "손잡이 그립감이 좋아서 오래 써도 편해요",
-          "핸들 잡고 들면 가볍게 움직이기 좋아요",
-          "손잡이 각도가 딱 맞아서 구석 청소가 수월해요",
-          "한 손으로 핸들 잡고 틈새까지 쏙 들어가요",
-          "손잡이 마감이 단단해서 쓸 때 안 흔들려요",
-          "핸들 길이 덕분에 시트 아래까지 닿기 좋아요",
-          "그립이 편해서 차 안 오래 돌려도 손이 안 아파요",
-          "손잡이로 들어 올려보니 사이즈가 딱 차량용이에요",
-          "핸들 주변까지 노즐이 잘 들어가요",
-          "손잡이 잡는 각도가 청소하기 편하게 설계됐어요",
-        ]
-        return opts[ruleOffset % opts.length]!
-      },
-    },
-    {
-      re: /박스|케이스|보관함|수납|담긴\s*박스|담긴\s*케이스/i,
-      say: () => {
-        const opts = [
-          "케이스에 담아 보관하니 차 트렁크에도 쏙 들어가요",
-          "부속품 박스 정리가 깔끔해서 꺼내 쓰기 편해요",
-          "휴대 케이스에 들어 있어서 들고 다니기 좋아요",
-          "박스만 봐도 구성이 알차다는 게 느껴져요",
-          "케이스에 쏙 넣어두면 차 안에서도 안 흩어져요",
-          "보관함에 정리돼 있어서 쓰고 바로 넣기 좋아요",
-          "부속품이 케이스에 담겨 있어 분실 걱정이 없어요",
-          "작은 케이스에 다 들어가서 공간 차지도 적어요",
-          "박스 구성 보면 바로 쓸 부속이 다 있어요",
-          "케이스 덮으면 차량용 청소 준비 끝이에요",
-        ]
-        return opts[ruleOffset % opts.length]!
-      },
-    },
-    {
-      re: /사용\s*중|쓰는\s*모습|작동\s*하는|청소하는|흡입하는/i,
-      say: () => {
-        const opts = [
-          "실제로 써보니 흡입 소리부터 힘이 느껴져요",
-          "사용할 때 먼지가 눈앞에서 바로 빨려 들어가요",
-          "돌려보니 좁은 구석도 한 번에 정리돼요",
-          "직접 돌려보니 생각보다 흡입력이 확실해요",
-          "차 안에서 쓰니 손이 덜 가고 깔끔해져요",
-          "쓰는 순간 먼지가 흡입구로 쏙 들어가는 게 보여요",
-          "실사용해보니 바닥 매트 먼지가 한 번에 빠져요",
-          "이렇게 쓰면 시트 틈새까지 손 안 대고 정리돼요",
-          "돌려보니 문틈 먼지도 금방 빠져요",
-          "사용 장면 보니까 흡입 속도가 꽤 빨라요",
-        ]
-        return opts[ruleOffset % opts.length]!
-      },
-    },
-    {
-      re: /차량\s*내부|차\s*안|운전석|틈새|구석|콘솔|대시보드|車内/,
-      say: () => {
-        const opts = [
-          "문틈·콘솔 주변 먼지까지 싹 잡혀요",
-          "좁은 노즐로 구석 먼지가 바로 빨려요",
-          "손 닿기 힘든 틈새도 이렇게 정리돼요",
-          "대시보드 틈새 먼지도 한 번에 빼내요",
-          "차 안 구석까지 노즐이 쏙 들어가요",
-          "운전석 주변 먼지 관리가 이렇게 간단해요",
-        ]
-        return opts[ruleOffset % opts.length]!
-      },
-    },
-    {
-      re: /진공\s*청소|핸디\s*청소|吸尘|vacuum/i,
-      say: () => {
-        const opts = [
-          productName ? `${productName} 흡입력, 먼지가 바로 빨려 들어가요` : "흡입력이 생각보다 확실해요",
-          "좁은 노즐로 구석 먼지까지 싹",
-          "핸디 사이즈인데 흡입은 꽤 세요",
-          "차량용이라 틈새까지 노즐이 잘 들어가요",
-          "작은데 흡입 소리만 들어도 힘이 느껴져요",
-          "먼지통 열어보니 쌓인 양이 꽤 나와요",
-          "핸디형이라 한 손으로 들고 돌리기 편해요",
-          "진공 청소 한 번이면 바닥이 훨씬 깔끔해요",
-          "흡입구로 먼지가 쏙 빨려 들어가는 속도가 빨라요",
-          "차 안 먼지 관리용으로 사이즈 딱이에요",
-          "노즐만 바꿔도 평면·구석 다 닦여요",
-          "흡입력 테스트해보니 생각보다 알차요",
-        ]
-        return opts[ruleOffset % opts.length]!
-      },
-    },
-    {
-      re: /청소하는|청소\s*하는|清洁/,
-      say: () => {
-        const opts = [
-          productName ? `${productName}로 구석 먼지가 싹 정리돼요` : "구석 먼지가 한 번에 정리돼요",
-          "이렇게 닦으면 손이 덜 가요",
-          "좁은 곳까지 청소가 빨라져요",
-          "흡입 한 번이면 바닥이 훨씬 깔끔해요",
-          "먼지가 쌓이기 전에 이렇게 관리해요",
-        ]
-        return opts[ruleOffset % opts.length]!
-      },
-    },
-    {
-      re: /펼치|전개/,
-      say: () => "이렇게 펼치면 바로 쓸 수 있어요",
-    },
-    {
-      re: /누르|버튼|작동/,
-      say: () => "버튼 한 번이면 바로 작동해요",
-    },
-    {
-      re: /클로즈업|특写|제품/,
-      say: () => {
-        const opts = productName
-          ? [
-              `${productName}, 이 부분이 핵심이에요`,
-              `${productName} 마감이 꽤 깔끔해요`,
-              `${productName} 포인트가 딱 보여요`,
-              `${productName}, 이 디테일이 좋아요`,
-            ]
-          : [
-              "이 부분이 핵심 포인트예요",
-              "마감이 생각보다 깔끔해요",
-              "여기 디테일이 꽤 살아 있어요",
-              "이 포인트, 직접 보면 와닿아요",
-            ]
-        return opts[ruleOffset % opts.length]!
-      },
-    },
-    {
-      re: /LED|디스플레이|화면|스크린|彩屏|显示屏|screen/i,
-      say: () => {
-        const opts = [
-          productName ? `${productName}, 화면이 이렇게 선명해요` : "화면이 이렇게 선명해요",
-          "곡면이라 시야가 훨씬 넓어 보여요",
-          "야외에서도 밝기가 확실히 살아요",
-          "경기 볼 때 이게 진짜 포인트예요",
-        ]
-        return opts[ruleOffset % opts.length]!
-      },
-    },
-    {
-      re: /월드컵|경기|중계|스포츠/,
-      say: () => "경기장 분위기 그대로 집에서 즐겨요",
-    },
-    {
-      re: /배드민턴|셔틀콕|라켓|훈련기|badminton|shuttle/i,
-      say: () => {
-        const opts = [
-          productName ? `${productName}로 혼자서도 리턴 연습돼요` : "혼자서도 리턴 연습이 돼요",
-          "파트너 없어도 스윙 감각 유지하기 좋아요",
-          "거실에서 이렇게 치니까 연습 시간이 늘어요",
-          "공이 떨어지니까 집중해서 연습할 수 있어요",
-          "실내에서도 이렇게 훈련 루틴 채우기 좋아요",
-        ]
-        return opts[ruleOffset % opts.length]!
-      },
-    },
-    {
-      re: /제품 사용 장면|사용 장면|제품 장면/,
-      say: () =>
-        buildFallbackNarration(
-          `${productName || ""} ${d}`.trim(),
-          product,
-          ruleOffset,
-          userKeywords
-        ),
-    },
-    {
-      re: /보여|확인/,
-      say: () => "직접 보면 차이가 느껴져요",
-    },
-  ]
-
-  for (const { re, say } of rules) {
-    const m = d.match(re)
-    if (!m) continue
-    if (isWrongCategoryNarrationRule(re, d, productBlob)) {
-      if (isFurniture) {
-        return buildFallbackNarration(d, product, ruleOffset, userKeywords)
-      }
-      return carMountNarrationLine(product, ruleOffset, d)
-    }
-    return say(m)
-  }
-
-  return buildFallbackNarration(d, product, ruleOffset, userKeywords)
+  return ""
 }
-
 /** @deprecated rephraseSceneToShoppingNarration 사용 */
 export function visualDescriptionToNarrationLine(description: string, productName?: string): string {
   return rephraseSceneToShoppingNarration(description, productName)
@@ -1368,18 +455,7 @@ export function narrationTextForEditSegment(
       return formatNarrationForSceneDuration(fromAction, dur)
     }
   }
-  const direct = seg.visual_caption || seg.reason
-  if (!analysis) {
-    return rephraseSceneToShoppingNarration(direct, productName, dur)
-  }
-  const card = formatCutVisualCard(
-    analysis,
-    seg.source_start,
-    seg.source_end,
-    seg.reason,
-    seg.visual_caption
-  )
-  return rephraseSceneToShoppingNarration(card, productName, dur)
+  return ""
 }
 
 const GENERIC_NARRATION =
@@ -1607,24 +683,12 @@ export function looksLikeRawSceneCopy(scriptText: string, visualHint: string): b
 
 function applyCutFlowHint(
   text: string,
-  cutIndex: number,
+  _cutIndex: number,
   _totalCuts: number,
-  sceneMeta?: CutNarrationSceneMeta,
-  priorInGroup?: string
+  _sceneMeta?: CutNarrationSceneMeta,
+  _priorInGroup?: string
 ): string {
-  const t = text.trim()
-  if (!sceneMeta?.isRepeat || sceneMeta.occurrence <= 1 || !priorInGroup?.trim()) return t
-  if (!narrationLineIsDuplicateOfPrior(t, [priorInGroup]) && narrationBlockSimilarity(t, priorInGroup) < 0.5) {
-    return t
-  }
-  return narrationForRepeatedScene({
-    occurrence: sceneMeta.occurrence,
-    groupSize: sceneMeta.groupSize,
-    productBenefitHint: sceneMeta.productBenefitHint,
-    priorInGroup,
-    visualHint: sceneMeta.enrichedVisual,
-    cutIndex,
-  })
+  return text.trim()
 }
 
 export { buildCutNarrationSceneMetas }
@@ -1807,6 +871,7 @@ export function needsAiNarrationFromScenes(
 
   return segments.some((seg, i) => {
     const hint = cutVisualHintForSegment(plan[i]!, byId.get(plan[i]!.video_id))
+    if (!seg.text.trim()) return true
     if (isGenericTemplateNarration(seg.text)) return true
     if (narrationTextLooksWeak(seg.text, hint)) return true
     const dur = Math.max(0.5, seg.end - seg.start)

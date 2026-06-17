@@ -85,6 +85,7 @@ export function buildNarrationProductContext(args: {
           `- 영상 분석 제품명·다른 물건이 보여도 나레이션은 키워드 제품 기준으로만 작성.`,
           `- **키워드 전체 명칭(예: 무선 마우스)은 후킹 1회·마지막 CTA 1회만**. 중간 컷은 이거/마우스/손에 쥔 이 친구 등으로 지칭. 매 컷 제품명 반복 금지.`,
           `- **소파·가구 키워드면** 핸들·그립·손잡이·청소·흡입·차량 표현 **절대 금지**. 좌석·쿠션·거실·패브릭·인테리어만.`,
+          `- **어항·수조 키워드면** 차량·트렁크·청소기·노즐·흡입·부속품·케이스 표현 **절대 금지**. 미니 어항·수조·물고기·책상 인테리어·LED 조명·힐링만.`,
         ].join("\n")
       : "",
     `제품명: ${args.productName}`,
@@ -113,6 +114,16 @@ export function isCarMountOrHolderProduct(blob: string): boolean {
   )
 }
 
+/** 미니 어항·수조·아쿠아리움 등 — 청소기·차량·케이스 템플릿과 분리 */
+export function isAquariumFishTankProduct(blob: string): boolean {
+  const b = blob.trim()
+  if (!b) return false
+  if (/청소기|吸尘|vacuum|진공\s*청소|핸디\s*청소|차량용\s*거치/i.test(b) && !/어항|수조|鱼缸|aquarium|fish\s*tank/i.test(b)) {
+    return false
+  }
+  return /어항|수조|鱼缸|aquarium|fish\s*tank|금어|열대어|미니\s*어항|桌面鱼缸|桌面水族/i.test(b)
+}
+
 /** 소파·거실 가구 등 — 핸들·청소기 템플릿과 분리 */
 export function isFurnitureSofaProduct(blob: string): boolean {
   const b = blob.trim()
@@ -136,6 +147,16 @@ export function detectObviousProductCategoryLeak(
   if (isFurnitureSofaProduct(kw)) {
     const forbidden =
       /핸들|그립|손잡|손에\s*쥐|한\s*손에\s*쥐|노즐|흡입|먼지|청소기|진공|차량|운전|트렁크|시트\s*먼지|구석\s*청소|핸디|휴대용\s*청소|바닥\s*매트\s*먼지|영화관|프로젝터|몰입감|클릭만\s*하면|USB/i
+    for (const line of lines) {
+      const t = line.replace(/\n/g, " ").trim()
+      if (t && forbidden.test(t)) leaks.push(t.slice(0, 48))
+    }
+    return [...new Set(leaks)]
+  }
+
+  if (isAquariumFishTankProduct(kw)) {
+    const forbidden =
+      /차량|차\s*안|트렁크|운전|시트|노즐|흡입|먼지|청소기|진공|핸디\s*청소|부속품|브러시|케이스에\s*쏙|휴대\s*케이스|바닥\s*매트|대시보드|핸들|그립|손잡이|필터\s*세척|흡입구|먼지통/i
     for (const line of lines) {
       const t = line.replace(/\n/g, " ").trim()
       if (t && forbidden.test(t)) leaks.push(t.slice(0, 48))

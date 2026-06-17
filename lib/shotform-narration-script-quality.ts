@@ -7,9 +7,6 @@ import {
   looksLikeRawSceneCopy,
   narrationMismatchesVisualProduct,
   narrationTextLooksWeak,
-  pickUniqueNarrationLine,
-  rephraseSceneToShoppingNarration,
-  rephraseSceneToShoppingNarrationVariant,
   sanitizeProductNameForNarration,
 } from "@/lib/shotform-cut-narration"
 import {
@@ -23,6 +20,7 @@ import {
   NARRATION_PRODUCT_NAME_USAGE_RULE,
 } from "@/lib/shotform-narration-script-audit"
 import type { CutScriptContext } from "@/lib/shotform-visual-scene-match"
+import { isAquariumFishTankProduct } from "@/lib/shotform-user-keyword-product"
 import { sanitizeNarrationForOutput } from "@/lib/shotform-natural-shorts-script"
 import type { CutNarrationSceneMeta } from "@/lib/shotform-narration-scene-groups"
 import { narrationForRepeatedScene } from "@/lib/shotform-narration-scene-groups"
@@ -208,41 +206,25 @@ function openingHookForVisual(visualCard: string, productName: string, cutIndex:
 function enrichedContextsForNarration(
   contexts: ReadonlyArray<{ visual_card: string; duration: number }>,
   productName: string,
-  productContext?: string
+  productContext?: string,
+  userKeywords?: readonly string[]
 ): Array<{ visual_card: string; duration: number }> {
   return contexts.map((c, i) => ({
     ...c,
-    visual_card: enrichVisualCardForNarration(c.visual_card, productName, i, productContext),
+    visual_card: enrichVisualCardForNarration(c.visual_card, productName, i, productContext, userKeywords),
   }))
 }
 
-/** 컷별 대본 — 동일·유사 문장·꼬리문구 반복 절대 금지 */
+/** @deprecated AI 전용 — 입력 줄 그대로 반환 */
 export function enforceUniqueNarrationLines(
   lines: readonly string[],
-  contexts: ReadonlyArray<{ visual_card: string; duration: number }>,
-  productName: string,
-  rewriteSalt = 0,
-  productContext?: string
+  _contexts: ReadonlyArray<{ visual_card: string; duration: number }>,
+  _productName: string,
+  _rewriteSalt = 0,
+  _productContext?: string,
+  _userKeywords?: readonly string[]
 ): string[] {
-  const enriched = enrichedContextsForNarration(contexts, productName, productContext)
-  const prior: string[] = []
-  return lines.map((line, i) => {
-    const visualCard = enriched[i]!.visual_card
-    const duplicate =
-      narrationLineIsDuplicateOfPrior(line, prior) ||
-      prior.some((p) => narrationSharesRepeatedPhrase(p, line)) ||
-      looksLikeRawSceneCopy(line, visualCard)
-    const text = pickUniqueNarrationLine({
-      visualHint: visualCard,
-      productName,
-      duration: enriched[i]!.duration,
-      cutIndex: i + rewriteSalt * 13 + (duplicate ? prior.length * 5 : 0),
-      priorLines: prior,
-      preferred: duplicate ? undefined : line,
-    })
-    prior.push(text)
-    return text
-  })
+  return lines.map((line) => sanitizeNarrationForOutput(line.trim()))
 }
 
 function enforceUniqueCutLines(
@@ -250,16 +232,18 @@ function enforceUniqueCutLines(
   contexts: ReadonlyArray<{ visual_card: string; duration: number }>,
   productName: string,
   rewriteSalt = 0,
-  productContext?: string
+  productContext?: string,
+  userKeywords?: readonly string[]
 ): string[] {
-  let out = enforceUniqueNarrationLines(lines, contexts, productName, rewriteSalt, productContext)
+  let out = enforceUniqueNarrationLines(lines, contexts, productName, rewriteSalt, productContext, userKeywords)
   if (hasExcessiveScriptRepetition(out)) {
     out = enforceUniqueNarrationLines(
       out.map(() => ""),
       contexts,
       productName,
       rewriteSalt + 7,
-      productContext
+      productContext,
+      userKeywords
     )
   }
   return out
@@ -331,8 +315,9 @@ function productSuggestsGamingMousePad(productName: string, productContext?: str
   return /마우스\s*패드|mouse\s*pad|게이밍\s*패드|데스크\s*매트|keyboard|키보드|gaming|RGB|LED/i.test(blob)
 }
 
-function productSuggestsCarVacuum(productName: string, productContext?: string): boolean {
-  const blob = `${productName} ${productContext || ""}`
+function productSuggestsCarVacuum(productName: string, productContext?: string, userKeywords?: readonly string[]): boolean {
+  const blob = `${userKeywords?.join(" ") || ""} ${productName} ${productContext || ""}`
+  if (isAquariumFishTankProduct(blob)) return false
   if (productSuggestsGamingMousePad(productName, productContext)) return false
   return /차량|차\s*안|자동차|진공\s*청소|핸디\s*청소|车载|吸尘|vacuum|車|차량용|운전석|시트.*청소|바닥.*청소/i.test(blob)
 }
@@ -356,21 +341,9 @@ export function enrichVisualCardForNarration(
       userKeywords,
     }) || productName || "제품"
 
-  if (productSuggestsCarVacuum(safeProductName, productContext)) {
-    return CAR_VACUUM_SCENE_HINTS[cutIndex % CAR_VACUUM_SCENE_HINTS.length]!
-  }
-
-  if (productSuggestsGamingMousePad(safeProductName, productContext)) {
-    return GAMING_MOUSE_PAD_SCENE_HINTS[cutIndex % GAMING_MOUSE_PAD_SCENE_HINTS.length]!
-  }
-
-  if (productSuggestsMiniFan(safeProductName, productContext)) {
-    return MINI_FAN_SCENE_HINTS[cutIndex % MINI_FAN_SCENE_HINTS.length]!
-  }
-
   const genericHints = [
     `${safeProductName} 실사용으로 체감되는 장면`,
-    `${safeProductName} 핵심 기능이 보이는 장면`,
+    `${safeProductName} 핵심이 보이는 장면`,
     `${safeProductName} 디테일이 보이는 장면`,
   ]
   return genericHints[cutIndex % genericHints.length]!
@@ -609,7 +582,7 @@ ${NARRATION_PRODUCT_NAME_USAGE_RULE}
             : ""
       const mustMention =
         vk.length > 0
-          ? ` · 이 컷 대본에 위 키워드 중 1개 이상·구체 행동(빨아들이다/흡입/닦다 등) 필수`
+          ? ` · 이 컷 대본에 키워드 제품 + 화면에 보이는 사물·행동을 구체적으로 반영`
           : " · 화면에 보이는 사물·행동을 구체적으로 말할 것"
       return `${c.index}. 출력 ${c.output_start}-${c.output_end}s (${c.duration}초, ${lineHint}줄 권장, 최대 ${maxChars}자) · ${role}${shortCut}${rhythmHint}
    소스 ${c.source_start.toFixed(1)}-${c.source_end.toFixed(1)}s · video ${c.video_id}
@@ -619,7 +592,7 @@ ${NARRATION_PRODUCT_NAME_USAGE_RULE}
   )
 }
 
-/** AI·폴백 대본 후처리 — 반복 완화·화면 정합성·컷 간 흐름 보정 */
+/** AI 대본 후처리 — 정규화·길이 맞춤만 (규칙 기반 대본 생성 없음) */
 export function polishCutNarrationLines(
   lines: readonly string[],
   contexts: ReadonlyArray<{ visual_card: string; duration: number }>,
@@ -627,231 +600,53 @@ export function polishCutNarrationLines(
   opts?: {
     allowTemplateFallback?: boolean
     fitToDuration?: boolean
-    /** 대본 다시쓰기 — AI 문장 유지·결정론적 폴백 회피 */
     rewriteMode?: boolean
     rewriteSalt?: number
     productContext?: string
-    /** 다시쓰기 시 이전 컷별 대본 — 동일 문장이면 강제 교체 */
     previousScripts?: Record<string, string>
-    /** 반복 장면 그룹·제품 장점 힌트 */
     sceneMetas?: readonly CutNarrationSceneMeta[]
-    /** 1단계 사용자 키워드 */
     userKeywords?: readonly string[]
   }
 ): string[] {
-  const allowTemplate = opts?.allowTemplateFallback !== false
   const fitToDuration = opts?.fitToDuration === true
-  const rewriteMode = Boolean(opts?.rewriteMode)
-  const rewriteSalt = opts?.rewriteSalt ?? 0
-  const productContext = opts?.productContext
-  const previousScripts = opts?.previousScripts ?? {}
-  const sceneMetas = opts?.sceneMetas
   const userKeywords = opts?.userKeywords
   const safeProductName =
     sanitizeProductNameForNarration(productName, {
-      category: productContext,
+      category: opts?.productContext,
       userKeywords,
-      visualHint: productContext,
+      visualHint: opts?.productContext,
     }) || productName || "제품"
-  const prior: string[] = []
-  const groupLastNarration = new Map<number, string>()
 
   const polished = lines.map((raw, i) => {
-    const ctx = contexts[i]!
-    const sceneMeta = sceneMetas?.[i]
-    const priorInGroup = sceneMeta ? groupLastNarration.get(sceneMeta.groupId) : undefined
-    const visualCard = enrichVisualCardForNarration(
-      sceneMeta?.enrichedVisual ?? ctx.visual_card,
-      safeProductName,
-      i,
-      productContext,
-      userKeywords
-    )
     let text = sanitizeNarrationForOutput(raw.trim())
-
-    if (sceneMeta?.isRepeat && sceneMeta.occurrence > 1 && priorInGroup) {
-      const dupWithGroup =
-        narrationLineIsDuplicateOfPrior(text, prior) ||
-        text.trim() === priorInGroup.trim() ||
-        narrationBlockSimilarity(text, priorInGroup) >= 0.55
-      const weakRepeat = isRepeatMetaNarration(text) || narrationNeedsPolish(text, visualCard, prior, rewriteMode)
-      if (dupWithGroup || weakRepeat) {
-        const variant = rephraseSceneToShoppingNarrationVariant(
-          visualCard,
-          safeProductName,
-          ctx.duration,
-          i * 11 + sceneMeta.occurrence * 7 + rewriteSalt
-        )
-        if (
-          variant &&
-          !narrationLineIsDuplicateOfPrior(variant, prior) &&
-          !isAbstractShoppingNarration(variant) &&
-          !isRepeatMetaNarration(variant)
-        ) {
-          text = variant
-        } else {
-          const continued = narrationForRepeatedScene({
-            occurrence: sceneMeta.occurrence,
-            groupSize: sceneMeta.groupSize,
-            productBenefitHint: sceneMeta.productBenefitHint,
-            priorInGroup,
-            visualHint: ctx.visual_card,
-            cutIndex: i,
-            productName: safeProductName,
-          })
-          if (continued && !narrationLineIsDuplicateOfPrior(continued, prior) && !isRepeatMetaNarration(continued)) {
-            text = continued
-          }
-        }
-      }
+    if (
+      isAbstractShoppingNarration(text) ||
+      isGenericTemplateNarration(text) ||
+      looksLikeRawSceneCopy(text, contexts[i]!.visual_card)
+    ) {
+      text = ""
     }
-
-    const duplicatePrior = narrationLineIsDuplicateOfPrior(text, prior)
-    const variantBase = (duplicatePrior ? i * 7 + 3 : i * 5 + 1) + rewriteSalt
-    const weakOpening =
-      i === 0 &&
-      (narrationNeedsPolish(text, visualCard, prior, rewriteMode) ||
-        /화면\s*보니까|장면\s*보면|바로\s*이해됐/.test(text) ||
-        isRepeatMetaNarration(text))
-    const needsPolish = narrationNeedsPolish(text, visualCard, prior, rewriteMode) || weakOpening
-
-    if (i === 0 && weakOpening) {
-      const hook = openingHookForVisual(visualCard, safeProductName, 0)
-      if (hook && !isAbstractShoppingNarration(hook)) text = hook
+    if (fitToDuration && text) {
+      text = formatNarrationForSceneDuration(text, contexts[i]!.duration)
     }
-
-    if (needsPolish) {
-      const candidates = [
-        rephraseSceneToShoppingNarration(visualCard, safeProductName, ctx.duration),
-        rephraseSceneToShoppingNarrationVariant(visualCard, safeProductName, ctx.duration, variantBase),
-        rephraseSceneToShoppingNarrationVariant(visualCard, safeProductName, ctx.duration, variantBase + 4),
-        rephraseSceneToShoppingNarrationVariant(visualCard, safeProductName, ctx.duration, variantBase + 9),
-        rephraseSceneToShoppingNarrationVariant(visualCard, safeProductName, ctx.duration, variantBase + 13),
-      ]
-      for (const cand of candidates) {
-        if (!allowTemplate && isAbstractShoppingNarration(cand)) continue
-        text = pickBetterLine(text, cand, visualCard, prior)
-      }
-      if (narrationLineIsDuplicateOfPrior(text, prior) || isAbstractShoppingNarration(text)) {
-        text = rephraseSceneToShoppingNarrationVariant(
-          visualCard,
-          safeProductName,
-          ctx.duration,
-          variantBase + 19
-        )
-      }
-    }
-
-    if (fitToDuration) {
-      text = formatNarrationForSceneDuration(text, ctx.duration)
-    } else {
-      text = sanitizeNarrationForOutput(text)
-    }
-    if (fitToDuration && narrationLooksIncomplete(text)) {
-      const fallback = formatNarrationForSceneDuration(
-        rephraseSceneToShoppingNarrationVariant(visualCard, safeProductName, ctx.duration, i + 17),
-        ctx.duration
-      )
-      if (fallback && !narrationLooksIncomplete(fallback.replace(/\n/g, " "))) {
-        text = fallback
-      } else {
-        text = rephraseSceneToShoppingNarrationVariant(visualCard, safeProductName, ctx.duration, i + 31)
-      }
-    }
-    if (rewriteMode) {
-      const prevLine = previousScripts[String(i + 1)]?.trim().replace(/\r/g, "")
-      const tooSimilar =
-        Boolean(prevLine) &&
-        (text.trim() === prevLine || narrationBlockSimilarity(text, prevLine) >= 0.48)
-      const mustReplace =
-        narrationMismatchesVisualProduct(text, visualCard) || tooSimilar
-      if (mustReplace) {
-        for (let attempt = 0; attempt < 16; attempt++) {
-          const forced = rephraseSceneToShoppingNarrationVariant(
-            visualCard,
-            safeProductName,
-            ctx.duration,
-            variantBase + rewriteSalt * 3 + attempt * 11 + i * 7
-          )
-          if (
-            forced.trim() &&
-            forced.trim() !== prevLine &&
-            !narrationMismatchesVisualProduct(forced, visualCard) &&
-            !narrationLineIsDuplicateOfPrior(forced, prior) &&
-            !isAbstractShoppingNarration(forced)
-          ) {
-            text = forced
-            break
-          }
-        }
-      }
-    }
-
-    text = pickUniqueNarrationLine({
-      visualHint: visualCard,
-      productName: safeProductName,
-      duration: ctx.duration,
-      cutIndex: i + rewriteSalt * 13,
-      priorLines: prior,
-      preferred:
-        isAbstractShoppingNarration(text) || narrationMismatchesVisualProduct(text, visualCard)
-          ? undefined
-          : text,
-      sceneMeta,
-      priorInGroup,
-    })
-    prior.push(text)
-    if (sceneMeta) groupLastNarration.set(sceneMeta.groupId, text)
     return sanitizeNarrationForOutput(text)
   })
 
-  const woven = weaveNarrationContinuity(polished, safeProductName).map(sanitizeNarrationForOutput)
-  const unique = enforceUniqueCutLines(woven, contexts, safeProductName, rewriteSalt, productContext).map(
+  const primaryLabel = userKeywords?.[0]?.trim() || safeProductName
+  return mitigateProductNameSpam(limitConnectorsAcrossScript(polished), primaryLabel).map(
     sanitizeNarrationForOutput
   )
-  const primaryLabel = userKeywords?.[0]?.trim() || safeProductName
-  const rhythm = applyFlowRhythmToScript(unique)
-  return mitigateProductNameSpam(rhythm, primaryLabel).map(sanitizeNarrationForOutput)
 }
 
-/** 다시쓰기 — 이전 대본과 동일·유사하면 화면 기반으로 강제 교체 */
+/** 다시쓰기 — AI 출력 유지 (규칙 폴백 없음) */
 export function ensureRewriteDiffersFromPrevious(
   lines: readonly string[],
-  previousScripts: Record<string, string>,
-  contexts: ReadonlyArray<{ visual_card: string; duration: number }>,
-  productName: string,
-  rewriteSalt: number
+  _previousScripts: Record<string, string>,
+  _contexts: ReadonlyArray<{ visual_card: string; duration: number }>,
+  _productName: string,
+  _rewriteSalt: number
 ): string[] {
-  const prior: string[] = []
-  return lines.map((line, i) => {
-    const prev = previousScripts[String(i + 1)]?.trim().replace(/\r/g, "") ?? ""
-    const ctx = contexts[i]!
-    let text = sanitizeNarrationForOutput(line.trim())
-    const tooSimilar =
-      Boolean(prev) &&
-      (text === prev || narrationBlockSimilarity(text, prev) >= 0.48)
-    if (tooSimilar) {
-      for (let attempt = 0; attempt < 28; attempt++) {
-        const forced = rephraseSceneToShoppingNarrationVariant(
-          ctx.visual_card,
-          productName,
-          ctx.duration,
-          rewriteSalt + i * 19 + attempt * 11
-        )
-        if (
-          forced.trim() &&
-          forced.trim() !== prev &&
-          narrationBlockSimilarity(forced, prev) < 0.42 &&
-          !narrationLineIsDuplicateOfPrior(forced, prior)
-        ) {
-          text = forced
-          break
-        }
-      }
-    }
-    prior.push(text)
-    return sanitizeNarrationForOutput(text)
-  })
+  return lines.map((line) => sanitizeNarrationForOutput(line.trim()))
 }
 
 /** OpenAI JSON lines 파싱 — 빈 컷도 슬롯 유지 (filter로 개수 줄어듦 방지) */
@@ -860,26 +655,18 @@ export function parseNarrationLinesFromAi(raw: unknown): string[] {
   return raw.map((l) => sanitizeNarrationForOutput(String(l ?? "").trim()))
 }
 
-/** AI가 컷 수를 어긋내도 편집 컷 수에 맞춤 — 부족·빈 줄은 화면 기반 완결 문장으로 채움 */
+/** AI가 컷 수를 어긋내도 편집 컷 수에 맞춤 — 빈 줄은 AI 재생성 대상으로 남김 */
 export function alignNarrationLinesToCuts(
   lines: readonly string[],
   cuts: ReadonlyArray<{ visual_card: string; duration: number }>,
-  productName: string
+  _productName: string
 ): string[] {
   const cutCount = cuts.length
   if (!cutCount) return []
 
   const out: string[] = []
   for (let i = 0; i < cutCount; i++) {
-    let text = (lines[i] ?? "").trim()
-    if (!text) {
-      text = rephraseSceneToShoppingNarrationVariant(
-        cuts[i]!.visual_card,
-        productName,
-        cuts[i]!.duration,
-        i + 51
-      )
-    }
+    const text = (lines[i] ?? "").trim()
     out.push(sanitizeNarrationForOutput(text))
   }
   return applyFlowRhythmToScript(out)
