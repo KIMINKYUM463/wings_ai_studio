@@ -37,6 +37,14 @@ import {
   type LineSubtitleCue,
 } from "@/lib/shotform-mvp-edit-script"
 import { convertWebmBlobToMp4 } from "@/lib/mvp-webm-to-mp4"
+import type { EditPlanSegment } from "@/lib/shotform-auto-edit-types"
+import {
+  drawVideoContainWithSourceTransform,
+  editPlanSegmentAtOutputTime,
+  getMvpVideoSourceTransform,
+  isDefaultMvpVideoSourceTransform,
+  type MvpVideoSourceTransforms,
+} from "@/lib/mvp-video-source-transform"
 
 /** CapCut 미리보기 스테이지 너비(px) — `MvpCapCutEditor` max-w-[280px] */
 export const MVP_PREVIEW_STAGE_WIDTH_PX = 280
@@ -54,6 +62,8 @@ export type MvpPreviewRenderInput = {
   videoDurationSec: number
   audioDurationSec: number
   bgmClips?: MvpBgmClip[]
+  editPlan?: readonly EditPlanSegment[]
+  videoSourceTransforms?: MvpVideoSourceTransforms
   onProgress?: (ratio: number) => void
 }
 
@@ -369,6 +379,8 @@ export async function renderMvpPreviewToBlob(
     videoDurationSec,
     audioDurationSec,
     bgmClips = [],
+    editPlan = [],
+    videoSourceTransforms = {},
     onProgress,
   } = input
 
@@ -497,7 +509,22 @@ export async function renderMvpPreviewToBlob(
       if (showThumbnail && thumbnailImg) {
         drawImageCover(ctx, thumbnailImg, canvas.width, canvas.height)
       } else if (video.readyState >= 2) {
-        drawVideoContain(ctx, video, canvas.width, canvas.height)
+        const activeSeg = editPlan.length ? editPlanSegmentAtOutputTime(editPlan, videoT) : null
+        const sourceTransform = getMvpVideoSourceTransform(
+          videoSourceTransforms,
+          activeSeg?.video_id
+        )
+        if (isDefaultMvpVideoSourceTransform(sourceTransform)) {
+          drawVideoContain(ctx, video, canvas.width, canvas.height)
+        } else {
+          drawVideoContainWithSourceTransform(
+            ctx,
+            video,
+            canvas.width,
+            canvas.height,
+            sourceTransform
+          )
+        }
       }
 
       // 미리보기와 동일 — 모자이크 구간은 영상 currentTime 기준 (TTS 배속·분석 시각과 어긋남 방지)

@@ -20,7 +20,7 @@ export function normalizeAutoEditTargetDuration(
   return fallback
 }
 
-export const MAX_AUTO_EDIT_VIDEOS = 5
+export const MAX_AUTO_EDIT_VIDEOS = 3
 
 /** 짜집기 제품·장면 분석 속도/정확도 */
 export type AutoEditAnalysisMode = "fast" | "precision"

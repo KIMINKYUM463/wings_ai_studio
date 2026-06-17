@@ -229,6 +229,8 @@ export type MvpStudioPersistData = {
   editTtsCachedJobId?: string
   /** 배경음·효과음 통합 클립 */
   bgmClips?: MvpBgmClip[]
+  /** 영상 소스별 미리보기 확대·좌우반전 (video_id 키) */
+  videoSourceTransforms?: import("@/lib/mvp-video-source-transform").MvpVideoSourceTransforms
   /** 제목·설명·태그 (SEO) */
   seoMeta?: MvpStudioSeoMeta
   /** @deprecated */

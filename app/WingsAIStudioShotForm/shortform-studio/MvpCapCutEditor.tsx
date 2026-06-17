@@ -1,10 +1,11 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   ChevronRight,
   FilePenLine,
   FileText,
+  FlipHorizontal,
   Hash,
   ImageIcon,
   Info,
@@ -83,6 +84,15 @@ import {
   isMvpThumbnailIntroTime,
   mvpPreviewTimelineSec,
 } from "@/lib/mvp-thumbnail-intro"
+import {
+  editPlanSegmentAtOutputTime,
+  getMvpVideoSourceTransform,
+  mvpVideoSourceTransformStyle,
+  videoSourceLabel,
+  type MvpVideoSourceTransform,
+  type MvpVideoSourceTransforms,
+} from "@/lib/mvp-video-source-transform"
+import { useMvpVideoSourceZoom } from "./useMvpVideoSourceZoom"
 
 type NarrationSegment = {
   start: number
@@ -180,6 +190,8 @@ type Props = {
   videoBlobRef?: React.MutableRefObject<Blob | null>
   bgmClips: MvpBgmClip[]
   onBgmClipsChange: (next: MvpBgmClip[]) => void
+  videoSourceTransforms: MvpVideoSourceTransforms
+  onVideoSourceTransformsChange: (next: MvpVideoSourceTransforms) => void
 }
 
 export function MvpCapCutEditor(props: Props) {
@@ -268,6 +280,8 @@ export function MvpCapCutEditor(props: Props) {
     videoBlobRef,
     bgmClips,
     onBgmClipsChange,
+    videoSourceTransforms,
+    onVideoSourceTransformsChange,
   } = props
 
   const subStyle = normalizeSubtitleStyle(subtitleStyle)
@@ -278,6 +292,7 @@ export function MvpCapCutEditor(props: Props) {
     "info" | "subtitle" | "thumbnail" | "seo" | "script" | "audio"
   >("subtitle")
   const [selectedBgmClipId, setSelectedBgmClipId] = useState<string | null>(null)
+  const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null)
   const [pendingCatalogId, setPendingCatalogId] = useState(
     MVP_AUDIO_CATALOG[0]?.id ?? "bgm-1"
   )
@@ -486,6 +501,37 @@ export function MvpCapCutEditor(props: Props) {
   const previewTimelineSec = mvpPreviewTimelineSec(audioUrl, playhead)
   const showThumbnailIntro =
     thumbnailIntroOn && Boolean(thumbnailUrl) && isMvpThumbnailIntroTime(previewTimelineSec)
+  const editPlan = result.editPlan?.edit_plan ?? []
+  const activeVideoSegment = useMemo(
+    () => editPlanSegmentAtOutputTime(editPlan, previewTimelineSec),
+    [editPlan, previewTimelineSec]
+  )
+  const previewVideoId = activeVideoSegment?.video_id ?? selectedVideoId
+  const previewTransform = getMvpVideoSourceTransform(videoSourceTransforms, previewVideoId)
+  const selectedVideoTransform = getMvpVideoSourceTransform(videoSourceTransforms, selectedVideoId)
+
+  const patchVideoSourceTransform = useCallback(
+    (videoId: string, patch: Partial<MvpVideoSourceTransform>) => {
+      const prev = getMvpVideoSourceTransform(videoSourceTransforms, videoId)
+      const next = { ...prev, ...patch }
+      if (next.scale === 1 && !next.flipH) {
+        const { [videoId]: _removed, ...rest } = videoSourceTransforms
+        onVideoSourceTransformsChange(rest)
+        return
+      }
+      onVideoSourceTransformsChange({ ...videoSourceTransforms, [videoId]: next })
+    },
+    [videoSourceTransforms, onVideoSourceTransformsChange]
+  )
+
+  const videoZoom = useMvpVideoSourceZoom({
+    enabled: Boolean(selectedVideoId) && !showThumbnailIntro,
+    scale: selectedVideoTransform.scale,
+    onScaleChange: (scale) => {
+      if (!selectedVideoId) return
+      patchVideoSourceTransform(selectedVideoId, { scale })
+    },
+  })
   const previewSubtitleText = showThumbnailIntro
     ? ""
     : subtitleLine || segments[0]?.text?.split("\n")[0] || ""
@@ -606,35 +652,45 @@ export function MvpCapCutEditor(props: Props) {
             <div className="relative w-full max-w-[280px] overflow-hidden rounded-lg border border-white/15 shadow-2xl">
               <div
                 ref={previewStageRef}
-                className="relative aspect-[9/16] bg-black"
+                className={cn(
+                  "relative aspect-[9/16] bg-black",
+                  selectedVideoId && !showThumbnailIntro && "cursor-ns-resize"
+                )}
                 onPointerDown={(e) => {
                   const t = e.target as HTMLElement
                   if (!t.closest("[data-overlay-id]")) setSelectedOverlayId(null)
+                  videoZoom.onPointerDown(e)
                 }}
+                onPointerMove={videoZoom.onPointerMove}
+                onPointerUp={videoZoom.onPointerUp}
+                onWheel={videoZoom.onWheel}
               >
                 {resolvedVideoUrl ? (
-                  <video
-                    ref={videoRef}
-                    src={resolvedVideoUrl}
-                    className={cn(
-                      "h-full w-full object-contain transition-opacity",
-                      showThumbnailIntro && "opacity-0"
-                    )}
-                    playsInline
-                    muted
-                    preload="auto"
-                    onLoadedMetadata={(e) => {
-                      const d = e.currentTarget.duration
-                      if (Number.isFinite(d) && d > 0.1) onVideoLoaded(d)
-                      e.currentTarget.playbackRate = 1
-                    }}
-                    onError={() => {
-                      console.error("[MvpCapCutEditor] video playback error", resolvedVideoUrl)
-                    }}
-                    onPlay={onVideoPlay}
-                    onTimeUpdate={onVideoTimeUpdate}
-                    onEnded={onVideoEnded}
-                  />
+                  <div className="absolute inset-0 overflow-hidden">
+                    <video
+                      ref={videoRef}
+                      src={resolvedVideoUrl}
+                      className={cn(
+                        "h-full w-full object-contain transition-opacity",
+                        showThumbnailIntro && "opacity-0"
+                      )}
+                      style={showThumbnailIntro ? undefined : mvpVideoSourceTransformStyle(previewTransform)}
+                      playsInline
+                      muted
+                      preload="auto"
+                      onLoadedMetadata={(e) => {
+                        const d = e.currentTarget.duration
+                        if (Number.isFinite(d) && d > 0.1) onVideoLoaded(d)
+                        e.currentTarget.playbackRate = 1
+                      }}
+                      onError={() => {
+                        console.error("[MvpCapCutEditor] video playback error", resolvedVideoUrl)
+                      }}
+                      onPlay={onVideoPlay}
+                      onTimeUpdate={onVideoTimeUpdate}
+                      onEnded={onVideoEnded}
+                    />
+                  </div>
                 ) : videoLoading ? (
                   <div className="flex h-full items-center justify-center gap-2 text-xs text-slate-400">
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -664,6 +720,16 @@ export function MvpCapCutEditor(props: Props) {
                 />
                 {previewSubtitleText ? (
                   <div style={buildSubtitleOverlayStyle(subStyle)}>{previewSubtitleText}</div>
+                ) : null}
+                {selectedVideoId && !showThumbnailIntro ? (
+                  <div
+                    data-video-zoom-skip
+                    className="pointer-events-none absolute bottom-2 left-2 right-2 rounded-md border border-white/15 bg-black/55 px-2 py-1 text-center text-[9px] text-slate-200"
+                  >
+                    {videoSourceLabel(result, selectedVideoId)} · 휠·드래그 확대 ·{" "}
+                    {Math.round(selectedVideoTransform.scale * 100)}%
+                    {selectedVideoTransform.flipH ? " · 반전" : ""}
+                  </div>
                 ) : null}
               </div>
             </div>
@@ -718,6 +784,7 @@ export function MvpCapCutEditor(props: Props) {
               onSelectCue={(i) => {
                 setSelectedCueIndex(i)
                 setSelectedOverlayId(null)
+                setSelectedVideoId(null)
                 setInspectorTab("subtitle")
               }}
               onSeek={onSeek}
@@ -725,7 +792,10 @@ export function MvpCapCutEditor(props: Props) {
               selectedBgmClipId={selectedBgmClipId}
               onSelectBgmClipId={(id) => {
                 setSelectedBgmClipId(id)
-                if (id) setSelectedOverlayId(null)
+                if (id) {
+                  setSelectedOverlayId(null)
+                  setSelectedVideoId(null)
+                }
               }}
               onBgmClipsChange={onBgmClipsChange}
               onPlaceBgmAt={(t) => void placeBgmAt(t)}
@@ -736,10 +806,21 @@ export function MvpCapCutEditor(props: Props) {
                 if (id) {
                   setSelectedCueIndex(-1)
                   setSelectedBgmClipId(null)
+                  setSelectedVideoId(null)
                   setInspectorTab("subtitle")
                 }
               }}
               onPlacedOverlaysChange={onPlacedOverlaysChange}
+              selectedVideoId={selectedVideoId}
+              onSelectVideoId={(videoId) => {
+                setSelectedVideoId(videoId)
+                if (videoId) {
+                  setSelectedCueIndex(-1)
+                  setSelectedOverlayId(null)
+                  setSelectedBgmClipId(null)
+                  setInspectorTab("info")
+                }
+              }}
             />
           </div>
         </div>
@@ -777,6 +858,66 @@ export function MvpCapCutEditor(props: Props) {
           <div className="flex-1 overflow-y-auto p-3">
             {inspectorTab === "info" ? (
               <div className="space-y-3">
+                {selectedVideoId ? (
+                  <div className="rounded-xl border border-emerald-500/25 bg-emerald-950/20 p-3">
+                    <p className="text-xs font-medium text-emerald-100">영상 소스 · 화면 조정</p>
+                    <p className="mt-1 text-[10px] leading-relaxed text-slate-400">
+                      타임라인 「영상」 트랙에서 선택한 소스입니다. 미리보기에서 휠·위아래 드래그로
+                      확대하고, 좌우 반전을 켤 수 있습니다.
+                    </p>
+                    <p className="mt-2 truncate text-[11px] font-medium text-white">
+                      {videoSourceLabel(result, selectedVideoId)}
+                    </p>
+                    <div className="mt-3 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <Label className="text-[10px] text-slate-400">확대</Label>
+                        <span className="font-mono text-[10px] text-slate-300">
+                          {Math.round(selectedVideoTransform.scale * 100)}%
+                        </span>
+                      </div>
+                      <Slider
+                        min={100}
+                        max={250}
+                        step={1}
+                        value={[Math.round(selectedVideoTransform.scale * 100)]}
+                        onValueChange={(v) =>
+                          patchVideoSourceTransform(selectedVideoId, { scale: (v[0] ?? 100) / 100 })
+                        }
+                      />
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={selectedVideoTransform.flipH ? "default" : "outline"}
+                          className="h-8 gap-1.5 text-xs"
+                          onClick={() =>
+                            patchVideoSourceTransform(selectedVideoId, {
+                              flipH: !selectedVideoTransform.flipH,
+                            })
+                          }
+                        >
+                          <FlipHorizontal className="h-3.5 w-3.5" />
+                          좌우 반전
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 text-xs text-slate-400"
+                          onClick={() =>
+                            patchVideoSourceTransform(selectedVideoId, { scale: 1, flipH: false })
+                          }
+                        >
+                          초기화
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="rounded-lg border border-white/10 bg-black/25 px-3 py-2 text-[10px] text-slate-500">
+                    타임라인 「영상」 트랙의 클립을 클릭하면 소스별 확대·좌우 반전을 조절할 수 있습니다.
+                  </p>
+                )}
                 {onVideoReplaced ? (
                   <MvpChineseSubtitleRemovalPanel
                     videoUrl={resolvedVideoUrl}

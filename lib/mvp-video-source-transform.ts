@@ -1,0 +1,116 @@
+import type { CSSProperties } from "react"
+import type { AutoEditJobResult, EditPlanSegment } from "@/lib/shotform-auto-edit-types"
+
+export const MVP_VIDEO_SOURCE_SCALE_MIN = 1
+export const MVP_VIDEO_SOURCE_SCALE_MAX = 2.5
+
+export type MvpVideoSourceTransform = {
+  /** 1 = 기본, 2.5 = 최대 확대 */
+  scale: number
+  flipH: boolean
+}
+
+export type MvpVideoSourceTransforms = Record<string, MvpVideoSourceTransform>
+
+export function defaultMvpVideoSourceTransform(): MvpVideoSourceTransform {
+  return { scale: 1, flipH: false }
+}
+
+export function clampMvpVideoSourceScale(scale: number): number {
+  const n = Number(scale)
+  if (!Number.isFinite(n)) return 1
+  return Math.min(MVP_VIDEO_SOURCE_SCALE_MAX, Math.max(MVP_VIDEO_SOURCE_SCALE_MIN, n))
+}
+
+export function normalizeMvpVideoSourceTransforms(
+  raw?: Record<string, Partial<MvpVideoSourceTransform>> | null
+): MvpVideoSourceTransforms {
+  if (!raw) return {}
+  const out: MvpVideoSourceTransforms = {}
+  for (const [id, t] of Object.entries(raw)) {
+    if (!id?.trim()) continue
+    out[id] = {
+      scale: clampMvpVideoSourceScale(t?.scale ?? 1),
+      flipH: Boolean(t?.flipH),
+    }
+  }
+  return out
+}
+
+export function getMvpVideoSourceTransform(
+  map: MvpVideoSourceTransforms,
+  videoId: string | null | undefined
+): MvpVideoSourceTransform {
+  if (!videoId) return defaultMvpVideoSourceTransform()
+  return map[videoId] ?? defaultMvpVideoSourceTransform()
+}
+
+export function mvpVideoSourceTransformStyle(
+  transform: MvpVideoSourceTransform
+): CSSProperties {
+  const scale = clampMvpVideoSourceScale(transform.scale)
+  const flipX = transform.flipH ? -scale : scale
+  return {
+    transform: `scale(${flipX}, ${scale})`,
+    transformOrigin: "center center",
+  }
+}
+
+export function editPlanSegmentAtOutputTime(
+  plan: readonly EditPlanSegment[],
+  outputSec: number
+): EditPlanSegment | null {
+  if (!plan.length) return null
+  for (const seg of plan) {
+    if (outputSec >= seg.output_start - 0.02 && outputSec < seg.output_end - 0.01) return seg
+  }
+  const last = plan[plan.length - 1]!
+  if (outputSec >= last.output_start - 0.02) return last
+  return plan[0]!
+}
+
+export function isDefaultMvpVideoSourceTransform(transform: MvpVideoSourceTransform): boolean {
+  return !transform.flipH && clampMvpVideoSourceScale(transform.scale) <= 1.001
+}
+
+/** object-contain 배치 후 중심 기준 확대·좌우반전 (미리보기 CSS transform과 동일) */
+export function drawVideoContainWithSourceTransform(
+  ctx: CanvasRenderingContext2D,
+  video: HTMLVideoElement,
+  cw: number,
+  ch: number,
+  transform: MvpVideoSourceTransform
+) {
+  const vw = video.videoWidth
+  const vh = video.videoHeight
+  if (!vw || !vh) return
+
+  const scale = clampMvpVideoSourceScale(transform.scale)
+  const flipX = transform.flipH ? -1 : 1
+  const va = vw / vh
+  const ca = cw / ch
+  let dw = cw
+  let dh = ch
+  let dx = 0
+  let dy = 0
+  if (va > ca) {
+    dh = cw / va
+    dy = (ch - dh) / 2
+  } else {
+    dw = ch * va
+    dx = (cw - dw) / 2
+  }
+
+  ctx.save()
+  ctx.translate(cw / 2, ch / 2)
+  ctx.scale(flipX * scale, scale)
+  ctx.translate(-cw / 2, -ch / 2)
+  ctx.drawImage(video, dx, dy, dw, dh)
+  ctx.restore()
+}
+
+export function videoSourceLabel(result: AutoEditJobResult, videoId: string): string {
+  const title = result.analyses?.find((a) => a.video_id === videoId)?.title?.trim()
+  if (title) return title.length > 20 ? `${title.slice(0, 18)}…` : title
+  return videoId.replace(/^v_/, "").slice(0, 14) || "영상 소스"
+}

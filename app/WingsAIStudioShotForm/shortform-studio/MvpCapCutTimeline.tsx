@@ -15,6 +15,7 @@ import {
 import { patchMosaicOverlayTime } from "@/lib/mvp-mosaic-overlay-utils"
 import { cn } from "@/lib/utils"
 import { isMvpThumbnailIntroTime } from "@/lib/mvp-thumbnail-intro"
+import { videoSourceLabel } from "@/lib/mvp-video-source-transform"
 
 type Props = {
   result: AutoEditJobResult
@@ -39,6 +40,8 @@ type Props = {
   selectedOverlayId?: string | null
   onSelectOverlayId?: (id: string | null) => void
   onPlacedOverlaysChange?: (next: PlacedStudioOverlay[]) => void
+  selectedVideoId?: string | null
+  onSelectVideoId?: (videoId: string | null) => void
 }
 
 type DragState = {
@@ -85,6 +88,8 @@ export function MvpCapCutTimeline({
   selectedOverlayId = null,
   onSelectOverlayId,
   onPlacedOverlaysChange,
+  selectedVideoId = null,
+  onSelectVideoId,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<DragState | null>(null)
@@ -344,6 +349,7 @@ export function MvpCapCutTimeline({
               영상
             </div>
             <div
+              data-video-track
               className="relative flex-1 cursor-pointer bg-[#1a1a1a]"
               onClick={(e) => seekFromClientX(e.clientX, e.currentTarget)}
               role="presentation"
@@ -360,22 +366,34 @@ export function MvpCapCutTimeline({
                   }}
                 />
               ) : null}
-              {plan.map((seg, i) => (
-                <button
-                  key={`v-${i}`}
-                  type="button"
-                  title={seg.reason}
-                  className="absolute top-1.5 h-8 rounded border border-emerald-600/50 bg-gradient-to-b from-emerald-600/60 to-emerald-800/50 hover:from-emerald-500/70"
-                  style={{
-                    left: pct(seg.output_start),
-                    width: `max(3px, calc(${pct(seg.output_end - seg.output_start)} - 2px))`,
-                  }}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onSeek(seg.output_start)
-                  }}
-                />
-              ))}
+              {plan.map((seg, i) => {
+                const selected = Boolean(selectedVideoId && seg.video_id === selectedVideoId)
+                const label = videoSourceLabel(result, seg.video_id)
+                return (
+                  <button
+                    key={`v-${i}`}
+                    type="button"
+                    title={`${label} · ${seg.reason}`}
+                    className={cn(
+                      "absolute top-1.5 h-8 overflow-hidden rounded border px-0.5 text-left text-[8px] leading-tight transition",
+                      selected
+                        ? "z-10 border-emerald-300 bg-gradient-to-b from-emerald-500/85 to-emerald-700/70 text-white ring-1 ring-emerald-200/50"
+                        : "border-emerald-600/50 bg-gradient-to-b from-emerald-600/60 to-emerald-800/50 text-emerald-50 hover:from-emerald-500/70"
+                    )}
+                    style={{
+                      left: pct(seg.output_start),
+                      width: `max(3px, calc(${pct(seg.output_end - seg.output_start)} - 2px))`,
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onSelectVideoId?.(seg.video_id)
+                      onSeek(seg.output_start)
+                    }}
+                  >
+                    <span className="block truncate px-0.5 pt-1">{label}</span>
+                  </button>
+                )
+              })}
               {playheadMarker}
             </div>
           </div>

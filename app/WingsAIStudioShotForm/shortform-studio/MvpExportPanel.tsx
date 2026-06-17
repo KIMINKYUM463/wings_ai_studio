@@ -19,6 +19,7 @@ import { mvpAssetDownloadFilename, mvpRenderDownloadFilename } from "@/lib/mvp-r
 import type { LineSubtitleCue } from "@/lib/shotform-mvp-edit-script"
 import type { PlacedStudioOverlay } from "@/lib/shotform-studio-overlay-catalog"
 import type { MvpBgmClip, MvpScriptStyleState, MvpStudioSeoMeta, MvpSubtitleStyle } from "@/lib/mvp-studio-types"
+import type { MvpVideoSourceTransforms } from "@/lib/mvp-video-source-transform"
 import { mvpSeoMetaToCapCutSeo } from "@/lib/mvp-studio-seo"
 import { cn } from "@/lib/utils"
 import { StudioPageCard, studio } from "../components/ShotFormStudioUI"
@@ -46,6 +47,7 @@ type Props = {
   thumbnailIntroOn: boolean
   seoMeta?: MvpStudioSeoMeta
   bgmClips: MvpBgmClip[]
+  videoSourceTransforms?: MvpVideoSourceTransforms
 }
 
 type BusyKind = "capcut" | "render" | "mix" | "tts" | "srt" | null
@@ -92,6 +94,7 @@ export function MvpExportPanel({
   thumbnailIntroOn,
   seoMeta,
   bgmClips,
+  videoSourceTransforms = {},
 }: Props) {
   const exportTileBtn = cn(
     studio.btnSecondary,
@@ -270,6 +273,8 @@ export function MvpExportPanel({
         videoDurationSec,
         audioDurationSec,
         bgmClips,
+        editPlan: result.editPlan?.edit_plan ?? [],
+        videoSourceTransforms,
         onProgress: (ratio) => {
           if (ratio >= 0.84) {
             setExportMsg(
@@ -306,6 +311,8 @@ export function MvpExportPanel({
     videoDurationSec,
     audioDurationSec,
     bgmClips,
+    videoSourceTransforms,
+    result.editPlan?.edit_plan,
   ])
 
   return (

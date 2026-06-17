@@ -98,6 +98,10 @@ import {
 } from "@/lib/mvp-studio-types"
 import { MvpPreviewAudioLayers } from "@/lib/mvp-preview-audio-mix"
 import {
+  normalizeMvpVideoSourceTransforms,
+  type MvpVideoSourceTransforms,
+} from "@/lib/mvp-video-source-transform"
+import {
   loadMvpEditMp4,
   loadMvpTtsAudio,
   saveMvpEditMp4,
@@ -297,6 +301,9 @@ export function MvpPostEditStudio({
   const [bgmClips, setBgmClips] = useState<MvpBgmClip[]>(() =>
     migrateStudioAudioToBgmClips(studioPersist, totalSec || 30)
   )
+  const [videoSourceTransforms, setVideoSourceTransforms] = useState<MvpVideoSourceTransforms>(() =>
+    normalizeMvpVideoSourceTransforms(studioPersist?.videoSourceTransforms)
+  )
   const [editMp4CachedJobId, setEditMp4CachedJobId] = useState(studioPersist?.editMp4CachedJobId ?? "")
   const [editTtsCachedJobId, setEditTtsCachedJobId] = useState(studioPersist?.editTtsCachedJobId ?? "")
   const onStudioPersistChangeRef = useRef(onStudioPersistChange)
@@ -326,6 +333,7 @@ export function MvpPostEditStudio({
     )
     setSeoMeta(studioPersist?.seoMeta ?? emptyMvpStudioSeoMeta())
     setBgmClips(migrateStudioAudioToBgmClips(studioPersist, totalSec || 30))
+    setVideoSourceTransforms(normalizeMvpVideoSourceTransforms(studioPersist?.videoSourceTransforms))
     if (fetchedTtsUrlRef.current) {
       URL.revokeObjectURL(fetchedTtsUrlRef.current)
       fetchedTtsUrlRef.current = null
@@ -366,6 +374,9 @@ export function MvpPostEditStudio({
       editMp4CachedJobId: editMp4CachedJobId || undefined,
       editTtsCachedJobId: editTtsCachedJobId || undefined,
       bgmClips: bgmClips.length ? bgmClips : undefined,
+      videoSourceTransforms: Object.keys(videoSourceTransforms).length
+        ? videoSourceTransforms
+        : undefined,
     }
     const key = JSON.stringify(payload)
     if (key === lastPersistKeyRef.current) return
@@ -390,6 +401,7 @@ export function MvpPostEditStudio({
     editMp4CachedJobId,
     editTtsCachedJobId,
     bgmClips,
+    videoSourceTransforms,
   ])
 
   useEffect(() => {
@@ -1503,6 +1515,7 @@ export function MvpPostEditStudio({
           thumbnailIntroOn={thumbnailIntroOn}
           seoMeta={seoMeta}
           bgmClips={bgmClips}
+          videoSourceTransforms={videoSourceTransforms}
         />
       ) : null}
 
@@ -1584,6 +1597,8 @@ export function MvpPostEditStudio({
           onPlayToggle={handlePlayToggle}
           bgmClips={bgmClips}
           onBgmClipsChange={setBgmClips}
+          videoSourceTransforms={videoSourceTransforms}
+          onVideoSourceTransformsChange={setVideoSourceTransforms}
           onSeek={(t) => {
             pausePreview()
             const seekT = Math.max(0, t)

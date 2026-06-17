@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { MAX_AUTO_EDIT_VIDEOS } from "@/lib/shotform-auto-edit-types"
 
 type MontageItem = {
   url: string
@@ -16,8 +17,8 @@ export async function POST(req: NextRequest) {
     if (!Array.isArray(raw) || raw.length === 0) {
       return NextResponse.json({ error: "items 배열이 필요합니다." }, { status: 400 })
     }
-    if (raw.length > 5) {
-      return NextResponse.json({ error: "짜집기는 최대 5개 클립까지 지원합니다." }, { status: 400 })
+    if (raw.length > MAX_AUTO_EDIT_VIDEOS) {
+      return NextResponse.json({ error: `짜집기는 최대 ${MAX_AUTO_EDIT_VIDEOS}개 클립까지 지원합니다.` }, { status: 400 })
     }
 
     const items = raw.filter((x): x is MontageItem => x && typeof x === "object" && typeof x.url === "string")
