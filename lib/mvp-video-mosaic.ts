@@ -209,8 +209,9 @@ export function drawVideoMosaicOnCanvas(
     centerYPct: opts.centerYPct,
     patchW,
     patchH,
-    blockPx: opts.blockPx,
+    blockPx: Math.max(3, Math.round(opts.blockPx * scale)),
     circle: opts.circle,
+    featherPx: Math.max(2, Math.round(4 * scale)),
   })
 
   const cx = (opts.centerXPct / 100) * canvasW

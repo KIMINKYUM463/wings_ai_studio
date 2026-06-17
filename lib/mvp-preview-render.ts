@@ -500,7 +500,13 @@ export async function renderMvpPreviewToBlob(
         drawVideoContain(ctx, video, canvas.width, canvas.height)
       }
 
-      for (const ov of filterOverlaysAtVideoTime(placedOverlays, videoT, videoDur)) {
+      // 미리보기와 동일 — 모자이크 구간은 영상 currentTime 기준 (TTS 배속·분석 시각과 어긋남 방지)
+      const overlayTimeSec =
+        Number.isFinite(video.currentTime) && video.currentTime >= 0
+          ? video.currentTime
+          : videoT
+
+      for (const ov of filterOverlaysAtVideoTime(placedOverlays, overlayTimeSec, videoDur)) {
         drawOverlay(ctx, ov, canvas.width, canvas.height, MVP_PREVIEW_STAGE_WIDTH_PX, video)
       }
 

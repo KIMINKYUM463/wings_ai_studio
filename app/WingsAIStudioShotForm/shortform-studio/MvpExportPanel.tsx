@@ -284,7 +284,7 @@ export function MvpExportPanel({
       if (tempAudioUrl) URL.revokeObjectURL(tempAudioUrl)
 
       downloadBlob(blob, mvpRenderDownloadFilename(projectName, ext))
-      setExportMsg("렌더 완료. 자막·썸네일·TTS가 합쳐진 MP4를 다운로드했습니다.")
+      setExportMsg("렌더 완료. 자막·모자이크·썸네일·TTS가 합쳐진 MP4를 다운로드했습니다.")
     } catch (e) {
       setErr(e instanceof Error ? e.message : "렌더 실패")
       setExportMsg(null)
@@ -365,7 +365,7 @@ export function MvpExportPanel({
             <Clapperboard className="h-4 w-4" />
           )}
           <span className="font-semibold">렌더</span>
-          <span className="text-[10px] font-normal text-slate-400">자막·썸네일·TTS → MP4</span>
+          <span className="text-[10px] font-normal text-slate-400">자막·모자이크·썸네일·TTS → MP4</span>
         </Button>
       </div>
 
