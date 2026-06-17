@@ -23,6 +23,26 @@ function shotformApifyToken(): string | null {
   return (localStorage.getItem("shotform_apify_token") || "").trim() || null
 }
 
+function formatResolveError(raw: string | undefined): string {
+  const msg = (raw || "").trim()
+  if (!msg) return "영상 URL 해석에 실패했습니다."
+  if (msg.startsWith("{")) {
+    try {
+      const j = JSON.parse(msg) as { error?: { message?: string } }
+      const inner = j?.error?.message?.trim()
+      if (inner) {
+        if (/run did not succeed|run-failed|status:\s*FAILED/i.test(inner)) {
+          return "Apify 영상 조회에 실패했습니다. TikTok은 토큰·Actor 구독을 확인해 주세요."
+        }
+        return inner.length > 240 ? `${inner.slice(0, 240)}…` : inner
+      }
+    } catch {
+      /* plain */
+    }
+  }
+  return msg.length > 280 ? `${msg.slice(0, 280)}…` : msg
+}
+
 export function MvpReprocessUrlPanel({
   disabled,
   urlText,
@@ -80,7 +100,7 @@ export function MvpReprocessUrlPanel({
         error?: string
       }
       if (!res.ok) {
-        onError?.(json.error || `영상 해석 실패 (${res.status})`)
+        onError?.(formatResolveError(json.error || `영상 해석 실패 (${res.status})`))
         return
       }
 
@@ -93,7 +113,7 @@ export function MvpReprocessUrlPanel({
       onResolvedChange(item)
 
       if (!item.videoUrl.startsWith("http") || item.error) {
-        onError?.(item.error || "재생 URL을 찾지 못했습니다." + (needsApifyHint ? ` ${needsApifyHint}` : ""))
+        onError?.(formatResolveError(item.error) + (needsApifyHint ? ` ${needsApifyHint}` : ""))
         return
       }
 
@@ -164,7 +184,7 @@ export function MvpReprocessUrlPanel({
           )}
         </button>
         <span className="text-xs text-slate-500">
-          URL 입력 후 Enter 또는 AI 짜집기 · 로컬은 yt-dlp, 배포는 Apify 토큰
+          URL 입력 후 Enter 또는 AI 짜집기 · YouTube는 서버 InnerTube, TikTok은 Apify 토큰
         </span>
       </div>
 

@@ -4,12 +4,32 @@ import {
   type MvpReprocessResolvedItem,
 } from "@/lib/shotform-mvp-reprocess-url-shared"
 import { isYtDlpAvailable, resolveMediaUrlWithYtDlp } from "@/lib/shotform-ytdlp"
+import { resolveYoutubeStreamUrl } from "@/lib/shotform-youtube-stream-url"
 
 export type { MvpReprocessPlatform, MvpReprocessResolvedItem } from "@/lib/shotform-mvp-reprocess-url-shared"
 export { detectReprocessUrlPlatform } from "@/lib/shotform-mvp-reprocess-url-shared"
 
 const DEFAULT_TIKTOK_VIDEO_ACTOR = "clockworks/tiktok-video-scraper"
-const DEFAULT_YOUTUBE_ACTOR = "epctex/youtube-video-downloader"
+const DEFAULT_YOUTUBE_ACTOR = "streamers/youtube-scraper"
+
+function formatApifyError(raw: string, actorSlug: string): string {
+  const trimmed = raw.trim()
+  try {
+    const j = JSON.parse(trimmed) as {
+      error?: { type?: string; message?: string }
+    }
+    const msg = j?.error?.message?.trim()
+    if (msg) {
+      if (/run did not succeed|run-failed|status:\s*FAILED/i.test(msg)) {
+        return `Apify ${actorSlug} 실행 실패. Actor 구독·입력 형식을 확인하거나 잠시 후 다시 시도해 주세요.`
+      }
+      return msg.length > 220 ? `${msg.slice(0, 220)}…` : msg
+    }
+  } catch {
+    /* plain text */
+  }
+  return trimmed.length > 220 ? `${trimmed.slice(0, 220)}…` : trimmed || `Apify ${actorSlug} 오류`
+}
 
 function actorPathId(slug: string): string {
   const s = slug.trim()
@@ -37,7 +57,7 @@ async function apifyRunSyncGetDatasetItems(
   })
   if (!r.ok) {
     const t = await r.text().catch(() => "")
-    throw new Error(t.slice(0, 280) || `Apify ${actorSlug} HTTP ${r.status}`)
+    throw new Error(formatApifyError(t, actorSlug))
   }
   const data = (await r.json().catch(() => null)) as unknown
   return Array.isArray(data) ? data : []
@@ -176,17 +196,25 @@ async function resolveYoutubeViaApify(
   noteUrl: string
 ): Promise<{ videoUrl: string; title: string }> {
   const actor = (process.env.APIFY_YOUTUBE_ACTOR || DEFAULT_YOUTUBE_ACTOR).trim()
+  const videoId = noteUrl.match(/[?&]v=([\w-]{11})/)?.[1]
   const items = await apifyRunSyncGetDatasetItems(
     apifyToken,
     actor,
     {
-      videoUrls: [noteUrl],
-      quality: "720",
+      startUrls: [{ url: noteUrl }],
+      maxResults: 1,
+      downloadSubtitles: false,
     },
     { timeoutSec: Number(process.env.APIFY_YOUTUBE_TIMEOUT_SEC || 240), maxItems: 2 }
   )
   const raw = items[0]
-  const videoUrl = pickPlayUrlFromRaw(raw)
+  let videoUrl = pickPlayUrlFromRaw(raw)
+  if (!videoUrl.startsWith("http") && videoId) {
+    const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {}
+    videoUrl =
+      pickStr(o, ["downloadUrl", "videoUrl", "streamingUrl", "hlsUrl"]) ||
+      pickPlayUrlFromRaw(o)
+  }
   if (!videoUrl.startsWith("http")) {
     throw new Error("YouTube 영상 다운로드 URL을 Apify에서 찾지 못했습니다.")
   }
@@ -231,14 +259,47 @@ export async function resolveReprocessUrl(
       }
     }
 
+    if (platform === "youtube") {
+      try {
+        const r = await resolveYoutubeStreamUrl(noteUrl)
+        return {
+          ...base,
+          videoUrl: r.videoUrl,
+          title: r.title,
+        }
+      } catch (innertubeErr) {
+        const token = apifyToken.trim()
+        if (!token) {
+          const hint =
+            innertubeErr instanceof Error ? innertubeErr.message : "YouTube URL 해석 실패"
+          return {
+            ...base,
+            error: `${hint} (Apify 토큰 없음 — TikTok·폴백용)`,
+          }
+        }
+        try {
+          const r = await resolveYoutubeViaApify(token, noteUrl)
+          return {
+            ...base,
+            videoUrl: r.videoUrl,
+            title: r.title,
+          }
+        } catch (apifyErr) {
+          const a = apifyErr instanceof Error ? apifyErr.message : "Apify 오류"
+          const i = innertubeErr instanceof Error ? innertubeErr.message : "InnerTube 오류"
+          return {
+            ...base,
+            error: `${i} · Apify 폴백: ${a}`,
+          }
+        }
+      }
+    }
+
     const token = apifyToken.trim()
     if (!token) {
       return {
         ...base,
-        error:
-          platform === "youtube"
-            ? "YouTube URL 해석에 yt-dlp(서버) 또는 소스 검색 토큰(Apify)이 필요합니다."
-            : "TikTok URL 해석에 yt-dlp(서버) 또는 소스 검색 토큰(Apify)이 필요합니다.",
+        error: "TikTok URL 해석에 yt-dlp(서버) 또는 소스 검색 토큰(Apify)이 필요합니다.",
       }
     }
 
@@ -252,11 +313,9 @@ export async function resolveReprocessUrl(
       }
     }
 
-    const r = await resolveYoutubeViaApify(token, noteUrl)
     return {
       ...base,
-      videoUrl: r.videoUrl,
-      title: r.title,
+      error: "지원하지 않는 플랫폼입니다.",
     }
   } catch (e) {
     return {
