@@ -198,7 +198,7 @@ function recomputeTrackGeometry(track: Track): void {
 
 function mergeFrameRows(rows: MosaicFrameDetectRow[]): Track[] {
   const tracks: Track[] = []
-  const gapToleranceSec = 0.55
+  const gapToleranceSec = 0.72
   const positionTolerance = 10
 
   for (const row of rows.sort((a, b) => a.timeSec - b.timeSec)) {
@@ -347,6 +347,37 @@ function mergeTrackUnion(into: Track, other: Track): void {
   }
 }
 
+/** 짧게 끊긴 트랙을 이어 붙여 타임라인 빈 구간 제거 */
+function bridgeAdjacentTracks(tracks: Track[]): Track[] {
+  if (tracks.length < 2) return tracks
+  const sorted = [...tracks].sort((a, b) => a.startSec - b.startSec || a.centerYPct - b.centerYPct)
+  const out: Track[] = []
+
+  for (const t of sorted) {
+    const prev = out[out.length - 1]
+    const gap = t.startSec - (prev?.endSec ?? -1)
+    const sameBand = prev && Math.abs(prev.centerYPct - t.centerYPct) < 7
+    const closeEnough = gap > 0.02 && gap < 0.95
+    const overlapping = prev && t.startSec <= prev.endSec + 0.03
+
+    if (prev && sameBand && (overlapping || closeEnough)) {
+      mergeTrackUnion(prev, t)
+      continue
+    }
+    out.push({ ...t, hits: [...t.hits] })
+  }
+  return out
+}
+
+function applyMinimumTrackSpan(track: Track, step: number): void {
+  const dur = Math.max(0, track.endSec - track.startSec)
+  const minDur = Math.max(0.48, step * 3.2)
+  if (dur >= minDur) return
+  const mid = (track.startSec + track.endSec) / 2
+  track.startSec = mid - minDur / 2
+  track.endSec = mid + minDur / 2
+}
+
 /** 같은 구간·겹치는 위치의 중복 트랙을 하나로 합침 */
 function consolidateOverlappingTracks(tracks: Track[]): Track[] {
   const sorted = [...tracks].sort((a, b) => a.startSec - b.startSec || a.centerYPct - b.centerYPct)
@@ -387,8 +418,8 @@ function resolveTrackTiming(
   step: number,
   seg: MosaicSceneSegment | null
 ): { startSec: number; endSec: number } {
-  const leadSec = Math.min(0.28, Math.max(0.1, step * 0.65))
-  const tailSec = Math.min(0.1, Math.max(0.03, step * 0.22))
+  const leadSec = Math.min(0.45, Math.max(0.18, step * 0.9))
+  const tailSec = Math.min(0.14, Math.max(0.05, step * 0.28))
 
   let startSec = Math.max(0, track.startSec - leadSec)
   let endSec = Math.min(durationSec, track.endSec + tailSec)
@@ -396,14 +427,24 @@ function resolveTrackTiming(
   if (seg) {
     const segDur = Math.max(0.12, seg.end - seg.start)
     const detectDelay = track.startSec - seg.start
-    if (detectDelay > 0.05 && detectDelay < segDur * 0.7) {
-      startSec = Math.min(startSec, seg.start + 0.02)
+    if (detectDelay > 0.03 && detectDelay < segDur * 0.85) {
+      startSec = Math.min(startSec, seg.start + 0.01)
     }
     const coverRatio = (track.endSec - track.startSec) / segDur
-    if (coverRatio >= 0.62) {
+    if (segDur <= 5 && track.samples >= 1) {
+      startSec = Math.min(startSec, seg.start + 0.01)
+      endSec = Math.max(endSec, seg.end - 0.02)
+    } else if (coverRatio >= 0.22) {
       startSec = Math.min(startSec, seg.start + 0.02)
       endSec = Math.max(endSec, seg.end - 0.02)
     }
+  }
+
+  const minDur = Math.max(0.42, step * 2.6)
+  if (endSec - startSec < minDur) {
+    const mid = (startSec + endSec) / 2
+    startSec = Math.max(0, mid - minDur / 2)
+    endSec = Math.min(durationSec, mid + minDur / 2)
   }
 
   return { startSec, endSec }
@@ -413,8 +454,13 @@ export function buildMosaicTracks(rows: MosaicFrameDetectRow[]): Track[] {
   const tracks = explodeTracksByPosition(mergeFrameRows(rows))
   if (tracks.length) refineTrackBoundaries(tracks, rows)
   const consolidated = consolidateOverlappingTracks(tracks)
-  for (const t of consolidated) tightenTrackGeometry(t)
-  return consolidated
+  const bridged = bridgeAdjacentTracks(consolidated)
+  const step = estimateSampleStep(rows)
+  for (const t of bridged) {
+    applyMinimumTrackSpan(t, step)
+    tightenTrackGeometry(t)
+  }
+  return bridged
 }
 
 export function tracksToWindows(tracks: Array<Pick<Track, "startSec" | "endSec" | "centerXPct" | "centerYPct" | "widthPct" | "heightPct">>): MosaicTrackWindow[] {
@@ -434,7 +480,7 @@ export function buildMosaicAppearanceProbeTimes(
   existingTimes: number[],
   options?: { maxExtra?: number }
 ): number[] {
-  const maxExtra = options?.maxExtra ?? 24
+  const maxExtra = options?.maxExtra ?? 32
   const existing = new Set(existingTimes.map((t) => Math.round(t * 1000) / 1000))
   const extra: number[] = []
   const push = (t: number) => {
@@ -444,7 +490,7 @@ export function buildMosaicAppearanceProbeTimes(
   }
 
   for (const track of tracks) {
-    for (const d of [-0.2, -0.14, -0.09, -0.05, -0.02]) push(track.startSec + d)
+    for (const d of [-0.35, -0.28, -0.22, -0.16, -0.12, -0.08, -0.05, -0.02]) push(track.startSec + d)
   }
 
   return extra.slice(0, maxExtra)

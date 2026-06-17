@@ -2,7 +2,7 @@
 
 import type { MosaicFrameDetectRow } from "@/lib/mvp-mosaic-merge"
 
-const DEFAULT_MAX_FRAMES = 52
+const DEFAULT_MAX_FRAMES = 72
 const DEFAULT_MAX_WIDTH = 640
 const REFINE_MAX_WIDTH = 768
 const BOUNDARY_MAX_WIDTH = 768
@@ -179,7 +179,7 @@ export function buildMosaicScanTimes(
   const safeDur = Math.max(0.5, durationSec)
   const interval =
     options?.intervalSec ??
-    (safeDur <= 12 ? 0.12 : safeDur <= 22 ? 0.15 : safeDur <= 35 ? 0.18 : safeDur <= 50 ? 0.22 : 0.28)
+    (safeDur <= 12 ? 0.1 : safeDur <= 22 ? 0.12 : safeDur <= 35 ? 0.15 : safeDur <= 50 ? 0.18 : 0.22)
   const maxFrames = options?.maxFrames ?? DEFAULT_MAX_FRAMES
   const times: number[] = []
   for (let t = 0.04; t < safeDur - 0.03 && times.length < maxFrames; t += interval) {
@@ -233,7 +233,7 @@ export function buildMosaicRefineTimes(
   durationSec: number,
   options?: { maxExtra?: number; existingTimes?: number[] }
 ): number[] {
-  const maxExtra = options?.maxExtra ?? 18
+  const maxExtra = options?.maxExtra ?? 28
   const existing = new Set((options?.existingTimes ?? []).map((t) => Math.round(t * 1000) / 1000))
   const hits = rows.filter((r) => r.boxes.length > 0).map((r) => r.timeSec)
   if (!hits.length) return []
@@ -246,7 +246,7 @@ export function buildMosaicRefineTimes(
   }
 
   for (const t of hits) {
-    for (const d of [-0.14, -0.1, -0.06, -0.03, 0.03, 0.06, 0.1, 0.14]) push(t + d)
+    for (const d of [-0.2, -0.16, -0.12, -0.08, -0.05, -0.03, 0.03, 0.05, 0.08, 0.12, 0.16, 0.2]) push(t + d)
   }
 
   for (let i = 0; i < hits.length - 1; i++) {
@@ -293,6 +293,78 @@ export function buildMosaicMissedSegmentTimes(
   return uniqueSortedTimes(extra, 0.04)
 }
 
+/** 장면 일부만 감지된 경우 — 중간 구간 재스캔 */
+export function buildMosaicPartialSegmentTimes(
+  rows: MosaicFrameDetectRow[],
+  segments: MosaicSceneSegment[],
+  existingTimes: number[]
+): number[] {
+  const existing = new Set(existingTimes.map((t) => Math.round(t * 1000) / 1000))
+  const extra: number[] = []
+  const push = (t: number) => {
+    const rounded = Math.round(t * 1000) / 1000
+    if (existing.has(rounded)) return
+    if (!extra.some((x) => Math.abs(x - rounded) < 0.035)) extra.push(rounded)
+  }
+
+  for (const seg of segments) {
+    if (!Number.isFinite(seg.start) || !Number.isFinite(seg.end) || seg.end <= seg.start + 0.08) continue
+    const segDur = seg.end - seg.start
+    const hits = rows.filter(
+      (r) => r.timeSec >= seg.start - 0.04 && r.timeSec <= seg.end + 0.04 && r.boxes.length > 0
+    )
+    if (!hits.length) continue
+
+    const hitStart = Math.min(...hits.map((h) => h.timeSec))
+    const hitEnd = Math.max(...hits.map((h) => h.timeSec))
+    const covered = hitEnd - hitStart
+    if (covered >= segDur * 0.72) continue
+
+    for (const frac of [0.12, 0.28, 0.42, 0.58, 0.72, 0.88]) {
+      push(seg.start + segDur * frac)
+    }
+    if (hitStart - seg.start > 0.12) push(seg.start + (hitStart - seg.start) * 0.45)
+    if (seg.end - hitEnd > 0.12) push(hitEnd + (seg.end - hitEnd) * 0.55)
+  }
+
+  return uniqueSortedTimes(extra, 0.035).slice(0, 28)
+}
+
+/** 인접 모자이크 트랙 사이 빈 구간 — 중간 시각 재탐색 */
+export function buildMosaicInterTrackGapTimes(
+  tracks: MosaicTrackWindow[],
+  durationSec: number,
+  existingTimes: number[],
+  options?: { maxExtra?: number }
+): number[] {
+  const maxExtra = options?.maxExtra ?? 28
+  const existing = new Set(existingTimes.map((t) => Math.round(t * 1000) / 1000))
+  const extra: number[] = []
+  const push = (t: number) => {
+    const clamped = Math.round(Math.min(Math.max(0.04, t), durationSec - 0.04) * 1000) / 1000
+    if (existing.has(clamped)) return
+    if (!extra.some((x) => Math.abs(x - clamped) < 0.03)) extra.push(clamped)
+  }
+
+  const sorted = [...tracks].sort((a, b) => a.startSec - b.startSec || a.centerYPct - b.centerYPct)
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const a = sorted[i]!
+    const b = sorted[i + 1]!
+    const gap = b.startSec - a.endSec
+    if (gap < 0.04 || gap > 1.4) continue
+    if (Math.abs(a.centerYPct - b.centerYPct) > 8) continue
+
+    push(a.endSec + gap * 0.2)
+    push(a.endSec + gap * 0.5)
+    push(b.startSec - gap * 0.2)
+    push((a.endSec + b.startSec) / 2)
+    push(a.endSec - 0.06)
+    push(b.startSec + 0.06)
+  }
+
+  return uniqueSortedTimes(extra, 0.03).slice(0, maxExtra)
+}
+
 export type MosaicTrackWindow = {
   startSec: number
   endSec: number
@@ -306,7 +378,7 @@ export function buildMosaicBoundaryTimes(
   durationSec: number,
   options?: { existingTimes?: number[]; maxExtra?: number }
 ): number[] {
-  const maxExtra = options?.maxExtra ?? 20
+  const maxExtra = options?.maxExtra ?? 32
   const existing = new Set((options?.existingTimes ?? []).map((t) => Math.round(t * 1000) / 1000))
   const extra: number[] = []
   const push = (t: number) => {

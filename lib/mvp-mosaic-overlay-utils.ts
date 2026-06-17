@@ -25,7 +25,7 @@ export function overlayVisibleAtVideoTime(
 ): boolean {
   const start = ov.startSec ?? 0
   const end = ov.endSec ?? totalSec ?? Number.POSITIVE_INFINITY
-  return videoTimeSec >= start - 0.1 && videoTimeSec <= end + 0.02
+  return videoTimeSec >= start - 0.18 && videoTimeSec <= end + 0.04
 }
 
 export function filterOverlaysAtVideoTime(
@@ -119,7 +119,7 @@ export function pctBoxToMosaicOverlay(args: {
     mosaicH: mapped.mosaicH,
     mosaicBlock: MVP_MOSAIC_AI_BLOCK,
     startSec: Math.max(0, args.startSec),
-    endSec: Math.max(args.startSec + 0.1, args.endSec),
+    endSec: Math.max(args.startSec + 0.38, args.endSec),
     source: "ai",
     label: args.detectedText?.slice(0, 40),
   }

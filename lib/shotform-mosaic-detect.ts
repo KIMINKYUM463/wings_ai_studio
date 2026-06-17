@@ -24,6 +24,7 @@ DO NOT include: Korean/English TTS subtitles (usually top or bottom safe-area ba
 
 Korean narration subtitles are often in a dark bar at the TOP — never use that region as Chinese.
 Chinese burned-in subtitles are VERY COMMON at bottom-center (top_pct 72–88%) as 1–2 white/yellow outlined lines spanning most of the width — you MUST detect these.
+Short yellow product labels (2–4 characters, e.g. 地刷) at lower-middle are Chinese — detect them with a small tight box.
 Chinese product captions may also appear at center or lower-middle.
 
 For each Chinese text region return a TIGHT bounding box covering ONLY the glyph pixels with ~0.5% margin.

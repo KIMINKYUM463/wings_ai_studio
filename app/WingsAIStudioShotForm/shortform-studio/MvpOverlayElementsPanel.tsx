@@ -20,7 +20,9 @@ import {
 import { mosaicOverlaySummary } from "@/lib/mvp-mosaic-overlay-utils"
 import {
   buildMosaicBoundaryTimes,
+  buildMosaicInterTrackGapTimes,
   buildMosaicMissedSegmentTimes,
+  buildMosaicPartialSegmentTimes,
   buildMosaicRefineTimes,
   captureMosaicFramesAtTimes,
   captureMosaicScanFramesFromVideo,
@@ -200,7 +202,15 @@ export function MvpOverlayElementsPanel({
 
       const mergeRows = (rows: MosaicFrameDetectRow[]) => {
         const byTime = new Map<number, MosaicFrameDetectRow>()
-        for (const r of rows) byTime.set(Math.round(r.timeSec * 1000) / 1000, r)
+        for (const r of rows) {
+          const key = Math.round(r.timeSec * 1000) / 1000
+          const prev = byTime.get(key)
+          if (prev) {
+            byTime.set(key, { timeSec: key, boxes: [...prev.boxes, ...r.boxes] })
+          } else {
+            byTime.set(key, { ...r, timeSec: key })
+          }
+        }
         return [...byTime.values()].sort((a, b) => a.timeSec - b.timeSec)
       }
 
@@ -262,6 +272,7 @@ export function MvpOverlayElementsPanel({
 
       const coarseFrames = await captureMosaicScanFramesFromVideo(video, captureDurationSec, {
         maxWidth: nativeMosaicCaptureWidth(video, 640),
+        maxFrames: 72,
         segments: sceneSegments,
         signal,
         onProgress: (done, total) => setAiStatus(`1차 캡처 ${done}/${total}…`),
@@ -289,6 +300,25 @@ export function MvpOverlayElementsPanel({
           })
           allRows = mergeRows([...allRows, ...missedRows])
         }
+
+        const partialTimes = buildMosaicPartialSegmentTimes(
+          allRows,
+          sceneSegments,
+          allRows.map((r) => r.timeSec)
+        )
+        if (partialTimes.length) {
+          setAiStatus(`장면 중간 재스캔 0/${partialTimes.length}…`)
+          const partialFrames = await captureMosaicFramesAtTimes(video, partialTimes, {
+            maxWidth: refineWidth,
+            signal,
+            onProgress: (done, total) => setAiStatus(`장면 중간 재스캔 ${done}/${total}…`),
+          })
+          const partialRows = await detectBatch(partialFrames, "중간", {
+            highDetail: true,
+            maxWidth: 560,
+          })
+          allRows = mergeRows([...allRows, ...partialRows])
+        }
       }
 
       const refineTimes = buildMosaicRefineTimes(allRows, captureDurationSec, {
@@ -313,7 +343,7 @@ export function MvpOverlayElementsPanel({
         const appearanceTimes = buildMosaicAppearanceProbeTimes(
           preliminaryTracks,
           allRows.map((r) => r.timeSec),
-          { maxExtra: 20 }
+          { maxExtra: 32 }
         )
         if (appearanceTimes.length) {
           setAiStatus(`등장 시각 보정 0/${appearanceTimes.length}…`)
@@ -346,6 +376,26 @@ export function MvpOverlayElementsPanel({
             maxWidth: 560,
           })
           allRows = mergeRows([...allRows, ...boundaryRows])
+        }
+
+        const gapTimes = buildMosaicInterTrackGapTimes(
+          tracksToWindows(buildMosaicTracks(allRows)),
+          captureDurationSec,
+          allRows.map((r) => r.timeSec),
+          { maxExtra: 28 }
+        )
+        if (gapTimes.length) {
+          setAiStatus(`구간 연결 스캔 0/${gapTimes.length}…`)
+          const gapFrames = await captureMosaicFramesAtTimes(video, gapTimes, {
+            maxWidth: refineWidth,
+            signal,
+            onProgress: (done, total) => setAiStatus(`구간 연결 스캔 ${done}/${total}…`),
+          })
+          const gapRows = await detectBatch(gapFrames, "연결", {
+            highDetail: true,
+            maxWidth: 560,
+          })
+          allRows = mergeRows([...allRows, ...gapRows])
         }
       }
 
