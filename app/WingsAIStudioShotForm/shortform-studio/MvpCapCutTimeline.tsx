@@ -574,7 +574,7 @@ export function MvpCapCutTimeline({
                 })
               ) : (
                 <span className="absolute inset-0 flex items-center px-2 text-[10px] text-slate-600">
-                  AI·수동 모자이크 추가 시 구간 클립 표시 · 핸들로 시간 조절
+                  AI·수동 모자이크 추가 시 구간 클립 표시 · 핸들로 시간 조절 · Delete 삭제
                 </span>
               )}
               {playheadMarker}
