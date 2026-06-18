@@ -3,7 +3,8 @@ import path from "path"
 import type { ShoppingLinkPageData } from "@/lib/shotform-shopping-link-types"
 import { sanitizeShoppingLinkSlug } from "@/lib/shotform-shopping-link-types"
 import { normalizeShoppingLinkPageData } from "@/lib/shotform-shopping-link-store"
-import { createMvpProjectsClient, formatSupabaseError } from "@/lib/supabase/mvp-projects"
+import type { SupabaseClient } from "@supabase/supabase-js"
+import { createMvpProjectsClient, createServiceClient, formatSupabaseError } from "@/lib/supabase/mvp-projects"
 
 const DATA_DIR = path.join(process.cwd(), "data", "shotform-shopping-links")
 const TABLE = "shotform_shopping_link_pages"
@@ -23,9 +24,23 @@ function deploymentStorageError(): Error {
       "배포 환경에 Supabase가 설정되지 않았습니다. Vercel 환경 변수(NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)를 확인해 주세요."
     )
   }
+  if (process.env.VERCEL && !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return new Error(
+      "Vercel에 SUPABASE_SERVICE_ROLE_KEY가 없습니다. Supabase Service Role 키를 환경 변수에 추가한 뒤 재배포해 주세요."
+    )
+  }
   return new Error(
     "서버 저장소를 사용할 수 없습니다. scripts/create_shotform_shopping_link_pages_table.sql 을 Supabase SQL Editor에서 실행해 주세요."
   )
+}
+
+/** 배포 환경에서는 service role 필수 — anon 클라이언트로는 UPDATE가 막힐 수 있음 */
+function createShoppingLinkDbClient(): SupabaseClient {
+  return createServiceClient()
+}
+
+function canWriteToSupabase(): boolean {
+  return Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)
 }
 
 function wrapDbError(error: unknown, action: string): never {
@@ -68,38 +83,50 @@ async function writeToFilesystem(slug: string, data: ShoppingLinkPageData): Prom
   )
 }
 
-async function readFromSupabase(slug: string): Promise<ShoppingLinkPageData | null> {
-  const supabase = await createMvpProjectsClient()
-  const { data, error } = await supabase.from(TABLE).select("data").eq("slug", slug).maybeSingle()
+async function readFromSupabase(slug: string, supabase?: SupabaseClient): Promise<ShoppingLinkPageData | null> {
+  const client =
+    supabase ??
+    (process.env.SUPABASE_SERVICE_ROLE_KEY ? createShoppingLinkDbClient() : await createMvpProjectsClient())
+  const { data, error } = await client.from(TABLE).select("data, updated_at").eq("slug", slug).maybeSingle()
   if (error) wrapDbError(error, "페이지 조회")
   if (!data?.data || typeof data.data !== "object") return null
   return data.data as ShoppingLinkPageData
 }
 
 async function writeToSupabase(slug: string, data: ShoppingLinkPageData): Promise<ShoppingLinkPageData> {
-  const supabase = await createMvpProjectsClient()
+  const supabase = createShoppingLinkDbClient()
   const payload = normalizeShoppingLinkPageData({
     ...data,
     profile: { ...data.profile, slug },
     updatedAt: new Date().toISOString(),
   })
-  const row = {
-    slug,
-    data: payload,
-    updated_at: new Date().toISOString(),
-  }
-  const { data: savedRow, error } = await supabase
+  const now = new Date().toISOString()
+  const row = { slug, data: payload, updated_at: now }
+
+  const { data: existing, error: existsError } = await supabase
     .from(TABLE)
-    .upsert(row, { onConflict: "slug" })
-    .select("data")
-    .single()
-  if (error) wrapDbError(error, "페이지 저장")
-  if (!savedRow?.data || typeof savedRow.data !== "object") {
-    throw new Error("저장 후 데이터를 확인하지 못했습니다.")
+    .select("slug")
+    .eq("slug", slug)
+    .maybeSingle()
+  if (existsError) wrapDbError(existsError, "페이지 존재 확인")
+
+  if (existing) {
+    const { error: updateError } = await supabase.from(TABLE).update(row).eq("slug", slug)
+    if (updateError) wrapDbError(updateError, "페이지 수정")
+  } else {
+    const { error: insertError } = await supabase.from(TABLE).insert(row)
+    if (insertError) wrapDbError(insertError, "페이지 생성")
   }
-  const saved = normalizeShoppingLinkPageData(savedRow.data as ShoppingLinkPageData)
+
+  const reread = await readFromSupabase(slug, supabase)
+  if (!reread) {
+    throw new Error("저장 후 DB 재조회에 실패했습니다. Supabase 테이블·권한을 확인해 주세요.")
+  }
+  const saved = normalizeShoppingLinkPageData(reread)
   if (payload.blocks.length > 0 && saved.blocks.length === 0) {
-    throw new Error("블록이 서버에 저장되지 않았습니다. Supabase 설정을 확인해 주세요.")
+    throw new Error(
+      "블록이 DB에 저장되지 않았습니다. Vercel SUPABASE_SERVICE_ROLE_KEY와 shotform_shopping_link_pages 테이블 RLS 설정을 확인해 주세요."
+    )
   }
   return saved
 }
@@ -121,7 +148,7 @@ export async function writeShoppingLinkPage(
   slug: string,
   data: ShoppingLinkPageData
 ): Promise<ShoppingLinkPageData> {
-  if (shouldUseSupabase()) {
+  if (canWriteToSupabase()) {
     try {
       return await writeToSupabase(slug, data)
     } catch (e) {

@@ -99,6 +99,22 @@ export async function publishShoppingLinkPage(data: ShoppingLinkPageData): Promi
   if (payload.blocks.length > 0 && saved.blocks.length === 0) {
     throw new Error("블록이 서버에 저장되지 않았습니다. Supabase 설정을 확인해 주세요.")
   }
+
+  const verifyRes = await fetch(
+    `/api/shotform-shopping-link/${encodeURIComponent(slug)}?v=${Date.now()}`,
+    { cache: "no-store" }
+  )
+  if (verifyRes.ok) {
+    const verified = normalizeShoppingLinkPageData((await verifyRes.json()) as ShoppingLinkPageData)
+    if (payload.blocks.length > 0 && verified.blocks.length === 0) {
+      throw new Error(
+        "저장 응답은 성공했지만 공개 API에 블록이 없습니다. localhost에서 테스트 중이면 wingsaistudio.com에서 다시 저장해 주세요."
+      )
+    }
+    saveShoppingLinkDraft(verified)
+    return verified
+  }
+
   saveShoppingLinkDraft(saved)
   return saved
 }
