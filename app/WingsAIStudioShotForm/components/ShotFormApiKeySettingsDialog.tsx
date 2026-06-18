@@ -91,6 +91,7 @@ type ApiKeyFieldProps = {
   placeholder: string
   hint: string
   homepageUrl?: string
+  linkLabel?: string
   show: boolean
   testing: boolean
   testResult?: { success: boolean; message: string }
@@ -106,6 +107,7 @@ function ApiKeyField({
   placeholder,
   hint,
   homepageUrl,
+  linkLabel = "API 발급",
   show,
   testing,
   testResult,
@@ -123,7 +125,7 @@ function ApiKeyField({
           <Button variant="outline" size="sm" className="h-7 shrink-0 text-xs" asChild>
             <a href={homepageUrl} target="_blank" rel="noopener noreferrer">
               <ExternalLink className="mr-1 h-3 w-3" />
-              홈페이지
+              {linkLabel}
             </a>
           </Button>
         ) : null}
@@ -501,7 +503,7 @@ ${apiKeys.vmakeSecret || "(미입력)"}
             value={apiKeys.apify}
             placeholder="Apify Console에서 발급한 API 토큰"
             hint="짜집기·제품 검색에서 TikTok·샤오홍슈·더우인 후보 수집에 사용합니다."
-            homepageUrl="https://apify.com"
+            homepageUrl="https://console.apify.com/account/integrations"
             show={!!showKeys.apify}
             testing={!!testingKeys.apify}
             testResult={testResults.apify}
@@ -514,9 +516,9 @@ ${apiKeys.vmakeSecret || "(미입력)"}
             <div className="flex items-center justify-between gap-2">
               <Label className="text-sm font-medium">Vmake AI</Label>
               <Button variant="outline" size="sm" className="h-7 shrink-0 text-xs" asChild>
-                <a href="https://vmake.ai" target="_blank" rel="noopener noreferrer">
+                <a href="https://vmake.ai/developers" target="_blank" rel="noopener noreferrer">
                   <ExternalLink className="mr-1 h-3 w-3" />
-                  홈페이지
+                  API 발급
                 </a>
               </Button>
             </div>
