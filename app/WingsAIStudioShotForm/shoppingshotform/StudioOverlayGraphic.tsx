@@ -32,6 +32,115 @@ const FILLED_ARROW_PATHS: Record<string, string> = {
   pointer: "M5 3 9 21 12 14 20 12 Z",
 }
 
+function MosaicCatalogPreview({
+  entry,
+  size,
+}: {
+  entry: StudioOverlayCatalogEntry
+  size: number
+}) {
+  const circle = entry.kind === "mosaic-circle"
+  const cols = circle ? 5 : 7
+  const rows = circle ? 5 : 4
+  const viewW = circle ? 32 : 40
+  const viewH = 32
+  const patchX = circle ? 6 : 4
+  const patchY = circle ? 6 : 10
+  const patchW = circle ? 20 : 32
+  const patchH = circle ? 20 : 12
+  const blockW = patchW / cols
+  const blockH = patchH / rows
+
+  const blockColors = [
+    "#64748b",
+    "#94a3b8",
+    "#475569",
+    "#cbd5e1",
+    "#334155",
+    "#78716c",
+    "#a8a29e",
+    "#57534e",
+    "#9ca3af",
+    "#6b7280",
+    "#4ade80",
+    "#f87171",
+    "#60a5fa",
+    "#fbbf24",
+  ]
+
+  const clipId = `mosaic-thumb-${entry.id}`
+
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox={`0 0 ${viewW} ${viewH}`}
+      aria-hidden
+      className="shrink-0 overflow-visible"
+    >
+      <defs>
+        <clipPath id={clipId}>
+          {circle ? (
+            <circle cx={patchX + patchW / 2} cy={patchY + patchH / 2} r={patchW / 2} />
+          ) : (
+            <rect x={patchX} y={patchY} width={patchW} height={patchH} rx={1.5} />
+          )}
+        </clipPath>
+      </defs>
+
+      {/* 배경 — 영상 느낌 */}
+      <rect width={viewW} height={viewH} fill="#0f172a" rx={2} />
+      <rect x={0} y={viewH * 0.55} width={viewW} height={viewH * 0.45} fill="#1e293b" />
+      <rect x={viewW * 0.15} y={viewH * 0.2} width={viewW * 0.35} height={viewH * 0.28} fill="#334155" rx={1} />
+      <rect x={viewW * 0.55} y={viewH * 0.35} width={viewW * 0.3} height={viewH * 0.22} fill="#475569" rx={1} />
+
+      {/* 모자이크 블록 */}
+      <g clipPath={`url(#${clipId})`}>
+        {Array.from({ length: rows }, (_, row) =>
+          Array.from({ length: cols }, (_, col) => {
+            const colorIdx = (row * cols + col + (entry.id.length % 3)) % blockColors.length
+            return (
+              <rect
+                key={`${row}-${col}`}
+                x={patchX + col * blockW}
+                y={patchY + row * blockH}
+                width={blockW + 0.2}
+                height={blockH + 0.2}
+                fill={blockColors[colorIdx]}
+              />
+            )
+          })
+        )}
+      </g>
+
+      {/* 영역 테두리 */}
+      {circle ? (
+        <circle
+          cx={patchX + patchW / 2}
+          cy={patchY + patchH / 2}
+          r={patchW / 2}
+          fill="none"
+          stroke="#22d3ee"
+          strokeWidth={1.2}
+          strokeOpacity={0.85}
+        />
+      ) : (
+        <rect
+          x={patchX}
+          y={patchY}
+          width={patchW}
+          height={patchH}
+          rx={1.5}
+          fill="none"
+          stroke="#22d3ee"
+          strokeWidth={1.2}
+          strokeOpacity={0.85}
+        />
+      )}
+    </svg>
+  )
+}
+
 function SvgShape({
   entry,
   color,
@@ -77,6 +186,14 @@ function useFilled(catalogId: string, filled?: boolean): boolean {
 export function StudioOverlayGraphic({ catalogId, color, size, className, strokeWidth, filled }: Props) {
   const entry = studioOverlayById(catalogId)
   if (!entry) return null
+
+  if (entry.kind === "mosaic" || entry.kind === "mosaic-circle") {
+    return (
+      <span className={cn("inline-flex shrink-0 items-center justify-center", className)}>
+        <MosaicCatalogPreview entry={entry} size={size} />
+      </span>
+    )
+  }
 
   const isFilled = useFilled(catalogId, filled)
 
@@ -134,6 +251,9 @@ export function StudioOverlayGraphic({ catalogId, color, size, className, stroke
 }
 
 export function StudioOverlayCatalogThumb({ entry, color }: { entry: StudioOverlayCatalogEntry; color: string }) {
+  if (entry.kind === "mosaic" || entry.kind === "mosaic-circle") {
+    return <MosaicCatalogPreview entry={entry} size={32} />
+  }
   return (
     <StudioOverlayGraphic
       catalogId={entry.id}
