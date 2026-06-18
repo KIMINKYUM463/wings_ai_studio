@@ -195,8 +195,6 @@ export function ShoppingLinkLivePreview({
               </button>
             ) : null}
           </div>
-
-          <p className="shrink-0 pb-3 text-center text-[10px] opacity-40">Powered by WingsAIStudio</p>
         </div>
       </div>
     </div>
