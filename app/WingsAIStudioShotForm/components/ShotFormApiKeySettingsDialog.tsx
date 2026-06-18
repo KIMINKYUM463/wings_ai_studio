@@ -11,7 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { CheckCircle2, Copy, Eye, EyeOff, FileText, Key } from "lucide-react"
+import { CheckCircle2, Copy, ExternalLink, Eye, EyeOff, FileText, Key } from "lucide-react"
 
 export const SHOTFORM_API_KEYS_UPDATED_EVENT = "shotform-api-keys-updated"
 
@@ -90,6 +90,7 @@ type ApiKeyFieldProps = {
   value: string
   placeholder: string
   hint: string
+  homepageUrl?: string
   show: boolean
   testing: boolean
   testResult?: { success: boolean; message: string }
@@ -104,6 +105,7 @@ function ApiKeyField({
   value,
   placeholder,
   hint,
+  homepageUrl,
   show,
   testing,
   testResult,
@@ -113,9 +115,19 @@ function ApiKeyField({
 }: ApiKeyFieldProps) {
   return (
     <div className="space-y-2">
-      <Label htmlFor={id} className="text-sm font-medium">
-        {label}
-      </Label>
+      <div className="flex items-center justify-between gap-2">
+        <Label htmlFor={id} className="text-sm font-medium">
+          {label}
+        </Label>
+        {homepageUrl ? (
+          <Button variant="outline" size="sm" className="h-7 shrink-0 text-xs" asChild>
+            <a href={homepageUrl} target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="mr-1 h-3 w-3" />
+              홈페이지
+            </a>
+          </Button>
+        ) : null}
+      </div>
       <div className="flex items-center gap-2">
         <Input
           id={id}
@@ -204,7 +216,7 @@ ${apiKeys.typecast || "(미입력)"}
 7. YouTube Data API Key
 ${apiKeys.youtubeDataApiKey || "(미입력)"}
 
-8. 소스 검색 API Token
+8. Apify API
 ${apiKeys.apify || "(미입력)"}
 
 9. Vmake AI API Key
@@ -285,7 +297,7 @@ ${apiKeys.vmakeSecret || "(미입력)"}
           case "apify": {
             const response = await fetch(`https://api.apify.com/v2/users/me?token=${encodeURIComponent(apiKeys.apify)}`)
             if (response.ok) {
-              setTestResults((prev) => ({ ...prev, [keyType]: { success: true, message: "소스 검색 토큰 확인 성공!" } }))
+              setTestResults((prev) => ({ ...prev, [keyType]: { success: true, message: "Apify API 연결 성공!" } }))
             } else {
               setTestResults((prev) => ({
                 ...prev,
@@ -485,10 +497,11 @@ ${apiKeys.vmakeSecret || "(미입력)"}
           />
           <ApiKeyField
             id="apify-token"
-            label="소스 검색 API Token"
+            label="Apify API"
             value={apiKeys.apify}
-            placeholder="소스 검색 서비스에서 발급한 API 토큰"
-            hint="제품 검색에서 TikTok·샤오홍슈·더우인 후보 수집에 사용합니다."
+            placeholder="Apify Console에서 발급한 API 토큰"
+            hint="짜집기·제품 검색에서 TikTok·샤오홍슈·더우인 후보 수집에 사용합니다."
+            homepageUrl="https://apify.com"
             show={!!showKeys.apify}
             testing={!!testingKeys.apify}
             testResult={testResults.apify}
@@ -498,7 +511,15 @@ ${apiKeys.vmakeSecret || "(미입력)"}
           />
 
           <div className="space-y-3">
-            <Label className="text-sm font-medium">Vmake AI</Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label className="text-sm font-medium">Vmake AI</Label>
+              <Button variant="outline" size="sm" className="h-7 shrink-0 text-xs" asChild>
+                <a href="https://vmake.ai" target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="mr-1 h-3 w-3" />
+                  홈페이지
+                </a>
+              </Button>
+            </div>
             <Input
               id="vmake-api-key"
               type={showKeys.vmake ? "text" : "password"}
