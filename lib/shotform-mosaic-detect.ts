@@ -15,37 +15,42 @@ export type MosaicDetectFrameInput = {
 
 const CHINESE_RE = /[\u4e00-\u9fff\u3400-\u4dbf]/
 
-const MOSAIC_VISION_SYSTEM = `You are a precise OCR/localization model for burned-in Chinese text in vertical short-form videos (9:16).
+const MOSAIC_VISION_SYSTEM = `You are a high-recall OCR/localization model for burned-in Chinese text in vertical short-form videos (9:16).
 
-Detect ONLY Chinese characters (Simplified or Traditional) that appear as:
-- hard subtitles, burned captions, floating on-screen text overlays, product title cards in Chinese
+Your goal is to find EVERY visible Chinese character overlay — missing text is worse than a slightly oversized box.
 
-DO NOT include: Korean/English TTS subtitles (usually top or bottom safe-area bars), product packaging micro-text, logos, faces, backgrounds.
+Detect ALL Chinese characters (Simplified or Traditional) that appear as:
+- hard subtitles, burned captions, floating on-screen text overlays, product title cards, price tags, corner stickers
+- white, yellow, red, or outlined text on ANY background (floor, sofa, wall, product, sky)
+- even 1–3 character labels (e.g. 地刷, 推荐, 爆款) — use a small tight box
+- faint, semi-transparent, or motion-blurred Chinese if still readable
+- multiple lines = separate boxes per line (never merge stacked lines into one tall box)
 
-Korean narration subtitles are often in a dark bar at the TOP — never use that region as Chinese.
-Chinese burned-in subtitles are VERY COMMON at bottom-center (top_pct 72–88%) as 1–2 white/yellow outlined lines spanning most of the width — you MUST detect these.
-Chinese text also appears MID-FRAME (top_pct 35–72%): white/yellow captions on floor, sofa, wall, product — detect every line separately.
-Short yellow product labels (2–4 characters, e.g. 地刷) at lower-middle are Chinese — detect them with a small tight box.
-Chinese product captions may also appear at center or lower-middle.
+DO NOT include: Korean/English TTS narration subtitles (usually a dark bar at TOP, top_pct < 18%), tiny packaging micro-text on product labels, logos without Chinese, faces.
 
-For each Chinese text region return a TIGHT bounding box covering ONLY the glyph pixels with ~0.5% margin.
-- The "text" field and the box MUST describe the SAME visible Chinese line — never put OCR in text while the box covers floor/wall/blank area below.
-- ONE line of text = height roughly 3–7% of frame height only — never include blank margin above/below the glyphs
-- Multiple separate text lines = separate boxes (do NOT merge lines into one tall box)
-- Small corner tags = small tight boxes at that corner
-- Do NOT return a box for the entire lower-third safe area
+Korean TTS subtitles sit in a dark bar at the TOP — never mark that band as Chinese.
+Chinese burned-in subtitles are VERY COMMON at bottom-center (top_pct 72–90%) as 1–2 white/yellow outlined lines — ALWAYS check this band.
+Chinese also appears MID-FRAME (top_pct 28–72%): captions on floor, sofa, wall, product — scan the entire frame systematically top-to-bottom.
+Check ALL four corners for small Chinese stickers/tags.
+
+For each Chinese text region return a TIGHT bounding box covering the glyph pixels with ~1% margin.
+- The "text" field MUST match the Chinese visible inside the box — never OCR text with a box on blank floor/wall.
+- ONE line height ≈ 3–8% of frame height — do not include large blank margins above/below glyphs.
+- Small corner tags = small tight boxes at that corner only.
+- Do NOT return one box covering the entire lower-third safe area.
 
 Coordinates are percentages of the FULL image frame (0=left/top, 100=right/bottom).
 Prefer left_pct, top_pct, right_pct, bottom_pct.
 Or center_x_pct, center_y_pct, width_pct, height_pct.
 
+When unsure whether faint pixels are Chinese, include the box with your best OCR guess.
 If no Chinese overlay text in a frame, return empty boxes array.`
 
 function clampPct(n: number): number {
   return Math.min(100, Math.max(0, n))
 }
 
-function padBox(box: DetectedChineseMosaicBox, padPct = 0.55): DetectedChineseMosaicBox {
+function padBox(box: DetectedChineseMosaicBox, padPct = 0.85): DetectedChineseMosaicBox {
   const rect = {
     left: box.center_x_pct - box.width_pct / 2,
     top: box.center_y_pct - box.height_pct / 2,
@@ -94,9 +99,9 @@ function parseBox(raw: unknown): DetectedChineseMosaicBox | null {
   if (![cx, cy, w, h].every(Number.isFinite)) return null
   const text = typeof o.text === "string" ? o.text.trim() : undefined
   if (text && !CHINESE_RE.test(text)) return null
-  if (w < 0.8 || h < 0.5) return null
-  // OCR는 있는데 bbox만 화면 최하단(바닥) — 글자와 좌표 불일치
-  if (text && CHINESE_RE.test(text) && cy > 77 && h < 9) return null
+  if (w < 0.6 || h < 0.4) return null
+  // OCR 있는데 bbox만 화면 최하단 여백(글자 없음) — 좌표 불일치
+  if (text && CHINESE_RE.test(text) && cy > 92 && h < 5) return null
   // 상단 한국어 TTS 띠만 제외 (하단 넓은 중국어 자막은 허용)
   if (cy < 20 && w > 55 && h > 7) return null
 
@@ -112,9 +117,11 @@ function parseBox(raw: unknown): DetectedChineseMosaicBox | null {
 export async function visionDetectMosaicBatch(
   apiKey: string,
   frames: MosaicDetectFrameInput[],
-  options?: { highDetail?: boolean }
+  options?: { highDetail?: boolean; recallMode?: boolean }
 ): Promise<MosaicFrameDetectRow[]> {
   const highDetail = options?.highDetail ?? frames.length <= 2
+  const recallMode = options?.recallMode === true
+  const model = recallMode ? "gpt-4o" : "gpt-4o-mini"
   const images = frames.map((f) => ({
     timeSec: f.timeSec,
     b64: f.imageBase64.replace(/^data:image\/\w+;base64,/, ""),
@@ -127,9 +134,9 @@ export async function visionDetectMosaicBatch(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
+      model,
       temperature: 0,
-      max_tokens: 3200,
+      max_tokens: recallMode ? 4096 : 3200,
       response_format: { type: "json_object" as const },
       messages: [
         {
@@ -143,7 +150,12 @@ JSON: {"frames":[{"index":0,"boxes":[{"left_pct":10,"top_pct":76,"right_pct":90,
           content: [
             {
               type: "text",
-              text: `프레임 ${images.length}장 (9:16 세로). index 순 = timeSec 순.
+              text: recallMode
+                ? `프레임 ${images.length}장 (9:16 세로). index 순 = timeSec 순.
+각 프레임을 위→아래 전체 스캔하며 보이는 중국어 자막/오버레이를 빠짐없이 boxes에 넣으세요.
+하단 72–90% 흰/노란 자막, 중앙 바닥·소파·벽 위 자막, 모서리 짧은 태그(2~4자)도 반드시 포함.
+흐릿해도 읽히면 포함. text와 box는 같은 글자 줄. 바닥 여백만 덮는 box 금지.`
+                : `프레임 ${images.length}장 (9:16 세로). index 순 = timeSec 순.
 각 프레임마다 보이는 중국어 자막/오버레이만 글자 픽셀에 딱 맞게 boxes에 넣으세요.
 바닥·소파·벽 위 흰색/노란 중국어 자막도 빠짐없이. text와 box는 반드시 같은 글자 줄. 바닥 여백만 덮는 box 금지.`,
             },
@@ -161,7 +173,7 @@ JSON: {"frames":[{"index":0,"boxes":[{"left_pct":10,"top_pct":76,"right_pct":90,
         },
       ],
     }),
-    signal: AbortSignal.timeout(55_000),
+    signal: AbortSignal.timeout(recallMode ? 90_000 : 55_000),
   })
 
   if (!res.ok) {

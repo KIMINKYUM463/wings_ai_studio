@@ -17,6 +17,7 @@ export async function POST(request: NextRequest) {
       frames?: MosaicDetectFrameInput[]
       rowsOnly?: boolean
       highDetail?: boolean
+      recallMode?: boolean
     }
 
     const openaiApiKey =
@@ -25,6 +26,7 @@ export async function POST(request: NextRequest) {
     const frames = Array.isArray(body.frames) ? body.frames : []
     const rowsOnly = body.rowsOnly !== false
     const highDetail = body.highDetail !== false
+    const recallMode = body.recallMode === true
 
     if (!openaiApiKey) {
       return NextResponse.json(
@@ -50,7 +52,7 @@ export async function POST(request: NextRequest) {
       }))
       .slice(0, MAX_FRAMES_PER_REQUEST)
 
-    const rows = await visionDetectMosaicBatch(openaiApiKey, sanitized, { highDetail })
+    const rows = await visionDetectMosaicBatch(openaiApiKey, sanitized, { highDetail, recallMode })
 
     if (rowsOnly) {
       return NextResponse.json({ rows, count: rows.length })

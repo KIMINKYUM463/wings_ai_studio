@@ -107,14 +107,14 @@ function isSuspiciousMosaicBox(box: DetectedChineseMosaicBox): boolean {
   const { center_x_pct: cx, center_y_pct: cy, width_pct: w, height_pct: h } = box
   const hasChinese = Boolean(box.text && CHINESE_RE.test(box.text))
   if (hasChinese) {
-    // OCR 있는데 화면 최하단(바닥·여백)만 덮는 박스 — 글자와 bbox 불일치
-    if (cy > 74 && h < 8 && w < 50) return true
+    // OCR 있는데 화면 최하단 여백만 덮는 박스 — 글자와 bbox 불일치
+    if (cy > 90 && h < 5 && w < 40) return true
     return false
   }
   // 상단 한국어 TTS 자막 띠
   if (cy < 22 && w > 55 && h > 8) return true
-  // OCR 없이 하단·바닥 영역 — 중국어 오탐 다수
-  if (cy > 66) return true
+  // OCR 없이 하단·바닥 영역 — 중국어 오탐 다수 (OCR 없을 때만)
+  if (cy > 72) return true
   if (w > 94 && h > 38) return true
   if (w > 88 && h > 48) return true
   return false
@@ -510,8 +510,8 @@ function resolveTrackTiming(
   step: number,
   seg: MosaicSceneSegment | null
 ): { startSec: number; endSec: number } {
-  const leadSec = Math.min(0.45, Math.max(0.18, step * 0.9))
-  const tailSec = Math.min(0.14, Math.max(0.05, step * 0.28))
+  const leadSec = Math.min(0.55, Math.max(0.22, step * 1.05))
+  const tailSec = Math.min(0.2, Math.max(0.08, step * 0.38))
 
   let startSec = Math.max(0, track.startSec - leadSec)
   let endSec = Math.min(durationSec, track.endSec + tailSec)
@@ -572,7 +572,7 @@ export function buildMosaicAppearanceProbeTimes(
   existingTimes: number[],
   options?: { maxExtra?: number }
 ): number[] {
-  const maxExtra = options?.maxExtra ?? 32
+  const maxExtra = options?.maxExtra ?? 40
   const existing = new Set(existingTimes.map((t) => Math.round(t * 1000) / 1000))
   const extra: number[] = []
   const push = (t: number) => {
@@ -611,8 +611,8 @@ export function mergeMosaicRowsToOverlays(
       id: `ov-ai-${i + 1}`,
       centerXPct: t.centerXPct,
       centerYPct: t.centerYPct,
-      widthPct: Math.min(94, t.widthPct + 1.2),
-      heightPct: Math.min(14, t.heightPct + 0.5),
+      widthPct: Math.min(96, t.widthPct + 2.2),
+      heightPct: Math.min(16, t.heightPct + 1),
       startSec,
       endSec,
       detectedText: t.text,
@@ -628,7 +628,7 @@ export function buildMosaicPositionRefineTimes(
   existingTimes: number[],
   options?: { maxExtra?: number }
 ): number[] {
-  const maxExtra = options?.maxExtra ?? 36
+  const maxExtra = options?.maxExtra ?? 44
   const existing = new Set(existingTimes.map((t) => Math.round(t * 1000) / 1000))
   const times: number[] = []
   const push = (t: number) => {

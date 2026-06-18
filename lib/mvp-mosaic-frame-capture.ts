@@ -2,10 +2,10 @@
 
 import type { MosaicFrameDetectRow } from "@/lib/mvp-mosaic-merge"
 
-const DEFAULT_MAX_FRAMES = 72
-const DEFAULT_MAX_WIDTH = 640
-const REFINE_MAX_WIDTH = 768
-const BOUNDARY_MAX_WIDTH = 768
+const DEFAULT_MAX_FRAMES = 100
+const DEFAULT_MAX_WIDTH = 720
+const REFINE_MAX_WIDTH = 832
+const BOUNDARY_MAX_WIDTH = 832
 const SEEK_TIMEOUT_MS = 2500
 
 export type MosaicSceneSegment = { start: number; end: number }
@@ -179,7 +179,7 @@ export function buildMosaicScanTimes(
   const safeDur = Math.max(0.5, durationSec)
   const interval =
     options?.intervalSec ??
-    (safeDur <= 12 ? 0.1 : safeDur <= 22 ? 0.12 : safeDur <= 35 ? 0.15 : safeDur <= 50 ? 0.18 : 0.22)
+    (safeDur <= 12 ? 0.08 : safeDur <= 22 ? 0.1 : safeDur <= 35 ? 0.12 : safeDur <= 50 ? 0.15 : 0.18)
   const maxFrames = options?.maxFrames ?? DEFAULT_MAX_FRAMES
   const times: number[] = []
   for (let t = 0.04; t < safeDur - 0.03 && times.length < maxFrames; t += interval) {
@@ -211,9 +211,9 @@ export function buildMosaicScanTimesForSegments(
 
   for (const seg of valid) {
     const segDur = Math.max(0.08, seg.end - seg.start)
-    const budget = Math.max(3, Math.round((segDur / totalSegDur) * maxFrames))
+    const budget = Math.max(5, Math.round((segDur / totalSegDur) * maxFrames))
     const interval =
-      segDur / budget <= 0.12 ? 0.1 : segDur / budget <= 0.2 ? 0.14 : segDur / budget <= 0.35 ? 0.18 : 0.22
+      segDur / budget <= 0.1 ? 0.08 : segDur / budget <= 0.16 ? 0.11 : segDur / budget <= 0.28 ? 0.14 : 0.18
 
     let count = 0
     for (let t = seg.start + 0.04; t < seg.end - 0.02 && count < budget; t += interval) {
@@ -233,7 +233,7 @@ export function buildMosaicRefineTimes(
   durationSec: number,
   options?: { maxExtra?: number; existingTimes?: number[] }
 ): number[] {
-  const maxExtra = options?.maxExtra ?? 28
+  const maxExtra = options?.maxExtra ?? 44
   const existing = new Set((options?.existingTimes ?? []).map((t) => Math.round(t * 1000) / 1000))
   const hits = rows.filter((r) => r.boxes.length > 0).map((r) => r.timeSec)
   if (!hits.length) return []
@@ -246,7 +246,7 @@ export function buildMosaicRefineTimes(
   }
 
   for (const t of hits) {
-    for (const d of [-0.2, -0.16, -0.12, -0.08, -0.05, -0.03, 0.03, 0.05, 0.08, 0.12, 0.16, 0.2]) push(t + d)
+    for (const d of [-0.24, -0.2, -0.16, -0.12, -0.09, -0.06, -0.04, -0.02, 0.02, 0.04, 0.06, 0.09, 0.12, 0.16, 0.2, 0.24]) push(t + d)
   }
 
   for (let i = 0; i < hits.length - 1; i++) {
@@ -285,9 +285,11 @@ export function buildMosaicMissedSegmentTimes(
         r.boxes.length > 0
     )
     if (hasHit) continue
+    push(seg.start + (seg.end - seg.start) * 0.2)
     push(seg.start + (seg.end - seg.start) * 0.35)
     push((seg.start + seg.end) / 2)
-    push(seg.end - (seg.end - seg.start) * 0.15)
+    push(seg.end - (seg.end - seg.start) * 0.28)
+    push(seg.end - (seg.end - seg.start) * 0.12)
   }
 
   return uniqueSortedTimes(extra, 0.04)
@@ -318,16 +320,16 @@ export function buildMosaicPartialSegmentTimes(
     const hitStart = Math.min(...hits.map((h) => h.timeSec))
     const hitEnd = Math.max(...hits.map((h) => h.timeSec))
     const covered = hitEnd - hitStart
-    if (covered >= segDur * 0.72) continue
+    if (covered >= segDur * 0.52) continue
 
-    for (const frac of [0.12, 0.28, 0.42, 0.58, 0.72, 0.88]) {
+    for (const frac of [0.08, 0.18, 0.28, 0.38, 0.48, 0.58, 0.68, 0.78, 0.88]) {
       push(seg.start + segDur * frac)
     }
     if (hitStart - seg.start > 0.12) push(seg.start + (hitStart - seg.start) * 0.45)
     if (seg.end - hitEnd > 0.12) push(hitEnd + (seg.end - hitEnd) * 0.55)
   }
 
-  return uniqueSortedTimes(extra, 0.035).slice(0, 28)
+  return uniqueSortedTimes(extra, 0.035).slice(0, 40)
 }
 
 /** 감지가 1~2프레임뿐인 장면 — 위치·누락 보완용 촘촘 스캔 */
@@ -350,13 +352,102 @@ export function buildMosaicSparseSegmentTimes(
     const hits = rows.filter(
       (r) => r.timeSec >= seg.start - 0.04 && r.timeSec <= seg.end + 0.04 && r.boxes.length > 0
     )
-    if (hits.length >= 4) continue
+    if (hits.length >= 6) continue
 
-    const step = segDur <= 2 ? 0.1 : segDur <= 4 ? 0.14 : 0.18
+    const step = segDur <= 1.5 ? 0.08 : segDur <= 2.5 ? 0.1 : segDur <= 4 ? 0.12 : 0.15
     for (let t = seg.start + 0.05; t < seg.end - 0.03; t += step) push(t)
   }
 
-  return uniqueSortedTimes(extra, 0.03).slice(0, 32)
+  return uniqueSortedTimes(extra, 0.03).slice(0, 48)
+}
+
+/** 감지가 적거나 없는 장면 — 0.08~0.1초 간격 전수 스캔 (4차) */
+export function buildMosaicDenseSegmentSweepTimes(
+  rows: MosaicFrameDetectRow[],
+  segments: MosaicSceneSegment[],
+  existingTimes: number[],
+  options?: { maxExtra?: number }
+): number[] {
+  const maxExtra = options?.maxExtra ?? 56
+  const existing = new Set(existingTimes.map((t) => Math.round(t * 1000) / 1000))
+  const extra: number[] = []
+  const push = (t: number) => {
+    const rounded = Math.round(t * 1000) / 1000
+    if (existing.has(rounded)) return
+    if (!extra.some((x) => Math.abs(x - rounded) < 0.025)) extra.push(rounded)
+  }
+
+  for (const seg of segments) {
+    if (!Number.isFinite(seg.start) || !Number.isFinite(seg.end) || seg.end <= seg.start + 0.06) continue
+    const segDur = seg.end - seg.start
+    const hits = rows.filter(
+      (r) => r.timeSec >= seg.start - 0.04 && r.timeSec <= seg.end + 0.04 && r.boxes.length > 0
+    )
+    const scanned = rows.filter(
+      (r) => r.timeSec >= seg.start - 0.04 && r.timeSec <= seg.end + 0.04
+    )
+    const needsDense = hits.length <= 2 || scanned.length < Math.max(3, Math.ceil(segDur / 0.2))
+    if (!needsDense) continue
+
+    const step = segDur <= 1.2 ? 0.08 : segDur <= 2.5 ? 0.1 : 0.12
+    for (let t = seg.start + 0.04; t < seg.end - 0.02; t += step) push(t)
+    push((seg.start + seg.end) / 2)
+    push(seg.end - 0.04)
+  }
+
+  return uniqueSortedTimes(extra, 0.025).slice(0, maxExtra)
+}
+
+/** 타임라인 전체에서 아직 스캔 안 된 긴 공백 구간 보완 */
+export function buildMosaicTimelineGapSweepTimes(
+  rows: MosaicFrameDetectRow[],
+  durationSec: number,
+  existingTimes: number[],
+  options?: { maxExtra?: number; minGapSec?: number }
+): number[] {
+  const maxExtra = options?.maxExtra ?? 36
+  const minGap = options?.minGapSec ?? 0.22
+  const existing = new Set(existingTimes.map((t) => Math.round(t * 1000) / 1000))
+  const extra: number[] = []
+  const push = (t: number) => {
+    const clamped = Math.round(Math.min(Math.max(0.04, t), durationSec - 0.04) * 1000) / 1000
+    if (existing.has(clamped)) return
+    if (!extra.some((x) => Math.abs(x - clamped) < 0.03)) extra.push(clamped)
+  }
+
+  const scanned = uniqueSortedTimes(
+    [...existingTimes, ...rows.map((r) => r.timeSec)],
+    0.02
+  ).sort((a, b) => a - b)
+
+  if (!scanned.length) {
+    for (let t = 0.06; t < durationSec - 0.04; t += 0.12) push(t)
+    return extra.slice(0, maxExtra)
+  }
+
+  if (scanned[0]! > minGap) {
+    for (let t = 0.06; t < scanned[0]!; t += 0.1) push(t)
+  }
+
+  for (let i = 0; i < scanned.length - 1; i++) {
+    const a = scanned[i]!
+    const b = scanned[i + 1]!
+    const gap = b - a
+    if (gap < minGap) continue
+    push(a + gap * 0.2)
+    push(a + gap * 0.5)
+    push(b - gap * 0.2)
+    if (gap > 0.45) {
+      for (let t = a + 0.1; t < b - 0.06; t += 0.1) push(t)
+    }
+  }
+
+  const last = scanned[scanned.length - 1]!
+  if (durationSec - last > minGap) {
+    for (let t = last + 0.08; t < durationSec - 0.04; t += 0.1) push(t)
+  }
+
+  return uniqueSortedTimes(extra, 0.025).slice(0, maxExtra)
 }
 
 /** 인접 모자이크 트랙 사이 빈 구간 — 중간 시각 재탐색 */
@@ -366,7 +457,7 @@ export function buildMosaicInterTrackGapTimes(
   existingTimes: number[],
   options?: { maxExtra?: number }
 ): number[] {
-  const maxExtra = options?.maxExtra ?? 28
+  const maxExtra = options?.maxExtra ?? 36
   const existing = new Set(existingTimes.map((t) => Math.round(t * 1000) / 1000))
   const extra: number[] = []
   const push = (t: number) => {
@@ -407,7 +498,7 @@ export function buildMosaicBoundaryTimes(
   durationSec: number,
   options?: { existingTimes?: number[]; maxExtra?: number }
 ): number[] {
-  const maxExtra = options?.maxExtra ?? 32
+  const maxExtra = options?.maxExtra ?? 44
   const existing = new Set((options?.existingTimes ?? []).map((t) => Math.round(t * 1000) / 1000))
   const extra: number[] = []
   const push = (t: number) => {
