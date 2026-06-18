@@ -880,7 +880,7 @@ export function MvpThumbnailAdvancedEditor({
 
       const finalHooking = data.hookingText ?? text
       const nextUrl = data.thumbnailUrl.trim()
-      commitDesign((d) => applyFullAiThumbnail(d, nextUrl, finalHooking))
+      patchDesign((d) => applyFullAiThumbnail(d, nextUrl, finalHooking))
       setBgUrlDraft(nextUrl)
       setSelectedId(null)
       setSideTab("ai")
@@ -1164,8 +1164,15 @@ export function MvpThumbnailAdvancedEditor({
     setExporting(true)
     setErr(null)
     try {
-      const dataUrl = await exportThumbnailStageToDataUrl(stage)
-      onApply(dataUrl, hookingFromThumbnailDesign(design), design)
+      let dataUrl = await exportThumbnailStageToDataUrl(stage)
+      if (dataUrl.startsWith("data:image/")) {
+        dataUrl = await compressReferenceImageDataUrl(dataUrl)
+      }
+      const designForSave: MvpThumbnailDesign = {
+        ...design,
+        aiBackgroundHistory: undefined,
+      }
+      onApply(dataUrl, hookingFromThumbnailDesign(design), designForSave)
       onOpenChange(false)
     } catch (e) {
       setErr(e instanceof Error ? e.message : "썸네일 저장 실패")

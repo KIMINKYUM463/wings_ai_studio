@@ -34,6 +34,7 @@ import type { MvpReprocessResolvedItem } from "@/lib/shotform-mvp-reprocess-url-
 import type { MvpStudioPersistData } from "@/lib/mvp-studio-types"
 import { normalizeStudioPhase } from "@/lib/mvp-studio-types"
 import { prepareMvpProjectDataForSave } from "@/lib/mvp-project-persist"
+import { safeJsonKey, slimStudioPersistForSave } from "@/lib/mvp-thumbnail-persist"
 import { MvpAutoEditDialog } from "./MvpAutoEditDialog"
 import { MvpEditPicksBar } from "./MvpEditPicksBar"
 import { MvpPostEditStudio } from "./MvpPostEditStudio"
@@ -346,7 +347,7 @@ function buildProjectData(args: {
 }
 
 function projectDataSnapshot(args: Parameters<typeof buildProjectData>[0]): string {
-  return JSON.stringify(prepareMvpProjectDataForSave(buildProjectData(args)))
+  return safeJsonKey(prepareMvpProjectDataForSave(buildProjectData(args))) ?? ""
 }
 
 function formatSaveError(e: unknown): string {
@@ -509,23 +510,26 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
   }, [project.id])
 
   const handleStudioPersistChange = useCallback((data: MvpStudioPersistData) => {
+    const slimmed = slimStudioPersistForSave(data)
     setPostEditStudioData((prev) => {
-      const key = JSON.stringify(data)
-      if (JSON.stringify(prev) === key) return prev
-      return data
+      const key = safeJsonKey(slimmed)
+      const prevKey = safeJsonKey(prev)
+      if (key && prevKey && prevKey === key) return prev
+      return slimmed
     })
-    if (data.scriptOverrides && Object.keys(data.scriptOverrides).length) {
+    if (slimmed.scriptOverrides && Object.keys(slimmed.scriptOverrides).length) {
       setPostEditScriptOverrides((prev) => {
-        const key = JSON.stringify(data.scriptOverrides)
-        if (JSON.stringify(prev) === key) return prev
-        return data.scriptOverrides!
+        const key = safeJsonKey(slimmed.scriptOverrides)
+        const prevKey = safeJsonKey(prev)
+        if (key && prevKey && prevKey === key) return prev
+        return slimmed.scriptOverrides!
       })
     }
     if (workspaceRef.current) {
       workspaceRef.current = {
         ...workspaceRef.current,
-        postEditStudioData: data,
-        postEditScriptOverrides: data.scriptOverrides ?? workspaceRef.current.postEditScriptOverrides,
+        postEditStudioData: slimmed,
+        postEditScriptOverrides: slimmed.scriptOverrides ?? workspaceRef.current.postEditScriptOverrides,
       }
     }
   }, [])
@@ -568,7 +572,12 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
     if (!w) return false
 
     const payload = prepareMvpProjectDataForSave(buildProjectData(w))
-    const key = JSON.stringify(payload)
+    const key = safeJsonKey(payload)
+    if (!key) {
+      setSaveState("error")
+      setSaveError("프로젝트 데이터가 너무 커서 저장할 수 없습니다. 썸네일을 다시 생성해 주세요.")
+      return false
+    }
     if (!opts?.force && lastSavedKeyRef.current === key) {
       setSaveState("saved")
       window.setTimeout(() => setSaveState("idle"), 2000)

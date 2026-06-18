@@ -21,6 +21,7 @@ import type {
 import { labelThumbnailSource, selectedThumbnailVariant } from "@/lib/mvp-thumbnail-gallery"
 import type { MvpThumbnailDesign } from "@/lib/mvp-thumbnail-design"
 import { THUMBNAIL_SAMPLE_BACKGROUNDS } from "@/lib/mvp-thumbnail-samples"
+import { normalizeMvpHookingText } from "@/lib/mvp-thumbnail-persist"
 import { studio } from "../components/ShotFormStudioUI"
 import { MvpThumbnailAdvancedEditor } from "./MvpThumbnailAdvancedEditor"
 import { MvpThumbnailFramePicker } from "./MvpThumbnailFramePicker"
@@ -121,7 +122,7 @@ export function MvpThumbnailPanel({
     if (activeThumbnail?.source !== "studio" || !activeThumbnail.studioDesign) return null
     const bakedUrl = activeThumbnail.url.trim()
     const rawBg = editorBackgroundUrl.trim()
-    const savedBg = activeThumbnail.studioDesign.backgroundUrl.trim()
+    const savedBg = activeThumbnail.studioDesign.backgroundUrl?.trim() ?? ""
     const backgroundUrl =
       rawBg && (!savedBg || savedBg === bakedUrl) ? rawBg : savedBg || rawBg
     return { ...activeThumbnail.studioDesign, backgroundUrl }
@@ -250,12 +251,13 @@ export function MvpThumbnailPanel({
         error?: string
       }
       if (!res.ok) throw new Error(data.error || "썸네일 생성 실패")
-      if (data.hookingText) onHookingTextChange(data.hookingText)
-      if (data.thumbnailUrl) {
+      const finalHooking = normalizeMvpHookingText(data.hookingText ?? text)
+      if (data.hookingText) onHookingTextChange(finalHooking)
+      if (data.thumbnailUrl?.trim()) {
         onAddThumbnail({
-          url: data.thumbnailUrl,
+          url: data.thumbnailUrl.trim(),
           source: "ai",
-          hookingText: data.hookingText ?? text,
+          hookingText: finalHooking,
         })
       }
     } catch (e) {
@@ -687,15 +689,16 @@ export function MvpThumbnailPanel({
         onApply={(dataUrl, hooking, design) => {
           const studioDesign: MvpThumbnailDesign = {
             ...design,
-            backgroundUrl: editorBackgroundUrl || design.backgroundUrl,
+            backgroundUrl: editorBackgroundUrl || design.backgroundUrl || "",
+            aiBackgroundHistory: undefined,
           }
           onAddThumbnail({
             url: dataUrl,
             source: "studio",
-            hookingText: hooking,
+            hookingText: normalizeMvpHookingText(hooking),
             studioDesign,
           })
-          onHookingTextChange(hooking)
+          onHookingTextChange(normalizeMvpHookingText(hooking))
         }}
       />
     </div>

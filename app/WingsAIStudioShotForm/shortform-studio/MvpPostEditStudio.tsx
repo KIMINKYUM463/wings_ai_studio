@@ -28,6 +28,11 @@ import {
   removeThumbnailVariant,
   selectedThumbnailVariant,
 } from "@/lib/mvp-thumbnail-gallery"
+import {
+  normalizeMvpHookingText,
+  safeJsonKey,
+  slimStudioPersistForSave,
+} from "@/lib/mvp-thumbnail-persist"
 import { narrationSegmentDuration } from "@/lib/shotform-factory-narration-script"
 import {
   filterSupertoneKoreanVoices,
@@ -348,7 +353,7 @@ export function MvpPostEditStudio({
   }, [result.jobId])
 
   useEffect(() => {
-    const payload: MvpStudioPersistData = {
+    const payload: MvpStudioPersistData = slimStudioPersistForSave({
       scriptOverrides,
       subtitleStyle,
       placedOverlays: placedOverlays.length ? placedOverlays : undefined,
@@ -377,8 +382,12 @@ export function MvpPostEditStudio({
       videoSourceTransforms: Object.keys(videoSourceTransforms).length
         ? videoSourceTransforms
         : undefined,
+    })
+    const key = safeJsonKey(payload)
+    if (!key) {
+      console.warn("[MvpPostEditStudio] persist payload too large — skipped")
+      return
     }
-    const key = JSON.stringify(payload)
     if (key === lastPersistKeyRef.current) return
     lastPersistKeyRef.current = key
     onStudioPersistChangeRef.current?.(payload)
@@ -1378,8 +1387,8 @@ export function MvpPostEditStudio({
       setThumbnailGallery(gallery)
       setSelectedThumbnailId(selectedId)
       setThumbnailIntroOn(true)
-      if (entry.hookingText?.line1?.trim() || entry.hookingText?.line2?.trim()) {
-        setThumbnailHookingText(entry.hookingText)
+      if (entry.hookingText) {
+        setThumbnailHookingText(normalizeMvpHookingText(entry.hookingText))
       }
     },
     [thumbnailGallery]
@@ -1389,8 +1398,8 @@ export function MvpPostEditStudio({
     (id: string) => {
       setSelectedThumbnailId(id)
       const variant = thumbnailGallery.find((v) => v.id === id)
-      if (variant?.hookingText?.line1?.trim() || variant?.hookingText?.line2?.trim()) {
-        setThumbnailHookingText(variant.hookingText)
+      if (variant?.hookingText) {
+        setThumbnailHookingText(normalizeMvpHookingText(variant.hookingText))
       }
     },
     [thumbnailGallery]

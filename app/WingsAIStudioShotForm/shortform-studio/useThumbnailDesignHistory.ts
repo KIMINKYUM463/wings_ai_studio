@@ -6,7 +6,20 @@ import type { MvpThumbnailDesign } from "@/lib/mvp-thumbnail-design"
 const MAX_HISTORY = 50
 
 function cloneDesign(d: MvpThumbnailDesign): MvpThumbnailDesign {
-  return JSON.parse(JSON.stringify(d)) as MvpThumbnailDesign
+  try {
+    if (typeof structuredClone === "function") {
+      return structuredClone(d)
+    }
+    return JSON.parse(JSON.stringify(d)) as MvpThumbnailDesign
+  } catch {
+    return {
+      ...d,
+      texts: d.texts.map((t) => ({ ...t })),
+      elements: d.elements.map((el) => ({ ...el })),
+      filter: { ...d.filter },
+      aiBackgroundHistory: d.aiBackgroundHistory?.slice(0, 2),
+    }
+  }
 }
 
 export function useThumbnailDesignHistory(initial: MvpThumbnailDesign) {

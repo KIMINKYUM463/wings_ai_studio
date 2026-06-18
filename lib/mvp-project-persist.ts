@@ -1,6 +1,7 @@
 import type { MvpStudioPersistData } from "@/lib/mvp-studio-types"
 import type { AutoEditJobResult } from "@/lib/shotform-auto-edit-types"
 import type { MvpTestProjectData } from "@/app/WingsAIStudioShotForm/shortform-studio/project-types"
+import { slimStudioPersistForSave } from "@/lib/mvp-thumbnail-persist"
 
 /** Supabase JSONB 저장용 — 분석 프레임 등 불필요한 대용량 필드 제거 */
 export function slimPostEditResultForPersist(result: AutoEditJobResult): AutoEditJobResult {
@@ -53,10 +54,10 @@ export function slimPostEditResultForPersist(result: AutoEditJobResult): AutoEdi
 
 export function prepareMvpProjectDataForSave(data: MvpTestProjectData): MvpTestProjectData {
   const studioData: MvpStudioPersistData | undefined = data.postEditStudioData
-    ? {
+    ? slimStudioPersistForSave({
         ...data.postEditStudioData,
         scriptOverrides: data.postEditStudioData.scriptOverrides ?? data.postEditScriptOverrides,
-      }
+      })
     : data.postEditScriptOverrides && Object.keys(data.postEditScriptOverrides).length > 0
       ? { scriptOverrides: data.postEditScriptOverrides }
       : undefined
