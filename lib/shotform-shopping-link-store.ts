@@ -25,19 +25,29 @@ export function normalizeShoppingLinkPageData(data: ShoppingLinkPageData): Shopp
   }
 }
 
-/** PUT 성공 후 서버 응답과 클라이언트 payload를 합칩니다. 프로필·디자인은 사용자가 저장한 값을 우선합니다. */
-export function applyClientPublishResult(
+/** PUT 성공 후 서버 응답 검증. 저장 요청(payload)과 DB(saved)가 일치해야 합니다. */
+export function assertPublishMatchesPayload(
   payload: ShoppingLinkPageData,
-  server: ShoppingLinkPageData
+  saved: ShoppingLinkPageData
 ): ShoppingLinkPageData {
   const client = normalizeShoppingLinkPageData(payload)
-  const remote = normalizeShoppingLinkPageData(server)
-  return normalizeShoppingLinkPageData({
-    profile: client.profile,
-    design: client.design,
-    blocks: remote.blocks.length > 0 ? remote.blocks : client.blocks,
-    updatedAt: client.updatedAt,
-  })
+  const remote = normalizeShoppingLinkPageData(saved)
+
+  if (client.blocks.length > 0 && remote.blocks.length < client.blocks.length) {
+    throw new Error(
+      `블록 ${client.blocks.length}개 중 ${remote.blocks.length}개만 DB에 저장되었습니다. 「블록 저장 · 페이지에 반영」을 다시 눌러 주세요.`
+    )
+  }
+
+  const wantedTitle = client.profile.displayName.trim()
+  const savedTitle = remote.profile.displayName.trim()
+  if (wantedTitle && savedTitle !== wantedTitle) {
+    throw new Error(
+      `프로필 제목이 DB에 반영되지 않았습니다. (DB: "${savedTitle}" / 요청: "${wantedTitle}")`
+    )
+  }
+
+  return remote
 }
 
 /** 로컬 draft와 서버 데이터를 합칩니다. 서버에 블록이 없을 때 로컬 블록이 지워지지 않게 합니다. */
@@ -49,14 +59,16 @@ export function mergeShoppingLinkPageData(
   const remoteN = normalizeShoppingLinkPageData(remote)
   const localTs = Date.parse(localN.updatedAt) || 0
   const remoteTs = Date.parse(remoteN.updatedAt) || 0
-  const blocks =
-    localN.blocks.length > 0
+  const useLocal = localTs >= remoteTs
+  const blocks = useLocal
+    ? localN.blocks.length > 0
       ? localN.blocks
-      : remoteN.blocks.length > 0
-        ? remoteN.blocks
-        : []
-  const profile = localTs >= remoteTs ? localN.profile : remoteN.profile
-  const design = localTs >= remoteTs ? localN.design : remoteN.design
+      : remoteN.blocks
+    : remoteN.blocks.length > 0
+      ? remoteN.blocks
+      : localN.blocks
+  const profile = useLocal ? localN.profile : remoteN.profile
+  const design = useLocal ? localN.design : remoteN.design
   return normalizeShoppingLinkPageData({
     profile,
     design,
@@ -116,10 +128,7 @@ export async function publishShoppingLinkPage(data: ShoppingLinkPageData): Promi
     throw new Error(err?.error ?? "저장에 실패했습니다.")
   }
   const saved = normalizeShoppingLinkPageData((await res.json()) as ShoppingLinkPageData)
-  let result = applyClientPublishResult(payload, saved)
-  if (payload.blocks.length > 0 && result.blocks.length === 0) {
-    throw new Error("블록이 서버에 저장되지 않았습니다. Supabase 설정을 확인해 주세요.")
-  }
+  let result = assertPublishMatchesPayload(payload, saved)
 
   const verifyRes = await fetch(
     `/api/shotform-shopping-link/${encodeURIComponent(slug)}?v=${Date.now()}`,
@@ -127,12 +136,7 @@ export async function publishShoppingLinkPage(data: ShoppingLinkPageData): Promi
   )
   if (verifyRes.ok) {
     const verified = normalizeShoppingLinkPageData((await verifyRes.json()) as ShoppingLinkPageData)
-    if (payload.blocks.length > 0 && verified.blocks.length === 0) {
-      throw new Error(
-        "저장 응답은 성공했지만 공개 API에 블록이 없습니다. localhost에서 테스트 중이면 wingsaistudio.com에서 다시 저장해 주세요."
-      )
-    }
-    result = applyClientPublishResult(payload, mergeShoppingLinkPageData(result, verified))
+    result = assertPublishMatchesPayload(payload, verified)
   }
 
   saveShoppingLinkDraft(result)

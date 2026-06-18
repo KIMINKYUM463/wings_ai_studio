@@ -24,6 +24,7 @@ type Tab = "blocks" | "design"
 
 export function ShoppingLinksView() {
   const [data, setData] = useState<ShoppingLinkPageData>(() => createEmptyShoppingLinkDraft())
+  const [serverData, setServerData] = useState<ShoppingLinkPageData | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [tab, setTab] = useState<Tab>("blocks")
   const [showProfileSettings, setShowProfileSettings] = useState(false)
@@ -41,16 +42,29 @@ export function ShoppingLinksView() {
     return `상품 ${links}개 · 텍스트 ${texts}개`
   }, [data.blocks])
 
+  const hasUnpublishedChanges = useMemo(() => {
+    if (!serverData) return false
+    const slug = sanitizeShoppingLinkSlug(data.profile.slug)
+    if (!slug) return false
+    return (
+      JSON.stringify(data.blocks) !== JSON.stringify(serverData.blocks) ||
+      data.profile.displayName !== serverData.profile.displayName ||
+      data.profile.bio !== serverData.profile.bio ||
+      JSON.stringify(data.design) !== JSON.stringify(serverData.design)
+    )
+  }, [data, serverData])
+
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       const draft = loadShoppingLinkDraft() ?? createEmptyShoppingLinkDraft()
       const slug = sanitizeShoppingLinkSlug(draft.profile.slug)
       let merged = draft
+      let published: ShoppingLinkPageData | null = null
 
       if (slug) {
         try {
-          const published = await fetchShoppingLinkPage(slug)
+          published = await fetchShoppingLinkPage(slug)
           if (published) merged = mergeShoppingLinkPageData(draft, published)
         } catch {
           /* 서버 조회 실패 시 로컬 draft 유지 */
@@ -59,6 +73,7 @@ export function ShoppingLinksView() {
 
       if (!cancelled) {
         setData(merged)
+        setServerData(published)
         saveShoppingLinkDraft(merged)
         setShowProfileSettings(!(merged.profile.slug && merged.profile.displayName))
         setLoaded(true)
@@ -86,8 +101,12 @@ export function ShoppingLinksView() {
     try {
       const saved = await publishShoppingLinkPage(payload)
       setData(saved)
+      setServerData(saved)
       saveShoppingLinkDraft(saved)
-      flash("공개 페이지에 반영되었습니다!", "success")
+      flash(
+        `공개 페이지에 반영되었습니다! (블록 ${saved.blocks.length}개 · ${saved.profile.displayName})`,
+        "success"
+      )
       setShowProfileSettings(false)
     } catch (e) {
       flash(e instanceof Error ? e.message : "저장 실패", "error")
@@ -120,6 +139,12 @@ export function ShoppingLinksView() {
 
   return (
     <div>
+      {hasUnpublishedChanges ? (
+        <div className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+          미리보기와 공개 URL이 다릅니다. 아래 「블록 저장 · 페이지에 반영」 또는 「프로필 저장」을 눌러야{" "}
+          <span className="font-medium text-amber-100">wingsaistudio.com</span> 공개 페이지에 반영됩니다.
+        </div>
+      ) : null}
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white">{data.profile.displayName}</h1>
