@@ -103,6 +103,7 @@ export function ShoppingLinksView() {
   if (!hasProfile || showProfileSettings) {
     return (
       <ProfileSettingsForm
+        key={showProfileSettings ? "profile-open" : "profile-setup"}
         profile={data.profile}
         blocks={data.blocks}
         design={data.design}

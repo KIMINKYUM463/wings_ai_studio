@@ -47,8 +47,13 @@ export function ProfileSettingsForm({
   const profileInputRef = useRef<HTMLInputElement>(null)
   const coverInputRef = useRef<HTMLInputElement>(null)
   const [localMsg, setLocalMsg] = useState<string | null>(null)
+  const [draft, setDraft] = useState(profile)
 
-  const patch = (partial: Partial<ShoppingLinkProfile>) => onChange({ ...profile, ...partial })
+  const patch = (partial: Partial<ShoppingLinkProfile>) => {
+    const next = { ...draft, ...partial }
+    setDraft(next)
+    onChange(next)
+  }
 
   const uploadImage = async (file: File | undefined, field: "profileImageUrl" | "coverImageUrl") => {
     if (!file) return
@@ -84,9 +89,9 @@ export function ProfileSettingsForm({
               className="relative h-20 w-20 overflow-hidden rounded-full border-2 border-dashed border-slate-600 bg-slate-800"
               onClick={() => profileInputRef.current?.click()}
             >
-              {profile.profileImageUrl ? (
+              {draft.profileImageUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={profile.profileImageUrl} alt="" className="h-full w-full object-cover" />
+                <img src={draft.profileImageUrl} alt="" className="h-full w-full object-cover" />
               ) : (
                 <span className="text-xs text-slate-500">프로필</span>
               )}
@@ -100,12 +105,12 @@ export function ProfileSettingsForm({
 
           <div className="space-y-2">
             <Label className="text-slate-300">제목 *</Label>
-            <Input value={profile.displayName} onChange={(e) => patch({ displayName: e.target.value })} className="border-slate-700 bg-slate-950 text-white" />
+            <Input value={draft.displayName} onChange={(e) => patch({ displayName: e.target.value })} className="border-slate-700 bg-slate-950 text-white" />
           </div>
 
           <div className="space-y-2">
             <Label className="text-slate-300">내용</Label>
-            <Textarea value={profile.bio} onChange={(e) => patch({ bio: e.target.value })} rows={3} className="border-slate-700 bg-slate-950 text-white" />
+            <Textarea value={draft.bio} onChange={(e) => patch({ bio: e.target.value })} rows={3} className="border-slate-700 bg-slate-950 text-white" />
           </div>
 
           <div className="space-y-2">
@@ -118,7 +123,7 @@ export function ProfileSettingsForm({
                   onClick={() => patch({ layout: layout.id })}
                   className={cn(
                     "rounded-xl border px-3 py-2 text-xs font-medium transition",
-                    profile.layout === layout.id
+                    draft.layout === layout.id
                       ? "border-pink-500 bg-pink-500/10 text-pink-200"
                       : "border-slate-700 text-slate-400 hover:border-slate-600"
                   )}
@@ -134,7 +139,7 @@ export function ProfileSettingsForm({
             onClick={() => coverInputRef.current?.click()}
             className="flex w-full items-center justify-center rounded-xl border border-dashed border-slate-600 py-8 text-sm text-slate-500 hover:border-slate-500 hover:text-slate-300"
           >
-            {profile.coverImageUrl ? "커버 이미지 변경" : "클릭하여 커버 이미지 업로드"}
+            {draft.coverImageUrl ? "커버 이미지 변경" : "클릭하여 커버 이미지 업로드"}
           </button>
           <input ref={coverInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => void uploadImage(e.target.files?.[0], "coverImageUrl")} />
 
@@ -148,7 +153,7 @@ export function ProfileSettingsForm({
                   onClick={() => patch({ alignment: align })}
                   className={cn(
                     "rounded-lg border px-4 py-2 text-sm",
-                    profile.alignment === align ? "border-pink-500 text-pink-200" : "border-slate-700 text-slate-400"
+                    draft.alignment === align ? "border-pink-500 text-pink-200" : "border-slate-700 text-slate-400"
                   )}
                 >
                   {align === "left" ? "왼쪽 정렬" : "가운데 정렬"}
@@ -171,7 +176,7 @@ export function ProfileSettingsForm({
                   onClick={() => patch({ profileFontSize: value })}
                   className={cn(
                     "rounded-lg border px-4 py-2 text-sm",
-                    profile.profileFontSize === value ? "border-pink-500 text-pink-200" : "border-slate-700 text-slate-400"
+                    draft.profileFontSize === value ? "border-pink-500 text-pink-200" : "border-slate-700 text-slate-400"
                   )}
                 >
                   {label}
@@ -185,23 +190,23 @@ export function ProfileSettingsForm({
               <Label className="flex items-center gap-1 text-slate-400">
                 <Youtube className="h-3.5 w-3.5" /> YouTube
               </Label>
-              <Input value={profile.snsYoutube} onChange={(e) => patch({ snsYoutube: e.target.value })} placeholder="https://" className="border-slate-700 bg-slate-950 text-white" />
+              <Input value={draft.snsYoutube} onChange={(e) => patch({ snsYoutube: e.target.value })} placeholder="https://" className="border-slate-700 bg-slate-950 text-white" />
             </div>
             <div className="space-y-1">
               <Label className="flex items-center gap-1 text-slate-400">
                 <Instagram className="h-3.5 w-3.5" /> Instagram
               </Label>
-              <Input value={profile.snsInstagram} onChange={(e) => patch({ snsInstagram: e.target.value })} placeholder="https://" className="border-slate-700 bg-slate-950 text-white" />
+              <Input value={draft.snsInstagram} onChange={(e) => patch({ snsInstagram: e.target.value })} placeholder="https://" className="border-slate-700 bg-slate-950 text-white" />
             </div>
             <div className="space-y-1">
               <Label className="text-slate-400">TikTok</Label>
-              <Input value={profile.snsTiktok} onChange={(e) => patch({ snsTiktok: e.target.value })} placeholder="https://" className="border-slate-700 bg-slate-950 text-white" />
+              <Input value={draft.snsTiktok} onChange={(e) => patch({ snsTiktok: e.target.value })} placeholder="https://" className="border-slate-700 bg-slate-950 text-white" />
             </div>
           </div>
 
           <div className="space-y-2">
             <Label className="text-slate-300">쿠팡 파트너스 ID (선택)</Label>
-            <Input value={profile.coupangPartnerId} onChange={(e) => patch({ coupangPartnerId: e.target.value })} placeholder="AF1234567" className="border-slate-700 bg-slate-950 text-white" />
+            <Input value={draft.coupangPartnerId} onChange={(e) => patch({ coupangPartnerId: e.target.value })} placeholder="AF1234567" className="border-slate-700 bg-slate-950 text-white" />
           </div>
 
           {message || localMsg ? (
@@ -217,9 +222,9 @@ export function ProfileSettingsForm({
 
           <Button
             type="button"
-            disabled={saving || !profile.slug || !profile.displayName.trim()}
+            disabled={saving || !draft.slug || !draft.displayName.trim()}
             className="w-full bg-gradient-to-r from-pink-500 to-violet-500 text-white hover:from-pink-600 hover:to-violet-600"
-            onClick={() => void onSave(profile)}
+            onClick={() => void onSave(draft)}
           >
             {saving ? "저장 중…" : "프로필 저장"}
           </Button>
@@ -227,10 +232,10 @@ export function ProfileSettingsForm({
       </div>
 
       <div className="lg:sticky lg:top-6 lg:self-start">
-        <ShoppingLinkLivePreview profile={profile} blocks={blocks} design={design} />
+        <ShoppingLinkLivePreview profile={draft} blocks={blocks} design={design} />
         <ShoppingLinkSlugField
           className="mx-auto mt-6 w-full max-w-[280px] rounded-xl border border-slate-800 bg-slate-900/60 p-4"
-          slug={profile.slug}
+          slug={draft.slug}
           onChange={(slug) => patch({ slug })}
           label="URL"
           required

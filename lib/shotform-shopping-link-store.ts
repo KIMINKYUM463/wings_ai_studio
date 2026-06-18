@@ -25,6 +25,21 @@ export function normalizeShoppingLinkPageData(data: ShoppingLinkPageData): Shopp
   }
 }
 
+/** PUT 성공 후 서버 응답과 클라이언트 payload를 합칩니다. 프로필·디자인은 사용자가 저장한 값을 우선합니다. */
+export function applyClientPublishResult(
+  payload: ShoppingLinkPageData,
+  server: ShoppingLinkPageData
+): ShoppingLinkPageData {
+  const client = normalizeShoppingLinkPageData(payload)
+  const remote = normalizeShoppingLinkPageData(server)
+  return normalizeShoppingLinkPageData({
+    profile: client.profile,
+    design: client.design,
+    blocks: remote.blocks.length > 0 ? remote.blocks : client.blocks,
+    updatedAt: client.updatedAt,
+  })
+}
+
 /** 로컬 draft와 서버 데이터를 합칩니다. 서버에 블록이 없을 때 로컬 블록이 지워지지 않게 합니다. */
 export function mergeShoppingLinkPageData(
   local: ShoppingLinkPageData,
@@ -34,14 +49,19 @@ export function mergeShoppingLinkPageData(
   const remoteN = normalizeShoppingLinkPageData(remote)
   const localTs = Date.parse(localN.updatedAt) || 0
   const remoteTs = Date.parse(remoteN.updatedAt) || 0
-  const newer = remoteTs >= localTs ? remoteN : localN
-  const older = newer === remoteN ? localN : remoteN
   const blocks =
-    newer.blocks.length > 0 ? newer.blocks : older.blocks.length > 0 ? older.blocks : []
+    localN.blocks.length > 0
+      ? localN.blocks
+      : remoteN.blocks.length > 0
+        ? remoteN.blocks
+        : []
+  const profile = localTs >= remoteTs ? localN.profile : remoteN.profile
+  const design = localTs >= remoteTs ? localN.design : remoteN.design
   return normalizeShoppingLinkPageData({
-    ...newer,
+    profile,
+    design,
     blocks,
-    updatedAt: newer.updatedAt,
+    updatedAt: new Date(Math.max(localTs, remoteTs)).toISOString(),
   })
 }
 
@@ -96,7 +116,8 @@ export async function publishShoppingLinkPage(data: ShoppingLinkPageData): Promi
     throw new Error(err?.error ?? "저장에 실패했습니다.")
   }
   const saved = normalizeShoppingLinkPageData((await res.json()) as ShoppingLinkPageData)
-  if (payload.blocks.length > 0 && saved.blocks.length === 0) {
+  let result = applyClientPublishResult(payload, saved)
+  if (payload.blocks.length > 0 && result.blocks.length === 0) {
     throw new Error("블록이 서버에 저장되지 않았습니다. Supabase 설정을 확인해 주세요.")
   }
 
@@ -111,14 +132,11 @@ export async function publishShoppingLinkPage(data: ShoppingLinkPageData): Promi
         "저장 응답은 성공했지만 공개 API에 블록이 없습니다. localhost에서 테스트 중이면 wingsaistudio.com에서 다시 저장해 주세요."
       )
     }
-    // PUT 응답(saved)이 최신이면 유지하고, 서버 GET이 오래된 경우 프로필이 되돌아가지 않게 병합
-    const merged = mergeShoppingLinkPageData(saved, verified)
-    saveShoppingLinkDraft(merged)
-    return merged
+    result = applyClientPublishResult(payload, mergeShoppingLinkPageData(result, verified))
   }
 
-  saveShoppingLinkDraft(saved)
-  return saved
+  saveShoppingLinkDraft(result)
+  return result
 }
 
 export function newShoppingLinkBlock(type: "link" | "text" = "link", order = 0): ShoppingLinkBlock {

@@ -111,8 +111,16 @@ async function writeToSupabase(slug: string, data: ShoppingLinkPageData): Promis
   if (existsError) wrapDbError(existsError, "페이지 존재 확인")
 
   if (existing) {
-    const { error: updateError } = await supabase.from(TABLE).update(row).eq("slug", slug)
+    const { data: updated, error: updateError } = await supabase
+      .from(TABLE)
+      .update(row)
+      .eq("slug", slug)
+      .select("data")
+      .single()
     if (updateError) wrapDbError(updateError, "페이지 수정")
+    if (!updated?.data || typeof updated.data !== "object") {
+      throw new Error("프로필 저장에 실패했습니다. Supabase UPDATE 권한을 확인해 주세요.")
+    }
   } else {
     const { error: insertError } = await supabase.from(TABLE).insert(row)
     if (insertError) wrapDbError(insertError, "페이지 생성")
@@ -126,6 +134,14 @@ async function writeToSupabase(slug: string, data: ShoppingLinkPageData): Promis
   if (payload.blocks.length > 0 && saved.blocks.length === 0) {
     throw new Error(
       "블록이 DB에 저장되지 않았습니다. Vercel SUPABASE_SERVICE_ROLE_KEY와 shotform_shopping_link_pages 테이블 RLS 설정을 확인해 주세요."
+    )
+  }
+  if (
+    payload.profile.displayName.trim() &&
+    saved.profile.displayName.trim() !== payload.profile.displayName.trim()
+  ) {
+    throw new Error(
+      "프로필(제목·내용)이 DB에 저장되지 않았습니다. Vercel SUPABASE_SERVICE_ROLE_KEY를 확인해 주세요."
     )
   }
   return saved
