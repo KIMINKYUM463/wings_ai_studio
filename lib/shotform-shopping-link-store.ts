@@ -111,8 +111,10 @@ export async function publishShoppingLinkPage(data: ShoppingLinkPageData): Promi
         "저장 응답은 성공했지만 공개 API에 블록이 없습니다. localhost에서 테스트 중이면 wingsaistudio.com에서 다시 저장해 주세요."
       )
     }
-    saveShoppingLinkDraft(verified)
-    return verified
+    // PUT 응답(saved)이 최신이면 유지하고, 서버 GET이 오래된 경우 프로필이 되돌아가지 않게 병합
+    const merged = mergeShoppingLinkPageData(saved, verified)
+    saveShoppingLinkDraft(merged)
+    return merged
   }
 
   saveShoppingLinkDraft(saved)

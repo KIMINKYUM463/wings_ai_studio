@@ -112,7 +112,7 @@ export function ShoppingLinksView() {
         messageVariant={messageVariant}
         onBack={hasProfile ? () => setShowProfileSettings(false) : undefined}
         onChange={(profile) => updateData(patchShoppingLinkDraft(dataRef.current, { profile }))}
-        onSave={async () => publish(patchShoppingLinkDraft(dataRef.current, { profile: dataRef.current.profile }))}
+        onSave={async (profile) => publish(patchShoppingLinkDraft(dataRef.current, { profile }))}
       />
     )
   }

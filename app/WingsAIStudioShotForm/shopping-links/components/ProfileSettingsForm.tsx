@@ -17,7 +17,7 @@ type Props = {
   blocks: ShoppingLinkBlock[]
   design: ShoppingLinkDesign
   onChange: (profile: ShoppingLinkProfile) => void
-  onSave: () => Promise<void>
+  onSave: (profile: ShoppingLinkProfile) => Promise<void>
   onBack?: () => void
   saving?: boolean
   message?: string | null
@@ -219,7 +219,7 @@ export function ProfileSettingsForm({
             type="button"
             disabled={saving || !profile.slug || !profile.displayName.trim()}
             className="w-full bg-gradient-to-r from-pink-500 to-violet-500 text-white hover:from-pink-600 hover:to-violet-600"
-            onClick={() => void onSave()}
+            onClick={() => void onSave(profile)}
           >
             {saving ? "저장 중…" : "프로필 저장"}
           </Button>
