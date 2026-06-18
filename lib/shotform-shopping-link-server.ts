@@ -39,8 +39,12 @@ function createShoppingLinkDbClient(): SupabaseClient {
   return createServiceClient()
 }
 
-function canWriteToSupabase(): boolean {
-  return Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)
+async function resolveShoppingLinkWriteClient(): Promise<SupabaseClient> {
+  if (process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) {
+    return createShoppingLinkDbClient()
+  }
+  if (process.env.VERCEL) throw deploymentStorageError()
+  return createMvpProjectsClient()
 }
 
 function wrapDbError(error: unknown, action: string): never {
@@ -52,7 +56,7 @@ function wrapDbError(error: unknown, action: string): never {
     )
   }
   if (detail.includes("42501") || detail.toLowerCase().includes("permission")) {
-    throw new Error("Supabase 권한 오류입니다. 테이블 RLS 비활성화 및 GRANT 설정을 확인해 주세요.")
+    throw new Error("Supabase 권한 오류입니다. scripts/fix_shotform_shopping_link_pages_grants.sql 을 실행해 주세요.")
   }
   throw new Error(`${action} 실패: ${detail}`)
 }
@@ -94,56 +98,46 @@ async function readFromSupabase(slug: string, supabase?: SupabaseClient): Promis
 }
 
 async function writeToSupabase(slug: string, data: ShoppingLinkPageData): Promise<ShoppingLinkPageData> {
-  const supabase = createShoppingLinkDbClient()
+  const supabase = await resolveShoppingLinkWriteClient()
   const payload = normalizeShoppingLinkPageData({
     ...data,
     profile: { ...data.profile, slug },
     updatedAt: new Date().toISOString(),
   })
   const now = new Date().toISOString()
-  const row = { slug, data: payload, updated_at: now }
 
-  const { data: existing, error: existsError } = await supabase
+  const { data: written, error } = await supabase
     .from(TABLE)
-    .select("slug")
-    .eq("slug", slug)
-    .maybeSingle()
-  if (existsError) wrapDbError(existsError, "페이지 존재 확인")
+    .upsert({ slug, data: payload, updated_at: now }, { onConflict: "slug" })
+    .select("data")
+    .single()
 
-  if (existing) {
-    const { data: updated, error: updateError } = await supabase
-      .from(TABLE)
-      .update(row)
-      .eq("slug", slug)
-      .select("data")
-      .single()
-    if (updateError) wrapDbError(updateError, "페이지 수정")
-    if (!updated?.data || typeof updated.data !== "object") {
-      throw new Error("프로필 저장에 실패했습니다. Supabase UPDATE 권한을 확인해 주세요.")
-    }
-  } else {
-    const { error: insertError } = await supabase.from(TABLE).insert(row)
-    if (insertError) wrapDbError(insertError, "페이지 생성")
+  if (error) wrapDbError(error, "페이지 저장")
+  if (!written?.data || typeof written.data !== "object") {
+    throw new Error("저장 후 DB 응답이 비어 있습니다. Supabase 테이블·권한을 확인해 주세요.")
   }
 
-  const reread = await readFromSupabase(slug, supabase)
-  if (!reread) {
-    throw new Error("저장 후 DB 재조회에 실패했습니다. Supabase 테이블·권한을 확인해 주세요.")
-  }
-  const saved = normalizeShoppingLinkPageData(reread)
+  const saved = normalizeShoppingLinkPageData(written.data as ShoppingLinkPageData)
+
   if (payload.blocks.length > 0 && saved.blocks.length === 0) {
     throw new Error(
-      "블록이 DB에 저장되지 않았습니다. Vercel SUPABASE_SERVICE_ROLE_KEY와 shotform_shopping_link_pages 테이블 RLS 설정을 확인해 주세요."
+      "블록이 DB에 저장되지 않았습니다. scripts/fix_shotform_shopping_link_pages_grants.sql 을 Supabase에서 실행해 주세요."
     )
   }
-  if (
-    payload.profile.displayName.trim() &&
-    saved.profile.displayName.trim() !== payload.profile.displayName.trim()
-  ) {
+
+  const wantedTitle = payload.profile.displayName.trim()
+  const savedTitle = saved.profile.displayName.trim()
+  if (wantedTitle && savedTitle !== wantedTitle) {
+    console.error("[shotform-shopping-link] profile mismatch after upsert", {
+      slug,
+      wantedTitle,
+      savedTitle,
+    })
     throw new Error(
-      "프로필(제목·내용)이 DB에 저장되지 않았습니다. Vercel SUPABASE_SERVICE_ROLE_KEY를 확인해 주세요."
+      `프로필이 DB에 반영되지 않았습니다. (DB: "${savedTitle}" / 요청: "${wantedTitle}") Vercel SUPABASE_SERVICE_ROLE_KEY와 Supabase SQL 권한(scripts/fix_shotform_shopping_link_pages_grants.sql)을 확인해 주세요.`
     )
   }
+
   return saved
 }
 
@@ -164,7 +158,7 @@ export async function writeShoppingLinkPage(
   slug: string,
   data: ShoppingLinkPageData
 ): Promise<ShoppingLinkPageData> {
-  if (canWriteToSupabase()) {
+  if (shouldUseSupabase()) {
     try {
       return await writeToSupabase(slug, data)
     } catch (e) {
