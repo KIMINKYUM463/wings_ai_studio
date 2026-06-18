@@ -1,13 +1,15 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Settings } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { ShoppingLinkPageData } from "@/lib/shotform-shopping-link-types"
+import { sanitizeShoppingLinkSlug } from "@/lib/shotform-shopping-link-types"
 import {
   createEmptyShoppingLinkDraft,
   fetchShoppingLinkPage,
   loadShoppingLinkDraft,
+  mergeShoppingLinkPageData,
   patchShoppingLinkDraft,
   publishShoppingLinkPage,
   saveShoppingLinkDraft,
@@ -28,6 +30,8 @@ export function ShoppingLinksView() {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [messageVariant, setMessageVariant] = useState<"success" | "error">("success")
+  const dataRef = useRef(data)
+  dataRef.current = data
 
   const hasProfile = Boolean(data.profile.slug.trim() && data.profile.displayName.trim())
 
@@ -40,23 +44,23 @@ export function ShoppingLinksView() {
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      const draft = loadShoppingLinkDraft()
-      if (draft?.profile.slug) {
+      const draft = loadShoppingLinkDraft() ?? createEmptyShoppingLinkDraft()
+      const slug = sanitizeShoppingLinkSlug(draft.profile.slug)
+      let merged = draft
+
+      if (slug) {
         try {
-          const published = await fetchShoppingLinkPage(draft.profile.slug)
-          if (!cancelled && published) {
-            setData(published)
-            setShowProfileSettings(false)
-            setLoaded(true)
-            return
-          }
+          const published = await fetchShoppingLinkPage(slug)
+          if (published) merged = mergeShoppingLinkPageData(draft, published)
         } catch {
-          /* fallback to draft */
+          /* 서버 조회 실패 시 로컬 draft 유지 */
         }
       }
+
       if (!cancelled) {
-        setData(draft ?? createEmptyShoppingLinkDraft())
-        setShowProfileSettings(!(draft?.profile.slug && draft.profile.displayName))
+        setData(merged)
+        saveShoppingLinkDraft(merged)
+        setShowProfileSettings(!(merged.profile.slug && merged.profile.displayName))
         setLoaded(true)
       }
     })()
@@ -76,12 +80,25 @@ export function ShoppingLinksView() {
     window.setTimeout(() => setMessage(null), variant === "error" ? 5000 : 2500)
   }
 
-  const publish = async (next: ShoppingLinkPageData) => {
+  const publish = async (next?: ShoppingLinkPageData) => {
+    const payload = next ?? dataRef.current
+    const blockCount = payload.blocks.length
     setSaving(true)
     try {
-      await publishShoppingLinkPage(next)
-      setData(next)
-      flash("저장되었습니다!", "success")
+      await publishShoppingLinkPage(payload)
+      const slug = sanitizeShoppingLinkSlug(payload.profile.slug)
+      let final = payload
+      if (slug) {
+        const verified = await fetchShoppingLinkPage(slug)
+        if (verified) final = mergeShoppingLinkPageData(payload, verified)
+      }
+      setData(final)
+      saveShoppingLinkDraft(final)
+      if (blockCount > 0 && final.blocks.length === 0) {
+        flash("서버에 블록이 저장되지 않았습니다. 슬러그·Supabase 설정을 확인해 주세요.", "error")
+      } else {
+        flash("공개 페이지에 반영되었습니다!", "success")
+      }
       setShowProfileSettings(false)
     } catch (e) {
       flash(e instanceof Error ? e.message : "저장 실패", "error")
@@ -105,8 +122,8 @@ export function ShoppingLinksView() {
         message={message}
         messageVariant={messageVariant}
         onBack={hasProfile ? () => setShowProfileSettings(false) : undefined}
-        onChange={(profile) => updateData(patchShoppingLinkDraft(data, { profile }))}
-        onSave={async () => publish(patchShoppingLinkDraft(data, { profile: data.profile }))}
+        onChange={(profile) => updateData(patchShoppingLinkDraft(dataRef.current, { profile }))}
+        onSave={async () => publish(patchShoppingLinkDraft(dataRef.current, { profile: dataRef.current.profile }))}
       />
     )
   }
@@ -154,16 +171,19 @@ export function ShoppingLinksView() {
               blocks={data.blocks}
               saving={saving}
               message={message}
-              onChange={(blocks) => updateData(patchShoppingLinkDraft(data, { blocks }))}
-              onSave={async () => publish(data)}
+              messageVariant={messageVariant}
+              onChange={(blocks) => updateData(patchShoppingLinkDraft(dataRef.current, { blocks }))}
+              onSave={async (blocks) =>
+                publish(patchShoppingLinkDraft(dataRef.current, { blocks }))
+              }
             />
           ) : (
             <DesignPanel
               design={data.design}
               saving={saving}
               message={message}
-              onChange={(design) => updateData(patchShoppingLinkDraft(data, { design }))}
-              onSave={async () => publish(data)}
+              onChange={(design) => updateData(patchShoppingLinkDraft(dataRef.current, { design }))}
+              onSave={async () => publish(patchShoppingLinkDraft(dataRef.current, { design: dataRef.current.design }))}
             />
           )}
         </div>

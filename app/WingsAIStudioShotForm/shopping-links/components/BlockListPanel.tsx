@@ -14,12 +14,13 @@ import { newShoppingLinkBlock, sortShoppingLinkBlocks } from "@/lib/shotform-sho
 type Props = {
   blocks: ShoppingLinkBlock[]
   onChange: (blocks: ShoppingLinkBlock[]) => void
-  onSave: () => Promise<void>
+  onSave: (blocks: ShoppingLinkBlock[]) => Promise<void>
   saving?: boolean
   message?: string | null
+  messageVariant?: "success" | "error"
 }
 
-export function BlockListPanel({ blocks, onChange, onSave, saving, message }: Props) {
+export function BlockListPanel({ blocks, onChange, onSave, saving, message, messageVariant = "success" }: Props) {
   const [subTab, setSubTab] = useState<"link" | "text">("link")
   const [draft, setDraft] = useState({ url: "", thumbnailUrl: "", title: "" })
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -31,30 +32,55 @@ export function BlockListPanel({ blocks, onChange, onSave, saving, message }: Pr
     setEditingId(null)
   }
 
-  const saveDraft = () => {
-    if (!draft.title.trim()) return
-    if (subTab === "link" && !draft.url.trim()) return
+  const buildBlocksWithDraft = (): ShoppingLinkBlock[] | null => {
+    if (!draft.title.trim()) return null
+    if (subTab === "link" && !draft.url.trim()) return null
 
     if (editingId) {
-      onChange(
-        blocks.map((b) =>
-          b.id === editingId
-            ? { ...b, type: subTab, title: draft.title.trim(), url: draft.url.trim(), thumbnailUrl: draft.thumbnailUrl.trim() }
-            : b
-        )
+      return blocks.map((b) =>
+        b.id === editingId
+          ? {
+              ...b,
+              type: subTab,
+              title: draft.title.trim(),
+              url: draft.url.trim(),
+              thumbnailUrl: draft.thumbnailUrl.trim(),
+            }
+          : b
       )
-    } else {
-      onChange([
-        ...blocks,
-        {
-          ...newShoppingLinkBlock(subTab, blocks.length),
-          title: draft.title.trim(),
-          url: draft.url.trim(),
-          thumbnailUrl: draft.thumbnailUrl.trim(),
-        },
-      ])
     }
+
+    return [
+      ...blocks,
+      {
+        ...newShoppingLinkBlock(subTab, blocks.length),
+        title: draft.title.trim(),
+        url: draft.url.trim(),
+        thumbnailUrl: draft.thumbnailUrl.trim(),
+      },
+    ]
+  }
+
+  const saveDraft = () => {
+    const nextBlocks = buildBlocksWithDraft()
+    if (!nextBlocks) return
+    onChange(nextBlocks)
     resetDraft()
+  }
+
+  const publishBlocks = (nextBlocks: ShoppingLinkBlock[]) => {
+    onChange(nextBlocks)
+    void onSave(nextBlocks)
+  }
+
+  const flushDraftAndPublish = () => {
+    const withDraft = buildBlocksWithDraft()
+    if (withDraft) {
+      resetDraft()
+      publishBlocks(withDraft)
+      return
+    }
+    publishBlocks(blocks)
   }
 
   const startEdit = (block: ShoppingLinkBlock) => {
@@ -117,8 +143,11 @@ export function BlockListPanel({ blocks, onChange, onSave, saving, message }: Pr
           />
         </div>
         <Button type="button" variant="ghost" className={cn(studio.btnPrimary, "w-full")} onClick={saveDraft}>
-          {editingId ? "수정" : "저장"}
+          {editingId ? "목록에 반영" : "목록에 추가"}
         </Button>
+        <p className="text-center text-[10px] leading-relaxed text-slate-500">
+          위 버튼은 미리보기 목록만 바꿉니다. 공개 URL에 보이게 하려면 아래 「페이지에 반영」을 눌러 주세요.
+        </p>
       </div>
 
       <div className="space-y-2">
@@ -162,13 +191,15 @@ export function BlockListPanel({ blocks, onChange, onSave, saving, message }: Pr
         ))}
       </div>
 
-      {message ? <p className="text-sm text-emerald-400">{message}</p> : null}
+      {message ? (
+        <p className={cn("text-sm", messageVariant === "error" ? "text-red-400" : "text-emerald-400")}>{message}</p>
+      ) : null}
 
       <Button
         type="button"
         disabled={saving}
         className="w-full bg-gradient-to-r from-pink-500 to-violet-500"
-        onClick={() => void onSave()}
+        onClick={flushDraftAndPublish}
       >
         {saving ? "게시 중…" : "블록 저장 · 페이지에 반영"}
       </Button>

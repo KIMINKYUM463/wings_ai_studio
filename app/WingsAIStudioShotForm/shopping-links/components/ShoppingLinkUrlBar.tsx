@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { shoppingLinkPublicUrl, sanitizeShoppingLinkSlug } from "@/lib/shotform-shopping-link-types"
+import { shoppingLinkPublicPath, shoppingLinkPublicUrl, sanitizeShoppingLinkSlug } from "@/lib/shotform-shopping-link-types"
 
 type SlugFieldProps = {
   slug: string
@@ -23,6 +23,8 @@ export function ShoppingLinkSlugField({
   inputId = "shopping-link-slug",
   className,
 }: SlugFieldProps) {
+  const pathPrefix = shoppingLinkPublicPath("").replace(/\/$/, "") + "/"
+
   return (
     <div className={className}>
       <Label htmlFor={inputId} className="text-slate-300">
@@ -30,7 +32,7 @@ export function ShoppingLinkSlugField({
         {required ? " *" : null}
       </Label>
       <div className="mt-2 flex items-center gap-2">
-        <span className="shrink-0 text-sm text-slate-500">/shopping/</span>
+        <span className="hidden shrink-0 text-xs text-slate-500 sm:inline">{pathPrefix}</span>
         <Input
           id={inputId}
           value={slug}
@@ -39,6 +41,9 @@ export function ShoppingLinkSlugField({
           className="border-slate-700 bg-slate-950 text-white"
         />
       </div>
+      <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">
+        영문·숫자·하이픈만 사용됩니다. 한글 주소는 자동 변환되지 않으니 예: <span className="text-slate-400">wings-shop</span>
+      </p>
     </div>
   )
 }
@@ -65,6 +70,7 @@ export function ShoppingLinkUrlBar({ slug }: Props) {
 
   return (
     <div className="mx-auto mt-4 w-full max-w-[280px]">
+      <p className="mb-2 break-all text-center text-[10px] leading-relaxed text-slate-400">{url}</p>
       <div className="flex gap-2 rounded-xl border border-slate-700 bg-slate-900/80 p-3">
         <a href={url} target="_blank" rel="noopener noreferrer" className={btnClass}>
           URL 이동하기

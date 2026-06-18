@@ -7,17 +7,42 @@ import type {
 import {
   defaultShoppingLinkDesign,
   defaultShoppingLinkProfile,
+  sanitizeShoppingLinkSlug,
 } from "@/lib/shotform-shopping-link-types"
 
 const DRAFT_KEY = "shotform_shopping_link_draft"
 
 export function normalizeShoppingLinkPageData(data: ShoppingLinkPageData): ShoppingLinkPageData {
   return {
-    ...data,
-    profile: { ...defaultShoppingLinkProfile(), ...data.profile },
+    profile: {
+      ...defaultShoppingLinkProfile(),
+      ...data.profile,
+      slug: sanitizeShoppingLinkSlug(data.profile?.slug ?? ""),
+    },
+    blocks: Array.isArray(data.blocks) ? data.blocks : [],
     design: { ...defaultShoppingLinkDesign(), ...data.design },
-    updatedAt: data.updatedAt,
+    updatedAt: data.updatedAt || new Date().toISOString(),
   }
+}
+
+/** 로컬 draft와 서버 데이터를 합칩니다. 서버에 블록이 없을 때 로컬 블록이 지워지지 않게 합니다. */
+export function mergeShoppingLinkPageData(
+  local: ShoppingLinkPageData,
+  remote: ShoppingLinkPageData
+): ShoppingLinkPageData {
+  const localN = normalizeShoppingLinkPageData(local)
+  const remoteN = normalizeShoppingLinkPageData(remote)
+  const localTs = Date.parse(localN.updatedAt) || 0
+  const remoteTs = Date.parse(remoteN.updatedAt) || 0
+  const newer = remoteTs >= localTs ? remoteN : localN
+  const older = newer === remoteN ? localN : remoteN
+  const blocks =
+    newer.blocks.length > 0 ? newer.blocks : older.blocks.length > 0 ? older.blocks : []
+  return normalizeShoppingLinkPageData({
+    ...newer,
+    blocks,
+    updatedAt: newer.updatedAt,
+  })
 }
 
 export function loadShoppingLinkDraft(): ShoppingLinkPageData | null {
@@ -53,18 +78,23 @@ export async function fetchShoppingLinkPage(slug: string): Promise<ShoppingLinkP
 }
 
 export async function publishShoppingLinkPage(data: ShoppingLinkPageData): Promise<void> {
-  const slug = data.profile.slug.trim()
-  if (!slug) throw new Error("슬러그를 입력해 주세요.")
+  const slug = sanitizeShoppingLinkSlug(data.profile.slug)
+  if (!slug) throw new Error("슬러그를 영문·숫자로 입력해 주세요.")
+  const payload = normalizeShoppingLinkPageData({
+    ...data,
+    profile: { ...data.profile, slug },
+    updatedAt: new Date().toISOString(),
+  })
   const res = await fetch(`/api/shotform-shopping-link/${encodeURIComponent(slug)}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
+    body: JSON.stringify(payload),
   })
   if (!res.ok) {
     const err = (await res.json().catch(() => null)) as { error?: string } | null
     throw new Error(err?.error ?? "저장에 실패했습니다.")
   }
-  saveShoppingLinkDraft(data)
+  saveShoppingLinkDraft(payload)
 }
 
 export function newShoppingLinkBlock(type: "link" | "text" = "link", order = 0): ShoppingLinkBlock {
