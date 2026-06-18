@@ -77,7 +77,7 @@ export async function fetchShoppingLinkPage(slug: string): Promise<ShoppingLinkP
   return normalizeShoppingLinkPageData((await res.json()) as ShoppingLinkPageData)
 }
 
-export async function publishShoppingLinkPage(data: ShoppingLinkPageData): Promise<void> {
+export async function publishShoppingLinkPage(data: ShoppingLinkPageData): Promise<ShoppingLinkPageData> {
   const slug = sanitizeShoppingLinkSlug(data.profile.slug)
   if (!slug) throw new Error("슬러그를 영문·숫자로 입력해 주세요.")
   const payload = normalizeShoppingLinkPageData({
@@ -89,12 +89,18 @@ export async function publishShoppingLinkPage(data: ShoppingLinkPageData): Promi
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+    cache: "no-store",
   })
   if (!res.ok) {
     const err = (await res.json().catch(() => null)) as { error?: string } | null
     throw new Error(err?.error ?? "저장에 실패했습니다.")
   }
-  saveShoppingLinkDraft(payload)
+  const saved = normalizeShoppingLinkPageData((await res.json()) as ShoppingLinkPageData)
+  if (payload.blocks.length > 0 && saved.blocks.length === 0) {
+    throw new Error("블록이 서버에 저장되지 않았습니다. Supabase 설정을 확인해 주세요.")
+  }
+  saveShoppingLinkDraft(saved)
+  return saved
 }
 
 export function newShoppingLinkBlock(type: "link" | "text" = "link", order = 0): ShoppingLinkBlock {

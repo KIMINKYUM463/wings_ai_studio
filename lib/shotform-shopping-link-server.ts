@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "fs/promises"
 import path from "path"
 import type { ShoppingLinkPageData } from "@/lib/shotform-shopping-link-types"
 import { sanitizeShoppingLinkSlug } from "@/lib/shotform-shopping-link-types"
+import { normalizeShoppingLinkPageData } from "@/lib/shotform-shopping-link-store"
 import { createMvpProjectsClient, formatSupabaseError } from "@/lib/supabase/mvp-projects"
 
 const DATA_DIR = path.join(process.cwd(), "data", "shotform-shopping-links")
@@ -75,15 +76,32 @@ async function readFromSupabase(slug: string): Promise<ShoppingLinkPageData | nu
   return data.data as ShoppingLinkPageData
 }
 
-async function writeToSupabase(slug: string, data: ShoppingLinkPageData): Promise<void> {
+async function writeToSupabase(slug: string, data: ShoppingLinkPageData): Promise<ShoppingLinkPageData> {
   const supabase = await createMvpProjectsClient()
-  const payload = { ...data, updatedAt: new Date().toISOString() }
-  const { error } = await supabase.from(TABLE).upsert({
+  const payload = normalizeShoppingLinkPageData({
+    ...data,
+    profile: { ...data.profile, slug },
+    updatedAt: new Date().toISOString(),
+  })
+  const row = {
     slug,
     data: payload,
     updated_at: new Date().toISOString(),
-  })
+  }
+  const { data: savedRow, error } = await supabase
+    .from(TABLE)
+    .upsert(row, { onConflict: "slug" })
+    .select("data")
+    .single()
   if (error) wrapDbError(error, "페이지 저장")
+  if (!savedRow?.data || typeof savedRow.data !== "object") {
+    throw new Error("저장 후 데이터를 확인하지 못했습니다.")
+  }
+  const saved = normalizeShoppingLinkPageData(savedRow.data as ShoppingLinkPageData)
+  if (payload.blocks.length > 0 && saved.blocks.length === 0) {
+    throw new Error("블록이 서버에 저장되지 않았습니다. Supabase 설정을 확인해 주세요.")
+  }
+  return saved
 }
 
 export async function readShoppingLinkPage(slug: string): Promise<ShoppingLinkPageData | null> {
@@ -99,11 +117,13 @@ export async function readShoppingLinkPage(slug: string): Promise<ShoppingLinkPa
   return readFromFilesystem(slug)
 }
 
-export async function writeShoppingLinkPage(slug: string, data: ShoppingLinkPageData): Promise<void> {
+export async function writeShoppingLinkPage(
+  slug: string,
+  data: ShoppingLinkPageData
+): Promise<ShoppingLinkPageData> {
   if (shouldUseSupabase()) {
     try {
-      await writeToSupabase(slug, data)
-      return
+      return await writeToSupabase(slug, data)
     } catch (e) {
       console.error("[shotform-shopping-link] Supabase write failed:", e)
       if (process.env.VERCEL) throw e instanceof Error ? e : deploymentStorageError()
@@ -111,6 +131,9 @@ export async function writeShoppingLinkPage(slug: string, data: ShoppingLinkPage
   }
   if (process.env.VERCEL) throw deploymentStorageError()
   await writeToFilesystem(slug, data)
+  const saved = await readFromFilesystem(slug)
+  if (!saved) throw new Error("저장 후 데이터를 확인하지 못했습니다.")
+  return normalizeShoppingLinkPageData(saved)
 }
 
 export async function shoppingLinkSlugExists(slug: string, exceptSlug?: string): Promise<boolean> {

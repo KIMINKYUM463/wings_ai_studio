@@ -82,23 +82,12 @@ export function ShoppingLinksView() {
 
   const publish = async (next?: ShoppingLinkPageData) => {
     const payload = next ?? dataRef.current
-    const blockCount = payload.blocks.length
     setSaving(true)
     try {
-      await publishShoppingLinkPage(payload)
-      const slug = sanitizeShoppingLinkSlug(payload.profile.slug)
-      let final = payload
-      if (slug) {
-        const verified = await fetchShoppingLinkPage(slug)
-        if (verified) final = mergeShoppingLinkPageData(payload, verified)
-      }
-      setData(final)
-      saveShoppingLinkDraft(final)
-      if (blockCount > 0 && final.blocks.length === 0) {
-        flash("서버에 블록이 저장되지 않았습니다. 슬러그·Supabase 설정을 확인해 주세요.", "error")
-      } else {
-        flash("공개 페이지에 반영되었습니다!", "success")
-      }
+      const saved = await publishShoppingLinkPage(payload)
+      setData(saved)
+      saveShoppingLinkDraft(saved)
+      flash("공개 페이지에 반영되었습니다!", "success")
       setShowProfileSettings(false)
     } catch (e) {
       flash(e instanceof Error ? e.message : "저장 실패", "error")

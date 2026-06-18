@@ -6,14 +6,25 @@ import { normalizeShoppingLinkPageData } from "@/lib/shotform-shopping-link-stor
 
 type RouteContext = { params: Promise<{ slug: string }> }
 
+export const dynamic = "force-dynamic"
+
+const noStoreJson = (body: unknown, init?: ResponseInit) =>
+  NextResponse.json(body, {
+    ...init,
+    headers: {
+      "Cache-Control": "no-store, max-age=0",
+      ...(init?.headers ?? {}),
+    },
+  })
+
 export async function GET(_request: NextRequest, context: RouteContext) {
   const { slug } = await context.params
   const safe = sanitizeShoppingLinkSlug(slug)
-  if (!safe) return NextResponse.json({ error: "INVALID_SLUG" }, { status: 400 })
+  if (!safe) return noStoreJson({ error: "INVALID_SLUG" }, { status: 400 })
 
   const page = await readShoppingLinkPage(safe)
-  if (!page) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 })
-  return NextResponse.json(normalizeShoppingLinkPageData(page))
+  if (!page) return noStoreJson({ error: "NOT_FOUND" }, { status: 404 })
+  return noStoreJson(normalizeShoppingLinkPageData(page))
 }
 
 export async function PUT(request: NextRequest, context: RouteContext) {
@@ -42,11 +53,11 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     profile: { ...body.profile, slug: safeBody },
   })
   try {
-    await writeShoppingLinkPage(safeBody, normalized)
+    const saved = await writeShoppingLinkPage(safeBody, normalized)
+    return noStoreJson(saved)
   } catch (e) {
     const msg = e instanceof Error ? e.message : "저장에 실패했습니다."
     console.error("[shotform-shopping-link] PUT failed:", e)
-    return NextResponse.json({ error: msg }, { status: 500 })
+    return noStoreJson({ error: msg }, { status: 500 })
   }
-  return NextResponse.json({ ok: true, slug: safeBody })
 }
