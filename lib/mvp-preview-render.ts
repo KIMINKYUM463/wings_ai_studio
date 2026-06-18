@@ -5,7 +5,9 @@ import {
 } from "@/lib/shotform-factory-line-tts"
 import { isMvpThumbnailIntroTime } from "@/lib/mvp-thumbnail-intro"
 import {
-  videoTimeFromAudioCueSync,
+  resolveMvpPreviewVideoTime,
+  syncMvpPreviewVideoToAudio,
+  type MvpVideoAudioSyncState,
 } from "@/lib/shotform-mvp-preview-sync"
 import {
   hexToRgb,
@@ -62,44 +64,6 @@ export type MvpPreviewRenderInput = {
   editPlan?: readonly EditPlanSegment[]
   videoSourceTransforms?: MvpVideoSourceTransforms
   onProgress?: (ratio: number) => void
-}
-
-function computeExportVideoTime(
-  audioT: number,
-  cues: readonly VoiceLineCue[] | null | undefined,
-  segments: readonly NarrationSegment[],
-  videoDur: number,
-  audioDur: number,
-  hasAudio: boolean
-): number {
-  if (hasAudio && cues?.length && segments.length) {
-    return videoTimeFromAudioCueSync(audioT, cues, segments, videoDur, audioDur)
-  }
-  if (videoDur > 0 && audioDur > 0) {
-    return Math.min(videoDur, (audioT / audioDur) * videoDur)
-  }
-  return Math.min(videoDur, Math.max(0, audioT))
-}
-
-/**보내기 — playbackRate 대신 오디오 시각에 맞춰 매 프레임 seek (끝에서 영상 멈춤 방지) */
-function seekVideoForExportFrame(
-  video: HTMLVideoElement,
-  videoT: number,
-  videoDur: number
-): void {
-  const fileDur =
-    Number.isFinite(video.duration) && video.duration > 0 ? video.duration : videoDur
-  const maxT = Math.max(0, fileDur - 0.02)
-  const target = Math.min(maxT, Math.max(0, videoT))
-  if (!Number.isFinite(target)) return
-
-  if (video.ended || Math.abs(video.currentTime - target) > 0.025) {
-    video.currentTime = target
-  }
-  video.playbackRate = 1
-  if (video.paused) {
-    void video.play().catch(() => {})
-  }
 }
 
 function loadImage(url: string): Promise<HTMLImageElement> {
@@ -433,19 +397,21 @@ export async function renderMvpPreviewToBlob(
     recorder.onerror = () => reject(new Error("recorder failed"))
   })
 
+  const syncState: MvpVideoAudioSyncState = { lastScene: -1, lastCueKey: "" }
+
   video.currentTime = 0
   audio.currentTime = 0
-  video.onended = () => {
-    const videoT = computeExportVideoTime(
-      audio.currentTime,
-      voiceLineCues,
-      segments,
-      videoDur,
-      audioDur,
-      Boolean(audioUrl)
-    )
-    seekVideoForExportFrame(video, videoT, videoDur)
-  }
+  syncMvpPreviewVideoToAudio(
+    video,
+    0,
+    voiceLineCues,
+    segments,
+    videoDur,
+    audioDur,
+    syncState,
+    { forceSeek: true, holdOnEnd: true }
+  )
+  void video.play().catch(() => {})
 
   recorder.start(100)
   await audio.play()
@@ -472,7 +438,19 @@ export async function renderMvpPreviewToBlob(
       const audioT = audio.currentTime
       onProgress?.(Math.min(0.82, (audioT / audioDur) * 0.82))
 
-      const videoT = computeExportVideoTime(
+      syncMvpPreviewVideoToAudio(
+        video,
+        audioT,
+        voiceLineCues,
+        segments,
+        videoDur,
+        audioDur,
+        syncState,
+        { holdOnEnd: true }
+      )
+
+      const videoT = resolveMvpPreviewVideoTime(
+        video,
         audioT,
         voiceLineCues,
         segments,
@@ -485,10 +463,6 @@ export async function renderMvpPreviewToBlob(
         Boolean(thumbnailImg) &&
         thumbnailIntroOn &&
         isMvpThumbnailIntroTime(videoT)
-
-      if (!showThumbnail) {
-        seekVideoForExportFrame(video, videoT, videoDur)
-      }
 
       renderLayers.syncLayers(videoT, !audio.paused)
 

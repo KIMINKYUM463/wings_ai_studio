@@ -108,6 +108,111 @@ export function previewPlaybackRateForCue(
   return Math.min(4, Math.max(0.25, videoSpan / cueDur))
 }
 
+export type MvpVideoAudioSyncState = {
+  lastScene: number
+  lastCueKey: string
+}
+
+/** 미리보기·보내기 공통 — TTS 오디오 시각에 맞춰 영상 재생 (배속 + 구간 seek) */
+export function syncMvpPreviewVideoToAudio(
+  video: HTMLVideoElement,
+  audioT: number,
+  cues: readonly VoiceLineCue[] | null | undefined,
+  segments: readonly NarrationSegment[],
+  videoDur: number,
+  audioDur: number,
+  state: MvpVideoAudioSyncState,
+  opts?: { forceSeek?: boolean; holdOnEnd?: boolean }
+): void {
+  if (!cues?.length) {
+    if (videoDur > 0 && audioDur > 0) {
+      const target = Math.min(videoDur, (audioT / audioDur) * videoDur)
+      if (Math.abs(video.currentTime - target) > 0.08) {
+        video.currentTime = target
+      }
+    }
+    video.playbackRate = 1
+    if (opts?.holdOnEnd) {
+      const fileDur =
+        Number.isFinite(video.duration) && video.duration > 0 ? video.duration : videoDur
+      if (fileDur > 0 && (video.ended || video.currentTime >= fileDur - 0.05)) {
+        video.currentTime = Math.max(0, fileDur - 0.04)
+        if (video.paused) void video.play().catch(() => {})
+      }
+    }
+    return
+  }
+
+  const cue = voiceLineCueAtTime(cues, audioT)
+  if (!cue) return
+
+  const { startSec: vidStart, endSec: vidEnd } = videoRangeFromVoiceCue(cue, segments, cues)
+  video.playbackRate = previewPlaybackRateForCue(cue, segments, cues)
+
+  const cueKey = `${cue.sceneIndex}:${cue.startSec.toFixed(3)}`
+  const sceneChanged = cue.sceneIndex !== state.lastScene
+  const cueChanged = cueKey !== state.lastCueKey
+
+  if (opts?.forceSeek) {
+    video.currentTime = vidStart
+    state.lastScene = cue.sceneIndex
+    state.lastCueKey = cueKey
+    return
+  }
+
+  if (cueChanged) {
+    state.lastCueKey = cueKey
+    if (sceneChanged) {
+      video.currentTime = vidStart
+      state.lastScene = cue.sceneIndex
+    } else if (video.currentTime < vidStart - 0.12 || video.currentTime > vidEnd + 0.08) {
+      video.currentTime = vidStart
+    }
+    return
+  }
+
+  const fileDur =
+    Number.isFinite(video.duration) && video.duration > 0 ? video.duration : videoDur
+
+  if (opts?.holdOnEnd && (video.ended || (fileDur > 0 && video.currentTime >= fileDur - 0.05))) {
+    const holdT = Math.max(vidStart, Math.min(vidEnd, fileDur) - 0.04)
+    if (Number.isFinite(holdT)) {
+      video.currentTime = holdT
+      if (video.paused) void video.play().catch(() => {})
+    }
+    return
+  }
+
+  if (video.paused) return
+
+  if (video.currentTime < vidStart - 0.2) {
+    video.currentTime = vidStart
+  } else if (video.currentTime > vidEnd + 0.15) {
+    video.currentTime = Math.max(vidStart, vidEnd - 0.04)
+  }
+}
+
+export function resolveMvpPreviewVideoTime(
+  video: HTMLVideoElement | null | undefined,
+  audioT: number,
+  cues: readonly VoiceLineCue[] | null | undefined,
+  segments: readonly NarrationSegment[],
+  videoDur: number,
+  audioDur: number,
+  hasAudio: boolean
+): number {
+  if (hasAudio && cues?.length && segments.length) {
+    if (video && !video.paused && Number.isFinite(video.currentTime) && video.currentTime >= 0) {
+      return video.currentTime
+    }
+    return videoTimeFromAudioCueSync(audioT, cues, segments, videoDur, audioDur)
+  }
+  if (videoDur > 0 && audioDur > 0) {
+    return Math.min(videoDur, (audioT / audioDur) * videoDur)
+  }
+  return video && Number.isFinite(video.currentTime) ? video.currentTime : Math.min(videoDur, Math.max(0, audioT))
+}
+
 export function previewDurationSec(
   videoDuration: number,
   audioDuration: number,

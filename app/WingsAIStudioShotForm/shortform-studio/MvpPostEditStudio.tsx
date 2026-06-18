@@ -5,7 +5,7 @@ import type { AutoEditJobResult } from "@/lib/shotform-auto-edit-types"
 import {
   audioTimeFromVideoSync,
   previewTimelineEndSec,
-  previewPlaybackRateForCue,
+  syncMvpPreviewVideoToAudio,
   videoRangeFromVoiceCue,
   videoTimeFromAudioCueSync,
 } from "@/lib/shotform-mvp-preview-sync"
@@ -1037,50 +1037,25 @@ export function MvpPostEditStudio({
   const syncVideoToAudio = useCallback(
     (audioT: number, forceSeek = false) => {
       const v = videoRef.current
-      if (!v || !voiceLineCues?.length) return
-
-      const cue = voiceLineCueAtTime(voiceLineCues, audioT)
-      if (!cue) return
-
-      const { startSec: vidStart, endSec: vidEnd } = videoRangeFromVoiceCue(
-        cue,
+      if (!v) return
+      const state = {
+        lastScene: lastSyncSceneRef.current,
+        lastCueKey: lastSyncCueKeyRef.current,
+      }
+      syncMvpPreviewVideoToAudio(
+        v,
+        audioT,
+        voiceLineCues,
         segments,
-        voiceLineCues
+        videoDuration || totalSec,
+        audioDuration,
+        state,
+        { forceSeek }
       )
-      const rate = previewPlaybackRateForCue(cue, segments, voiceLineCues)
-      const cueKey = `${cue.sceneIndex}:${cue.startSec.toFixed(3)}`
-      const sceneChanged = cue.sceneIndex !== lastSyncSceneRef.current
-      const cueChanged = cueKey !== lastSyncCueKeyRef.current
-
-      v.playbackRate = rate
-
-      if (forceSeek) {
-        v.currentTime = vidStart
-        lastSyncSceneRef.current = cue.sceneIndex
-        lastSyncCueKeyRef.current = cueKey
-        return
-      }
-
-      if (cueChanged) {
-        lastSyncCueKeyRef.current = cueKey
-        if (sceneChanged) {
-          v.currentTime = vidStart
-          lastSyncSceneRef.current = cue.sceneIndex
-        } else if (v.currentTime < vidStart - 0.12 || v.currentTime > vidEnd + 0.08) {
-          v.currentTime = vidStart
-        }
-        return
-      }
-
-      if (v.paused) return
-
-      if (v.currentTime < vidStart - 0.2) {
-        v.currentTime = vidStart
-      } else if (v.currentTime > vidEnd + 0.15) {
-        v.currentTime = Math.max(vidStart, vidEnd - 0.04)
-      }
+      lastSyncSceneRef.current = state.lastScene
+      lastSyncCueKeyRef.current = state.lastCueKey
     },
-    [voiceLineCues, segments]
+    [voiceLineCues, segments, videoDuration, totalSec, audioDuration]
   )
 
   const pausePreview = useCallback(() => {
