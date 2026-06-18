@@ -1,9 +1,9 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { shoppingLinkPublicPath, shoppingLinkPublicUrl, sanitizeShoppingLinkSlug } from "@/lib/shotform-shopping-link-types"
+import { shoppingLinkPublicUrl, sanitizeShoppingLinkSlug } from "@/lib/shotform-shopping-link-types"
 
 type SlugFieldProps = {
   slug: string
@@ -18,12 +18,21 @@ type SlugFieldProps = {
 export function ShoppingLinkSlugField({
   slug,
   onChange,
-  label = "URL",
+  label = "공개 주소 (슬러그)",
   required,
   inputId = "shopping-link-slug",
   className,
 }: SlugFieldProps) {
-  const pathPrefix = shoppingLinkPublicPath("").replace(/\/$/, "") + "/"
+  const [draft, setDraft] = useState(slug)
+
+  useEffect(() => {
+    setDraft(slug)
+  }, [slug])
+
+  const previewUrl = useMemo(
+    () => (sanitizeShoppingLinkSlug(draft) ? shoppingLinkPublicUrl(sanitizeShoppingLinkSlug(draft)) : ""),
+    [draft]
+  )
 
   return (
     <div className={className}>
@@ -31,18 +40,28 @@ export function ShoppingLinkSlugField({
         {label}
         {required ? " *" : null}
       </Label>
-      <div className="mt-2 flex items-center gap-2">
-        <span className="hidden shrink-0 text-xs text-slate-500 sm:inline">{pathPrefix}</span>
-        <Input
-          id={inputId}
-          value={slug}
-          onChange={(e) => onChange(sanitizeShoppingLinkSlug(e.target.value))}
-          placeholder="my-shop"
-          className="border-slate-700 bg-slate-950 text-white"
-        />
-      </div>
-      <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">
-        영문·숫자·하이픈만 사용됩니다. 한글 주소는 자동 변환되지 않으니 예: <span className="text-slate-400">wings-shop</span>
+      <Input
+        id={inputId}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          const safe = sanitizeShoppingLinkSlug(draft)
+          setDraft(safe)
+          onChange(safe)
+        }}
+        placeholder="test1dfdf"
+        spellCheck={false}
+        autoCapitalize="off"
+        autoCorrect="off"
+        className="mt-2 w-full min-w-0 border-slate-700 bg-slate-950 text-white"
+      />
+      {previewUrl ? (
+        <p className="mt-2 break-all text-[10px] leading-relaxed text-slate-400">{previewUrl}</p>
+      ) : (
+        <p className="mt-2 text-[10px] text-slate-500">영문·숫자·하이픈만 입력 (예: wings-shop)</p>
+      )}
+      <p className="mt-1 text-[10px] leading-relaxed text-slate-500">
+        한글은 자동 변환되지 않습니다. <span className="text-slate-400">wings-shop</span>처럼 영문으로 입력해 주세요.
       </p>
     </div>
   )

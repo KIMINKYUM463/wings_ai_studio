@@ -128,17 +128,7 @@ export async function publishShoppingLinkPage(data: ShoppingLinkPageData): Promi
     throw new Error(err?.error ?? "저장에 실패했습니다.")
   }
   const saved = normalizeShoppingLinkPageData((await res.json()) as ShoppingLinkPageData)
-  let result = assertPublishMatchesPayload(payload, saved)
-
-  const verifyRes = await fetch(
-    `/api/shotform-shopping-link/${encodeURIComponent(slug)}?v=${Date.now()}`,
-    { cache: "no-store" }
-  )
-  if (verifyRes.ok) {
-    const verified = normalizeShoppingLinkPageData((await verifyRes.json()) as ShoppingLinkPageData)
-    result = assertPublishMatchesPayload(payload, verified)
-  }
-
+  const result = assertPublishMatchesPayload(payload, saved)
   saveShoppingLinkDraft(result)
   return result
 }

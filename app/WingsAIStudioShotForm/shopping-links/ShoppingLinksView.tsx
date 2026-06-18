@@ -189,7 +189,11 @@ export function ShoppingLinksView() {
               messageVariant={messageVariant}
               onChange={(blocks) => updateData(patchShoppingLinkDraft(dataRef.current, { blocks }))}
               onSave={async (blocks) =>
-                publish(patchShoppingLinkDraft(dataRef.current, { blocks }))
+                publish(
+                  patchShoppingLinkDraft(dataRef.current, {
+                    blocks: blocks.map((b, i) => ({ ...b, order: i })),
+                  })
+                )
               }
             />
           ) : (

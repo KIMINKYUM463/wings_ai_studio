@@ -125,6 +125,19 @@ async function writeToSupabase(slug: string, data: ShoppingLinkPageData): Promis
     )
   }
 
+  if (payload.blocks.length !== saved.blocks.length) {
+    console.error("[shotform-shopping-link] block count mismatch after upsert", {
+      slug,
+      sent: payload.blocks.length,
+      saved: saved.blocks.length,
+      sentIds: payload.blocks.map((b) => b.id),
+      savedIds: saved.blocks.map((b) => b.id),
+    })
+    throw new Error(
+      `블록 ${payload.blocks.length}개 중 ${saved.blocks.length}개만 DB에 저장되었습니다. 잠시 후 다시 시도해 주세요.`
+    )
+  }
+
   const wantedTitle = payload.profile.displayName.trim()
   const savedTitle = saved.profile.displayName.trim()
   if (wantedTitle && savedTitle !== wantedTitle) {

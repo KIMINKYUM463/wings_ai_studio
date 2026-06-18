@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import type { ShoppingLinkBlock, ShoppingLinkDesign, ShoppingLinkProfile } from "@/lib/shotform-shopping-link-types"
+import { sanitizeShoppingLinkSlug } from "@/lib/shotform-shopping-link-types"
 import { readImageFileAsDataUrl } from "@/lib/shotform-shopping-link-store"
 import { ShoppingLinkLivePreview } from "./ShoppingLinkLivePreview"
 import { ShoppingLinkSlugField } from "./ShoppingLinkUrlBar"
@@ -224,7 +225,9 @@ export function ProfileSettingsForm({
             type="button"
             disabled={saving || !draft.slug || !draft.displayName.trim()}
             className="w-full bg-gradient-to-r from-pink-500 to-violet-500 text-white hover:from-pink-600 hover:to-violet-600"
-            onClick={() => void onSave(draft)}
+            onClick={() =>
+              void onSave({ ...draft, slug: sanitizeShoppingLinkSlug(draft.slug) || draft.slug })
+            }
           >
             {saving ? "저장 중…" : "프로필 저장"}
           </Button>
@@ -234,7 +237,7 @@ export function ProfileSettingsForm({
       <div className="lg:sticky lg:top-6 lg:self-start">
         <ShoppingLinkLivePreview profile={draft} blocks={blocks} design={design} />
         <ShoppingLinkSlugField
-          className="mx-auto mt-6 w-full max-w-[280px] rounded-xl border border-slate-800 bg-slate-900/60 p-4"
+          className="mx-auto mt-6 w-full max-w-[320px] rounded-xl border border-slate-800 bg-slate-900/60 p-4"
           slug={draft.slug}
           onChange={(slug) => patch({ slug })}
           label="URL"
