@@ -22,12 +22,15 @@ import { labelThumbnailSource, selectedThumbnailVariant } from "@/lib/mvp-thumbn
 import type { MvpThumbnailDesign } from "@/lib/mvp-thumbnail-design"
 import { THUMBNAIL_SAMPLE_BACKGROUNDS } from "@/lib/mvp-thumbnail-samples"
 import { normalizeMvpHookingText } from "@/lib/mvp-thumbnail-persist"
+import { type ThumbnailHookingInput } from "@/lib/shotform-mvp-thumbnail"
 import { studio } from "../components/ShotFormStudioUI"
 import { MvpThumbnailAdvancedEditor } from "./MvpThumbnailAdvancedEditor"
 import { MvpThumbnailFramePicker } from "./MvpThumbnailFramePicker"
 
 type Props = {
   productName: string
+  /** AI 후킹 생성 시 대본·제품 분석 반영 */
+  hookingInput?: ThumbnailHookingInput
   videoUrl: string | null
   /** 짜집기 컷 — 컷별 프레임 후보 캡처에 사용 */
   segments?: readonly NarrationSegment[]
@@ -64,6 +67,7 @@ function shotformReplicateKey(): string {
 
 export function MvpThumbnailPanel({
   productName,
+  hookingInput: hookingInputProp,
   videoUrl,
   segments,
   scriptStyle,
@@ -103,6 +107,11 @@ export function MvpThumbnailPanel({
   const [advancedOpen, setAdvancedOpen] = useState(false)
 
   const hasHooking = Boolean(hookingText.line1.trim() && hookingText.line2.trim())
+
+  const hookingInput = useMemo(
+    () => hookingInputProp ?? { productName },
+    [hookingInputProp, productName]
+  )
 
   const activeThumbnail = useMemo(
     () => selectedThumbnailVariant(thumbnailGallery, selectedThumbnailId),
@@ -188,6 +197,7 @@ export function MvpThumbnailPanel({
         body: JSON.stringify({
           openaiApiKey: shotformOpenAIKey() || undefined,
           productName,
+          hookingInput,
           generateHookingOnly: true,
         }),
       })
@@ -199,7 +209,7 @@ export function MvpThumbnailPanel({
     } finally {
       setHookingLoading(false)
     }
-  }, [productName, onHookingTextChange])
+  }, [productName, hookingInput, onHookingTextChange])
 
   const handleGenerateThumbnail = useCallback(async () => {
     const replicateKey = shotformReplicateKey()
@@ -223,6 +233,7 @@ export function MvpThumbnailPanel({
           body: JSON.stringify({
             openaiApiKey: shotformOpenAIKey() || undefined,
             productName,
+            hookingInput,
             generateHookingOnly: true,
           }),
         })
@@ -241,6 +252,7 @@ export function MvpThumbnailPanel({
           openaiApiKey: shotformOpenAIKey() || undefined,
           replicateApiKey: replicateKey,
           productName,
+          hookingInput,
           productImageBase64: referenceBase64,
           hookingText: text,
         }),
@@ -265,7 +277,7 @@ export function MvpThumbnailPanel({
     } finally {
       setGenerating(false)
     }
-  }, [referenceBase64, hookingText, productName, onHookingTextChange, onAddThumbnail])
+  }, [referenceBase64, hookingText, productName, hookingInput, onHookingTextChange, onAddThumbnail])
 
   const handleGenerateImageOnly = useCallback(async () => {
     const replicateKey = shotformReplicateKey()
@@ -346,7 +358,7 @@ export function MvpThumbnailPanel({
   }, [thumbnailUrl])
 
   const previewHint = useMemo(() => {
-    if (thumbnailUrl && thumbnailIntroOn) return "선택한 썸네일 · 0초(맨 앞) 미리보기 ON"
+    if (thumbnailUrl && thumbnailIntroOn) return "선택한 썸네일 · 0~0.01초(맨 앞) 미리보기 ON"
     if (thumbnailUrl) return "선택한 썸네일 · 맨 앞 표시 OFF"
     if (referencePreviewUrl) return "생성 후 「맨 앞 썸네일」을 켜면 0초에 표시됩니다"
     return "참조 이미지 로딩 중…"
@@ -561,7 +573,7 @@ export function MvpThumbnailPanel({
         />
         {!compact ? (
           <p className="text-[10px] text-slate-500">
-            headcopies·6단계 대본이 있으면 자동 채워집니다. 쇼핑숏폼과 동일 프롬프트로 합성됩니다.
+            AI가 대본·제품 분석을 바탕으로 CTR형 2줄 후킹을 추천합니다. 「AI」를 눌러 다시 생성할 수 있습니다.
           </p>
         ) : null}
       </div>
@@ -685,6 +697,7 @@ export function MvpThumbnailPanel({
         onSelectVideoFrame={selectVideoFrame}
         hookingText={hookingText}
         productName={productName}
+        hookingInput={hookingInput}
         initialDesign={studioInitialDesign}
         onApply={(dataUrl, hooking, design) => {
           const studioDesign: MvpThumbnailDesign = {

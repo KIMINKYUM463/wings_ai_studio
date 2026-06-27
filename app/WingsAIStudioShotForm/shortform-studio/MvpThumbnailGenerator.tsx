@@ -1,5 +1,6 @@
 "use client"
 
+import { useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import type { AutoEditJobResult } from "@/lib/shotform-auto-edit-types"
 import type { NarrationSegment } from "@/lib/shotform-factory-narration-script"
@@ -8,6 +9,7 @@ import type {
   MvpThumbnailHookingText,
   MvpThumbnailVariant,
 } from "@/lib/mvp-studio-types"
+import { buildThumbnailHookingInput } from "@/lib/shotform-mvp-thumbnail"
 import { StudioPageCard, studio } from "../components/ShotFormStudioUI"
 import { MvpThumbnailPanel } from "./MvpThumbnailPanel"
 
@@ -55,6 +57,17 @@ export function MvpThumbnailGenerator({
 }: Props) {
   const productName = result.productAnalysis?.productName || scriptStyle.commentKeyword || "제품"
 
+  const hookingInput = useMemo(
+    () =>
+      buildThumbnailHookingInput({
+        productName,
+        productAnalysis: result.productAnalysis,
+        scriptStyle,
+        segments,
+      }),
+    [productName, result.productAnalysis, scriptStyle, segments]
+  )
+
   return (
     <StudioPageCard className="border-amber-500/25 bg-amber-950/10">
       <p className={studio.label}>7. 썸네일 생성</p>
@@ -67,6 +80,7 @@ export function MvpThumbnailGenerator({
         <MvpThumbnailPanel
           layout="page"
           productName={productName}
+          hookingInput={hookingInput}
           videoUrl={videoUrl}
           segments={segments}
           scriptStyle={scriptStyle}

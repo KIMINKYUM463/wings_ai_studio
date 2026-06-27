@@ -66,6 +66,29 @@ export type MvpPreviewRenderInput = {
   onProgress?: (ratio: number) => void
 }
 
+/** HTMLAudio duration 메타데이터는 TTS blob에서 실제보다 짧게 나오는 경우가 있어 max 사용 */
+function resolveMvpRenderAudioDuration(
+  audio: HTMLAudioElement,
+  audioDurationSec: number,
+  voiceLineCues?: VoiceLineCue[] | null
+): number {
+  let dur = 0.1
+  if (Number.isFinite(audioDurationSec) && audioDurationSec > 0) {
+    dur = Math.max(dur, audioDurationSec)
+  }
+  if (Number.isFinite(audio.duration) && audio.duration > 0) {
+    dur = Math.max(dur, audio.duration)
+  }
+  const lastCue = voiceLineCues?.[voiceLineCues.length - 1]
+  if (lastCue && Number.isFinite(lastCue.endSec) && lastCue.endSec > 0) {
+    dur = Math.max(dur, lastCue.endSec)
+  }
+  return dur
+}
+
+/** MediaRecorder·WebAudio 버퍼 flush — onended 직후 stop하면 끝 0.3~1초가 잘릴 수 있음 */
+const MVP_RENDER_AUDIO_TAIL_MS = 500
+
 function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image()
@@ -108,31 +131,6 @@ function roundRect(
   ctx.closePath()
 }
 
-function drawImageCover(
-  ctx: CanvasRenderingContext2D,
-  img: CanvasImageSource,
-  cw: number,
-  ch: number
-) {
-  const iw = "videoWidth" in img ? img.videoWidth : (img as HTMLImageElement).naturalWidth
-  const ih = "videoHeight" in img ? img.videoHeight : (img as HTMLImageElement).naturalHeight
-  if (!iw || !ih) return
-  const ia = iw / ih
-  const ca = cw / ch
-  let sx = 0
-  let sy = 0
-  let sw = iw
-  let sh = ih
-  if (ia > ca) {
-    sw = ih * ca
-    sx = (iw - sw) / 2
-  } else {
-    sh = iw / ca
-    sy = (ih - sh) / 2
-  }
-  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, cw, ch)
-}
-
 function drawVideoContain(
   ctx: CanvasRenderingContext2D,
   video: HTMLVideoElement,
@@ -156,6 +154,24 @@ function drawVideoContain(
     dx = (cw - dw) / 2
   }
   ctx.drawImage(video, dx, dy, dw, dh)
+}
+
+/** 미리보기 `object-cover` — 맨 앞 썸네일 인트로 */
+function drawThumbnailCover(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  cw: number,
+  ch: number
+) {
+  const iw = img.naturalWidth
+  const ih = img.naturalHeight
+  if (!iw || !ih) return
+  const scale = Math.max(cw / iw, ch / ih)
+  const dw = iw * scale
+  const dh = ih * scale
+  const dx = (cw - dw) / 2
+  const dy = (ch - dh) / 2
+  ctx.drawImage(img, dx, dy, dw, dh)
 }
 
 function drawOverlay(
@@ -351,8 +367,9 @@ export async function renderMvpPreviewToBlob(
 
   const thumbnailImg =
     thumbnailIntroOn && thumbnailUrl ? await loadImage(thumbnailUrl).catch(() => null) : null
+  const useThumbnailIntro = Boolean(thumbnailIntroOn && thumbnailUrl && thumbnailImg)
 
-  const audioDur = Math.max(0.1, audio.duration || audioDurationSec || 0.1)
+  const audioDur = resolveMvpRenderAudioDuration(audio, audioDurationSec, voiceLineCues)
   const videoDur = Math.max(0.1, video.duration || videoDurationSec || 0.1)
 
   const stream = canvas.captureStream(30)
@@ -418,6 +435,14 @@ export async function renderMvpPreviewToBlob(
 
   await new Promise<void>((resolve) => {
     let finished = false
+    let stopScheduledAt = 0
+    const recordStartedAt = performance.now()
+
+    const scheduleStop = () => {
+      if (stopScheduledAt > 0) return
+      stopScheduledAt = performance.now() + MVP_RENDER_AUDIO_TAIL_MS
+    }
+
     const finish = () => {
       if (finished) return
       finished = true
@@ -435,8 +460,10 @@ export async function renderMvpPreviewToBlob(
     }
 
     const renderFrame = () => {
+      if (finished) return
+
       const audioT = audio.currentTime
-      onProgress?.(Math.min(0.82, (audioT / audioDur) * 0.82))
+      onProgress?.(Math.min(0.78, (audioT / audioDur) * 0.78))
 
       syncMvpPreviewVideoToAudio(
         video,
@@ -459,72 +486,85 @@ export async function renderMvpPreviewToBlob(
         Boolean(audioUrl)
       )
 
-      const showThumbnail =
-        Boolean(thumbnailImg) &&
-        thumbnailIntroOn &&
-        isMvpThumbnailIntroTime(videoT)
-
-      renderLayers.syncLayers(videoT, !audio.paused)
+      renderLayers.syncLayers(videoT, !audio.paused && !audio.ended)
 
       ctx.fillStyle = "#000000"
       ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-      if (showThumbnail && thumbnailImg) {
-        drawImageCover(ctx, thumbnailImg, canvas.width, canvas.height)
-      } else if (video.readyState >= 2) {
-        const clipIndex = editPlan.length ? editPlanSegmentIndexAtOutputTime(editPlan, videoT) : 0
-        const sourceTransform = getMvpEditPlanClipTransform(videoSourceTransforms, clipIndex)
-        if (isDefaultMvpVideoSourceTransform(sourceTransform)) {
-          drawVideoContain(ctx, video, canvas.width, canvas.height)
-        } else {
-          drawVideoContainWithSourceTransform(
-            ctx,
-            video,
-            canvas.width,
-            canvas.height,
-            sourceTransform
-          )
-        }
-      }
+      const atThumbnailIntro = useThumbnailIntro && isMvpThumbnailIntroTime(audioT)
 
-      const overlayTimeSec = videoT
-
-      for (const ov of filterOverlaysAtVideoTime(placedOverlays, overlayTimeSec, videoDur)) {
-        drawOverlay(ctx, ov, canvas.width, canvas.height, MVP_PREVIEW_STAGE_WIDTH_PX, video)
-      }
-
-      const subText = resolveSubtitleText(
-        audioT,
-        videoT,
-        showThumbnail,
-        voiceLineCues,
-        true,
-        lineSchedule
-      )
-      drawSubtitle(ctx, subText, subtitleStyle, canvas.width, canvas.height, MVP_PREVIEW_STAGE_WIDTH_PX)
-
-      if (!audio.paused && audioT < audioDur - 0.03) {
-        requestAnimationFrame(renderFrame)
+      if (atThumbnailIntro && thumbnailImg) {
+        drawThumbnailCover(ctx, thumbnailImg, canvas.width, canvas.height)
       } else {
-        finish()
+        if (video.readyState >= 2) {
+          const clipIndex = editPlan.length ? editPlanSegmentIndexAtOutputTime(editPlan, videoT) : 0
+          const sourceTransform = getMvpEditPlanClipTransform(videoSourceTransforms, clipIndex)
+          if (isDefaultMvpVideoSourceTransform(sourceTransform)) {
+            drawVideoContain(ctx, video, canvas.width, canvas.height)
+          } else {
+            drawVideoContainWithSourceTransform(
+              ctx,
+              video,
+              canvas.width,
+              canvas.height,
+              sourceTransform
+            )
+          }
+        }
+
+        const overlayTimeSec = videoT
+
+        for (const ov of filterOverlaysAtVideoTime(placedOverlays, overlayTimeSec, videoDur)) {
+          drawOverlay(ctx, ov, canvas.width, canvas.height, MVP_PREVIEW_STAGE_WIDTH_PX, video)
+        }
+
+        const subText = resolveSubtitleText(
+          audioT,
+          videoT,
+          false,
+          voiceLineCues,
+          true,
+          lineSchedule
+        )
+        drawSubtitle(ctx, subText, subtitleStyle, canvas.width, canvas.height, MVP_PREVIEW_STAGE_WIDTH_PX)
       }
+
+      if (stopScheduledAt > 0 && performance.now() >= stopScheduledAt) {
+        finish()
+        return
+      }
+
+      if (audio.ended) {
+        scheduleStop()
+      } else if (
+        stopScheduledAt === 0 &&
+        (performance.now() - recordStartedAt > (audioDur + 2) * 1000 ||
+          (audio.paused && audioT >= audioDur - 0.02))
+      ) {
+        scheduleStop()
+      }
+
+      requestAnimationFrame(renderFrame)
     }
 
-    audio.onended = () => finish()
+    audio.onended = scheduleStop
     renderFrame()
   })
 
   const recorded = await blobPromise
 
+  let mp4Blob: Blob
   if (ext === "mp4" || recorded.type.includes("mp4")) {
-    onProgress?.(1)
-    return { blob: recorded, ext: "mp4" }
+    mp4Blob = recorded
+    onProgress?.(0.8)
+  } else {
+    onProgress?.(0.78)
+    mp4Blob = await convertWebmBlobToMp4(recorded, (ratio) => {
+      onProgress?.(0.78 + ratio * 0.12)
+    })
+    onProgress?.(0.9)
   }
 
-  onProgress?.(0.84)
-  const mp4 = await convertWebmBlobToMp4(recorded, (ratio) => {
-    onProgress?.(0.84 + ratio * 0.16)
-  })
   onProgress?.(1)
-  return { blob: mp4, ext: "mp4" }
+  return { blob: mp4Blob, ext: "mp4" }
 }

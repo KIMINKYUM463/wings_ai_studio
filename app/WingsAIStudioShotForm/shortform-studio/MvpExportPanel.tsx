@@ -291,7 +291,15 @@ export function MvpExportPanel({
       downloadBlob(blob, mvpRenderDownloadFilename(projectName, ext))
       setExportMsg("렌더 완료. 자막·모자이크·썸네일·TTS가 합쳐진 MP4를 다운로드했습니다.")
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "렌더 실패")
+      const msg =
+        e instanceof Error
+          ? e.message
+          : typeof e === "string"
+            ? e
+            : e && typeof e === "object" && "message" in e
+              ? String((e as { message: unknown }).message)
+              : "렌더 실패"
+      setErr(msg || "렌더 실패")
       setExportMsg(null)
     } finally {
       setBusy(null)
@@ -327,7 +335,7 @@ export function MvpExportPanel({
       {err ? <p className="mt-3 text-sm text-red-300">{err}</p> : null}
       {exportMsg ? <p className="mt-3 text-sm text-emerald-300">{exportMsg}</p> : null}
 
-      {thumbnailUrl ? (
+      {thumbnailUrl && thumbnailIntroOn ? (
         <div className="mt-6 flex flex-col items-start gap-3 sm:flex-row sm:items-center">
           <div className="overflow-hidden rounded-lg border border-amber-500/30 shadow-lg">
             <img
@@ -337,8 +345,8 @@ export function MvpExportPanel({
             />
           </div>
           <div className="text-xs text-slate-400">
-            <p className="font-medium text-amber-100">썸네일 적용됨</p>
-            <p className="mt-1">렌더 MP4 앞부분에 썸네일 인트로가 잠깐 들어갑니다.</p>
+            <p className="font-medium text-amber-100">썸네일 맨 앞 표시 ON</p>
+            <p className="mt-1">렌더 시 0~0.01초 구간에 미리보기와 동일한 썸네일이 녹화됩니다.</p>
           </div>
         </div>
       ) : null}

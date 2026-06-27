@@ -357,7 +357,7 @@ export function MvpCapCutTimeline({
               {thumbnailUrl ? (
                 <button
                   type="button"
-                  title="쇼츠 첫 프레임 썸네일 (0초)"
+                  title="쇼츠 첫 프레임 썸네일 (0~0.01초)"
                   className="absolute top-1.5 z-10 h-8 w-1.5 min-w-[6px] rounded-sm border border-amber-500/70 bg-gradient-to-b from-amber-500/80 to-amber-700/60 hover:from-amber-400/90"
                   style={{ left: 0 }}
                   onClick={(e) => {

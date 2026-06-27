@@ -70,7 +70,6 @@ import {
   updateThumbnailBackgroundTransform,
   duplicateThumbnailElement,
   duplicateThumbnailText,
-  exportThumbnailStageToDataUrl,
   hookingFromThumbnailDesign,
   thumbnailTextAnchorTransform,
   addThumbnailElement,
@@ -82,6 +81,8 @@ import {
   type ThumbnailFilterState,
   type ThumbnailTextLayer,
 } from "@/lib/mvp-thumbnail-design"
+import { exportThumbnailDesignToDataUrl } from "@/lib/mvp-thumbnail-export-canvas"
+import type { ThumbnailHookingInput } from "@/lib/shotform-mvp-thumbnail"
 import { compressReferenceImageDataUrl, persistImageUrlAsDataUrl } from "@/lib/mvp-thumbnail-capture"
 import { StudioOverlayGraphic } from "../shoppingshotform/StudioOverlayGraphic"
 import { useMvpOverlayInteraction } from "./useMvpOverlayInteraction"
@@ -112,6 +113,7 @@ type Props = {
   onSelectVideoFrame?: (frame: CapturedVideoFrame) => void
   hookingText: MvpThumbnailHookingText
   productName: string
+  hookingInput?: ThumbnailHookingInput
   /** 스튜디오 재진입 시 복원 — 없으면 hookingText로 새 디자인 생성 */
   initialDesign?: MvpThumbnailDesign | null
   onApply: (thumbnailDataUrl: string, hooking: MvpThumbnailHookingText, design: MvpThumbnailDesign) => void
@@ -302,7 +304,7 @@ function textLayerLineStyle(t: ThumbnailTextLayer): React.CSSProperties {
     whiteSpace: "nowrap",
     WebkitTextStroke: t.strokeOn ? `${t.strokeWidth}px ${t.strokeColor}` : undefined,
     paintOrder: t.strokeOn ? "stroke fill" : undefined,
-    textShadow: t.shadow ? "2px 3px 8px rgba(0,0,0,0.75)" : undefined,
+    textShadow: t.shadow ? "2px 3px 8px rgba(0,0,0,0.75)" : "none",
     fontFamily: '"Pretendard","Noto Sans KR",system-ui,sans-serif',
     wordBreak: "keep-all",
   }
@@ -320,7 +322,12 @@ function ThumbnailTextLayerContent({ layer }: { layer: ThumbnailTextLayer }) {
   const inner = (
     <div className="flex w-full flex-col gap-0.5">
       {lines.map((line, i) => (
-        <span key={`${layer.id}-line-${i}`} className="block w-full" style={textLayerLineStyle(layer)}>
+        <span
+          key={`${layer.id}-line-${i}`}
+          className="block w-full"
+          data-thumb-shadow={layer.shadow ? "1" : "0"}
+          style={textLayerLineStyle(layer)}
+        >
           {line || "\u00A0"}
         </span>
       ))}
@@ -499,6 +506,7 @@ export function MvpThumbnailAdvancedEditor({
   onSelectVideoFrame,
   hookingText,
   productName,
+  hookingInput,
   initialDesign = null,
   onApply,
 }: Props) {
@@ -827,6 +835,11 @@ export function MvpThumbnailAdvancedEditor({
     }
   }, [design, hookingText.line1, hookingText.line2])
 
+  const aiHookingContext = useMemo(
+    (): ThumbnailHookingInput => hookingInput ?? { productName },
+    [hookingInput, productName]
+  )
+
   const generateFullThumbnailWithAi = useCallback(async () => {
     const replicateKey = shotformReplicateKey()
     if (!replicateKey) {
@@ -850,6 +863,7 @@ export function MvpThumbnailAdvancedEditor({
           body: JSON.stringify({
             openaiApiKey: shotformOpenAIKey() || undefined,
             productName,
+            hookingInput: aiHookingContext,
             generateHookingOnly: true,
           }),
         })
@@ -866,6 +880,7 @@ export function MvpThumbnailAdvancedEditor({
           openaiApiKey: shotformOpenAIKey() || undefined,
           replicateApiKey: replicateKey,
           productName,
+          hookingInput: aiHookingContext,
           productImageBase64,
           hookingText: text,
         }),
@@ -889,7 +904,7 @@ export function MvpThumbnailAdvancedEditor({
     } finally {
       setFullThumbGenerating(false)
     }
-  }, [currentHookingForAi, design.backgroundUrl, productName, referenceImageUrl])
+  }, [aiHookingContext, currentHookingForAi, design.backgroundUrl, productName, referenceImageUrl])
 
   const applyBrushInpaint = useCallback(async () => {
     if (!design.backgroundUrl || design.aiBaked) {
@@ -1000,6 +1015,7 @@ export function MvpThumbnailAdvancedEditor({
           body: JSON.stringify({
             openaiApiKey: shotformOpenAIKey() || undefined,
             productName,
+            hookingInput: aiHookingContext,
             rewriteTextOnly: true,
             currentText: textLayer.text,
             textRole: textLayer.role,
@@ -1016,7 +1032,7 @@ export function MvpThumbnailAdvancedEditor({
         setAiTextLoadingId(null)
       }
     },
-    [design.texts, productName]
+    [aiHookingContext, design.texts, productName]
   )
 
   const duplicateSelected = useCallback(() => {
@@ -1164,10 +1180,7 @@ export function MvpThumbnailAdvancedEditor({
     setExporting(true)
     setErr(null)
     try {
-      let dataUrl = await exportThumbnailStageToDataUrl(stage)
-      if (dataUrl.startsWith("data:image/")) {
-        dataUrl = await compressReferenceImageDataUrl(dataUrl)
-      }
+      const dataUrl = await exportThumbnailDesignToDataUrl(design, stage)
       const designForSave: MvpThumbnailDesign = {
         ...design,
         aiBackgroundHistory: undefined,
@@ -1235,7 +1248,20 @@ export function MvpThumbnailAdvancedEditor({
 
   const toggleFlag = (key: "strokeOn" | "shadow" | "bgOn", val: boolean) => {
     if (!selectedText) return
-    commitDesign((d) => updateThumbnailText(d, selectedText.id, { [key]: val }))
+    commitDesign((d) => {
+      if (
+        key === "shadow" &&
+        (selectedText.role === "hook1" || selectedText.role === "hook2")
+      ) {
+        return {
+          ...d,
+          texts: d.texts.map((t) =>
+            t.role === "hook1" || t.role === "hook2" ? { ...t, shadow: val } : t
+          ),
+        }
+      }
+      return updateThumbnailText(d, selectedText.id, { [key]: val })
+    })
   }
 
   return (
@@ -1920,6 +1946,7 @@ export function MvpThumbnailAdvancedEditor({
               >
                 {design.backgroundUrl ? (
                   <div
+                    data-thumb-bg
                     className={cn(
                       "absolute inset-0 z-0 touch-none select-none",
                       !design.aiBaked &&
@@ -1946,13 +1973,15 @@ export function MvpThumbnailAdvancedEditor({
                 )}
 
                 {design.backgroundUrl && !design.aiBaked ? (
-                  <ThumbnailBrushEraseLayer
-                    ref={brushEraseRef}
-                    active={brushEraseActive}
-                    brushSize={brushSize}
-                    width={stagePxW}
-                    height={stagePxH}
-                  />
+                  <div data-thumb-brush className="absolute inset-0 z-[1]">
+                    <ThumbnailBrushEraseLayer
+                      ref={brushEraseRef}
+                      active={brushEraseActive}
+                      brushSize={brushSize}
+                      width={stagePxW}
+                      height={stagePxH}
+                    />
+                  </div>
                 ) : null}
 
                 {brushEraseActive ? (
@@ -1965,6 +1994,7 @@ export function MvpThumbnailAdvancedEditor({
 
                 {design.filter.gradientTop && design.filter.gradientOpacity > 0 ? (
                   <div
+                    data-thumb-filter
                     className="pointer-events-none absolute inset-x-0 top-0 z-[1]"
                     style={{
                       height: "45%",
@@ -1977,6 +2007,7 @@ export function MvpThumbnailAdvancedEditor({
 
                 {design.filter.vignette > 0 ? (
                   <div
+                    data-thumb-filter
                     className="pointer-events-none absolute inset-0 z-[2]"
                     style={{
                       background: `radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,${
@@ -2010,6 +2041,7 @@ export function MvpThumbnailAdvancedEditor({
                   return (
                     <div
                       key={t.id}
+                      data-thumb-text-layer
                       className="absolute z-[4] touch-none select-none"
                       style={{
                         left: `${t.x}%`,
@@ -2031,7 +2063,7 @@ export function MvpThumbnailAdvancedEditor({
                       >
                         <ThumbnailTextLayerContent layer={t} />
                         {selected ? (
-                          <>
+                          <div data-thumb-export-skip className="contents">
                             <button
                               type="button"
                               title="AI 문구 변환"
@@ -2061,7 +2093,7 @@ export function MvpThumbnailAdvancedEditor({
                                 ↻
                               </button>
                             </div>
-                          </>
+                          </div>
                         ) : null}
                       </div>
                     </div>

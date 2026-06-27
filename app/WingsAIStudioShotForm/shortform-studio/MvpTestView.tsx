@@ -34,7 +34,7 @@ import type { MvpReprocessResolvedItem } from "@/lib/shotform-mvp-reprocess-url-
 import type { MvpStudioPersistData } from "@/lib/mvp-studio-types"
 import { normalizeStudioPhase } from "@/lib/mvp-studio-types"
 import { prepareMvpProjectDataForSave } from "@/lib/mvp-project-persist"
-import { safeJsonKey, slimStudioPersistForSave } from "@/lib/mvp-thumbnail-persist"
+import { safeJsonKey, slimStudioPersistForSave, cacheMvpThumbnailGalleryForSave } from "@/lib/mvp-thumbnail-persist"
 import { MvpAutoEditDialog } from "./MvpAutoEditDialog"
 import { MvpEditPicksBar } from "./MvpEditPicksBar"
 import { MvpPostEditStudio } from "./MvpPostEditStudio"
@@ -587,6 +587,11 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
     setSaveState("saving")
     setSaveError(null)
     try {
+      try {
+        await cacheMvpThumbnailGalleryForSave(project.id, w.postEditStudioData?.thumbnailGallery)
+      } catch (e) {
+        console.warn("[MvpTestView] thumbnail IDB cache failed:", e)
+      }
       const updated = await updateMvpTestProject(project.id, { data: payload })
       lastSavedKeyRef.current = key
       onProjectUpdatedRef.current(updated)

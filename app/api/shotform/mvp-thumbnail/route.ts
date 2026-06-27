@@ -4,6 +4,7 @@ import {
   generateShortsThumbnailBackground,
   generateThumbnailHookingText,
   rewriteThumbnailLayerText,
+  type ThumbnailHookingInput,
   type ThumbnailTextRole,
 } from "@/lib/shotform-mvp-thumbnail"
 
@@ -19,6 +20,7 @@ export async function POST(request: NextRequest) {
       hookingText?: { line1?: string; line2?: string }
       generateHookingOnly?: boolean
       rewriteTextOnly?: boolean
+      hookingInput?: ThumbnailHookingInput
       currentText?: string
       textRole?: ThumbnailTextRole
       otherLines?: string[]
@@ -30,8 +32,12 @@ export async function POST(request: NextRequest) {
     const replicateApiKey =
       body.replicateApiKey?.trim() || process.env.REPLICATE_API_TOKEN?.trim() || undefined
 
+    const hookingInput: ThumbnailHookingInput = body.hookingInput?.productName?.trim()
+      ? body.hookingInput
+      : { productName }
+
     if (body.generateHookingOnly) {
-      const hookingText = await generateThumbnailHookingText(productName, openaiApiKey)
+      const hookingText = await generateThumbnailHookingText(hookingInput, openaiApiKey)
       return NextResponse.json({ hookingText })
     }
 
@@ -42,6 +48,7 @@ export async function POST(request: NextRequest) {
           currentText: body.currentText?.trim() ?? "",
           role: body.textRole,
           otherLines: body.otherLines,
+          hookingContext: hookingInput,
         },
         openaiApiKey
       )
@@ -87,7 +94,7 @@ export async function POST(request: NextRequest) {
       line2: body.hookingText?.line2?.trim() ?? "",
     }
     if (!hookingText.line1 || !hookingText.line2) {
-      hookingText = await generateThumbnailHookingText(productName, openaiApiKey)
+      hookingText = await generateThumbnailHookingText(hookingInput, openaiApiKey)
     }
 
     const thumbnailUrl = await generateShortsThumbnail(

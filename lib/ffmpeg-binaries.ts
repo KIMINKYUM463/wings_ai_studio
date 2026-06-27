@@ -1,5 +1,4 @@
 import { spawnSync } from "child_process"
-import { createRequire } from "module"
 import fs from "fs"
 import os from "os"
 import path from "path"
@@ -7,7 +6,6 @@ import ffmpegStatic from "ffmpeg-static"
 import ffprobeStatic from "ffprobe-static"
 
 const prepared = new Map<"ffmpeg" | "ffprobe", string>()
-const nodeRequire = createRequire(path.join(process.cwd(), "package.json"))
 
 function fileExists(p: string | null | undefined): p is string {
   if (!p) return false
@@ -32,19 +30,9 @@ function vendorBinaryPath(kind: "ffmpeg" | "ffprobe"): string {
 function packageResolvedPath(kind: "ffmpeg" | "ffprobe"): string | null {
   try {
     if (kind === "ffmpeg") {
-      const exported = ffmpegStatic || (nodeRequire("ffmpeg-static") as string | null)
-      if (fileExists(exported)) return exported
-      const pkgDir = path.dirname(nodeRequire.resolve("ffmpeg-static/package.json"))
-      const candidate = path.join(pkgDir, platformBinaryName("ffmpeg"))
-      if (fileExists(candidate)) return candidate
-    } else {
-      const exported = ffprobeStatic?.path
-      if (fileExists(exported)) return exported
-      const pkgDir = path.dirname(nodeRequire.resolve("ffprobe-static/package.json"))
-      const platform = os.platform()
-      const arch = os.arch()
-      const candidate = path.join(pkgDir, "bin", platform, arch, platformBinaryName("ffprobe"))
-      if (fileExists(candidate)) return candidate
+      if (fileExists(ffmpegStatic)) return ffmpegStatic
+    } else if (fileExists(ffprobeStatic?.path)) {
+      return ffprobeStatic.path
     }
   } catch {
     /* ignore */

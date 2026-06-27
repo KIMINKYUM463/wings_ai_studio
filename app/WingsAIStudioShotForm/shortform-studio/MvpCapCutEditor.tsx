@@ -42,6 +42,7 @@ import {
   type ShotformTtsVoice,
   type TtsProviderId,
 } from "@/lib/shotform-tts-providers"
+import { buildThumbnailHookingInput } from "@/lib/shotform-mvp-thumbnail"
 import type { AutoEditJobResult } from "@/lib/shotform-auto-edit-types"
 import type { VoiceLineCue } from "@/lib/shotform-factory-line-tts"
 import type { LineSubtitleCue } from "@/lib/shotform-mvp-edit-script"
@@ -361,6 +362,16 @@ export function MvpCapCutEditor(props: Props) {
 
   const thumbnailProductName =
     result.productAnalysis?.productName || scriptStyle.commentKeyword || "제품"
+  const thumbnailHookingInput = useMemo(
+    () =>
+      buildThumbnailHookingInput({
+        productName: thumbnailProductName,
+        productAnalysis: result.productAnalysis,
+        scriptStyle,
+        segments,
+      }),
+    [thumbnailProductName, result.productAnalysis, scriptStyle, segments]
+  )
   const [scriptOpen, setScriptOpen] = useState(false)
   const [voicePickerOpen, setVoicePickerOpen] = useState(false)
   const [sidebarProvider, setSidebarProvider] = useState<TtsProviderId>(
@@ -1289,6 +1300,7 @@ export function MvpCapCutEditor(props: Props) {
               <MvpThumbnailPanel
                 layout="compact"
                 productName={thumbnailProductName}
+                hookingInput={thumbnailHookingInput}
                 videoUrl={resolvedVideoUrl}
                 segments={segments}
                 scriptStyle={scriptStyle}

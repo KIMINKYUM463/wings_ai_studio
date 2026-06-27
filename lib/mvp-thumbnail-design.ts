@@ -407,7 +407,6 @@ export function applyThumbnailTemplate(
       if (idx >= 0) {
         texts[idx] = {
           ...texts[idx]!,
-          ...TEMPLATE_HOOK_TEXT_EFFECTS,
           ...style,
           text: texts[idx]!.text.trim() || text,
         }
@@ -681,16 +680,28 @@ export function applyAiGeneratedBackground(
 
 export const THUMBNAIL_STAGE_BASE_W = 360
 
-export async function exportThumbnailStageToDataUrl(stageEl: HTMLElement): Promise<string> {
-  const { default: html2canvas } = await import("html2canvas-pro")
-  const rect = stageEl.getBoundingClientRect()
-  const scale = rect.width > 0 ? THUMBNAIL_EXPORT_W / rect.width : 2
-  const canvas = await html2canvas(stageEl, {
-    scale,
-    useCORS: true,
-    allowTaint: true,
-    backgroundColor: "#000000",
-    logging: false,
+/** 스튜디오 PNG(1080×1920)를 렌더·저장용으로 정규화 — JPEG 압축 없음 */
+export async function normalizeThumbnailExportPng(dataUrl: string): Promise<string> {
+  if (!dataUrl.startsWith("data:image/")) return dataUrl
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement("canvas")
+      canvas.width = THUMBNAIL_EXPORT_W
+      canvas.height = THUMBNAIL_EXPORT_H
+      const ctx = canvas.getContext("2d")
+      if (!ctx) {
+        reject(new Error("썸네일 캔버스를 사용할 수 없습니다."))
+        return
+      }
+      ctx.imageSmoothingEnabled = true
+      ctx.imageSmoothingQuality = "high"
+      ctx.fillStyle = "#000000"
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      resolve(canvas.toDataURL("image/png"))
+    }
+    img.onerror = () => reject(new Error("썸네일 이미지를 불러올 수 없습니다."))
+    img.src = dataUrl
   })
-  return canvas.toDataURL("image/png", 0.92)
 }

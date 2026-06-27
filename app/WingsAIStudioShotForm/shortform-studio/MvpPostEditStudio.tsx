@@ -29,6 +29,8 @@ import {
   selectedThumbnailVariant,
 } from "@/lib/mvp-thumbnail-gallery"
 import {
+  cacheMvpThumbnailGalleryForSave,
+  hydrateMvpThumbnailGallery,
   normalizeMvpHookingText,
   safeJsonKey,
   slimStudioPersistForSave,
@@ -107,10 +109,12 @@ import {
   type MvpVideoSourceTransforms,
 } from "@/lib/mvp-video-source-transform"
 import {
+  deleteMvpThumbnail,
   loadMvpEditMp4,
   loadMvpTtsAudio,
   saveMvpEditMp4,
   saveMvpTtsAudio,
+  saveMvpThumbnail,
 } from "@/lib/mvp-local-media-cache"
 import { assertPreviewMp4Blob, probeVideoElementPlayable } from "@/lib/mvp-mp4-preview"
 import { autoEditDownloadUrl } from "@/lib/shotform-auto-edit-download"
@@ -314,6 +318,50 @@ export function MvpPostEditStudio({
   const onStudioPersistChangeRef = useRef(onStudioPersistChange)
   onStudioPersistChangeRef.current = onStudioPersistChange
   const lastPersistKeyRef = useRef("")
+  const thumbnailBlobUrlsRef = useRef<string[]>([])
+
+  const revokeThumbnailBlobUrls = useCallback(() => {
+    for (const url of thumbnailBlobUrlsRef.current) {
+      if (url.startsWith("blob:")) URL.revokeObjectURL(url)
+    }
+    thumbnailBlobUrlsRef.current = []
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      revokeThumbnailBlobUrls()
+    }
+  }, [revokeThumbnailBlobUrls])
+
+  const thumbnailPersistKey = useMemo(
+    () =>
+      safeJsonKey({
+        gallery: studioPersist?.thumbnailGallery,
+        selectedId: studioPersist?.selectedThumbnailId,
+        url: studioPersist?.thumbnailUrl,
+      }) ?? "",
+    [studioPersist?.thumbnailGallery, studioPersist?.selectedThumbnailId, studioPersist?.thumbnailUrl]
+  )
+
+  useEffect(() => {
+    if (!projectId) return
+    let cancelled = false
+    const migrated = migrateThumbnailGallery(studioPersist)
+    void hydrateMvpThumbnailGallery(projectId, migrated.gallery).then((hydrated) => {
+      if (cancelled) return
+      revokeThumbnailBlobUrls()
+      for (const variant of hydrated) {
+        if (variant.url.startsWith("blob:")) {
+          thumbnailBlobUrlsRef.current.push(variant.url)
+        }
+      }
+      setThumbnailGallery(hydrated)
+      setSelectedThumbnailId(migrated.selectedId)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [projectId, result.jobId, thumbnailPersistKey, revokeThumbnailBlobUrls])
 
   useEffect(() => {
     setEditMp4CachedJobId(studioPersist?.editMp4CachedJobId ?? "")
@@ -329,12 +377,10 @@ export function MvpPostEditStudio({
       setSubtitleStyle(normalizeSubtitleStyle(studioPersist.subtitleStyle))
     }
     setPlacedOverlays(normalizePlacedOverlays(studioPersist?.placedOverlays))
-    const migrated = migrateThumbnailGallery(studioPersist)
-    setThumbnailGallery(migrated.gallery)
-    setSelectedThumbnailId(migrated.selectedId)
     setThumbnailHookingText(studioPersist?.thumbnailHookingText ?? { line1: "", line2: "" })
     setThumbnailIntroOn(
-      studioPersist?.thumbnailIntroOn ?? Boolean(migrated.selectedId)
+      studioPersist?.thumbnailIntroOn ??
+        Boolean(migrateThumbnailGallery(studioPersist).selectedId)
     )
     setSeoMeta(studioPersist?.seoMeta ?? emptyMvpStudioSeoMeta())
     setBgmClips(migrateStudioAudioToBgmClips(studioPersist, totalSec || 30))
@@ -353,7 +399,7 @@ export function MvpPostEditStudio({
   }, [result.jobId])
 
   useEffect(() => {
-    const payload: MvpStudioPersistData = slimStudioPersistForSave({
+    const payload: MvpStudioPersistData = {
       scriptOverrides,
       subtitleStyle,
       placedOverlays: placedOverlays.length ? placedOverlays : undefined,
@@ -382,15 +428,27 @@ export function MvpPostEditStudio({
       videoSourceTransforms: Object.keys(videoSourceTransforms).length
         ? videoSourceTransforms
         : undefined,
-    })
-    const key = safeJsonKey(payload)
-    if (!key) {
-      console.warn("[MvpPostEditStudio] persist payload too large — skipped")
-      return
     }
-    if (key === lastPersistKeyRef.current) return
-    lastPersistKeyRef.current = key
-    onStudioPersistChangeRef.current?.(payload)
+
+    let cancelled = false
+    void (async () => {
+      await cacheMvpThumbnailGalleryForSave(projectId, payload.thumbnailGallery)
+      if (cancelled) return
+
+      const slimmed = slimStudioPersistForSave(payload)
+      const key = safeJsonKey(slimmed)
+      if (!key) {
+        console.warn("[MvpPostEditStudio] persist payload too large — skipped")
+        return
+      }
+      if (key === lastPersistKeyRef.current) return
+      lastPersistKeyRef.current = key
+      onStudioPersistChangeRef.current?.(slimmed)
+    })()
+
+    return () => {
+      cancelled = true
+    }
   }, [
     scriptOverrides,
     subtitleStyle,
@@ -411,6 +469,7 @@ export function MvpPostEditStudio({
     editTtsCachedJobId,
     bgmClips,
     videoSourceTransforms,
+    projectId,
   ])
 
   useEffect(() => {
@@ -1384,6 +1443,17 @@ export function MvpPostEditStudio({
       studioDesign?: MvpThumbnailVariant["studioDesign"]
     }) => {
       const { gallery, selectedId } = appendThumbnailVariant(thumbnailGallery, entry)
+      void (async () => {
+        try {
+          const res = await fetch(entry.url.trim())
+          const blob = await res.blob()
+          if (blob.size >= 512) {
+            await saveMvpThumbnail(projectId, selectedId, blob)
+          }
+        } catch {
+          /* persist effect에서 재시도 */
+        }
+      })()
       setThumbnailGallery(gallery)
       setSelectedThumbnailId(selectedId)
       setThumbnailIntroOn(true)
@@ -1391,7 +1461,7 @@ export function MvpPostEditStudio({
         setThumbnailHookingText(normalizeMvpHookingText(entry.hookingText))
       }
     },
-    [thumbnailGallery]
+    [thumbnailGallery, projectId]
   )
 
   const handleSelectThumbnail = useCallback(
@@ -1407,6 +1477,7 @@ export function MvpPostEditStudio({
 
   const handleRemoveThumbnail = useCallback(
     (id: string) => {
+      void deleteMvpThumbnail(projectId, id)
       const { gallery, selectedId } = removeThumbnailVariant(
         thumbnailGallery,
         id,
@@ -1415,7 +1486,7 @@ export function MvpPostEditStudio({
       setThumbnailGallery(gallery)
       setSelectedThumbnailId(selectedId)
     },
-    [thumbnailGallery, selectedThumbnailId]
+    [thumbnailGallery, selectedThumbnailId, projectId]
   )
 
   if (!segments.length && !resolvedVideoUrl && !result.downloadUrl) return null

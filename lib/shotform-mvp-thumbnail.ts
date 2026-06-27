@@ -1,52 +1,178 @@
 /** MVP·쇼핑숏폼 공용 — Replicate nano-banana-pro 썸네일 생성 */
 
+import type { ProductAnalysis } from "@/lib/shotform-auto-edit-types"
+import type { MvpScriptStyleState } from "@/lib/mvp-studio-types"
+
 export type ThumbnailHookingText = { line1: string; line2: string }
 
 export type ThumbnailTextRole = "hook1" | "hook2" | "badge" | "custom"
+
+export type ThumbnailHookingInput = {
+  productName: string
+  productCategory?: string
+  productFeatures?: string
+  productBenefits?: string
+  videoScript?: string
+}
 
 export type RewriteThumbnailTextInput = {
   productName: string
   currentText: string
   role?: ThumbnailTextRole
   otherLines?: string[]
+  hookingContext?: ThumbnailHookingInput
 }
 
 /** 쇼핑숏폼 AI 썸네일 카피 — 후킹 생성·리라이트 공용 */
-export const THUMBNAIL_HOOKING_MAX_CHARS = 7
+export const THUMBNAIL_HOOKING_MIN_CHARS = 4
+export const THUMBNAIL_HOOKING_MAX_CHARS = 10
+export const THUMBNAIL_HOOKING_IDEAL_MAX_CHARS = 8
 
-export const THUMBNAIL_HOOKING_SYSTEM_PROMPT = `당신은 유튜브 쇼핑숏폼 썸네일 후킹 카피 전문가입니다.
+export const THUMBNAIL_HOOKING_BANNED_PHRASES = [
+  "살면서 가장",
+  "최고의",
+  "역대급",
+  "미쳤다",
+  "엄청난",
+  "초강력",
+  "대박",
+  "레전드",
+  "혁신적인",
+  "끝판왕",
+  "갓성비",
+] as const
 
-절대 규칙 (무조건 준수):
-1. 반드시 두 줄 line1, line2 (JSON만 출력, 빈 문자열 금지)
-2. 각 줄 ${THUMBNAIL_HOOKING_MAX_CHARS}자 이내 — 8자 이상 절대 금지, 길게 쓰지 말 것
-3. 각 줄에 반드시 숫자 포함 (99%, 3초, 1위, 10배, 7일, 50% 등)
-4. 짧고 굵게, 클릭·충격·긴박감·호기심 유발
-5. 제품명 그대로 나열 금지 — 후킹 문구만
-6. line1·line2 단어 중복 금지
-7. **line1+line2는 위·아래 합쳐 한 메시지** — 따로 노는 독립 문구 금지
-8. line1=앞반(궁금증·충격·후킹), line2=뒷반(결론·제품 핵심·긴박) — 이어 읽으면 자연스러워야 함
+export const THUMBNAIL_HOOKING_SYSTEM_PROMPT = `역할
+당신은 대한민국 쇼핑 숏폼에서 조회수 수백만 회 이상을 만든 최고의 썸네일 카피라이터입니다.
+목표는 제품을 설명하는 것이 아니라 스크롤을 멈추게 만드는 것입니다.
+썸네일 문구는 광고 문구가 아니라 실제 사람들이 궁금해서 누르게 만드는 문구를 작성해야 합니다.
+항상 CTR(클릭률)을 최우선으로 생각합니다.
 
-연결된 좋은 예 (위+아래 = 한 세트):
-{"line1":"99% 손해","line2":"3초 완판"} → 몰라서 99% 손해 / 3초 만에 완판
-{"line1":"안 쓰면","line2":"100% 손해"}
-{"line1":"1위 비밀","line2":"7일 만에"}
-{"line1":"10배 싸게","line2":"오늘 마감"}
-{"line1":"요즘 난리","line2":"이거 때문"}
+입력값
+사용자는 제품명, 제품 카테고리, 제품 특징, 제품 장점, 영상 대본을 제공합니다.
+대본을 먼저 분석하여 사람들이 공감하는 문제, 가장 강력한 장점, 가장 놀라운 결과, 클릭하고 싶은 요소를 추출한 후 썸네일 문구를 생성합니다.
+제품명이 아니라 사람이 얻는 결과를 우선합니다.
 
-나쁜 예 (각각 따로 노는 것):
-{"line1":"99% 손해","line2":"7일 효과"} — 앞뒤 무관
-{"line1":"10배 싸게","line2":"1위 비밀"} — 연결 없음
-{"line1":"이 제품 쓰면 좋아요","line2":"지금 구매하세요"} — 너무 김·약함`
+생성 규칙
+- 반드시 위 1줄(line1) + 아래 1줄(line2), 총 2줄만 생성
+- 위·아래를 이어 읽으면 자연스러운 한 후킹이 되어야 함
+- 각 줄 ${THUMBNAIL_HOOKING_MIN_CHARS}~${THUMBNAIL_HOOKING_MAX_CHARS}자 (가능하면 6~8자)
+- JSON만 출력: {"line1":"...","line2":"..."}
 
-export function buildThumbnailHookingUserPrompt(productName: string): string {
-  return `제품명: ${productName}
+절대 금지 표현
+${THUMBNAIL_HOOKING_BANNED_PHRASES.join(", ")}
 
-위 제품에 맞는 쇼츠 썸네일 후킹 2줄을 작성하세요.
-- 위 줄(line1)+아래 줄(line2)을 합쳐 읽었을 때 **한 문장·한 후킹**처럼 이어져야 합니다.
-- line1은 궁금증/충격, line2는 그에 대한 결론/제품 핵심.
-- 각 줄 ${THUMBNAIL_HOOKING_MAX_CHARS}자 이내, 숫자 필수, 짧고 굵게.
+금지: 의미 없는 형용사, 제품명만 강조, 제품 설명형 문구
+예) ❌ 초강력 선풍기, ❌ 최고의 선풍기, ❌ 시원한 선풍기, ❌ BLDC 선풍기, ❌ 휴대용 선풍기
 
-{"line1":"...","line2":"..."}`
+원칙
+- 제품을 설명하지 않음. 제품을 사고 싶은 이유(결과·궁금증·손해·반전)를 먼저 보여줌
+- 실제 사람이 말하는 것처럼, 친구에게 이야기하는 느낌. 광고처럼 쓰지 않음
+- 보는 사람이 "왜?", "진짜?", "뭐길래?", "나도?"라고 생각하게 작성
+
+생성 우선순위 (가장 강한 후킹부터)
+① 손해 (예: 200만원 날림, 이거 몰랐어요)
+② 결과 (예: 전기세 반토막, 출근길 끝, 더위 끝, 집안이 달라짐)
+③ 숫자 (예: 3초 만에, 5시간 사용, 99% 제거, 10배 시원)
+④ 호기심 (예: 여기에 이걸?, 다들 이거 씀, 왜 이걸 살까?)
+⑤ 사회적 증거 (예: 회사에서 난리, 친구가 뺏어감, 다들 물어봄)
+
+패턴 (하나 선택)
+- (궁금증) ↓ (결과) — 손바닥만 한데 / 에어컨급 바람
+- (문제) ↓ (해결) — 출근길 땀범벅 / 이걸로 끝
+- (숫자) ↓ (결과) — 3초 만에 / 더위 끝
+- (경험) ↓ (결과) — 친구가 써보래서 / 바로 샀어요
+- (손해) ↓ (반전) — 이거 몰라서 / 10만원 손해
+
+좋은 예
+출근길 필수 / 더위 끝
+손바닥만 한데 / 에어컨급 바람
+이거 하나로 / 전기세 절약
+회사에서 / 다 물어봄
+여름마다 / 이것만 씀
+다들 이거 쓰길래 / 써봤는데
+이거 몰라서 / 여름 고생`
+
+export function buildThumbnailHookingInput(args: {
+  productName: string
+  productAnalysis?: Pick<
+    ProductAnalysis,
+    "category" | "summary" | "targetKeywords" | "videoStructure" | "scenes"
+  > | null
+  scriptStyle?: Pick<MvpScriptStyleState, "conversionScript" | "storytellingScript"> | null
+  segments?: readonly { text?: string }[]
+}): ThumbnailHookingInput {
+  const productName = args.productName.trim() || "제품"
+  const pa = args.productAnalysis
+
+  const videoScript =
+    args.scriptStyle?.conversionScript?.trim() ||
+    args.scriptStyle?.storytellingScript?.trim() ||
+    args.segments
+      ?.map((s) => s.text?.trim())
+      .filter(Boolean)
+      .join("\n") ||
+    ""
+
+  const featureParts: string[] = []
+  if (pa?.summary?.trim()) featureParts.push(pa.summary.trim())
+  if (pa?.targetKeywords?.length) {
+    featureParts.push(`키워드: ${pa.targetKeywords.slice(0, 10).join(", ")}`)
+  }
+  if (pa?.scenes?.length) {
+    featureParts.push(
+      `장면 요약: ${pa.scenes
+        .slice(0, 4)
+        .map((s) => s.description?.trim())
+        .filter(Boolean)
+        .join(" / ")}`
+    )
+  }
+
+  const benefitParts: string[] = []
+  if (pa?.videoStructure?.hook?.trim()) benefitParts.push(`후킹: ${pa.videoStructure.hook.trim()}`)
+  if (pa?.videoStructure?.body?.trim()) benefitParts.push(`본문: ${pa.videoStructure.body.trim()}`)
+  if (pa?.videoStructure?.cta?.trim()) benefitParts.push(`CTA: ${pa.videoStructure.cta.trim()}`)
+  if (!benefitParts.length && pa?.summary?.trim()) benefitParts.push(pa.summary.trim())
+
+  return {
+    productName,
+    productCategory: pa?.category?.trim() || undefined,
+    productFeatures: featureParts.length ? featureParts.join("\n") : undefined,
+    productBenefits: benefitParts.length ? benefitParts.join("\n") : undefined,
+    videoScript: videoScript ? videoScript.slice(0, 4000) : undefined,
+  }
+}
+
+function resolveHookingInput(input: string | ThumbnailHookingInput): ThumbnailHookingInput {
+  if (typeof input === "string") {
+    return { productName: input.trim() || "제품" }
+  }
+  return {
+    ...input,
+    productName: input.productName.trim() || "제품",
+  }
+}
+
+export function buildThumbnailHookingUserPrompt(input: string | ThumbnailHookingInput): string {
+  const ctx = resolveHookingInput(input)
+  const blocks = [
+    `제품명: ${ctx.productName}`,
+    ctx.productCategory ? `제품 카테고리: ${ctx.productCategory}` : "",
+    ctx.productFeatures ? `제품 특징:\n${ctx.productFeatures}` : "",
+    ctx.productBenefits ? `제품 장점:\n${ctx.productBenefits}` : "",
+    ctx.videoScript ? `영상 대본:\n${ctx.videoScript}` : "",
+  ].filter(Boolean)
+
+  return `${blocks.join("\n\n")}
+
+위 정보를 분석하세요.
+1) 공감 문제 2) 가장 강력한 장점 3) 가장 놀라운 결과 4) 클릭하고 싶은 요소를 먼저 떠올린 뒤
+쇼츠 썸네일용 위·아래 2줄 후킹을 작성하세요.
+- line1(위) + line2(아래)를 합쳐 읽으면 하나의 후킹
+- 각 줄 ${THUMBNAIL_HOOKING_MIN_CHARS}~${THUMBNAIL_HOOKING_MAX_CHARS}자, 6~8자 권장
+- 제품명·설명형 문구 금지, 금지 표현 사용 금지
+- 추가 설명 없이 JSON만: {"line1":"...","line2":"..."}`
 }
 
 function clampThumbnailCopyLine(text: string, max = THUMBNAIL_HOOKING_MAX_CHARS): string {
@@ -55,26 +181,52 @@ function clampThumbnailCopyLine(text: string, max = THUMBNAIL_HOOKING_MAX_CHARS)
   return t.slice(0, max).trim()
 }
 
-function normalizeHookingText(raw: { line1?: string; line2?: string }): ThumbnailHookingText {
-  return {
-    line1: clampThumbnailCopyLine(raw.line1?.trim() || "99% 손해"),
-    line2: clampThumbnailCopyLine(raw.line2?.trim() || "3초 완판"),
+function containsBannedHookingPhrase(text: string, productName?: string): boolean {
+  const t = text.trim()
+  if (!t) return true
+  const lower = t.toLowerCase()
+  if (THUMBNAIL_HOOKING_BANNED_PHRASES.some((p) => lower.includes(p.toLowerCase()))) return true
+  const name = productName?.trim()
+  if (name && name.length >= 2 && t.includes(name)) return true
+  return false
+}
+
+function isValidHookingLine(text: string, productName?: string): boolean {
+  const t = text.trim()
+  if (t.length < THUMBNAIL_HOOKING_MIN_CHARS || t.length > THUMBNAIL_HOOKING_MAX_CHARS) return false
+  return !containsBannedHookingPhrase(t, productName)
+}
+
+function normalizeHookingText(
+  raw: { line1?: string; line2?: string },
+  productName?: string
+): ThumbnailHookingText {
+  const line1 = clampThumbnailCopyLine(raw.line1?.trim() || "")
+  const line2 = clampThumbnailCopyLine(raw.line2?.trim() || "")
+  if (isValidHookingLine(line1, productName) && isValidHookingLine(line2, productName)) {
+    return { line1, line2 }
   }
+  return pickHookingPairFallback(undefined, undefined, productName)
 }
 
 const HOOKING_PAIRS: readonly ThumbnailHookingText[] = [
-  { line1: "99% 손해", line2: "3초 완판" },
-  { line1: "안 쓰면", line2: "100% 손해" },
-  { line1: "1위 비밀", line2: "7일 만에" },
-  { line1: "10배 싸게", line2: "오늘 마감" },
-  { line1: "요즘 난리", line2: "이거 때문" },
-  { line1: "50% 할인", line2: "품절 임박" },
-  { line1: "5초 충전", line2: "이유 공개" },
+  { line1: "출근길 필수", line2: "더위 끝" },
+  { line1: "손바닥만 한데", line2: "에어컨급 바람" },
+  { line1: "이거 하나로", line2: "전기세 절약" },
+  { line1: "회사에서", line2: "다 물어봄" },
+  { line1: "3초 만에", line2: "더위 끝" },
+  { line1: "이거 몰라서", line2: "여름 고생" },
+  { line1: "출근길 땀범벅", line2: "이걸로 끝" },
+  { line1: "다들 이거 쓰길래", line2: "써봤는데" },
 ] as const
 
 const BADGE_FALLBACKS = ["한정", "오늘만", "마감", "최저가", "1+1"] as const
 
-function pickHookingPairFallback(otherLine?: string, role?: ThumbnailTextRole): ThumbnailHookingText {
+function pickHookingPairFallback(
+  otherLine?: string,
+  role?: ThumbnailTextRole,
+  productName?: string
+): ThumbnailHookingText {
   const other = otherLine?.trim()
   if (other && (role === "hook1" || role === "hook2")) {
     const matched = HOOKING_PAIRS.find((p) =>
@@ -82,16 +234,22 @@ function pickHookingPairFallback(otherLine?: string, role?: ThumbnailTextRole): 
     )
     if (matched) return matched
   }
-  return HOOKING_PAIRS[Math.floor(Math.random() * HOOKING_PAIRS.length)]!
+  const valid = HOOKING_PAIRS.filter(
+    (p) =>
+      isValidHookingLine(p.line1, productName) && isValidHookingLine(p.line2, productName)
+  )
+  const pool = valid.length ? valid : HOOKING_PAIRS
+  return pool[Math.floor(Math.random() * pool.length)]!
 }
 
 function pickFallbackText(
   role: ThumbnailTextRole | undefined,
   currentText: string,
-  otherLines: string[]
+  otherLines: string[],
+  productName?: string
 ): string {
   if (role === "hook1" || role === "hook2") {
-    const pair = pickHookingPairFallback(otherLines[0], role)
+    const pair = pickHookingPairFallback(otherLines[0], role, productName)
     return role === "hook1" ? pair.line1 : pair.line2
   }
   if (role === "badge") {
@@ -100,21 +258,21 @@ function pickFallbackText(
     const list = candidates.length ? candidates : [...BADGE_FALLBACKS]
     return list[Math.floor(Math.random() * list.length)]
   }
-  const pair = pickHookingPairFallback()
+  const pair = pickHookingPairFallback(undefined, undefined, productName)
   return pair.line1
 }
 
 function rolePromptHint(role: ThumbnailTextRole | undefined): string {
   if (role === "hook1") {
-    return `첫 번째 후킹 줄(상단): 숫자 + 궁금증·충격 (${THUMBNAIL_HOOKING_MAX_CHARS}자 이내). 아래 줄과 합쳐 한 메시지가 되도록 앞반만 작성`
+    return `첫 번째 후킹 줄(상단): ${THUMBNAIL_HOOKING_MIN_CHARS}~${THUMBNAIL_HOOKING_MAX_CHARS}자. 궁금증·문제·손해·숫자 중 하나. 아래 줄과 합쳐 한 메시지의 앞반`
   }
   if (role === "hook2") {
-    return `두 번째 후킹 줄(하단): 숫자 + 결론·제품 핵심·긴박 (${THUMBNAIL_HOOKING_MAX_CHARS}자 이내). 위 줄과 합쳐 한 메시지가 되도록 뒷반만 작성`
+    return `두 번째 후킹 줄(하단): ${THUMBNAIL_HOOKING_MIN_CHARS}~${THUMBNAIL_HOOKING_MAX_CHARS}자. 결과·해결·반전·사회적 증거. 위 줄과 합쳐 한 메시지의 뒷반`
   }
   if (role === "badge") {
-    return `뱃지 라벨: 숫자 포함, 2~${THUMBNAIL_HOOKING_MAX_CHARS}자, 짧고 강렬`
+    return `뱃지 라벨: 2~${THUMBNAIL_HOOKING_MAX_CHARS}자, 짧고 강렬`
   }
-  return `쇼츠 썸네일 후킹 한 줄 (${THUMBNAIL_HOOKING_MAX_CHARS}자 이내, 숫자 필수)`
+  return `쇼츠 썸네일 후킹 한 줄 (${THUMBNAIL_HOOKING_MIN_CHARS}~${THUMBNAIL_HOOKING_MAX_CHARS}자)`
 }
 
 function buildThumbnailRewriteSystemPrompt(role?: ThumbnailTextRole): string {
@@ -179,13 +337,15 @@ export async function rewriteThumbnailLayerText(
   input: RewriteThumbnailTextInput,
   apiKey?: string
 ): Promise<string> {
-  const productName = input.productName.trim() || "제품"
+  const ctx = input.hookingContext ?? { productName: input.productName }
+  const productName = ctx.productName.trim() || input.productName.trim() || "제품"
   const currentText = input.currentText.trim()
   const otherLines = (input.otherLines ?? []).map((l) => l.trim()).filter(Boolean)
+  const role = input.role
   const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
 
   if (!GPT_API_KEY) {
-    return pickFallbackText(input.role, currentText, otherLines)
+    return pickFallbackText(role, currentText, otherLines, productName)
   }
 
   const otherHint =
@@ -194,6 +354,8 @@ export async function rewriteThumbnailLayerText(
         ? `\n짝이 되는 다른 줄(반드시 이어 읽기): 「${otherLines[0]}」\n위·아래를 합치면 하나의 후킹이 되도록, ${role === "hook1" ? "상단(앞반)" : "하단(뒷반)"}만 새로 작성`
         : `\n다른 줄에 이미 사용된 문구(단어 중복 금지): ${otherLines.join(" / ")}`
       : ""
+
+  const contextHint = buildThumbnailHookingUserPrompt({ ...ctx, productName })
 
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -207,21 +369,22 @@ export async function rewriteThumbnailLayerText(
         messages: [
           {
             role: "system",
-            content: buildThumbnailRewriteSystemPrompt(input.role),
+            content: buildThumbnailRewriteSystemPrompt(role),
           },
           {
             role: "user",
-            content: `제품명: ${productName}
-현재 문구: ${currentText || "(비어 있음)"}
-역할: ${input.role ?? "custom"}${otherHint}
+            content: `${contextHint}
 
-${THUMBNAIL_HOOKING_MAX_CHARS}자 이내, 숫자 필수, 짧고 굵은 후킹 한 줄만 작성하세요.
+현재 문구: ${currentText || "(비어 있음)"}
+역할: ${role ?? "custom"}${otherHint}
+
+${THUMBNAIL_HOOKING_MIN_CHARS}~${THUMBNAIL_HOOKING_MAX_CHARS}자, 짧고 굵은 후킹 한 줄만 작성하세요.
 {"text": "..."}`,
           },
         ],
         response_format: { type: "json_object" },
-        max_tokens: 60,
-        temperature: 1.0,
+        max_tokens: 80,
+        temperature: 0.95,
       }),
     })
 
@@ -235,26 +398,29 @@ ${THUMBNAIL_HOOKING_MAX_CHARS}자 이내, 숫자 필수, 짧고 굵은 후킹 �
     try {
       parsed = typeof content === "string" ? JSON.parse(content) : content
     } catch {
-      return pickFallbackText(input.role, currentText, otherLines)
+      return pickFallbackText(role, currentText, otherLines, productName)
     }
 
     const next = parsed.text?.trim()
-    if (!next) return pickFallbackText(input.role, currentText, otherLines)
+    if (!next || !isValidHookingLine(clampThumbnailCopyLine(next), productName)) {
+      return pickFallbackText(role, currentText, otherLines, productName)
+    }
     return clampThumbnailCopyLine(next)
   } catch (error) {
     console.error("[MVP Thumbnail] 문구 변환 실패:", error)
-    return pickFallbackText(input.role, currentText, otherLines)
+    return pickFallbackText(role, currentText, otherLines, productName)
   }
 }
 
 export async function generateThumbnailHookingText(
-  productName: string,
+  input: string | ThumbnailHookingInput,
   apiKey?: string
 ): Promise<ThumbnailHookingText> {
+  const ctx = resolveHookingInput(input)
   const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
 
   if (!GPT_API_KEY) {
-    return HOOKING_PAIRS[Math.floor(Math.random() * HOOKING_PAIRS.length)]!
+    return pickHookingPairFallback(undefined, undefined, ctx.productName)
   }
 
   try {
@@ -265,14 +431,14 @@ export async function generateThumbnailHookingText(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: "gpt-4o",
         messages: [
           { role: "system", content: THUMBNAIL_HOOKING_SYSTEM_PROMPT },
-          { role: "user", content: buildThumbnailHookingUserPrompt(productName) },
+          { role: "user", content: buildThumbnailHookingUserPrompt(ctx) },
         ],
         response_format: { type: "json_object" },
-        max_tokens: 80,
-        temperature: 0.85,
+        max_tokens: 120,
+        temperature: 0.92,
       }),
     })
 
@@ -286,13 +452,13 @@ export async function generateThumbnailHookingText(
     try {
       parsed = typeof content === "string" ? JSON.parse(content) : content
     } catch {
-      return normalizeHookingText({ line1: "99% 손해", line2: "3초 완판" })
+      return pickHookingPairFallback(undefined, undefined, ctx.productName)
     }
 
-    return normalizeHookingText(parsed)
+    return normalizeHookingText(parsed, ctx.productName)
   } catch (error) {
     console.error("[MVP Thumbnail] 후킹 문구 생성 실패:", error)
-    return normalizeHookingText({ line1: "99% 손해", line2: "3초 완판" })
+    return pickHookingPairFallback(undefined, undefined, ctx.productName)
   }
 }
 
