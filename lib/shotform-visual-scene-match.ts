@@ -11,6 +11,7 @@ import type {
   VideoAnalysis,
   VisualScene,
 } from "@/lib/shotform-auto-edit-types"
+import { analysisBySrcIndex } from "@/lib/shotform-analysis-src-index"
 
 const SHOT_TYPES = ["미디엄샷", "와이드샷", "클로즈업", "익스트림클로즈업", "오버헤드샷", "풀샷", "기타"] as const
 
@@ -327,7 +328,7 @@ export function analysisByVideoId(analyses: VideoAnalysis[]): Map<string, VideoA
 }
 
 export function enrichMixPicksWithVisualReasons(mix: MixInfo, analyses: VideoAnalysis[]): MixInfo {
-  const bySrc = new Map(analyses.map((a) => [a.src_index ?? 0, a]))
+  const bySrc = analysisBySrcIndex(analyses)
   const picks = mix.picks.map((p) => {
     const a = bySrc.get(p.srcIndex)
     if (!a) return p

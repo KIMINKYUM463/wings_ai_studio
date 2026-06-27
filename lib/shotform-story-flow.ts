@@ -1,4 +1,5 @@
 import type { MixPick, ProductVideoStructure, VideoAnalysis } from "@/lib/shotform-auto-edit-types"
+import { analysisBySrcIndex } from "@/lib/shotform-analysis-src-index"
 import { scoreHookImpactPick, scoreMixPick } from "@/lib/shotform-scene-priority"
 import { describeSourceRangeFromAnalysis } from "@/lib/shotform-visual-scene-match"
 
@@ -106,7 +107,7 @@ export function reorderMixPicksByStoryFlow(
 ): MixPick[] {
   if (picks.length <= 2) return picks
 
-  const bySrc = new Map(analyses.map((a) => [a.src_index ?? 0, a]))
+  const bySrc = analysisBySrcIndex(analyses)
   const desired = buildDesiredBeatSequence(picks.length, targetDuration)
   const used = new Set<string>()
   const out: MixPick[] = []

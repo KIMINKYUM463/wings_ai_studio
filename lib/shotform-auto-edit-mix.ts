@@ -20,6 +20,11 @@ import {
   pickIntervalIsProductSafe,
 } from "@/lib/shotform-auto-edit-product-filter"
 import {
+  analysisBySrcIndex,
+  resolveAnalysisSrcIndex,
+  resolveVideoIdForMixPick,
+} from "@/lib/shotform-analysis-src-index"
+import {
   mixPicksTooClose,
   ensureHookFirstPick,
   reorderMixPicksProductFirst,
@@ -189,7 +194,7 @@ export function buildEmergencyMix(
 
   while (total < effectiveCap - 0.05 && picks.length < 20 && attempt < analyses.length * 30) {
     attempt++
-    const slot = picks.length
+    const slot = attempt
     const a = analyses[slot % analyses.length]!
     const srcIndex = a.src_index ?? slot % analyses.length
     const clipLen = Math.min(clipLens[slot % clipLens.length]!, effectiveCap - total)
@@ -221,7 +226,7 @@ export function buildEmergencyMix(
     const dur = ROUND(Math.min(a.duration, effectiveCap, 4))
     if (dur >= 0.35) {
       picks.push({
-        srcIndex: a.src_index ?? 0,
+        srcIndex: resolveAnalysisSrcIndex(a, 0),
         start: 0,
         end: dur,
         reason: a.title || "영상 장면",
@@ -249,7 +254,7 @@ export function buildEmergencyEditPlan(
   const mixInfo = buildEmergencyMix(analyses, targetDuration)
   if (!mixInfo.picks.length) return null
 
-  let editPlan = mixPicksToEditPlan(mixInfo, videoIds, targetDuration)
+  let editPlan = mixPicksToEditPlan(mixInfo, analyses, targetDuration)
   editPlan = enrichEditPlanWithVisualReasons(sanitizeEditPlanSegmentsRelaxed(editPlan, analyses), analyses)
 
   const outputSec = editPlanOutputSeconds(editPlan)
@@ -368,7 +373,7 @@ function scenePoolForAnalysis(a: VideoAnalysis): VideoAnalysis["scenes"] {
 /** mix picks → ffmpeg 편집 지시서 (pick 1회씩만 사용 — 동일 컷 순환 금지) */
 export function mixPicksToEditPlan(
   mix: MixInfo,
-  videoIds: string[],
+  analyses: VideoAnalysis[],
   targetDuration: AutoEditTargetDuration
 ): EditPlan {
   const edit_plan: EditPlan["edit_plan"] = []
@@ -380,7 +385,7 @@ export function mixPicksToEditPlan(
 
   for (const pick of mix.picks) {
     if (outCursor >= targetDuration - 0.02) break
-    const video_id = videoIds[pick.srcIndex]
+    const video_id = resolveVideoIdForMixPick(pick, analyses)
     if (!video_id) continue
 
     const srcAvail = Math.max(0.2, pick.end - pick.start)
@@ -415,7 +420,7 @@ export function finalizeMixPicks(
   analyses: VideoAnalysis[],
   targetDuration: AutoEditTargetDuration
 ): MixInfo {
-  const bySrc = new Map(analyses.map((a) => [a.src_index ?? 0, a]))
+  const bySrc = analysisBySrcIndex(analyses)
   const seen = new Set<string>()
   const picks: MixPick[] = []
   let total = 0
@@ -459,6 +464,7 @@ export function finalizeMixPicks(
 
   let ordered = ensureHookFirstPick(reorderMixPicksProductFirst(picks, analyses), analyses)
   ordered = balanceMultiSourceMixPicks(ordered, analyses, targetDuration)
+  ordered = ensureAllSourcesRepresented(ordered, analyses, targetDuration)
   ordered = ensureHookFirstPick(reorderMixPicksProductFirst(ordered, analyses), analyses)
   total = pickTotalDuration(ordered)
 
@@ -589,6 +595,31 @@ function balanceMultiSourceMixPicks(
     const last = working[working.length - 1]!
     last.end = ROUND(Math.max(last.start + 0.8, last.end - (total - targetDuration)))
     if (last.end - last.start < 0.8) working.pop()
+  }
+
+  return working.length >= 2 ? working : picks
+}
+
+/** 다중 소스인데 한 영상만 쓰이면 최소 1컷이라도 다른 소스에서 수확 */
+function ensureAllSourcesRepresented(
+  picks: MixPick[],
+  analyses: VideoAnalysis[],
+  targetDuration: number
+): MixPick[] {
+  if (analyses.length <= 1) return picks
+
+  const bySrc = analysisBySrcIndex(analyses)
+  const represented = new Set(picks.map((p) => p.srcIndex))
+  let working = picks.map((p) => ({ ...p }))
+
+  for (const [si, analysis] of bySrc) {
+    if (represented.has(si)) continue
+    const wantDur = Math.min(4, Math.max(2, targetDuration / analyses.length / 2))
+    const extra = harvestPicksForSource(working, analysis, si, wantDur, 0.8)
+    if (extra.length) {
+      working.push(...extra)
+      represented.add(si)
+    }
   }
 
   return working.length >= 2 ? working : picks
@@ -835,6 +866,7 @@ export function fillMixToTargetDuration(
   }
 
   let balanced = balanceMultiSourceMixPicks(picks, analyses, targetDuration)
+  balanced = ensureAllSourcesRepresented(balanced, analyses, targetDuration)
   balanced = ensureHookFirstPick(reorderMixPicksProductFirst(balanced, analyses), analyses)
   total = pickTotalDuration(balanced)
 
@@ -967,7 +999,7 @@ export function buildEditPlanFromMix(
     analyses,
     targetDuration
   )
-  let editPlan = mixPicksToEditPlan(mixInfo, videoIds, targetDuration)
+  let editPlan = mixPicksToEditPlan(mixInfo, analyses, targetDuration)
   editPlan = enrichEditPlanWithVisualReasons(
     sanitizeEditPlanSegments(ensureEditPlanExactDuration(editPlan, analyses), analyses),
     analyses
@@ -983,7 +1015,7 @@ export function buildEditPlanFromMix(
     )
     editPlan = enrichEditPlanWithVisualReasons(
       sanitizeEditPlanSegments(
-        ensureEditPlanExactDuration(mixPicksToEditPlan(mixInfo, videoIds, targetDuration), analyses),
+        ensureEditPlanExactDuration(mixPicksToEditPlan(mixInfo, analyses, targetDuration), analyses),
         analyses
       ),
       analyses
@@ -1014,7 +1046,7 @@ export function buildFallbackMix(analyses: VideoAnalysis[], targetDuration: Auto
 
   while (total < targetDuration - 0.05 && picks.length < 28 && attempt < analyses.length * 40) {
     attempt++
-    const slot = picks.length
+    const slot = attempt
     const a = analyses[slot % analyses.length]!
     const srcIndex = a.src_index ?? slot % analyses.length
     const clipLen = clipLens[slot % clipLens.length]!
@@ -1074,8 +1106,8 @@ export async function createMixPlanWithAi(args: {
   const multi = analyses.length > 1
   const pickCount = Math.ceil(targetDuration / 1.5)
 
-  const sources = analyses.map((a) => ({
-    srcIndex: a.src_index ?? 0,
+  const sources = analyses.map((a, i) => ({
+    srcIndex: resolveAnalysisSrcIndex(a, i),
     duration: a.duration,
     title: a.title,
     scenes: compactScenesForMixPrompt(a),

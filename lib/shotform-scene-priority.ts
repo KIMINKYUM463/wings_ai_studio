@@ -1,4 +1,5 @@
 import type { VideoAnalysis, VideoScene } from "@/lib/shotform-auto-edit-types"
+import { analysisBySrcIndex } from "@/lib/shotform-analysis-src-index"
 
 /** 제품 특징·실사용·클로즈업 등 편집 우선 장면 */
 const FEATURE_USAGE_KEYWORDS =
@@ -127,7 +128,7 @@ export function ensureHookFirstPick<T extends { srcIndex: number; start: number;
 ): T[] {
   if (picks.length <= 1) return picks
 
-  const bySrc = new Map(analyses.map((a) => [a.src_index ?? 0, a]))
+  const bySrc = analysisBySrcIndex(analyses)
   let bestIdx = 0
   let bestScore = -Infinity
 
@@ -153,7 +154,7 @@ export function reorderMixPicksProductFirst(
 ): typeof picks {
   if (picks.length <= 1) return picks
 
-  const bySrc = new Map(analyses.map((a) => [a.src_index ?? 0, a]))
+  const bySrc = analysisBySrcIndex(analyses)
   const multi = analyses.length > 1
 
   type Scored = { pick: (typeof picks)[number]; idx: number; score: number }

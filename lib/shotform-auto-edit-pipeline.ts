@@ -31,6 +31,10 @@ import {
   shouldUseCloudRunForAutoEditRender,
 } from "@/lib/shotform-auto-edit-cloud-run-render"
 import { filterAnalysesForEmergencyEdit, filterAnalysesForProductEdit } from "@/lib/shotform-auto-edit-product-filter"
+import {
+  normalizeUsableAnalysesForMix,
+  remapMixInfoSrcIndices,
+} from "@/lib/shotform-analysis-src-index"
 import { putAutoEditJob } from "@/lib/shotform-auto-edit-jobs"
 import {
   copyCachedSourceToJob,
@@ -295,6 +299,12 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
     }
     if (!usable.length) {
       throw new Error(AUTO_EDIT_NO_USABLE_VIDEO_MESSAGE)
+    }
+
+    const { usable: usableNormalized, mixRemap } = normalizeUsableAnalysesForMix(analyses, usable)
+    usable = usableNormalized
+    if (mixInfo?.picks?.length) {
+      mixInfo = remapMixInfoSrcIndices(mixInfo, mixRemap)
     }
 
     let productAnalysis = applyUserKeywordsToProductAnalysis(
