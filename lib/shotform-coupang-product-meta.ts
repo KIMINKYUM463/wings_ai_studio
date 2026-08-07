@@ -125,15 +125,23 @@ export async function fetchImageAsVisionDataUrl(imageUrl: string): Promise<strin
         Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
         Referer: "https://www.coupang.com/",
       },
-      signal: AbortSignal.timeout(12_000),
+      signal: AbortSignal.timeout(20_000),
     })
     if (!res.ok) return null
     const ct = (res.headers.get("content-type") || "image/jpeg").split(";")[0]!.trim()
-    if (!ct.startsWith("image/")) return null
+    // 일부 CDN은 content-type을 octet-stream으로 줌
+    const looksImage =
+      ct.startsWith("image/") ||
+      ct.includes("octet-stream") ||
+      /\.(avif|bmp|gif|jpe?g|png|webp)(\?|$)/i.test(imageUrl)
+    if (!looksImage) return null
     const buf = await res.arrayBuffer()
     if (buf.byteLength < 400) return null
+    // Vision/OpenAI 요청 크기 제한 대비 — 너무 큰 상세컷은 스킵
+    if (buf.byteLength > 6 * 1024 * 1024) return null
     const b64 = Buffer.from(buf).toString("base64")
-    return `data:${ct};base64,${b64}`
+    const mime = ct.startsWith("image/") ? ct : "image/jpeg"
+    return `data:${mime};base64,${b64}`
   } catch {
     return null
   }

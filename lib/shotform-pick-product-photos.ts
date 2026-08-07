@@ -2,6 +2,8 @@
  * 갤러리·리뷰 사진 후보 중 제품이 잘 보이는 컷을 AI로 선정
  */
 
+import { fetchImageAsVisionDataUrl } from "@/lib/shotform-coupang-product-meta"
+
 export type PickProductPhotosResult = {
   productImages: string[]
   productImage: string
@@ -73,11 +75,19 @@ ${onlyClearlyVisible
     },
   ]
 
+  // OpenAI → coupangcdn 직접 다운로드 Timeout 방지: 서버에서 data URL로 변환
+  const visionItems: Array<{ originalIndex: number; dataUrl: string }> = []
   for (let i = 0; i < urls.length; i++) {
+    const dataUrl = await fetchImageAsVisionDataUrl(urls[i]!)
+    if (dataUrl) visionItems.push({ originalIndex: i, dataUrl })
+  }
+  if (!visionItems.length) return fallbackPick(urls, maxPick)
+
+  for (let i = 0; i < visionItems.length; i++) {
     content.push({ type: "text", text: `인덱스 ${i}:` })
     content.push({
       type: "image_url",
-      image_url: { url: urls[i], detail: "low" },
+      image_url: { url: visionItems[i]!.dataUrl, detail: "low" },
     })
   }
 
@@ -106,7 +116,7 @@ ${onlyClearlyVisible
 }
 
 규칙:
-- ranked 길이는 ${onlyClearlyVisible ? `0~${maxPick}` : `정확히 ${maxPick}`}, 0~${urls.length - 1} 범위, 중복 금지
+- ranked 길이는 ${onlyClearlyVisible ? `0~${maxPick}` : `정확히 ${maxPick}`}, 0~${visionItems.length - 1} 범위, 중복 금지
 - 제품 본체·형태가 크고 선명한 컷을 1번
 - 제품이 사진 면적의 약 20% 이상을 차지하고 핵심 형태를 알아볼 수 있어야 함
 - 초점이 맞고 심하게 잘리거나 가려지지 않아야 함
@@ -156,9 +166,10 @@ ${onlyClearlyVisible
     const used = new Set<number>()
     for (const idx of ranked) {
       const n = Math.floor(Number(idx))
-      if (!Number.isFinite(n) || n < 0 || n >= urls.length || used.has(n)) continue
+      if (!Number.isFinite(n) || n < 0 || n >= visionItems.length || used.has(n)) continue
       used.add(n)
-      picked.push(urls[n])
+      const original = urls[visionItems[n]!.originalIndex]
+      if (original) picked.push(original)
       if (picked.length >= maxPick) break
     }
 

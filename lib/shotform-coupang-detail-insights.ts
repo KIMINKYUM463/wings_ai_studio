@@ -1,3 +1,5 @@
+import { fetchImageAsVisionDataUrl } from "@/lib/shotform-coupang-product-meta"
+
 export type CoupangDetailInsights = {
   summary: string
   features: string[]
@@ -47,8 +49,20 @@ export async function extractCoupangDetailInsights(opts: {
 
   if (!urls.length) return emptyDetailInsights()
 
+  // OpenAI가 coupangcdn 직접 다운로드 시 Timeout 나는 경우가 많아,
+  // 우리 서버에서 받아 data URL로 넘긴다.
+  const dataUrls = (
+    await Promise.all(urls.map((url) => fetchImageAsVisionDataUrl(url)))
+  ).filter((u): u is string => Boolean(u))
+
+  if (!dataUrls.length) {
+    throw new Error(
+      "상세 이미지를 서버에서 가져오지 못했습니다. 쿠팡 CDN 차단·타임아웃일 수 있으니 다시 시도해 주세요."
+    )
+  }
+
   // 앞 장(상세 상단)은 글자가 많아 high, 나머지는 low로 토큰 절약
-  const imageParts = urls.map((url, i) => ({
+  const imageParts = dataUrls.map((url, i) => ({
     type: "image_url" as const,
     image_url: { url, detail: (i < 4 ? "high" : "low") as "high" | "low" },
   }))
@@ -94,7 +108,7 @@ export async function extractCoupangDetailInsights(opts: {
             {
               type: "text",
               text: `상품명: ${opts.productName || "(미상)"}
-상세페이지 이미지 ${urls.length}장을 분석하세요.
+상세페이지 이미지 ${dataUrls.length}장을 분석하세요.
 목표는 키워드 요약이 아니라, 숏폼 대본에 바로 넣을 디테일한 참고 자료입니다.`,
             },
             ...imageParts,
