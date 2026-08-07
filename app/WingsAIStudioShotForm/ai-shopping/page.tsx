@@ -6913,12 +6913,32 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
       canvas.width = 1080
       canvas.height = 1920
 
-      // 미리보기에서 사용하는 오디오 재사용
-      const audio = previewAudio
-      
-      // 오디오 시간 초기화
+      // 미리보기 Audio에 createMediaElementSource를 걸면 브라우저가 그 엘리먼트의
+      // 기본 스피커 출력을 영구적으로 끊는다 → 녹화 중·녹화 후 미리보기가 무음이 됨.
+      // 다운로드 녹화는 반드시 별도 Audio 인스턴스를 쓴다.
+      previewAudio.pause()
+      const renderSrc = (
+        previewAudio.currentSrc ||
+        previewAudio.src ||
+        effectiveTtsUrl ||
+        ""
+      ).trim()
+      if (!renderSrc) throw new Error("TTS 오디오 URL이 없습니다.")
+      const audio = new Audio(renderSrc)
+      audio.crossOrigin = "anonymous"
+      audio.preload = "auto"
+      await new Promise<void>((resolve, reject) => {
+        const done = () => resolve()
+        audio.onloadedmetadata = done
+        audio.oncanplaythrough = done
+        audio.onerror = () => reject(new Error("렌더용 TTS 로드 실패"))
+        audio.load()
+      })
       audio.currentTime = 0
-      const actualAudioDuration = audio.duration
+      const actualAudioDuration =
+        Number.isFinite(audio.duration) && audio.duration > 0
+          ? audio.duration
+          : previewAudio.duration
       console.log("[Shopping] 실제 오디오 길이:", actualAudioDuration.toFixed(3), "초")
 
       // 선택 장면 영상 엘리먼트 생성 및 로드
@@ -7068,12 +7088,16 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
       }
       
       const destination = audioContext.createMediaStreamDestination()
+      // MediaRecorder용 + 스피커 모니터링(녹화 중에도 들리게)
       ttsGainNode.connect(destination)
+      ttsGainNode.connect(audioContext.destination)
       if (bgmGainNode) {
         bgmGainNode.connect(destination)
+        bgmGainNode.connect(audioContext.destination)
       }
       if (sfxGainNode) {
         sfxGainNode.connect(destination)
+        sfxGainNode.connect(audioContext.destination)
       }
 
       const videoTrack = stream.getVideoTracks()[0]
@@ -7458,6 +7482,13 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
           }
           mediaRecorder.stop()
           audio.pause()
+          void audioContext.close().catch(() => undefined)
+          // 미리보기 재생 위치만 처음으로 (엘리먼트는 건드리지 않음)
+          try {
+            previewAudio.currentTime = 0
+          } catch {
+            /* ignore */
+          }
         }
       }
 
