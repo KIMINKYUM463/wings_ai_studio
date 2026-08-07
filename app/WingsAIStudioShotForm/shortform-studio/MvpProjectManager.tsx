@@ -369,7 +369,7 @@ export function MvpProjectManager() {
                   ) : null}
                   {hasSource ? <span className="text-emerald-400/90">소스 검색됨</span> : null}
                   {pickCount > 0 ? <span className="text-violet-300">선택 {pickCount}개</span> : null}
-                  {d.postEditResult ? <span className="text-emerald-300">짜집기 완료</span> : null}
+                  {d.postEditResult ? <span className="text-emerald-300">리믹스 완료</span> : null}
                 </div>
                 <div className="mt-3 flex items-center justify-between text-[10px] text-slate-600">
                   <span>수정 {new Date(project.updated_at).toLocaleString("ko-KR")}</span>
@@ -412,7 +412,7 @@ export function MvpProjectManager() {
           <DialogHeader>
             <DialogTitle className="text-white">새 프로젝트</DialogTitle>
             <DialogDescription className="text-slate-400">
-              키워드·소스·짜집기·TTS 작업이 이 프로젝트에 자동 저장됩니다.
+              키워드·소스·리믹스·TTS 작업이 이 프로젝트에 자동 저장됩니다.
             </DialogDescription>
           </DialogHeader>
           <Input

@@ -35,9 +35,11 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } {
 }
 
 function resolveExportTexts(design: MvpThumbnailDesign): ThumbnailTextLayer[] {
-  if (design.aiBaked) return []
+  // 스튜디오에 올린 텍스트 레이어는 aiBaked 여부와 관계없이 합성
   const populated = design.texts.filter((t) => t.text.trim())
   if (populated.length > 0) return design.texts
+  // AI 합성 배경만 있고 별도 텍스트 레이어가 없으면 후킹 기본 문구를 또 그리지 않음
+  if (design.aiBaked) return []
   const hooking = hookingFromThumbnailDesign(design)
   if (!hooking.line1.trim() && !hooking.line2.trim()) return []
   return defaultThumbnailTexts(hooking)
@@ -91,6 +93,42 @@ function drawPostFilters(
   }
 }
 
+async function drawBlurPosterForeground(
+  ctx: CanvasRenderingContext2D,
+  design: MvpThumbnailDesign,
+  cw: number,
+  ch: number
+): Promise<void> {
+  if (
+    design.templateId !== "story-blur-poster" ||
+    !design.backgroundUrl.trim()
+  ) {
+    return
+  }
+
+  const response = await fetch(design.backgroundUrl.trim())
+  if (!response.ok) {
+    throw new Error("블러 포스터 전경 이미지를 불러오지 못했습니다.")
+  }
+  const bitmap = await createImageBitmap(await response.blob())
+  try {
+    const top = ch * 0.31
+    const areaHeight = ch - top
+    const scale = Math.min(cw / bitmap.width, areaHeight / bitmap.height)
+    const drawWidth = bitmap.width * scale
+    const drawHeight = bitmap.height * scale
+    const drawX = (cw - drawWidth) / 2
+    const drawY = top + areaHeight - drawHeight
+
+    ctx.save()
+    ctx.filter = `brightness(${design.filter.brightness}%) contrast(${design.filter.contrast}%) saturate(${design.filter.saturate}%)`
+    ctx.drawImage(bitmap, drawX, drawY, drawWidth, drawHeight)
+    ctx.restore()
+  } finally {
+    bitmap.close()
+  }
+}
+
 function resetShadow(ctx: CanvasRenderingContext2D): void {
   ctx.shadowColor = "transparent"
   ctx.shadowBlur = 0
@@ -105,12 +143,15 @@ function drawThumbnailTextLayer(
   ch: number,
   stageBaseW = THUMBNAIL_STAGE_BASE_W
 ): void {
-  const lines = splitLines(layer.text)
+  const lines =
+    layer.role === "hook1" || layer.role === "hook2"
+      ? [layer.text.replace(/\s+/g, " ").trim()]
+      : splitLines(layer.text)
   const scale = cw / stageBaseW
   const fontSize = layer.fontSize * scale
   const maxWidth = (layer.widthPct / 100) * cw
-  const lineHeight = fontSize * 1.2
-  const lineGap = 2 * scale
+  const lineHeight = fontSize * 1.05
+  const lineGap = 0
   const blockHeight = lines.length * lineHeight + Math.max(0, lines.length - 1) * lineGap
 
   ctx.save()
@@ -159,11 +200,11 @@ function drawThumbnailTextLayer(
       ctx.lineWidth = layer.strokeWidth * scale
       ctx.lineJoin = "round"
       ctx.miterLimit = 2
-      ctx.strokeText(content, textX, y, maxWidth)
+      ctx.strokeText(content, textX, y)
     }
 
     ctx.fillStyle = layer.color
-    ctx.fillText(content, textX, y, maxWidth)
+    ctx.fillText(content, textX, y)
     resetShadow(ctx)
 
     y += lineHeight + lineGap
@@ -194,6 +235,7 @@ function prepareOverlayCaptureClone(clonedStage: HTMLElement): void {
     "[data-thumb-filter]",
     "[data-thumb-text-layer]",
     "[data-thumb-brush]",
+    "[data-thumb-template-foreground]",
   ])
 
   clonedStage.querySelectorAll("[class*='ring-violet'], [class*='ring-cyan'], [class*='ring-amber']").forEach((node) => {
@@ -231,13 +273,18 @@ export async function exportThumbnailDesignToDataUrl(
   design: MvpThumbnailDesign,
   stageEl: HTMLElement
 ): Promise<string> {
+  const hasDomOverlay =
+    design.elements.length > 0 || Boolean(stageEl.querySelector("[data-thumb-template-chrome]"))
   const texts = resolveExportTexts(design)
-  if (!design.aiBaked && texts.length === 0) {
+  if (!design.aiBaked && texts.length === 0 && !hasDomOverlay) {
     throw new Error("썸네일 텍스트가 없습니다. 후킹 문구를 입력한 뒤 다시 적용해 주세요.")
   }
   await ensureThumbnailFonts(texts)
 
-  if (design.aiBaked && design.backgroundUrl.trim()) {
+  const hasStudioOverlay = texts.length > 0 || hasDomOverlay
+
+  // AI 합성만 있고 추가 레이어가 없을 때만 배경만 저장
+  if (design.aiBaked && design.backgroundUrl.trim() && !hasStudioOverlay) {
     const canvas = await renderBackgroundToCanvas(
       design.backgroundUrl.trim(),
       resolveBackgroundTransform(design),
@@ -247,6 +294,9 @@ export async function exportThumbnailDesignToDataUrl(
     )
     const ctx = canvas.getContext("2d")
     if (!ctx) throw new Error("썸네일 캔버스를 사용할 수 없습니다.")
+    ctx.filter = "none"
+    ctx.globalAlpha = 1
+    ctx.globalCompositeOperation = "source-over"
     drawPostFilters(ctx, design.filter, THUMBNAIL_EXPORT_W, THUMBNAIL_EXPORT_H)
     return canvas.toDataURL("image/png")
   }
@@ -265,12 +315,23 @@ export async function exportThumbnailDesignToDataUrl(
   const ctx = canvas.getContext("2d")
   if (!ctx) throw new Error("썸네일 캔버스를 사용할 수 없습니다.")
 
+  // renderBackgroundToCanvas의 사진 필터가 템플릿 크롬·텍스트에
+  // 이어지지 않도록 합성 상태를 먼저 초기화합니다.
+  ctx.filter = "none"
+  ctx.globalAlpha = 1
+  ctx.globalCompositeOperation = "source-over"
   drawPostFilters(ctx, design.filter, THUMBNAIL_EXPORT_W, THUMBNAIL_EXPORT_H)
+  await drawBlurPosterForeground(
+    ctx,
+    design,
+    THUMBNAIL_EXPORT_W,
+    THUMBNAIL_EXPORT_H
+  )
 
   const rect = stageEl.getBoundingClientRect()
   const scale = rect.width > 0 ? THUMBNAIL_EXPORT_W / rect.width : THUMBNAIL_EXPORT_W / THUMBNAIL_STAGE_BASE_W
 
-  if (design.elements.length > 0) {
+  if (hasDomOverlay) {
     const overlayCanvas = await captureOverlayLayer(stageEl, scale)
     if (overlayCanvas) {
       ctx.drawImage(overlayCanvas, 0, 0, canvas.width, canvas.height)

@@ -300,6 +300,7 @@ function getFactoryPhaseStepIndex(phase: string | undefined): number {
 }
 
 export default function ShoppingPage() {
+  const shoppingBrandLabel = "AI 쇼핑 숏폼 ver1"
   const [productName, setProductName] = useState("")
   const [productDescription, setProductDescription] = useState("")
   const [productImage, setProductImage] = useState<string | null>(null)
@@ -9542,7 +9543,7 @@ export default function ShoppingPage() {
             {!showProjectList && (
               <div className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-orange-100 to-amber-100 backdrop-blur-xl border border-orange-200/50 text-orange-700 text-sm font-semibold shadow-lg shadow-orange-200/50">
                 <ShoppingBag className="w-4 h-4" />
-                쇼핑 숏폼
+                {shoppingBrandLabel}
               </div>
             )}
           </div>
@@ -9559,7 +9560,7 @@ export default function ShoppingPage() {
               <div className="relative inline-block">
                 <div className="absolute inset-0 bg-gradient-to-r from-orange-200/40 to-amber-200/40 blur-2xl rounded-3xl"></div>
                 <h1 className="relative text-4xl md:text-5xl font-bold bg-gradient-to-r from-orange-600 via-amber-600 to-orange-600 bg-clip-text text-transparent mb-2">
-                  AI 쇼핑 숏폼 제작
+                  AI 쇼핑 숏폼 ver1 제작
                 </h1>
               </div>
               <p className="text-slate-600 text-base md:text-lg font-medium">

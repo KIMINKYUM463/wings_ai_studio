@@ -185,15 +185,15 @@ function Sidebar({
 
       <div className="border-t border-slate-100 my-2 mx-4" />
 
-      {/* 부스텍AI */}
+      {/* wings AI */}
       <div className="p-4">
         <button
           onClick={() => router.push("/")}
           className={`w-full flex items-center ${isCollapsed ? "justify-center" : "gap-3"} px-4 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white transition-all duration-200 shadow-lg hover:shadow-xl group`}
-          title={isCollapsed ? "부스텍AI" : undefined}
+          title={isCollapsed ? "wings AI" : undefined}
         >
           <Brain className="w-5 h-5" />
-          {!isCollapsed && <span className="font-semibold text-sm">부스텍AI</span>}
+          {!isCollapsed && <span className="font-semibold text-sm">wings AI</span>}
         </button>
       </div>
     </div>

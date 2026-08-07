@@ -7,6 +7,7 @@ import {
   Film,
   FlaskConical,
   FolderOpen,
+  Home,
   KeyRound,
   Search,
   Settings,
@@ -102,6 +103,10 @@ export type ShotFormTrendResearchShellProps = {
   /** 프로젝트 목록 클릭 (숏폼 스튜디오 내 목록 복귀). 미설정 시 shortform-studio로 이동 */
   onProjectListClick?: () => void
   projectListHref?: string
+  /** 사이드바 없는 헤더에 ShotForm 홈 버튼 표시 */
+  showHomeButton?: boolean
+  /** 좌측 상단 앱 타이틀/로고 숨김 */
+  hideAppTitle?: boolean
 }
 
 function hasOpenAIKey(): boolean {
@@ -120,6 +125,8 @@ export function ShotFormTrendResearchShell({
   onLogoClick,
   onProjectListClick,
   projectListHref = "/WingsAIStudioShotForm/shortform-studio",
+  showHomeButton = false,
+  hideAppTitle = false,
 }: ShotFormTrendResearchShellProps) {
   const [apiKeyReady, setApiKeyReady] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -277,11 +284,11 @@ export function ShotFormTrendResearchShell({
         <header
           className={cn(
             "sticky top-0 z-10 flex h-14 shrink-0 items-center gap-4 px-6",
-            hideSidebar ? "justify-between" : "justify-end",
+            hideSidebar && (!hideAppTitle || showHomeButton) ? "justify-between" : "justify-end",
             studio.header
           )}
         >
-          {hideSidebar ? (
+          {hideSidebar && !hideAppTitle ? (
             onLogoClick ? (
               <button
                 type="button"
@@ -319,6 +326,14 @@ export function ShotFormTrendResearchShell({
                 </span>
               </Link>
             )
+          ) : showHomeButton ? (
+            <Link
+              href={backHref}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-sm text-slate-300 transition hover:border-violet-400/30 hover:bg-violet-500/10 hover:text-white"
+            >
+              <Home className="h-4 w-4" aria-hidden />
+              홈으로
+            </Link>
           ) : null}
           <div className="flex items-center gap-2">
             {projectListHeader}

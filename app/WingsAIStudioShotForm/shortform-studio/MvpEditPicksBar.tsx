@@ -14,6 +14,7 @@ type Props = {
   onClearPicks: () => void
   onRefreshUrls?: () => void
   onOpenAutoEdit: () => void
+  onOpenEditor?: () => void
 }
 
 function PlatformChip({ label, count }: { label: string; count: number }) {
@@ -26,7 +27,7 @@ function PlatformChip({ label, count }: { label: string; count: number }) {
   )
 }
 
-/** MVP 테스트 하단 — 영상 선택 · AI 짜집기 진입 */
+/** MVP 테스트 하단 — 영상 선택 · AI 리믹스 진입 */
 export function MvpEditPicksBar({
   picks,
   editComplete,
@@ -35,6 +36,7 @@ export function MvpEditPicksBar({
   onClearPicks,
   onRefreshUrls,
   onOpenAutoEdit,
+  onOpenEditor,
 }: Props) {
   if (picks.length === 0 && !editComplete) return null
 
@@ -48,12 +50,23 @@ export function MvpEditPicksBar({
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15 ring-1 ring-emerald-400/30">
             <CheckCircle2 className="h-5 w-5 text-emerald-300" />
           </span>
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-white">영상 짜집기 완료</p>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-white">영상 리믹스 완료</p>
             <p className="mt-0.5 text-[11px] leading-relaxed text-emerald-100/75">
-              위 영상 편집기에서 「TTS 생성」으로 나레이션·자막을 만드세요. 다시 짜집기하려면 영상을 선택하세요.
+              영상 편집기를 열어 TTS·자막과 최종 영상을 완성하세요.
             </p>
           </div>
+          {onOpenEditor ? (
+            <Button
+              type="button"
+              size="sm"
+              className="h-9 shrink-0 bg-emerald-600 text-white hover:bg-emerald-500"
+              onClick={onOpenEditor}
+            >
+              <Scissors className="mr-1.5 h-3.5 w-3.5" />
+              영상 편집 계속
+            </Button>
+          ) : null}
         </div>
       </div>
     )
@@ -86,15 +99,15 @@ export function MvpEditPicksBar({
               <span className="text-slate-500"> / {MAX_AUTO_EDIT_VIDEOS}</span>
               <span className="text-slate-300"> 선택</span>
               <span className="text-slate-500"> · </span>
-              <span>AI 짜집기</span>
+              <span>AI 리믹스</span>
             </p>
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              <PlatformChip label="抖音" count={douyinCount} />
-              <PlatformChip label="小红书" count={xhsCount} />
+              <PlatformChip label="도우인" count={douyinCount} />
+              <PlatformChip label="샤오홍슈" count={xhsCount} />
               {editComplete ? (
                 <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-100">
                   <CheckCircle2 className="h-3 w-3" />
-                  짜집기 완료 · TTS·자막
+                  리믹스 완료 · TTS·자막
                 </span>
               ) : null}
             </div>
@@ -108,6 +121,17 @@ export function MvpEditPicksBar({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
+          {editComplete && onOpenEditor ? (
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 bg-emerald-600 px-3 text-xs font-semibold text-white hover:bg-emerald-500"
+              onClick={onOpenEditor}
+            >
+              <Scissors className="mr-1.5 h-3.5 w-3.5" />
+              영상 편집 계속
+            </Button>
+          ) : null}
           {onRefreshUrls ? (
             <Button
               type="button"
@@ -149,7 +173,7 @@ export function MvpEditPicksBar({
             onClick={onOpenAutoEdit}
           >
             <Scissors className="h-3.5 w-3.5" />
-            {editComplete ? "짜집기 다시" : "AI 짜집기"}
+            {editComplete ? "리믹스 다시" : "AI 리믹스"}
           </Button>
         </div>
       </div>

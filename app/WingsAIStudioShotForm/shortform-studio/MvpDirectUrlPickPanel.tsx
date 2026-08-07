@@ -64,6 +64,18 @@ export function MvpDirectUrlPickPanel({
     return mvpDirectUrlTextFromSlots(slots.slice(0, slotCount))
   }, [slots, slotCount])
 
+  const addSlot = useCallback(() => {
+    setSlotCount((current) => {
+      if (current >= MAX_AUTO_EDIT_VIDEOS) return current
+      const nextCount = current + 1
+      setSlots((previous) => {
+        if (previous.length >= nextCount) return previous
+        return [...previous, ...Array.from({ length: nextCount - previous.length }, () => "")]
+      })
+      return nextCount
+    })
+  }, [])
+
   const updateSlot = useCallback(
     (index: number, value: string) => {
       setSlots((prev) => {
@@ -88,7 +100,7 @@ export function MvpDirectUrlPickPanel({
 
     const text = activeUrlText()
     if (!text.trim()) {
-      onError?.("抖音·小红书 노트 URL을 입력해 주세요.")
+      onError?.("도우인·샤오홍슈·TikTok 영상 URL을 입력해 주세요.")
       return
     }
 
@@ -104,10 +116,10 @@ export function MvpDirectUrlPickPanel({
     if ((hasDouyin || hasXhs) && !apify) {
       onError?.(
         hasDouyin && hasXhs
-          ? "抖音·小红书 URL 해석에 소스 검색 토큰(Apify)이 필요합니다."
+          ? "도우인·샤오홍슈 URL 해석에 소스 검색 토큰(Apify)이 필요합니다."
           : hasDouyin
-            ? "抖音 URL 해석에 소스 검색 토큰이 필요합니다."
-            : "小红书 URL 해석에 소스 검색 토큰(Apify)이 필요합니다. 소스 찾기와 동일한 토큰을 설정해 주세요."
+            ? "도우인 URL 해석에 소스 검색 토큰이 필요합니다."
+            : "샤오홍슈 URL 해석에 소스 검색 토큰(Apify)이 필요합니다. 소스 찾기와 동일한 토큰을 설정해 주세요."
       )
       return
     }
@@ -174,7 +186,7 @@ export function MvpDirectUrlPickPanel({
               disabled={disabled || loading}
               placeholder={
                 index === 0
-                  ? "https://www.douyin.com/video/… 또는 小红书 노트 URL"
+                  ? "도우인·샤오홍슈·TikTok 영상 URL"
                   : "추가 URL (선택)"
               }
               className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 font-mono text-xs text-white placeholder:text-slate-600"
@@ -188,7 +200,7 @@ export function MvpDirectUrlPickPanel({
           <button
             type="button"
             disabled={disabled || loading}
-            onClick={() => setSlotCount((c) => Math.min(MAX_AUTO_EDIT_VIDEOS, c + 1))}
+            onClick={addSlot}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-black/30 px-3 py-1.5 text-xs text-slate-300 transition hover:border-violet-500/40 hover:text-violet-200 disabled:opacity-50"
             )}
@@ -219,7 +231,7 @@ export function MvpDirectUrlPickPanel({
           )}
         </button>
         <span className="text-xs text-slate-500">
-          해석 후 하단 「AI 짜집기」 실행 · 抖音은 소스 검색 토큰 필요 · 최대 {MAX_AUTO_EDIT_VIDEOS}개
+          해석 후 하단 「AI 리믹스」 실행 · 도우인·TikTok은 소스 검색 토큰 권장 · 최대 {MAX_AUTO_EDIT_VIDEOS}개
         </span>
       </div>
 
@@ -228,6 +240,7 @@ export function MvpDirectUrlPickPanel({
           {resolved.map((item) => {
             const ok = item.videoUrl.startsWith("http") && !item.error
             const isDouyin = item.platform === "douyin"
+            const isTikTok = item.platform === "tiktok"
             return (
               <div
                 key={item.inputUrl}
@@ -236,7 +249,9 @@ export function MvpDirectUrlPickPanel({
                   ok
                     ? isDouyin
                       ? "border-amber-500/25"
-                      : "border-rose-500/25"
+                      : isTikTok
+                        ? "border-cyan-500/25"
+                        : "border-rose-500/25"
                     : "border-red-500/30"
                 )}
               >
@@ -259,10 +274,14 @@ export function MvpDirectUrlPickPanel({
                   <span
                     className={cn(
                       "mt-1 inline-block rounded px-1.5 py-0.5 text-[10px]",
-                      isDouyin ? "bg-amber-950/80 text-amber-200" : "bg-rose-950/80 text-rose-200"
+                      isDouyin
+                        ? "bg-amber-950/80 text-amber-200"
+                        : isTikTok
+                          ? "bg-cyan-950/80 text-cyan-200"
+                          : "bg-rose-950/80 text-rose-200"
                     )}
                   >
-                    {isDouyin ? "抖音" : "小红书"}
+                    {isDouyin ? "도우인" : isTikTok ? "TikTok" : "샤오홍슈"}
                   </span>
                 </div>
                 {item.noteUrl ? (

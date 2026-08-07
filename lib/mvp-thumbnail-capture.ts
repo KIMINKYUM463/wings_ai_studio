@@ -51,7 +51,10 @@ export async function persistImageUrlAsDataUrl(url: string, maxWidth = DEFAULT_M
   if (trimmed.startsWith("data:image/")) {
     return resizeDataUrl(trimmed, maxWidth)
   }
-  const res = await fetch(trimmed)
+  const fetchUrl = /^https:\/\//i.test(trimmed)
+    ? `/api/shotform/image-proxy?url=${encodeURIComponent(trimmed)}`
+    : trimmed
+  const res = await fetch(fetchUrl)
   if (!res.ok) throw new Error("이미지를 불러올 수 없습니다.")
   const blob = await res.blob()
   const dataUrl = await new Promise<string>((resolve, reject) => {

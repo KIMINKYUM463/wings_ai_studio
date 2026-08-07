@@ -2511,10 +2511,10 @@ export default function ShortsPage() {
         return (
           <div className="space-y-8">
             <div className="text-center space-y-2 mb-8">
-              <h2 className="text-4xl font-bold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 bg-clip-text text-transparent">
+              <h2 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-cyan-200 via-sky-200 to-indigo-200 bg-clip-text text-transparent md:text-4xl">
                 카테고리 선택
               </h2>
-              <p className="text-gray-500 text-sm">원하는 콘텐츠 카테고리를 선택해주세요</p>
+              <p className="text-zinc-400 text-sm">원하는 콘텐츠 카테고리를 선택해주세요</p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {categoryOrder.map((category) => {
@@ -2524,8 +2524,8 @@ export default function ShortsPage() {
                     key={category}
                     className={`group cursor-pointer transition-all duration-300 hover:scale-105 hover:shadow-2xl border-2 ${
                       selectedCategory === category 
-                        ? "ring-4 ring-purple-500 ring-offset-2 shadow-xl border-purple-500 bg-gradient-to-br from-purple-50 to-pink-50" 
-                        : "border-gray-200 hover:border-purple-300 hover:shadow-lg"
+                        ? "ring-2 ring-cyan-400/70 ring-offset-2 ring-offset-[#0a0b0d] shadow-xl border-cyan-400/50 bg-gradient-to-br from-cyan-500/10 to-indigo-500/10" 
+                        : "border-white/10 hover:border-cyan-400/35 hover:shadow-lg"
                     }`}
                     onClick={() => setSelectedCategory(category)}
                   >
@@ -2538,14 +2538,14 @@ export default function ShortsPage() {
                       </div>
                       <h3 className={`text-xl font-bold relative z-10 ${
                         selectedCategory === category 
-                          ? "bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent" 
-                          : "text-gray-800"
+                          ? "bg-gradient-to-r from-cyan-200 to-indigo-200 bg-clip-text text-transparent" 
+                          : "text-zinc-100"
                       }`}>
                         {info.name}
                       </h3>
                       {selectedCategory === category && (
                         <div className="mt-3">
-                          <div className="inline-flex items-center gap-1 px-3 py-1 bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs font-semibold rounded-full">
+                          <div className="inline-flex items-center gap-1 px-3 py-1 bg-gradient-to-r from-cyan-500 to-sky-500 text-white text-xs font-semibold rounded-full">
                             <Sparkles className="w-3 h-3" />
                             선택됨
                           </div>
@@ -2559,11 +2559,11 @@ export default function ShortsPage() {
             
             {/* 직접입력 선택 시 입력 칸 표시 */}
             {selectedCategory === "custom" && (
-              <Card className="border-2 border-purple-500 shadow-xl bg-gradient-to-br from-purple-50 to-pink-50 animate-in fade-in-50 duration-300">
+              <Card className="border border-cyan-400/40 bg-white/[0.03] shadow-none bg-gradient-to-br from-cyan-500/10 to-indigo-500/10 animate-in fade-in-50 duration-300">
                 <CardContent className="p-8">
                   <div className="flex items-center gap-2 mb-4">
-                    <Sparkles className="w-5 h-5 text-purple-600" />
-                    <Label htmlFor="customTopic" className="text-xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
+                    <Sparkles className="w-5 h-5 text-cyan-300" />
+                    <Label htmlFor="customTopic" className="text-xl font-bold bg-gradient-to-r from-cyan-200 to-indigo-200 bg-clip-text text-transparent">
                       주제 직접 입력
                     </Label>
                   </div>
@@ -2573,9 +2573,9 @@ export default function ShortsPage() {
                     onChange={(e) => setCustomTopic(e.target.value)}
                     placeholder="예: 인공지능의 미래, 건강한 식습관, 투자 초보자를 위한 팁 등..."
                     rows={4}
-                    className="w-full border-2 border-purple-200 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 transition-all"
+                    className="w-full border-2 border-white/15 focus:border-cyan-400/50 focus:ring-2 focus:ring-cyan-400/20 transition-all"
                   />
-                  <p className="text-sm text-gray-600 mt-3 flex items-center gap-1">
+                  <p className="text-sm text-zinc-400 mt-3 flex items-center gap-1">
                     <Lightbulb className="w-4 h-4 text-yellow-500" />
                     입력한 주제를 바탕으로 대본이 생성됩니다.
                   </p>
@@ -2583,11 +2583,11 @@ export default function ShortsPage() {
               </Card>
             )}
             
-            <Card className="border-2 border-gray-200 shadow-lg">
+            <Card className="border border-white/10 bg-white/[0.03] shadow-none">
               <CardContent className="p-6">
                 <div className="space-y-4">
                   <div className="flex items-center gap-2 mb-4">
-                    <Clock className="w-5 h-5 text-purple-600" />
+                    <Clock className="w-5 h-5 text-cyan-300" />
                     <Label className="text-lg font-semibold">영상 길이 선택</Label>
                   </div>
                   <div className="flex gap-3 flex-wrap">
@@ -2604,8 +2604,8 @@ export default function ShortsPage() {
                         onClick={() => setSelectedDuration(duration.value as ShortsDuration)}
                         className={`flex-1 min-w-[100px] transition-all duration-300 ${
                           selectedDuration === duration.value
-                            ? "bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 shadow-lg scale-105"
-                            : "hover:border-purple-300 hover:scale-105"
+                            ? "bg-gradient-to-r from-cyan-500 to-indigo-500 hover:from-cyan-400 hover:to-indigo-400 shadow-lg scale-105"
+                            : "hover:border-cyan-400/35 hover:scale-105"
                         }`}
                       >
                         <Clock className="w-4 h-4 mr-2" />
@@ -2620,7 +2620,7 @@ export default function ShortsPage() {
             <Button
               onClick={handleGenerateTopics}
               disabled={!selectedCategory || isGeneratingTopics || (selectedCategory === "custom" && !customTopic.trim())}
-              className="w-full h-14 text-lg font-semibold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 hover:from-purple-700 hover:via-pink-700 hover:to-blue-700 text-white shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+              className="w-full h-14 text-lg font-semibold bg-gradient-to-r from-cyan-500 via-sky-500 to-indigo-500 hover:from-cyan-400 hover:via-sky-400 hover:to-indigo-400 text-white shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
               size="lg"
             >
               {isGeneratingTopics ? (
@@ -2647,10 +2647,10 @@ export default function ShortsPage() {
         return (
           <div className="space-y-8">
             <div className="text-center space-y-2 mb-8">
-              <h2 className="text-4xl font-bold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 bg-clip-text text-transparent">
+              <h2 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-cyan-200 via-sky-200 to-indigo-200 bg-clip-text text-transparent md:text-4xl">
                 주제 선택
               </h2>
-              <p className="text-gray-500 text-sm">마음에 드는 주제를 선택해주세요</p>
+              <p className="text-zinc-400 text-sm">마음에 드는 주제를 선택해주세요</p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {topics.map((topic, index) => (
@@ -2658,30 +2658,30 @@ export default function ShortsPage() {
                   key={index}
                   className={`group cursor-pointer transition-all duration-300 hover:scale-105 hover:shadow-xl border-2 ${
                     selectedTopic === topic 
-                      ? "ring-4 ring-purple-500 ring-offset-2 shadow-xl border-purple-500 bg-gradient-to-br from-purple-50 to-pink-50" 
-                      : "border-gray-200 hover:border-purple-300 hover:shadow-lg"
+                      ? "ring-2 ring-cyan-400/70 ring-offset-2 ring-offset-[#0a0b0d] shadow-xl border-cyan-400/50 bg-gradient-to-br from-cyan-500/10 to-indigo-500/10" 
+                      : "border-white/10 hover:border-cyan-400/35 hover:shadow-lg"
                   }`}
                   onClick={() => setSelectedTopic(topic)}
                 >
                   <CardContent className="p-6 relative overflow-hidden">
                     {/* 배경 그라데이션 효과 */}
-                    <div className="absolute inset-0 opacity-0 group-hover:opacity-5 transition-opacity duration-300 bg-gradient-to-br from-purple-500 to-pink-500" />
+                    <div className="absolute inset-0 opacity-0 group-hover:opacity-5 transition-opacity duration-300 bg-gradient-to-br from-cyan-500 to-sky-500" />
                     
                     <div className="flex items-start gap-3 relative z-10">
                       <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm transition-all duration-300 ${
                         selectedTopic === topic
-                          ? "bg-gradient-to-r from-purple-600 to-pink-600 text-white scale-110"
-                          : "bg-gray-100 text-gray-600 group-hover:bg-purple-100 group-hover:text-purple-600"
+                          ? "bg-gradient-to-r from-cyan-500 to-indigo-500 text-white scale-110"
+                          : "bg-gray-100 text-zinc-400 group-hover:bg-white/10 group-hover:text-cyan-300"
                       }`}>
                         {index + 1}
                       </div>
                       <p className={`text-base font-medium flex-1 leading-relaxed ${
-                        selectedTopic === topic ? "text-purple-900 font-semibold" : "text-gray-800"
+                        selectedTopic === topic ? "text-cyan-100 font-semibold" : "text-zinc-100"
                       }`}>
                         {topic}
                       </p>
                       {selectedTopic === topic && (
-                        <Sparkles className="w-5 h-5 text-purple-600 flex-shrink-0 animate-pulse" />
+                        <Sparkles className="w-5 h-5 text-cyan-300 flex-shrink-0 animate-pulse" />
                       )}
                     </div>
                   </CardContent>
@@ -2692,7 +2692,7 @@ export default function ShortsPage() {
               <Button 
                 variant="outline" 
                 onClick={() => setActiveStep("category")}
-                className="border-2 hover:border-purple-300 hover:bg-purple-50 transition-all duration-300"
+                className="border-2 hover:border-cyan-400/35 hover:bg-white/5 transition-all duration-300"
               >
                 <ArrowLeft className="w-4 h-4 mr-2" />
                 뒤로가기
@@ -2700,7 +2700,7 @@ export default function ShortsPage() {
               <Button
                 onClick={handleGenerateScript}
                 disabled={!selectedTopic || isGeneratingScript}
-                className="flex-1 h-14 text-lg font-semibold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 hover:from-purple-700 hover:via-pink-700 hover:to-blue-700 text-white shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                className="flex-1 h-14 text-lg font-semibold bg-gradient-to-r from-cyan-500 via-sky-500 to-indigo-500 hover:from-cyan-400 hover:via-sky-400 hover:to-indigo-400 text-white shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                 size="lg"
               >
                 {isGeneratingScript ? (
@@ -2723,12 +2723,12 @@ export default function ShortsPage() {
         return (
           <div className="space-y-8">
             <div className="text-center space-y-2 mb-8">
-              <h2 className="text-4xl font-bold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 bg-clip-text text-transparent">
+              <h2 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-cyan-200 via-sky-200 to-indigo-200 bg-clip-text text-transparent md:text-4xl">
                 대본 확인
               </h2>
-              <p className="text-gray-500 text-sm">생성된 대본을 확인하고 수정할 수 있습니다</p>
+              <p className="text-zinc-400 text-sm">생성된 대본을 확인하고 수정할 수 있습니다</p>
             </div>
-            <Card className="border-2 border-gray-200 shadow-xl">
+            <Card className="border border-white/10 bg-white/[0.03] shadow-none">
               <CardContent className="p-8">
                 <Textarea
                   value={script}
@@ -2782,7 +2782,7 @@ export default function ShortsPage() {
                       대본 요약하기
                     </Button>
                     {scriptSummary && (
-                      <p className="text-xs text-gray-500 mt-2">
+                      <p className="text-xs text-zinc-400 mt-2">
                         대본 요약: {scriptSummary}
                       </p>
                     )}
@@ -2859,7 +2859,7 @@ export default function ShortsPage() {
                       )}
                     </Button>
                     {hookingTitle && (
-                      <div className="p-4 bg-muted rounded-lg space-y-3">
+                      <div className="p-4 bg-white/[0.04] rounded-lg space-y-3">
                         <p className="text-sm font-semibold mb-2">생성된 제목 (수정 가능):</p>
                         <div className="space-y-2">
                           <div>
@@ -2885,13 +2885,13 @@ export default function ShortsPage() {
                     )}
                     {/* 제목 미리보기 */}
                     {hookingTitle && generatedImages.length > 0 && (
-                      <div className="mt-4 p-4 bg-muted rounded-lg">
+                      <div className="mt-4 p-4 bg-white/[0.04] rounded-lg">
                         <p className="text-sm font-semibold mb-3">제목 미리보기</p>
                         <div className="flex justify-center">
                           <div className="relative" style={{ width: "270px", height: "480px" }}>
                             <canvas
                               ref={titlePreviewCanvasRef}
-                              className="w-full h-full border-2 border-gray-300 rounded-lg"
+                              className="w-full h-full border-2 border-white/15 rounded-lg"
                               style={{ aspectRatio: "9/16", imageRendering: 'auto' }}
                             />
                           </div>
@@ -2903,10 +2903,10 @@ export default function ShortsPage() {
               </Card>
 
             {/* 이미지 스타일 선택 */}
-            <Card className="border-2 border-gray-200 shadow-xl">
-              <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50 border-b-2 border-purple-100">
-                <CardTitle className="text-xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent flex items-center gap-2">
-                  <ImageIcon className="w-6 h-6 text-purple-600" />
+            <Card className="border border-white/10 bg-white/[0.03] shadow-none">
+              <CardHeader className="border-b border-white/10 bg-white/[0.02]">
+                <CardTitle className="text-xl font-bold bg-gradient-to-r from-cyan-200 to-indigo-200 bg-clip-text text-transparent flex items-center gap-2">
+                  <ImageIcon className="w-6 h-6 text-cyan-300" />
                   이미지 스타일 선택
                 </CardTitle>
               </CardHeader>
@@ -2925,8 +2925,8 @@ export default function ShortsPage() {
                       onClick={() => setImageStyle(style.id)}
                       className={`flex-1 h-14 transition-all duration-300 ${
                         imageStyle === style.id
-                          ? "bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white shadow-lg scale-105"
-                          : "hover:border-purple-300 hover:scale-105 hover:shadow-md"
+                          ? "bg-gradient-to-r from-cyan-500 to-indigo-500 hover:from-cyan-400 hover:to-indigo-400 text-white shadow-lg scale-105"
+                          : "hover:border-cyan-400/35 hover:scale-105 hover:shadow-md"
                       }`}
                     >
                       <span className="mr-2 text-lg">{style.icon}</span>
@@ -2943,16 +2943,16 @@ export default function ShortsPage() {
                 <CardTitle className="text-lg">이미지 추가 (선택사항)</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-sm text-gray-600 mb-3">
+                <p className="text-sm text-zinc-400 mb-3">
                   이미지 생성 전에 사용자 이미지를 미리 추가할 수 있습니다. 추가한 이미지는 생성된 이미지와 함께 사용됩니다.
                 </p>
                 <label
                   htmlFor="pre-image-upload"
-                  className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors"
+                  className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-white/15 rounded-lg cursor-pointer bg-white/[0.04] hover:bg-white/[0.08] transition-colors"
                 >
-                  <Upload className="w-8 h-8 text-gray-400 mb-2" />
-                  <p className="text-sm text-gray-600">클릭하거나 드래그하여 이미지 업로드</p>
-                  <p className="text-xs text-gray-400 mt-1">여러 이미지 선택 가능</p>
+                  <Upload className="w-8 h-8 text-zinc-500 mb-2" />
+                  <p className="text-sm text-zinc-400">클릭하거나 드래그하여 이미지 업로드</p>
+                  <p className="text-xs text-zinc-500 mt-1">여러 이미지 선택 가능</p>
                 </label>
                 <input
                   id="pre-image-upload"
@@ -3035,7 +3035,7 @@ export default function ShortsPage() {
                         .filter(img => img.isUserUploaded)
                         .map((img, index) => (
                           <div key={`pre-${img.lineId}`} className="relative">
-                            <div className="aspect-square w-full bg-muted rounded-lg overflow-hidden">
+                            <div className="aspect-square w-full bg-white/[0.04] rounded-lg overflow-hidden">
                               <img
                                 src={img.imageUrl}
                                 alt={`Uploaded ${index + 1}`}
@@ -3073,7 +3073,7 @@ export default function ShortsPage() {
               <Button 
                 variant="outline" 
                 onClick={() => setActiveStep("topic")}
-                className="border-2 hover:border-purple-300 hover:bg-purple-50 transition-all duration-300"
+                className="border-2 hover:border-cyan-400/35 hover:bg-white/5 transition-all duration-300"
               >
                 <ArrowLeft className="w-4 h-4 mr-2" />
                 뒤로가기
@@ -3081,7 +3081,7 @@ export default function ShortsPage() {
               <Button
                 onClick={handleGenerateImages}
                 disabled={isGeneratingImages}
-                className="flex-1 h-14 text-lg font-semibold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 hover:from-purple-700 hover:via-pink-700 hover:to-blue-700 text-white shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                className="flex-1 h-14 text-lg font-semibold bg-gradient-to-r from-cyan-500 via-sky-500 to-indigo-500 hover:from-cyan-400 hover:via-sky-400 hover:to-indigo-400 text-white shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                 size="lg"
               >
                 {isGeneratingImages ? (
@@ -3338,28 +3338,28 @@ export default function ShortsPage() {
         return (
           <div className="space-y-8">
             <div className="text-center space-y-2 mb-8">
-              <h2 className="text-4xl font-bold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 bg-clip-text text-transparent">
+              <h2 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-cyan-200 via-sky-200 to-indigo-200 bg-clip-text text-transparent md:text-4xl">
                 이미지 확인 및 순서 조정
               </h2>
-              <p className="text-gray-500 text-sm">이미지를 확인하고 순서를 조정할 수 있습니다</p>
+              <p className="text-zinc-400 text-sm">이미지를 확인하고 순서를 조정할 수 있습니다</p>
             </div>
             
             {/* 사용자 이미지 업로드 */}
-            <Card className="border-2 border-gray-200 shadow-xl">
-              <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50 border-b-2 border-purple-100">
-                <CardTitle className="text-xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent flex items-center gap-2">
-                  <Upload className="w-6 h-6 text-purple-600" />
+            <Card className="border border-white/10 bg-white/[0.03] shadow-none">
+              <CardHeader className="border-b border-white/10 bg-white/[0.02]">
+                <CardTitle className="text-xl font-bold bg-gradient-to-r from-cyan-200 to-indigo-200 bg-clip-text text-transparent flex items-center gap-2">
+                  <Upload className="w-6 h-6 text-cyan-300" />
                   이미지 업로드
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-6">
                 <label
                   htmlFor="image-upload"
-                  className="flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-purple-300 rounded-xl cursor-pointer bg-gradient-to-br from-purple-50 to-pink-50 hover:from-purple-100 hover:to-pink-100 transition-all duration-300 hover:border-purple-500 hover:shadow-lg group"
+                  className="flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-cyan-400/35 rounded-xl cursor-pointer bg-gradient-to-br from-cyan-500/10 to-indigo-500/10 hover:from-cyan-500/20 hover:to-indigo-500/15 transition-all duration-300 hover:border-cyan-400/50 hover:shadow-lg group"
                 >
-                  <Upload className="w-10 h-10 text-purple-500 mb-3 group-hover:scale-110 transition-transform duration-300" />
-                  <p className="text-base font-semibold text-gray-700 group-hover:text-purple-600 transition-colors">클릭하거나 드래그하여 이미지 업로드</p>
-                  <p className="text-xs text-gray-500 mt-2">여러 이미지 선택 가능</p>
+                  <Upload className="w-10 h-10 text-cyan-300 mb-3 group-hover:scale-110 transition-transform duration-300" />
+                  <p className="text-base font-semibold text-zinc-200 group-hover:text-cyan-300 transition-colors">클릭하거나 드래그하여 이미지 업로드</p>
+                  <p className="text-xs text-zinc-400 mt-2">여러 이미지 선택 가능</p>
                 </label>
                 <input
                   id="image-upload"
@@ -3374,10 +3374,10 @@ export default function ShortsPage() {
 
             {/* 이미지 선택 갤러리 (업로드된 이미지들) */}
             {generatedImages.filter(img => img.isUserUploaded).length > 0 && (
-              <Card className="border-2 border-gray-200 shadow-xl">
-                <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50 border-b-2 border-purple-100">
-                  <CardTitle className="text-xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent flex items-center gap-2">
-                    <ImageIcon className="w-6 h-6 text-purple-600" />
+              <Card className="border border-white/10 bg-white/[0.03] shadow-none">
+                <CardHeader className="border-b border-white/10 bg-white/[0.02]">
+                  <CardTitle className="text-xl font-bold bg-gradient-to-r from-cyan-200 to-indigo-200 bg-clip-text text-transparent flex items-center gap-2">
+                    <ImageIcon className="w-6 h-6 text-cyan-300" />
                     이미지 선택
                   </CardTitle>
                 </CardHeader>
@@ -3398,10 +3398,10 @@ export default function ShortsPage() {
                               }
                             }}
                           >
-                            <div className={`aspect-square w-full bg-muted rounded-lg overflow-hidden border-2 transition-all ${
+                            <div className={`aspect-square w-full bg-white/[0.04] rounded-lg overflow-hidden border-2 transition-all ${
                               isSelected 
-                                ? "border-purple-500 ring-2 ring-purple-300" 
-                                : "border-gray-200 hover:border-purple-300"
+                                ? "border-cyan-400/50 ring-2 ring-cyan-400/40" 
+                                : "border-white/10 hover:border-cyan-400/35"
                             }`}>
                               <img
                                 src={img.imageUrl}
@@ -3413,8 +3413,8 @@ export default function ShortsPage() {
                             <div className="absolute top-2 right-2 z-10">
                               <div className={`w-6 h-6 rounded-full flex items-center justify-center transition-all ${
                                 isSelected
-                                  ? "bg-purple-600 border-2 border-white"
-                                  : "bg-white/80 border-2 border-gray-300"
+                                  ? "bg-cyan-500 border-2 border-white"
+                                  : "bg-black/50 border-2 border-white/15"
                               }`}>
                                 {isSelected && (
                                   <Check className="w-4 h-4 text-white" />
@@ -3424,7 +3424,7 @@ export default function ShortsPage() {
                             {/* 사용자 업로드 표시 */}
                             {img.isUserUploaded && (
                               <div className="absolute top-2 left-2 z-10">
-                                <Upload className="w-4 h-4 text-blue-500 bg-white/80 rounded p-0.5" />
+                                <Upload className="w-4 h-4 text-sky-300 bg-black/50 rounded p-0.5" />
                               </div>
                             )}
                             {/* 기본 버튼 (사용자 업로드 이미지는 표시하지 않음) */}
@@ -3433,7 +3433,7 @@ export default function ShortsPage() {
                                 <Button
                                   size="sm"
                                   variant="secondary"
-                                  className="text-xs px-2 py-1 h-auto bg-green-500 hover:bg-green-600 text-white"
+                                  className="text-xs px-2 py-1 h-auto bg-emerald-500 hover:bg-emerald-400 text-white"
                                   onClick={(e) => {
                                     e.stopPropagation()
                                     if (!isSelected) {
@@ -3454,11 +3454,11 @@ export default function ShortsPage() {
             )}
 
             {/* 이미지 목록 (드래그 앤 드롭 가능) */}
-            <Card className="border-2 border-gray-200 shadow-xl">
-              <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50 border-b-2 border-purple-100">
+            <Card className="border border-white/10 bg-white/[0.03] shadow-none">
+              <CardHeader className="border-b border-white/10 bg-white/[0.02]">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent flex items-center gap-2">
-                    <ImageIcon className="w-6 h-6 text-purple-600" />
+                  <CardTitle className="text-xl font-bold bg-gradient-to-r from-cyan-200 to-indigo-200 bg-clip-text text-transparent flex items-center gap-2">
+                    <ImageIcon className="w-6 h-6 text-cyan-300" />
                     이미지 선택 및 순서 조정
                   </CardTitle>
                   {generatedImages.filter(img => img.isUserUploaded).length > 0 ? (
@@ -3466,7 +3466,7 @@ export default function ShortsPage() {
                       variant="outline"
                       size="sm"
                       onClick={handleClearUploadedImages}
-                      className="border-red-300 text-red-600 hover:bg-red-50 hover:border-red-400"
+                      className="border-red-400/40 text-red-300 hover:bg-red-500/10 hover:border-red-400/60"
                     >
                       <X className="w-4 h-4 mr-2" />
                       사진 초기화 ({generatedImages.filter(img => img.isUserUploaded).length}개)
@@ -3475,9 +3475,9 @@ export default function ShortsPage() {
                 </div>
               </CardHeader>
               <CardContent className="p-6">
-                <div className="flex items-center gap-2 mb-6 p-4 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg border border-blue-200">
+                <div className="flex items-center gap-2 mb-6 p-4 bg-gradient-to-r from-sky-500/10 to-indigo-500/10 rounded-lg border border-sky-400/25">
                   <Sparkles className="w-5 h-5 text-blue-600" />
-                  <p className="text-sm font-medium text-gray-700">
+                  <p className="text-sm font-medium text-zinc-200">
                     💡 이미지를 드래그하여 순서를 변경할 수 있습니다. 순서대로 영상에 사용됩니다.
                   </p>
                 </div>
@@ -3519,11 +3519,11 @@ export default function ShortsPage() {
                     onDragEnd={handleDragEnd}
                     className={`group transition-all duration-300 select-none border-2 ${
                       isUserUploaded 
-                        ? "cursor-default border-gray-300" 
-                        : "cursor-move hover:shadow-2xl hover:scale-105 border-gray-200 hover:border-purple-300"
+                        ? "cursor-default border-white/15" 
+                        : "cursor-move hover:shadow-2xl hover:scale-105 border-white/10 hover:border-cyan-400/35"
                     } ${
                       draggedImageIndex === index 
-                        ? "opacity-50 scale-95 border-purple-400" 
+                        ? "opacity-50 scale-95 border-cyan-400/50" 
                         : ""
                     }`}
                     style={{
@@ -3543,11 +3543,11 @@ export default function ShortsPage() {
                       }}
                     >
                       {/* 배경 그라데이션 효과 */}
-                      <div className="absolute inset-0 opacity-0 group-hover:opacity-5 transition-opacity duration-300 bg-gradient-to-br from-purple-500 to-pink-500" />
+                      <div className="absolute inset-0 opacity-0 group-hover:opacity-5 transition-opacity duration-300 bg-gradient-to-br from-cyan-500 to-sky-500" />
                       
                       {/* 드래그 핸들 (사용자 업로드 이미지는 표시하지 않음) */}
                       {!isUserUploaded && (
-                        <div className="absolute top-2 left-2 z-10 bg-gradient-to-r from-purple-600 to-pink-600 rounded-lg p-1.5 shadow-lg opacity-80 group-hover:opacity-100 transition-opacity">
+                        <div className="absolute top-2 left-2 z-10 bg-gradient-to-r from-cyan-500 to-indigo-500 rounded-lg p-1.5 shadow-lg opacity-80 group-hover:opacity-100 transition-opacity">
                           <GripVertical className="w-4 h-4 text-white" />
                         </div>
                       )}
@@ -3575,12 +3575,12 @@ export default function ShortsPage() {
                       </Button>
 
                       {/* 순서 번호 */}
-                      <div className="absolute top-2 left-1/2 transform -translate-x-1/2 z-10 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-full w-7 h-7 flex items-center justify-center text-xs font-bold shadow-lg">
+                      <div className="absolute top-2 left-1/2 transform -translate-x-1/2 z-10 bg-gradient-to-r from-cyan-500 to-indigo-500 text-white rounded-full w-7 h-7 flex items-center justify-center text-xs font-bold shadow-lg">
                         {index + 1}
                       </div>
 
                       {/* 이미지 */}
-                      <div className="aspect-square w-full bg-muted rounded-lg overflow-hidden flex items-center justify-center mt-6">
+                      <div className="aspect-square w-full bg-white/[0.04] rounded-lg overflow-hidden flex items-center justify-center mt-6">
                         <img
                           src={img.imageUrl}
                           alt={`Image ${index + 1}`}
@@ -3593,7 +3593,7 @@ export default function ShortsPage() {
                       {/* 사용자 업로드 표시 */}
                       {img.isUserUploaded && (
                         <div className="mt-2 text-center">
-                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-gradient-to-r from-blue-500 to-purple-500 text-white text-xs font-semibold rounded-full shadow-md">
+                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-gradient-to-r from-sky-500 to-indigo-500 text-white text-xs font-semibold rounded-full shadow-md">
                             <Upload className="w-3 h-3" />
                             사용자 업로드
                           </span>
@@ -3607,31 +3607,31 @@ export default function ShortsPage() {
               
               {sortedImages.length === 0 && (
                 <div className="text-center py-16">
-                  <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-gradient-to-br from-purple-100 to-pink-100 mb-4">
-                    <ImageIcon className="w-12 h-12 text-purple-400" />
+                  <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-gradient-to-br from-cyan-500/15 to-indigo-500/10 mb-4">
+                    <ImageIcon className="w-12 h-12 text-cyan-300" />
                   </div>
-                  <p className="text-gray-500 font-medium">이미지가 없습니다</p>
-                  <p className="text-sm text-gray-400 mt-1">이미지를 생성하거나 업로드해주세요</p>
+                  <p className="text-zinc-400 font-medium">이미지가 없습니다</p>
+                  <p className="text-sm text-zinc-500 mt-1">이미지를 생성하거나 업로드해주세요</p>
                 </div>
               )}
               </CardContent>
             </Card>
             {/* 목소리 선택 */}
-            <Card className="border-2 border-gray-200 shadow-xl">
-              <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50 border-b-2 border-purple-100">
-                <CardTitle className="text-xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent flex items-center gap-2">
-                  <Volume2 className="w-6 h-6 text-purple-600" />
+            <Card className="border border-white/10 bg-white/[0.03] shadow-none">
+              <CardHeader className="border-b border-white/10 bg-white/[0.02]">
+                <CardTitle className="text-xl font-bold bg-gradient-to-r from-cyan-200 to-indigo-200 bg-clip-text text-transparent flex items-center gap-2">
+                  <Volume2 className="w-6 h-6 text-cyan-300" />
                   목소리 선택
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-6 space-y-4">
                         {/* 수퍼톤 선택 */}
-                        <div className="space-y-3 p-4 border border-purple-200/50 rounded-xl bg-white/60 backdrop-blur-sm shadow-sm">
+                        <div className="space-y-3 p-4 border border-white/10 rounded-xl bg-white/[0.05] backdrop-blur-sm shadow-sm">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center space-x-2">
                               <div
                                 className={`w-4 h-4 rounded-full border-2 cursor-pointer ${
-                                  selectedVoiceId?.startsWith("supertone-") ? "border-purple-500 bg-purple-500" : "border-gray-300"
+                                  selectedVoiceId?.startsWith("supertone-") ? "border-cyan-400/50 bg-cyan-500" : "border-white/15"
                                 }`}
                                 onClick={() => {
                                   if (supertoneVoices.length > 0 && !selectedSupertoneVoiceId) {
@@ -3654,14 +3654,14 @@ export default function ShortsPage() {
                                   <div className="w-2 h-2 bg-white rounded-full mx-auto mt-0.5"></div>
                                 )}
                               </div>
-                              <p className={`text-sm font-medium ${selectedVoiceId?.startsWith("supertone-") ? "text-purple-900" : "text-gray-700"}`}>수퍼톤 (SuperTone)</p>
+                              <p className={`text-sm font-medium ${selectedVoiceId?.startsWith("supertone-") ? "text-cyan-100" : "text-zinc-200"}`}>수퍼톤 (SuperTone)</p>
                             </div>
                             <Button
                               variant="outline"
                               size="sm"
                               onClick={fetchSupertoneVoices}
                               disabled={isLoadingSupertoneVoices}
-                              className={selectedVoiceId?.startsWith("supertone-") ? "border-purple-300 text-purple-700" : ""}
+                              className={selectedVoiceId?.startsWith("supertone-") ? "border-cyan-400/35 text-cyan-200" : ""}
                             >
                               {isLoadingSupertoneVoices ? (
                                 <>
@@ -3679,7 +3679,7 @@ export default function ShortsPage() {
                           
                           {supertoneVoices.length > 0 && (
                             <div className="mt-3">
-                              <Label className="text-sm font-medium text-gray-700 mb-2 block">음성 목록에서 선택</Label>
+                              <Label className="text-sm font-medium text-zinc-200 mb-2 block">음성 목록에서 선택</Label>
                               <Select
                                 value={selectedSupertoneVoiceId && supertoneVoices.find(v => v.voice_id === selectedSupertoneVoiceId) ? selectedSupertoneVoiceId : ""}
                                 onValueChange={(value) => {
@@ -3714,9 +3714,9 @@ export default function ShortsPage() {
                                         )}
                                         <div>
                                           <div className="font-medium">{voice.name}</div>
-                                          <div className="text-xs text-gray-500">ID: {voice.voice_id}</div>
+                                          <div className="text-xs text-zinc-400">ID: {voice.voice_id}</div>
                                           {voice.styles && voice.styles.length > 0 && (
-                                            <div className="text-xs text-gray-500">
+                                            <div className="text-xs text-zinc-400">
                                               스타일: {voice.styles.join(", ")}
                                             </div>
                                           )}
@@ -3737,7 +3737,7 @@ export default function ShortsPage() {
                             }
                             return availableStyles.length > 0 && (
                               <div className="mt-2">
-                                <p className="text-sm font-medium text-gray-700 mb-2">스타일 선택</p>
+                                <p className="text-sm font-medium text-zinc-200 mb-2">스타일 선택</p>
                                 <Select
                                   value={selectedSupertoneStyle}
                                   onValueChange={setSelectedSupertoneStyle}
@@ -3759,7 +3759,7 @@ export default function ShortsPage() {
                           
                           {/* 수퍼톤 ID 직접 입력 */}
                           <div className="mt-3 space-y-2">
-                            <Label className="text-sm font-medium text-gray-700">또는 ID 직접 입력</Label>
+                            <Label className="text-sm font-medium text-zinc-200">또는 ID 직접 입력</Label>
                             <Input
                               placeholder="수퍼톤 Voice ID를 입력하세요"
                               value={selectedSupertoneVoiceId && !supertoneVoices.find(v => v.voice_id === selectedSupertoneVoiceId) ? selectedSupertoneVoiceId : ""}
@@ -3781,15 +3781,15 @@ export default function ShortsPage() {
                                   }
                                 }
                               }}
-                              className="w-full border-purple-200 focus:border-purple-400 focus:ring-purple-400/20"
+                              className="w-full border-white/15 focus:border-cyan-400/50 focus:ring-purple-400/20"
                             />
-                            <p className="text-xs text-gray-500">수퍼톤 Voice ID를 알고 있다면 직접 입력할 수 있습니다. 직접 입력한 ID가 우선적으로 적용됩니다.</p>
+                            <p className="text-xs text-zinc-400">수퍼톤 Voice ID를 알고 있다면 직접 입력할 수 있습니다. 직접 입력한 ID가 우선적으로 적용됩니다.</p>
                           </div>
                           {selectedSupertoneVoiceId && (
                             <Button
                               variant="outline"
                               size="sm"
-                              className="w-full mt-2 border-purple-300 text-purple-700 hover:bg-purple-100"
+                              className="w-full mt-2 border-cyan-400/35 text-cyan-200 hover:bg-white/10"
                               onClick={() => handlePreviewVoice(`supertone-${selectedSupertoneVoiceId}`)}
                               disabled={previewingVoiceId === `supertone-${selectedSupertoneVoiceId}`}
                             >
@@ -3809,12 +3809,12 @@ export default function ShortsPage() {
                         </div>
 
                         {/* ElevenLabs 음성 선택 */}
-                        <div className="space-y-3 p-4 border border-blue-200/50 rounded-xl bg-white/60 backdrop-blur-sm shadow-sm">
+                        <div className="space-y-3 p-4 border border-sky-400/25 rounded-xl bg-white/[0.05] backdrop-blur-sm shadow-sm">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center space-x-2">
                               <div
                                 className={`w-4 h-4 rounded-full border-2 cursor-pointer ${
-                                  selectedVoiceId?.startsWith("elevenlabs-") ? "border-blue-500 bg-blue-500" : "border-gray-300"
+                                  selectedVoiceId?.startsWith("elevenlabs-") ? "border-sky-400/50 bg-sky-500/100" : "border-white/15"
                                 }`}
                                 onClick={() => {
                                   if (selectedVoiceId?.startsWith("elevenlabs-")) {
@@ -3837,11 +3837,11 @@ export default function ShortsPage() {
                                   <div className="w-2 h-2 bg-white rounded-full mx-auto mt-0.5"></div>
                                 )}
                               </div>
-                              <p className={`text-sm font-medium ${selectedVoiceId?.startsWith("elevenlabs-") ? "text-blue-900" : "text-gray-700"}`}>ElevenLabs</p>
+                              <p className={`text-sm font-medium ${selectedVoiceId?.startsWith("elevenlabs-") ? "text-blue-900" : "text-zinc-200"}`}>ElevenLabs</p>
                             </div>
                           </div>
                           <div className="mt-3 space-y-2">
-                            <Label className="text-sm font-medium text-gray-700">Voice ID 직접 입력</Label>
+                            <Label className="text-sm font-medium text-zinc-200">Voice ID 직접 입력</Label>
                             <Input
                               type="text"
                               placeholder="ElevenLabs 음성 ID 입력 (예: jB1Cifc2UQbq1gR3wnb0)"
@@ -3859,10 +3859,10 @@ export default function ShortsPage() {
                                   }
                                 }
                               }}
-                              className="w-full border-blue-200 focus:border-blue-400 focus:ring-blue-400/20"
+                              className="w-full border-sky-400/25 focus:border-sky-400 focus:ring-sky-400/20"
                             />
                             <div className="mt-2">
-                              <p className="text-xs text-gray-500 mb-2">추천 음성:</p>
+                              <p className="text-xs text-zinc-400 mb-2">추천 음성:</p>
                               <div className="flex gap-2 flex-wrap">
                                 {[
                                   { id: "jB1Cifc2UQbq1gR3wnb0", name: "Rachel" },
@@ -3883,7 +3883,7 @@ export default function ShortsPage() {
                                         setSelectedSupertoneVoiceId("")
                                       }
                                     }}
-                                    className={selectedVoiceId === `elevenlabs-${voice.id}` ? "bg-blue-100 border-blue-500" : ""}
+                                    className={selectedVoiceId === `elevenlabs-${voice.id}` ? "bg-sky-500/20 border-sky-400/50" : ""}
                                   >
                                     {voice.name}
                                   </Button>
@@ -3894,7 +3894,7 @@ export default function ShortsPage() {
                               <Button
                                 variant="outline"
                                 size="sm"
-                                className="w-full mt-2 border-blue-300 text-blue-700 hover:bg-blue-100"
+                                className="w-full mt-2 border-sky-400/35 text-sky-200 hover:bg-sky-500/20"
                                 onClick={() => handlePreviewVoice(selectedVoiceId)}
                                 disabled={previewingVoiceId === selectedVoiceId}
                               >
@@ -3916,7 +3916,7 @@ export default function ShortsPage() {
 
                         {/* TTSMaker 목소리 선택 */}
                         <div className="space-y-2 mt-4">
-                          <Label className="text-sm font-semibold text-slate-700">TTSMaker 목소리 선택</Label>
+                          <Label className="text-sm font-semibold text-zinc-200">TTSMaker 목소리 선택</Label>
                           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                             {[
                               { id: "ttsmaker-여성1", name: "TTSMaker 여성1", note: "ID: 503", provider: "ttsmaker" },
@@ -3931,7 +3931,7 @@ export default function ShortsPage() {
                                 className={`p-3 border-2 rounded-lg transition-all cursor-pointer ${
                                   selectedVoiceId === voice.id
                                     ? "border-red-500 bg-red-50"
-                                    : "border-gray-200 hover:border-gray-300"
+                                    : "border-white/10 hover:border-white/15"
                                 }`}
                                 onClick={() => {
                                   setSelectedVoiceId(voice.id)
@@ -3947,7 +3947,7 @@ export default function ShortsPage() {
                                 <div className="flex items-center space-x-2 mb-2">
                                   <div
                                     className={`w-4 h-4 rounded-full border-2 cursor-pointer ${
-                                      selectedVoiceId === voice.id ? "border-red-500 bg-red-500" : "border-gray-300"
+                                      selectedVoiceId === voice.id ? "border-red-500 bg-red-500" : "border-white/15"
                                     }`}
                                     onClick={(e) => {
                                       e.stopPropagation()
@@ -4025,7 +4025,7 @@ export default function ShortsPage() {
               <Button 
                 variant="outline" 
                 onClick={() => setActiveStep("script")}
-                className="border-2 hover:border-purple-300 hover:bg-purple-50 transition-all duration-300"
+                className="border-2 hover:border-cyan-400/35 hover:bg-white/5 transition-all duration-300"
               >
                 <ArrowLeft className="w-4 h-4 mr-2" />
                 뒤로가기
@@ -4033,7 +4033,7 @@ export default function ShortsPage() {
               <Button
                 onClick={handleGenerateTts}
                 disabled={isGeneratingTts}
-                className="flex-1 h-14 text-lg font-semibold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 hover:from-purple-700 hover:via-pink-700 hover:to-blue-700 text-white shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                className="flex-1 h-14 text-lg font-semibold bg-gradient-to-r from-cyan-500 via-sky-500 to-indigo-500 hover:from-cyan-400 hover:via-sky-400 hover:to-indigo-400 text-white shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                 size="lg"
               >
                 {isGeneratingTts ? (
@@ -4065,7 +4065,7 @@ export default function ShortsPage() {
                       <span>TTS 생성 중...</span>
                       <span>{ttsGenerationProgress.current}/{ttsGenerationProgress.total}</span>
                     </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2.5">
+                    <div className="w-full bg-white/10 rounded-full h-2.5">
                       <div
                         className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
                         style={{
@@ -4117,7 +4117,7 @@ export default function ShortsPage() {
                     <div className="relative" style={{ width: "540px", height: "960px" }}>
                       <canvas
                         ref={canvasRef}
-                        className="w-full h-full border-2 border-gray-300 rounded-lg"
+                        className="w-full h-full border-2 border-white/15 rounded-lg"
                         style={{ aspectRatio: "9/16" }}
                       />
                     </div>
@@ -4264,7 +4264,7 @@ export default function ShortsPage() {
                           setIsGeneratingTitle(false)
                         }
                       }}
-                        className="w-full h-14 text-lg font-semibold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 hover:from-purple-700 hover:via-pink-700 hover:to-blue-700 text-white shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 !opacity-100 !pointer-events-auto cursor-pointer"
+                        className="w-full h-14 text-lg font-semibold bg-gradient-to-r from-cyan-500 via-sky-500 to-indigo-500 hover:from-cyan-400 hover:via-sky-400 hover:to-indigo-400 text-white shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 !opacity-100 !pointer-events-auto cursor-pointer"
                         size="lg"
                       >
                         {isGeneratingTitle ? (
@@ -4283,9 +4283,9 @@ export default function ShortsPage() {
                       
                       {/* 제목 배치 샘플 시뮬레이션 */}
                       <div className="flex-1">
-                        <div className="relative aspect-[9/16] bg-black rounded-lg overflow-hidden border-2 border-gray-300">
+                        <div className="relative aspect-[9/16] bg-black rounded-lg overflow-hidden border-2 border-white/15">
                           {/* 샘플 배경 (첫 번째 이미지 또는 그라데이션) */}
-                          <div className="absolute inset-0 bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600 opacity-80">
+                          <div className="absolute inset-0 bg-gradient-to-br from-sky-600 via-indigo-600 to-cyan-700 opacity-80">
                             {generatedImages.length > 0 && generatedImages[0]?.imageUrl ? (
                               <img 
                                 src={generatedImages[0].imageUrl} 
@@ -4329,7 +4329,7 @@ export default function ShortsPage() {
                       </div>
                     </div>
                     {hookingTitle ? (
-                      <div className="p-4 bg-muted rounded-lg space-y-3">
+                      <div className="p-4 bg-white/[0.04] rounded-lg space-y-3">
                         <p className="text-sm font-semibold mb-2">생성된 제목 (수정 가능):</p>
                         <div className="space-y-2">
                           <div>
@@ -4381,7 +4381,7 @@ export default function ShortsPage() {
                 )}
               </Button>
             </div>
-            <div className="mt-4 p-4 bg-red-50 border-2 border-red-300 rounded-lg">
+            <div className="mt-4 p-4 bg-red-500/10 border border-red-400/30 rounded-lg">
               <p className="text-center font-bold text-red-700 text-base">
                 ⚠️ 영상 렌더링 중에는 다른페이지 이동 금지입니다. 잠시만 기다려주세요
               </p>
@@ -4394,13 +4394,13 @@ export default function ShortsPage() {
           <div className="space-y-6">
             <h2 className="text-3xl font-bold mb-6">완성된 영상</h2>
             {isRendering && (
-              <Card className="border-2 border-blue-200 bg-blue-50">
+              <Card className="border-2 border-sky-400/25 bg-sky-500/10">
                 <CardContent className="p-6">
                   <div className="flex items-center gap-3">
                     <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
                     <div>
                       <p className="font-semibold text-blue-900">영상 렌더링 중...</p>
-                      <p className="text-sm text-blue-700 mt-1">
+                      <p className="text-sm text-sky-200 mt-1">
                         렌더링 할때는 해당 페이지에 꼭 머물러야 합니다. 잠시만 기다려주세요
                       </p>
                     </div>
@@ -4441,51 +4441,97 @@ export default function ShortsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50">
-      <div className="container mx-auto px-4 py-8">
-        <div className="max-w-5xl mx-auto">
-          <Card className="border-2 border-gray-200 shadow-2xl overflow-hidden">
-            <CardHeader className="bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-white pb-6">
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-3 text-2xl font-bold">
-                  <div className="p-2 bg-white/20 rounded-lg backdrop-blur-sm">
-                    <Video className="w-7 h-7" />
-                  </div>
-                  쇼츠 영상 제작
-                </CardTitle>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    asChild
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    className="border border-white/30 bg-white/15 text-white hover:bg-white/25"
-                  >
-                    <Link href="/WingsAIStudioShotForm/product-search?from=shorts">
-                      <Search className="mr-2 h-4 w-4" />
-                      AI 쇼핑팩 (제품 URL → 쇼츠)
-                    </Link>
-                  </Button>
-                  <Link href="/WingsAIStudioShotForm">
-                    <Button 
-                      variant="ghost" 
-                      size="sm"
-                      className="text-white hover:bg-white/20 hover:text-white"
-                    >
-                      <Home className="w-4 h-4 mr-2" />
-                      홈으로
-                    </Button>
-                  </Link>
-                </div>
-              </div>
-              <p className="text-white/90 text-sm mt-2 ml-14">
-                AI로 쉽고 빠르게 쇼츠 영상을 만들어보세요
-              </p>
-            </CardHeader>
-            <CardContent className="p-8 bg-white">{renderStepContent()}</CardContent>
-          </Card>
-        </div>
+    <div className="relative min-h-screen overflow-hidden bg-[#0a0b0d] text-zinc-100">
+      <div className="pointer-events-none absolute inset-0" aria-hidden>
+        <div className="absolute -left-24 top-0 h-80 w-80 rounded-full bg-cyan-500/15 blur-3xl" />
+        <div className="absolute right-0 top-1/4 h-96 w-96 rounded-full bg-indigo-500/12 blur-3xl" />
+        <div className="absolute bottom-0 left-1/3 h-72 w-72 rounded-full bg-sky-500/10 blur-3xl" />
       </div>
+
+      <header className="sticky top-0 z-40 border-b border-white/10 bg-[#0a0b0d]/85 backdrop-blur-md">
+        <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
+          <div className="flex items-center gap-2">
+            <Button
+              asChild
+              variant="ghost"
+              size="icon"
+              className="rounded-xl border border-white/10 bg-white/[0.04] text-zinc-300 hover:bg-white/10"
+            >
+              <Link href="/WingsAIStudioShotForm" title="홈">
+                <Home className="h-4 w-4" />
+              </Link>
+            </Button>
+            <div className="ml-1">
+              <div className="inline-flex items-center gap-1.5 rounded-full border border-cyan-400/25 bg-cyan-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-200">
+                <Video className="h-3 w-3" />
+                General Shorts
+              </div>
+              <h1 className="mt-1 text-lg font-bold tracking-tight text-zinc-50">AI 일반 숏폼</h1>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              asChild
+              type="button"
+              variant="outline"
+              size="sm"
+              className="rounded-xl border-white/15 bg-white/[0.04] text-zinc-200 hover:bg-white/10"
+            >
+              <Link href="/WingsAIStudioShotForm/product-search?from=shorts">
+                <Search className="mr-2 h-4 w-4" />
+                AI 쇼핑팩
+              </Link>
+            </Button>
+            <Button
+              asChild
+              type="button"
+              variant="outline"
+              size="sm"
+              className="rounded-xl border-white/15 bg-white/[0.04] text-zinc-200 hover:bg-white/10"
+            >
+              <Link href="/WingsAIStudioShotForm/longform-clip">
+                <Sparkles className="mr-2 h-4 w-4" />
+                롱폼 클립
+              </Link>
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      <main className="relative z-10 mx-auto max-w-5xl px-4 py-6 sm:px-6 md:py-8">
+        <div className="mb-6 space-y-1">
+          <p className="text-sm text-zinc-400">명언 · 건강 · 자기계발 등 주제로 대본·이미지·TTS 숏폼을 제작합니다</p>
+          <div className="flex flex-wrap gap-2 pt-2 text-xs text-zinc-500">
+            {(
+              [
+                ["category", "카테고리"],
+                ["topic", "주제"],
+                ["script", "대본"],
+                ["image", "이미지"],
+                ["tts", "TTS"],
+                ["preview", "프리뷰"],
+                ["render", "렌더"],
+              ] as const
+            ).map(([key, label]) => (
+              <span
+                key={key}
+                className={`rounded-full border px-2.5 py-1 ${
+                  activeStep === key
+                    ? "border-cyan-400/40 bg-cyan-500/15 text-cyan-200"
+                    : "border-white/10 bg-white/[0.03] text-zinc-500"
+                }`}
+              >
+                {label}
+              </span>
+            ))}
+          </div>
+        </div>
+        <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] shadow-none">
+          <div className="p-5 sm:p-8 [&_[data-slot=card]]:border-white/10 [&_[data-slot=card]]:bg-[#121316] [&_[data-slot=card]]:text-zinc-100 [&_[data-slot=card]]:shadow-none [&_input]:border-white/15 [&_input]:bg-black/40 [&_input]:text-zinc-100 [&_input]:placeholder:text-zinc-600 [&_textarea]:border-white/15 [&_textarea]:bg-black/40 [&_textarea]:text-zinc-100 [&_textarea]:placeholder:text-zinc-600 [&_label]:text-zinc-200 [&_button[data-variant=outline]]:border-white/15 [&_button[data-variant=outline]]:bg-white/[0.04] [&_button[data-variant=outline]]:text-zinc-200">
+            {renderStepContent()}
+          </div>
+        </div>
+      </main>
     </div>
   )
 }

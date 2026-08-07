@@ -12,6 +12,7 @@ import type {
   VisualScene,
 } from "@/lib/shotform-auto-edit-types"
 import { analysisBySrcIndex } from "@/lib/shotform-analysis-src-index"
+import { narrationBudgetSec } from "@/lib/shotform-auto-edit-plan-finalize"
 
 const SHOT_TYPES = ["미디엄샷", "와이드샷", "클로즈업", "익스트림클로즈업", "오버헤드샷", "풀샷", "기타"] as const
 
@@ -301,7 +302,42 @@ export function formatBenchmarkSceneCard(scene: VisualScene): string {
   return `${formatBenchmarkSceneRange(scene.start, scene.end)} (${dur}초) ${role}${desc}${script}`
 }
 
-/** 편집 컷 — 소스 영상에서 실제로 자른 구간 기준 카드 */
+/** 소스 구간에 겹치는 OCR·화면 자막 (벤치마크 장면 맞춤용) */
+export function collectOcrForSourceRange(
+  analysis: VideoAnalysis,
+  sourceStart: number,
+  sourceEnd: number
+): string {
+  const texts: string[] = []
+  const seen = new Set<string>()
+  const add = (raw?: string) => {
+    const s = raw?.trim()
+    if (!s || seen.has(s)) return
+    seen.add(s)
+    texts.push(s.slice(0, 48))
+  }
+
+  for (const f of analysis.vision_frames ?? []) {
+    if (f.timeSec >= sourceStart - 0.25 && f.timeSec <= sourceEnd + 0.25) {
+      add(f.ocr_text)
+    }
+  }
+  for (const sc of analysis.visual_scenes ?? []) {
+    const overlap = Math.max(0, Math.min(sourceEnd, sc.end) - Math.max(sourceStart, sc.start))
+    if (overlap > 0.12) add(sc.ocr_text)
+  }
+  for (const sc of analysis.scenes ?? []) {
+    const overlap = Math.max(0, Math.min(sourceEnd, sc.end) - Math.max(sourceStart, sc.start))
+    if (overlap > 0.12) add(sc.ocr_text)
+  }
+  for (const sc of analysis.action_scenes ?? []) {
+    const overlap = Math.max(0, Math.min(sourceEnd, sc.end) - Math.max(sourceStart, sc.start))
+    if (overlap > 0.12) add(sc.ocr_text)
+  }
+  return texts.slice(0, 3).join(" / ")
+}
+
+/** 편집 컷 — 소스 영상에서 실제로 자른 구간 기준 카드 (샷·OCR 포함) */
 export function formatCutVisualCard(
   analysis: VideoAnalysis,
   sourceStart: number,
@@ -311,8 +347,11 @@ export function formatCutVisualCard(
 ): string {
   const desc = describeSourceRangeFromAnalysis(analysis, sourceStart, sourceEnd, description, cutCaption)
   const plain = stripShotLabelFromDescription(desc) || "제품 장면"
+  const shot = inferShotType(desc)
   const dur = sceneDurationLabel(sourceStart, sourceEnd)
-  return `소스 ${sourceStart.toFixed(1)}–${sourceEnd.toFixed(1)}초 (${dur}초) ${plain}`
+  const ocr = collectOcrForSourceRange(analysis, sourceStart, sourceEnd)
+  const ocrPart = ocr ? ` · 화면자막:「${ocr}」` : ""
+  return `소스 ${sourceStart.toFixed(1)}–${sourceEnd.toFixed(1)}초 (${dur}초) [${shot}] ${plain}${ocrPart}`
 }
 
 export function formatVisualReasonForCut(
@@ -385,9 +424,9 @@ export function buildOutputTimelineScenes(
 }
 
 function extractDescriptionFromVisualCard(card: string): string {
-  const m = card.match(/\]\s*(.+)$/)
+  const m = card.match(/\]\s*(.+?)(?:\s·\s화면자막:|$)/)
   if (m?.[1]) return m[1].trim()
-  return card.replace(/^소스\s+[\d.–\s초()]+\s*/, "").trim() || "제품 장면"
+  return card.replace(/^소스\s+[\d.–\s초()]+\s*/, "").replace(/\s·\s화면자막:.*/, "").trim() || "제품 장면"
 }
 
 export function enrichEditPlanWithVisualReasons(
@@ -433,7 +472,7 @@ export function buildCutScriptContexts(
       index: i + 1,
       output_start: seg.output_start,
       output_end: seg.output_end,
-      duration: Math.round((seg.output_end - seg.output_start) * 10) / 10,
+      duration: narrationBudgetSec(seg.output_end - seg.output_start),
       video_id: seg.video_id,
       source_start: seg.source_start,
       source_end: seg.source_end,

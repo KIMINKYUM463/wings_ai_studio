@@ -1,7 +1,15 @@
 import type { NarrationSegment } from "@/lib/shotform-factory-narration-script"
 import type { MvpStudioSeoMeta } from "@/lib/mvp-studio-types"
+import {
+  emptyPlatformOutputs,
+  hydratePlatformOutputs,
+  seoMetaIsReady,
+  syncFlatFromPlatformOutputs,
+} from "@/lib/mvp-studio-seo-platforms"
 
 export const MVP_SEO_TITLE_MAX = 100
+
+export { seoMetaIsReady }
 
 export function emptyMvpStudioSeoMeta(): MvpStudioSeoMeta {
   return {
@@ -12,6 +20,7 @@ export function emptyMvpStudioSeoMeta(): MvpStudioSeoMeta {
     hashtags: [],
     hookShort: "",
     commentCue: "",
+    platformOutputs: emptyPlatformOutputs(),
   }
 }
 
@@ -85,22 +94,41 @@ export function syncSeoMetaFromTags(meta: MvpStudioSeoMeta): MvpStudioSeoMeta {
   const tags = meta.tags.map((t) => t.trim()).filter(Boolean)
   const hashtags =
     meta.hashtags.length > 0 ? meta.hashtags : deriveHashtagsFromTags(tags, 8)
-  return {
+  const description = mergeHashtagsIntoDescription(meta.description, hashtags)
+  const next: MvpStudioSeoMeta = {
     ...meta,
     tags,
     hashtags,
-    description: mergeHashtagsIntoDescription(meta.description, hashtags),
+    description,
   }
+  if (next.platformOutputs) {
+    next.platformOutputs = {
+      ...next.platformOutputs,
+      common: {
+        ...next.platformOutputs.common,
+        title: next.title || next.platformOutputs.common.title,
+        description,
+        tags,
+        hashtags,
+      },
+    }
+  }
+  return next
 }
 
+/** CapCut 내보내기용 — common 우선, 없으면 youtube/flat */
 export function mvpSeoMetaToCapCutSeo(meta: MvpStudioSeoMeta | undefined) {
-  if (!meta?.title?.trim()) return undefined
+  if (!meta) return undefined
+  const po = meta.platformOutputs ? hydratePlatformOutputs(meta) : undefined
+  const flat = po ? syncFlatFromPlatformOutputs(po) : meta
+  const title = flat.title?.trim() || meta.title.trim()
+  if (!title) return undefined
   return {
-    title: meta.title.trim(),
-    description: meta.description.trim(),
-    tags: meta.tags.filter(Boolean),
-    hashtags: meta.hashtags.filter(Boolean),
-    hookShort: meta.hookShort?.trim() || "",
-    commentCue: meta.commentCue?.trim() || "",
+    title,
+    description: (flat.description || meta.description).trim(),
+    tags: (flat.tags?.length ? flat.tags : meta.tags).filter(Boolean),
+    hashtags: (flat.hashtags?.length ? flat.hashtags : meta.hashtags).filter(Boolean),
+    hookShort: (flat.hookShort || meta.hookShort || "").trim(),
+    commentCue: (flat.commentCue || meta.commentCue || "").trim(),
   }
 }

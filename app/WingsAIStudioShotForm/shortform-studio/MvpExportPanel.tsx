@@ -1,8 +1,18 @@
 "use client"
 
 import { useCallback, useRef, useState } from "react"
-import { Clapperboard, FileText, Film, FolderOpen, Loader2, Mic } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import {
+  CheckCircle2,
+  Clapperboard,
+  Download,
+  FileText,
+  Film,
+  FolderOpen,
+  Loader2,
+  Mic,
+  Sparkles,
+  Tags,
+} from "lucide-react"
 import type { AutoEditJobResult } from "@/lib/shotform-auto-edit-types"
 import type { NarrationSegment } from "@/lib/shotform-factory-narration-script"
 import type { VoiceLineCue } from "@/lib/shotform-factory-line-tts"
@@ -18,11 +28,17 @@ import { renderMvpPreviewToBlob } from "@/lib/mvp-preview-render"
 import { mvpAssetDownloadFilename, mvpRenderDownloadFilename } from "@/lib/mvp-render-filename"
 import type { LineSubtitleCue } from "@/lib/shotform-mvp-edit-script"
 import type { PlacedStudioOverlay } from "@/lib/shotform-studio-overlay-catalog"
-import type { MvpBgmClip, MvpScriptStyleState, MvpStudioSeoMeta, MvpSubtitleStyle } from "@/lib/mvp-studio-types"
+import type {
+  MvpBgmClip,
+  MvpEffectClip,
+  MvpScriptStyleState,
+  MvpStudioSeoMeta,
+  MvpSubtitleStyle,
+} from "@/lib/mvp-studio-types"
 import type { MvpVideoSourceTransforms } from "@/lib/mvp-video-source-transform"
-import { mvpSeoMetaToCapCutSeo } from "@/lib/mvp-studio-seo"
+import { mvpSeoMetaToCapCutSeo, seoMetaIsReady } from "@/lib/mvp-studio-seo"
 import { cn } from "@/lib/utils"
-import { StudioPageCard, studio } from "../components/ShotFormStudioUI"
+import { MvpSeoMetaPanel } from "./MvpSeoMetaPanel"
 
 type Props = {
   projectName: string
@@ -45,8 +61,12 @@ type Props = {
   placedOverlays: PlacedStudioOverlay[]
   thumbnailUrl?: string
   thumbnailIntroOn: boolean
-  seoMeta?: MvpStudioSeoMeta
+  seoMeta: MvpStudioSeoMeta
+  onSeoMetaChange: (next: MvpStudioSeoMeta) => void
+  productName?: string
+  sourceKeywords?: string[]
   bgmClips: MvpBgmClip[]
+  effectClips: MvpEffectClip[]
   videoSourceTransforms?: MvpVideoSourceTransforms
 }
 
@@ -71,6 +91,91 @@ async function loadExportVideoBlob(
   return blob
 }
 
+function ExportActionCard({
+  title,
+  description,
+  icon,
+  busy,
+  primary,
+  disabled,
+  onClick,
+}: {
+  title: string
+  description: string
+  icon: React.ReactNode
+  busy: boolean
+  primary?: boolean
+  disabled?: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        "group flex w-full flex-col items-start gap-3 rounded-2xl border p-5 text-left transition",
+        primary
+          ? "border-blue-200 bg-gradient-to-br from-blue-600 to-blue-500 text-white shadow-lg shadow-blue-500/20 hover:from-blue-500 hover:to-blue-400"
+          : "border-slate-200 bg-white text-slate-900 shadow-sm hover:border-slate-300 hover:shadow-md",
+        disabled && "pointer-events-none opacity-55"
+      )}
+    >
+      <span
+        className={cn(
+          "flex h-10 w-10 items-center justify-center rounded-xl",
+          primary ? "bg-white/15" : "bg-slate-100 text-slate-700 group-hover:bg-slate-200/80"
+        )}
+      >
+        {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : icon}
+      </span>
+      <div>
+        <p className={cn("text-sm font-bold", primary ? "text-white" : "text-slate-900")}>{title}</p>
+        <p className={cn("mt-1 text-[11px] leading-relaxed", primary ? "text-blue-50/85" : "text-slate-500")}>
+          {description}
+        </p>
+      </div>
+    </button>
+  )
+}
+
+function AssetDownloadButton({
+  label,
+  hint,
+  icon,
+  busy,
+  disabled,
+  onClick,
+}: {
+  label: string
+  hint: string
+  icon: React.ReactNode
+  busy: boolean
+  disabled?: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        "flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left transition hover:border-slate-300 hover:bg-slate-50",
+        disabled && "pointer-events-none opacity-55"
+      )}
+    >
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : icon}
+      </span>
+      <span className="min-w-0">
+        <span className="block text-xs font-semibold text-slate-900">{label}</span>
+        <span className="mt-0.5 block text-[10px] text-slate-500">{hint}</span>
+      </span>
+      <Download className="ml-auto h-3.5 w-3.5 shrink-0 text-slate-400" />
+    </button>
+  )
+}
+
 export function MvpExportPanel({
   projectName,
   projectId,
@@ -93,19 +198,20 @@ export function MvpExportPanel({
   thumbnailUrl,
   thumbnailIntroOn,
   seoMeta,
+  onSeoMetaChange,
+  productName,
+  sourceKeywords = [],
   bgmClips,
+  effectClips,
   videoSourceTransforms = {},
 }: Props) {
-  const exportTileBtn = cn(
-    studio.btnSecondary,
-    "h-auto flex-col items-start gap-1 py-4 text-left"
-  )
-
   const [busy, setBusy] = useState<BusyKind>(null)
   const [exportMsg, setExportMsg] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const localVideoBlobRef = useRef<Blob | null>(null)
   const videoBlobRef = parentVideoBlobRef ?? localVideoBlobRef
+
+  const seoReady = seoMetaIsReady(seoMeta)
 
   const buildInput = useCallback(async () => {
     const blob = await loadExportVideoBlob(videoBlobRef, videoUrl, result, projectId)
@@ -187,11 +293,11 @@ export function MvpExportPanel({
       const blob = await loadExportVideoBlob(videoBlobRef, videoUrl, result, projectId)
       if (!blob || blob.size < 4096) {
         throw new Error(
-          "짜집기 영상을 불러오지 못했습니다. 편집 탭에서 미리보기가 재생되는지 확인한 뒤 다시 시도해 주세요."
+          "리믹스 영상을 불러오지 못했습니다. 편집 탭에서 미리보기가 재생되는지 확인한 뒤 다시 시도해 주세요."
         )
       }
       downloadBlob(blob, mvpAssetDownloadFilename(projectName, "mix", "mp4"))
-      setExportMsg("짜집기 영상(MP4)을 다운로드했습니다.")
+      setExportMsg("리믹스 영상(MP4)을 다운로드했습니다.")
     } catch (e) {
       setErr(e instanceof Error ? e.message : "영상 다운로드 실패")
     } finally {
@@ -273,6 +379,7 @@ export function MvpExportPanel({
         videoDurationSec,
         audioDurationSec,
         bgmClips,
+        effectClips,
         editPlan: result.editPlan?.edit_plan ?? [],
         videoSourceTransforms,
         onProgress: (ratio) => {
@@ -289,7 +396,9 @@ export function MvpExportPanel({
       if (tempAudioUrl) URL.revokeObjectURL(tempAudioUrl)
 
       downloadBlob(blob, mvpRenderDownloadFilename(projectName, ext))
-      setExportMsg("렌더 완료. 자막·모자이크·썸네일·TTS가 합쳐진 MP4를 다운로드했습니다.")
+      setExportMsg(
+        "렌더 완료. 자막·모자이크·썸네일·TTS·효과음이 합쳐진 MP4를 다운로드했습니다."
+      )
     } catch (e) {
       const msg =
         e instanceof Error
@@ -319,122 +428,156 @@ export function MvpExportPanel({
     videoDurationSec,
     audioDurationSec,
     bgmClips,
+    effectClips,
     videoSourceTransforms,
     result.editPlan?.edit_plan,
   ])
 
   return (
-    <StudioPageCard className="border-emerald-500/25 bg-emerald-950/10">
-      <p className={studio.label}>8. 보내기</p>
-      <h3 className="mt-1 text-lg font-semibold text-white">CapCut · 렌더 보내기</h3>
-      <p className="mt-1 text-xs text-slate-400">
-        CapCut PC용 프로젝트를 보내거나, 자막·썸네일·TTS가 합쳐진 MP4(렌더)와 개별 파일(TTS·SRT)을 받을 수
-        있습니다.
-      </p>
-
-      {err ? <p className="mt-3 text-sm text-red-300">{err}</p> : null}
-      {exportMsg ? <p className="mt-3 text-sm text-emerald-300">{exportMsg}</p> : null}
-
-      {thumbnailUrl && thumbnailIntroOn ? (
-        <div className="mt-6 flex flex-col items-start gap-3 sm:flex-row sm:items-center">
-          <div className="overflow-hidden rounded-lg border border-amber-500/30 shadow-lg">
-            <img
-              src={thumbnailUrl}
-              alt="썸네일 미리보기"
-              className="aspect-[9/16] w-[min(100%,140px)] object-cover"
-            />
+    <div className="mx-auto w-full max-w-6xl space-y-6 px-1 pb-8 pt-2">
+      <header className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white px-6 py-6 shadow-sm">
+        <div className="pointer-events-none absolute inset-y-0 right-0 w-1/2 bg-[radial-gradient(ellipse_at_top_right,_rgba(59,130,246,0.12),_transparent_60%)]" />
+        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-[11px] font-semibold tracking-wide text-blue-600">EXPORT</p>
+            <h2 className="mt-1 text-2xl font-black tracking-tight text-slate-900">내보내기</h2>
+            <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-500">
+              업로드용 제목·태그를 확정한 뒤, CapCut 프로젝트나 완성 MP4로 내보냅니다.
+            </p>
           </div>
-          <div className="text-xs text-slate-400">
-            <p className="font-medium text-amber-100">썸네일 맨 앞 표시 ON</p>
-            <p className="mt-1">렌더 시 0~0.01초 구간에 미리보기와 동일한 썸네일이 녹화됩니다.</p>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+            <p className="text-[10px] font-medium text-slate-400">프로젝트</p>
+            <p className="mt-0.5 max-w-[220px] truncate text-sm font-semibold text-slate-800">
+              {projectName || "이름 없는 프로젝트"}
+            </p>
           </div>
         </div>
+      </header>
+
+      {err ? (
+        <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{err}</p>
+      ) : null}
+      {exportMsg ? (
+        <p className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{exportMsg}</span>
+        </p>
       ) : null}
 
-      <div className="mt-6 grid gap-3 sm:grid-cols-2">
-        <Button
-          type="button"
-          variant="ghost"
-          className={cn(studio.btnPrimary, "h-auto flex-col items-start gap-1 py-4 text-left")}
-          disabled={busy != null}
-          onClick={() => void handleCapCutExport()}
-        >
-          {busy === "capcut" ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <FolderOpen className="h-4 w-4" />
-          )}
-          <span className="font-semibold">CapCut 보내기</span>
-          <span className="text-[10px] font-normal opacity-80">영상+TTS+자막 패키지</span>
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          className={exportTileBtn}
-          disabled={busy != null}
-          onClick={() => void handleRender()}
-        >
-          {busy === "render" ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Clapperboard className="h-4 w-4" />
-          )}
-          <span className="font-semibold">렌더</span>
-          <span className="text-[10px] font-normal text-slate-400">자막·모자이크·썸네일·TTS → MP4</span>
-        </Button>
-      </div>
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex items-center gap-2">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-100 text-violet-700">
+              <Tags className="h-4 w-4" />
+            </span>
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">제목 · 설명 · 태그</h3>
+              <p className="text-[11px] text-slate-500">유튜브·숏폼 업로드 메타데이터</p>
+            </div>
+            {seoReady ? (
+              <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-200">
+                <CheckCircle2 className="h-3 w-3" />
+                작성됨
+              </span>
+            ) : (
+              <span className="ml-auto rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-200">
+                AI 생성 권장
+              </span>
+            )}
+          </div>
+          <MvpSeoMetaPanel
+            productName={productName}
+            projectName={projectName}
+            sourceKeywords={sourceKeywords}
+            referenceTitles={
+              scriptStyle.commentKeyword ? [scriptStyle.commentKeyword] : undefined
+            }
+            segments={segments}
+            videoDurationSec={videoDurationSec}
+            value={seoMeta}
+            onChange={onSeoMetaChange}
+          />
+        </section>
 
-      <div className="mt-8">
-        <p className="text-xs font-medium text-slate-300">개별 받기</p>
-        <p className="mt-0.5 text-[10px] text-slate-500">각 파일을 따로 저장할 수 있습니다.</p>
-        <div className="mt-3 grid gap-3 sm:grid-cols-3">
-          <Button
-            type="button"
-            variant="ghost"
-            className={exportTileBtn}
-            disabled={busy != null}
-            onClick={() => void handleDownloadMixVideo()}
-          >
-            {busy === "mix" ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Film className="h-4 w-4" />
-            )}
-            <span className="font-semibold">짜집기 영상</span>
-            <span className="text-[10px] font-normal text-slate-400">TTS 없는 믹스 MP4</span>
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            className={exportTileBtn}
-            disabled={busy != null}
-            onClick={() => void handleDownloadTts()}
-          >
-            {busy === "tts" ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Mic className="h-4 w-4" />
-            )}
-            <span className="font-semibold">TTS 음성</span>
-            <span className="text-[10px] font-normal text-slate-400">나레이션만 따로</span>
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            className={exportTileBtn}
-            disabled={busy != null}
-            onClick={() => void handleDownloadSrt()}
-          >
-            {busy === "srt" ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <FileText className="h-4 w-4" />
-            )}
-            <span className="font-semibold">자막(SRT)</span>
-            <span className="text-[10px] font-normal text-slate-400">자막 파일만</span>
-          </Button>
+        <div className="space-y-6">
+          {thumbnailUrl && thumbnailIntroOn ? (
+            <section className="flex items-center gap-4 rounded-2xl border border-amber-200 bg-amber-50/80 p-4">
+              <div className="overflow-hidden rounded-lg border border-amber-200 shadow-md">
+                <img
+                  src={thumbnailUrl}
+                  alt="썸네일 미리보기"
+                  className="aspect-[9/16] w-[88px] object-cover"
+                />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-amber-900">썸네일 맨 앞 표시 ON</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-amber-800/80">
+                  렌더 시 0~0.01초 구간에 미리보기와 동일한 썸네일이 들어갑니다.
+                </p>
+              </div>
+            </section>
+          ) : null}
+
+          <section className="space-y-3">
+            <div className="flex items-center gap-2 px-0.5">
+              <Sparkles className="h-3.5 w-3.5 text-blue-600" />
+              <h3 className="text-sm font-bold text-slate-900">최종 보내기</h3>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+              <ExportActionCard
+                primary
+                title="CapCut 보내기"
+                description="영상·TTS·자막·제목·태그가 포함된 CapCut 프로젝트"
+                icon={<FolderOpen className="h-5 w-5" />}
+                busy={busy === "capcut"}
+                disabled={busy != null}
+                onClick={() => void handleCapCutExport()}
+              />
+              <ExportActionCard
+                title="렌더 MP4"
+                description="자막·모자이크·썸네일·TTS·효과음이 합쳐진 완성본"
+                icon={<Clapperboard className="h-5 w-5" />}
+                busy={busy === "render"}
+                disabled={busy != null}
+                onClick={() => void handleRender()}
+              />
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-3">
+              <h3 className="text-sm font-bold text-slate-900">개별 파일 받기</h3>
+              <p className="mt-0.5 text-[11px] text-slate-500">필요한 에셋만 따로 저장합니다.</p>
+            </div>
+            <div className="space-y-2">
+              <AssetDownloadButton
+                label="리믹스 영상"
+                hint="TTS 없는 믹스 MP4"
+                icon={<Film className="h-4 w-4" />}
+                busy={busy === "mix"}
+                disabled={busy != null}
+                onClick={() => void handleDownloadMixVideo()}
+              />
+              <AssetDownloadButton
+                label="TTS 음성"
+                hint="나레이션 오디오만"
+                icon={<Mic className="h-4 w-4" />}
+                busy={busy === "tts"}
+                disabled={busy != null}
+                onClick={() => void handleDownloadTts()}
+              />
+              <AssetDownloadButton
+                label="자막 (SRT)"
+                hint="자막 파일만"
+                icon={<FileText className="h-4 w-4" />}
+                busy={busy === "srt"}
+                disabled={busy != null}
+                onClick={() => void handleDownloadSrt()}
+              />
+            </div>
+          </section>
         </div>
       </div>
-    </StudioPageCard>
+    </div>
   )
 }

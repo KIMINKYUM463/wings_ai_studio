@@ -1,6 +1,6 @@
 import JSZip from "jszip"
 import { FACTORY_NARRATION_SEGMENTS, narrationScriptPlainText } from "@/lib/shotform-factory-narration-script"
-import { trimAudioBlobToMaxDuration, type VoiceLineCue } from "@/lib/shotform-factory-line-tts"
+import { type VoiceLineCue } from "@/lib/shotform-factory-line-tts"
 import {
   buildCapCutNativeDraftBundle,
   buildRootMetaDraftEntry,
@@ -228,8 +228,8 @@ type PreparedCapCutMedia = {
 }
 
 /**
- * 동기 프리뷰와 동일: TTS 원본(1배속), 영상은 `vid.playbackRate = vDur/aDur`로 슬로우/빠르게.
- * UI에 보이는 길이(5단계 `voicePreviewAudioDuration`)를 우선해 타임라인을 맞춤.
+ * 프리뷰와 동일: 영상은 항상 1배속(TTS 배속에 맞춰 가속하지 않음).
+ * TTS가 짧으면 타임라인은 음성 길이에 맞춤(컷 앞부분만 사용).
  */
 function resolveCapCutSyncTiming(input: {
   videoContentDurationSec: number
@@ -256,13 +256,13 @@ function resolveCapCutSyncTiming(input: {
   if (cuesEnd && cuesEnd > 0.1) audioDur = Math.max(audioDur, cuesEnd)
 
   const timeline = Math.max(audioDur, 0.1)
-  const videoSpeed =
-    videoContentDur > 0.05 && timeline > 0.05 ? videoContentDur / timeline : 1
+  // 영상은 1배 유지 — TTS 배속에 맞춰 영상을 가속하지 않음
+  const videoPlaybackSpeed = 1
 
   return {
     timelineDurationSec: timeline,
     videoContentDurationSec: videoContentDur,
-    videoPlaybackSpeed: videoSpeed,
+    videoPlaybackSpeed,
     audioFileDurationSec: audioDur,
   }
 }
@@ -373,23 +373,21 @@ async function prepareCapCutMedia(input: FactoryCapCutExportInput): Promise<Prep
   let exportAudioExt = audioExt
   let syncOut = sync
 
+  // TTS 말꼬리는 절대 자르지 않음.
+  // 예전엔 HTMLAudio metadata로 짧아진 sync 길이로 trimAudioBlobToMaxDuration 해서 끝이 잘렸음.
+  // sync 길이가 파일보다 짧으면 타임라인만 파일 길이에 맞추고 파일은 그대로 둔다.
   if (
     input.capCutSyncAudioDurationSec &&
     input.capCutSyncAudioDurationSec > 0.1 &&
     audioFileDurationSec > input.capCutSyncAudioDurationSec + 0.15
   ) {
-    exportAudioBlob = await trimAudioBlobToMaxDuration(
-      audioBlob,
-      input.capCutSyncAudioDurationSec
-    )
-    exportAudioExt = "wav"
     syncOut = {
       ...sync,
-      timelineDurationSec: input.capCutSyncAudioDurationSec,
-      audioFileDurationSec: input.capCutSyncAudioDurationSec,
+      timelineDurationSec: audioFileDurationSec,
+      audioFileDurationSec,
       videoPlaybackSpeed:
         sync.videoContentDurationSec > 0.05
-          ? sync.videoContentDurationSec / input.capCutSyncAudioDurationSec
+          ? sync.videoContentDurationSec / audioFileDurationSec
           : 1,
     }
   }

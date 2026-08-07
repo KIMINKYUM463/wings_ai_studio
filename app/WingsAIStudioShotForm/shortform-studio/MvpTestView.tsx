@@ -1,12 +1,11 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Check, CheckSquare, ExternalLink, Loader2, RefreshCw, Search, Square, Zap } from "lucide-react"
+import { Check, CheckSquare, ExternalLink, Languages, Loader2, RefreshCw, Search, Square, Zap } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import {
   fetchCnKeywordTranslation,
-  KEYWORD_TRANSLATE_DEBOUNCE_MS,
   parseKoKeywordInputs,
   type KoZhKeywordPair,
 } from "@/lib/shotform-cn-keyword-translate-client"
@@ -25,9 +24,11 @@ import {
 } from "@/lib/shotform-auto-edit-types"
 import { isLikelyPresenterTitle } from "@/lib/shotform-auto-edit-product-filter"
 import { StudioPageCard, StudioPageHeader, studio } from "../components/ShotFormStudioUI"
+import { ShotFormEditorDialogShell } from "../components/ShotFormEditorDialogShell"
 import { updateMvpTestProject } from "./project-actions"
 import type { MvpSourceMode, MvpTestProject, MvpTestProjectData } from "./project-types"
 import { MvpDirectUrlPickPanel } from "./MvpDirectUrlPickPanel"
+import { MvpSourceCollectLoading } from "./MvpSourceCollectLoading"
 import { MvpReprocessUrlPanel } from "./MvpReprocessUrlPanel"
 import type { MvpResolvedUrlItem } from "@/lib/shotform-mvp-resolve-urls"
 import type { MvpReprocessResolvedItem } from "@/lib/shotform-mvp-reprocess-url-shared"
@@ -229,7 +230,7 @@ function PlatformResultSection({
     <StudioPageCard className={isDouyin ? "border-amber-500/15" : "border-rose-500/15"}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <p className={studio.label}>
-          {isDouyin ? L.platform.douyinTitle : L.platform.xhsTitle} ? {L.platform.videoCount}{" "}
+          {isDouyin ? L.platform.douyinTitle : L.platform.xhsTitle} · {L.platform.videoCount}{" "}
           {result.videos.length}
           {L.platform.countUnit}
         </p>
@@ -246,30 +247,25 @@ function PlatformResultSection({
               <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
               {isDouyin
                 ? L.platform.retrying
-                : `${L.platform.retrying} (?? ${MVP_XHS_PLATFORM_RETRY_MAX}?)`}
+                : `${L.platform.retrying} (최대 ${MVP_XHS_PLATFORM_RETRY_MAX}회)`}
             </>
           ) : (
             <>
               <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
               {isDouyin
                 ? L.platform.retry
-                : `${L.platform.retry} (${MVP_XHS_PLATFORM_RETRY_MAX}?)`}
+                : `${L.platform.retry} (최대 ${MVP_XHS_PLATFORM_RETRY_MAX}회)`}
             </>
           )}
         </Button>
       </div>
-      {result.notice ? (
-        <p className={cn("mt-1 text-xs", isDouyin ? "text-amber-200/70" : "text-rose-200/70")}>
-          {result.notice}
-        </p>
-      ) : null}
       {retryError ? <p className="mt-2 text-xs text-red-300">{retryError}</p> : null}
       {retrying && empty ? (
         <div className="flex min-h-[120px] items-center justify-center gap-2 py-8 text-sm text-slate-400">
           <Loader2 className={cn("h-5 w-5 animate-spin", isDouyin ? "text-amber-400" : "text-rose-400")} />
           {isDouyin
             ? L.platform.retryingEmpty
-            : `${L.platform.retryingEmpty} (?? ${MVP_XHS_PLATFORM_RETRY_MAX}? ??)`}
+            : `${L.platform.retryingEmpty} (최대 ${MVP_XHS_PLATFORM_RETRY_MAX}회)`}
         </div>
       ) : empty ? (
         <div className="py-8 text-center">
@@ -363,7 +359,6 @@ export type MvpTestViewProps = {
 }
 
 export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdated }: MvpTestViewProps) {
-  const studioRef = useRef<HTMLDivElement>(null)
   /** ??? ?? ? editPicks ?? ? studio ???? */
   const studioPicksKeyRef = useRef<string | null>(null)
   const skipTranslateOnceRef = useRef(false)
@@ -423,6 +418,8 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
   } | null>(null)
   const [postEditScriptOverrides, setPostEditScriptOverrides] = useState<Record<string, string>>({})
   const [postEditStudioData, setPostEditStudioData] = useState<MvpStudioPersistData>({})
+  const [postEditStudioOpen, setPostEditStudioOpen] = useState(false)
+  const [postEditDetailMode, setPostEditDetailMode] = useState(false)
 
   workspaceRef.current = {
     sourceMode,
@@ -460,6 +457,8 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
 
   useEffect(() => {
     const d = project.data || {}
+    setPostEditStudioOpen(false)
+    setPostEditDetailMode(false)
     studioPicksKeyRef.current = null
     skipTranslateOnceRef.current = Boolean(d.sourceResult || d.keywordPairs?.length)
     skipSaveRef.current = true
@@ -825,38 +824,53 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
     [keywordText, multiKeyword]
   )
 
+  /** 현재 한국어 입력에 맞는 중국어 번역이 준비됐는지 */
+  const translationReady = useMemo(() => {
+    if (!koInputs.length || !keywordPairs.length) return false
+    return koInputs.every((ko) =>
+      keywordPairs.some((p) => p.ko === ko && Boolean(p.zh?.trim()))
+    )
+  }, [koInputs, keywordPairs])
+
+  // 키워드가 바뀌면 번역 무효화 (불러오기 직후는 유지)
   useEffect(() => {
     if (skipTranslateOnceRef.current) {
       skipTranslateOnceRef.current = false
       return
     }
+    setKeywordPairs([])
+  }, [koInputs])
+
+  const runTranslateToZh = useCallback(async () => {
+    setErr(null)
     if (!koInputs.length) {
-      setKeywordPairs([])
+      setErr(L.errors.keywordRequired)
       return
     }
     const openai = shotformOpenAIKey()
     if (!openai) {
-      setKeywordPairs([])
+      setErr(L.errors.openaiKey)
       return
     }
-
-    const timer = window.setTimeout(() => {
-      void (async () => {
-        setTranslateLoading(true)
-        try {
-          const json = await fetchCnKeywordTranslation({
-            keywords: koInputs,
-            openaiApiKey: openai,
-            platform: "xiaohongshu",
-          }).catch(() => null)
-          if (json?.pairs?.length) setKeywordPairs(json.pairs)
-        } finally {
-          setTranslateLoading(false)
-        }
-      })()
-    }, KEYWORD_TRANSLATE_DEBOUNCE_MS)
-
-    return () => window.clearTimeout(timer)
+    setTranslateLoading(true)
+    try {
+      const json = await fetchCnKeywordTranslation({
+        keywords: koInputs,
+        openaiApiKey: openai,
+        platform: "xiaohongshu",
+      })
+      if (!json.pairs?.length) {
+        setErr("중국어 번역 결과를 받지 못했습니다.")
+        setKeywordPairs([])
+        return
+      }
+      setKeywordPairs(json.pairs)
+    } catch (e) {
+      setKeywordPairs([])
+      setErr(e instanceof Error ? e.message : L.errors.network)
+    } finally {
+      setTranslateLoading(false)
+    }
   }, [koInputs])
 
   const runSourceSearch = useCallback(async () => {
@@ -866,6 +880,11 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
 
     if (!koInputs.length) {
       setErr(L.errors.keywordRequired)
+      return
+    }
+
+    if (!translationReady) {
+      setErr(L.translateFirst)
       return
     }
 
@@ -883,19 +902,8 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
 
     setLoading(true)
     try {
-      let pairs = keywordPairs
-      let searchQueries = pairs.map((p) => p.zh)
-
-      if (!searchQueries.length) {
-        const resolved = await fetchCnKeywordTranslation({
-          keywords: koInputs,
-          openaiApiKey: openai,
-          platform: "xiaohongshu",
-        })
-        pairs = resolved.pairs
-        searchQueries = resolved.searchQueries
-        setKeywordPairs(pairs)
-      }
+      const pairs = keywordPairs
+      const searchQueries = pairs.map((p) => p.zh).filter(Boolean)
 
       const res = await fetch("/api/shotform/mvp-keyword-source", {
         method: "POST",
@@ -921,7 +929,7 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
     } finally {
       setLoading(false)
     }
-  }, [koInputs, keywordPairs, clearEditPicks])
+  }, [koInputs, keywordPairs, translationReady, clearEditPicks])
 
   const retryPlatform = useCallback(
     async (platform: MvpKeywordPlatform) => {
@@ -1043,6 +1051,8 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
       setPostEditScriptOverrides({})
       setPostEditStudioData(studioData)
       setPostEditStudio(args)
+      setPostEditStudioOpen(true)
+      setPostEditDetailMode(false)
       if (workspaceRef.current) {
         workspaceRef.current = {
           ...workspaceRef.current,
@@ -1053,12 +1063,15 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
       }
       setAutoEditOpen(false)
       void persistProjectRef.current({ force: true })
-      window.requestAnimationFrame(() => {
-        studioRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
-      })
     },
     [editPicks]
   )
+
+  const closePostEditStudio = useCallback(() => {
+    setPostEditStudioOpen(false)
+    setPostEditDetailMode(false)
+    void persistProjectRef.current({ force: true })
+  }, [])
 
   const handleBackToProjects = useCallback(async () => {
     await commitProjectNameRef.current()
@@ -1170,7 +1183,10 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
                 placeholder={L.keywordPlaceholder}
                 className="mt-3 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && !loading) void runSourceSearch()
+                  if (e.key === "Enter" && !loading && !translateLoading) {
+                    if (translationReady) void runSourceSearch()
+                    else void runTranslateToZh()
+                  }
                 }}
               />
             )}
@@ -1184,7 +1200,7 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
                     key={`${p.ko}:${p.zh}`}
                     className="rounded-lg border border-violet-500/25 bg-violet-950/20 px-2 py-1 text-xs text-violet-100"
                   >
-                    {p.ko} ? <span className="font-medium text-amber-200">{p.zh}</span>
+                    {p.ko} {"->"} <span className="font-medium text-amber-200">{p.zh}</span>
                   </span>
                 ))}
               </div>
@@ -1195,12 +1211,34 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                disabled={loading || !koInputs.length}
+                disabled={loading || translateLoading || !koInputs.length}
+                onClick={() => void runTranslateToZh()}
+                className={cn(
+                  studio.btnGhost,
+                  "inline-flex items-center gap-2 rounded-xl border border-violet-500/40 px-4 py-2 text-sm font-medium text-violet-100 disabled:opacity-50"
+                )}
+              >
+                {translateLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    {L.translating}
+                  </>
+                ) : (
+                  <>
+                    <Languages className="h-4 w-4" />
+                    {L.translateBtn}
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                disabled={loading || translateLoading || !translationReady}
                 onClick={() => void runSourceSearch()}
                 className={cn(
                   studio.btnPrimary,
                   "inline-flex items-center gap-2 px-4 py-2 text-sm font-medium disabled:opacity-50"
                 )}
+                title={!translationReady ? L.translateFirst : undefined}
               >
                 {loading ? (
                   <>
@@ -1259,9 +1297,8 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
       </StudioPageCard>
 
       {sourceMode === "keyword" && loading ? (
-        <StudioPageCard className="flex min-h-[200px] flex-col items-center justify-center gap-2 text-slate-400">
-          <Loader2 className="h-8 w-8 animate-spin text-violet-400" />
-          <span>{L.apifyLoading}</span>
+        <StudioPageCard className="overflow-hidden p-0">
+          <MvpSourceCollectLoading caption={L.apifyLoading} />
         </StudioPageCard>
       ) : null}
 
@@ -1347,7 +1384,18 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
       ) : null}
 
       {postEditStudio ? (
-        <div ref={studioRef}>
+        <ShotFormEditorDialogShell
+          open={postEditStudioOpen}
+          title="AI 리믹스 영상 편집"
+          onClose={closePostEditStudio}
+          detailMode={postEditDetailMode}
+          onDetailModeChange={setPostEditDetailMode}
+          onSave={() => persistProjectRef.current({ force: true })}
+          saving={saveState === "saving"}
+          theme="light"
+          keepMounted
+          autoHideChrome
+        >
           <MvpPostEditStudio
             projectId={project.id}
             projectName={projectName}
@@ -1359,13 +1407,11 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
             onScriptOverridesChange={setPostEditScriptOverrides}
             studioPersist={postEditStudioData}
             onStudioPersistChange={handleStudioPersistChange}
-            onClose={() => {
-              setPostEditStudio(null)
-              setPostEditScriptOverrides({})
-              setPostEditStudioData({})
-            }}
+            active={postEditStudioOpen}
+            detailMode={postEditDetailMode}
+            onClose={closePostEditStudio}
           />
-        </div>
+        </ShotFormEditorDialogShell>
       ) : null}
 
       {(editPicks.length > 0 || postEditStudio) ? (
@@ -1377,6 +1423,7 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
           onClearPicks={clearEditPicks}
           onRefreshUrls={() => void refreshSelectedPickUrls()}
           onOpenAutoEdit={() => void handleOpenAutoEdit()}
+          onOpenEditor={() => setPostEditStudioOpen(true)}
         />
       ) : null}
 

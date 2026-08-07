@@ -11,22 +11,44 @@ import { MVP_SUBTITLE_FONT_OPTIONS } from "@/lib/mvp-subtitle-style"
 import type { MvpSubtitleStyle } from "@/lib/mvp-studio-types"
 import { normalizeSubtitleStyle } from "@/lib/mvp-studio-types"
 import { studio } from "../components/ShotFormStudioUI"
+import { insp } from "./mvpInspectorUi"
 
 type Props = {
   value: MvpSubtitleStyle
   onChange: (patch: Partial<MvpSubtitleStyle>) => void
   className?: string
+  /** 팝업 편집기 우측 패널용 라이트 톤 */
+  tone?: "dark" | "light"
 }
 
-export function MvpSubtitleStylePanel({ value, onChange, className }: Props) {
+export function MvpSubtitleStylePanel({ value, onChange, className, tone = "dark" }: Props) {
   const s = normalizeSubtitleStyle(value)
+  const light = tone === "light"
+
+  const labelCls = light ? insp.label : "text-[10px] text-slate-400"
+  const selectCls = light
+    ? cn("mt-1.5 h-8 text-xs", insp.input)
+    : "mt-1.5 h-8 border-white/10 bg-black/50 text-xs"
+  const segActive = light ? insp.segmentActive : cn(studio.btnSegmentActive, "rounded-md")
+  const segIdle = light
+    ? insp.segmentIdle
+    : "border-white/10 bg-black/30 text-slate-400 hover:border-white/20"
+  const inputCls = light
+    ? cn("h-8 flex-1 font-mono text-xs", insp.input)
+    : "h-8 flex-1 border-white/10 bg-black/50 font-mono text-xs"
+  const nestCard = light
+    ? "rounded-lg border border-slate-200 bg-slate-50/80 p-3 space-y-3"
+    : "rounded-lg border border-white/10 bg-black/30 p-3 space-y-3"
+  const nestTitle = light ? "text-[10px] font-semibold text-slate-700" : "text-[10px] font-medium text-slate-300"
+  const rowText = light ? "text-xs text-slate-700" : "text-xs text-slate-300"
+  const colorBorder = light ? "border-slate-200" : "border-white/10"
 
   return (
     <div className={cn("space-y-4", className)}>
       <div>
-        <Label className="text-[10px] text-slate-400">글꼴</Label>
+        <Label className={labelCls}>글꼴</Label>
         <Select value={s.fontId} onValueChange={(v) => onChange({ fontId: v })}>
-          <SelectTrigger className="mt-1.5 h-8 border-white/10 bg-black/50 text-xs">
+          <SelectTrigger className={selectCls}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -40,7 +62,7 @@ export function MvpSubtitleStylePanel({ value, onChange, className }: Props) {
       </div>
 
       <div>
-        <Label className="text-[10px] text-slate-400">굵기</Label>
+        <Label className={labelCls}>굵기</Label>
         <div className="mt-1.5 grid grid-cols-3 gap-1.5">
           {(
             [
@@ -52,12 +74,7 @@ export function MvpSubtitleStylePanel({ value, onChange, className }: Props) {
             <button
               key={w}
               type="button"
-              className={cn(
-                "rounded-md border py-1.5 text-[10px] transition",
-                s.fontWeight === w
-                  ? cn(studio.btnSegmentActive, "rounded-md")
-                  : "border-white/10 bg-black/30 text-slate-400 hover:border-white/20"
-              )}
+              className={cn(insp.segment, s.fontWeight === w ? segActive : segIdle)}
               onClick={() => onChange({ fontWeight: w })}
             >
               {label}
@@ -67,7 +84,7 @@ export function MvpSubtitleStylePanel({ value, onChange, className }: Props) {
       </div>
 
       <div>
-        <Label className="text-[10px] text-slate-400">정렬</Label>
+        <Label className={labelCls}>정렬</Label>
         <div className="mt-1.5 grid grid-cols-3 gap-1.5">
           {(
             [
@@ -79,12 +96,7 @@ export function MvpSubtitleStylePanel({ value, onChange, className }: Props) {
             <button
               key={align}
               type="button"
-              className={cn(
-                "rounded-md border py-1.5 text-[10px] transition",
-                s.textAlign === align
-                  ? cn(studio.btnSegmentActive, "rounded-md")
-                  : "border-white/10 bg-black/30 text-slate-400 hover:border-white/20"
-              )}
+              className={cn(insp.segment, s.textAlign === align ? segActive : segIdle)}
               onClick={() => onChange({ textAlign: align })}
             >
               {label}
@@ -94,31 +106,36 @@ export function MvpSubtitleStylePanel({ value, onChange, className }: Props) {
       </div>
 
       <div>
-        <Label className="text-[10px] text-slate-400">크기 {s.sizePx}px</Label>
+        <Label className={labelCls}>크기 {s.sizePx}px</Label>
         <Slider
           className="mt-2"
-          min={14}
-          max={40}
+          min={16}
+          max={56}
           step={1}
           value={[s.sizePx]}
-          onValueChange={(v) => onChange({ sizePx: v[0] ?? 22 })}
+          onValueChange={(v) => onChange({ sizePx: v[0] ?? 26 })}
         />
       </div>
 
       <div>
         <div className="flex items-center justify-between gap-2">
-          <Label className="text-[10px] text-slate-400">세로 위치 ({Math.round(s.y)}%)</Label>
+          <Label className={labelCls}>세로 위치 ({Math.round(s.y)}%)</Label>
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            className="h-7 px-2 text-[10px] text-slate-400 hover:text-violet-200"
+            className={cn(
+              "h-7 px-2 text-[10px]",
+              light ? "text-slate-500 hover:text-slate-800" : "text-slate-400 hover:text-violet-200"
+            )}
             onClick={() => onChange({ y: 50 })}
           >
             중앙
           </Button>
         </div>
-        <p className="mt-0.5 text-[10px] text-slate-600">위(15%) ↔ 아래(85%) · 50%=화면 중앙</p>
+        <p className={cn("mt-0.5 text-[10px]", light ? "text-slate-400" : "text-slate-600")}>
+          위(15%) ↔ 아래(85%) · 50%=화면 중앙
+        </p>
         <Slider
           className="mt-2"
           min={15}
@@ -130,7 +147,7 @@ export function MvpSubtitleStylePanel({ value, onChange, className }: Props) {
       </div>
 
       <div>
-        <Label className="text-[10px] text-slate-400">가로 위치 ({Math.round(s.x ?? 50)}%)</Label>
+        <Label className={labelCls}>가로 위치 ({Math.round(s.x ?? 50)}%)</Label>
         <Slider
           className="mt-2"
           min={15}
@@ -142,25 +159,25 @@ export function MvpSubtitleStylePanel({ value, onChange, className }: Props) {
       </div>
 
       <div>
-        <Label className="text-[10px] text-slate-400">글자 색</Label>
+        <Label className={labelCls}>글자 색</Label>
         <div className="mt-2 flex items-center gap-2">
           <input
             type="color"
             value={s.color}
-            className="h-8 w-10 cursor-pointer rounded border border-white/10 bg-transparent"
+            className={cn("h-8 w-10 cursor-pointer rounded bg-transparent", colorBorder, "border")}
             onChange={(e) => onChange({ color: e.target.value })}
           />
           <Input
             value={s.color}
-            className="h-8 flex-1 border-white/10 bg-black/50 font-mono text-xs"
+            className={inputCls}
             onChange={(e) => onChange({ color: e.target.value })}
           />
         </div>
       </div>
 
-      <div className="rounded-lg border border-white/10 bg-black/30 p-3 space-y-3">
-        <p className="text-[10px] font-medium text-slate-300">외곽선</p>
-        <label className="flex items-center justify-between gap-2 text-xs text-slate-300">
+      <div className={nestCard}>
+        <p className={nestTitle}>외곽선</p>
+        <label className={cn("flex items-center justify-between gap-2", rowText)}>
           <span>테두리 사용</span>
           <Switch checked={s.outlineOn} onCheckedChange={(v) => onChange({ outlineOn: v })} />
         </label>
@@ -170,17 +187,17 @@ export function MvpSubtitleStylePanel({ value, onChange, className }: Props) {
               <input
                 type="color"
                 value={s.outlineColor}
-                className="h-8 w-10 cursor-pointer rounded border border-white/10"
+                className={cn("h-8 w-10 cursor-pointer rounded border", colorBorder)}
                 onChange={(e) => onChange({ outlineColor: e.target.value })}
               />
               <Input
                 value={s.outlineColor}
-                className="h-8 flex-1 border-white/10 bg-black/50 font-mono text-xs"
+                className={inputCls}
                 onChange={(e) => onChange({ outlineColor: e.target.value })}
               />
             </div>
             <div>
-              <Label className="text-[10px] text-slate-500">두께 {s.outlineWidthPx}px</Label>
+              <Label className={labelCls}>두께 {s.outlineWidthPx}px</Label>
               <Slider
                 className="mt-1.5"
                 min={1}
@@ -194,9 +211,9 @@ export function MvpSubtitleStylePanel({ value, onChange, className }: Props) {
         ) : null}
       </div>
 
-      <div className="rounded-lg border border-white/10 bg-black/30 p-3 space-y-3">
-        <p className="text-[10px] font-medium text-slate-300">배경</p>
-        <label className="flex items-center justify-between gap-2 text-xs text-slate-300">
+      <div className={nestCard}>
+        <p className={nestTitle}>배경</p>
+        <label className={cn("flex items-center justify-between gap-2", rowText)}>
           <span>배경 박스</span>
           <Switch checked={s.bgOn} onCheckedChange={(v) => onChange({ bgOn: v })} />
         </label>
@@ -206,17 +223,17 @@ export function MvpSubtitleStylePanel({ value, onChange, className }: Props) {
               <input
                 type="color"
                 value={s.bgColor}
-                className="h-8 w-10 cursor-pointer rounded border border-white/10"
+                className={cn("h-8 w-10 cursor-pointer rounded border", colorBorder)}
                 onChange={(e) => onChange({ bgColor: e.target.value })}
               />
               <Input
                 value={s.bgColor}
-                className="h-8 flex-1 border-white/10 bg-black/50 font-mono text-xs"
+                className={inputCls}
                 onChange={(e) => onChange({ bgColor: e.target.value })}
               />
             </div>
             <div>
-              <Label className="text-[10px] text-slate-500">불투명도 {s.bgOpacity}%</Label>
+              <Label className={labelCls}>불투명도 {s.bgOpacity}%</Label>
               <Slider
                 className="mt-1.5"
                 min={10}
@@ -230,7 +247,7 @@ export function MvpSubtitleStylePanel({ value, onChange, className }: Props) {
         ) : null}
       </div>
 
-      <label className="flex items-center justify-between gap-2 text-xs text-slate-300">
+      <label className={cn("flex items-center justify-between gap-2", rowText)}>
         <span>글자 그림자</span>
         <Switch checked={s.textShadow} onCheckedChange={(v) => onChange({ textShadow: v })} />
       </label>

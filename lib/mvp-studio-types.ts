@@ -47,6 +47,52 @@ export type MvpThumbnailHookingText = {
   line2: string
 }
 
+/** SEO 플랫폼 키 (탭 순서와 동일) */
+export type MvpSeoPlatformKey =
+  | "common"
+  | "youtube"
+  | "tiktok"
+  | "instagram"
+  | "threads"
+  | "naverclip"
+
+/** 공통 탭 — CapCut·flat 필드와 동기화 */
+export type MvpSeoCommonOutput = {
+  title: string
+  description: string
+  tags: string[]
+  hashtags: string[]
+  hookShort: string
+  commentCue: string
+}
+
+export type MvpSeoYoutubeOutput = {
+  title: string
+  description: string
+  tags: string[]
+  hashtags: string[]
+  recommendedTitles: string[]
+  pinnedComment: string
+}
+
+/** TikTok / Instagram / Threads / 네이버 클립 — 숏폼형 */
+export type MvpSeoShortformOutput = {
+  title: string
+  body: string
+  hashtags: string[]
+  commentPrompt: string
+  cta: string
+}
+
+export type MvpSeoPlatformOutputs = {
+  common: MvpSeoCommonOutput
+  youtube: MvpSeoYoutubeOutput
+  tiktok: MvpSeoShortformOutput
+  instagram: MvpSeoShortformOutput
+  threads: MvpSeoShortformOutput
+  naverclip: MvpSeoShortformOutput
+}
+
 /** 유튜브·숏폼 업로드용 제목·설명·태그 */
 export type MvpStudioSeoMeta = {
   title: string
@@ -56,6 +102,8 @@ export type MvpStudioSeoMeta = {
   hashtags: string[]
   hookShort?: string
   commentCue?: string
+  /** 플랫폼별 업로드 카피 (공통·YT·숏폼·네이버) */
+  platformOutputs?: MvpSeoPlatformOutputs
 }
 
 export type MvpThumbnailSource = "ai" | "studio"
@@ -99,6 +147,72 @@ export type MvpBgmClip = {
   endSec: number
   volumePct: number
   sourceDurationSec: number
+}
+
+/** 짧게 한 번 재생되는 타임라인 효과음 */
+export type MvpEffectClip = {
+  id: string
+  catalogId?: string
+  label: string
+  src: string
+  startSec: number
+  durationSec: number
+  sourceOffsetSec: number
+  sourceDurationSec: number
+  volumePct: number
+  autoPlaced?: boolean
+  autoReason?: string
+}
+
+export function normalizeMvpEffectClips(
+  raw?: readonly Partial<MvpEffectClip>[] | null,
+  videoDurationSec = 30
+): MvpEffectClip[] {
+  if (!raw?.length) return []
+  const maxT = Math.max(0.1, videoDurationSec)
+  return raw
+    .map((clip, index) => {
+      const src = typeof clip.src === "string" ? clip.src.trim() : ""
+      if (!src) return null
+      const startSec = Math.max(0, Math.min(maxT, Number(clip.startSec) || 0))
+      const sourceDurationSec = Math.max(
+        0.1,
+        Math.min(30, Number(clip.sourceDurationSec) || Number(clip.durationSec) || 1.2)
+      )
+      const sourceOffsetSec = Math.max(
+        0,
+        Math.min(sourceDurationSec - 0.05, Number(clip.sourceOffsetSec) || 0)
+      )
+      const durationSec = Math.max(
+        0.05,
+        Math.min(
+          maxT - startSec || 0.05,
+          sourceDurationSec - sourceOffsetSec,
+          Number(clip.durationSec) || sourceDurationSec
+        )
+      )
+      return {
+        id:
+          typeof clip.id === "string" && clip.id
+            ? clip.id
+            : `effect_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 6)}`,
+        catalogId: typeof clip.catalogId === "string" ? clip.catalogId : undefined,
+        label:
+          typeof clip.label === "string" && clip.label.trim()
+            ? clip.label.trim()
+            : "효과음",
+        src,
+        startSec,
+        durationSec,
+        sourceOffsetSec,
+        sourceDurationSec,
+        volumePct: Math.min(100, Math.max(0, Number(clip.volumePct ?? 50) || 50)),
+        autoPlaced: Boolean(clip.autoPlaced),
+        autoReason:
+          typeof clip.autoReason === "string" ? clip.autoReason : undefined,
+      } satisfies MvpEffectClip
+    })
+    .filter(Boolean) as MvpEffectClip[]
 }
 
 export const MVP_BGM_CLIP_MIN_SEC = 0.35
@@ -220,8 +334,20 @@ export type MvpStudioPersistData = {
   voiceLineCues?: VoiceLineCue[]
   selectedVoiceId?: string
   supertoneStyle?: string
-  /** TTS 나레이션 배속 (0.8~1.5) */
+  /** TTS 나레이션 배속 (0.8~1.5) — 장면 맞춤 OFF일 때 전역 기본값 */
   speechSpeed?: number
+  /**
+   * 장면 맞춤 ON — 컷 길이에 맞춰 장면별 TTS 배속 자동 (벤치마크)
+   * 기본 true
+   */
+  sceneFitEnabled?: boolean
+  /** 장면별 TTS 배속 (장면 맞춤 결과) */
+  sceneSpeeds?: number[]
+  /**
+   * 음성에 맞춰 자른 컷 end(초, 출력 타임라인).
+   * 원본 컷보다 짧을 때만 저장 — 미리보기·내보내기 동기화에 사용
+   */
+  audioFitEnds?: number[]
   phase?: MvpStudioPhase
   /** IndexedDB에 MP4가 저장된 짜집기 jobId (이 브라우저 로컬) */
   editMp4CachedJobId?: string
@@ -229,6 +355,8 @@ export type MvpStudioPersistData = {
   editTtsCachedJobId?: string
   /** 배경음·효과음 통합 클립 */
   bgmClips?: MvpBgmClip[]
+  /** 스토리 효과음 카탈로그에서 배치한 one-shot 효과음 */
+  effectClips?: MvpEffectClip[]
   /** 영상 소스별 미리보기 확대·좌우반전 (video_id 키) */
   videoSourceTransforms?: import("@/lib/mvp-video-source-transform").MvpVideoSourceTransforms
   /** 제목·설명·태그 (SEO) */
@@ -240,10 +368,10 @@ export type MvpStudioPersistData = {
 }
 
 export const MVP_STUDIO_PHASES: Array<{ id: Exclude<MvpStudioPhase, MvpStudioPhaseLegacy>; n: number; label: string }> = [
-  { id: "edit", n: 5, label: "영상 편집" },
-  { id: "script-style", n: 6, label: "자막·대본" },
-  { id: "thumbnail", n: 7, label: "썸네일" },
-  { id: "export", n: 8, label: "내보내기" },
+  { id: "edit", n: 1, label: "영상 편집" },
+  { id: "script-style", n: 2, label: "자막·대본" },
+  { id: "thumbnail", n: 3, label: "썸네일" },
+  { id: "export", n: 2, label: "내보내기" },
 ]
 
 export function normalizeStudioPhase(phase?: MvpStudioPhase): Exclude<MvpStudioPhase, MvpStudioPhaseLegacy> {
@@ -257,7 +385,7 @@ export const DEFAULT_SUBTITLE_Y_PERCENT = 42
 
 export function defaultSubtitleStyle(): MvpSubtitleStyle {
   return {
-    sizePx: 22,
+    sizePx: 26,
     color: "#ffffff",
     y: DEFAULT_SUBTITLE_Y_PERCENT,
     x: 50,
@@ -267,7 +395,7 @@ export function defaultSubtitleStyle(): MvpSubtitleStyle {
     outlineOn: true,
     outlineColor: "#000000",
     outlineWidthPx: 2,
-    bgOn: true,
+    bgOn: false,
     bgColor: "#000000",
     bgOpacity: 55,
     textShadow: true,
@@ -289,8 +417,15 @@ export function normalizeSubtitleStyle(style?: Partial<MvpSubtitleStyle> | null)
   const base = defaultSubtitleStyle()
   if (!style) return { ...base }
   const merged = { ...base, ...style }
+  // 구 기본값(22·32)은 새 기본(26)으로 맞춥니다.
+  const rawSize = Number(merged.sizePx)
+  const sizePx = !Number.isFinite(rawSize)
+    ? 26
+    : rawSize === 22 || rawSize === 32
+      ? 26
+      : rawSize
   return {
-    sizePx: Math.min(48, Math.max(12, Number(merged.sizePx) || 22)),
+    sizePx: Math.min(64, Math.max(14, sizePx)),
     color: merged.color?.startsWith("#") ? merged.color : "#ffffff",
     y: migrateSubtitleY(merged.y),
     x: Math.min(90, Math.max(10, Number(merged.x ?? 50) || 50)),
@@ -300,7 +435,7 @@ export function normalizeSubtitleStyle(style?: Partial<MvpSubtitleStyle> | null)
     outlineOn: merged.outlineOn !== false,
     outlineColor: merged.outlineColor?.startsWith("#") ? merged.outlineColor : "#000000",
     outlineWidthPx: Math.min(6, Math.max(0, Number(merged.outlineWidthPx ?? 2) || 2)),
-    bgOn: merged.bgOn !== false,
+    bgOn: merged.bgOn === true,
     bgColor: merged.bgColor?.startsWith("#") ? merged.bgColor : "#000000",
     bgOpacity: Math.min(100, Math.max(0, Number(merged.bgOpacity ?? 55) || 55)),
     textShadow: merged.textShadow !== false,

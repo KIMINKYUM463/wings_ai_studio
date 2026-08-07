@@ -7,11 +7,12 @@ import { resolveAutoEditOutputPlayableUrl } from "@/lib/shotform-auto-edit-playa
 import { readAutoEditOutput } from "@/lib/shotform-auto-edit-jobs"
 import { uploadAutoEditOutputToSupabase } from "@/lib/shotform-auto-edit-job-store"
 import { withTimeout } from "@/lib/shotform-auto-edit-script-step"
-import { VMAKE_SUBTITLE_REMOVAL_TIMEOUT_MS } from "@/lib/shotform-vmake-subtitle-removal"
+import { VMAKE_SUBTITLE_REMOVAL_TIMEOUT_MS, VMAKE_SUBTITLE_REMOVAL_TIMEOUT_HINT } from "@/lib/shotform-vmake-subtitle-removal"
 import {
   isVmakeRouteNotFoundError,
   removeChineseSubtitlesFromLocalFile,
 } from "@/lib/shotform-vmake-client"
+import { formatVmakeUserError } from "@/lib/vmake-skill-client"
 
 export const maxDuration = 800
 export const runtime = "nodejs"
@@ -96,22 +97,41 @@ export async function POST(req: NextRequest) {
     await fs.mkdir(workDir, { recursive: true })
     await fs.writeFile(sourcePath, sourceBuffer)
 
+    const removalPromise = removeChineseSubtitlesFromLocalFile({
+      apiKey: vmakeApiKey,
+      secretAccessKey: vmakeSecretAccessKey,
+      sourcePath,
+      outputPath,
+    })
+
     try {
       await withTimeout(
-        removeChineseSubtitlesFromLocalFile({
-          apiKey: vmakeApiKey,
-          secretAccessKey: vmakeSecretAccessKey,
-          sourcePath,
-          outputPath,
-        }),
+        removalPromise,
         VMAKE_SUBTITLE_REMOVAL_TIMEOUT_MS,
-        "Vmake 자막 제거 시간 초과(약 7분). 잠시 후 다시 시도해 주세요."
+        VMAKE_SUBTITLE_REMOVAL_TIMEOUT_HINT
       )
     } catch (e) {
       if (isVmakeRouteNotFoundError(e)) {
         return NextResponse.json({ error: e.message }, { status: 502 })
       }
-      throw e
+      const msg = e instanceof Error ? e.message : String(e)
+      // 타임아웃 직후 Vmake가 늦게 끝나는 경우 — 최대 90초 더 기다려 결과 회수
+      if (/시간 초과|timeout/i.test(msg)) {
+        console.warn("[remove-chinese-subtitles] timeout — waiting up to 90s for late finish")
+        const lateOk = await Promise.race([
+          removalPromise.then(() => true).catch(() => false),
+          new Promise<boolean>((resolve) => {
+            setTimeout(() => resolve(false), 90_000)
+          }),
+        ])
+        const lateStat = await fs.stat(outputPath).catch(() => null)
+        if (!lateOk && !(lateStat && lateStat.size >= 20_000)) {
+          throw e
+        }
+        console.warn("[remove-chinese-subtitles] late finish recovered")
+      } else {
+        throw e
+      }
     }
 
     const outStat = await fs.stat(outputPath).catch(() => null)
@@ -165,11 +185,12 @@ export async function POST(req: NextRequest) {
       },
     })
   } catch (e) {
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "중국어 자막 제거 중 오류가 발생했습니다." },
-      { status: 500 }
-    )
+    const raw = e instanceof Error ? e.message : "중국어 자막 제거 중 오류가 발생했습니다."
+    console.error("[remove-chinese-subtitles]", raw)
+    return NextResponse.json({ error: formatVmakeUserError(raw) }, { status: 500 })
   } finally {
+    // 백그라운드 쓰기가 남아 있으면 잠깐 기다린 뒤 임시 폴더 삭제
+    await new Promise((r) => setTimeout(r, 1500))
     await fs.rm(workDir, { recursive: true, force: true }).catch(() => undefined)
   }
 }

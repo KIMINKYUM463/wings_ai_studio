@@ -24,6 +24,7 @@ import {
   type TtsProviderId,
 } from "@/lib/shotform-tts-providers"
 import { studio } from "../components/ShotFormStudioUI"
+import { SupertonicSetupBar } from "../components/SupertonicSetupBar"
 
 type Props = {
   open: boolean
@@ -179,7 +180,7 @@ export function MvpVoicePickerDialog({
               </span>
               <div>
                 <p className="text-sm font-semibold text-white">나레이션 캐릭터</p>
-                <p className="text-[10px] text-slate-500">수퍼톤 · ElevenLabs · 타입캐스트</p>
+                <p className="text-[10px] text-slate-500">수퍼톤 · Supertonic 3 · ElevenLabs · 타입캐스트</p>
               </div>
             </div>
             <button
@@ -208,6 +209,16 @@ export function MvpVoicePickerDialog({
               </button>
             ))}
           </div>
+
+          {provider === "supertonic" ? (
+            <div className="border-b border-white/[0.06] px-3 py-2">
+              <SupertonicSetupBar
+                onReady={(info) => {
+                  if (info.online) onReloadVoices("supertonic")
+                }}
+              />
+            </div>
+          ) : null}
 
           {draftDisplayVoice ? (
             <div className="border-b border-white/[0.06] bg-gradient-to-r from-emerald-500/[0.08] to-violet-500/[0.06] px-4 py-3">

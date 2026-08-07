@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import {
   generateShortsThumbnail,
   generateShortsThumbnailBackground,
+  generateStoryThumbnailCopy,
   generateThumbnailHookingText,
   rewriteThumbnailLayerText,
   type ThumbnailHookingInput,
@@ -25,6 +26,7 @@ export async function POST(request: NextRequest) {
       textRole?: ThumbnailTextRole
       otherLines?: string[]
       generateBackgroundOnly?: boolean
+      copyStyle?: "default" | "story-reference"
     }
 
     const productName = body.productName?.trim() || "제품"
@@ -37,11 +39,32 @@ export async function POST(request: NextRequest) {
       : { productName }
 
     if (body.generateHookingOnly) {
-      const hookingText = await generateThumbnailHookingText(hookingInput, openaiApiKey)
+      const hookingText =
+        body.copyStyle === "story-reference"
+          ? await generateStoryThumbnailCopy(hookingInput, openaiApiKey)
+          : await generateThumbnailHookingText(hookingInput, openaiApiKey)
       return NextResponse.json({ hookingText })
     }
 
     if (body.rewriteTextOnly) {
+      if (body.copyStyle === "story-reference") {
+        const copy = await generateStoryThumbnailCopy(
+          hookingInput,
+          openaiApiKey,
+          {
+            role: body.textRole,
+            currentText: body.currentText,
+            otherLines: body.otherLines,
+          }
+        )
+        const text =
+          body.textRole === "hook1"
+            ? copy.line1
+            : body.textRole === "hook2"
+              ? copy.line2
+              : copy.subheadline
+        return NextResponse.json({ text, hookingText: copy })
+      }
       const text = await rewriteThumbnailLayerText(
         {
           productName,
@@ -94,7 +117,10 @@ export async function POST(request: NextRequest) {
       line2: body.hookingText?.line2?.trim() ?? "",
     }
     if (!hookingText.line1 || !hookingText.line2) {
-      hookingText = await generateThumbnailHookingText(hookingInput, openaiApiKey)
+      hookingText =
+        body.copyStyle === "story-reference"
+          ? await generateStoryThumbnailCopy(hookingInput, openaiApiKey)
+          : await generateThumbnailHookingText(hookingInput, openaiApiKey)
     }
 
     const thumbnailUrl = await generateShortsThumbnail(

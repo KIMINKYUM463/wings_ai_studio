@@ -1,0 +1,294 @@
+@import url("https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@500;600;700;800&display=swap");
+
+/* AI 동물 쇼핑 숏폼 — Cute Pet Studio */
+.animal-shopping-dark {
+  color-scheme: dark;
+  --animal-bg: #101c1a;
+  --animal-panel: rgba(26, 42, 38, 0.92);
+  --animal-panel-solid: #1a2a26;
+  --animal-accent: #7dd3a8;
+  --animal-accent-soft: rgba(125, 211, 168, 0.18);
+  --animal-cta: #ff8fab;
+  --animal-cta-soft: rgba(255, 143, 171, 0.2);
+  --animal-peach: #ffc4a8;
+  --animal-fur: #fff6ee;
+  --animal-muted: #a8bdb4;
+  --animal-line: rgba(255, 246, 238, 0.14);
+  --animal-bubble: rgba(125, 211, 168, 0.12);
+  background-color: var(--animal-bg);
+  font-family: "Nunito", "Apple SD Gothic Neo", sans-serif;
+}
+
+.animal-shopping-dark .animal-display {
+  font-family: "Fredoka", "Nunito", sans-serif;
+  letter-spacing: -0.02em;
+}
+
+.animal-shopping-dark [data-slot="card"] {
+  border-color: var(--animal-line) !important;
+  border-radius: 1.75rem !important;
+  background: var(--animal-panel) !important;
+  color: var(--animal-fur) !important;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28) !important;
+}
+
+.animal-shopping-dark [data-slot="card"] > .absolute.inset-0 {
+  background: linear-gradient(
+    145deg,
+    rgba(125, 211, 168, 0.12),
+    rgba(255, 143, 171, 0.06) 42%,
+    transparent 70%
+  ) !important;
+}
+
+.animal-shopping-dark [data-slot="card-header"] {
+  border-color: var(--animal-line) !important;
+}
+
+.animal-shopping-dark [data-slot="card-title"],
+.animal-shopping-dark [data-slot="card"] [class*="text-slate-9"],
+.animal-shopping-dark [data-slot="card"] [class*="text-gray-9"],
+.animal-shopping-dark [data-slot="card"] [class*="text-slate-8"],
+.animal-shopping-dark [data-slot="card"] [class*="text-gray-8"],
+.animal-shopping-dark [data-slot="card"] [class*="text-orange-6"],
+.animal-shopping-dark [data-slot="card"] [class*="text-amber-6"] {
+  color: var(--animal-fur) !important;
+  font-family: "Fredoka", "Nunito", sans-serif;
+}
+
+.animal-shopping-dark [data-slot="card"] [class*="text-slate-7"],
+.animal-shopping-dark [data-slot="card"] [class*="text-gray-7"],
+.animal-shopping-dark [data-slot="card"] [class*="text-slate-6"],
+.animal-shopping-dark [data-slot="card"] [class*="text-gray-6"],
+.animal-shopping-dark [data-slot="card"] .text-muted-foreground {
+  color: var(--animal-muted) !important;
+}
+
+.animal-shopping-dark [data-slot="input"],
+.animal-shopping-dark [data-slot="textarea"],
+.animal-shopping-dark [data-slot="select-trigger"] {
+  border-color: var(--animal-line) !important;
+  border-radius: 1rem !important;
+  background: rgba(8, 16, 14, 0.45) !important;
+  color: var(--animal-fur) !important;
+  box-shadow: none !important;
+}
+
+.animal-shopping-dark [data-slot="input"]::placeholder,
+.animal-shopping-dark [data-slot="textarea"]::placeholder {
+  color: #7a9088 !important;
+}
+
+.animal-shopping-dark [data-slot="input"]:focus,
+.animal-shopping-dark [data-slot="textarea"]:focus,
+.animal-shopping-dark [data-slot="select-trigger"]:focus {
+  border-color: rgba(125, 211, 168, 0.8) !important;
+  box-shadow: 0 0 0 4px rgba(125, 211, 168, 0.16) !important;
+}
+
+.animal-shopping-dark [data-slot="card"] [class*="bg-white"],
+.animal-shopping-dark [data-slot="card"] [class*="bg-slate-50"],
+.animal-shopping-dark [data-slot="card"] [class*="bg-gray-50"],
+.animal-shopping-dark [data-slot="card"] [class*="bg-orange-50"],
+.animal-shopping-dark [data-slot="card"] [class*="bg-amber-50"],
+.animal-shopping-dark [data-slot="card"] [class*="from-orange-50"],
+.animal-shopping-dark [data-slot="card"] [class*="to-amber-50"] {
+  border-color: var(--animal-line) !important;
+  background-color: rgba(255, 246, 238, 0.05) !important;
+  background-image: none !important;
+  border-radius: 1.25rem !important;
+}
+
+.animal-shopping-dark [data-slot="card"] [class*="border-slate-2"],
+.animal-shopping-dark [data-slot="card"] [class*="border-gray-2"],
+.animal-shopping-dark [data-slot="card"] [class*="border-orange"],
+.animal-shopping-dark [data-slot="card"] [class*="border-amber"],
+.animal-shopping-dark [data-slot="card"] [class*="border-green-2"],
+.animal-shopping-dark [data-slot="card"] [class*="border-blue-2"] {
+  border-color: var(--animal-line) !important;
+}
+
+.animal-shopping-dark [data-slot="card"] label {
+  color: #e8f5ee;
+}
+
+.animal-shopping-dark [data-slot="card"] audio {
+  color-scheme: dark;
+}
+
+/* Step surface — cute peach/mint CTAs */
+.animal-shopping-dark .animal-step-surface button[class*="from-orange"],
+.animal-shopping-dark .animal-step-surface button[class*="from-amber"],
+.animal-shopping-dark .animal-step-surface a[class*="from-orange"],
+.animal-shopping-dark .animal-step-surface a[class*="from-amber"] {
+  background-image: linear-gradient(105deg, #ff8fab 0%, #ffb38a 48%, #7dd3a8 100%) !important;
+  border-color: rgba(255, 143, 171, 0.35) !important;
+  border-radius: 1.15rem !important;
+  color: #fff8f5 !important;
+  box-shadow: 0 12px 28px rgba(255, 143, 171, 0.28) !important;
+  font-family: "Fredoka", "Nunito", sans-serif;
+}
+
+.animal-shopping-dark .animal-step-surface [class*="text-orange-"],
+.animal-shopping-dark .animal-step-surface [class*="text-amber-"] {
+  color: var(--animal-accent) !important;
+}
+
+.animal-shopping-dark .animal-step-surface [class*="bg-orange-100"],
+.animal-shopping-dark .animal-step-surface [class*="bg-amber-100"],
+.animal-shopping-dark .animal-step-surface [class*="from-orange-100"],
+.animal-shopping-dark .animal-step-surface [class*="to-amber-100"] {
+  background-color: var(--animal-accent-soft) !important;
+  background-image: none !important;
+  border-color: rgba(125, 211, 168, 0.32) !important;
+  border-radius: 1.15rem !important;
+}
+
+.animal-shopping-dark .animal-step-surface h2[class*="from-orange"],
+.animal-shopping-dark .animal-step-surface h1[class*="from-orange"],
+.animal-shopping-dark .animal-step-surface [class*="bg-clip-text"][class*="from-orange"] {
+  background-image: linear-gradient(90deg, #fff6ee, #7dd3a8, #ff8fab) !important;
+}
+
+.animal-shopping-dark [data-slot="dialog-content"] {
+  border-color: var(--animal-line) !important;
+  border-radius: 1.75rem !important;
+  background: var(--animal-panel-solid) !important;
+  color: var(--animal-fur) !important;
+}
+
+.animal-shopping-dark [data-slot="dialog-content"] label,
+.animal-shopping-dark [data-slot="dialog-content"] [class*="text-slate-7"],
+.animal-shopping-dark [data-slot="dialog-content"] [class*="text-slate-8"],
+.animal-shopping-dark [data-slot="dialog-content"] [class*="text-slate-9"] {
+  color: #e8f5ee !important;
+}
+
+.animal-shopping-dark [data-slot="dialog-content"] [data-slot="input"],
+.animal-shopping-dark [data-slot="dialog-content"] [data-slot="textarea"],
+.animal-shopping-dark [data-slot="dialog-content"] [data-slot="select-trigger"] {
+  border-color: var(--animal-line) !important;
+  background: rgba(8, 16, 14, 0.45) !important;
+  color: var(--animal-fur) !important;
+}
+
+.animal-shopping-dark ::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+.animal-shopping-dark ::-webkit-scrollbar-track {
+  background: #0c1614;
+}
+
+.animal-shopping-dark ::-webkit-scrollbar-thumb {
+  border: 2px solid #0c1614;
+  border-radius: 999px;
+  background: #4d6b5f;
+}
+
+/* Motions */
+@keyframes animal-paw-bounce {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-4deg);
+  }
+  50% {
+    transform: translateY(-5px) rotate(4deg);
+  }
+}
+
+@keyframes animal-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes animal-wiggle {
+  0%,
+  100% {
+    transform: rotate(-2deg);
+  }
+  50% {
+    transform: rotate(2deg);
+  }
+}
+
+@keyframes animal-stage-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes animal-sparkle {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.05);
+  }
+}
+
+.animal-paw-active {
+  animation: animal-paw-bounce 1.25s ease-in-out infinite;
+}
+
+.animal-stage-hero {
+  animation: animal-stage-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animal-float {
+  animation: animal-float 4.5s ease-in-out infinite;
+}
+
+.animal-wiggle {
+  animation: animal-wiggle 2.8s ease-in-out infinite;
+}
+
+.animal-sparkle {
+  animation: animal-sparkle 2.2s ease-in-out infinite;
+}
+
+.animal-bubble-chip {
+  border-radius: 999px;
+  border: 1px solid rgba(125, 211, 168, 0.35);
+  background: linear-gradient(135deg, rgba(125, 211, 168, 0.18), rgba(255, 143, 171, 0.12));
+  color: #7dd3a8;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.animal-cta-cute {
+  background: linear-gradient(105deg, #ff8fab, #ffb38a) !important;
+  color: #fff8f5 !important;
+  border: none !important;
+  box-shadow: 0 12px 28px rgba(255, 143, 171, 0.32) !important;
+  font-family: "Fredoka", "Nunito", sans-serif !important;
+}
+
+.animal-cta-cute:hover {
+  filter: brightness(1.05);
+}
+
+.animal-mint-btn {
+  border: 1px solid rgba(125, 211, 168, 0.4) !important;
+  background: rgba(125, 211, 168, 0.14) !important;
+  color: #7dd3a8 !important;
+  font-family: "Fredoka", "Nunito", sans-serif !important;
+}
+
+.animal-mint-btn:hover {
+  background: rgba(125, 211, 168, 0.24) !important;
+}

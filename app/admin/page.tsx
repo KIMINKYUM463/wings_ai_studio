@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 
 interface User {
@@ -8,52 +8,80 @@ interface User {
   email: string | null
   nickname: string | null
   profile_image_url: string | null
-  instructor: 'wings' | 'onback' | null
+  approved: boolean
   created_at: string
 }
 
-interface Program {
-  id: string
-  program_name: string
-  program_path: string
-  program_description: string | null
-}
+type ApprovalFilter = 'all' | 'approved' | 'pending'
 
 export default function AdminPage() {
   const router = useRouter()
+  const [authed, setAuthed] = useState(false)
+  const [passwordInput, setPasswordInput] = useState('')
+  const [authError, setAuthError] = useState('')
   const [users, setUsers] = useState<User[]>([])
-  const [programs, setPrograms] = useState<Program[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [selectedInstructor, setSelectedInstructor] = useState<'wings' | 'onback' | null>(null)
+  const [emailQuery, setEmailQuery] = useState('')
+  const [approvalFilter, setApprovalFilter] = useState<ApprovalFilter>('all')
 
   useEffect(() => {
-    loadUsers()
-    loadPrograms()
-    
-    // 5초마다 사용자 목록 자동 새로고침 (실시간 업데이트)
-    const interval = setInterval(() => {
-      loadUsers()
-    }, 5000) // 5초마다
-    
-    return () => {
-      clearInterval(interval)
+    try {
+      if (sessionStorage.getItem('wings_admin_ok') === '1') {
+        setAuthed(true)
+      } else {
+        setIsLoading(false)
+      }
+    } catch {
+      setIsLoading(false)
     }
   }, [])
 
+  useEffect(() => {
+    if (!authed) return
+    void loadUsers()
+  }, [authed])
+
+  const filteredUsers = useMemo(() => {
+    const q = emailQuery.trim().toLowerCase()
+    return users.filter((user) => {
+      const email = (user.email || '').toLowerCase()
+      const matchEmail = !q || email.includes(q)
+      const isApproved = Boolean(user.approved)
+      const matchApproval =
+        approvalFilter === 'all' ||
+        (approvalFilter === 'approved' && isApproved) ||
+        (approvalFilter === 'pending' && !isApproved)
+      return matchEmail && matchApproval
+    })
+  }, [users, emailQuery, approvalFilter])
+
+  const approvedCount = users.filter((u) => u.approved).length
+  const pendingCount = users.length - approvedCount
+
+  const handleAdminLogin = (e: FormEvent) => {
+    e.preventDefault()
+    if (passwordInput === '6168') {
+      try {
+        sessionStorage.setItem('wings_admin_ok', '1')
+      } catch {
+        /* ignore */
+      }
+      setAuthError('')
+      setIsLoading(true)
+      setAuthed(true)
+    } else {
+      setAuthError('비밀번호가 올바르지 않습니다.')
+    }
+  }
+
   const loadUsers = async () => {
+    setIsLoading(true)
     try {
       const response = await fetch('/api/admin/users')
       const data = await response.json()
-      
+
       if (response.ok) {
-        const usersData = data.users || []
-        setUsers(usersData)
-        console.log('[Admin] 사용자 목록 로드 성공:', usersData.length, '명')
-        console.log('[Admin] 전체 사용자 데이터:', JSON.stringify(usersData, null, 2))
-        // 각 사용자의 instructor 값 확인
-        usersData.forEach((user: User, index: number) => {
-          console.log(`[Admin] 사용자 ${index + 1}: ${user.email || user.nickname || '이름없음'} (id: ${user.id}), instructor =`, user.instructor, `(type: ${typeof user.instructor}, === 'wings': ${user.instructor === 'wings'}, === 'onback': ${user.instructor === 'onback'})`)
-        })
+        setUsers(data.users || [])
       } else {
         console.error('[Admin] 사용자 목록 로드 실패:', data.error)
         alert(`사용자 목록을 불러올 수 없습니다: ${data.error || '알 수 없는 오류'}`)
@@ -61,100 +89,90 @@ export default function AdminPage() {
       }
     } catch (error) {
       console.error('[Admin] 사용자 목록 로드 중 예외 발생:', error)
-      alert(`사용자 목록을 불러오는 중 오류가 발생했습니다: ${error instanceof Error ? error.message : String(error)}`)
+      alert(
+        `사용자 목록을 불러오는 중 오류가 발생했습니다: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      )
       setUsers([])
     } finally {
       setIsLoading(false)
     }
   }
 
-  const loadPrograms = async () => {
+  const handleApprovalToggle = async (userId: string, approved: boolean) => {
     try {
-      const response = await fetch('/api/admin/programs')
-      if (response.ok) {
-        const data = await response.json()
-        setPrograms(data.programs || [])
-      }
-    } catch (error) {
-      console.error('프로그램 목록 로드 실패:', error)
-    }
-  }
-
-  const handleInstructorToggle = async (userId: string, instructor: 'wings' | 'onback') => {
-    try {
-      // 현재 사용자의 instructor 값 확인
-      const currentUser = users.find(u => u.id === userId)
-      const currentInstructor = currentUser?.instructor
-      
-      // 토글: 같은 강사를 다시 클릭하면 해제 (null), 다른 강사면 변경
-      const newInstructor = currentInstructor === instructor ? null : instructor
-      
-      console.log('[Admin] 강사 토글:', { userId, currentInstructor, newInstructor })
-      
-      const response = await fetch('/api/admin/users/instructor', {
+      const response = await fetch('/api/admin/users/approval', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          userId,
-          instructor: newInstructor,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, approved }),
       })
-
       const data = await response.json()
-      
+
       if (response.ok && data.user) {
-        console.log('[Admin] 강사 설정 성공:', data.user)
-        // 응답에서 받은 사용자 데이터로 즉시 업데이트
-        setUsers(prevUsers => 
-          prevUsers.map(user => 
-            user.id === userId 
-              ? { ...user, instructor: data.user.instructor }
-              : user
+        setUsers((prev) =>
+          prev.map((user) =>
+            user.id === userId ? { ...user, approved: Boolean(data.user.approved) } : user
           )
         )
       } else {
-        console.error('[Admin] 강사 설정 실패:', data.error)
-        alert(`강사 설정 실패: ${data.error || '알 수 없는 오류'}`)
-        // 실패 시 전체 목록 다시 로드
-        await loadUsers()
+        alert(`승인 상태 변경 실패: ${data.error || '알 수 없는 오류'}`)
       }
     } catch (error) {
-      console.error('[Admin] 강사 설정 중 예외 발생:', error)
-      alert('강사 설정에 실패했습니다.')
-      // 실패 시 전체 목록 다시 로드
-      await loadUsers()
+      console.error('[Admin] 승인 변경 실패:', error)
+      alert('승인 상태 변경에 실패했습니다.')
     }
   }
 
-  const getInstructorName = (instructor: string | null) => {
-    switch (instructor) {
-      case 'wings':
-        return '윙스'
-      case 'onback':
-        return '온백'
-      default:
-        return '미지정'
-    }
-  }
-
-  const getInstructorPrograms = (instructor: 'wings' | 'onback' | null) => {
-    if (!instructor) return []
-    return programs.filter(p => p.instructor === instructor)
+  if (!authed) {
+    return (
+      <div className="min-h-screen bg-white text-black flex items-center justify-center p-6">
+        <form
+          onSubmit={handleAdminLogin}
+          className="w-full max-w-sm border border-gray-200 rounded-xl p-6 shadow-sm"
+        >
+          <h1 className="text-xl font-bold mb-2">관리자 로그인</h1>
+          <p className="text-sm text-gray-500 mb-4">비밀번호를 입력하세요.</p>
+          <input
+            type="password"
+            value={passwordInput}
+            onChange={(e) => setPasswordInput(e.target.value)}
+            className="w-full border border-gray-300 rounded-md px-3 py-2 mb-3 outline-none focus:border-blue-500"
+            placeholder="비밀번호"
+            autoFocus
+          />
+          {authError && <p className="text-sm text-red-500 mb-3">{authError}</p>}
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              className="flex-1 px-4 py-2 rounded-md bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium"
+            >
+              확인
+            </button>
+            <button
+              type="button"
+              onClick={() => router.push('/')}
+              className="px-4 py-2 rounded-md bg-gray-100 hover:bg-gray-200 text-sm"
+            >
+              취소
+            </button>
+          </div>
+        </form>
+      </div>
+    )
   }
 
   return (
     <div className="min-h-screen bg-white text-black p-8">
       <div className="max-w-7xl mx-auto">
-        <div className="mb-8 flex items-center justify-between">
+        <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-3xl font-bold mb-2 text-black">관리자 페이지</h1>
-            <p className="text-gray-600">가입한 사용자 목록 및 강사 설정 (5초마다 자동 새로고침)</p>
+            <p className="text-gray-600">가입한 사용자 목록 · 승인된 사용자만 롱폼/숏폼 이용 가능</p>
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={loadUsers}
+              onClick={() => void loadUsers()}
               className="px-4 py-2 rounded-md bg-blue-500 hover:bg-blue-600 transition-colors text-white text-sm font-medium"
             >
               새로고침
@@ -168,19 +186,59 @@ export default function AdminPage() {
           </div>
         </div>
 
+        <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <input
+            type="search"
+            value={emailQuery}
+            onChange={(e) => setEmailQuery(e.target.value)}
+            placeholder="이메일로 검색..."
+            className="w-full md:max-w-sm border border-gray-300 rounded-md px-3 py-2 text-sm outline-none focus:border-blue-500"
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            {(
+              [
+                { key: 'all', label: `전체 ${users.length}` },
+                { key: 'approved', label: `승인 ${approvedCount}` },
+                { key: 'pending', label: `비승인 ${pendingCount}` },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setApprovalFilter(tab.key)}
+                className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                  approvalFilter === tab.key
+                    ? tab.key === 'pending'
+                      ? 'bg-amber-500 text-white'
+                      : tab.key === 'approved'
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-gray-900 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {isLoading ? (
           <div className="text-center py-12">
             <p className="text-gray-600">로딩 중...</p>
           </div>
-        ) : users.length === 0 && !isLoading ? (
+        ) : users.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-gray-600 mb-4">사용자가 없거나 데이터를 불러올 수 없습니다.</p>
             <button
-              onClick={loadUsers}
+              onClick={() => void loadUsers()}
               className="px-4 py-2 rounded-md bg-blue-500 text-white hover:opacity-90 transition-opacity"
             >
               다시 시도
             </button>
+          </div>
+        ) : filteredUsers.length === 0 ? (
+          <div className="text-center py-12 border border-dashed border-gray-200 rounded-lg">
+            <p className="text-gray-600">검색 조건에 맞는 사용자가 없습니다.</p>
           </div>
         ) : (
           <div className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
@@ -192,82 +250,76 @@ export default function AdminPage() {
                     <th className="px-6 py-4 text-left text-sm font-semibold text-black">닉네임</th>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-black">프로필</th>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-black">가입일</th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-black">지정강사</th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-black">상태</th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-black">승인 관리</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {users.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="px-6 py-12 text-center text-gray-600">
-                        가입한 사용자가 없습니다.
-                      </td>
-                    </tr>
-                  ) : (
-                    users.map((user) => {
-                      const userPrograms = getInstructorPrograms(user.instructor)
-                      // instructor 값 확인을 위한 디버깅
-                      const instructorValue = user.instructor
-                      const isWings = instructorValue === 'wings' || String(instructorValue) === 'wings'
-                      const isOnback = instructorValue === 'onback' || String(instructorValue) === 'onback'
-                      
-                      // 디버깅: 렌더링 시점의 instructor 값 확인 (첫 번째 사용자만)
-                      if (users.indexOf(user) === 0) {
-                        console.log(`[Admin Render] 첫 번째 사용자 ${user.email}: instructor =`, instructorValue, `(type: ${typeof instructorValue}), isWings=${isWings}, isOnback=${isOnback}`)
-                      }
-                      
-                      return (
-                        <tr key={user.id} className="border-b border-gray-200 hover:bg-gray-50 transition-colors">
-                          <td className="px-6 py-4 text-sm text-black">
-                            {user.email || '이메일 없음'}
-                          </td>
-                          <td className="px-6 py-4 text-sm text-black">{user.nickname || '닉네임 없음'}</td>
-                          <td className="px-6 py-4">
-                            {user.profile_image_url && (
-                              <img
-                                src={user.profile_image_url}
-                                alt={user.nickname || '프로필'}
-                                className="w-10 h-10 rounded-full"
-                              />
-                            )}
-                          </td>
-                          <td className="px-6 py-4 text-sm text-gray-600">
-                            {new Date(user.created_at).toLocaleDateString('ko-KR')}
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={() => handleInstructorToggle(user.id, 'wings')}
-                                className={`px-4 py-2 text-sm rounded transition-colors font-medium ${
-                                  isWings
-                                    ? 'bg-blue-500 text-white shadow-md hover:bg-blue-600'
-                                    : 'bg-gray-100 border border-gray-300 hover:bg-blue-50 hover:border-blue-300 text-black'
-                                }`}
-                                title={isWings ? '클릭하여 선택 해제' : '클릭하여 윙스 강사 선택'}
-                              >
-                                윙스
-                              </button>
-                              <button
-                                onClick={() => handleInstructorToggle(user.id, 'onback')}
-                                className={`px-4 py-2 text-sm rounded transition-colors font-medium ${
-                                  isOnback
-                                    ? 'bg-green-500 text-white shadow-md hover:bg-green-600'
-                                    : 'bg-gray-100 border border-gray-300 hover:bg-green-50 hover:border-green-300 text-black'
-                                }`}
-                                title={isOnback ? '클릭하여 선택 해제' : '클릭하여 온백 강사 선택'}
-                              >
-                                온백
-                              </button>
-                              {userPrograms.length > 0 && (
-                                <div className="ml-2 text-xs text-gray-500" title={userPrograms.map(p => p.program_name).join(', ')}>
-                                  ({userPrograms.length}개 프로그램)
-                                </div>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      )
-                    })
-                  )}
+                  {filteredUsers.map((user) => {
+                    const isApproved = Boolean(user.approved)
+                    return (
+                      <tr
+                        key={user.id}
+                        className={`border-b border-gray-200 transition-colors ${
+                          isApproved ? 'bg-white hover:bg-emerald-50/40' : 'bg-amber-50/50 hover:bg-amber-50'
+                        }`}
+                      >
+                        <td className="px-6 py-4 text-sm text-black">{user.email || '이메일 없음'}</td>
+                        <td className="px-6 py-4 text-sm text-black">{user.nickname || '닉네임 없음'}</td>
+                        <td className="px-6 py-4">
+                          {user.profile_image_url && (
+                            <img
+                              src={user.profile_image_url}
+                              alt={user.nickname || '프로필'}
+                              className="w-10 h-10 rounded-full"
+                            />
+                          )}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-600">
+                          {new Date(user.created_at).toLocaleDateString('ko-KR')}
+                        </td>
+                        <td className="px-6 py-4">
+                          <span
+                            className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${
+                              isApproved
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                : 'bg-amber-100 text-amber-800 border border-amber-200'
+                            }`}
+                          >
+                            {isApproved ? '승인됨' : '비승인'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void handleApprovalToggle(user.id, true)}
+                              disabled={isApproved}
+                              className={`px-3 py-1.5 text-sm rounded font-medium transition-colors ${
+                                isApproved
+                                  ? 'bg-emerald-600 text-white cursor-default'
+                                  : 'bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-50'
+                              }`}
+                            >
+                              승인
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleApprovalToggle(user.id, false)}
+                              disabled={!isApproved}
+                              className={`px-3 py-1.5 text-sm rounded font-medium transition-colors ${
+                                !isApproved
+                                  ? 'bg-amber-600 text-white cursor-default'
+                                  : 'bg-white border border-amber-300 text-amber-700 hover:bg-amber-50'
+                              }`}
+                            >
+                              비승인
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -277,4 +329,3 @@ export default function AdminPage() {
     </div>
   )
 }
-

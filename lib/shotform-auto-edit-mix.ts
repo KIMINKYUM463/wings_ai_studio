@@ -51,6 +51,7 @@ import {
   forceFillEditPlanToTarget,
   IDEAL_EDIT_SEGMENT_SEC,
   MAX_EDIT_SEGMENT_SEC,
+  MIN_EDIT_SEGMENT_SEC,
 } from "@/lib/shotform-auto-edit-plan-finalize"
 import {
   buildCutScriptContexts,
@@ -359,7 +360,8 @@ function pickKey(p: MixPick): string {
 
 function isPickSafe(pick: MixPick, analysis: VideoAnalysis | undefined): boolean {
   if (!analysis) return false
-  if (pick.end <= pick.start || pick.end - pick.start > 5) return false
+  const dur = pick.end - pick.start
+  if (pick.end <= pick.start || dur > MAX_EDIT_SEGMENT_SEC + 0.05) return false
   if (pick.start < 0 || pick.end > analysis.duration + 0.5) return false
   return pickIntervalIsProductSafe(analysis, pick.start, pick.end, pick.reason)
 }
@@ -444,6 +446,17 @@ export function finalizeMixPicks(
     }
 
     const analysis = bySrc.get(pick.srcIndex)
+    // 초단 pick → 소스에서 최소 길이까지 늘리기 (벤치마크 3초+)
+    if (analysis && dur < MIN_EDIT_SEGMENT_SEC) {
+      const extended = Math.min(MIN_EDIT_SEGMENT_SEC, Math.max(0.5, analysis.duration - pick.start))
+      if (extended >= 2.5) {
+        pick.end = ROUND(pick.start + extended)
+        dur = pick.end - pick.start
+      } else if (dur < 2.2) {
+        continue
+      }
+    }
+
     if (!isPickSafe(pick, analysis)) continue
 
     const key = pickKey(pick)
@@ -507,7 +520,7 @@ function harvestPicksForSource(
   let got = 0
   const seen = new Set(existing.map(pickKey))
   const pool = scenesForPickingDiverse(scenePoolForAnalysis(analysis))
-  const clipLens = [1.5, 2.0, 2.4, 1.8, 2.2, 1.6]
+  const clipLens = [3.5, 4.5, 5.0, 4.0, 6.0, 3.2]
 
   for (let si = 0; si < pool.length && got < wantDur + 0.1; si++) {
     const sc = pool[si]!
@@ -645,7 +658,7 @@ function harvestUniquePicksFromAnalyses(
   if (total >= targetDuration - 0.08) return picks
 
   const seen = new Set(picks.map(pickKey))
-  const clipLens = [4, 4.5, 5, 5.5, MAX_EDIT_SEGMENT_SEC, 4, 5]
+  const clipLens = [8, 9, 9.5, 10, MAX_EDIT_SEGMENT_SEC, 8.5, 9.5]
 
   for (let pass = 0; pass < 4 && total < targetDuration - 0.08 && picks.length < 55; pass++) {
     const gap = pass >= 2 ? 0.5 : minGapSec
@@ -728,7 +741,7 @@ function bruteForceAddMixPicks(
   if (total >= targetDuration - 0.08) return picks
 
   const seen = new Set(picks.map(pickKey))
-  const clipLens = [1.5, 2, 2.5, 1.8, 2.2]
+  const clipLens = [3.5, 4.5, 5.5, 4.0, 6.0]
 
   for (let ai = 0; ai < analyses.length; ai++) {
     const a = analyses[ai]!
@@ -1041,7 +1054,7 @@ export function buildEditPlanFromMix(
 export function buildFallbackMix(analyses: VideoAnalysis[], targetDuration: AutoEditTargetDuration): MixInfo {
   const picks: MixPick[] = []
   let total = 0
-  const clipLens = [4, 4.5, 5, 5.5, MAX_EDIT_SEGMENT_SEC, 4.5, 5]
+  const clipLens = [8, 9, 9.5, 10, MAX_EDIT_SEGMENT_SEC, 8.5, 9.5]
   let attempt = 0
 
   while (total < targetDuration - 0.05 && picks.length < 28 && attempt < analyses.length * 40) {
@@ -1104,7 +1117,7 @@ export async function createMixPlanWithAi(args: {
 }): Promise<MixInfo> {
   const { apiKey, analyses, productAnalysis, targetDuration } = args
   const multi = analyses.length > 1
-  const pickCount = Math.ceil(targetDuration / 1.5)
+  const pickCount = Math.max(3, Math.ceil(targetDuration / IDEAL_EDIT_SEGMENT_SEC))
 
   const sources = analyses.map((a, i) => ({
     srcIndex: resolveAnalysisSrcIndex(a, i),
@@ -1122,7 +1135,8 @@ export async function createMixPlanWithAi(args: {
 picks[]: srcIndex(0부터), start, end(소스 영상 초), reason(한국어 한 줄).
 
 규칙:
-- pick당 **4~6초** (최대 ${MAX_EDIT_SEGMENT_SEC}초). 약 ${pickCount}~${pickCount + 4}개 picks — 한 pick을 길게 늘리지 말고 구간을 나눠 중복 소스 사용 최소화.
+- pick당 **${MIN_EDIT_SEGMENT_SEC}~${MAX_EDIT_SEGMENT_SEC}초** (이상적 ${IDEAL_EDIT_SEGMENT_SEC}초 전후). 약 ${pickCount}~${pickCount + 2}개 picks.
+- **1~2초 초단 pick 금지** — 나레이션이 들어갈 시간(최소 ${MIN_EDIT_SEGMENT_SEC}초)을 확보할 것.
 - scenes에 있는 **의미 장면** 안에서 start/end를 고를 것 (촘촘한 키프레임 나열 금지).
 - 인물·제품·설치·시연·결과 화면 모두 사용 가능 (口播·인물 장면도 허용).
 - **첫 pick**: 후킹(투사 화면·임팩트 데모). 이후 기능→설치→화질→마무리 흐름.
@@ -1135,7 +1149,7 @@ ${multi ? `- ${analyses.length}개 소스 — srcIndex를 번갈아 사용 (A→
 소스 영상 분석:
 ${JSON.stringify(sources, null, 0)}
 
-JSON: {"picks":[{"srcIndex":0,"start":0,"end":2,"reason":"제품 클로즈업 — 핵심 기능"}]}`,
+JSON: {"picks":[{"srcIndex":0,"start":0,"end":4.5,"reason":"제품 클로즈업 — 핵심 기능"}]}`,
       multi ? 2500 : 2000
     )
 
@@ -1264,7 +1278,7 @@ async function tryGenerateNaturalShortsScript(args: {
       rawLines.map((line) => stripLeadingNarrationConnector(line)),
       cuts.map((c) => ({ visual_card: c.visual_card, duration: c.duration })),
       productAnalysis.productName,
-      { allowTemplateFallback: false, fitToDuration: false, sceneMetas, userKeywords: productAnalysis.targetKeywords }
+          { allowTemplateFallback: false, fitToDuration: true, sceneMetas, userKeywords: productAnalysis.targetKeywords }
     )
   )
   const polished = polishedRaw.map((text, i) =>
@@ -1366,7 +1380,8 @@ ${benchmarkScriptFewShotJson()}
 
 규칙:
 - **전체가 한 편의 쇼핑숏폼**처럼 앞뒤가 이어져야 함 (장면별 독립 문장 나열 금지).
-- 아래 visual 블록 순서는 **이미 스토리 흐름**(후킹→소개→설치→데모→결과→마무리)에 맞게 짜집기된 타임라인임. 순서를 바꾸지 말고 이 흐름에 맞는 대본만 작성.
+- 아래 visual 블록 순서는 **이미 스토리 흐름**(후킹→소개·설치→데모→결과→마무리)에 맞게 짜집기된 타임라인임. 순서를 바꾸지 말고 이 흐름에 맞는 대본만 작성.
+- 각 장면 text는 해당 visual의 [샷]·행동·「화면자막」OCR과 일치해야 함. OCR 원문 낭독 금지 — 한국어 구매 설득으로 변환.
 - 첫 장면: 후킹·관심, 중간: 기능·데모, 마지막: 정리·구매 욕구.
 - sceneSubtitles.conversion[i].text = 해당 장면 visual에 맞는 **구어체 문장** (한 줄 10~20자, 끊긴 명사구·조사만 있는 줄 금지). **2번째~마지막 직전 컷**은 ~고/~며/~는데 등 **이어 말하기** 어미로 끝내고, **첫·마지막 컷만** ~요/~세요 완결. 매 컷 ~요로 끝내면 이탈↑. 다음 장면과 어색한 주제 점프 금지.
 - ${NARRATION_PRODUCT_NAME_USAGE_RULE}
@@ -1432,7 +1447,7 @@ ${JSON.stringify(
           ),
           sceneContexts,
           productAnalysis.productName,
-          { allowTemplateFallback: false, fitToDuration: false, userKeywords }
+          { allowTemplateFallback: false, fitToDuration: true, userKeywords }
         )
       )
       const scenes = bundle.sceneSubtitles.conversion.map((block, i) => {

@@ -52,11 +52,11 @@ export function MvpVisualSceneList({
     <div className={cn("space-y-3", className)}>
       <p className="text-xs font-medium text-violet-300">영상 장면 분석</p>
       <p className="text-[10px] leading-relaxed text-slate-500">
-        행동 기반 장면 분석(역할·행동·대본)을 기준으로 짜집기·나레이션을 맞춥니다.
+        행동 기반 장면 분석(역할·행동·대본)을 기준으로 리믹스·나레이션을 맞춥니다.
       </p>
 
       {outputScenes?.length
-        ? renderSceneList(outputScenes, `짜집기 결과 타임라인 (${outputScenes.length}구간)`)
+        ? renderSceneList(outputScenes, `리믹스 결과 타임라인 (${outputScenes.length}구간)`)
         : null}
 
       {analyses.map((a) => {

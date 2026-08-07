@@ -180,6 +180,7 @@ ${benchmarkScriptFewShotJson()}
 필수:
 - **사용자 입력 키워드가 있으면 그 제품 기준으로만** 대본을 작성 (영상 분석 제품명과 다르면 키워드 우선)
 - **원본 중국 숏폼 제목·Vision·장면 분석**을 참고해 각 컷 화면에 실제로 보이는 사물·행동을 한국어로 구체적으로 말할 것
+- 컷 visual에 「화면자막」(OCR)이 있으면 그 의미를 한국어 구매 효용으로 반영 (중국어·영어 원문 낭독 금지)
 - **키워드 제품 + 각 컷 화면**을 한 문장으로 결합 (화면만 읽거나 키워드만 말하기 금지)
 - **후킹 구조**: ①문제·공감(욕실/책상 어지러움) → ②키워드 제품 → ③화면별 데모(퍼즐/벽걸이/컵 등 다른 각도) → ④CTA
 - **금지**: 「몇 번 봐도」「아까 말한」「이어서 보면」「이 화면에서도 그대로」같은 메타 반복 문구
@@ -193,6 +194,7 @@ ${benchmarkScriptFewShotJson()}
 - **중국어·영문(unboxing/review 등) 그대로 읽기 금지** — 한국어 구어체만
 - **그리고/그래서/바로/이어서로 문장 시작 금지** — 접속사 남발 없이 내용으로 이어질 것
 - lines[i] = i번째 컷 (\\n = 자막 줄). 완결된 구어체. 장면 설명·중국어 그대로 읽기 금지
+- **각 컷 duration(초)에 맞는 짧은 분량만** — 초당 약 4자. 긴 문장으로 시간을 넘기지 말 것
 
 JSON: {"lines":["나레이션줄1\\n줄2", ...]} — lines 길이 = ${cuts.length}, **「컷1」번호·라벨 금지** (순수 나레이션만)`
 
@@ -381,7 +383,32 @@ ${repeatGroupsBlock}
       }
     }
 
-    polished = mitigateProductNameSpam(polished, productName)
+    polished = mitigateProductNameSpam(polished, productName).map((text, i) => {
+      const dur = cuts[i]!.duration
+      let next = formatSceneNarrationLines(text, dur)
+      const plain = next.replace(/\s+/g, "")
+      if (!plain || plain === "한번보세요" || /^한번보세요$/.test(plain)) {
+        // 포맷이 문장을 날리면 원문 유지 (동일 클리셰 방지)
+        next = sanitizeNarrationForOutput(text) || next
+      }
+      return next
+    })
+
+    // 전 컷이 같은 짧은 클리셰면 실패로 처리해 재시도 유도
+    const normalized = polished.map((t) => t.replace(/\s+/g, ""))
+    if (
+      polished.length >= 2 &&
+      new Set(normalized).size === 1 &&
+      (normalized[0] === "한번보세요" || (normalized[0]?.length ?? 0) <= 6)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "대본이 장면마다 같은 짧은 문구로만 생성되었습니다. 「대본 다시쓰기」를 다시 눌러 주세요.",
+        },
+        { status: 422 }
+      )
+    }
 
     const overrides: Record<string, string> = {}
     polished.forEach((text, i) => {

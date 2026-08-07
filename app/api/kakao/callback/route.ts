@@ -151,34 +151,51 @@ export async function GET(request: NextRequest) {
     if (supabaseUrl && supabaseServiceKey) {
       try {
         const supabase = createClient(supabaseUrl, supabaseServiceKey)
-        
-        // 사용자 정보 Upsert (있으면 업데이트, 없으면 생성)
-        // instructor는 기본값 NULL (미지정)으로 설정
-        const userData = {
-          kakao_id: userInfo.id,
+
+        const profileFields = {
           email: userInfo.kakao_account?.email || null,
           nickname: userInfo.kakao_account?.profile?.nickname || null,
           profile_image_url: userInfo.kakao_account?.profile?.profile_image_url || null,
           thumbnail_image_url: userInfo.kakao_account?.profile?.thumbnail_image_url || null,
           phone_number: userInfo.kakao_account?.phone_number || null,
-          instructor: null, // 기본값: 미지정
           login_provider: "kakao",
           last_login_at: new Date().toISOString(),
         }
-        
-        console.log("[Kakao Callback] 저장할 사용자 데이터:", userData)
-        
-        const { data: dbUser, error: dbError } = await supabase
+
+        const { data: existingUser } = await supabase
           .from("users")
-          .upsert(
-            userData,
-            {
-              onConflict: "kakao_id",
-              ignoreDuplicates: false,
-            }
-          )
-          .select()
-          .single()
+          .select("id, approved")
+          .eq("kakao_id", userInfo.id)
+          .maybeSingle()
+
+        let dbUser = null
+        let dbError = null
+
+        if (existingUser?.id) {
+          // 기존 회원: 프로필만 갱신 (approved / instructor 유지)
+          const result = await supabase
+            .from("users")
+            .update(profileFields)
+            .eq("kakao_id", userInfo.id)
+            .select()
+            .single()
+          dbUser = result.data
+          dbError = result.error
+        } else {
+          // 신규 가입: 바로 승인
+          const result = await supabase
+            .from("users")
+            .insert({
+              kakao_id: userInfo.id,
+              ...profileFields,
+              instructor: null,
+              approved: true,
+            })
+            .select()
+            .single()
+          dbUser = result.data
+          dbError = result.error
+        }
 
         if (dbError) {
           console.error("[Kakao Callback] Supabase 저장 실패:", {
@@ -187,18 +204,17 @@ export async function GET(request: NextRequest) {
             details: dbError.details,
             hint: dbError.hint,
           })
-          // Supabase 저장 실패해도 로그인은 계속 진행 (쿠키는 저장)
         } else {
           console.log("[Kakao Callback] Supabase 저장 성공:", {
             userId: dbUser?.id,
             kakaoId: dbUser?.kakao_id,
             email: dbUser?.email,
-            instructor: dbUser?.instructor,
+            approved: dbUser?.approved,
+            isNew: !existingUser?.id,
           })
         }
       } catch (supabaseError) {
         console.error("[Kakao Callback] Supabase 클라이언트 오류:", supabaseError)
-        // Supabase 오류는 무시하고 로그인 계속 진행
       }
     } else {
       console.warn("[Kakao Callback] Supabase 환경 변수가 설정되지 않아 사용자 정보를 저장하지 않습니다.", {

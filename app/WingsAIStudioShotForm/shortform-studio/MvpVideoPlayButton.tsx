@@ -47,7 +47,7 @@ export function MvpVideoPlayButton({
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-md overflow-hidden border-white/10 bg-slate-950 p-0">
-          <DialogTitle className="sr-only">{title || "小红书 영상"}</DialogTitle>
+          <DialogTitle className="sr-only">{title || "샤오홍슈 영상"}</DialogTitle>
           <div className="relative aspect-[3/4] w-full bg-black">
             {modalVideoSrc ? (
               // eslint-disable-next-line jsx-a11y/media-has-caption

@@ -55,7 +55,7 @@ export function MvpAutoEditProductIntro({ result, videoUrl, playhead = 0, classN
               {result.mixInfo?.picks?.length ? (
                 <span className="inline-flex items-center gap-1 rounded-full bg-orange-500/15 px-2 py-0.5 text-[10px] font-medium text-orange-200">
                   <Sparkles className="h-3 w-3" />
-                  {result.mixInfo.picks.length}컷 짜집기
+                  {result.mixInfo.picks.length}컷 리믹스
                 </span>
               ) : null}
             </div>
@@ -111,7 +111,7 @@ export function MvpAutoEditProductIntro({ result, videoUrl, playhead = 0, classN
       {outputScenes.length > 0 ? (
         <div className="rounded-lg border border-violet-500/20 bg-violet-950/15 p-2.5">
           <p className="text-[10px] font-semibold text-violet-200">
-            짜집기 장면 분석 ({outputScenes.length}구간)
+            리믹스 장면 분석 ({outputScenes.length}구간)
           </p>
           <p className="mt-0.5 text-[9px] text-slate-500">
             출력 타임라인 구간별 화면 설명 — 대본 sceneSubtitles와 맞춥니다.

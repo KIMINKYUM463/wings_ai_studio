@@ -142,7 +142,7 @@ function Header({ onSettingsClick, onFeedbackClick }: { onSettingsClick: () => v
               className="text-slate-700 hover:text-slate-900"
               onClick={() => router.push('/')}
             >
-              부스텍AI홈
+              wings AI 홈
             </Button>
             <Button 
               variant="ghost" 

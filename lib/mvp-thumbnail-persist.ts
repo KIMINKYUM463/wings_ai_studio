@@ -84,6 +84,19 @@ export async function cacheMvpThumbnailGalleryForSave(
   )
 }
 
+/** 브라우저 <img>에 넣을 수 있는 URL인지 */
+export function isDisplayableThumbnailUrl(url: string | null | undefined): boolean {
+  const trimmed = (url ?? "").trim()
+  if (!trimmed) return false
+  if (trimmed.startsWith(MVP_THUMBNAIL_IDB_PREFIX)) return false
+  return (
+    trimmed.startsWith("data:image/") ||
+    trimmed.startsWith("blob:") ||
+    trimmed.startsWith("http://") ||
+    trimmed.startsWith("https://")
+  )
+}
+
 /** 프로젝트 재오픈 — IndexedDB 썸네일을 blob URL로 복원 */
 export async function hydrateMvpThumbnailGallery(
   projectId: string,
@@ -102,9 +115,18 @@ export async function hydrateMvpThumbnailGallery(
         out.push({ ...variant, url: URL.createObjectURL(blob) })
         continue
       }
+      // IDB에 없으면 mvp-idb:// 는 표시 불가 — 원본이 data/blob/http면 유지
+      if (isDisplayableThumbnailUrl(url)) {
+        out.push(variant)
+        continue
+      }
+      console.warn("[mvp-thumbnail-persist] thumbnail missing in IDB:", variant.id)
+      // 깨진 참조는 빈 url로 두지 않고 항목은 유지하되, 호출측에서 prev와 merge
+      out.push({ ...variant, url: "" })
+      continue
     }
 
-    if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("data:") || url.startsWith("blob:")) {
+    if (isDisplayableThumbnailUrl(url)) {
       out.push(variant)
       continue
     }
@@ -112,6 +134,39 @@ export async function hydrateMvpThumbnailGallery(
     out.push(variant)
   }
   return out
+}
+
+/** hydrate 결과와 현재 목록 병합 — 표시 가능한 최신 URL을 우선 */
+export function mergeHydratedThumbnailGallery(
+  previous: readonly MvpThumbnailVariant[],
+  hydrated: readonly MvpThumbnailVariant[]
+): MvpThumbnailVariant[] {
+  const prevById = new Map(previous.map((v) => [v.id, v]))
+  const merged: MvpThumbnailVariant[] = hydrated.map((h) => {
+    const prev = prevById.get(h.id)
+    if (!prev) return h
+    const prevOk = isDisplayableThumbnailUrl(prev.url)
+    const nextOk = isDisplayableThumbnailUrl(h.url)
+    if (prevOk && !nextOk) return prev
+    if (prevOk && nextOk && prev.url.startsWith("data:") && h.url.startsWith("blob:")) {
+      // IDB에서 복원한 blob을 우선 (persist 정합)
+      return { ...h, studioDesign: h.studioDesign ?? prev.studioDesign, hookingText: h.hookingText ?? prev.hookingText }
+    }
+    return {
+      ...h,
+      url: nextOk ? h.url : prev.url,
+      studioDesign: h.studioDesign ?? prev.studioDesign,
+      hookingText: h.hookingText ?? prev.hookingText,
+    }
+  })
+
+  // persist에 아직 안 들어간 방금 추가분 유지
+  for (const prev of previous) {
+    if (!merged.some((v) => v.id === prev.id) && isDisplayableThumbnailUrl(prev.url)) {
+      merged.push(prev)
+    }
+  }
+  return merged
 }
 
 function slimPersistUrl(url: string): string {

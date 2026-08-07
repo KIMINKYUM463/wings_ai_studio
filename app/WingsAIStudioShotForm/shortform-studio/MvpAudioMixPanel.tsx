@@ -154,17 +154,22 @@ export function MvpAudioMixPanel({
 
   const selectedClip = bgmClips.find((c) => c.id === selectedBgmClipId) ?? null
   return (
-    <div className="space-y-4 rounded-lg border border-white/10 bg-[#141414] p-3">
+    <div
+      className={cn(
+        "space-y-4 rounded-lg border p-3",
+        "border-slate-200 bg-white"
+      )}
+    >
       <div className="flex items-center gap-2">
-        <Music2 className="h-4 w-4 text-sky-400" />
-        <p className="text-xs font-medium text-white">배경음악</p>
+        <Music2 className="h-4 w-4 text-sky-600" />
+        <p className="text-xs font-medium text-slate-900">배경음악</p>
       </div>
 
-      <div className="space-y-2 rounded-md border border-white/5 bg-[#0f0f0f] p-3">
-        <p className="text-[10px] font-medium text-slate-400">음원 추가</p>
+      <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3">
+        <p className="text-[10px] font-medium text-slate-600">음원 추가</p>
         <div className="flex flex-wrap items-center gap-2">
           <Select value={pendingCatalogId} onValueChange={onPendingCatalogIdChange}>
-            <SelectTrigger className="h-8 w-[min(100%,180px)] border-white/10 bg-[#1a1a1a] text-xs">
+            <SelectTrigger className="h-8 w-[min(100%,180px)] border-slate-200 bg-white text-xs text-slate-800">
               <SelectValue placeholder="음원 선택" />
             </SelectTrigger>
             <SelectContent>
@@ -237,8 +242,8 @@ export function MvpAudioMixPanel({
                   className={cn(
                     "flex w-full items-center gap-2 rounded border px-2 py-1.5 text-left text-[10px] transition",
                     selectedBgmClipId === clip.id
-                      ? "border-sky-400/50 bg-sky-500/15 text-sky-100"
-                      : "border-white/5 bg-[#1a1a1a] text-slate-300 hover:bg-[#222]"
+                      ? "border-sky-400 bg-sky-50 text-sky-900"
+                      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                   )}
                 >
                   <button

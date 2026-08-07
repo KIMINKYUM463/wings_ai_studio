@@ -13,12 +13,32 @@ import { compareScenesByEditorialPriority, sceneEditorialScore } from "@/lib/sho
 
 const ROUND = (n: number) => Math.round(n * 100) / 100
 
-/** 컷당 최대 길이 — 동일 소스 중복·이탈 방지 (5~6초 권장) */
-export const MAX_EDIT_SEGMENT_SEC = 6
+/**
+ * 컷 영상은 TTS와 비슷한 길이로 잡습니다 (벤치마크 장면 맞춤).
+ * 대본은 `narrationBudgetSec`(=컷의 ~90%)에 맞추고,
+ * TTS 후 음성이 짧으면 영상을 자릅니다.
+ */
+export const EDIT_SEGMENT_TTS_PAD_SEC = 0.5
+/** 나레이션·TTS 예산에 쓰는 이상적 컷 길이 (초) — 벤치마크 3~6초대 */
+export const IDEAL_NARRATION_SEGMENT_SEC = 5
+/** 실제 영상 컷 이상 길이 */
 export const IDEAL_EDIT_SEGMENT_SEC = 5.5
-export const MIN_EDIT_SEGMENT_SEC = 1
+/** 컷당 최대 영상 길이 */
+export const MAX_EDIT_SEGMENT_SEC = 12
+/** 컷당 최소 영상 길이 — 초단컷(1.5초)에 긴 문장 넣는 문제 방지 */
+export const MIN_EDIT_SEGMENT_SEC = 3
 
-const FILL_CLIP_LENS = [5.5, 5, 4.5, 5.5, 4, 5, 3.5] as const
+const FILL_CLIP_LENS = [5.5, 4.5, 6, 5, 4, 5.5] as const
+
+/**
+ * 컷 영상 길이 → 나레이션/TTS 글자 예산 초.
+ * 벤치마크: 컷의 약 90%를 말할 시간으로 사용 (배속·자르기 여유).
+ */
+export function narrationBudgetSec(sceneDurationSec: number): number {
+  const d = Math.max(0.5, sceneDurationSec)
+  // 벤치마크: 컷 길이의 약 95% — 너무 줄이면 AI/포맷이 「한번 보세요」만 남김
+  return Math.round(Math.max(1.2, d * 0.95) * 10) / 10
+}
 
 function segmentOutputDur(seg: EditPlanSegment): number {
   return seg.output_end - seg.output_start
@@ -455,7 +475,63 @@ export function finalizeEditPlan(plan: EditPlan, analyses: VideoAnalysis[]): Edi
     return minimalEditPlanFallback(analyses, target)
   }
 
-  return { target_duration: target, edit_plan: capSegmentsToMaxLength(normalized) }
+  const merged = mergeShortEditPlanSegments(capSegmentsToMaxLength(normalized), MIN_EDIT_SEGMENT_SEC)
+  return { target_duration: target, edit_plan: retimeEditPlanOutputs(merged) }
+}
+
+/** 연속·동일 소스 초단컷을 합쳐 최소 길이를 맞춤 (벤치마크 3초+ 씬) */
+function mergeShortEditPlanSegments(
+  segments: EditPlanSegment[],
+  minSec: number
+): EditPlanSegment[] {
+  if (segments.length <= 1) return segments
+  const out: EditPlanSegment[] = []
+  let cur = { ...segments[0]! }
+
+  for (let i = 1; i < segments.length; i++) {
+    const next = segments[i]!
+    const curDur = segmentOutputDur(cur)
+    const canMergeSameSource =
+      cur.video_id === next.video_id &&
+      Math.abs(cur.source_end - next.source_start) < 0.4 &&
+      curDur < minSec
+
+    if (canMergeSameSource) {
+      const mergedSourceEnd = Math.max(cur.source_end, next.source_end)
+      const newDur = Math.min(
+        MAX_EDIT_SEGMENT_SEC,
+        Math.max(curDur + segmentOutputDur(next), mergedSourceEnd - cur.source_start)
+      )
+      cur = {
+        ...cur,
+        source_end: ROUND(cur.source_start + newDur),
+        output_end: ROUND(cur.output_start + newDur),
+        reason: cur.reason || next.reason,
+        visual_caption: cur.visual_caption || next.visual_caption,
+      }
+      continue
+    }
+
+    out.push(cur)
+    cur = { ...next }
+  }
+  out.push(cur)
+  return out
+}
+
+function retimeEditPlanOutputs(segments: EditPlanSegment[]): EditPlanSegment[] {
+  let cursor = 0
+  return segments.map((seg) => {
+    const dur = Math.max(0.25, segmentOutputDur(seg))
+    const next = {
+      ...seg,
+      output_start: ROUND(cursor),
+      output_end: ROUND(cursor + dur),
+      source_end: ROUND(seg.source_start + dur),
+    }
+    cursor += dur
+    return next
+  })
 }
 
 /** 목표 쇼츠 길이에 맞게 부족한 output 구간을 소스에서 채움 */

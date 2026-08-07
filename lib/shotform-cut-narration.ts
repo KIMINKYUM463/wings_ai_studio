@@ -28,6 +28,7 @@ import {
 import type { CutNarrationSceneMeta } from "@/lib/shotform-narration-scene-groups"
 import { buildCutNarrationSceneMetas } from "@/lib/shotform-narration-scene-groups"
 import { sanitizeNarrationForOutput } from "@/lib/shotform-natural-shorts-script"
+import { narrationBudgetSec } from "@/lib/shotform-auto-edit-plan-finalize"
 import { isRepeatMetaNarration, isToothbrushHolderProduct } from "@/lib/shotform-shopping-visual-cues"
 import { actionScriptTextForSourceRange } from "@/lib/shotform-scene-understanding"
 import { PRECISION_SCRIPT_TONE } from "@/lib/shotform-auto-edit-precision-script"
@@ -113,6 +114,8 @@ const GENERIC_TEMPLATE_PATTERNS = [
   /정리\s*포인트/,
   /디자인\s*포인트/,
   /포인트는\s*같/,
+  /^한번\s*보세요$/,
+  /^이\s*제품\s*한번\s*보세요$/,
 ] as const
 
 const INVALID_NARRATION_PRODUCT_NAME =
@@ -459,7 +462,59 @@ export function narrationTextForEditSegment(
 }
 
 const GENERIC_NARRATION =
-  /^(이 제품 한번 보세요|제품 디테일 한번 보세요|제품 디테일 보세요|직접 써봤어요|장면|제품 장면|실제로 써보면)/
+  /^(한번 보세요|이 제품 한번 보세요|제품 디테일 한번 보세요|제품 디테일 보세요|직접 써봤어요|장면|제품 장면|실제로 써보면)/
+
+/**
+ * 화면 설명에서 짧은 고유 나레이션 후보를 만듭니다.
+ * 「한번 보세요」 일괄 폴백 대신 컷마다 다른 말을 쓰기 위함.
+ */
+export function shortNarrationFromVisualHint(visualHint: string, sceneIndex: number): string {
+  const raw = (visualHint || "")
+    .replace(/\[[^\]]*\]/g, " ")
+    .replace(/화면자막[:：]?「?[^」]*」?/g, " ")
+    .replace(/소스\s+[\d.–\-~\s초()]+/g, " ")
+    .replace(/제품[:：]\s*/g, " ")
+    .replace(/·/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+
+  const objectMatch = raw.match(
+    /(사과|딸기|멜론|수박|참외|키위|양파|마늘|고기|랩|필름|다지기|커터|슬라이서|밀봉|수납|거치대|홀더)/
+  )
+  const actionMatch = raw.match(/(자르|다져|퍼내|밀봉|밀착|설치|수납|닦|썰)/)
+  const object = objectMatch?.[1] || ""
+  const action = actionMatch?.[1] || ""
+
+  const pool: string[] = []
+  if (object && action) {
+    pool.push(`${object} ${action}기 한 번에`)
+    pool.push(`${object}도 이렇게 ${action}요`)
+    pool.push(`${object} ${action}면 끝나요`)
+  }
+  if (object) {
+    pool.push(`${object}도 한번에 쏙`)
+    pool.push(`${object} 걱정 끝이에요`)
+    pool.push(`${object} 이렇게 편해요`)
+  }
+  if (action) {
+    pool.push(`이렇게 ${action}면 끝`)
+    pool.push(`${action}기가 이렇게 쉽죠`)
+  }
+  // 화면 문장에서 짧은 조각 — 반드시 완결 어미
+  const words = raw.split(/\s+/).filter((w) => /[가-힣]{2,}/.test(w) && w.length <= 8)
+  if (words[0]) pool.push(`${words[0]} 이렇게 해요`)
+  if (words[1]) pool.push(`${words[1]} 한 번에 끝`)
+
+  if (!pool.length) {
+    const safe = ["이렇게 쉽죠", "손이 덜 가요", "진짜 편해졌어요", "핵심만 보여드릴게요"]
+    return safe[sceneIndex % safe.length]!
+  }
+
+  // 미완성·어중간한 후보 제외
+  const complete = pool.filter((p) => p.trim() && !narrationLooksIncomplete(p))
+  const chosen = (complete.length ? complete : pool)[sceneIndex % (complete.length || pool.length)]!
+  return chosen.slice(0, 18)
+}
 
 /** 대본이 비었거나, 중국어·장면설명 그대로·너무 뻔한 문구인지 */
 export function narrationTextLooksWeak(
@@ -727,7 +782,8 @@ export function buildNarrationSegmentsFromEditPlan(
       index: i + 1,
       output_start: seg.output_start,
       output_end: seg.output_end,
-      duration: Math.round((seg.output_end - seg.output_start) * 10) / 10,
+      // 대본 글자 수는 TTS 여유(패드)를 뺀 예산 초 기준
+      duration: narrationBudgetSec(seg.output_end - seg.output_start),
       video_id: seg.video_id,
       source_start: seg.source_start,
       source_end: seg.source_end,
@@ -741,7 +797,8 @@ export function buildNarrationSegmentsFromEditPlan(
   const groupLast = new Map<number, string>()
 
   return plan.map((seg, i) => {
-    const dur = Math.max(0.5, seg.output_end - seg.output_start)
+    const videoDur = Math.max(0.5, seg.output_end - seg.output_start)
+    const dur = narrationBudgetSec(videoDur)
     const analysis = byId.get(seg.video_id)
     const visualHint = analysis
       ? formatCutVisualCard(
@@ -830,7 +887,13 @@ export function cutVisualHintForSegment(
 ): string {
   if (!analysis) return seg.reason
   const sc = visualSceneForSourceRange(analysis, seg.source_start, seg.source_end)
-  return formatCutVisualCard(analysis, seg.source_start, seg.source_end, sc?.description || seg.reason)
+  return formatCutVisualCard(
+    analysis,
+    seg.source_start,
+    seg.source_end,
+    sc?.description || seg.reason,
+    seg.visual_caption
+  )
 }
 
 export function needsAiNarrationFromScenes(

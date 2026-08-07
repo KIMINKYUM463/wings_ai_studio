@@ -66,6 +66,55 @@ function wapiMetaCode(meta: WapiEnvelope["meta"]): number {
   return Number.isFinite(n) ? n : -1
 }
 
+/** Vmake가 주는 영문 단문을 사용자용 안내로 바꿉니다. */
+export function formatVmakeUserError(raw: string): string {
+  const msg = (raw || "").trim()
+  const lower = msg.toLowerCase()
+  if (!msg || lower === "internal error" || lower === "internal error.") {
+    return (
+      "Vmake 자막 제거 서버에서 일시적 오류(Internal error)가 났습니다. " +
+      "영상 길이·용량이 크면 실패할 수 있으니, 조금 뒤 다시 시도해 주세요. " +
+      "같은 오류가 반복되면 API 키 잔여 횟수와 영상 코덱(H.264 MP4)을 확인해 주세요."
+    )
+  }
+  if (lower.includes("quota") || lower.includes("credit") || lower.includes("balance")) {
+    return `Vmake 사용량/크레딧이 부족할 수 있습니다. (${msg})`
+  }
+  if (lower.includes("timeout") || lower.includes("timed out")) {
+    return `Vmake 처리 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요. (${msg})`
+  }
+  return msg
+}
+
+function isTransientVmakeError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase()
+  return (
+    msg.includes("internal error") ||
+    msg.includes("일시적 오류") ||
+    msg.includes("timeout") ||
+    msg.includes("시간 초과") ||
+    msg.includes("econnreset") ||
+    msg.includes("fetch failed") ||
+    msg.includes("socket hang up")
+  )
+}
+
+function extractTaskFailureMessage(raw: Record<string, unknown>): string {
+  const meta = (raw.meta as Record<string, unknown> | undefined) || {}
+  const data = (raw.data as Record<string, unknown> | undefined) || {}
+  const result = data.result
+  const fromMeta = String(meta.msg || meta.message || "").trim()
+  const fromData = String(data.message || data.error || data.msg || "").trim()
+  let fromResult = ""
+  if (result && typeof result === "object") {
+    const r = result as Record<string, unknown>
+    fromResult = String(r.msg || r.message || r.error || r.detail || "").trim()
+  } else if (typeof result === "string") {
+    fromResult = result.trim()
+  }
+  return formatVmakeUserError(fromMeta || fromData || fromResult || "Vmake 영상 처리 작업이 실패했습니다.")
+}
+
 function normalizeMediaUrl(value: unknown): string {
   if (typeof value === "string" && value.startsWith("http")) return value
   if (value && typeof value === "object") {
@@ -179,7 +228,10 @@ async function wapiRequest<T>(
   const data = (await res.json()) as WapiEnvelope<T>
   const code = wapiMetaCode(data.meta)
   if (code !== 0) {
-    throw new VmakeSkillError(code, data.meta?.msg || `Vmake WAPI 오류 (${apiPath})`)
+    throw new VmakeSkillError(
+      code,
+      formatVmakeUserError(data.meta?.msg || `Vmake WAPI 오류 (${apiPath})`)
+    )
   }
   return (data.response || {}) as T
 }
@@ -270,7 +322,22 @@ async function uploadLocalFileToOss(
     endpoint: normalizeOssEndpoint(policy.url || ""),
   })
 
-  const result = await client.put(policy.key, filePath)
+  const ext = path.extname(filePath).toLowerCase()
+  const contentType =
+    ext === ".mov"
+      ? "video/quicktime"
+      : ext === ".webm"
+        ? "video/webm"
+        : "video/mp4"
+
+  // ali-oss 런타임은 3번째 options를 지원하지만 타입 정의가 2항만 허용하는 경우가 있음
+  const result = await (client as OSS & {
+    put: (name: string, file: string, options?: { headers?: Record<string, string> }) => Promise<{
+      res: { status: number }
+    }>
+  }).put(policy.key, filePath, {
+    headers: { "Content-Type": contentType },
+  })
   if (result.res.status !== 200) {
     throw new Error(`Vmake OSS 업로드 실패 (HTTP ${result.res.status})`)
   }
@@ -379,13 +446,18 @@ async function submitAlgorithmTask(input: {
 
   const policy = (await getTokenPolicy(input.accessKey, input.secretKey, "ai", input.region)) as AiStrategy
   const host = (policy.url || "").replace(/^https?:\/\//, "")
-  const mergedParams = deepMergeParams(preset.params || DEFAULT_TASK_PARAMS, input.params)
+  // 공식 SDK와 동일: DEFAULT(rsp_media_type=url) 위에 preset·호출자 params를 덮어씀
+  const mergedParams = deepMergeParams(
+    deepMergeParams(DEFAULT_TASK_PARAMS, preset.params),
+    input.params
+  )
+  const syncTimeout = Math.max(10, Number(policy.sync_timeout) || 60)
   const payload = {
     params: JSON.stringify(mergedParams),
     context: input.context,
     task: preset.task,
     task_type: preset.task_type?.trim() || "mtlab",
-    sync_timeout: policy.sync_timeout ?? 60,
+    sync_timeout: syncTimeout,
     init_images: [{ url: input.mediaUrl }],
   }
 
@@ -397,7 +469,7 @@ async function submitAlgorithmTask(input: {
     secretKey: input.secretKey,
     body: JSON.stringify(payload),
     headers: { [VMMAKE_HEADER_HOST]: host },
-    timeoutMs: ((policy.sync_timeout ?? 60) + 10) * 1000,
+    timeoutMs: (syncTimeout + 10) * 1000,
   })
 
   if (res.status !== 200) {
@@ -405,7 +477,18 @@ async function submitAlgorithmTask(input: {
   }
 
   const taskResult = (await res.json()) as Record<string, unknown>
+  const meta = taskResult.meta as WapiEnvelope["meta"] | undefined
+  const metaCode = wapiMetaCode(meta)
   const data = taskResult.data as Record<string, unknown> | undefined
+  const earlyUrls = extractOutputUrls(taskResult)
+
+  if (metaCode !== 0) {
+    // 비동기 제출(status 9)이거나 결과 URL이 있으면 meta 오류를 무시
+    if (data?.status !== 9 && earlyUrls.length === 0) {
+      throw new VmakeSkillError(metaCode, formatVmakeUserError(meta?.msg || "Vmake 알고리즘 제출 실패"))
+    }
+  }
+
   if (data?.status === 9) {
     const result = data.result as Record<string, unknown> | undefined
     const taskId = String(result?.id || "").trim()
@@ -413,8 +496,10 @@ async function submitAlgorithmTask(input: {
     return pollAlgorithmTask(input.accessKey, input.secretKey, taskId, policy)
   }
 
-  const urls = extractOutputUrls(taskResult)
-  if (urls.length) return { ...taskResult, output_urls: urls }
+  if (earlyUrls.length) return { ...taskResult, output_urls: earlyUrls }
+  if (isTaskFailure(data?.status)) {
+    throw new Error(extractTaskFailureMessage(taskResult))
+  }
   return taskResult
 }
 
@@ -439,17 +524,29 @@ async function queryAlgorithmStatus(
   }
 
   const taskResult = (await res.json()) as Record<string, unknown>
+  const data = taskResult.data as Record<string, unknown> | undefined
+  const status = data?.status
+  const outputUrls = extractOutputUrls(taskResult)
+
+  // 결과 URL·성공 status가 있으면 meta의 "Internal error."보다 성공을 우선
+  if (data && isTaskSuccess(status)) {
+    return { finished: true, failed: false, result: taskResult }
+  }
+  if (outputUrls.length > 0 && !isTaskFailure(status)) {
+    return { finished: true, failed: false, result: { ...taskResult, output_urls: outputUrls } }
+  }
+
   const meta = taskResult.meta as Record<string, unknown> | undefined
   const metaCode = meta?.code
   if (metaCode !== undefined && metaCode !== 0 && metaCode !== "0") {
+    // 실패 meta여도 결과 URL이 있으면 성공으로 처리 (자막은 지워졌는데 오류만 뜨는 케이스)
+    if (outputUrls.length > 0) {
+      return { finished: true, failed: false, result: { ...taskResult, output_urls: outputUrls } }
+    }
     return { finished: true, failed: true, result: taskResult }
   }
 
-  const data = taskResult.data as Record<string, unknown> | undefined
   if (!data) return { finished: false, failed: false, result: taskResult }
-
-  const status = data.status
-  if (isTaskSuccess(status)) return { finished: true, failed: false, result: taskResult }
   if (isTaskFailure(status)) return { finished: true, failed: true, result: taskResult }
   return { finished: false, failed: false, result: taskResult }
 }
@@ -468,7 +565,7 @@ async function pollAlgorithmTask(
     .filter(Boolean)
     .map((d) => Math.max(1000, Number(d) || 3000))
 
-  const minTotalMs = Number(process.env.VMAKE_POLL_MIN_TOTAL_MS || 600_000)
+  const minTotalMs = Number(process.env.VMAKE_POLL_MIN_TOTAL_MS || 720_000)
   let total = durations.reduce((sum, d) => sum + d, 0)
   const extended = [...durations]
   while (total < minTotalMs) {
@@ -481,9 +578,19 @@ async function pollAlgorithmTask(
     const query = await queryAlgorithmStatus(accessKey, secretKey, uri, policy)
     if (query.finished) {
       if (query.failed) {
-        const raw = typeof query.result === "object" ? query.result : { meta: { msg: String(query.result) } }
-        const meta = (raw.meta as Record<string, unknown> | undefined) || {}
-        throw new Error(String(meta.msg || meta.message || "Vmake 영상 처리 작업이 실패했습니다."))
+        const raw =
+          typeof query.result === "object" && query.result
+            ? (query.result as Record<string, unknown>)
+            : { meta: { msg: String(query.result) } }
+        const urls = extractOutputUrls(raw)
+        if (urls.length > 0) {
+          console.warn(
+            "[vmake] task reported failure but output URLs exist — treating as success:",
+            urls[0]?.slice(0, 80)
+          )
+          return { ...raw, output_urls: urls, task_id: taskId }
+        }
+        throw new Error(extractTaskFailureMessage(raw))
       }
       const body = query.result as Record<string, unknown>
       const urls = extractOutputUrls(body)
@@ -542,6 +649,33 @@ export async function verifyVmakeSkillCredentials(accessKey: string, secretKey: 
   }
 }
 
+async function runVmakeVideoScreenClearOnce(input: {
+  accessKey: string
+  secretKey: string
+  sourcePath: string
+  outputPath: string
+  taskPreset?: string
+  params?: Record<string, unknown>
+}): Promise<void> {
+  await fetchVmakeSkillConfig(input.accessKey, input.secretKey)
+  const mediaUrl = await uploadLocalFileToOss(input.accessKey, input.secretKey, input.sourcePath)
+  const taskPreset = input.taskPreset?.trim() || resolveVideoTaskPreset()
+  const context = await consumeQuota(input.accessKey, input.secretKey, mediaUrl, taskPreset)
+  const result = await submitAlgorithmTask({
+    accessKey: input.accessKey,
+    secretKey: input.secretKey,
+    mediaUrl,
+    presetName: taskPreset,
+    context,
+    params: input.params,
+  })
+
+  const outputUrls = (result.output_urls as string[] | undefined) || extractOutputUrls(result)
+  const resultUrl = outputUrls[0]
+  if (!resultUrl) throw new Error("Vmake 처리 결과 URL을 찾지 못했습니다.")
+  await downloadRemoteVideo(resultUrl, input.outputPath)
+}
+
 /** 로컬 MP4 → Vmake 영상 화면 지우기(자막/워터마크) → outputPath */
 export async function runVmakeVideoScreenClear(input: {
   accessKey: string
@@ -557,21 +691,34 @@ export async function runVmakeVideoScreenClear(input: {
     throw new Error("Vmake AI API Key와 Secret Key가 필요합니다.")
   }
 
-  await fetchVmakeSkillConfig(accessKey, secretKey)
-  const mediaUrl = await uploadLocalFileToOss(accessKey, secretKey, input.sourcePath)
-  const taskPreset = input.taskPreset?.trim() || resolveVideoTaskPreset()
-  const context = await consumeQuota(accessKey, secretKey, mediaUrl, taskPreset)
-  const result = await submitAlgorithmTask({
-    accessKey,
-    secretKey,
-    mediaUrl,
-    presetName: taskPreset,
-    context,
-    params: input.params,
-  })
-
-  const outputUrls = (result.output_urls as string[] | undefined) || extractOutputUrls(result)
-  const resultUrl = outputUrls[0]
-  if (!resultUrl) throw new Error("Vmake 처리 결과 URL을 찾지 못했습니다.")
-  await downloadRemoteVideo(resultUrl, input.outputPath)
+  const payload = { ...input, accessKey, secretKey }
+  try {
+    await runVmakeVideoScreenClearOnce(payload)
+  } catch (e) {
+    // 이미 결과 파일이 있으면(부분 성공) 오류로 끝내지 않음
+    const existing = await fs.stat(input.outputPath).catch(() => null)
+    if (existing && existing.size >= 20_000) {
+      console.warn(
+        "[vmake] error after output written — keeping result:",
+        e instanceof Error ? e.message : e
+      )
+      return
+    }
+    if (!isTransientVmakeError(e)) throw e
+    console.warn("[vmake] transient failure, retrying once:", e instanceof Error ? e.message : e)
+    await new Promise((r) => setTimeout(r, 2500))
+    try {
+      await runVmakeVideoScreenClearOnce(payload)
+    } catch (e2) {
+      const afterRetry = await fs.stat(input.outputPath).catch(() => null)
+      if (afterRetry && afterRetry.size >= 20_000) {
+        console.warn(
+          "[vmake] retry error but output exists — keeping result:",
+          e2 instanceof Error ? e2.message : e2
+        )
+        return
+      }
+      throw e2
+    }
+  }
 }

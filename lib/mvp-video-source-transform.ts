@@ -1,11 +1,11 @@
 import type { CSSProperties } from "react"
 import type { AutoEditJobResult, EditPlanSegment } from "@/lib/shotform-auto-edit-types"
 
-export const MVP_VIDEO_SOURCE_SCALE_MIN = 1
+export const MVP_VIDEO_SOURCE_SCALE_MIN = 0.5
 export const MVP_VIDEO_SOURCE_SCALE_MAX = 2.5
 
 export type MvpVideoSourceTransform = {
-  /** 1 = 기본, 2.5 = 최대 확대 */
+  /** 0.5 = 축소, 1 = 기본, 2.5 = 최대 확대 */
   scale: number
   flipH: boolean
 }
@@ -106,7 +106,7 @@ export function getMvpEditPlanClipTransform(
 }
 
 export function isDefaultMvpVideoSourceTransform(transform: MvpVideoSourceTransform): boolean {
-  return !transform.flipH && clampMvpVideoSourceScale(transform.scale) <= 1.001
+  return !transform.flipH && Math.abs(clampMvpVideoSourceScale(transform.scale) - 1) <= 0.001
 }
 
 /** object-contain 배치 후 중심 기준 확대·좌우반전 (미리보기 CSS transform과 동일) */

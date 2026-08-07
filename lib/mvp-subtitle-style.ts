@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react"
 import { DEFAULT_SUBTITLE_Y_PERCENT, type MvpSubtitleStyle } from "@/lib/mvp-studio-types"
+import { MVP_PREVIEW_STAGE_WIDTH_PX } from "@/lib/mvp-mosaic-overlay-utils"
 
 export const MVP_SUBTITLE_FONT_OPTIONS = [
   { value: "pretendard-bold", label: "프리텐다드 Bold" },
@@ -31,12 +32,20 @@ export function resolveSubtitleFontWeight(style: MvpSubtitleStyle): number {
   return 400
 }
 
-/** 영상 미리보기 자막 오버레이 CSS */
-export function buildSubtitleOverlayStyle(style: MvpSubtitleStyle): CSSProperties {
+/**
+ * 미리보기 자막 오버레이 CSS.
+ * @param stageScale 미리보기 가로 / 설계 기준(280px). 렌더(1080)와 체감 크기를 맞춥니다.
+ */
+export function buildSubtitleOverlayStyle(
+  style: MvpSubtitleStyle,
+  stageScale = 1
+): CSSProperties {
+  const scale = Number.isFinite(stageScale) && stageScale > 0 ? stageScale : 1
   const x = style.x ?? 50
   const y = style.y ?? DEFAULT_SUBTITLE_Y_PERCENT
-  const outlineW = style.outlineWidthPx ?? 1
+  const outlineW = (style.outlineWidthPx ?? 1) * scale
   const bgOpacity = (style.bgOpacity ?? 55) / 100
+  const fontSize = style.sizePx * scale
 
   let backgroundColor: string | undefined
   if (style.bgOn) {
@@ -49,25 +58,37 @@ export function buildSubtitleOverlayStyle(style: MvpSubtitleStyle): CSSPropertie
     left: `${x}%`,
     top: `${y}%`,
     transform: "translate(-50%, -50%)",
-    width: "92%",
+    // 한 줄만 표시 — 의미 단위 큐로 짧게 쪼개고, FitOneLineSubtitle이 넘치면 scale로 맞춤
+    width: "max-content",
     maxWidth: "92%",
     minWidth: 0,
+    boxSizing: "border-box",
     textAlign: style.textAlign ?? "center",
     fontFamily: resolveSubtitleFontFamily(style.fontId ?? "pretendard-bold"),
-    fontSize: style.sizePx,
+    fontSize,
     fontWeight: resolveSubtitleFontWeight(style),
     color: style.color,
-    lineHeight: 1.35,
+    lineHeight: 1.2,
     whiteSpace: "nowrap",
-    wordBreak: "keep-all",
-    overflowWrap: "normal",
+    overflow: "visible",
     WebkitTextStroke: style.outlineOn ? `${outlineW}px ${style.outlineColor ?? "#000000"}` : undefined,
     paintOrder: style.outlineOn ? "stroke fill" : undefined,
-    textShadow: style.textShadow ? "2px 2px 6px rgba(0,0,0,0.85)" : undefined,
+    textShadow: style.textShadow
+      ? `${2 * scale}px ${2 * scale}px ${6 * scale}px rgba(0,0,0,0.85)`
+      : undefined,
     backgroundColor,
-    borderRadius: style.bgOn ? 6 : undefined,
-    padding: style.bgOn ? "6px 10px" : undefined,
+    borderRadius: style.bgOn ? 6 * scale : undefined,
+    // 외곽선이 배경 밖으로 삐져나오지 않도록 패딩에 반영
+    padding: style.bgOn
+      ? `${6 * scale + outlineW}px ${12 * scale + outlineW * 2}px`
+      : undefined,
     pointerEvents: "none",
     zIndex: 10,
   }
+}
+
+/** 미리보기 스테이지 가로 대비 설계 기준 스케일 */
+export function subtitleStageScale(stageWidthPx: number): number {
+  if (!Number.isFinite(stageWidthPx) || stageWidthPx <= 0) return 1
+  return stageWidthPx / MVP_PREVIEW_STAGE_WIDTH_PX
 }

@@ -116,7 +116,7 @@ export function MvpReprocessUrlPanel({
       onResolvedChange(item)
       const picks = [buildPickFromResolved(item)]
       const prefetchedBlobs = await prefetchYoutubeBlob(item)
-      setStatusHint("AI 짜집기 시작…")
+      setStatusHint("AI 리믹스 시작…")
       onPicksReady(picks, item, prefetchedBlobs ? { prefetchedBlobs } : undefined)
     },
     [onPicksReady, onResolvedChange, prefetchYoutubeBlob]
@@ -247,7 +247,7 @@ export function MvpReprocessUrlPanel({
         }
         const picks: AutoEditPick[] = [buildPickFromResolved(item)]
         onResolvedChange(item)
-        setStatusHint("AI 짜집기 시작…")
+        setStatusHint("AI 리믹스 시작…")
         onPicksReady(picks, item, { prefetchedBlobs: { video_001: file } })
       } catch (e) {
         const msg = e instanceof Error ? e.message : "업로드 오류"
@@ -305,7 +305,7 @@ export function MvpReprocessUrlPanel({
           ) : (
             <>
               <Zap className="h-4 w-4" />
-              AI 짜집기
+              AI 리믹스
             </>
           )}
         </button>
@@ -337,7 +337,7 @@ export function MvpReprocessUrlPanel({
 
       {lastError && !loading ? (
         <p className="text-xs text-amber-400/90">
-          URL 해석이 안 되면 PC에 저장한 MP4를 「MP4 업로드」로 바로 짜집기할 수 있습니다.
+          URL 해석이 안 되면 PC에 저장한 MP4를 「MP4 업로드」로 바로 리믹스할 수 있습니다.
         </p>
       ) : null}
 

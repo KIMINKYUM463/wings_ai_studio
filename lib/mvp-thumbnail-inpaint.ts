@@ -67,6 +67,7 @@ export async function renderBackgroundToCanvas(
   )
   ctx.filter = thumbnailFilterToCss(filter)
   ctx.drawImage(img, drawX, drawY, drawW, drawH)
+  ctx.filter = "none"
   return canvas
 }
 

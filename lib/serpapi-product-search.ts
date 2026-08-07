@@ -347,6 +347,62 @@ export async function serpGoogleImagesAsKeyframes(apiKey: string, q: string, lim
   return out
 }
 
+export type SerpLensMatch = {
+  title: string
+  imageUrl: string
+  thumbnailUrl: string
+  pageUrl: string
+  source?: string
+}
+
+/** 쿠팡 제품 메인 사진 → Google Lens 시각적 유사 이미지 */
+export async function serpGoogleLensVisualMatches(
+  apiKey: string,
+  imageUrl: string,
+  limit = 24
+): Promise<SerpLensMatch[]> {
+  const url = imageUrl.trim()
+  if (!url.startsWith("http://") && !url.startsWith("https://")) return []
+
+  const u = new URL(SERP)
+  u.searchParams.set("engine", "google_lens")
+  u.searchParams.set("url", url)
+  u.searchParams.set("type", "visual_matches")
+  u.searchParams.set("hl", "ko")
+  u.searchParams.set("api_key", apiKey)
+
+  const r = await fetch(u.toString(), { next: { revalidate: 0 } })
+  if (!r.ok) return []
+  const data = (await r.json().catch(() => ({}))) as {
+    error?: string
+    visual_matches?: Array<{
+      title?: string
+      link?: string
+      source?: string
+      thumbnail?: string
+      image?: string
+    }>
+  }
+  if (data.error || !Array.isArray(data.visual_matches)) return []
+
+  const out: SerpLensMatch[] = []
+  const seen = new Set<string>()
+  for (const row of data.visual_matches) {
+    const image = (row.image || row.thumbnail || "").trim()
+    if (!image.startsWith("http") || seen.has(image)) continue
+    seen.add(image)
+    out.push({
+      title: (row.title || row.source || "유사 이미지").trim(),
+      imageUrl: image,
+      thumbnailUrl: (row.thumbnail || row.image || "").trim() || image,
+      pageUrl: (row.link || image).trim(),
+      source: row.source,
+    })
+    if (out.length >= limit) break
+  }
+  return out
+}
+
 export function dedupeVideoRows<T extends { url: string }>(rows: T[]): T[] {
   const seen = new Set<string>()
   const out: T[] = []

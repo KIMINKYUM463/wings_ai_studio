@@ -2,7 +2,6 @@
 
 import { Check } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { studio } from "../components/ShotFormStudioUI"
 import {
   MVP_STUDIO_PHASES,
   normalizeStudioPhase,
@@ -15,7 +14,7 @@ type Props = {
   ttsReady: boolean
 }
 
-/** 상단 탭 — 자막·대본·썸네일은 편집기 인스펙터·7단계 흐름으로만 진입 */
+/** 상단 탭 — 자막·대본·썸네일은 편집기 인스펙터로, 제목·태그는 내보내기에서 작성 */
 const MVP_STUDIO_NAV_PHASES = MVP_STUDIO_PHASES.filter(
   (step) => step.id === "edit" || step.id === "export"
 )
@@ -24,7 +23,7 @@ export function MvpStudioStepNav({ phase, onPhaseChange, ttsReady }: Props) {
   const current = normalizeStudioPhase(phase)
 
   return (
-    <div className="mb-4 flex flex-wrap gap-2 rounded-xl border border-white/10 bg-black/40 p-2">
+    <div className="flex flex-wrap gap-1.5 rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm">
       {MVP_STUDIO_NAV_PHASES.map((step) => {
         const active = current === step.id
         const done =
@@ -40,20 +39,24 @@ export function MvpStudioStepNav({ phase, onPhaseChange, ttsReady }: Props) {
             key={step.id}
             type="button"
             className={cn(
-              "flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs transition",
+              "flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-semibold transition",
               active
-                ? cn(studio.btnSegmentActive, "rounded-lg")
-                : "text-slate-400 hover:bg-white/5 hover:text-slate-200"
+                ? "bg-blue-600 text-white shadow-sm"
+                : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
             )}
             onClick={() => onPhaseChange(step.id)}
           >
             <span
               className={cn(
                 "flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold",
-                done ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-800 text-slate-500"
+                active
+                  ? "bg-white/20 text-white"
+                  : done
+                    ? "bg-emerald-100 text-emerald-700"
+                    : "bg-slate-100 text-slate-500"
               )}
             >
-              {done ? <Check className="h-3 w-3" /> : step.n}
+              {done && !active ? <Check className="h-3 w-3" /> : step.n}
             </span>
             {step.label}
           </button>

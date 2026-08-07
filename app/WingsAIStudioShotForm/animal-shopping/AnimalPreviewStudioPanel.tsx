@@ -1,0 +1,540 @@
+"use client"
+
+import { useEffect, useMemo, useRef, useState } from "react"
+import {
+  Download,
+  Loader2,
+  Maximize2,
+  Minimize2,
+  Pause,
+  Play,
+  Scissors,
+  X,
+} from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { mergeAnimalVideosClient } from "./animal-merge-client"
+import type { AnimalShoppingBrief } from "./animal-studio-types"
+
+/** MediaRecorder webm 등은 duration이 Infinity/NaN인 경우가 많음 */
+function isValidDuration(value: number | undefined | null): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+}
+
+function pickDuration(...candidates: Array<number | undefined | null>): number {
+  for (const value of candidates) {
+    if (isValidDuration(value)) return value
+  }
+  return 0
+}
+
+/** Chrome: 큰 값으로 seek 후 duration을 복구하는 트릭 */
+async function discoverMediaDuration(media: HTMLMediaElement): Promise<number> {
+  if (isValidDuration(media.duration)) return media.duration
+  if (media.seekable?.length > 0) {
+    const end = media.seekable.end(media.seekable.length - 1)
+    if (isValidDuration(end)) return end
+  }
+
+  return new Promise((resolve) => {
+    const prev = media.currentTime || 0
+    let settled = false
+    const finish = (value: number) => {
+      if (settled) return
+      settled = true
+      try {
+        media.currentTime = prev
+      } catch {
+        /* ignore */
+      }
+      resolve(isValidDuration(value) ? value : 0)
+    }
+
+    const onSeeked = () => {
+      media.removeEventListener("seeked", onSeeked)
+      if (isValidDuration(media.duration)) {
+        finish(media.duration)
+        return
+      }
+      if (media.seekable?.length > 0) {
+        finish(media.seekable.end(media.seekable.length - 1))
+        return
+      }
+      finish(0)
+    }
+
+    media.addEventListener("seeked", onSeeked)
+    try {
+      media.currentTime = Number.MAX_SAFE_INTEGER
+    } catch {
+      finish(0)
+    }
+    window.setTimeout(() => finish(media.duration), 800)
+  })
+}
+
+export function AnimalPreviewStudioPanel({
+  brief,
+  onChange,
+}: {
+  brief: AnimalShoppingBrief
+  onChange: (brief: AnimalShoppingBrief) => void
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const fsVideoRef = useRef<HTMLVideoElement>(null)
+  const audioRef = useRef<HTMLAudioElement>(null)
+  const [isMerging, setIsMerging] = useState(false)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [error, setError] = useState("")
+  const [currentTime, setCurrentTime] = useState(0)
+  const [mediaDuration, setMediaDuration] = useState(0)
+
+  const sortedVideos = [...brief.videoUrls]
+    .sort((a, b) => a.index - b.index)
+    .map((v) => v.videoUrl)
+    .filter(Boolean)
+
+  /** TTS/씬 합산 — webm duration 버그 시 폴백 */
+  const fallbackDuration = useMemo(() => {
+    const sceneSum = (brief.scenes || []).reduce((sum, scene) => {
+      const sec = scene.ttsDurationSec
+      if (!isValidDuration(sec)) return sum
+      return sum + Math.min(12, Math.max(4, Math.ceil(sec)))
+    }, 0)
+    return pickDuration(brief.ttsDurationSec, sceneSum)
+  }, [brief.scenes, brief.ttsDurationSec])
+
+  const duration = pickDuration(mediaDuration, fallbackDuration)
+
+  const activeVideoRef = () => (isFullscreen ? fsVideoRef.current : videoRef.current)
+
+  const mergeClips = async () => {
+    if (sortedVideos.length === 0) {
+      setError("이어 붙일 영상 클립이 없습니다.")
+      return
+    }
+    setIsMerging(true)
+    setError("")
+    try {
+      const merged = await mergeAnimalVideosClient(sortedVideos)
+      setMediaDuration(0)
+      setCurrentTime(0)
+      onChange({ ...brief, mergedVideoUrl: merged })
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "영상 이어 붙이기 실패")
+    } finally {
+      setIsMerging(false)
+    }
+  }
+
+  const expectedClips = Math.max(brief.scenes?.length || 0, sortedVideos.length)
+
+  useEffect(() => {
+    if (
+      !brief.mergedVideoUrl &&
+      expectedClips >= 3 &&
+      sortedVideos.length === expectedClips
+    ) {
+      void mergeClips()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    if (!isFullscreen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsFullscreen(false)
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [isFullscreen])
+
+  useEffect(() => {
+    if (!brief.mergedVideoUrl) return
+    const from = isFullscreen ? videoRef.current : fsVideoRef.current
+    const to = isFullscreen ? fsVideoRef.current : videoRef.current
+    if (!to) return
+    const t = from?.currentTime ?? currentTime
+    to.currentTime = t
+    if (audioRef.current) audioRef.current.currentTime = t
+    if (isPlaying) {
+      void to.play().catch(() => undefined)
+      void audioRef.current?.play().catch(() => undefined)
+    } else {
+      to.pause()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFullscreen])
+
+  const applyDiscoveredDuration = async (el: HTMLMediaElement) => {
+    const raw = el.duration
+    if (isValidDuration(raw)) {
+      setMediaDuration(raw)
+      return
+    }
+    const discovered = await discoverMediaDuration(el)
+    if (isValidDuration(discovered)) {
+      setMediaDuration(discovered)
+    }
+  }
+
+  const seekTo = (t: number) => {
+    const max = duration || 0
+    const clamped = max > 0 ? Math.min(Math.max(0, t), max) : Math.max(0, t)
+    const v = activeVideoRef()
+    if (v) v.currentTime = clamped
+    if (videoRef.current && videoRef.current !== v) videoRef.current.currentTime = clamped
+    if (fsVideoRef.current && fsVideoRef.current !== v) fsVideoRef.current.currentTime = clamped
+    if (audioRef.current) audioRef.current.currentTime = clamped
+    setCurrentTime(clamped)
+  }
+
+  const togglePlay = async () => {
+    const video = activeVideoRef()
+    const audio = audioRef.current
+    if (!video) return
+    if (isPlaying) {
+      video.pause()
+      audio?.pause()
+      setIsPlaying(false)
+      return
+    }
+    try {
+      if (duration > 0 && video.currentTime >= duration - 0.15) {
+        seekTo(0)
+      }
+      if (audio && brief.ttsAudioUrl) {
+        audio.currentTime = video.currentTime
+        await audio.play()
+      }
+      await video.play()
+      setIsPlaying(true)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "재생 실패")
+    }
+  }
+
+  const openFullscreen = () => {
+    if (!brief.mergedVideoUrl) return
+    setIsFullscreen(true)
+  }
+
+  const closeFullscreen = () => {
+    setIsFullscreen(false)
+  }
+
+  const download = () => {
+    if (!brief.mergedVideoUrl) return
+    const a = document.createElement("a")
+    a.href = brief.mergedVideoUrl
+    a.download = `animal-shopping-${brief.character.name}-${Date.now()}.webm`
+    a.click()
+  }
+
+  const onVideoTimeUpdate = (el: HTMLVideoElement | null) => {
+    if (!el) return
+    if (!isValidDuration(mediaDuration) && isValidDuration(el.duration)) {
+      setMediaDuration(el.duration)
+    }
+    const t = el.currentTime
+    const max = pickDuration(mediaDuration, el.duration, fallbackDuration)
+    if (max > 0 && t >= max - 0.05) {
+      setCurrentTime(max)
+    } else {
+      setCurrentTime(Number.isFinite(t) ? t : 0)
+    }
+    if (audioRef.current && Math.abs(audioRef.current.currentTime - el.currentTime) > 0.35) {
+      audioRef.current.currentTime = el.currentTime
+    }
+  }
+
+  const onVideoEnded = (el: HTMLVideoElement | null) => {
+    setIsPlaying(false)
+    audioRef.current?.pause()
+    const end = pickDuration(
+      mediaDuration,
+      el && isValidDuration(el.duration) ? el.duration : 0,
+      el?.currentTime,
+      fallbackDuration
+    )
+    if (end > 0) setCurrentTime(end)
+  }
+
+  const videoHandlers = {
+    onTimeUpdate: (e: React.SyntheticEvent<HTMLVideoElement>) =>
+      onVideoTimeUpdate(e.currentTarget),
+    onLoadedMetadata: (e: React.SyntheticEvent<HTMLVideoElement>) => {
+      void applyDiscoveredDuration(e.currentTarget)
+    },
+    onDurationChange: (e: React.SyntheticEvent<HTMLVideoElement>) => {
+      void applyDiscoveredDuration(e.currentTarget)
+    },
+    onEnded: (e: React.SyntheticEvent<HTMLVideoElement>) => onVideoEnded(e.currentTarget),
+    onPause: () => setIsPlaying(false),
+    onPlay: () => setIsPlaying(true),
+  }
+
+  const sliderMax = duration > 0 ? duration : 1
+  const sliderValue = Math.min(currentTime, sliderMax)
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <p className="animal-bubble-chip inline-flex px-2.5 py-1 text-[10px]">▶️ PREVIEW</p>
+        <h2 className="animal-display mt-2 text-xl font-bold text-[#fff6ee]">
+          숏폼 미리보기 · 내보내기
+        </h2>
+        <p className="mt-1 text-sm text-[#9aa89c]">
+          {expectedClips || "N"}클립을 이어 붙이고 씬 TTS와 함께 재생합니다. 동물 숏폼은 자막 없이
+          내보냅니다.
+        </p>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,360px)_1fr]">
+        <div className="mx-auto w-full max-w-[320px]">
+          <div className="overflow-hidden rounded-[1.75rem] border border-[rgba(255,246,238,0.14)] bg-black shadow-[0_24px_60px_rgba(0,0,0,0.45)]">
+            <div className="relative aspect-[9/16] bg-black">
+              {brief.mergedVideoUrl ? (
+                <>
+                  <video
+                    ref={videoRef}
+                    src={brief.mergedVideoUrl}
+                    playsInline
+                    className="h-full w-full object-cover"
+                    {...videoHandlers}
+                  />
+                  <button
+                    type="button"
+                    onClick={openFullscreen}
+                    className="absolute right-3 top-3 z-10 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-black/55 text-[#fff6ee] backdrop-blur-sm transition hover:bg-black/75"
+                    title="전체화면으로 확대"
+                    aria-label="전체화면으로 확대"
+                  >
+                    <Maximize2 className="h-4 w-4" />
+                  </button>
+                </>
+              ) : (
+                <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-[#6b7a6e]">
+                  {isMerging ? (
+                    <>
+                      <Loader2 className="h-8 w-8 animate-spin text-[#7dd3a8]" />
+                      <p className="text-sm">클립 이어 붙이는 중…</p>
+                    </>
+                  ) : (
+                    <p className="text-sm">미리보기 영상이 없습니다.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {brief.ttsAudioUrl ? (
+            <audio
+              ref={audioRef}
+              src={brief.ttsAudioUrl}
+              preload="auto"
+              className="hidden"
+              onLoadedMetadata={(e) => {
+                if (isValidDuration(e.currentTarget.duration) && !isValidDuration(mediaDuration)) {
+                  setMediaDuration(e.currentTarget.duration)
+                }
+              }}
+            />
+          ) : null}
+
+          <div className="mt-4 space-y-3">
+            <input
+              type="range"
+              min={0}
+              max={sliderMax}
+              step={0.05}
+              value={sliderValue}
+              onChange={(e) => seekTo(Number(e.target.value))}
+              className="w-full accent-[#7dd3a8]"
+            />
+            <div className="flex items-center justify-between text-xs text-[#9aa89c]">
+              <span>{formatTime(currentTime)}</span>
+              <span>{formatTime(duration)}</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                onClick={() => void togglePlay()}
+                disabled={!brief.mergedVideoUrl}
+                className="animal-mint-btn flex-1 rounded-full font-semibold"
+              >
+                {isPlaying ? (
+                  <>
+                    <Pause className="mr-2 h-4 w-4" />
+                    일시정지
+                  </>
+                ) : (
+                  <>
+                    <Play className="mr-2 h-4 w-4" />
+                    재생
+                  </>
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={openFullscreen}
+                disabled={!brief.mergedVideoUrl}
+                className="rounded-full"
+                title="전체화면"
+              >
+                <Maximize2 className="mr-2 h-4 w-4" />
+                확대
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => void mergeClips()}
+                disabled={isMerging || sortedVideos.length === 0}
+                className="rounded-full"
+              >
+                {isMerging ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Scissors className="mr-2 h-4 w-4" />
+                )}
+                다시 이어 붙이기
+              </Button>
+              <Button
+                type="button"
+                onClick={download}
+                disabled={!brief.mergedVideoUrl}
+                className="animal-cta-cute rounded-full font-semibold"
+              >
+                <Download className="mr-2 h-4 w-4" />
+                다운로드
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4 rounded-2xl border border-[rgba(255,246,238,0.12)] bg-black/25 p-5">
+          <h3 className="animal-display text-lg font-bold text-[#fff6ee]">프로젝트 요약</h3>
+          <dl className="space-y-3 text-sm">
+            <div>
+              <dt className="text-[#6b7a6e]">캐릭터</dt>
+              <dd className="font-semibold text-[#fff6ee]">
+                {brief.character.name} · {brief.character.breedOrLook || brief.character.species}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[#6b7a6e]">제품</dt>
+              <dd className="font-semibold text-[#fff6ee]">{brief.productName || "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-[#6b7a6e]">대본</dt>
+              <dd className="leading-6 text-[#d7e0d8]">{brief.script || "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-[#6b7a6e]">생성</dt>
+              <dd className="text-[#d7e0d8]">
+                씬 {brief.scenes?.length || 0} · 이미지 {brief.imageUrls.length}/
+                {brief.scenes?.length || 0} · 클립 {sortedVideos.length}/
+                {brief.scenes?.length || 0} · TTS {brief.ttsAudioUrl ? "있음" : "없음"}
+              </dd>
+            </div>
+          </dl>
+          {!brief.ttsAudioUrl ? (
+            <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+              TTS가 없으면 영상만 재생됩니다. 음성 단계에서 나레이션을 만들어 주세요.
+            </p>
+          ) : null}
+        </div>
+      </div>
+
+      {error ? (
+        <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+          {error}
+        </p>
+      ) : null}
+
+      {isFullscreen && brief.mergedVideoUrl ? (
+        <div className="fixed inset-0 z-[80] flex flex-col bg-black/95 backdrop-blur-sm">
+          <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-6">
+            <p className="text-sm font-semibold text-[#fff6ee]">전체화면 미리보기</p>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => void togglePlay()}
+                className="rounded-full"
+              >
+                {isPlaying ? (
+                  <>
+                    <Pause className="mr-1.5 h-4 w-4" />
+                    일시정지
+                  </>
+                ) : (
+                  <>
+                    <Play className="mr-1.5 h-4 w-4" />
+                    재생
+                  </>
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={closeFullscreen}
+                className="rounded-full"
+                title="축소 (Esc)"
+              >
+                <Minimize2 className="mr-1.5 h-4 w-4" />
+                축소
+              </Button>
+              <button
+                type="button"
+                onClick={closeFullscreen}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-white/10 text-[#fff6ee] hover:bg-white/20"
+                aria-label="닫기"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+
+          <div className="flex min-h-0 flex-1 items-center justify-center px-4 pb-4">
+            <div className="relative aspect-[9/16] h-full max-h-[calc(100vh-7.5rem)] w-auto max-w-[min(100%,calc((100vh-7.5rem)*9/16))] overflow-hidden rounded-2xl border border-white/10 bg-black shadow-2xl">
+              <video
+                ref={fsVideoRef}
+                src={brief.mergedVideoUrl}
+                playsInline
+                className="h-full w-full object-contain"
+                {...videoHandlers}
+              />
+            </div>
+          </div>
+
+          <div className="mx-auto w-full max-w-xl space-y-2 px-4 pb-6">
+            <input
+              type="range"
+              min={0}
+              max={sliderMax}
+              step={0.05}
+              value={sliderValue}
+              onChange={(e) => seekTo(Number(e.target.value))}
+              className="w-full accent-[#7dd3a8]"
+            />
+            <div className="flex items-center justify-between text-xs text-[#9aa89c]">
+              <span>{formatTime(currentTime)}</span>
+              <span>{formatTime(duration)}</span>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function formatTime(sec: number) {
+  if (!Number.isFinite(sec) || sec < 0) return "00:00"
+  const m = Math.floor(sec / 60)
+  const r = Math.floor(sec % 60)
+  return `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`
+}

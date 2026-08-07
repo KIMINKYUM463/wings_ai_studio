@@ -13,8 +13,15 @@ export async function GET(request: NextRequest) {
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
     if (!supabaseUrl || !supabaseServiceKey) {
+      const missing = [
+        !supabaseUrl ? "NEXT_PUBLIC_SUPABASE_URL" : null,
+        !supabaseServiceKey ? "SUPABASE_SERVICE_ROLE_KEY" : null,
+      ].filter(Boolean)
       return NextResponse.json(
-        { error: "Supabase 환경 변수가 설정되지 않았습니다." },
+        {
+          error: `Supabase 환경 변수가 설정되지 않았습니다. (.env.local에 ${missing.join(", ")} 추가 후 서버를 재시작하세요)`,
+          missing,
+        },
         { status: 500 }
       )
     }
@@ -30,21 +37,14 @@ export async function GET(request: NextRequest) {
     // limit을 명시적으로 제거하여 모든 사용자 조회
     const { data: users, error, count } = await supabase
       .from("users")
-      .select("id, email, nickname, profile_image_url, instructor, created_at", { count: 'exact' })
+      .select("id, email, nickname, profile_image_url, approved, created_at", { count: "exact" })
       .order("created_at", { ascending: false })
-      .limit(1000) // 최대 1000명까지 조회 (필요시 증가 가능)
-    
+      .limit(1000)
+
     console.log("[Admin Users] 조회된 사용자 수:", users?.length || 0, "명 (총:", count, "명)")
-    
+
     if (count && count > (users?.length || 0)) {
       console.warn(`[Admin Users] 경고: 총 ${count}명이 있지만 ${users?.length || 0}명만 조회되었습니다.`)
-    }
-    
-    // instructor 값이 제대로 조회되는지 확인
-    if (users) {
-      users.forEach((user: any) => {
-        console.log(`[Admin Users API] 사용자 ${user.email || user.nickname || '이름없음'}: instructor =`, user.instructor, `(type: ${typeof user.instructor}, raw:`, JSON.stringify(user.instructor), `)`)
-      })
     }
 
     if (error) {
@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
         hint: error.hint,
       })
       return NextResponse.json(
-        { 
+        {
           error: `사용자 목록 조회 실패: ${error.message}`,
           details: error.details,
           hint: error.hint,
@@ -63,13 +63,6 @@ export async function GET(request: NextRequest) {
         { status: 500 }
       )
     }
-
-    console.log("[Admin Users] 사용자 목록 조회 성공:", users?.length || 0, "명")
-    
-    // 각 사용자의 instructor 값 로깅
-    users?.forEach((user: any) => {
-      console.log(`[Admin Users] 사용자 ${user.email}: instructor =`, user.instructor, `(type: ${typeof user.instructor})`)
-    })
 
     return NextResponse.json({
       success: true,

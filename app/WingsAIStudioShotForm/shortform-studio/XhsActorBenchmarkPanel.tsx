@@ -214,10 +214,10 @@ function VideoThumbCard({
             disabled={selectBlocked && !selected}
             title={
               presenterLikely
-                ? "인물 소개형 — 짜집기 불가 (제품/사용 장면만)"
+                ? "인물 소개형 — 리믹스 불가 (제품/사용 장면만)"
                 : selected
                   ? "선택 해제"
-                  : "짜집기 편집에 추가"
+                  : "리믹스 편집에 추가"
             }
             onClick={(e) => {
               e.preventDefault()
@@ -297,7 +297,7 @@ export function XhsActorBenchmarkPanel() {
   const toggleVideoPick = useCallback((item: VideoItem) => {
     if (!item.videoUrl?.trim().startsWith("http")) return
     if (isLikelyPresenterTitle(item.title)) {
-      setPickHint("인물 소개형 영상은 짜집기에 사용할 수 없습니다. 제품/사용 장면만 선택해 주세요.")
+      setPickHint("인물 소개형 영상은 리믹스에 사용할 수 없습니다. 제품/사용 장면만 선택해 주세요.")
       window.setTimeout(() => setPickHint(null), 3500)
       return
     }
@@ -831,7 +831,7 @@ export function XhsActorBenchmarkPanel() {
                 socialdatax · 키워드「{data.keywords.join(" · ")}」
               </p>
               <p className="mt-2 text-xs text-violet-300/90">
-                ☑ 최대 {MAX_AUTO_EDIT_VIDEOS}개 선택 → AI가 자동으로 짜집기 편집 (후킹·문제·데모·결과 컷)
+                ☑ 최대 {MAX_AUTO_EDIT_VIDEOS}개 선택 → AI가 자동으로 리믹스 편집 (후킹·문제·데모·결과 컷)
               </p>
               <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
                 {allMergedVideos.map((item, i) => {

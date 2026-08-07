@@ -16,6 +16,7 @@ import {
   bundleTextForEditCut,
   isGenericTemplateNarration,
   sanitizeSceneSubtitleText,
+  shortNarrationFromVisualHint,
 } from "@/lib/shotform-cut-narration"
 import { hasExcessiveScriptRepetition } from "@/lib/shotform-narration-similarity"
 import {
@@ -196,7 +197,7 @@ function scriptLinesFromBlocks(
     return {
       start: seg.output_start,
       end: seg.output_end,
-      text: text || "한번 보세요",
+      text: text || shortNarrationFromVisualHint(seg.reason || "", i),
       video_id: seg.video_id,
     }
   })
@@ -295,6 +296,7 @@ async function auditProductIdentityWithAi(args: {
 **절대 규칙**
 - 홍보 제품은 사용자 키워드 제품 **하나**뿐. 다른 카테고리 제품·기능으로 바꾸면 **전면 실패**.
 - **visual_card에 보이는 행동·사물과 대본이 일치** (USB 정리 화면에 설치 언급 X, 클릭 화면에만 클릭 언급).
+- visual_card의 「화면자막」OCR이 있으면 그 의미를 한국어 효용으로 반영 (원문 낭독 금지).
 - 장면 설명을 그대로 읽지 말고 **구매 설득 나레이션**으로 변환.
 - ${NARRATION_PRODUCT_NAME_USAGE_RULE}
 - **금지 번역체**: 「클릭해보세요 완벽하게 작동」「모든 것이 해결」「설치가 이렇게 간편」「사용이 이렇게 간단」
@@ -429,6 +431,8 @@ ${productContext}
 
 **필수**: 모든 장면 대본은 **사용자 키워드 제품**만 홍보. 다른 제품 카테고리(청소기·프로젝터 등) 언급 **절대 금지**.
 화면 visual_card에 보이는 설치·사용·효과만 말할 것.
+visual_card의 [샷타입]·행동·「화면자막」(OCR)을 **반드시 반영**. 중국어·영어 원문을 그대로 읽지 말고 한국어 구매 설득으로 변환.
+같은 화면에서 안 보이는 다른 기능·제품을 말하지 말 것.
 
 스토리 (${sceneCount}장면): hook → 문제 → 해결 → demo → result → CTA
 - action_hint 참고만, 복사 금지

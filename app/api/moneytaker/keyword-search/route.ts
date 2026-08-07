@@ -26,9 +26,15 @@ export async function POST(request: NextRequest) {
     }
 
     // 네이버 검색광고 API 키
-    const NAVER_SEARCHAD_ACCESS_LICENSE = process.env.NAVER_SEARCHAD_ACCESS_LICENSE || "01000000003c379e5dbdf33c01c85d8d8973c0201747d30cb57fbaf26855778d6f054a12aa"
-    const NAVER_SEARCHAD_SECRET_KEY = process.env.NAVER_SEARCHAD_SECRET_KEY || "AQAAAAA8N55dvfM8AchdjYlzwCAXDxekkH3pDCJ2pfJiR1u3Dg=="
-    const NAVER_SEARCHAD_CUSTOMER_ID = process.env.NAVER_SEARCHAD_CUSTOMER_ID || "2036952"
+    const NAVER_SEARCHAD_ACCESS_LICENSE = process.env.NAVER_SEARCHAD_ACCESS_LICENSE?.trim()
+    const NAVER_SEARCHAD_SECRET_KEY = process.env.NAVER_SEARCHAD_SECRET_KEY?.trim()
+    const NAVER_SEARCHAD_CUSTOMER_ID = process.env.NAVER_SEARCHAD_CUSTOMER_ID?.trim()
+    if (!NAVER_SEARCHAD_ACCESS_LICENSE || !NAVER_SEARCHAD_SECRET_KEY || !NAVER_SEARCHAD_CUSTOMER_ID) {
+      return NextResponse.json(
+        { error: "네이버 검색광고 환경변수가 설정되지 않았습니다." },
+        { status: 503 }
+      )
+    }
 
     console.log("[MoneyTaker] 키워드 검색 시작 (검색광고 API 사용):", keywords)
 
@@ -43,7 +49,7 @@ export async function POST(request: NextRequest) {
       const message = `${timestamp}.${method}.${uri}`
       // 비밀키는 base64 디코딩 없이 원본 문자열로 사용 (샘플 코드 기준)
       return crypto
-        .createHmac('sha256', NAVER_SEARCHAD_SECRET_KEY)
+        .createHmac('sha256', NAVER_SEARCHAD_SECRET_KEY!)
         .update(message)
         .digest('base64')
     }
@@ -92,13 +98,6 @@ export async function POST(request: NextRequest) {
         }
 
         console.log(`[MoneyTaker] 검색광고 키워드 도구 API 호출: ${keyword}`)
-        console.log(`[MoneyTaker] 서명 정보:`, {
-          timestamp,
-          method,
-          uri,
-          signature,
-        })
-        
         const keywordToolResponse = await fetch(keywordToolUrl, {
           method: "GET",
           headers: authHeaders,

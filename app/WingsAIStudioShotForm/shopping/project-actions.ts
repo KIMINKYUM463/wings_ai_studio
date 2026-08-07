@@ -81,6 +81,9 @@ export interface ShoppingProjectData {
   // 진행 상태
   activeStep?: "product" | "script" | "video" | "render" | "thumbnail" | "preview"
   completedSteps?: string[]
+
+  /** ver1 / ver2 프로젝트 분리용 */
+  appVariant?: "ver1" | "ver2" | "story" | "animal"
 }
 
 /**
@@ -100,7 +103,10 @@ export async function getShoppingProjects(userId: string): Promise<ShoppingProje
       throw error
     }
     
-    return data || []
+    return (data || []).filter((project) => {
+      const v = project.data?.appVariant
+      return !v || v === "ver1"
+    })
   } catch (error) {
     console.error("[Shopping Projects] 프로젝트 목록 조회 중 오류:", error)
     throw error
@@ -124,7 +130,7 @@ export async function createShoppingProject(
         user_id: userId,
         name,
         description: description || null,
-        data: data || {},
+        data: { ...(data || {}), appVariant: "ver1" },
       })
       .select()
       .single()
@@ -169,7 +175,7 @@ export async function updateShoppingProject(
         if (dataSizeMB > 1) {
           console.warn(`[Shopping Projects] 데이터 크기가 1MB를 초과합니다: ${dataSizeMB.toFixed(2)}MB`)
         }
-        updateData.data = updates.data
+        updateData.data = { ...updates.data, appVariant: "ver1" }
       } catch (serializeError) {
         console.error("[Shopping Projects] 데이터 직렬화 실패:", serializeError)
         throw new Error(`데이터 직렬화 실패: ${serializeError instanceof Error ? serializeError.message : String(serializeError)}`)

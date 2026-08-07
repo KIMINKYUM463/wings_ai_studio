@@ -32,15 +32,23 @@ export type VoiceLineCue = {
   sceneIndex: number
   /** 화면 자막 표시용 줄 — TTS와 무관, cue 구간 내 순차 표시 */
   displayLines?: string[]
+  /** 장면 맞춤으로 합성에 사용한 TTS 배속 */
+  speed?: number
 }
 
 /** 화면·자막용 — 한 줄 최대 글자 수 (쇼핑숏폼 가독성) */
 export const SUBTITLE_MAX_PLAIN_CHARS = 22
 
-/** 세로 숏폼 미리보기 — 한 줄에 들어갈 때까지의 글자 수 (넘으면 2줄 줄바꿈) */
-export const SUBTITLE_DISPLAY_MAX_ONE_LINE_CHARS = 12
+/**
+ * 세로 숏폼 미리보기 — 한 줄(큐) 최대 글자 수.
+ * 넘치면 다음 큐로 넘깁니다(화면에서 줄바꿈하지 않음). 큰 글씨(32px) 기준.
+ */
+export const SUBTITLE_DISPLAY_MAX_ONE_LINE_CHARS = 10
 
-/** 화면·자막용 — 한 줄이 너무 길면 짧게 분할 (말줄임 방지) */
+/** 의미 구가 이보다 짧으면 앞 구에 합침 */
+const SUBTITLE_MIN_MEANING_PHRASE_CHARS = 4
+
+/** 화면·자막용 — 한 줄이 너무 길면 짧게 분할 (말줄임·화면 밖 방지) */
 export function splitLongSubtitleLine(line: string, maxPlainChars = SUBTITLE_MAX_PLAIN_CHARS): string[] {
   const t = line.trim()
   if (!t) return []
@@ -144,8 +152,8 @@ export function narrationTtsLinesFromSceneText(text: string): string[] {
 }
 
 /**
- * 화면 표시용 — 긴 한 줄을 짧게 분할 (미리보기 가독성). TTS 생성에는 사용하지 않음.
- * `\n`으로 나뉜 2~3줄은 각각 별도 큐.
+ * 대본을 의미 단위(문장·쉼표·연결어미)로 쪼갠 뒤, 한 줄 큐로 펼칩니다.
+ * TTS에는 쓰지 않고 화면 자막 스케줄에만 사용합니다. 화면에는 항상 한 줄만 표시.
  */
 export function expandSubtitleScheduleLines(
   text: string,
@@ -160,44 +168,62 @@ export function expandSubtitleScheduleLines(
     .filter(Boolean)
 
   const rows: string[] = []
-  if (blocks.length > 1) {
-    for (const block of blocks) {
-      rows.push(...splitLongSubtitleLine(block.replace(/\s+/g, " ").trim(), maxCharsPerCue))
-    }
-  } else {
-    for (const line of splitToSingleSubtitleLines(raw)) {
-      const t = line.replace(/\s+/g, " ").trim()
-      if (!t) continue
-      rows.push(...splitLongSubtitleLine(t, maxCharsPerCue))
+  for (const block of blocks.length ? blocks : [raw]) {
+    const flat = block.replace(/\s+/g, " ").trim()
+    if (!flat) continue
+    const phrases = splitIntoMeaningPhrases(flat)
+    const source = phrases.length ? phrases : [flat]
+    for (const phrase of source) {
+      rows.push(...splitLongSubtitleLine(phrase, maxCharsPerCue))
     }
   }
 
-  return cleanNarrationLineBreaks(rows.filter(Boolean).join("\n"))
+  const cleaned = cleanNarrationLineBreaks(rows.filter(Boolean).join("\n"))
     .split("\n")
     .map((l) => l.trim())
     .filter(Boolean)
+
+  const merged = consolidateTinySubtitleLines(cleaned)
+  return merged.length ? merged : consolidateTinySubtitleLines([formatSubtitleDisplayText(raw)].filter(Boolean))
 }
 
-/** 나레이션 구간을 `\n`·문장 단위로 펼쳐 자막/TTS는 항상 한 줄씩 */
-export function splitToSingleSubtitleLines(text: string): string[] {
-  const blocks = text
-    .replace(/\r/g, "")
-    .split("\n")
-    .map((l) => l.trim())
+/** 구두점·연결어미 기준으로 의미 구 분할 */
+function splitIntoMeaningPhrases(text: string): string[] {
+  const normalized = text
+    .replace(/…+/g, "…")
+    .replace(/\.{2,}/g, "…")
+
+  const raw = normalized
+    .replace(/([.!?。！？,，、]|…)/g, "$1\u0001")
+    .replace(
+      /(는데|지만|면서|해서|니까|라도|거나|으며|하며|이고|하고|다가)\s+/g,
+      "$1\u0001",
+    )
+    .replace(/(요|죠|네요|세요|까요|예요|이에요)\s+/g, "$1\u0001")
+    .split("\u0001")
+    .map((part) => part.replace(/…/g, "").trim())
     .filter(Boolean)
+
+  return mergeTinyMeaningPhrases(raw)
+}
+
+function mergeTinyMeaningPhrases(parts: string[]): string[] {
   const out: string[] = []
-  for (const block of blocks) {
-    const parts = block
-      .split(/(?<=[.!?。！？…])\s+|(?<=[요죠네다음][.!?]?)\s+/)
-      .map((s) => s.trim())
-      .filter(Boolean)
-    const rows = parts.length <= 1 ? (block ? [block] : []) : parts
-    for (const row of rows) {
-      out.push(...splitLongSubtitleLine(row))
+  for (const part of parts) {
+    const plain = part.replace(/\s/g, "")
+    if (!plain) continue
+    if (plain.length < SUBTITLE_MIN_MEANING_PHRASE_CHARS && out.length) {
+      out[out.length - 1] = `${out[out.length - 1]} ${part}`.trim()
+      continue
     }
+    out.push(part)
   }
-  const merged = consolidateTinySubtitleLines(out.length ? out : splitLongSubtitleLine(text.trim()))
-  return merged.length ? merged : consolidateTinySubtitleLines([text.trim()].filter(Boolean))
+  return out
+}
+
+/** 나레이션 구간을 `\n`·의미 단위로 펼쳐 자막은 항상 한 줄씩 */
+export function splitToSingleSubtitleLines(text: string): string[] {
+  return expandSubtitleScheduleLines(text, SUBTITLE_MAX_PLAIN_CHARS)
 }
 
 /** 장면당 TTS 1줄 + 화면 자막용 displayLines */
@@ -226,7 +252,13 @@ export function collectNarrationSubtitleLines(
 }
 
 export function buildVoiceLineCues(
-  lines: Array<{ text: string; sceneIndex: number; durationSec: number; displayLines?: string[] }>,
+  lines: Array<{
+    text: string
+    sceneIndex: number
+    durationSec: number
+    displayLines?: string[]
+    speed?: number
+  }>,
 ): VoiceLineCue[] {
   let t = 0
   return lines.map((line) => {
@@ -239,6 +271,7 @@ export function buildVoiceLineCues(
       endSec,
       sceneIndex: line.sceneIndex,
       displayLines: line.displayLines,
+      ...(line.speed != null ? { speed: line.speed } : {}),
     }
   })
 }
@@ -258,7 +291,11 @@ export function voiceSubtitleAtLineCues(cues: readonly VoiceLineCue[], audioTime
   const cue = voiceLineCueAtTime(cues, audioTimeSec)
   if (!cue) return ""
 
-  const lines = cue.displayLines?.length ? cue.displayLines : [cue.text]
+  // 저장된 displayLines가 있어도 의미 단위·한 줄 규칙으로 다시 펼침 (기존 프로젝트 포함)
+  const source = cue.displayLines?.length
+    ? cue.displayLines.join(" ")
+    : cue.text
+  const lines = expandSubtitleScheduleLines(source)
   if (lines.length <= 1) return formatSubtitleDisplayText(lines[0] ?? cue.text)
 
   const elapsed = Math.max(0, audioTimeSec - cue.startSec)
@@ -377,10 +414,20 @@ export async function fitAudioBlobToVideoTimeline(
   }
 }
 
-function trimBufferSilence(buffer: AudioBuffer, threshold = 0.012): AudioBuffer {
+/** TTS 클립 끝 여유(초) — 마지막 트랙 말꼬리·렌더 flush용 (장면 사이에는 넣지 않음) */
+export const TTS_CLIP_END_PAD_SEC = 0.08
+/** TTS 클립 앞 여유(초) */
+export const TTS_CLIP_START_PAD_SEC = 0.02
+/** 장면 사이 기본 간격 — 거의 없음 (무음 구간 제거) */
+export const TTS_INTER_CLIP_PAD_SEC = 0.02
+
+function trimBufferSilence(
+  buffer: AudioBuffer,
+  threshold = 0.01
+): { buffer: AudioBuffer; trimStartSec: number } {
   const channels = buffer.numberOfChannels
   const length = buffer.length
-  if (length === 0) return buffer
+  if (length === 0) return { buffer, trimStartSec: 0 }
 
   let start = 0
   let end = length
@@ -394,19 +441,24 @@ function trimBufferSilence(buffer: AudioBuffer, threshold = 0.012): AudioBuffer 
     }
   }
 
+  // 끝 무음만 제거 — 말꼬리(약한 종성)는 낮은 임계값 + keepTail로 보존
+  const endThreshold = Math.min(threshold, 0.005)
+  const keepTail = Math.floor(buffer.sampleRate * 0.04)
   findEnd: for (let i = length - 1; i >= start; i--) {
     for (let ch = 0; ch < channels; ch++) {
-      if (Math.abs(buffer.getChannelData(ch)[i]!) > threshold) {
-        end = i + 1
+      if (Math.abs(buffer.getChannelData(ch)[i]!) > endThreshold) {
+        end = Math.min(length, i + 1 + keepTail)
         break findEnd
       }
     }
   }
 
-  const pad = Math.min(480, Math.floor(buffer.sampleRate * 0.006))
-  start = Math.max(0, start - pad)
-  end = Math.min(length, end + Math.floor(pad * 0.15))
-  if (end <= start) return buffer
+  const startPad = Math.min(
+    Math.floor(buffer.sampleRate * TTS_CLIP_START_PAD_SEC),
+    Math.floor(buffer.sampleRate * 0.03)
+  )
+  start = Math.max(0, start - startPad)
+  if (end <= start) return { buffer, trimStartSec: 0 }
 
   const outLen = end - start
   const ctx = new OfflineAudioContext(channels, outLen, buffer.sampleRate)
@@ -414,10 +466,27 @@ function trimBufferSilence(buffer: AudioBuffer, threshold = 0.012): AudioBuffer 
   for (let ch = 0; ch < channels; ch++) {
     out.getChannelData(ch).set(buffer.getChannelData(Math.min(ch, buffer.numberOfChannels - 1)).subarray(start, end))
   }
+  return {
+    buffer: out,
+    trimStartSec: start / buffer.sampleRate,
+  }
+}
+
+/** 클립 뒤에 짧은 무음 패딩 — 장면 전환 시 말꼬리 보호 */
+function appendSilencePad(buffer: AudioBuffer, padSec: number): AudioBuffer {
+  const padSamples = Math.max(0, Math.floor(buffer.sampleRate * padSec))
+  if (padSamples <= 0) return buffer
+  const channels = buffer.numberOfChannels
+  const outLen = buffer.length + padSamples
+  const ctx = new OfflineAudioContext(channels, outLen, buffer.sampleRate)
+  const out = ctx.createBuffer(channels, outLen, buffer.sampleRate)
+  for (let ch = 0; ch < channels; ch++) {
+    out.getChannelData(ch).set(buffer.getChannelData(Math.min(ch, buffer.numberOfChannels - 1)), 0)
+  }
   return out
 }
 
-/** TTS 줄 오디오 배속 — API 미지원 provider·ElevenLabs 보조. 1.2 = 약 20% 짧은 음성 */
+/** TTS 줄 오디오 배속 — ffmpeg atempo로 피치(목소리) 유지. 1.4 = 약 1/1.4 길이 */
 export async function applyPlaybackSpeedToAudioUrl(
   audioUrl: string,
   speed: number
@@ -430,60 +499,112 @@ export async function applyPlaybackSpeedToAudioUrl(
     return { url: audioUrl, durationSec, wavBlob }
   }
 
-  const ctx = getAudioContext()
-  try {
-    const res = await fetch(audioUrl)
-    const decoded = await ctx.decodeAudioData((await res.arrayBuffer()).slice(0))
-    const outSamples = Math.max(1, Math.ceil(decoded.length / rate))
-    const offline = new OfflineAudioContext(decoded.numberOfChannels, outSamples, decoded.sampleRate)
-    const src = offline.createBufferSource()
-    src.buffer = decoded
-    src.playbackRate.value = rate
-    src.connect(offline.destination)
-    src.start(0)
-    const rendered = await offline.startRendering()
-    const wav = audioBufferToWav(rendered)
-    const wavBlob = new Blob([wav], { type: "audio/wav" })
-    return { url: URL.createObjectURL(wavBlob), durationSec: rendered.duration, wavBlob }
-  } finally {
-    void ctx.close()
-  }
+  const res = await fetch(audioUrl)
+  const inputBlob = await res.blob()
+  const { changeAudioTempoPreservePitch } = await import("@/lib/mvp-webm-to-mp4")
+  const wavBlob = await changeAudioTempoPreservePitch(inputBlob, rate)
+  const url = URL.createObjectURL(wavBlob)
+  const durationSec = await decodeAudioDurationSec(url)
+  return { url, durationSec, wavBlob }
 }
 
 /** Supertone TTS 앞뒤 무음 제거 — 줄 사이 텀 방지 */
 export async function trimSilenceFromAudioUrl(
   audioUrl: string,
-  threshold = 0.012,
-): Promise<{ blobUrl: string; durationSec: number; wavBlob: Blob }> {
+  threshold = 0.01,
+): Promise<{
+  blobUrl: string
+  durationSec: number
+  wavBlob: Blob
+  /** 원본 기준 앞쪽 잘린 초 — Whisper 싱크 보정에 사용 */
+  trimStartSec: number
+  originalDurationSec: number
+}> {
   const ctx = getAudioContext()
   try {
     const res = await fetch(audioUrl)
     const decoded = await ctx.decodeAudioData((await res.arrayBuffer()).slice(0))
-    const trimmed = trimBufferSilence(decoded, threshold)
-    const wav = audioBufferToWav(trimmed)
+    const { buffer: trimmed, trimStartSec } = trimBufferSilence(decoded, threshold)
+    const padded = appendSilencePad(trimmed, TTS_CLIP_END_PAD_SEC * 0.5)
+    const wav = audioBufferToWav(padded)
     const blob = new Blob([wav], { type: "audio/wav" })
-    return { blobUrl: URL.createObjectURL(blob), durationSec: trimmed.duration, wavBlob: blob }
+    return {
+      blobUrl: URL.createObjectURL(blob),
+      durationSec: padded.duration,
+      wavBlob: blob,
+      trimStartSec,
+      originalDurationSec: decoded.duration,
+    }
   } finally {
     void ctx.close()
   }
 }
 
-/** 줄별 TTS WAV를 이어 붙여 하나의 blob URL과 총 길이를 반환 (각 클립 무음 trim) */
+/** decode 후 WAV 재인코딩 — 브라우저가 duration 메타를 짧게 읽어 말꼬리를 끊는 것 방지 */
+export async function rebakeWavBlobUrl(
+  input: Blob | string
+): Promise<{ blobUrl: string; wavBlob: Blob; durationSec: number }> {
+  const ctx = getAudioContext()
+  try {
+    const ab =
+      typeof input === "string"
+        ? await (await fetch(input)).arrayBuffer()
+        : await input.arrayBuffer()
+    const decoded = await ctx.decodeAudioData(ab.slice(0))
+    // 전체 트랙 끝만 아주 짧게 — 장면 사이 무음을 늘리지 않음
+    const padded = appendSilencePad(decoded, 0.05)
+    const wav = audioBufferToWav(padded)
+    const wavBlob = new Blob([wav], { type: "audio/wav" })
+    return {
+      blobUrl: URL.createObjectURL(wavBlob),
+      wavBlob,
+      durationSec: padded.duration,
+    }
+  } finally {
+    void ctx.close()
+  }
+}
+
+/** 클립 URL 끝에 무음 패딩 — 장면 단독 재생 시 말꼬리 보호 */
+export async function padAudioUrlEnd(
+  audioUrl: string,
+  padSec: number = TTS_CLIP_END_PAD_SEC
+): Promise<string> {
+  const ctx = getAudioContext()
+  try {
+    const res = await fetch(audioUrl)
+    const decoded = await ctx.decodeAudioData((await res.arrayBuffer()).slice(0))
+    const padded = appendSilencePad(decoded, Math.max(0.05, padSec))
+    const wav = audioBufferToWav(padded)
+    return URL.createObjectURL(new Blob([wav], { type: "audio/wav" }))
+  } finally {
+    void ctx.close()
+  }
+}
+
+/** 줄별 TTS WAV를 이어 붙임 — 장면 사이 무음 최소화, API 앞뒤 무음만 정리 */
 export async function mergeAudioUrlsToWavBlobUrl(
   audioUrls: string[],
-  options?: { trimSilence?: boolean },
+  options?: { trimSilence?: boolean; interClipPadSec?: number },
 ): Promise<{ blobUrl: string; wavBlob: Blob; totalDurationSec: number; lineDurationsSec: number[] }> {
   if (audioUrls.length === 0) throw new Error("합칠 오디오가 없습니다.")
+  // 기본 ON: API가 붙인 앞·뒤 무음 제거 → 장면 사이 텀 제거 (말꼬리는 keepTail로 보존)
   const trim = options?.trimSilence !== false
+  const interPad = options?.interClipPadSec ?? TTS_INTER_CLIP_PAD_SEC
   const ctx = getAudioContext()
   try {
     const buffers: AudioBuffer[] = []
     const lineDurationsSec: number[] = []
-    for (const url of audioUrls) {
+    for (let i = 0; i < audioUrls.length; i++) {
+      const url = audioUrls[i]!
       const res = await fetch(url)
       const ab = await res.arrayBuffer()
       let decoded = await ctx.decodeAudioData(ab.slice(0))
-      if (trim) decoded = trimBufferSilence(decoded)
+      if (trim) decoded = trimBufferSilence(decoded).buffer
+      // 장면 사이: 거의 붙임. 마지막 클립만 짧은 말꼬리/flush 패딩
+      const pad =
+        i < audioUrls.length - 1 ? Math.max(0, interPad) : Math.max(interPad, TTS_CLIP_END_PAD_SEC)
+      if (pad > 0.001) decoded = appendSilencePad(decoded, pad)
       buffers.push(decoded)
       lineDurationsSec.push(decoded.duration)
     }

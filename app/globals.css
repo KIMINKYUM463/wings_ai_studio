@@ -1,3 +1,4 @@
+@import url("https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Do+Hyeon&family=Dongle:wght@300;400;700&family=Gaegu:wght@300;400;700&family=Gamja+Flower&family=Gowun+Batang:wght@400;700&family=Gowun+Dodum&family=Gugi&family=Hahmlet:wght@400;600;700;900&family=Jua&family=Nanum+Brush+Script&family=Nanum+Gothic:wght@400;700;800&family=Nanum+Myeongjo:wght@400;700;800&family=Nanum+Pen+Script&family=Noto+Sans+KR:wght@400;600;700;900&family=Noto+Serif+KR:wght@400;600;700;900&family=Song+Myung&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
 
@@ -431,4 +432,607 @@
   width: max-content;
   animation: shopping-link-notice-marquee 28s linear infinite;
   will-change: transform;
+}
+
+/* ShotForm 홈 — 피처 패널/카드 애니메이션 */
+@keyframes shotform-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shotform-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes shotform-icon-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes shotform-icon-glow {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.65;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes shotform-card-shine {
+  0% {
+    transform: translateX(-40%) rotate(12deg);
+  }
+  100% {
+    transform: translateX(40%) rotate(12deg);
+  }
+}
+
+.shotform-feature-panel {
+  animation: shotform-panel-in 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.shotform-feature-card {
+  animation: shotform-card-in 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.shotform-icon-float {
+  animation: shotform-icon-float 3.2s ease-in-out infinite;
+}
+
+.shotform-icon-glow {
+  animation: shotform-icon-glow 2.8s ease-in-out infinite;
+}
+
+.group:hover .shotform-card-shine {
+  animation: shotform-card-shine 1.1s ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shotform-feature-panel,
+  .shotform-feature-card,
+  .shotform-icon-float,
+  .shotform-icon-glow,
+  .group:hover .shotform-card-shine {
+    animation: none;
+  }
+}
+
+/* ShotForm 히어로 — AI 파이프라인 애니메이션 */
+@keyframes shotform-ai-orb {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  50% {
+    transform: translateY(-10px);
+    opacity: 0.9;
+  }
+}
+
+@keyframes shotform-ai-ping {
+  0% {
+    transform: scale(0.7);
+    opacity: 0.7;
+  }
+  70% {
+    transform: scale(1.7);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.7);
+    opacity: 0;
+  }
+}
+
+@keyframes shotform-ai-brain {
+  0%,
+  100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.12) rotate(-6deg);
+    opacity: 1;
+  }
+}
+
+@keyframes shotform-ai-scan {
+  0% {
+    box-shadow: 0 0 0 0 rgba(236, 72, 153, 0.45);
+    opacity: 0.9;
+  }
+  100% {
+    box-shadow: 0 0 0 14px rgba(236, 72, 153, 0);
+    opacity: 0;
+  }
+}
+
+@keyframes shotform-ai-orbit {
+  0% {
+    transform: translate(-50%, 0) rotate(0deg) translateX(28px) rotate(0deg);
+  }
+  100% {
+    transform: translate(-50%, 0) rotate(360deg) translateX(28px) rotate(-360deg);
+  }
+}
+
+@keyframes shotform-ai-scanline {
+  0% {
+    transform: translateY(-100%);
+  }
+  100% {
+    transform: translateY(220%);
+  }
+}
+
+@keyframes shotform-ai-icon-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.08);
+  }
+}
+
+@keyframes shotform-ai-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+@keyframes shotform-ai-packet {
+  0% {
+    left: 0%;
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    left: 100%;
+    opacity: 0;
+  }
+}
+
+@keyframes shotform-ai-status-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.shotform-ai-orb {
+  animation: shotform-ai-orb 3.4s ease-in-out infinite;
+}
+
+.shotform-ai-ping {
+  animation: shotform-ai-ping 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+.shotform-ai-brain {
+  animation: shotform-ai-brain 2.2s ease-in-out infinite;
+}
+
+.shotform-ai-scan {
+  animation: shotform-ai-scan 1.5s ease-out infinite;
+}
+
+.shotform-ai-orbit {
+  animation: shotform-ai-orbit 2.8s linear infinite;
+}
+
+.shotform-ai-scanline > span {
+  animation: shotform-ai-scanline 1.4s ease-in-out infinite;
+}
+
+.shotform-ai-icon-pulse {
+  animation: shotform-ai-icon-pulse 1.2s ease-in-out infinite;
+}
+
+.shotform-ai-dot {
+  animation: shotform-ai-dot 1s ease-in-out infinite;
+}
+
+.shotform-ai-packet {
+  animation: shotform-ai-packet 1.2s linear infinite;
+}
+
+.shotform-ai-status-text {
+  display: inline-block;
+  animation: shotform-ai-status-in 0.35s ease-out both;
+}
+
+.shotform-ai-core {
+  animation: shotform-ai-status-in 0.6s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shotform-ai-orb,
+  .shotform-ai-ping,
+  .shotform-ai-brain,
+  .shotform-ai-scan,
+  .shotform-ai-orbit,
+  .shotform-ai-scanline > span,
+  .shotform-ai-icon-pulse,
+  .shotform-ai-dot,
+  .shotform-ai-packet,
+  .shotform-ai-status-text,
+  .shotform-ai-core {
+    animation: none;
+  }
+}
+
+/* 윙스AI 1:1봇 — 다크 프리미엄 채팅 */
+@keyframes wings-chat-orb {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(1) translateY(0);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.06) translateY(-8px);
+  }
+}
+
+@keyframes wings-chat-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes wings-chat-msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes wings-chat-ping {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.75;
+  }
+  70% {
+    transform: scale(1.8);
+    opacity: 0;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes wings-chat-online {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.5);
+  }
+  50% {
+    opacity: 0.7;
+    box-shadow: 0 0 0 5px rgba(52, 211, 153, 0);
+  }
+}
+
+@keyframes wings-chat-sparkle {
+  0%,
+  100% {
+    transform: rotate(0deg) scale(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: rotate(12deg) scale(1.15);
+    opacity: 1;
+  }
+}
+
+@keyframes wings-chat-avatar-ring {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.15);
+  }
+}
+
+@keyframes wings-chat-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes wings-chat-bot-think {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+}
+
+.wings-chat-orb {
+  animation: wings-chat-orb 7s ease-in-out infinite;
+}
+
+.wings-chat-header {
+  animation: wings-chat-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.wings-chat-panel {
+  animation: wings-chat-in 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.08s both;
+}
+
+.wings-chat-msg {
+  animation: wings-chat-msg-in 0.4s ease-out both;
+}
+
+.wings-chat-ping {
+  animation: wings-chat-ping 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+.wings-chat-online {
+  animation: wings-chat-online 1.8s ease-out infinite;
+}
+
+.wings-chat-sparkle {
+  animation: wings-chat-sparkle 2.4s ease-in-out infinite;
+}
+
+.wings-chat-avatar-ring {
+  animation: wings-chat-avatar-ring 2.6s ease-in-out infinite;
+}
+
+.wings-chat-icon-glow {
+  animation: wings-chat-avatar-ring 2.8s ease-in-out infinite;
+}
+
+.wings-chat-dot {
+  animation: wings-chat-dot 1s ease-in-out infinite;
+}
+
+.wings-chat-bot-think {
+  animation: wings-chat-bot-think 1.1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wings-chat-orb,
+  .wings-chat-header,
+  .wings-chat-panel,
+  .wings-chat-msg,
+  .wings-chat-ping,
+  .wings-chat-online,
+  .wings-chat-sparkle,
+  .wings-chat-avatar-ring,
+  .wings-chat-icon-glow,
+  .wings-chat-dot,
+  .wings-chat-bot-think {
+    animation: none;
+  }
+}
+
+/* 채널 분석 벤치마크 */
+@keyframes bench-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes bench-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.bench-row {
+  animation: bench-row-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.bench-modal-in {
+  animation: bench-modal-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bench-row,
+  .bench-modal-in {
+    animation: none;
+  }
+}
+
+/* 이야기 쇼핑 편집기 — 정지 이미지 켄 번즈 효과 */
+@keyframes story-image-zoom-in {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(1.12);
+  }
+}
+
+@keyframes story-image-zoom-out {
+  from {
+    transform: scale(1.12);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+.story-image-zoom-in {
+  animation-name: story-image-zoom-in;
+  animation-timing-function: ease-out;
+  animation-fill-mode: both;
+  transform-origin: center;
+  will-change: transform;
+}
+
+.story-image-zoom-out {
+  animation-name: story-image-zoom-out;
+  animation-timing-function: ease-out;
+  animation-fill-mode: both;
+  transform-origin: center;
+  will-change: transform;
+}
+
+@keyframes story-media-pan-left {
+  from { transform: scale(1.08) translateX(3.5%); }
+  to { transform: scale(1.08) translateX(-3.5%); }
+}
+
+@keyframes story-media-pan-right {
+  from { transform: scale(1.08) translateX(-3.5%); }
+  to { transform: scale(1.08) translateX(3.5%); }
+}
+
+@keyframes story-media-shake {
+  0%, 100% { transform: translate(0, 0) rotate(0); }
+  20% { transform: translate(-1.5%, 0.7%) rotate(-0.4deg); }
+  40% { transform: translate(1.2%, -0.5%) rotate(0.35deg); }
+  60% { transform: translate(-0.8%, -0.4%) rotate(-0.25deg); }
+  80% { transform: translate(1%, 0.5%) rotate(0.3deg); }
+}
+
+@keyframes story-media-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.055); }
+}
+
+@keyframes story-media-blur-in {
+  from { filter: blur(16px); transform: scale(1.08); opacity: 0.4; }
+  to { filter: blur(0); transform: scale(1); opacity: 1; }
+}
+
+@keyframes story-media-flash {
+  0% { filter: brightness(1); }
+  18% { filter: brightness(2.8) saturate(0.4); }
+  45%, 100% { filter: brightness(1); }
+}
+
+.story-media-zoom-in,
+.story-media-zoom-out,
+.story-media-pan-left,
+.story-media-pan-right,
+.story-media-shake,
+.story-media-pulse,
+.story-media-blur-in,
+.story-media-flash {
+  animation-timing-function: ease-out;
+  animation-fill-mode: both;
+  transform-origin: center;
+  will-change: transform, filter, opacity;
+}
+
+.story-media-zoom-in { animation-name: story-image-zoom-in; }
+.story-media-zoom-out { animation-name: story-image-zoom-out; }
+.story-media-pan-left { animation-name: story-media-pan-left; }
+.story-media-pan-right { animation-name: story-media-pan-right; }
+.story-media-shake {
+  animation-name: story-media-shake;
+  animation-iteration-count: infinite;
+  animation-timing-function: linear;
+}
+.story-media-pulse {
+  animation-name: story-media-pulse;
+  animation-iteration-count: infinite;
+  animation-timing-function: ease-in-out;
+}
+.story-media-blur-in { animation-name: story-media-blur-in; }
+.story-media-flash { animation-name: story-media-flash; }
+
+/* 정보쇼핑 카드 제품컷 — 서서히 줌인 */
+@keyframes info-card-kenburns {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(1.14);
+  }
+}
+
+.info-card-kenburns {
+  animation: info-card-kenburns 6.5s ease-out forwards;
+  transform-origin: center center;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .info-card-kenburns,
+  .story-image-zoom-in,
+  .story-image-zoom-out,
+  .story-media-zoom-in,
+  .story-media-zoom-out,
+  .story-media-pan-left,
+  .story-media-pan-right,
+  .story-media-shake,
+  .story-media-pulse,
+  .story-media-blur-in,
+  .story-media-flash {
+    animation: none;
+  }
 }

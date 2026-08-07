@@ -32,6 +32,28 @@ export function videoContainRect(
   return { drawX, drawY, drawW, drawH }
 }
 
+export function videoObjectFitRect(
+  stageW: number,
+  stageH: number,
+  videoW: number,
+  videoH: number,
+  fit: "cover" | "contain" = "contain"
+): VideoContainRect {
+  if (fit === "contain") return videoContainRect(stageW, stageH, videoW, videoH)
+  if (!videoW || !videoH) {
+    return { drawX: 0, drawY: 0, drawW: stageW, drawH: stageH }
+  }
+  const scale = Math.max(stageW / videoW, stageH / videoH)
+  const drawW = videoW * scale
+  const drawH = videoH * scale
+  return {
+    drawX: (stageW - drawW) / 2,
+    drawY: (stageH - drawH) / 2,
+    drawW,
+    drawH,
+  }
+}
+
 export type VideoMosaicPatchOptions = {
   stageW: number
   stageH: number
@@ -42,6 +64,7 @@ export type VideoMosaicPatchOptions = {
   patchH: number
   blockPx: number
   circle?: boolean
+  fit?: "cover" | "contain"
   /** 가장자리를 배경과 블렌딩 (px) */
   featherPx?: number
 }
@@ -141,7 +164,18 @@ export function renderVideoMosaicPatchToCanvas(
   const vh = video.videoHeight
   if (!vw || !vh || video.readyState < 2) return
 
-  const { stageW, stageH, centerXPct, centerYPct, patchW, patchH, blockPx, circle, featherPx } = opts
+  const {
+    stageW,
+    stageH,
+    centerXPct,
+    centerYPct,
+    patchW,
+    patchH,
+    blockPx,
+    circle,
+    featherPx,
+    fit = "contain",
+  } = opts
   const patchWInt = Math.max(8, Math.round(patchW))
   const patchHInt = Math.max(8, Math.round(patchH))
   canvas.width = patchWInt
@@ -150,7 +184,13 @@ export function renderVideoMosaicPatchToCanvas(
   const ctx = canvas.getContext("2d")
   if (!ctx) return
 
-  const { drawX, drawY, drawW, drawH } = videoContainRect(stageW, stageH, vw, vh)
+  const { drawX, drawY, drawW, drawH } = videoObjectFitRect(
+    stageW,
+    stageH,
+    vw,
+    vh,
+    fit
+  )
   const patchCx = (centerXPct / 100) * stageW
   const patchCy = (centerYPct / 100) * stageH
   const patchX = patchCx - patchWInt / 2

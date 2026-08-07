@@ -70,7 +70,7 @@ const STEPS: Array<{ key: AutoEditJobResult["step"]; label: string }> = [
   { key: "download", label: "영상 다운로드" },
   { key: "analyze", label: "제품·장면 분석" },
   { key: "mix", label: "영상 mix (picks)" },
-  { key: "edit_plan", label: "짜집기 타임라인" },
+  { key: "edit_plan", label: "리믹스 타임라인" },
   { key: "render", label: "ffmpeg 렌더" },
   { key: "script", label: "장면맞춤 나레이션" },
   { key: "done", label: "완료" },
@@ -98,7 +98,7 @@ function stepHintsForMode(
     download: "서버에서 원본 영상 준비 중… (브라우저 업로드 완료 시 곧 분석 단계로 넘어갑니다)",
     analyze: ANALYZE_STEP_HINTS[mode],
     mix: "영상 mix (picks) 생성 중…",
-    edit_plan: mode === "precision" ? "짜집기 타임라인·컷별 Vision 캡션 중…" : "짜집기 타임라인 구성 중…",
+    edit_plan: mode === "precision" ? "리믹스 타임라인·컷별 Vision 캡션 중…" : "리믹스 타임라인 구성 중…",
     render: "ffmpeg 렌더 중… (14분 이상 지연 시 MP4 없이 나레이션까지 자동 완료)",
     script:
       mode === "precision"
@@ -302,7 +302,7 @@ export function MvpAutoEditDialog({
   initialPrefetchedBlobs?: Record<string, Blob>
   onPicksUpdated?: (picks: AutoEditPick[]) => void
   onPipelineComplete?: (args: { targetDuration: AutoEditTargetDuration }) => void
-  /** 짜집기 완료 → MVP 내 TTS·자막 스튜디오 */
+  /** 리믹스 완료 → MVP 내 TTS·자막 스튜디오 */
   onStudioReady?: (args: {
     result: AutoEditJobResult
     videoBlobUrl: string | null
@@ -694,7 +694,7 @@ export function MvpAutoEditDialog({
                 )
               : clientVideoMeta
 
-          setDownloadHint("짜집기 작업 시작 중…")
+          setDownloadHint("리믹스 작업 시작 중…")
           const res = await fetch("/api/shotform/auto-edit", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -734,7 +734,7 @@ export function MvpAutoEditDialog({
             started.jobId,
             (partial) => {
               setResult(partial)
-              setDownloadHint(hints[partial.step] || "짜집기 진행 중…")
+              setDownloadHint(hints[partial.step] || "리믹스 진행 중…")
             },
             {
               analysisMode,
@@ -824,7 +824,7 @@ export function MvpAutoEditDialog({
           if (json.renderSkipped && !companionVideoBlob) {
             const skipMsg =
               json.renderSkipReason ||
-              "짜집기 MP4 렌더가 완료되지 않았습니다. 타임라인·나레이션은 사용할 수 있습니다."
+              "리믹스 MP4 렌더가 완료되지 않았습니다. 타임라인·나레이션은 사용할 수 있습니다."
             if (canOpenStudio && onStudioReady) {
               onStudioReady({
                 result: json,
@@ -852,7 +852,7 @@ export function MvpAutoEditDialog({
             } catch (mp4Err) {
               const detail = mp4Err instanceof Error ? mp4Err.message : ""
               setErr(
-                "짜집기·대본은 완료됐지만 결과 MP4를 불러오지 못했습니다.\n\n" +
+                "리믹스·대본은 완료됐지만 결과 MP4를 불러오지 못했습니다.\n\n" +
                   (detail ? `${detail}\n\n` : "") +
                   "편집기에서 다시 불러오거나 「편집 실행」을 한 번 더 눌러 주세요."
               )
@@ -898,7 +898,7 @@ export function MvpAutoEditDialog({
                 break
               }
             } else {
-              setErr("짜집기 MP4가 없습니다. 짜집기를 다시 실행해 주세요.")
+              setErr("리믹스 MP4가 없습니다. 리믹스를 다시 실행해 주세요.")
               break
             }
           }
@@ -970,7 +970,7 @@ export function MvpAutoEditDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-white">
             <Scissors className="h-4 w-4 text-violet-400" />
-            AI 짜집기 자동 편집
+            AI 리믹스 자동 편집
           </DialogTitle>
           <DialogDescription className="text-slate-400">
             {picks.length}개 영상 선택됨 · 목표 {targetDuration}초 쇼츠
@@ -1134,7 +1134,7 @@ export function MvpAutoEditDialog({
               (ffmpeg). 같은 키워드 영상끼리는 화면이 비슷할 수 있어,{" "}
               <strong className="text-violet-200">서로 다른 영상·다른 장면</strong>을 고르면 믹스 차이가 큽니다.
               <span className="mt-1 block text-[10px] text-slate-600">
-                중국어 자막 제거(Vmake)는 짜집기 완료 후 편집 스튜디오 <strong className="text-slate-500">정보</strong> 탭에서
+                중국어 자막 제거는 리믹스 완료 후 편집 스튜디오 <strong className="text-slate-500">정보</strong> 탭에서
                 실행하세요.
               </span>
             </p>
@@ -1237,7 +1237,7 @@ export function MvpAutoEditDialog({
           {result?.productAnalysis?.scenes?.length ? (
             <details open className="rounded-lg border border-violet-500/20 bg-violet-950/10 p-2 text-xs">
               <summary className="cursor-pointer font-medium text-violet-200">
-                짜집기 장면 ({result.productAnalysis.scenes.length}구간)
+                리믹스 장면 ({result.productAnalysis.scenes.length}구간)
               </summary>
               <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto">
                 {result.productAnalysis.scenes.map((sc, i) => (
@@ -1431,7 +1431,7 @@ export function MvpAutoEditDialog({
                 }}
               >
                 <Download className="h-4 w-4" />
-                짜집기 MP4 다운로드
+                리믹스 MP4 다운로드
               </Button>
               <div className="overflow-hidden rounded-lg border border-white/10 bg-black">
                 {previewBlobUrl ? (

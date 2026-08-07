@@ -21,7 +21,7 @@ import type {
 import { labelThumbnailSource, selectedThumbnailVariant } from "@/lib/mvp-thumbnail-gallery"
 import type { MvpThumbnailDesign } from "@/lib/mvp-thumbnail-design"
 import { THUMBNAIL_SAMPLE_BACKGROUNDS } from "@/lib/mvp-thumbnail-samples"
-import { normalizeMvpHookingText } from "@/lib/mvp-thumbnail-persist"
+import { isDisplayableThumbnailUrl, normalizeMvpHookingText } from "@/lib/mvp-thumbnail-persist"
 import { type ThumbnailHookingInput } from "@/lib/shotform-mvp-thumbnail"
 import { studio } from "../components/ShotFormStudioUI"
 import { MvpThumbnailAdvancedEditor } from "./MvpThumbnailAdvancedEditor"
@@ -32,7 +32,7 @@ type Props = {
   /** AI 후킹 생성 시 대본·제품 분석 반영 */
   hookingInput?: ThumbnailHookingInput
   videoUrl: string | null
-  /** 짜집기 컷 — 컷별 프레임 후보 캡처에 사용 */
+  /** 리믹스 컷 — 컷별 프레임 후보 캡처에 사용 */
   segments?: readonly NarrationSegment[]
   scriptStyle?: MvpScriptStyleState
   thumbnailUrl: string
@@ -52,6 +52,8 @@ type Props = {
   onHookingTextChange: (text: MvpThumbnailHookingText) => void
   /** 인스펙터(영상 편집) vs 7단계 전체 화면 */
   layout?: "compact" | "page"
+  /** 팝업 우측 패널용 라이트 톤 */
+  tone?: "dark" | "light"
   className?: string
 }
 
@@ -82,9 +84,11 @@ export function MvpThumbnailPanel({
   onThumbnailIntroOnChange,
   onHookingTextChange,
   layout = "compact",
+  tone = "dark",
   className,
 }: Props) {
   const compact = layout === "compact"
+  const light = tone === "light"
 
   const [referencePreviewUrl, setReferencePreviewUrl] = useState<string>("")
   const [referenceBase64, setReferenceBase64] = useState<string>("")
@@ -146,7 +150,7 @@ export function MvpThumbnailPanel({
 
   const loadVideoFrames = useCallback(async () => {
     if (!videoUrl) {
-      setErr("짜집기 MP4가 없습니다. 영상을 먼저 불러오세요.")
+      setErr("리믹스 MP4가 없습니다. 영상을 먼저 불러오세요.")
       return
     }
     setFramesLoading(true)
@@ -386,7 +390,13 @@ export function MvpThumbnailPanel({
                   : "border-white/15 opacity-80 hover:border-white/30 hover:opacity-100"
               )}
             >
-              <img src={variant.url} alt="" className="h-full w-full object-cover" />
+              {isDisplayableThumbnailUrl(variant.url) ? (
+                <img src={variant.url} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <span className="flex h-full w-full items-center justify-center bg-slate-800 text-slate-500">
+                  <ImageIcon className="h-4 w-4" />
+                </span>
+              )}
               <span
                 className={cn(
                   "absolute bottom-0 left-0 right-0 bg-black/75 px-0.5 py-0.5 text-center font-medium text-white",
@@ -412,10 +422,19 @@ export function MvpThumbnailPanel({
 
   const previewBox = (
     <div className={cn("space-y-2", compact ? "" : "space-y-3")}>
-      <p className={cn("font-medium text-white", compact ? "text-[10px] text-slate-400" : "text-xs")}>{previewHint}</p>
+      <p
+        className={cn(
+          "font-medium",
+          compact ? "text-[10px]" : "text-xs",
+          light ? "text-slate-500" : compact ? "text-slate-400" : "text-white"
+        )}
+      >
+        {previewHint}
+      </p>
       <div
         className={cn(
-          "relative overflow-hidden rounded-xl border border-white/15 bg-black shadow-lg",
+          "relative overflow-hidden rounded-xl border bg-black shadow-lg",
+          light ? "border-slate-200" : "border-white/15",
           compact ? "mx-auto aspect-[9/16] w-full max-w-[160px]" : "mx-auto aspect-[9/16] w-full max-w-[300px] shadow-2xl"
         )}
       >
@@ -449,20 +468,36 @@ export function MvpThumbnailPanel({
           </div>
         ) : null}
 
-        {thumbnailUrl ? (
+        {isDisplayableThumbnailUrl(thumbnailUrl) ? (
           <img src={thumbnailUrl} alt="생성된 썸네일" className="absolute inset-0 z-[2] h-full w-full object-cover" />
         ) : null}
       </div>
 
       <div
         className={cn(
-          "rounded-xl border border-cyan-400/25 bg-gradient-to-br from-cyan-500/10 via-transparent to-violet-500/5 p-3",
+          "rounded-xl border p-3",
+          light
+            ? "border-slate-200 bg-slate-50"
+            : "border-cyan-400/25 bg-gradient-to-br from-cyan-500/10 via-transparent to-violet-500/5",
           compact ? "space-y-2" : "space-y-2.5"
         )}
       >
         <div>
-          <p className={cn("font-semibold text-cyan-100", compact ? "text-[11px]" : "text-xs")}>썸네일 스튜디오</p>
-          <p className={cn("mt-0.5 leading-relaxed text-slate-400", compact ? "text-[9px]" : "text-[10px]")}>
+          <p
+            className={cn(
+              "font-semibold",
+              compact ? "text-[11px]" : "text-xs",
+              light ? "text-slate-900" : "text-cyan-100"
+            )}
+          >
+            썸네일 스튜디오
+          </p>
+          <p
+            className={cn(
+              "mt-0.5 leading-relaxed text-slate-500",
+              compact ? "text-[9px]" : "text-[10px]"
+            )}
+          >
             별도 팝업에서 썸네일만 집중해서 편집합니다. 템플릿·텍스트·요소·필터를 미리캔버스처럼 다듬은 뒤 적용하세요.
           </p>
         </div>
@@ -470,7 +505,8 @@ export function MvpThumbnailPanel({
           type="button"
           size="sm"
           className={cn(
-            "w-full bg-cyan-600 text-white hover:bg-cyan-500",
+            "w-full text-white",
+            light ? "bg-slate-900 hover:bg-slate-800" : "bg-cyan-600 hover:bg-cyan-500",
             compact ? "h-8 text-[10px]" : "h-9 text-xs"
           )}
           onClick={() => setAdvancedOpen(true)}
@@ -539,9 +575,19 @@ export function MvpThumbnailPanel({
     <div className="space-y-3">
       {galleryPicker}
       {introToggle}
-      <div className="rounded-lg border border-white/10 bg-black/40 p-3 space-y-2">
+      <div
+        className={cn(
+          "rounded-lg border p-3 space-y-2",
+          light ? "border-slate-200 bg-white" : "border-white/10 bg-black/40"
+        )}
+      >
         <div className="flex items-center justify-between gap-2">
-          <Label className={cn(compact ? "text-[10px] text-slate-400" : "text-xs text-slate-300")}>
+          <Label
+            className={cn(
+              compact ? "text-[10px]" : "text-xs",
+              light ? "text-slate-500" : compact ? "text-slate-400" : "text-slate-300"
+            )}
+          >
             후킹 문구 (2줄)
           </Label>
           <Button
@@ -549,8 +595,13 @@ export function MvpThumbnailPanel({
             size="sm"
             variant="outline"
             className={cn(
-              studio.btnOutline,
-              "h-7 gap-1 text-[10px] border-amber-500/35 text-amber-100 hover:bg-amber-500/10 hover:text-amber-50"
+              "h-7 gap-1 text-[10px]",
+              light
+                ? "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                : cn(
+                    studio.btnOutline,
+                    "border-amber-500/35 text-amber-100 hover:bg-amber-500/10 hover:text-amber-50"
+                  )
             )}
             disabled={hookingLoading}
             onClick={() => void generateHookingText()}
@@ -581,7 +632,7 @@ export function MvpThumbnailPanel({
       <div className="rounded-lg border border-white/10 bg-black/40 p-3 space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <Label className={cn(compact ? "text-[10px] text-slate-400" : "text-xs text-slate-300")}>
-            짜집기 영상 프레임
+            리믹스 영상 프레임
           </Label>
           <div className="flex flex-wrap gap-1.5">
             <Button
@@ -654,7 +705,7 @@ export function MvpThumbnailPanel({
         )}
       </Button>
       <p className={cn("leading-relaxed text-slate-500", compact ? "text-[9px]" : "text-[10px]")}>
-        참조 = 위에서 고른 짜집기 영상 프레임 또는 업로드 사진 ·{" "}
+        참조 = 위에서 고른 리믹스 영상 프레임 또는 업로드 사진 ·{" "}
         <span className="text-cyan-200/90">이미지만</span>은 이 참조로 제품 형태를 유지한 사용 장면만 생성 ·{" "}
         <span className="text-amber-200/90">전체 생성</span>은 후킹·화살표까지 한 번에 합성
       </p>
@@ -700,8 +751,11 @@ export function MvpThumbnailPanel({
         hookingInput={hookingInput}
         initialDesign={studioInitialDesign}
         onApply={(dataUrl, hooking, design) => {
+          // 스튜디오에서 적용한 결과 PNG를 저장 — 재편집 시 원본 배경은 design에 유지
           const studioDesign: MvpThumbnailDesign = {
             ...design,
+            // 적용본에는 레이어가 합성되어 있으므로 aiBaked로 덮어쓰지 않음
+            aiBaked: false,
             backgroundUrl: editorBackgroundUrl || design.backgroundUrl || "",
             aiBackgroundHistory: undefined,
           }

@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "Wings 숏폼 쿠팡 수집기",
+  "version": "1.1.7",
+  "description": "제품·상세 이미지와 일반·포토 상품평의 리뷰 사진을 한 번에 수집합니다.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Wings 숏폼 쿠팡 수집기",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "permissions": ["activeTab", "scripting", "storage", "clipboardWrite"],
+  "host_permissions": [
+    "https://www.coupang.com/*",
+    "https://coupang.com/*",
+    "http://127.0.0.1:3847/*",
+    "http://localhost:3847/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.coupang.com/*", "https://coupang.com/*"],
+      "js": ["collect.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

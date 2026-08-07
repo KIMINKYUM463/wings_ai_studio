@@ -103,49 +103,313 @@ export async function mvpThumbnailImageToPngBytes(img: HTMLImageElement): Promis
 /** 브라우저 MediaRecorder WebM → MP4 (H.264 + AAC) */
 export async function convertWebmBlobToMp4(
   webm: Blob,
-  onProgress?: (ratio: number) => void
+  onProgress?: (ratio: number) => void,
+  opts?: { durationSec?: number }
 ): Promise<Blob> {
   const ffmpeg = await loadFfmpeg()
   const stamp = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
   const inName = `mvp_in_${stamp}.webm`
   const outName = `mvp_out_${stamp}.mp4`
+  const durationSec =
+    typeof opts?.durationSec === "number" && opts.durationSec > 0
+      ? opts.durationSec
+      : null
 
   const progressHandler = ({ progress }: { progress: number }) => {
     const ratio = progress > 1 ? progress / 100 : progress
     onProgress?.(Math.min(1, Math.max(0, ratio)))
   }
 
+  const durationArgs = durationSec
+    ? (["-t", durationSec.toFixed(3)] as string[])
+    : []
+
+  const attempts: string[][] = [
+    // 1) 표준 H.264 + AAC (CFR)
+    [
+      "-fflags",
+      "+genpts",
+      "-analyzeduration",
+      "100M",
+      "-probesize",
+      "50M",
+      "-i",
+      inName,
+      ...durationArgs,
+      "-map",
+      "0:v:0",
+      "-map",
+      "0:a:0?",
+      "-r",
+      "30",
+      "-c:v",
+      "libx264",
+      "-preset",
+      "ultrafast",
+      "-crf",
+      "22",
+      "-pix_fmt",
+      "yuv420p",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "192k",
+      "-ar",
+      "44100",
+      "-ac",
+      "2",
+      "-movflags",
+      "+faststart",
+      outName,
+    ],
+    // 2) vsync 폴백
+    [
+      "-fflags",
+      "+genpts",
+      "-i",
+      inName,
+      ...durationArgs,
+      "-r",
+      "30",
+      "-vsync",
+      "cfr",
+      "-c:v",
+      "libx264",
+      "-preset",
+      "ultrafast",
+      "-crf",
+      "23",
+      "-pix_fmt",
+      "yuv420p",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "192k",
+      "-movflags",
+      "+faststart",
+      outName,
+    ],
+    // 3) 오디오 재샘플만 약하게
+    [
+      "-i",
+      inName,
+      ...durationArgs,
+      "-c:v",
+      "libx264",
+      "-preset",
+      "ultrafast",
+      "-pix_fmt",
+      "yuv420p",
+      "-c:a",
+      "aac",
+      "-movflags",
+      "+faststart",
+      outName,
+    ],
+  ]
+
   ffmpeg.on("progress", progressHandler)
   try {
     await ffmpeg.writeFile(inName, await blobToBytes(webm))
-    await runFfmpeg(
-      ffmpeg,
-      [
-        "-i",
-        inName,
-        "-c:v",
-        "libx264",
-        "-preset",
-        "fast",
-        "-crf",
-        "23",
-        "-pix_fmt",
-        "yuv420p",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "192k",
-        "-movflags",
-        "+faststart",
-        outName,
-      ],
-      "WebM→MP4 변환 실패"
-    )
-    const data = await ffmpeg.readFile(outName)
-    return bytesToMp4Blob(data)
+    let lastError: unknown = null
+    for (const args of attempts) {
+      try {
+        await runFfmpeg(ffmpeg, args, "WebM→MP4 변환 실패")
+        const data = await ffmpeg.readFile(outName)
+        return bytesToMp4Blob(data)
+      } catch (error) {
+        lastError = error
+        await ffmpeg.deleteFile(outName).catch(() => {})
+      }
+    }
+    throw lastError instanceof Error
+      ? lastError
+      : new Error("WebM→MP4 변환 실패")
   } finally {
     ffmpeg.off("progress", progressHandler)
     await ffmpeg.deleteFile(inName).catch(() => {})
     await ffmpeg.deleteFile(outName).catch(() => {})
+  }
+}
+
+/** MediaRecorder WebM에 빠진 길이(Duration) 메타데이터를 채웁니다. */
+export async function fixWebmBlobDuration(
+  webm: Blob,
+  durationSec: number
+): Promise<Blob> {
+  const durationMs = Math.max(100, Math.round(durationSec * 1000))
+  const { default: fixWebmDuration } = await import("fix-webm-duration")
+  const fixed = await fixWebmDuration(webm, durationMs, { logger: false })
+  return fixed instanceof Blob ? fixed : webm
+}
+
+function bytesToWebmBlob(data: Uint8Array | string): Blob {
+  const bytes = data instanceof Uint8Array ? data : new TextEncoder().encode(String(data))
+  const copy = new Uint8Array(bytes.byteLength)
+  copy.set(bytes)
+  return new Blob([copy], { type: "video/webm" })
+}
+
+/**
+ * WebM을 다시 담아 길이·타임스탬프를 정상화합니다.
+ * Windows 기본 플레이어가 MediaRecorder WebM을 바로 종료하는 문제를 줄입니다.
+ * (확장자는 계속 .webm)
+ */
+export async function remuxWebmWithDuration(
+  webm: Blob,
+  durationSec: number,
+  onProgress?: (ratio: number) => void
+): Promise<Blob> {
+  const ffmpeg = await loadFfmpeg()
+  const stamp = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+  const inName = `story_in_${stamp}.webm`
+  const outName = `story_out_${stamp}.webm`
+  const duration = Math.max(0.5, durationSec)
+
+  const progressHandler = ({ progress }: { progress: number }) => {
+    const ratio = progress > 1 ? progress / 100 : progress
+    onProgress?.(Math.min(1, Math.max(0, ratio)))
+  }
+
+  const attempts: string[][] = [
+    // 1) 스트림 복사 — 원본 부드러움 유지 + 길이만 확정 (우선)
+    [
+      "-fflags",
+      "+genpts",
+      "-analyzeduration",
+      "100M",
+      "-probesize",
+      "50M",
+      "-i",
+      inName,
+      "-t",
+      duration.toFixed(3),
+      "-c",
+      "copy",
+      outName,
+    ],
+    // 2) 고품질 재인코딩 (끊김·블록 최소화)
+    [
+      "-fflags",
+      "+genpts",
+      "-i",
+      inName,
+      "-t",
+      duration.toFixed(3),
+      "-r",
+      "30",
+      "-vsync",
+      "cfr",
+      "-c:v",
+      "libvpx",
+      "-b:v",
+      "6M",
+      "-maxrate",
+      "8M",
+      "-bufsize",
+      "12M",
+      "-deadline",
+      "good",
+      "-cpu-used",
+      "2",
+      "-auto-alt-ref",
+      "0",
+      "-lag-in-frames",
+      "0",
+      "-pix_fmt",
+      "yuv420p",
+      "-c:a",
+      "libopus",
+      "-b:a",
+      "160k",
+      "-ar",
+      "48000",
+      "-ac",
+      "2",
+      outName,
+    ],
+    // 3) 빠른 재인코딩 폴백
+    [
+      "-fflags",
+      "+genpts",
+      "-i",
+      inName,
+      "-t",
+      duration.toFixed(3),
+      "-r",
+      "30",
+      "-c:v",
+      "libvpx",
+      "-b:v",
+      "4M",
+      "-deadline",
+      "realtime",
+      "-cpu-used",
+      "5",
+      "-c:a",
+      "copy",
+      outName,
+    ],
+  ]
+
+  ffmpeg.on("progress", progressHandler)
+  try {
+    await ffmpeg.writeFile(inName, await blobToBytes(webm))
+    let lastError: unknown = null
+    for (const args of attempts) {
+      try {
+        await runFfmpeg(ffmpeg, args, "WebM 재패키징 실패")
+        const data = await ffmpeg.readFile(outName)
+        const blob = bytesToWebmBlob(data)
+        if (blob.size > 64) return blob
+      } catch (error) {
+        lastError = error
+        await ffmpeg.deleteFile(outName).catch(() => {})
+      }
+    }
+    throw lastError instanceof Error
+      ? lastError
+      : new Error("WebM 재패키징 실패")
+  } finally {
+    ffmpeg.off("progress", progressHandler)
+    await ffmpeg.deleteFile(inName).catch(() => {})
+    await ffmpeg.deleteFile(outName).catch(() => {})
+  }
+}
+
+/**
+ * 피치(목소리 톤) 유지 배속 — ffmpeg atempo.
+ * tempo 1.4 = 약 1/1.4 길이, 톤은 그대로.
+ * atempo 허용 범위 0.5~2.0 (우리 TTS 배속 0.8~1.5에 충분)
+ */
+export async function changeAudioTempoPreservePitch(
+  audioBlob: Blob,
+  tempo: number
+): Promise<Blob> {
+  const rate = Math.min(2, Math.max(0.5, Math.round(tempo * 100) / 100))
+  if (Math.abs(rate - 1) < 0.02) return audioBlob
+
+  const ffmpeg = await loadFfmpeg()
+  const stamp = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+  try {
+    const ext =
+      /mpeg|mp3/i.test(audioBlob.type) || audioBlob.type === "audio/mp4" ? "mp3" : "wav"
+    const inName = `tts_in_${stamp}.${ext}`
+    const outName = `tts_out_${stamp}.wav`
+    await ffmpeg.writeFile(inName, await blobToBytes(audioBlob))
+    await runFfmpeg(
+      ffmpeg,
+      ["-i", inName, "-filter:a", `atempo=${rate}`, "-ac", "1", "-ar", "44100", outName],
+      "TTS 배속(atempo) 변환 실패"
+    )
+    const data = await ffmpeg.readFile(outName)
+    const bytes = data instanceof Uint8Array ? data : new TextEncoder().encode(String(data))
+    const copy = new Uint8Array(bytes.byteLength)
+    copy.set(bytes)
+    return new Blob([copy], { type: "audio/wav" })
+  } finally {
+    await ffmpeg.deleteFile(`tts_in_${stamp}.wav`).catch(() => {})
+    await ffmpeg.deleteFile(`tts_in_${stamp}.mp3`).catch(() => {})
+    await ffmpeg.deleteFile(`tts_out_${stamp}.wav`).catch(() => {})
   }
 }

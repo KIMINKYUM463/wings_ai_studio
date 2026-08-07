@@ -28,6 +28,9 @@ type ApiKeysState = {
   apify: string
   vmake: string
   vmakeSecret: string
+  pixabay: string
+  serpapi: string
+  klipy: string
 }
 
 const EMPTY_KEYS: ApiKeysState = {
@@ -43,6 +46,9 @@ const EMPTY_KEYS: ApiKeysState = {
   apify: "",
   vmake: "",
   vmakeSecret: "",
+  pixabay: "",
+  serpapi: "",
+  klipy: "",
 }
 
 function loadApiKeysFromStorage(): ApiKeysState {
@@ -53,13 +59,22 @@ function loadApiKeysFromStorage(): ApiKeysState {
     replicate: localStorage.getItem("shotform_replicate_api_key") || "",
     ttsmaker: localStorage.getItem("shotform_ttsmaker_api_key") || "",
     supertone: localStorage.getItem("shotform_supertone_api_key") || "",
-    typecast: localStorage.getItem("shotform_typecast_api_key") || "",
+    typecast:
+      localStorage.getItem("shotform_typecast_api_key") ||
+      localStorage.getItem("typecast_api_key") ||
+      "",
     youtubeClientId: localStorage.getItem("shotform_youtube_client_id") || "",
     youtubeClientSecret: localStorage.getItem("shotform_youtube_client_secret") || "",
     youtubeDataApiKey: localStorage.getItem("shotform_youtube_data_api_key") || "",
     apify: localStorage.getItem("shotform_apify_token") || "",
     vmake: localStorage.getItem("shotform_vmake_api_key") || "",
     vmakeSecret: localStorage.getItem("shotform_vmake_secret_access_key") || "",
+    pixabay: localStorage.getItem("shotform_pixabay_api_key") || "",
+    serpapi:
+      localStorage.getItem("shotform_serpapi_key") ||
+      localStorage.getItem("serpapi_api_key") ||
+      "",
+    klipy: localStorage.getItem("shotform_klipy_api_key") || "",
   }
 }
 
@@ -70,12 +85,17 @@ function saveApiKeysToStorage(keys: ApiKeysState) {
   localStorage.setItem("shotform_ttsmaker_api_key", keys.ttsmaker || "")
   localStorage.setItem("shotform_supertone_api_key", keys.supertone || "")
   localStorage.setItem("shotform_typecast_api_key", keys.typecast || "")
+  localStorage.setItem("typecast_api_key", keys.typecast || "")
   localStorage.setItem("shotform_youtube_client_id", keys.youtubeClientId)
   localStorage.setItem("shotform_youtube_client_secret", keys.youtubeClientSecret)
   localStorage.setItem("shotform_youtube_data_api_key", keys.youtubeDataApiKey)
   localStorage.setItem("shotform_apify_token", keys.apify)
   localStorage.setItem("shotform_vmake_api_key", keys.vmake || "")
   localStorage.setItem("shotform_vmake_secret_access_key", keys.vmakeSecret || "")
+  localStorage.setItem("shotform_pixabay_api_key", keys.pixabay || "")
+  localStorage.setItem("shotform_serpapi_key", keys.serpapi || "")
+  localStorage.setItem("serpapi_api_key", keys.serpapi || "")
+  localStorage.setItem("shotform_klipy_api_key", keys.klipy || "")
   window.dispatchEvent(new Event(SHOTFORM_API_KEYS_UPDATED_EVENT))
 }
 
@@ -83,6 +103,12 @@ type ShotFormApiKeySettingsDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
 }
+
+const DARK_OUTLINE_BTN =
+  "shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white disabled:opacity-40"
+
+const DARK_INPUT =
+  "font-mono text-sm bg-black/40 border-white/15 text-zinc-100 placeholder:text-zinc-500"
 
 type ApiKeyFieldProps = {
   id: string
@@ -118,11 +144,11 @@ function ApiKeyField({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-2">
-        <Label htmlFor={id} className="text-sm font-medium">
+        <Label htmlFor={id} className="text-sm font-medium text-zinc-200">
           {label}
         </Label>
         {homepageUrl ? (
-          <Button variant="outline" size="sm" className="h-7 shrink-0 text-xs" asChild>
+          <Button variant="outline" size="sm" className={`h-7 text-xs ${DARK_OUTLINE_BTN}`} asChild>
             <a href={homepageUrl} target="_blank" rel="noopener noreferrer">
               <ExternalLink className="mr-1 h-3 w-3" />
               {linkLabel}
@@ -137,9 +163,9 @@ function ApiKeyField({
           placeholder={placeholder}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="font-mono text-sm"
+          className={DARK_INPUT}
         />
-        <Button type="button" variant="outline" size="icon" onClick={onToggleShow} className="shrink-0">
+        <Button type="button" variant="outline" size="icon" onClick={onToggleShow} className={DARK_OUTLINE_BTN}>
           {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
         </Button>
         <Button
@@ -148,7 +174,7 @@ function ApiKeyField({
           size="icon"
           onClick={() => navigator.clipboard.writeText(value)}
           disabled={!value}
-          className="shrink-0"
+          className={DARK_OUTLINE_BTN}
         >
           <Copy className="h-4 w-4" />
         </Button>
@@ -159,16 +185,16 @@ function ApiKeyField({
             size="sm"
             onClick={onTest}
             disabled={testing || !value}
-            className="shrink-0 text-xs"
+            className={`text-xs ${DARK_OUTLINE_BTN}`}
           >
             {testing ? "확인 중..." : "연결확인"}
           </Button>
         ) : null}
       </div>
       {testResult ? (
-        <p className={`text-xs ${testResult.success ? "text-green-600" : "text-red-600"}`}>{testResult.message}</p>
+        <p className={`text-xs ${testResult.success ? "text-emerald-400" : "text-red-400"}`}>{testResult.message}</p>
       ) : null}
-      <p className="text-xs text-muted-foreground">{hint}</p>
+      <p className="text-xs text-zinc-500">{hint}</p>
     </div>
   )
 }
@@ -206,25 +232,34 @@ ${apiKeys.elevenlabs || "(미입력)"}
 3. Replicate API Key
 ${apiKeys.replicate || "(미입력)"}
 
-4. TTSMaker API Key
+4. Pixabay API Key
+${apiKeys.pixabay || "(미입력)"}
+
+5. SerpAPI Key
+${apiKeys.serpapi || "(미입력)"}
+
+6. Klipy API Key
+${apiKeys.klipy || "(미입력)"}
+
+7. TTSMaker API Key
 ${apiKeys.ttsmaker || "(미입력)"}
 
-5. Supertone API Key
+7. Supertone API Key
 ${apiKeys.supertone || "(미입력)"}
 
-6. Typecast API Key
+8. Typecast API Key
 ${apiKeys.typecast || "(미입력)"}
 
-7. YouTube Data API Key
+9. YouTube Data API Key
 ${apiKeys.youtubeDataApiKey || "(미입력)"}
 
-8. Apify API
+10. Apify API
 ${apiKeys.apify || "(미입력)"}
 
-9. Vmake AI API Key
+11. Vmake AI API Key
 ${apiKeys.vmake || "(미입력)"}
 
-10. Vmake AI Secret Access Key
+12. Vmake AI Secret Access Key
 ${apiKeys.vmakeSecret || "(미입력)"}
 `
     const blob = new Blob([apiKeysText], { type: "text/plain;charset=utf-8" })
@@ -279,6 +314,38 @@ ${apiKeys.vmakeSecret || "(미입력)"}
             })
             const result = await response.json()
             setTestResults((prev) => ({ ...prev, [keyType]: { success: result.success, message: result.message } }))
+            break
+          }
+          case "pixabay": {
+            const response = await fetch(
+              `https://pixabay.com/api/?key=${encodeURIComponent(apiKeys.pixabay)}&q=test&per_page=3&safesearch=true`
+            )
+            if (response.ok) {
+              setTestResults((prev) => ({ ...prev, [keyType]: { success: true, message: "Pixabay 연결 성공!" } }))
+            } else {
+              setTestResults((prev) => ({
+                ...prev,
+                [keyType]: { success: false, message: `연결 실패: ${response.statusText || response.status}` },
+              }))
+            }
+            break
+          }
+          case "serpapi": {
+            const response = await fetch(
+              `https://serpapi.com/account.json?api_key=${encodeURIComponent(apiKeys.serpapi)}`
+            )
+            if (response.ok) {
+              setTestResults((prev) => ({ ...prev, [keyType]: { success: true, message: "SerpAPI 연결 성공!" } }))
+            } else {
+              const error = await response.json().catch(() => ({}))
+              setTestResults((prev) => ({
+                ...prev,
+                [keyType]: {
+                  success: false,
+                  message: `연결 실패: ${(error as { error?: string }).error || response.statusText}`,
+                },
+              }))
+            }
             break
           }
           case "youtubeDataApiKey": {
@@ -391,13 +458,13 @@ ${apiKeys.vmakeSecret || "(미입력)"}
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[90vh] flex-col sm:max-w-[500px]">
+      <DialogContent className="flex max-h-[90vh] flex-col sm:max-w-[500px] bg-[#141518] border-white/10 text-zinc-100">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+          <DialogTitle className="flex items-center gap-2 text-zinc-50">
             <Key className="h-5 w-5" />
             API 키 설정
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="text-zinc-400">
             AI 서비스 사용을 위한 API 키를 입력해주세요. 키는 브라우저에 안전하게 저장됩니다.
           </DialogDescription>
         </DialogHeader>
@@ -460,7 +527,7 @@ ${apiKeys.vmakeSecret || "(미입력)"}
             label="Typecast API Key"
             value={apiKeys.typecast}
             placeholder="입력하세요"
-            hint="타입캐스트(TTS) 음성 합성에 사용됩니다 (숏폼 스튜디오 나레이션)."
+            hint="타입캐스트 TTS에 사용됩니다 (AI 쇼핑 숏폼 · 숏폼 스튜디오 나레이션)."
             show={!!showKeys.typecast}
             testing={!!testingKeys.typecast}
             testResult={testResults.typecast}
@@ -473,7 +540,7 @@ ${apiKeys.vmakeSecret || "(미입력)"}
             label="Replicate API Key"
             value={apiKeys.replicate}
             placeholder="r8_..."
-            hint="AI 모델 실행에 사용됩니다"
+            hint="AI 이미지/영상 생성(flux-schnell 등)에 사용됩니다"
             show={!!showKeys.replicate}
             testing={!!testingKeys.replicate}
             testResult={testResults.replicate}
@@ -481,8 +548,52 @@ ${apiKeys.vmakeSecret || "(미입력)"}
             onToggleShow={() => toggleShow("replicate")}
             onTest={() => void testApiKey("replicate")}
           />
+          <ApiKeyField
+            id="pixabay-key"
+            label="Pixabay API Key"
+            value={apiKeys.pixabay}
+            placeholder="Pixabay에서 발급한 API Key"
+            hint="AI 쇼핑 숏폼 · Pixabay 무료 이미지/동영상 검색에 사용됩니다."
+            homepageUrl="https://pixabay.com/api/docs/"
+            linkLabel="API 발급"
+            show={!!showKeys.pixabay}
+            testing={!!testingKeys.pixabay}
+            testResult={testResults.pixabay}
+            onChange={(v) => patchKey("pixabay", v)}
+            onToggleShow={() => toggleShow("pixabay")}
+            onTest={() => void testApiKey("pixabay")}
+          />
+          <ApiKeyField
+            id="serpapi-key"
+            label="SerpAPI Key"
+            value={apiKeys.serpapi}
+            placeholder="SerpAPI에서 발급한 API Key"
+            hint="스토리 쇼핑 · 쿠팡 제품 메인 사진 Google 렌즈 / Google 이미지·동영상 검색에 사용됩니다."
+            homepageUrl="https://serpapi.com/manage-api-key"
+            linkLabel="API 발급"
+            show={!!showKeys.serpapi}
+            testing={!!testingKeys.serpapi}
+            testResult={testResults.serpapi}
+            onChange={(v) => patchKey("serpapi", v)}
+            onToggleShow={() => toggleShow("serpapi")}
+            onTest={() => void testApiKey("serpapi")}
+          />
+          <ApiKeyField
+            id="klipy-key"
+            label="Klipy API Key"
+            value={apiKeys.klipy}
+            placeholder="Klipy에서 발급한 API Key"
+            hint="스토리 쇼핑 영상 편집 · GIF 요소 검색에 사용됩니다."
+            homepageUrl="https://klipy.com/developers"
+            linkLabel="API 발급"
+            show={!!showKeys.klipy}
+            testing={!!testingKeys.klipy}
+            testResult={testResults.klipy}
+            onChange={(v) => patchKey("klipy", v)}
+            onToggleShow={() => toggleShow("klipy")}
+          />
 
-          <div className="my-4 border-t border-slate-200" />
+          <div className="my-4 border-t border-white/10" />
 
           <ApiKeyField
             id="youtube-data-api-key"
@@ -514,8 +625,8 @@ ${apiKeys.vmakeSecret || "(미입력)"}
 
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-2">
-              <Label className="text-sm font-medium">Vmake AI</Label>
-              <Button variant="outline" size="sm" className="h-7 shrink-0 text-xs" asChild>
+              <Label className="text-sm font-medium text-zinc-200">Vmake AI</Label>
+              <Button variant="outline" size="sm" className={`h-7 text-xs ${DARK_OUTLINE_BTN}`} asChild>
                 <a href="https://vmake.ai/developers" target="_blank" rel="noopener noreferrer">
                   <ExternalLink className="mr-1 h-3 w-3" />
                   API 발급
@@ -528,7 +639,7 @@ ${apiKeys.vmakeSecret || "(미입력)"}
               placeholder="API Key (MT_AK)"
               value={apiKeys.vmake}
               onChange={(e) => patchKey("vmake", e.target.value)}
-              className="font-mono text-sm"
+              className={DARK_INPUT}
             />
             <Input
               id="vmake-secret-access-key"
@@ -536,7 +647,7 @@ ${apiKeys.vmakeSecret || "(미입력)"}
               placeholder="Secret Access Key (MT_SK)"
               value={apiKeys.vmakeSecret}
               onChange={(e) => patchKey("vmakeSecret", e.target.value)}
-              className="font-mono text-sm"
+              className={DARK_INPUT}
             />
             <div className="flex items-center gap-2">
               <Button
@@ -547,7 +658,7 @@ ${apiKeys.vmakeSecret || "(미입력)"}
                   toggleShow("vmake")
                   toggleShow("vmakeSecret")
                 }}
-                className="shrink-0"
+                className={DARK_OUTLINE_BTN}
               >
                 {showKeys.vmake ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </Button>
@@ -557,24 +668,24 @@ ${apiKeys.vmakeSecret || "(미입력)"}
                 size="sm"
                 onClick={() => void testApiKey("vmake")}
                 disabled={testingKeys.vmake || !apiKeys.vmake || !apiKeys.vmakeSecret}
-                className="shrink-0 text-xs"
+                className={`text-xs ${DARK_OUTLINE_BTN}`}
               >
                 {testingKeys.vmake ? "확인 중..." : "연결확인"}
               </Button>
             </div>
             {testResults.vmake ? (
-              <p className={`text-xs ${testResults.vmake.success ? "text-green-600" : "text-red-600"}`}>
+              <p className={`text-xs ${testResults.vmake.success ? "text-emerald-400" : "text-red-400"}`}>
                 {testResults.vmake.message}
               </p>
             ) : null}
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-zinc-500">
               샤오홍슈·더우인 중국어 하드 자막 제거용. vmake.ai/developers에서 발급한 API Key + Secret을 저장하세요.
             </p>
           </div>
         </div>
 
-        <div className="mt-4 flex shrink-0 items-center justify-between border-t pt-4">
-          <div className="flex items-center gap-2 text-sm text-green-600">
+        <div className="mt-4 flex shrink-0 items-center justify-between border-t border-white/10 pt-4">
+          <div className="flex items-center gap-2 text-sm text-emerald-400">
             {saved ? (
               <>
                 <CheckCircle2 className="h-4 w-4" />
@@ -589,11 +700,15 @@ ${apiKeys.vmakeSecret || "(미입력)"}
             ) : null}
           </div>
           <div className="flex items-center gap-2">
-            <Button onClick={handleSaveToNotepad} variant="outline" className="min-w-[140px]">
+            <Button
+              onClick={handleSaveToNotepad}
+              variant="outline"
+              className={`min-w-[140px] ${DARK_OUTLINE_BTN}`}
+            >
               <FileText className="mr-2 h-4 w-4" />
               메모장으로 저장
             </Button>
-            <Button onClick={handleSave} className="min-w-[100px]">
+            <Button onClick={handleSave} className="min-w-[100px] bg-teal-700 text-white hover:bg-teal-600">
               저장
             </Button>
           </div>

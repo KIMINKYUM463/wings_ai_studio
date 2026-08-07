@@ -297,3 +297,133 @@ export async function fetchYoutubeTranscript(videoId: string): Promise<string> {
 
   return fromAndroid.length > fromWebTracks.length ? fromAndroid : fromWebTracks
 }
+
+export type YoutubeTranscriptSegment = {
+  startSec: number
+  endSec: number
+  text: string
+}
+
+function parseJson3Segments(content: string): YoutubeTranscriptSegment[] {
+  try {
+    const jsonData = JSON.parse(content) as {
+      events?: Array<{
+        tStartMs?: number
+        dDurationMs?: number
+        segs?: Array<{ utf8?: string; text?: string }>
+      }>
+    }
+    if (!jsonData.events?.length) return []
+    const out: YoutubeTranscriptSegment[] = []
+    for (const ev of jsonData.events) {
+      if (typeof ev.tStartMs !== "number" || !ev.segs?.length) continue
+      const text = ev.segs
+        .map((s) => s.utf8 || s.text || "")
+        .join("")
+        .replace(/\n/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+      if (!text || text === "\n") continue
+      const startSec = ev.tStartMs / 1000
+      const dur = typeof ev.dDurationMs === "number" ? ev.dDurationMs / 1000 : 2
+      out.push({ startSec, endSec: startSec + Math.max(0.4, dur), text })
+    }
+    return out
+  } catch {
+    return []
+  }
+}
+
+async function fetchTimedFromCaptionTrack(
+  videoId: string,
+  track: CaptionTrack
+): Promise<YoutubeTranscriptSegment[]> {
+  if (!track.baseUrl) return []
+  const watchPageUrl = `https://www.youtube.com/watch?v=${videoId}`
+  const urlObj = new URL(track.baseUrl.replace(/&fmt=\w+$/, ""))
+  urlObj.searchParams.set("fmt", "json3")
+  try {
+    const r = await fetch(urlObj.toString(), {
+      headers: {
+        "User-Agent": YT_UA,
+        Accept: "*/*",
+        Referer: watchPageUrl,
+        Origin: "https://www.youtube.com",
+      },
+      next: { revalidate: 0 },
+    })
+    if (!r.ok) return []
+    return parseJson3Segments(await r.text())
+  } catch {
+    return []
+  }
+}
+
+/** 타임스탬프가 붙은 자막 세그먼트 (롱폼→숏폼 클립용) */
+export async function fetchYoutubeTranscriptTimed(
+  videoId: string
+): Promise<YoutubeTranscriptSegment[]> {
+  const id = videoId.trim()
+  if (!id) return []
+
+  try {
+    const html = await fetchYoutubeWatchHtml(id)
+    if (!html) return []
+
+    const apiKey = extractInnertubeApiKey(html)
+    if (apiKey) {
+      const r = await fetch(`https://www.youtube.com/youtubei/v1/player?key=${encodeURIComponent(apiKey)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "User-Agent": YT_UA },
+        body: JSON.stringify({
+          context: {
+            client: { clientName: "ANDROID", clientVersion: "20.10.38", hl: "ko", gl: "KR" },
+          },
+          videoId: id,
+        }),
+        next: { revalidate: 0 },
+      })
+      if (r.ok) {
+        const playerData = (await r.json().catch(() => null)) as {
+          captions?: { playerCaptionsTracklistRenderer?: { captionTracks?: CaptionTrack[] } }
+        } | null
+        const tracks = playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks || []
+        const selected = selectCaptionTrack(tracks)
+        if (selected) {
+          const segs = await fetchTimedFromCaptionTrack(id, selected)
+          if (segs.length >= 5) return segs
+        }
+      }
+    }
+
+    const playerResponse = parseYtInitialPlayerResponse(html)
+    const captions = playerResponse?.captions as
+      | { playerCaptionsTracklistRenderer?: { captionTracks?: CaptionTrack[] } }
+      | undefined
+    const webTracks = captions?.playerCaptionsTracklistRenderer?.captionTracks || []
+    const selectedWeb = selectCaptionTrack(webTracks)
+    if (selectedWeb) {
+      const segs = await fetchTimedFromCaptionTrack(id, selectedWeb)
+      if (segs.length >= 5) return segs
+    }
+  } catch {
+    /* fall through */
+  }
+
+  // timedtext 폴백
+  for (const lang of ["ko", "en"]) {
+    try {
+      const u = `https://www.youtube.com/api/timedtext?v=${encodeURIComponent(id)}&lang=${lang}&fmt=json3`
+      const r = await fetch(u, {
+        headers: { "User-Agent": YT_UA },
+        next: { revalidate: 0 },
+      })
+      if (!r.ok) continue
+      const segs = parseJson3Segments(await r.text())
+      if (segs.length >= 5) return segs
+    } catch {
+      continue
+    }
+  }
+  return []
+}

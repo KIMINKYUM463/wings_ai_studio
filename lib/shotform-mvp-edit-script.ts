@@ -4,8 +4,7 @@ import {
   expandSubtitleScheduleLines,
   formatSubtitleDisplayText,
 } from "@/lib/shotform-factory-line-tts"
-import { narrationSubLineAtPlayhead } from "@/lib/shotform-factory-narration-script"
-import { buildNarrationSegmentsFromEditPlan, bundleTextForEditCut, isGenericTemplateNarration } from "@/lib/shotform-cut-narration"
+import { buildNarrationSegmentsFromEditPlan, bundleTextForEditCut, isGenericTemplateNarration, shortNarrationFromVisualHint } from "@/lib/shotform-cut-narration"
 import { PRECISION_SCRIPT_TONE } from "@/lib/shotform-auto-edit-precision-script"
 import { sanitizeNarrationForOutput } from "@/lib/shotform-natural-shorts-script"
 import {
@@ -13,8 +12,10 @@ import {
   formatNarrationForSceneDuration,
   maxCharsForSceneDuration,
   narrationLooksIncomplete,
+  narrationPlainCharCount,
   trimToCompleteNarration,
 } from "@/lib/shotform-narration-timing"
+import { narrationSubLineAtPlayhead } from "@/lib/shotform-factory-narration-script"
 
 export type LineSubtitleCue = { start: number; end: number; text: string }
 
@@ -22,53 +23,114 @@ export function sceneDurationSec(seg: NarrationSegment): number {
   return Math.max(0.5, seg.end - seg.start)
 }
 
-/** 컷별 대본 — override·기본값·길이 맞춤, 빈 칸 방지 */
+function isUselessFallbackNarration(text: string): boolean {
+  const t = text.trim().replace(/\n/g, " ")
+  if (!t) return true
+  if (/^한번\s*보세요$/.test(t)) return true
+  return isGenericTemplateNarration(t)
+}
+
+/** 컷별 대본 — override·기본값·길이 맞춤. 「한번 보세요」 일괄 폴백 금지 */
 export function resolveSceneNarrationText(
   sceneIndex0: number,
   baseSegments: readonly NarrationSegment[],
-  scriptOverrides: Record<string, string>
+  scriptOverrides: Record<string, string>,
+  visualHint?: string
 ): string {
   const seg = baseSegments[sceneIndex0]
   if (!seg) return ""
   const key = String(sceneIndex0 + 1)
+  // 실제 컷 길이 기준 (budget으로 더 줄이면 초단컷에서 문장이 붕괴됨)
   const dur = sceneDurationSec(seg)
   const base = seg.text.trim()
   const hasOverride = Boolean(scriptOverrides[key]?.trim())
   const raw = sanitizeNarrationForOutput((scriptOverrides[key] ?? base).trim() || base)
-  if (!raw) return "한번 보세요"
+
+  const visualFallback = () =>
+    shortNarrationFromVisualHint(visualHint || base || "", sceneIndex0)
+
+  if (!raw || isUselessFallbackNarration(raw)) {
+    return visualFallback()
+  }
+
   if (hasOverride) {
     const normalized = cleanNarrationLineBreaks(raw.replace(/\r/g, "").trim())
-    if (!narrationLooksIncomplete(normalized.replace(/\n/g, " "))) return normalized
+    if (
+      !isUselessFallbackNarration(normalized) &&
+      !narrationLooksIncomplete(normalized.replace(/\n/g, " "))
+    ) {
+      // override도 너무 길면 컷에 맞게만 정리
+      if (narrationPlainCharCount(normalized) > maxCharsForSceneDuration(dur) + 8) {
+        const fitted = formatNarrationForSceneDuration(normalized, dur)
+        if (fitted && !isUselessFallbackNarration(fitted)) return fitted
+      }
+      return normalized
+    }
     const formatted = formatNarrationForSceneDuration(normalized, dur)
-    if (formatted && !narrationLooksIncomplete(formatted.replace(/\n/g, " "))) return formatted
-    return normalized
+    if (formatted && !isUselessFallbackNarration(formatted)) return formatted
+    return visualFallback()
   }
+
   const formatted = formatNarrationForSceneDuration(raw, dur)
   if (
     formatted &&
+    !isUselessFallbackNarration(formatted) &&
     !isGenericTemplateNarration(formatted) &&
     !narrationLooksIncomplete(formatted.replace(/\n/g, " "))
   ) {
     return formatted
   }
-  return formatted || trimToCompleteNarration(raw, maxCharsForSceneDuration(dur)) || "한번 보세요"
+
+  const trimmed = trimToCompleteNarration(raw, maxCharsForSceneDuration(dur))
+  if (
+    trimmed &&
+    !isUselessFallbackNarration(trimmed) &&
+    !narrationLooksIncomplete(trimmed.replace(/\n/g, " "))
+  ) {
+    return trimmed
+  }
+
+  // 원문이 완결일 때만 유지 — 「자를 수」처럼 잘린 조각은 버림
+  if (
+    raw &&
+    !isUselessFallbackNarration(raw) &&
+    narrationPlainCharCount(raw) >= 6 &&
+    !narrationLooksIncomplete(raw.replace(/\n/g, " "))
+  ) {
+    return cleanNarrationLineBreaks(raw)
+  }
+
+  return visualFallback()
 }
 
 /** AI 대본 등 — 모든 편집 컷(1-based key)에 빈 칸 없이 채움 */
 export function fillScriptOverridesForAllCuts(
   baseSegments: readonly NarrationSegment[],
-  overrides: Record<string, string>
+  overrides: Record<string, string>,
+  visualHints?: readonly string[]
 ): Record<string, string> {
   const out: Record<string, string> = {}
   for (let i = 0; i < baseSegments.length; i++) {
     const key = String(i + 1)
     const explicit = overrides[key]?.trim()
-    if (explicit) {
+    if (explicit && !isUselessFallbackNarration(explicit)) {
       out[key] = sanitizeNarrationForOutput(explicit.replace(/\r/g, "").trim())
     } else {
-      out[key] = resolveSceneNarrationText(i, baseSegments, out)
+      out[key] = resolveSceneNarrationText(i, baseSegments, out, visualHints?.[i])
     }
   }
+
+  // 모든 컷이 같은 짧은 클리셰면 화면 힌트로 다시 채움
+  const values = Object.keys(out)
+    .sort((a, b) => Number(a) - Number(b))
+    .map((k) => out[k]!.trim())
+  const unique = new Set(values.map((v) => v.replace(/\s+/g, "")))
+  if (values.length >= 2 && unique.size === 1 && isUselessFallbackNarration(values[0]!)) {
+    for (let i = 0; i < baseSegments.length; i++) {
+      out[String(i + 1)] = shortNarrationFromVisualHint(visualHints?.[i] || "", i)
+    }
+  }
+
   return out
 }
 
@@ -95,7 +157,7 @@ export function buildLineSubtitleSchedule(
       const emergency =
         flattenSubtitleDisplayLine(seg.text) ||
         flattenSubtitleDisplayLine(sceneText(i)) ||
-        "한번 보세요"
+        shortNarrationFromVisualHint(seg.text, i)
       lines = [emergency]
     }
     const dur = Math.max(0.01, seg.end - seg.start)
@@ -136,10 +198,14 @@ export function narrationSegmentsFromAutoEdit(result: AutoEditJobResult): Narrat
   if (plan?.length && isPrecisionScript && bundleScenes?.length) {
     return plan.map((seg, i) => {
       const text = bundleTextForEditCut(i, plan, bundleScenes) || bundleScenes[0]?.text || ""
+      const trimmed = text.trim()
       return {
         start: seg.output_start,
         end: seg.output_end,
-        text: text.trim() || "한번 보세요",
+        text:
+          trimmed && !isUselessFallbackNarration(trimmed)
+            ? trimmed
+            : shortNarrationFromVisualHint(seg.reason || seg.visual_caption || "", i),
       }
     })
   }
@@ -159,7 +225,9 @@ export function narrationSegmentsFromAutoEdit(result: AutoEditJobResult): Narrat
       result.script?.script,
       result.productAnalysis?.productName,
       bundleScenes,
-      result.sourceKeywords
+      result.sourceKeywords?.length
+        ? result.sourceKeywords
+        : result.productAnalysis?.targetKeywords
     )
   }
 

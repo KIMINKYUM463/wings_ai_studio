@@ -82,13 +82,14 @@ export function StudioPageHeader({ icon: Icon, title, description, actions, clas
 type PageCardProps = {
   children: React.ReactNode
   className?: string
+  style?: React.CSSProperties
   /** 헤더 아래 본문만 감쌀 때 padding 조절 */
   padded?: boolean
 }
 
-export function StudioPageCard({ children, className, padded = true }: PageCardProps) {
+export function StudioPageCard({ children, className, style, padded = true }: PageCardProps) {
   return (
-    <div className={cn(studio.surface, padded && "p-5 sm:p-6", className)}>
+    <div className={cn(studio.surface, padded && "p-5 sm:p-6", className)} style={style}>
       {children}
     </div>
   )

@@ -65,20 +65,32 @@ export function estimateNarrationDurationSec(text: string): number {
 
 
 
-/** 장면 길이에 맞춘 권장 최대 글자 수 — 짧은 컷도 완결 호흡 최소 글자 확보 */
-
+/** 장면 길이에 맞춘 권장 최대 글자 수 — TTS 1.25~1.5x 여유를 반영 (초단컷도 의미 있는 한 줄) */
 export function maxCharsForSceneDuration(sceneDurationSec: number, ratio = 0.9): number {
-
   const d = Math.max(0.5, sceneDurationSec)
+  // 초당 글자 × 배속 여유(1.25) × ratio — 「한번 보세요」만 남을 정도로 조이지 않음
+  const withSpeedHeadroom = Math.floor(d * KOREAN_NARRATION_CHARS_PER_SEC * 1.25 * ratio)
+  // 최대 배속(1.5x)으로도 영상에 들어가는 상한
+  const hardCap = Math.floor(d * KOREAN_NARRATION_CHARS_PER_SEC * 1.5 * 0.92)
+  // 1.5초 컷도 최소 한 짧은 구(8~12자)는 쓸 수 있게
+  const floor = d < 2.2 ? 10 : d < 3.5 ? 12 : 10
+  return Math.max(floor, Math.min(withSpeedHeadroom, Math.max(floor, hardCap)))
+}
 
-  const calculated = Math.floor(d * KOREAN_NARRATION_CHARS_PER_SEC * ratio)
-
-  if (d < 1.2) return Math.max(10, calculated)
-
-  if (d < 2.5) return Math.max(14, calculated)
-
-  return Math.max(12, calculated)
-
+/**
+ * 최대 TTS 배속까지 써도 영상에 들어가게 하는 글자 상한.
+ * TTS 직전 강제 축약·재합성에 사용.
+ */
+export function maxCharsForSceneAtMaxTtsSpeed(
+  sceneDurationSec: number,
+  maxSpeed = 1.5,
+  fillRatio = 0.92
+): number {
+  const d = Math.max(0.5, sceneDurationSec)
+  const cap = Math.floor(d * fillRatio * maxSpeed * KOREAN_NARRATION_CHARS_PER_SEC)
+  // 초단컷도 의미 구 최소 확보 (살짝 홀드될 수 있음 — 빈 「한번 보세요」보다 나음)
+  const floor = d < 2.2 ? 10 : 8
+  return Math.max(floor, cap)
 }
 
 
@@ -96,6 +108,10 @@ function narrationLineLooksIncomplete(line: string): boolean {
   if (NARRATION_FLOWING_ENDINGS.test(t)) return false
   if (/[요죠네다음][.!?]?$/.test(t)) return false
   if (/[을를이가의에과와도로으로]$/.test(t)) return true
+  // 「자를 수」「깎을 수 있」처럼 가능 표현 중간에서 끊김
+  if (/(?:할|줄|갈|볼|쓸|자를|깎을|썰을|넣을|빼)\s*수$/.test(t)) return true
+  if (/(?:을|를|할)\s*수\s*있$/.test(t)) return true
+  if (/\s수$/.test(t) || /수\s*있$/.test(t)) return true
   // 관형형·미완성 연결 (설치하는, 간편하게 등 — 고/며 없이 끊김)
   if (/[가-힣]+(?:하는|되는|할|한)$/.test(t)) return true
   if (/하게$/.test(t) && !/하게요/.test(t)) return true
@@ -191,20 +207,14 @@ function truncateAtPhraseBoundary(text: string, maxPlainChars: number): string {
 
 
 
+  // 하드 글자 절단은 미완성 문장을 만듦 — 완결일 때만 사용
   let buf = ""
-
   for (const ch of t) {
-
     const next = buf + ch
-
     if (narrationPlainCharCount(next) > maxPlainChars && buf) break
-
     buf = next
-
   }
-
   buf = buf.trim()
-
   if (buf && !narrationLooksIncomplete(buf)) return buf
 
   for (let end = t.length; end >= 3; end--) {
@@ -214,8 +224,8 @@ function truncateAtPhraseBoundary(text: string, maxPlainChars: number): string {
     }
   }
 
+  // 미완성 조각 반환 금지
   return ""
-
 }
 
 
@@ -281,7 +291,11 @@ export function trimToCompleteNarration(text: string, maxPlainChars: number): st
     .split("\n")
     .map((line) => line.trim())
     .find(Boolean)
-  if (firstLine && narrationPlainCharCount(firstLine) <= maxPlainChars + 10) {
+  if (
+    firstLine &&
+    narrationPlainCharCount(firstLine) <= maxPlainChars + 10 &&
+    !narrationLooksIncomplete(firstLine)
+  ) {
     return firstLine
   }
 
@@ -295,11 +309,16 @@ export function trimToCompleteNarration(text: string, maxPlainChars: number): st
   if (buf && !narrationLooksIncomplete(buf)) return buf
 
   for (const part of parts) {
-    if (!narrationLooksIncomplete(part)) return part
+    if (
+      !narrationLooksIncomplete(part) &&
+      narrationPlainCharCount(part) <= maxPlainChars + 8
+    ) {
+      return part
+    }
   }
 
+  // 미완성 하드컷 금지
   return ""
-
 }
 
 
@@ -457,43 +476,89 @@ export function truncateNarrationPlain(text: string, maxPlainChars: number): str
 
 
 
-/** AI·규칙 대본을 장면 길이에 맞게 정리 — 완결 문장은 길어도 끊지 않음 */
-
+/** AI·규칙 대본을 장면 길이에 맞게 정리 — 글자 상한 + 반드시 완결 문장 (중간 절단 금지) */
 export function formatNarrationForSceneDuration(text: string, sceneDurationSec: number): string {
-
   const trimmed = text.trim()
-
   if (!trimmed) return ""
-
   const maxChars = maxCharsForSceneDuration(sceneDurationSec)
-  const joined = trimmed.replace(/\n/g, " ")
+  const plainJoined = trimmed.replace(/\s*\n\s*/g, " ").replace(/\s+/g, " ").trim()
+  const plainCount = narrationPlainCharCount(plainJoined)
 
-  if (!narrationLooksIncomplete(joined)) {
-    return cleanNarrationLineBreaks(trimmed)
+  if (plainCount <= maxChars && !narrationLooksIncomplete(plainJoined)) {
+    const wrapped = wrapNarrationShortLines(trimmed, sceneDurationSec)
+    return cleanNarrationLineBreaks(wrapped || trimmed)
   }
 
-  const wrapped = wrapNarrationShortLines(trimmed, sceneDurationSec)
-  if (wrapped && !narrationLooksIncomplete(wrapped.replace(/\n/g, " "))) {
-    return wrapped
-  }
-
+  // 1) 상한 안 완결 구
   const trimmedComplete = trimToCompleteNarration(trimmed, maxChars)
   if (
     trimmedComplete &&
-    !narrationLooksIncomplete(trimmedComplete) &&
+    narrationPlainCharCount(trimmedComplete) <= maxChars + 2 &&
+    !narrationLooksIncomplete(trimmedComplete.replace(/\n/g, " ")) &&
     !/^쓱\s*닦여요$/i.test(trimmedComplete.replace(/\n/g, " ").trim())
   ) {
-    return trimmedComplete
+    const wrapped = wrapNarrationShortLines(trimmedComplete, sceneDurationSec)
+    return cleanNarrationLineBreaks(wrapped || trimmedComplete)
   }
 
-  const completeLine = trimmed
-    .split("\n")
-    .map((line) => line.trim())
-    .find((line) => line && !narrationLineLooksIncomplete(line))
-  if (completeLine) return completeLine
+  // 2) 살짝 여유를 줘도 완결 구만 (중간 절단 문구 절대 반환 안 함)
+  const relaxed = trimToCompleteNarration(trimmed, maxChars + 6)
+  if (
+    relaxed &&
+    !narrationLooksIncomplete(relaxed.replace(/\n/g, " ")) &&
+    narrationPlainCharCount(relaxed) <= maxChars + 8
+  ) {
+    return cleanNarrationLineBreaks(relaxed)
+  }
 
+  // 3) 줄 단위로 완결된 첫 줄만
+  for (const line of trimmed.split("\n").map((l) => l.trim()).filter(Boolean)) {
+    if (
+      narrationPlainCharCount(line) <= maxChars + 4 &&
+      !narrationLooksIncomplete(line)
+    ) {
+      return cleanNarrationLineBreaks(line)
+    }
+  }
+
+  // 4) 완결 구를 못 만들면 빈 문자열 → 호출측에서 화면 기반 짧은 완결 문구 사용
   return ""
+}
 
+/**
+ * TTS용 하드 클램프 — 최대 배속으로도 영상에 들어가게.
+ * 중간에서 자른 미완성 문장(「자를 수」「깎을 수 있」)은 반환하지 않음.
+ */
+export function clampNarrationForTtsFit(
+  text: string,
+  videoDurSec: number,
+  maxSpeed = 1.5
+): string {
+  const trimmed = text.trim()
+  if (!trimmed) return ""
+  const maxChars = maxCharsForSceneAtMaxTtsSpeed(videoDurSec, maxSpeed)
+  const flat = trimmed.replace(/\s*\n\s*/g, " ").replace(/\s+/g, " ").trim()
+
+  if (narrationPlainCharCount(flat) <= maxChars && !narrationLooksIncomplete(flat)) {
+    return cleanNarrationLineBreaks(formatNarrationForSceneDuration(trimmed, videoDurSec) || flat)
+  }
+
+  const hard = trimToCompleteNarration(trimmed, maxChars)
+  if (
+    hard &&
+    narrationPlainCharCount(hard) <= maxChars + 2 &&
+    !narrationLooksIncomplete(hard.replace(/\n/g, " "))
+  ) {
+    return cleanNarrationLineBreaks(hard)
+  }
+
+  const relaxed = trimToCompleteNarration(trimmed, maxChars + 4)
+  if (relaxed && !narrationLooksIncomplete(relaxed.replace(/\n/g, " "))) {
+    return cleanNarrationLineBreaks(relaxed)
+  }
+
+  // 미완성 하드컷 금지 — 빈 값이면 상위에서 화면 힌트 완결 구 사용
+  return ""
 }
 
 

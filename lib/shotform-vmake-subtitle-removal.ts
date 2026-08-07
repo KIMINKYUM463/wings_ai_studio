@@ -2,15 +2,21 @@ import { assertPreviewMp4Blob } from "@/lib/mvp-mp4-preview"
 import { resolveMvpStudioVideoBlob } from "@/lib/mvp-studio-video-blob"
 
 export const VMAKE_SUBTITLE_REMOVAL_SLOW_HINT =
-  "30초 영상도 보통 2~8분, 서버가 바쁘면 10분 이상 걸릴 수 있습니다. 렌더 후 AI 처리 단계이니 창을 닫지 마세요."
+  "30초 영상도 보통 2~8분, 서버가 바쁘면 12분까지 걸릴 수 있습니다. 처리 중에는 창을 닫지 마세요."
 
-/** 짜집기 파이프라인·단독 API 공통 — 초과 시 자막 제거 없이 원본 영상 유지 */
+/**
+ * 짜집기 파이프라인·단독 API 공통 타임아웃.
+ * Vmake 폴링(기본 ~12분)보다 짧으면 폴링 중간에 끊기므로, maxDuration(800초) 안에서 여유 있게 맞춤.
+ */
 export const VMAKE_SUBTITLE_REMOVAL_TIMEOUT_MS = Number(
-  process.env.VMAKE_SUBTITLE_TIMEOUT_MS || 420_000
+  process.env.VMAKE_SUBTITLE_TIMEOUT_MS || 750_000
 )
 
 export const VMAKE_SUBTITLE_REMOVAL_STALL_HINT =
-  "12분 이상 멈추면 자막 제거 없이 짜집기 영상으로 자동 진행합니다. 이후 정보 탭에서 다시 시도할 수 있습니다."
+  "12분 이상 멈추면 자막 제거 없이 짜집기 영상으로 자동 진행합니다. 이후 미리보기 옆 「중국어 자막 제거」에서 다시 시도할 수 있습니다."
+
+export const VMAKE_SUBTITLE_REMOVAL_TIMEOUT_HINT =
+  "Vmake 자막 제거 시간 초과(약 12분). 서버가 바쁠 때 더 걸릴 수 있으니 1~2분 뒤 다시 시도해 주세요."
 
 export function shotformVmakeApiKey(): string {
   if (typeof window === "undefined") return ""
@@ -47,7 +53,20 @@ function subtitleRemovalHttpError(status: number, message?: string): Error {
         "같은 오류가 반복되면 짜집기를 다시 실행해 jobId가 연결된 상태에서 시도해 주세요."
     )
   }
-  return new Error(message || `중국어 자막 제거 실패 (${status})`)
+  return new Error(friendlySubtitleRemovalError(message) || `중국어 자막 제거 실패 (${status})`)
+}
+
+/** 클라이언트에서도 Vmake 단문 오류를 읽기 쉬운 안내로 바꿉니다. */
+export function friendlySubtitleRemovalError(message?: string | null): string {
+  const msg = (message || "").trim()
+  if (!msg || /^internal error\.?$/i.test(msg)) {
+    return (
+      "Vmake 자막 제거 서버에서 일시적 오류(Internal error)가 났습니다. " +
+      "영상에 자막이 이미 지워졌다면 미리보기를 확인한 뒤 무시해도 됩니다. " +
+      "아직 남아 있으면 조금 뒤 다시 시도해 주세요."
+    )
+  }
+  return msg
 }
 
 /** Vmake 완료 후 Storage에 저장된 MP4 — 배포 응답 본문 제한 우회 */
@@ -102,7 +121,7 @@ async function parseSubtitleRemovalResponse(res: Response): Promise<Blob> {
       delivery?: string
     }
     if (!json.success || !json.jobId) {
-      throw new Error(json.error || "자막 제거 응답이 올바르지 않습니다.")
+      throw new Error(friendlySubtitleRemovalError(json.error) || "자막 제거 응답이 올바르지 않습니다.")
     }
     return fetchCleanedMp4FromJob(json.jobId, json.playableUrl)
   }
@@ -112,7 +131,7 @@ async function parseSubtitleRemovalResponse(res: Response): Promise<Blob> {
     const text = await blob.text().catch(() => "")
     if (text.trimStart().startsWith("{")) {
       const json = JSON.parse(text) as { error?: string }
-      throw new Error(json.error || "자막 제거 응답이 올바르지 않습니다.")
+      throw new Error(friendlySubtitleRemovalError(json.error) || "자막 제거 응답이 올바르지 않습니다.")
     }
   }
   await assertPreviewMp4Blob(blob)

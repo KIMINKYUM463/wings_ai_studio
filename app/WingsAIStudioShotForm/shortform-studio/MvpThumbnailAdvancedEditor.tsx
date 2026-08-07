@@ -106,7 +106,7 @@ type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
   backgroundUrl: string
-  /** 짜집기 영상 프레임·업로드 참조 — AI 생성 시 제품 형태 기준 */
+  /** 리믹스 영상 프레임·업로드 참조 — AI 생성 시 제품 형태 기준 */
   referenceImageUrl?: string
   videoFrames?: CapturedVideoFrame[]
   selectedVideoFrameId?: string | null
@@ -367,7 +367,10 @@ async function referenceImageForApi(url: string): Promise<string> {
   let dataUrl = url.trim()
   if (!dataUrl) throw new Error("참조 이미지가 없습니다.")
   if (!dataUrl.startsWith("data:image/")) {
-    const res = await fetch(dataUrl)
+    const fetchUrl = /^https:\/\//i.test(dataUrl)
+      ? `/api/shotform/image-proxy?url=${encodeURIComponent(dataUrl)}`
+      : dataUrl
+    const res = await fetch(fetchUrl)
     if (!res.ok) throw new Error("참조 이미지를 불러올 수 없습니다.")
     const blob = await res.blob()
     dataUrl = await new Promise<string>((resolve, reject) => {
@@ -401,7 +404,7 @@ function AiBackgroundHistoryGrid({
     <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3">
       <p className="text-[10px] font-semibold text-amber-200/90">AI 생성 배경 기록</p>
       <p className="mt-1 text-[9px] leading-relaxed text-slate-500">
-        짜집기 프레임 등 다른 배경을 골라도 AI로 만든 이미지는 여기에 보관됩니다. 썸네일을 다시 적용하면
+        리믹스 프레임 등 다른 배경을 골라도 AI로 만든 이미지는 여기에 보관됩니다. 썸네일을 다시 적용하면
         기록도 함께 저장됩니다.
       </p>
       <div className="mt-2 grid grid-cols-3 gap-2">
@@ -545,7 +548,28 @@ export function MvpThumbnailAdvancedEditor({
     openSessionReadyRef.current = true
 
     const nextDesign = initialDesign
-      ? { ...initialDesign, backgroundUrl }
+      ? (() => {
+          const restoredDesign = { ...initialDesign, backgroundUrl }
+          if (restoredDesign.aiBaked) {
+            return exitAiBakedEditMode(restoredDesign, hookingText)
+          }
+          const designWithHookLayers =
+            restoredDesign.texts.some((text) => text.role === "hook1") &&
+            restoredDesign.texts.some((text) => text.role === "hook2")
+              ? restoredDesign
+              : applyThumbnailTemplate(restoredDesign, restoredDesign.templateId, hookingText, {
+                  withElements: false,
+                  textStyleOnly: true,
+                })
+          return {
+            ...designWithHookLayers,
+            texts: designWithHookLayers.texts.map((text) => {
+              if (text.role === "hook1") return { ...text, text: hookingText.line1 }
+              if (text.role === "hook2") return { ...text, text: hookingText.line2 }
+              return text
+            }),
+          }
+        })()
       : createThumbnailDesign(backgroundUrl, hookingText)
 
     resetDesign(nextDesign)
@@ -848,7 +872,7 @@ export function MvpThumbnailAdvancedEditor({
     }
     const refUrl = aiReferenceUrl(referenceImageUrl, design.backgroundUrl)
     if (!refUrl) {
-      setErr("제품 참조 이미지가 필요합니다. 배경 탭에서 짜집기 프레임을 고르거나 이미지를 업로드하세요.")
+      setErr("제품 참조 이미지가 필요합니다. 배경 탭에서 리믹스 프레임을 고르거나 이미지를 업로드하세요.")
       return
     }
 
@@ -953,7 +977,7 @@ export function MvpThumbnailAdvancedEditor({
     }
     const refUrl = aiReferenceUrl(referenceImageUrl, design.backgroundUrl)
     if (!refUrl) {
-      setErr("제품 참조 이미지가 필요합니다. 배경 탭에서 짜집기 프레임을 고르거나 이미지를 업로드하세요.")
+      setErr("제품 참조 이미지가 필요합니다. 배경 탭에서 리믹스 프레임을 고르거나 이미지를 업로드하세요.")
       return
     }
 
@@ -1550,7 +1574,7 @@ export function MvpThumbnailAdvancedEditor({
                     <div>
                       <p className="text-xs font-bold text-slate-800 dark:text-white">배경</p>
                       <p className="mt-0.5 text-[9px] leading-relaxed text-slate-500">
-                        짜집기 영상 프레임·업로드 이미지로 캔버스 배경과 AI 참조를 설정합니다. 적용 후 캔버스에서
+                        리믹스 영상 프레임·업로드 이미지로 캔버스 배경과 AI 참조를 설정합니다. 적용 후 캔버스에서
                         배경을 클릭해 확대·축소·이동할 수 있습니다.
                       </p>
                       {design.backgroundUrl && !design.aiBaked ? (
@@ -1670,7 +1694,7 @@ export function MvpThumbnailAdvancedEditor({
                     ) : null}
 
                     <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/5 p-3">
-                      <p className="text-[10px] font-semibold text-cyan-200/90">짜집기 영상 프레임</p>
+                      <p className="text-[10px] font-semibold text-cyan-200/90">리믹스 영상 프레임</p>
                       <p className="mt-1 text-[9px] leading-relaxed text-slate-500">
                         제품이 잘 나온 장면을 고르면 배경·AI 참조에 함께 적용됩니다.
                       </p>
@@ -1826,7 +1850,7 @@ export function MvpThumbnailAdvancedEditor({
                         <p className="mt-1.5 text-[9px] text-emerald-400/90">✓ 배경·참조 이미지 연결됨</p>
                       ) : (
                         <p className="mt-1.5 text-[9px] text-amber-400/90">
-                          참조 없음 — 배경 탭에서 짜집기 프레임을 고르거나 이미지를 업로드하세요.
+                          참조 없음 — 배경 탭에서 리믹스 프레임을 고르거나 이미지를 업로드하세요.
                         </p>
                       )}
                       <Button

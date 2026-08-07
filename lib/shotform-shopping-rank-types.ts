@@ -7,6 +7,10 @@ export type ShoppingRankEntry = {
   keyword: string
   time_unit: string
   collected_at: string
+  monthly_searches?: number
+  ratio?: number
+  score?: number
+  rank_change?: number
 }
 
 export type ShoppingOfficialTrend = {
@@ -26,6 +30,8 @@ export type ShoppingRankRecommendation = {
   change_ratio: number
   streak_days: number
   score: number
+  keyword?: string
+  reason?: string
 }
 
 export type ShoppingRankApiResponse = {
@@ -38,6 +44,9 @@ export type ShoppingRankApiResponse = {
   }
   isAdmin?: boolean
   error?: string
+  categories?: ShoppingRankCategory[]
+  latestAvailableDate?: string
+  methodology?: string
 }
 
 export type ShoppingRankCategory = {

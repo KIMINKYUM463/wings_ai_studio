@@ -5,6 +5,8 @@ import {
 } from "@/lib/shotform-factory-line-tts"
 import { isMvpThumbnailIntroTime } from "@/lib/mvp-thumbnail-intro"
 import {
+  mvpHoldEndZoomScaleAtAudioTime,
+  mvpSceneBoundaryFadeOpacity,
   resolveMvpPreviewVideoTime,
   syncMvpPreviewVideoToAudio,
   type MvpVideoAudioSyncState,
@@ -19,6 +21,7 @@ import {
   DEFAULT_SUBTITLE_Y_PERCENT,
   normalizeSubtitleStyle,
   type MvpBgmClip,
+  type MvpEffectClip,
   type MvpSubtitleStyle,
 } from "@/lib/mvp-studio-types"
 import {
@@ -61,6 +64,7 @@ export type MvpPreviewRenderInput = {
   videoDurationSec: number
   audioDurationSec: number
   bgmClips?: MvpBgmClip[]
+  effectClips?: MvpEffectClip[]
   editPlan?: readonly EditPlanSegment[]
   videoSourceTransforms?: MvpVideoSourceTransforms
   onProgress?: (ratio: number) => void
@@ -87,7 +91,7 @@ function resolveMvpRenderAudioDuration(
 }
 
 /** MediaRecorder·WebAudio 버퍼 flush — onended 직후 stop하면 끝 0.3~1초가 잘릴 수 있음 */
-const MVP_RENDER_AUDIO_TAIL_MS = 500
+const MVP_RENDER_AUDIO_TAIL_MS = 900
 
 function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -245,22 +249,31 @@ function drawSubtitle(
   const scale = cw / previewW
   const x = ((style.x ?? 50) / 100) * cw
   const y = ((style.y ?? DEFAULT_SUBTITLE_Y_PERCENT) / 100) * ch
-  const fontSize = style.sizePx * scale
+  const baseFontSize = style.sizePx * scale
   const fontFamily = resolveSubtitleFontFamily(style.fontId ?? "pretendard-bold")
   const weight = resolveSubtitleFontWeight(style)
   const maxW = cw * 0.92
 
+  // 한 줄 유지 — 가로가 넘치면 글자만 살짝 줄여 화면 안에 맞춤 (찌그러뜨리지 않음)
+  let fontSize = baseFontSize
   ctx.font = `${weight} ${fontSize}px ${fontFamily}`
+  let metrics = ctx.measureText(text)
+  if (metrics.width > maxW && metrics.width > 0) {
+    fontSize = Math.max(baseFontSize * 0.55, (baseFontSize * maxW) / metrics.width)
+    ctx.font = `${weight} ${fontSize}px ${fontFamily}`
+    metrics = ctx.measureText(text)
+  }
+
   ctx.textAlign = (style.textAlign ?? "center") as CanvasTextAlign
   ctx.textBaseline = "middle"
 
-  const metrics = ctx.measureText(text)
-
   if (style.bgOn) {
-    const padX = 10 * scale
-    const padY = 6 * scale
-    const bgW = Math.min(maxW, metrics.width) + padX * 2
-    const bgH = fontSize * 1.35 + padY * 2
+    const outlinePad = style.outlineOn ? (style.outlineWidthPx ?? 1) * scale * 2 : 0
+    const padX = 12 * scale + outlinePad
+    const padY = 6 * scale + outlinePad * 0.5
+    const textW = Math.min(maxW - padX * 2, metrics.width)
+    const bgW = textW + padX * 2
+    const bgH = fontSize * 1.2 + padY * 2
     const { r, g, b } = hexToRgb(style.bgColor ?? "#000000")
     ctx.fillStyle = `rgba(${r},${g},${b},${(style.bgOpacity ?? 55) / 100})`
     roundRect(ctx, x - bgW / 2, y - bgH / 2, bgW, bgH, 6 * scale)
@@ -278,11 +291,11 @@ function drawSubtitle(
     ctx.strokeStyle = style.outlineColor ?? "#000000"
     ctx.lineWidth = (style.outlineWidthPx ?? 1) * scale * 2
     ctx.lineJoin = "round"
-    ctx.strokeText(text, x, y, maxW)
+    ctx.strokeText(text, x, y)
   }
 
   ctx.fillStyle = style.color
-  ctx.fillText(text, x, y, maxW)
+  ctx.fillText(text, x, y)
 
   ctx.shadowColor = "transparent"
   ctx.shadowBlur = 0
@@ -342,6 +355,7 @@ export async function renderMvpPreviewToBlob(
     videoDurationSec,
     audioDurationSec,
     bgmClips = [],
+    effectClips = [],
     editPlan = [],
     videoSourceTransforms = {},
     onProgress,
@@ -389,6 +403,7 @@ export async function renderMvpPreviewToBlob(
 
   const renderLayers = await setupMvpRenderAudioLayers(audioContext, destination, {
     bgmClips,
+    effectClips,
   })
 
   const videoTrack = stream.getVideoTracks()[0]
@@ -414,7 +429,7 @@ export async function renderMvpPreviewToBlob(
     recorder.onerror = () => reject(new Error("recorder failed"))
   })
 
-  const syncState: MvpVideoAudioSyncState = { lastScene: -1, lastCueKey: "" }
+  const syncState: MvpVideoAudioSyncState = { lastScene: -1, lastCueKey: "", holdingEnd: false }
 
   video.currentTime = 0
   audio.currentTime = 0
@@ -486,7 +501,11 @@ export async function renderMvpPreviewToBlob(
         Boolean(audioUrl)
       )
 
-      renderLayers.syncLayers(videoT, !audio.paused && !audio.ended)
+      // 효과음은 TTS 큐가 있으면 음성 타임라인 축에 저장됨
+      renderLayers.syncLayers(
+        voiceLineCues?.length ? audioT : videoT,
+        !audio.paused && !audio.ended
+      )
 
       ctx.fillStyle = "#000000"
       ctx.fillRect(0, 0, canvas.width, canvas.height)
@@ -499,7 +518,16 @@ export async function renderMvpPreviewToBlob(
         if (video.readyState >= 2) {
           const clipIndex = editPlan.length ? editPlanSegmentIndexAtOutputTime(editPlan, videoT) : 0
           const sourceTransform = getMvpEditPlanClipTransform(videoSourceTransforms, clipIndex)
-          if (isDefaultMvpVideoSourceTransform(sourceTransform)) {
+          const holdZoom = mvpHoldEndZoomScaleAtAudioTime(audioT, voiceLineCues, segments)
+          const sceneFade = mvpSceneBoundaryFadeOpacity(audioT, voiceLineCues)
+          const drawTransform = {
+            ...sourceTransform,
+            scale: sourceTransform.scale * holdZoom,
+          }
+          ctx.save()
+          ctx.globalAlpha = sceneFade
+          // 홀드 줌이 있으면 항상 transform 경로(중심 고정 확대)로 그려 떨림·점프 방지
+          if (Math.abs(holdZoom - 1) < 0.001 && isDefaultMvpVideoSourceTransform(sourceTransform)) {
             drawVideoContain(ctx, video, canvas.width, canvas.height)
           } else {
             drawVideoContainWithSourceTransform(
@@ -507,9 +535,10 @@ export async function renderMvpPreviewToBlob(
               video,
               canvas.width,
               canvas.height,
-              sourceTransform
+              drawTransform
             )
           }
+          ctx.restore()
         }
 
         const overlayTimeSec = videoT
@@ -535,10 +564,20 @@ export async function renderMvpPreviewToBlob(
       }
 
       if (audio.ended) {
-        scheduleStop()
+        // HTMLAudio duration 메타가 짧아 조기 ended → 말꼬리 잘림 방지
+        if (audioT < audioDur - 0.2) {
+          try {
+            audio.currentTime = Math.min(audioDur - 0.05, Math.max(0, audioT))
+            void audio.play().catch(() => scheduleStop())
+          } catch {
+            scheduleStop()
+          }
+        } else {
+          scheduleStop()
+        }
       } else if (
         stopScheduledAt === 0 &&
-        (performance.now() - recordStartedAt > (audioDur + 2) * 1000 ||
+        (performance.now() - recordStartedAt > (audioDur + 3) * 1000 ||
           (audio.paused && audioT >= audioDur - 0.02))
       ) {
         scheduleStop()
@@ -547,7 +586,19 @@ export async function renderMvpPreviewToBlob(
       requestAnimationFrame(renderFrame)
     }
 
-    audio.onended = scheduleStop
+    audio.onended = () => {
+      const t = Number.isFinite(audio.currentTime) ? audio.currentTime : 0
+      if (t < audioDur - 0.2) {
+        try {
+          audio.currentTime = Math.min(audioDur - 0.05, Math.max(0, t))
+          void audio.play().catch(() => scheduleStop())
+          return
+        } catch {
+          /* fall through */
+        }
+      }
+      scheduleStop()
+    }
     renderFrame()
   })
 

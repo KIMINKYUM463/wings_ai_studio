@@ -5,9 +5,9 @@ import { Analytics } from '@vercel/analytics/next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'WingsAIStudio',
-  description: 'AI 기반 유튜브 영상 제작 플랫폼',
-  generator: 'WingsAIStudio',
+  title: 'wings AI',
+  description: '유튜브 전문 AI 콘텐츠 제작 프로그램',
+  generator: 'wings AI',
   icons: {
     icon: '/icon.svg',
   },

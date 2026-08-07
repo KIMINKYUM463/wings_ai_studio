@@ -515,7 +515,7 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
               outputPath: cleanedPath,
             }),
             VMAKE_SUBTITLE_REMOVAL_TIMEOUT_MS,
-            "Vmake 자막 제거 시간 초과(약 7분). 짜집기 영상은 자막 제거 없이 사용합니다."
+            "Vmake 자막 제거 시간 초과(약 12분). 짜집기 영상은 자막 제거 없이 사용합니다."
           )
           await fs.rename(cleanedPath, outputPath)
           outputDuration = await validateRenderedMp4(outputPath, 1, editPlan.target_duration)

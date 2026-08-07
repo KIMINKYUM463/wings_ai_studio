@@ -11,6 +11,10 @@ service-account-key.json
 # Dependencies
 node_modules/
 vendor/
+.playwright-browsers/
+
+# Chrome extension build artifacts (icons are committed)
+extensions/**/*.zip
 .next/
 out/
 build/
@@ -37,6 +41,7 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+.tmp/
 
 # 로컬 Playwright 메타 보강 잡(파일 큐)
 .data/
@@ -50,6 +55,12 @@ _lines.txt
 _mvp_*.tsx
 tsconfig.tsbuildinfo
 __pycache__/
+diff_shopping_vs_*.txt
+
+# Supertonic 로컬 커스텀 보이스·녹음 샘플 (README만 추적)
+voices/supertonic/*.json
+voices/supertonic/samples/
+!voices/supertonic/README.md
 
 
 

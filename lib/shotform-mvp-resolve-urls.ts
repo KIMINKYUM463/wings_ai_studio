@@ -1,4 +1,4 @@
-import {
+﻿import {
   DEFAULT_DOUYIN_VIDEO_ACTOR,
   pickDouyinPlayUrlFromRaw,
   resolveXhsNoteUrlViaApify,
@@ -13,7 +13,7 @@ import {
   normalizeXhsNoteUrl,
 } from "@/lib/xhs-video"
 
-export type MvpSourcePlatform = "douyin" | "xiaohongshu"
+export type MvpSourcePlatform = "douyin" | "xiaohongshu" | "tiktok"
 
 export type MvpResolvedUrlItem = {
   inputUrl: string
@@ -34,6 +34,7 @@ export function detectMvpUrlPlatform(url: string): MvpSourcePlatform | null {
   const u = url.trim()
   if (extractXhsNoteId(u) || u.includes("xhslink.com")) return "xiaohongshu"
   if (isDouyinNotePageUrl(u)) return "douyin"
+  if (/tiktok\.com/i.test(u)) return "tiktok"
   return null
 }
 
@@ -102,7 +103,7 @@ async function followDouyinRedirect(url: string): Promise<string> {
 }
 
 function pickTitleFromDouyinRaw(raw: unknown): string {
-  if (!raw || typeof raw !== "object") return "(抖音 영상)"
+  if (!raw || typeof raw !== "object") return "(도우인 영상)"
   const o = raw as Record<string, unknown>
   const title =
     (typeof o.text === "string" && o.text.trim()) ||
@@ -111,7 +112,7 @@ function pickTitleFromDouyinRaw(raw: unknown): string {
     (typeof o.description === "string" && o.description.trim()) ||
     (typeof o.title === "string" && o.title.trim()) ||
     ""
-  return title.slice(0, 200) || "(抖音 영상)"
+  return title.slice(0, 200) || "(도우인 영상)"
 }
 
 function pickNoteUrlFromDouyinRaw(raw: unknown, fallback: string): string {
@@ -133,7 +134,7 @@ function pickNoteUrlFromDouyinRaw(raw: unknown, fallback: string): string {
   return fallback
 }
 
-/** 抖音 노트 URL → playUrl (Apify sian.agency videoDetail) */
+/** 도우인 노트 URL → playUrl (Apify sian.agency videoDetail) */
 export async function resolveDouyinNoteUrl(
   apifyToken: string,
   inputUrl: string
@@ -141,7 +142,7 @@ export async function resolveDouyinNoteUrl(
   const canonical = await followDouyinRedirect(inputUrl)
   const videoId = extractDouyinVideoId(canonical)
   if (!videoId) {
-    throw new Error("抖音 영상 ID를 URL에서 찾지 못했습니다. 전체 링크를 붙여넣어 주세요.")
+    throw new Error("도우인 영상 ID를 URL에서 찾지 못했습니다. 전체 링크를 붙여넣어 주세요.")
   }
 
   const noteUrl = canonical.includes("/video/")
@@ -162,7 +163,7 @@ export async function resolveDouyinNoteUrl(
     return {
       noteUrl: mapped.url || noteUrl,
       videoUrl: mapped.videoUrl,
-      title: mapped.title || "(抖音 영상)",
+      title: mapped.title || "(도우인 영상)",
     }
   }
 
@@ -179,7 +180,7 @@ export async function resolveDouyinNoteUrl(
     }
   }
 
-  throw new Error("抖音 재생 URL(playUrl)을 찾지 못했습니다.")
+  throw new Error("도우인 재생 URL(playUrl)을 찾지 못했습니다.")
 }
 
 function decodeJsonishUrl(raw: string): string {
@@ -219,18 +220,18 @@ async function resolveXhsNoteUrlFromHtml(
   if (!videoUrl) {
     throw new Error("노트 페이지에서 재생 가능한 영상 URL을 찾지 못했습니다.")
   }
-  const title = (html ? extractXhsTitleFromHtml(html) : null) || "(小红书 노트)"
+  const title = (html ? extractXhsTitleFromHtml(html) : null) || "(샤오홍슈 노트)"
   return { noteUrl, videoUrl, title }
 }
 
-/** 小红书 노트 URL → playUrl (Apify 우선 — 소스 검색과 동일, HTML은 폴백) */
+/** 샤오홍슈 노트 URL → playUrl (Apify 우선 — 소스 검색과 동일, HTML은 폴백) */
 export async function resolveXhsNoteUrl(
   inputUrl: string,
   apifyToken?: string
 ): Promise<{ noteUrl: string; videoUrl: string; title: string }> {
   const noteId = extractXhsNoteId(inputUrl)
   if (!noteId) {
-    throw new Error("小红书 노트 URL이 아닙니다. explore/discovery 링크를 붙여넣어 주세요.")
+    throw new Error("샤오홍슈 노트 URL이 아닙니다. explore/discovery 링크를 붙여넣어 주세요.")
   }
   const noteUrl = normalizeXhsNoteUrl(inputUrl)
   const token = apifyToken?.trim()
@@ -251,7 +252,7 @@ export async function resolveXhsNoteUrl(
     return await resolveXhsNoteUrlFromHtml(noteUrl, noteId)
   } catch {
     throw new Error(
-      "小红书 URL 해석에 소스 검색 토큰(Apify)이 필요합니다. ShotForm 설정에 저장한 뒤 다시 시도해 주세요."
+      "샤오홍슈 URL 해석에 소스 검색 토큰(Apify)이 필요합니다. ShotForm 설정에 저장한 뒤 다시 시도해 주세요."
     )
   }
 }
@@ -295,8 +296,8 @@ export async function resolveMvpDirectUrls(
         title: "",
         error:
           rawInputUrl.includes("xiaohongshu.com/404") || rawInputUrl.includes("error_code=")
-            ? "小红书 링크가 만료·차단된 404 페이지입니다. 앱에서 노트를 다시 열고 explore 링크를 복사해 주세요."
-            : "抖音 또는 小红书 노트 URL만 지원합니다.",
+            ? "샤오홍슈 링크가 만료·차단된 404 페이지입니다. 앱에서 노트를 다시 열고 explore 링크를 복사해 주세요."
+            : "도우인·샤오홍슈·TikTok 영상 URL만 지원합니다.",
       })
       continue
     }
@@ -311,7 +312,7 @@ export async function resolveMvpDirectUrls(
           platform,
           title: r.title,
         })
-      } else {
+      } else if (platform === "douyin") {
         const r = await resolveDouyinNoteUrl(apifyToken, inputUrl)
         results.push({
           inputUrl: rawInputUrl,
@@ -320,6 +321,8 @@ export async function resolveMvpDirectUrls(
           platform,
           title: r.title,
         })
+      } else {
+        throw new Error("TikTok URL은 서버 전용 해석 경로를 사용해야 합니다.")
       }
     } catch (e) {
       results.push({

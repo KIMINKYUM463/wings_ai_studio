@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { NextResponse, type NextRequest } from "next/server"
 import { fetchNaverShoppingRankSnapshot } from "@/lib/shotform-naver-datalab"
 import type { ShoppingRankApiResponse } from "@/lib/shotform-shopping-rank-types"
 
@@ -10,9 +10,10 @@ const EMPTY: ShoppingRankApiResponse = {
   recommendations: { today: [], rising: [], steady: [] },
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const data = await fetchNaverShoppingRankSnapshot()
+    const categoryCode = request.nextUrl.searchParams.get("categoryCode") || undefined
+    const data = await fetchNaverShoppingRankSnapshot(categoryCode)
     return NextResponse.json(data)
   } catch (e) {
     const msg = e instanceof Error ? e.message : "순위 조회 실패"

@@ -1,9 +1,12 @@
 /**
- * 네이버 데이터랩 — 쇼핑 카테고리별 인기 검색어
+ * 네이버 검색광고의 월간 검색량과 쇼핑인사이트 클릭 추이를 결합한 자체 쇼핑 순위.
+ * 네이버는 카테고리별 인기 검색어 목록을 직접 제공하지 않으므로 공식 순위로 표시하면 안 됩니다.
  * @see https://developers.naver.com/docs/serviceapi/datalab/shopping/shopping.md
  */
 
+import { fetchNaverKeywordRanks } from "@/lib/server/naver-searchad-keywords"
 import type {
+  ShoppingOfficialTrend,
   ShoppingRankApiResponse,
   ShoppingRankEntry,
   ShoppingRankRecommendation,
@@ -12,257 +15,315 @@ import type {
 export type NaverDatalabCategory = {
   code: string
   name: string
+  seed: string
 }
 
-/** 네이버 쇼핑인사이트 대분류 */
 export const NAVER_DATALAB_SHOPPING_CATEGORIES: NaverDatalabCategory[] = [
-  { code: "50000000", name: "패션의류" },
-  { code: "50000001", name: "패션잡화" },
-  { code: "50000002", name: "화장품/미용" },
-  { code: "50000003", name: "디지털/가전" },
-  { code: "50000004", name: "가구/인테리어" },
-  { code: "50000005", name: "출산/육아" },
-  { code: "50000006", name: "식품" },
-  { code: "50000007", name: "스포츠/레저" },
-  { code: "50000008", name: "생활/건강" },
-  { code: "50000009", name: "여가/생활편의" },
+  { code: "50000000", name: "패션의류", seed: "여성의류" },
+  { code: "50000001", name: "패션잡화", seed: "가방" },
+  { code: "50000002", name: "화장품/미용", seed: "화장품" },
+  { code: "50000003", name: "디지털/가전", seed: "가전제품" },
+  { code: "50000004", name: "가구/인테리어", seed: "인테리어" },
+  { code: "50000005", name: "출산/육아", seed: "유아용품" },
+  { code: "50000006", name: "식품", seed: "식품" },
+  { code: "50000007", name: "스포츠/레저", seed: "운동용품" },
+  { code: "50000008", name: "생활/건강", seed: "생활용품" },
+  { code: "50000009", name: "여가/생활편의", seed: "여행" },
 ]
 
-type DatalabKeywordRow = {
-  keyword?: string
-  title?: string
-  data?: Array<{ period?: string; ratio?: number }>
+type TrendPoint = { period: string; ratio: number }
+type KeywordTrendRow = {
+  title: string
+  keyword?: string[]
+  data: TrendPoint[]
+}
+type CategoryTrendRow = {
+  title: string
+  category?: string[]
+  data: TrendPoint[]
 }
 
-function naverClientCredentials(): { clientId: string; clientSecret: string } {
+const cache = new Map<string, { expiresAt: number; value: ShoppingRankApiResponse }>()
+let categoryHighlightsCache: {
+  expiresAt: number
+  value: Awaited<ReturnType<typeof fetchCategoryHighlights>>
+} | null = null
+let categoryHighlightsRequest: Promise<Awaited<ReturnType<typeof fetchCategoryHighlights>>> | null = null
+
+function credentials() {
   const clientId =
-    process.env.NAVER_DATALAB_CLIENT_ID?.trim() ||
-    process.env.NAVER_CLIENT_ID?.trim() ||
-    ""
+    process.env.NAVER_DATALAB_CLIENT_ID?.trim() || process.env.NAVER_CLIENT_ID?.trim()
   const clientSecret =
-    process.env.NAVER_DATALAB_CLIENT_SECRET?.trim() ||
-    process.env.NAVER_CLIENT_SECRET?.trim() ||
-    ""
+    process.env.NAVER_DATALAB_CLIENT_SECRET?.trim() || process.env.NAVER_CLIENT_SECRET?.trim()
   if (!clientId || !clientSecret) {
-    throw new Error(
-      "네이버 API 키가 없습니다. .env.local에 NAVER_CLIENT_ID, NAVER_CLIENT_SECRET을 설정해 주세요."
-    )
+    throw new Error("네이버 DataLab Client ID와 Client Secret이 필요합니다.")
   }
   return { clientId, clientSecret }
 }
 
-function formatYmd(d: Date): string {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, "0")
-  const day = String(d.getDate()).padStart(2, "0")
-  return `${y}-${m}-${day}`
+function formatYmd(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
 }
 
-function keywordLabel(row: DatalabKeywordRow): string {
-  return (row.keyword || row.title || "").trim()
+function dateRange() {
+  const end = new Date()
+  end.setDate(end.getDate() - 1)
+  const start = new Date(end)
+  start.setDate(start.getDate() - 13)
+  return { startDate: formatYmd(start), endDate: formatYmd(end) }
 }
 
-async function fetchCategoryKeywordTrends(
-  category: NaverDatalabCategory,
-  startDate: string,
-  endDate: string
-): Promise<DatalabKeywordRow[]> {
-  const { clientId, clientSecret } = naverClientCredentials()
-
-  const res = await fetch("https://openapi.naver.com/v1/datalab/shopping/category/keywords", {
+async function postDataLab<T>(path: string, body: Record<string, unknown>): Promise<T[]> {
+  const { clientId, clientSecret } = credentials()
+  const response = await fetch(`https://openapi.naver.com${path}`, {
     method: "POST",
     headers: {
       "X-Naver-Client-Id": clientId,
       "X-Naver-Client-Secret": clientSecret,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      startDate,
-      endDate,
-      timeUnit: "date",
-      category: category.code,
-      device: "",
-      gender: "",
-      ages: [],
-    }),
+    body: JSON.stringify(body),
+    cache: "no-store",
   })
-
-  if (!res.ok) {
-    const errText = await res.text().catch(() => "")
-    throw new Error(
-      `[${category.name}] 데이터랩 오류 ${res.status}: ${errText.slice(0, 200) || res.statusText}`
-    )
+  if (!response.ok) {
+    const message = await response.text().catch(() => "")
+    throw new Error(`네이버 쇼핑인사이트 조회 실패 (${response.status}): ${message.slice(0, 200)}`)
   }
-
-  const json = (await res.json()) as { results?: DatalabKeywordRow[] }
-  return json.results ?? []
+  const json = (await response.json()) as { results?: T[] }
+  return json.results || []
 }
 
-function buildRankingsFromTrends(
+async function fetchKeywordTrends(
   category: NaverDatalabCategory,
-  rows: DatalabKeywordRow[],
-  collectedAt: string,
-  maxDays = 3,
-  topN = 10
-): ShoppingRankEntry[] {
-  const byDate = new Map<string, Array<{ keyword: string; ratio: number }>>()
-
-  for (const row of rows) {
-    const kw = keywordLabel(row)
-    if (!kw || !row.data?.length) continue
-    for (const point of row.data) {
-      const date = point.period?.trim()
-      if (!date) continue
-      const ratio = Number(point.ratio) || 0
-      const list = byDate.get(date) ?? []
-      list.push({ keyword: kw, ratio })
-      byDate.set(date, list)
-    }
+  keywords: string[],
+  startDate: string,
+  endDate: string
+): Promise<KeywordTrendRow[]> {
+  const batches: string[][] = []
+  for (let index = 0; index < keywords.length; index += 5) {
+    batches.push(keywords.slice(index, index + 5))
   }
+  const results = await Promise.all(
+    batches.map((batch) =>
+      postDataLab<KeywordTrendRow>("/v1/datalab/shopping/category/keywords", {
+        startDate,
+        endDate,
+        timeUnit: "date",
+        category: category.code,
+        keyword: batch.map((keyword) => ({ name: keyword, param: [keyword] })),
+        device: "",
+        gender: "",
+        ages: [],
+      })
+    )
+  )
+  return results.flat()
+}
 
-  const dates = [...byDate.keys()].sort((a, b) => b.localeCompare(a)).slice(0, maxDays)
-  const out: ShoppingRankEntry[] = []
+async function fetchCategoryHighlights(
+  startDate: string,
+  endDate: string,
+  collectedAt: string
+): Promise<{
+  trends: ShoppingOfficialTrend[]
+  recommendations: ShoppingRankRecommendation[]
+}> {
+  const batches: NaverDatalabCategory[][] = []
+  for (let index = 0; index < NAVER_DATALAB_SHOPPING_CATEGORIES.length; index += 3) {
+    batches.push(NAVER_DATALAB_SHOPPING_CATEGORIES.slice(index, index + 3))
+  }
+  const rows = (
+    await Promise.all(
+      batches.map((batch) =>
+        postDataLab<CategoryTrendRow>("/v1/datalab/shopping/categories", {
+          startDate,
+          endDate,
+          timeUnit: "date",
+          category: batch.map((category) => ({
+            name: category.name,
+            param: [category.code],
+          })),
+          device: "",
+          gender: "",
+          ages: [],
+        })
+      )
+    )
+  ).flat()
 
-  for (const date of dates) {
-    const sorted = (byDate.get(date) ?? [])
-      .sort((a, b) => b.ratio - a.ratio)
-      .slice(0, topN)
+  const trends: ShoppingOfficialTrend[] = []
+  const recommendations: ShoppingRankRecommendation[] = []
+  for (const row of rows) {
+    const category = NAVER_DATALAB_SHOPPING_CATEGORIES.find((item) => item.name === row.title)
+    if (!category || !row.data?.length) continue
+    for (const point of row.data) {
+      trends.push({
+        id: `${category.code}:${point.period}`,
+        category_name: category.name,
+        category_code: category.code,
+        target_date: point.period,
+        ratio: Number(point.ratio) || 0,
+        source: "naver_datalab",
+        collected_at: collectedAt,
+      })
+    }
+    const latest = Number(row.data.at(-1)?.ratio) || 0
+    const previous = row.data.slice(-8, -1)
+    const average = previous.length
+      ? previous.reduce((sum, point) => sum + (Number(point.ratio) || 0), 0) / previous.length
+      : latest
+    const change = average > 0 ? ((latest - average) / average) * 100 : 0
+    recommendations.push({
+      category_name: category.name,
+      category_code: category.code,
+      latest_ratio: Math.round(latest * 10) / 10,
+      change_ratio: Math.round(change * 10) / 10,
+      streak_days: row.data.slice(-3).filter((point, index, list) =>
+        index === 0 || point.ratio >= list[index - 1]!.ratio
+      ).length,
+      score: Math.round((Math.max(0, change) + latest / 10) * 10) / 10,
+      reason: change > 0 ? `최근 7일 평균 대비 ${change.toFixed(1)}% 상승` : "최근 쇼핑 클릭 관심도 상위",
+    })
+  }
+  return { trends, recommendations }
+}
 
-    sorted.forEach((item, idx) => {
-      out.push({
-        id: `${category.code}:${date}:${idx + 1}:${item.keyword}`,
+async function getCategoryHighlights(startDate: string, endDate: string, collectedAt: string) {
+  if (categoryHighlightsCache && categoryHighlightsCache.expiresAt > Date.now()) {
+    return categoryHighlightsCache.value
+  }
+  if (!categoryHighlightsRequest) {
+    categoryHighlightsRequest = fetchCategoryHighlights(startDate, endDate, collectedAt)
+      .then((value) => {
+        categoryHighlightsCache = { expiresAt: Date.now() + 15 * 60 * 1000, value }
+        return value
+      })
+      .finally(() => {
+        categoryHighlightsRequest = null
+      })
+  }
+  return categoryHighlightsRequest
+}
+
+function makeRankings(
+  category: NaverDatalabCategory,
+  candidates: Awaited<ReturnType<typeof fetchNaverKeywordRanks>>,
+  rows: KeywordTrendRow[],
+  collectedAt: string
+): { rankings: ShoppingRankEntry[]; rising: ShoppingRankRecommendation[]; steady: ShoppingRankRecommendation[] } {
+  const trendsByKeyword = new Map(rows.map((row) => [row.title, row.data || []]))
+  const dates = [...new Set(rows.flatMap((row) => row.data?.map((point) => point.period) || []))]
+    .sort((a, b) => b.localeCompare(a))
+    .slice(0, 3)
+  const rankings: ShoppingRankEntry[] = []
+  const rankByDate = new Map<string, Map<string, number>>()
+
+  for (const date of [...dates].reverse()) {
+    const scored = candidates.map((candidate) => {
+      const trend = trendsByKeyword.get(candidate.keyword) || []
+      const point = trend.find((item) => item.period === date)
+      const baseline = trend.length
+        ? trend.reduce((sum, item) => sum + (Number(item.ratio) || 0), 0) / trend.length
+        : 0
+      const ratio = Number(point?.ratio) || 0
+      const momentum = baseline > 0 ? Math.min(2, ratio / baseline) : 1
+      const score = Math.log10(candidate.total + 10) * 100 * (0.75 + momentum * 0.25)
+      return { candidate, ratio, score }
+    })
+    scored.sort((a, b) => b.score - a.score || b.candidate.total - a.candidate.total)
+    const previousRanks = rankByDate.get([...rankByDate.keys()].at(-1) || "")
+    const currentRanks = new Map<string, number>()
+    scored.slice(0, 10).forEach((item, index) => {
+      const rank = index + 1
+      currentRanks.set(item.candidate.keyword, rank)
+      rankings.push({
+        id: `${category.code}:${date}:${item.candidate.keyword}`,
         category_name: category.name,
         category_code: category.code,
         target_date: date,
-        rank_order: idx + 1,
-        keyword: item.keyword,
+        rank_order: rank,
+        keyword: item.candidate.keyword,
         time_unit: "date",
         collected_at: collectedAt,
+        monthly_searches: item.candidate.total,
+        ratio: Math.round(item.ratio * 10) / 10,
+        score: Math.round(item.score * 10) / 10,
+        rank_change: previousRanks ? (previousRanks.get(item.candidate.keyword) || rank) - rank : 0,
       })
     })
+    rankByDate.set(date, currentRanks)
   }
 
-  return out
+  rankings.sort((a, b) => b.target_date.localeCompare(a.target_date) || a.rank_order - b.rank_order)
+  const latest = rankings.filter((item) => item.target_date === dates[0])
+  const recommendation = (item: ShoppingRankEntry, reason: string): ShoppingRankRecommendation => ({
+    category_name: category.name,
+    category_code: category.code,
+    keyword: item.keyword,
+    latest_ratio: item.ratio || 0,
+    change_ratio: item.rank_change || 0,
+    streak_days: 0,
+    score: item.score || 0,
+    reason,
+  })
+  const rising = latest
+    .filter((item) => (item.rank_change || 0) > 0)
+    .sort((a, b) => (b.rank_change || 0) - (a.rank_change || 0))
+    .map((item) => recommendation(item, `전일 대비 ${item.rank_change}계단 상승`))
+  const steady = latest
+    .filter((item) => item.rank_order <= 5 && Math.abs(item.rank_change || 0) <= 1)
+    .map((item) => recommendation(item, `상위 ${item.rank_order}위권을 꾸준히 유지`))
+  return { rankings, rising, steady }
 }
 
-function buildRecommendations(
-  category: NaverDatalabCategory,
-  rows: DatalabKeywordRow[]
-): ShoppingRankRecommendation[] {
-  const recs: ShoppingRankRecommendation[] = []
-
-  for (const row of rows) {
-    const kw = keywordLabel(row)
-    const data = row.data ?? []
-    if (!kw || data.length < 2) continue
-
-    const recent = data.slice(-3)
-    const earlier = data.slice(0, Math.max(0, data.length - 3))
-    const recentAvg = recent.reduce((s, d) => s + (Number(d.ratio) || 0), 0) / recent.length
-    const earlierAvg =
-      earlier.length > 0
-        ? earlier.reduce((s, d) => s + (Number(d.ratio) || 0), 0) / earlier.length
-        : recentAvg
-    const change = recentAvg - earlierAvg
-    const streak = recent.filter((d) => (Number(d.ratio) || 0) > 50).length
-
-    recs.push({
-      category_name: category.name,
-      category_code: category.code,
-      latest_ratio: Math.round(recentAvg * 10) / 10,
-      change_ratio: Math.round(change * 10) / 10,
-      streak_days: streak,
-      score: Math.round((recentAvg + Math.max(0, change) * 2) * 10) / 10,
-    })
-  }
-
-  recs.sort((a, b) => b.score - a.score)
-  return recs.slice(0, 15)
-}
-
-/** 카테고리별 최근 인기 쇼핑 검색어 → 실시간 쇼핑순위 UI 형식 */
-export async function fetchNaverShoppingRankSnapshot(): Promise<ShoppingRankApiResponse> {
-  const end = new Date()
-  end.setDate(end.getDate() - 1)
-  const start = new Date(end)
-  start.setDate(start.getDate() - 6)
-
-  const startDate = formatYmd(start)
-  const endDate = formatYmd(end)
-  const collectedAt = new Date().toISOString()
-
-  const results = await Promise.all(
-    NAVER_DATALAB_SHOPPING_CATEGORIES.map(async (cat) => {
-      try {
-        const rows = await fetchCategoryKeywordTrends(cat, startDate, endDate)
-        return { cat, rows, error: null as string | null }
-      } catch (e) {
-        return {
-          cat,
-          rows: [] as DatalabKeywordRow[],
-          error: e instanceof Error ? e.message : "조회 실패",
-        }
-      }
-    })
-  )
-
-  const errors = results.filter((r) => r.error).map((r) => r.error!)
-  if (errors.length === results.length) {
-    throw new Error(errors[0] || "데이터랩 조회 실패")
-  }
-
-  const rankings: ShoppingRankEntry[] = []
-  const rising: ShoppingRankRecommendation[] = []
-  const today: ShoppingRankRecommendation[] = []
-  const steady: ShoppingRankRecommendation[] = []
-
-  for (const { cat, rows } of results) {
-    if (!rows.length) continue
-    rankings.push(...buildRankingsFromTrends(cat, rows, collectedAt))
-    const recs = buildRecommendations(cat, rows)
-    for (const r of recs) {
-      if (r.change_ratio >= 5) rising.push(r)
-      else if (r.change_ratio <= -5) steady.push(r)
-      else today.push(r)
-    }
-  }
-
-  rising.sort((a, b) => b.score - a.score)
-  today.sort((a, b) => b.score - a.score)
-  steady.sort((a, b) => b.latest_ratio - a.latest_ratio)
-
-  return {
-    rankings,
-    officialTrends: [],
-    recommendations: {
-      today: today.slice(0, 20),
-      rising: rising.slice(0, 20),
-      steady: steady.slice(0, 20),
-    },
-  }
-}
-
-/** 단일 카테고리 인기 키워드 (쇼핑숏폼 actions 호환) */
-export async function fetchNaverTrendingKeywordsForCategory(
-  categoryName = "쇼핑"
-): Promise<string[]> {
-  const cat =
-    NAVER_DATALAB_SHOPPING_CATEGORIES.find((c) => c.name.includes(categoryName)) ??
+export async function fetchNaverShoppingRankSnapshot(
+  categoryCode = NAVER_DATALAB_SHOPPING_CATEGORIES[0]!.code
+): Promise<ShoppingRankApiResponse> {
+  const category =
+    NAVER_DATALAB_SHOPPING_CATEGORIES.find((item) => item.code === categoryCode) ||
     NAVER_DATALAB_SHOPPING_CATEGORIES[0]!
+  const cached = cache.get(category.code)
+  if (cached && cached.expiresAt > Date.now()) return cached.value
 
-  const end = new Date()
-  end.setDate(end.getDate() - 1)
-  const start = new Date(end)
-  start.setDate(start.getDate() - 6)
-
-  const rows = await fetchCategoryKeywordTrends(cat, formatYmd(start), formatYmd(end))
+  const { startDate, endDate } = dateRange()
   const collectedAt = new Date().toISOString()
-  const ranked = buildRankingsFromTrends(cat, rows, collectedAt, 1, 10)
-  const keywords = ranked.map((r) => r.keyword).filter(Boolean)
-  if (keywords.length) return keywords
+  const candidates = await fetchNaverKeywordRanks(category.seed, 10)
+  const [keywordRows, categoryHighlights] = await Promise.all([
+    fetchKeywordTrends(category, candidates.map((item) => item.keyword), startDate, endDate),
+    getCategoryHighlights(startDate, endDate, collectedAt),
+  ])
+  const ranked = makeRankings(category, candidates, keywordRows, collectedAt)
+  const today = [...categoryHighlights.recommendations]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5)
+  const value: ShoppingRankApiResponse = {
+    rankings: ranked.rankings,
+    officialTrends: categoryHighlights.trends,
+    recommendations: {
+      today,
+      rising: ranked.rising.slice(0, 5),
+      steady: ranked.steady.slice(0, 5),
+    },
+    categories: NAVER_DATALAB_SHOPPING_CATEGORIES.map(({ code, name }) => ({ code, name })),
+    latestAvailableDate: ranked.rankings[0]?.target_date || endDate,
+    methodology: "네이버 검색광고 월간 검색량과 쇼핑인사이트 클릭 추이를 결합한 자체 산출 순위",
+  }
+  cache.set(category.code, { expiresAt: Date.now() + 15 * 60 * 1000, value })
+  return value
+}
 
-  return rows
-    .map((r) => keywordLabel(r))
-    .filter(Boolean)
+export async function fetchNaverTrendingKeywordsForCategory(categoryName = "쇼핑"): Promise<string[]> {
+  const category =
+    NAVER_DATALAB_SHOPPING_CATEGORIES.find((item) => item.name.includes(categoryName)) ||
+    NAVER_DATALAB_SHOPPING_CATEGORIES[0]!
+  const snapshot = await fetchNaverShoppingRankSnapshot(category.code)
+  const latestDate = snapshot.latestAvailableDate
+  return snapshot.rankings
+    .filter((item) => item.target_date === latestDate)
+    .sort((a, b) => a.rank_order - b.rank_order)
+    .map((item) => item.keyword)
     .slice(0, 10)
 }

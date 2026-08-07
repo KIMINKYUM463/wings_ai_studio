@@ -2,11 +2,9 @@
 
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
-import { Badge } from "@/components/ui/badge"
 import {
   Dialog,
   DialogContent,
@@ -24,16 +22,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
-  Scissors,
-  Film,
-  BarChart3,
   FileText,
-  LineChart,
   ArrowRight,
   Settings,
+  Home,
   Key,
   CheckCircle2,
-  ShoppingBag,
   User,
   BookOpen,
   CreditCard,
@@ -56,8 +50,16 @@ import {
   Clock,
   Target,
   Wand2,
-  MessageSquare,
   Edit,
+  Clapperboard,
+  Bot,
+  ChartNoAxesCombined,
+  Cpu,
+  Brain,
+  Scissors,
+  Film,
+  PawPrint,
+  Newspaper,
 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import type { LucideIcon } from "lucide-react"
@@ -73,82 +75,103 @@ type ShotFormServiceItem = {
   featured?: boolean
   isNew?: boolean
   locked?: boolean
+  /** 우측 상단 스티커 (예: ver1, ver2) */
+  sticker?: string
 }
 
 // 숏폼 전용 서비스
 const shotFormServices: ShotFormServiceItem[] = [
   {
+    id: "ai-shopping",
+    title: "AI 쇼핑 숏폼",
+    icon: Sparkles,
+    description: "제품 서칭→대본→스토리보드→오디오→이미지→비디오→프리뷰, 7단계 수동 파이프라인",
+    url: "/WingsAIStudioShotForm/ai-shopping",
+    gradient: "from-violet-500 via-fuchsia-500 to-pink-500",
+    hoverGradient: "from-violet-600 via-fuchsia-600 to-pink-600",
+  },
+  {
+    id: "story-shopping",
+    title: "AI 스토리 쇼핑 숏폼",
+    icon: BookOpen,
+    description: "썰 채널형 쇼핑 숏폼: 훅 제목·장면별 나레이션을 썰 프레임으로 합성해 소개하는 숏폼",
+    url: "/WingsAIStudioShotForm/story-shopping",
+    gradient: "from-amber-500 via-orange-500 to-rose-500",
+    hoverGradient: "from-amber-600 via-orange-600 to-rose-600",
+  },
+  {
+    id: "shortform-studio",
+    title: "AI 리믹스 쇼핑숏폼",
+    icon: Clapperboard,
+    description: "키워드·소스·리믹스·자막·썸네일 프로젝트",
+    url: "/WingsAIStudioShotForm/shortform-studio",
+    gradient: "from-violet-500 via-purple-500 to-fuchsia-500",
+    hoverGradient: "from-violet-600 via-purple-600 to-fuchsia-600",
+  },
+  {
+    id: "animal-shopping",
+    title: "AI 동물 쇼핑 숏폼",
+    icon: PawPrint,
+    description: "의인화 동물이 마트에서 쇼핑하는 바이럴 숏폼",
+    url: "/WingsAIStudioShotForm/animal-shopping",
+    gradient: "from-lime-500 via-emerald-500 to-teal-500",
+    hoverGradient: "from-lime-600 via-emerald-600 to-teal-600",
+  },
+  {
+    id: "info-shopping",
+    title: "AI 카드뉴스 쇼핑숏폼",
+    icon: Newspaper,
+    description: "벤치마크 URL → 쿠팡 매칭 → 카드뉴스 쇼핑숏폼",
+    url: "/WingsAIStudioShotForm/info-shopping",
+    gradient: "from-sky-500 via-blue-500 to-indigo-500",
+    hoverGradient: "from-sky-600 via-blue-600 to-indigo-600",
+  },
+]
+
+// 일반 숏폼 서비스 (일시 비활성화)
+const generalShortformServices: ShotFormServiceItem[] = [
+  {
     id: "shorts",
-    title: "일반 숏폼",
-    icon: Scissors,
-    description: "1,2,3분 AI 숏폼 영상",
+    title: "AI 일반 숏폼",
+    icon: Film,
+    description: "명언·건강·자기계발 등 주제로 대본·이미지·TTS 숏폼 제작",
     url: "/WingsAIStudioShotForm/shorts",
-    gradient: "from-pink-500 via-red-500 to-orange-500",
-    hoverGradient: "from-pink-600 via-red-600 to-orange-600",
+    gradient: "from-indigo-500 via-blue-500 to-cyan-500",
+    hoverGradient: "from-indigo-600 via-blue-600 to-cyan-600",
+    locked: true,
   },
   {
-    id: "shopping",
-    title: "쇼핑 숏폼",
-    icon: ShoppingBag,
-    description: "15초~20초 쇼핑 영상을 빠르게 제작",
-    url: "/WingsAIStudioShotForm/shopping",
-    gradient: "from-orange-500 via-amber-500 to-yellow-500",
-    hoverGradient: "from-orange-600 via-amber-600 to-yellow-600",
-    featured: true,
-  },
-  {
-    id: "channel-analysis",
-    title: "채널 분석",
-    icon: BarChart3,
-    description: "채널 데이터를 종합적으로 분석하여 성장 전략을 제시합니다",
-    url: "/WingsAIStudioShotForm/channel-analysis",
-    gradient: "from-blue-500 via-cyan-500 to-teal-500",
-    hoverGradient: "from-blue-600 via-cyan-600 to-teal-600",
+    id: "longform-clip",
+    title: "AI 롱폼 클립",
+    icon: Scissors,
+    description: "롱폼 URL만 넣으면 AI가 바이럴 숏폼 구간을 자동으로 잘라줍니다",
+    url: "/WingsAIStudioShotForm/longform-clip",
+    gradient: "from-rose-500 via-pink-500 to-fuchsia-500",
+    hoverGradient: "from-rose-600 via-pink-600 to-fuchsia-600",
+    isNew: true,
+    locked: true,
   },
 ]
 
 // 분석 & 도구 서비스
 const analysisToolsServices: ShotFormServiceItem[] = [
   {
-    id: "analytics",
-    title: "유튜브 분석",
-    icon: BarChart3,
-    description: "데이터 기반 인사이트로 채널 성장을 돕습니다",
-    url: "/WingsAIStudioShotForm/youtube-analytics",
-    gradient: "from-purple-500 via-indigo-500 to-blue-500",
-    hoverGradient: "from-purple-600 via-indigo-600 to-blue-600",
-  },
-  {
-    id: "youtube-trends",
-    title: "유튜브 실시간 분석",
-    icon: LineChart,
-    description: "실시간 키워드 트렌드를 한눈에 확인",
-    url: "/WingsAIStudioShotForm/youtube-trends",
-    gradient: "from-violet-500 via-fuchsia-500 to-pink-500",
-    hoverGradient: "from-violet-600 via-fuchsia-600 to-pink-600",
+    id: "channel-analysis",
+    title: "채널 스카우트",
+    icon: ChartNoAxesCombined,
+    description: "급상승 · 성과 리포트 · 관심 채널 모아보기",
+    url: "/WingsAIStudioShotForm/channel-analysis",
+    gradient: "from-sky-500 via-cyan-500 to-teal-500",
+    hoverGradient: "from-sky-600 via-cyan-600 to-teal-600",
   },
   {
     id: "chatbot",
     title: "윙스AI 1:1봇",
-    icon: MessageSquare,
+    icon: Bot,
     description: "AI가 1:1로 답변해드립니다",
     url: "/WingsAIStudioShotForm/wings-chatbot",
-    gradient: "from-green-500 via-emerald-500 to-teal-500",
-    hoverGradient: "from-green-600 via-emerald-600 to-teal-600",
-  },
-]
-
-// 숏폼 짜집기 (분석 & 도구 아래)
-const shortformMixServices: ShotFormServiceItem[] = [
-  {
-    id: "shortform-studio",
-    title: "숏폼 스튜디오",
-    icon: Sparkles,
-    description: "키워드·소스·짜집기·자막·썸네일 프로젝트",
-    url: "/WingsAIStudioShotForm/shortform-studio",
-    gradient: "from-violet-500 via-purple-500 to-fuchsia-500",
-    hoverGradient: "from-violet-600 via-purple-600 to-fuchsia-600",
-    isNew: true,
+    gradient: "from-emerald-500 via-green-500 to-teal-500",
+    hoverGradient: "from-emerald-600 via-green-600 to-teal-600",
   },
 ]
 
@@ -157,35 +180,35 @@ function Header({ onSettingsClick }: { onSettingsClick: () => void }) {
   const router = useRouter()
   
   return (
-    <header className="w-full border-b border-slate-200/50 bg-white/80 backdrop-blur-sm sticky top-0 z-50">
+    <header className="w-full border-b border-white/10 bg-[#0a0b0d]/80 backdrop-blur-sm sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* 로고 */}
           <div className="flex items-center gap-2">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-pink-500/10 to-orange-500/10 border border-pink-200/50 text-pink-700 text-sm font-semibold">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-pink-500/15 to-orange-500/15 border border-pink-400/25 text-pink-300 text-sm font-semibold">
               <span className="w-2 h-2 bg-pink-500 rounded-full animate-pulse" />
               wingsAIStudio ShotForm
             </div>
           </div>
 
-          {/* 메뉴 */}
-          <nav className="hidden md:flex items-center gap-6">
-            <Button 
-              variant="ghost" 
-              className="text-slate-700 hover:text-slate-900"
-              onClick={() => router.push('/')}
-            >
-              부스텍AI홈
-            </Button>
-          </nav>
-
           {/* 우측 아이콘들 */}
           <div className="flex items-center gap-2">
+            {/* 홈 버튼 */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="rounded-full text-zinc-300 hover:text-white hover:bg-white/5"
+              onClick={() => router.push('/')}
+              title="wings AI 홈"
+            >
+              <Home className="w-5 h-5" />
+            </Button>
+
             {/* 설정 버튼 */}
             <Button
               variant="ghost"
               size="icon"
-              className="rounded-full"
+              className="rounded-full text-zinc-300 hover:text-white hover:bg-white/5"
               onClick={onSettingsClick}
               title="설정"
             >
@@ -195,13 +218,13 @@ function Header({ onSettingsClick }: { onSettingsClick: () => void }) {
             {/* 사용자 메뉴 */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="rounded-full">
+                <Button variant="ghost" size="icon" className="rounded-full text-zinc-300 hover:text-white hover:bg-white/5">
                   <User className="w-5 h-5" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuContent align="end" className="w-48 bg-[#141518] border-white/10 text-zinc-100">
                 <DropdownMenuLabel>계정 설정</DropdownMenuLabel>
-                <DropdownMenuSeparator />
+                <DropdownMenuSeparator className="bg-white/10" />
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -216,90 +239,157 @@ function AutomationPipeline() {
   const [activeStep, setActiveStep] = useState(0)
   
   const steps = [
-    { icon: FileText, label: "대본", color: "from-blue-500 to-cyan-500" },
-    { icon: ImageIcon, label: "이미지", color: "from-purple-500 to-pink-500" },
-    { icon: Volume2, label: "음성", color: "from-green-500 to-emerald-500" },
-    { icon: Play, label: "영상", color: "from-orange-500 to-red-500" },
+    { icon: FileText, label: "대본", color: "from-blue-500 to-cyan-500", glow: "rgba(56,189,248,0.45)" },
+    { icon: ImageIcon, label: "이미지", color: "from-purple-500 to-pink-500", glow: "rgba(236,72,153,0.45)" },
+    { icon: Volume2, label: "음성", color: "from-green-500 to-emerald-500", glow: "rgba(52,211,153,0.45)" },
+    { icon: Play, label: "영상", color: "from-orange-500 to-red-500", glow: "rgba(249,115,22,0.45)" },
   ]
 
   useEffect(() => {
     const interval = setInterval(() => {
       setActiveStep((prev) => (prev + 1) % (steps.length + 1))
-    }, 1000)
+    }, 1400)
     return () => clearInterval(interval)
   }, [])
 
+  const statusText =
+    activeStep === 0
+      ? "AI가 자동으로 처리합니다"
+      : activeStep === 1
+        ? "AI가 대본을 생성하고 있습니다"
+        : activeStep === 2
+          ? "AI가 이미지를 생성하고 있습니다"
+          : activeStep === 3
+            ? "AI가 음성을 생성하고 있습니다"
+            : "15초 쇼츠 완성!"
+
   return (
-    <div className="relative py-8">
+    <div className="shotform-ai-pipeline relative py-10">
+      {/* AI 뉴럴 파티클 배경 */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
+        <div className="shotform-ai-orb absolute left-[8%] top-2 h-2 w-2 rounded-full bg-cyan-400/70" />
+        <div className="shotform-ai-orb absolute right-[12%] top-6 h-1.5 w-1.5 rounded-full bg-pink-400/70" style={{ animationDelay: "0.6s" }} />
+        <div className="shotform-ai-orb absolute left-[22%] bottom-4 h-1.5 w-1.5 rounded-full bg-violet-400/60" style={{ animationDelay: "1.1s" }} />
+        <div className="shotform-ai-orb absolute right-[28%] bottom-2 h-2 w-2 rounded-full bg-orange-400/50" style={{ animationDelay: "1.7s" }} />
+        <div className="shotform-ai-node-line absolute left-1/2 top-1/2 h-px w-[70%] -translate-x-1/2 -translate-y-1/2 bg-gradient-to-r from-transparent via-pink-400/20 to-transparent" />
+      </div>
+
+      {/* AI 코어 뱃지 */}
+      <div className="mb-5 flex justify-center">
+        <div className="shotform-ai-core inline-flex items-center gap-2 rounded-full border border-pink-400/25 bg-gradient-to-r from-pink-500/10 via-violet-500/10 to-cyan-500/10 px-3.5 py-1.5 backdrop-blur-sm">
+          <span className="relative flex h-6 w-6 items-center justify-center">
+            <span className="shotform-ai-ping absolute inset-0 rounded-full bg-pink-500/30" />
+            <Cpu className="relative h-3.5 w-3.5 text-pink-300" strokeWidth={2} />
+          </span>
+          <span className="text-[11px] font-semibold tracking-[0.18em] text-zinc-300 uppercase">
+            AI Engine
+          </span>
+          <Brain className="h-3.5 w-3.5 text-cyan-300 shotform-ai-brain" strokeWidth={2} />
+        </div>
+      </div>
+
       {/* 파이프라인 아이콘들 */}
-      <div className="flex items-center justify-center gap-2 md:gap-4">
+      <div className="relative z-10 flex items-center justify-center gap-2 md:gap-4">
         {steps.map((step, index) => {
           const Icon = step.icon
           const isActive = activeStep > index
           const isCurrent = activeStep === index + 1
+          const isComplete = activeStep === steps.length
           
           return (
             <div key={index} className="flex items-center">
-              {/* 단계 아이콘 */}
               <div
                 className={`relative flex flex-col items-center transition-all duration-500 ${
-                  isCurrent ? "scale-110" : ""
+                  isCurrent ? "scale-110" : isActive || isComplete ? "scale-100" : "scale-95"
                 }`}
               >
+                {/* 현재 단계 스캔 링 */}
+                {isCurrent && (
+                  <>
+                    <span
+                      className="shotform-ai-scan pointer-events-none absolute left-1/2 top-0 h-14 w-14 -translate-x-1/2 rounded-2xl md:h-16 md:w-16"
+                      style={{ boxShadow: `0 0 0 1px ${step.glow}` }}
+                    />
+                    <span className="shotform-ai-orbit pointer-events-none absolute left-1/2 top-7 -translate-x-1/2 md:top-8">
+                      <Sparkles className="h-3 w-3 text-amber-300" />
+                    </span>
+                  </>
+                )}
+
                 <div
-                  className={`w-14 h-14 md:w-16 md:h-16 rounded-2xl flex items-center justify-center transition-all duration-500 shadow-lg ${
-                    isActive
+                  className={`relative z-[1] flex h-14 w-14 items-center justify-center rounded-2xl shadow-lg transition-all duration-500 md:h-16 md:w-16 ${
+                    isActive || isComplete
                       ? `bg-gradient-to-br ${step.color} shadow-xl`
                       : isCurrent
-                      ? `bg-gradient-to-br ${step.color} animate-pulse shadow-xl ring-4 ring-white/50`
-                      : "bg-white/80 border-2 border-slate-200"
+                        ? `bg-gradient-to-br ${step.color} shadow-xl ring-4 ring-pink-400/30`
+                        : "border-2 border-white/15 bg-white/5"
                   }`}
+                  style={
+                    isCurrent
+                      ? { boxShadow: `0 0 28px ${step.glow}` }
+                      : undefined
+                  }
                 >
+                  {/* 생성 중 내부 스캔 라인 */}
+                  {isCurrent && (
+                    <span className="shotform-ai-scanline pointer-events-none absolute inset-x-1 top-0 h-full overflow-hidden rounded-2xl">
+                      <span className="absolute inset-x-0 h-1/3 bg-gradient-to-b from-white/35 to-transparent" />
+                    </span>
+                  )}
+
                   <Icon
-                    className={`w-6 h-6 md:w-7 md:h-7 transition-colors duration-500 ${
-                      isActive || isCurrent ? "text-white" : "text-slate-400"
-                    }`}
+                    className={`relative z-[1] h-6 w-6 transition-colors duration-500 md:h-7 md:w-7 ${
+                      isActive || isCurrent || isComplete ? "text-white" : "text-zinc-500"
+                    } ${isCurrent ? "shotform-ai-icon-pulse" : ""}`}
                   />
                   
-                  {/* 완료 체크 표시 */}
-                  {isActive && (
-                    <div className="absolute -top-1 -right-1 w-5 h-5 bg-green-500 rounded-full flex items-center justify-center animate-scale-in">
-                      <CheckCircle2 className="w-4 h-4 text-white" />
+                  {(isActive || isComplete) && (
+                    <div className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-green-500 animate-scale-in">
+                      <CheckCircle2 className="h-4 w-4 text-white" />
                     </div>
                   )}
                 </div>
                 
-                {/* 라벨 */}
                 <span
-                  className={`mt-2 text-xs md:text-sm font-medium transition-colors duration-500 ${
-                    isActive || isCurrent ? "text-slate-900" : "text-slate-400"
+                  className={`mt-2 text-xs font-medium transition-colors duration-500 md:text-sm ${
+                    isActive || isCurrent || isComplete ? "text-zinc-100" : "text-zinc-500"
                   }`}
                 >
                   {step.label}
                 </span>
                 
-                {/* 현재 진행 중 표시 */}
                 {isCurrent && (
-                  <div className="absolute -bottom-6 left-1/2 -translate-x-1/2">
-                    <Sparkles className="w-4 h-4 text-amber-500 animate-spin" />
+                  <div className="absolute -bottom-7 left-1/2 flex -translate-x-1/2 items-center gap-1">
+                    <span className="shotform-ai-dot h-1 w-1 rounded-full bg-amber-300" />
+                    <span className="shotform-ai-dot h-1 w-1 rounded-full bg-pink-300" style={{ animationDelay: "0.2s" }} />
+                    <span className="shotform-ai-dot h-1 w-1 rounded-full bg-cyan-300" style={{ animationDelay: "0.4s" }} />
                   </div>
                 )}
               </div>
               
-              {/* 연결선 */}
               {index < steps.length - 1 && (
-                <div className="relative w-8 md:w-16 h-1 mx-1 md:mx-2">
-                  <div className="absolute inset-0 bg-slate-200 rounded-full" />
+                <div className="relative mx-1 h-1 w-8 overflow-visible md:mx-2 md:w-16">
+                  <div className="absolute inset-0 rounded-full bg-white/15" />
                   <div
-                    className={`absolute inset-y-0 left-0 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 rounded-full transition-all duration-500 ease-out`}
+                    className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 transition-all duration-500 ease-out"
                     style={{
-                      width: activeStep > index + 1 ? "100%" : activeStep === index + 1 ? "50%" : "0%",
+                      width:
+                        activeStep > index + 1 || isComplete
+                          ? "100%"
+                          : activeStep === index + 1
+                            ? "55%"
+                            : "0%",
                     }}
                   />
-                  {/* 움직이는 점 */}
-                  {activeStep === index + 1 && (
-                    <div className="absolute top-1/2 -translate-y-1/2 w-2 h-2 bg-white rounded-full shadow-lg animate-move-dot" 
-                      style={{ left: "50%" }} />
+                  {/* 데이터 패킷 이동 */}
+                  {(activeStep === index + 1 || (isComplete && index < steps.length - 1)) && (
+                    <>
+                      <span className="shotform-ai-packet absolute top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-white shadow-[0_0_8px_rgba(255,255,255,0.9)]" />
+                      <span
+                        className="shotform-ai-packet absolute top-1/2 h-1 w-1 -translate-y-1/2 rounded-full bg-cyan-300"
+                        style={{ animationDelay: "0.45s" }}
+                      />
+                    </>
                   )}
                 </div>
               )}
@@ -309,16 +399,25 @@ function AutomationPipeline() {
       </div>
 
       {/* 상태 메시지 */}
-      <div className="mt-8 text-center">
-        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-pink-500/10 via-red-500/10 to-orange-500/10 border border-pink-200/50">
-          <Zap className="w-4 h-4 text-pink-500 animate-pulse" />
-          <span className="text-sm font-medium text-slate-700">
-            {activeStep === 0 && "AI가 자동으로 처리합니다"}
-            {activeStep === 1 && "대본을 생성하고 있습니다..."}
-            {activeStep === 2 && "이미지를 생성하고 있습니다..."}
-            {activeStep === 3 && "음성을 생성하고 있습니다..."}
-            {activeStep === 4 && "15초 쇼츠 완성!"}
+      <div className="relative z-10 mt-10 text-center">
+        <div className="shotform-ai-status inline-flex items-center gap-2.5 rounded-full border border-pink-400/30 bg-gradient-to-r from-pink-500/15 via-violet-500/10 to-cyan-500/15 px-5 py-2.5 shadow-[0_0_24px_rgba(236,72,153,0.12)] backdrop-blur-sm">
+          <span className="relative flex h-5 w-5 items-center justify-center">
+            <span className="shotform-ai-ping absolute inset-0 rounded-full bg-pink-500/40" />
+            <Zap className="relative h-3.5 w-3.5 text-pink-400" />
           </span>
+          <span className="text-sm font-medium text-zinc-100" key={activeStep}>
+            <span className="shotform-ai-status-text">{statusText}</span>
+            {activeStep > 0 && activeStep < steps.length && (
+              <span className="ml-0.5 inline-flex gap-0.5 align-middle">
+                <span className="shotform-ai-dot inline-block h-1 w-1 rounded-full bg-zinc-300" />
+                <span className="shotform-ai-dot inline-block h-1 w-1 rounded-full bg-zinc-300" style={{ animationDelay: "0.2s" }} />
+                <span className="shotform-ai-dot inline-block h-1 w-1 rounded-full bg-zinc-300" style={{ animationDelay: "0.4s" }} />
+              </span>
+            )}
+          </span>
+          {activeStep === steps.length && (
+            <Sparkles className="h-4 w-4 text-amber-300 shotform-ai-brain" />
+          )}
         </div>
       </div>
     </div>
@@ -327,9 +426,8 @@ function AutomationPipeline() {
 
 // Hero Section 컴포넌트
 function HeroSection() {
-  const router = useRouter()
   const [displayText, setDisplayText] = useState("")
-  const fullText = "AI 숏폼 자동 제작"
+  const fullText = "AI 쇼핑숏폼 자동 제작"
   
   // 타이핑 효과
   useEffect(() => {
@@ -349,45 +447,24 @@ function HeroSection() {
     <section className="text-center py-8 md:py-12 lg:py-16 space-y-6">
       {/* 타이틀 with 타이핑 효과 */}
       <div className="relative">
-        <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold bg-gradient-to-r from-pink-600 via-red-600 to-orange-600 bg-clip-text text-transparent min-h-[1.2em]">
+        <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold bg-gradient-to-r from-pink-400 via-red-400 to-orange-400 bg-clip-text text-transparent min-h-[1.2em]">
           {displayText}
-          <span className="animate-blink text-slate-400">|</span>
+          <span className="animate-blink text-zinc-500">|</span>
       </h1>
         
         {/* 배경 블러 효과 */}
-        <div className="absolute inset-0 -z-10 blur-3xl opacity-30">
+        <div className="absolute inset-0 -z-10 blur-3xl opacity-25">
           <div className="absolute inset-0 bg-gradient-to-r from-pink-400 via-red-400 to-orange-400 rounded-full animate-pulse" />
         </div>
       </div>
       
-      <p className="text-lg md:text-xl text-slate-600 max-w-2xl mx-auto animate-fade-in-up" style={{ animationDelay: "1s" }}>
+      <p className="text-lg md:text-xl text-zinc-400 max-w-2xl mx-auto animate-fade-in-up" style={{ animationDelay: "1s" }}>
         15초 쇼츠를 빠르고 쉽게 제작하세요
       </p>
 
       {/* 자동화 파이프라인 애니메이션 */}
       <div className="pt-4 animate-fade-in-up" style={{ animationDelay: "1.2s" }}>
         <AutomationPipeline />
-      </div>
-      
-      <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4 animate-fade-in-up" style={{ animationDelay: "1.5s" }}>
-        <Button
-          size="lg"
-          className="w-full sm:w-auto px-8 text-base font-semibold shadow-lg hover:shadow-xl transition-all bg-gradient-to-r from-pink-600 to-orange-600 hover:from-pink-700 hover:to-orange-700"
-          onClick={() => router.push("/WingsAIStudioShotForm/shorts")}
-        >
-          <Zap className="w-4 h-4 mr-2" />
-          지금 바로 쇼츠 만들기
-        </Button>
-        <Button
-          size="lg"
-          variant="outline"
-          className="w-full sm:w-auto px-8 text-base font-semibold border-2"
-          onClick={() => {
-            document.getElementById("features")?.scrollIntoView({ behavior: "smooth" })
-          }}
-        >
-          모든 기능 살펴보기
-        </Button>
       </div>
     </section>
   )
@@ -404,120 +481,170 @@ function FeatureCard({
   onServiceClick: (service: ShotFormServiceItem) => void
 }) {
   const Icon = service.icon
-  const isLocked = 'locked' in service && service.locked
+  const isLocked = "locked" in service && service.locked
 
   return (
-    <Card
-      className={`group relative overflow-hidden border-0 shadow-lg transition-all duration-300 bg-white/80 backdrop-blur-sm ${
-        isLocked 
-          ? "cursor-not-allowed opacity-60" 
-          : "hover:shadow-2xl cursor-pointer hover:scale-[1.02]"
-      } ${
-        service.isNew
-          ? "ring-2 ring-violet-200 ring-offset-2"
-          : service.featured
-            ? "ring-2 ring-pink-200 ring-offset-2"
-            : ""
-      }`}
+    <button
+      type="button"
+      disabled={isLocked}
       onClick={() => !isLocked && onServiceClick(service)}
-      style={{
-        animationDelay: `${index * 100}ms`,
-      }}
+      className={`shotform-feature-card group relative w-full text-left overflow-hidden rounded-2xl border border-white/[0.08] bg-gradient-to-br from-white/[0.07] to-white/[0.02] p-[1px] transition-all duration-500 ease-out ${
+        isLocked
+          ? "cursor-not-allowed opacity-55"
+          : "hover:-translate-y-1 hover:border-white/20 hover:shadow-[0_20px_50px_-20px_rgba(236,72,153,0.35)]"
+      }`}
+      style={{ animationDelay: `${index * 120}ms` }}
     >
-      {/* 잠금 오버레이 */}
-      {isLocked && (
-        <div className="absolute inset-0 z-20 bg-slate-300/90 backdrop-blur-[4px] flex flex-col items-center justify-center gap-2">
-          <Lock className="w-8 h-8 text-slate-400" />
-        </div>
-      )}
-
-      {/* New / 추천 배지 */}
-      {service.isNew ? (
-        <div className="absolute top-3 left-3 z-10">
-          <Badge className="bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white border-0 shadow-md">
-            New
-          </Badge>
-        </div>
-      ) : service.featured ? (
-        <div className="absolute top-3 left-3 z-10">
-          <Badge className="bg-gradient-to-r from-pink-500 to-orange-500 text-white border-0 shadow-md">
-            추천
-          </Badge>
-        </div>
-      ) : null}
-
-      {/* 호버 그라데이션 배경 */}
-      {!isLocked && (
-        <>
-          <div
-            className={`absolute inset-0 bg-gradient-to-br ${service.gradient} opacity-0 group-hover:opacity-100 transition-opacity duration-300`}
-          />
-          <div className="absolute inset-0 bg-gradient-to-br from-white to-slate-50 group-hover:from-transparent group-hover:to-transparent transition-all duration-300" />
-        </>
-      )}
-
-      <CardContent className="relative p-6 md:p-8 h-full flex flex-col min-h-[220px]">
-        {/* 아이콘 */}
-        <div
-          className={`p-4 rounded-2xl bg-gradient-to-br ${service.gradient} shadow-lg ${!isLocked ? "group-hover:scale-110" : ""} transition-transform duration-300 w-fit mb-4`}
-        >
-          <Icon className="w-8 h-8 text-white" />
-        </div>
-
-        {/* 제목 */}
-        <h3 className={`text-xl md:text-2xl font-bold text-slate-900 ${!isLocked ? "group-hover:text-white" : ""} transition-colors duration-300 mb-2`}>
-          {service.title}
-        </h3>
-
-        {/* 설명 */}
-        <p className={`text-sm md:text-base text-slate-600 ${!isLocked ? "group-hover:text-white/90" : ""} transition-colors duration-300 flex-grow`}>
-          {service.description}
-        </p>
-
-        {/* 시작 버튼 */}
+      <div className="relative h-full rounded-[15px] bg-[#101114]/95 backdrop-blur-md overflow-hidden">
+        {/* 호버 시 은은한 빛 스윕 */}
         {!isLocked && (
-          <div className="mt-4 flex items-center justify-between">
-            <span className="text-xs text-slate-500 group-hover:text-white/70 transition-colors duration-300">
-              바로 시작하기
-            </span>
-            <ArrowRight className="w-5 h-5 text-slate-400 group-hover:text-white group-hover:translate-x-1 transition-all duration-300" />
+          <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-500 group-hover:opacity-100">
+            <div className="shotform-card-shine absolute -inset-x-1/2 -top-1/2 h-full w-[200%] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
           </div>
         )}
-      </CardContent>
-    </Card>
+
+        {/* 잠금 오버레이 */}
+        {isLocked && (
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-black/70 backdrop-blur-[4px]">
+            <Lock className="h-7 w-7 text-zinc-400" />
+          </div>
+        )}
+
+        {/* 우측 상단 스티커 / New / 추천 */}
+        {service.sticker ? (
+          <div className="absolute -right-1 -top-1 z-10 rotate-[8deg]">
+            <span
+              className={`inline-flex items-center rounded-md px-2.5 py-1 text-[11px] font-bold tracking-wide shadow-lg ring-1 ${
+                service.sticker === "ver2"
+                  ? "bg-gradient-to-br from-violet-500 to-fuchsia-600 text-white ring-white/20 shadow-fuchsia-900/40"
+                  : "bg-gradient-to-br from-orange-500 to-amber-500 text-white ring-white/20 shadow-orange-900/40"
+              }`}
+            >
+              {service.sticker}
+            </span>
+          </div>
+        ) : service.isNew ? (
+          <div className="absolute right-3 top-3 z-10">
+            <span className="inline-flex items-center rounded-full bg-violet-500/20 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-violet-200 ring-1 ring-violet-400/30">
+              New
+            </span>
+          </div>
+        ) : service.featured ? (
+          <div className="absolute right-3 top-3 z-10">
+            <span className="inline-flex items-center rounded-full bg-orange-500/20 px-2.5 py-0.5 text-[10px] font-semibold tracking-wider text-orange-200 ring-1 ring-orange-400/30">
+              추천
+            </span>
+          </div>
+        ) : null}
+
+        <div className="relative flex gap-4 p-5 md:p-6">
+          {/* 아이콘 */}
+          <div className="relative shrink-0">
+            <div
+              className={`absolute inset-0 rounded-2xl bg-gradient-to-br ${service.gradient} opacity-40 blur-xl shotform-icon-glow`}
+            />
+            <div
+              className={`relative flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br ${service.gradient} shadow-lg ring-1 ring-white/20 shotform-icon-float`}
+            >
+              <Icon className="h-7 w-7 text-white drop-shadow-sm" strokeWidth={1.75} />
+            </div>
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <h3 className="mb-1 text-lg font-semibold tracking-tight text-zinc-50 transition-colors duration-300 group-hover:text-white md:text-xl">
+              {service.title}
+            </h3>
+            <p className="mb-3 text-sm leading-relaxed text-zinc-400 transition-colors duration-300 group-hover:text-zinc-300">
+              {service.description}
+            </p>
+            {!isLocked && (
+              <div className="flex items-center gap-1.5 text-xs font-medium text-zinc-500 transition-all duration-300 group-hover:gap-2.5 group-hover:text-pink-300">
+                <span>바로 시작하기</span>
+                <ArrowRight className="h-3.5 w-3.5 transition-transform duration-300 group-hover:translate-x-0.5" />
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </button>
   )
 }
 
-// Feature Section 컴포넌트
+// Feature Section 컴포넌트 (좌우 컬럼용)
 function FeatureSection({
   title,
   subtitle,
   services,
   onServiceClick,
-  columns = 3,
+  accent = "warm",
+  sectionIndex = 0,
+  cardLayout = "stack",
 }: {
   title: string
   subtitle: string
   services: ShotFormServiceItem[]
   onServiceClick: (service: ShotFormServiceItem) => void
-  columns?: number
+  accent?: "warm" | "cool" | "violet"
+  sectionIndex?: number
+  /** stack: 세로 / row: 앞 2개만 좌우, 나머지는 한 줄씩 */
+  cardLayout?: "stack" | "row"
 }) {
-  const gridCols = columns === 5 
-    ? "grid-cols-2 md:grid-cols-3 lg:grid-cols-5" 
-    : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3"
-  
+  const accentBar =
+    accent === "warm"
+      ? "from-pink-500 via-orange-400 to-amber-400"
+      : accent === "violet"
+        ? "from-indigo-500 via-violet-400 to-fuchsia-400"
+        : "from-sky-500 via-cyan-400 to-teal-400"
+  const accentGlow =
+    accent === "warm"
+      ? "bg-orange-500/10"
+      : accent === "violet"
+        ? "bg-violet-500/10"
+        : "bg-cyan-500/10"
+  const HeaderIcon =
+    accent === "warm" ? Wand2 : accent === "violet" ? Scissors : ChartNoAxesCombined
+
+  const pairedServices = cardLayout === "row" ? services.slice(0, 2) : []
+  const stackedServices = cardLayout === "row" ? services.slice(2) : services
+
   return (
-    <section className="space-y-6">
-      <div className="space-y-2">
-        <h2 className="text-2xl md:text-3xl font-bold text-slate-900">{title}</h2>
-        <p className="text-base text-slate-600">{subtitle}</p>
+    <section
+      className="shotform-feature-panel relative flex h-full flex-col overflow-hidden rounded-3xl border border-white/[0.08] bg-[#0e0f12]/80 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-sm md:p-7"
+      style={{ animationDelay: `${sectionIndex * 150}ms` }}
+    >
+      <div className={`pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full ${accentGlow} blur-3xl`} />
+      <div className={`mb-5 h-1 w-16 rounded-full bg-gradient-to-r ${accentBar}`} />
+
+      <div className="mb-6 flex items-start gap-3">
+        <div
+          className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${accentBar} text-white shadow-lg ring-1 ring-white/15`}
+        >
+          <HeaderIcon className="h-5 w-5" strokeWidth={1.75} />
+        </div>
+        <div className="min-w-0 space-y-1">
+          <h2 className="text-xl font-bold tracking-tight text-zinc-50 md:text-2xl">{title}</h2>
+          <p className="text-sm text-zinc-400 md:text-[15px]">{subtitle}</p>
+        </div>
       </div>
-      <div className={`grid ${gridCols} gap-6`}>
-        {services.map((service, index) => (
+
+      <div className="flex flex-1 flex-col gap-3.5">
+        {pairedServices.length > 0 && (
+          <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+            {pairedServices.map((service, index) => (
+              <FeatureCard
+                key={service.id}
+                service={service}
+                index={index + sectionIndex * 2}
+                onServiceClick={onServiceClick}
+              />
+            ))}
+          </div>
+        )}
+        {stackedServices.map((service, index) => (
           <FeatureCard
             key={service.id}
             service={service}
-            index={index}
+            index={index + pairedServices.length + sectionIndex * 2}
             onServiceClick={onServiceClick}
           />
         ))}
@@ -534,8 +661,12 @@ export default function ShotFormPage() {
     openai: "",
     elevenlabs: "",
     replicate: "",
+    pixabay: "",
+    serpapi: "",
+    klipy: "",
     ttsmaker: "",
     supertone: "",
+    typecast: "",
     youtubeClientId: "",
     youtubeClientSecret: "",
     youtubeDataApiKey: "",
@@ -546,8 +677,12 @@ export default function ShotFormPage() {
     openai: false,
     elevenlabs: false,
     replicate: false,
+    pixabay: false,
+    serpapi: false,
+    klipy: false,
     ttsmaker: false,
     supertone: false,
+    typecast: false,
     youtubeClientId: false,
     youtubeClientSecret: false,
     youtubeDataApiKey: false,
@@ -562,9 +697,6 @@ export default function ShotFormPage() {
   const [password, setPassword] = useState("")
   const [passwordError, setPasswordError] = useState("")
   const [isPasswordAuthenticated, setIsPasswordAuthenticated] = useState(false)
-  const [showShortformStudioPasswordDialog, setShowShortformStudioPasswordDialog] = useState(false)
-  const [shortformStudioPassword, setShortformStudioPassword] = useState("")
-  const [shortformStudioPasswordError, setShortformStudioPasswordError] = useState("")
 
   // 로그인 상태 확인 및 비밀번호 인증 확인
   useEffect(() => {
@@ -634,8 +766,18 @@ export default function ShotFormPage() {
       const storedOpenAI = localStorage.getItem("shotform_openai_api_key") || ""
       const storedElevenLabs = localStorage.getItem("shotform_elevenlabs_api_key") || ""
       const storedReplicate = localStorage.getItem("shotform_replicate_api_key") || ""
+      const storedPixabay = localStorage.getItem("shotform_pixabay_api_key") || ""
+      const storedSerpapi =
+        localStorage.getItem("shotform_serpapi_key") ||
+        localStorage.getItem("serpapi_api_key") ||
+        ""
+      const storedKlipy = localStorage.getItem("shotform_klipy_api_key") || ""
       const storedTTSMaker = localStorage.getItem("shotform_ttsmaker_api_key") || ""
       const storedSupertone = localStorage.getItem("shotform_supertone_api_key") || ""
+      const storedTypecast =
+        localStorage.getItem("shotform_typecast_api_key") ||
+        localStorage.getItem("typecast_api_key") ||
+        ""
       const storedYoutubeClientId = localStorage.getItem("shotform_youtube_client_id") || ""
       const storedYoutubeClientSecret = localStorage.getItem("shotform_youtube_client_secret") || ""
       const storedYoutubeDataApiKey = localStorage.getItem("shotform_youtube_data_api_key") || ""
@@ -644,8 +786,12 @@ export default function ShotFormPage() {
         openai: storedOpenAI,
         elevenlabs: storedElevenLabs,
         replicate: storedReplicate,
+        pixabay: storedPixabay,
+        serpapi: storedSerpapi,
+        klipy: storedKlipy,
         ttsmaker: storedTTSMaker,
         supertone: storedSupertone,
+        typecast: storedTypecast,
         youtubeClientId: storedYoutubeClientId,
         youtubeClientSecret: storedYoutubeClientSecret,
         youtubeDataApiKey: storedYoutubeDataApiKey,
@@ -735,8 +881,14 @@ export default function ShotFormPage() {
     localStorage.setItem("shotform_openai_api_key", apiKeys.openai)
     localStorage.setItem("shotform_elevenlabs_api_key", apiKeys.elevenlabs)
     localStorage.setItem("shotform_replicate_api_key", apiKeys.replicate)
+    localStorage.setItem("shotform_pixabay_api_key", apiKeys.pixabay || "")
+    localStorage.setItem("shotform_serpapi_key", apiKeys.serpapi || "")
+    localStorage.setItem("serpapi_api_key", apiKeys.serpapi || "")
+    localStorage.setItem("shotform_klipy_api_key", apiKeys.klipy || "")
     localStorage.setItem("shotform_ttsmaker_api_key", apiKeys.ttsmaker || "")
     localStorage.setItem("shotform_supertone_api_key", apiKeys.supertone || "")
+    localStorage.setItem("shotform_typecast_api_key", apiKeys.typecast || "")
+    localStorage.setItem("typecast_api_key", apiKeys.typecast || "")
     localStorage.setItem("shotform_youtube_client_id", apiKeys.youtubeClientId)
     localStorage.setItem("shotform_youtube_client_secret", apiKeys.youtubeClientSecret)
     localStorage.setItem("shotform_youtube_data_api_key", apiKeys.youtubeDataApiKey)
@@ -765,19 +917,31 @@ ${apiKeys.elevenlabs || "(미입력)"}
 3. Replicate API Key
 ${apiKeys.replicate || "(미입력)"}
 
-4. TTSMaker API Key
+4. Pixabay API Key
+${apiKeys.pixabay || "(미입력)"}
+
+5. SerpAPI Key
+${apiKeys.serpapi || "(미입력)"}
+
+6. Klipy API Key
+${apiKeys.klipy || "(미입력)"}
+
+7. TTSMaker API Key
 ${apiKeys.ttsmaker || "(미입력)"}
 
 6. Supertone API Key
 ${apiKeys.supertone || "(미입력)"}
 
-7. YouTube Client ID
+7. Typecast API Key
+${apiKeys.typecast || "(미입력)"}
+
+8. YouTube Client ID
 ${apiKeys.youtubeClientId || "(미입력)"}
 
-8. YouTube Client Secret
+9. YouTube Client Secret
 ${apiKeys.youtubeClientSecret || "(미입력)"}
 
-9. YouTube Data API Key
+10. YouTube Data API Key
 ${apiKeys.youtubeDataApiKey || "(미입력)"}
 
 ========================================
@@ -858,6 +1022,44 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           })
           break
         }
+        case "pixabay": {
+          const response = await fetch(
+            `https://pixabay.com/api/?key=${encodeURIComponent(apiKeys.pixabay)}&q=test&per_page=3&safesearch=true`
+          )
+          if (response.ok) {
+            setTestResults({
+              ...testResults,
+              [keyType]: { success: true, message: "Pixabay 연결 성공!" },
+            })
+          } else {
+            setTestResults({
+              ...testResults,
+              [keyType]: { success: false, message: `연결 실패: ${response.statusText || response.status}` },
+            })
+          }
+          break
+        }
+        case "serpapi": {
+          const response = await fetch(
+            `https://serpapi.com/account.json?api_key=${encodeURIComponent(apiKeys.serpapi)}`
+          )
+          if (response.ok) {
+            setTestResults({
+              ...testResults,
+              [keyType]: { success: true, message: "SerpAPI 연결 성공!" },
+            })
+          } else {
+            const error = await response.json().catch(() => ({}))
+            setTestResults({
+              ...testResults,
+              [keyType]: {
+                success: false,
+                message: `연결 실패: ${(error as { error?: string }).error || response.statusText}`,
+              },
+            })
+          }
+          break
+        }
         case "youtubeDataApiKey": {
           const response = await fetch(
             `https://www.googleapis.com/youtube/v3/search?part=snippet&q=test&key=${apiKeys.youtubeDataApiKey}&maxResults=1`,
@@ -911,6 +1113,22 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           })
           break
         }
+        case "typecast": {
+          const response = await fetch(
+            `/api/typecast-voices?apiKey=${encodeURIComponent(apiKeys.typecast)}`
+          )
+          const result = await response.json().catch(() => ({}))
+          setTestResults({
+            ...testResults,
+            [keyType]: {
+              success: response.ok && result.success !== false,
+              message: response.ok
+                ? "타입캐스트 목소리 목록 확인 성공!"
+                : result.error || response.statusText,
+            },
+          })
+          break
+        }
         default:
           setTestResults({
             ...testResults,
@@ -927,31 +1145,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     }
   }
 
-  const handleShortformStudioPasswordSubmit = (e?: React.FormEvent) => {
-    e?.preventDefault()
-    setShortformStudioPasswordError("")
-
-    if (shortformStudioPassword === "9999") {
-      sessionStorage.setItem("wingsaistudio_shortform_studio_password_auth", "true")
-      setShowShortformStudioPasswordDialog(false)
-      setShortformStudioPassword("")
-      router.push("/WingsAIStudioShotForm/shortform-studio")
-      return
-    }
-
-    setShortformStudioPasswordError("비밀번호가 올바르지 않습니다.")
-    setShortformStudioPassword("")
-  }
-
   const handleServiceClick = (service: ShotFormServiceItem) => {
-    if (service.id === "shortform-studio") {
-      const shortformStudioAuth = sessionStorage.getItem("wingsaistudio_shortform_studio_password_auth")
-      if (shortformStudioAuth !== "true") {
-        setShowShortformStudioPasswordDialog(true)
-        return
-      }
-    }
-
     if (service.url.startsWith("http")) {
       window.open(service.url, "_blank")
     } else {
@@ -962,10 +1156,10 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
   // 로그인 확인 중이면 로딩 화면 표시
   if (isCheckingLogin) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-pink-50 via-white to-orange-100 flex items-center justify-center">
+      <div className="min-h-screen bg-[#0a0b0d] flex items-center justify-center">
         <div className="text-center">
           <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-pink-600 mb-4"></div>
-          <p className="text-slate-600">로그인 확인 중...</p>
+          <p className="text-zinc-400">로그인 확인 중...</p>
         </div>
       </div>
     )
@@ -985,7 +1179,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           router.push('/')
         }
       }}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md bg-[#141518] border-white/10 text-zinc-100">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Lock className="w-5 h-5" />
@@ -998,8 +1192,8 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           <form onSubmit={handlePasswordSubmit}>
             <div className="space-y-4 py-4">
               {/* 경고 메시지 */}
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                <p className="text-sm text-amber-800 font-medium">
+              <div className="bg-amber-500/10 border border-amber-400/25 rounded-lg p-3">
+                <p className="text-sm text-amber-200 font-medium">
                   ⚠️ 매일 수강생인지 확인 후 아닐 시 영구정지됩니다.
                 </p>
               </div>
@@ -1041,61 +1235,12 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-pink-50 via-white to-orange-100">
-      <Dialog
-        open={showShortformStudioPasswordDialog}
-        onOpenChange={setShowShortformStudioPasswordDialog}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Lock className="w-5 h-5" />
-              숏폼 스튜디오 접근 인증
-            </DialogTitle>
-            <DialogDescription>
-              숏폼 스튜디오에 접근하려면 비밀번호를 입력해주세요.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleShortformStudioPasswordSubmit}>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="shortform-studio-password-main">비밀번호</Label>
-                <Input
-                  id="shortform-studio-password-main"
-                  type="password"
-                  value={shortformStudioPassword}
-                  onChange={(e) => {
-                    setShortformStudioPassword(e.target.value)
-                    setShortformStudioPasswordError("")
-                  }}
-                  placeholder="비밀번호를 입력하세요"
-                  autoFocus
-                  className={shortformStudioPasswordError ? "border-red-500" : ""}
-                />
-                {shortformStudioPasswordError && (
-                  <p className="text-sm text-red-500">{shortformStudioPasswordError}</p>
-                )}
-              </div>
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setShowShortformStudioPasswordDialog(false)}
-              >
-                취소
-              </Button>
-              <Button type="submit">확인</Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
-
+    <div className="min-h-screen bg-[#0a0b0d] text-zinc-100">
       {/* 배경 장식 */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
-        <div className="absolute top-0 left-0 w-96 h-96 bg-gradient-to-br from-pink-200/20 to-red-200/20 rounded-full blur-3xl" />
-        <div className="absolute bottom-0 right-0 w-96 h-96 bg-gradient-to-tl from-orange-200/20 to-yellow-200/20 rounded-full blur-3xl" />
-        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-gradient-to-r from-pink-100/10 to-orange-100/10 rounded-full blur-3xl" />
+        <div className="absolute top-0 left-0 w-96 h-96 bg-gradient-to-br from-pink-500/10 to-red-500/10 rounded-full blur-3xl" />
+        <div className="absolute bottom-0 right-0 w-96 h-96 bg-gradient-to-tl from-orange-500/10 to-yellow-500/10 rounded-full blur-3xl" />
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-gradient-to-r from-pink-500/5 to-orange-500/5 rounded-full blur-3xl" />
       </div>
 
       {/* 헤더 */}
@@ -1108,29 +1253,38 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
           <HeroSection />
 
           {/* Features Section */}
-          <div id="features" className="space-y-12 md:space-y-16 mt-16 md:mt-24">
-            {/* 숏폼 제작 섹션 */}
-            <FeatureSection
-              title="숏폼 제작"
-              subtitle="15초 쇼츠를 빠르고 쉽게 제작하세요"
-              services={shotFormServices}
-              onServiceClick={handleServiceClick}
-            />
+          <div
+            id="features"
+            className="mt-16 space-y-5 md:mt-20 lg:mt-24 lg:space-y-7"
+          >
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-7">
+              <FeatureSection
+                title="쇼핑숏폼 제작"
+                subtitle="15초 쇼츠를 빠르고 쉽게 제작하세요"
+                services={shotFormServices}
+                onServiceClick={handleServiceClick}
+                accent="warm"
+                sectionIndex={0}
+              />
 
-            {/* 분석 & 도구 섹션 */}
-            <FeatureSection
-              title="분석 & 도구"
-              subtitle="채널 성장과 운영을 돕는 보조 도구"
-              services={analysisToolsServices}
-              onServiceClick={handleServiceClick}
-            />
+              <FeatureSection
+                title="분석 & 도구"
+                subtitle="채널 성장과 운영을 돕는 보조 도구"
+                services={analysisToolsServices}
+                onServiceClick={handleServiceClick}
+                accent="cool"
+                sectionIndex={1}
+              />
+            </div>
 
-            {/* 숏폼 짜집기 섹션 */}
             <FeatureSection
-              title="숏폼 짜집기"
-              subtitle="소스 영상을 골라 AI로 짧은 컷으로 이어 붙이고 자막·썸네일까지 완성하세요"
-              services={shortformMixServices}
+              title="일반 숏폼"
+              subtitle="주제 기반 숏폼 제작 · 롱폼 URL을 바이럴 숏폼으로 자동 클립"
+              services={generalShortformServices}
               onServiceClick={handleServiceClick}
+              accent="violet"
+              sectionIndex={2}
+              cardLayout="row"
             />
           </div>
         </div>
@@ -1138,20 +1292,20 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
 
       {/* API 키 설정 다이얼로그 - WingsAIStudio와 동일한 구조 */}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-[500px] max-h-[90vh] flex flex-col">
+        <DialogContent className="sm:max-w-[500px] max-h-[90vh] flex flex-col bg-[#141518] border-white/10 text-zinc-100">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+            <DialogTitle className="flex items-center gap-2 text-zinc-50">
               <Key className="w-5 h-5" />
               API 키 설정
             </DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="text-zinc-400">
               AI 서비스 사용을 위한 API 키를 입력해주세요. 키는 브라우저에 안전하게 저장됩니다.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-6 py-4 overflow-y-auto flex-1">
             {/* OpenAI API Key */}
             <div className="space-y-2">
-              <Label htmlFor="openai-key" className="text-sm font-medium">
+              <Label htmlFor="openai-key" className="text-sm font-medium text-zinc-200">
                 OpenAI API Key
               </Label>
               <div className="flex items-center gap-2">
@@ -1161,14 +1315,14 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                   placeholder="sk-..."
                   value={apiKeys.openai}
                   onChange={(e) => setApiKeys({ ...apiKeys, openai: e.target.value })}
-                  className="font-mono text-sm"
+                  className="font-mono text-sm bg-black/40 border-white/15 text-zinc-100 placeholder:text-zinc-500"
                 />
                 <Button
                   type="button"
                   variant="outline"
                   size="icon"
                   onClick={() => setShowKeys({ ...showKeys, openai: !showKeys.openai })}
-                  className="shrink-0"
+                  className="shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
                 >
                   {showKeys.openai ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </Button>
@@ -1182,7 +1336,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                     setTimeout(() => setCopied(false), 2000)
                   }}
                   disabled={!apiKeys.openai}
-                  className="shrink-0"
+                  className="shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
                 >
                   <Copy className="w-4 h-4" />
                 </Button>
@@ -1192,22 +1346,22 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                   size="sm"
                   onClick={() => testApiKey("openai")}
                   disabled={testingKeys.openai || !apiKeys.openai}
-                  className="shrink-0 text-xs"
+                  className="shrink-0 text-xs border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
                 >
                   {testingKeys.openai ? "확인 중..." : "연결확인"}
                 </Button>
               </div>
               {testResults.openai && (
-                <p className={`text-xs ${testResults.openai.success ? "text-green-600" : "text-red-600"}`}>
+                <p className={`text-xs ${testResults.openai.success ? "text-emerald-400" : "text-red-400"}`}>
                   {testResults.openai.message}
                 </p>
               )}
-              <p className="text-xs text-muted-foreground">GPT 모델 사용에 필요합니다</p>
+              <p className="text-xs text-zinc-500">GPT 모델 사용에 필요합니다</p>
             </div>
 
             {/* TTSMaker API Key */}
             <div className="space-y-2">
-              <Label htmlFor="ttsmaker-key" className="text-sm font-medium">
+              <Label htmlFor="ttsmaker-key" className="text-sm font-medium text-zinc-200">
                 TTSMaker API Key
               </Label>
               <div className="flex items-center gap-2">
@@ -1217,14 +1371,14 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                   placeholder="입력하세요"
                   value={apiKeys.ttsmaker || ""}
                   onChange={(e) => setApiKeys({ ...apiKeys, ttsmaker: e.target.value })}
-                  className="font-mono text-sm"
+                  className="font-mono text-sm bg-black/40 border-white/15 text-zinc-100 placeholder:text-zinc-500"
                 />
                 <Button
                   type="button"
                   variant="outline"
                   size="icon"
                   onClick={() => setShowKeys({ ...showKeys, ttsmaker: !showKeys.ttsmaker })}
-                  className="shrink-0"
+                  className="shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
                 >
                   {showKeys.ttsmaker ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </Button>
@@ -1238,7 +1392,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                     setTimeout(() => setCopied(false), 2000)
                   }}
                   disabled={!apiKeys.ttsmaker}
-                  className="shrink-0"
+                  className="shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
                 >
                   <Copy className="w-4 h-4" />
                 </Button>
@@ -1248,22 +1402,22 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                   size="sm"
                   onClick={() => testApiKey("ttsmaker")}
                   disabled={testingKeys.ttsmaker || !apiKeys.ttsmaker}
-                  className="shrink-0 text-xs"
+                  className="shrink-0 text-xs border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
                 >
                   {testingKeys.ttsmaker ? "확인 중..." : "연결확인"}
                 </Button>
               </div>
               {testResults.ttsmaker && (
-                <p className={`text-xs ${testResults.ttsmaker.success ? "text-green-600" : "text-red-600"}`}>
+                <p className={`text-xs ${testResults.ttsmaker.success ? "text-emerald-400" : "text-red-400"}`}>
                   {testResults.ttsmaker.message}
                 </p>
               )}
-              <p className="text-xs text-muted-foreground">TTSMaker 음성 합성에 사용됩니다</p>
+              <p className="text-xs text-zinc-500">TTSMaker 음성 합성에 사용됩니다</p>
             </div>
 
             {/* ElevenLabs API Key */}
             <div className="space-y-2">
-              <Label htmlFor="elevenlabs-key" className="text-sm font-medium">
+              <Label htmlFor="elevenlabs-key" className="text-sm font-medium text-zinc-200">
                 ElevenLabs API Key
               </Label>
               <div className="flex items-center gap-2">
@@ -1273,14 +1427,14 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                   placeholder="입력하세요"
                   value={apiKeys.elevenlabs}
                   onChange={(e) => setApiKeys({ ...apiKeys, elevenlabs: e.target.value })}
-                  className="font-mono text-sm"
+                  className="font-mono text-sm bg-black/40 border-white/15 text-zinc-100 placeholder:text-zinc-500"
                 />
                 <Button
                   type="button"
                   variant="outline"
                   size="icon"
                   onClick={() => setShowKeys({ ...showKeys, elevenlabs: !showKeys.elevenlabs })}
-                  className="shrink-0"
+                  className="shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
                 >
                   {showKeys.elevenlabs ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </Button>
@@ -1294,7 +1448,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                     setTimeout(() => setCopied(false), 2000)
                   }}
                   disabled={!apiKeys.elevenlabs}
-                  className="shrink-0"
+                  className="shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
                 >
                   <Copy className="w-4 h-4" />
                 </Button>
@@ -1304,22 +1458,22 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                   size="sm"
                   onClick={() => testApiKey("elevenlabs")}
                   disabled={testingKeys.elevenlabs || !apiKeys.elevenlabs}
-                  className="shrink-0 text-xs"
+                  className="shrink-0 text-xs border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
                 >
                   {testingKeys.elevenlabs ? "확인 중..." : "연결확인"}
                 </Button>
               </div>
               {testResults.elevenlabs && (
-                <p className={`text-xs ${testResults.elevenlabs.success ? "text-green-600" : "text-red-600"}`}>
+                <p className={`text-xs ${testResults.elevenlabs.success ? "text-emerald-400" : "text-red-400"}`}>
                   {testResults.elevenlabs.message}
                 </p>
               )}
-              <p className="text-xs text-muted-foreground">ElevenLabs 음성 합성에 사용됩니다</p>
+              <p className="text-xs text-zinc-500">ElevenLabs 음성 합성에 사용됩니다</p>
             </div>
 
             {/* Supertone API Key */}
             <div className="space-y-2">
-              <Label htmlFor="supertone-key" className="text-sm font-medium">
+              <Label htmlFor="supertone-key" className="text-sm font-medium text-zinc-200">
                 Supertone API Key
               </Label>
               <div className="flex items-center gap-2">
@@ -1329,14 +1483,14 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                   placeholder="입력하세요"
                   value={apiKeys.supertone || ""}
                   onChange={(e) => setApiKeys({ ...apiKeys, supertone: e.target.value })}
-                  className="font-mono text-sm"
+                  className="font-mono text-sm bg-black/40 border-white/15 text-zinc-100 placeholder:text-zinc-500"
                 />
                 <Button
                   type="button"
                   variant="outline"
                   size="icon"
                   onClick={() => setShowKeys({ ...showKeys, supertone: !showKeys.supertone })}
-                  className="shrink-0"
+                  className="shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
                 >
                   {showKeys.supertone ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </Button>
@@ -1350,7 +1504,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                     setTimeout(() => setCopied(false), 2000)
                   }}
                   disabled={!apiKeys.supertone}
-                  className="shrink-0"
+                  className="shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
                 >
                   <Copy className="w-4 h-4" />
                 </Button>
@@ -1360,22 +1514,80 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                   size="sm"
                   onClick={() => testApiKey("supertone")}
                   disabled={testingKeys.supertone || !apiKeys.supertone}
-                  className="shrink-0 text-xs"
+                  className="shrink-0 text-xs border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
                 >
                   {testingKeys.supertone ? "확인 중..." : "연결확인"}
                 </Button>
               </div>
               {testResults.supertone && (
-                <p className={`text-xs ${testResults.supertone.success ? "text-green-600" : "text-red-600"}`}>
+                <p className={`text-xs ${testResults.supertone.success ? "text-emerald-400" : "text-red-400"}`}>
                   {testResults.supertone.message}
                 </p>
               )}
-              <p className="text-xs text-muted-foreground">Supertone 음성 합성에 사용됩니다</p>
+              <p className="text-xs text-zinc-500">Supertone 음성 합성에 사용됩니다</p>
+            </div>
+
+            {/* Typecast API Key */}
+            <div className="space-y-2">
+              <Label htmlFor="typecast-key" className="text-sm font-medium text-zinc-200">
+                Typecast API Key
+              </Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="typecast-key"
+                  type={showKeys.typecast ? "text" : "password"}
+                  placeholder="입력하세요"
+                  value={apiKeys.typecast || ""}
+                  onChange={(e) => setApiKeys({ ...apiKeys, typecast: e.target.value })}
+                  className="font-mono text-sm bg-black/40 border-white/15 text-zinc-100 placeholder:text-zinc-500"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowKeys({ ...showKeys, typecast: !showKeys.typecast })}
+                  className="shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
+                >
+                  {showKeys.typecast ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    navigator.clipboard.writeText(apiKeys.typecast || "")
+                    setCopied(true)
+                    setTimeout(() => setCopied(false), 2000)
+                  }}
+                  disabled={!apiKeys.typecast}
+                  className="shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => testApiKey("typecast")}
+                  disabled={testingKeys.typecast || !apiKeys.typecast}
+                  className="shrink-0 text-xs border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
+                >
+                  {testingKeys.typecast ? "확인 중..." : "연결확인"}
+                </Button>
+              </div>
+              {testResults.typecast && (
+                <p className={`text-xs ${testResults.typecast.success ? "text-emerald-400" : "text-red-400"}`}>
+                  {testResults.typecast.message}
+                </p>
+              )}
+              <p className="text-xs text-zinc-500">
+                타입캐스트 TTS에 사용됩니다 (AI 쇼핑 숏폼 · 숏폼 스튜디오 나레이션).
+              </p>
             </div>
 
             {/* Replicate API Key */}
             <div className="space-y-2">
-              <Label htmlFor="replicate-key" className="text-sm font-medium">
+              <Label htmlFor="replicate-key" className="text-sm font-medium text-zinc-200">
                 Replicate API Key
               </Label>
               <div className="flex items-center gap-2">
@@ -1385,14 +1597,14 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                   placeholder="r8_..."
                   value={apiKeys.replicate}
                   onChange={(e) => setApiKeys({ ...apiKeys, replicate: e.target.value })}
-                  className="font-mono text-sm"
+                  className="font-mono text-sm bg-black/40 border-white/15 text-zinc-100 placeholder:text-zinc-500"
                 />
                 <Button
                   type="button"
                   variant="outline"
                   size="icon"
                   onClick={() => setShowKeys({ ...showKeys, replicate: !showKeys.replicate })}
-                  className="shrink-0"
+                  className="shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
                 >
                   {showKeys.replicate ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </Button>
@@ -1406,7 +1618,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                     setTimeout(() => setCopied(false), 2000)
                   }}
                   disabled={!apiKeys.replicate}
-                  className="shrink-0"
+                  className="shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
                 >
                   <Copy className="w-4 h-4" />
                 </Button>
@@ -1416,25 +1628,202 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                   size="sm"
                   onClick={() => testApiKey("replicate")}
                   disabled={testingKeys.replicate || !apiKeys.replicate}
-                  className="shrink-0 text-xs"
+                  className="shrink-0 text-xs border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
                 >
                   {testingKeys.replicate ? "확인 중..." : "연결확인"}
                 </Button>
               </div>
               {testResults.replicate && (
-                <p className={`text-xs ${testResults.replicate.success ? "text-green-600" : "text-red-600"}`}>
+                <p className={`text-xs ${testResults.replicate.success ? "text-emerald-400" : "text-red-400"}`}>
                   {testResults.replicate.message}
                 </p>
               )}
-              <p className="text-xs text-muted-foreground">AI 모델 실행에 사용됩니다</p>
+              <p className="text-xs text-zinc-500">AI 이미지/영상 생성(flux-schnell 등)에 사용됩니다</p>
+            </div>
+
+            {/* Pixabay API Key */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="pixabay-key" className="text-sm font-medium text-zinc-200">
+                  Pixabay API Key
+                </Label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
+                  asChild
+                >
+                  <a href="https://pixabay.com/api/docs/" target="_blank" rel="noopener noreferrer">
+                    API 발급
+                  </a>
+                </Button>
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="pixabay-key"
+                  type={showKeys.pixabay ? "text" : "password"}
+                  placeholder="Pixabay에서 발급한 API Key"
+                  value={apiKeys.pixabay || ""}
+                  onChange={(e) => setApiKeys({ ...apiKeys, pixabay: e.target.value })}
+                  className="font-mono text-sm bg-black/40 border-white/15 text-zinc-100 placeholder:text-zinc-500"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowKeys({ ...showKeys, pixabay: !showKeys.pixabay })}
+                  className="shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
+                >
+                  {showKeys.pixabay ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    navigator.clipboard.writeText(apiKeys.pixabay || "")
+                    setCopied(true)
+                    setTimeout(() => setCopied(false), 2000)
+                  }}
+                  disabled={!apiKeys.pixabay}
+                  className="shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => testApiKey("pixabay")}
+                  disabled={testingKeys.pixabay || !apiKeys.pixabay}
+                  className="shrink-0 text-xs border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
+                >
+                  {testingKeys.pixabay ? "확인 중..." : "연결확인"}
+                </Button>
+              </div>
+              {testResults.pixabay && (
+                <p className={`text-xs ${testResults.pixabay.success ? "text-emerald-400" : "text-red-400"}`}>
+                  {testResults.pixabay.message}
+                </p>
+              )}
+              <p className="text-xs text-zinc-500">AI 쇼핑 숏폼 · Pixabay 무료 이미지/동영상 검색에 사용됩니다</p>
+            </div>
+
+            {/* SerpAPI Key */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="serpapi-key" className="text-sm font-medium text-zinc-200">
+                  SerpAPI Key
+                </Label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
+                  asChild
+                >
+                  <a href="https://serpapi.com/manage-api-key" target="_blank" rel="noopener noreferrer">
+                    API 발급
+                  </a>
+                </Button>
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="serpapi-key"
+                  type={showKeys.serpapi ? "text" : "password"}
+                  placeholder="SerpAPI에서 발급한 API Key"
+                  value={apiKeys.serpapi || ""}
+                  onChange={(e) => setApiKeys({ ...apiKeys, serpapi: e.target.value })}
+                  className="font-mono text-sm bg-black/40 border-white/15 text-zinc-100 placeholder:text-zinc-500"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowKeys({ ...showKeys, serpapi: !showKeys.serpapi })}
+                  className="shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
+                >
+                  {showKeys.serpapi ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    navigator.clipboard.writeText(apiKeys.serpapi || "")
+                    setCopied(true)
+                    setTimeout(() => setCopied(false), 2000)
+                  }}
+                  disabled={!apiKeys.serpapi}
+                  className="shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => testApiKey("serpapi")}
+                  disabled={testingKeys.serpapi || !apiKeys.serpapi}
+                  className="shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white disabled:opacity-40"
+                >
+                  {testingKeys.serpapi ? "확인 중..." : "연결확인"}
+                </Button>
+              </div>
+              {testResults.serpapi && (
+                <p className={`text-xs ${testResults.serpapi.success ? "text-emerald-400" : "text-red-400"}`}>
+                  {testResults.serpapi.message}
+                </p>
+              )}
+              <p className="text-xs text-zinc-500">
+                스토리 쇼핑 · Google 이미지/동영상 검색, 제품 관련 소재 찾기에 사용됩니다
+              </p>
+            </div>
+
+            {/* Klipy API Key */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="klipy-key" className="text-sm font-medium text-zinc-200">
+                  Klipy API Key
+                </Label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
+                  asChild
+                >
+                  <a href="https://klipy.com/developers" target="_blank" rel="noopener noreferrer">
+                    API 발급
+                  </a>
+                </Button>
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="klipy-key"
+                  type={showKeys.klipy ? "text" : "password"}
+                  placeholder="Klipy에서 발급한 API Key"
+                  value={apiKeys.klipy || ""}
+                  onChange={(e) => setApiKeys({ ...apiKeys, klipy: e.target.value })}
+                  className="font-mono text-sm bg-black/40 border-white/15 text-zinc-100 placeholder:text-zinc-500"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowKeys({ ...showKeys, klipy: !showKeys.klipy })}
+                  className="shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
+                >
+                  {showKeys.klipy ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </Button>
+              </div>
+              <p className="text-xs text-zinc-500">스토리 쇼핑 영상 편집 · GIF 요소 검색에 사용됩니다</p>
             </div>
 
             {/* 구분선 */}
-            <div className="border-t border-slate-200 my-4" />
+            <div className="border-t border-white/10 my-4" />
 
             {/* YouTube Data API Key */}
             <div className="space-y-2">
-              <Label htmlFor="youtube-data-api-key" className="text-sm font-medium">
+              <Label htmlFor="youtube-data-api-key" className="text-sm font-medium text-zinc-200">
                 YouTube Data API Key
               </Label>
               <div className="flex items-center gap-2">
@@ -1444,14 +1833,14 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                   placeholder="Google Cloud Console에서 발급받은 API Key"
                   value={apiKeys.youtubeDataApiKey}
                   onChange={(e) => setApiKeys({ ...apiKeys, youtubeDataApiKey: e.target.value })}
-                  className="font-mono text-sm"
+                  className="font-mono text-sm bg-black/40 border-white/15 text-zinc-100 placeholder:text-zinc-500"
                 />
                 <Button
                   type="button"
                   variant="outline"
                   size="icon"
                   onClick={() => setShowKeys({ ...showKeys, youtubeDataApiKey: !showKeys.youtubeDataApiKey })}
-                  className="shrink-0"
+                  className="shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
                 >
                   {showKeys.youtubeDataApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </Button>
@@ -1465,7 +1854,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                     setTimeout(() => setCopied(false), 2000)
                   }}
                   disabled={!apiKeys.youtubeDataApiKey}
-                  className="shrink-0"
+                  className="shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
                 >
                   <Copy className="w-4 h-4" />
                 </Button>
@@ -1475,23 +1864,23 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                   size="sm"
                   onClick={() => testApiKey("youtubeDataApiKey")}
                   disabled={testingKeys.youtubeDataApiKey || !apiKeys.youtubeDataApiKey}
-                  className="shrink-0 text-xs"
+                  className="shrink-0 text-xs border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
                 >
                   {testingKeys.youtubeDataApiKey ? "확인 중..." : "연결확인"}
                 </Button>
               </div>
               {testResults.youtubeDataApiKey && (
-                <p className={`text-xs ${testResults.youtubeDataApiKey.success ? "text-green-600" : "text-red-600"}`}>
+                <p className={`text-xs ${testResults.youtubeDataApiKey.success ? "text-emerald-400" : "text-red-400"}`}>
                   {testResults.youtubeDataApiKey.message}
                 </p>
               )}
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-zinc-500">
                 유튜브 분석, 유튜브 실시간 분석 기능에 사용됩니다.
               </p>
             </div>
           </div>
-          <div className="flex items-center justify-between border-t pt-4 mt-4 shrink-0">
-            <div className="flex items-center gap-2 text-sm text-green-600">
+          <div className="flex items-center justify-between border-t border-white/10 pt-4 mt-4 shrink-0">
+            <div className="flex items-center gap-2 text-sm text-emerald-400">
               {saved && (
                 <>
                   <CheckCircle2 className="w-4 h-4" />
@@ -1506,15 +1895,15 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               )}
             </div>
             <div className="flex items-center gap-2">
-              <Button 
-                onClick={handleSaveToNotepad} 
+              <Button
+                onClick={handleSaveToNotepad}
                 variant="outline"
-                className="min-w-[140px]"
+                className="min-w-[140px] border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
               >
                 <FileText className="w-4 h-4 mr-2" />
                 메모장으로 저장
               </Button>
-              <Button onClick={handleSave} className="min-w-[100px]">
+              <Button onClick={handleSave} className="min-w-[100px] bg-teal-700 text-white hover:bg-teal-600">
                 저장
               </Button>
             </div>
@@ -1523,11 +1912,11 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
       </Dialog>
 
       {/* 푸터 - 저작권 문구 */}
-      <footer className="relative z-10 border-t border-slate-200/50 bg-white/80 backdrop-blur-sm mt-16">
+      <footer className="relative z-10 border-t border-white/10 bg-[#0a0b0d]/80 backdrop-blur-sm mt-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="space-y-4">
-            <div className="text-center text-sm text-slate-600 space-y-2">
-              <p className="font-semibold text-slate-900">© 2025 wingsAIStudio ShotForm. All Rights Reserved.</p>
+            <div className="text-center text-sm text-zinc-500 space-y-2">
+              <p className="font-semibold text-zinc-100">© 2025 wingsAIStudio ShotForm. All Rights Reserved.</p>
               <div className="space-y-1 text-xs">
                 <p>
                   <strong>저작권 보호:</strong> 본 소프트웨어 및 모든 관련 코드, 디자인, 알고리즘, 프롬프트 엔지니어링, 

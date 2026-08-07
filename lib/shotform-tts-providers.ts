@@ -9,19 +9,31 @@ import {
   type ShotformSupertoneVoice,
 } from "@/lib/shotform-factory-tts"
 import { clampTtsSpeed } from "@/lib/shotform-tts-speed"
+import { typecastKoreanName } from "@/lib/typecast-voice-names"
+import { SUPERTONIC_BUILTIN_VOICES } from "@/lib/supertonic-local"
 
 export { shotformSupertoneKey } from "@/lib/shotform-factory-tts"
 
-export type TtsProviderId = "supertone" | "elevenlabs" | "typecast"
+export type TtsProviderId = "supertone" | "supertonic" | "elevenlabs" | "typecast"
 
 export type ShotformTtsVoice = {
   voice_id: string
   name: string
+  /** API 원문(영문) 이름 — 타입캐스트 등 */
+  name_en?: string
   thumbnail_image_url?: string
   styles?: string[]
+  gender?: "male" | "female" | string
+  age?: string
+  use_cases?: string[]
 }
 
-export const TTS_PROVIDER_ORDER: TtsProviderId[] = ["supertone", "elevenlabs", "typecast"]
+export const TTS_PROVIDER_ORDER: TtsProviderId[] = [
+  "supertone",
+  "supertonic",
+  "elevenlabs",
+  "typecast",
+]
 
 export const TTS_PROVIDER_META: Record<
   TtsProviderId,
@@ -32,6 +44,12 @@ export const TTS_PROVIDER_META: Record<
     prefix: "supertone-",
     idPlaceholder: "수퍼톤 voice ID",
     subtitle: "한국어 나레이션 · 스타일(톤) 선택",
+  },
+  supertonic: {
+    label: "수퍼토닉3",
+    prefix: "supertonic-",
+    idPlaceholder: "F1",
+    subtitle: "PC 설치형 · 로컬 무료 TTS (Supertonic 3)",
   },
   elevenlabs: {
     label: "ElevenLabs",
@@ -45,6 +63,15 @@ export const TTS_PROVIDER_META: Record<
     idPlaceholder: "tc_672c5f5ce59fac2a48faeaee",
     subtitle: "한국어 캐릭터 · 감정 프리셋",
   },
+}
+
+/** 수퍼토닉3 기본 보이스 카탈로그 (로컬 서버 없이도 UI에 표시) */
+export function supertonicBuiltinVoiceCatalog(): ShotformTtsVoice[] {
+  return SUPERTONIC_BUILTIN_VOICES.map((v) => ({
+    voice_id: v.voice_id,
+    name: v.name,
+    gender: v.gender,
+  }))
 }
 
 /** 쇼핑숏폼(shopping/page.tsx)과 동일한 ElevenLabs 추천 음성 */
@@ -65,9 +92,11 @@ export function elevenlabsSampleVoiceCatalog(): ShotformTtsVoice[] {
   }))
 }
 
-/** ElevenLabs는 샘플 목록이 항상 있어 API 자동 로드가 필요 없음 */
+/** ElevenLabs는 샘플 목록이 항상 있어 API 자동 로드가 필요 없음.
+ * 수퍼토닉3는 로컬 서버 상태·커스텀 보이스를 위해 탭 전환 시 새로고침 */
 export function shouldAutoLoadVoiceCatalog(provider: TtsProviderId, voices: readonly ShotformTtsVoice[]): boolean {
   if (provider === "elevenlabs") return false
+  if (provider === "supertonic") return true
   return voices.length === 0
 }
 
@@ -85,7 +114,7 @@ export const TYPECAST_VOICE_PREVIEW_TEXT = SHORT_VOICE_PREVIEW_TEXT
 
 export function ttsPreviewTextForProvider(provider: TtsProviderId): string {
   if (provider === "typecast") return TYPECAST_VOICE_PREVIEW_TEXT
-  if (provider === "supertone") return SHORT_VOICE_PREVIEW_TEXT
+  if (provider === "supertone" || provider === "supertonic") return SHORT_VOICE_PREVIEW_TEXT
   return TTS_VOICE_PREVIEW_TEXT
 }
 
@@ -100,6 +129,8 @@ export function shotformTypecastKey(): string {
 }
 
 export function ttsProviderFromVoiceId(fullId: string): TtsProviderId | null {
+  // "supertonic-" 이 "supertone-" 보다 먼저여야 함
+  if (fullId.startsWith("supertonic-")) return "supertonic"
   if (fullId.startsWith("supertone-")) return "supertone"
   if (fullId.startsWith("elevenlabs-")) return "elevenlabs"
   if (fullId.startsWith("typecast-")) return "typecast"
@@ -196,6 +227,7 @@ export function defaultStyleForTtsVoice(provider: TtsProviderId, voice: Shotform
 }
 
 export function shotformTtsApiKey(provider: TtsProviderId): string {
+  if (provider === "supertonic") return "" // 로컬 서버 — API 키 불필요
   if (provider === "supertone") return shotformSupertoneKey()
   if (provider === "elevenlabs") return shotformElevenlabsKey()
   return shotformTypecastKey()
@@ -204,8 +236,12 @@ export function shotformTtsApiKey(provider: TtsProviderId): string {
 export function ttsApiKeyMissingMessage(provider: TtsProviderId): string {
   const names: Record<TtsProviderId, string> = {
     supertone: "수퍼톤(supertone_api_key)",
+    supertonic: "수퍼토닉3(로컬 서버)",
     elevenlabs: "ElevenLabs(elevenlabs_api_key)",
     typecast: "타입캐스트(typecast_api_key)",
+  }
+  if (provider === "supertonic") {
+    return "로컬 Supertonic 서버를 실행해 주세요. (supertonic serve --host 127.0.0.1 --port 7788 --model supertonic-3)"
   }
   return `ShotForm 설정에 ${names[provider]} API 키를 저장해 주세요.`
 }
@@ -254,7 +290,8 @@ export function extractTypecastVoiceRows(raw: unknown): Record<string, unknown>[
 export function normalizeTypecastVoiceRow(raw: Record<string, unknown>): ShotformTtsVoice | null {
   const voice_id = String(raw.voice_id ?? raw.id ?? "").trim()
   if (!voice_id) return null
-  const name = String(raw.voice_name ?? raw.name ?? voice_id)
+  const name_en = String(raw.voice_name ?? raw.name ?? voice_id).trim()
+  const name = typecastKoreanName(name_en)
   const models = Array.isArray(raw.models) ? raw.models : []
   const emotions = new Set<string>()
   for (const m of models) {
@@ -275,11 +312,117 @@ export function normalizeTypecastVoiceRow(raw: Record<string, unknown>): Shotfor
   const thumb = String(
     raw.image_url ?? raw.thumbnail_url ?? raw.avatar_url ?? raw.profile_image_url ?? ""
   ).trim()
+  const genderRaw = String(raw.gender ?? "").trim().toLowerCase()
+  const gender =
+    genderRaw === "male" || genderRaw === "female"
+      ? genderRaw
+      : genderRaw === "남" || genderRaw === "남성"
+        ? "male"
+        : genderRaw === "여" || genderRaw === "여성"
+          ? "female"
+          : genderRaw || undefined
+  const age = String(raw.age ?? "").trim() || undefined
+  const use_cases = Array.isArray(raw.use_cases)
+    ? raw.use_cases.map((u) => String(u)).filter(Boolean)
+    : undefined
   return {
     voice_id,
     name,
+    name_en: name_en !== name ? name_en : undefined,
     thumbnail_image_url: thumb || undefined,
     styles: emotions.size ? [...emotions] : ["normal", "happy", "sad", "angry"],
+    gender,
+    age,
+    use_cases,
+  }
+}
+
+/** 타입캐스트 공식 UseCasesEnum → UI 카테고리 라벨 */
+export const TYPECAST_USE_CASE_LABELS: Record<string, string> = {
+  Announcer: "아나운서",
+  Anime: "애니메이션",
+  Animation: "애니메이션",
+  Audiobook: "오디오북",
+  Conversational: "대화",
+  Conversation: "대화",
+  Documentary: "다큐멘터리",
+  "E-learning": "교육",
+  Education: "교육",
+  Rapper: "래퍼",
+  Game: "게임",
+  "Tiktok/Reels": "숏폼",
+  Shortform: "숏폼",
+  Ads: "숏폼",
+  Advertisement: "숏폼",
+  News: "뉴스",
+  Podcast: "팟캐스트",
+  Voicemail: "보이스메일",
+}
+
+/** UI 카테고리 칩 고정 순서 (타입캐스트 콘솔과 유사) */
+export const TYPECAST_CATEGORY_CHIPS = [
+  "Announcer",
+  "Anime",
+  "Audiobook",
+  "Conversational",
+  "Documentary",
+  "E-learning",
+  "Rapper",
+  "Game",
+  "Tiktok/Reels",
+  "News",
+  "Podcast",
+  "Ads",
+] as const
+
+export function typecastUseCaseLabel(useCase: string): string {
+  return TYPECAST_USE_CASE_LABELS[useCase] || useCase
+}
+
+/** 카테고리 칩 키가 보이스의 use_cases에 매칭되는지 */
+export function typecastMatchesCategory(
+  useCases: readonly string[] | undefined,
+  category: string
+): boolean {
+  if (category === "all") return true
+  const cases = useCases || []
+  if (cases.includes(category)) return true
+  const aliases: Record<string, string[]> = {
+    Anime: ["Animation"],
+    Animation: ["Anime"],
+    Conversational: ["Conversation"],
+    Conversation: ["Conversational"],
+    "E-learning": ["Education"],
+    Education: ["E-learning"],
+    "Tiktok/Reels": ["Shortform", "Ads", "Advertisement"],
+    Shortform: ["Tiktok/Reels", "Ads", "Advertisement"],
+    Ads: ["Tiktok/Reels", "Shortform", "Advertisement"],
+  }
+  return (aliases[category] || []).some((a) => cases.includes(a))
+}
+
+export function typecastResolveGender(
+  voice: Pick<ShotformTtsVoice, "gender" | "name" | "name_en">
+): "male" | "female" | null {
+  const g = String(voice.gender || "").toLowerCase()
+  if (g === "male" || g === "female") return g
+  const n = `${voice.name || ""} ${voice.name_en || ""}`.toLowerCase()
+  if (/여자|여성|female|woman|\bf\d\b/.test(n)) return "female"
+  if (/남자|남성|male|\bman\b|\bm\d\b/.test(n)) return "male"
+  return null
+}
+
+/** 클라이언트/서버 공통 — 한글 이름·메타 보정 */
+export function enrichTypecastVoice(voice: ShotformTtsVoice): ShotformTtsVoice {
+  const name_en = (voice.name_en || voice.name || "").trim()
+  const hasHangul = /[가-힣]/.test(voice.name)
+  const name = hasHangul ? voice.name : typecastKoreanName(name_en || voice.name)
+  const gender = typecastResolveGender({ ...voice, name, name_en }) || voice.gender
+  return {
+    ...voice,
+    name,
+    name_en: name_en && name_en !== name ? name_en : voice.name_en,
+    gender: gender || voice.gender,
   }
 }
 
@@ -296,7 +439,10 @@ function audioUrlFromTtsResponse(data: {
   return null
 }
 
-/** 한 줄 TTS 합성 → blob/data URL (speed는 각 TTS API voice_settings / audio_tempo로 적용) */
+/** 한 줄 TTS 합성 → blob/data URL
+ *  배속은 각 TTS API의 네이티브 speed/tempo로 적용합니다(피치·음색 유지).
+ *  클라이언트에서 오디오를 다시 늘리거나 줄이지 않습니다.
+ */
 export async function synthesizeTtsLine(args: {
   fullVoiceId: string
   text: string
@@ -307,6 +453,33 @@ export async function synthesizeTtsLine(args: {
   if (!parsed) throw new Error("목소리 형식이 올바르지 않습니다.")
 
   const speed = clampTtsSpeed(args.speed ?? 1)
+
+  // 수퍼토닉3 — 로컬 서버, API 키 불필요
+  if (parsed.provider === "supertonic") {
+    const res = await fetch("/api/supertonic-tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: args.text,
+        voiceId: parsed.bareId,
+        lang: "ko",
+        speed,
+      }),
+    })
+    const data = (await res.json().catch(() => ({}))) as {
+      success?: boolean
+      audioUrl?: string
+      audioBase64?: string
+      error?: string
+    }
+    if (!res.ok || data.success === false) {
+      throw new Error(data.error || `수퍼토닉3 TTS 실패 (${res.status})`)
+    }
+    const url = audioUrlFromTtsResponse({ ...data, mime: "audio/wav" })
+    if (!url) throw new Error("수퍼토닉3 오디오 응답이 비어 있습니다.")
+    return url
+  }
+
   const apiKey = shotformTtsApiKey(parsed.provider)
   if (!apiKey) throw new Error(ttsApiKeyMissingMessage(parsed.provider))
 

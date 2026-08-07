@@ -1,6 +1,10 @@
 /** 배포 사이트 → PC 로컬 동반 에이전트 (http://127.0.0.1:3847) */
 
 import type { AutoEditPick, EditPlan } from "@/lib/shotform-auto-edit-types"
+import type {
+  CoupangCollectResult,
+  CoupangReviewSort,
+} from "@/lib/shotform-coupang-reviews"
 
 export const DEFAULT_LOCAL_COMPANION_URL = "http://127.0.0.1:3847"
 export const LOCAL_COMPANION_URL_STORAGE_KEY = "shotform_local_companion_url"
@@ -8,6 +12,11 @@ export const LOCAL_COMPANION_URL_STORAGE_KEY = "shotform_local_companion_url"
 export type LocalCompanionHealth = {
   ok: boolean
   ffmpeg?: boolean
+  playwright?: boolean
+  playwrightChromium?: boolean
+  playwrightBrowsersPath?: string
+  coupangBusy?: boolean
+  coupangProfileDir?: string
   defaultWorkDir?: string
   error?: string
 }
@@ -34,6 +43,11 @@ export async function probeLocalCompanion(
     const json = (await res.json().catch(() => ({}))) as {
       ok?: boolean
       ffmpeg?: boolean
+      playwright?: boolean
+      playwrightChromium?: boolean
+      playwrightBrowsersPath?: string
+      coupangBusy?: boolean
+      coupangProfileDir?: string
       defaultWorkDir?: string
       error?: string
     }
@@ -43,6 +57,11 @@ export async function probeLocalCompanion(
     return {
       ok: Boolean(json.ok),
       ffmpeg: json.ffmpeg,
+      playwright: json.playwright,
+      playwrightChromium: json.playwrightChromium,
+      playwrightBrowsersPath: json.playwrightBrowsersPath,
+      coupangBusy: json.coupangBusy,
+      coupangProfileDir: json.coupangProfileDir,
       defaultWorkDir: json.defaultWorkDir,
     }
   } catch {
@@ -53,50 +72,85 @@ export async function probeLocalCompanion(
   }
 }
 
-/** 에이전트 자동 기동 — localhost API · shotform-agent:// · 재시도 */
-export async function ensureLocalCompanionRunning(opts?: {
+function companionReady(
+  health: LocalCompanionHealth,
+  requireFfmpeg: boolean
+): boolean {
+  if (!health.ok) return false
+  if (requireFfmpeg && !health.ffmpeg) return false
+  return true
+}
+
+function openShotformAgentProtocol() {
+  if (typeof window === "undefined") return
+  try {
+    const iframe = document.createElement("iframe")
+    iframe.style.display = "none"
+    iframe.src = "shotform-agent://start"
+    document.body.appendChild(iframe)
+    window.setTimeout(() => iframe.remove(), 2000)
+  } catch {
+    /* protocol not registered */
+  }
+}
+
+/**
+ * 「연결」버튼용 — 터미널에서 `npm run shotform:local-agent` 실행 후 헬스 확인.
+ * - 로컬 Next: `/api/shotform/local-agent/start` { openTerminal: true }
+ * - 배포 사이트: shotform-agent:// (서버는 사용자 PC 터미널을 열 수 없음)
+ */
+export async function connectLocalAgent(opts?: {
   companionUrl?: string
   onProgress?: (message: string) => void
+  requireFfmpeg?: boolean
 }): Promise<LocalCompanionHealth> {
   const baseUrl = opts?.companionUrl || resolveLocalCompanionUrl()
   const onProgress = opts?.onProgress
+  const requireFfmpeg = opts?.requireFfmpeg === true
 
   let health = await probeLocalCompanion(baseUrl)
-  if (health.ok && health.ffmpeg) return health
-
-  const isLocalHost =
-    typeof window !== "undefined" &&
-    (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
-
-  if (isLocalHost) {
-    onProgress?.("로컬 에이전트 자동 시작 중…")
-    try {
-      await fetch("/api/shotform/local-agent/start", { method: "POST" })
-      for (let i = 0; i < 6; i++) {
-        await sleep(500)
-        health = await probeLocalCompanion(baseUrl)
-        if (health.ok && health.ffmpeg) return health
-      }
-    } catch {
-      /* fall through */
-    }
+  if (companionReady(health, requireFfmpeg)) {
+    onProgress?.("이미 연결되어 있습니다. (http://127.0.0.1:3847)")
+    return health
   }
 
-  if (typeof window !== "undefined") {
-    onProgress?.("로컬 에이전트 실행 요청 중…")
-    try {
-      const iframe = document.createElement("iframe")
-      iframe.style.display = "none"
-      iframe.src = "shotform-agent://start"
-      document.body.appendChild(iframe)
-      window.setTimeout(() => iframe.remove(), 2000)
-    } catch {
-      /* protocol not registered */
+  onProgress?.("터미널에서 npm run shotform:local-agent 실행 중…")
+  try {
+    const res = await fetch("/api/shotform/local-agent/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ openTerminal: true }),
+    })
+    const json = (await res.json().catch(() => ({}))) as LocalCompanionHealth & {
+      ok?: boolean
+      useProtocol?: boolean
+      error?: string
+      message?: string
+      alreadyRunning?: boolean
     }
-    for (let i = 0; i < 8; i++) {
-      await sleep(400)
+    if (res.ok && json.ok) {
       health = await probeLocalCompanion(baseUrl)
-      if (health.ok && health.ffmpeg) return health
+      if (companionReady(health, requireFfmpeg)) {
+        onProgress?.(json.message || "로컬 에이전트 연결 완료")
+        return { ...health, ok: true }
+      }
+    } else if (json.useProtocol || res.status === 403) {
+      onProgress?.("배포 사이트 — PC 프로토콜로 에이전트 실행 시도…")
+    } else if (json.error) {
+      onProgress?.(json.error)
+    }
+  } catch {
+    /* fall through */
+  }
+
+  onProgress?.("shotform-agent:// 로 에이전트 실행 중…")
+  openShotformAgentProtocol()
+  for (let i = 0; i < 12; i++) {
+    await sleep(500)
+    health = await probeLocalCompanion(baseUrl)
+    if (companionReady(health, requireFfmpeg)) {
+      onProgress?.("로컬 에이전트 연결 완료")
+      return health
     }
   }
 
@@ -105,7 +159,62 @@ export async function ensureLocalCompanionRunning(opts?: {
     ffmpeg: false,
     error:
       health.error ||
-      "로컬 에이전트를 시작하지 못했습니다. 프로젝트 폴더에서 npm run shotform:install-agent 를 한 번 실행해 주세요.",
+      "로컬 에이전트를 시작하지 못했습니다. 로컬에서 npm run dev 로 앱을 켠 뒤 「연결」을 다시 눌러 주세요. (터미널에 npm run shotform:local-agent 가 실행됩니다)",
+  }
+}
+
+/** 에이전트 자동 기동 — install API · localhost start · shotform-agent:// · 재시도 */
+export async function ensureLocalCompanionRunning(opts?: {
+  companionUrl?: string
+  onProgress?: (message: string) => void
+  /** ffmpeg 필요 여부 (쿠팡 수집은 false) */
+  requireFfmpeg?: boolean
+}): Promise<LocalCompanionHealth> {
+  const baseUrl = opts?.companionUrl || resolveLocalCompanionUrl()
+  const onProgress = opts?.onProgress
+  const requireFfmpeg = opts?.requireFfmpeg !== false
+
+  let health = await probeLocalCompanion(baseUrl)
+  if (companionReady(health, requireFfmpeg)) return health
+
+  const isLocalHost =
+    typeof window !== "undefined" &&
+    (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
+
+  if (isLocalHost) {
+    onProgress?.("로컬 에이전트 시작 중… (npm run shotform:local-agent)")
+    try {
+      await fetch("/api/shotform/local-agent/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ openTerminal: false }),
+      })
+      for (let i = 0; i < 8; i++) {
+        await sleep(500)
+        health = await probeLocalCompanion(baseUrl)
+        if (companionReady(health, requireFfmpeg)) return health
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+
+  if (typeof window !== "undefined") {
+    onProgress?.("로컬 에이전트 실행 요청 중…")
+    openShotformAgentProtocol()
+    for (let i = 0; i < 8; i++) {
+      await sleep(400)
+      health = await probeLocalCompanion(baseUrl)
+      if (companionReady(health, requireFfmpeg)) return health
+    }
+  }
+
+  return {
+    ok: false,
+    ffmpeg: false,
+    error:
+      health.error ||
+      "로컬 에이전트를 시작하지 못했습니다. 수집기에서 「에이전트 연결」을 누르거나, 터미널에서 npm run shotform:local-agent 를 실행해 주세요.",
   }
 }
 
@@ -327,4 +436,143 @@ export async function resolveLocalCompanionMp4(args: {
     jobId: args.jobId,
   })
   return { blob, localOutputPath }
+}
+
+/** 평소 쓰는 기본 브라우저로 쿠팡 열기 (자동화 프로필 아님) */
+export async function openCoupangSessionOnCompanion(args?: {
+  companionUrl?: string
+  productUrl?: string
+  onProgress?: (message: string) => void
+}): Promise<CoupangCollectResult> {
+  const companionUrl = args?.companionUrl || resolveLocalCompanionUrl()
+  const health = await ensureLocalCompanionRunning({
+    companionUrl,
+    onProgress: args?.onProgress,
+    requireFfmpeg: false,
+  })
+  if (!health.ok) {
+    return {
+      status: "failed",
+      message: health.error || "로컬 에이전트에 연결하지 못했습니다.",
+    }
+  }
+
+  args?.onProgress?.("기본 브라우저로 쿠팡 여는 중…")
+  const base = companionUrl.replace(/\/$/, "")
+  const res = await fetch(`${base}/coupang/session`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ productUrl: args?.productUrl || undefined }),
+  })
+  const json = (await res.json().catch(() => ({}))) as CoupangCollectResult
+  if (!res.ok && !json.status) {
+    return {
+      status: "failed",
+      message: (json as { message?: string }).message || `세션 요청 실패 (${res.status})`,
+    }
+  }
+  return json
+}
+
+export async function fetchCoupangBookmarkletHref(
+  companionUrl = resolveLocalCompanionUrl()
+): Promise<string | null> {
+  try {
+    const base = companionUrl.replace(/\/$/, "")
+    const res = await fetch(`${base}/coupang/bookmarklet`, { cache: "no-store" })
+    const json = (await res.json().catch(() => ({}))) as { href?: string }
+    return json.href || null
+  } catch {
+    return null
+  }
+}
+
+/** 북마크릿이 에이전트에 보낸 최신 리뷰 */
+export async function fetchCoupangIngestedOnCompanion(args?: {
+  companionUrl?: string
+  onProgress?: (message: string) => void
+}): Promise<CoupangCollectResult> {
+  const companionUrl = args?.companionUrl || resolveLocalCompanionUrl()
+  const health = await ensureLocalCompanionRunning({
+    companionUrl,
+    onProgress: args?.onProgress,
+    requireFfmpeg: false,
+  })
+  if (!health.ok) {
+    return {
+      status: "failed",
+      message: health.error || "로컬 에이전트에 연결하지 못했습니다.",
+    }
+  }
+  args?.onProgress?.("전송된 리뷰 확인 중…")
+  const base = companionUrl.replace(/\/$/, "")
+  const res = await fetch(`${base}/coupang/latest`, { cache: "no-store" })
+  const json = (await res.json().catch(() => ({}))) as CoupangCollectResult
+  return json
+}
+
+/** 쿠팡 상품평 수집 (로컬 Playwright) */
+export async function fetchCoupangReviewsOnCompanion(args: {
+  productUrl: string
+  sort?: CoupangReviewSort
+  maxPages?: number
+  headless?: boolean
+  companionUrl?: string
+  onProgress?: (message: string) => void
+}): Promise<CoupangCollectResult> {
+  const companionUrl = args.companionUrl || resolveLocalCompanionUrl()
+  const health = await ensureLocalCompanionRunning({
+    companionUrl,
+    onProgress: args.onProgress,
+    requireFfmpeg: false,
+  })
+  if (!health.ok) {
+    return {
+      status: "failed",
+      message: health.error || "로컬 에이전트에 연결하지 못했습니다.",
+    }
+  }
+  if (!health.playwright || health.playwrightChromium === false) {
+    return {
+      status: "dependency_missing",
+      message:
+        "Playwright Chromium이 없습니다. 프로젝트 폴더에서 npm run shotform:install-coupang 후 로컬 에이전트를 재시작하세요.",
+    }
+  }
+
+  args.onProgress?.("쿠팡 상품평 수집 중… (Chrome이 열릴 수 있습니다)")
+  const base = companionUrl.replace(/\/$/, "")
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 6 * 60 * 1000)
+  try {
+    const res = await fetch(`${base}/coupang/reviews`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        productUrl: args.productUrl,
+        sort: args.sort || "best",
+        maxPages: args.maxPages ?? 3,
+        headless: args.headless === true,
+      }),
+    })
+    const json = (await res.json().catch(() => ({}))) as CoupangCollectResult
+    if (!res.ok && !json.status) {
+      return {
+        status: res.status === 409 ? "profile_locked" : "failed",
+        message: (json as { message?: string }).message || `수집 요청 실패 (${res.status})`,
+      }
+    }
+    return json
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") {
+      return { status: "failed", message: "상품평 수집이 시간 초과되었습니다." }
+    }
+    return {
+      status: "failed",
+      message: e instanceof Error ? e.message : "상품평 수집 요청 실패",
+    }
+  } finally {
+    clearTimeout(timer)
+  }
 }

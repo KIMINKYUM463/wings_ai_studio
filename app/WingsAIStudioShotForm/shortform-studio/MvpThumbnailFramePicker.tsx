@@ -31,7 +31,7 @@ export function MvpThumbnailFramePicker({
       >
         <Loader2 className="h-5 w-5 animate-spin text-cyan-400" />
         <p className={cn("font-medium", compact ? "text-[10px]" : "text-xs")}>
-          짜집기 영상에서 프레임 캡처 중…
+          리믹스 영상에서 프레임 캡처 중…
         </p>
         {progress ? (
           <p className="text-[10px] text-slate-500">
@@ -53,7 +53,7 @@ export function MvpThumbnailFramePicker({
   return (
     <div className="space-y-1.5">
       <p className={cn("text-slate-400", compact ? "text-[9px]" : "text-[10px]")}>
-        짜집기 영상에서 뽑은 후보 {frames.length}장 — AI 참조로 쓸 장면을 고르세요.
+        리믹스 영상에서 뽑은 후보 {frames.length}장 — AI 참조로 쓸 장면을 고르세요.
       </p>
       <div
         className={cn(

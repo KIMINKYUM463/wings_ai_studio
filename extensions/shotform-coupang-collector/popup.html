@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Wings 숏폼 쿠팡 수집기</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <div class="logo">W</div>
+      <div>
+        <h1>Wings 숏폼 쿠팡 수집기</h1>
+        <p class="sub">제품명 · 상품소개 상세 · 리뷰 → Wings 숏폼</p>
+      </div>
+    </header>
+
+    <section class="card">
+      <label class="label">최대 리뷰 수</label>
+      <select id="maxReviews">
+        <option value="10">10개</option>
+        <option value="20" selected>20개</option>
+        <option value="40">40개</option>
+        <option value="60">60개</option>
+      </select>
+    </section>
+
+    <section class="card">
+      <label class="label">로컬 에이전트 URL</label>
+      <input id="agentUrl" type="text" placeholder="http://127.0.0.1:3847" />
+      <div class="row">
+        <button id="btnProbe" type="button" class="ghost">연결 확인</button>
+        <span id="agentStatus" class="pill">-</span>
+      </div>
+    </section>
+
+    <section class="actions">
+      <button id="btnCollect" type="button" class="primary">
+        상품·상세·리뷰·사진 한번에 수집
+      </button>
+      <button id="btnCopy" type="button" class="ghost">JSON 클립보드 복사</button>
+    </section>
+
+    <pre id="log" class="log"></pre>
+    <p class="hint">
+      1) 쿠팡 상품 페이지가 정상으로 열린 상태에서만 사용<br />
+      2) 상품상세·상품평이 보이게 스크롤 후 수집<br />
+      3) Access Denied가 뜨면 탭 닫고 10~30분 후 재접속<br />
+      4) Wings 숏폼 → 「전송된 리뷰 불러오기」 또는 「JSON 붙여넣기」
+    </p>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

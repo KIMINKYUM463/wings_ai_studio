@@ -7,6 +7,7 @@ import {
   resolveMvpDirectUrls,
   type MvpResolvedUrlItem,
 } from "@/lib/shotform-mvp-resolve-urls"
+import { resolveReprocessUrl } from "@/lib/shotform-mvp-reprocess-url"
 
 export const maxDuration = 300
 
@@ -18,7 +19,7 @@ function apifyTokenFromBody(body: Record<string, unknown>): string {
   )
 }
 
-/** POST — 抖音·小红书 노트 URL(최대 MAX_AUTO_EDIT_VIDEOS개) → playUrl·메타 */
+/** POST — 도우인·샤오홍슈·TikTok URL(최대 MAX_AUTO_EDIT_VIDEOS개) → playUrl·메타 */
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
@@ -42,7 +43,7 @@ export async function POST(req: NextRequest) {
     urls = deduped
 
     if (!urls.length) {
-      return NextResponse.json({ error: "抖音·小红书 노트 URL을 1개 이상 입력해 주세요." }, { status: 400 })
+      return NextResponse.json({ error: "도우인·샤오홍슈·TikTok 영상 URL을 1개 이상 입력해 주세요." }, { status: 400 })
     }
     if (urls.length > MAX_AUTO_EDIT_VIDEOS) {
       return NextResponse.json(
@@ -59,16 +60,33 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error: needsDouyin && needsXhs
-            ? "抖音·小红书 URL 해석에 소스 검색 토큰(Apify)이 필요합니다. ShotForm 설정에 저장해 주세요."
+            ? "도우인·샤오홍슈 URL 해석에 소스 검색 토큰(Apify)이 필요합니다. ShotForm 설정에 저장해 주세요."
             : needsDouyin
-              ? "抖音 URL 해석에 소스 검색 토큰이 필요합니다. ShotForm 설정에 소스 검색 토큰을 저장하거나 서버 환경 변수를 설정하세요."
-              : "小红书 URL 해석에 소스 검색 토큰(Apify)이 필요합니다. 소스 찾기와 동일한 토큰을 ShotForm 설정에 저장해 주세요.",
+              ? "도우인 URL 해석에 소스 검색 토큰이 필요합니다. ShotForm 설정에 소스 검색 토큰을 저장하거나 서버 환경 변수를 설정하세요."
+              : "샤오홍슈 URL 해석에 소스 검색 토큰(Apify)이 필요합니다. 소스 찾기와 동일한 토큰을 ShotForm 설정에 저장해 주세요.",
         },
         { status: 400 }
       )
     }
 
-    const items: MvpResolvedUrlItem[] = await resolveMvpDirectUrls(apifyToken, urls)
+    const items: MvpResolvedUrlItem[] = []
+    for (const url of urls) {
+      const normalized = normalizeMvpDirectInputUrl(url)
+      if (detectMvpUrlPlatform(normalized) === "tiktok") {
+        const resolved = await resolveReprocessUrl(apifyToken, normalized)
+        items.push({
+          inputUrl: url,
+          noteUrl: resolved.noteUrl,
+          videoUrl: resolved.videoUrl,
+          platform: "tiktok",
+          title: resolved.title || "(TikTok 영상)",
+          error: resolved.error,
+        })
+        continue
+      }
+      const [resolved] = await resolveMvpDirectUrls(apifyToken, [url])
+      if (resolved) items.push(resolved)
+    }
     const ok = items.filter((i) => i.videoUrl.startsWith("http"))
     const failed = items.filter((i) => i.error || !i.videoUrl.startsWith("http"))
 

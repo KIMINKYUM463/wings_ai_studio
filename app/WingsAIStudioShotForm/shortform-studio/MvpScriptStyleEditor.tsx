@@ -8,7 +8,9 @@ import { Textarea } from "@/components/ui/textarea"
 import type { MvpScriptStyleState, MvpSubtitleStyle } from "@/lib/mvp-studio-types"
 import { normalizeSubtitleStyle } from "@/lib/mvp-studio-types"
 import { buildSubtitleOverlayStyle } from "@/lib/mvp-subtitle-style"
+import { expandSubtitleScheduleLines } from "@/lib/shotform-factory-line-tts"
 import { StudioPageCard, studio } from "../components/ShotFormStudioUI"
+import { MvpFitOneLineSubtitle } from "./MvpFitOneLineSubtitle"
 import { MvpSubtitleStylePanel } from "./MvpSubtitleStylePanel"
 
 type Props = {
@@ -65,12 +67,11 @@ export function MvpScriptStyleEditor({
           <div className="rounded-xl border border-white/10 bg-black/50 p-3">
             <p className="text-xs font-medium text-white">자막 스타일 미리보기</p>
             <div className="relative mt-3 aspect-[9/16] max-h-[320px] w-full overflow-hidden rounded-lg bg-gradient-to-b from-slate-800 to-slate-950">
-              <div
-                style={buildSubtitleOverlayStyle(sub)}
-                className="!w-[88%] !max-w-[88%]"
-              >
-                {value.conversionScript.split("\n").slice(0, 2).join("\n") || "자막 미리보기\n스타일을 조정해 보세요"}
-              </div>
+              <MvpFitOneLineSubtitle style={buildSubtitleOverlayStyle(sub)}>
+                {expandSubtitleScheduleLines(
+                  value.conversionScript || "자막 미리보기 스타일을 조정해 보세요",
+                )[0] || "자막 미리보기"}
+              </MvpFitOneLineSubtitle>
             </div>
           </div>
           <MvpSubtitleStylePanel value={sub} onChange={onSubtitleStyleChange} />

@@ -12,6 +12,20 @@ interface AnalyzedVideo {
   videoId: string
   thumbnailUrl: string
   description: string
+  durationSeconds: number
+  /** 최근 30개 영상 평균 조회수 대비 배수 */
+  mutationX: number
+  baselineViewCount: number
+}
+
+function parseIsoDuration(duration: string): number {
+  const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/)
+  if (!match) return 0
+  return (
+    parseInt(match[1] || "0", 10) * 3600 +
+    parseInt(match[2] || "0", 10) * 60 +
+    parseInt(match[3] || "0", 10)
+  )
 }
 
 /**
@@ -77,8 +91,20 @@ async function getChannelData(channelId: string, youtubeApiKey: string): Promise
         subscriberCount: channel.statistics.subscriberCount || "0",
         videoCount: channel.statistics.videoCount || "0",
         viewCount: channel.statistics.viewCount || "0",
+        thumbnailUrl:
+          channel.snippet.thumbnails?.high?.url ||
+          channel.snippet.thumbnails?.default?.url ||
+          "",
+        publishedAt: channel.snippet.publishedAt || "",
+        description: channel.snippet.description || "",
       },
       videos: [],
+      metadata: {
+        channelCreationDate: "정보 없음",
+        firstUploadDate: "정보 없음",
+        averageUploadCycle: "정보 없음",
+        recentUploadCycle: "정보 없음",
+      },
     }
   }
 
@@ -86,7 +112,7 @@ async function getChannelData(channelId: string, youtubeApiKey: string): Promise
 
   // 3. 각 영상의 상세 통계 가져오기
   const videosResponse = await fetch(
-    `https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet&id=${videoIds}&key=${youtubeApiKey}`
+    `https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet,contentDetails&id=${videoIds}&key=${youtubeApiKey}`
   )
 
   if (!videosResponse.ok) {
@@ -96,7 +122,9 @@ async function getChannelData(channelId: string, youtubeApiKey: string): Promise
 
   const videosData = await videosResponse.json()
 
-  const videos: AnalyzedVideo[] = (videosData.items || []).map((v: any) => {
+  const rawVideos: Omit<AnalyzedVideo, "mutationX" | "baselineViewCount">[] = (
+    videosData.items || []
+  ).map((v: any) => {
     const views = parseInt(v.statistics.viewCount || "0", 10)
     const likes = parseInt(v.statistics.likeCount || "0", 10)
     const comments = parseInt(v.statistics.commentCount || "0", 10)
@@ -114,11 +142,27 @@ async function getChannelData(channelId: string, youtubeApiKey: string): Promise
       videoId: v.id,
       thumbnailUrl: v.snippet.thumbnails?.high?.url || v.snippet.thumbnails?.medium?.url || v.snippet.thumbnails?.default?.url || "",
       description: v.snippet.description || "",
+      durationSeconds: parseIsoDuration(v.contentDetails?.duration || ""),
     }
   })
 
-  // 조회수 순으로 정렬
-  videos.sort((a, b) => b.viewCount - a.viewCount)
+  // 채널의 최근 30개 영상 평균 조회수를 기준으로 떡상 지수를 서버에서 계산합니다.
+  const latestVideos = [...rawVideos].sort(
+    (a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
+  )
+  const baselineVideos = latestVideos.slice(0, 30)
+  const baselineViewCount = baselineVideos.length
+    ? baselineVideos.reduce((sum, video) => sum + video.viewCount, 0) /
+      baselineVideos.length
+    : 1
+  const videos: AnalyzedVideo[] = rawVideos
+    .map((video) => ({
+      ...video,
+      baselineViewCount: Math.round(baselineViewCount),
+      mutationX:
+        Math.round((video.viewCount / Math.max(1, baselineViewCount)) * 100) / 100,
+    }))
+    .sort((a, b) => b.viewCount - a.viewCount)
 
   // 채널 메타데이터 계산
   const channelPublishedAt = channel.snippet.publishedAt || ""
@@ -181,35 +225,44 @@ async function getChannelData(channelId: string, youtubeApiKey: string): Promise
  * 채널 ID 추출 (URL, ID 또는 채널명)
  */
 async function resolveChannelId(input: string, youtubeApiKey: string): Promise<string> {
+  let normalizedInput = input.trim()
+  try {
+    normalizedInput = decodeURIComponent(normalizedInput)
+  } catch {
+    // 잘못된 인코딩 문자열이면 원문을 사용합니다.
+  }
+  let channelSearchTerm = normalizedInput
+
   // 이미 채널 ID 형식인 경우 (UC로 시작)
-  if (input.startsWith("UC") && input.length >= 24) {
-    return input
+  if (normalizedInput.startsWith("UC") && normalizedInput.length >= 24) {
+    return normalizedInput
   }
 
   // URL에서 채널 ID 추출 시도
   const urlPatterns = [
-    /youtube\.com\/channel\/([a-zA-Z0-9_-]+)/,
-    /youtube\.com\/c\/([a-zA-Z0-9_-]+)/,
-    /youtube\.com\/user\/([a-zA-Z0-9_-]+)/,
-    /youtube\.com\/@([a-zA-Z0-9_-]+)/,
+    /youtube\.com\/channel\/([^/?#]+)/,
+    /youtube\.com\/c\/([^/?#]+)/,
+    /youtube\.com\/user\/([^/?#]+)/,
+    /youtube\.com\/@([^/?#]+)/,
   ]
 
   for (const pattern of urlPatterns) {
-    const match = input.match(pattern)
+    const match = normalizedInput.match(pattern)
     if (match) {
       const extracted = match[1]
+      channelSearchTerm = extracted
       
       // @username 형식인 경우 채널 검색 필요
-      if (input.includes("/@")) {
+      if (normalizedInput.includes("/@")) {
         try {
-          const searchResponse = await fetch(
-            `https://www.googleapis.com/youtube/v3/search?part=snippet&type=channel&q=${encodeURIComponent(extracted)}&maxResults=1&key=${youtubeApiKey}`
+          const handleResponse = await fetch(
+            `https://www.googleapis.com/youtube/v3/channels?part=id&forHandle=${encodeURIComponent(extracted)}&key=${youtubeApiKey}`
           )
           
-          if (searchResponse.ok) {
-            const searchData = await searchResponse.json()
-            if (searchData.items && searchData.items.length > 0) {
-              return searchData.items[0].id.channelId
+          if (handleResponse.ok) {
+            const handleData = await handleResponse.json()
+            if (handleData.items && handleData.items.length > 0) {
+              return handleData.items[0].id
             }
           }
         } catch (error) {
@@ -225,10 +278,10 @@ async function resolveChannelId(input: string, youtubeApiKey: string): Promise<s
   }
 
   // URL 패턴이 아니면 채널명으로 간주하고 검색
-  console.log("[Channel ID Resolution] 채널명으로 검색 시도:", input)
+  console.log("[Channel ID Resolution] 채널명으로 검색 시도:", channelSearchTerm)
   try {
     const searchResponse = await fetch(
-      `https://www.googleapis.com/youtube/v3/search?part=snippet&type=channel&q=${encodeURIComponent(input)}&maxResults=5&key=${youtubeApiKey}`
+      `https://www.googleapis.com/youtube/v3/search?part=snippet&type=channel&q=${encodeURIComponent(channelSearchTerm)}&maxResults=5&key=${youtubeApiKey}`
     )
     
     if (searchResponse.ok) {
@@ -237,7 +290,7 @@ async function resolveChannelId(input: string, youtubeApiKey: string): Promise<s
         // 가장 관련성 높은 채널 반환 (첫 번째 결과)
         const channelId = searchData.items[0].id.channelId
         console.log("[Channel ID Resolution] 채널 검색 성공:", {
-          input,
+          input: normalizedInput,
           foundChannel: searchData.items[0].snippet.title,
           channelId,
         })
@@ -259,6 +312,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const { channelId, youtubeApiKey } = body
+    const mutationMin = Math.max(0, Number(body.mutationMin) || 0)
 
     if (!channelId) {
       return NextResponse.json(
@@ -298,8 +352,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       result: {
+        channelId: resolvedChannelId,
         channelInfo,
-        videos,
+        videos: videos.filter((video) => video.mutationX >= mutationMin),
         metadata,
       },
     })

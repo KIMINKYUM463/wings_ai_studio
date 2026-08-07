@@ -172,7 +172,7 @@ export function MvpOverlayElementsPanel({
     }
     const video = videoRef?.current
     if (!video || !videoDurationSec) {
-      setAiErr("짜집기 영상이 준비된 뒤 다시 시도해 주세요.")
+      setAiErr("리믹스 영상이 준비된 뒤 다시 시도해 주세요.")
       return
     }
     const captureDurationSec = effectiveMosaicCaptureDuration(video, videoDurationSec)
