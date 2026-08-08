@@ -18,14 +18,31 @@ function isAllowedImageHost(hostname: string): boolean {
   if (hostname.endsWith(".xhscdn.com")) return true
   if (hostname.endsWith(".xhscdn.net")) return true
   if (hostname.includes("xiaohongshu.com")) return true
+  if (hostname.includes("coupang") || hostname.includes("coupangcdn")) return true
+  if (hostname.includes("pixabay") || hostname.includes("pexels")) return true
+  if (hostname.includes("pinimg") || hostname.includes("pinterest")) return true
+  if (hostname.endsWith(".amazonaws.com") || hostname.includes("cloudfront.net")) {
+    return true
+  }
   return false
 }
 
 function upstreamReferer(hostname: string): string | undefined {
-  if (hostname.endsWith(".douyinpic.com")) return "https://www.douyin.com/"
-  if (hostname.endsWith(".xhscdn.com") || hostname.includes("xiaohongshu.com") || hostname.endsWith(".xhscdn.net")) {
+  if (hostname.endsWith(".douyinpic.com") || hostname.includes("byteimg")) {
+    return "https://www.douyin.com/"
+  }
+  if (
+    hostname.endsWith(".xhscdn.com") ||
+    hostname.includes("xiaohongshu.com") ||
+    hostname.endsWith(".xhscdn.net")
+  ) {
     return "https://www.xiaohongshu.com/"
   }
+  if (hostname.includes("coupang") || hostname.includes("coupangcdn")) {
+    return "https://www.coupang.com/"
+  }
+  if (hostname.includes("pixabay")) return "https://pixabay.com/"
+  if (hostname.includes("pexels")) return "https://www.pexels.com/"
   return undefined
 }
 

@@ -2875,10 +2875,18 @@ export const StoryEditorWorkspace = forwardRef<
         console.warn("[StoryEditor] TTS 녹화 라우팅 실패:", error)
       }
     }
+    let lastExportUiAt = 0
     const syncPlayhead = (nextSec: number) => {
       playheadRef.current = nextSec
-      // 다운로드 녹화 중에는 setState 금지 — 메인스레드 버벅임·프레임 드랍의 주원인
-      if (isExportRecording) return
+      if (isExportRecording) {
+        // 녹화 중에도 미리보기·타임라인이 진행되는 것처럼 보이게 (너무 자주 setState하면 버벅임)
+        const now = performance.now()
+        if (now - lastExportUiAt > 120) {
+          lastExportUiAt = now
+          setPlayheadSec(nextSec)
+        }
+        return
+      }
       setPlayheadSec(nextSec)
     }
     const startIdx = slots.findIndex(
@@ -3241,11 +3249,10 @@ export const StoryEditorWorkspace = forwardRef<
               if (key !== visibleKey) {
                 visibleKey = key
                 selectedKeyRef.current = key
-                if (!isExportRecording) {
-                  flushSync(() => {
-                    setSelectedKey(key)
-                  })
-                }
+                // 녹화 중에도 클립 전환은 반영 (DOM 캡처가 아닌 캔버스 녹화라 setState 허용)
+                flushSync(() => {
+                  setSelectedKey(key)
+                })
               }
               if (currentTimeline) {
                 const cueProgress = Math.max(
@@ -3290,18 +3297,12 @@ export const StoryEditorWorkspace = forwardRef<
             : 0
         visibleKey = key
         selectedKeyRef.current = key
-        if (isExportRecording) {
+        flushSync(() => {
+          setSelectedKey(key)
           if (slotTimeline) {
-            playheadRef.current = slotTimeline.startSec + resumeOffset
+            syncPlayhead(slotTimeline.startSec + resumeOffset)
           }
-        } else {
-          flushSync(() => {
-            setSelectedKey(key)
-            if (slotTimeline) {
-              syncPlayhead(slotTimeline.startSec + resumeOffset)
-            }
-          })
-        }
+        })
 
         const cue = track?.lineTracks?.find((item) => item.lineIndex === slot.lineIndex)
         const lineAudioUrl =
@@ -4176,7 +4177,7 @@ export const StoryEditorWorkspace = forwardRef<
           </div>
 
           <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-3 md:p-5">
-            <div className="relative aspect-[9/16] h-full max-h-[calc(100vh-128px)] overflow-hidden rounded-xl bg-white shadow-[0_24px_80px_rgba(0,0,0,.55)] ring-1 ring-white/15">
+            <div className="relative aspect-[9/16] h-full max-h-[calc(100vh-128px)] overflow-hidden rounded-none bg-white shadow-[0_24px_80px_rgba(0,0,0,.55)] ring-1 ring-white/15">
               {selectedScene ? (
                 <StoryChannelFrame
                   settings={frameSettings}
@@ -4386,7 +4387,7 @@ export const StoryEditorWorkspace = forwardRef<
             <div
               ref={exportStageRef}
               data-story-export-stage="true"
-              className="relative aspect-[9/16] h-full max-h-[min(100%,680px)] shrink-0 overflow-hidden rounded-md border border-slate-300 bg-white shadow-[0_12px_40px_rgba(15,23,42,.16)]"
+              className="relative aspect-[9/16] h-full max-h-[min(100%,680px)] shrink-0 overflow-hidden rounded-none border border-slate-300 bg-white shadow-[0_12px_40px_rgba(15,23,42,.16)]"
               style={{ zoom: previewZoom }}
             >
               {selectedScene ? (

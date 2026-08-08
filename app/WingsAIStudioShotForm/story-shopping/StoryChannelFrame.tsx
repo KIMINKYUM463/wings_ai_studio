@@ -466,11 +466,6 @@ export function StoryChannelFrame({
       | "video",
     fit: (asset?.mediaFit || "cover") as "cover" | "contain",
   })
-  const [underlay, setUnderlay] = useState<{
-    url: string
-    mediaType: "image" | "video"
-    fit: "cover" | "contain"
-  } | null>(null)
   const [paintReady, setPaintReady] = useState(Boolean(mediaUrl))
   const [mediaTransform, setMediaTransform] = useState({
     mediaScale: asset?.mediaScale ?? 1,
@@ -512,7 +507,6 @@ export function StoryChannelFrame({
     if (!mediaUrl) {
       setPaintAsset(asset)
       setPaintUrl("")
-      setUnderlay(null)
       setPaintReady(false)
       return
     }
@@ -521,7 +515,6 @@ export function StoryChannelFrame({
       setPaintAsset(asset)
       setPaintUrl(mediaUrl)
       setPaintReady(true)
-      setUnderlay(null)
       return
     }
 
@@ -533,8 +526,7 @@ export function StoryChannelFrame({
         await preloadStoryImage(mediaUrl)
       }
       if (cancelled) return
-      // preload 끝난 뒤에만 교체 → 중간에 paintReady=false로 검게 만들지 않음
-      setUnderlay(null)
+      // preload 끝난 뒤에만 교체 → 검정 플래시·앞뒤 이미지 겹침 방지
       setPaintAsset(asset)
       setPaintUrl(mediaUrl)
       setPaintReady(true)
@@ -565,7 +557,6 @@ export function StoryChannelFrame({
     probe.src = paintUrl
     if (probe.complete && probe.naturalWidth > 0) {
       setPaintReady(true)
-      setUnderlay(null)
     }
   }, [paintUrl, paintAsset?.mediaType])
 
@@ -794,29 +785,12 @@ export function StoryChannelFrame({
               transformOrigin: "center",
             }}
           >
-            {underlay && !paintReady ? (
-              <div className="pointer-events-none absolute inset-0 z-0 bg-black">
-                {/* 비디오 underlay는 첫 프레임이 검게 나올 수 있어 이미지만 사용 */}
-                <img
-                  src={underlay.url}
-                  alt=""
-                  className="h-full w-full"
-                  draggable={false}
-                  style={{ objectFit: underlay.fit }}
-                  onError={(event) => {
-                    // blob/video URL이면 img 실패 → 단색 유지
-                    event.currentTarget.style.opacity = "0"
-                  }}
-                />
-              </div>
-            ) : null}
             <div
               key={`${paintUrl}-${paintAsset?.motionEffect || "zoom-in"}`}
               className={`relative z-10 h-full w-full ${mediaEffectClass}`}
               style={{
                 animationDuration: `${mediaEffectDurationSec}s`,
                 animationPlayState: isPlaying ? "running" : "paused",
-                opacity: paintReady ? 1 : 0,
               }}
             >
               {paintAsset?.mediaType === "video" ? (
@@ -831,7 +805,6 @@ export function StoryChannelFrame({
                   onTimeChange={setVideoTimeSec}
                   onReady={() => {
                     setPaintReady(true)
-                    setUnderlay(null)
                   }}
                 />
               ) : (
@@ -845,7 +818,6 @@ export function StoryChannelFrame({
                   }}
                   onLoad={() => {
                     setPaintReady(true)
-                    setUnderlay(null)
                   }}
                 />
               )}

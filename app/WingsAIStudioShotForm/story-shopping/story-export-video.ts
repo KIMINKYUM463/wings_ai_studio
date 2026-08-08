@@ -535,7 +535,7 @@ function drawChannelChrome(
   ctx.fillText(captionText, width / 2, capY + captionH / 2)
 }
 
-function proxyMediaUrl(url: string) {
+function proxyMediaUrl(url: string, proxyPath = "/api/shotform/image-proxy") {
   const trimmed = url.trim()
   if (
     !trimmed ||
@@ -545,28 +545,128 @@ function proxyMediaUrl(url: string) {
   ) {
     return trimmed
   }
-  return `/api/shotform/image-proxy?url=${encodeURIComponent(trimmed)}`
+  return `${proxyPath}?url=${encodeURIComponent(trimmed)}`
+}
+
+function shortenUrlForError(url: string) {
+  const trimmed = url.trim()
+  if (trimmed.length <= 72) return trimmed
+  try {
+    const parsed = new URL(trimmed)
+    return `${parsed.hostname}${parsed.pathname.slice(0, 36)}…`
+  } catch {
+    return `${trimmed.slice(0, 60)}…`
+  }
 }
 
 async function fetchAsObjectUrl(src: string): Promise<string> {
   const res = await fetch(src, { cache: "no-store" })
-  if (!res.ok) throw new Error(`미디어 fetch 실패 (${res.status})`)
+  if (!res.ok) {
+    let detail = ""
+    try {
+      const payload = (await res.clone().json()) as { error?: string }
+      detail = payload.error || ""
+    } catch {
+      /* ignore */
+    }
+    throw new Error(
+      `미디어 fetch 실패 (${res.status})${detail ? `: ${detail}` : ""}`
+    )
+  }
   const blob = await res.blob()
   if (!blob.size) throw new Error("미디어가 비어 있습니다.")
+  if (
+    blob.type.includes("json") ||
+    blob.type.includes("text/html") ||
+    blob.type.includes("text/plain")
+  ) {
+    throw new Error("이미지 대신 오류 응답을 받았습니다.")
+  }
   return URL.createObjectURL(blob)
 }
 
+function loadHtmlImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const el = new Image()
+    el.onload = () => {
+      if (el.naturalWidth < 2) {
+        reject(new Error("이미지 크기가 유효하지 않습니다."))
+        return
+      }
+      resolve(el)
+    }
+    el.onerror = () => reject(new Error("이미지 로드 실패"))
+    el.src = src
+  })
+}
+
+/** 미리보기에 이미 떠 있는 <img>에서 픽셀을 복제 (blob 만료·CDN 차단 폴백) */
+async function tryCaptureDomImage(url: string): Promise<HTMLImageElement | null> {
+  if (typeof document === "undefined" || !url.trim()) return null
+  const needle = url.trim()
+  const imgs = Array.from(document.images)
+  for (const node of imgs) {
+    const src = (node.currentSrc || node.src || "").trim()
+    if (!src) continue
+    const matched =
+      src === needle ||
+      src.includes(encodeURIComponent(needle)) ||
+      (needle.length > 24 && src.includes(needle.slice(-48))) ||
+      (src.length > 24 && needle.includes(src.slice(-48)))
+    if (!matched || node.naturalWidth < 2) continue
+    try {
+      const bitmap = await createImageBitmap(node)
+      const canvas = document.createElement("canvas")
+      canvas.width = bitmap.width
+      canvas.height = bitmap.height
+      const ctx = canvas.getContext("2d")
+      if (!ctx) {
+        bitmap.close()
+        continue
+      }
+      ctx.drawImage(bitmap, 0, 0)
+      bitmap.close()
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.92)
+      return await loadHtmlImage(dataUrl)
+    } catch {
+      /* CORS tainted 등 */
+    }
+  }
+  return null
+}
+
 async function loadCorsImage(url: string): Promise<HTMLImageElement> {
-  const candidates: string[] = []
   const trimmed = url.trim()
+  if (!trimmed) throw new Error("이미지 URL이 비어 있습니다.")
+
+  // data:/blob: 은 바로 시도
+  if (trimmed.startsWith("data:") || trimmed.startsWith("blob:")) {
+    try {
+      return await loadHtmlImage(trimmed)
+    } catch {
+      const fromDom = await tryCaptureDomImage(trimmed)
+      if (fromDom) return fromDom
+      throw new Error(
+        `만료된 임시 이미지입니다 (${shortenUrlForError(trimmed)}). 해당 클립 사진을 다시 넣어주세요.`
+      )
+    }
+  }
+
   const httpsUrl = trimmed.startsWith("http://")
     ? `https://${trimmed.slice("http://".length)}`
     : trimmed
-  const proxied = proxyMediaUrl(httpsUrl)
-  if (proxied !== httpsUrl) candidates.push(proxied)
-  if (httpsUrl !== trimmed) candidates.push(proxyMediaUrl(trimmed))
-  candidates.push(httpsUrl)
-  if (httpsUrl !== trimmed) candidates.push(trimmed)
+
+  const candidates: string[] = []
+  const pushUnique = (value: string) => {
+    if (value && !candidates.includes(value)) candidates.push(value)
+  }
+  pushUnique(proxyMediaUrl(httpsUrl, "/api/shotform/image-proxy"))
+  pushUnique(proxyMediaUrl(httpsUrl, "/api/proxy-image"))
+  if (httpsUrl !== trimmed) {
+    pushUnique(proxyMediaUrl(trimmed, "/api/shotform/image-proxy"))
+  }
+  pushUnique(httpsUrl)
+  if (httpsUrl !== trimmed) pushUnique(trimmed)
 
   let lastError: Error | null = null
   for (const src of candidates) {
@@ -575,24 +675,23 @@ async function loadCorsImage(url: string): Promise<HTMLImageElement> {
       if (src.startsWith("/") || src.startsWith("http")) {
         finalSrc = await fetchAsObjectUrl(src)
       }
-      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-        const el = new Image()
-        el.onload = () => {
-          if (el.naturalWidth < 2) {
-            reject(new Error("이미지 크기가 유효하지 않습니다."))
-            return
-          }
-          resolve(el)
-        }
-        el.onerror = () => reject(new Error("이미지 로드 실패"))
-        el.src = finalSrc
-      })
-      return img
+      return await loadHtmlImage(finalSrc)
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error))
     }
   }
-  throw lastError || new Error("이미지를 불러오지 못했습니다.")
+
+  const fromDom = await tryCaptureDomImage(trimmed)
+  if (fromDom) return fromDom
+  if (httpsUrl !== trimmed) {
+    const fromDomHttps = await tryCaptureDomImage(httpsUrl)
+    if (fromDomHttps) return fromDomHttps
+  }
+
+  throw (
+    lastError ||
+    new Error(`이미지를 불러오지 못했습니다 (${shortenUrlForError(trimmed)})`)
+  )
 }
 
 async function loadCorsVideo(
@@ -656,6 +755,26 @@ type PreparedMedia =
   | { kind: "image"; image: HTMLImageElement }
   | { kind: "video"; video: HTMLVideoElement }
   | { kind: "none" }
+
+function createPlaceholderImage(
+  width: number,
+  height: number,
+  color: string
+): Promise<HTMLImageElement> {
+  const canvas = document.createElement("canvas")
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext("2d")
+  if (!ctx) return Promise.reject(new Error("플레이스홀더 캔버스를 만들 수 없습니다."))
+  ctx.fillStyle = color
+  ctx.fillRect(0, 0, width, height)
+  ctx.fillStyle = "#9ca3af"
+  ctx.font = `600 ${Math.round(width * 0.045)}px Pretendard, sans-serif`
+  ctx.textAlign = "center"
+  ctx.textBaseline = "middle"
+  ctx.fillText("이미지를 불러오지 못함", width / 2, height / 2)
+  return loadHtmlImage(canvas.toDataURL("image/jpeg", 0.85))
+}
 
 async function loadPreparedMedia(
   url: string,
@@ -847,12 +966,7 @@ async function capturePreviewChrome(opts: {
   return chrome
 }
 
-/**
- * 미리보기와 동일한 숏폼 녹화
- * - 상단 UI: 실제 미리보기 DOM 캡처 (검색바·제목·자막 일치)
- * - 미디어/줌: CORS-safe 이미지·비디오를 30fps로 직접 그림 (0바이트·버벅임 방지)
- */
-export async function recordStoryPreviewStage(opts: {
+type StoryRecordOpts = {
   stageEl: HTMLElement
   clips: StoryExportClip[]
   frameSettings: StoryFrameSettings
@@ -865,7 +979,310 @@ export async function recordStoryPreviewStage(opts: {
   isActive: () => boolean
   onProgress?: (progress: StoryExportProgress) => void
   fileBaseName?: string
+}
+
+async function finalizeRecordedWebm(opts: {
+  webmBlob: Blob
+  durationSec: number
+  fileBaseName: string
+  onProgress?: (progress: StoryExportProgress) => void
 }): Promise<{ blob: Blob; filename: string }> {
+  const { webmBlob, durationSec, fileBaseName, onProgress } = opts
+  if (!webmBlob.size) {
+    throw new Error(
+      "녹화된 영상이 비어 있습니다. 브라우저를 새로고침한 뒤 다시 시도해주세요."
+    )
+  }
+
+  onProgress?.({
+    phase: "encode",
+    message: "영상 길이 메타 보정 중…",
+    ratio: 0.88,
+  })
+
+  let outBlob = webmBlob
+  try {
+    outBlob = await fixWebmBlobDuration(webmBlob, durationSec)
+  } catch (error) {
+    console.warn("[StoryExport] WebM duration 보정 실패:", error)
+    outBlob = webmBlob
+  }
+
+  onProgress?.({
+    phase: "encode",
+    message: "Windows 재생용 WebM 정리 중…",
+    ratio: 0.92,
+  })
+
+  try {
+    outBlob = await remuxWebmWithDuration(outBlob, durationSec, (ratio) => {
+      onProgress?.({
+        phase: "encode",
+        message: `Windows 재생용 WebM 정리 중… ${Math.round(ratio * 100)}%`,
+        ratio: 0.92 + ratio * 0.07,
+      })
+    })
+  } catch (error) {
+    console.warn("[StoryExport] WebM 재패키징 실패, duration 보정본 사용:", error)
+  }
+
+  try {
+    outBlob = await fixWebmBlobDuration(outBlob, durationSec)
+  } catch {
+    /* ignore */
+  }
+
+  if (!outBlob.size) {
+    throw new Error("변환된 영상이 비어 있습니다.")
+  }
+
+  const filename = `${fileBaseName}-${Date.now()}.webm`
+  onProgress?.({
+    phase: "done",
+    message: "다운로드 준비 완료",
+    ratio: 1,
+  })
+  return { blob: outBlob, filename }
+}
+
+/**
+ * 미리보기 DOM을 그대로 캡처해 녹화합니다.
+ * (별도 이미지 재로딩/크로스페이드 재구성 없음 → 화면에 보이는 것과 동일)
+ */
+async function recordStoryPreviewStageFromDom(
+  opts: StoryRecordOpts
+): Promise<{ blob: Blob; filename: string }> {
+  const {
+    stageEl,
+    clips,
+    totalDurationSec,
+    audioStream,
+    play,
+    getPlayheadSec,
+    isActive,
+    onProgress,
+    fileBaseName = "story-shopping",
+  } = opts
+
+  if (!clips.length) throw new Error("다운로드할 클립이 없습니다.")
+
+  const width = 1080
+  const height = 1920
+  const fps = 20
+  const { default: html2canvas } = await import("html2canvas-pro")
+
+  onProgress?.({
+    phase: "prepare",
+    message: "미리보기 화면 녹화 준비 중…",
+    ratio: 0.04,
+  })
+
+  // 첫 프레임이 실제로 그려질 때까지 잠깐 대기
+  await wait(120)
+  const sw0 = Math.max(1, stageEl.clientWidth)
+  const sh0 = Math.max(1, stageEl.clientHeight)
+  if (sw0 < 40 || sh0 < 40) {
+    throw new Error("미리보기 화면 크기를 읽지 못했습니다.")
+  }
+
+  const canvas = document.createElement("canvas")
+  canvas.width = width
+  canvas.height = height
+  canvas.style.cssText =
+    "position:fixed;left:-99999px;top:0;width:1px;height:1px;opacity:0;pointer-events:none"
+  document.body.appendChild(canvas)
+  const ctx = canvas.getContext("2d", { alpha: false })
+  if (!ctx) {
+    canvas.remove()
+    throw new Error("캔버스를 사용할 수 없습니다.")
+  }
+  ctx.imageSmoothingEnabled = true
+  ctx.imageSmoothingQuality = "high"
+
+  const stream = canvas.captureStream(0)
+  const videoTrack = stream.getVideoTracks()[0]
+  if (audioStream) {
+    for (const track of audioStream.getAudioTracks()) {
+      stream.addTrack(track)
+    }
+  }
+
+  const mimeType = pickRecorderMime()
+  let recorder: MediaRecorder
+  try {
+    recorder = new MediaRecorder(stream, {
+      mimeType,
+      videoBitsPerSecond: 12_000_000,
+      audioBitsPerSecond: 256_000,
+    })
+  } catch {
+    recorder = new MediaRecorder(stream)
+  }
+
+  const chunks: BlobPart[] = []
+  recorder.ondataavailable = (event) => {
+    if (event.data && event.data.size > 0) chunks.push(event.data)
+  }
+  const stopped = new Promise<Blob>((resolve, reject) => {
+    recorder.onstop = () => {
+      resolve(
+        new Blob(chunks, {
+          type: recorder.mimeType || mimeType || "video/webm",
+        })
+      )
+    }
+    recorder.onerror = () => reject(new Error("영상 녹화에 실패했습니다."))
+  })
+
+  const trackWithRequest = videoTrack as MediaStreamTrack & {
+    requestFrame?: () => void
+  }
+
+  let captureBusy = false
+  let drawing = true
+  let lastCaptureError: unknown = null
+  let capturedFrames = 0
+
+  const captureOnce = async () => {
+    if (!drawing || captureBusy || !isActive()) return
+    captureBusy = true
+    try {
+      const sw = Math.max(1, stageEl.clientWidth)
+      const sh = Math.max(1, stageEl.clientHeight)
+      const scale = Math.min(3, Math.max(1.5, width / sw))
+      const shot = await html2canvas(stageEl, {
+        backgroundColor: "#ffffff",
+        // 미리보기에 이미 뜬 이미지를 그대로 씀 (별도 CORS fetch 없음)
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+        scale,
+        width: sw,
+        height: sh,
+        imageTimeout: 0,
+        removeContainer: true,
+      })
+      if (!drawing) return
+      ctx.fillStyle = "#ffffff"
+      ctx.fillRect(0, 0, width, height)
+      ctx.drawImage(shot, 0, 0, width, height)
+      trackWithRequest.requestFrame?.()
+      capturedFrames += 1
+    } catch (error) {
+      lastCaptureError = error
+    } finally {
+      captureBusy = false
+    }
+  }
+
+  // 시작 전 1프레임 확보 (실패하면 캔버스 폴백으로)
+  await captureOnce()
+  if (capturedFrames < 1) {
+    canvas.remove()
+    throw new Error(
+      lastCaptureError instanceof Error
+        ? `미리보기 캡처 실패: ${lastCaptureError.message}`
+        : "미리보기 화면을 캡처하지 못했습니다."
+    )
+  }
+
+  recorder.start(80)
+  onProgress?.({
+    phase: "record",
+    message: "미리보기 화면 그대로 녹화 중…",
+    ratio: 0.1,
+  })
+
+  const recordStartedAt = performance.now()
+  const frameInterval = 1000 / fps
+  let nextFrameAt = performance.now()
+  let lastProgressAt = 0
+
+  const drawLoop = () => {
+    if (!drawing) return
+    const now = performance.now()
+    if (now >= nextFrameAt && !captureBusy) {
+      void captureOnce()
+      nextFrameAt = now + frameInterval
+    }
+    if (now - lastProgressAt > 400) {
+      lastProgressAt = now
+      const playhead = getPlayheadSec()
+      onProgress?.({
+        phase: "record",
+        message: `미리보기 녹화 중… ${playhead.toFixed(1)}s / ${totalDurationSec.toFixed(1)}s`,
+        ratio: Math.min(
+          0.88,
+          0.1 + (playhead / Math.max(0.1, totalDurationSec)) * 0.78
+        ),
+      })
+    }
+    requestAnimationFrame(drawLoop)
+  }
+  requestAnimationFrame(drawLoop)
+
+  try {
+    await play()
+  } finally {
+    /* keep capturing briefly */
+  }
+
+  const endAt = performance.now() + 400
+  while (performance.now() < endAt) {
+    if (!captureBusy) await captureOnce()
+    await wait(frameInterval)
+  }
+  drawing = false
+  // 진행 중 캡처 종료 대기
+  for (let i = 0; i < 30 && captureBusy; i++) await wait(40)
+
+  if (capturedFrames < 8) {
+    try {
+      stream.getTracks().forEach((t) => t.stop())
+    } catch {
+      /* ignore */
+    }
+    canvas.remove()
+    throw new Error(
+      `미리보기 캡처 프레임이 너무 적습니다 (${capturedFrames}). 다시 시도해주세요.`
+    )
+  }
+
+  try {
+    recorder.requestData()
+  } catch {
+    /* ignore */
+  }
+  if (recorder.state === "recording" || recorder.state === "paused") {
+    recorder.stop()
+  }
+  const webmBlob = await stopped
+  try {
+    stream.getTracks().forEach((t) => t.stop())
+  } catch {
+    /* ignore */
+  }
+  canvas.remove()
+
+  const recordedWallSec = (performance.now() - recordStartedAt) / 1000
+  const durationSec = Math.max(0.5, totalDurationSec, recordedWallSec * 0.98)
+  return finalizeRecordedWebm({
+    webmBlob,
+    durationSec,
+    fileBaseName,
+    onProgress,
+  })
+}
+
+/**
+ * 캔버스 재구성 녹화 (폴백)
+ * - 상단 UI: 미리보기 DOM 캡처
+ * - 미디어: 미리 받은 이미지/비디오를 직접 그림
+ */
+async function recordStoryPreviewStageCanvas(opts: StoryRecordOpts): Promise<{
+  blob: Blob
+  filename: string
+}> {
   const {
     stageEl,
     clips,
@@ -974,9 +1391,22 @@ export async function recordStoryPreviewStage(opts: {
   const stillFailed = uniqueJobs.filter(
     (job) => preparedByCache.get(job.cacheKey)?.kind === "none"
   )
+
+  // 마지막 수단: 실패한 이미지는 단색 플레이스홀더로 대체해 다운로드는 계속
+  // (1장 때문에 전체 43초 녹화가 막히는 것보다, 해당 컷만 비게 두는 편이 낫습니다)
   if (stillFailed.length) {
-    throw new Error(
-      `이미지 ${stillFailed.length}개를 불러오지 못했습니다. 네트워크를 확인한 뒤 다시 다운로드해주세요.`
+    const placeholder = await createPlaceholderImage(1080, 1920, "#111827")
+    for (const job of stillFailed) {
+      preparedByCache.set(job.cacheKey, { kind: "image", image: placeholder })
+    }
+    onProgress?.({
+      phase: "prepare",
+      message: `이미지 ${stillFailed.length}장은 불러오지 못해 빈 화면으로 대체합니다…`,
+      ratio: 0.1,
+    })
+    console.warn(
+      "[StoryExport] 이미지 로드 실패 → 플레이스홀더 대체:",
+      stillFailed.map((job) => shortenUrlForError(job.url))
     )
   }
 
@@ -1062,8 +1492,8 @@ export async function recordStoryPreviewStage(opts: {
   let holdCanvas: HTMLCanvasElement | null = null
   let holdClipKey = ""
   let prevCaptionText = clips[0]?.text || ""
-  /** 클립 전환 크로스페이드 — 너무 짧으면 뚝 끊긴 느낌 */
-  const CROSSFADE_SEC = 0.62
+  /** 폴백 캔버스 경로: 크로스페이드는 앞뒤 이미지가 섞여 보이므로 끔 */
+  const CROSSFADE_SEC = 0
   const reloadingKeys = new Set<string>()
   /** 클립별 첫 프레임 미리 구워 두어 전환 시 즉시 페이드 */
   const openingFrameByKey = new Map<string, HTMLCanvasElement>()
@@ -1293,15 +1723,12 @@ export async function recordStoryPreviewStage(opts: {
     const exitFade = easeInOutCubic(exitRaw)
     const inExitCrossfade = Boolean(nextOpening && exitRaw < 0.999)
 
-    // 1) 언더레이 — 종료 페이드 중엔 hold를 깔면 이중 노출로 탁해지므로 배경만
-    if (inExitCrossfade) {
+    // 1) 배경 — 크로스페이드 OFF일 때는 이전 컷 hold를 깔지 않음 (앞뒤 이미지 섞임 방지)
+    if (inExitCrossfade || CROSSFADE_SEC < 0.05 || !holdCanvas) {
       ctx.fillStyle = motion.backgroundColor || "#111111"
       ctx.fillRect(x, y, w, h)
-    } else if (holdCanvas) {
-      ctx.drawImage(holdCanvas, x, y, w, h)
     } else {
-      ctx.fillStyle = motion.backgroundColor || "#111111"
-      ctx.fillRect(x, y, w, h)
+      ctx.drawImage(holdCanvas, x, y, w, h)
     }
 
     const media = mediaByKey.get(clip.key)
@@ -1544,7 +1971,7 @@ export async function recordStoryPreviewStage(opts: {
   recorder.start(50)
   onProgress?.({
     phase: "record",
-    message: "미리보기와 동일하게 녹화 중…",
+    message: "타임라인대로 녹화 중… (미리보기 화면도 함께 진행됩니다)",
     ratio: 0.1,
   })
 
@@ -1637,66 +2064,29 @@ export async function recordStoryPreviewStage(opts: {
     }
   }
 
-  if (!webmBlob.size) {
-    throw new Error(
-      "녹화된 영상이 비어 있습니다. 브라우저를 새로고침한 뒤 다시 시도해주세요."
-    )
-  }
-
-  // 실제 녹화 시간과 타임라인 중 더 긴 쪽을 길이로 사용 (Windows 즉시 종료 방지)
   const durationSec = Math.max(0.5, totalDurationSec, recordedWallSec * 0.98)
-
-  onProgress?.({
-    phase: "encode",
-    message: "영상 길이 메타 보정 중…",
-    ratio: 0.88,
+  return finalizeRecordedWebm({
+    webmBlob,
+    durationSec,
+    fileBaseName,
+    onProgress,
   })
+}
 
-  let outBlob = webmBlob
-  try {
-    outBlob = await fixWebmBlobDuration(webmBlob, durationSec)
-  } catch (error) {
-    console.warn("[StoryExport] WebM duration 보정 실패:", error)
-    outBlob = webmBlob
-  }
-
-  onProgress?.({
-    phase: "encode",
-    message: "Windows 재생용 WebM 정리 중…",
-    ratio: 0.92,
+/**
+ * 숏폼 다운로드 녹화
+ *
+ * 주의: html2canvas로 DOM을 매 프레임 찍으면 메인스레드가 막혀
+ * 미리보기/재생이 첫 컷에 고정되고, 결과 영상도 앞부분만 나옵니다.
+ * → 타임라인·playhead 기준으로 캔버스에 그리는 방식을 사용합니다.
+ */
+export async function recordStoryPreviewStage(
+  opts: StoryRecordOpts
+): Promise<{ blob: Blob; filename: string }> {
+  opts.onProgress?.({
+    phase: "prepare",
+    message: "타임라인 기준으로 녹화 준비 중…",
+    ratio: 0.03,
   })
-
-  try {
-    outBlob = await remuxWebmWithDuration(outBlob, durationSec, (ratio) => {
-      onProgress?.({
-        phase: "encode",
-        message: `Windows 재생용 WebM 정리 중… ${Math.round(ratio * 100)}%`,
-        ratio: 0.92 + ratio * 0.07,
-      })
-    })
-  } catch (error) {
-    // remux 실패해도 duration 보정된 webm은 유지
-    console.warn("[StoryExport] WebM 재패키징 실패, duration 보정본 사용:", error)
-  }
-
-  // remux 후에도 duration 한 번 더 보정
-  try {
-    outBlob = await fixWebmBlobDuration(outBlob, durationSec)
-  } catch {
-    /* ignore */
-  }
-
-  if (!outBlob.size) {
-    throw new Error("변환된 영상이 비어 있습니다.")
-  }
-
-  const filename = `${fileBaseName}-${Date.now()}.webm`
-
-  onProgress?.({
-    phase: "done",
-    message: "다운로드 준비 완료",
-    ratio: 1,
-  })
-
-  return { blob: outBlob, filename }
+  return recordStoryPreviewStageCanvas(opts)
 }
