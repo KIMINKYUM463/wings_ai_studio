@@ -185,12 +185,28 @@ function Header({ onSettingsClick }: { onSettingsClick: () => void }) {
     <header className="w-full border-b border-white/10 bg-[#0a0b0d]/80 backdrop-blur-sm sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
-          {/* 로고 */}
+          {/* 로고 + 가이드 */}
           <div className="flex items-center gap-2">
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-pink-500/15 to-orange-500/15 border border-pink-400/25 text-pink-300 text-sm font-semibold">
               <span className="w-2 h-2 bg-pink-500 rounded-full animate-pulse" />
               wingsAIStudio ShotForm
             </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              asChild
+              className="rounded-full border-sky-400/35 bg-sky-500/10 px-3 font-semibold text-sky-100 hover:bg-sky-500/20 hover:text-white"
+            >
+              <a
+                href="https://loud-cowl-c24.notion.site/3b6565477d5980deb680e80c49c98b39"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Play className="mr-1.5 h-3.5 w-3.5" />
+                가이드 영상
+              </a>
+            </Button>
           </div>
 
           {/* 우측 아이콘들 */}
