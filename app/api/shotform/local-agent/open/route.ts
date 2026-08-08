@@ -13,51 +13,52 @@ function resolveOrigin(req: Request): string {
 }
 
 /**
- * 수집기 확장 없이 에이전트 실행을 시도하는 팝업 페이지.
- * 1) shotform-agent:// 프로토콜
- * 2) 실패 시 .cmd 자동 다운로드 (최초 1회 실행하면 프로토콜 등록됨)
+ * 안내 + 최신 .cmd 다운로드만 수행.
+ * 깨진 shotform-agent:// (bare node → System32 오류) 는 호출하지 않음.
  */
 export async function GET(req: Request) {
   const origin = resolveOrigin(req)
-  const cmdUrl = `${origin}/api/shotform/local-agent/download?file=cmd`
+  const cmdUrl = `${origin}/api/shotform/local-agent/download?file=cmd&t=${Date.now()}`
   const html = `<!DOCTYPE html>
-<html lang="en">
+<html lang="ko">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>ShotForm Agent</title>
   <style>
-    body { font-family: Segoe UI, sans-serif; background:#111; color:#eee; padding:24px; }
-    a { color:#fbbf24; }
+    body { font-family: "Segoe UI", sans-serif; background:#111; color:#eee; padding:28px; line-height:1.55; }
+    h1 { font-size:20px; margin:0 0 12px; }
     .ok { color:#86efac; }
-    .muted { color:#a1a1aa; font-size:13px; line-height:1.5; }
+    .warn { color:#fbbf24; }
+    .muted { color:#a1a1aa; font-size:13px; }
+    a.btn { display:inline-block; margin-top:14px; padding:10px 14px; background:#f59e0b; color:#111; font-weight:700; text-decoration:none; border-radius:8px; }
+    ol { padding-left: 1.2em; }
   </style>
 </head>
 <body>
   <h1>ShotForm Local Agent</h1>
-  <p id="msg">Starting agent...</p>
-  <p class="muted">
-    If you see <b>'node' is not recognized</b>, the old protocol is broken.<br/>
-    Run the downloaded <b>start-shotform-agent.cmd</b> once (after Node.js LTS install).<br/>
-    That rewrites the protocol to use the full Node path.
+  <p class="ok" id="msg">start-shotform-agent.cmd 다운로드 중…</p>
+  <p class="warn">
+    System32 창에 <b>'node'은(는) … 아닙니다</b> 만 보이면<br/>
+    그건 <b>예전 설정</b>입니다. 그 창은 닫으세요.
   </p>
-  <p><a id="dl" href="${cmdUrl}">Download / repair starter (.cmd)</a></p>
+  <ol class="muted">
+    <li>방금 받은 <b>start-shotform-agent.cmd</b> 를 더블클릭</li>
+    <li><b>Found: ...\\nodejs\\node.exe</b> 가 보여야 정상</li>
+    <li>그 다음 <b>Starting agent</b> — 창을 닫지 마세요</li>
+  </ol>
+  <a class="btn" id="dl" href="${cmdUrl}">start-shotform-agent.cmd 다시 받기</a>
   <script>
     (function () {
-      var msg = document.getElementById("msg");
       var cmdUrl = ${JSON.stringify(cmdUrl)};
-      // Always download repair starter first (fixes bare 'node' protocol)
       var a = document.createElement("a");
       a.href = cmdUrl;
       a.download = "start-shotform-agent.cmd";
       document.body.appendChild(a);
       a.click();
       a.remove();
-      setTimeout(function () {
-        msg.textContent = "Trying shotform-agent:// ... if cmd shows node error, double-click the downloaded starter.";
-        msg.className = "ok";
-        try { location.href = "shotform-agent://start"; } catch (e) {}
-      }, 600);
+      document.getElementById("msg").textContent =
+        "다운로드됐습니다. 다운로드 폴더에서 start-shotform-agent.cmd 를 더블클릭하세요.";
     })();
   </script>
 </body>

@@ -81,8 +81,25 @@ function companionReady(
   return true
 }
 
-function openShotformAgentProtocol() {
+/**
+ * 깨진 shotform-agent:// (bare `node`) 는 쓰지 않는다.
+ * 항상 최신 start-shotform-agent.cmd 를 받아 실행한다.
+ */
+export function downloadLocalAgentStarter(): void {
   if (typeof window === "undefined") return
+  const a = document.createElement("a")
+  a.href = `/api/shotform/local-agent/download?file=cmd&t=${Date.now()}`
+  a.download = "start-shotform-agent.cmd"
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+}
+
+function openShotformAgentProtocol() {
+  // 구버전 프로토콜이 `node` PATH 오류를 내므로 기본적으로 호출하지 않음.
+  // 수리된 뒤에만 localStorage 플래그로 허용.
+  if (typeof window === "undefined") return
+  if (localStorage.getItem("shotform_agent_protocol_ok") !== "1") return
   try {
     const a = document.createElement("a")
     a.href = "shotform-agent://start"
@@ -93,53 +110,42 @@ function openShotformAgentProtocol() {
   } catch {
     /* ignore */
   }
-  try {
-    const iframe = document.createElement("iframe")
-    iframe.style.display = "none"
-    iframe.src = "shotform-agent://start"
-    document.body.appendChild(iframe)
-    window.setTimeout(() => iframe.remove(), 2500)
-  } catch {
-    /* protocol not registered */
-  }
-}
-
-/** 배포 PC용 — start-shotform-agent.cmd 다운로드 */
-export function downloadLocalAgentStarter(): void {
-  if (typeof window === "undefined") return
-  const a = document.createElement("a")
-  a.href = "/api/shotform/local-agent/download?file=cmd"
-  a.download = "start-shotform-agent.cmd"
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
 }
 
 /**
- * 수집기 확장과 무관하게 에이전트 창을 연다.
- * - shotform-agent:// 프로토콜
- * - /api/shotform/local-agent/open 팝업 (프로토콜 + .cmd 다운로드)
- * - 로컬 Next면 터미널 API
+ * 에이전트 창 실행 — 수집기 없이도 동작.
+ * 1) 최신 .cmd 다운로드 + 확장/다운로드로 실행
+ * 2) 로컬 Next면 터미널 API
+ * 3) 프로토콜은 수리 완료 플래그가 있을 때만
  */
 export function launchLocalAgentWindow(): void {
   if (typeof window === "undefined") return
-  openShotformAgentProtocol()
+
+  const cmdUrl = `${window.location.origin}/api/shotform/local-agent/download?file=cmd&t=${Date.now()}`
+
+  // 1) 최신 스타터 다운로드 (수리본 — 절대경로 node.exe 사용)
+  downloadLocalAgentStarter()
+
+  // 2) 수집기 확장이 있으면 .cmd 자동 실행 (있으면 좋음, 필수 아님)
   try {
-    window.open(
-      "/api/shotform/local-agent/open",
-      "shotform_local_agent",
-      "popup=yes,width=520,height=360"
-    )
-  } catch {
-    /* popup blocked */
-  }
-  // 보조: 수집기 확장이 있으면 더 잘 열릴 수 있음 (필수는 아님)
-  try {
-    const cmdUrl = `${window.location.origin}/api/shotform/local-agent/download?file=cmd`
     window.postMessage({ type: "SHOTFORM_LAUNCH_AGENT", cmdUrl }, window.location.origin)
   } catch {
     /* ignore */
   }
+
+  // 3) 안내 팝업 (프로토콜 자동 호출 없음 — 깨진 등록 방지)
+  try {
+    window.open(
+      `/api/shotform/local-agent/open?t=${Date.now()}`,
+      "shotform_local_agent",
+      "popup=yes,width=560,height=420"
+    )
+  } catch {
+    /* popup blocked */
+  }
+
+  // 4) 이전에 수리 성공한 PC만 프로토콜 사용
+  openShotformAgentProtocol()
 }
 
 /** @deprecated use launchLocalAgentWindow — kept for older call sites */
@@ -178,10 +184,15 @@ export async function connectLocalAgent(opts?: {
     }
   }
 
-  for (let i = 0; i < 25; i++) {
+  for (let i = 0; i < 30; i++) {
     await sleep(1000)
     const health = await probeLocalCompanion(baseUrl)
     if (companionReady(health, requireFfmpeg)) {
+      try {
+        localStorage.setItem("shotform_agent_protocol_ok", "1")
+      } catch {
+        /* ignore */
+      }
       onProgress?.(
         "에이전트가 실행 중입니다. (http://127.0.0.1:3847)\n검은 창은 끄지 마세요."
       )
@@ -189,17 +200,16 @@ export async function connectLocalAgent(opts?: {
     }
   }
 
-  // 프로토콜 미등록 PC: open 팝업이 .cmd를 받음 → 최초 1회 실행 필요
-  downloadLocalAgentStarter()
   onProgress?.(
-    "에이전트 창이 안 떴다면 다운로드된 start-shotform-agent.cmd 를 한 번 실행하세요.\n" +
-      "(최초 1회만 · 이후 「에이전트 실행」만으로 창이 열립니다 · 수집기 불필요)"
+    "다운로드 폴더의 start-shotform-agent.cmd 를 더블클릭하세요.\n" +
+      "창에 Found: ...\\nodejs\\node.exe 와 Starting agent 가 보이면 성공입니다.\n" +
+      "(System32 에서 'node' 오류만 보이면 그건 예전 창이니 닫으세요)"
   )
   return {
     ok: false,
     ffmpeg: false,
     error:
-      "에이전트 실행을 요청했습니다. 창이 없으면 start-shotform-agent.cmd 를 한 번 실행하세요.",
+      "start-shotform-agent.cmd 를 더블클릭하세요. (Found: node.exe 가 보여야 정상)",
   }
 }
 
