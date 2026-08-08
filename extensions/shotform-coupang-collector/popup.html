@@ -29,9 +29,14 @@
       <label class="label">로컬 에이전트 URL</label>
       <input id="agentUrl" type="text" placeholder="http://127.0.0.1:3847" />
       <div class="row">
+        <button id="btnStartAgent" type="button" class="primary">에이전트 자동 실행</button>
         <button id="btnProbe" type="button" class="ghost">연결 확인</button>
         <span id="agentStatus" class="pill">-</span>
       </div>
+      <p class="hint" style="margin: 8px 0 0">
+        Wings에서 「에이전트 연결」을 누르면 실행 창이 뜨고, 여기서 상태가 자동으로 「연결됨」으로
+        바뀝니다.
+      </p>
     </section>
 
     <section class="actions">

@@ -50,21 +50,83 @@ async function saveAgentUrl() {
   return url
 }
 
-async function probe() {
-  await saveAgentUrl()
-  agentStatus.textContent = "확인 중…"
-  agentStatus.className = "pill"
-  const res = await chrome.runtime.sendMessage({ type: "SHOTFORM_PROBE_AGENT" })
+function applyProbeUi(res, opts = {}) {
   if (res?.ok) {
     agentStatus.textContent = "연결됨"
     agentStatus.className = "pill ok"
-    log(`에이전트 OK: ${res.base}`)
+    if (!opts.silent) log(`에이전트 OK: ${res.base || "http://127.0.0.1:3847"}`)
   } else {
     agentStatus.textContent = "끊김"
     agentStatus.className = "pill bad"
+    if (!opts.silent) {
+      log(
+        `에이전트 대기 중 (${res?.base || "http://127.0.0.1:3847"})\n` +
+          `Wings 「에이전트 연결」또는 아래 「에이전트 자동 실행」을 누르면 창이 뜹니다.\n` +
+          `${res?.error || ""}`
+      )
+    }
+  }
+}
+
+async function probe(opts = {}) {
+  await saveAgentUrl()
+  if (!opts.silent) {
+    agentStatus.textContent = "확인 중…"
+    agentStatus.className = "pill"
+  }
+  const res = await chrome.runtime.sendMessage({ type: "SHOTFORM_PROBE_AGENT" })
+  applyProbeUi(res, opts)
+  return res
+}
+
+async function startAgentFromPopup() {
+  const wingsOrigin = await new Promise((resolve) => {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const url = tabs?.[0]?.url || ""
+      try {
+        resolve(new URL(url).origin)
+      } catch {
+        resolve("")
+      }
+    })
+  })
+  // Wings 탭이 아니면 기본 배포/로컬 추정 불가 → 사용자에게 Wings에서 누르라고 안내
+  const cmdUrl = wingsOrigin.includes("localhost") || wingsOrigin.includes("vercel.app")
+    ? `${wingsOrigin}/api/shotform/local-agent/download?file=cmd`
+    : ""
+  if (!cmdUrl) {
     log(
-      `에이전트 연결 실패 (${res?.base || ""})\n프로젝트에서 npm run shotform:local-agent 실행 후 다시 확인하세요.\n${res?.error || ""}`
+      "Wings 숏폼 탭(배포 사이트 또는 localhost)을 연 뒤\n「에이전트 자동 실행」을 다시 누르거나,\nWings의 「에이전트 연결」을 사용하세요."
     )
+    return
+  }
+  $("btnStartAgent").disabled = true
+  log("실행 파일을 받아 자동으로 여는 중…\n연결 확인도 자동으로 반복합니다.")
+  try {
+    const res = await chrome.runtime.sendMessage({
+      type: "SHOTFORM_DOWNLOAD_OPEN_AGENT",
+      cmdUrl,
+    })
+    if (!res?.ok) throw new Error(res?.error || "실행 실패")
+    chrome.runtime.sendMessage({ type: "SHOTFORM_WATCH_AGENT", maxMs: 120000 })
+    log(
+      res.opened
+        ? "에이전트 창을 열었습니다. 연결될 때까지 자동 확인 중…"
+        : "다운로드됨. Chrome 알림 「지금 실행」을 누르거나 잠시 기다려 주세요."
+    )
+    for (let i = 0; i < 40; i++) {
+      await new Promise((r) => setTimeout(r, 1500))
+      const health = await probe({ silent: true })
+      if (health?.ok) {
+        log(`연결됨: ${health.base}\n이제 상품 페이지에서 수집하세요.`)
+        return
+      }
+    }
+    log("아직 연결되지 않았습니다. Node.js 설치 여부와 검은 창을 확인하세요.")
+  } catch (e) {
+    log(e instanceof Error ? e.message : String(e))
+  } finally {
+    $("btnStartAgent").disabled = false
   }
 }
 
@@ -210,7 +272,25 @@ async function copyJsonOnly() {
 }
 
 $("btnProbe").addEventListener("click", () => void probe())
+$("btnStartAgent").addEventListener("click", () => void startAgentFromPopup())
 $("btnCollect").addEventListener("click", () => void collectAndSend())
 $("btnCopy").addEventListener("click", () => void copyJsonOnly())
 
-void loadAgentUrl().then(() => probe())
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local" || !changes.agentOnline) return
+  if (changes.agentOnline.newValue) {
+    agentStatus.textContent = "연결됨"
+    agentStatus.className = "pill ok"
+    log(`에이전트 연결됨 (자동 확인)\n${changes.agentBase?.newValue || "http://127.0.0.1:3847"}`)
+  }
+})
+
+void loadAgentUrl().then(async () => {
+  const stored = await chrome.storage.local.get(["agentOnline", "agentBase"])
+  if (stored.agentOnline) {
+    applyProbeUi({ ok: true, base: stored.agentBase }, { silent: true })
+  }
+  await probe({ silent: Boolean(stored.agentOnline) })
+  // 팝업이 열려 있는 동안 자동 연결 확인
+  window.setInterval(() => void probe({ silent: true }), 2000)
+})

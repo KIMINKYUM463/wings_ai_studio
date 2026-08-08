@@ -1,6 +1,6 @@
 /**
  * Wings 숏폼 페이지 ↔ 확장 브리지
- * 「에이전트 연결」클릭 제스처로 .cmd를 받아 즉시 실행
+ * 「에이전트 연결」클릭 → .cmd 자동 실행 → 연결 감시 시작
  */
 ;(function () {
   function fetchTextSync(url) {
@@ -28,7 +28,7 @@
     const url = absolutize(cmdUrl)
     const content = fetchTextSync(url)
     try {
-      if (content && content.includes("shotform-local-agent")) {
+      if (content && /shotform-local-agent|ShotForm Local Agent/i.test(content)) {
         chrome.runtime.sendMessage({
           type: "SHOTFORM_OPEN_AGENT_DATA",
           content,
@@ -40,6 +40,7 @@
           cmdUrl: url,
         })
       }
+      chrome.runtime.sendMessage({ type: "SHOTFORM_WATCH_AGENT", maxMs: 120000 })
     } catch {
       /* extension context invalidated */
     }
@@ -60,11 +61,23 @@
 
   window.addEventListener("message", (e) => {
     if (e.source !== window) return
-    if (e.data?.type !== "SHOTFORM_LAUNCH_AGENT") return
-    const cmdUrl =
-      typeof e.data.cmdUrl === "string" && e.data.cmdUrl
-        ? e.data.cmdUrl
-        : `${window.location.origin}/api/shotform/local-agent/download?file=cmd`
-    launchAgent(cmdUrl)
+    if (e.data?.type === "SHOTFORM_LAUNCH_AGENT") {
+      const cmdUrl =
+        typeof e.data.cmdUrl === "string" && e.data.cmdUrl
+          ? e.data.cmdUrl
+          : `${window.location.origin}/api/shotform/local-agent/download?file=cmd`
+      launchAgent(cmdUrl)
+      return
+    }
+    if (e.data?.type === "SHOTFORM_AGENT_CONNECTED") {
+      try {
+        chrome.runtime.sendMessage({
+          type: "SHOTFORM_AGENT_CONNECTED",
+          base: e.data.base || "http://127.0.0.1:3847",
+        })
+      } catch {
+        /* ignore */
+      }
+    }
   })
 })()

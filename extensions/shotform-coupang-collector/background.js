@@ -1,14 +1,15 @@
 /**
- * MV3 service worker — localhost 에이전트 전송 + 원클릭 .cmd 실행
+ * MV3 service worker — 에이전트 .cmd 자동 실행 + 연결 상태 감시
  */
 
 const DEFAULT_AGENT = "http://127.0.0.1:3847"
 let pendingOpenDownloadId = null
+let watchTimer = null
+let watchUntil = 0
 
 async function getAgentBase() {
   const stored = await chrome.storage.sync.get(["agentUrl"])
-  const url = (stored.agentUrl || DEFAULT_AGENT).replace(/\/$/, "")
-  return url
+  return (stored.agentUrl || DEFAULT_AGENT).replace(/\/$/, "")
 }
 
 async function ingestToAgent(payload) {
@@ -34,6 +35,66 @@ async function probeAgent() {
   } catch (e) {
     return { ok: false, base, error: e instanceof Error ? e.message : String(e) }
   }
+}
+
+async function setAgentOnlineState(online, base) {
+  await chrome.storage.local.set({
+    agentOnline: Boolean(online),
+    agentBase: base || DEFAULT_AGENT,
+    agentCheckedAt: Date.now(),
+  })
+  try {
+    if (online) {
+      await chrome.action.setBadgeText({ text: "ON" })
+      await chrome.action.setBadgeBackgroundColor({ color: "#16a34a" })
+      await chrome.action.setTitle({ title: "Wings 수집기 · 에이전트 연결됨" })
+    } else {
+      await chrome.action.setBadgeText({ text: "" })
+      await chrome.action.setTitle({ title: "Wings 숏폼 쿠팡 수집기" })
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function stopWatch() {
+  if (watchTimer) {
+    clearInterval(watchTimer)
+    watchTimer = null
+  }
+  watchUntil = 0
+}
+
+/** 에이전트가 뜰 때까지 자동 연결 확인 */
+function watchAgentUntilOnline(maxMs = 120000) {
+  stopWatch()
+  watchUntil = Date.now() + maxMs
+  const tick = async () => {
+    if (Date.now() > watchUntil) {
+      stopWatch()
+      return
+    }
+    const res = await probeAgent()
+    if (res.ok) {
+      await setAgentOnlineState(true, res.base)
+      stopWatch()
+      try {
+        chrome.notifications.create(`shotform-online-${Date.now()}`, {
+          type: "basic",
+          iconUrl: "icons/icon128.png",
+          title: "ShotForm 에이전트 연결됨",
+          message: `${res.base} · 이제 수집·전송할 수 있습니다.`,
+          priority: 1,
+        })
+      } catch {
+        /* ignore */
+      }
+      return
+    }
+    await setAgentOnlineState(false, res.base)
+  }
+  void tick()
+  watchTimer = setInterval(() => void tick(), 1500)
 }
 
 function toBase64Utf8(text) {
@@ -81,11 +142,7 @@ function openDownload(downloadId) {
     try {
       chrome.downloads.open(downloadId, () => {
         const err = chrome.runtime.lastError?.message || ""
-        if (err) {
-          resolve({ ok: false, error: err })
-          return
-        }
-        resolve({ ok: true })
+        resolve(err ? { ok: false, error: err } : { ok: true })
       })
     } catch (e) {
       resolve({ ok: false, error: e instanceof Error ? e.message : String(e) })
@@ -100,7 +157,7 @@ async function notifyOpenFallback(downloadId) {
       type: "basic",
       iconUrl: "icons/icon128.png",
       title: "ShotForm 로컬 에이전트",
-      message: "다운로드 완료. 이 알림 또는 「지금 실행」을 누르면 에이전트가 열립니다.",
+      message: "실행 창이 안 뜨면 여기를 누르세요.",
       buttons: [{ title: "지금 실행" }],
       requireInteraction: true,
       priority: 2,
@@ -131,22 +188,37 @@ function downloadUrl(url, filename) {
 }
 
 async function finishOpen(downloadId) {
-  await waitDownloadComplete(downloadId)
+  // data URL은 바로 complete인 경우가 많음 → 즉시 open 시도
   let opened = await openDownload(downloadId)
-  if (opened.ok) return { ok: true, opened: true, downloadId }
-  await new Promise((r) => setTimeout(r, 150))
-  opened = await openDownload(downloadId)
-  if (opened.ok) return { ok: true, opened: true, downloadId }
-  await notifyOpenFallback(downloadId)
+  if (!opened.ok) {
+    try {
+      await waitDownloadComplete(downloadId)
+    } catch {
+      /* continue */
+    }
+    opened = await openDownload(downloadId)
+  }
+  if (!opened.ok) {
+    await new Promise((r) => setTimeout(r, 200))
+    opened = await openDownload(downloadId)
+  }
+  if (!opened.ok) {
+    await notifyOpenFallback(downloadId)
+  }
+  watchAgentUntilOnline(120000)
+  try {
+    await chrome.action.openPopup()
+  } catch {
+    /* popup may already be open / no gesture */
+  }
   return {
     ok: true,
-    opened: false,
+    opened: Boolean(opened.ok),
     downloadId,
-    error: opened.error || "알림에서 「지금 실행」을 눌러 주세요.",
+    error: opened.ok ? undefined : opened.error,
   }
 }
 
-/** data URL로 즉시 저장 후 실행 (클릭 제스처와 가까움) */
 async function openAgentFromContent(content, filename) {
   const dataUrl = `data:application/x-bat;base64,${toBase64Utf8(content)}`
   const downloadId = await downloadUrl(
@@ -167,13 +239,17 @@ async function downloadAndOpenAgent(cmdUrl) {
 chrome.notifications?.onButtonClicked?.addListener((notificationId, buttonIndex) => {
   if (!notificationId.startsWith("shotform-agent-")) return
   if (buttonIndex !== 0) return
-  if (pendingOpenDownloadId != null) void openDownload(pendingOpenDownloadId)
+  if (pendingOpenDownloadId != null) {
+    void openDownload(pendingOpenDownloadId).then(() => watchAgentUntilOnline(120000))
+  }
   chrome.notifications.clear(notificationId)
 })
 
 chrome.notifications?.onClicked?.addListener((notificationId) => {
   if (!notificationId.startsWith("shotform-agent-")) return
-  if (pendingOpenDownloadId != null) void openDownload(pendingOpenDownloadId)
+  if (pendingOpenDownloadId != null) {
+    void openDownload(pendingOpenDownloadId).then(() => watchAgentUntilOnline(120000))
+  }
   chrome.notifications.clear(notificationId)
 })
 
@@ -183,8 +259,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === "SHOTFORM_INGEST") {
     ;(async () => {
       try {
-        const result = await ingestToAgent(msg.payload)
-        sendResponse({ ok: true, result })
+        sendResponse({ ok: true, result: await ingestToAgent(msg.payload) })
       } catch (e) {
         sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) })
       }
@@ -194,7 +269,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
   if (msg.type === "SHOTFORM_PROBE_AGENT") {
     ;(async () => {
-      sendResponse(await probeAgent())
+      const res = await probeAgent()
+      await setAgentOnlineState(res.ok, res.base)
+      sendResponse(res)
     })()
     return true
   }
@@ -211,8 +288,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === "SHOTFORM_OPEN_AGENT_DATA") {
     ;(async () => {
       try {
-        const result = await openAgentFromContent(String(msg.content || ""), msg.filename)
-        sendResponse(result)
+        sendResponse(await openAgentFromContent(String(msg.content || ""), msg.filename))
       } catch (e) {
         sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) })
       }
@@ -223,12 +299,29 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === "SHOTFORM_DOWNLOAD_OPEN_AGENT") {
     ;(async () => {
       try {
-        const result = await downloadAndOpenAgent(msg.cmdUrl)
-        sendResponse(result)
+        sendResponse(await downloadAndOpenAgent(msg.cmdUrl))
       } catch (e) {
         sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) })
       }
     })()
     return true
   }
+
+  if (msg.type === "SHOTFORM_WATCH_AGENT") {
+    watchAgentUntilOnline(Number(msg.maxMs) || 120000)
+    sendResponse({ ok: true })
+    return true
+  }
+
+  if (msg.type === "SHOTFORM_AGENT_CONNECTED") {
+    ;(async () => {
+      await setAgentOnlineState(true, msg.base || DEFAULT_AGENT)
+      stopWatch()
+      sendResponse({ ok: true })
+    })()
+    return true
+  }
 })
+
+// 확장 시작 시 한 번 상태 확인
+void probeAgent().then((res) => setAgentOnlineState(res.ok, res.base))

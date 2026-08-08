@@ -268,12 +268,12 @@ export function CoupangReviewPanel({
       setAgentOnline(Boolean(health.ok))
       if (health.ok) {
         setStatusMsg(
-          "로컬 에이전트 연결됨 (http://127.0.0.1:3847)\n검은 창은 끄지 마세요. 확장에서 수집·전송한 뒤 「전송된 리뷰 불러오기」를 누르세요."
+          "로컬 에이전트 연결됨 (http://127.0.0.1:3847)\n수집기 확장 상태도 「연결됨」으로 맞춰졌습니다. 검은 창은 끄지 마세요."
         )
       } else {
         setStatusMsg(
           health.error ||
-            "연결 실패. 「실행파일 받기」로 start-shotform-agent.cmd 를 받아 더블클릭한 뒤 다시 연결하세요."
+            "연결 실패. 확장 팝업의 「에이전트 자동 실행」을 한 번 눌러 보세요."
         )
       }
     } finally {
@@ -352,9 +352,9 @@ export function CoupangReviewPanel({
       <div className="space-y-1">
         <Label className="text-sm font-semibold text-zinc-200">Wings 숏폼 쿠팡 수집기</Label>
         <p className="text-xs text-zinc-500 leading-relaxed">
-          「에이전트 연결」을 누르면 수집기 확장이{" "}
-          <span className="text-orange-200/80">.cmd를 받아 자동으로 실행</span>
-          합니다. (확장 v1.2+ · chrome://extensions 에서 새로고침)
+          「에이전트 연결」→ 실행 창 자동 실행 → 수집기 확장이{" "}
+          <span className="text-orange-200/80">연결 확인까지 자동</span>
+          (확장 v1.3+ 새로고침 필요)
         </p>
       </div>
 

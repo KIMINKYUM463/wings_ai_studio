@@ -112,10 +112,20 @@ export function requestExtensionLaunchAgent(): void {
   window.postMessage({ type: "SHOTFORM_LAUNCH_AGENT", cmdUrl }, window.location.origin)
 }
 
+/** Wings가 에이전트 health OK를 확인하면 확장 UI도 「연결됨」으로 맞춤 */
+export function notifyExtensionAgentConnected(baseUrl?: string): void {
+  if (typeof window === "undefined") return
+  window.postMessage(
+    {
+      type: "SHOTFORM_AGENT_CONNECTED",
+      base: (baseUrl || resolveLocalCompanionUrl()).replace(/\/$/, ""),
+    },
+    window.location.origin
+  )
+}
+
 /**
- * 「연결」버튼용 — 터미널/`shotform-agent://`/원클릭 .cmd 순으로 기동 후 헬스 확인.
- * - 로컬 Next: `/api/shotform/local-agent/start` { openTerminal: true }
- * - 배포 사이트: 프로토콜 시도 → 실패 시 .cmd 자동 다운로드 후 연결 대기
+ * 「연결」버튼용 — 클릭 즉시 .cmd 실행 → health 대기 → 확장 연결 상태 동기화
  */
 export async function connectLocalAgent(opts?: {
   companionUrl?: string
@@ -128,6 +138,7 @@ export async function connectLocalAgent(opts?: {
 
   let health = await probeLocalCompanion(baseUrl)
   if (companionReady(health, requireFfmpeg)) {
+    notifyExtensionAgentConnected(baseUrl)
     onProgress?.("이미 연결되어 있습니다. (http://127.0.0.1:3847)")
     return health
   }
@@ -136,67 +147,42 @@ export async function connectLocalAgent(opts?: {
     typeof window !== "undefined" &&
     (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
 
+  // 1) 클릭 즉시: 확장으로 .cmd 실행 + 프로토콜 (버튼 data-attr 클릭과 함께)
+  onProgress?.(
+    "에이전트 실행 창을 여는 중…\n수집기 확장도 자동으로 연결 확인합니다."
+  )
+  requestExtensionLaunchAgent()
+  openShotformAgentProtocol()
+
+  // 2) 로컬 Next면 터미널도 같이 시도
   if (isLocalHost) {
-    onProgress?.("터미널에서 npm run shotform:local-agent 실행 중…")
     try {
-      const res = await fetch("/api/shotform/local-agent/start", {
+      await fetch("/api/shotform/local-agent/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ openTerminal: true }),
       })
-      const json = (await res.json().catch(() => ({}))) as LocalCompanionHealth & {
-        ok?: boolean
-        useProtocol?: boolean
-        error?: string
-        message?: string
-        alreadyRunning?: boolean
-      }
-      if (res.ok && json.ok) {
-        health = await probeLocalCompanion(baseUrl)
-        if (companionReady(health, requireFfmpeg)) {
-          onProgress?.(json.message || "로컬 에이전트 연결 완료")
-          return { ...health, ok: true }
-        }
-      } else if (json.error) {
-        onProgress?.(json.error)
-      }
     } catch {
       /* fall through */
     }
   }
 
-  onProgress?.("shotform-agent:// 로 에이전트 실행 중…")
-  openShotformAgentProtocol()
-  for (let i = 0; i < 10; i++) {
-    await sleep(500)
-    health = await probeLocalCompanion(baseUrl)
-    if (companionReady(health, requireFfmpeg)) {
-      onProgress?.("로컬 에이전트 연결 완료")
-      return health
-    }
-  }
-
-  // 배포·다른 PC: 수집기 확장이 .cmd를 받아 자동 실행 (버튼 data-attr 클릭과 병행)
-  onProgress?.(
-    "실행 파일을 받아 자동으로 여는 중…\n" +
-      "(쿠팡 수집기 확장 v1.2+ 필요 · 검은 창이 뜨면 그대로 두세요)"
-  )
-  requestExtensionLaunchAgent()
-  downloadLocalAgentStarter()
-
+  // 3) 에이전트가 뜰 때까지 대기 + 확장에 연결됨 알림
   for (let i = 0; i < 90; i++) {
     await sleep(1000)
     health = await probeLocalCompanion(baseUrl)
     if (companionReady(health, requireFfmpeg)) {
-      onProgress?.("로컬 에이전트 연결 완료")
+      notifyExtensionAgentConnected(baseUrl)
+      onProgress?.("로컬 에이전트 연결 완료 · 수집기 확장 상태도 연결됨으로 갱신됨")
       return health
     }
-    if (i === 10 || i === 25 || i === 45) {
+    if (i === 8 || i === 20 || i === 40) {
       onProgress?.(
-        `에이전트 실행 대기 중… (${i}초)\n` +
-          "Chrome 알림에 「지금 실행」이 보이면 눌러 주세요.\n" +
-          "확장을 chrome://extensions 에서 새로고침(v1.2+)했는지 확인하세요."
+        `에이전트 시작 대기 중… (${i}초)\n` +
+          "검은 cmd 창이 안 뜨면 Chrome 알림 「지금 실행」을 누르세요.\n" +
+          "확장 v1.3+ 로 chrome://extensions 에서 새로고침했는지 확인하세요."
       )
+      requestExtensionLaunchAgent()
     }
   }
 
@@ -205,11 +191,10 @@ export async function connectLocalAgent(opts?: {
     ffmpeg: false,
     error:
       "아직 연결되지 않았습니다.\n" +
-      "1) chrome://extensions → Wings 숏폼 쿠팡 수집기 새로고침 (v1.2.0+)\n" +
-      "2) 「에이전트 연결」을 다시 클릭 (확장 권한 허용)\n" +
-      "3) Node.js LTS가 없으면 nodejs.org 에서 설치\n" +
-      "4) Chrome 알림 「지금 실행」이 뜨면 클릭\n" +
-      "(에이전트 없이도 확장 → JSON 붙여넣기로 수집 가능)",
+      "1) chrome://extensions → 쿠팡 수집기 새로고침 (v1.3.0+)\n" +
+      "2) 확장 팝업의 「에이전트 자동 실행」클릭\n" +
+      "3) Node.js LTS 설치 후 재시도\n" +
+      "(에이전트 없이도 JSON 붙여넣기로 수집 가능)",
   }
 }
 
