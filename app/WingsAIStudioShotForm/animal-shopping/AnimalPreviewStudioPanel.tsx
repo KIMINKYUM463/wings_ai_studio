@@ -12,7 +12,10 @@ import {
   X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { mergeAnimalVideosClient } from "./animal-merge-client"
+import {
+  isLikelyPlayableMediaUrl,
+  mergeAnimalVideosClient,
+} from "./animal-merge-client"
 import type { AnimalShoppingBrief } from "./animal-studio-types"
 
 /** MediaRecorder webm 등은 duration이 Infinity/NaN인 경우가 많음 */
@@ -25,6 +28,10 @@ function pickDuration(...candidates: Array<number | undefined | null>): number {
     if (isValidDuration(value)) return value
   }
   return 0
+}
+
+function isStaleBlobUrl(url?: string | null): boolean {
+  return Boolean(url?.startsWith("blob:"))
 }
 
 /** Chrome: 큰 값으로 seek 후 duration을 복구하는 트릭 */
@@ -81,18 +88,28 @@ export function AnimalPreviewStudioPanel({
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const fsVideoRef = useRef<HTMLVideoElement>(null)
-  const audioRef = useRef<HTMLAudioElement>(null)
   const [isMerging, setIsMerging] = useState(false)
+  const [isDownloading, setIsDownloading] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [error, setError] = useState("")
   const [currentTime, setCurrentTime] = useState(0)
   const [mediaDuration, setMediaDuration] = useState(0)
+  /** 합본에 TTS가 들어갔는지 (별도 audio 태그 불필요) */
+  const [muxedWithTts, setMuxedWithTts] = useState(false)
 
   const sortedVideos = [...brief.videoUrls]
     .sort((a, b) => a.index - b.index)
     .map((v) => v.videoUrl)
     .filter(Boolean)
+
+  const playableTtsUrl = useMemo(() => {
+    if (isLikelyPlayableMediaUrl(brief.ttsAudioUrl) && !isStaleBlobUrl(brief.ttsAudioUrl)) {
+      return brief.ttsAudioUrl
+    }
+    // 씬별 TTS가 data URL이면 이어 붙이진 못해도 경고에 활용
+    return ""
+  }, [brief.ttsAudioUrl])
 
   /** TTS/씬 합산 — webm duration 버그 시 폴백 */
   const fallbackDuration = useMemo(() => {
@@ -108,20 +125,41 @@ export function AnimalPreviewStudioPanel({
 
   const activeVideoRef = () => (isFullscreen ? fsVideoRef.current : videoRef.current)
 
-  const mergeClips = async () => {
+  const mergeClips = async (opts?: { forceTts?: boolean }) => {
     if (sortedVideos.length === 0) {
       setError("이어 붙일 영상 클립이 없습니다.")
-      return
+      return null
     }
     setIsMerging(true)
     setError("")
     try {
-      const merged = await mergeAnimalVideosClient(sortedVideos)
+      const tts =
+        playableTtsUrl ||
+        (opts?.forceTts
+          ? brief.ttsAudioUrl && !isStaleBlobUrl(brief.ttsAudioUrl)
+            ? brief.ttsAudioUrl
+            : undefined
+          : undefined)
+      if (brief.ttsAudioUrl && isStaleBlobUrl(brief.ttsAudioUrl)) {
+        setError(
+          "TTS 주소가 만료됐습니다(blob). 음성 단계에서 나레이션을 다시 생성한 뒤 「다시 이어 붙이기」를 눌러주세요."
+        )
+      }
+      const merged = await mergeAnimalVideosClient(sortedVideos, tts || undefined)
       setMediaDuration(0)
       setCurrentTime(0)
+      setMuxedWithTts(Boolean(tts))
       onChange({ ...brief, mergedVideoUrl: merged })
+      return merged
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "영상 이어 붙이기 실패")
+      const message =
+        reason instanceof Error ? reason.message : "영상 이어 붙이기 실패"
+      setError(
+        /no supported sources/i.test(message)
+          ? "재생할 수 있는 영상/음성이 없습니다. 클립·TTS를 다시 만든 뒤 「다시 이어 붙이기」를 눌러주세요."
+          : message
+      )
+      return null
     } finally {
       setIsMerging(false)
     }
@@ -130,10 +168,16 @@ export function AnimalPreviewStudioPanel({
   const expectedClips = Math.max(brief.scenes?.length || 0, sortedVideos.length)
 
   useEffect(() => {
+    // 저장된 blob: 합본은 새로고침 후 깨짐 → 자동으로 다시 합침
+    const mergedBroken =
+      !brief.mergedVideoUrl ||
+      isStaleBlobUrl(brief.mergedVideoUrl) ||
+      !isLikelyPlayableMediaUrl(brief.mergedVideoUrl)
+
     if (
-      !brief.mergedVideoUrl &&
       expectedClips >= 3 &&
-      sortedVideos.length === expectedClips
+      sortedVideos.length === expectedClips &&
+      (mergedBroken || !brief.mergedVideoUrl)
     ) {
       void mergeClips()
     }
@@ -156,10 +200,8 @@ export function AnimalPreviewStudioPanel({
     if (!to) return
     const t = from?.currentTime ?? currentTime
     to.currentTime = t
-    if (audioRef.current) audioRef.current.currentTime = t
     if (isPlaying) {
       void to.play().catch(() => undefined)
-      void audioRef.current?.play().catch(() => undefined)
     } else {
       to.pause()
     }
@@ -185,32 +227,56 @@ export function AnimalPreviewStudioPanel({
     if (v) v.currentTime = clamped
     if (videoRef.current && videoRef.current !== v) videoRef.current.currentTime = clamped
     if (fsVideoRef.current && fsVideoRef.current !== v) fsVideoRef.current.currentTime = clamped
-    if (audioRef.current) audioRef.current.currentTime = clamped
     setCurrentTime(clamped)
   }
 
   const togglePlay = async () => {
-    const video = activeVideoRef()
-    const audio = audioRef.current
+    let video = activeVideoRef()
+    if (!video || !brief.mergedVideoUrl) {
+      const remade = await mergeClips()
+      if (!remade) return
+      await new Promise((r) => window.setTimeout(r, 80))
+      video = activeVideoRef()
+    }
     if (!video) return
+
     if (isPlaying) {
       video.pause()
-      audio?.pause()
       setIsPlaying(false)
       return
     }
+
     try {
       if (duration > 0 && video.currentTime >= duration - 0.15) {
         seekTo(0)
       }
-      if (audio && brief.ttsAudioUrl) {
-        audio.currentTime = video.currentTime
-        await audio.play()
-      }
+      // TTS는 합본에 이미 들어감. 별도 audio 재생으로 "no supported sources" 나지 않게 함
       await video.play()
       setIsPlaying(true)
+      setError("")
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "재생 실패")
+      const message = reason instanceof Error ? reason.message : String(reason)
+      if (/no supported sources|NotSupportedError|Empty src/i.test(message)) {
+        setError("영상 소스가 깨졌습니다. 「다시 이어 붙이기」로 재생성합니다…")
+        const remade = await mergeClips()
+        if (remade) {
+          await new Promise((r) => window.setTimeout(r, 100))
+          const v2 = activeVideoRef()
+          try {
+            await v2?.play()
+            setIsPlaying(true)
+            setError("")
+          } catch (e2) {
+            setError(
+              e2 instanceof Error
+                ? e2.message
+                : "재생 실패. 영상 클립이 만료됐을 수 있으니 영상 단계에서 다시 생성해주세요."
+            )
+          }
+        }
+        return
+      }
+      setError(message || "재생 실패")
     }
   }
 
@@ -223,12 +289,37 @@ export function AnimalPreviewStudioPanel({
     setIsFullscreen(false)
   }
 
-  const download = () => {
-    if (!brief.mergedVideoUrl) return
-    const a = document.createElement("a")
-    a.href = brief.mergedVideoUrl
-    a.download = `animal-shopping-${brief.character.name}-${Date.now()}.webm`
-    a.click()
+  const download = async () => {
+    setIsDownloading(true)
+    setError("")
+    try {
+      // 다운로드는 항상 TTS를 넣어 다시 합침 (기존 합본이 무음일 수 있음)
+      let url = brief.mergedVideoUrl
+      if (!muxedWithTts || !url || isStaleBlobUrl(url)) {
+        const remade = await mergeClips({ forceTts: true })
+        if (!remade) {
+          throw new Error(
+            "다운로드용 영상을 만들지 못했습니다. TTS·클립을 확인한 뒤 다시 시도해주세요."
+          )
+        }
+        url = remade
+      }
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `animal-shopping-${brief.character.name}-${Date.now()}.webm`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      if (!playableTtsUrl && brief.ttsAudioUrl) {
+        setError(
+          "다운로드는 시작됐지만 TTS가 만료되어 무음일 수 있습니다. 음성 단계에서 TTS를 다시 만든 뒤 다운로드하세요."
+        )
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "다운로드 실패")
+    } finally {
+      setIsDownloading(false)
+    }
   }
 
   const onVideoTimeUpdate = (el: HTMLVideoElement | null) => {
@@ -243,14 +334,10 @@ export function AnimalPreviewStudioPanel({
     } else {
       setCurrentTime(Number.isFinite(t) ? t : 0)
     }
-    if (audioRef.current && Math.abs(audioRef.current.currentTime - el.currentTime) > 0.35) {
-      audioRef.current.currentTime = el.currentTime
-    }
   }
 
   const onVideoEnded = (el: HTMLVideoElement | null) => {
     setIsPlaying(false)
-    audioRef.current?.pause()
     const end = pickDuration(
       mediaDuration,
       el && isValidDuration(el.duration) ? el.duration : 0,
@@ -272,21 +359,28 @@ export function AnimalPreviewStudioPanel({
     onEnded: (e: React.SyntheticEvent<HTMLVideoElement>) => onVideoEnded(e.currentTarget),
     onPause: () => setIsPlaying(false),
     onPlay: () => setIsPlaying(true),
+    onError: () => {
+      setError(
+        "영상 로드 실패. 「다시 이어 붙이기」를 누르거나 영상 클립을 다시 생성해주세요."
+      )
+      setIsPlaying(false)
+    },
   }
 
   const sliderMax = duration > 0 ? duration : 1
   const sliderValue = Math.min(currentTime, sliderMax)
+  const hasMerged = Boolean(brief.mergedVideoUrl)
 
   return (
     <div className="space-y-6">
       <div>
-        <p className="animal-bubble-chip inline-flex px-2.5 py-1 text-[10px]">▶️ PREVIEW</p>
+        <p className="animal-bubble-chip inline-flex px-2.5 py-1 text-[10px]">PREVIEW</p>
         <h2 className="animal-display mt-2 text-xl font-bold text-[#fff6ee]">
           숏폼 미리보기 · 내보내기
         </h2>
         <p className="mt-1 text-sm text-[#9aa89c]">
-          {expectedClips || "N"}클립을 이어 붙이고 씬 TTS와 함께 재생합니다. 동물 숏폼은 자막 없이
-          내보냅니다.
+          {expectedClips || "N"}클립을 이어 붙일 때 TTS 나레이션을 함께 넣습니다. 다운로드 파일에도
+          음성이 포함됩니다.
         </p>
       </div>
 
@@ -294,7 +388,7 @@ export function AnimalPreviewStudioPanel({
         <div className="mx-auto w-full max-w-[320px]">
           <div className="overflow-hidden rounded-[1.75rem] border border-[rgba(255,246,238,0.14)] bg-black shadow-[0_24px_60px_rgba(0,0,0,0.45)]">
             <div className="relative aspect-[9/16] bg-black">
-              {brief.mergedVideoUrl ? (
+              {hasMerged ? (
                 <>
                   <video
                     ref={videoRef}
@@ -318,7 +412,7 @@ export function AnimalPreviewStudioPanel({
                   {isMerging ? (
                     <>
                       <Loader2 className="h-8 w-8 animate-spin text-[#7dd3a8]" />
-                      <p className="text-sm">클립 이어 붙이는 중…</p>
+                      <p className="text-sm">클립+TTS 이어 붙이는 중…</p>
                     </>
                   ) : (
                     <p className="text-sm">미리보기 영상이 없습니다.</p>
@@ -327,20 +421,6 @@ export function AnimalPreviewStudioPanel({
               )}
             </div>
           </div>
-
-          {brief.ttsAudioUrl ? (
-            <audio
-              ref={audioRef}
-              src={brief.ttsAudioUrl}
-              preload="auto"
-              className="hidden"
-              onLoadedMetadata={(e) => {
-                if (isValidDuration(e.currentTarget.duration) && !isValidDuration(mediaDuration)) {
-                  setMediaDuration(e.currentTarget.duration)
-                }
-              }}
-            />
-          ) : null}
 
           <div className="mt-4 space-y-3">
             <input
@@ -360,7 +440,7 @@ export function AnimalPreviewStudioPanel({
               <Button
                 type="button"
                 onClick={() => void togglePlay()}
-                disabled={!brief.mergedVideoUrl}
+                disabled={!hasMerged && sortedVideos.length === 0}
                 className="animal-mint-btn flex-1 rounded-full font-semibold"
               >
                 {isPlaying ? (
@@ -379,7 +459,7 @@ export function AnimalPreviewStudioPanel({
                 type="button"
                 variant="secondary"
                 onClick={openFullscreen}
-                disabled={!brief.mergedVideoUrl}
+                disabled={!hasMerged}
                 className="rounded-full"
                 title="전체화면"
               >
@@ -389,7 +469,7 @@ export function AnimalPreviewStudioPanel({
               <Button
                 type="button"
                 variant="secondary"
-                onClick={() => void mergeClips()}
+                onClick={() => void mergeClips({ forceTts: true })}
                 disabled={isMerging || sortedVideos.length === 0}
                 className="rounded-full"
               >
@@ -402,11 +482,15 @@ export function AnimalPreviewStudioPanel({
               </Button>
               <Button
                 type="button"
-                onClick={download}
-                disabled={!brief.mergedVideoUrl}
+                onClick={() => void download()}
+                disabled={isDownloading || (!hasMerged && sortedVideos.length === 0)}
                 className="animal-cta-cute rounded-full font-semibold"
               >
-                <Download className="mr-2 h-4 w-4" />
+                {isDownloading ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="mr-2 h-4 w-4" />
+                )}
                 다운로드
               </Button>
             </div>
@@ -424,24 +508,28 @@ export function AnimalPreviewStudioPanel({
             </div>
             <div>
               <dt className="text-[#6b7a6e]">제품</dt>
-              <dd className="font-semibold text-[#fff6ee]">{brief.productName || "—"}</dd>
+              <dd className="font-semibold text-[#fff6ee]">{brief.productName || "-"}</dd>
             </div>
             <div>
               <dt className="text-[#6b7a6e]">대본</dt>
-              <dd className="leading-6 text-[#d7e0d8]">{brief.script || "—"}</dd>
+              <dd className="leading-6 text-[#d7e0d8]">{brief.script || "-"}</dd>
             </div>
             <div>
               <dt className="text-[#6b7a6e]">생성</dt>
               <dd className="text-[#d7e0d8]">
                 씬 {brief.scenes?.length || 0} · 이미지 {brief.imageUrls.length}/
                 {brief.scenes?.length || 0} · 클립 {sortedVideos.length}/
-                {brief.scenes?.length || 0} · TTS {brief.ttsAudioUrl ? "있음" : "없음"}
+                {brief.scenes?.length || 0} · TTS{" "}
+                {playableTtsUrl ? "있음" : brief.ttsAudioUrl ? "만료됨(재생성 필요)" : "없음"}
+                {muxedWithTts ? " · 합본에 음성 포함" : ""}
               </dd>
             </div>
           </dl>
-          {!brief.ttsAudioUrl ? (
+          {!playableTtsUrl ? (
             <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
-              TTS가 없으면 영상만 재생됩니다. 음성 단계에서 나레이션을 만들어 주세요.
+              {brief.ttsAudioUrl
+                ? "TTS 링크가 만료됐습니다. 음성 단계에서 나레이션을 다시 만든 뒤 「다시 이어 붙이기」를 누르세요."
+                : "TTS가 없으면 무음 영상만 나갑니다. 음성 단계에서 나레이션을 만들어 주세요."}
             </p>
           ) : null}
         </div>

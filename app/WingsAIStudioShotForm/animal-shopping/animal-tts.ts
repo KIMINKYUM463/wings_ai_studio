@@ -128,9 +128,26 @@ export async function generateAnimalTts(params: {
 
   const data = await response.json()
   const blob = await blobFromTtsResponse(data)
-  const audioUrl = URL.createObjectURL(blob)
+  // blob: URL은 새로고침·탭 이동 후 깨져 "no supported sources"가 남 → data URL로 보관
+  const audioUrl = await blobToDataUrl(blob)
   const durationSec = await measureAudioDuration(audioUrl)
   return { audioUrl, durationSec }
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = String(reader.result || "")
+      if (!result.startsWith("data:")) {
+        reject(new Error("오디오 data URL 변환 실패"))
+        return
+      }
+      resolve(result)
+    }
+    reader.onerror = () => reject(new Error("오디오 파일을 읽지 못했습니다."))
+    reader.readAsDataURL(blob)
+  })
 }
 
 /** 여러 TTS URL을 하나로 이어 붙임 (미리보기용) */
@@ -170,10 +187,10 @@ export async function concatAnimalTtsUrls(
     offset += buf.length
   }
 
-  // WAV encode
+  // WAV encode → data URL (세션 유지)
   const wav = audioBufferToWav(merged)
   const blob = new Blob([wav], { type: "audio/wav" })
-  const audioUrl = URL.createObjectURL(blob)
+  const audioUrl = await blobToDataUrl(blob)
   await ctx.close()
   return { audioUrl, durationSec: merged.duration }
 }
