@@ -351,9 +351,10 @@ export function CoupangReviewPanel({
       <div className="space-y-1">
         <Label className="text-sm font-semibold text-zinc-200">Wings 숏폼 쿠팡 수집기</Label>
         <p className="text-xs text-zinc-500 leading-relaxed">
-          에이전트가 되면 「전송된 리뷰 불러오기」, 안 되면 확장의{" "}
-          <span className="text-orange-200/80">JSON 클립보드 복사</span> → 아래 붙여넣기로
-          동일하게 불러올 수 있습니다.
+          배포·다른 PC에서는 에이전트가 끊겨도 정상입니다. 확장에서 수집하면 JSON이
+          복사되니 아래에{" "}
+          <span className="text-orange-200/80">붙여넣기 → JSON 적용</span> 하세요. 에이전트를
+          켜면 「전송된 리뷰 불러오기」도 됩니다.
         </p>
       </div>
 

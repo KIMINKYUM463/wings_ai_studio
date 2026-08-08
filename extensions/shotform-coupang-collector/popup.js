@@ -68,6 +68,29 @@ async function probe() {
   }
 }
 
+function summarizeCollect(slim, data) {
+  const detailImages = Array.isArray(slim.detailImages) ? slim.detailImages : []
+  const base =
+    `수집 완료: 리뷰 ${slim.reviewCount}개 · 리뷰사진 ${slim.reviewImages.length}장 · 상품상세 ${detailImages.length}장` +
+    ` · 갤러리후보 ${data.productImageCount || data.productImages?.length || 0}장\n상품: ${slim.productName || "-"}`
+  if (!detailImages.length) {
+    return (
+      `${base}\n\n⚠️ 상품상세 이미지 0장\n` +
+      `「상품상세」탭 → 「상세정보 더보기」로 상세컷이 보이게 스크롤한 뒤 다시 수집하세요.`
+    )
+  }
+  return base
+}
+
+async function copySlimJson(slim) {
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(slim, null, 2))
+    return true
+  } catch {
+    return false
+  }
+}
+
 async function collectAndSend() {
   const tab = await getActiveTab()
   if (!isCoupangProductTab(tab)) {
@@ -128,30 +151,36 @@ async function collectAndSend() {
     }
     slim.reviewCount = slim.reviews.length
 
-    const ingest = await chrome.runtime.sendMessage({
-      type: "SHOTFORM_INGEST",
-      payload: slim,
-    })
-    if (!ingest?.ok) {
-      try {
-        await navigator.clipboard.writeText(JSON.stringify(slim, null, 2))
-      } catch {
-        /* ignore */
+    // 에이전트는 선택 사항. 끊겨 있어도 페이지 수집 + JSON 복사로 완료 처리
+    const probe = await chrome.runtime.sendMessage({ type: "SHOTFORM_PROBE_AGENT" })
+    if (probe?.ok) {
+      agentStatus.textContent = "연결됨"
+      agentStatus.className = "pill ok"
+      const ingest = await chrome.runtime.sendMessage({
+        type: "SHOTFORM_INGEST",
+        payload: slim,
+      })
+      if (ingest?.ok) {
+        log(
+          `${summarizeCollect(slim, data)}\n\n에이전트 전송 완료 → Wings 숏폼 「전송된 리뷰 불러오기」`
+        )
+        return
       }
-      throw new Error(
-        `${ingest?.error || "전송 실패"}\n\n로컬 에이전트를 재시작(npm run shotform:local-agent)한 뒤 다시 시도하세요.\nJSON은 클립보드에 복사됐습니다.`
-      )
+    } else {
+      agentStatus.textContent = "끊김"
+      agentStatus.className = "pill bad"
     }
 
-    if (!detailImages.length) {
-      log(
-        `전송 완료: 리뷰 ${slim.reviewCount}개 · 리뷰사진 ${slim.reviewImages.length}장\n⚠️ 상품상세 이미지 0장\n\n상단 대표 사진(갤러리)은 가져오지 않습니다.\n「상품상세」탭 → 「상세정보 더보기」로\n상세컷이 보이게 스크롤한 뒤 다시 수집하세요.\n\n상품: ${slim.productName || "-"}`
-      )
-    } else {
-      log(
-        `전송 완료: 리뷰 ${slim.reviewCount}개 · 리뷰사진 ${slim.reviewImages.length}장 · 갤러리후보 ${data.productImageCount || data.productImages?.length || 0}장 · 상품상세 ${detailImages.length}장\n상품: ${slim.productName || "-"}\n\nWings 숏폼 → 「전송된 리뷰 불러오기」\n(제품 1·2번은 AI가 선정)`
-      )
-    }
+    const copied = await copySlimJson(slim)
+    log(
+      `${summarizeCollect(slim, data)}\n\n` +
+        (copied
+          ? "에이전트 없이 완료 · JSON이 클립보드에 복사됐습니다.\n" +
+            "배포/다른 PC에서는 이게 정상입니다.\n\n" +
+            "Wings 숏폼 → 「JSON 붙여넣기」칸에 Ctrl+V → 「JSON 적용」"
+          : "에이전트 없이 수집은 됐지만 클립보드 복사에 실패했습니다.\n" +
+            "「JSON 클립보드 복사」 버튼을 한 번 더 눌러 주세요.")
+    )
   } catch (e) {
     log(e instanceof Error ? e.message : String(e))
   } finally {

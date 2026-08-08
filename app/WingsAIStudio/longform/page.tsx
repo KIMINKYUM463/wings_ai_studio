@@ -30832,7 +30832,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                     handleChatbotSend()
                   }
                 }}
-                className="flex-1 min-h-[60px] max-h-[120px] resize-none"
+                className="flex-1 min-h-[60px] max-h-[120px] resize-none bg-white text-gray-900 caret-gray-900 placeholder:text-gray-400"
                 disabled={isChatbotGenerating}
               />
               <Button

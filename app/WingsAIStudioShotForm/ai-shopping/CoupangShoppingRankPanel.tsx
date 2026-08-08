@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { motion } from "framer-motion"
-import { BarChart3, Bot, Check, Copy, ExternalLink, Film, Loader2, RefreshCw, Rocket, ShoppingBag, Sparkles, Tag, Trophy, WalletCards } from "lucide-react"
+import { BarChart3, Bot, ExternalLink, Film, Loader2, RefreshCw, Rocket, ShoppingBag, Sparkles, Tag, Trophy, WalletCards } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type { CoupangRankedProduct } from "@/lib/shotform-keyword-analysis-types"
@@ -37,7 +37,6 @@ export function CoupangShoppingRankPanel() {
   const [products, setProducts] = useState<CoupangRankedProduct[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
-  const [copiedProductId, setCopiedProductId] = useState("")
   const [insights, setInsights] = useState<ProductInsight[]>([])
   const [insightLoading, setInsightLoading] = useState(false)
   const [insightError, setInsightError] = useState("")
@@ -121,12 +120,6 @@ export function CoupangShoppingRankPanel() {
     }
   }, [loading, products, categoryName, analyzeTop3])
 
-  const copyCoupasLink = async (product: CoupangRankedProduct) => {
-    await navigator.clipboard.writeText(product.productUrl)
-    setCopiedProductId(product.productId)
-    window.setTimeout(() => setCopiedProductId(""), 1600)
-  }
-
   return (
     <Card className="relative overflow-hidden border-amber-400/20 bg-[radial-gradient(circle_at_top_right,#31200d_0%,#15131a_34%,#0c1019_100%)] shadow-[0_28px_90px_rgba(245,158,11,0.08)]">
       <motion.div
@@ -167,7 +160,7 @@ export function CoupangShoppingRankPanel() {
               </span>
             </CardTitle>
             <p className="mt-1 text-xs text-zinc-500">
-              쿠팡 파트너스 카테고리 베스트 · {categoryName} TOP 10 · 쿠파스 링크 즉시 복사
+              쿠팡 파트너스 카테고리 베스트 · {categoryName} TOP 10
             </p>
             <p className="mt-2 flex items-center gap-2 text-[10px] text-amber-300/70">
               <span className="relative flex h-2 w-2">
@@ -441,9 +434,7 @@ export function CoupangShoppingRankPanel() {
           </div>
         ) : products.length ? (
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-            {products.map((product, index) => {
-              const copied = copiedProductId === product.productId
-              return (
+            {products.map((product, index) => (
                 <motion.article
                   key={`${categoryId}-${product.productId}-${product.rank}`}
                   initial={{ opacity: 0, y: 24, scale: 0.97 }}
@@ -481,29 +472,17 @@ export function CoupangShoppingRankPanel() {
                     <p className="text-sm font-black text-amber-300">
                       {product.productPrice.toLocaleString()}원
                     </p>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={() => void copyCoupasLink(product)}
-                        className="h-8 bg-amber-500 text-[10px] font-bold text-zinc-950 hover:bg-amber-400"
-                      >
-                        {copied ? <Check className="mr-1 h-3 w-3" /> : <Copy className="mr-1 h-3 w-3" />}
-                        {copied ? "복사됨" : "쿠파스 링크"}
-                      </Button>
-                      <a
-                        href={product.productUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-white/10 bg-white/5 text-[10px] font-semibold text-zinc-300 hover:bg-white/10"
-                      >
-                        상품 보기 <ExternalLink className="h-3 w-3" />
-                      </a>
-                    </div>
+                    <a
+                      href={product.productUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex h-8 w-full items-center justify-center gap-1 rounded-md border border-white/10 bg-white/5 text-[10px] font-semibold text-zinc-300 hover:bg-white/10"
+                    >
+                      상품 보기 <ExternalLink className="h-3 w-3" />
+                    </a>
                   </div>
                 </motion.article>
-              )
-            })}
+            ))}
           </div>
         ) : (
           <div className="flex min-h-64 items-center justify-center rounded-xl border border-dashed border-white/10 text-xs text-zinc-600">
