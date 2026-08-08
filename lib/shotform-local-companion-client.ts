@@ -84,11 +84,21 @@ function companionReady(
 function openShotformAgentProtocol() {
   if (typeof window === "undefined") return
   try {
+    const a = document.createElement("a")
+    a.href = "shotform-agent://start"
+    a.style.display = "none"
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+  } catch {
+    /* ignore */
+  }
+  try {
     const iframe = document.createElement("iframe")
     iframe.style.display = "none"
     iframe.src = "shotform-agent://start"
     document.body.appendChild(iframe)
-    window.setTimeout(() => iframe.remove(), 2000)
+    window.setTimeout(() => iframe.remove(), 2500)
   } catch {
     /* protocol not registered */
   }
@@ -105,16 +115,40 @@ export function downloadLocalAgentStarter(): void {
   a.remove()
 }
 
-/** 쿠팡 수집기 확장에 .cmd 실행 창 열기 요청 */
-export function requestExtensionLaunchAgent(): void {
+/**
+ * 수집기 확장과 무관하게 에이전트 창을 연다.
+ * - shotform-agent:// 프로토콜
+ * - /api/shotform/local-agent/open 팝업 (프로토콜 + .cmd 다운로드)
+ * - 로컬 Next면 터미널 API
+ */
+export function launchLocalAgentWindow(): void {
   if (typeof window === "undefined") return
-  const cmdUrl = `${window.location.origin}/api/shotform/local-agent/download?file=cmd`
-  window.postMessage({ type: "SHOTFORM_LAUNCH_AGENT", cmdUrl }, window.location.origin)
+  openShotformAgentProtocol()
+  try {
+    window.open(
+      "/api/shotform/local-agent/open",
+      "shotform_local_agent",
+      "popup=yes,width=520,height=360"
+    )
+  } catch {
+    /* popup blocked */
+  }
+  // 보조: 수집기 확장이 있으면 더 잘 열릴 수 있음 (필수는 아님)
+  try {
+    const cmdUrl = `${window.location.origin}/api/shotform/local-agent/download?file=cmd`
+    window.postMessage({ type: "SHOTFORM_LAUNCH_AGENT", cmdUrl }, window.location.origin)
+  } catch {
+    /* ignore */
+  }
+}
+
+/** @deprecated use launchLocalAgentWindow — kept for older call sites */
+export function requestExtensionLaunchAgent(): void {
+  launchLocalAgentWindow()
 }
 
 /**
- * 「에이전트 실행」— 매번 cmd 실행 창을 연다.
- * 수집기 확장 자동 연결 확인은 하지 않음.
+ * 「에이전트 실행」— 수집기 없이 cmd/에이전트 창을 연다.
  */
 export async function connectLocalAgent(opts?: {
   companionUrl?: string
@@ -129,10 +163,8 @@ export async function connectLocalAgent(opts?: {
     typeof window !== "undefined" &&
     (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
 
-  // 이미 떠 있어도 실행 창을 다시 연다 (포트 사용 중이면 에이전트가 바로 종료)
-  onProgress?.("에이전트 실행 창을 여는 중…")
-  requestExtensionLaunchAgent()
-  openShotformAgentProtocol()
+  onProgress?.("에이전트 실행 창을 여는 중… (수집기 확장 불필요)")
+  launchLocalAgentWindow()
 
   if (isLocalHost) {
     try {
@@ -146,24 +178,28 @@ export async function connectLocalAgent(opts?: {
     }
   }
 
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 25; i++) {
     await sleep(1000)
     const health = await probeLocalCompanion(baseUrl)
     if (companionReady(health, requireFfmpeg)) {
       onProgress?.(
-        "에이전트 실행 창이 열렸습니다.\n쿠팡 수집기를 열어 「연결 확인」하세요."
+        "에이전트가 실행 중입니다. (http://127.0.0.1:3847)\n검은 창은 끄지 마세요."
       )
       return health
     }
   }
 
+  // 프로토콜 미등록 PC: open 팝업이 .cmd를 받음 → 최초 1회 실행 필요
+  downloadLocalAgentStarter()
   onProgress?.(
-    "에이전트 실행 창을 열었습니다.\n쿠팡 수집기를 열어 「연결 확인」하세요."
+    "에이전트 창이 안 떴다면 다운로드된 start-shotform-agent.cmd 를 한 번 실행하세요.\n" +
+      "(최초 1회만 · 이후 「에이전트 실행」만으로 창이 열립니다 · 수집기 불필요)"
   )
   return {
     ok: false,
     ffmpeg: false,
-    error: "에이전트 실행 창을 열었습니다. 쿠팡 수집기를 열어 「연결 확인」하세요.",
+    error:
+      "에이전트 실행을 요청했습니다. 창이 없으면 start-shotform-agent.cmd 를 한 번 실행하세요.",
   }
 }
 

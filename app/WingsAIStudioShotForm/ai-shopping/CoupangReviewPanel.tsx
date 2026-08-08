@@ -8,7 +8,7 @@ import { ClipboardPaste, Download, Loader2, PlugZap } from "lucide-react"
 import {
   connectLocalAgent,
   fetchCoupangIngestedOnCompanion,
-  requestExtensionLaunchAgent,
+  launchLocalAgentWindow,
 } from "@/lib/shotform-local-companion-client"
 import {
   coupangStatusMessage,
@@ -255,12 +255,12 @@ export function CoupangReviewPanel({
     )
   }
 
-  /** 클릭 즉시 cmd 실행 창을 연다 (수집기에서 연결 확인) */
+  /** 수집기 확장과 무관하게 cmd/에이전트 창을 연다 */
   const handleConnectAgent = async () => {
     setIsConnect(true)
     setStatusMsg("에이전트 실행 창을 여는 중…")
-    // await 전에 동기 호출 — 확장 브리지가 cmd를 바로 열도록
-    requestExtensionLaunchAgent()
+    // 클릭 제스처 안에서 즉시 실행 (팝업/프로토콜)
+    launchLocalAgentWindow()
     try {
       const health = await connectLocalAgent({
         requireFfmpeg: false,
@@ -269,9 +269,9 @@ export function CoupangReviewPanel({
       setAgentOnline(Boolean(health.ok))
       setStatusMsg(
         health.ok
-          ? "에이전트 실행됨 (http://127.0.0.1:3847)\n검은 창은 끄지 마세요. 쿠팡 수집기를 열어 「연결 확인」하세요."
+          ? "에이전트 실행됨 (http://127.0.0.1:3847)\n검은 창은 끄지 마세요."
           : health.error ||
-              "에이전트 실행 창을 열었습니다. 쿠팡 수집기를 열어 「연결 확인」하세요."
+              "에이전트 실행을 요청했습니다. 창이 없으면 다운로드된 .cmd를 한 번 실행하세요."
       )
     } finally {
       setIsConnect(false)
@@ -349,8 +349,8 @@ export function CoupangReviewPanel({
       <div className="space-y-1">
         <Label className="text-sm font-semibold text-zinc-200">Wings 숏폼 쿠팡 수집기</Label>
         <p className="text-xs text-zinc-500 leading-relaxed">
-          <span className="text-orange-200/80">「에이전트 실행」</span>을 누르면 cmd 창이
-          열립니다. 그다음 쿠팡 수집기에서 「연결 확인」하세요. (확장 v1.3.1+)
+          <span className="text-orange-200/80">「에이전트 실행」</span>은 수집기와 상관없이
+          cmd 창을 엽니다. (최초 1회만 .cmd 실행이 필요할 수 있음)
         </p>
       </div>
 
@@ -362,8 +362,6 @@ export function CoupangReviewPanel({
           disabled={isConnect || isPull || isPasteApply}
           onClick={() => void handleConnectAgent()}
           className="font-semibold"
-          data-shotform-launch-agent="1"
-          data-shotform-cmd-url="/api/shotform/local-agent/download?file=cmd"
         >
           {isConnect ? (
             <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />

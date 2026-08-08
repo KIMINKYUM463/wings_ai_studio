@@ -15,8 +15,9 @@ function resolveOrigin(req: Request): string {
 }
 
 /**
- * Windows cmd.exe + Korean UTF-8 breaks batch parsing (bytes can look like ')').
+ * Windows cmd.exe + Korean UTF-8 breaks batch parsing.
  * Keep this file ASCII-only. No parentheses blocks.
+ * Collector extension is NOT required — protocol shotform-agent:// opens a visible cmd.
  */
 function buildStarterCmd(origin: string): string {
   const agentUrl = `${origin}/api/shotform/local-agent/download?file=agent`
@@ -46,14 +47,14 @@ function buildStarterCmd(origin: string): string {
     "if errorlevel 1 goto DlFail",
     ":Register",
     'if not exist "%AGENT%" goto DlFail',
-    "echo Registering shotform-agent protocol...",
-    'for /f "delims=" %%N in (\'where node\') do set "NODE_EXE=%%N"',
+    "echo Registering shotform-agent:// protocol...",
     'reg add "HKCU\\Software\\Classes\\shotform-agent" /ve /d "URL:ShotForm Local Agent" /f >nul 2>&1',
     'reg add "HKCU\\Software\\Classes\\shotform-agent" /v "URL Protocol" /d "" /f >nul 2>&1',
-    'reg add "HKCU\\Software\\Classes\\shotform-agent\\shell\\open\\command" /ve /d "\\"%NODE_EXE%\\" \\"%AGENT%\\"" /f >nul 2>&1',
+    // Visible console — Wings button uses this protocol (no collector needed)
+    'reg add "HKCU\\Software\\Classes\\shotform-agent\\shell\\open\\command" /ve /d "cmd.exe /c start \\"ShotForm Local Agent\\" cmd.exe /k node \\"%AGENT%\\"" /f >nul 2>&1',
     "echo.",
     "echo Starting agent. Keep this window open.",
-    "echo Then return to Wings and click Connect.",
+    "echo Next time: Wings button opens this via shotform-agent://",
     "echo.",
     'node "%AGENT%"',
     "echo.",
@@ -106,7 +107,6 @@ export async function GET(req: Request) {
   }
 
   const cmd = buildStarterCmd(origin)
-  // charset=us-ascii so browsers/OS don't treat it as UTF-8 Korean batch
   return new NextResponse(cmd, {
     status: 200,
     headers: {
