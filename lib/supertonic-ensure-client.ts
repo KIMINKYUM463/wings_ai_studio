@@ -97,13 +97,69 @@ async function ensureViaLocalAgent(opts?: {
   }
 
   onProgress?.({
-    phase: "installing",
-    message: "이 PC에 Supertonic 3 설치·기동 중… (최초 1회는 수 분 소요)",
+    phase: "checking",
+    message:
+      "체크: 로컬 에이전트(3847) OK → Python·Supertonic 설치 확인 중…",
   })
   try {
-    const startRes = await fetch(`${base}/supertonic/ensure`, { method: "POST" })
+    const prereqRes = await fetch(`${base}/supertonic/prereq`, { cache: "no-store" })
+    if (prereqRes.status === 404) {
+      const fail: SupertonicEnsureClientStatus = {
+        success: false,
+        phase: "error",
+        online: false,
+        message:
+          "에이전트가 오래되어 Supertonic 자동 설치를 지원하지 않습니다.\n1) 에이전트 창을 닫고\n2) 사이트에서 「에이전트 실행」으로 start-shotform-agent.cmd 를 다시 받아 실행한 뒤\n3) 「Supertonic 자동 실행」을 다시 누르세요.",
+      }
+      onProgress?.(fail)
+      return fail
+    }
+    const prereq = (await prereqRes.json().catch(() => ({}))) as {
+      python?: boolean
+      pythonVersion?: string
+      tip?: string
+      ensureMessage?: string
+    }
+    if (prereq.python === false) {
+      const fail: SupertonicEnsureClientStatus = {
+        success: false,
+        phase: "error",
+        online: false,
+        error: "python_missing",
+        message:
+          "체크 실패: 이 PC에 Python이 없습니다.\nhttps://www.python.org/downloads/ 에서 Python 3 설치(Add to PATH 체크) → PC 재시작 → 에이전트 창 닫고 다시 실행 → 「Supertonic 자동 실행」.",
+      }
+      onProgress?.(fail)
+      return fail
+    }
+    onProgress?.({
+      phase: "installing",
+      message: prereq.pythonVersion
+        ? `체크 OK: Python ${prereq.pythonVersion} · 이 PC에 Supertonic 3 설치·기동 중… (최초 1회 수 분)`
+        : "이 PC에 Supertonic 3 설치·기동 중… (최초 1회는 수 분 소요)",
+    })
+
+    const startRes = await fetch(`${base}/supertonic/ensure`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        origin: typeof window !== "undefined" ? window.location.origin : "",
+      }),
+    })
+    if (startRes.status === 404) {
+      const fail: SupertonicEnsureClientStatus = {
+        success: false,
+        phase: "error",
+        online: false,
+        message:
+          "에이전트가 오래되어 Supertonic 자동 설치를 지원하지 않습니다. 에이전트 창을 닫고 start-shotform-agent.cmd 를 다시 받아 실행하세요.",
+      }
+      onProgress?.(fail)
+      return fail
+    }
     const start = (await startRes.json().catch(() => ({}))) as SupertonicEnsureClientStatus
     onProgress?.(start)
+    if (start.phase === "error") return start
     if (start.online || start.phase === "ready") {
       return { ...start, online: true, phase: "ready", success: true }
     }

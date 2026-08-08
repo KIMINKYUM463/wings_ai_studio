@@ -149,8 +149,10 @@ pause
       </Button>
 
       <p className="text-[10px] leading-relaxed text-zinc-500">
-        버튼을 누르면 이 PC에서 서버를 자동으로 켭니다. 터미널을 직접 열 필요
-        없습니다. (최초 1회는 Python·모델 설치로 수 분 걸릴 수 있음)
+        마냥 기다리는 게 아니라 아래를 확인하세요. (1) ShotForm Local Agent 창이
+        열려 있고 3847 표시 (2) 그 PC에 Python 3 + PATH (3) 상태 문구가
+        installing → starting → ready 로 바뀜. 최초 1회만 pip·모델로 수 분 걸릴
+        수 있습니다. 문구가 안 바뀌면 에이전트를 최신 .cmd로 다시 실행하세요.
       </p>
 
       {healthMsg ? (
