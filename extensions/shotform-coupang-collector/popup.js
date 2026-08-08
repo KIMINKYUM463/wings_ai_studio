@@ -2,6 +2,9 @@ const $ = (id) => document.getElementById(id)
 const logEl = $("log")
 const agentStatus = $("agentStatus")
 
+/** 마지막 수집 JSON (복사 버튼은 이것만 사용 — 재수집 금지) */
+let lastCollectedSlim = null
+
 function log(msg) {
   logEl.textContent = msg
 }
@@ -44,6 +47,26 @@ async function loadAgentUrl() {
   $("agentUrl").value = stored.agentUrl || "http://127.0.0.1:3847"
 }
 
+async function restoreLastCollected() {
+  try {
+    const stored = await chrome.storage.local.get(["lastCollectedSlim"])
+    if (stored.lastCollectedSlim && typeof stored.lastCollectedSlim === "object") {
+      lastCollectedSlim = stored.lastCollectedSlim
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+async function rememberCollected(slim) {
+  lastCollectedSlim = slim
+  try {
+    await chrome.storage.local.set({ lastCollectedSlim: slim })
+  } catch {
+    /* ignore */
+  }
+}
+
 async function saveAgentUrl() {
   const url = ($("agentUrl").value || "http://127.0.0.1:3847").replace(/\/$/, "")
   await chrome.runtime.sendMessage({ type: "SHOTFORM_SET_AGENT", agentUrl: url })
@@ -84,6 +107,41 @@ function summarizeCollect(slim, data) {
   return base
 }
 
+function buildSlimFromCollectData(data) {
+  const detailImages = Array.isArray(data.detailImages) ? data.detailImages : []
+  const reviews = (data.reviews || [])
+    .map((review) => ({
+      content: String(review.content || "").trim(),
+      page: review.page,
+      indexOnPage: review.indexOnPage,
+      images: Array.isArray(review.images) ? review.images.filter(Boolean) : [],
+    }))
+    .filter((review) => review.content.length >= 2)
+  const slim = {
+    productName: data.productName || "",
+    price: data.price || data.productPrice || "",
+    productPrice: data.price || data.productPrice || "",
+    delivery: data.delivery || data.productDelivery || "",
+    productDelivery: data.delivery || data.productDelivery || "",
+    images: Array.isArray(data.images) ? data.images : [],
+    detailImages,
+    productImage: data.productImage || detailImages[0] || "",
+    productUrl: data.productUrl || "",
+    reviews,
+    reviewImages: Array.from(
+      new Set([
+        ...(Array.isArray(data.reviewImages) ? data.reviewImages : []),
+        ...reviews.flatMap((review) => review.images),
+      ])
+    ),
+    reviewCount: 0,
+    source: "chrome-extension",
+    at: new Date().toISOString(),
+  }
+  slim.reviewCount = slim.reviews.length
+  return slim
+}
+
 async function copySlimJson(slim) {
   try {
     await navigator.clipboard.writeText(JSON.stringify(slim, null, 2))
@@ -108,6 +166,7 @@ async function collectAndSend() {
 
   const maxReviews = Number($("maxReviews").value) || 20
   $("btnCollect").disabled = true
+  $("btnCopy").disabled = true
   log("상품·상세 이미지·리뷰·리뷰 사진을 한번에 수집 중…\n리뷰 페이지를 이동하므로 잠시 기다려주세요.")
 
   try {
@@ -121,41 +180,12 @@ async function collectAndSend() {
       )
     }
 
-    const detailImages = Array.isArray(data.detailImages) ? data.detailImages : []
-    const reviews = (data.reviews || [])
-      .map((review) => ({
-        content: String(review.content || "").trim(),
-        page: review.page,
-        indexOnPage: review.indexOnPage,
-        images: Array.isArray(review.images) ? review.images.filter(Boolean) : [],
-      }))
-      .filter((review) => review.content.length >= 2)
-    const slim = {
-      productName: data.productName || "",
-      price: data.price || data.productPrice || "",
-      productPrice: data.price || data.productPrice || "",
-      delivery: data.delivery || data.productDelivery || "",
-      productDelivery: data.delivery || data.productDelivery || "",
-      images: Array.isArray(data.images) ? data.images : [],
-      detailImages,
-      productImage: data.productImage || detailImages[0] || "",
-      productUrl: data.productUrl || "",
-      reviews,
-      reviewImages: Array.from(
-        new Set([
-          ...(Array.isArray(data.reviewImages) ? data.reviewImages : []),
-          ...reviews.flatMap((review) => review.images),
-        ])
-      ),
-      reviewCount: 0,
-      source: "chrome-extension",
-      at: new Date().toISOString(),
-    }
-    slim.reviewCount = slim.reviews.length
+    const slim = buildSlimFromCollectData(data)
+    await rememberCollected(slim)
 
     // 에이전트는 선택 사항. 끊겨 있어도 페이지 수집 + JSON 복사로 완료 처리
-    const probe = await chrome.runtime.sendMessage({ type: "SHOTFORM_PROBE_AGENT" })
-    if (probe?.ok) {
+    const probeRes = await chrome.runtime.sendMessage({ type: "SHOTFORM_PROBE_AGENT" })
+    if (probeRes?.ok) {
       agentStatus.textContent = "연결됨"
       agentStatus.className = "pill ok"
       const ingest = await chrome.runtime.sendMessage({
@@ -164,7 +194,7 @@ async function collectAndSend() {
       })
       if (ingest?.ok) {
         log(
-          `${summarizeCollect(slim, data)}\n\n에이전트 전송 완료 → Wings 숏폼 「전송된 리뷰 불러오기」`
+          `${summarizeCollect(slim, data)}\n\n에이전트 전송 완료 → Wings 숏폼 「전송된 리뷰 불러오기」\n(다시 복사하려면 「JSON 클립보드 복사」)`
         )
         return
       }
@@ -179,30 +209,43 @@ async function collectAndSend() {
         (copied
           ? "에이전트 없이 완료 · JSON이 클립보드에 복사됐습니다.\n" +
             "배포/다른 PC에서는 이게 정상입니다.\n\n" +
-            "Wings 숏폼 → 「JSON 붙여넣기」칸에 Ctrl+V → 「JSON 적용」"
+            "Wings 숏폼 → 「JSON 붙여넣기」칸에 Ctrl+V → 「JSON 적용」\n" +
+            "(다시 복사만 하려면 「JSON 클립보드 복사」)"
           : "에이전트 없이 수집은 됐지만 클립보드 복사에 실패했습니다.\n" +
-            "「JSON 클립보드 복사」 버튼을 한 번 더 눌러 주세요.")
+            "「JSON 클립보드 복사」 버튼을 한 번 더 눌러 주세요. (재수집하지 않습니다)")
     )
   } catch (e) {
     log(e instanceof Error ? e.message : String(e))
   } finally {
     $("btnCollect").disabled = false
+    $("btnCopy").disabled = false
   }
 }
 
+/** 이미 수집된 JSON만 복사 — 페이지 수집을 다시 돌리지 않음 */
 async function copyJsonOnly() {
-  const tab = await getActiveTab()
-  if (!isCoupangProductTab(tab)) {
-    log("쿠팡 상품 페이지 탭에서 실행하세요.")
+  if (!lastCollectedSlim) {
+    await restoreLastCollected()
+  }
+  if (!lastCollectedSlim) {
+    log(
+      "복사할 수집 결과가 없습니다.\n먼저 「상품·상세·리뷰·사진 한번에 수집」을 실행한 뒤,\n이 버튼으로 결과만 다시 복사하세요."
+    )
     return
   }
+
   $("btnCopy").disabled = true
   try {
-    const maxReviews = Number($("maxReviews").value) || 20
-    const data = await collectFromTab(tab, maxReviews)
-    await navigator.clipboard.writeText(JSON.stringify(data, null, 2))
+    const copied = await copySlimJson(lastCollectedSlim)
+    if (!copied) {
+      throw new Error(
+        "클립보드 복사에 실패했습니다. 팝업에 포커스를 둔 채 다시 눌러 주세요."
+      )
+    }
+    const n = lastCollectedSlim.reviews?.length || lastCollectedSlim.reviewCount || 0
     log(
-      `JSON ${data.reviews?.length || 0}개 리뷰를 클립보드에 복사했습니다.\n\nWings 숏폼 → 쿠팡 수집기 → 「JSON 붙여넣기」칸에 붙여넣고 「JSON 적용」`
+      `JSON 복사 완료 (재수집 없음) · 리뷰 ${n}개\n\n` +
+        `Wings 숏폼 → 「JSON 붙여넣기」칸에 Ctrl+V → 「JSON 적용」`
     )
   } catch (e) {
     log(e instanceof Error ? e.message : String(e))
@@ -217,3 +260,4 @@ $("btnCopy").addEventListener("click", () => void copyJsonOnly())
 
 // 연결 확인은 버튼 클릭 시에만 (자동 확인 없음)
 void loadAgentUrl()
+void restoreLastCollected()
