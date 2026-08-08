@@ -64,7 +64,7 @@ async function probe() {
     agentStatus.className = "pill bad"
     log(
       `에이전트 연결 실패 (${res?.base || ""})\n` +
-        `Wings에서 「에이전트 연결」로 실행 창을 연 뒤, 여기서 「연결 확인」을 누르세요.\n` +
+        `Wings 「에이전트 실행」으로 cmd 창을 연 뒤, 여기서 「연결 확인」을 누르세요.\n` +
         `${res?.error || ""}`
     )
   }
@@ -215,4 +215,5 @@ $("btnProbe").addEventListener("click", () => void probe())
 $("btnCollect").addEventListener("click", () => void collectAndSend())
 $("btnCopy").addEventListener("click", () => void copyJsonOnly())
 
-void loadAgentUrl().then(() => probe())
+// 연결 확인은 버튼 클릭 시에만 (자동 확인 없음)
+void loadAgentUrl()
