@@ -38,6 +38,8 @@ type Props = {
   saving?: boolean
   onDownload?: () => void | Promise<unknown>
   downloading?: boolean
+  /** 다운로드 중 버튼에 표시할 상태 문구 */
+  downloadingLabel?: string
   backLabel?: string
   closeLabel?: string
   theme?: "light" | "dark"
@@ -58,6 +60,7 @@ export function ShotFormEditorDialogShell({
   saving = false,
   onDownload,
   downloading = false,
+  downloadingLabel,
   backLabel = "이전 단계",
   closeLabel = "영상 편집기 닫기",
   theme = "light",
@@ -226,11 +229,15 @@ export function ShotFormEditorDialogShell({
             )}
           >
             {downloading ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" />
             ) : (
-              <Download className="mr-2 h-4 w-4" />
+              <Download className="mr-2 h-4 w-4 shrink-0" />
             )}
-            {downloading ? "다운로드 중" : "다운로드"}
+            <span className="max-w-[220px] truncate">
+              {downloading
+                ? downloadingLabel?.trim() || "다운로드 중"
+                : "다운로드"}
+            </span>
           </Button>
         ) : null}
         {onSave ? (

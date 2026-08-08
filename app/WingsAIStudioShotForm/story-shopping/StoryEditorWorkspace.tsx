@@ -16,6 +16,7 @@ import { flushSync } from "react-dom"
 import {
   Camera,
   Clapperboard,
+  Download,
   Film,
   FolderUp,
   Globe2,
@@ -97,6 +98,7 @@ import {
 } from "./story-sfx-utils"
 import {
   downloadBlobAsFile,
+  pickStoryVideoSaveHandle,
   recordStoryPreviewStage,
   type StoryExportClip,
   type StoryExportProgress,
@@ -426,6 +428,11 @@ export const StoryEditorWorkspace = forwardRef<
   const [downloadStatusText, setDownloadStatusText] = useState(
     "영상 다운로드 중…"
   )
+  const [downloadBannerError, setDownloadBannerError] = useState("")
+  const [pendingDownload, setPendingDownload] = useState<{
+    url: string
+    filename: string
+  } | null>(null)
   const playGenRef = useRef(0)
   const playheadRef = useRef(0)
   const isPlayingRef = useRef(false)
@@ -3408,15 +3415,61 @@ export const StoryEditorWorkspace = forwardRef<
   const runVideoDownload = async () => {
     if (isDownloadingRef.current) return
     if (!slots.length) {
-      setSearchError("다운로드할 클립이 없습니다.")
-      return
+      const message = "다운로드할 클립이 없습니다."
+      setDownloadBannerError(message)
+      throw new Error(message)
     }
     const firstSlot = slots[0]
-    if (!firstSlot) return
+    if (!firstSlot) {
+      const message = "다운로드할 클립이 없습니다."
+      setDownloadBannerError(message)
+      throw new Error(message)
+    }
+
+    const fileBaseName =
+      (
+        brief.generatedStory?.title ||
+        brief.productName ||
+        "story-shopping"
+      )
+        .replace(/[\\/:*?"<>|]+/g, "")
+        .slice(0, 40) || "story-shopping"
+    const suggestedFilename = `${fileBaseName}-${Date.now()}.webm`
+
+    // 클릭 직후 저장 위치 확보 (Chrome) — 긴 녹화 후 a.click() 차단 방지
+    let saveHandle: FileSystemFileHandle | null = null
+    try {
+      saveHandle = await pickStoryVideoSaveHandle(suggestedFilename)
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        setDownloadBannerError("")
+        onDownloadProgress?.({
+          phase: "error",
+          message: "저장이 취소되었습니다.",
+          ratio: 0,
+        })
+        return
+      }
+    }
 
     isDownloadingRef.current = true
     setIsDownloading(true)
-    setDownloadStatusText("클립 이미지를 불러오는 중…")
+    setDownloadStatusText(
+      saveHandle
+        ? "선택한 경로로 저장할 영상을 준비하는 중…"
+        : "클립 이미지를 불러오는 중…"
+    )
+    setDownloadBannerError("")
+    setPendingDownload((prev) => {
+      if (prev?.url) {
+        try {
+          URL.revokeObjectURL(prev.url)
+        } catch {
+          /* ignore */
+        }
+      }
+      return null
+    })
     setSearchError("")
     stopPlayback()
     const previousPreviewZoom = previewZoom
@@ -3506,13 +3559,7 @@ export const StoryEditorWorkspace = forwardRef<
           getClipKey: () => selectedKeyRef.current || selectedKey,
           isActive: () =>
             isDownloadingRef.current && playGenRef.current >= downloadGen,
-          fileBaseName: (
-            brief.generatedStory?.title ||
-            brief.productName ||
-            "story-shopping"
-          )
-            .replace(/[\\/:*?"<>|]+/g, "")
-            .slice(0, 40) || "story-shopping",
+          fileBaseName,
           onProgress: (progress) => {
             // 상태 문구도 과도하게 갱신하지 않음 (녹화 프레임 우선)
             if (progress?.message) {
@@ -3530,12 +3577,29 @@ export const StoryEditorWorkspace = forwardRef<
           },
         })
 
-        await downloadBlobAsFile(blob, filename)
-        onDownloadProgress?.({
-          phase: "done",
-          message: "다운로드 완료",
-          ratio: 1,
-        })
+        setDownloadStatusText("파일로 저장하는 중…")
+        const result = await downloadBlobAsFile(blob, filename, saveHandle)
+        if (!result.savedToHandle && result.fallbackUrl) {
+          // 자동 다운로드가 막혔을 수 있어 수동 저장 버튼 제공
+          setPendingDownload({
+            url: result.fallbackUrl,
+            filename: result.filename,
+          })
+          setDownloadStatusText(
+            "저장 준비 완료 — 아래「파일 저장」을 한 번 더 눌러주세요"
+          )
+          onDownloadProgress?.({
+            phase: "done",
+            message: "저장 버튼 클릭 필요",
+            ratio: 1,
+          })
+        } else {
+          onDownloadProgress?.({
+            phase: "done",
+            message: "다운로드 완료",
+            ratio: 1,
+          })
+        }
       } finally {
         stageEl.style.width = previousInline.width
         stageEl.style.height = previousInline.height
@@ -3545,15 +3609,16 @@ export const StoryEditorWorkspace = forwardRef<
       }
     } catch (reason) {
       console.error("[StoryEditor] 다운로드 실패:", reason)
-      setSearchError(
+      const message =
         reason instanceof Error ? reason.message : "영상 다운로드에 실패했습니다."
-      )
+      setDownloadBannerError(message)
+      setSearchError(message)
       onDownloadProgress?.({
         phase: "error",
-        message:
-          reason instanceof Error ? reason.message : "영상 다운로드에 실패했습니다.",
+        message,
         ratio: 0,
       })
+      throw reason instanceof Error ? reason : new Error(message)
     } finally {
       try {
         await recordContext.close()
@@ -3563,13 +3628,19 @@ export const StoryEditorWorkspace = forwardRef<
       setPreviewZoom(previousPreviewZoom)
       isDownloadingRef.current = false
       setIsDownloading(false)
-      window.setTimeout(() => onDownloadProgress?.(null), 2500)
+      window.setTimeout(() => onDownloadProgress?.(null), 4000)
     }
   }
 
-  useImperativeHandle(ref, () => ({
-    downloadVideo: () => runVideoDownload(),
-  }))
+  useImperativeHandle(
+    ref,
+    () => ({
+      downloadVideo: () => runVideoDownload(),
+    }),
+    // slots/brief 등이 바뀌어도 최신 runVideoDownload를 노출
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [slots, brief, timeline, totalDuration, frameSettings, editSettings, selectedKey]
+  )
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -4026,12 +4097,47 @@ export const StoryEditorWorkspace = forwardRef<
       ) : null}
       <div
         className={`pointer-events-none absolute inset-x-0 top-14 z-[60] flex justify-center px-4 ${
-          isDownloading ? "" : "hidden"
+          isDownloading || downloadBannerError || pendingDownload ? "" : "hidden"
         }`}
       >
-        <div className="pointer-events-auto rounded-full border border-blue-200 bg-white/95 px-4 py-2 text-xs font-bold text-blue-700 shadow-lg">
-          <Loader2 className="mr-2 inline h-3.5 w-3.5 animate-spin" />
-          {downloadStatusText || "영상 다운로드 중… 완료될 때까지 기다려 주세요"}
+        <div className="pointer-events-auto flex max-w-xl flex-col items-center gap-2">
+          {isDownloading ? (
+            <div className="rounded-full border border-blue-200 bg-white/95 px-4 py-2 text-xs font-bold text-blue-700 shadow-lg">
+              <Loader2 className="mr-2 inline h-3.5 w-3.5 animate-spin" />
+              {downloadStatusText ||
+                "영상 다운로드 중… 완료될 때까지 기다려 주세요"}
+            </div>
+          ) : null}
+          {downloadBannerError ? (
+            <div className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-center text-xs font-bold text-red-700 shadow-lg">
+              {downloadBannerError}
+              <button
+                type="button"
+                className="ml-3 underline"
+                onClick={() => setDownloadBannerError("")}
+              >
+                닫기
+              </button>
+            </div>
+          ) : null}
+          {pendingDownload ? (
+            <div className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-center shadow-lg">
+              <p className="text-xs font-bold text-emerald-800">
+                영상이 준비됐습니다. 브라우저가 자동 저장을 막았을 수 있어요.
+              </p>
+              <a
+                href={pendingDownload.url}
+                download={pendingDownload.filename}
+                className="mt-2 inline-flex items-center rounded-full bg-emerald-600 px-4 py-2 text-xs font-black text-white hover:bg-emerald-500"
+                onClick={() => {
+                  window.setTimeout(() => setPendingDownload(null), 800)
+                }}
+              >
+                <Download className="mr-1.5 h-3.5 w-3.5" />
+                파일 저장
+              </a>
+            </div>
+          ) : null}
         </div>
       </div>
 

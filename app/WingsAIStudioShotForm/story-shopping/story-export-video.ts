@@ -71,18 +71,99 @@ function pickRecorderMime(): string {
   return "video/webm"
 }
 
-export async function downloadBlobAsFile(blob: Blob, filename: string) {
+type SaveFilePickerWindow = Window & {
+  showSaveFilePicker?: (options: {
+    suggestedName?: string
+    types?: Array<{
+      description?: string
+      accept: Record<string, string[]>
+    }>
+  }) => Promise<FileSystemFileHandle>
+}
+
+/** 클릭 직후(유저 제스처)에 저장 위치를 받아 둡니다. 긴 녹화 후 a.click()이 막히는 문제를 피합니다. */
+export async function pickStoryVideoSaveHandle(
+  filename: string
+): Promise<FileSystemFileHandle | null> {
+  const w = window as SaveFilePickerWindow
+  if (typeof w.showSaveFilePicker !== "function") return null
+  const safeName = (filename || "story-shopping.webm").replace(
+    /[\\/:*?"<>|]+/g,
+    ""
+  )
+  const suggestedName = safeName.toLowerCase().endsWith(".webm")
+    ? safeName
+    : `${safeName}.webm`
+  try {
+    return await w.showSaveFilePicker({
+      suggestedName,
+      types: [
+        {
+          description: "WebM video",
+          accept: { "video/webm": [".webm"] },
+        },
+      ],
+    })
+  } catch (error) {
+    // 사용자가 취소한 경우
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw error
+    }
+    return null
+  }
+}
+
+export async function writeBlobToFileHandle(
+  handle: FileSystemFileHandle,
+  blob: Blob
+): Promise<void> {
+  const writable = await handle.createWritable()
+  try {
+    await writable.write(blob)
+  } finally {
+    await writable.close()
+  }
+}
+
+export type StoryDownloadResult = {
+  /** picker로 직접 저장했으면 true */
+  savedToHandle: boolean
+  /** a.download 시도 후, 차단됐을 때 수동 저장에 쓰는 blob URL */
+  fallbackUrl?: string
+  filename: string
+}
+
+/**
+ * 파일 저장. fileHandle이 있으면 그쪽으로 쓰고,
+ * 없으면 <a download>를 시도합니다. 브라우저가 막으면 fallbackUrl을 돌려줍니다.
+ */
+export async function downloadBlobAsFile(
+  blob: Blob,
+  filename: string,
+  fileHandle?: FileSystemFileHandle | null
+): Promise<StoryDownloadResult> {
   if (!blob || blob.size < 64) {
     throw new Error("다운로드할 영상 데이터가 비어 있습니다. 다시 시도해주세요.")
   }
+
+  if (fileHandle) {
+    await writeBlobToFileHandle(fileHandle, blob)
+    return { savedToHandle: true, filename }
+  }
+
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement("a")
   anchor.href = url
   anchor.download = filename
+  anchor.rel = "noopener"
+  anchor.style.display = "none"
   document.body.appendChild(anchor)
   anchor.click()
   anchor.remove()
-  window.setTimeout(() => URL.revokeObjectURL(url), 4000)
+
+  // 긴 녹화 뒤에는 제스처가 만료되어 click이 무시될 수 있음 → 수동 저장 링크용 URL 유지
+  window.setTimeout(() => URL.revokeObjectURL(url), 180_000)
+  return { savedToHandle: false, fallbackUrl: url, filename }
 }
 
 function wait(ms: number) {

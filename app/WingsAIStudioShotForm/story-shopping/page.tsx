@@ -313,17 +313,34 @@ export default function StoryShoppingPage() {
     }
     setIsDownloading(true)
     setError("")
+    setDownloadProgress({
+      phase: "prepare",
+      message: "다운로드 준비 중…",
+      ratio: 0.02,
+    })
     try {
+      if (!editorRef.current) {
+        // keepMounted여도 첫 진입 직후 ref가 늦을 수 있음
+        await new Promise((resolve) => window.setTimeout(resolve, 200))
+      }
       if (!editorRef.current) {
         throw new Error("편집기를 준비하지 못했습니다. 영상 편집 화면에서 다시 눌러주세요.")
       }
       await editorRef.current.downloadVideo()
     } catch (reason) {
-      setError(
+      const message =
         reason instanceof Error ? reason.message : "영상 다운로드에 실패했습니다."
-      )
+      setError(message)
+      setDownloadProgress({
+        phase: "error",
+        message,
+        ratio: 0,
+      })
     } finally {
       setIsDownloading(false)
+      window.setTimeout(() => {
+        setDownloadProgress((prev) => (prev?.phase === "error" ? prev : null))
+      }, 4000)
     }
   }
 
@@ -1062,6 +1079,13 @@ export default function StoryShoppingPage() {
           saving={isSaving}
           onDownload={() => void downloadVideo()}
           downloading={isDownloading}
+          downloadingLabel={
+            isDownloading
+              ? downloadProgress?.message || "다운로드 중…"
+              : downloadProgress?.phase === "error"
+                ? downloadProgress.message
+                : undefined
+          }
           keepMounted
         >
           <StoryEditorWorkspace
