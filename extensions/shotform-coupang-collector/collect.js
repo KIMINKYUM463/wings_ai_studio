@@ -966,9 +966,106 @@
     return urls.slice(0, 80)
   }
 
+  /** 「더보기」펼쳐서 접힌 리뷰 본문 확보 */
+  function expandReviewMoreButtons() {
+    const root = reviewRoot()
+    const scope = root && root !== document ? root : document
+    const buttons = Array.from(scope.querySelectorAll("button, a, span, div")).filter((el) => {
+      const t = decode(el.textContent)
+      return t.length > 0 && t.length <= 12 && /^(더보기|더 보기|펼치기|전체보기)$/.test(t)
+    })
+    for (const el of buttons.slice(0, 40)) {
+      try {
+        el.click()
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  /** 카드 DOM에서 리뷰 본문만 추출 */
+  function extractReviewBodyFromCard(node) {
+    if (!node) return ""
+
+    const contentSelectors = [
+      ".sdp-review__article__list__review__content",
+      ".sdp-review__article__list__review",
+      "[class*='review__content']",
+      "[class*='ReviewContent']",
+      "[class*='review-content']",
+      "[class*='reviewContent']",
+      "[class*='ArticleContent']",
+      "[class*='article__content']",
+      "[data-review-content]",
+      "[class*='twc-'][class*='content']",
+    ]
+    for (const sel of contentSelectors) {
+      const el = node.querySelector(sel)
+      if (!el) continue
+      // content 노드 자체가 card인 경우(자기 자신) 스킵하고 전체 휴리스틱으로
+      if (el === node) continue
+      const t = decode(visibleText(el, 1600) || el.textContent)
+      if (t.length >= 8 && /[가-힣]{2,}/.test(t)) return t
+    }
+
+    // data-* 속성
+    for (const el of node.querySelectorAll("[data-content], [data-review-content], [data-text]")) {
+      const t = decode(
+        el.getAttribute("data-content") ||
+          el.getAttribute("data-review-content") ||
+          el.getAttribute("data-text") ||
+          ""
+      )
+      if (t.length >= 8 && /[가-힣]{2,}/.test(t)) return t
+    }
+
+    // 「도움이 돼요」앞쪽 덩어리를 본문으로 사용
+    const raw = decode(visibleText(node, 2500) || node.textContent)
+    if (!raw) return ""
+    let body = raw
+    const helpIdx = body.search(/도움이\s*돼요/)
+    if (helpIdx > 20) body = body.slice(0, helpIdx)
+    const reportIdx = body.search(/신고하기|신고\s*$/)
+    if (reportIdx > 20) body = body.slice(0, reportIdx)
+
+    body = body
+      .replace(/판매자\s*[:：]\s*\S+/g, " ")
+      .replace(/베스트순|최신순|모든 별점|검색어를 입력하세요|사진\s*\/\s*동영상|포토\s*상품평/g, " ")
+      .replace(/신선도|맛 만족도|아주 신선해요|맛있어요|보통이에요|별점\s*\d/g, " ")
+      .replace(/20\d{2}\.\s*\d{1,2}\.\s*\d{1,2}/g, " ")
+      .replace(/^\s*[★☆⭐]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+
+    // 앞쪽 짧은 작성자/옵션 줄 제거 (한글 이름 + 옵션)
+    body = body.replace(/^[가-힣*]{2,8}\s+[^\s]{0,40}\s+(?=[가-힣a-zA-Z])/u, "").trim()
+
+    return body
+  }
+
+  function looksLikeReviewCard(node) {
+    if (!node || node === document.body || node === document.documentElement) return false
+    const text = decode(node.textContent || "")
+    if (text.length < 20 || text.length > 8000) return false
+    const hasHangul = /[가-힣]{4,}/.test(text)
+    const hasHelp = /도움이\s*돼요|신고하기/.test(text)
+    const hasReviewImg = Boolean(
+      node.querySelector?.(
+        "img[src*='productreview'], img[src*='review'], img[data-src*='productreview'], source[srcset*='productreview']"
+      )
+    )
+    const cls = String(node.className || "")
+    const hasReviewClass = /review|Review|sdp-review|twc-/i.test(cls)
+    return hasHangul && (hasHelp || hasReviewImg || hasReviewClass)
+  }
+
   /** 현재 화면에 보이는 리뷰만 (페이지당 ~10개) */
   function collectReviewsDomFromCurrentPage() {
+    expandReviewMoreButtons()
     const nodeSet = new Set()
+    const root = reviewRoot()
+    const scope = root && root !== document ? root : document
+
     const selectors = [
       ".sdp-review__article__list__review",
       ".sdp-review__article__list__review__content",
@@ -978,28 +1075,39 @@
       ".js_reviewArticleReviewList > li",
       "[data-review-id]",
       "[class*='ReviewArticle']",
+      "[class*='review__article']",
+      "[class*='sdp-review__article']",
+      "article[class*='review']",
+      "article[class*='Review']",
+      "[class*='twc-'][class*='review' i]",
+      "li[class*='review' i]",
     ]
     for (const sel of selectors) {
-      document.querySelectorAll(sel).forEach((n) => {
-        let card = n
-        if (/content/i.test(n.className || "")) {
-          card =
-            n.closest("article, li, [class*='review__article'], [class*='Review']") ||
-            n.parentElement ||
-            n
-        }
-        nodeSet.add(card)
-      })
+      try {
+        scope.querySelectorAll(sel).forEach((n) => {
+          let card = n
+          if (/content/i.test(String(n.className || ""))) {
+            card =
+              n.closest(
+                "article, li, [class*='review__article'], [class*='Review'], [class*='sdp-review__article']"
+              ) ||
+              n.parentElement ||
+              n
+          }
+          nodeSet.add(card)
+        })
+      } catch {
+        /* invalid selector in some browsers */
+      }
     }
 
-    // 「도움이 돼요」앵커
-    for (const el of document.querySelectorAll("button, a, span, div")) {
+    // 「도움이 돼요」앵커 → 카드
+    for (const el of scope.querySelectorAll("button, a, span, div")) {
       const t = decode(el.textContent)
       if (!/^도움이\s*돼요/.test(t) && t !== "도움이 돼요") continue
       let cur = el
-      for (let i = 0; i < 10 && cur; i++) {
-        const txt = decode(cur.textContent)
-        if (txt.length > 50) {
+      for (let i = 0; i < 12 && cur; i++) {
+        if (looksLikeReviewCard(cur)) {
           nodeSet.add(cur)
           break
         }
@@ -1007,34 +1115,50 @@
       }
     }
 
+    // 리뷰 사진 URL 기준으로 카드 역추적 (사진은 잡히는데 본문 셀렉터만 깨진 경우)
+    scope.querySelectorAll("img, source").forEach((media) => {
+      const raw = [
+        media.currentSrc,
+        media.getAttribute("src"),
+        media.getAttribute("data-src"),
+        media.getAttribute("data-origin"),
+        media.getAttribute("srcset"),
+      ].join(" ")
+      if (!/productreview|\/review\/|reviewimage|attachment/i.test(raw)) return
+      let cur = media.parentElement
+      for (let i = 0; i < 14 && cur; i++) {
+        if (looksLikeReviewCard(cur)) {
+          nodeSet.add(cur)
+          break
+        }
+        cur = cur.parentElement
+      }
+    })
+
     const reviews = []
     for (const node of nodeSet) {
-      if (!node || node === document.body || node === document.documentElement) continue
-      const text = decode(node.textContent)
-      if (text.length < 25) continue
+      if (!looksLikeReviewCard(node)) continue
 
-      // 리뷰 본문 노드만 (작성자·상품옵션·상품명 노드 제외)
-      let content = ""
-      const contentEl = node.querySelector(
-        ".sdp-review__article__list__review__content, [class*='review__content'], [class*='ReviewContent']"
-      )
-      if (contentEl) content = decode(contentEl.textContent)
-
-      if (!content) {
-        content = text
-          .replace(/도움이\s*돼요/g, " ")
-          .replace(/신고하기/g, " ")
-          .replace(/판매자:\s*\S+/g, " ")
-          .replace(/베스트순|최신순|모든 별점|검색어를 입력하세요/g, " ")
-          .replace(/신선도|맛 만족도|아주 신선해요|맛있어요|보통이에요/g, " ")
-          .replace(/20\d{2}\.\s*\d{1,2}\.\s*\d{1,2}/g, " ")
+      let content = extractReviewBodyFromCard(node)
+      if (!content || content.length < 8) {
+        content = decode(visibleText(node, 2000) || node.textContent)
+          .replace(/도움이\s*돼요[\s\S]*$/g, " ")
+          .replace(/신고하기[\s\S]*$/g, " ")
           .replace(/\s+/g, " ")
           .trim()
       }
 
-      if (content.length < 10) continue
-      if (/^별점|^평점|^상품평$/.test(content)) continue
+      if (content.length < 8) continue
+      if (/^별점|^평점|^상품평$|^포토\s*상품평$/.test(content)) continue
       if (/function\s*\(|localStorage|web-adapter|#region/i.test(content)) continue
+      // UI 크롬만 남은 경우 제외
+      if (
+        content.length < 40 &&
+        /베스트순|최신순|모든 별점|검색어|사진\s*\/\s*동영상/.test(content) &&
+        !/[가-힣]{10,}/.test(content)
+      ) {
+        continue
+      }
 
       reviews.push({
         content: content.slice(0, 1500),
@@ -1238,6 +1362,8 @@
     await scrollReviewsIntoView()
     closeOverlays()
     await sleep(400)
+    expandReviewMoreButtons()
+    await sleep(350)
 
     for (let p = 1; p <= maxPages; p++) {
       closeOverlays()
@@ -1252,6 +1378,8 @@
         if (root && root !== document) {
           root.scrollIntoView({ behavior: "instant", block: "center" })
         }
+        expandReviewMoreButtons()
+        await sleep(300)
       }
 
       const batch = collectReviewsDomFromCurrentPage()
@@ -1401,8 +1529,12 @@
       .replace(/20\d{2}\.\s*\d{1,2}\.\s*\d{1,2}/g, " ")
       .replace(/\s+/g, " ")
       .trim()
-    s = stripReviewMetaPrefix(s, productName)
     if (looksLikeJunkText(s)) return ""
+    const stripped = stripReviewMetaPrefix(s, productName)
+    // 메타 제거가 과도하면 원문 유지 (본문이 통째로 사라지는 문제 방지)
+    if (stripped.length >= 8) s = stripped
+    if (looksLikeJunkText(s)) return ""
+    if (s.length < 5 || !/[가-힣a-zA-Z]/.test(s)) return ""
     return s.slice(0, 1500)
   }
 
@@ -1452,7 +1584,7 @@
     const slimReviews = dedupeReviews(reviews, maxReviews)
       .map((r) => {
         const content = cleanReviewContent(r.content, productName)
-        if (!content || content.length < 8) return null
+        if (!content || content.length < 5) return null
         const page = Number(r.page) > 0 ? Math.floor(Number(r.page)) : undefined
         const indexOnPage =
           Number(r.indexOnPage) > 0 ? Math.floor(Number(r.indexOnPage)) : undefined
