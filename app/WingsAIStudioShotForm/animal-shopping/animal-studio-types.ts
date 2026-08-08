@@ -165,6 +165,12 @@ export type AnimalShoppingBrief = {
   imageUrls: string[]
   videoUrls: Array<{ index: number; videoUrl: string }>
   mergedVideoUrl?: string
+  /**
+   * 영상 단계 클립 방식
+   * - ai: Seedance 이미지→영상
+   * - zoom: 정지 이미지 Ken Burns 줌인 (API 키·비용 없음)
+   */
+  videoClipMode?: "ai" | "zoom"
   /** 동물 숏폼은 자막 미사용 — 필드만 호환 유지 */
   subtitleStyle: AnimalSubtitleStyleBrief
   showSubtitles?: boolean
@@ -198,6 +204,7 @@ export const EMPTY_ANIMAL_BRIEF: AnimalShoppingBrief = {
   imagePrompts: [],
   imageUrls: [],
   videoUrls: [],
+  videoClipMode: "ai",
   subtitleStyle: { ...DEFAULT_ANIMAL_SUBTITLE_STYLE },
   showSubtitles: false,
 }
@@ -212,6 +219,7 @@ export function cloneAnimalBrief(): AnimalShoppingBrief {
     imagePrompts: [],
     imageUrls: [],
     videoUrls: [],
+    videoClipMode: "ai",
     subtitleStyle: { ...DEFAULT_ANIMAL_SUBTITLE_STYLE },
     showSubtitles: false,
   }

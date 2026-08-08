@@ -13,9 +13,16 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
+  fixWebmBlobDuration,
+  remuxWebmWithDuration,
+} from "@/lib/mvp-webm-to-mp4"
+import {
   isLikelyPlayableMediaUrl,
+  isReachableMediaUrl,
   mergeAnimalVideosClient,
+  type AnimalMergeResult,
 } from "./animal-merge-client"
+import { concatAnimalTtsUrls } from "./animal-tts"
 import type { AnimalShoppingBrief } from "./animal-studio-types"
 
 /** MediaRecorder webm 등은 duration이 Infinity/NaN인 경우가 많음 */
@@ -31,6 +38,7 @@ function pickDuration(...candidates: Array<number | undefined | null>): number {
 }
 
 function isStaleBlobUrl(url?: string | null): boolean {
+  // 합본 blob: 은 새로고침 후 깨짐. data/https는 유지됨.
   return Boolean(url?.startsWith("blob:"))
 }
 
@@ -97,17 +105,20 @@ export function AnimalPreviewStudioPanel({
   const [mediaDuration, setMediaDuration] = useState(0)
   /** 합본에 TTS가 들어갔는지 (별도 audio 태그 불필요) */
   const [muxedWithTts, setMuxedWithTts] = useState(false)
+  const [statusHint, setStatusHint] = useState("")
 
   const sortedVideos = [...brief.videoUrls]
     .sort((a, b) => a.index - b.index)
     .map((v) => v.videoUrl)
     .filter(Boolean)
 
+  /** UI 표시용 — data/https는 확실, blob은 세션 중일 수 있음 */
   const playableTtsUrl = useMemo(() => {
-    if (isLikelyPlayableMediaUrl(brief.ttsAudioUrl) && !isStaleBlobUrl(brief.ttsAudioUrl)) {
-      return brief.ttsAudioUrl
+    const url = brief.ttsAudioUrl?.trim()
+    if (!url) return ""
+    if (url.startsWith("data:") || /^https?:\/\//i.test(url) || url.startsWith("blob:")) {
+      return url
     }
-    // 씬별 TTS가 data URL이면 이어 붙이진 못해도 경고에 활용
     return ""
   }, [brief.ttsAudioUrl])
 
@@ -125,31 +136,54 @@ export function AnimalPreviewStudioPanel({
 
   const activeVideoRef = () => (isFullscreen ? fsVideoRef.current : videoRef.current)
 
-  const mergeClips = async (opts?: { forceTts?: boolean }) => {
+  const resolveTtsForMerge = async (): Promise<string | undefined> => {
+    if (brief.ttsAudioUrl?.trim() && (await isReachableMediaUrl(brief.ttsAudioUrl))) {
+      return brief.ttsAudioUrl.trim()
+    }
+
+    const sceneUrls: string[] = []
+    for (const scene of [...(brief.scenes || [])].sort((a, b) => a.order - b.order)) {
+      const url = scene.ttsAudioUrl?.trim()
+      if (!url) continue
+      if (await isReachableMediaUrl(url)) sceneUrls.push(url)
+    }
+    if (sceneUrls.length === 0) return undefined
+    if (sceneUrls.length === 1) return sceneUrls[0]
+    const { audioUrl } = await concatAnimalTtsUrls(sceneUrls)
+    return audioUrl
+  }
+
+  const mergeClips = async (opts?: {
+    forceTts?: boolean
+  }): Promise<AnimalMergeResult | null> => {
     if (sortedVideos.length === 0) {
       setError("이어 붙일 영상 클립이 없습니다.")
       return null
     }
     setIsMerging(true)
     setError("")
+    setStatusHint("클립과 TTS를 이어 붙이는 중…")
     try {
-      const tts =
-        playableTtsUrl ||
-        (opts?.forceTts
-          ? brief.ttsAudioUrl && !isStaleBlobUrl(brief.ttsAudioUrl)
-            ? brief.ttsAudioUrl
-            : undefined
-          : undefined)
-      if (brief.ttsAudioUrl && isStaleBlobUrl(brief.ttsAudioUrl)) {
-        setError(
-          "TTS 주소가 만료됐습니다(blob). 음성 단계에서 나레이션을 다시 생성한 뒤 「다시 이어 붙이기」를 눌러주세요."
-        )
+      const tts = await resolveTtsForMerge()
+      if (!tts) {
+        if (brief.ttsAudioUrl || (brief.scenes || []).some((s) => s.ttsAudioUrl)) {
+          setError(
+            "TTS 주소를 읽지 못했습니다. 음성 단계에서 나레이션을 다시 생성한 뒤 「다시 이어 붙이기」를 눌러주세요."
+          )
+        } else if (opts?.forceTts) {
+          setError("TTS가 없어 무음으로 합칩니다. 음성 단계에서 나레이션을 만들어 주세요.")
+        }
       }
-      const merged = await mergeAnimalVideosClient(sortedVideos, tts || undefined)
-      setMediaDuration(0)
+      const merged = await mergeAnimalVideosClient(sortedVideos, tts)
+      setMediaDuration(merged.durationSec)
       setCurrentTime(0)
-      setMuxedWithTts(Boolean(tts))
-      onChange({ ...brief, mergedVideoUrl: merged })
+      setMuxedWithTts(merged.hasAudio)
+      onChange({ ...brief, mergedVideoUrl: merged.url })
+      if (merged.hasAudio) {
+        setStatusHint("합본에 TTS가 포함되었습니다.")
+      } else {
+        setStatusHint("합본 완료 (무음)")
+      }
       return merged
     } catch (reason) {
       const message =
@@ -159,6 +193,7 @@ export function AnimalPreviewStudioPanel({
           ? "재생할 수 있는 영상/음성이 없습니다. 클립·TTS를 다시 만든 뒤 「다시 이어 붙이기」를 눌러주세요."
           : message
       )
+      setStatusHint("")
       return null
     } finally {
       setIsMerging(false)
@@ -293,30 +328,50 @@ export function AnimalPreviewStudioPanel({
     setIsDownloading(true)
     setError("")
     try {
-      // 다운로드는 항상 TTS를 넣어 다시 합침 (기존 합본이 무음일 수 있음)
-      let url = brief.mergedVideoUrl
-      if (!muxedWithTts || !url || isStaleBlobUrl(url)) {
-        const remade = await mergeClips({ forceTts: true })
-        if (!remade) {
-          throw new Error(
-            "다운로드용 영상을 만들지 못했습니다. TTS·클립을 확인한 뒤 다시 시도해주세요."
-          )
-        }
-        url = remade
+      // 다운로드는 항상 TTS 포함해 다시 합친 뒤, Windows용 duration 메타를 보정
+      setStatusHint("다운로드용으로 TTS 포함 합치는 중…")
+      const remade = await mergeClips({ forceTts: true })
+      if (!remade) {
+        throw new Error(
+          "다운로드용 영상을 만들지 못했습니다. TTS·클립을 확인한 뒤 다시 시도해주세요."
+        )
       }
+
+      let blob = remade.blob
+      setStatusHint("Windows 속성·재생용으로 길이 정보 정리 중… (잠시만요)")
+      try {
+        blob = await remuxWebmWithDuration(blob, remade.durationSec)
+      } catch (remuxError) {
+        console.warn("[AnimalPreview] remux 실패, duration 보정만 사용:", remuxError)
+      }
+      try {
+        blob = await fixWebmBlobDuration(blob, remade.durationSec)
+      } catch {
+        /* ignore */
+      }
+
+      const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url
       a.download = `animal-shopping-${brief.character.name}-${Date.now()}.webm`
       document.body.appendChild(a)
       a.click()
       a.remove()
-      if (!playableTtsUrl && brief.ttsAudioUrl) {
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+
+      if (!remade.hasAudio) {
         setError(
-          "다운로드는 시작됐지만 TTS가 만료되어 무음일 수 있습니다. 음성 단계에서 TTS를 다시 만든 뒤 다운로드하세요."
+          "다운로드는 됐지만 TTS가 없어 무음입니다. 음성 단계에서 나레이션을 다시 만든 뒤 다운로드하세요."
+        )
+        setStatusHint("")
+      } else {
+        setStatusHint(
+          `다운로드 완료 · TTS 포함 · 약 ${Math.round(remade.durationSec)}초`
         )
       }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "다운로드 실패")
+      setStatusHint("")
     } finally {
       setIsDownloading(false)
     }
@@ -379,9 +434,17 @@ export function AnimalPreviewStudioPanel({
           숏폼 미리보기 · 내보내기
         </h2>
         <p className="mt-1 text-sm text-[#9aa89c]">
-          {expectedClips || "N"}클립을 이어 붙일 때 TTS 나레이션을 함께 넣습니다. 다운로드 파일에도
-          음성이 포함됩니다.
+          {expectedClips || "N"}클립을 이어 붙일 때 TTS 나레이션을 파일에 넣습니다. 다운로드 시
+          Windows에서 길이가 보이도록 메타데이터도 보정합니다.
         </p>
+        {statusHint ? (
+          <p className="mt-2 flex items-center gap-2 text-sm text-[#7dd3a8]">
+            {(isMerging || isDownloading) && (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            )}
+            {statusHint}
+          </p>
+        ) : null}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,360px)_1fr]">
@@ -520,7 +583,13 @@ export function AnimalPreviewStudioPanel({
                 씬 {brief.scenes?.length || 0} · 이미지 {brief.imageUrls.length}/
                 {brief.scenes?.length || 0} · 클립 {sortedVideos.length}/
                 {brief.scenes?.length || 0} · TTS{" "}
-                {playableTtsUrl ? "있음" : brief.ttsAudioUrl ? "만료됨(재생성 필요)" : "없음"}
+                {playableTtsUrl
+                  ? playableTtsUrl.startsWith("blob:")
+                    ? "있음(세션)"
+                    : "있음"
+                  : brief.ttsAudioUrl
+                    ? "만료됨(재생성 필요)"
+                    : "없음"}
                 {muxedWithTts ? " · 합본에 음성 포함" : ""}
               </dd>
             </div>
