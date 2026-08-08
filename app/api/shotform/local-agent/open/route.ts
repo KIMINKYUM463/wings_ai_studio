@@ -35,31 +35,29 @@ export async function GET(req: Request) {
 </head>
 <body>
   <h1>ShotForm Local Agent</h1>
-  <p id="msg">Starting agent window...</p>
+  <p id="msg">Starting agent...</p>
   <p class="muted">
-    If a black cmd window does not appear, the downloaded
-    <b>start-shotform-agent.cmd</b> will run once and register auto-start.
-    After that, 「에이전트 실행」opens the window without the collector extension.
+    If you see <b>'node' is not recognized</b>, the old protocol is broken.<br/>
+    Run the downloaded <b>start-shotform-agent.cmd</b> once (after Node.js LTS install).<br/>
+    That rewrites the protocol to use the full Node path.
   </p>
-  <p><a id="dl" href="${cmdUrl}">Download starter (.cmd)</a></p>
+  <p><a id="dl" href="${cmdUrl}">Download / repair starter (.cmd)</a></p>
   <script>
     (function () {
       var msg = document.getElementById("msg");
       var cmdUrl = ${JSON.stringify(cmdUrl)};
-      try {
-        // Protocol handler (registered after first .cmd run)
-        location.href = "shotform-agent://start";
-      } catch (e) {}
+      // Always download repair starter first (fixes bare 'node' protocol)
+      var a = document.createElement("a");
+      a.href = cmdUrl;
+      a.download = "start-shotform-agent.cmd";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
       setTimeout(function () {
-        msg.textContent = "If the agent window is not open, downloading starter...";
+        msg.textContent = "Trying shotform-agent:// ... if cmd shows node error, double-click the downloaded starter.";
         msg.className = "ok";
-        var a = document.createElement("a");
-        a.href = cmdUrl;
-        a.download = "start-shotform-agent.cmd";
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-      }, 900);
+        try { location.href = "shotform-agent://start"; } catch (e) {}
+      }, 600);
     })();
   </script>
 </body>

@@ -15,9 +15,10 @@ function resolveOrigin(req: Request): string {
 }
 
 /**
- * Windows cmd.exe + Korean UTF-8 breaks batch parsing.
- * Keep this file ASCII-only. No parentheses blocks.
- * Finds node.exe in PATH and common install folders.
+ * ASCII-only batch.
+ * - Finds absolute node.exe (PATH + Program Files)
+ * - Writes run-agent.cmd with full paths (never bare `node`)
+ * - Registers shotform-agent:// to that runner
  */
 function buildStarterCmd(origin: string): string {
   const agentUrl = `${origin}/api/shotform/local-agent/download?file=agent`
@@ -27,6 +28,7 @@ function buildStarterCmd(origin: string): string {
     "title ShotForm Local Agent",
     'set "DIR=%LOCALAPPDATA%\\ShotForm\\local-agent"',
     'set "AGENT=%DIR%\\shotform-local-agent-portable.mjs"',
+    'set "RUNNER=%DIR%\\run-agent.cmd"',
     `set "AGENT_URL=${agentUrl}"`,
     'set "NODE_EXE="',
     "echo.",
@@ -35,14 +37,11 @@ function buildStarterCmd(origin: string): string {
     "echo ========================================",
     "echo.",
     "echo Looking for Node.js...",
-    // PATH
     'for /f "delims=" %%N in (\'where node 2^>nul\') do if not defined NODE_EXE set "NODE_EXE=%%N"',
-    // Common install locations (no PATH yet / installer not refreshed)
     'if not defined NODE_EXE if exist "%ProgramFiles%\\nodejs\\node.exe" set "NODE_EXE=%ProgramFiles%\\nodejs\\node.exe"',
     'if not defined NODE_EXE if exist "%ProgramFiles(x86)%\\nodejs\\node.exe" set "NODE_EXE=%ProgramFiles(x86)%\\nodejs\\node.exe"',
+    'if not defined NODE_EXE if exist "%LOCALAPPDATA%\\Programs\\nodejs\\node.exe" set "NODE_EXE=%LOCALAPPDATA%\\Programs\\nodejs\\node.exe"',
     'if not defined NODE_EXE if exist "%LOCALAPPDATA%\\Programs\\node\\node.exe" set "NODE_EXE=%LOCALAPPDATA%\\Programs\\node\\node.exe"',
-    'if not defined NODE_EXE if exist "%APPDATA%\\nvm\\nodejs\\node.exe" set "NODE_EXE=%APPDATA%\\nvm\\nodejs\\node.exe"',
-    'if not defined NODE_EXE if exist "%LOCALAPPDATA%\\fnm_multishells\\node.exe" set "NODE_EXE=%LOCALAPPDATA%\\fnm_multishells\\node.exe"',
     "if not defined NODE_EXE goto NoNode",
     "echo Found: %NODE_EXE%",
     'if not exist "%DIR%" mkdir "%DIR%"',
@@ -50,39 +49,41 @@ function buildStarterCmd(origin: string): string {
     "echo Downloading agent script...",
     'curl.exe -L --fail -o "%AGENT%" "%AGENT_URL%" 2>nul',
     "if errorlevel 1 goto TryPs",
-    "goto Register",
+    "goto WriteRunner",
     ":TryPs",
     "echo curl failed, trying PowerShell...",
     `powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -UseBasicParsing -Uri '%AGENT_URL%' -OutFile '%AGENT%'"`,
     "if errorlevel 1 goto DlFail",
-    ":Register",
+    ":WriteRunner",
     'if not exist "%AGENT%" goto DlFail',
-    "echo Registering shotform-agent:// protocol...",
+    "echo Writing run-agent.cmd ...",
+    'echo @echo off> "%RUNNER%"',
+    'echo title ShotForm Local Agent>> "%RUNNER%"',
+    'echo "%NODE_EXE%" "%AGENT%">> "%RUNNER%"',
+    'echo if errorlevel 1 pause>> "%RUNNER%"',
+    'if not exist "%RUNNER%" goto DlFail',
+    "echo Fixing shotform-agent:// protocol to use full Node path...",
     'reg add "HKCU\\Software\\Classes\\shotform-agent" /ve /d "URL:ShotForm Local Agent" /f >nul 2>&1',
     'reg add "HKCU\\Software\\Classes\\shotform-agent" /v "URL Protocol" /d "" /f >nul 2>&1',
-    'reg add "HKCU\\Software\\Classes\\shotform-agent\\shell\\open\\command" /ve /d "cmd.exe /c start \\"ShotForm Local Agent\\" cmd.exe /k \\"%NODE_EXE%\\" \\"%AGENT%\\"" /f >nul 2>&1',
+    'reg add "HKCU\\Software\\Classes\\shotform-agent\\shell\\open\\command" /ve /d "cmd.exe /c start \\"ShotForm Local Agent\\" cmd.exe /k \\"%RUNNER%\\"" /f >nul 2>&1',
     "echo.",
     "echo Starting agent. Keep this window open.",
-    "echo Next time: Wings button opens this via shotform-agent://",
     "echo.",
-    '"%NODE_EXE%" "%AGENT%"',
+    'call "%RUNNER%"',
     "echo.",
     "echo Agent stopped.",
     "pause",
     "exit /b 0",
     ":NoNode",
-    "echo [ERROR] Node.js is not installed on this PC.",
-    "echo.",
-    "echo 1. Install Node.js LTS from the page that opens",
-    "echo 2. Close ALL cmd/Chrome windows",
-    "echo 3. Click Wings 「에이전트 실행」 again",
-    "echo.",
-    "echo Download: https://nodejs.org/en/download",
+    "echo [ERROR] Node.js not found.",
+    "echo 1. Install LTS: https://nodejs.org/en/download",
+    "echo 2. CLOSE all Chrome windows completely",
+    "echo 3. Run this start-shotform-agent.cmd again",
     'start "" "https://nodejs.org/en/download"',
     "pause",
     "exit /b 1",
     ":DlFail",
-    "echo [ERROR] Failed to download agent script.",
+    "echo [ERROR] Failed to prepare agent files.",
     "echo URL: %AGENT_URL%",
     "pause",
     "exit /b 1",

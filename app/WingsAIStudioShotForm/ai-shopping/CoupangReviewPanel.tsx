@@ -271,7 +271,7 @@ export function CoupangReviewPanel({
         health.ok
           ? "에이전트 실행됨 (http://127.0.0.1:3847)\n검은 창은 끄지 마세요."
           : health.error ||
-              "에이전트 실행을 요청했습니다. 창이 없으면 다운로드된 .cmd를 한 번 실행하세요."
+              "다운로드된 start-shotform-agent.cmd 를 더블클릭하세요.\n(Node 설치 후 'node' 오류가 나면 이 파일로 프로토콜이 고쳐집니다)"
       )
     } finally {
       setIsConnect(false)
