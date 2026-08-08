@@ -350,7 +350,16 @@ export function CoupangReviewPanel({
         <Label className="text-sm font-semibold text-zinc-200">Wings 숏폼 쿠팡 수집기</Label>
         <p className="text-xs text-zinc-500 leading-relaxed">
           <span className="text-orange-200/80">「에이전트 실행」</span>은 수집기와 상관없이
-          cmd 창을 엽니다. (최초 1회만 .cmd 실행이 필요할 수 있음)
+          cmd 창을 엽니다. 이 PC에{" "}
+          <a
+            href="https://nodejs.org/en/download"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sky-300 underline underline-offset-2"
+          >
+            Node.js LTS
+          </a>
+          가 필요합니다.
         </p>
       </div>
 
