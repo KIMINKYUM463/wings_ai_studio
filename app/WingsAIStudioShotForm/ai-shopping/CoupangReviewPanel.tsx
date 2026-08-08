@@ -352,9 +352,9 @@ export function CoupangReviewPanel({
       <div className="space-y-1">
         <Label className="text-sm font-semibold text-zinc-200">Wings 숏폼 쿠팡 수집기</Label>
         <p className="text-xs text-zinc-500 leading-relaxed">
-          「에이전트 연결」을 누르면 이 PC용 실행파일(.cmd)이 받아집니다.{" "}
-          <span className="text-orange-200/80">더블클릭</span>하면 검은 창이 뜨고
-          연결됩니다. (배포 사이트는 서버가 터미널을 대신 열 수 없습니다)
+          「에이전트 연결」을 누르면 수집기 확장이{" "}
+          <span className="text-orange-200/80">.cmd를 받아 자동으로 실행</span>
+          합니다. (확장 v1.2+ · chrome://extensions 에서 새로고침)
         </p>
       </div>
 
@@ -366,6 +366,8 @@ export function CoupangReviewPanel({
           disabled={isConnect || isPull || isPasteApply}
           onClick={() => void handleConnectAgent()}
           className="font-semibold"
+          data-shotform-launch-agent="1"
+          data-shotform-cmd-url="/api/shotform/local-agent/download?file=cmd"
         >
           {isConnect ? (
             <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />

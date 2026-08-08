@@ -94,7 +94,7 @@ function openShotformAgentProtocol() {
   }
 }
 
-/** 배포 PC용 — start-shotform-agent.cmd 자동 다운로드 (더블클릭 1회) */
+/** 배포 PC용 — start-shotform-agent.cmd 다운로드 */
 export function downloadLocalAgentStarter(): void {
   if (typeof window === "undefined") return
   const a = document.createElement("a")
@@ -103,6 +103,13 @@ export function downloadLocalAgentStarter(): void {
   document.body.appendChild(a)
   a.click()
   a.remove()
+}
+
+/** 쿠팡 수집기 확장에 .cmd 다운로드+자동 실행 요청 */
+export function requestExtensionLaunchAgent(): void {
+  if (typeof window === "undefined") return
+  const cmdUrl = `${window.location.origin}/api/shotform/local-agent/download?file=cmd`
+  window.postMessage({ type: "SHOTFORM_LAUNCH_AGENT", cmdUrl }, window.location.origin)
 }
 
 /**
@@ -169,24 +176,26 @@ export async function connectLocalAgent(opts?: {
     }
   }
 
-  // 배포·다른 PC: 서버가 터미널을 열 수 없음 → 실행 파일 자동 다운로드
+  // 배포·다른 PC: 수집기 확장이 .cmd를 받아 자동 실행 (버튼 data-attr 클릭과 병행)
   onProgress?.(
-    "PC용 실행 파일(start-shotform-agent.cmd)을 받았습니다.\n" +
-      "다운로드 폴더에서 더블클릭하세요. (최초 1회 Node.js 필요할 수 있음)\n" +
-      "창이 뜨면 이 화면에서 연결을 기다립니다…"
+    "실행 파일을 받아 자동으로 여는 중…\n" +
+      "(쿠팡 수집기 확장 v1.2+ 필요 · 검은 창이 뜨면 그대로 두세요)"
   )
+  requestExtensionLaunchAgent()
   downloadLocalAgentStarter()
 
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < 90; i++) {
     await sleep(1000)
     health = await probeLocalCompanion(baseUrl)
     if (companionReady(health, requireFfmpeg)) {
       onProgress?.("로컬 에이전트 연결 완료")
       return health
     }
-    if (i === 15 || i === 30) {
+    if (i === 10 || i === 25 || i === 45) {
       onProgress?.(
-        `아직 대기 중… (${i}초)\n다운로드한 start-shotform-agent.cmd 를 더블클릭했는지 확인하세요.`
+        `에이전트 실행 대기 중… (${i}초)\n` +
+          "Chrome 알림에 「지금 실행」이 보이면 눌러 주세요.\n" +
+          "확장을 chrome://extensions 에서 새로고침(v1.2+)했는지 확인하세요."
       )
     }
   }
@@ -196,10 +205,11 @@ export async function connectLocalAgent(opts?: {
     ffmpeg: false,
     error:
       "아직 연결되지 않았습니다.\n" +
-      "1) 다운로드한 start-shotform-agent.cmd 를 더블클릭\n" +
-      "2) Node.js가 없으면 nodejs.org 에서 LTS 설치\n" +
-      "3) 검은 창이 열린 뒤 다시 「에이전트 연결」을 누르세요.\n" +
-      "(에이전트 없이도 확장 → JSON 붙여넣기로 수집은 가능합니다)",
+      "1) chrome://extensions → Wings 숏폼 쿠팡 수집기 새로고침 (v1.2.0+)\n" +
+      "2) 「에이전트 연결」을 다시 클릭 (확장 권한 허용)\n" +
+      "3) Node.js LTS가 없으면 nodejs.org 에서 설치\n" +
+      "4) Chrome 알림 「지금 실행」이 뜨면 클릭\n" +
+      "(에이전트 없이도 확장 → JSON 붙여넣기로 수집 가능)",
   }
 }
 

@@ -1,8 +1,9 @@
 /**
- * MV3 service worker — localhost 에이전트 전송 (CORS/Private Network 회피)
+ * MV3 service worker — localhost 에이전트 전송 + 원클릭 .cmd 실행
  */
 
 const DEFAULT_AGENT = "http://127.0.0.1:3847"
+let pendingOpenDownloadId = null
 
 async function getAgentBase() {
   const stored = await chrome.storage.sync.get(["agentUrl"])
@@ -35,6 +36,147 @@ async function probeAgent() {
   }
 }
 
+function toBase64Utf8(text) {
+  const bytes = new TextEncoder().encode(text)
+  let binary = ""
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+  return btoa(binary)
+}
+
+function waitDownloadComplete(downloadId, timeoutMs = 60000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      chrome.downloads.onChanged.removeListener(onChanged)
+      reject(new Error("다운로드 시간 초과"))
+    }, timeoutMs)
+
+    function onChanged(delta) {
+      if (delta.id !== downloadId) return
+      if (delta.state?.current === "complete") {
+        clearTimeout(timer)
+        chrome.downloads.onChanged.removeListener(onChanged)
+        resolve()
+      }
+      if (delta.state?.current === "interrupted") {
+        clearTimeout(timer)
+        chrome.downloads.onChanged.removeListener(onChanged)
+        reject(new Error("다운로드가 중단되었습니다."))
+      }
+    }
+
+    chrome.downloads.onChanged.addListener(onChanged)
+    chrome.downloads.search({ id: downloadId }, (items) => {
+      const item = items?.[0]
+      if (item?.state === "complete") {
+        clearTimeout(timer)
+        chrome.downloads.onChanged.removeListener(onChanged)
+        resolve()
+      }
+    })
+  })
+}
+
+function openDownload(downloadId) {
+  return new Promise((resolve) => {
+    try {
+      chrome.downloads.open(downloadId, () => {
+        const err = chrome.runtime.lastError?.message || ""
+        if (err) {
+          resolve({ ok: false, error: err })
+          return
+        }
+        resolve({ ok: true })
+      })
+    } catch (e) {
+      resolve({ ok: false, error: e instanceof Error ? e.message : String(e) })
+    }
+  })
+}
+
+async function notifyOpenFallback(downloadId) {
+  pendingOpenDownloadId = downloadId
+  try {
+    await chrome.notifications.create(`shotform-agent-${downloadId}`, {
+      type: "basic",
+      iconUrl: "icons/icon128.png",
+      title: "ShotForm 로컬 에이전트",
+      message: "다운로드 완료. 이 알림 또는 「지금 실행」을 누르면 에이전트가 열립니다.",
+      buttons: [{ title: "지금 실행" }],
+      requireInteraction: true,
+      priority: 2,
+    })
+  } catch {
+    /* ignore */
+  }
+}
+
+function downloadUrl(url, filename) {
+  return new Promise((resolve, reject) => {
+    chrome.downloads.download(
+      {
+        url,
+        filename,
+        conflictAction: "overwrite",
+        saveAs: false,
+      },
+      (id) => {
+        if (chrome.runtime.lastError || id == null) {
+          reject(new Error(chrome.runtime.lastError?.message || "다운로드 실패"))
+          return
+        }
+        resolve(id)
+      }
+    )
+  })
+}
+
+async function finishOpen(downloadId) {
+  await waitDownloadComplete(downloadId)
+  let opened = await openDownload(downloadId)
+  if (opened.ok) return { ok: true, opened: true, downloadId }
+  await new Promise((r) => setTimeout(r, 150))
+  opened = await openDownload(downloadId)
+  if (opened.ok) return { ok: true, opened: true, downloadId }
+  await notifyOpenFallback(downloadId)
+  return {
+    ok: true,
+    opened: false,
+    downloadId,
+    error: opened.error || "알림에서 「지금 실행」을 눌러 주세요.",
+  }
+}
+
+/** data URL로 즉시 저장 후 실행 (클릭 제스처와 가까움) */
+async function openAgentFromContent(content, filename) {
+  const dataUrl = `data:application/x-bat;base64,${toBase64Utf8(content)}`
+  const downloadId = await downloadUrl(
+    dataUrl,
+    filename || "ShotForm/start-shotform-agent.cmd"
+  )
+  return finishOpen(downloadId)
+}
+
+async function downloadAndOpenAgent(cmdUrl) {
+  if (!cmdUrl || !/^https?:\/\//i.test(cmdUrl)) {
+    throw new Error("유효한 실행 파일 URL이 아닙니다.")
+  }
+  const downloadId = await downloadUrl(cmdUrl, "ShotForm/start-shotform-agent.cmd")
+  return finishOpen(downloadId)
+}
+
+chrome.notifications?.onButtonClicked?.addListener((notificationId, buttonIndex) => {
+  if (!notificationId.startsWith("shotform-agent-")) return
+  if (buttonIndex !== 0) return
+  if (pendingOpenDownloadId != null) void openDownload(pendingOpenDownloadId)
+  chrome.notifications.clear(notificationId)
+})
+
+chrome.notifications?.onClicked?.addListener((notificationId) => {
+  if (!notificationId.startsWith("shotform-agent-")) return
+  if (pendingOpenDownloadId != null) void openDownload(pendingOpenDownloadId)
+  chrome.notifications.clear(notificationId)
+})
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (!msg || !msg.type) return
 
@@ -62,6 +204,30 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       const url = String(msg.agentUrl || DEFAULT_AGENT).replace(/\/$/, "")
       await chrome.storage.sync.set({ agentUrl: url })
       sendResponse({ ok: true, agentUrl: url })
+    })()
+    return true
+  }
+
+  if (msg.type === "SHOTFORM_OPEN_AGENT_DATA") {
+    ;(async () => {
+      try {
+        const result = await openAgentFromContent(String(msg.content || ""), msg.filename)
+        sendResponse(result)
+      } catch (e) {
+        sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) })
+      }
+    })()
+    return true
+  }
+
+  if (msg.type === "SHOTFORM_DOWNLOAD_OPEN_AGENT") {
+    ;(async () => {
+      try {
+        const result = await downloadAndOpenAgent(msg.cmdUrl)
+        sendResponse(result)
+      } catch (e) {
+        sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) })
+      }
     })()
     return true
   }
