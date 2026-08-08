@@ -6,6 +6,12 @@ import {
   generateShortsThumbnail as generateShortsThumbnailLib,
   generateThumbnailHookingText as generateThumbnailHookingTextLib,
 } from "@/lib/shotform-mvp-thumbnail"
+import {
+  mergeProductAndCharacterRefs,
+  personIdentityLockPrompt,
+  promptLikelyShowsPerson,
+} from "@/lib/shotform-person-consistency"
+import type { ShotformVisualFocus } from "@/lib/shotform-script-templates"
 
 // 네이버 데이터랩 API를 사용하여 인기 키워드 가져오기
 export async function getNaverTrendingKeywords(category: string = "쇼핑"): Promise<string[]> {
@@ -351,7 +357,10 @@ export async function generateImageWithNanobanana(
   model: "nano-banana" | "qwen-image" = "nano-banana",
   referenceMode: "product-recompose" | "strict-review" = "product-recompose",
   /** 브라우저 localStorage 키 — 서버 env보다 우선 */
-  openaiApiKeyFromClient?: string
+  openaiApiKeyFromClient?: string,
+  /** 이전 장면에서 고른 인물 레퍼런스(제품과 같이 identity lock) */
+  characterImageRefs?: string | string[],
+  visualFocus?: ShotformVisualFocus | string | null
 ): Promise<string> {
   const REPLICATE_API_TOKEN = replicateApiKey || process.env.REPLICATE_API_TOKEN
 
@@ -361,6 +370,11 @@ export async function generateImageWithNanobanana(
 
   const modelLabel = model === "qwen-image" ? "Qwen Image" : "Nano Banana"
   const productRefs = normalizeProductImageRefs(productImageBase64)
+  const characterRefs = normalizeProductImageRefs(characterImageRefs)
+  const wantsPerson =
+    visualFocus === "person" ||
+    visualFocus === "balanced" ||
+    promptLikelyShowsPerson(sceneScript || "")
 
   try {
     const normalizedSceneIndex = (sceneIndex === undefined
@@ -441,8 +455,13 @@ ${needsHands ? `포함 사항:
 - 손이나 사람 없음 (no hands, no people, product only)`}
 
 금지 사항:
-- 사람 얼굴 없음 (no face, no head visible)
-- 장면 위 자막·워터마크·가격표·UI 글자 추가 금지 (no overlay captions, watermarks, price tags, UI text)
+${
+  wantsPerson
+    ? `- 인물이 나올 때: Korean person (East Asian features), 시리즈 전체 동일 인물 유지
+- 장면 위 자막·워터마크·가격표·UI 글자 추가 금지`
+    : `- 사람 얼굴 없음 (no face, no head visible)
+- 장면 위 자막·워터마크·가격표·UI 글자 추가 금지 (no overlay captions, watermarks, price tags, UI text)`
+}
 - 단, 제품 자체에 인쇄·자수된 로고/레터링/패턴은 반드시 그대로 유지
 
 품질: 고품질, 전문적인 제품 촬영, 매력적인 구도, 9:16 세로 비율, vertical composition.`
@@ -471,7 +490,18 @@ CRITICAL PRODUCT IDENTITY (HIGHEST PRIORITY):
 - Do NOT invent a different product, different logo, different graphic, or different garment style.
 - Maintain exact original features/buttons/controls from the reference; never add new ones.
 - Background, camera angle, and lifestyle staging MAY change — product identity MUST NOT.
-${needsHands ? "- Optionally show hands using/holding the product naturally (no face)." : "- Product only; no hands, no people."}`
+${
+  wantsPerson
+    ? "- Person may appear with the product; keep Korean look and same face across the series."
+    : needsHands
+      ? "- Optionally show hands using/holding the product naturally (no face)."
+      : "- Product only; no hands, no people."
+}`
+    }
+
+    if (wantsPerson) {
+      imagePrompt = `${imagePrompt}
+${personIdentityLockPrompt({ hasCharacterReference: characterRefs.length > 0 })}`
     }
 
     // 모델이 참고 이미지를 캔버스 안에 축소 배치하거나 장면 위 자막을 붙이지 않도록
@@ -491,7 +521,7 @@ FINAL OUTPUT CONSTRAINTS — THESE OVERRIDE ANY CONFLICTING INSTRUCTION ABOVE:
 - Output only one continuous photorealistic scene of the SAME product as the reference.`
 
     console.log(
-      `[Shopping] ${modelLabel} 이미지 생성 시작, 참고이미지 ${productRefs.length}장, 장면:`,
+      `[Shopping] ${modelLabel} 이미지 생성 시작, 제품ref ${productRefs.length}장, 인물ref ${characterRefs.length}장, person=${wantsPerson}, 장면:`,
       sceneScript.substring(0, 50) + "..."
     )
     
@@ -499,8 +529,12 @@ FINAL OUTPUT CONSTRAINTS — THESE OVERRIDE ANY CONFLICTING INSTRUCTION ABOVE:
     const imageAspectRatio = aspectRatio || "9:16"
     console.log(`[Shopping] 이미지 생성 비율: ${imageAspectRatio}`)
 
-    // nano-banana는 image_input으로 URL 배열을 받음
-    const imageInput = productRefs.length > 0 ? productRefs : undefined
+    // nano-banana: 제품 + (선택) 인물 레퍼런스
+    const mergedRefs = mergeProductAndCharacterRefs(
+      productRefs,
+      wantsPerson ? characterRefs : []
+    )
+    const imageInput = mergedRefs.length > 0 ? mergedRefs : undefined
 
     // google/nano-banana 모델 사용
     // 재시도 로직 추가 (502, 503, 504 같은 서버 오류 처리)
@@ -2490,13 +2524,17 @@ export async function generateImagePromptsFromScript(
   productName: string,
   productDescription: string,
   productImageBase64: string | undefined,
-  apiKey?: string
+  apiKey?: string,
+  visualFocus?: ShotformVisualFocus | string | null
 ): Promise<ShoppingImagePrompt[]> {
   const GPT_API_KEY = apiKey || process.env.GPT_API_KEY || process.env.OPENAI_API_KEY || process.env.CHATGPT_API_KEY
 
   if (!GPT_API_KEY) {
     throw new Error("GPT API 키가 설정되지 않았습니다.")
   }
+
+  const allowPerson =
+    visualFocus === "person" || visualFocus === "balanced"
 
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -2515,6 +2553,7 @@ export async function generateImagePromptsFromScript(
 제품 정보:
 - 제품명: ${productName}
 ${productDescription ? `- 제품 설명: ${productDescription}` : ''}
+비주얼 포커스: ${visualFocus || "product"}
 
 중요 규칙:
 - 대본 전체를 읽고 분석하여, 대본의 흐름에 맞게 3장의 이미지를 위한 프롬프트를 생성해야 합니다
@@ -2538,7 +2577,12 @@ ${productDescription ? `- 제품 설명: ${productDescription}` : ''}
 - 배경은 제품의 실제 사용 환경에 맞게 설정 (청소기는 바닥, 주방용품은 주방 등)
 - 매우 중요: 제품 이미지가 제공된 경우, 제품은 정확하게 보존하되 배경은 참고 이미지와 다르게 생성해야 함 (product must be preserved exactly, but background must be different from the reference image, create a new background that is different from the original image's background, different background setting, different background colors, different background style, do not copy the reference image's background)
 - 숏폼 영상 제작용이므로 제품이 명확하게 보여야 함
-- 사람 얼굴은 절대 나오면 안 됨 (no face, no head visible)
+${
+  allowPerson
+    ? `- 인물 허용: Korean person / East Asian features. 3장 중 인물이 나오는 컷은 **전부 같은 사람**(얼굴·헤어·연령대 동일). 첫 인물컷에 외모 앵커를 쓰고 이후는 same person.
+- 제품-only 디테일컷이 있으면 그 컷만 no face 가능`
+    : `- 사람 얼굴은 절대 나오면 안 됨 (no face, no head visible)`
+}
 - 각 장면마다 Pixabay 사진 검색에 적합한 간결한 영어 검색어를 2~5단어로 생성하고 pixabayKeyword에 넣어야 함
 
 생성할 이미지 유형:
@@ -2794,7 +2838,8 @@ export async function generateImage(
   apiKey?: string,
   imagePrompts?: ShoppingImagePrompt[],
   aspectRatio?: string, // 원본 이미지 비율
-  model: "nano-banana" | "qwen-image" = "nano-banana"
+  model: "nano-banana" | "qwen-image" = "nano-banana",
+  visualFocus?: ShotformVisualFocus | string | null
 ): Promise<string[]> {
   const REPLICATE_API_TOKEN = replicateApiKey || process.env.REPLICATE_API_TOKEN
 
@@ -2812,14 +2857,16 @@ export async function generateImage(
 
   try {
     const promptCount = imagePrompts.length
-    console.log(`[Shopping] 대본 기반 ${promptCount}장의 이미지 생성 시작`)
-    
+    console.log(`[Shopping] 대본 기반 ${promptCount}장의 이미지 생성 시작 (focus=${visualFocus || "n/a"})`)
+
     const imageUrls: string[] = []
-    
+    /** 첫 인물 씬 이미지를 이후 씬의 character ref로 사용 (제품 ref와 동일 패턴) */
+    let characterLockUrl: string | undefined
+
     for (let i = 0; i < promptCount; i++) {
       const prompt = imagePrompts[i]
       console.log(`[Shopping] 이미지 ${i + 1}/${promptCount} 생성 중... (타입: ${prompt.type})`)
-      
+
       const imageUrl = await generateImageWithNanobanana(
         prompt.prompt,
         productName,
@@ -2828,13 +2875,26 @@ export async function generateImage(
         i, // sceneIndex
         productDescription,
         aspectRatio, // 원본 이미지 비율 전달
-        model
+        model,
+        "product-recompose",
+        apiKey,
+        characterLockUrl,
+        visualFocus
       )
-      
+
       imageUrls.push(imageUrl)
+      if (
+        !characterLockUrl &&
+        (visualFocus === "person" ||
+          visualFocus === "balanced" ||
+          promptLikelyShowsPerson(prompt.prompt))
+      ) {
+        characterLockUrl = imageUrl
+        console.log(`[Shopping] 인물 레퍼런스 잠금 ← 장면 ${i + 1}`)
+      }
       console.log(`[Shopping] 이미지 ${i + 1}/${promptCount} 생성 완료:`, imageUrl)
     }
-    
+
     console.log(`[Shopping] ${promptCount}장의 이미지 생성 완료`)
     return imageUrls
   } catch (error) {

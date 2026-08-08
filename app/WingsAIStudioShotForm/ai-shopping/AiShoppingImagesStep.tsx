@@ -500,6 +500,8 @@ export function AiShoppingImagesStep({
               prompt={currentPrompt}
               title="생성 프롬프트"
               emptyText="대본 단계에서 이미지 프롬프트를 생성해주세요."
+              referenceImageUrl={productImages[0] || productImage || undefined}
+              referenceDownloadName="product-original"
             />
             <Input
               value={customImagePrompts.get(sceneIndex) || ""}

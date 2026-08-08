@@ -1,3 +1,4 @@
+import { personConsistencyPlanningBlock } from "@/lib/shotform-person-consistency"
 import {
   normalizeVisualFocus,
   sceneCountForSeconds,
@@ -136,6 +137,8 @@ ${focusBlock}
 위 비주얼 포커스를 최우선으로 반영한 뒤, 아래 순서로 한 문단:
 1) 샷 타입 2) 앵글 3) 주체(인물 또는 제품/손 — 포커스에 맞게) 4) 제품 풀네임·색·위치 5) 액션 6) 배경 7) 자연광·얕은 심도·라이프스타일 스틸 컷
 제품 형태·색·구조는 전 장면 동일. 왜곡 금지. f값·렌즈 mm 메타 문구 금지.
+
+${personConsistencyPlanningBlock()}
 
 MOTION (English only, 12~22 words):
 [camera move] + [action matching visual focus] + "high quality, commercial look"

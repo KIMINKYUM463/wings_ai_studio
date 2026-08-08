@@ -4147,7 +4147,8 @@ export default function AiShoppingVer2Page() {
         productName,
         productDescription || "",
         imageBase64,
-        openaiApiKey
+        openaiApiKey,
+        visualFocus
       )
       
       const dynamicPrompts = storyboardScenes.map((scene, index) => {
@@ -4350,7 +4351,8 @@ export default function AiShoppingVer2Page() {
         openaiApiKey,
         promptsToUse,
         "9:16",
-        imageModel
+        imageModel,
+        visualFocus
       )
       
       setImageUrls(imageUrls)
@@ -4464,6 +4466,22 @@ export default function AiShoppingVer2Page() {
       finalPrompt = `${finalPrompt}
 
 PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut, materials, and all logos/lettering/prints on the garment or product surface. Do not invent a different product or graphic.`
+
+      // 이전 장면 AI 이미지 중 인물이 나온 컷을 캐릭터 레퍼런스로 (제품 유지와 동일)
+      let characterRef: string | undefined
+      for (let i = 0; i < index; i++) {
+        const prevPrompt = promptsToUse[i]?.prompt || ""
+        const prevUrl = imageUrls[i] || storyboardScenes[i]?.imageUrl
+        if (
+          prevUrl &&
+          (visualFocus === "person" ||
+            visualFocus === "balanced" ||
+            /인물|여성|남성|person|woman|man|face|korean/i.test(prevPrompt))
+        ) {
+          characterRef = prevUrl
+          break
+        }
+      }
       
       const generatedImageUrl = await generateImageWithNanobanana(
         finalPrompt,
@@ -4473,7 +4491,13 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
         index, // sceneIndex
         productDescription,
         "9:16",
-        imageModel
+        imageModel,
+        "product-recompose",
+        typeof window !== "undefined"
+          ? localStorage.getItem("shotform_openai_api_key") || undefined
+          : undefined,
+        characterRef,
+        visualFocus
       )
       const imageUrl = await normalizeGeneratedImageToPortrait(generatedImageUrl)
       
@@ -8422,12 +8446,14 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
           item.productName,
           item.productDescription || "",
           item.productImageBase64 || undefined,
-          openaiKey
+          openaiKey,
+          item.visualFocus || visualFocus
         )
       } catch (promptErr) {
         console.warn("[Factory] 이미지 프롬프트 생성 실패, 장면 텍스트로 대체:", promptErr)
       }
       const imageUrls: string[] = []
+      let factoryCharacterRef: string | undefined
       for (let i = 0; i < 3; i++) {
         const promptToUse =
           imagePromptsForFactory[i]?.prompt?.trim() && imagePromptsForFactory[i].prompt.length > 30
@@ -8440,9 +8466,20 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
           replicateKey,
           i,
           item.productDescription,
-          "9:16"
+          "9:16",
+          "nano-banana",
+          "product-recompose",
+          openaiKey,
+          factoryCharacterRef,
+          item.visualFocus || visualFocus
         )
         imageUrls.push(url)
+        if (
+          !factoryCharacterRef &&
+          /인물|여성|남성|person|woman|man|face|korean/i.test(promptToUse || "")
+        ) {
+          factoryCharacterRef = url
+        }
       }
       await saveProjectStep({ imageUrls, activeStep: "video" })
 
@@ -11029,6 +11066,12 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                     prompt={currentPrompt || sceneDialogue || ""}
                     title="생성 프롬프트"
                     emptyText="프롬프트가 아직 없습니다. 영상 생성 시 자동으로 만들어집니다."
+                    referenceImageUrl={
+                      productImages[0] || productImage || undefined
+                    }
+                    referenceDownloadName={
+                      (productName || "product").slice(0, 40) + "-original"
+                    }
                   />
                   <Button
                     type="button"

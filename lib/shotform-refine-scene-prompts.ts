@@ -50,6 +50,7 @@ ${opts.detailInsightsText?.trim() || "(없음)"}
 아래 장면들의 IMAGE/MOTION만 벤치마크 공식으로 다시 작성하세요. 나레이션은 바꾸지 마세요.
 비주얼 포커스(${visualFocus})를 IMAGE/MOTION에 최우선 반영하세요.
 IMAGE: 한국어 1~2문장(약 120~220자). 제품 형태·색은 전 장면 동일.
+인물이 나오면 한국인 기본 + 전 장면 동일 인물(얼굴·헤어·연령대). 제품 유지와 같은 수준으로 지킬 것.
 MOTION: 영어 12~22 words. "… high quality, commercial look" 패턴.
 ${urls.length ? "첨부 사진은 실물입니다. 형태·색을 사진과 다르게 쓰지 말고, 제품 풀네임으로 고정하세요." : ""}
 
@@ -99,6 +100,7 @@ ${focusBlock}
 
 IMAGE: 샷, 앵글, 주체(포커스에 맞게), 제품 풀네임+색+위치, 액션, 배경, 자연광·얕은 심도·라이프스타일 스틸 컷.
 제품 풀네임 반복, 실물 형태 보존, f값/렌즈 mm 금지. 역할 태그는 본문에 쓰지 말 것.
+인물 컷: Korean person / East Asian features, 시리즈 전체 동일 인물 앵커 유지.
 
 MOTION: [camera move] + [action matching focus] + "high quality, commercial look"`,
         },

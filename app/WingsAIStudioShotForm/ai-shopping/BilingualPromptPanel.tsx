@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Check, Copy, Loader2, RefreshCw } from "lucide-react"
+import { Check, Copy, Download, ImageIcon, Loader2, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ensureBilingualPrompt } from "./actions"
 
@@ -10,6 +10,9 @@ type Props = {
   title?: string
   emptyText?: string
   className?: string
+  /** 외부 AI에 넣을 제품 원본(레퍼런스) 사진 */
+  referenceImageUrl?: string | null
+  referenceDownloadName?: string
 }
 
 async function copyText(text: string) {
@@ -19,6 +22,45 @@ async function copyText(text: string) {
     return true
   } catch {
     return false
+  }
+}
+
+function extFromUrlOrMime(url: string): string {
+  if (url.startsWith("data:image/png")) return "png"
+  if (url.startsWith("data:image/webp")) return "webp"
+  if (url.startsWith("data:image/jpeg") || url.startsWith("data:image/jpg")) return "jpg"
+  const path = url.split("?")[0] || ""
+  const m = path.match(/\.(png|jpe?g|webp|gif)$/i)
+  return m ? m[1]!.toLowerCase().replace("jpeg", "jpg") : "jpg"
+}
+
+async function downloadReferenceImage(url: string, baseName: string) {
+  const safe = (baseName || "product-original").replace(/[^\w가-힣\-]+/g, "_").slice(0, 80)
+  const filename = `${safe}.${extFromUrlOrMime(url)}`
+  try {
+    if (url.startsWith("data:")) {
+      const a = document.createElement("a")
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      return
+    }
+    const res = await fetch(url, { mode: "cors" })
+    if (!res.ok) throw new Error(`download ${res.status}`)
+    const blob = await res.blob()
+    const objectUrl = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = objectUrl
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 2000)
+  } catch {
+    // CORS 등으로 blob 실패 시 새 탭 (사용자가 저장 가능)
+    window.open(url, "_blank", "noopener,noreferrer")
   }
 }
 
@@ -75,12 +117,14 @@ function PromptLangBlock({
   )
 }
 
-/** 생성 프롬프트를 한글·영어로 보여주고 각각 복사 */
+/** 생성 프롬프트를 한글·영어로 보여주고 각각 복사 (+ 제품 원본 사진 다운로드) */
 export function BilingualPromptPanel({
   prompt,
   title = "생성 프롬프트",
   emptyText = "프롬프트가 아직 없습니다.",
   className,
+  referenceImageUrl,
+  referenceDownloadName = "product-original",
 }: Props) {
   const [ko, setKo] = useState("")
   const [en, setEn] = useState("")
@@ -88,6 +132,9 @@ export function BilingualPromptPanel({
   const [error, setError] = useState("")
   const [copied, setCopied] = useState<"ko" | "en" | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
+  const [dlBusy, setDlBusy] = useState(false)
+
+  const refUrl = typeof referenceImageUrl === "string" ? referenceImageUrl.trim() : ""
 
   useEffect(() => {
     let cancelled = false
@@ -142,10 +189,57 @@ export function BilingualPromptPanel({
     window.setTimeout(() => setCopied((prev) => (prev === lang ? null : prev)), 1500)
   }
 
+  const handleDownloadRef = async () => {
+    if (!refUrl) return
+    setDlBusy(true)
+    try {
+      await downloadReferenceImage(refUrl, referenceDownloadName)
+    } finally {
+      setDlBusy(false)
+    }
+  }
+
+  const referenceBlock = refUrl ? (
+    <div className="flex items-center gap-2 rounded-lg border border-sky-500/25 bg-sky-500/10 p-2">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={refUrl}
+        alt="제품 원본"
+        className="h-12 w-12 shrink-0 rounded-md object-cover border border-white/15 bg-black/40"
+      />
+      <div className="min-w-0 flex-1">
+        <p className="text-[11px] font-semibold text-sky-100">제품 원본 사진</p>
+        <p className="text-[10px] text-sky-200/70">
+          외부 AI에 프롬프트와 같이 넣을 레퍼런스
+        </p>
+      </div>
+      <Button
+        type="button"
+        size="sm"
+        className="h-8 shrink-0 bg-sky-600 px-2.5 text-[11px] font-semibold text-white hover:bg-sky-500"
+        disabled={dlBusy}
+        onClick={() => void handleDownloadRef()}
+      >
+        {dlBusy ? (
+          <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <Download className="mr-1 h-3.5 w-3.5" />
+        )}
+        사진 받기
+      </Button>
+    </div>
+  ) : (
+    <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/30 px-2.5 py-2 text-[10px] text-zinc-500">
+      <ImageIcon className="h-3.5 w-3.5 shrink-0" />
+      제품 원본 사진이 없습니다. 소싱 단계에서 상품 사진을 넣어 주세요.
+    </div>
+  )
+
   if (!prompt.trim()) {
     return (
       <div className={`rounded-xl border border-white/10 bg-black/25 p-3 space-y-2 ${className || ""}`}>
         <p className="text-xs font-semibold text-zinc-300">{title}</p>
+        {referenceBlock}
         <p className="text-[11px] text-zinc-600">{emptyText}</p>
       </div>
     )
@@ -172,6 +266,8 @@ export function BilingualPromptPanel({
           <span className="ml-1">다시 변환</span>
         </Button>
       </div>
+
+      {referenceBlock}
 
       <PromptLangBlock
         label="한글"

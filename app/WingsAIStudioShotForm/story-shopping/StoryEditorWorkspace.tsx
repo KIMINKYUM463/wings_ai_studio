@@ -887,7 +887,7 @@ export const StoryEditorWorkspace = forwardRef<
             !isMediaUsed(getMediaUrl(item), getPixabayId?.(item)) &&
             /^https?:\/\//i.test(getPreviewUrl(item))
         )
-        .slice(0, 12)
+        .slice(0, 3)
       if (!candidates.length) return undefined
       try {
         const response = await fetch(

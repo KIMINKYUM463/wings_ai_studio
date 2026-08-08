@@ -2592,3 +2592,123 @@ JSON 형식으로 응답:
     }
   }
 }
+
+/** 프로덕션에서 throw 메시지가 숨겨지지 않도록 결과 객체로 반환 */
+export type AnimalActionResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: string }
+
+function animalActionError(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) {
+    const msg = error.message.trim()
+    // Next가 덮어쓴 일반 문구면 원인 힌트로 교체
+    if (/Server Components render|digest property/i.test(msg)) {
+      return fallback
+    }
+    return msg
+  }
+  return fallback
+}
+
+/** 이미지 프롬프트 생성 — 실패 시 메시지가 클라이언트에 전달됨 */
+export async function generateAnimalImagePromptsSafe(
+  script: string,
+  productName: string,
+  productDescription: string,
+  hasProductImage: boolean,
+  apiKey?: string,
+  character?: AnimalCharacter | null,
+  sceneCount?: number
+): Promise<
+  AnimalActionResult<
+    Array<{
+      type: string
+      prompt: string
+      description: string
+      scriptText: string
+      sceneBeat?: string
+    }>
+  >
+> {
+  try {
+    const prompts = await generateImagePromptsFromScript(
+      script,
+      productName,
+      productDescription,
+      // 프롬프트 단계에서는 실제 이미지 바이트가 필요 없음 (용량·타임아웃 방지)
+      hasProductImage ? "has-ref" : undefined,
+      apiKey,
+      character
+        ? {
+            ...character,
+            // 레퍼런스 data URL은 프롬프트 생성에 불필요
+            referenceImage: character.referenceImage?.startsWith("data:")
+              ? undefined
+              : character.referenceImage,
+          }
+        : character,
+      sceneCount
+    )
+    if (!prompts?.length) {
+      return {
+        ok: false,
+        error: "이미지 프롬프트를 만들지 못했습니다. OpenAI API 키를 확인해주세요.",
+      }
+    }
+    return { ok: true, data: prompts }
+  } catch (error) {
+    console.error("[AnimalShopping] 프롬프트 생성 실패:", error)
+    return {
+      ok: false,
+      error: animalActionError(
+        error,
+        "이미지 프롬프트 생성에 실패했습니다. 설정에 OpenAI(GPT) API 키가 있는지 확인해주세요."
+      ),
+    }
+  }
+}
+
+/** 씬 1컷 이미지 생성 — 컷별로 호출해 서버 타임아웃을 피함 */
+export async function generateAnimalSceneImageSafe(
+  prompt: string,
+  productName: string,
+  productImageBase64: string | undefined,
+  replicateApiKey: string | undefined,
+  sceneIndex: number,
+  productDescription: string,
+  character: AnimalCharacter | null | undefined,
+  sceneBeat?: string
+): Promise<AnimalActionResult<string>> {
+  try {
+    if (!(replicateApiKey || process.env.REPLICATE_API_TOKEN)) {
+      return {
+        ok: false,
+        error: "Replicate API 키가 없습니다. 설정에서 shotform_replicate_api_key를 저장해주세요.",
+      }
+    }
+    const url = await generateImageWithNanobanana(
+      prompt,
+      productName,
+      productImageBase64,
+      replicateApiKey,
+      sceneIndex,
+      productDescription,
+      "9:16",
+      character,
+      sceneBeat
+    )
+    if (!url?.startsWith("http")) {
+      return { ok: false, error: "이미지 URL이 유효하지 않습니다. 다시 시도해주세요." }
+    }
+    return { ok: true, data: url }
+  } catch (error) {
+    console.error("[AnimalShopping] 씬 이미지 생성 실패:", error)
+    return {
+      ok: false,
+      error: animalActionError(
+        error,
+        "이미지 생성에 실패했습니다. Replicate API 키·잔액과 네트워크를 확인한 뒤 다시 시도해주세요."
+      ),
+    }
+  }
+}

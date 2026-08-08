@@ -616,7 +616,7 @@ JSON만 출력:
           (candidate: RankedVisualCandidate) =>
             /^https?:\/\//i.test(candidate.imageUrl)
         )
-        .slice(0, 12)
+        .slice(0, 3)
       if (!candidates.length) {
         return NextResponse.json({ success: true, selectedId: null })
       }

@@ -574,6 +574,8 @@ export function visualFocusInstruction(focus: ShotformVisualFocus): string {
     case "person":
       return `비주얼 포커스: 인물 설명 위주
 - 미디엄/바스트 위주. 인물 연령·헤어·의상·표정·시선을 구체적으로
+- 기본 인물: **한국인**(East Asian / Korean features). 국적을 바꾸지 말 것
+- **전 장면 동일 인물**: 첫 인물컷의 얼굴·헤어·연령대를 앵커로 고정하고 이후는 "동일 인물"로 유지 (제품 형태 유지과 같음)
 - 제품은 착용·파지·사용 맥락으로 항상 보이게 하되, 인물 스토리가 주인공
 - 제품만 단독인 디테일샷은 많아도 1컷. 패키지·히어로 단독보다 사람 곁에 두기
 - MOTION도 인물 표정·제스처 위주 + 제품 조작`
@@ -588,7 +590,8 @@ export function visualFocusInstruction(focus: ShotformVisualFocus): string {
     default:
       return `비주얼 포커스: 인물+제품 균형
 - 사용 장면(인물+제품) ≥2 + 제품 디테일샷 ≥1 + 제시/CTA 권장
-- 인물 시리즈 일관 + 제품 풀네임·형태 보존을 함께 지킬 것
+- 인물 장면은 **한국인** 기본 + **전 장면 동일 얼굴/헤어** (제품 풀네임·형태 보존과 함께 지킬 것)
+- 첫 인물 장면에 외모 앵커를 구체적으로 쓰고, 이후 인물컷은 같은 사람으로
 - MOTION: 인물 액션과 제품이 동시에 보이게`
   }
 }
