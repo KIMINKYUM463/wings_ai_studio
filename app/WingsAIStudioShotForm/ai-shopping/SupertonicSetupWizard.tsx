@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useState } from "react"
 import {
   CheckCircle2,
+  Circle,
   Download,
   ExternalLink,
   Loader2,
+  PlugZap,
   RefreshCw,
   Sparkles,
   XCircle,
@@ -20,6 +22,8 @@ import {
 } from "@/components/ui/dialog"
 import {
   connectLocalAgent,
+  downloadLocalAgentStarter,
+  probeLocalCompanion,
   resolveLocalCompanionUrl,
 } from "@/lib/shotform-local-companion-client"
 import { ensureSupertonicReady } from "@/lib/supertonic-ensure-client"
@@ -31,13 +35,28 @@ type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
   onReady?: (info: { online: boolean; message?: string }) => void
+  /** 자동 실행 실패 시 강조 이유 */
+  failReason?: string | null
 }
 
 type CheckState = "idle" | "checking" | "ok" | "fail"
 
-export function SupertonicSetupWizard({ open, onOpenChange, onReady }: Props) {
+function StatusIcon({ state }: { state: CheckState }) {
+  if (state === "ok") return <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-400" />
+  if (state === "fail") return <XCircle className="h-5 w-5 shrink-0 text-rose-400" />
+  if (state === "checking")
+    return <Loader2 className="h-5 w-5 shrink-0 animate-spin text-sky-400" />
+  return <Circle className="h-5 w-5 shrink-0 text-zinc-600" />
+}
+
+export function SupertonicSetupWizard({
+  open,
+  onOpenChange,
+  onReady,
+  failReason,
+}: Props) {
   const deployed = isBrowserOnDeployedHost()
-  const [agentOk, setAgentOk] = useState(false)
+  const [agentState, setAgentState] = useState<CheckState>("idle")
   const [agentMsg, setAgentMsg] = useState("")
   const [pythonState, setPythonState] = useState<CheckState>("idle")
   const [pythonMsg, setPythonMsg] = useState("")
@@ -46,7 +65,7 @@ export function SupertonicSetupWizard({ open, onOpenChange, onReady }: Props) {
   const [busy, setBusy] = useState(false)
 
   const reset = () => {
-    setAgentOk(false)
+    setAgentState("idle")
     setAgentMsg("")
     setPythonState("idle")
     setPythonMsg("")
@@ -59,109 +78,131 @@ export function SupertonicSetupWizard({ open, onOpenChange, onReady }: Props) {
     if (!open) reset()
   }, [open])
 
-  const ensureAgent = useCallback(async () => {
+  const runChecklist = useCallback(async () => {
     setBusy(true)
-    setAgentMsg("로컬 에이전트 연결 중…")
+    setAgentState("checking")
+    setAgentMsg("에이전트(3847) 확인 중…")
+    setPythonState("idle")
+    setPythonMsg("")
+    setStState("idle")
+    setStMsg("")
+
     try {
+      // ── 1) Agent ──
       if (!deployed) {
-        setAgentOk(true)
+        setAgentState("ok")
         setAgentMsg("로컬 개발 환경 — 에이전트 생략 가능")
-        return true
+      } else {
+        const probed = await probeLocalCompanion()
+        if (probed.ok) {
+          setAgentState("ok")
+          setAgentMsg("실행 중 (http://127.0.0.1:3847) — 검은 창 유지")
+        } else {
+          setAgentState("fail")
+          setAgentMsg(
+            "에이전트가 꺼져 있습니다. 아래 「에이전트 받기」→ 더블클릭 후 「다시 확인」을 누르세요."
+          )
+          setPythonState("fail")
+          setPythonMsg("에이전트가 먼저 필요합니다.")
+          return
+        }
       }
-      const health = await connectLocalAgent({
-        requireFfmpeg: false,
-        onProgress: (m) => setAgentMsg(m),
-      })
-      if (health.ok) {
-        setAgentOk(true)
-        setAgentMsg("에이전트 연결됨 (http://127.0.0.1:3847)")
-        return true
-      }
-      setAgentOk(false)
-      setAgentMsg(
-        health.error ||
-          "에이전트가 필요합니다. 쿠팡 수집기의 「에이전트 연결」을 먼저 눌러 주세요."
-      )
-      return false
-    } finally {
-      setBusy(false)
-    }
-  }, [deployed])
 
-  const checkPython = useCallback(async () => {
-    setBusy(true)
-    setPythonState("checking")
-    setPythonMsg("Python 설치 여부 확인 중…")
-    try {
-      const ready = agentOk || (await ensureAgent())
-      if (!ready && deployed) {
-        setPythonState("fail")
-        setPythonMsg("에이전트 연결 후 다시 「새로고침」해 주세요.")
-        return false
-      }
+      // ── 2) Python ──
+      setPythonState("checking")
+      setPythonMsg("Python 설치 여부 확인 중…")
 
       if (!deployed) {
-        // 로컬 Next: ensure 단계에서 Python을 쓰므로, 여기서는 안내만
         setPythonState("ok")
-        setPythonMsg("로컬 환경입니다. 아래 「Supertonic 3 설치」를 눌러 주세요.")
-        return true
+        setPythonMsg("로컬 환경 — 아래 설치 단계로 진행하세요.")
+      } else {
+        const base = resolveLocalCompanionUrl().replace(/\/$/, "")
+        const res = await fetch(`${base}/supertonic/prereq`, { cache: "no-store" })
+        if (res.status === 404) {
+          setPythonState("fail")
+          setPythonMsg(
+            "에이전트가 오래되었습니다. 검은 창을 닫고 「에이전트 받기」로 최신 .cmd를 실행한 뒤 「다시 확인」하세요."
+          )
+          return
+        }
+        const json = (await res.json().catch(() => ({}))) as {
+          python?: boolean
+          pythonVersion?: string
+          tip?: string
+          supertonic?: boolean
+        }
+
+        if (json.supertonic) {
+          setPythonState("ok")
+          setPythonMsg(json.pythonVersion || "Python 확인됨")
+          setStState("ok")
+          setStMsg("Supertonic이 이미 실행 중입니다.")
+          onReady?.({ online: true, message: "이미 연결됨" })
+          return
+        }
+
+        if (json.python) {
+          setPythonState("ok")
+          setPythonMsg(`${json.pythonVersion || "Python 감지됨"} — 다음 단계로 진행하세요.`)
+        } else {
+          setPythonState("fail")
+          setPythonMsg(
+            "이 PC에 Python이 없습니다.\n" +
+              "① 「Python 다운로드」클릭 → 설치\n" +
+              "② 설치 화면에서 「Add python.exe to PATH」 꼭 체크\n" +
+              "③ 설치 후 에이전트 검은 창을 닫고 .cmd로 다시 실행\n" +
+              "④ 이 창에서 「다시 확인」"
+          )
+          return
+        }
       }
 
-      const base = resolveLocalCompanionUrl().replace(/\/$/, "")
-      const res = await fetch(`${base}/supertonic/prereq`, { cache: "no-store" })
-      const json = (await res.json().catch(() => ({}))) as {
-        python?: boolean
-        pythonVersion?: string
-        tip?: string
-        supertonic?: boolean
-      }
-
-      if (json.supertonic) {
-        setPythonState("ok")
-        setPythonMsg(json.pythonVersion || "Python 확인됨 (Supertonic도 이미 실행 중)")
-        setStState("ok")
-        setStMsg("Supertonic이 이미 실행 중입니다.")
-        onReady?.({ online: true, message: "이미 연결됨" })
-        return true
-      }
-
-      if (json.python) {
-        setPythonState("ok")
-        setPythonMsg(
-          `${json.pythonVersion || "Python 감지됨"} — 설치 완료. 다음 단계로 진행하세요.`
-        )
-        return true
-      }
-
-      setPythonState("fail")
-      setPythonMsg(
-        "아직 Python이 없습니다.\n1) 아래 버튼으로 python.org에서 다운로드\n2) 설치 시 「Add python.exe to PATH」 체크\n3) 설치 후 이 창에서 「새로고침」"
-      )
-      return false
+      // ── 3) Supertonic already? ──
+      // Python OK — leave step 3 for user button (or auto if failReason was only python and now ok)
     } catch (e) {
       setPythonState("fail")
       setPythonMsg(e instanceof Error ? e.message : "확인 실패")
-      return false
     } finally {
       setBusy(false)
     }
-  }, [agentOk, deployed, ensureAgent, onReady])
+  }, [deployed, onReady])
 
   useEffect(() => {
-    if (open) void checkPython()
+    if (open) void runChecklist()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 열릴 때 1회
   }, [open])
 
+  const launchAgent = () => {
+    downloadLocalAgentStarter()
+    setAgentMsg(
+      "start-shotform-agent.cmd 를 받았습니다. 다운로드 폴더에서 더블클릭하세요. (Chrome은 .cmd 자동 실행 불가)"
+    )
+    setAgentState("fail")
+  }
+
   const installSupertonic = async () => {
     if (pythonState !== "ok") {
-      setStMsg("먼저 Python 설치를 완료하고 「새로고침」으로 확인해 주세요.")
+      setStMsg("먼저 1·2단계를 완료하고 「다시 확인」을 누르세요.")
       setStState("fail")
       return
     }
     setBusy(true)
     setStState("checking")
-    setStMsg("Supertonic 3 다운로드·설치·서버 기동 중… (최초는 수 분 걸릴 수 있음)")
+    setStMsg("Supertonic 3 설치·기동 중… (최초 1회 pip·모델 수 분 소요)")
     try {
+      if (deployed) {
+        const health = await connectLocalAgent({
+          requireFfmpeg: false,
+          onProgress: (m) => setStMsg(m),
+        })
+        if (!health.ok) {
+          setStState("fail")
+          setStMsg(health.error || "에이전트 연결 실패")
+          setAgentState("fail")
+          return
+        }
+        setAgentState("ok")
+      }
       const ensured = await ensureSupertonicReady({
         onProgress: (s) => {
           if (s.message) setStMsg(s.message)
@@ -171,6 +212,16 @@ export function SupertonicSetupWizard({ open, onOpenChange, onReady }: Props) {
         setStState("ok")
         setStMsg(ensured.message || "Supertonic 3 연결 완료")
         onReady?.({ online: true, message: ensured.message })
+        return
+      }
+      if (ensured.error === "python_missing" || /Python/i.test(ensured.message || "")) {
+        setPythonState("fail")
+        setPythonMsg(
+          ensured.message ||
+            "Python이 아직 안 보입니다. PATH 체크 후 에이전트 창을 다시 열어 「다시 확인」하세요."
+        )
+        setStState("fail")
+        setStMsg("Python 준비 후 다시 시도하세요.")
         return
       }
       setStState("fail")
@@ -184,37 +235,93 @@ export function SupertonicSetupWizard({ open, onOpenChange, onReady }: Props) {
     }
   }
 
+  const highlightPython =
+    Boolean(failReason && /python/i.test(failReason)) || pythonState === "fail"
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto border-white/10 bg-zinc-950 text-zinc-100 sm:max-w-md">
+      <DialogContent className="max-h-[90vh] overflow-y-auto border-white/10 bg-zinc-950 text-zinc-100 sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-white">
             <Sparkles className="h-5 w-5 text-emerald-400" />
-            Supertonic 3 준비
+            Supertonic 3 준비 체크리스트
           </DialogTitle>
           <DialogDescription className="text-zinc-400">
-            ① Python 설치 → ② 새로고침으로 확인 → ③ Supertonic 설치
+            아래를 순서대로 확인하세요. 완료된 항목에 ✓ 가 붙습니다.
           </DialogDescription>
         </DialogHeader>
 
-        {/* Step 1: Python */}
-        <section className="mt-2 space-y-3 rounded-xl border border-white/10 bg-black/35 p-4">
+        {failReason ? (
+          <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-100">
+            {failReason}
+          </p>
+        ) : null}
+
+        {/* Step 1: Agent */}
+        <section
+          className={`mt-1 space-y-3 rounded-xl border p-4 ${
+            agentState === "ok"
+              ? "border-emerald-500/25 bg-emerald-500/5"
+              : agentState === "fail"
+                ? "border-rose-500/30 bg-rose-500/5"
+                : "border-white/10 bg-black/35"
+          }`}
+        >
           <div className="flex items-start justify-between gap-2">
             <div>
-              <p className="text-sm font-bold text-white">1. Python 설치</p>
+              <p className="text-sm font-bold text-white">1. 로컬 에이전트 (3847)</p>
               <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
-                python.org에서 받은 뒤, 설치 화면에서{" "}
-                <span className="text-amber-200/90">Add python.exe to PATH</span> 를 꼭
-                체크하세요.
+                ShotForm Local Agent 검은 창이 열려 있어야 합니다.
               </p>
             </div>
-            {pythonState === "ok" ? (
-              <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-400" />
-            ) : pythonState === "fail" ? (
-              <XCircle className="h-5 w-5 shrink-0 text-rose-400" />
-            ) : pythonState === "checking" ? (
-              <Loader2 className="h-5 w-5 shrink-0 animate-spin text-sky-400" />
-            ) : null}
+            <StatusIcon state={agentState} />
+          </div>
+          {deployed && agentState !== "ok" ? (
+            <Button
+              type="button"
+              size="sm"
+              className="bg-amber-500 font-semibold text-zinc-900 hover:bg-amber-400"
+              onClick={launchAgent}
+            >
+              <PlugZap className="mr-1.5 h-3.5 w-3.5" />
+              에이전트 받기 (.cmd)
+            </Button>
+          ) : null}
+          {agentMsg ? (
+            <p
+              className={`whitespace-pre-line text-[11px] leading-relaxed ${
+                agentState === "ok" ? "text-emerald-300" : "text-amber-100/90"
+              }`}
+            >
+              {agentMsg}
+            </p>
+          ) : null}
+        </section>
+
+        {/* Step 2: Python */}
+        <section
+          className={`mt-3 space-y-3 rounded-xl border p-4 ${
+            highlightPython
+              ? "border-amber-400/40 bg-amber-500/10 ring-1 ring-amber-400/20"
+              : pythonState === "ok"
+                ? "border-emerald-500/25 bg-emerald-500/5"
+                : "border-white/10 bg-black/35"
+          }`}
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-sm font-bold text-white">2. Python 3 설치</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
+                설치 시{" "}
+                <span className="font-semibold text-amber-200">
+                  Add python.exe to PATH
+                </span>{" "}
+                를 반드시 체크하세요. 설치 후에는{" "}
+                <span className="text-amber-200">에이전트 창을 닫고 다시</span> 열어야
+                PATH가 반영됩니다.
+              </p>
+            </div>
+            <StatusIcon state={pythonState} />
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -222,7 +329,9 @@ export function SupertonicSetupWizard({ open, onOpenChange, onReady }: Props) {
               type="button"
               size="sm"
               className="bg-sky-600 font-semibold text-white hover:bg-sky-500"
-              onClick={() => window.open(PYTHON_DOWNLOAD_URL, "_blank", "noopener,noreferrer")}
+              onClick={() =>
+                window.open(PYTHON_DOWNLOAD_URL, "_blank", "noopener,noreferrer")
+              }
             >
               <Download className="mr-1.5 h-3.5 w-3.5" />
               Python 다운로드
@@ -233,15 +342,15 @@ export function SupertonicSetupWizard({ open, onOpenChange, onReady }: Props) {
               size="sm"
               variant="secondary"
               disabled={busy}
-              onClick={() => void checkPython()}
+              onClick={() => void runChecklist()}
               className="font-semibold"
             >
-              {busy && pythonState === "checking" ? (
+              {busy && (agentState === "checking" || pythonState === "checking") ? (
                 <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
               ) : (
                 <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
               )}
-              새로고침 (설치 확인)
+              다시 확인
             </Button>
           </div>
 
@@ -251,21 +360,16 @@ export function SupertonicSetupWizard({ open, onOpenChange, onReady }: Props) {
                 pythonState === "ok"
                   ? "text-emerald-300"
                   : pythonState === "fail"
-                    ? "text-amber-200/90"
+                    ? "text-amber-100"
                     : "text-zinc-400"
               }`}
             >
-              {pythonState === "ok" ? "완료 — " : ""}
               {pythonMsg}
             </p>
           ) : null}
-
-          {deployed && agentMsg ? (
-            <p className="text-[10px] text-zinc-600">에이전트: {agentMsg}</p>
-          ) : null}
         </section>
 
-        {/* Step 2: Supertonic */}
+        {/* Step 3: Supertonic */}
         <section
           className={`mt-3 space-y-3 rounded-xl border p-4 ${
             pythonState === "ok"
@@ -275,18 +379,12 @@ export function SupertonicSetupWizard({ open, onOpenChange, onReady }: Props) {
         >
           <div className="flex items-start justify-between gap-2">
             <div>
-              <p className="text-sm font-bold text-white">2. Supertonic 3 설치</p>
+              <p className="text-sm font-bold text-white">3. Supertonic 3 설치·기동</p>
               <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
-                버튼을 누르면 이 PC에 자동으로 받아서 설치하고 서버를 켭니다.
+                1·2가 ✓ 이면 이 버튼으로 pip 설치와 서버 기동을 진행합니다.
               </p>
             </div>
-            {stState === "ok" ? (
-              <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-400" />
-            ) : stState === "fail" ? (
-              <XCircle className="h-5 w-5 shrink-0 text-rose-400" />
-            ) : stState === "checking" ? (
-              <Loader2 className="h-5 w-5 shrink-0 animate-spin text-sky-400" />
-            ) : null}
+            <StatusIcon state={stState} />
           </div>
 
           <Button
@@ -301,7 +399,7 @@ export function SupertonicSetupWizard({ open, onOpenChange, onReady }: Props) {
             ) : (
               <Sparkles className="mr-1.5 h-3.5 w-3.5" />
             )}
-            {stState === "ok" ? "설치 완료" : "Supertonic 3 설치"}
+            {stState === "ok" ? "설치 완료" : "Supertonic 3 설치·기동"}
           </Button>
 
           {stMsg ? (
@@ -310,11 +408,10 @@ export function SupertonicSetupWizard({ open, onOpenChange, onReady }: Props) {
                 stState === "ok"
                   ? "text-emerald-300"
                   : stState === "fail"
-                    ? "text-amber-200/90"
+                    ? "text-amber-100"
                     : "text-zinc-400"
               }`}
             >
-              {stState === "ok" ? "완료 — " : ""}
               {stMsg}
             </p>
           ) : null}

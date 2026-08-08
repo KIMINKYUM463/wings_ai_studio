@@ -37,15 +37,19 @@ export async function GET(req: Request) {
 </head>
 <body>
   <h1>ShotForm Local Agent</h1>
-  <p class="ok" id="msg">start-shotform-agent.cmd 다운로드 중…</p>
+  <p class="ok" id="msg">start-shotform-agent.cmd 받는 중…</p>
+  <p class="muted" style="margin-top:8px">
+    Chrome은 보안상 <b>.cmd를 자동으로 실행할 수 없습니다.</b><br/>
+    그래서 파일을 받은 뒤, 아래처럼 <b>직접 더블클릭</b>해야 에이전트 창이 열립니다.
+  </p>
   <p class="warn">
     System32 창에 <b>'node'은(는) … 아닙니다</b> 만 보이면<br/>
     그건 <b>예전 설정</b>입니다. 그 창은 닫으세요.
   </p>
   <ol class="muted">
-    <li>방금 받은 <b>start-shotform-agent.cmd</b> 를 더블클릭</li>
+    <li>다운로드된 <b>start-shotform-agent.cmd</b> 를 더블클릭</li>
     <li><b>Found: ...\\nodejs\\node.exe</b> 가 보여야 정상</li>
-    <li>그 다음 <b>Starting agent</b> — 창을 닫지 마세요</li>
+    <li><b>Starting agent</b> 후 이 안내 창은 닫아도 됩니다 (에이전트 검은 창은 유지)</li>
   </ol>
   <a class="btn" id="dl" href="${cmdUrl}">start-shotform-agent.cmd 다시 받기</a>
   <script>
@@ -58,7 +62,7 @@ export async function GET(req: Request) {
       a.click();
       a.remove();
       document.getElementById("msg").textContent =
-        "다운로드됐습니다. 다운로드 폴더에서 start-shotform-agent.cmd 를 더블클릭하세요.";
+        "파일은 이미 받았습니다. 다운로드 폴더에서 start-shotform-agent.cmd 를 더블클릭하세요. (이 화면은 안내입니다)";
     })();
   </script>
 </body>

@@ -25,9 +25,15 @@ type Props = {
  */
 export function SupertonicSetupBar({ onReady, disabled, className = "" }: Props) {
   const [setupWizardOpen, setSetupWizardOpen] = useState(false)
+  const [wizardFailReason, setWizardFailReason] = useState<string | null>(null)
   const [healthMsg, setHealthMsg] = useState("")
   const [online, setOnline] = useState<boolean | null>(null)
   const [busy, setBusy] = useState(false)
+
+  const openChecklist = (reason?: string) => {
+    setWizardFailReason(reason?.trim() || null)
+    setSetupWizardOpen(true)
+  }
 
   const refreshHealth = async () => {
     const data = await fetchSupertonicHealth()
@@ -76,23 +82,27 @@ export function SupertonicSetupBar({ onReady, disabled, className = "" }: Props)
       })
       const isOnline = Boolean(ensured.online)
       setOnline(isOnline)
+      const failText =
+        ensured.message || ensured.error || "자동 실행에 실패했습니다."
       const message = isOnline
         ? ensured.message ||
           `실행 완료 · ${ensured.model || "supertonic-3"} · ${ensured.baseUrl || "127.0.0.1:7788"}`
-        : `${ensured.message || ensured.error || "자동 실행에 실패했습니다."}\n\n대안: 아래 「실행 파일 받기」를 더블클릭하세요.`
+        : failText
       setHealthMsg(message)
       onReady?.({ online: isOnline, message })
       if (isOnline) {
         window.setTimeout(() => void refreshHealth(), 500)
+      } else {
+        // Python 없음·에이전트 문제 등 → 체크리스트 팝업으로 바로 안내
+        openChecklist(failText)
       }
     } catch (e) {
       const message =
         e instanceof Error ? e.message : "Supertonic 자동 실행 실패"
       setOnline(false)
-      setHealthMsg(
-        `${message}\n\n대안: 아래 「실행 파일 받기」를 더블클릭하세요.`
-      )
+      setHealthMsg(message)
       onReady?.({ online: false, message })
+      openChecklist(message)
     } finally {
       setBusy(false)
     }
@@ -168,20 +178,21 @@ pause
         <button
           type="button"
           disabled={disabled || busy}
-          onClick={() => setSetupWizardOpen(true)}
+          onClick={() => openChecklist()}
           className="inline-flex items-center gap-1 text-[10px] text-zinc-400 underline-offset-2 hover:text-zinc-200 hover:underline disabled:opacity-50"
         >
           <Sparkles className="h-3 w-3" />
-          처음 설치 안내
+          준비 체크리스트
         </button>
         {isBrowserOnDeployedHost() ? (
           <button
             type="button"
             disabled={disabled || busy}
             onClick={() => {
+              // 팝업 없이 파일만 — 안내 문구는 이 바에 표시
               downloadLocalAgentStarter()
               setHealthMsg(
-                "start-shotform-agent.cmd 를 받았습니다. 기존 에이전트 창을 닫고 이 파일을 더블클릭한 뒤 「Supertonic 자동 실행」을 누르세요."
+                "start-shotform-agent.cmd 를 받았습니다.\nChrome은 .cmd를 자동 실행할 수 없어, 다운로드 폴더에서 더블클릭하세요.\n기존 에이전트 창은 닫은 뒤 실행 → 「Supertonic 자동 실행」."
               )
             }}
             className="text-[10px] text-zinc-400 underline-offset-2 hover:text-zinc-200 hover:underline disabled:opacity-50"
@@ -203,11 +214,19 @@ pause
 
       <SupertonicSetupWizard
         open={setupWizardOpen}
-        onOpenChange={setSetupWizardOpen}
+        onOpenChange={(open) => {
+          setSetupWizardOpen(open)
+          if (!open) setWizardFailReason(null)
+        }}
+        failReason={wizardFailReason}
         onReady={(info) => {
           setOnline(Boolean(info.online))
           if (info.message) setHealthMsg(info.message)
           onReady?.(info)
+          if (info.online) {
+            setSetupWizardOpen(false)
+            setWizardFailReason(null)
+          }
         }}
       />
     </div>

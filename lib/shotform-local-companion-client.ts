@@ -114,37 +114,46 @@ function openShotformAgentProtocol() {
 
 /**
  * 에이전트 창 실행 — 수집기 없이도 동작.
- * 1) 최신 .cmd 다운로드 + 확장/다운로드로 실행
- * 2) 로컬 Next면 터미널 API
- * 3) 프로토콜은 수리 완료 플래그가 있을 때만
+ *
+ * 브라우저는 보안상 .cmd 를 자동 실행할 수 없음 → 안내 팝업 1곳에서만
+ * 다운로드 + 「더블클릭」안내. (예전처럼 부모창+팝업 이중 다운로드하지 않음)
  */
-export function launchLocalAgentWindow(): void {
+export function launchLocalAgentWindow(opts?: {
+  /** true면 팝업 없이 .cmd 만 받음 (UI에 안내 문구가 있을 때) */
+  downloadOnly?: boolean
+}): void {
   if (typeof window === "undefined") return
 
   const cmdUrl = `${window.location.origin}/api/shotform/local-agent/download?file=cmd&t=${Date.now()}`
 
-  // 1) 최신 스타터 다운로드 (수리본 — 절대경로 node.exe 사용)
-  downloadLocalAgentStarter()
-
-  // 2) 수집기 확장이 있으면 .cmd 자동 실행 (있으면 좋음, 필수 아님)
+  // 수집기 확장이 있으면 .cmd 자동 실행 시도 (있으면 좋음)
   try {
     window.postMessage({ type: "SHOTFORM_LAUNCH_AGENT", cmdUrl }, window.location.origin)
   } catch {
     /* ignore */
   }
 
-  // 3) 안내 팝업 (프로토콜 자동 호출 없음 — 깨진 등록 방지)
+  if (opts?.downloadOnly) {
+    downloadLocalAgentStarter()
+    openShotformAgentProtocol()
+    return
+  }
+
+  // 안내 팝업 1회 — 여기서만 다운로드 (open 라우트 스크립트)
   try {
-    window.open(
+    const popup = window.open(
       `/api/shotform/local-agent/open?t=${Date.now()}`,
       "shotform_local_agent",
       "popup=yes,width=560,height=420"
     )
+    if (!popup) {
+      // 팝업 차단 시에만 부모에서 다운로드
+      downloadLocalAgentStarter()
+    }
   } catch {
-    /* popup blocked */
+    downloadLocalAgentStarter()
   }
 
-  // 4) 이전에 수리 성공한 PC만 프로토콜 사용
   openShotformAgentProtocol()
 }
 
