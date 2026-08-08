@@ -14,56 +14,67 @@ function resolveOrigin(req: Request): string {
   return `${proto}://${host}`.replace(/\/$/, "")
 }
 
-/** 배포·다른 PC에서 더블클릭 한 번으로 에이전트 기동 */
+/**
+ * Windows cmd.exe + Korean UTF-8 breaks batch parsing (bytes can look like ')').
+ * Keep this file ASCII-only. No parentheses blocks.
+ */
 function buildStarterCmd(origin: string): string {
   const agentUrl = `${origin}/api/shotform/local-agent/download?file=agent`
-  return [
+  const lines = [
     "@echo off",
-    "chcp 65001 >nul",
-    "title ShotForm Local Agent",
     "setlocal EnableExtensions",
+    "title ShotForm Local Agent",
     'set "DIR=%LOCALAPPDATA%\\ShotForm\\local-agent"',
     'set "AGENT=%DIR%\\shotform-local-agent-portable.mjs"',
     `set "AGENT_URL=${agentUrl}"`,
     "echo.",
     "echo ========================================",
-    "echo   ShotForm 로컬 에이전트 (원클릭)",
+    "echo   ShotForm Local Agent",
     "echo ========================================",
     "echo.",
     "where node >nul 2>nul",
-    "if errorlevel 1 (",
-    "  echo [오류] Node.js가 없습니다.",
-    "  echo https://nodejs.org 에서 LTS 설치 후 이 파일을 다시 더블클릭하세요.",
-    "  echo.",
-    '  start "" "https://nodejs.org/en/download"',
-    "  pause",
-    "  exit /b 1",
-    ")",
+    "if errorlevel 1 goto NoNode",
     'if not exist "%DIR%" mkdir "%DIR%"',
     'cd /d "%DIR%"',
-    "echo 에이전트 파일을 받는 중...",
-    'powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -UseBasicParsing -Uri \'%AGENT_URL%\' -OutFile \'%AGENT%\'"',
-    "if errorlevel 1 (",
-    "  echo 다운로드 실패. 인터넷/방화벽을 확인하세요.",
-    "  echo URL: %AGENT_URL%",
-    "  pause",
-    "  exit /b 1",
-    ")",
-    "echo 브라우저 원클릭용 프로토콜 등록 중...",
+    "echo Downloading agent script...",
+    'curl.exe -L --fail -o "%AGENT%" "%AGENT_URL%" 2>nul',
+    "if errorlevel 1 goto TryPs",
+    "goto Register",
+    ":TryPs",
+    "echo curl failed, trying PowerShell...",
+    `powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -UseBasicParsing -Uri '%AGENT_URL%' -OutFile '%AGENT%'"`,
+    "if errorlevel 1 goto DlFail",
+    ":Register",
+    'if not exist "%AGENT%" goto DlFail',
+    "echo Registering shotform-agent protocol...",
     'for /f "delims=" %%N in (\'where node\') do set "NODE_EXE=%%N"',
     'reg add "HKCU\\Software\\Classes\\shotform-agent" /ve /d "URL:ShotForm Local Agent" /f >nul 2>&1',
     'reg add "HKCU\\Software\\Classes\\shotform-agent" /v "URL Protocol" /d "" /f >nul 2>&1',
     'reg add "HKCU\\Software\\Classes\\shotform-agent\\shell\\open\\command" /ve /d "\\"%NODE_EXE%\\" \\"%AGENT%\\"" /f >nul 2>&1',
     "echo.",
-    "echo 에이전트를 시작합니다. 이 창을 닫지 마세요.",
-    "echo Wings 숏폼으로 돌아가 「에이전트 연결」을 다시 누르면 연결됩니다.",
+    "echo Starting agent. Keep this window open.",
+    "echo Then return to Wings and click Connect.",
     "echo.",
     'node "%AGENT%"',
     "echo.",
-    "echo 에이전트가 종료되었습니다.",
+    "echo Agent stopped.",
     "pause",
+    "exit /b 0",
+    ":NoNode",
+    "echo [ERROR] Node.js not found in PATH.",
+    "echo Install Node.js LTS, then run this file again:",
+    "echo https://nodejs.org/en/download",
+    'start "" "https://nodejs.org/en/download"',
+    "pause",
+    "exit /b 1",
+    ":DlFail",
+    "echo [ERROR] Failed to download agent script.",
+    "echo URL: %AGENT_URL%",
+    "pause",
+    "exit /b 1",
     "",
-  ].join("\r\n")
+  ]
+  return lines.join("\r\n")
 }
 
 export async function GET(req: Request) {
@@ -95,10 +106,11 @@ export async function GET(req: Request) {
   }
 
   const cmd = buildStarterCmd(origin)
+  // charset=us-ascii so browsers/OS don't treat it as UTF-8 Korean batch
   return new NextResponse(cmd, {
     status: 200,
     headers: {
-      "Content-Type": "application/x-bat; charset=utf-8",
+      "Content-Type": "application/x-bat; charset=us-ascii",
       "Content-Disposition": 'attachment; filename="start-shotform-agent.cmd"',
       "Cache-Control": "no-store",
     },
