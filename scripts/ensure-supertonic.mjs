@@ -78,12 +78,40 @@ async function tryExec(cmd, args, opts = {}) {
   }
 }
 
-/** Python 런처 탐색 (Windows py / python) */
+function listCommonPythonExes() {
+  const found = []
+  const roots = [
+    process.env.LOCALAPPDATA,
+    process.env.PROGRAMFILES,
+    process.env["PROGRAMFILES(X86)"],
+  ].filter(Boolean)
+  for (const root of roots) {
+    for (const base of [
+      path.join(root, "Programs", "Python"),
+      path.join(root, "Python"),
+    ]) {
+      try {
+        if (!fs.existsSync(base)) continue
+        for (const name of fs.readdirSync(base)) {
+          if (!/^Python3\d+$/i.test(name)) continue
+          const exe = path.join(base, name, "python.exe")
+          if (fs.existsSync(exe)) found.push(exe)
+        }
+      } catch {
+        /* next */
+      }
+    }
+  }
+  return [...new Set(found)]
+}
+
+/** Python 런처 탐색 (Windows py / python / 일반 설치 경로) */
 async function findPython() {
   const candidates = [
     { cmd: "py", prefix: ["-3"] },
     { cmd: "python", prefix: [] },
     { cmd: "python3", prefix: [] },
+    ...listCommonPythonExes().map((exe) => ({ cmd: exe, prefix: [] })),
   ]
   for (const c of candidates) {
     const r = await tryExec(c.cmd, [...c.prefix, "--version"], { timeout: 10000 })

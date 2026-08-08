@@ -207,27 +207,107 @@ function readSupertonicEnsureStatus() {
   }
 }
 
-function probePythonAvailable() {
-  const candidates = [
-    { cmd: "py", args: ["-3", "--version"] },
-    { cmd: "python", args: ["--version"] },
-    { cmd: "python3", args: ["--version"] },
-  ]
-  for (const c of candidates) {
-    try {
-      const r = spawnSync(c.cmd, c.args, {
-        encoding: "utf8",
-        windowsHide: true,
-        timeout: 8000,
-      })
-      if (r.status === 0) {
-        const ver = String(r.stdout || r.stderr || "").trim()
-        return { ok: true, command: c.cmd, version: ver }
+/** PATH에 없어도 흔한 Windows 설치 경로에서 python.exe 탐색 */
+function listCommonPythonExes() {
+  const found = []
+  const roots = [
+    process.env.LOCALAPPDATA,
+    process.env.PROGRAMFILES,
+    process.env["PROGRAMFILES(X86)"],
+    "C:\\",
+  ].filter(Boolean)
+
+  for (const root of roots) {
+    const candidates = [
+      path.join(root, "Programs", "Python"),
+      path.join(root, "Python"),
+    ]
+    for (const dir of candidates) {
+      try {
+        if (!fs.existsSync(dir)) continue
+        for (const name of fs.readdirSync(dir)) {
+          if (!/^Python3\d+$/i.test(name) && !/^python3\d+$/i.test(name)) continue
+          const exe = path.join(dir, name, "python.exe")
+          if (fs.existsSync(exe)) found.push(exe)
+        }
+      } catch {
+        /* next */
       }
-    } catch {
-      /* next */
     }
   }
+
+  // 버전 폴더 없이 바로 python.exe 인 경우
+  for (const root of [process.env.LOCALAPPDATA, process.env.PROGRAMFILES].filter(Boolean)) {
+    const exe = path.join(root, "Programs", "Python", "python.exe")
+    if (fs.existsSync(exe)) found.push(exe)
+  }
+  return [...new Set(found)]
+}
+
+function tryPythonVersion(cmd, args, useShell) {
+  try {
+    const r = spawnSync(cmd, args, {
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 10000,
+      shell: useShell === true,
+      env: process.env,
+    })
+    if (r.status === 0) {
+      const ver = String(r.stdout || r.stderr || "").trim()
+      if (/Python\s+\d/i.test(ver)) return { ok: true, command: cmd, version: ver }
+    }
+  } catch {
+    /* next */
+  }
+  return null
+}
+
+function probePythonAvailable() {
+  // 1) PATH의 py/python (Windows는 shell로 .cmd 런처도 잡음)
+  const pathCmds = [
+    { cmd: "py", args: ["-3", "--version"], shell: true },
+    { cmd: "py", args: ["--version"], shell: true },
+    { cmd: "python", args: ["--version"], shell: true },
+    { cmd: "python3", args: ["--version"], shell: true },
+  ]
+  for (const c of pathCmds) {
+    const hit = tryPythonVersion(c.cmd, c.args, c.shell)
+    if (hit) return hit
+  }
+
+  // 2) where 로 절대경로 찾기
+  if (process.platform === "win32") {
+    for (const name of ["py", "python", "python3"]) {
+      try {
+        const w = spawnSync("where.exe", [name], {
+          encoding: "utf8",
+          windowsHide: true,
+          timeout: 8000,
+          shell: false,
+          env: process.env,
+        })
+        const lines = String(w.stdout || "")
+          .split(/\r?\n/)
+          .map((s) => s.trim())
+          .filter((s) => s && /\.(exe|cmd|bat)$/i.test(s))
+        for (const abs of lines) {
+          const args = /py(\.exe)?$/i.test(abs) ? ["-3", "--version"] : ["--version"]
+          const hit = tryPythonVersion(abs, args, false)
+          if (hit) return hit
+        }
+      } catch {
+        /* next */
+      }
+    }
+  }
+
+  // 3) 흔한 설치 폴더의 python.exe
+  for (const exe of listCommonPythonExes()) {
+    const hit = tryPythonVersion(exe, ["--version"], false)
+    if (hit) return hit
+  }
+
   return { ok: false }
 }
 
@@ -445,44 +525,92 @@ async function handleSupertonicTts(req, res) {
   const text = String(body.text ?? "").trim()
   const voice = String(body.voiceId ?? body.voice ?? "F1").trim()
   const lang = String(body.lang ?? "ko").trim() || "ko"
+  const speed =
+    typeof body.speed === "number" && Number.isFinite(body.speed)
+      ? Math.min(2, Math.max(0.7, body.speed))
+      : 1.05
+  const steps =
+    typeof body.steps === "number" && Number.isFinite(body.steps)
+      ? Math.min(12, Math.max(5, Math.round(body.steps)))
+      : 8
   if (!text) {
     json(res, req, 400, { success: false, error: "text 필요" })
     return
   }
+
+  // Native /v1/tts (OpenAI 호환 /v1/audio/speech 는 model 필수라 여기서는 쓰지 않음)
+  let upstream
   try {
-    const upstream = await fetch(`${SUPERTONIC_BASE}/v1/audio/speech`, {
+    upstream = await fetch(`${SUPERTONIC_BASE}/v1/tts`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "audio/wav, application/json",
+      },
       body: JSON.stringify({
-        input: text,
+        text,
         voice,
-        language: lang,
+        lang,
+        speed,
+        total_steps: steps,
+        steps,
         response_format: "wav",
       }),
-      signal: AbortSignal.timeout(120000),
+      signal: AbortSignal.timeout(180000),
     })
-    if (!upstream.ok) {
-      const errText = await upstream.text().catch(() => "")
-      json(res, req, 502, {
-        success: false,
-        error: `Supertonic TTS 실패 (${upstream.status}) ${errText.slice(0, 200)}`,
+  } catch (e) {
+    json(res, req, 503, {
+      success: false,
+      error: `로컬 Supertonic 연결 실패 (${SUPERTONIC_BASE}). ${
+        e instanceof Error ? e.message : ""
+      }`,
+    })
+    return
+  }
+
+  if (!upstream.ok) {
+    const errText = await upstream.text().catch(() => "")
+    json(res, req, upstream.status >= 400 ? upstream.status : 502, {
+      success: false,
+      error: `Supertonic TTS 실패 (${upstream.status}): ${errText.slice(0, 400)}`,
+    })
+    return
+  }
+
+  const contentType = upstream.headers.get("content-type") || ""
+  if (contentType.includes("application/json")) {
+    const data = await upstream.json().catch(() => ({}))
+    const b64 = data.audioBase64 || data.audio
+    if (data.audio_url) {
+      json(res, req, 200, { success: true, audioUrl: data.audio_url })
+      return
+    }
+    if (b64) {
+      const audioUrl = String(b64).startsWith("data:")
+        ? String(b64)
+        : `data:audio/wav;base64,${b64}`
+      json(res, req, 200, {
+        success: true,
+        audioUrl,
+        audioBase64: String(b64).replace(/^data:[^;]+;base64,/, ""),
       })
       return
     }
-    const buf = Buffer.from(await upstream.arrayBuffer())
-    setCors(res, req)
-    res.writeHead(200, {
-      "Content-Type": upstream.headers.get("content-type") || "audio/wav",
-      "Cache-Control": "no-store",
-      "Content-Length": String(buf.length),
-    })
-    res.end(buf)
-  } catch (e) {
-    json(res, req, 502, {
-      success: false,
-      error: e instanceof Error ? e.message : "TTS 프록시 실패",
-    })
+    json(res, req, 502, { success: false, error: "Supertonic JSON 응답에 오디오가 없습니다." })
+    return
   }
+
+  const audioBuffer = Buffer.from(await upstream.arrayBuffer())
+  if (!audioBuffer.length) {
+    json(res, req, 502, { success: false, error: "오디오가 비어 있습니다." })
+    return
+  }
+  const audioBase64 = audioBuffer.toString("base64")
+  json(res, req, 200, {
+    success: true,
+    audioUrl: `data:audio/wav;base64,${audioBase64}`,
+    audioBase64,
+  })
 }
 
 const server = http.createServer(async (req, res) => {

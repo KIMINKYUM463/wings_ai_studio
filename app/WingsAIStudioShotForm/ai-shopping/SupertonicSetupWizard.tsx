@@ -147,11 +147,13 @@ export function SupertonicSetupWizard({
         } else {
           setPythonState("fail")
           setPythonMsg(
-            "이 PC에 Python이 없습니다.\n" +
-              "① 「Python 다운로드」클릭 → 설치\n" +
-              "② 설치 화면에서 「Add python.exe to PATH」 꼭 체크\n" +
-              "③ 설치 후 에이전트 검은 창을 닫고 .cmd로 다시 실행\n" +
-              "④ 이 창에서 「다시 확인」"
+            "새 CMD에서는 Python이 보여도, 에이전트 창이 예전 PATH로 떠 있으면 실패합니다.\n" +
+              "지금 할 일:\n" +
+              "① 에이전트 검은 창을 완전히 닫기\n" +
+              "② Python이 되는 그 CMD 창에서 아래 실행:\n" +
+              '   "%LOCALAPPDATA%\\ShotForm\\local-agent\\run-agent.cmd"\n' +
+              "③ 창에 Python: 3.14... 가 보이면 Wings에서 「다시 확인」\n" +
+              "④ 더블클릭으로만 안 되면 PC 재시작 후 에이전트 다시 실행"
           )
           return
         }
