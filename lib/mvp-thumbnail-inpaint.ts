@@ -30,14 +30,54 @@ function coverDrawRect(
   }
 }
 
-function loadImage(url: string): Promise<HTMLImageElement> {
+function resolveDrawableBackgroundUrl(url: string): string {
+  const trimmed = url.trim()
+  if (
+    !trimmed ||
+    trimmed.startsWith("blob:") ||
+    trimmed.startsWith("data:") ||
+    trimmed.startsWith("/") ||
+    trimmed.startsWith("mvp-idb://")
+  ) {
+    return trimmed
+  }
+  // 쿠팡·CDN 등은 CORS 때문에 canvas/export가 실패 → 동일 출처 프록시
+  if (/^https?:\/\//i.test(trimmed)) {
+    return `/api/shotform/image-proxy?url=${encodeURIComponent(trimmed)}`
+  }
+  return trimmed
+}
+
+async function loadImageOnce(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image()
-    img.crossOrigin = "anonymous"
+    if (!src.startsWith("blob:") && !src.startsWith("data:")) {
+      img.crossOrigin = "anonymous"
+    }
     img.onload = () => resolve(img)
     img.onerror = () => reject(new Error("배경 이미지를 불러올 수 없습니다."))
-    img.src = url
+    img.src = src
   })
+}
+
+/** 원격 URL은 프록시 폴백까지 시도 (미리보기는 되는데 PNG 적용만 실패하는 CORS 케이스) */
+async function loadImage(url: string): Promise<HTMLImageElement> {
+  const trimmed = url.trim()
+  if (!trimmed) throw new Error("배경 이미지가 없습니다.")
+
+  const candidates = [trimmed]
+  const proxied = resolveDrawableBackgroundUrl(trimmed)
+  if (proxied !== trimmed) candidates.unshift(proxied)
+
+  let lastError: Error | null = null
+  for (const src of candidates) {
+    try {
+      return await loadImageOnce(src)
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error))
+    }
+  }
+  throw lastError || new Error("배경 이미지를 불러올 수 없습니다.")
 }
 
 /** 스튜디오와 동일한 배경 변환·필터로보내기 해상도 캔버스에 그림 */

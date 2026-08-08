@@ -106,7 +106,12 @@ async function drawBlurPosterForeground(
     return
   }
 
-  const response = await fetch(design.backgroundUrl.trim())
+  const rawUrl = design.backgroundUrl.trim()
+  const fetchUrl =
+    /^https?:\/\//i.test(rawUrl) && !rawUrl.startsWith("/")
+      ? `/api/shotform/image-proxy?url=${encodeURIComponent(rawUrl)}`
+      : rawUrl
+  const response = await fetch(fetchUrl)
   if (!response.ok) {
     throw new Error("블러 포스터 전경 이미지를 불러오지 못했습니다.")
   }

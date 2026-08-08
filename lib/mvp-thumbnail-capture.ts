@@ -51,7 +51,7 @@ export async function persistImageUrlAsDataUrl(url: string, maxWidth = DEFAULT_M
   if (trimmed.startsWith("data:image/")) {
     return resizeDataUrl(trimmed, maxWidth)
   }
-  const fetchUrl = /^https:\/\//i.test(trimmed)
+  const fetchUrl = /^https?:\/\//i.test(trimmed)
     ? `/api/shotform/image-proxy?url=${encodeURIComponent(trimmed)}`
     : trimmed
   const res = await fetch(fetchUrl)

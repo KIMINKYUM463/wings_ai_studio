@@ -143,6 +143,8 @@ export function StoryThumbnailAdvancedEditor({
   const [generatingCopy, setGeneratingCopy] = useState(false)
   const [aiGenerating, setAiGenerating] = useState<"background" | "full" | null>(null)
   const [error, setError] = useState("")
+  /** 수집 사진을 data URL로 바꾼 뒤에도 '선택됨' 표시용 */
+  const [selectedCandidateIndex, setSelectedCandidateIndex] = useState<number | null>(null)
 
   useEffect(() => {
     if (!open) {
@@ -184,7 +186,19 @@ export function StoryThumbnailAdvancedEditor({
     resetDesign(restored)
     setSelectedId(null)
     setError("")
-  }, [backgroundUrl, hookingText, initialDesign, open, productName, resetDesign])
+    const matchIndex = backgroundCandidates.findIndex(
+      (url) => url === (restored.backgroundUrl || backgroundUrl)
+    )
+    setSelectedCandidateIndex(matchIndex >= 0 ? matchIndex : null)
+  }, [
+    backgroundCandidates,
+    backgroundUrl,
+    hookingText,
+    initialDesign,
+    open,
+    productName,
+    resetDesign,
+  ])
 
   const selectedText = design.texts.find((text) => text.id === selectedId)
   const selectedElement = design.elements.find((element) => element.id === selectedId)
@@ -503,16 +517,28 @@ export function StoryThumbnailAdvancedEditor({
     }
   }
 
+  const ensureExportableBackground = async (
+    current: MvpThumbnailDesign
+  ): Promise<MvpThumbnailDesign> => {
+    const bg = current.backgroundUrl.trim()
+    if (!bg || !/^https?:\/\//i.test(bg)) return current
+    const persisted = await persistImageUrlAsDataUrl(bg)
+    const next = setThumbnailBackground(current, persisted)
+    commitDesign(() => next)
+    return next
+  }
+
   const exportAndApply = async () => {
     if (!stageRef.current) return
     setExporting(true)
     setError("")
     try {
+      const exportDesign = await ensureExportableBackground(design)
       const dataUrl = await exportThumbnailDesignToDataUrl(
-        design,
+        exportDesign,
         stageRef.current
       )
-      onApply(dataUrl, hookingFromThumbnailDesign(design), design)
+      onApply(dataUrl, hookingFromThumbnailDesign(exportDesign), exportDesign)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "PNG 생성 실패")
     } finally {
@@ -524,8 +550,9 @@ export function StoryThumbnailAdvancedEditor({
     if (!stageRef.current) return
     setExporting(true)
     try {
+      const exportDesign = await ensureExportableBackground(design)
       const dataUrl = await exportThumbnailDesignToDataUrl(
-        design,
+        exportDesign,
         stageRef.current
       )
       const anchor = document.createElement("a")
@@ -662,34 +689,59 @@ export function StoryThumbnailAdvancedEditor({
                           수집된 사진 선택
                         </p>
                         <div className="grid grid-cols-3 gap-2">
-                          {backgroundCandidates.map((candidate, index) => (
-                            <button
-                              key={`${candidate}_${index}`}
-                              type="button"
-                              onClick={() =>
-                                commitDesign((current) =>
-                                  setThumbnailBackground(current, candidate)
-                                )
-                              }
-                              className={`relative aspect-square overflow-hidden rounded-lg border ${
-                                design.backgroundUrl === candidate
-                                  ? "border-violet-400 ring-2 ring-violet-400/40"
-                                  : "border-white/10 hover:border-white/35"
-                              }`}
-                              title={`사진 ${index + 1} 선택`}
-                            >
-                              <img
-                                src={candidate}
-                                alt={`썸네일 배경 후보 ${index + 1}`}
-                                className="h-full w-full object-cover"
-                              />
-                              {design.backgroundUrl === candidate ? (
-                                <span className="absolute inset-x-0 bottom-0 bg-violet-600/90 py-0.5 text-[8px] font-bold text-white">
-                                  선택됨
-                                </span>
-                              ) : null}
-                            </button>
-                          ))}
+                          {backgroundCandidates.map((candidate, index) => {
+                            const thumbSrc = /^https?:\/\//i.test(candidate)
+                              ? `/api/shotform/image-proxy?url=${encodeURIComponent(candidate)}`
+                              : candidate
+                            const isSelected =
+                              design.backgroundUrl === candidate ||
+                              selectedCandidateIndex === index
+                            return (
+                              <button
+                                key={`${candidate}_${index}`}
+                                type="button"
+                                onClick={() => {
+                                  void (async () => {
+                                    setError("")
+                                    setSelectedCandidateIndex(index)
+                                    try {
+                                      // 원격 CDN은 PNG보내기 시 CORS로 실패 → data URL로 고정
+                                      const url = /^https?:\/\//i.test(candidate)
+                                        ? await persistImageUrlAsDataUrl(candidate)
+                                        : candidate
+                                      commitDesign((current) =>
+                                        setThumbnailBackground(current, url)
+                                      )
+                                    } catch (reason) {
+                                      setSelectedCandidateIndex(null)
+                                      setError(
+                                        reason instanceof Error
+                                          ? reason.message
+                                          : "배경 이미지를 불러올 수 없습니다."
+                                      )
+                                    }
+                                  })()
+                                }}
+                                className={`relative aspect-square overflow-hidden rounded-lg border ${
+                                  isSelected
+                                    ? "border-violet-400 ring-2 ring-violet-400/40"
+                                    : "border-white/10 hover:border-white/35"
+                                }`}
+                                title={`사진 ${index + 1} 선택`}
+                              >
+                                <img
+                                  src={thumbSrc}
+                                  alt={`썸네일 배경 후보 ${index + 1}`}
+                                  className="h-full w-full object-cover"
+                                />
+                                {isSelected ? (
+                                  <span className="absolute inset-x-0 bottom-0 bg-violet-600/90 py-0.5 text-[8px] font-bold text-white">
+                                    선택됨
+                                  </span>
+                                ) : null}
+                              </button>
+                            )
+                          })}
                         </div>
                       </div>
                     ) : null}
@@ -768,7 +820,22 @@ export function StoryThumbnailAdvancedEditor({
 
             <main className="flex min-h-0 items-center justify-center overflow-auto bg-[#090b0f] p-6">
               <div ref={stageRef} onPointerDown={() => setSelectedId(null)} className="relative aspect-[9/16] h-[min(78vh,780px)] w-auto overflow-hidden bg-black shadow-[0_24px_80px_rgba(0,0,0,.65)]">
-                {design.backgroundUrl ? <img data-thumb-bg src={design.backgroundUrl} alt="" className="absolute h-full w-full max-w-none object-cover" style={{ ...thumbnailBackgroundImageStyle(backgroundTransform), filter: filterCss(design) }} /> : null}
+                {design.backgroundUrl ? (
+                  <img
+                    data-thumb-bg
+                    src={
+                      /^https?:\/\//i.test(design.backgroundUrl)
+                        ? `/api/shotform/image-proxy?url=${encodeURIComponent(design.backgroundUrl)}`
+                        : design.backgroundUrl
+                    }
+                    alt=""
+                    className="absolute h-full w-full max-w-none object-cover"
+                    style={{
+                      ...thumbnailBackgroundImageStyle(backgroundTransform),
+                      filter: filterCss(design),
+                    }}
+                  />
+                ) : null}
                 {design.filter.gradientTop ? <div data-thumb-filter className="pointer-events-none absolute inset-x-0 top-0 h-1/2" style={{ background: `linear-gradient(to bottom, ${design.filter.gradientColor}${Math.round(design.filter.gradientOpacity * 2.55).toString(16).padStart(2, "0")}, transparent)` }} /> : null}
                 <StoryThumbnailTemplateChrome
                   templateId={design.templateId}
@@ -931,7 +998,11 @@ function StoryThumbnailTemplateChrome({
       {chrome.backgroundMode === "blurred-poster" && backgroundUrl ? (
         <img
           data-thumb-template-foreground
-          src={backgroundUrl}
+          src={
+            /^https?:\/\//i.test(backgroundUrl)
+              ? `/api/shotform/image-proxy?url=${encodeURIComponent(backgroundUrl)}`
+              : backgroundUrl
+          }
           alt=""
           crossOrigin="anonymous"
           className="absolute inset-x-0 bottom-0 h-auto w-full max-w-none object-contain object-bottom"
