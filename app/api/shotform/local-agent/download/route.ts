@@ -15,16 +15,13 @@ function resolveOrigin(req: Request): string {
 }
 
 /**
- * ASCII-only batch.
- * - Finds absolute node.exe (PATH + Program Files)
- * - Writes run-agent.cmd with full paths (never bare `node`)
- * - Registers shotform-agent:// to that runner
- * - Refreshes PATH from registry (stale Explorer env after Python install)
+ * ASCII-only batch with CRLF.
+ * Non-ASCII (em dash etc.) breaks cmd.exe on Korean Windows (CP949),
+ * which shows as 'ho', 'to', 'exist' "not recognized" errors.
  */
 function buildStarterCmd(origin: string): string {
   const agentUrl = `${origin}/api/shotform/local-agent/download?file=agent`
   const ensureUrl = `${origin}/api/shotform/local-agent/download?file=ensure-supertonic`
-  // Absolute tools — do not rely on PATH (registry PATH refresh can drop powershell)
   const curl = "%SystemRoot%\\System32\\curl.exe"
   const ps =
     "%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
@@ -32,7 +29,7 @@ function buildStarterCmd(origin: string): string {
     "@echo off",
     "setlocal EnableExtensions",
     "title ShotForm Local Agent",
-    "REM Prepend registry PATH for newly installed Python — never replace whole PATH",
+    "REM Prepend registry PATH for newly installed Python - never replace whole PATH",
     'set "SYSPATH="',
     'set "USRPATH="',
     `for /f "tokens=2*" %%A in ('reg query "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment" /v Path 2^>nul') do set "SYSPATH=%%B"`,
@@ -78,7 +75,7 @@ function buildStarterCmd(origin: string): string {
     "goto AfterAgentDl",
     ":AgentDlSoft",
     'if exist "%AGENT%" (',
-    "  echo [WARN] Download failed — using existing agent file.",
+    "  echo [WARN] Download failed - using existing agent file.",
     "  goto AfterAgentDl",
     ")",
     "goto DlFail",
@@ -94,7 +91,8 @@ function buildStarterCmd(origin: string): string {
     'echo title ShotForm Local Agent>> "%RUNNER%"',
     `echo set "SHOTFORM_ORIGIN=${origin}">> "%RUNNER%"`,
     `echo set "SHOTFORM_ENSURE_URL=${ensureUrl}">> "%RUNNER%"`,
-    'echo set "PATH=%SystemRoot%\\System32;%SystemRoot%\\System32\\WindowsPowerShell\\v1.0;%PATH%">> "%RUNNER%"',
+    // Escape %% so run-agent.cmd keeps literal %PATH% / %SystemRoot%
+    'echo set "PATH=%%SystemRoot%%\\System32;%%SystemRoot%%\\System32\\WindowsPowerShell\\v1.0;%%PATH%%">> "%RUNNER%"',
     'echo echo Updating agent script...>> "%RUNNER%"',
     `echo "%CURL%" -L --fail -o "%AGENT%" "${agentUrl}">> "%RUNNER%"`,
     `echo if errorlevel 1 "%PS%" -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -UseBasicParsing -Uri '${agentUrl}' -OutFile '%AGENT%'">> "%RUNNER%"`,
@@ -137,7 +135,9 @@ function buildStarterCmd(origin: string): string {
     "exit /b 1",
     "",
   ]
-  return lines.join("\r\n")
+  // Force pure ASCII bytes (strip any accidental non-ASCII from origin etc.)
+  const body = lines.join("\r\n")
+  return body.replace(/[^\x09\x0A\x0D\x20-\x7E]/g, "-")
 }
 
 export async function GET(req: Request) {
@@ -188,10 +188,11 @@ export async function GET(req: Request) {
   }
 
   const cmd = buildStarterCmd(origin)
-  return new NextResponse(cmd, {
+  // Buffer avoids UTF-8 BOM / charset reinterpretation in some browsers
+  return new NextResponse(Buffer.from(cmd, "ascii"), {
     status: 200,
     headers: {
-      "Content-Type": "application/x-bat; charset=us-ascii",
+      "Content-Type": "application/octet-stream",
       "Content-Disposition": 'attachment; filename="start-shotform-agent.cmd"',
       "Cache-Control": "no-store",
     },
