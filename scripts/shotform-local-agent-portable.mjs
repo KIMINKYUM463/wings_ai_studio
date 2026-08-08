@@ -18,6 +18,8 @@ import { fileURLToPath } from "url"
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PORT = Number(process.env.SHOTFORM_LOCAL_AGENT_PORT || 3847)
 const HOST = process.env.SHOTFORM_LOCAL_AGENT_HOST || "127.0.0.1"
+/** 미리듣기 수정본 — health.agentVersion 으로 구버전 판별 */
+const AGENT_VERSION = "2026.08.08-tts-v1"
 const SUPERTONIC_BASE = (process.env.SUPERTONIC_BASE_URL || "http://127.0.0.1:7788").replace(
   /\/$/,
   ""
@@ -634,6 +636,8 @@ const server = http.createServer(async (req, res) => {
         playwright: false,
         portable: true,
         supertonic: true,
+        ttsApi: "v1/tts",
+        agentVersion: AGENT_VERSION,
         python: python.ok,
         pythonVersion: python.version || null,
         supertonicOnline: Boolean(st.online),
@@ -707,6 +711,7 @@ if (taken) {
 server.listen(PORT, HOST, () => {
   const python = probePythonAvailable()
   console.log(`[shotform-portable-agent] http://${HOST}:${PORT}`)
+  console.log(`[shotform-portable-agent] version: ${AGENT_VERSION} (tts=/v1/tts)`)
   console.log(`[shotform-portable-agent] 저장: ${coupangIngestPath()}`)
   console.log(
     `[shotform-portable-agent] Python: ${
