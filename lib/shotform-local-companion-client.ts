@@ -105,27 +105,16 @@ export function downloadLocalAgentStarter(): void {
   a.remove()
 }
 
-/** 쿠팡 수집기 확장에 .cmd 다운로드+자동 실행 요청 */
+/** 쿠팡 수집기 확장에 .cmd 실행 창 열기 요청 */
 export function requestExtensionLaunchAgent(): void {
   if (typeof window === "undefined") return
   const cmdUrl = `${window.location.origin}/api/shotform/local-agent/download?file=cmd`
   window.postMessage({ type: "SHOTFORM_LAUNCH_AGENT", cmdUrl }, window.location.origin)
 }
 
-/** Wings가 에이전트 health OK를 확인하면 확장 UI도 「연결됨」으로 맞춤 */
-export function notifyExtensionAgentConnected(baseUrl?: string): void {
-  if (typeof window === "undefined") return
-  window.postMessage(
-    {
-      type: "SHOTFORM_AGENT_CONNECTED",
-      base: (baseUrl || resolveLocalCompanionUrl()).replace(/\/$/, ""),
-    },
-    window.location.origin
-  )
-}
-
 /**
- * 「연결」버튼용 — 클릭 즉시 .cmd 실행 → health 대기 → 확장 연결 상태 동기화
+ * 「연결」버튼용 — 에이전트 cmd 실행 창만 연다.
+ * 수집기 확장 자동 연결 확인은 하지 않음 (사용자가 수집기를 직접 열면 됨).
  */
 export async function connectLocalAgent(opts?: {
   companionUrl?: string
@@ -138,8 +127,7 @@ export async function connectLocalAgent(opts?: {
 
   let health = await probeLocalCompanion(baseUrl)
   if (companionReady(health, requireFfmpeg)) {
-    notifyExtensionAgentConnected(baseUrl)
-    onProgress?.("이미 연결되어 있습니다. (http://127.0.0.1:3847)")
+    onProgress?.("이미 에이전트가 실행 중입니다. (http://127.0.0.1:3847)")
     return health
   }
 
@@ -147,14 +135,10 @@ export async function connectLocalAgent(opts?: {
     typeof window !== "undefined" &&
     (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
 
-  // 1) 클릭 즉시: 확장으로 .cmd 실행 + 프로토콜 (버튼 data-attr 클릭과 함께)
-  onProgress?.(
-    "에이전트 실행 창을 여는 중…\n수집기 확장도 자동으로 연결 확인합니다."
-  )
+  onProgress?.("에이전트 실행 창을 여는 중…")
   requestExtensionLaunchAgent()
   openShotformAgentProtocol()
 
-  // 2) 로컬 Next면 터미널도 같이 시도
   if (isLocalHost) {
     try {
       await fetch("/api/shotform/local-agent/start", {
@@ -167,34 +151,26 @@ export async function connectLocalAgent(opts?: {
     }
   }
 
-  // 3) 에이전트가 뜰 때까지 대기 + 확장에 연결됨 알림
-  for (let i = 0; i < 90; i++) {
+  // 창이 뜬 뒤 짧게만 확인 (확장 자동 연결 확인/배지 갱신 없음)
+  for (let i = 0; i < 20; i++) {
     await sleep(1000)
     health = await probeLocalCompanion(baseUrl)
     if (companionReady(health, requireFfmpeg)) {
-      notifyExtensionAgentConnected(baseUrl)
-      onProgress?.("로컬 에이전트 연결 완료 · 수집기 확장 상태도 연결됨으로 갱신됨")
-      return health
-    }
-    if (i === 8 || i === 20 || i === 40) {
       onProgress?.(
-        `에이전트 시작 대기 중… (${i}초)\n` +
-          "검은 cmd 창이 안 뜨면 Chrome 알림 「지금 실행」을 누르세요.\n" +
-          "확장 v1.3+ 로 chrome://extensions 에서 새로고침했는지 확인하세요."
+        "에이전트 실행 창이 열렸습니다.\n쿠팡 수집기 확장을 열어 「연결 확인」하세요."
       )
-      requestExtensionLaunchAgent()
+      return health
     }
   }
 
+  onProgress?.(
+    "에이전트 실행 창을 열었습니다.\n검은 창이 보이면 쿠팡 수집기를 열어 「연결 확인」하세요."
+  )
   return {
     ok: false,
     ffmpeg: false,
     error:
-      "아직 연결되지 않았습니다.\n" +
-      "1) chrome://extensions → 쿠팡 수집기 새로고침 (v1.3.0+)\n" +
-      "2) 확장 팝업의 「에이전트 자동 실행」클릭\n" +
-      "3) Node.js LTS 설치 후 재시도\n" +
-      "(에이전트 없이도 JSON 붙여넣기로 수집 가능)",
+      "실행 창을 열었습니다. 쿠팡 수집기 확장을 열어 「연결 확인」을 누르세요.",
   }
 }
 

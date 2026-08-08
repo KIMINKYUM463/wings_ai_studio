@@ -268,12 +268,12 @@ export function CoupangReviewPanel({
       setAgentOnline(Boolean(health.ok))
       if (health.ok) {
         setStatusMsg(
-          "로컬 에이전트 연결됨 (http://127.0.0.1:3847)\n수집기 확장 상태도 「연결됨」으로 맞춰졌습니다. 검은 창은 끄지 마세요."
+          "에이전트 실행됨 (http://127.0.0.1:3847)\n검은 창은 끄지 마세요. 쿠팡 수집기를 열어 「연결 확인」하세요."
         )
       } else {
         setStatusMsg(
           health.error ||
-            "연결 실패. 확장 팝업의 「에이전트 자동 실행」을 한 번 눌러 보세요."
+            "에이전트 실행 창을 열었습니다. 쿠팡 수집기를 열어 「연결 확인」하세요."
         )
       }
     } finally {
@@ -352,9 +352,9 @@ export function CoupangReviewPanel({
       <div className="space-y-1">
         <Label className="text-sm font-semibold text-zinc-200">Wings 숏폼 쿠팡 수집기</Label>
         <p className="text-xs text-zinc-500 leading-relaxed">
-          「에이전트 연결」→ 실행 창 자동 실행 → 수집기 확장이{" "}
-          <span className="text-orange-200/80">연결 확인까지 자동</span>
-          (확장 v1.3+ 새로고침 필요)
+          「에이전트 연결」은{" "}
+          <span className="text-orange-200/80">실행 창(cmd)만 엽니다</span>. 그다음 쿠팡 수집기
+          확장을 열어 「연결 확인」하세요. (확장 v1.3.1+)
         </p>
       </div>
 
