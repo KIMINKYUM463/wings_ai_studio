@@ -1,6 +1,10 @@
 "use server"
 
 import { createClient } from "@/lib/supabase/server"
+import {
+  isWithinShoppingProjectRetention,
+  purgeExpiredShoppingProjects,
+} from "@/lib/shopping-projects-retention"
 import type { AnimalCharacter } from "./animal-character"
 import type { AnimalShoppingBrief } from "./animal-studio-types"
 
@@ -124,6 +128,7 @@ export interface ShoppingProjectData {
  */
 export async function getShoppingProjects(userId: string): Promise<ShoppingProject[]> {
   try {
+    await purgeExpiredShoppingProjects()
     const supabase = await createClient()
     const { data, error } = await supabase
       .from("shopping_projects")
@@ -136,7 +141,11 @@ export async function getShoppingProjects(userId: string): Promise<ShoppingProje
       throw error
     }
     
-    return (data || []).filter((project) => project.data?.appVariant === "animal")
+    return (data || []).filter(
+      (project) =>
+        project.data?.appVariant === "animal" &&
+        isWithinShoppingProjectRetention(project.created_at)
+    )
   } catch (error) {
     console.error("[Shopping Projects] 프로젝트 목록 조회 중 오류:", error)
     throw error

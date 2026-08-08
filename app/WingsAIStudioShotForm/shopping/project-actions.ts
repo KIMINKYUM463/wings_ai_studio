@@ -1,6 +1,10 @@
 "use server"
 
 import { createClient } from "@/lib/supabase/server"
+import {
+  isWithinShoppingProjectRetention,
+  purgeExpiredShoppingProjects,
+} from "@/lib/shopping-projects-retention"
 
 export interface ShoppingProject {
   id: string
@@ -91,6 +95,7 @@ export interface ShoppingProjectData {
  */
 export async function getShoppingProjects(userId: string): Promise<ShoppingProject[]> {
   try {
+    await purgeExpiredShoppingProjects()
     const supabase = await createClient()
     const { data, error } = await supabase
       .from("shopping_projects")
@@ -105,7 +110,9 @@ export async function getShoppingProjects(userId: string): Promise<ShoppingProje
     
     return (data || []).filter((project) => {
       const v = project.data?.appVariant
-      return !v || v === "ver1"
+      return (
+        (!v || v === "ver1") && isWithinShoppingProjectRetention(project.created_at)
+      )
     })
   } catch (error) {
     console.error("[Shopping Projects] 프로젝트 목록 조회 중 오류:", error)

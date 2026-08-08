@@ -1,6 +1,10 @@
 "use server"
 
 import { createClient } from "@/lib/supabase/server"
+import {
+  isWithinShoppingProjectRetention,
+  purgeExpiredShoppingProjects,
+} from "@/lib/shopping-projects-retention"
 import type { InfoActiveStep } from "./info-steps"
 import type { InfoShoppingBrief } from "./info-types"
 
@@ -30,6 +34,7 @@ export interface InfoProjectData {
 
 export async function getShoppingProjects(userId: string): Promise<ShoppingProject[]> {
   try {
+    await purgeExpiredShoppingProjects()
     const supabase = await createClient()
     const { data, error } = await supabase
       .from("shopping_projects")
@@ -38,7 +43,11 @@ export async function getShoppingProjects(userId: string): Promise<ShoppingProje
       .order("updated_at", { ascending: false })
 
     if (error) throw error
-    return (data || []).filter((project) => project.data?.appVariant === "info")
+    return (data || []).filter(
+      (project) =>
+        project.data?.appVariant === "info" &&
+        isWithinShoppingProjectRetention(project.created_at)
+    )
   } catch (error) {
     console.error("[Info Shopping] 프로젝트 목록 조회 실패:", error)
     throw error

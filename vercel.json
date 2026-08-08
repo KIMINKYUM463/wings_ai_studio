@@ -1,4 +1,10 @@
 {
+  "crons": [
+    {
+      "path": "/api/cron/purge-shopping-projects",
+      "schedule": "0 4 * * *"
+    }
+  ],
   "functions": {
     "app/api/shotform/mvp-keyword-source/route.ts": {
       "maxDuration": 800

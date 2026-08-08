@@ -5,6 +5,10 @@ import {
   createMvpProjectsClient,
   formatSupabaseError,
 } from "@/lib/supabase/mvp-projects"
+import {
+  isWithinShoppingProjectRetention,
+  purgeExpiredShoppingProjects,
+} from "@/lib/shopping-projects-retention"
 import type { Ver2ActiveStep } from "./ver2-steps"
 import type {
   KeywordAnalysisSnapshot,
@@ -260,6 +264,8 @@ export async function listAiShoppingProjects(userId: string): Promise<{
           "배포 환경에 NEXT_PUBLIC_SUPABASE_URL이 없습니다. Vercel 환경 변수를 확인해주세요.",
       }
     }
+    // 생성 7일 초과 프로젝트 정리 (스로틀) + 목록에서도 제외
+    await purgeExpiredShoppingProjects()
     const supabase = await createMvpProjectsClient()
     const { data, error } = await supabase
       .from("shopping_projects")
@@ -280,7 +286,9 @@ export async function listAiShoppingProjects(userId: string): Promise<{
     }
 
     const projects = (data || []).filter(
-      (project) => project.data?.appVariant === "ver2"
+      (project) =>
+        project.data?.appVariant === "ver2" &&
+        isWithinShoppingProjectRetention(project.created_at)
     ) as ShoppingProject[]
     return { ok: true, projects }
   } catch (error) {
