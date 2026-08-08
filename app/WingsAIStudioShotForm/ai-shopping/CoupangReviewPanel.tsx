@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { ClipboardPaste, Download, Loader2, PlugZap } from "lucide-react"
 import {
   connectLocalAgent,
+  downloadLocalAgentStarter,
   fetchCoupangIngestedOnCompanion,
   probeLocalCompanion,
 } from "@/lib/shotform-local-companion-client"
@@ -255,7 +256,7 @@ export function CoupangReviewPanel({
     )
   }
 
-  /** 터미널에서 npm run shotform:local-agent 실행 후 연결 */
+  /** 로컬/배포: 터미널·프로토콜·원클릭 .cmd 순으로 기동 후 연결 */
   const handleConnectAgent = async () => {
     setIsConnect(true)
     setStatusMsg("")
@@ -267,12 +268,12 @@ export function CoupangReviewPanel({
       setAgentOnline(Boolean(health.ok))
       if (health.ok) {
         setStatusMsg(
-          "로컬 에이전트 연결됨 (http://127.0.0.1:3847)\n터미널 창은 끄지 말고 두세요. 확장에서 수집·전송한 뒤 「전송된 리뷰 불러오기」를 누르세요."
+          "로컬 에이전트 연결됨 (http://127.0.0.1:3847)\n검은 창은 끄지 마세요. 확장에서 수집·전송한 뒤 「전송된 리뷰 불러오기」를 누르세요."
         )
       } else {
         setStatusMsg(
           health.error ||
-            "연결 실패.\n로컬에서 npm run dev 로 앱을 켠 상태에서 「연결」을 누르면 터미널이 뜨며 npm run shotform:local-agent 가 실행됩니다."
+            "연결 실패. 「실행파일 받기」로 start-shotform-agent.cmd 를 받아 더블클릭한 뒤 다시 연결하세요."
         )
       }
     } finally {
@@ -351,10 +352,9 @@ export function CoupangReviewPanel({
       <div className="space-y-1">
         <Label className="text-sm font-semibold text-zinc-200">Wings 숏폼 쿠팡 수집기</Label>
         <p className="text-xs text-zinc-500 leading-relaxed">
-          배포·다른 PC에서는 에이전트가 끊겨도 정상입니다. 확장에서 수집하면 JSON이
-          복사되니 아래에{" "}
-          <span className="text-orange-200/80">붙여넣기 → JSON 적용</span> 하세요. 에이전트를
-          켜면 「전송된 리뷰 불러오기」도 됩니다.
+          「에이전트 연결」을 누르면 이 PC용 실행파일(.cmd)이 받아집니다.{" "}
+          <span className="text-orange-200/80">더블클릭</span>하면 검은 창이 뜨고
+          연결됩니다. (배포 사이트는 서버가 터미널을 대신 열 수 없습니다)
         </p>
       </div>
 
@@ -372,7 +372,7 @@ export function CoupangReviewPanel({
           ) : (
             <PlugZap className="w-3.5 h-3.5 mr-1.5" />
           )}
-          {agentOnline ? "에이전트 다시 연결" : "에이전트 연결"}
+          {agentOnline ? "에이전트 다시 연결" : isConnect ? "연결·실행파일 준비 중…" : "에이전트 연결"}
         </Button>
         <Button
           type="button"
@@ -393,6 +393,21 @@ export function CoupangReviewPanel({
           size="sm"
           variant="ghost"
           disabled={isConnect}
+          className="text-xs text-amber-200/80"
+          onClick={() => {
+            downloadLocalAgentStarter()
+            setStatusMsg(
+              "start-shotform-agent.cmd 를 받았습니다. 다운로드 폴더에서 더블클릭하세요. (Node.js LTS 필요)"
+            )
+          }}
+        >
+          실행파일 받기
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          disabled={isConnect}
           className="text-xs text-zinc-400"
           onClick={() => {
             void probeLocalCompanion().then((h) => {
@@ -400,7 +415,7 @@ export function CoupangReviewPanel({
               setStatusMsg(
                 h.ok
                   ? "에이전트 응답 OK · http://127.0.0.1:3847"
-                  : h.error || "에이전트가 꺼져 있습니다. JSON 붙여넣기로 진행하세요."
+                  : h.error || "에이전트가 꺼져 있습니다. 「실행파일 받기」를 사용하세요."
               )
             })
           }}

@@ -94,10 +94,21 @@ function openShotformAgentProtocol() {
   }
 }
 
+/** 배포 PC용 — start-shotform-agent.cmd 자동 다운로드 (더블클릭 1회) */
+export function downloadLocalAgentStarter(): void {
+  if (typeof window === "undefined") return
+  const a = document.createElement("a")
+  a.href = "/api/shotform/local-agent/download?file=cmd"
+  a.download = "start-shotform-agent.cmd"
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+}
+
 /**
- * 「연결」버튼용 — 터미널에서 `npm run shotform:local-agent` 실행 후 헬스 확인.
+ * 「연결」버튼용 — 터미널/`shotform-agent://`/원클릭 .cmd 순으로 기동 후 헬스 확인.
  * - 로컬 Next: `/api/shotform/local-agent/start` { openTerminal: true }
- * - 배포 사이트: shotform-agent:// (서버는 사용자 PC 터미널을 열 수 없음)
+ * - 배포 사이트: 프로토콜 시도 → 실패 시 .cmd 자동 다운로드 후 연결 대기
  */
 export async function connectLocalAgent(opts?: {
   companionUrl?: string
@@ -114,38 +125,42 @@ export async function connectLocalAgent(opts?: {
     return health
   }
 
-  onProgress?.("터미널에서 npm run shotform:local-agent 실행 중…")
-  try {
-    const res = await fetch("/api/shotform/local-agent/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ openTerminal: true }),
-    })
-    const json = (await res.json().catch(() => ({}))) as LocalCompanionHealth & {
-      ok?: boolean
-      useProtocol?: boolean
-      error?: string
-      message?: string
-      alreadyRunning?: boolean
-    }
-    if (res.ok && json.ok) {
-      health = await probeLocalCompanion(baseUrl)
-      if (companionReady(health, requireFfmpeg)) {
-        onProgress?.(json.message || "로컬 에이전트 연결 완료")
-        return { ...health, ok: true }
+  const isLocalHost =
+    typeof window !== "undefined" &&
+    (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
+
+  if (isLocalHost) {
+    onProgress?.("터미널에서 npm run shotform:local-agent 실행 중…")
+    try {
+      const res = await fetch("/api/shotform/local-agent/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ openTerminal: true }),
+      })
+      const json = (await res.json().catch(() => ({}))) as LocalCompanionHealth & {
+        ok?: boolean
+        useProtocol?: boolean
+        error?: string
+        message?: string
+        alreadyRunning?: boolean
       }
-    } else if (json.useProtocol || res.status === 403) {
-      onProgress?.("배포 사이트 — PC 프로토콜로 에이전트 실행 시도…")
-    } else if (json.error) {
-      onProgress?.(json.error)
+      if (res.ok && json.ok) {
+        health = await probeLocalCompanion(baseUrl)
+        if (companionReady(health, requireFfmpeg)) {
+          onProgress?.(json.message || "로컬 에이전트 연결 완료")
+          return { ...health, ok: true }
+        }
+      } else if (json.error) {
+        onProgress?.(json.error)
+      }
+    } catch {
+      /* fall through */
     }
-  } catch {
-    /* fall through */
   }
 
   onProgress?.("shotform-agent:// 로 에이전트 실행 중…")
   openShotformAgentProtocol()
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 10; i++) {
     await sleep(500)
     health = await probeLocalCompanion(baseUrl)
     if (companionReady(health, requireFfmpeg)) {
@@ -154,12 +169,37 @@ export async function connectLocalAgent(opts?: {
     }
   }
 
+  // 배포·다른 PC: 서버가 터미널을 열 수 없음 → 실행 파일 자동 다운로드
+  onProgress?.(
+    "PC용 실행 파일(start-shotform-agent.cmd)을 받았습니다.\n" +
+      "다운로드 폴더에서 더블클릭하세요. (최초 1회 Node.js 필요할 수 있음)\n" +
+      "창이 뜨면 이 화면에서 연결을 기다립니다…"
+  )
+  downloadLocalAgentStarter()
+
+  for (let i = 0; i < 60; i++) {
+    await sleep(1000)
+    health = await probeLocalCompanion(baseUrl)
+    if (companionReady(health, requireFfmpeg)) {
+      onProgress?.("로컬 에이전트 연결 완료")
+      return health
+    }
+    if (i === 15 || i === 30) {
+      onProgress?.(
+        `아직 대기 중… (${i}초)\n다운로드한 start-shotform-agent.cmd 를 더블클릭했는지 확인하세요.`
+      )
+    }
+  }
+
   return {
     ok: false,
     ffmpeg: false,
     error:
-      health.error ||
-      "로컬 에이전트를 시작하지 못했습니다. 로컬에서 npm run dev 로 앱을 켠 뒤 「연결」을 다시 눌러 주세요. (터미널에 npm run shotform:local-agent 가 실행됩니다)",
+      "아직 연결되지 않았습니다.\n" +
+      "1) 다운로드한 start-shotform-agent.cmd 를 더블클릭\n" +
+      "2) Node.js가 없으면 nodejs.org 에서 LTS 설치\n" +
+      "3) 검은 창이 열린 뒤 다시 「에이전트 연결」을 누르세요.\n" +
+      "(에이전트 없이도 확장 → JSON 붙여넣기로 수집은 가능합니다)",
   }
 }
 
