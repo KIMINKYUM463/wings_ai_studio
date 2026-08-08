@@ -374,7 +374,7 @@ export function CoupangReviewPanel({
           ) : (
             <PlugZap className="w-3.5 h-3.5 mr-1.5" />
           )}
-          {agentOnline ? "에이전트 다시 연결" : isConnect ? "연결·실행파일 준비 중…" : "에이전트 연결"}
+          {agentOnline ? "에이전트 다시 연결" : isConnect ? "실행 창 여는 중…" : "에이전트 연결"}
         </Button>
         <Button
           type="button"
@@ -399,7 +399,7 @@ export function CoupangReviewPanel({
           onClick={() => {
             downloadLocalAgentStarter()
             setStatusMsg(
-              "start-shotform-agent.cmd 를 받았습니다. 다운로드 폴더에서 더블클릭하세요. (Node.js LTS 필요)"
+              "start-shotform-agent.cmd 를 받았습니다. 창이 안 뜨면 더블클릭하세요."
             )
           }}
         >
@@ -417,7 +417,7 @@ export function CoupangReviewPanel({
               setStatusMsg(
                 h.ok
                   ? "에이전트 응답 OK · http://127.0.0.1:3847"
-                  : h.error || "에이전트가 꺼져 있습니다. 「실행파일 받기」를 사용하세요."
+                  : h.error || "에이전트가 꺼져 있습니다. 「에이전트 연결」로 실행 창을 여세요."
               )
             })
           }}
