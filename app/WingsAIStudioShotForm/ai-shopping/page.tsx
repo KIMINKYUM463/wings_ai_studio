@@ -69,7 +69,7 @@ import {
 import { THUMBNAIL_TEMPLATE_STACKS, THUMBNAIL_STYLE_VARIANTS } from "./thumbnail-templates"
 import { Checkbox } from "@/components/ui/checkbox"
 import { getApiKey } from "@/lib/api-keys"
-import { getShoppingProjects, createShoppingProject, updateShoppingProject, deleteShoppingProject, getShoppingProject, type ShoppingProject, type ShoppingProjectData, type Ver2ActiveStep, type ProductReviewItem, type StoryboardScene, type SceneTtsTrack, type CoupangReviewInsightsData } from "./project-actions"
+import { listAiShoppingProjects, createShoppingProject, updateShoppingProject, deleteShoppingProject, getShoppingProject, type ShoppingProject, type ShoppingProjectData, type Ver2ActiveStep, type ProductReviewItem, type StoryboardScene, type SceneTtsTrack, type CoupangReviewInsightsData } from "./project-actions"
 import { uploadTtsBlobToStorage } from "@/lib/shotform-tts-storage-upload"
 import { fetchSupertonicTts } from "@/lib/supertonic-runtime-client"
 import { migrateVer2ActiveStep } from "./ver2-steps"
@@ -1727,9 +1727,18 @@ export default function AiShoppingVer2Page() {
     
     setIsLoadingProjects(true)
     try {
-      const projectsList = await getShoppingProjects(userId)
+      const result = await listAiShoppingProjects(userId)
+      if (!result.ok) {
+        console.error("프로젝트 목록 로드 실패:", result.error)
+        alert(
+          result.error ||
+            "프로젝트 목록을 불러오는데 실패했습니다. Supabase 환경 변수(NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)를 확인해주세요."
+        )
+        setProjects([])
+        return
+      }
       // 최신 작업 순으로 정렬 (updated_at 기준, 없으면 created_at 기준)
-      const sortedProjects = [...projectsList].sort((a, b) => {
+      const sortedProjects = [...result.projects].sort((a, b) => {
         const dateA = new Date(a.updated_at || a.created_at).getTime()
         const dateB = new Date(b.updated_at || b.created_at).getTime()
         return dateB - dateA // 최신순 (내림차순)
@@ -1737,7 +1746,11 @@ export default function AiShoppingVer2Page() {
       setProjects(sortedProjects)
     } catch (error) {
       console.error("프로젝트 목록 로드 실패:", error)
-      alert("프로젝트 목록을 불러오는데 실패했습니다.")
+      const msg =
+        error instanceof Error && !/Server Components render|digest property/i.test(error.message)
+          ? error.message
+          : "프로젝트 목록을 불러오는데 실패했습니다. Vercel의 Supabase 환경 변수와 shopping_projects 테이블을 확인해주세요."
+      alert(msg)
     } finally {
       setIsLoadingProjects(false)
     }

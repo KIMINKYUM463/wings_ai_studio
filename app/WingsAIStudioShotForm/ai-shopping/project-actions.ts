@@ -1,6 +1,10 @@
 "use server"
 
 import { createClient } from "@/lib/supabase/server"
+import {
+  createMvpProjectsClient,
+  formatSupabaseError,
+} from "@/lib/supabase/mvp-projects"
 import type { Ver2ActiveStep } from "./ver2-steps"
 import type {
   KeywordAnalysisSnapshot,
@@ -214,12 +218,49 @@ export interface ShoppingProjectData {
   completedSteps?: string[]
 }
 
+function wrapShoppingDbError(error: unknown, action: string): never {
+  const detail = formatSupabaseError(error)
+  console.error(`[Shopping Projects] ${action} 실패:`, error)
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+    throw new Error(
+      "Supabase URL이 없습니다. Vercel에 NEXT_PUBLIC_SUPABASE_URL을 설정한 뒤 재배포해주세요."
+    )
+  }
+  if (detail.includes("42501") || /permission|row-level security|rls/i.test(detail)) {
+    throw new Error(
+      `DB 권한 오류입니다. scripts/disable_shopping_projects_rls.sql 을 Supabase SQL Editor에서 실행하거나, Vercel에 SUPABASE_SERVICE_ROLE_KEY를 추가해주세요. (${detail})`
+    )
+  }
+  if (detail.includes("PGRST205") || /does not exist|relation .* shopping_projects/i.test(detail)) {
+    throw new Error(
+      `shopping_projects 테이블이 없습니다. scripts/create_shopping_projects_table.sql 을 실행해주세요. (${detail})`
+    )
+  }
+  throw new Error(`${action} 실패: ${detail}`)
+}
+
 /**
  * 사용자의 ver2(AI 쇼핑숏폼) 프로젝트 목록
+ * — 프로덕션에서 throw 메시지가 숨겨지지 않도록 결과 객체로도 제공
  */
-export async function getShoppingProjects(userId: string): Promise<ShoppingProject[]> {
+export async function listAiShoppingProjects(userId: string): Promise<{
+  ok: boolean
+  projects: ShoppingProject[]
+  error?: string
+}> {
   try {
-    const supabase = await createClient()
+    if (!userId?.trim()) {
+      return { ok: false, projects: [], error: "로그인(사용자 ID)이 없습니다." }
+    }
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+      return {
+        ok: false,
+        projects: [],
+        error:
+          "배포 환경에 NEXT_PUBLIC_SUPABASE_URL이 없습니다. Vercel 환경 변수를 확인해주세요.",
+      }
+    }
+    const supabase = await createMvpProjectsClient()
     const { data, error } = await supabase
       .from("shopping_projects")
       .select("*")
@@ -227,15 +268,40 @@ export async function getShoppingProjects(userId: string): Promise<ShoppingProje
       .order("updated_at", { ascending: false })
 
     if (error) {
-      console.error("[Shopping Projects] 프로젝트 목록 조회 실패:", error)
-      throw error
+      try {
+        wrapShoppingDbError(error, "프로젝트 목록 조회")
+      } catch (wrapped) {
+        return {
+          ok: false,
+          projects: [],
+          error: wrapped instanceof Error ? wrapped.message : formatSupabaseError(error),
+        }
+      }
     }
 
-    return (data || []).filter((project) => project.data?.appVariant === "ver2")
+    const projects = (data || []).filter(
+      (project) => project.data?.appVariant === "ver2"
+    ) as ShoppingProject[]
+    return { ok: true, projects }
   } catch (error) {
     console.error("[Shopping Projects] 프로젝트 목록 조회 중 오류:", error)
-    throw error
+    return {
+      ok: false,
+      projects: [],
+      error:
+        error instanceof Error
+          ? error.message
+          : "프로젝트 목록을 불러오지 못했습니다. Supabase 설정을 확인해주세요.",
+    }
   }
+}
+
+export async function getShoppingProjects(userId: string): Promise<ShoppingProject[]> {
+  const result = await listAiShoppingProjects(userId)
+  if (!result.ok) {
+    throw new Error(result.error || "프로젝트 목록을 불러오지 못했습니다.")
+  }
+  return result.projects
 }
 
 export async function createShoppingProject(
@@ -245,7 +311,7 @@ export async function createShoppingProject(
   data?: ShoppingProjectData
 ): Promise<ShoppingProject> {
   try {
-    const supabase = await createClient()
+    const supabase = await createMvpProjectsClient()
     const { data: project, error } = await supabase
       .from("shopping_projects")
       .insert({
@@ -257,15 +323,12 @@ export async function createShoppingProject(
       .select()
       .single()
 
-    if (error) {
-      console.error("[Shopping Projects] 프로젝트 생성 실패:", error)
-      throw error
-    }
-
-    return project
+    if (error) wrapShoppingDbError(error, "프로젝트 생성")
+    return project as ShoppingProject
   } catch (error) {
     console.error("[Shopping Projects] 프로젝트 생성 중 오류:", error)
-    throw error
+    if (error instanceof Error) throw error
+    wrapShoppingDbError(error, "프로젝트 생성")
   }
 }
 
@@ -278,7 +341,7 @@ export async function updateShoppingProject(
   }
 ): Promise<ShoppingProject> {
   try {
-    const supabase = await createClient()
+    const supabase = await createMvpProjectsClient()
     const updateData: Record<string, unknown> = {
       updated_at: new Date().toISOString(),
     }
@@ -313,42 +376,31 @@ export async function updateShoppingProject(
       .select()
       .single()
 
-    if (error) {
-      console.error("[Shopping Projects] 프로젝트 업데이트 실패:", error)
-      console.error("[Shopping Projects] Supabase 에러 상세:", {
-        message: error.message,
-        details: error.details,
-        hint: error.hint,
-        code: error.code,
-      })
-      throw error
-    }
-
-    return project
+    if (error) wrapShoppingDbError(error, "프로젝트 업데이트")
+    return project as ShoppingProject
   } catch (error) {
     console.error("[Shopping Projects] 프로젝트 업데이트 중 오류:", error)
-    throw error
+    if (error instanceof Error) throw error
+    wrapShoppingDbError(error, "프로젝트 업데이트")
   }
 }
 
 export async function deleteShoppingProject(projectId: string): Promise<void> {
   try {
-    const supabase = await createClient()
+    const supabase = await createMvpProjectsClient()
     const { error } = await supabase.from("shopping_projects").delete().eq("id", projectId)
 
-    if (error) {
-      console.error("[Shopping Projects] 프로젝트 삭제 실패:", error)
-      throw error
-    }
+    if (error) wrapShoppingDbError(error, "프로젝트 삭제")
   } catch (error) {
     console.error("[Shopping Projects] 프로젝트 삭제 중 오류:", error)
-    throw error
+    if (error instanceof Error) throw error
+    wrapShoppingDbError(error, "프로젝트 삭제")
   }
 }
 
 export async function getShoppingProject(projectId: string): Promise<ShoppingProject | null> {
   try {
-    const supabase = await createClient()
+    const supabase = await createMvpProjectsClient()
     const { data, error } = await supabase
       .from("shopping_projects")
       .select("*")
@@ -357,14 +409,14 @@ export async function getShoppingProject(projectId: string): Promise<ShoppingPro
 
     if (error) {
       if (error.code === "PGRST116") return null
-      console.error("[Shopping Projects] 프로젝트 조회 실패:", error)
-      throw error
+      wrapShoppingDbError(error, "프로젝트 조회")
     }
 
-    return data
+    return data as ShoppingProject
   } catch (error) {
     console.error("[Shopping Projects] 프로젝트 조회 중 오류:", error)
-    throw error
+    if (error instanceof Error) throw error
+    wrapShoppingDbError(error, "프로젝트 조회")
   }
 }
 
