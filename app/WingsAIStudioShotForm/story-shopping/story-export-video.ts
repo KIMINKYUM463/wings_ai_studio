@@ -948,8 +948,8 @@ export async function recordStoryPreviewStage(opts: {
   try {
     recorder = new MediaRecorder(stream, {
       mimeType,
-      videoBitsPerSecond: 14_000_000,
-      audioBitsPerSecond: 192_000,
+      videoBitsPerSecond: 16_000_000,
+      audioBitsPerSecond: 256_000,
     })
   } catch {
     recorder = new MediaRecorder(stream)
@@ -981,7 +981,8 @@ export async function recordStoryPreviewStage(opts: {
   let holdCanvas: HTMLCanvasElement | null = null
   let holdClipKey = ""
   let prevCaptionText = clips[0]?.text || ""
-  const CROSSFADE_SEC = 0.48
+  /** 클립 전환 크로스페이드 — 너무 짧으면 뚝 끊긴 느낌 */
+  const CROSSFADE_SEC = 0.62
   const reloadingKeys = new Set<string>()
   /** 클립별 첫 프레임 미리 구워 두어 전환 시 즉시 페이드 */
   const openingFrameByKey = new Map<string, HTMLCanvasElement>()
@@ -1161,19 +1162,26 @@ export async function recordStoryPreviewStage(opts: {
     lctx.drawImage(canvas, x, y, w, h, 0, 0, w, h)
   }
 
-  /** 다음 클립 비디오를 미리 시크해 전환 끊김을 줄임 */
+  /** 다음·다다음 클립 비디오를 미리 시크·디코드해 전환 끊김을 줄임 */
   const prefetchNextClipMedia = (playhead: number) => {
     const idx = clipIndexAt(playhead)
-    const next = clips[idx + 1]
-    if (!next) return
-    const media = mediaByKey.get(next.key)
-    if (media?.kind === "video") {
-      try {
-        if (Math.abs(media.video.currentTime - (next.trimStartSec || 0)) > 0.35) {
-          media.video.currentTime = Math.max(0, next.trimStartSec || 0)
+    for (const offset of [1, 2]) {
+      const next = clips[idx + offset]
+      if (!next) continue
+      const media = mediaByKey.get(next.key)
+      if (media?.kind === "video") {
+        try {
+          const target = Math.max(0, next.trimStartSec || 0)
+          if (Math.abs(media.video.currentTime - target) > 0.12) {
+            media.video.currentTime = target
+          }
+          // 메타만 깨워 두면 전환 직후 readyState가 빨리 올라감
+          if (media.video.paused && media.video.readyState < 2) {
+            void media.video.play().then(() => media.video.pause()).catch(() => undefined)
+          }
+        } catch {
+          /* ignore */
         }
-      } catch {
-        /* ignore */
       }
     }
   }
@@ -1186,14 +1194,29 @@ export async function recordStoryPreviewStage(opts: {
   ) => {
     const { x, y, w, h } = mediaBox
     const localSec = Math.max(0, playhead - clip.startSec)
-    const rawFade =
+    const timeToEnd = Math.max(0, clip.endSec - playhead)
+    const clipIdx = clipIndexAt(playhead)
+    const nextClip = clipIdx >= 0 ? clips[clipIdx + 1] : undefined
+    const nextOpening = nextClip ? openingFrameByKey.get(nextClip.key) : undefined
+
+    // 진입 페이드(이전→현재) + 종료 페이드(현재→다음 오프닝)로 끊김 완화
+    const enterRaw =
       holdCanvas && holdClipKey && holdClipKey !== clip.key
         ? Math.min(1, localSec / CROSSFADE_SEC)
         : 1
-    const fading = easeInOutCubic(rawFade)
+    const exitRaw =
+      nextOpening && timeToEnd < CROSSFADE_SEC && clip.durationSec > CROSSFADE_SEC * 1.35
+        ? Math.min(1, timeToEnd / CROSSFADE_SEC)
+        : 1
+    const enterFade = easeInOutCubic(enterRaw)
+    const exitFade = easeInOutCubic(exitRaw)
+    const inExitCrossfade = Boolean(nextOpening && exitRaw < 0.999)
 
-    // 1) 이전 프레임 언더레이 — 검정·끊김 방지
-    if (holdCanvas) {
+    // 1) 언더레이 — 종료 페이드 중엔 hold를 깔면 이중 노출로 탁해지므로 배경만
+    if (inExitCrossfade) {
+      ctx.fillStyle = motion.backgroundColor || "#111111"
+      ctx.fillRect(x, y, w, h)
+    } else if (holdCanvas) {
       ctx.drawImage(holdCanvas, x, y, w, h)
     } else {
       ctx.fillStyle = motion.backgroundColor || "#111111"
@@ -1242,23 +1265,16 @@ export async function recordStoryPreviewStage(opts: {
     }
 
     let drew = false
-    // 이미지 전환 초반: 미리 구운 첫 프레임만 페이드 (디코드 대기·끊김 방지)
-    const preferOpening =
-      Boolean(opening) &&
-      rawFade < 0.45 &&
-      media?.kind !== "video"
 
-    if (preferOpening && opening) {
-      ctx.save()
-      ctx.globalAlpha = fading
-      ctx.drawImage(opening, x, y, w, h)
-      ctx.restore()
-      drew = true
-    } else if (media?.kind === "video") {
+    // 비디오는 오프닝 페이드 중에도 미리 play/seek 해서 라이브 프레임이 바로 이어지게
+    if (media?.kind === "video") {
       const video = media.video
       if (clip.key !== lastMediaKey) {
         try {
-          video.currentTime = Math.max(0, clip.trimStartSec || 0)
+          const target = Math.max(0, clip.trimStartSec || 0)
+          if (Math.abs(video.currentTime - target) > 0.08) {
+            video.currentTime = target
+          }
         } catch {
           /* ignore */
         }
@@ -1271,16 +1287,45 @@ export async function recordStoryPreviewStage(opts: {
           /* ignore */
         }
       }
-      if (video.readyState >= 2 && video.videoWidth > 0) {
+    }
+
+    // 전환 초반: 미리 구운 첫 프레임으로 페이드 (비디오 seek 대기·끊김 방지)
+    const videoReady =
+      media?.kind === "video" &&
+      media.video.readyState >= 2 &&
+      media.video.videoWidth > 0
+    const preferOpening =
+      Boolean(opening) &&
+      (enterRaw < 0.55 || (media?.kind === "video" && enterRaw < 0.72 && !videoReady))
+
+    if (preferOpening && opening) {
+      ctx.save()
+      ctx.globalAlpha = enterFade * exitFade
+      ctx.drawImage(opening, x, y, w, h)
+      ctx.restore()
+      drew = true
+      // 비디오가 이미 준비됐으면 오프닝 위에 살짝 섞어 하드컷 방지
+      if (videoReady && media?.kind === "video" && enterRaw > 0.2) {
+        const blend = easeInOutCubic(Math.min(1, (enterRaw - 0.2) / 0.5))
+        drawSource(
+          media.video,
+          media.video.videoWidth,
+          media.video.videoHeight,
+          enterFade * exitFade * blend
+        )
+      }
+    } else if (media?.kind === "video") {
+      const video = media.video
+      if (videoReady) {
         drew = drawSource(
           video,
           video.videoWidth,
           video.videoHeight,
-          fading
+          enterFade * exitFade
         )
       } else if (opening) {
         ctx.save()
-        ctx.globalAlpha = fading
+        ctx.globalAlpha = enterFade * exitFade
         ctx.drawImage(opening, x, y, w, h)
         ctx.restore()
         drew = true
@@ -1291,36 +1336,49 @@ export async function recordStoryPreviewStage(opts: {
         image,
         image.naturalWidth,
         image.naturalHeight,
-        fading
+        enterFade * exitFade
       )
     } else if (opening) {
       ctx.save()
-      ctx.globalAlpha = fading
+      ctx.globalAlpha = enterFade * exitFade
       ctx.drawImage(opening, x, y, w, h)
       ctx.restore()
       drew = true
     }
 
-    if (drew) {
-      if (rawFade >= 0.97 || holdClipKey === clip.key || !holdCanvas) {
-        snapshotHoldFromMain()
-        holdClipKey = clip.key
-      }
+    // 클립 끝: 다음 오프닝을 올려 자연스럽게 이어 붙임
+    if (nextOpening && exitRaw < 0.999) {
+      ctx.save()
+      ctx.globalAlpha = 1 - exitFade
+      ctx.drawImage(nextOpening, x, y, w, h)
+      ctx.restore()
+      drew = true
+    }
+
+    if (
+      drew &&
+      !inExitCrossfade &&
+      (enterRaw >= 0.97 || holdClipKey === clip.key || !holdCanvas)
+    ) {
+      // 종료 페이드 중 hold를 찍으면 다음 오프닝이 섞여 다음 진입이 탁해짐
+      snapshotHoldFromMain()
+      holdClipKey = clip.key
     }
   }
 
   const paintCaptionSmooth = (clip: StoryExportClip, playhead: number) => {
     const localSec = Math.max(0, playhead - clip.startSec)
+    const captionFadeSec = 0.28
     const fade =
-      localSec < 0.18 && prevCaptionText && prevCaptionText !== clip.text
-        ? easeInOutCubic(localSec / 0.18)
+      localSec < captionFadeSec && prevCaptionText && prevCaptionText !== clip.text
+        ? easeInOutCubic(localSec / captionFadeSec)
         : 1
 
     if (fade < 1 && prevCaptionText && prevCaptionText !== clip.text) {
       // 이전 대본 → 새 대본 크로스페이드
       drawLiveCaption(ctx, width, captionBox, prevCaptionText)
       ctx.save()
-      // drawLiveCaption이 흰 배경을 깔므로, 새 대본만 알파로 덮기 위해 직접 그림
+      // drawLiveCaption이 흰 배경을 깔으므로, 새 대본만 알파로 덮기 위해 직접 그림
       const box = captionBox
       ctx.globalAlpha = fade
       ctx.fillStyle = "#ffffff"
@@ -1344,7 +1402,7 @@ export async function recordStoryPreviewStage(opts: {
     } else {
       drawLiveCaption(ctx, width, captionBox, clip.text)
     }
-    if (localSec >= 0.18) prevCaptionText = clip.text
+    if (localSec >= captionFadeSec) prevCaptionText = clip.text
   }
 
   const paintFrame = () => {
@@ -1402,7 +1460,7 @@ export async function recordStoryPreviewStage(opts: {
     throw new Error("녹화가 취소되었습니다.")
   }
 
-  recorder.start(100)
+  recorder.start(50)
   onProgress?.({
     phase: "record",
     message: "미리보기와 동일하게 녹화 중…",
@@ -1421,19 +1479,18 @@ export async function recordStoryPreviewStage(opts: {
   const drawLoop = () => {
     if (!drawing) return
     const now = performance.now()
-    // 밀린 프레임은 최대 2장만 따라잡고, 나머지는 스킵해 오디오와 맞춤
-    let painted = 0
-    while (now >= nextFrameAt && painted < 2) {
+    // 한 틱에 한 프레임만 — 밀린 프레임을 몰아서 그리면 뚝뚝 끊김
+    if (now >= nextFrameAt) {
       paintFrame()
       trackWithRequest.requestFrame?.()
       nextFrameAt += frameInterval
-      painted += 1
-    }
-    if (nextFrameAt < now - frameInterval * 3) {
-      nextFrameAt = now + frameInterval
+      // 너무 뒤처지면 오디오 타임라인에 맞춰 리듬만 재동기화 (프레임 스킵 연사 금지)
+      if (nextFrameAt < now - frameInterval * 2) {
+        nextFrameAt = now + frameInterval
+      }
     }
 
-    if (now - lastProgressAt > 200) {
+    if (now - lastProgressAt > 450) {
       lastProgressAt = now
       const playhead = getPlayheadSec()
       onProgress?.({

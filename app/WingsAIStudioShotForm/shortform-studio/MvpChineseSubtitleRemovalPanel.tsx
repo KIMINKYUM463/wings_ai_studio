@@ -60,7 +60,9 @@ export function MvpChineseSubtitleRemovalPanel({
     const vmakeApiKey = shotformVmakeApiKey()
     const vmakeSecretAccessKey = shotformVmakeSecretAccessKey()
     if (!vmakeApiKey || !vmakeSecretAccessKey) {
-      setErr("자막 제거 API 키가 없습니다. 상단 설정에서 API Key / Secret Access Key를 입력해 주세요.")
+      setErr(
+        "자막 제거 API 키가 없습니다. ShotForm 홈 설정에서 Vmake AI API Key / Secret을 입력해 주세요."
+      )
       return
     }
     if (!videoUrl && !jobId && !videoBlobRef?.current) {

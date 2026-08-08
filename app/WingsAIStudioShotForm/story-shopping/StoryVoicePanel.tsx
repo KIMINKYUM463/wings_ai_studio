@@ -155,10 +155,31 @@ function normalizeVoiceId(voiceId?: string) {
 }
 
 function providerFromVoiceId(voiceId: string): Provider {
+  // "supertonic-" 가 "supertone-" 보다 먼저여야 함 (접두사 충돌)
   if (voiceId.startsWith("supertonic-")) return "supertonic"
   if (voiceId.startsWith("supertone-")) return "supertone"
   if (voiceId.startsWith("typecast-")) return "typecast"
+  if (voiceId.startsWith("elevenlabs-")) return "elevenlabs"
+  if (/^[FM]\d+$/i.test(voiceId)) return "supertonic"
   return "elevenlabs"
+}
+
+/** 접두사 제거 — supertonic을 supertone보다 앞에 둬야 함 */
+function bareVoiceId(voiceId: string): string {
+  return voiceId.replace(/^(supertonic|supertone|typecast|elevenlabs)-/, "")
+}
+
+function voiceIdForProvider(provider: Provider, voiceId: string, fallbackBare: string): string {
+  // 다른 프로바이더 id가 남아 있으면 bare를 재사용하지 않음 (ElevenLabs id → supertonic-xxx 방지)
+  const sameProvider = providerFromVoiceId(voiceId) === provider
+  const bare = (sameProvider ? bareVoiceId(voiceId) : "") || fallbackBare
+  if (provider === "supertonic") {
+    const id = bare && /^[A-Za-z0-9_-]+$/.test(bare) ? bare : "F1"
+    return `supertonic-${id}`
+  }
+  if (provider === "supertone") return bare ? `supertone-${bare}` : voiceId
+  if (provider === "typecast") return bare ? `typecast-${bare}` : voiceId
+  return `elevenlabs-${bare || ELEVEN_PRESETS[0]?.voice_id || "jB1Cifc2UQbq1gR3wnb0"}`
 }
 
 export function StoryVoicePanel({
@@ -203,10 +224,7 @@ export function StoryVoicePanel({
     return ELEVEN_PRESETS
   }, [provider, supertoneVoices, supertonicVoices, typecastVoices])
 
-  const selectedBareId = selectedVoiceId.replace(
-    /^(supertone|supertonic|typecast|elevenlabs)-/,
-    ""
-  )
+  const selectedBareId = bareVoiceId(selectedVoiceId)
   const selectedVoice = voices.find((voice) => voice.voice_id === selectedBareId)
 
   useEffect(() => {
@@ -217,10 +235,39 @@ export function StoryVoicePanel({
   const selectProvider = (nextProvider: Provider) => {
     setProvider(nextProvider)
     setError("")
-    if (nextProvider === "supertone") void loadSupertoneVoices()
-    if (nextProvider === "supertonic") void loadSupertonicVoices()
-    if (nextProvider === "typecast") void loadTypecastVoices()
-    if (nextProvider === "elevenlabs" && ELEVEN_PRESETS[0]) {
+    if (nextProvider === "supertone") {
+      if (supertoneVoices[0]) {
+        setSelectedVoiceId(`supertone-${supertoneVoices[0].voice_id}`)
+        setStyle(
+          supertoneVoices[0].styles?.includes("neutral")
+            ? "neutral"
+            : supertoneVoices[0].styles?.[0] || "neutral"
+        )
+      } else {
+        void loadSupertoneVoices()
+      }
+      return
+    }
+    if (nextProvider === "supertonic") {
+      const id = SUPERTONIC_BUILTIN_VOICES[0]?.voice_id || "F1"
+      setSelectedVoiceId(`supertonic-${id}`)
+      void loadSupertonicVoices()
+      return
+    }
+    if (nextProvider === "typecast") {
+      if (typecastVoices[0]) {
+        setSelectedVoiceId(`typecast-${typecastVoices[0].voice_id}`)
+        setStyle(
+          typecastVoices[0].styles?.includes("normal")
+            ? "normal"
+            : typecastVoices[0].styles?.[0] || "normal"
+        )
+      } else {
+        void loadTypecastVoices()
+      }
+      return
+    }
+    if (ELEVEN_PRESETS[0]) {
       setSelectedVoiceId(`elevenlabs-${ELEVEN_PRESETS[0].voice_id}`)
     }
   }
@@ -238,11 +285,10 @@ export function StoryVoicePanel({
     setIsLoadingVoices(true)
     setError("")
     try {
-      const response = await fetch("/api/supertone-voices", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiKey }),
-      })
+      // 다른 쇼핑숏폼과 동일 — /api/supertone-voices 는 GET + query 만 지원
+      const response = await fetch(
+        `/api/supertone-voices?apiKey=${encodeURIComponent(apiKey)}`
+      )
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload.error || "SuperTone 음성 목록을 가져오지 못했습니다.")
       const excluded = ["아동", "아이", "어린이", "키즈", "baby", "child", "kid"]
@@ -329,14 +375,23 @@ export function StoryVoicePanel({
   }
 
   const requestTts = async (text: string, voiceId = selectedVoiceId) => {
-    const bareId = voiceId.replace(/^(supertone|supertonic|typecast|elevenlabs)-/, "")
+    // UI에서 고른 provider를 우선 — 카드만 바꾸고 보이스 id가 예전 ElevenLabs로 남는 경우 방지
+    const resolvedId = voiceIdForProvider(
+      provider,
+      voiceId,
+      provider === "supertonic"
+        ? SUPERTONIC_BUILTIN_VOICES[0]?.voice_id || "F1"
+        : bareVoiceId(voiceId)
+    )
+    const bareId = bareVoiceId(resolvedId)
+    const ttsSpeed = resolveSpeed(resolvedId)
     let endpoint = ""
-    let body: Record<string, unknown> = { text, voiceId: bareId, speed: resolveSpeed(voiceId) }
+    let body: Record<string, unknown> = { text, voiceId: bareId, speed: ttsSpeed }
 
-    if (voiceId.startsWith("supertonic-")) {
+    if (resolvedId.startsWith("supertonic-") || provider === "supertonic") {
       endpoint = "/api/supertonic-tts"
-      body = { ...body, voiceId: bareId }
-    } else if (voiceId.startsWith("supertone-")) {
+      body = { text, voiceId: bareId || "F1", speed: ttsSpeed }
+    } else if (resolvedId.startsWith("supertone-") || provider === "supertone") {
       endpoint = "/api/supertone-tts"
       const apiKey = (
         localStorage.getItem("shotform_supertone_api_key") ||
@@ -344,7 +399,7 @@ export function StoryVoicePanel({
         ""
       ).trim()
       body = { ...body, apiKey, style }
-    } else if (voiceId.startsWith("typecast-")) {
+    } else if (resolvedId.startsWith("typecast-") || provider === "typecast") {
       endpoint = "/api/typecast-tts"
       const apiKey = (
         localStorage.getItem("shotform_typecast_api_key") ||
@@ -362,13 +417,14 @@ export function StoryVoicePanel({
       body = { ...body, apiKey }
     }
 
-    const response = voiceId.startsWith("supertonic-")
-      ? await fetchSupertonicTts(body)
-      : await fetch(endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        })
+    const response =
+      resolvedId.startsWith("supertonic-") || provider === "supertonic"
+        ? await fetchSupertonicTts(body)
+        : await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          })
     const payload = await response.json().catch(() => ({}))
     if (!response.ok) throw new Error(payload.error || payload.message || "TTS 생성에 실패했습니다.")
     if (payload.audioUrl) return String(payload.audioUrl)
@@ -442,11 +498,19 @@ export function StoryVoicePanel({
     setIsGenerating(true)
     setError("")
     const tracks: StoryVoiceTrack[] = []
+    const voiceId = voiceIdForProvider(
+      provider,
+      selectedVoiceId,
+      provider === "supertonic"
+        ? SUPERTONIC_BUILTIN_VOICES[0]?.voice_id || "F1"
+        : bareVoiceId(selectedVoiceId)
+    )
+    if (voiceId !== selectedVoiceId) setSelectedVoiceId(voiceId)
     try {
       for (let index = 0; index < brief.generatedStory.scenes.length; index += 1) {
         const scene = brief.generatedStory.scenes[index]!
         setProgress(`장면 ${index + 1}/${brief.generatedStory.scenes.length} 통 TTS 생성 중`)
-        let audioUrl = await requestTts(scene.narration)
+        let audioUrl = await requestTts(scene.narration, voiceId)
         audioUrl = await persistAudioUrl(audioUrl, `장면 ${index + 1}`)
         const durationSec = await measureAudioDuration(audioUrl)
 
@@ -472,7 +536,7 @@ export function StoryVoicePanel({
       onChange({
         ...brief,
         voiceData: {
-          voiceId: selectedVoiceId,
+          voiceId,
           provider,
           style,
           speed,

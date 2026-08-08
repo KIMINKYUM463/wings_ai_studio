@@ -2874,6 +2874,49 @@ export default function AiShoppingVer2Page() {
     }
   }
 
+  const copyYoutubeField = async (
+    field: "title" | "description" | "tags",
+    text: string
+  ) => {
+    const value = text.trim()
+    if (!value) {
+      alert(
+        field === "title"
+          ? "복사할 제목이 없습니다."
+          : field === "description"
+            ? "복사할 설명이 없습니다."
+            : "복사할 태그가 없습니다."
+      )
+      return
+    }
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value)
+      } else {
+        const ta = document.createElement("textarea")
+        ta.value = value
+        ta.style.position = "fixed"
+        ta.style.left = "-9999px"
+        document.body.appendChild(ta)
+        ta.select()
+        document.execCommand("copy")
+        document.body.removeChild(ta)
+      }
+      if (field === "title") {
+        setCopiedTitle(true)
+        window.setTimeout(() => setCopiedTitle(false), 1600)
+      } else if (field === "description") {
+        setCopiedDescription(true)
+        window.setTimeout(() => setCopiedDescription(false), 1600)
+      } else {
+        setCopiedTags(true)
+        window.setTimeout(() => setCopiedTags(false), 1600)
+      }
+    } catch {
+      alert("클립보드 복사에 실패했습니다. 브라우저 권한을 확인해 주세요.")
+    }
+  }
+
   // 수퍼톤 음성 목록 가져오기
   const fetchSupertoneVoices = async () => {
     setIsLoadingSupertoneVoices(true)
@@ -10544,9 +10587,26 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
               </CardHeader>
               <CardContent className="space-y-5 py-5">
                 <div className="space-y-2">
-                  <Label htmlFor="youtube-title" className="text-sm text-zinc-300">
-                    제목
-                  </Label>
+                  <div className="flex items-center justify-between gap-2">
+                    <Label htmlFor="youtube-title" className="text-sm text-zinc-300">
+                      제목
+                    </Label>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={!youtubeTitle.trim()}
+                      onClick={() => void copyYoutubeField("title", youtubeTitle)}
+                      className="h-7 border-white/15 bg-black/30 px-2.5 text-[11px] text-zinc-200 hover:bg-white/10 hover:text-white"
+                    >
+                      {copiedTitle ? (
+                        <Check className="mr-1 h-3.5 w-3.5 text-emerald-400" />
+                      ) : (
+                        <Copy className="mr-1 h-3.5 w-3.5" />
+                      )}
+                      {copiedTitle ? "복사됨" : "복사"}
+                    </Button>
+                  </div>
                   <Input
                     id="youtube-title"
                     value={youtubeTitle}
@@ -10558,9 +10618,26 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="youtube-description" className="text-sm text-zinc-300">
-                    설명
-                  </Label>
+                  <div className="flex items-center justify-between gap-2">
+                    <Label htmlFor="youtube-description" className="text-sm text-zinc-300">
+                      설명
+                    </Label>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={!youtubeDescription.trim()}
+                      onClick={() => void copyYoutubeField("description", youtubeDescription)}
+                      className="h-7 border-white/15 bg-black/30 px-2.5 text-[11px] text-zinc-200 hover:bg-white/10 hover:text-white"
+                    >
+                      {copiedDescription ? (
+                        <Check className="mr-1 h-3.5 w-3.5 text-emerald-400" />
+                      ) : (
+                        <Copy className="mr-1 h-3.5 w-3.5" />
+                      )}
+                      {copiedDescription ? "복사됨" : "복사"}
+                    </Button>
+                  </div>
                   <Textarea
                     id="youtube-description"
                     value={youtubeDescription}
@@ -10571,9 +10648,31 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="youtube-tags" className="text-sm text-zinc-300">
-                    태그
-                  </Label>
+                  <div className="flex items-center justify-between gap-2">
+                    <Label htmlFor="youtube-tags" className="text-sm text-zinc-300">
+                      태그
+                    </Label>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={!youtubeTagsDraft.trim() && youtubeTags.length === 0}
+                      onClick={() =>
+                        void copyYoutubeField(
+                          "tags",
+                          youtubeTagsDraft.trim() || youtubeTags.join(", ")
+                        )
+                      }
+                      className="h-7 border-white/15 bg-black/30 px-2.5 text-[11px] text-zinc-200 hover:bg-white/10 hover:text-white"
+                    >
+                      {copiedTags ? (
+                        <Check className="mr-1 h-3.5 w-3.5 text-emerald-400" />
+                      ) : (
+                        <Copy className="mr-1 h-3.5 w-3.5" />
+                      )}
+                      {copiedTags ? "복사됨" : "복사"}
+                    </Button>
+                  </div>
                   <Input
                     id="youtube-tags"
                     value={youtubeTagsDraft}

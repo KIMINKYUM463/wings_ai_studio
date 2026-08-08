@@ -212,31 +212,6 @@ export function MvpVideoUrlKeywordPanel({ disabled, onApplyKeywords, onAnalyzedU
             </details>
           ) : null}
 
-          {analysis.searchFeatures.length > 0 ? (
-            <div>
-              <p className="text-xs text-slate-400">제품 관련 특징 (대본·장면 근거)</p>
-              <div className="mt-1.5 flex flex-wrap gap-1.5">
-                {analysis.searchFeatures.map((f) => (
-                  <span
-                    key={f}
-                    className="rounded-md border border-emerald-500/20 bg-emerald-950/20 px-2 py-0.5 text-[10px] text-emerald-200/90"
-                  >
-                    {f}
-                  </span>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          {analysis.ocrNotes ? (
-            <details className="rounded-lg border border-white/[0.06] bg-black/20 px-3 py-2">
-              <summary className="cursor-pointer text-xs text-slate-400">영상 장면·썸네일 OCR</summary>
-              <pre className="mt-2 whitespace-pre-wrap text-[11px] leading-relaxed text-slate-500">
-                {analysis.ocrNotes}
-              </pre>
-            </details>
-          ) : null}
-
           <div>
             <p className="text-xs text-slate-400">제품 관련 키워드 — 클릭하여 선택</p>
             <div className="mt-2 flex flex-wrap gap-2">

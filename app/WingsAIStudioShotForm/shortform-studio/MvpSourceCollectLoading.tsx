@@ -53,8 +53,9 @@ export function MvpSourceCollectLoading({
       />
 
       <div className="relative z-[1] flex w-full max-w-lg items-center justify-between gap-2 sm:gap-6">
-        {/* 도우인 */}
+        {/* 도우인 — 박스 안은 중국어, 아래 라벨은 한글 */}
         <PlatformNode
+          mark="抖音"
           label="도우인"
           accent="amber"
           side="left"
@@ -91,8 +92,9 @@ export function MvpSourceCollectLoading({
           <CollectStream side="right" />
         </div>
 
-        {/* 샤오홍슈 */}
+        {/* 샤오홍슈 — 박스 안은 중국어, 아래 라벨은 한글 */}
         <PlatformNode
+          mark="小红书"
           label="샤오홍슈"
           accent="rose"
           side="right"
@@ -117,10 +119,14 @@ export function MvpSourceCollectLoading({
 }
 
 function PlatformNode({
+  mark,
   label,
   accent,
   side,
 }: {
+  /** 박스 안 표시 (중국어) */
+  mark: string
+  /** 아래 한글 라벨 */
   label: string
   accent: "amber" | "rose"
   side: "left" | "right"
@@ -143,7 +149,7 @@ function PlatformNode({
             : "border-rose-400/35 bg-rose-500/10 text-rose-100"
         )}
       >
-        <span className="text-[11px] font-black tracking-tight sm:text-xs">{label.slice(0, 2)}</span>
+        <span className="text-[13px] font-black tracking-tight sm:text-sm">{mark}</span>
       </div>
       <span
         className={cn(

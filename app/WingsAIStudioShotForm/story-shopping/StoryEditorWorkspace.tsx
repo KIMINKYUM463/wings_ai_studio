@@ -92,6 +92,7 @@ import {
   clampStorySfxToTimeline,
   moveStorySfxClip,
   normalizedStorySfxClip,
+  placeAutoSfxWithinContent,
   splitStorySfxClip,
 } from "./story-sfx-utils"
 import {
@@ -198,6 +199,7 @@ type AutoAssetPlan = {
   source:
     | "review-ai"
     | "review-original"
+    | "google"
     | "pixabay-video"
     | "pixabay-image"
     | "douyin"
@@ -426,6 +428,7 @@ export const StoryEditorWorkspace = forwardRef<
   )
   const playGenRef = useRef(0)
   const playheadRef = useRef(0)
+  const isPlayingRef = useRef(false)
   const previousThumbnailIntroEnabledRef = useRef(false)
   const togglePlaybackRef = useRef<() => void>(() => undefined)
   const trimmedCacheRef = useRef(
@@ -452,11 +455,11 @@ export const StoryEditorWorkspace = forwardRef<
     []
   )
 
+  // 썸네일은 타임라인 0~0.01초(인트로)에만 표시 — 일시정지·썸네일 탭일 때 전 구간을 덮으면 안 됨
   const showThumbnailIntro =
     thumbnailIntroPreview.enabled &&
     Boolean(thumbnailIntroPreview.url) &&
-    (isMvpThumbnailIntroTime(playheadSec) ||
-      (!isPlaying && (playheadSec <= 0.05 || rightTab === "thumbnail")))
+    isMvpThumbnailIntroTime(playheadSec)
 
   useEffect(() => {
     selectedKeyRef.current = selectedKey
@@ -907,17 +910,23 @@ export const StoryEditorWorkspace = forwardRef<
           }
         )
         const payload = await response.json().catch(() => ({}))
-        if (response.ok && payload.selectedId != null) {
-          const selected = candidates[Number(payload.selectedId)]
-          if (selected) {
-            // 선택된 것을 맨 앞에 두고, 클립별로 상위 풀에서 순환 선택
-            const ordered = [
-              selected,
-              ...candidates.filter((item) => item !== selected),
-            ]
-            const pool = ordered.slice(0, Math.min(5, ordered.length))
-            return pool[diversityIndex % pool.length]
-          }
+        // 비전 AI가 전부 부적합으로 판정 → 관련 없는 키워드 폴백으로 억지 채우지 않음
+        if (
+          response.ok &&
+          payload.aiRanked === true &&
+          (payload.selectedId == null ||
+            payload.selectedId === "" ||
+            payload.selectedId === "null")
+        ) {
+          return undefined
+        }
+        if (response.ok && payload.selectedId != null && payload.selectedId !== "") {
+          const byId = candidates.find(
+            (_, index) => String(index) === String(payload.selectedId)
+          )
+          const byNum = candidates[Number(payload.selectedId)]
+          const selected = byId || byNum
+          if (selected) return selected
         }
       } catch {
         // ranking 실패 시 아래 키워드 매칭으로 폴백
@@ -1007,6 +1016,7 @@ export const StoryEditorWorkspace = forwardRef<
             availability: {
               review: reviewPhotoPool.length > 0,
               product: Boolean(productImage),
+              google: Boolean(getSerpKey()),
               pixabay: Boolean(pixabayKey),
               apify: Boolean(apifyKey),
               klipy: Boolean(klipyKey),
@@ -1150,6 +1160,75 @@ export const StoryEditorWorkspace = forwardRef<
           }
         }
 
+        if (plan.source === "google") {
+          const serp = getSerpKey()
+          if (serp) {
+            const queries = Array.from(
+              new Set(
+                [
+                  queryKo,
+                  slot.text.replace(/[.,!?…]+/g, " ").trim().slice(0, 48),
+                  sceneContext
+                    .replace(/\[현재\]\s*/g, "")
+                    .split("→")
+                    .map((part) => part.trim())
+                    .find((part) => part.length >= 4),
+                ].filter((q): q is string => Boolean(q && q.length >= 2))
+              )
+            ).slice(0, 2)
+            const googleHits: SearchHit[] = []
+            for (const q of queries) {
+              const response = await fetch(
+                "/api/shotform/story-shopping/asset-search",
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    source: "google",
+                    query: q,
+                    serpApiKey: serp,
+                  }),
+                }
+              )
+              const payload = await response.json().catch(() => ({}))
+              if (response.ok && Array.isArray(payload.items)) {
+                for (const item of payload.items as SearchHit[]) {
+                  if (
+                    item?.mediaUrl &&
+                    !googleHits.some((hit) => hit.mediaUrl === item.mediaUrl)
+                  ) {
+                    googleHits.push(item)
+                  }
+                }
+              }
+            }
+            const picked = await pickAiRelevant(
+              googleHits.slice(0, 18),
+              (item) => item.mediaUrl,
+              (item) => item.thumbnailUrl || item.mediaUrl,
+              (item) => item.title || queryKo,
+              queryKo,
+              sceneContext,
+              plan.needsProduct,
+              undefined,
+              slotIndex
+            )
+            if (picked?.mediaUrl) {
+              return {
+                mediaUrl: picked.mediaUrl,
+                mediaType: "image",
+                source: "google",
+                sourcePageUrl: picked.pageUrl,
+                attribution: picked.attribution || "Google 이미지",
+                license: "permission-required",
+                rightsConfirmed: false,
+                motionEffect: "zoom-in",
+                editorNote: `AI 자동 배치 · Google 이미지 AI 선정 · ${plan.reason}`,
+              }
+            }
+          }
+        }
+
         if (
           (plan.source === "pixabay-video" ||
             plan.source === "pixabay-image")
@@ -1161,19 +1240,37 @@ export const StoryEditorWorkspace = forwardRef<
           )
           const diversityHint =
             PIXABAY_DIVERSITY_HINTS[slotIndex % PIXABAY_DIVERSITY_HINTS.length]
-          const queryEn = `${queryEnBase} ${diversityHint}`.trim()
+          const queryVariants = Array.from(
+            new Set(
+              [
+                `${queryEnBase} ${diversityHint}`.trim(),
+                queryEnBase,
+                queryKo,
+              ].filter(Boolean)
+            )
+          ).slice(0, 2)
           const searchPage = (slotIndex % 3) + 1
           if (plan.source === "pixabay-video") {
-            const result = await searchPixabayVideos(queryEn, pixabayKey, {
-              perPage: 24,
-              page: searchPage,
-            })
+            const mergedHits: Awaited<
+              ReturnType<typeof searchPixabayVideos>
+            >["hits"] = []
+            for (const queryEn of queryVariants) {
+              const result = await searchPixabayVideos(queryEn, pixabayKey, {
+                perPage: 24,
+                page: searchPage,
+              })
+              for (const hit of result.hits) {
+                if (!mergedHits.some((item) => item.id === hit.id)) {
+                  mergedHits.push(hit)
+                }
+              }
+            }
             const picked = await pickAiRelevant(
-              result.hits,
+              mergedHits,
               (item) => item.videoURL,
               (item) => item.previewURL,
               (item) => item.tags,
-              queryEn,
+              queryEnBase,
               sceneContext,
               plan.needsProduct,
               (item) => item.id,
@@ -1190,21 +1287,31 @@ export const StoryEditorWorkspace = forwardRef<
                 license: "pixabay",
                 rightsConfirmed: true,
                 trimEndSec: picked.duration,
-                editorNote: `AI 자동 배치 · 무료 영상 · ${plan.reason}`,
+                editorNote: `AI 자동 배치 · 무료 영상 AI 선정 · ${plan.reason}`,
               }
             }
           }
-          const result = await searchPixabayImages(queryEn, pixabayKey, {
-            perPage: 24,
-            page: searchPage,
-            orientation: "vertical",
-          })
+          const mergedImageHits: Awaited<
+            ReturnType<typeof searchPixabayImages>
+          >["hits"] = []
+          for (const queryEn of queryVariants) {
+            const result = await searchPixabayImages(queryEn, pixabayKey, {
+              perPage: 24,
+              page: searchPage,
+              orientation: "vertical",
+            })
+            for (const hit of result.hits) {
+              if (!mergedImageHits.some((item) => item.id === hit.id)) {
+                mergedImageHits.push(hit)
+              }
+            }
+          }
           const picked = await pickAiRelevant(
-            result.hits,
+            mergedImageHits,
             (item) => item.largeImageURL || item.webformatURL,
             (item) => item.previewURL || item.webformatURL,
             (item) => item.tags,
-            queryEn,
+            queryEnBase,
             sceneContext,
             plan.needsProduct,
             (item) => item.id,
@@ -1229,7 +1336,7 @@ export const StoryEditorWorkspace = forwardRef<
               license: "pixabay",
               rightsConfirmed: true,
               motionEffect: "zoom-in",
-              editorNote: `AI 자동 배치 · 무료 이미지 · ${plan.reason}`,
+              editorNote: `AI 자동 배치 · 무료 이미지 AI 선정 · ${plan.reason}`,
             }
           }
         }
@@ -1314,23 +1421,37 @@ export const StoryEditorWorkspace = forwardRef<
         }
 
         if (plan.source === "klipy") {
-          const params = new URLSearchParams({ q: queryKo, limit: "20" })
-          if (klipyKey) params.set("apiKey", klipyKey)
-          const response = await fetch(
-            `/api/shotform/klipy/search?${params.toString()}`
+          const gifQueries = Array.from(
+            new Set([queryKo, slot.text.slice(0, 40)].filter(Boolean))
           )
-          const payload = await response.json().catch(() => ({}))
-          const picked = response.ok
-            ? await pickAiRelevant(
-                (payload.items || []) as SearchHit[],
-                (item) => item.mediaUrl,
-                (item) => item.thumbnailUrl || item.mediaUrl,
-                (item) => item.title,
-                queryKo,
-                sceneContext,
-                false
-              )
-            : null
+          const gifHits: SearchHit[] = []
+          for (const q of gifQueries) {
+            const params = new URLSearchParams({ q, limit: "24" })
+            if (klipyKey) params.set("apiKey", klipyKey)
+            const response = await fetch(
+              `/api/shotform/klipy/search?${params.toString()}`
+            )
+            const payload = await response.json().catch(() => ({}))
+            if (response.ok && Array.isArray(payload.items)) {
+              for (const item of payload.items as SearchHit[]) {
+                if (
+                  item?.mediaUrl &&
+                  !gifHits.some((hit) => hit.mediaUrl === item.mediaUrl)
+                ) {
+                  gifHits.push(item)
+                }
+              }
+            }
+          }
+          const picked = await pickAiRelevant(
+            gifHits,
+            (item) => item.mediaUrl,
+            (item) => item.thumbnailUrl || item.mediaUrl,
+            (item) => item.title,
+            queryKo,
+            sceneContext,
+            false
+          )
           if (picked?.mediaUrl) {
             return {
               mediaUrl: picked.mediaUrl,
@@ -1340,7 +1461,7 @@ export const StoryEditorWorkspace = forwardRef<
               attribution: picked.attribution || "Klipy GIF",
               license: "permission-required",
               rightsConfirmed: false,
-              editorNote: `AI 자동 배치 · GIF 강조 요소 · ${plan.reason}`,
+              editorNote: `AI 자동 배치 · GIF AI 선정 · ${plan.reason}`,
             }
           }
         }
@@ -1518,17 +1639,20 @@ export const StoryEditorWorkspace = forwardRef<
           plan.source === "review-ai" ||
           plan.source === "ai-image" ||
           plan.source === "ai-video"
-        // AI 생성 실패/장애 시 관련 무료 이미지를 바로 찾도록 Pixabay를 앞에 둡니다.
+        // 비제품: Google → Pixabay → GIF → AI. 제품: 계획 소스 → 리뷰AI → 검색 폴백
         const fallbackSources: AutoAssetPlan["source"][] = [
           ...(replicateUnavailable && isAiImagePlan ? [] : [plan.source]),
           ...(plan.needsProduct && reviewPhotoPool.length && !replicateUnavailable
             ? (["review-ai"] as const)
             : []),
+          ...(!plan.needsProduct ? (["google"] as const) : []),
           ...(!replicateUnavailable && isAiImagePlan
             ? (["ai-image"] as const)
             : []),
+          "google",
           "pixabay-video",
           "pixabay-image",
+          "klipy",
           "douyin",
           "xiaohongshu",
           // Replicate 장애 + 제품 장면: 검색 실패해도 원본 사진으로 채움
@@ -2261,11 +2385,35 @@ export const StoryEditorWorkspace = forwardRef<
     setVideoEditDraft(null)
   }
 
+  const resolveSfxInsertAtPlayhead = () => {
+    // 플러스/파일 추가는 선택 클립 시작이 아니라 빨간 재생 바에 맞춤
+    const rawStart = Number.isFinite(playheadRef.current)
+      ? playheadRef.current
+      : playheadSec
+    const startSec = Math.max(
+      0,
+      Math.min(rawStart, Math.max(0, totalDuration - 0.08))
+    )
+    const atSlot =
+      timeline.find(
+        (item) => startSec >= item.startSec && startSec < item.endSec
+      ) ||
+      selectedTimeline ||
+      timeline[timeline.length - 1] ||
+      null
+    return {
+      startSec,
+      clipKey: atSlot
+        ? clipKey(atSlot.sceneId, atSlot.lineIndex)
+        : selectedKey || undefined,
+    }
+  }
+
   const addSfxFromFile = async (file: File) => {
     const url = URL.createObjectURL(file)
-    const startSec = selectedTimeline?.startSec ?? playheadSec
+    const { startSec, clipKey: insertClipKey } = resolveSfxInsertAtPlayhead()
     const sourceDurationSec = await readAudioDuration(url)
-    const clip: StorySfxClip = {
+    const draft: StorySfxClip = {
       id: `sfx-${Date.now()}`,
       label: sfxLabel.trim() || file.name,
       audioUrl: url,
@@ -2277,8 +2425,9 @@ export const StoryEditorWorkspace = forwardRef<
       sourceOffsetSec: 0,
       sourceDurationSec,
       volumePct: 100,
-      clipKey: selectedKey || undefined,
+      clipKey: insertClipKey,
     }
+    const clip = clampStorySfxToTimeline(draft, totalDuration) || draft
     onChange((current) => ({
       ...current,
       sfxClips: [...(current.sfxClips || []), clip],
@@ -2304,9 +2453,9 @@ export const StoryEditorWorkspace = forwardRef<
     })
 
   const addSfxFromLibrary = async (item: StoryShoppingSfxCatalogItem) => {
-    const startSec = selectedTimeline?.startSec ?? playheadRef.current
+    const { startSec, clipKey: insertClipKey } = resolveSfxInsertAtPlayhead()
     const duration = await readAudioDuration(item.src)
-    const clip: StorySfxClip = {
+    const draft: StorySfxClip = {
       id: `sfx-${item.id}-${Date.now()}`,
       label: `${item.number}. ${item.label}`,
       audioUrl: item.src,
@@ -2318,8 +2467,9 @@ export const StoryEditorWorkspace = forwardRef<
       sourceOffsetSec: 0,
       sourceDurationSec: duration,
       volumePct: 100,
-      clipKey: selectedKey || undefined,
+      clipKey: insertClipKey,
     }
+    const clip = clampStorySfxToTimeline(draft, totalDuration) || draft
     onChange((current) => ({
       ...current,
       sfxClips: [...(current.sfxClips || []), clip],
@@ -2371,6 +2521,7 @@ export const StoryEditorWorkspace = forwardRef<
         `${plans.length}개의 중요한 순간에 맞는 효과음을 준비 중…`
       )
       const nextClips: StorySfxClip[] = []
+      const contentEndSec = totalDuration
       for (let index = 0; index < plans.length; index += 1) {
         const plan = plans[index]!
         const slot = timeline.find(
@@ -2386,23 +2537,22 @@ export const StoryEditorWorkspace = forwardRef<
           `${index + 1}/${plans.length} · ${plan.reason || item.label}`
         )
         const sourceDurationSec = await readAudioDuration(item.src)
-        const startSec = Math.min(
-          totalDuration - 0.08,
-          slot.startSec + Math.max(0, Number(plan.offsetSec) || 0)
-        )
-        nextClips.push({
+        const placed = placeAutoSfxWithinContent({
+          slotStartSec: slot.startSec,
+          slotEndSec: slot.endSec,
+          slotDurationSec: slot.durationSec,
+          offsetSec: Number(plan.offsetSec) || 0,
+          maxDurationSec: Number(plan.maxDurationSec) || 1.4,
+          sourceDurationSec,
+          totalDurationSec: contentEndSec,
+        })
+        if (!placed) continue
+        const draft: StorySfxClip = {
           id: `sfx-auto-${item.id}-${Date.now()}-${index}`,
           label: `AI · ${item.number}. ${item.label}`,
           audioUrl: item.src,
-          startSec: Math.max(0, startSec),
-          durationSec: Math.max(
-            0.08,
-            Math.min(
-              sourceDurationSec,
-              Number(plan.maxDurationSec) || 1.4,
-              Math.max(0.08, totalDuration - startSec)
-            )
-          ),
+          startSec: placed.startSec,
+          durationSec: placed.durationSec,
           clipKey: clipKey(slot.sceneId, slot.lineIndex),
           catalogId: item.id,
           source: "bundled",
@@ -2415,7 +2565,9 @@ export const StoryEditorWorkspace = forwardRef<
           autoPlaced: true,
           autoReason: plan.reason,
           autoVolumeVersion: 2,
-        })
+        }
+        const clamped = clampStorySfxToTimeline(draft, contentEndSec)
+        if (clamped) nextClips.push(clamped)
       }
       const coveredClipKeys = new Set(
         nextClips
@@ -2435,6 +2587,8 @@ export const StoryEditorWorkspace = forwardRef<
         const slot = timeline[index]!
         const key = clipKey(slot.sceneId, slot.lineIndex)
         if (coveredClipKeys.has(key)) continue
+        // 영상 끝 직전 아주 짧은 슬롯에는 억지로 넣지 않음
+        if (slot.startSec >= contentEndSec - 0.08) continue
         const item =
           fallbackCatalogIds
             .map((id) =>
@@ -2449,23 +2603,22 @@ export const StoryEditorWorkspace = forwardRef<
           STORY_SHOPPING_SFX_CATALOG[index % STORY_SHOPPING_SFX_CATALOG.length]
         if (!item) continue
         const sourceDurationSec = await readAudioDuration(item.src)
-        const startSec = Math.min(
-          totalDuration - 0.08,
-          slot.startSec + Math.min(0.08, slot.durationSec / 3)
-        )
-        nextClips.push({
+        const placed = placeAutoSfxWithinContent({
+          slotStartSec: slot.startSec,
+          slotEndSec: slot.endSec,
+          slotDurationSec: slot.durationSec,
+          offsetSec: Math.min(0.08, slot.durationSec / 3),
+          maxDurationSec: 1.2,
+          sourceDurationSec,
+          totalDurationSec: contentEndSec,
+        })
+        if (!placed) continue
+        const draft: StorySfxClip = {
           id: `sfx-auto-required-${item.id}-${Date.now()}-${index}`,
           label: `AI · ${item.number}. ${item.label}`,
           audioUrl: item.src,
-          startSec: Math.max(0, startSec),
-          durationSec: Math.max(
-            0.08,
-            Math.min(
-              sourceDurationSec,
-              1.2,
-              Math.max(0.08, totalDuration - startSec)
-            )
-          ),
+          startSec: placed.startSec,
+          durationSec: placed.durationSec,
           clipKey: key,
           catalogId: item.id,
           source: "bundled",
@@ -2475,14 +2628,19 @@ export const StoryEditorWorkspace = forwardRef<
           autoPlaced: true,
           autoReason: "모든 대본 클립에 필요한 장면 전환 효과",
           autoVolumeVersion: 2,
-        })
+        }
+        const clamped = clampStorySfxToTimeline(draft, contentEndSec)
+        if (!clamped) continue
+        nextClips.push(clamped)
         coveredClipKeys.add(key)
       }
       onChange((current) => ({
         ...current,
         sfxClips: [
           ...(current.sfxClips || []).filter((clip) => !clip.autoPlaced),
-          ...nextClips,
+          ...nextClips.filter((clip) =>
+            Boolean(clampStorySfxToTimeline(clip, contentEndSec))
+          ),
         ],
       }))
       setSelectedSfxId(null)
@@ -2644,6 +2802,7 @@ export const StoryEditorWorkspace = forwardRef<
       cancelAnimationFrame(sfxSchedulerRafRef.current)
       sfxSchedulerRafRef.current = null
     }
+    isPlayingRef.current = false
     setIsPlaying(false)
   }
 
@@ -2693,7 +2852,6 @@ export const StoryEditorWorkspace = forwardRef<
     void sfxContext.resume().catch(() => undefined)
     const recordDest = recordOptions?.audioDestination
     const isExportRecording = Boolean(recordDest)
-    let lastUiPlayheadAt = 0
     const routeAudioElement = (audio: HTMLAudioElement) => {
       if (!recordDest) return
       try {
@@ -2712,12 +2870,8 @@ export const StoryEditorWorkspace = forwardRef<
     }
     const syncPlayhead = (nextSec: number) => {
       playheadRef.current = nextSec
-      // 다운로드 녹화 중엔 매 프레임 setState 하면 메인스레드가 끊겨 영상이 뚝뚝 끊김
-      if (isExportRecording) {
-        const now = performance.now()
-        if (now - lastUiPlayheadAt < 200) return
-        lastUiPlayheadAt = now
-      }
+      // 다운로드 녹화 중에는 setState 금지 — 메인스레드 버벅임·프레임 드랍의 주원인
+      if (isExportRecording) return
       setPlayheadSec(nextSec)
     }
     const startIdx = slots.findIndex(
@@ -2921,6 +3075,7 @@ export const StoryEditorWorkspace = forwardRef<
         scheduleSfxNearPlayhead
       )
     }
+    isPlayingRef.current = true
     setIsPlaying(true)
     scheduleSfxNearPlayhead()
 
@@ -3079,10 +3234,7 @@ export const StoryEditorWorkspace = forwardRef<
               if (key !== visibleKey) {
                 visibleKey = key
                 selectedKeyRef.current = key
-                if (isExportRecording) {
-                  // flushSync 없이 ref만 — 녹화 캔버스가 playhead로 장면을 그림
-                  setSelectedKey(key)
-                } else {
+                if (!isExportRecording) {
                   flushSync(() => {
                     setSelectedKey(key)
                   })
@@ -3132,9 +3284,8 @@ export const StoryEditorWorkspace = forwardRef<
         visibleKey = key
         selectedKeyRef.current = key
         if (isExportRecording) {
-          setSelectedKey(key)
           if (slotTimeline) {
-            syncPlayhead(slotTimeline.startSec + resumeOffset)
+            playheadRef.current = slotTimeline.startSec + resumeOffset
           }
         } else {
           flushSync(() => {
@@ -3220,17 +3371,38 @@ export const StoryEditorWorkspace = forwardRef<
     if (gen === playGenRef.current) {
       stopAllSfx()
       audioRef.current?.pause()
+      isPlayingRef.current = false
       setIsPlaying(false)
       syncPlayhead(Math.min(playheadRef.current, totalDuration))
     }
   }
 
+  /** 끝에서 재생하면 큐가 즉시 끝나 바로 일시정지처럼 보임 → 처음으로 */
+  const resolvePlaybackStart = () => {
+    const nearEnd = playheadRef.current >= Math.max(0.05, totalDuration - 0.08)
+    if (!nearEnd) {
+      return {
+        slot: selected || slots[0] || null,
+        startSec: playheadRef.current,
+      }
+    }
+    const first = slots[0] || null
+    if (first) {
+      playheadRef.current = 0
+      setPlayheadSec(0)
+      setSelectedKey(clipKey(first.sceneId, first.lineIndex))
+    }
+    return { slot: first, startSec: 0 }
+  }
+
   togglePlaybackRef.current = () => {
-    if (isPlaying) {
+    // isPlaying state는 렌더 클로저가 늦을 수 있어 ref로 판별
+    if (isPlayingRef.current) {
       stopPlayback()
       return
     }
-    if (selected) void playFromClip(selected, playheadRef.current)
+    const { slot, startSec } = resolvePlaybackStart()
+    if (slot) void playFromClip(slot, startSec)
   }
 
   const runVideoDownload = async () => {
@@ -3342,7 +3514,12 @@ export const StoryEditorWorkspace = forwardRef<
             .replace(/[\\/:*?"<>|]+/g, "")
             .slice(0, 40) || "story-shopping",
           onProgress: (progress) => {
-            if (progress?.message) setDownloadStatusText(progress.message)
+            // 상태 문구도 과도하게 갱신하지 않음 (녹화 프레임 우선)
+            if (progress?.message) {
+              setDownloadStatusText((prev) =>
+                prev === progress.message ? prev : progress.message
+              )
+            }
             onDownloadProgress?.(progress)
           },
           play: async () => {
@@ -3667,9 +3844,10 @@ export const StoryEditorWorkspace = forwardRef<
   )
   const launchPreview = () => {
     setIsPreviewMode(true)
-    if (!isPlaying) {
-      requestAnimationFrame(() => togglePlaybackRef.current())
-    }
+    // rAF로 미루면 브라우저 자동재생 제스처가 끊겨 play()가 실패할 수 있음 → 클릭 안에서 바로 재생
+    if (isPlayingRef.current) return
+    const { slot, startSec } = resolvePlaybackStart()
+    if (slot) void playFromClip(slot, startSec)
   }
   const closePreview = () => {
     setIsPreviewMode(false)
@@ -5479,11 +5657,24 @@ export const StoryEditorWorkspace = forwardRef<
                           </button>
                         )
                       })
-                    : (brief.sfxClips || []).map((rawSfx) => {
-                        const sfx = normalizedStorySfxClip(rawSfx)
-                        const width = Math.max(18, sfx.durationSec * pxPerSec)
+                    : (brief.sfxClips || []).flatMap((rawSfx) => {
+                        const sfx = clampStorySfxToTimeline(
+                          rawSfx,
+                          totalDuration
+                        )
+                        if (!sfx) return []
+                        // 최소 너비 때문에 영상 끝 밖으로 삐져 보이지 않게 캡
+                        const maxWidth = Math.max(
+                          0,
+                          (totalDuration - sfx.startSec) * pxPerSec
+                        )
+                        const width = Math.min(
+                          Math.max(12, sfx.durationSec * pxPerSec),
+                          maxWidth
+                        )
+                        if (width < 4) return []
                         const selected = selectedSfxId === sfx.id
-                        return (
+                        return [
                           <button
                             key={sfx.id}
                             type="button"
@@ -5509,8 +5700,8 @@ export const StoryEditorWorkspace = forwardRef<
                             <span className="pointer-events-none relative z-10 block truncate bg-gradient-to-r from-black/35 to-transparent px-1 py-0.5 text-[7px] text-white">
                               {sfx.label}
                             </span>
-                          </button>
-                        )
+                          </button>,
+                        ]
                       })}
                 </div>
               </div>

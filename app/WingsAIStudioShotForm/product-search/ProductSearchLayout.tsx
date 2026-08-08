@@ -16,10 +16,7 @@ import {
   TrendingUp,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import {
-  SHOTFORM_API_KEYS_UPDATED_EVENT,
-  ShotFormApiKeySettingsDialog,
-} from "../components/ShotFormApiKeySettingsDialog"
+import { SHOTFORM_API_KEYS_UPDATED_EVENT } from "../components/shotform-api-keys-events"
 
 /** 영상·URL 검색 — 크림/코랄 UI 토큰 */
 export const pack = {
@@ -174,7 +171,6 @@ export function ProductSearchLayout({
   activeStep = 1,
 }: ProductSearchLayoutProps) {
   const [apiKeyReady, setApiKeyReady] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
 
   useEffect(() => {
     const refresh = () => setApiKeyReady(hasOpenAIKey())
@@ -273,28 +269,35 @@ export function ProductSearchLayout({
             )}
           >
             <KeyRound className="h-3.5 w-3.5 shrink-0" aria-hidden />
-            {apiKeyReady ? "OpenAI API 연결됨" : "설정에서 API 키 필요"}
+            {apiKeyReady ? (
+              "OpenAI API 연결됨"
+            ) : (
+              <Link
+                href="/WingsAIStudioShotForm?settings=open"
+                className="underline-offset-2 hover:underline"
+              >
+                홈 설정에서 API 키 필요
+              </Link>
+            )}
           </div>
         </div>
       </aside>
 
       <div className="relative flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center justify-end gap-4 border-b border-[#1c1917]/[0.06] bg-[#faf8f5]/90 px-6 backdrop-blur-md">
-          <button
-            type="button"
-            onClick={() => setSettingsOpen(true)}
+          <Link
+            href="/WingsAIStudioShotForm?settings=open"
             className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-stone-500 transition hover:bg-white hover:text-[#1c1917]"
+            title="ShotForm 홈 설정에서 API 키를 관리합니다"
           >
             <Settings className="h-4 w-4" aria-hidden />
             설정
-          </button>
+          </Link>
           <div
             className="h-8 w-8 rounded-full bg-gradient-to-br from-stone-300 to-stone-400 ring-2 ring-white"
             title="프로필"
           />
         </header>
-
-        <ShotFormApiKeySettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
 
         <StepBar activeStep={activeStep} />
 

@@ -51,3 +51,60 @@ export async function fetchSupertonicVoices(init?: RequestInit): Promise<Respons
   return fetch("/api/supertonic-voices", { cache: "no-store", ...init })
 }
 
+/** 상태 확인 — 배포면 로컬 에이전트, 로컬 Next면 /api/supertonic-health */
+export async function fetchSupertonicHealth(init?: RequestInit): Promise<{
+  online: boolean
+  baseUrl?: string
+  model?: string
+  message?: string
+  error?: string
+}> {
+  try {
+    if (isBrowserOnDeployedHost()) {
+      const base = companionSupertonicBase()
+      const res = await fetch(`${base}/supertonic/status`, {
+        cache: "no-store",
+        ...init,
+      })
+      const data = (await res.json().catch(() => ({}))) as {
+        online?: boolean
+        baseUrl?: string
+        model?: string
+        message?: string
+        error?: string
+      }
+      return {
+        online: Boolean(data.online),
+        baseUrl: data.baseUrl,
+        model: data.model,
+        message: data.message,
+        error: data.error,
+      }
+    }
+    const res = await fetch("/api/supertonic-health", {
+      cache: "no-store",
+      ...init,
+    })
+    const data = (await res.json().catch(() => ({}))) as {
+      online?: boolean
+      baseUrl?: string
+      model?: string
+      error?: string
+    }
+    return {
+      online: Boolean(data.online),
+      baseUrl: data.baseUrl,
+      model: data.model,
+      error: data.error,
+    }
+  } catch (e) {
+    return {
+      online: false,
+      error:
+        e instanceof Error
+          ? e.message
+          : "Supertonic 상태 확인에 실패했습니다.",
+    }
+  }
+}
+

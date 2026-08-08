@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import {
   FileText,
+  Upload,
   ArrowRight,
   Settings,
   Home,
@@ -41,6 +42,7 @@ import {
   Eye,
   EyeOff,
   Copy,
+  ExternalLink,
   Youtube,
   Link2,
   Unlink,
@@ -159,8 +161,8 @@ const analysisToolsServices: ShotFormServiceItem[] = [
     id: "channel-analysis",
     title: "채널 스카우트",
     icon: ChartNoAxesCombined,
-    description: "급상승 · 성과 리포트 · 관심 채널 모아보기",
-    url: "/WingsAIStudioShotForm/channel-analysis",
+    description: "내 채널 진단 · YouTube 성장 포인트",
+    url: "/WingsAIStudioShotForm/channel-analysis/deep-dive",
     gradient: "from-sky-500 via-cyan-500 to-teal-500",
     hoverGradient: "from-sky-600 via-cyan-600 to-teal-600",
   },
@@ -653,11 +655,78 @@ function FeatureSection({
   )
 }
 
+type ShotFormApiKeysState = {
+  openai: string
+  elevenlabs: string
+  replicate: string
+  pixabay: string
+  serpapi: string
+  klipy: string
+  ttsmaker: string
+  supertone: string
+  typecast: string
+  youtubeClientId: string
+  youtubeClientSecret: string
+  youtubeDataApiKey: string
+  apify: string
+  vmake: string
+  vmakeSecret: string
+}
+
+/** 메모장 백업(.txt) → API 키 필드 매핑 */
+function parseShotFormApiKeysBackup(text: string): Partial<ShotFormApiKeysState> {
+  const labelToKey: Array<{ key: keyof ShotFormApiKeysState; match: RegExp }> = [
+    { key: "openai", match: /openai\s*api\s*key/i },
+    { key: "elevenlabs", match: /elevenlabs\s*api\s*key/i },
+    { key: "replicate", match: /replicate\s*api\s*key/i },
+    { key: "pixabay", match: /pixabay\s*api\s*key/i },
+    { key: "serpapi", match: /serpapi\s*key/i },
+    { key: "klipy", match: /klipy\s*api\s*key/i },
+    { key: "ttsmaker", match: /ttsmaker\s*api\s*key/i },
+    { key: "supertone", match: /supertone\s*api\s*key/i },
+    { key: "typecast", match: /typecast\s*api\s*key/i },
+    { key: "youtubeClientId", match: /youtube\s*client\s*id/i },
+    { key: "youtubeClientSecret", match: /youtube\s*client\s*secret/i },
+    { key: "youtubeDataApiKey", match: /youtube\s*data\s*api\s*key/i },
+    { key: "apify", match: /apify\s*api/i },
+    { key: "vmakeSecret", match: /vmake\s*ai\s*secret|secret\s*access\s*key\s*\(mt_sk\)/i },
+    { key: "vmake", match: /vmake\s*ai\s*api\s*key|api\s*key\s*\(mt_ak\)/i },
+  ]
+
+  const lines = text.replace(/\r\n/g, "\n").split("\n")
+  const out: Partial<ShotFormApiKeysState> = {}
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!.trim()
+    if (!line || /^=+$/.test(line) || /^주의사항/.test(line)) continue
+    // "1. OpenAI API Key" / "11. Apify API" 형태
+    const header = line.replace(/^\d+\.\s*/, "")
+    const matched = labelToKey.find((item) => item.match.test(header))
+    if (!matched) continue
+    // 다음 의미 있는 줄이 값
+    let value = ""
+    for (let j = i + 1; j < lines.length; j++) {
+      const next = lines[j]!.trim()
+      if (!next) continue
+      if (/^=+$/.test(next)) break
+      if (/^\d+\.\s+/.test(next)) break
+      if (/^주의사항/.test(next)) break
+      if (/^생성일:/.test(next)) break
+      value = next
+      break
+    }
+    if (!value || value === "(미입력)" || value === "-" || value === "없음") continue
+    out[matched.key] = value
+  }
+  return out
+}
+
 // 메인 컴포넌트
 export default function ShotFormPage() {
   const router = useRouter()
+  const notepadFileInputRef = useRef<HTMLInputElement | null>(null)
   const [open, setOpen] = useState(false)
-  const [apiKeys, setApiKeys] = useState({
+  const [apiKeys, setApiKeys] = useState<ShotFormApiKeysState>({
     openai: "",
     elevenlabs: "",
     replicate: "",
@@ -670,9 +739,13 @@ export default function ShotFormPage() {
     youtubeClientId: "",
     youtubeClientSecret: "",
     youtubeDataApiKey: "",
+    apify: "",
+    vmake: "",
+    vmakeSecret: "",
   })
   const [saved, setSaved] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [imported, setImported] = useState(false)
   const [showKeys, setShowKeys] = useState({
     openai: false,
     elevenlabs: false,
@@ -686,6 +759,9 @@ export default function ShotFormPage() {
     youtubeClientId: false,
     youtubeClientSecret: false,
     youtubeDataApiKey: false,
+    apify: false,
+    vmake: false,
+    vmakeSecret: false,
   })
   const [youtubeConnected, setYoutubeConnected] = useState(false)
   const [checkingYoutube, setCheckingYoutube] = useState(false)
@@ -781,6 +857,10 @@ export default function ShotFormPage() {
       const storedYoutubeClientId = localStorage.getItem("shotform_youtube_client_id") || ""
       const storedYoutubeClientSecret = localStorage.getItem("shotform_youtube_client_secret") || ""
       const storedYoutubeDataApiKey = localStorage.getItem("shotform_youtube_data_api_key") || ""
+      const storedApify = localStorage.getItem("shotform_apify_token") || ""
+      const storedVmake = localStorage.getItem("shotform_vmake_api_key") || ""
+      const storedVmakeSecret =
+        localStorage.getItem("shotform_vmake_secret_access_key") || ""
 
       setApiKeys({
         openai: storedOpenAI,
@@ -795,12 +875,30 @@ export default function ShotFormPage() {
         youtubeClientId: storedYoutubeClientId,
         youtubeClientSecret: storedYoutubeClientSecret,
         youtubeDataApiKey: storedYoutubeDataApiKey,
+        apify: storedApify,
+        vmake: storedVmake,
+        vmakeSecret: storedVmakeSecret,
       })
 
       // YouTube 연결 상태 확인
       checkYoutubeConnection()
     }
   }, [isCheckingLogin, isLoggedIn, isPasswordAuthenticated])
+
+  // 리믹스 등에서 ?settings=open 으로 들어오면 홈 설정창을 바로 연다
+  useEffect(() => {
+    if (!isLoggedIn || !isPasswordAuthenticated) return
+    const params = new URLSearchParams(window.location.search)
+    if (params.get("settings") !== "open") return
+    setOpen(true)
+    params.delete("settings")
+    const next = params.toString()
+    window.history.replaceState(
+      {},
+      "",
+      `${window.location.pathname}${next ? `?${next}` : ""}`
+    )
+  }, [isLoggedIn, isPasswordAuthenticated])
 
   // YouTube 연결 상태 확인 (로컬스토리지에서) - ShotForm 전용 키 사용
   const checkYoutubeConnection = async () => {
@@ -892,7 +990,14 @@ export default function ShotFormPage() {
     localStorage.setItem("shotform_youtube_client_id", apiKeys.youtubeClientId)
     localStorage.setItem("shotform_youtube_client_secret", apiKeys.youtubeClientSecret)
     localStorage.setItem("shotform_youtube_data_api_key", apiKeys.youtubeDataApiKey)
-    
+    localStorage.setItem("shotform_apify_token", apiKeys.apify || "")
+    localStorage.setItem("shotform_vmake_api_key", apiKeys.vmake || "")
+    localStorage.setItem(
+      "shotform_vmake_secret_access_key",
+      apiKeys.vmakeSecret || ""
+    )
+    window.dispatchEvent(new Event("shotform-api-keys-updated"))
+
     setSaved(true)
     setTimeout(() => {
       setSaved(false)
@@ -929,20 +1034,29 @@ ${apiKeys.klipy || "(미입력)"}
 7. TTSMaker API Key
 ${apiKeys.ttsmaker || "(미입력)"}
 
-6. Supertone API Key
+8. Supertone API Key
 ${apiKeys.supertone || "(미입력)"}
 
-7. Typecast API Key
+9. Typecast API Key
 ${apiKeys.typecast || "(미입력)"}
 
-8. YouTube Client ID
+10. YouTube Client ID
 ${apiKeys.youtubeClientId || "(미입력)"}
 
-9. YouTube Client Secret
+11. YouTube Client Secret
 ${apiKeys.youtubeClientSecret || "(미입력)"}
 
-10. YouTube Data API Key
+12. YouTube Data API Key
 ${apiKeys.youtubeDataApiKey || "(미입력)"}
+
+13. Apify API
+${apiKeys.apify || "(미입력)"}
+
+14. Vmake AI API Key (MT_AK)
+${apiKeys.vmake || "(미입력)"}
+
+15. Vmake AI Secret Access Key (MT_SK)
+${apiKeys.vmakeSecret || "(미입력)"}
 
 ========================================
 주의사항
@@ -951,7 +1065,6 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
 - 안전한 곳에 보관하시고, 타인에게 공유하지 마세요.
 - API 키가 유출되면 즉시 재발급 받으세요.
 `
-
     // Blob을 사용하여 텍스트 파일 생성
     const blob = new Blob([apiKeysText], { type: "text/plain;charset=utf-8" })
     const url = URL.createObjectURL(blob)
@@ -962,17 +1075,76 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     link.click()
     document.body.removeChild(link)
     URL.revokeObjectURL(url)
-    
-    // 성공 메시지
+
     setSaved(true)
     setTimeout(() => {
       setSaved(false)
     }, 2000)
   }
 
+  /** 다른 PC에서 받은 메모장 백업을 불러와 입력란에 채운 뒤 바로 저장 */
+  const handleLoadFromNotepadFile = async (file: File) => {
+    try {
+      const text = await file.text()
+      const parsed = parseShotFormApiKeysBackup(text)
+      const filled = Object.values(parsed).filter((v) =>
+        Boolean(v && String(v).trim())
+      ).length
+      if (!filled) {
+        alert(
+          "백업 파일에서 API 키를 찾지 못했습니다.\n「메모장으로 저장」으로 만든 .txt 파일을 선택해 주세요."
+        )
+        return
+      }
+      const next: ShotFormApiKeysState = { ...apiKeys, ...parsed }
+      setApiKeys(next)
+      localStorage.setItem("shotform_openai_api_key", next.openai)
+      localStorage.setItem("shotform_elevenlabs_api_key", next.elevenlabs)
+      localStorage.setItem("shotform_replicate_api_key", next.replicate)
+      localStorage.setItem("shotform_pixabay_api_key", next.pixabay || "")
+      localStorage.setItem("shotform_serpapi_key", next.serpapi || "")
+      localStorage.setItem("serpapi_api_key", next.serpapi || "")
+      localStorage.setItem("shotform_klipy_api_key", next.klipy || "")
+      localStorage.setItem("shotform_ttsmaker_api_key", next.ttsmaker || "")
+      localStorage.setItem("shotform_supertone_api_key", next.supertone || "")
+      localStorage.setItem("shotform_typecast_api_key", next.typecast || "")
+      localStorage.setItem("typecast_api_key", next.typecast || "")
+      localStorage.setItem("shotform_youtube_client_id", next.youtubeClientId)
+      localStorage.setItem("shotform_youtube_client_secret", next.youtubeClientSecret)
+      localStorage.setItem("shotform_youtube_data_api_key", next.youtubeDataApiKey)
+      localStorage.setItem("shotform_apify_token", next.apify || "")
+      localStorage.setItem("shotform_vmake_api_key", next.vmake || "")
+      localStorage.setItem(
+        "shotform_vmake_secret_access_key",
+        next.vmakeSecret || ""
+      )
+      window.dispatchEvent(new Event("shotform-api-keys-updated"))
+      setImported(true)
+      setSaved(true)
+      window.setTimeout(() => {
+        setImported(false)
+        setSaved(false)
+      }, 2500)
+    } catch (error) {
+      console.error("[ShotForm] 메모장 불러오기 실패:", error)
+      alert("파일을 읽지 못했습니다. UTF-8 텍스트(.txt)인지 확인해 주세요.")
+    }
+  }
+
   // API 키 연결 확인 함수
   const testApiKey = async (keyType: string) => {
-    if (!apiKeys[keyType as keyof typeof apiKeys]) {
+    if (keyType === "vmake") {
+      if (!apiKeys.vmake || !apiKeys.vmakeSecret) {
+        setTestResults({
+          ...testResults,
+          [keyType]: {
+            success: false,
+            message: "API Key와 Secret Access Key를 모두 입력해 주세요.",
+          },
+        })
+        return
+      }
+    } else if (!apiKeys[keyType as keyof typeof apiKeys]) {
       setTestResults({
         ...testResults,
         [keyType]: { success: false, message: "API 키를 먼저 입력해주세요." }
@@ -1126,6 +1298,42 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                 ? "타입캐스트 목소리 목록 확인 성공!"
                 : result.error || response.statusText,
             },
+          })
+          break
+        }
+        case "apify": {
+          const response = await fetch(
+            `https://api.apify.com/v2/users/me?token=${encodeURIComponent(apiKeys.apify)}`
+          )
+          if (response.ok) {
+            setTestResults({
+              ...testResults,
+              [keyType]: { success: true, message: "Apify API 연결 성공!" },
+            })
+          } else {
+            setTestResults({
+              ...testResults,
+              [keyType]: {
+                success: false,
+                message: `연결 실패: ${response.statusText}`,
+              },
+            })
+          }
+          break
+        }
+        case "vmake": {
+          const response = await fetch("/api/test-vmake", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              apiKey: apiKeys.vmake,
+              secretAccessKey: apiKeys.vmakeSecret,
+            }),
+          })
+          const result = await response.json()
+          setTestResults({
+            ...testResults,
+            [keyType]: { success: result.success, message: result.message },
           })
           break
         }
@@ -1878,10 +2086,152 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                 유튜브 분석, 유튜브 실시간 분석 기능에 사용됩니다.
               </p>
             </div>
+
+            {/* Apify API — 리믹스·제품 검색 수집 */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="apify-token" className="text-sm font-medium text-zinc-200">
+                  Apify API
+                </Label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 shrink-0 border-white/25 bg-zinc-800 text-xs text-zinc-100 hover:bg-zinc-700 hover:text-white"
+                  asChild
+                >
+                  <a
+                    href="https://console.apify.com/account/integrations"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <ExternalLink className="mr-1 h-3 w-3" />
+                    API 발급
+                  </a>
+                </Button>
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="apify-token"
+                  type={showKeys.apify ? "text" : "password"}
+                  placeholder="Apify Console에서 발급한 API 토큰"
+                  value={apiKeys.apify}
+                  onChange={(e) => setApiKeys({ ...apiKeys, apify: e.target.value })}
+                  className="font-mono text-sm bg-black/40 border-white/15 text-zinc-100 placeholder:text-zinc-500"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowKeys({ ...showKeys, apify: !showKeys.apify })}
+                  className="shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
+                >
+                  {showKeys.apify ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => testApiKey("apify")}
+                  disabled={testingKeys.apify || !apiKeys.apify}
+                  className="shrink-0 text-xs border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
+                >
+                  {testingKeys.apify ? "확인 중..." : "연결확인"}
+                </Button>
+              </div>
+              {testResults.apify && (
+                <p className={`text-xs ${testResults.apify.success ? "text-emerald-400" : "text-red-400"}`}>
+                  {testResults.apify.message}
+                </p>
+              )}
+              <p className="text-xs text-zinc-500">
+                리믹스·제품 검색에서 TikTok·샤오홍슈·더우인 후보 수집에 사용합니다.
+              </p>
+            </div>
+
+            {/* Vmake AI — 중국어 하드 자막 제거 */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <Label className="text-sm font-medium text-zinc-200">Vmake AI API</Label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 shrink-0 border-white/25 bg-zinc-800 text-xs text-zinc-100 hover:bg-zinc-700 hover:text-white"
+                  asChild
+                >
+                  <a
+                    href="https://vmake.ai/developers"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <ExternalLink className="mr-1 h-3 w-3" />
+                    API 발급
+                  </a>
+                </Button>
+              </div>
+              <Input
+                id="vmake-api-key"
+                type={showKeys.vmake ? "text" : "password"}
+                placeholder="API Key (MT_AK)"
+                value={apiKeys.vmake}
+                onChange={(e) => setApiKeys({ ...apiKeys, vmake: e.target.value })}
+                className="font-mono text-sm bg-black/40 border-white/15 text-zinc-100 placeholder:text-zinc-500"
+              />
+              <Input
+                id="vmake-secret-access-key"
+                type={showKeys.vmakeSecret ? "text" : "password"}
+                placeholder="Secret Access Key (MT_SK)"
+                value={apiKeys.vmakeSecret}
+                onChange={(e) => setApiKeys({ ...apiKeys, vmakeSecret: e.target.value })}
+                className="font-mono text-sm bg-black/40 border-white/15 text-zinc-100 placeholder:text-zinc-500"
+              />
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() =>
+                    setShowKeys({
+                      ...showKeys,
+                      vmake: !showKeys.vmake,
+                      vmakeSecret: !showKeys.vmakeSecret,
+                    })
+                  }
+                  className="shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
+                >
+                  {showKeys.vmake ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => testApiKey("vmake")}
+                  disabled={
+                    testingKeys.vmake || !apiKeys.vmake || !apiKeys.vmakeSecret
+                  }
+                  className="shrink-0 text-xs border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
+                >
+                  {testingKeys.vmake ? "확인 중..." : "연결확인"}
+                </Button>
+              </div>
+              {testResults.vmake && (
+                <p className={`text-xs ${testResults.vmake.success ? "text-emerald-400" : "text-red-400"}`}>
+                  {testResults.vmake.message}
+                </p>
+              )}
+              <p className="text-xs text-zinc-500">
+                샤오홍슈·더우인 중국어 하드 자막 제거용. API Key + Secret을 함께 저장하세요.
+              </p>
+            </div>
           </div>
-          <div className="flex items-center justify-between border-t border-white/10 pt-4 mt-4 shrink-0">
+          <div className="flex flex-col gap-3 border-t border-white/10 pt-4 mt-4 shrink-0 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2 text-sm text-emerald-400">
-              {saved && (
+              {imported && (
+                <>
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>메모장에서 불러와 저장했습니다</span>
+                </>
+              )}
+              {!imported && saved && (
                 <>
                   <CheckCircle2 className="w-4 h-4" />
                   <span>저장되었습니다</span>
@@ -1894,8 +2244,29 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                 </>
               )}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                ref={notepadFileInputRef}
+                type="file"
+                accept=".txt,text/plain"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  if (file) void handleLoadFromNotepadFile(file)
+                  event.target.value = ""
+                }}
+              />
               <Button
+                type="button"
+                onClick={() => notepadFileInputRef.current?.click()}
+                variant="outline"
+                className="min-w-[140px] border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
+              >
+                <Upload className="w-4 h-4 mr-2" />
+                메모장 불러오기
+              </Button>
+              <Button
+                type="button"
                 onClick={handleSaveToNotepad}
                 variant="outline"
                 className="min-w-[140px] border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
@@ -1903,7 +2274,11 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                 <FileText className="w-4 h-4 mr-2" />
                 메모장으로 저장
               </Button>
-              <Button onClick={handleSave} className="min-w-[100px] bg-teal-700 text-white hover:bg-teal-600">
+              <Button
+                type="button"
+                onClick={handleSave}
+                className="min-w-[100px] bg-teal-700 text-white hover:bg-teal-600"
+              >
                 저장
               </Button>
             </div>

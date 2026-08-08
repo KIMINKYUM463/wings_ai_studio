@@ -7,7 +7,6 @@ import {
   Download,
   FileText,
   Film,
-  FolderOpen,
   Loader2,
   Mic,
   Sparkles,
@@ -523,17 +522,10 @@ export function MvpExportPanel({
               <Sparkles className="h-3.5 w-3.5 text-blue-600" />
               <h3 className="text-sm font-bold text-slate-900">최종 보내기</h3>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+            <div className="grid gap-3">
+              {/* CapCut 보내기는 당분간 숨김 */}
               <ExportActionCard
                 primary
-                title="CapCut 보내기"
-                description="영상·TTS·자막·제목·태그가 포함된 CapCut 프로젝트"
-                icon={<FolderOpen className="h-5 w-5" />}
-                busy={busy === "capcut"}
-                disabled={busy != null}
-                onClick={() => void handleCapCutExport()}
-              />
-              <ExportActionCard
                 title="렌더 MP4"
                 description="자막·모자이크·썸네일·TTS·효과음이 합쳐진 완성본"
                 icon={<Clapperboard className="h-5 w-5" />}

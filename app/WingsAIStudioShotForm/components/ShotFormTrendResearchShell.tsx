@@ -17,10 +17,7 @@ import {
   TrendingUp,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import {
-  SHOTFORM_API_KEYS_UPDATED_EVENT,
-  ShotFormApiKeySettingsDialog,
-} from "./ShotFormApiKeySettingsDialog"
+import { SHOTFORM_API_KEYS_UPDATED_EVENT } from "./shotform-api-keys-events"
 import { studio } from "./ShotFormStudioUI"
 
 export type TrendResearchNavId =
@@ -129,7 +126,6 @@ export function ShotFormTrendResearchShell({
   hideAppTitle = false,
 }: ShotFormTrendResearchShellProps) {
   const [apiKeyReady, setApiKeyReady] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
 
   useEffect(() => {
     const refresh = () => setApiKeyReady(hasOpenAIKey())
@@ -274,7 +270,16 @@ export function ShotFormTrendResearchShell({
             )}
           >
             <KeyRound className="h-3.5 w-3.5 shrink-0" aria-hidden />
-            {apiKeyReady ? "OpenAI API 연결됨" : "설정에서 API 키 필요"}
+            {apiKeyReady ? (
+              "OpenAI API 연결됨"
+            ) : (
+              <Link
+                href="/WingsAIStudioShotForm?settings=open"
+                className="underline-offset-2 hover:underline"
+              >
+                홈 설정에서 API 키 필요
+              </Link>
+            )}
           </div>
         </div>
       </aside>
@@ -349,22 +354,20 @@ export function ShotFormTrendResearchShell({
               <ShoppingBag className="h-4 w-4" aria-hidden />
               My 링크
             </Link>
-            <button
-              type="button"
-              onClick={() => setSettingsOpen(true)}
+            <Link
+              href="/WingsAIStudioShotForm?settings=open"
               className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-slate-400 transition hover:bg-white/[0.04] hover:text-white"
+              title="ShotForm 홈 설정에서 API 키를 관리합니다"
             >
               <Settings className="h-4 w-4" aria-hidden />
               설정
-            </button>
+            </Link>
             <div
               className="h-8 w-8 rounded-full bg-gradient-to-br from-slate-600 to-slate-800 ring-2 ring-white/10"
               title="프로필"
             />
           </div>
         </header>
-
-        <ShotFormApiKeySettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
 
         <main className="relative flex-1 overflow-y-auto px-5 py-6 sm:px-8 lg:px-10">
           <div className="mx-auto max-w-[1400px]">{children}</div>

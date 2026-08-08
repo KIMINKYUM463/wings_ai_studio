@@ -16,6 +16,7 @@ export const maxDuration = 300
 const AUTO_ASSET_SOURCES = [
   "review-ai",
   "review-original",
+  "google",
   "pixabay-video",
   "pixabay-image",
   "douyin",
@@ -40,6 +41,7 @@ type AutoAssetSlot = {
 type AutoAssetAvailability = {
   review: boolean
   product: boolean
+  google: boolean
   pixabay: boolean
   apify: boolean
   klipy: boolean
@@ -227,11 +229,11 @@ function fallbackAutoAssetPlan(
   availability: AutoAssetAvailability
 ): AutoAssetPlan[] {
   const gifLimit =
-    availability.klipy && slots.length >= 5
-      ? Math.max(1, Math.floor(slots.length * 0.1))
+    availability.klipy && slots.length >= 4
+      ? Math.max(1, Math.floor(slots.length * 0.15))
       : 0
   const gifReactionPattern =
-    /깜짝|놀랐|당황|실수|실패|짜증|충격|반전|헉|대박|황당|웃겼|화났/
+    /깜짝|놀랐|당황|실수|실패|짜증|충격|반전|헉|대박|황당|웃겼|화났|신기|와우|헐/
   const gifIndexes = new Set(
     slots
       .map((slot, index) => ({ slot, index }))
@@ -264,8 +266,19 @@ function fallbackAutoAssetPlan(
       source = index % 2 === 0 ? "douyin" : "xiaohongshu"
     } else if (availability.replicate && productMoment) {
       source = availability.review ? "review-ai" : "ai-image"
+    } else if (!productMoment && (availability.google || availability.pixabay)) {
+      // 비제품 스토리: Google 이미지를 우선 섞고, Pixabay 영상/이미지·GIF와 순환
+      const freeCycle = index % 5
+      if (freeCycle === 0 && availability.google) source = "google"
+      else if (freeCycle === 1 && availability.pixabay) source = "pixabay-video"
+      else if (freeCycle === 2 && availability.google) source = "google"
+      else if (freeCycle === 3 && availability.pixabay) source = "pixabay-image"
+      else if (availability.google) source = "google"
+      else source = freeCycle % 2 === 0 ? "pixabay-video" : "pixabay-image"
     } else if (availability.pixabay) {
       source = index % 2 === 0 ? "pixabay-video" : "pixabay-image"
+    } else if (availability.google) {
+      source = "google"
     } else if (availability.apify) {
       source = index % 2 === 0 ? "douyin" : "xiaohongshu"
     } else if (availability.replicate) {
@@ -280,9 +293,11 @@ function fallbackAutoAssetPlan(
       reason:
         source === "klipy"
           ? "감정과 반전을 짧은 GIF로 강조"
-          : productMoment
-            ? "제품과 사용 상황을 정확히 보여주는 장면"
-            : "대본 상황을 빠르게 이해시키는 장면",
+          : source === "google"
+            ? "대본 키워드로 Google 이미지에서 관련 컷 검색"
+            : productMoment
+              ? "제품과 사용 상황을 정확히 보여주는 장면"
+              : "대본 상황을 빠르게 이해시키는 장면",
     }
   })
 }
@@ -312,9 +327,11 @@ function finalizeAutoAssetPlans(
     ) {
       return {
         ...plan,
-        source: availability.pixabay
-          ? ("pixabay-video" as const)
-          : ("ai-image" as const),
+        source: availability.google
+          ? ("google" as const)
+          : availability.pixabay
+            ? ("pixabay-video" as const)
+            : ("ai-image" as const),
         reason: `${plan.reason} · 일반 스토리 문맥에 맞는 비제품 장면`,
       }
     }
@@ -524,20 +541,24 @@ JSON만 출력:
           }
           usedKeys.add(key)
           const slot = slotByKey.get(key)!
+          const offsetSec = Math.min(
+            Math.max(0, Number(plan.offsetSec) || 0),
+            Math.max(0, slot.durationSec - 0.15)
+          )
+          // 슬롯·영상 끝을 넘기지 않도록 최대 길이도 슬롯 잔여 시간으로 제한
+          const remainingInSlot = Math.max(0.08, slot.durationSec - offsetSec)
           return {
             sceneId,
             lineIndex,
             catalogId,
-            offsetSec: Math.min(
-              Math.max(0, Number(plan.offsetSec) || 0),
-              Math.max(0, slot.durationSec - 0.15)
-            ),
+            offsetSec,
             volumePct: Math.min(
               40,
               Math.max(18, Number(plan.volumePct) || 28)
             ),
             maxDurationSec: Math.min(
               2,
+              remainingInSlot,
               Math.max(0.4, Number(plan.maxDurationSec) || 1.4)
             ),
             reason: String(plan.reason || "대본 강조").slice(0, 100),
@@ -595,7 +616,7 @@ JSON만 출력:
           (candidate: RankedVisualCandidate) =>
             /^https?:\/\//i.test(candidate.imageUrl)
         )
-        .slice(0, 8)
+        .slice(0, 12)
       if (!candidates.length) {
         return NextResponse.json({ success: true, selectedId: null })
       }
@@ -719,6 +740,11 @@ JSON만 출력: {"selectedId":"후보 ID 또는 null","confidence":0,"reason":"�
       const availability: AutoAssetAvailability = {
         review: Boolean(body.availability?.review),
         product: Boolean(body.availability?.product),
+        google: Boolean(
+          body.availability?.google ||
+            process.env.SERPAPI_KEY ||
+            process.env.SERP_API_KEY
+        ),
         pixabay: Boolean(
           body.availability?.pixabay || process.env.PIXABAY_API_KEY
         ),
@@ -766,32 +792,34 @@ JSON만 출력: {"selectedId":"후보 ID 또는 null","confidence":0,"reason":"�
 
 선택 원칙:
 - 제품 외형·사용·후기·효과 증명: 상세페이지·상품·리뷰 원본을 참조 이미지로만 활용하는 review-ai 우선
-- 일반 상황·장소·감정 B-roll: pixabay-video 우선, 없으면 pixabay-image
+- 일반 상황·장소·인물·감정·일상 B-roll (needsProduct=false): google 을 최우선. 구체 명사·행동이 있는 한국어 queryKo로 검색
+- google이 없으면 pixabay-video / pixabay-image. 무료 스톡은 "분위기만 비슷한" 컷이 많으니 queryKo를 매우 구체적으로
 - 실제 해외 사용기·트렌드 장면: douyin 또는 xiaohongshu
 - Apify를 사용할 수 있으면 제품 사용·시연·후기 장면의 10~15%는 douyin과 xiaohongshu를 번갈아 선택하세요.
-- 짧은 감정·리액션·강조: klipy (전체 장면 남용 금지)
+- 짧은 감정·리액션·강조: klipy (놀람·당황·실패·웃음·충격·반전·신기 등). 전체의 약 10~15%
 - 정확한 장면을 검색하기 어려움: ai-image
 - 움직임이 핵심인 중요 장면: ai-video (비용이 높으므로 전체의 20% 이하)
 - review-original과 product는 자동 배치에서 절대 선택하지 마세요. 원본 사진을 화면에 그대로 쓰면 안 됩니다.
 - 상세페이지·상품·리뷰 사진은 반드시 review-ai로 변형한 결과만 사용하세요.
+- needsProduct=false 장면의 절반 이상은 google 또는 pixabay 검색 소재를 쓰고, 검색 결과에 대해 비전 AI가 대본과 가장 맞는 장을 고른다고 가정하세요.
 - AI와 실사 소재의 고정 비율은 없습니다. 각 대본 문맥에 가장 정확한 소스를 우선하고 전체에 실제 영상도 충분히 섞으세요.
 - ai-video는 움직임 자체가 핵심이고 검색 영상으로 표현하기 어려운 경우에만 제한적으로 사용하세요.
 - AI 이미지가 필요한 장면도 무조건 제품을 넣지 마세요. needsProduct=false이면 대본에 맞는 일반 인물·장소·상황 실사풍 AI 이미지를 생성해야 합니다.
 - 모든 클립은 앞뒤 클립과 다른 이미지·영상 URL을 사용해야 합니다. 같은 소재를 정지/줌 효과만 바꿔 재사용하지 마세요.
 - "그런데", "그래서"처럼 짧은 문장도 앞뒤 전체 문맥을 보고 반전 직전 상황, 결과 장면, 장소 B-roll 등 별개의 관련 화면을 선택하세요.
 - 각 슬롯의 contextText에서 앞 문장·현재 문장·다음 문장을 함께 읽고, 현재 문장이 무엇을 가리키는지 먼저 해석한 뒤 queryKo를 작성하세요.
-- 화면에 실제로 보여야 하는 구체적인 명사·행동·장소가 queryKo에 반드시 포함되어야 합니다.
+- 화면에 실제로 보여야 하는 구체적인 명사·행동·장소가 queryKo에 반드시 포함되어야 합니다. 추상어(감동, 행복, 고민)만으로 queryKo를 쓰지 마세요.
 - 제품 설명·사용·기능·후기 장면은 needsProduct=true로 분류하고 가능한 한 review-ai를 선택하세요.
-- 캠핑·물·날씨·이동·장소·감정·배경 설명 등 일반 스토리는 needsProduct=false로 분류하고 pixabay 영상/이미지 또는 제품 없는 ai-image를 선택하세요.
+- 캠핑·물·날씨·이동·장소·감정·배경·고양이·자판기 등 일반 스토리는 needsProduct=false, google 우선.
 - 먼저 각 대본을 needsProduct=true/false로 분류하세요.
 - needsProduct=true는 제품 자체·사용법·기능·구성·후기·구매 결과를 직접 보여줘야 할 때만 사용하세요.
 - 문제 제기, 감정, 일상 상황, 배경 설명, 궁금증, 전환 문장은 needsProduct=false입니다.
 - needsProduct=false인 장면에는 제품·상세페이지·리뷰 사진을 절대 사용하지 마세요.
 - needsProduct=true인 제품 사용 장면은 손이 제품을 조작·설치·세척·보관하는 구체적인 행동이어야 합니다.
-- klipy는 최대 10%까지만 사용하고 대본에 놀람·당황·실패·웃음·충격·반전이 명시된 경우에만 선택하세요.
+- klipy는 대본에 놀람·당황·실패·웃음·충격·반전·신기가 명시된 경우에만 선택하세요.
 - 단순한 설명·평가·도움·감동 장면에는 GIF를 사용하지 마세요.
 - 추상적인 분위기 사진보다 대본의 주어·행동·장소가 화면에 보이는 소재를 우선하세요.
-- 같은 소스를 3번 이상 연속 사용하지 말고 영상과 이미지를 섞으세요.
+- 같은 소스를 3번 이상 연속 사용하지 말고 google / pixabay / klipy / ai 를 섞으세요.
 - queryKo는 검색 가능한 짧은 한국어 명사구로 작성합니다.
 - 입력에 없는 효능·사실·브랜드·인물을 만들지 않습니다.
 
@@ -857,7 +885,11 @@ JSON만 출력:
                 (requestedSourceRaw === "review-ai" ||
                   requestedSourceRaw === "review-original" ||
                   requestedSourceRaw === "product")
-              ? availability.pixabay ? "pixabay-video" : "ai-image"
+              ? availability.google
+                ? "google"
+                : availability.pixabay
+                  ? "pixabay-video"
+                  : "ai-image"
               : requestedSourceRaw
         const allowed = AUTO_ASSET_SOURCES.includes(
           requestedSource as AutoAssetSource
@@ -882,11 +914,11 @@ JSON만 출력:
       })
 
       const gifLimit =
-        availability.klipy && plans.length >= 5
-          ? Math.max(1, Math.floor(plans.length * 0.1))
+        availability.klipy && plans.length >= 4
+          ? Math.max(1, Math.floor(plans.length * 0.15))
           : 0
       const reactionPattern =
-        /깜짝|놀랐|당황|실수|실패|짜증|충격|반전|헉|대박|황당|웃겼|화났/
+        /깜짝|놀랐|당황|실수|실패|짜증|충격|반전|헉|대박|황당|웃겼|화났|신기|와우|헐/
       for (let index = 0; index < plans.length; index += 1) {
         if (
           plans[index]!.source === "klipy" &&

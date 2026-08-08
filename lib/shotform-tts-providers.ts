@@ -454,17 +454,14 @@ export async function synthesizeTtsLine(args: {
 
   const speed = clampTtsSpeed(args.speed ?? 1)
 
-  // 수퍼토닉3 — 로컬 서버, API 키 불필요
+  // 수퍼토닉3 — 배포 사이트는 PC 로컬 에이전트 → 7788, 로컬 Next는 /api
   if (parsed.provider === "supertonic") {
-    const res = await fetch("/api/supertonic-tts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        text: args.text,
-        voiceId: parsed.bareId,
-        lang: "ko",
-        speed,
-      }),
+    const { fetchSupertonicTts } = await import("@/lib/supertonic-runtime-client")
+    const res = await fetchSupertonicTts({
+      text: args.text,
+      voiceId: parsed.bareId,
+      lang: "ko",
+      speed,
     })
     const data = (await res.json().catch(() => ({}))) as {
       success?: boolean
