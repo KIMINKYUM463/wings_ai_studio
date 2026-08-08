@@ -2,6 +2,7 @@
 
 import {
   connectLocalAgent,
+  probeLocalCompanion,
   resolveLocalCompanionUrl,
 } from "@/lib/shotform-local-companion-client"
 import { isBrowserOnDeployedHost } from "@/lib/supertonic-runtime-client"
@@ -76,12 +77,16 @@ async function ensureViaLocalAgent(opts?: {
 
   onProgress?.({
     phase: "checking",
-    message: "로컬 에이전트 연결 중… (터미널에서 npm run shotform:local-agent)",
+    message: "로컬 에이전트(3847) 확인 중… (.cmd는 꺼져 있을 때만 받습니다)",
   })
-  const agent = await connectLocalAgent({
-    requireFfmpeg: false,
-    onProgress: (m) => onProgress?.({ phase: "checking", message: m }),
-  })
+  // 이미 떠 있으면 probe만 — 매번 .cmd 다운로드하지 않음
+  let agent = await probeLocalCompanion(base)
+  if (!agent.ok) {
+    agent = await connectLocalAgent({
+      requireFfmpeg: false,
+      onProgress: (m) => onProgress?.({ phase: "checking", message: m }),
+    })
+  }
   if (!agent.ok) {
     const fail: SupertonicEnsureClientStatus = {
       success: false,
@@ -90,7 +95,7 @@ async function ensureViaLocalAgent(opts?: {
       error: agent.error,
       message:
         agent.error ||
-        "로컬 에이전트가 필요합니다. 쿠팡 수집기의 「에이전트 연결」을 먼저 실행해 주세요.",
+        "로컬 에이전트가 필요합니다. 쿠팡 쪽 「에이전트 실행」으로 검은 창을 연 뒤 다시 시도하세요.",
     }
     onProgress?.(fail)
     return fail

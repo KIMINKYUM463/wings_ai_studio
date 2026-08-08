@@ -21,7 +21,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Slider } from "@/components/ui/slider"
 import { SUPERTONIC_BUILTIN_VOICES } from "@/lib/supertonic-local"
-import { ensureSupertonicReady } from "@/lib/supertonic-ensure-client"
 import {
   fetchSupertonicTts,
   fetchSupertonicVoices,
@@ -348,7 +347,7 @@ export function StoryVoicePanel({
 
   const loadSupertonicVoices = async () => {
     try {
-      await ensureSupertonicReady()
+      // 설치·기동은 SetupBar 「자동 실행」에서만 — 여기선 목록만
       const response = await fetchSupertonicVoices()
       const payload = await response.json()
       const fromServer = Array.isArray(payload.voices) ? payload.voices : []

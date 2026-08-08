@@ -66,6 +66,13 @@ export async function fetchSupertonicHealth(init?: RequestInit): Promise<{
         cache: "no-store",
         ...init,
       })
+      if (res.status === 404) {
+        return {
+          online: false,
+          message:
+            "에이전트가 오래되어 Supertonic을 지원하지 않습니다. 검은 창을 닫고 「에이전트 실행」으로 최신 .cmd를 한 번만 다시 받아 실행하세요.",
+        }
+      }
       const data = (await res.json().catch(() => ({}))) as {
         online?: boolean
         baseUrl?: string

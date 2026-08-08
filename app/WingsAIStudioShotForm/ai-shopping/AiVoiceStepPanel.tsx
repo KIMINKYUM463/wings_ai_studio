@@ -41,8 +41,10 @@ import {
   sanitizeSupertonicVoiceName,
 } from "@/lib/supertonic-voice-register"
 import { isRecordedVoiceId } from "@/lib/supertonic-recorded"
-import { ensureSupertonicReady } from "@/lib/supertonic-ensure-client"
-import { fetchSupertonicVoices } from "@/lib/supertonic-runtime-client"
+import {
+  fetchSupertonicHealth,
+  fetchSupertonicVoices,
+} from "@/lib/supertonic-runtime-client"
 import { SupertonicSetupBar } from "../components/SupertonicSetupBar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -391,25 +393,12 @@ export function AiVoiceStepPanel({
     setGenderFilter("all")
   }
 
+  /** 엔진 선택 시 — 상태만 확인 (.cmd 다운로드·자동 설치는 「자동 실행」에서만) */
   const checkSupertonic = async () => {
-    setSupertonicHealthMsg("Supertonic 확인 중… (없으면 자동 설치)")
+    setSupertonicHealthMsg("Supertonic 상태 확인 중…")
     setSupertonicOnline(null)
     try {
-      const ensured = await ensureSupertonicReady({
-        onProgress: (s) => {
-          if (s.message) setSupertonicHealthMsg(s.message)
-        },
-      })
-
-      if (!ensured.online && ensured.phase === "error") {
-        setSupertonicOnline(false)
-        setSupertonicHealthMsg(
-          ensured.message ||
-            "자동 설치·기동에 실패했습니다. Python 설치 후 다시 시도하세요."
-        )
-        return
-      }
-
+      const health = await fetchSupertonicHealth()
       const [voicesRes, recordedRes] = await Promise.all([
         fetchSupertonicVoices(),
         fetch("/api/supertonic-recorded"),
@@ -429,23 +418,24 @@ export function AiVoiceStepPanel({
         )
       }
 
-      const online = Boolean(ensured.online)
+      const online = Boolean(health.online)
       setSupertonicOnline(online)
       if (online) {
         setSupertonicHealthMsg(
-          ensured.message ||
-            `연결됨 · ${ensured.model || "supertonic-3"} · ${ensured.baseUrl || "127.0.0.1:7788"}`
+          health.message ||
+            `연결됨 · ${health.model || "supertonic-3"} · ${health.baseUrl || "127.0.0.1:7788"}`
         )
       } else {
         setSupertonicHealthMsg(
-          ensured.message ||
-            "오프라인 — 자동 기동을 다시 시도하거나 터미널에서 `supertonic serve`를 실행하세요."
+          health.message ||
+            health.error ||
+            "꺼져 있습니다. 아래 「Supertonic 자동 실행」을 누르세요. (에이전트 창이 이미 열려 있으면 .cmd를 다시 받지 않습니다)"
         )
       }
     } catch {
       setSupertonicOnline(false)
       setSupertonicHealthMsg(
-        "오프라인 — 자동 설치·기동 실패. Python 3 설치 후 다시 확인하세요."
+        "상태 확인 실패. 「Supertonic 자동 실행」을 눌러 주세요."
       )
     }
   }

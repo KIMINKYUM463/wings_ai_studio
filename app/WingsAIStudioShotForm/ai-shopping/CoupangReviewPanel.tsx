@@ -8,7 +8,6 @@ import { ClipboardPaste, Download, Loader2, PlugZap } from "lucide-react"
 import {
   connectLocalAgent,
   fetchCoupangIngestedOnCompanion,
-  launchLocalAgentWindow,
 } from "@/lib/shotform-local-companion-client"
 import {
   coupangStatusMessage,
@@ -255,12 +254,10 @@ export function CoupangReviewPanel({
     )
   }
 
-  /** 수집기 확장과 무관하게 cmd/에이전트 창을 연다 */
+  /** 수집기 확장과 무관하게 cmd/에이전트 창을 연다 (이미 떠 있으면 재다운로드 안 함) */
   const handleConnectAgent = async () => {
     setIsConnect(true)
-    setStatusMsg("에이전트 실행 창을 여는 중…")
-    // 클릭 제스처 안에서 즉시 실행 (팝업/프로토콜)
-    launchLocalAgentWindow()
+    setStatusMsg("에이전트 확인 중…")
     try {
       const health = await connectLocalAgent({
         requireFfmpeg: false,

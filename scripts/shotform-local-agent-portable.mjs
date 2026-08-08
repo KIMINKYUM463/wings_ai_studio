@@ -413,6 +413,26 @@ async function handleSupertonicStatus(req, res) {
   })
 }
 
+async function handleSupertonicVoices(req, res) {
+  const builtins = ["F1", "F2", "F3", "F4", "F5", "M1", "M2", "M3", "M4", "M5"].map(
+    (id) => ({
+      voice_id: id,
+      name: id,
+      kind: "builtin",
+    })
+  )
+  const health = await probeSupertonicHealth()
+  json(res, req, 200, {
+    success: true,
+    online: Boolean(health.online),
+    baseUrl: SUPERTONIC_BASE,
+    voices: builtins,
+    note: health.online
+      ? undefined
+      : "서버 오프라인 — 기본 보이스 목록만 표시. 「Supertonic 자동 실행」으로 기동하세요.",
+  })
+}
+
 async function handleSupertonicTts(req, res) {
   const raw = await readBody(req)
   let body
@@ -523,6 +543,11 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "POST" && pathname === "/supertonic/tts") {
       await handleSupertonicTts(req, res)
+      return
+    }
+
+    if (req.method === "GET" && pathname === "/supertonic/voices") {
+      await handleSupertonicVoices(req, res)
       return
     }
 

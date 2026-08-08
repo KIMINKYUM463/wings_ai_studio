@@ -17,7 +17,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Slider } from "@/components/ui/slider"
 import { SUPERTONIC_BUILTIN_VOICES } from "@/lib/supertonic-local"
-import { ensureSupertonicReady } from "@/lib/supertonic-ensure-client"
 import {
   fetchSupertonicTts,
   fetchSupertonicVoices,
@@ -327,7 +326,6 @@ export function InfoVoicePanel({
 
   const loadSupertonicVoices = async () => {
     try {
-      await ensureSupertonicReady()
       const response = await fetchSupertonicVoices()
       const payload = await response.json()
       const fromServer = Array.isArray(payload.voices) ? payload.voices : []

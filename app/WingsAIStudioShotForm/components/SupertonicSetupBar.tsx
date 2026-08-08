@@ -3,8 +3,12 @@
 import { useEffect, useState } from "react"
 import { Loader2, Power, Sparkles } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { downloadLocalAgentStarter } from "@/lib/shotform-local-companion-client"
 import { ensureSupertonicReady } from "@/lib/supertonic-ensure-client"
-import { fetchSupertonicHealth } from "@/lib/supertonic-runtime-client"
+import {
+  fetchSupertonicHealth,
+  isBrowserOnDeployedHost,
+} from "@/lib/supertonic-runtime-client"
 import { SupertonicSetupWizard } from "../ai-shopping/SupertonicSetupWizard"
 
 type Props = {
@@ -149,10 +153,9 @@ pause
       </Button>
 
       <p className="text-[10px] leading-relaxed text-zinc-500">
-        마냥 기다리는 게 아니라 아래를 확인하세요. (1) ShotForm Local Agent 창이
-        열려 있고 3847 표시 (2) 그 PC에 Python 3 + PATH (3) 상태 문구가
-        installing → starting → ready 로 바뀜. 최초 1회만 pip·모델로 수 분 걸릴
-        수 있습니다. 문구가 안 바뀌면 에이전트를 최신 .cmd로 다시 실행하세요.
+        에이전트 창이 이미 열려 있으면 .cmd를 다시 받지 않고 설치·기동만
+        진행합니다. (1) 3847 창 유지 (2) Python 3 + PATH (3) 상태가 installing →
+        starting → ready. 구버전 에이전트면 아래「에이전트 업데이트」한 번만.
       </p>
 
       {healthMsg ? (
@@ -171,6 +174,21 @@ pause
           <Sparkles className="h-3 w-3" />
           처음 설치 안내
         </button>
+        {isBrowserOnDeployedHost() ? (
+          <button
+            type="button"
+            disabled={disabled || busy}
+            onClick={() => {
+              downloadLocalAgentStarter()
+              setHealthMsg(
+                "start-shotform-agent.cmd 를 받았습니다. 기존 에이전트 창을 닫고 이 파일을 더블클릭한 뒤 「Supertonic 자동 실행」을 누르세요."
+              )
+            }}
+            className="text-[10px] text-zinc-400 underline-offset-2 hover:text-zinc-200 hover:underline disabled:opacity-50"
+          >
+            에이전트 업데이트 (.cmd)
+          </button>
+        ) : null}
         {online === false ? (
           <button
             type="button"
@@ -178,7 +196,7 @@ pause
             onClick={downloadStarter}
             className="text-[10px] text-amber-200/80 underline-offset-2 hover:text-amber-100 hover:underline disabled:opacity-50"
           >
-            실행 파일 받기 (.cmd)
+            Supertonic 실행파일 (.cmd)
           </button>
         ) : null}
       </div>

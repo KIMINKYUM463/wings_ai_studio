@@ -155,21 +155,35 @@ export function requestExtensionLaunchAgent(): void {
 
 /**
  * 「에이전트 실행」— 수집기 없이 cmd/에이전트 창을 연다.
+ * 이미 3847이 살아 있으면 .cmd 를 다시 받지 않는다. (forceLaunch 로만 강제)
  */
 export async function connectLocalAgent(opts?: {
   companionUrl?: string
   onProgress?: (message: string) => void
   requireFfmpeg?: boolean
+  /** true면 이미 실행 중이어도 .cmd 다운로드·실행 시도 */
+  forceLaunch?: boolean
 }): Promise<LocalCompanionHealth> {
   const baseUrl = opts?.companionUrl || resolveLocalCompanionUrl()
   const onProgress = opts?.onProgress
   const requireFfmpeg = opts?.requireFfmpeg === true
+  const forceLaunch = opts?.forceLaunch === true
 
   const isLocalHost =
     typeof window !== "undefined" &&
     (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
 
-  onProgress?.("에이전트 실행 창을 여는 중… (수집기 확장 불필요)")
+  if (!forceLaunch) {
+    const existing = await probeLocalCompanion(baseUrl)
+    if (companionReady(existing, requireFfmpeg)) {
+      onProgress?.(
+        "에이전트가 이미 실행 중입니다. (http://127.0.0.1:3847)\n검은 창은 끄지 마세요."
+      )
+      return existing
+    }
+  }
+
+  onProgress?.("에이전트가 꺼져 있어 실행 파일을 받는 중… (한 번만)")
   launchLocalAgentWindow()
 
   if (isLocalHost) {
