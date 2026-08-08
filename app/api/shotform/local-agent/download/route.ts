@@ -19,6 +19,7 @@ function resolveOrigin(req: Request): string {
  * - Finds absolute node.exe (PATH + Program Files)
  * - Writes run-agent.cmd with full paths (never bare `node`)
  * - Registers shotform-agent:// to that runner
+ * - Refreshes PATH from registry (stale Explorer env after Python install)
  */
 function buildStarterCmd(origin: string): string {
   const agentUrl = `${origin}/api/shotform/local-agent/download?file=agent`
@@ -30,8 +31,8 @@ function buildStarterCmd(origin: string): string {
     "REM Refresh PATH from registry (Explorer double-click often has stale PATH after Python install)",
     'set "SYSPATH="',
     'set "USRPATH="',
-    'for /f "tokens=2*" %%A in (\'reg query "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment" /v Path 2^>nul\') do set "SYSPATH=%%B"',
-    'for /f "tokens=2*" %%A in (\'reg query "HKCU\\Environment" /v Path 2^>nul\') do set "USRPATH=%%B"',
+    `for /f "tokens=2*" %%A in ('reg query "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment" /v Path 2^>nul') do set "SYSPATH=%%B"`,
+    `for /f "tokens=2*" %%A in ('reg query "HKCU\\Environment" /v Path 2^>nul') do set "USRPATH=%%B"`,
     'if defined SYSPATH if defined USRPATH set "PATH=%SYSPATH%;%USRPATH%"',
     'if defined SYSPATH if not defined USRPATH set "PATH=%SYSPATH%"',
     'if not defined SYSPATH if defined USRPATH set "PATH=%USRPATH%;%PATH%"',
@@ -50,7 +51,7 @@ function buildStarterCmd(origin: string): string {
     "echo ========================================",
     "echo.",
     "echo Looking for Node.js...",
-    'for /f "delims=" %%N in (\'where node 2^>nul\') do if not defined NODE_EXE set "NODE_EXE=%%N"',
+    `for /f "delims=" %%N in ('where node 2^>nul') do if not defined NODE_EXE set "NODE_EXE=%%N"`,
     'if not defined NODE_EXE if exist "%ProgramFiles%\\nodejs\\node.exe" set "NODE_EXE=%ProgramFiles%\\nodejs\\node.exe"',
     'if not defined NODE_EXE if exist "%ProgramFiles(x86)%\\nodejs\\node.exe" set "NODE_EXE=%ProgramFiles(x86)%\\nodejs\\node.exe"',
     'if not defined NODE_EXE if exist "%LOCALAPPDATA%\\Programs\\nodejs\\node.exe" set "NODE_EXE=%LOCALAPPDATA%\\Programs\\nodejs\\node.exe"',
@@ -79,7 +80,7 @@ function buildStarterCmd(origin: string): string {
     'echo @echo off> "%RUNNER%"',
     'echo title ShotForm Local Agent>> "%RUNNER%"',
     `echo set "SHOTFORM_ORIGIN=${origin}">> "%RUNNER%"`,
-    `echo set "SHOTFORM_ENSURE_URL=${ensureUrl}">> "%RUNNER%"',
+    `echo set "SHOTFORM_ENSURE_URL=${ensureUrl}">> "%RUNNER%"`,
     'echo "%NODE_EXE%" "%AGENT%">> "%RUNNER%"',
     'echo if errorlevel 1 pause>> "%RUNNER%"',
     'if not exist "%RUNNER%" goto DlFail',
