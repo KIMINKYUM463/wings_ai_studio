@@ -161,8 +161,9 @@ export function AnimalImagesPanel({
           description: scene?.title || prompt.description,
           scriptText: scene?.narration || prompt.scriptText,
           sceneBeat: beat || prompt.sceneBeat,
+          // 한글 라벨은 Replicate E006/자막 오염 원인이므로 영문 beat id만 붙임
           prompt: scene
-            ? `${prompt.prompt}\n\nStory beat (MUST MATCH VISUALS): ${scene.type} / ${ANIMAL_SCENE_LABELS[scene.type]}.\n${locationHint}\nABSOLUTELY NO TEXT, NO SUBTITLES, NO CAPTIONS, NO HANGUL, NO LETTERS ON IMAGE.`
+            ? `${prompt.prompt}\n\nStory beat (MUST MATCH VISUALS): ${scene.type}.\n${locationHint}\nABSOLUTELY NO TEXT, NO SUBTITLES, NO CAPTIONS, NO HANGUL, NO LETTERS ON IMAGE.`
             : `${prompt.prompt}\n\nABSOLUTELY NO TEXT, NO SUBTITLES, NO CAPTIONS, NO HANGUL, NO LETTERS ON IMAGE.`,
         }
       })
@@ -185,7 +186,7 @@ export function AnimalImagesPanel({
           ...closeup,
           sceneBeat: "detail",
           scriptText: closeupScene.narration || closeup.scriptText,
-          prompt: `${closeup.prompt}\n\nStory beat: detail / 제품 확대.\nABSOLUTELY NO TEXT, NO SUBTITLES, NO CAPTIONS, NO HANGUL, NO LETTERS ON IMAGE.`,
+          prompt: `${closeup.prompt}\n\nStory beat: detail.\nABSOLUTELY NO TEXT, NO SUBTITLES, NO CAPTIONS, NO HANGUL, NO LETTERS ON IMAGE.`,
         }
       }
 

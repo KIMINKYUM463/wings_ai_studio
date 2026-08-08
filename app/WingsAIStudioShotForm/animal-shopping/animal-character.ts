@@ -321,19 +321,21 @@ export function buildAnimalVisualDna(
   const productLabel = (opts?.productName || "the featured Coupang product").trim()
   const beat = animalSceneBeatRules(opts?.sceneType, productLabel, usage)
 
+  // 이미지 모델에는 영문만 (한글 name/personality는 자막·E006 유발)
+  const lookEn = (c.visualPromptEn || "anthropomorphic animal shopper").trim()
   return `
 STYLE: Viral AI animal shopping short-form (not human influencer review).
-MAIN SUBJECT: ${c.visualPromptEn}. Character name vibe: "${c.name}" — ${c.personality}. Look: ${c.breedOrLook || c.visualPromptEn}.
+MAIN SUBJECT: ${lookEn}.
 IDENTITY LOCK: Keep the SAME animal face, fur pattern, colors, ear shape, and body proportions in EVERY shot. Never swap species or pattern.
 ANATOMY LOCK (CRITICAL): Exactly ONE head, TWO ears, TWO arms, TWO paws/hands, TWO legs, ONE torso. Count the limbs before finishing the image. Never add a third arm, duplicate left/right paw, extra hand in a pocket plus another holding something, fused limbs, or floating detached paws. Clothing pockets must NOT create an extra fake hand.
-STORY BEAT (HIGHEST PRIORITY — overrides generic shopping tropes): ${beat.beat}
+STORY BEAT (HIGHEST PRIORITY - overrides generic shopping tropes): ${beat.beat}
 SETTING (MUST MATCH BEAT): ${beat.setting}
 HANDS / PROPS: ${beat.props}
 PRODUCT RULE: ${beat.product}
 ACTION: ${beat.action}
 COMPOSITION: ${beat.composition}
 FORBIDDEN: Extra limbs/hands/paws, three arms, duplicated left hand, human people, human faces, human hands, product deformation / melting / morphing, changing animal identity, wrong location for this beat (e.g. supermarket aisle during travel/problem).
-ABSOLUTE NO TEXT (CRITICAL): Zero on-image text of any kind — no subtitles, captions, closed captions, lower-thirds, speech bubbles, Korean/Hangul, English letters, numbers, watermarks, logos as readable text overlays, UI bars, or dark subtitle boxes at the bottom. Clean photo only; any readable writing is a hard fail.
+ABSOLUTE NO TEXT (CRITICAL): Zero on-image text of any kind - no subtitles, captions, closed captions, lower-thirds, speech bubbles, Korean/Hangul, English letters, numbers, watermarks, logos as readable text overlays, UI bars, or dark subtitle boxes at the bottom. Clean photo only; any readable writing is a hard fail.
 FORMAT: Vertical 9:16, high saturation, polished look suitable for YouTube Shorts / TikTok (but WITHOUT burned-in captions).
 `.trim()
 }

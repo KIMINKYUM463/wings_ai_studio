@@ -323,13 +323,39 @@ function needsHandsInImage(productName: string, productDescription?: string): bo
   return false
 }
 
+/** Replicate nano-banana: 过大 data URL → E006 invalid input */
+const MAX_REPLICATE_DATA_URL_CHARS = 2_800_000
+
+function isUsableReplicateImageRef(url?: string | null): url is string {
+  if (!url?.trim()) return false
+  if (url.startsWith("https://") || url.startsWith("http://")) return true
+  if (url.startsWith("data:image/")) {
+    return url.length <= MAX_REPLICATE_DATA_URL_CHARS
+  }
+  return false
+}
+
 function toDataUrlMaybe(image?: string | null): string | undefined {
   if (!image) return undefined
-  if (image.startsWith("data:image/") || image.startsWith("http://") || image.startsWith("https://")) {
+  if (image.startsWith("https://") || image.startsWith("http://")) {
     return image
   }
-  // public 폴더 상대 경로 (프리셋 샘플) → 서버에서 data URL로 변환 (Replicate가 접근 가능)
+  if (image.startsWith("data:image/")) {
+    if (image.length > MAX_REPLICATE_DATA_URL_CHARS) {
+      console.warn(
+        `[Shopping] data URL too large for Replicate (${Math.round(image.length / 1024)}KB) — skip`
+      )
+      return undefined
+    }
+    return image
+  }
+  // public 경로: 배포 URL(HTTPS) 우선 — base64 임베드는 E006/용량 문제
   if (image.startsWith("/")) {
+    const base = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL
+    if (base) {
+      const origin = base.startsWith("http") ? base : `https://${base}`
+      return `${origin.replace(/\/$/, "")}${image}`
+    }
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const fs = require("fs") as typeof import("fs")
@@ -338,33 +364,52 @@ function toDataUrlMaybe(image?: string | null): string | undefined {
       const filePath = path.join(process.cwd(), "public", image.replace(/^\//, ""))
       if (fs.existsSync(filePath)) {
         const buf = fs.readFileSync(filePath)
+        if (buf.length > 2_000_000) {
+          console.warn("[Shopping] public 이미지 파일이 커서 Replicate에 넣지 않음:", image)
+          return undefined
+        }
         const ext = path.extname(filePath).toLowerCase()
         const mime =
-          ext === ".png" ? "image/png" : ext === ".webp" ? "image/webp" : ext === ".gif" ? "image/gif" : "image/jpeg"
-        return `data:${mime};base64,${buf.toString("base64")}`
+          ext === ".png"
+            ? "image/png"
+            : ext === ".webp"
+              ? "image/webp"
+              : ext === ".gif"
+                ? "image/gif"
+                : "image/jpeg"
+        const dataUrl = `data:${mime};base64,${buf.toString("base64")}`
+        return isUsableReplicateImageRef(dataUrl) ? dataUrl : undefined
       }
     } catch (err) {
       console.warn("[Shopping] public 이미지 로드 실패:", image, err)
     }
-    const base = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL
-    if (base) {
-      const origin = base.startsWith("http") ? base : `https://${base}`
-      return `${origin.replace(/\/$/, "")}${image}`
-    }
     return undefined
   }
   const mimeType = image.includes("/9j/") ? "image/jpeg" : "image/png"
-  return `data:${mimeType};base64,${image}`
+  const dataUrl = `data:${mimeType};base64,${image}`
+  return isUsableReplicateImageRef(dataUrl) ? dataUrl : undefined
 }
 
-/** 이미지 모델이 한글 문장을 자막으로 그려넣는 것을 막기 위해 긴 한글 구절을 제거 */
+/**
+ * nano-banana용 프롬프트 정제.
+ * 한글/특수문자가 남으면 자막으로 그려지거나 E006 invalid input 이 날 수 있음.
+ */
 function neutralizeCaptionLeakInImagePrompt(prompt: string): string {
   return prompt
-    .replace(/[\uAC00-\uD7A3]{5,}/g, " ")
-    .replace(/[「」『』【】]/g, " ")
-    .replace(/\s{2,}/g, " ")
+    .replace(/[\uAC00-\uD7A3]+/g, " ")
+    .replace(/[\u1100-\u11FF\u3130-\u318F\uA960-\uA97F\uD7B0-\uD7FF]+/g, " ")
+    .replace(/[「」『』【】·…—–]/g, " ")
+    .replace(/[^\S\n]+/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim()
+    .slice(0, 4500)
+}
+
+function englishProductLabel(productName?: string): string {
+  const raw = String(productName || "").trim()
+  if (!raw) return "the featured product"
+  const ascii = raw.replace(/[\uAC00-\uD7A3]+/g, " ").replace(/\s+/g, " ").trim()
+  return ascii.length >= 2 ? ascii : "the featured product"
 }
 
 // 나노바나나를 사용한 이미지 생성 (제품 + 캐릭터 레퍼런스 참고)
@@ -387,6 +432,7 @@ export async function generateImageWithNanobanana(
   }
 
   const resolvedCharacter = resolveAnimalCharacter(character)
+  const productLabelEn = englishProductLabel(productName)
   const usageAction = inferAnimalProductUsage(productName, productDescription)
   // 프롬프트 텍스트에 story beat가 있으면 타입 추론 (재생성 호환)
   const inferredType =
@@ -401,12 +447,21 @@ export async function generateImageWithNanobanana(
       if (/\b(use|delight)\b/i.test(t) || /활용|만족/.test(t)) return "use"
       return undefined
     })()
-  const beatRules = animalSceneBeatRules(inferredType, productName, usageAction)
-  const visualDna = buildAnimalVisualDna(resolvedCharacter, {
-    productName,
-    productDescription,
-    sceneType: inferredType,
-  })
+  const beatRules = animalSceneBeatRules(inferredType, productLabelEn, usageAction)
+  const visualDna = buildAnimalVisualDna(
+    {
+      ...resolvedCharacter,
+      // DNA에 한글 이름/성격이 들어가지 않게 영문 외형만 사용
+      name: "shopper",
+      personality: "cheerful shopping animal",
+      breedOrLook: "",
+    },
+    {
+      productName: productLabelEn,
+      productDescription: undefined,
+      sceneType: inferredType,
+    }
+  )
 
   try {
     // sceneScript가 제공되면 그것을 사용 (재생성 시 추가 프롬프트 포함)
@@ -430,7 +485,7 @@ ${beatRules.includeProductRef ? `Product action: ${beatRules.action}` : "No prod
       
       const currentSceneIndex = sceneIndex !== undefined ? sceneIndex : 0
       const config = sceneConfigs[currentSceneIndex] || sceneConfigs[0]
-      imagePrompt = `${productName} animal shopping short-form still.
+      imagePrompt = `${productLabelEn} animal shopping short-form still.
 
 ${visualDna}
 
@@ -459,7 +514,7 @@ PRODUCT REFERENCE LOCK (image_input #1):
       imagePrompt = `${imagePrompt}
 
 PRODUCT ABSENCE LOCK (this beat is ${beatRules.beat}):
-- Do NOT place the featured product "${productName}" in the animal's paws.
+- Do NOT place the featured product in the animal's paws.
 - Do NOT copy the product reference into this frame.
 - Empty basket is OK; supermarket interior aisle is FORBIDDEN for travel/problem.`
     }
@@ -469,15 +524,14 @@ PRODUCT ABSENCE LOCK (this beat is ${beatRules.beat}):
 
 CHARACTER REFERENCE LOCK (image_input #${useProductRef ? "2" : "1"}):
 - Match the attached character photo EXACTLY: face, fur pattern, colors, ears, body proportions.
-- Same character identity as "${resolvedCharacter.name}".
-- Do not invent a different animal species or pattern.`
+- Same character identity as visual DNA. Do not invent a different animal species or pattern.`
     }
 
     if (useProductRef && resolvedCharacter.referenceImage) {
       imagePrompt = `${imagePrompt}
 
 DUAL REFERENCE RULE: image_input[0]=PRODUCT, image_input[1]=CHARACTER. Both must appear together matching the story beat (${beatRules.beat}).
-ANATOMY SELF-CHECK: Count arms/paws — must be exactly two arms and two paws. Basket on floor only if shown.`
+ANATOMY SELF-CHECK: Count arms/paws - must be exactly two arms and two paws. Basket on floor only if shown.`
     }
 
     // Always append anatomy + no-text + beat guards
@@ -496,169 +550,195 @@ BEAT LOCATION GUARD (HIGHEST PRIORITY):
 - ${beatRules.setting}
 - Wrong location for this beat is a hard fail (e.g. indoor aisle during travel/problem).
 
-NO TEXT / NO SUBTITLES GUARD (HIGHEST PRIORITY — HARD FAIL IF VIOLATED):
+NO TEXT / NO SUBTITLES GUARD (HIGHEST PRIORITY - HARD FAIL IF VIOLATED):
 - Do NOT render any text, letters, Hangul, captions, subtitles, speech bubbles, lower-thirds, watermarks, or UI overlays.
 - Do NOT add a dark translucent bar or rounded box at the bottom of the frame with words.
-- Product packaging may keep its real printed labels from the reference photo only — invent no extra writing.
+- Product packaging may keep its real printed labels from the reference photo only - invent no extra writing.
 - Output must look like a clean still photograph with zero burned-in captions.`
 
     imagePrompt = neutralizeCaptionLeakInImagePrompt(imagePrompt)
-    
-    // 숏폼은 세로 고정 — 제품 사진 비율을 따라가지 않음
+
     const imageAspectRatio = aspectRatio && aspectRatio !== "auto" ? aspectRatio : "9:16"
     console.log(`[Shopping] 이미지 생성 비율: ${imageAspectRatio}`)
-    
-    const imageInput: string[] = []
+
     const productUrl = useProductRef ? toDataUrlMaybe(productImageBase64) : null
     const characterUrl = toDataUrlMaybe(resolvedCharacter.referenceImage)
-    if (productUrl) imageInput.push(productUrl)
-    if (characterUrl) imageInput.push(characterUrl)
-    
-    // google/nano-banana 모델 사용
-    // 9:16 비율로 이미지 생성
-    // 재시도 로직 추가 (502, 503, 504 같은 서버 오류 처리)
-    let response: Response | null = null
-    let lastError: Error | null = null
-    const maxRetries = 3
-    const retryDelay = 2000 // 2초
-    
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      try {
-        if (attempt > 0) {
-          console.log(`[Shopping] 이미지 생성 재시도 ${attempt}/${maxRetries - 1}...`)
-          await new Promise(resolve => setTimeout(resolve, retryDelay * attempt))
-        }
-        
-        response = await fetch("https://api.replicate.com/v1/models/google/nano-banana/predictions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${REPLICATE_API_TOKEN}`,
-        "Content-Type": "application/json",
+    const fullImageInput = [productUrl, characterUrl].filter(isUsableReplicateImageRef)
+    console.log(
+      `[Shopping] nano-banana refs: product=${Boolean(productUrl)} character=${Boolean(characterUrl)} usable=${fullImageInput.length}`
+    )
+
+    const shortPrompt = neutralizeCaptionLeakInImagePrompt(
+      `${resolvedCharacter.visualPromptEn}, ${beatRules.beat}, ${beatRules.setting}, ${beatRules.action}, vertical 9:16 photo, no text no subtitles no captions`
+    )
+
+    const strategies: Array<{ label: string; prompt: string; images: string[] }> = [
+      { label: "full-refs", prompt: imagePrompt, images: fullImageInput },
+      {
+        label: "product-only",
+        prompt: imagePrompt,
+        images: productUrl && isUsableReplicateImageRef(productUrl) ? [productUrl] : [],
       },
-      body: JSON.stringify({
-        input: {
-          prompt: imagePrompt,
-          aspect_ratio: imageAspectRatio, // 원본 이미지 비율에 맞게 생성
-          // image_input은 URL 배열 (샘플 코드 참고)
-          ...(imageInput.length > 0 ? { image_input: imageInput } : {}),
-        },
-      }),
-    })
+      {
+        label: "character-only",
+        prompt: imagePrompt,
+        images:
+          characterUrl && isUsableReplicateImageRef(characterUrl) ? [characterUrl] : [],
+      },
+      { label: "text-only", prompt: shortPrompt, images: [] },
+    ].filter(
+      (strategy, index, all) =>
+        // 동일 images 전략 중복 제거
+        all.findIndex(
+          (other) =>
+            other.prompt === strategy.prompt &&
+            other.images.join("|") === strategy.images.join("|")
+        ) === index
+    )
 
-        // 성공한 경우 루프 종료
-        if (response.ok) {
-          break
-        }
-
-        // 502, 503, 504 같은 서버 오류는 재시도
-        if (response.status === 502 || response.status === 503 || response.status === 504) {
-          const errorText = await response.text()
-          console.warn(`[Shopping] 서버 오류 (${response.status}), 재시도 예정:`, errorText.substring(0, 100))
-          lastError = new Error(`이미지 생성 실패: ${response.status} - ${errorText.substring(0, 200)}`)
-          
-          // 마지막 시도가 아니면 계속
-          if (attempt < maxRetries - 1) {
-            continue
-          }
-        }
-
-        // 다른 오류는 즉시 throw
-      const errorText = await response.text()
-      console.error("[Shopping] 이미지 생성 오류:", errorText)
-        throw new Error(`이미지 생성 실패: ${response.status} - ${errorText.substring(0, 200)}`)
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error))
-        
-        // 네트워크 오류나 타임아웃도 재시도
-        if (attempt < maxRetries - 1 && (error instanceof TypeError || error instanceof Error)) {
-          console.warn(`[Shopping] 네트워크 오류, 재시도 예정:`, error)
-          continue
-        }
-        
-        throw error
-      }
-    }
-
-    // 모든 재시도 실패
-    if (!response || !response.ok) {
-      throw lastError || new Error("이미지 생성 실패: 모든 재시도 실패")
-    }
-
-    const data = await response.json()
-
-    if (data.status === "succeeded" && data.output) {
-      let imageUrl: string
-      if (Array.isArray(data.output) && data.output.length > 0) {
-        imageUrl = typeof data.output[0] === "string" ? data.output[0] : data.output[0].url || String(data.output[0])
-      } else if (typeof data.output === "string") {
-        imageUrl = data.output
-      } else if (data.output && typeof data.output === "object" && (data.output as any).url) {
-        imageUrl = (data.output as any).url
-      } else {
-        imageUrl = String(data.output)
-      }
-      
-      // 이미지 URL이 문자열이 아닌 경우 처리
-      if (typeof imageUrl !== "string" || !imageUrl.startsWith("http")) {
-        console.error("[Shopping] 유효하지 않은 이미지 URL:", imageUrl)
+    const extractOutputUrl = (output: unknown): string => {
+      let imageUrl = ""
+      if (typeof output === "string") imageUrl = output
+      else if (Array.isArray(output) && output.length > 0) {
+        const first = output[0]
+        imageUrl =
+          typeof first === "string"
+            ? first
+            : String((first as { url?: string })?.url || first || "")
+      } else if (output && typeof output === "object" && "url" in output) {
+        imageUrl = String((output as { url?: string }).url || "")
+      } else imageUrl = String(output || "")
+      if (!imageUrl.startsWith("http")) {
         throw new Error("이미지 URL이 유효하지 않습니다.")
       }
-      
-      console.log("[Shopping] 나노바나나 이미지 생성 완료:", imageUrl)
       return imageUrl
-    } else if (data.status === "processing" || data.status === "starting") {
-      // 폴링 방식으로 결과 확인
-      const predictionId = data.id
-      let attempts = 0
-      const maxAttempts = 120 // 최대 2분 대기
-
-      while (attempts < maxAttempts) {
-        await new Promise((resolve) => setTimeout(resolve, 2000)) // 2초 대기
-
-        const statusResponse = await fetch(`https://api.replicate.com/v1/predictions/${predictionId}`, {
-          headers: {
-            Authorization: `Bearer ${REPLICATE_API_TOKEN}`,
-          },
-        })
-
-        if (!statusResponse.ok) {
-          throw new Error(`상태 확인 실패: ${statusResponse.status}`)
-        }
-
-        const statusData = await statusResponse.json()
-
-        if (statusData.status === "succeeded" && statusData.output) {
-          // nano-banana 출력 형식 확인
-          let imageUrl: string
-          if (typeof statusData.output === "string") {
-            imageUrl = statusData.output
-          } else if (Array.isArray(statusData.output) && statusData.output.length > 0) {
-            imageUrl = typeof statusData.output[0] === "string" ? statusData.output[0] : statusData.output[0].url || statusData.output[0]
-          } else if (statusData.output.url) {
-            imageUrl = statusData.output.url
-          } else {
-            imageUrl = String(statusData.output)
-          }
-          
-          // 이미지 URL이 문자열이 아닌 경우 처리
-          if (typeof imageUrl !== "string" || !imageUrl.startsWith("http")) {
-            console.error("[Shopping] 유효하지 않은 이미지 URL:", imageUrl)
-            throw new Error("이미지 URL이 유효하지 않습니다.")
-          }
-          
-          console.log("[Shopping] 나노바나나 이미지 생성 완료 (폴링):", imageUrl)
-          return imageUrl
-        } else if (statusData.status === "failed") {
-          throw new Error(`이미지 생성 실패: ${statusData.error || "알 수 없는 오류"}`)
-        }
-
-        attempts++
-      }
-
-      throw new Error("이미지 생성 시간 초과")
-    } else {
-      throw new Error(`이미지 생성 실패: ${data.error || "알 수 없는 오류"}`)
     }
+
+    let lastError: Error | null = null
+
+    for (let attempt = 0; attempt < strategies.length; attempt++) {
+      const strategy = strategies[attempt]!
+      try {
+        if (attempt > 0) {
+          console.log(
+            `[Shopping] nano-banana fallback ${attempt}/${strategies.length - 1}: ${strategy.label}`
+          )
+          await new Promise((resolve) => setTimeout(resolve, 800 * attempt))
+        }
+
+        const response = await fetch(
+          "https://api.replicate.com/v1/models/google/nano-banana/predictions",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${REPLICATE_API_TOKEN}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              input: {
+                prompt: strategy.prompt,
+                aspect_ratio: imageAspectRatio,
+                ...(strategy.images.length > 0
+                  ? { image_input: strategy.images }
+                  : {}),
+              },
+            }),
+          }
+        )
+
+        if (!response.ok) {
+          const errorText = await response.text()
+          const retryable =
+            response.status === 502 ||
+            response.status === 503 ||
+            response.status === 504 ||
+            response.status === 400 ||
+            response.status === 422 ||
+            /E006|invalid input|input was invalid/i.test(errorText)
+          lastError = new Error(
+            `이미지 생성 실패: ${response.status} - ${errorText.substring(0, 200)}`
+          )
+          if (retryable && attempt < strategies.length - 1) continue
+          throw lastError
+        }
+
+        const data = await response.json()
+
+        if (data.status === "succeeded" && data.output) {
+          const imageUrl = extractOutputUrl(data.output)
+          console.log(`[Shopping] 나노바나나 완료 (${strategy.label}):`, imageUrl)
+          return imageUrl
+        }
+
+        if (data.status === "failed") {
+          const errMsg = String(data.error || "알 수 없는 오류")
+          lastError = new Error(`이미지 생성 실패: ${errMsg}`)
+          if (/E006|invalid input/i.test(errMsg) && attempt < strategies.length - 1) {
+            continue
+          }
+          throw lastError
+        }
+
+        if (data.status === "processing" || data.status === "starting") {
+          const predictionId = data.id
+          let polls = 0
+          while (polls < 120) {
+            await new Promise((resolve) => setTimeout(resolve, 2000))
+            const statusResponse = await fetch(
+              `https://api.replicate.com/v1/predictions/${predictionId}`,
+              {
+                headers: { Authorization: `Bearer ${REPLICATE_API_TOKEN}` },
+              }
+            )
+            if (!statusResponse.ok) {
+              throw new Error(`상태 확인 실패: ${statusResponse.status}`)
+            }
+            const statusData = await statusResponse.json()
+            if (statusData.status === "succeeded" && statusData.output) {
+              const imageUrl = extractOutputUrl(statusData.output)
+              console.log(
+                `[Shopping] 나노바나나 완료 폴링 (${strategy.label}):`,
+                imageUrl
+              )
+              return imageUrl
+            }
+            if (statusData.status === "failed") {
+              const errMsg = String(statusData.error || "알 수 없는 오류")
+              lastError = new Error(`이미지 생성 실패: ${errMsg}`)
+              if (/E006|invalid input/i.test(errMsg) && attempt < strategies.length - 1) {
+                break
+              }
+              throw lastError
+            }
+            if (statusData.status === "canceled") {
+              throw new Error("이미지 생성이 취소되었습니다.")
+            }
+            polls++
+          }
+          if (lastError && /E006|invalid input/i.test(lastError.message)) {
+            continue
+          }
+          throw lastError || new Error("이미지 생성 시간 초과")
+        }
+
+        lastError = new Error(
+          `이미지 생성 실패: ${data.error || data.status || "알 수 없는 오류"}`
+        )
+        if (attempt < strategies.length - 1) continue
+        throw lastError
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error))
+        if (
+          attempt < strategies.length - 1 &&
+          /E006|invalid input|TypeError|fetch|502|503|504/i.test(lastError.message)
+        ) {
+          continue
+        }
+        throw lastError
+      }
+    }
+
+    throw lastError || new Error("이미지 생성 실패: 모든 재시도 실패")
   } catch (error) {
     console.error("[Shopping] 나노바나나 이미지 생성 실패:", error)
     throw error
