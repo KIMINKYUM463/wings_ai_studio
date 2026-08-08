@@ -4,7 +4,10 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { ClipboardPaste, Download, Loader2, PlugZap } from "lucide-react"
+import { ClipboardPaste, Download, Loader2, PlayCircle, PlugZap } from "lucide-react"
+
+const COUPANG_COLLECTOR_GUIDE_URL =
+  "https://loud-cowl-c24.notion.site/AI-3b6565477d598008b504d79740467931"
 import {
   connectLocalAgent,
   fetchCoupangIngestedOnCompanion,
@@ -389,6 +392,22 @@ export function CoupangReviewPanel({
             <Download className="w-3.5 h-3.5 mr-1.5" />
           )}
           전송된 리뷰 불러오기
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          asChild
+          className="border-sky-400/40 bg-sky-500/10 font-semibold text-sky-100 hover:bg-sky-500/20 hover:text-white"
+        >
+          <a
+            href={COUPANG_COLLECTOR_GUIDE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <PlayCircle className="mr-1.5 h-3.5 w-3.5" />
+            가이드 영상
+          </a>
         </Button>
       </div>
 
