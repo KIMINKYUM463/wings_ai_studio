@@ -113,8 +113,8 @@ export function requestExtensionLaunchAgent(): void {
 }
 
 /**
- * 「연결」버튼용 — 에이전트 cmd 실행 창만 연다.
- * 수집기 확장 자동 연결 확인은 하지 않음 (사용자가 수집기를 직접 열면 됨).
+ * 「에이전트 실행」— 매번 cmd 실행 창을 연다.
+ * 수집기 확장 자동 연결 확인은 하지 않음.
  */
 export async function connectLocalAgent(opts?: {
   companionUrl?: string
@@ -125,16 +125,11 @@ export async function connectLocalAgent(opts?: {
   const onProgress = opts?.onProgress
   const requireFfmpeg = opts?.requireFfmpeg === true
 
-  let health = await probeLocalCompanion(baseUrl)
-  if (companionReady(health, requireFfmpeg)) {
-    onProgress?.("이미 에이전트가 실행 중입니다. (http://127.0.0.1:3847)")
-    return health
-  }
-
   const isLocalHost =
     typeof window !== "undefined" &&
     (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
 
+  // 이미 떠 있어도 실행 창을 다시 연다 (포트 사용 중이면 에이전트가 바로 종료)
   onProgress?.("에이전트 실행 창을 여는 중…")
   requestExtensionLaunchAgent()
   openShotformAgentProtocol()
@@ -151,26 +146,24 @@ export async function connectLocalAgent(opts?: {
     }
   }
 
-  // 창이 뜬 뒤 짧게만 확인 (확장 자동 연결 확인/배지 갱신 없음)
   for (let i = 0; i < 20; i++) {
     await sleep(1000)
-    health = await probeLocalCompanion(baseUrl)
+    const health = await probeLocalCompanion(baseUrl)
     if (companionReady(health, requireFfmpeg)) {
       onProgress?.(
-        "에이전트 실행 창이 열렸습니다.\n쿠팡 수집기 확장을 열어 「연결 확인」하세요."
+        "에이전트 실행 창이 열렸습니다.\n쿠팡 수집기를 열어 「연결 확인」하세요."
       )
       return health
     }
   }
 
   onProgress?.(
-    "에이전트 실행 창을 열었습니다.\n검은 창이 보이면 쿠팡 수집기를 열어 「연결 확인」하세요."
+    "에이전트 실행 창을 열었습니다.\n쿠팡 수집기를 열어 「연결 확인」하세요."
   )
   return {
     ok: false,
     ffmpeg: false,
-    error:
-      "실행 창을 열었습니다. 쿠팡 수집기 확장을 열어 「연결 확인」을 누르세요.",
+    error: "에이전트 실행 창을 열었습니다. 쿠팡 수집기를 열어 「연결 확인」하세요.",
   }
 }
 

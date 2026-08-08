@@ -7,9 +7,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { ClipboardPaste, Download, Loader2, PlugZap } from "lucide-react"
 import {
   connectLocalAgent,
-  downloadLocalAgentStarter,
   fetchCoupangIngestedOnCompanion,
-  probeLocalCompanion,
+  requestExtensionLaunchAgent,
 } from "@/lib/shotform-local-companion-client"
 import {
   coupangStatusMessage,
@@ -256,26 +255,24 @@ export function CoupangReviewPanel({
     )
   }
 
-  /** 로컬/배포: 터미널·프로토콜·원클릭 .cmd 순으로 기동 후 연결 */
+  /** 클릭 즉시 cmd 실행 창을 연다 (수집기에서 연결 확인) */
   const handleConnectAgent = async () => {
     setIsConnect(true)
-    setStatusMsg("")
+    setStatusMsg("에이전트 실행 창을 여는 중…")
+    // await 전에 동기 호출 — 확장 브리지가 cmd를 바로 열도록
+    requestExtensionLaunchAgent()
     try {
       const health = await connectLocalAgent({
         requireFfmpeg: false,
         onProgress: (m) => setStatusMsg(m),
       })
       setAgentOnline(Boolean(health.ok))
-      if (health.ok) {
-        setStatusMsg(
-          "에이전트 실행됨 (http://127.0.0.1:3847)\n검은 창은 끄지 마세요. 쿠팡 수집기를 열어 「연결 확인」하세요."
-        )
-      } else {
-        setStatusMsg(
-          health.error ||
-            "에이전트 실행 창을 열었습니다. 쿠팡 수집기를 열어 「연결 확인」하세요."
-        )
-      }
+      setStatusMsg(
+        health.ok
+          ? "에이전트 실행됨 (http://127.0.0.1:3847)\n검은 창은 끄지 마세요. 쿠팡 수집기를 열어 「연결 확인」하세요."
+          : health.error ||
+              "에이전트 실행 창을 열었습니다. 쿠팡 수집기를 열어 「연결 확인」하세요."
+      )
     } finally {
       setIsConnect(false)
     }
@@ -352,9 +349,8 @@ export function CoupangReviewPanel({
       <div className="space-y-1">
         <Label className="text-sm font-semibold text-zinc-200">Wings 숏폼 쿠팡 수집기</Label>
         <p className="text-xs text-zinc-500 leading-relaxed">
-          「에이전트 연결」은{" "}
-          <span className="text-orange-200/80">실행 창(cmd)만 엽니다</span>. 그다음 쿠팡 수집기
-          확장을 열어 「연결 확인」하세요. (확장 v1.3.1+)
+          <span className="text-orange-200/80">「에이전트 실행」</span>을 누르면 cmd 창이
+          열립니다. 그다음 쿠팡 수집기에서 「연결 확인」하세요. (확장 v1.3.1+)
         </p>
       </div>
 
@@ -374,7 +370,7 @@ export function CoupangReviewPanel({
           ) : (
             <PlugZap className="w-3.5 h-3.5 mr-1.5" />
           )}
-          {agentOnline ? "에이전트 다시 연결" : isConnect ? "실행 창 여는 중…" : "에이전트 연결"}
+          {isConnect ? "실행 창 여는 중…" : "에이전트 실행"}
         </Button>
         <Button
           type="button"
@@ -389,40 +385,6 @@ export function CoupangReviewPanel({
             <Download className="w-3.5 h-3.5 mr-1.5" />
           )}
           전송된 리뷰 불러오기
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          disabled={isConnect}
-          className="text-xs text-amber-200/80"
-          onClick={() => {
-            downloadLocalAgentStarter()
-            setStatusMsg(
-              "start-shotform-agent.cmd 를 받았습니다. 창이 안 뜨면 더블클릭하세요."
-            )
-          }}
-        >
-          실행파일 받기
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          disabled={isConnect}
-          className="text-xs text-zinc-400"
-          onClick={() => {
-            void probeLocalCompanion().then((h) => {
-              setAgentOnline(Boolean(h.ok))
-              setStatusMsg(
-                h.ok
-                  ? "에이전트 응답 OK · http://127.0.0.1:3847"
-                  : h.error || "에이전트가 꺼져 있습니다. 「에이전트 연결」로 실행 창을 여세요."
-              )
-            })
-          }}
-        >
-          상태 확인
         </Button>
       </div>
 
