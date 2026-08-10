@@ -20,9 +20,11 @@ export default function AdminPage() {
   const [passwordInput, setPasswordInput] = useState('')
   const [authError, setAuthError] = useState('')
   const [users, setUsers] = useState<User[]>([])
+  const [totalCount, setTotalCount] = useState<number | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [emailQuery, setEmailQuery] = useState('')
   const [approvalFilter, setApprovalFilter] = useState<ApprovalFilter>('all')
+  const [pendingUserId, setPendingUserId] = useState<string | null>(null)
 
   useEffect(() => {
     try {
@@ -77,11 +79,24 @@ export default function AdminPage() {
   const loadUsers = async () => {
     setIsLoading(true)
     try {
-      const response = await fetch('/api/admin/users')
+      // 브라우저/CDN 캐시로 예전 승인 상태가 다시 보이지 않도록 항상 최신 조회
+      const response = await fetch(`/api/admin/users?t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+      })
       const data = await response.json()
 
       if (response.ok) {
-        setUsers(data.users || [])
+        const list = Array.isArray(data.users)
+          ? data.users.map((user: User) => ({
+              ...user,
+              approved: Boolean(user.approved),
+            }))
+          : []
+        setUsers(list)
+        setTotalCount(
+          typeof data.totalCount === 'number' ? data.totalCount : list.length
+        )
       } else {
         console.error('[Admin] 사용자 목록 로드 실패:', data.error)
         alert(`사용자 목록을 불러올 수 없습니다: ${data.error || '알 수 없는 오류'}`)
@@ -101,26 +116,44 @@ export default function AdminPage() {
   }
 
   const handleApprovalToggle = async (userId: string, approved: boolean) => {
+    if (pendingUserId) return
+    setPendingUserId(userId)
     try {
       const response = await fetch('/api/admin/users/approval', {
         method: 'POST',
+        cache: 'no-store',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, approved }),
       })
       const data = await response.json()
 
       if (response.ok && data.user) {
+        const savedApproved = Boolean(data.user.approved)
+        if (savedApproved !== approved) {
+          alert(
+            `승인 저장 결과가 요청과 다릅니다. (요청: ${approved ? '승인' : '비승인'}, 실제: ${
+              savedApproved ? '승인' : '비승인'
+            })`
+          )
+          await loadUsers()
+          return
+        }
         setUsers((prev) =>
           prev.map((user) =>
-            user.id === userId ? { ...user, approved: Boolean(data.user.approved) } : user
+            user.id === userId ? { ...user, approved: savedApproved } : user
           )
         )
       } else {
         alert(`승인 상태 변경 실패: ${data.error || '알 수 없는 오류'}`)
+        // 화면과 DB가 어긋났을 수 있으니 최신 목록으로 맞춤
+        await loadUsers()
       }
     } catch (error) {
       console.error('[Admin] 승인 변경 실패:', error)
       alert('승인 상태 변경에 실패했습니다.')
+      await loadUsers()
+    } finally {
+      setPendingUserId(null)
     }
   }
 
@@ -197,7 +230,10 @@ export default function AdminPage() {
           <div className="flex flex-wrap items-center gap-2">
             {(
               [
-                { key: 'all', label: `전체 ${users.length}` },
+                {
+                  key: 'all',
+                  label: `전체 ${totalCount != null && totalCount !== users.length ? `${users.length}/${totalCount}` : users.length}`,
+                },
                 { key: 'approved', label: `승인 ${approvedCount}` },
                 { key: 'pending', label: `비승인 ${pendingCount}` },
               ] as const
@@ -224,7 +260,7 @@ export default function AdminPage() {
 
         {isLoading ? (
           <div className="text-center py-12">
-            <p className="text-gray-600">로딩 중...</p>
+            <p className="text-gray-600">전체 회원 불러오는 중… (인원이 많으면 잠시 걸릴 수 있습니다)</p>
           </div>
         ) : users.length === 0 ? (
           <div className="text-center py-12">
@@ -239,6 +275,18 @@ export default function AdminPage() {
         ) : filteredUsers.length === 0 ? (
           <div className="text-center py-12 border border-dashed border-gray-200 rounded-lg">
             <p className="text-gray-600">검색 조건에 맞는 사용자가 없습니다.</p>
+            {approvalFilter !== 'all' || emailQuery.trim() ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setApprovalFilter('all')
+                  setEmailQuery('')
+                }}
+                className="mt-3 text-sm text-blue-600 underline"
+              >
+                필터 초기화 (전체 {users.length}명 보기)
+              </button>
+            ) : null}
           </div>
         ) : (
           <div className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
@@ -257,6 +305,7 @@ export default function AdminPage() {
                 <tbody>
                   {filteredUsers.map((user) => {
                     const isApproved = Boolean(user.approved)
+                    const isBusy = pendingUserId === user.id
                     return (
                       <tr
                         key={user.id}
@@ -294,26 +343,26 @@ export default function AdminPage() {
                             <button
                               type="button"
                               onClick={() => void handleApprovalToggle(user.id, true)}
-                              disabled={isApproved}
+                              disabled={isApproved || isBusy}
                               className={`px-3 py-1.5 text-sm rounded font-medium transition-colors ${
                                 isApproved
                                   ? 'bg-emerald-600 text-white cursor-default'
                                   : 'bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-50'
                               }`}
                             >
-                              승인
+                              {isBusy && !isApproved ? '저장 중…' : '승인'}
                             </button>
                             <button
                               type="button"
                               onClick={() => void handleApprovalToggle(user.id, false)}
-                              disabled={!isApproved}
+                              disabled={!isApproved || isBusy}
                               className={`px-3 py-1.5 text-sm rounded font-medium transition-colors ${
                                 !isApproved
                                   ? 'bg-amber-600 text-white cursor-default'
                                   : 'bg-white border border-amber-300 text-amber-700 hover:bg-amber-50'
                               }`}
                             >
-                              비승인
+                              {isBusy && isApproved ? '저장 중…' : '비승인'}
                             </button>
                           </div>
                         </td>

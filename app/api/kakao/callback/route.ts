@@ -172,12 +172,12 @@ export async function GET(request: NextRequest) {
         let dbError = null
 
         if (existingUser?.id) {
-          // 기존 회원: 프로필만 갱신 (approved / instructor 유지)
+          // 기존 회원: 프로필만 갱신 (approved / instructor 절대 덮어쓰지 않음)
           const result = await supabase
             .from("users")
             .update(profileFields)
             .eq("kakao_id", userInfo.id)
-            .select()
+            .select("id, kakao_id, email, approved")
             .single()
           dbUser = result.data
           dbError = result.error
@@ -191,10 +191,22 @@ export async function GET(request: NextRequest) {
               instructor: null,
               approved: true,
             })
-            .select()
+            .select("id, kakao_id, email, approved")
             .single()
           dbUser = result.data
           dbError = result.error
+
+          // 레이스로 insert가 겹친 경우: 프로필만 갱신하고 approved는 유지
+          if (dbError?.code === "23505") {
+            const retry = await supabase
+              .from("users")
+              .update(profileFields)
+              .eq("kakao_id", userInfo.id)
+              .select("id, kakao_id, email, approved")
+              .single()
+            dbUser = retry.data
+            dbError = retry.error
+          }
         }
 
         if (dbError) {
