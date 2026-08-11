@@ -520,6 +520,18 @@ FINAL OUTPUT CONSTRAINTS — THESE OVERRIDE ANY CONFLICTING INSTRUCTION ABOVE:
 - REQUIRED: If the reference product has logos, lettering, embroidery, or graphic prints ON the product surface, reproduce them faithfully. Never strip branding to make a blank/generic product. Never invent a different logo or graphic.
 - Output only one continuous photorealistic scene of the SAME product as the reference.`
 
+    // Qwen img2img는 Nano Banana image_input과 다름: 입력 사진을 시작점으로 씀.
+    // 장면 재구성 모드에서는 원본 구도/배경을 버리고 프롬프트 장면을 새로 그리도록 강조.
+    if (model === "qwen-image" && referenceMode === "product-recompose") {
+      imagePrompt = `${imagePrompt}
+
+QWEN SCENE RECOMPOSE (CRITICAL):
+- The input image is ONLY a product-identity reference (shape/color/logo/prints).
+- Do NOT copy the original photo layout, background, crop, or studio setup.
+- Build a NEW lifestyle/commercial scene that matches the scene description above.
+- Keep the same product identity; change camera, background, lighting, and staging strongly.`
+    }
+
     console.log(
       `[Shopping] ${modelLabel} 이미지 생성 시작, 제품ref ${productRefs.length}장, 인물ref ${characterRefs.length}장, person=${wantsPerson}, 장면:`,
       sceneScript.substring(0, 50) + "..."
@@ -551,6 +563,11 @@ FINAL OUTPUT CONSTRAINTS — THESE OVERRIDE ANY CONFLICTING INSTRUCTION ABOVE:
         }
         
         const isQwenImage = model === "qwen-image"
+        // Qwen의 image+strength는 Nano Banana image_input(레퍼런스)과 다름 → img2img 시작점.
+        // strength 낮음(0.45)이면 장면 프롬프트를 거의 무시하고 원본 제품컷처럼 나옴.
+        // Replicate 기본값 0.9. 장면 재구성은 높게, 리뷰 보정만 중간값.
+        const qwenStrength =
+          referenceMode === "strict-review" ? 0.68 : 0.9
         response = await fetch(
           isQwenImage
             ? "https://api.replicate.com/v1/predictions"
@@ -572,8 +589,10 @@ FINAL OUTPUT CONSTRAINTS — THESE OVERRIDE ANY CONFLICTING INSTRUCTION ABOVE:
                 ...(isQwenImage
                   ? {
                       output_format: "webp",
-                      // strength 낮출수록 참고 제품 형태·프린트 유지에 유리
-                      ...(imageInput?.[0] && { image: imageInput[0], strength: 0.45 }),
+                      ...(imageInput?.[0] && {
+                        image: imageInput[0],
+                        strength: qwenStrength,
+                      }),
                     }
                   : imageInput
                     ? { image_input: imageInput }

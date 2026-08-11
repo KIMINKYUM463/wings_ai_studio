@@ -38,12 +38,15 @@ export type StoryExportClip = {
   mediaOffsetX?: number
   mediaOffsetY?: number
   motionEffect?: StoryExportMotionEffect
+  motionAccentEffect?: StoryExportMotionEffect
   backgroundColor?: string
 }
 
 export type StoryExportMotion = {
   effect: StoryExportMotionEffect
+  accentEffect?: StoryExportMotionEffect
   progress: number
+  accentProgress?: number
   mediaScale: number
   mediaOffsetX: number
   mediaOffsetY: number
@@ -309,6 +312,42 @@ function resolveMotionTransform(
         brightness: 1,
       }
   }
+}
+
+function combineMotionTransforms(
+  a: ReturnType<typeof resolveMotionTransform>,
+  b: ReturnType<typeof resolveMotionTransform>
+) {
+  return {
+    scale: a.scale * b.scale,
+    txPct: a.txPct + b.txPct,
+    tyPct: a.tyPct + b.tyPct,
+    rotateDeg: a.rotateDeg + b.rotateDeg,
+    blurPx: Math.max(a.blurPx, b.blurPx),
+    opacity: a.opacity * b.opacity,
+    brightness: a.brightness * b.brightness,
+  }
+}
+
+function motionProgressForEffect(
+  effect: StoryExportMotionEffect,
+  localSec: number,
+  clipDurationSec: number
+) {
+  const effectDurationSec =
+    effect === "shake"
+      ? 0.5
+      : effect === "pulse"
+        ? 1
+        : effect === "flash"
+          ? 0.7
+          : effect === "blur-in"
+            ? 0.85
+            : Math.max(0.8, clipDurationSec || 1)
+  const progress = effectDurationSec > 0 ? localSec / effectDurationSec : 0
+  return effect === "shake" || effect === "pulse"
+    ? progress
+    : Math.min(1, progress)
 }
 
 function drawFittedImage(
@@ -832,18 +871,32 @@ function measureMediaBox(
   return { x: 0, y, w: width, h: Math.max(1, height - y) }
 }
 
-/** 자막 패널 위치 — 미디어 바로 위 형제 */
+/** 자막 패널 위치 — 밴드(미디어 위) 또는 미디어 오버레이 */
 function measureCaptionBox(
   stageEl: HTMLElement,
   width: number,
   height: number,
   mediaBox: { x: number; y: number; w: number; h: number }
-) {
+): { x: number; y: number; w: number; h: number; overlay?: boolean } {
   const mediaStage = stageEl.querySelector(
     '[data-story-media-stage="true"]'
   ) as HTMLElement | null
-  const captionEl = mediaStage?.previousElementSibling as HTMLElement | null
+  const overlayEl = stageEl.querySelector(
+    '[data-story-caption-overlay="true"]'
+  ) as HTMLElement | null
   const stageRect = stageEl.getBoundingClientRect()
+  if (overlayEl && stageRect.height > 2) {
+    const rect = overlayEl.getBoundingClientRect()
+    const y = Math.round(
+      ((rect.top - stageRect.top) / stageRect.height) * height
+    )
+    const h = Math.max(
+      1,
+      Math.round((rect.height / stageRect.height) * height)
+    )
+    return { x: 0, y, w: width, h, overlay: true }
+  }
+  const captionEl = mediaStage?.previousElementSibling as HTMLElement | null
   if (captionEl && stageRect.height > 2) {
     const rect = captionEl.getBoundingClientRect()
     const y = Math.round(
@@ -853,7 +906,6 @@ function measureCaptionBox(
       1,
       Math.round((rect.height / stageRect.height) * height)
     )
-    // 미디어와 겹치지 않게 클램프
     const maxH = Math.max(1, mediaBox.y - y)
     return { x: 0, y, w: width, h: Math.min(h, maxH) }
   }
@@ -870,24 +922,31 @@ function measureCaptionBox(
 function drawLiveCaption(
   ctx: CanvasRenderingContext2D,
   width: number,
-  box: { x: number; y: number; w: number; h: number },
+  box: { x: number; y: number; w: number; h: number; overlay?: boolean },
   text: string
 ) {
   const captionText = (text || "").replace(/\.{2,}|…+/g, "").trim()
-  ctx.fillStyle = "#ffffff"
-  ctx.fillRect(box.x, box.y, box.w, box.h)
+  if (box.overlay) {
+    ctx.fillStyle = "rgba(0,0,0,0.35)"
+    ctx.fillRect(box.x + width * 0.04, box.y, box.w - width * 0.08, box.h)
+  } else {
+    ctx.fillStyle = "#ffffff"
+    ctx.fillRect(box.x, box.y, box.w, box.h)
+  }
 
-  const border = Math.max(2, Math.round(width * 0.0035))
-  ctx.strokeStyle = "#111111"
-  ctx.lineWidth = border
-  ctx.beginPath()
-  ctx.moveTo(box.x, box.y)
-  ctx.lineTo(box.x + box.w, box.y)
-  ctx.stroke()
-  ctx.beginPath()
-  ctx.moveTo(box.x, box.y + box.h)
-  ctx.lineTo(box.x + box.w, box.y + box.h)
-  ctx.stroke()
+  if (!box.overlay) {
+    const border = Math.max(2, Math.round(width * 0.0035))
+    ctx.strokeStyle = "#111111"
+    ctx.lineWidth = border
+    ctx.beginPath()
+    ctx.moveTo(box.x, box.y)
+    ctx.lineTo(box.x + box.w, box.y)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.moveTo(box.x, box.y + box.h)
+    ctx.lineTo(box.x + box.w, box.y + box.h)
+    ctx.stroke()
+  }
 
   const maxW = box.w * 0.86
   const size = fitFontSize(
@@ -898,7 +957,7 @@ function drawLiveCaption(
     Math.round(width * 0.028),
     "700"
   )
-  ctx.fillStyle = "#000000"
+  ctx.fillStyle = box.overlay ? "#ffffff" : "#000000"
   ctx.font = `700 ${size}px Pretendard, "Noto Sans KR", Malgun Gothic, sans-serif`
   ctx.textAlign = "center"
   ctx.textBaseline = "middle"
@@ -1512,14 +1571,20 @@ async function recordStoryPreviewStageCanvas(opts: StoryRecordOpts): Promise<{
       fctx.fillRect(0, 0, frame.width, frame.height)
       const motion = {
         effect: (clip.motionEffect || "none") as StoryExportMotion["effect"],
+        accentEffect: (clip.motionAccentEffect ||
+          "none") as StoryExportMotion["effect"],
         progress: 0,
+        accentProgress: 0,
         mediaScale: clip.mediaScale ?? 1,
         mediaOffsetX: clip.mediaOffsetX ?? 0,
         mediaOffsetY: clip.mediaOffsetY ?? 0,
         fit: (clip.mediaFit || "cover") as "cover" | "contain",
         backgroundColor: clip.backgroundColor || "#000000",
       }
-      const effect = resolveMotionTransform(motion.effect, 0)
+      const effect = combineMotionTransforms(
+        resolveMotionTransform(motion.effect, 0),
+        resolveMotionTransform(motion.accentEffect || "none", 0)
+      )
       const userScale = Math.max(0.2, motion.mediaScale)
       const scale = userScale * effect.scale
       fctx.save()
@@ -1600,25 +1665,17 @@ async function recordStoryPreviewStageCanvas(opts: StoryRecordOpts): Promise<{
 
   const motionFor = (clip: StoryExportClip, playhead: number): StoryExportMotion => {
     const effect = clip.motionEffect || "none"
+    const accentEffect = clip.motionAccentEffect || "none"
     const localSec = Math.max(0, playhead - clip.startSec)
-    const effectDurationSec =
-      effect === "shake"
-        ? 0.5
-        : effect === "pulse"
-          ? 1
-          : effect === "flash"
-            ? 0.7
-            : effect === "blur-in"
-              ? 0.85
-              : Math.max(0.8, clip.durationSec || 1)
-    const progress =
-      effectDurationSec > 0 ? localSec / effectDurationSec : 0
     return {
       effect,
-      progress:
-        effect === "shake" || effect === "pulse"
-          ? progress
-          : Math.min(1, progress),
+      accentEffect,
+      progress: motionProgressForEffect(effect, localSec, clip.durationSec || 1),
+      accentProgress: motionProgressForEffect(
+        accentEffect,
+        localSec,
+        clip.durationSec || 1
+      ),
       mediaScale: clip.mediaScale ?? 1,
       mediaOffsetX: clip.mediaOffsetX ?? 0,
       mediaOffsetY: clip.mediaOffsetY ?? 0,
@@ -1917,7 +1974,12 @@ async function recordStoryPreviewStageCanvas(opts: StoryRecordOpts): Promise<{
     const playhead = getPlayheadSec()
     const clip = clipAt(playhead)
     const motion = motionFor(clip, playhead)
-    const effect = resolveMotionTransform(motion.effect, motion.progress)
+    const primary = resolveMotionTransform(motion.effect, motion.progress)
+    const accent = resolveMotionTransform(
+      motion.accentEffect || "none",
+      motion.accentProgress ?? 0
+    )
+    const effect = combineMotionTransforms(primary, accent)
 
     ctx.fillStyle = "#ffffff"
     ctx.fillRect(0, 0, width, height)

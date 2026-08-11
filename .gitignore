@@ -61,6 +61,7 @@ diff_shopping_vs_*.txt
 voices/supertonic/*.json
 voices/supertonic/samples/
 !voices/supertonic/README.md
+!voices/supertonic/dasom.json
 
 
 

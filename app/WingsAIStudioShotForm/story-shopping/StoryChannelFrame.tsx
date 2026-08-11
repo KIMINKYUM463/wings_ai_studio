@@ -410,6 +410,7 @@ export function StoryChannelFrame({
   textBackgroundColor = "transparent",
   textOutlineWidth = 0,
   textOutlineColor = "#ffffff",
+  subtitlePosition = "bottom",
   mediaBackgroundColor = "#c6c6c6",
   motionDurationSec,
   mediaEditable = false,
@@ -431,6 +432,8 @@ export function StoryChannelFrame({
   textBackgroundColor?: string
   textOutlineWidth?: number
   textOutlineColor?: string
+  /** 자막 위치 — bottom=템플릿 밴드, top/center=미디어 위 오버레이 */
+  subtitlePosition?: "top" | "center" | "bottom"
   mediaBackgroundColor?: string
   motionDurationSec?: number
   mediaEditable?: boolean
@@ -730,20 +733,43 @@ export function StoryChannelFrame({
   const frameVariant =
     STORY_FRAME_TEMPLATES.find((template) => template.id === settings.templateId)
       ?.variant || "search"
-  const mediaEffectClass =
+  const primaryEffect =
     paintAsset?.motionEffect && paintAsset.motionEffect !== "none"
-      ? `story-media-${paintAsset.motionEffect}`
+      ? paintAsset.motionEffect
       : ""
-  const mediaEffectDurationSec =
-    paintAsset?.motionEffect === "shake"
+  const accentEffect =
+    paintAsset?.motionAccentEffect && paintAsset.motionAccentEffect !== "none"
+      ? paintAsset.motionAccentEffect
+      : ""
+  const mediaEffectClass = primaryEffect ? `story-media-${primaryEffect}` : ""
+  const mediaAccentClass = accentEffect ? `story-media-${accentEffect}` : ""
+  const effectDurationFor = (effect: string) =>
+    effect === "shake"
       ? 0.5
-      : paintAsset?.motionEffect === "pulse"
+      : effect === "pulse"
         ? 1
-        : paintAsset?.motionEffect === "flash"
+        : effect === "flash"
           ? 0.7
-          : paintAsset?.motionEffect === "blur-in"
+          : effect === "blur-in"
             ? 0.85
             : Math.max(0.8, motionDurationSec || scene.durationSec)
+  const mediaEffectDurationSec = effectDurationFor(primaryEffect)
+  const mediaAccentDurationSec = effectDurationFor(accentEffect)
+  const captionOverlay = subtitlePosition === "top" || subtitlePosition === "center"
+  const captionPanel = (
+    <StoryCaptionPanel
+      variant={frameVariant}
+      text={visibleLine}
+      textScale={textScale}
+      color={captionOverlay ? "#ffffff" : textColor}
+      fontFamily={textFontFamily}
+      fontWeight={textFontWeight}
+      backgroundColor={captionOverlay ? "transparent" : textBackgroundColor}
+      outlineWidth={captionOverlay ? Math.max(textOutlineWidth || 0, 2) : textOutlineWidth}
+      outlineColor={captionOverlay ? "#000000" : textOutlineColor}
+      overlay={captionOverlay}
+    />
+  )
 
   return (
     <div
@@ -754,22 +780,13 @@ export function StoryChannelFrame({
 
       <StoryPostPanel settings={settings} variant={frameVariant} />
 
-      {/* 자막: 한 줄 · ... 잘림 없이 글자 크기만 맞춤 · TTS 순서로 교체 */}
-      <StoryCaptionPanel
-        variant={frameVariant}
-        text={visibleLine}
-        textScale={textScale}
-        color={textColor}
-        fontFamily={textFontFamily}
-        fontWeight={textFontWeight}
-        backgroundColor={textBackgroundColor}
-        outlineWidth={textOutlineWidth}
-        outlineColor={textOutlineColor}
-      />
+      {/* 기본(하단): 템플릿 자막 밴드 · top/center는 미디어 위 오버레이 */}
+      {!captionOverlay ? captionPanel : null}
 
       <section
         ref={mediaStageRef}
         data-story-media-stage="true"
+        data-story-subtitle-position={subtitlePosition}
         className={`relative min-h-0 flex-1 overflow-hidden ${
           mediaEditable && asset?.mediaUrl ? "cursor-move touch-none" : ""
         }`}
@@ -786,13 +803,24 @@ export function StoryChannelFrame({
             }}
           >
             <div
-              key={`${paintUrl}-${paintAsset?.motionEffect || "zoom-in"}`}
+              key={`${paintUrl}-${primaryEffect || "none"}-${accentEffect || "none"}`}
               className={`relative z-10 h-full w-full ${mediaEffectClass}`}
               style={{
                 animationDuration: `${mediaEffectDurationSec}s`,
                 animationPlayState: isPlaying ? "running" : "paused",
               }}
             >
+              <div
+                className={`relative h-full w-full ${mediaAccentClass}`}
+                style={
+                  mediaAccentClass
+                    ? {
+                        animationDuration: `${mediaAccentDurationSec}s`,
+                        animationPlayState: isPlaying ? "running" : "paused",
+                      }
+                    : undefined
+                }
+              >
               {paintAsset?.mediaType === "video" ? (
                 <FrameVideo
                   key={`${paintUrl}-${paintAsset.trimStartSec ?? 0}-${paintAsset.trimEndSec ?? "end"}`}
@@ -843,6 +871,7 @@ export function StoryChannelFrame({
                       />
                     ))
                 : null}
+              </div>
             </div>
           </div>
         ) : (
@@ -859,6 +888,20 @@ export function StoryChannelFrame({
             </span>
           </div>
         )}
+        {captionOverlay ? (
+          <div
+            data-story-caption-overlay="true"
+            className={`pointer-events-none absolute inset-x-0 z-30 px-[4%] ${
+              subtitlePosition === "top"
+                ? "top-[3%]"
+                : "top-1/2 -translate-y-1/2"
+            }`}
+          >
+            <div className="rounded-[1.2cqw] bg-black/35 px-[3%] py-[2.5%] backdrop-blur-[1px]">
+              {captionPanel}
+            </div>
+          </div>
+        ) : null}
         {isMediaSelected && mediaEditable && asset?.mediaUrl ? (
           <div className="pointer-events-none absolute inset-1 z-20 border-[0.7cqw] border-blue-500 shadow-[0_0_0_0.45cqw_rgba(255,255,255,.85)]">
             {(
@@ -1063,6 +1106,7 @@ function StoryCaptionPanel({
   backgroundColor,
   outlineWidth,
   outlineColor,
+  overlay = false,
 }: {
   variant: StoryFrameVariant
   text: string
@@ -1073,6 +1117,8 @@ function StoryCaptionPanel({
   backgroundColor: string
   outlineWidth: number
   outlineColor: string
+  /** 미디어 위 오버레이 — 템플릿 밴드 스타일 없이 텍스트만 */
+  overlay?: boolean
 }) {
   const darkBackground = variant === "hot" || variant === "breaking"
   const effectiveColor = darkBackground && color === "#000000" ? "#ffffff" : color
@@ -1088,6 +1134,10 @@ function StoryCaptionPanel({
       outlineColor={outlineColor}
     />
   )
+
+  if (overlay) {
+    return <div className="w-full">{caption}</div>
+  }
 
   if (variant === "board") {
     return <section className="flex shrink-0 items-center border-l-[2cqw] border-[#23a6a8] bg-[#eefafa] px-[6%] py-[4%]">{caption}</section>

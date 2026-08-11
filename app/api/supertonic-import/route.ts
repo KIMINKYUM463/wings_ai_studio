@@ -1,6 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getSupertonicBaseUrl } from "@/lib/supertonic-local"
-import { sanitizeSupertonicVoiceName } from "@/lib/supertonic-voice-register"
+import {
+  sanitizeSupertonicVoiceName,
+  stripSupertonicVoiceFileName,
+} from "@/lib/supertonic-voice-register"
 
 const MAX_JSON_BYTES = 50 * 1024 * 1024
 
@@ -41,7 +44,7 @@ export async function POST(request: NextRequest) {
     }
 
     let name = sanitizeSupertonicVoiceName(
-      nameRaw || file.name.replace(/\.json$/i, "")
+      nameRaw || stripSupertonicVoiceFileName(file.name)
     )
     if (/^[FM][1-5]$/i.test(name) || /^n\d+$/i.test(name)) {
       name = `custom_${name}_${Date.now()}`

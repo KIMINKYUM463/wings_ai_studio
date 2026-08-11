@@ -822,6 +822,65 @@ async function handleSupertonicTts(req, res) {
   })
 }
 
+/** Voice Builder JSON → 로컬 Supertonic import (배포 사이트용 프록시) */
+async function handleSupertonicImport(req, res) {
+  const buf = await readBody(req)
+  const ct = String(req.headers["content-type"] || "")
+  if (!ct.toLowerCase().includes("multipart/form-data")) {
+    json(res, req, 400, {
+      success: false,
+      error: "multipart/form-data(JSON 파일)가 필요합니다.",
+    })
+    return
+  }
+  if (!buf.length || buf.length > 50 * 1024 * 1024) {
+    json(res, req, 400, {
+      success: false,
+      error: "JSON 파일은 50MB 이하여야 합니다.",
+    })
+    return
+  }
+  let upstream
+  try {
+    upstream = await fetch(`${SUPERTONIC_BASE}/v1/styles/import?overwrite=true`, {
+      method: "POST",
+      headers: { "content-type": ct },
+      body: buf,
+      signal: AbortSignal.timeout(60000),
+    })
+  } catch (e) {
+    json(res, req, 503, {
+      success: false,
+      error: `로컬 Supertonic 연결 실패: ${
+        e instanceof Error ? e.message : "fetch failed"
+      }. 「Supertonic 자동 실행」으로 serve를 켜세요.`,
+      baseUrl: SUPERTONIC_BASE,
+    })
+    return
+  }
+  const text = await upstream.text().catch(() => "")
+  let data = {}
+  try {
+    data = JSON.parse(text || "{}")
+  } catch {
+    data = { raw: text.slice(0, 300) }
+  }
+  if (!upstream.ok) {
+    json(res, req, upstream.status, {
+      success: false,
+      error: `import 실패 (${upstream.status}): ${String(
+        data.detail || data.message || text
+      ).slice(0, 300)}`,
+    })
+    return
+  }
+  json(res, req, 200, {
+    success: true,
+    name: data.name,
+    stored_at: data.stored_at,
+  })
+}
+
 async function handleSupertonicVoices(req, res) {
   const builtins = ["F1", "F2", "F3", "F4", "F5", "M1", "M2", "M3", "M4", "M5"].map((id) => ({
     voice_id: id,
@@ -1128,6 +1187,11 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "GET" && pathname === "/supertonic/voices") {
       await handleSupertonicVoices(req, res)
+      return
+    }
+
+    if (req.method === "POST" && pathname === "/supertonic/import") {
+      await handleSupertonicImport(req, res)
       return
     }
 

@@ -239,12 +239,20 @@ export interface StorySceneAsset {
   mediaOffsetX?: number
   mediaOffsetY?: number
   mediaFit?: "cover" | "contain"
+  /** 카메라 이동(줌/팬) — 클립당 1개 */
   motionEffect?:
     | "none"
     | "zoom-in"
     | "zoom-out"
     | "pan-left"
     | "pan-right"
+    | "shake"
+    | "pulse"
+    | "blur-in"
+    | "flash"
+  /** 강조 효과(흔들림/펄스 등) — motionEffect와 동시 적용 가능 */
+  motionAccentEffect?:
+    | "none"
     | "shake"
     | "pulse"
     | "blur-in"

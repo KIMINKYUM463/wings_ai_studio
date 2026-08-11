@@ -568,11 +568,14 @@ export function normalizeVisualFocus(raw?: string | null): ShotformVisualFocus {
   return DEFAULT_VISUAL_FOCUS
 }
 
-/** IMAGE/MOTION 생성·정제용 지시 블록 */
+/** IMAGE/MOTION 생성·정제용 지시 블록 (narration/spokenScript에는 적용하지 않음) */
 export function visualFocusInstruction(focus: ShotformVisualFocus): string {
+  const scope =
+    "※ 아래 비주얼 포커스는 imagePrompt·motionPrompt에만 적용. narration/spokenScript(말할 대사)에는 인물 외모·헤어·의상·「동일 인물」「모습」「장면」 설명을 쓰지 말 것."
   switch (focus) {
     case "person":
-      return `비주얼 포커스: 인물 설명 위주
+      return `${scope}
+비주얼 포커스: 인물 설명 위주 (IMAGE/MOTION 전용)
 - 미디엄/바스트 위주. 인물 연령·헤어·의상·표정·시선을 구체적으로
 - 기본 인물: **한국인**(East Asian / Korean features). 국적을 바꾸지 말 것
 - **전 장면 동일 인물**: 첫 인물컷의 얼굴·헤어·연령대를 앵커로 고정하고 이후는 "동일 인물"로 유지 (제품 형태 유지과 같음)
@@ -581,14 +584,16 @@ export function visualFocusInstruction(focus: ShotformVisualFocus): string {
 - MOTION도 인물 표정·제스처 위주 + 제품 조작`
 
     case "product":
-      return `비주얼 포커스: 제품 위주
+      return `${scope}
+비주얼 포커스: 제품 위주 (IMAGE/MOTION 전용)
 - 클로즈업/익스트림 클로즈업·제품 풀샷 비중↑. 형태·색·재질·기능 부위 강조
 - 손은 조작 보조로만. 얼굴·전신은 최소화(없거나 아웃포커스)
 - 시퀀스에 제품 디테일샷 ≥2, 사용은 손 위주. 불필요한 인물 미소컷 금지
 - MOTION은 제품 디테일·조작·빛 반사 위주`
 
     default:
-      return `비주얼 포커스: 인물+제품 균형
+      return `${scope}
+비주얼 포커스: 인물+제품 균형 (IMAGE/MOTION 전용)
 - 사용 장면(인물+제품) ≥2 + 제품 디테일샷 ≥1 + 제시/CTA 권장
 - 인물 장면은 **한국인** 기본 + **전 장면 동일 얼굴/헤어** (제품 풀네임·형태 보존과 함께 지킬 것)
 - 첫 인물 장면에 외모 앵커를 구체적으로 쓰고, 이후 인물컷은 같은 사람으로

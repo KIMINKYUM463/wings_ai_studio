@@ -29,6 +29,7 @@ export const SUPERTONIC_CUSTOM_VOICE_META: Record<
 > = {
   yeoseong1: { name: "여자목소리1", gender: "female" },
   namseong1: { name: "남자목소리1", gender: "male" },
+  dasom: { name: "다솜", gender: "female" },
 }
 
 /**

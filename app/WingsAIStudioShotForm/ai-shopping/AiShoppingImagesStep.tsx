@@ -477,8 +477,9 @@ export function AiShoppingImagesStep({
               </SelectContent>
             </Select>
             <p className="text-[10px] text-zinc-600">
-              {imageModel === "qwen-image" ? "qwen/qwen-image" : "google/nano-banana"} · 제품
-              참고 이미지 지원 · 9:16
+              {imageModel === "qwen-image"
+                ? "qwen/qwen-image · 제품 정체성 참고 + 장면 프롬프트로 재구성 · 9:16"
+                : "google/nano-banana · 제품 참고 이미지 지원 · 9:16"}
             </p>
           </div>
 

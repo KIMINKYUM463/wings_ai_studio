@@ -51,6 +51,29 @@ export async function fetchSupertonicVoices(init?: RequestInit): Promise<Respons
   return fetch("/api/supertonic-voices", { cache: "no-store", ...init })
 }
 
+/**
+ * Voice Builder JSON import.
+ * 배포 사이트는 Next(Vercel)가 PC의 7788에 못 붙으므로 로컬 에이전트(3847)로 보낸다.
+ */
+export async function fetchSupertonicImport(
+  form: FormData,
+  init?: RequestInit
+): Promise<Response> {
+  if (isBrowserOnDeployedHost()) {
+    const base = companionSupertonicBase()
+    return fetch(`${base}/supertonic/import`, {
+      method: "POST",
+      body: form,
+      ...init,
+    })
+  }
+  return fetch("/api/supertonic-import", {
+    method: "POST",
+    body: form,
+    ...init,
+  })
+}
+
 /** 상태 확인 — 배포면 로컬 에이전트, 로컬 Next면 /api/supertonic-health */
 export async function fetchSupertonicHealth(init?: RequestInit): Promise<{
   online: boolean

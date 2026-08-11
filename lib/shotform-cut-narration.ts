@@ -329,7 +329,7 @@ function stripSceneMeta(description: string): string {
     .trim()
 }
 
-/** 장면 묘사를 그대로 읽는 나레이션 (모습해요, 보임 등) */
+/** 장면 묘사를 그대로 읽는 나레이션 (모습해요, 보임 등) — TTS 대사로 쓰면 안 되는 연출문 */
 export function looksLikeDescriptiveSceneNarration(text: string): boolean {
   const t = text.trim().replace(/\n/g, " ")
   if (!t) return false
@@ -338,6 +338,20 @@ export function looksLikeDescriptiveSceneNarration(text: string): boolean {
   if (/닦고\s*있는\s*모습/.test(t)) return true
   if (/(?:보임|벌어져|강조됨|클로즈업\s*샷)/.test(t) && !/편해요|쉬워요|깔끔|좋아요|추천/.test(t)) return true
   if (/^[^.!?]{6,28}[,.·\s]*해요$/.test(t) && /(?:모습|장면|보이|닦고)/.test(t)) return true
+  // 쇼핑 숏폼: 인물/장면 연출 노트가 narration으로 새는 경우
+  if (
+    /(하는\s*모습|하는\s*장면|보여주는\s*장면|동일\s*인물|클로즈업|시선이\s*집중|고민하는\s*모습|작업하는\s*장면)/i.test(
+      t
+    )
+  ) {
+    return true
+  }
+  if (
+    /(?:한국\s*여성|한국\s*남성|단발|흑발|\d+대\s*(?:초|중|후)?반).{0,40}(?:모습|장면)/i.test(t) &&
+    !/[요다죠네]$/.test(t.replace(/[.!?。！？…]+$/, ""))
+  ) {
+    return true
+  }
   return false
 }
 

@@ -7,7 +7,8 @@ $dir = Join-Path $PSScriptRoot "..\voices\supertonic" | Resolve-Path
 
 $voices = @(
   @{ file = "yeoseong1.json"; name = "yeoseong1" },
-  @{ file = "namseong1.json"; name = "namseong1" }
+  @{ file = "namseong1.json"; name = "namseong1" },
+  @{ file = "dasom.json"; name = "dasom" }
 )
 
 Write-Host "Health check..."

@@ -60,15 +60,40 @@ export async function audioBlobToWav(blob: Blob): Promise<Blob> {
   }
 }
 
-export function sanitizeSupertonicVoiceName(raw: string): string {
-  const cleaned = raw
+/** 한글/별칭 → Supertonic ASCII voice id */
+const SUPERTONIC_VOICE_NAME_ALIASES: Record<string, string> = {
+  다솜: "dasom",
+  dasom: "dasom",
+}
+
+/** Voice Builder / .supertonic-3.json 파일명에서 import용 이름 추출 */
+export function stripSupertonicVoiceFileName(fileName: string): string {
+  return fileName
     .trim()
     .replace(/\.json$/i, "")
+    .replace(/\.supertonic-3(\s*\(\d+\))?$/i, "")
+    .replace(/\s*\(\d+\)$/i, "")
+    .trim()
+}
+
+export function sanitizeSupertonicVoiceName(raw: string): string {
+  const trimmed = raw.trim()
+  const aliasHit =
+    SUPERTONIC_VOICE_NAME_ALIASES[trimmed] ||
+    SUPERTONIC_VOICE_NAME_ALIASES[stripSupertonicVoiceFileName(trimmed)]
+  if (aliasHit) return aliasHit
+
+  const cleaned = stripSupertonicVoiceFileName(trimmed)
     .replace(/[^a-zA-Z0-9_-]/g, "_")
     .replace(/_+/g, "_")
     .replace(/^_|_$/g, "")
     .slice(0, 48)
   return cleaned || `voice_${Date.now()}`
+}
+
+/** JSON / Voice Builder 파일인지 (확장자) */
+export function isSupertonicVoiceJsonFileName(fileName: string): boolean {
+  return /\.json$/i.test(fileName.trim())
 }
 
 export const SUPERTONIC_VOICE_BUILDER_URL = "https://supertonic.supertone.ai/voice-builder"

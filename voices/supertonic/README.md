@@ -4,6 +4,7 @@
 |------|---------------|---------|
 | `yeoseong1.json` | `yeoseong1` | 여자목소리1 · 커스텀 |
 | `namseong1.json` | `namseong1` | 남자목소리1 · 커스텀 |
+| `dasom.json` | `dasom` | 다솜 · 커스텀 |
 
 ## 자동 설치·기동 (권장)
 

@@ -716,10 +716,12 @@ export const StoryEditorWorkspace = forwardRef<
       : "transparent",
     textOutlineWidth: editSettings.subtitleOutlineWidth,
     textOutlineColor: editSettings.subtitleOutlineColor,
+    subtitlePosition: editSettings.subtitlePosition || ("bottom" as const),
   }
   const activeSubtitleFrameStyle = {
     ...subtitleFrameStyle,
     textScale: Math.max(0.75, Math.min(1.35, subtitleSizeDraft / 36)),
+    subtitlePosition: editSettings.subtitlePosition || "bottom",
   }
 
   const patchEdit = (patch: Partial<StoryEditSettings>) => {
@@ -742,6 +744,7 @@ export const StoryEditorWorkspace = forwardRef<
         lineIndex,
         rightsConfirmed: next.rightsConfirmed ?? true,
         motionEffect: next.motionEffect || "zoom-in",
+        motionAccentEffect: next.motionAccentEffect || "none",
         mediaScale: next.mediaScale ?? 1,
         mediaOffsetX: next.mediaOffsetX ?? 0,
         mediaOffsetY: next.mediaOffsetY ?? 0,
@@ -767,6 +770,45 @@ export const StoryEditorWorkspace = forwardRef<
       applyAssetToSlot(selected.sceneId, selected.lineIndex, next)
     },
     [applyAssetToSlot, selected]
+  )
+
+  /** 화면 효과를 미디어 있는 모든 클립에 일괄 적용 */
+  const applyMotionEffectsToAll = useCallback(
+    (patch: {
+      motionEffect?: StorySceneAsset["motionEffect"]
+      motionAccentEffect?: StorySceneAsset["motionAccentEffect"]
+    }) => {
+      onChange((current) => {
+        const prevAssets = current.sceneAssets || []
+        const nextAssets = [...prevAssets]
+        for (const slot of slots) {
+          const prev = resolveStoryLineAsset(
+            prevAssets,
+            slot.sceneId,
+            slot.lineIndex
+          )
+          if (!prev?.mediaUrl) continue
+          const updated: StorySceneAsset = {
+            ...prev,
+            sceneId: slot.sceneId,
+            lineIndex: slot.lineIndex,
+            ...(patch.motionEffect !== undefined
+              ? { motionEffect: patch.motionEffect }
+              : {}),
+            ...(patch.motionAccentEffect !== undefined
+              ? { motionAccentEffect: patch.motionAccentEffect }
+              : {}),
+          }
+          const idx = nextAssets.findIndex((item) =>
+            isSameStoryAssetSlot(item, updated)
+          )
+          if (idx >= 0) nextAssets[idx] = updated
+          else nextAssets.push(updated)
+        }
+        return { ...current, sceneAssets: nextAssets }
+      })
+    },
+    [onChange, slots]
   )
 
   const filledCount = useMemo(() => {
@@ -3540,6 +3582,7 @@ export const StoryEditorWorkspace = forwardRef<
           mediaOffsetX: asset?.mediaOffsetX,
           mediaOffsetY: asset?.mediaOffsetY,
           motionEffect: asset?.motionEffect,
+          motionAccentEffect: asset?.motionAccentEffect,
           backgroundColor: editSettings.backgroundColor,
         }
       })
@@ -4504,6 +4547,34 @@ export const StoryEditorWorkspace = forwardRef<
                   {selected?.text || "—"}
                 </p>
                 <div>
+                  <Label className="text-[10px] text-slate-500">자막 위치</Label>
+                  <div className="mt-2 grid grid-cols-3 gap-1">
+                    {(
+                      [
+                        ["top", "상단"],
+                        ["center", "중앙"],
+                        ["bottom", "하단"],
+                      ] as const
+                    ).map(([pos, label]) => (
+                      <button
+                        key={pos}
+                        type="button"
+                        onClick={() => patchEdit({ subtitlePosition: pos })}
+                        className={`rounded-md border py-2 text-[9px] font-bold ${
+                          (editSettings.subtitlePosition || "bottom") === pos
+                            ? "border-blue-500 bg-blue-50 text-blue-700"
+                            : "border-slate-200 text-slate-500 hover:bg-slate-50"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-1.5 text-[9px] text-slate-400">
+                    하단=채널 템플릿 밴드 · 상단/중앙=영상 위 오버레이 (전체 클립 공통)
+                  </p>
+                </div>
+                <div>
                   <Label className="text-[10px] text-slate-500">글꼴</Label>
                   <select
                     value={editSettings.subtitleFontFamily}
@@ -4784,15 +4855,18 @@ export const StoryEditorWorkspace = forwardRef<
                 ) : null}
                 {selectedAsset?.mediaUrl ? (
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <div className="flex items-center justify-between">
-                      <p className="text-[10px] font-bold text-slate-700">
-                        캡컷형 화면 효과
-                      </p>
-                      <span className="text-[9px] text-slate-400">
-                        이미지·영상 공통
-                      </span>
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-700">
+                          캡컷형 화면 효과
+                        </p>
+                        <p className="mt-0.5 text-[9px] text-slate-400">
+                          카메라 이동 + 강조 효과를 같이 쓸 수 있어요
+                        </p>
+                      </div>
                     </div>
-                    <div className="mt-2 grid grid-cols-3 gap-1">
+                    <p className="mt-2 text-[9px] font-bold text-slate-500">카메라 이동</p>
+                    <div className="mt-1 grid grid-cols-3 gap-1">
                       {(
                         [
                           ["none", "없음"],
@@ -4800,10 +4874,6 @@ export const StoryEditorWorkspace = forwardRef<
                           ["zoom-out", "줌아웃"],
                           ["pan-left", "왼쪽 팬"],
                           ["pan-right", "오른쪽 팬"],
-                          ["shake", "흔들림"],
-                          ["pulse", "펄스"],
-                          ["blur-in", "블러 등장"],
-                          ["flash", "플래시"],
                         ] as const
                       ).map(([effect, label]) => {
                         const active =
@@ -4825,6 +4895,65 @@ export const StoryEditorWorkspace = forwardRef<
                           </button>
                         )
                       })}
+                    </div>
+                    <p className="mt-3 text-[9px] font-bold text-slate-500">강조 효과 (중복 가능)</p>
+                    <div className="mt-1 grid grid-cols-3 gap-1">
+                      {(
+                        [
+                          ["none", "없음"],
+                          ["shake", "흔들림"],
+                          ["pulse", "펄스"],
+                          ["blur-in", "블러 등장"],
+                          ["flash", "플래시"],
+                        ] as const
+                      ).map(([effect, label]) => {
+                        const active =
+                          (selectedAsset.motionAccentEffect || "none") === effect
+                        return (
+                          <button
+                            key={effect}
+                            type="button"
+                            onClick={() =>
+                              applyAsset({
+                                ...selectedAsset,
+                                motionAccentEffect: effect,
+                              })
+                            }
+                            className={`rounded-md border py-2 text-[9px] font-bold ${
+                              active
+                                ? "border-violet-500 bg-violet-600 text-white"
+                                : "border-slate-200 bg-white text-slate-500 hover:bg-slate-100"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          applyMotionEffectsToAll({
+                            motionEffect: selectedAsset.motionEffect || "none",
+                          })
+                        }
+                        className="rounded-md border border-blue-200 bg-white px-2 py-2 text-[9px] font-bold text-blue-700 hover:bg-blue-50"
+                      >
+                        카메라 효과 일괄적용
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          applyMotionEffectsToAll({
+                            motionAccentEffect:
+                              selectedAsset.motionAccentEffect || "none",
+                          })
+                        }
+                        className="rounded-md border border-violet-200 bg-white px-2 py-2 text-[9px] font-bold text-violet-700 hover:bg-violet-50"
+                      >
+                        강조 효과 일괄적용
+                      </button>
                     </div>
                   </div>
                 ) : null}

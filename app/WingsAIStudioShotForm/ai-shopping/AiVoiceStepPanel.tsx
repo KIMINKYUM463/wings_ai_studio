@@ -38,11 +38,14 @@ import {
 } from "@/lib/supertonic-local"
 import {
   audioBlobToWav,
+  isSupertonicVoiceJsonFileName,
   sanitizeSupertonicVoiceName,
+  stripSupertonicVoiceFileName,
 } from "@/lib/supertonic-voice-register"
 import { isRecordedVoiceId } from "@/lib/supertonic-recorded"
 import {
   fetchSupertonicHealth,
+  fetchSupertonicImport,
   fetchSupertonicVoices,
 } from "@/lib/supertonic-runtime-client"
 import { SupertonicSetupBar } from "../components/SupertonicSetupBar"
@@ -441,30 +444,48 @@ export function AiVoiceStepPanel({
   }
 
   const importSupertonicJsonVoice = async (file: File) => {
-    if (!/\.json$/i.test(file.name)) {
-      alert("Supertonic Voice Builder JSON 파일만 선택할 수 있습니다.")
+    if (!isSupertonicVoiceJsonFileName(file.name)) {
+      alert(
+        "Supertonic Voice Builder JSON 파일만 선택할 수 있습니다. (.json / .supertonic-3.json)"
+      )
       return
     }
     setIsImportingJsonVoice(true)
     setTrainStatusMsg("JSON 목소리를 Supertonic 3에 등록하는 중…")
     try {
+      // 배포 사이트는 로컬 에이전트로 가므로, 업로드 전 JSON 스키마를 브라우저에서 확인
+      let parsed: Record<string, unknown>
+      try {
+        parsed = JSON.parse(await file.text()) as Record<string, unknown>
+      } catch {
+        throw new Error("올바른 JSON 파일이 아닙니다.")
+      }
+      if (!parsed.style_ttl || !parsed.style_dp) {
+        throw new Error(
+          "Supertonic Voice Builder JSON이 아닙니다. style_ttl과 style_dp가 필요합니다."
+        )
+      }
       const name = sanitizeSupertonicVoiceName(
-        jsonVoiceName.trim() || file.name.replace(/\.json$/i, "")
+        jsonVoiceName.trim() || stripSupertonicVoiceFileName(file.name)
       )
-      const form = new FormData()
-      form.append("file", file, file.name)
-      form.append("name", name)
-      const res = await fetch("/api/supertonic-import", {
-        method: "POST",
-        body: form,
+      // file.text()로 본문을 읽었으므로 Blob으로 다시 감싸 FormData에 넣음
+      const jsonBlob = new Blob([JSON.stringify(parsed)], {
+        type: "application/json",
       })
+      const form = new FormData()
+      form.append("file", jsonBlob, `${name}.json`)
+      form.append("name", name)
+      const res = await fetchSupertonicImport(form)
       const data = (await res.json().catch(() => ({}))) as {
         success?: boolean
         error?: string
         name?: string
       }
       if (!res.ok || !data.success) {
-        throw new Error(data.error || "JSON 목소리 등록에 실패했습니다.")
+        throw new Error(
+          data.error ||
+            "JSON 목소리 등록에 실패했습니다. ShotForm Local Agent와 Supertonic serve가 켜져 있는지 확인하세요."
+        )
       }
       const voiceId = String(data.name || name)
       await checkSupertonic()
@@ -1162,7 +1183,7 @@ export function AiVoiceStepPanel({
               <input
                 ref={voiceJsonInputRef}
                 type="file"
-                accept="application/json,.json"
+                accept="application/json,.json,.supertonic-3.json"
                 className="hidden"
                 onChange={(event) => {
                   const file = event.target.files?.[0]
@@ -2156,7 +2177,7 @@ export function AiVoiceStepPanel({
                     <input
                       ref={trainJsonInputRef}
                       type="file"
-                      accept="application/json,.json"
+                      accept="application/json,.json,.supertonic-3.json"
                       className="hidden"
                       onChange={(e) => {
                         const f = e.target.files?.[0]
