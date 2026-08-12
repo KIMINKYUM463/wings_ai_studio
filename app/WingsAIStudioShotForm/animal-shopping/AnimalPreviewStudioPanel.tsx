@@ -491,7 +491,7 @@ export function AnimalPreviewStudioPanel({
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,360px)_1fr]">
-        <div className="mx-auto w-full max-w-[320px]">
+        <div className="mx-auto w-full max-w-[min(100%,320px)]">
           <div className="overflow-hidden rounded-[1.75rem] border border-[rgba(255,246,238,0.14)] bg-black shadow-[0_24px_60px_rgba(0,0,0,0.45)]">
             <div className="relative aspect-[9/16] bg-black">
               {hasMerged ? (

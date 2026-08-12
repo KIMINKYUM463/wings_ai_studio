@@ -30,6 +30,11 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Slider } from "@/components/ui/slider"
 import { cn } from "@/lib/utils"
+import { useIsMobile } from "@/hooks/use-mobile"
+import {
+  ShotFormMobileEditorTabs,
+  type ShotFormMobileEditorPane,
+} from "@/app/WingsAIStudioShotForm/components/ShotFormMobileEditorTabs"
 import { voiceAvatarFallbackColor } from "@/lib/shotform-factory-tts"
 import {
   ELEVENLABS_DEFAULT_VOICE_ID,
@@ -391,6 +396,15 @@ export function MvpCapCutEditor(props: Props) {
   const [previewScale, setPreviewScale] = useState(1)
   const [isMuted, setIsMuted] = useState(false)
   const timelineResizeCleanupRef = useRef<(() => void) | null>(null)
+  const isMobile = useIsMobile()
+  const mobileEditor = Boolean(popupMode && isMobile)
+  const [mobilePane, setMobilePane] = useState<ShotFormMobileEditorPane>("preview")
+
+  useEffect(() => {
+    if (!mobileEditor) return
+    // 폰에서는 타임라인을 더 높게 써서 트랙 편집 가능하게
+    setTimelineHeight((h) => Math.max(h, 280))
+  }, [mobileEditor])
 
   const deleteSelectedBgmClip = useCallback(() => {
     if (!selectedBgmClipId) return
@@ -1236,22 +1250,40 @@ export function MvpCapCutEditor(props: Props) {
       <div
         className={
           popupMode
-            ? "grid min-h-0 flex-1 grid-cols-[112px_minmax(0,1fr)_340px] gap-0"
+            ? cn(
+                "min-h-0 flex-1 gap-0",
+                mobileEditor
+                  ? "flex flex-col"
+                  : "grid grid-cols-[112px_minmax(0,1fr)_340px]"
+              )
             : "grid gap-0 lg:grid-cols-[minmax(0,1fr)_minmax(280px,340px)]"
         }
         style={
-          popupMode
+          popupMode && !mobileEditor
             ? { gridTemplateRows: `minmax(0, 1fr) ${timelineHeight}px` }
             : undefined
         }
       >
         {popupMode ? (
           <aside
-            className="min-h-0 overflow-y-auto border-r border-white/10 bg-[#101012] p-2"
+            className={cn(
+              "min-h-0 overflow-y-auto border-r border-white/10 bg-[#101012] p-2",
+              mobileEditor &&
+                (mobilePane === "preview"
+                  ? "max-h-[88px] shrink-0 overflow-x-auto overflow-y-hidden border-b border-r-0 p-1.5"
+                  : "hidden")
+            )}
             style={{ backgroundColor: "#ffffff" }}
           >
-            <p className="px-1 pb-2 text-[10px] font-semibold text-slate-500">전체 컷</p>
-            <div className="space-y-2">
+            <p
+              className={cn(
+                "px-1 pb-2 text-[10px] font-semibold text-slate-500",
+                mobileEditor && "sr-only"
+              )}
+            >
+              전체 컷
+            </p>
+            <div className={cn("space-y-2", mobileEditor && "flex flex-row gap-2 space-y-0")}>
               {editPlan.map((clip, index) => {
                 const selected = selectedEditPlanIndex === index
                 const activeClip = previewClipIndex === index
@@ -1260,7 +1292,8 @@ export function MvpCapCutEditor(props: Props) {
                     key={`${clip.video_id}-${clip.output_start}-${index}`}
                     type="button"
                     className={cn(
-                      "w-full overflow-hidden rounded-lg border text-left transition",
+                      "overflow-hidden rounded-lg border text-left transition",
+                      mobileEditor ? "w-[64px] shrink-0" : "w-full",
                       selected
                         ? "border-violet-400 bg-violet-500/15"
                         : activeClip
@@ -1273,9 +1306,15 @@ export function MvpCapCutEditor(props: Props) {
                       setSelectedOverlayId(null)
                       setSelectedBgmClipId(null)
                       seekToSceneIndex(index)
+                      if (mobileEditor) setMobilePane("preview")
                     }}
                   >
-                    <div className="relative flex aspect-[9/12] items-center justify-center overflow-hidden bg-gradient-to-br from-slate-900 to-black">
+                    <div
+                      className={cn(
+                        "relative flex items-center justify-center overflow-hidden bg-gradient-to-br from-slate-900 to-black",
+                        mobileEditor ? "aspect-square" : "aspect-[9/12]"
+                      )}
+                    >
                       {clipThumbnails[index] ? (
                         <img
                           src={clipThumbnails[index]}
@@ -1295,17 +1334,19 @@ export function MvpCapCutEditor(props: Props) {
                         {index + 1}
                       </span>
                     </div>
-                    <div className="p-1.5">
-                      <p className="truncate text-[10px] font-semibold text-slate-200">
-                        컷 {index + 1}
-                      </p>
-                      <p className="mt-0.5 truncate text-[8px] text-slate-500">
-                        {videoSourceLabel(result, clip.video_id)}
-                      </p>
-                      <p className="mt-0.5 font-mono text-[8px] text-violet-300/80">
-                        {(clip.output_end - clip.output_start).toFixed(1)}초
-                      </p>
-                    </div>
+                    {!mobileEditor ? (
+                      <div className="p-1.5">
+                        <p className="truncate text-[10px] font-semibold text-slate-200">
+                          컷 {index + 1}
+                        </p>
+                        <p className="mt-0.5 truncate text-[8px] text-slate-500">
+                          {videoSourceLabel(result, clip.video_id)}
+                        </p>
+                        <p className="mt-0.5 font-mono text-[8px] text-violet-300/80">
+                          {(clip.output_end - clip.output_start).toFixed(1)}초
+                        </p>
+                      </div>
+                    ) : null}
                   </button>
                 )
               })}
@@ -1314,13 +1355,26 @@ export function MvpCapCutEditor(props: Props) {
         ) : null}
 
         {/* preview + timeline */}
-        <div className={cn("space-y-0 border-r border-white/10", popupMode && "contents")}>
+        <div
+          className={cn(
+            "space-y-0 border-r border-white/10",
+            popupMode && !mobileEditor && "contents",
+            mobileEditor &&
+              (mobilePane === "preview"
+                ? "flex min-h-0 flex-1 flex-col border-r-0"
+                : mobilePane === "timeline"
+                  ? "flex min-h-0 flex-1 flex-col border-r-0"
+                  : "hidden")
+          )}
+        >
           <div
             className={cn(
               "flex flex-col bg-[#080808]",
               popupMode
                 ? "relative min-h-0 items-stretch overflow-hidden px-2 pb-0 pt-0"
-                : "items-center px-4 py-4"
+                : "items-center px-4 py-4",
+              mobileEditor && mobilePane !== "preview" && "hidden",
+              mobileEditor && mobilePane === "preview" && "min-h-0 flex-1"
             )}
             style={popupMode ? { backgroundColor: "#edf1f6" } : undefined}
           >
@@ -1684,11 +1738,18 @@ export function MvpCapCutEditor(props: Props) {
             className={cn(
               "px-3",
               popupMode
-                ? "relative col-span-3 row-start-2 flex h-full min-h-0 flex-col overflow-hidden border-t border-slate-200 bg-[#f8fafc] px-2 pb-0 pt-3"
+                ? cn(
+                    "relative flex h-full min-h-0 flex-col overflow-hidden border-t border-slate-200 bg-[#f8fafc] px-2 pb-0 pt-3",
+                    mobileEditor
+                      ? mobilePane === "timeline"
+                        ? "min-h-0 flex-1 border-t-0 pt-2"
+                        : "hidden"
+                      : "col-span-3 row-start-2"
+                  )
                 : "pb-4"
             )}
           >
-            {popupMode ? (
+            {popupMode && !mobileEditor ? (
               <div
                 role="separator"
                 aria-label="타임라인 높이 조절"
@@ -1724,11 +1785,13 @@ export function MvpCapCutEditor(props: Props) {
               hasAudio={Boolean(audioUrl)}
               selectedCueIndex={selectedCueIndex}
               fillHeight={popupMode}
+              initialPxPerSec={mobileEditor ? 40 : 72}
               onSelectCue={(i) => {
                 setSelectedCueIndex(i)
                 setSelectedOverlayId(null)
                 setSelectedEditPlanIndex(null)
                 setInspectorTab("subtitle")
+                if (mobileEditor) setMobilePane("edit")
               }}
               onSeek={onSeek}
               bgmClips={bgmClips}
@@ -1805,7 +1868,11 @@ export function MvpCapCutEditor(props: Props) {
             "flex max-h-[min(85vh,920px)] flex-col overflow-hidden",
             popupMode
               ? cn(insp.shell, "max-h-none min-h-0 border-l border-slate-200")
-              : "bg-[#101012]"
+              : "bg-[#101012]",
+            mobileEditor &&
+              (mobilePane === "edit"
+                ? "min-h-0 flex-1 border-l-0"
+                : "hidden")
           )}
         >
           <div className={cn(popupMode ? insp.tabBar : "flex border-b border-white/10")}>
@@ -2661,6 +2728,15 @@ export function MvpCapCutEditor(props: Props) {
             </button>
           ) : null}
         </div>
+
+        {mobileEditor ? (
+          <ShotFormMobileEditorTabs
+            value={mobilePane}
+            onChange={setMobilePane}
+            light
+            className="shrink-0"
+          />
+        ) : null}
       </div>
 
       <MvpVoicePickerDialog

@@ -864,7 +864,7 @@ export function InfoPreviewPanel({ brief }: { brief: InfoShoppingBrief }) {
     <section className="space-y-6">
       <div className="rounded-[28px] border border-white/[0.08] bg-[#11100e]/95 p-6 md:p-8">
         <p className="text-[10px] font-black tracking-[0.2em] text-sky-400">STEP 05 · PREVIEW</p>
-        <h2 className="mt-2 text-3xl font-black text-white">미리보기 · 내보내기</h2>
+        <h2 className="mt-2 text-xl font-black text-white sm:text-3xl">미리보기 · 내보내기</h2>
         <p className="mt-2 text-sm text-zinc-400">
           재생바로 중간에 멈추거나, 원하는 위치부터 다시 재생할 수 있습니다.
         </p>
@@ -963,7 +963,7 @@ export function InfoPreviewPanel({ brief }: { brief: InfoShoppingBrief }) {
         ) : null}
       </div>
 
-      <div className="relative mx-auto flex w-full max-w-[420px] flex-col items-center gap-3">
+      <div className="relative mx-auto flex w-full max-w-[min(100%,420px)] flex-col items-center gap-3">
         <div className="flex w-full justify-end">
           <Button
             type="button"

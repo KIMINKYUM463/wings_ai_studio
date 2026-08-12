@@ -788,8 +788,10 @@ export default function StoryShoppingPage() {
 
   return (
     <main
-      className={`relative min-h-screen overflow-hidden ${
-        activeStep === "edit" ? "bg-[#f7f8fa] text-slate-900" : "bg-[#080706] text-zinc-100"
+      className={`relative overflow-hidden ${
+        activeStep === "edit"
+          ? "min-h-[100dvh] bg-[#f7f8fa] text-slate-900"
+          : "min-h-screen bg-[#080706] text-zinc-100"
       }`}
     >
       <div className={`pointer-events-none fixed inset-0 ${activeStep === "edit" ? "hidden" : ""}`}>
@@ -898,7 +900,7 @@ export default function StoryShoppingPage() {
 
       <div className={`relative ${
         activeStep === "edit"
-          ? "h-[calc(100vh-61px)] max-w-none p-0"
+          ? "h-[calc(100dvh-61px)] max-w-none p-0"
           : "mx-auto max-w-[1440px] px-4 py-7 md:px-8"
       }`}>
         <div className={`relative mb-7 rounded-2xl border border-white/[0.07] bg-[#11100e]/80 px-3 py-3 md:px-5 ${

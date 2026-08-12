@@ -296,8 +296,10 @@ export function MvpInsertClipDialog({
     >
       <DialogContent
         className={cn(
-          "z-[220] max-h-[min(88vh,860px)] w-[min(100%-1.5rem,26rem)] overflow-y-auto bg-white text-slate-900",
-          "!left-auto !right-3 !top-[6%] !translate-x-0 !translate-y-0 sm:max-w-md"
+          "z-[220] max-h-[min(88vh,860px)] w-[min(100%-1rem,26rem)] overflow-y-auto bg-white text-slate-900 sm:max-w-md",
+          // 데스크톱: 오른쪽 고정 / 모바일: 하단 시트에 가깝게 중앙
+          "max-sm:!left-1/2 max-sm:!right-auto max-sm:!top-auto max-sm:!bottom-3 max-sm:!-translate-x-1/2 max-sm:!translate-y-0",
+          "sm:!left-auto sm:!right-3 sm:!top-[6%] sm:!translate-x-0 sm:!translate-y-0"
         )}
         overlayClassName="z-[210] pointer-events-none bg-transparent"
         onPointerDownOutside={(e) => {

@@ -173,8 +173,9 @@ export function MvpBlankFillTrimDialog({
     >
       <DialogContent
         className={cn(
-          "z-[230] max-h-[min(90vh,900px)] w-[min(100%-1.5rem,32rem)] overflow-y-auto bg-white text-slate-900",
-          "!left-auto !right-3 !top-[5%] !translate-x-0 !translate-y-0 sm:max-w-lg"
+          "z-[230] max-h-[min(90vh,900px)] w-[min(100%-1rem,32rem)] overflow-y-auto bg-white text-slate-900 sm:max-w-lg",
+          "max-sm:!left-1/2 max-sm:!right-auto max-sm:!top-auto max-sm:!bottom-3 max-sm:!-translate-x-1/2 max-sm:!translate-y-0",
+          "sm:!left-auto sm:!right-3 sm:!top-[5%] sm:!translate-x-0 sm:!translate-y-0"
         )}
         overlayClassName="z-[225] pointer-events-none bg-transparent"
         onPointerDownOutside={(e) => e.preventDefault()}

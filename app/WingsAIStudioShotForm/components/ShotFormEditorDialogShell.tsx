@@ -186,9 +186,9 @@ export function ShotFormEditorDialogShell({
           <p className={cn("truncate text-sm font-black", dark ? "text-white" : "text-slate-900")}>
             {title}
           </p>
-          <p className={cn("text-[10px]", dark ? "text-slate-500" : "text-slate-400")}>
+          <p className={cn("hidden text-[10px] sm:block", dark ? "text-slate-500" : "text-slate-400")}>
             {autoHideChrome
-              ? "좌측 상단을 가리키면 메뉴가 나타납니다 · Esc로 닫기"
+              ? "상단을 터치하거나 가리키면 메뉴가 나타납니다 · Esc로 닫기"
               : "Esc를 눌러 닫을 수 있습니다."}
           </p>
         </div>
@@ -213,7 +213,10 @@ export function ShotFormEditorDialogShell({
           ) : (
             <Maximize2 className="mr-2 h-4 w-4" />
           )}
-          {detailMode ? "디테일 작업 모드 종료" : "디테일 작업 모드"}
+          {detailMode ? "디테일 종료" : "디테일"}
+          <span className="sr-only">
+            {detailMode ? "디테일 작업 모드 종료" : "디테일 작업 모드"}
+          </span>
         </Button>
         {onDownload ? (
           <Button
@@ -287,11 +290,12 @@ export function ShotFormEditorDialogShell({
       aria-modal="true"
       aria-label={title}
       className={cn(
-        "fixed inset-0 z-[100]",
-        detailMode || autoHideChrome ? "p-0" : "p-2 md:p-4",
+        "fixed inset-0 z-[100] h-[100dvh] max-h-[100dvh]",
+        detailMode || autoHideChrome ? "p-0" : "p-0 sm:p-2 md:p-4",
         dark ? "bg-black/70 backdrop-blur-[2px]" : "bg-[#f7f8fa]"
       )}
       onWheel={(event) => event.stopPropagation()}
+      onTouchStart={autoHideChrome ? revealChrome : undefined}
     >
       <div
         className={cn(

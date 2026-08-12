@@ -79,6 +79,8 @@ type Props = {
   insertClipDropEnabled?: boolean
   /** 팝업 편집기처럼 부모 높이를 가득 채울 때 */
   fillHeight?: boolean
+  /** 타임라인 가로 줌 초기값 (모바일은 더 작게) */
+  initialPxPerSec?: number
 }
 
 type DragState = {
@@ -175,6 +177,7 @@ export function MvpCapCutTimeline({
   onInsertClipDrop,
   insertClipDropEnabled = false,
   fillHeight = false,
+  initialPxPerSec = 72,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const timelinePanelRef = useRef<HTMLDivElement>(null)
@@ -195,9 +198,13 @@ export function MvpCapCutTimeline({
   } | null>(null)
   const [insertDropMarkerSec, setInsertDropMarkerSec] = useState<number | null>(null)
   const [insertDropBlankIndex, setInsertDropBlankIndex] = useState<number | null>(null)
-  const [pxPerSec, setPxPerSec] = useState(72)
+  const [pxPerSec, setPxPerSec] = useState(initialPxPerSec)
   const pxPerSecRef = useRef(pxPerSec)
   pxPerSecRef.current = pxPerSec
+
+  useEffect(() => {
+    setPxPerSec(initialPxPerSec)
+  }, [initialPxPerSec])
 
   // Ctrl+B — 선택 영상 컷 자르기
   useEffect(() => {

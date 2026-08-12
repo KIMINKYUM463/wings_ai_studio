@@ -275,9 +275,9 @@ export function AiShoppingEditWorkspace({
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-12 xl:items-start">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-12 lg:items-start">
         {/* 왼쪽: 영상 프리뷰 */}
-        <div className="rounded-2xl border border-white/10 bg-[#121316] p-4 space-y-3 xl:col-span-4 xl:row-span-2">
+        <div className="rounded-2xl border border-white/10 bg-[#121316] p-3 space-y-3 sm:p-4 lg:sticky lg:top-2 lg:col-span-4 lg:row-span-2 lg:self-start">
           <div className="flex items-center justify-between text-[10px] uppercase tracking-wider text-zinc-500">
             <span>Preview</span>
             <span className="font-mono text-zinc-400">
@@ -287,7 +287,7 @@ export function AiShoppingEditWorkspace({
 
           <div
             ref={previewFrameRef}
-            className="relative mx-auto w-full max-w-[260px] aspect-[9/16] rounded-xl overflow-hidden border border-sky-500/30 bg-black shadow-[0_0_0_1px_rgba(56,189,248,0.15)]"
+            className="relative mx-auto w-full max-w-[min(100%,320px)] aspect-[9/16] rounded-xl overflow-hidden border border-sky-500/30 bg-black shadow-[0_0_0_1px_rgba(56,189,248,0.15)]"
           >
             {previewGenerated && hasVideos ? (
               <>
@@ -472,7 +472,7 @@ export function AiShoppingEditWorkspace({
         {/* 오른쪽 설정 + 하단 전체 타임라인 */}
         <div className="min-w-0 space-y-3 xl:contents">
           {/* 타임라인 툴바 + 트랙 */}
-          <div className="order-2 rounded-2xl border border-white/10 bg-[#121316] p-3 space-y-3 xl:col-span-12">
+          <div className="order-2 rounded-2xl border border-white/10 bg-[#121316] p-3 space-y-3 lg:col-span-12 overflow-x-auto">
             <div className="flex flex-wrap items-center gap-2 justify-between">
               <div className="hidden">
                 <Button type="button" size="sm" variant="outline" className="h-8 text-xs border-white/15 text-zinc-300" disabled>
@@ -587,7 +587,7 @@ export function AiShoppingEditWorkspace({
           </div>
 
           {/* 오른쪽: 자막 및 화면 설정 */}
-          <div className="order-1 grid grid-cols-1 gap-3 xl:col-span-8 xl:col-start-5 xl:row-start-1">
+          <div className="order-1 grid grid-cols-1 gap-3 lg:col-span-8 lg:col-start-5 lg:row-start-1">
             <div className="rounded-2xl border border-white/10 bg-[#121316] p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <div>
@@ -829,7 +829,7 @@ export function AiShoppingEditWorkspace({
           </div>
 
           {/* 미리보기 생성 + 내보내기 */}
-          <div className="order-1 rounded-2xl border border-white/10 bg-[#121316] p-3 space-y-3 xl:col-span-8 xl:col-start-5">
+          <div className="order-1 rounded-2xl border border-white/10 bg-[#121316] p-3 space-y-3 lg:col-span-8 lg:col-start-5">
             <Button
               type="button"
               onClick={onGeneratePreview}
