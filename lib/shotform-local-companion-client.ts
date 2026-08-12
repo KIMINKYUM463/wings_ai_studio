@@ -5,6 +5,11 @@ import type {
   CoupangCollectResult,
   CoupangReviewSort,
 } from "@/lib/shotform-coupang-reviews"
+import {
+  detectShotformClientOs,
+  localAgentStarterFilename,
+  localAgentStarterHint,
+} from "@/lib/shotform-client-os"
 
 export const DEFAULT_LOCAL_COMPANION_URL = "http://127.0.0.1:3847"
 export const LOCAL_COMPANION_URL_STORAGE_KEY = "shotform_local_companion_url"
@@ -83,16 +88,30 @@ function companionReady(
 
 /**
  * 깨진 shotform-agent:// (bare `node`) 는 쓰지 않는다.
- * 항상 최신 start-shotform-agent.cmd 를 받아 실행한다.
+ * OS에 맞는 스타터(Windows .cmd / macOS .command)를 받아 실행한다.
  */
 export function downloadLocalAgentStarter(): void {
   if (typeof window === "undefined") return
+  const os = detectShotformClientOs()
+  const file = os === "mac" ? "command" : "cmd"
+  const filename = localAgentStarterFilename(os)
   const a = document.createElement("a")
-  a.href = `/api/shotform/local-agent/download?file=cmd&t=${Date.now()}`
-  a.download = "start-shotform-agent.cmd"
+  a.href = `/api/shotform/local-agent/download?file=${file}&os=${os}&t=${Date.now()}`
+  a.download = filename
   document.body.appendChild(a)
   a.click()
   a.remove()
+}
+
+/** 확장·안내 팝업용 절대 URL */
+export function localAgentStarterDownloadUrl(origin?: string): string {
+  const os = detectShotformClientOs()
+  const file = os === "mac" ? "command" : "cmd"
+  const base = (origin || (typeof window !== "undefined" ? window.location.origin : "")).replace(
+    /\/$/,
+    ""
+  )
+  return `${base}/api/shotform/local-agent/download?file=${file}&os=${os}&t=${Date.now()}`
 }
 
 function openShotformAgentProtocol() {
@@ -115,20 +134,28 @@ function openShotformAgentProtocol() {
 /**
  * 에이전트 창 실행 — 수집기 없이도 동작.
  *
- * 브라우저는 보안상 .cmd 를 자동 실행할 수 없음 → 안내 팝업 1곳에서만
+ * 브라우저는 보안상 스타터를 자동 실행할 수 없음 → 안내 팝업 1곳에서만
  * 다운로드 + 「더블클릭」안내. (예전처럼 부모창+팝업 이중 다운로드하지 않음)
  */
 export function launchLocalAgentWindow(opts?: {
-  /** true면 팝업 없이 .cmd 만 받음 (UI에 안내 문구가 있을 때) */
+  /** true면 팝업 없이 스타터만 받음 (UI에 안내 문구가 있을 때) */
   downloadOnly?: boolean
 }): void {
   if (typeof window === "undefined") return
 
-  const cmdUrl = `${window.location.origin}/api/shotform/local-agent/download?file=cmd&t=${Date.now()}`
+  const cmdUrl = localAgentStarterDownloadUrl()
 
-  // 수집기 확장이 있으면 .cmd 자동 실행 시도 (있으면 좋음)
+  // 수집기 확장이 있으면 스타터 자동 실행 시도 (있으면 좋음)
   try {
-    window.postMessage({ type: "SHOTFORM_LAUNCH_AGENT", cmdUrl }, window.location.origin)
+    window.postMessage(
+      {
+        type: "SHOTFORM_LAUNCH_AGENT",
+        cmdUrl,
+        filename: `ShotForm/${localAgentStarterFilename()}`,
+        os: detectShotformClientOs(),
+      },
+      window.location.origin
+    )
   } catch {
     /* ignore */
   }
@@ -186,7 +213,7 @@ export async function connectLocalAgent(opts?: {
     const existing = await probeLocalCompanion(baseUrl)
     if (companionReady(existing, requireFfmpeg)) {
       onProgress?.(
-        "에이전트가 이미 실행 중입니다. (http://127.0.0.1:3847)\n검은 창은 끄지 마세요."
+        "에이전트가 이미 실행 중입니다. (http://127.0.0.1:3847)\n에이전트 창은 끄지 마세요."
       )
       return existing
     }
@@ -217,22 +244,17 @@ export async function connectLocalAgent(opts?: {
         /* ignore */
       }
       onProgress?.(
-        "에이전트가 실행 중입니다. (http://127.0.0.1:3847)\n검은 창은 끄지 마세요."
+        "에이전트가 실행 중입니다. (http://127.0.0.1:3847)\n에이전트 창은 끄지 마세요."
       )
       return health
     }
   }
 
-  onProgress?.(
-    "다운로드 폴더의 start-shotform-agent.cmd 를 더블클릭하세요.\n" +
-      "창에 Found: ...\\nodejs\\node.exe 와 Starting agent 가 보이면 성공입니다.\n" +
-      "(System32 에서 'node' 오류만 보이면 그건 예전 창이니 닫으세요)"
-  )
+  onProgress?.(localAgentStarterHint())
   return {
     ok: false,
     ffmpeg: false,
-    error:
-      "start-shotform-agent.cmd 를 더블클릭하세요. (Found: node.exe 가 보여야 정상)",
+    error: `${localAgentStarterFilename()} 를 더블클릭하세요.`,
   }
 }
 

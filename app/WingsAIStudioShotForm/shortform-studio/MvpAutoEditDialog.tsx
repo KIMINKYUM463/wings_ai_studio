@@ -1086,12 +1086,15 @@ export function MvpAutoEditDialog({
                   disabled={loading}
                   onClick={() => setRenderMode("server")}
                   className={cn(
-                    "rounded-lg border px-3 py-2.5 text-center transition",
+                    "relative rounded-lg border px-3 py-2.5 text-center transition",
                     renderMode === "server"
                       ? "border-violet-500/60 bg-violet-500/15 ring-1 ring-violet-500/40"
                       : "border-white/10 bg-black/30 hover:border-white/20"
                   )}
                 >
+                  <span className="absolute -right-1 -top-1 rounded bg-violet-500 px-1.5 py-0.5 text-[9px] font-bold leading-none text-white shadow-sm">
+                    추천
+                  </span>
                   <span className="text-xs font-semibold text-slate-200">서버</span>
                 </button>
                 <button

@@ -29,6 +29,10 @@ function shotformDir() {
   if (process.platform === "win32") {
     return path.join(process.env.LOCALAPPDATA || os.homedir(), "ShotForm")
   }
+  // macOS: start-shotform-agent.command 와 동일 경로
+  if (process.platform === "darwin") {
+    return path.join(os.homedir(), "Library", "Application Support", "ShotForm")
+  }
   return path.join(os.homedir(), ".config", "ShotForm")
 }
 
@@ -333,7 +337,7 @@ async function ensureEnsureScript(hintOrigin) {
     return {
       ok: false,
       reason:
-        "설치 스크립트 URL을 모릅니다. 사이트에서 start-shotform-agent.cmd 를 다시 받아 실행하세요.",
+        "설치 스크립트 URL을 모릅니다. 사이트에서 start-shotform-agent 실행 파일을 다시 받아 실행하세요.",
     }
   }
   try {

@@ -1,15 +1,21 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Loader2, Power, Sparkles } from "lucide-react"
+import { Loader2, Power, Sparkles, Terminal } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { downloadLocalAgentStarter } from "@/lib/shotform-local-companion-client"
+import {
+  detectShotformClientOs,
+  localAgentStarterHint,
+  localAgentStarterLabel,
+} from "@/lib/shotform-client-os"
 import { ensureSupertonicReady } from "@/lib/supertonic-ensure-client"
 import {
   fetchSupertonicHealth,
   isBrowserOnDeployedHost,
 } from "@/lib/supertonic-runtime-client"
 import { SupertonicSetupWizard } from "../ai-shopping/SupertonicSetupWizard"
+import { SupertonicMacSetupGuide } from "../ai-shopping/SupertonicMacSetupGuide"
 
 type Props = {
   /** 연결 성공 시 (보이스 목록 다시 불러오기 등) */
@@ -19,11 +25,11 @@ type Props = {
 }
 
 /**
- * 버튼 한 번으로 이 PC에서
- * `supertonic serve --host 127.0.0.1 --port 7788 --model supertonic-3`
- * 를 자동 실행합니다. (터미널을 직접 열 필요 없음)
+ * Windows: 원클릭 「Supertonic 자동 실행」유지
+ * Mac: 단계별 「Mac 준비 가이드」로 따라하기
  */
 export function SupertonicSetupBar({ onReady, disabled, className = "" }: Props) {
+  const isMac = detectShotformClientOs() === "mac"
   const [setupWizardOpen, setSetupWizardOpen] = useState(false)
   const [wizardFailReason, setWizardFailReason] = useState<string | null>(null)
   const [healthMsg, setHealthMsg] = useState("")
@@ -46,7 +52,9 @@ export function SupertonicSetupBar({ onReady, disabled, className = "" }: Props)
       setHealthMsg(
         data.error ||
           data.message ||
-          "꺼져 있습니다. 아래 「Supertonic 자동 실행」을 누르세요."
+          (isMac
+            ? "꺼져 있습니다. 아래 「Mac 준비 가이드」를 순서대로 따라 하세요."
+            : "꺼져 있습니다. 아래 「Supertonic 자동 실행」을 누르세요.")
       )
     }
     return data.online
@@ -59,9 +67,9 @@ export function SupertonicSetupBar({ onReady, disabled, className = "" }: Props)
     }, 12000)
     return () => window.clearInterval(id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [busy])
+  }, [busy, isMac])
 
-  /** 핵심: 터미널 없이 serve 자동 기동 */
+  /** Windows 핵심: 터미널 없이 serve 자동 기동 */
   const autoStart = async () => {
     setBusy(true)
     setOnline(false)
@@ -93,7 +101,6 @@ export function SupertonicSetupBar({ onReady, disabled, className = "" }: Props)
       if (isOnline) {
         window.setTimeout(() => void refreshHealth(), 500)
       } else {
-        // Python 없음·에이전트 문제 등 → 체크리스트 팝업으로 바로 안내
         openChecklist(failText)
       }
     } catch (e) {
@@ -108,7 +115,20 @@ export function SupertonicSetupBar({ onReady, disabled, className = "" }: Props)
     }
   }
 
-  /** 원클릭 실패 시 — 더블클릭만 하면 되는 .cmd (터미널 명령 입력 불필요) */
+  /** Mac: 이미 연결된 경우만 재확인, 아니면 가이드 */
+  const onPrimaryClick = () => {
+    if (isMac) {
+      if (online === true) {
+        void autoStart()
+        return
+      }
+      openChecklist()
+      return
+    }
+    void autoStart()
+  }
+
+  /** Windows 전용 fallback .cmd — Mac은 가이드에서 처리 */
   const downloadStarter = () => {
     const body = `@echo off
 chcp 65001 >nul
@@ -141,6 +161,13 @@ pause
   const msgClass =
     online === true ? "text-emerald-200/95" : "text-amber-50/95"
 
+  const primaryLabel = (() => {
+    if (online === true) return "Supertonic 다시 연결"
+    if (busy) return isMac ? "확인 중…" : "자동 실행 중…"
+    if (isMac) return "Mac 준비 가이드 시작"
+    return "Supertonic 자동 실행"
+  })()
+
   return (
     <div className={`space-y-2.5 rounded-2xl border p-3 ${borderClass} ${className}`}>
       <Button
@@ -148,24 +175,22 @@ pause
         size="lg"
         className="h-11 w-full bg-emerald-600 text-sm font-bold text-white hover:bg-emerald-500 disabled:opacity-60"
         disabled={disabled || busy}
-        onClick={() => void autoStart()}
+        onClick={onPrimaryClick}
       >
         {busy ? (
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+        ) : isMac && online !== true ? (
+          <Terminal className="mr-2 h-4 w-4" />
         ) : (
           <Power className="mr-2 h-4 w-4" />
         )}
-        {online === true
-          ? "Supertonic 다시 연결"
-          : busy
-            ? "자동 실행 중…"
-            : "Supertonic 자동 실행"}
+        {primaryLabel}
       </Button>
 
       <p className="text-[10px] leading-relaxed text-zinc-500">
-        에이전트 창이 이미 열려 있으면 .cmd를 다시 받지 않고 설치·기동만
-        진행합니다. (1) 3847 창 유지 (2) Python 3 + PATH (3) 상태가 installing →
-        starting → ready. 구버전 에이전트면 아래「에이전트 업데이트」한 번만.
+        {isMac
+          ? "Mac은 Windows와 달라 자동 실행이 제한됩니다. 가이드에서 Node → Python → .command 더블클릭 → Supertonic 순서로 따라 하세요. Terminal 창은 닫지 마세요."
+          : "에이전트 창이 이미 열려 있으면 실행 파일을 다시 받지 않고 설치·기동만 진행합니다. (1) 3847 창 유지 (2) Python 3 + PATH (3) 상태가 installing → starting → ready. 구버전 에이전트면 아래「에이전트 업데이트」한 번만."}
       </p>
 
       {healthMsg ? (
@@ -181,26 +206,32 @@ pause
           onClick={() => openChecklist()}
           className="inline-flex items-center gap-1 text-[10px] text-zinc-400 underline-offset-2 hover:text-zinc-200 hover:underline disabled:opacity-50"
         >
-          <Sparkles className="h-3 w-3" />
-          준비 체크리스트
+          {isMac ? (
+            <>
+              <Terminal className="h-3 w-3" />
+              Mac 준비 가이드
+            </>
+          ) : (
+            <>
+              <Sparkles className="h-3 w-3" />
+              준비 체크리스트
+            </>
+          )}
         </button>
-        {isBrowserOnDeployedHost() ? (
+        {!isMac && isBrowserOnDeployedHost() ? (
           <button
             type="button"
             disabled={disabled || busy}
             onClick={() => {
-              // 팝업 없이 파일만 — 안내 문구는 이 바에 표시
               downloadLocalAgentStarter()
-              setHealthMsg(
-                "start-shotform-agent.cmd 를 받았습니다.\nChrome은 .cmd를 자동 실행할 수 없어, 다운로드 폴더에서 더블클릭하세요.\n기존 에이전트 창은 닫은 뒤 실행 → 「Supertonic 자동 실행」."
-              )
+              setHealthMsg(localAgentStarterHint())
             }}
             className="text-[10px] text-zinc-400 underline-offset-2 hover:text-zinc-200 hover:underline disabled:opacity-50"
           >
-            에이전트 업데이트 (.cmd)
+            {localAgentStarterLabel().replace("에이전트 받기", "에이전트 업데이트")}
           </button>
         ) : null}
-        {online === false ? (
+        {!isMac && online === false ? (
           <button
             type="button"
             disabled={disabled || busy}
@@ -212,23 +243,43 @@ pause
         ) : null}
       </div>
 
-      <SupertonicSetupWizard
-        open={setupWizardOpen}
-        onOpenChange={(open) => {
-          setSetupWizardOpen(open)
-          if (!open) setWizardFailReason(null)
-        }}
-        failReason={wizardFailReason}
-        onReady={(info) => {
-          setOnline(Boolean(info.online))
-          if (info.message) setHealthMsg(info.message)
-          onReady?.(info)
-          if (info.online) {
-            setSetupWizardOpen(false)
-            setWizardFailReason(null)
-          }
-        }}
-      />
+      {isMac ? (
+        <SupertonicMacSetupGuide
+          open={setupWizardOpen}
+          onOpenChange={(open) => {
+            setSetupWizardOpen(open)
+            if (!open) setWizardFailReason(null)
+          }}
+          failReason={wizardFailReason}
+          onReady={(info) => {
+            setOnline(Boolean(info.online))
+            if (info.message) setHealthMsg(info.message)
+            onReady?.(info)
+            if (info.online) {
+              setSetupWizardOpen(false)
+              setWizardFailReason(null)
+            }
+          }}
+        />
+      ) : (
+        <SupertonicSetupWizard
+          open={setupWizardOpen}
+          onOpenChange={(open) => {
+            setSetupWizardOpen(open)
+            if (!open) setWizardFailReason(null)
+          }}
+          failReason={wizardFailReason}
+          onReady={(info) => {
+            setOnline(Boolean(info.online))
+            if (info.message) setHealthMsg(info.message)
+            onReady?.(info)
+            if (info.online) {
+              setSetupWizardOpen(false)
+              setWizardFailReason(null)
+            }
+          }}
+        />
+      )}
     </div>
   )
 }

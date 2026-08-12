@@ -678,7 +678,6 @@ type ShotFormApiKeysState = {
   pixabay: string
   serpapi: string
   klipy: string
-  ttsmaker: string
   supertone: string
   typecast: string
   youtubeClientId: string
@@ -698,7 +697,6 @@ function parseShotFormApiKeysBackup(text: string): Partial<ShotFormApiKeysState>
     { key: "pixabay", match: /pixabay\s*api\s*key/i },
     { key: "serpapi", match: /serpapi\s*key/i },
     { key: "klipy", match: /klipy\s*api\s*key/i },
-    { key: "ttsmaker", match: /ttsmaker\s*api\s*key/i },
     { key: "supertone", match: /supertone\s*api\s*key/i },
     { key: "typecast", match: /typecast\s*api\s*key/i },
     { key: "youtubeClientId", match: /youtube\s*client\s*id/i },
@@ -749,7 +747,6 @@ export default function ShotFormPage() {
     pixabay: "",
     serpapi: "",
     klipy: "",
-    ttsmaker: "",
     supertone: "",
     typecast: "",
     youtubeClientId: "",
@@ -769,7 +766,6 @@ export default function ShotFormPage() {
     pixabay: false,
     serpapi: false,
     klipy: false,
-    ttsmaker: false,
     supertone: false,
     typecast: false,
     youtubeClientId: false,
@@ -782,8 +778,6 @@ export default function ShotFormPage() {
   const [youtubeConnected, setYoutubeConnected] = useState(false)
   const [checkingYoutube, setCheckingYoutube] = useState(false)
   const [isLoggedIn, setIsLoggedIn] = useState(false)
-  const [testingKeys, setTestingKeys] = useState<{ [key: string]: boolean }>({})
-  const [testResults, setTestResults] = useState<{ [key: string]: { success: boolean; message: string } }>({})
   const [isCheckingLogin, setIsCheckingLogin] = useState(true)
   const [showPasswordDialog, setShowPasswordDialog] = useState(false)
   const [password, setPassword] = useState("")
@@ -864,7 +858,6 @@ export default function ShotFormPage() {
         localStorage.getItem("serpapi_api_key") ||
         ""
       const storedKlipy = localStorage.getItem("shotform_klipy_api_key") || ""
-      const storedTTSMaker = localStorage.getItem("shotform_ttsmaker_api_key") || ""
       const storedSupertone = localStorage.getItem("shotform_supertone_api_key") || ""
       const storedTypecast =
         localStorage.getItem("shotform_typecast_api_key") ||
@@ -885,7 +878,6 @@ export default function ShotFormPage() {
         pixabay: storedPixabay,
         serpapi: storedSerpapi,
         klipy: storedKlipy,
-        ttsmaker: storedTTSMaker,
         supertone: storedSupertone,
         typecast: storedTypecast,
         youtubeClientId: storedYoutubeClientId,
@@ -999,7 +991,6 @@ export default function ShotFormPage() {
     localStorage.setItem("shotform_serpapi_key", apiKeys.serpapi || "")
     localStorage.setItem("serpapi_api_key", apiKeys.serpapi || "")
     localStorage.setItem("shotform_klipy_api_key", apiKeys.klipy || "")
-    localStorage.setItem("shotform_ttsmaker_api_key", apiKeys.ttsmaker || "")
     localStorage.setItem("shotform_supertone_api_key", apiKeys.supertone || "")
     localStorage.setItem("shotform_typecast_api_key", apiKeys.typecast || "")
     localStorage.setItem("typecast_api_key", apiKeys.typecast || "")
@@ -1047,31 +1038,28 @@ ${apiKeys.serpapi || "(미입력)"}
 6. Klipy API Key
 ${apiKeys.klipy || "(미입력)"}
 
-7. TTSMaker API Key
-${apiKeys.ttsmaker || "(미입력)"}
-
-8. Supertone API Key
+7. Supertone API Key
 ${apiKeys.supertone || "(미입력)"}
 
-9. Typecast API Key
+8. Typecast API Key
 ${apiKeys.typecast || "(미입력)"}
 
-10. YouTube Client ID
+9. YouTube Client ID
 ${apiKeys.youtubeClientId || "(미입력)"}
 
-11. YouTube Client Secret
+10. YouTube Client Secret
 ${apiKeys.youtubeClientSecret || "(미입력)"}
 
-12. YouTube Data API Key
+11. YouTube Data API Key
 ${apiKeys.youtubeDataApiKey || "(미입력)"}
 
-13. Apify API
+12. Apify API
 ${apiKeys.apify || "(미입력)"}
 
-14. Vmake AI API Key (MT_AK)
+13. Vmake AI API Key (MT_AK)
 ${apiKeys.vmake || "(미입력)"}
 
-15. Vmake AI Secret Access Key (MT_SK)
+14. Vmake AI Secret Access Key (MT_SK)
 ${apiKeys.vmakeSecret || "(미입력)"}
 
 ========================================
@@ -1121,7 +1109,6 @@ ${apiKeys.vmakeSecret || "(미입력)"}
       localStorage.setItem("shotform_serpapi_key", next.serpapi || "")
       localStorage.setItem("serpapi_api_key", next.serpapi || "")
       localStorage.setItem("shotform_klipy_api_key", next.klipy || "")
-      localStorage.setItem("shotform_ttsmaker_api_key", next.ttsmaker || "")
       localStorage.setItem("shotform_supertone_api_key", next.supertone || "")
       localStorage.setItem("shotform_typecast_api_key", next.typecast || "")
       localStorage.setItem("typecast_api_key", next.typecast || "")
@@ -1144,228 +1131,6 @@ ${apiKeys.vmakeSecret || "(미입력)"}
     } catch (error) {
       console.error("[ShotForm] 메모장 불러오기 실패:", error)
       alert("파일을 읽지 못했습니다. UTF-8 텍스트(.txt)인지 확인해 주세요.")
-    }
-  }
-
-  // API 키 연결 확인 함수
-  const testApiKey = async (keyType: string) => {
-    if (keyType === "vmake") {
-      if (!apiKeys.vmake || !apiKeys.vmakeSecret) {
-        setTestResults({
-          ...testResults,
-          [keyType]: {
-            success: false,
-            message: "API Key와 Secret Access Key를 모두 입력해 주세요.",
-          },
-        })
-        return
-      }
-    } else if (!apiKeys[keyType as keyof typeof apiKeys]) {
-      setTestResults({
-        ...testResults,
-        [keyType]: { success: false, message: "API 키를 먼저 입력해주세요." }
-      })
-      return
-    }
-
-    setTestingKeys({ ...testingKeys, [keyType]: true })
-    setTestResults({ ...testResults, [keyType]: { success: false, message: "" } })
-
-    try {
-      switch (keyType) {
-        case "openai": {
-          const response = await fetch("https://api.openai.com/v1/models", {
-            method: "GET",
-            headers: {
-              Authorization: `Bearer ${apiKeys.openai}`,
-            },
-          })
-          if (response.ok) {
-            setTestResults({
-              ...testResults,
-              [keyType]: { success: true, message: "연결 성공!" }
-            })
-          } else {
-            const error = await response.json()
-            setTestResults({
-              ...testResults,
-              [keyType]: { success: false, message: `연결 실패: ${error.error?.message || response.statusText}` }
-            })
-          }
-          break
-        }
-        case "replicate": {
-          // 서버 사이드 API를 통해 테스트 (CORS 문제 해결)
-          const response = await fetch("/api/test-replicate", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ apiKey: apiKeys.replicate }),
-          })
-          const result = await response.json()
-          setTestResults({
-            ...testResults,
-            [keyType]: { success: result.success, message: result.message }
-          })
-          break
-        }
-        case "pixabay": {
-          const response = await fetch(
-            `https://pixabay.com/api/?key=${encodeURIComponent(apiKeys.pixabay)}&q=test&per_page=3&safesearch=true`
-          )
-          if (response.ok) {
-            setTestResults({
-              ...testResults,
-              [keyType]: { success: true, message: "Pixabay 연결 성공!" },
-            })
-          } else {
-            setTestResults({
-              ...testResults,
-              [keyType]: { success: false, message: `연결 실패: ${response.statusText || response.status}` },
-            })
-          }
-          break
-        }
-        case "serpapi": {
-          const response = await fetch(
-            `https://serpapi.com/account.json?api_key=${encodeURIComponent(apiKeys.serpapi)}`
-          )
-          if (response.ok) {
-            setTestResults({
-              ...testResults,
-              [keyType]: { success: true, message: "SerpAPI 연결 성공!" },
-            })
-          } else {
-            const error = await response.json().catch(() => ({}))
-            setTestResults({
-              ...testResults,
-              [keyType]: {
-                success: false,
-                message: `연결 실패: ${(error as { error?: string }).error || response.statusText}`,
-              },
-            })
-          }
-          break
-        }
-        case "youtubeDataApiKey": {
-          const response = await fetch(
-            `https://www.googleapis.com/youtube/v3/search?part=snippet&q=test&key=${apiKeys.youtubeDataApiKey}&maxResults=1`,
-            {
-              method: "GET",
-            }
-          )
-          if (response.ok) {
-            setTestResults({
-              ...testResults,
-              [keyType]: { success: true, message: "연결 성공!" }
-            })
-          } else {
-            const error = await response.json()
-            setTestResults({
-              ...testResults,
-              [keyType]: { success: false, message: `연결 실패: ${error.error?.message || response.statusText}` }
-            })
-          }
-          break
-        }
-        case "ttsmaker": {
-          // 서버 사이드 API를 통해 테스트 (TTSMaker API)
-          const response = await fetch("/api/test-ttsmaker", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ apiKey: apiKeys.ttsmaker }),
-          })
-          const result = await response.json()
-          setTestResults({
-            ...testResults,
-            [keyType]: { success: result.success, message: result.message }
-          })
-          break
-        }
-        case "elevenlabs": {
-          // ElevenLabs API 키는 연결 확인만 표시 (실제 API 호출 없음)
-          setTestResults({
-            ...testResults,
-            [keyType]: { success: true, message: "연결 확인" }
-          })
-          break
-        }
-        case "supertone": {
-          // Supertone API 키는 연결 확인만 표시 (실제 API 호출 없음)
-          setTestResults({
-            ...testResults,
-            [keyType]: { success: true, message: "연결 확인" }
-          })
-          break
-        }
-        case "typecast": {
-          const response = await fetch(
-            `/api/typecast-voices?apiKey=${encodeURIComponent(apiKeys.typecast)}`
-          )
-          const result = await response.json().catch(() => ({}))
-          setTestResults({
-            ...testResults,
-            [keyType]: {
-              success: response.ok && result.success !== false,
-              message: response.ok
-                ? "타입캐스트 목소리 목록 확인 성공!"
-                : result.error || response.statusText,
-            },
-          })
-          break
-        }
-        case "apify": {
-          const response = await fetch(
-            `https://api.apify.com/v2/users/me?token=${encodeURIComponent(apiKeys.apify)}`
-          )
-          if (response.ok) {
-            setTestResults({
-              ...testResults,
-              [keyType]: { success: true, message: "Apify API 연결 성공!" },
-            })
-          } else {
-            setTestResults({
-              ...testResults,
-              [keyType]: {
-                success: false,
-                message: `연결 실패: ${response.statusText}`,
-              },
-            })
-          }
-          break
-        }
-        case "vmake": {
-          const response = await fetch("/api/test-vmake", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              apiKey: apiKeys.vmake,
-              secretAccessKey: apiKeys.vmakeSecret,
-            }),
-          })
-          const result = await response.json()
-          setTestResults({
-            ...testResults,
-            [keyType]: { success: result.success, message: result.message },
-          })
-          break
-        }
-        default:
-          setTestResults({
-            ...testResults,
-            [keyType]: { success: false, message: "지원하지 않는 API 키입니다." }
-          })
-      }
-    } catch (error: any) {
-      setTestResults({
-        ...testResults,
-        [keyType]: { success: false, message: `연결 실패: ${error.message || "알 수 없는 오류"}` }
-      })
-    } finally {
-      setTestingKeys({ ...testingKeys, [keyType]: false })
     }
   }
 
@@ -1529,9 +1294,21 @@ ${apiKeys.vmakeSecret || "(미입력)"}
           <div className="space-y-6 py-4 overflow-y-auto flex-1">
             {/* OpenAI API Key */}
             <div className="space-y-2">
-              <Label htmlFor="openai-key" className="text-sm font-medium text-zinc-200">
-                OpenAI API Key
-              </Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="openai-key" className="text-sm font-medium text-zinc-200">
+                  OpenAI API Key
+                </Label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
+                  asChild
+                >
+                  <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">
+                    API 발급
+                  </a>
+                </Button>
+              </div>
               <div className="flex items-center gap-2">
                 <Input
                   id="openai-key"
@@ -1564,86 +1341,27 @@ ${apiKeys.vmakeSecret || "(미입력)"}
                 >
                   <Copy className="w-4 h-4" />
                 </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => testApiKey("openai")}
-                  disabled={testingKeys.openai || !apiKeys.openai}
-                  className="shrink-0 text-xs border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
-                >
-                  {testingKeys.openai ? "확인 중..." : "연결확인"}
-                </Button>
               </div>
-              {testResults.openai && (
-                <p className={`text-xs ${testResults.openai.success ? "text-emerald-400" : "text-red-400"}`}>
-                  {testResults.openai.message}
-                </p>
-              )}
               <p className="text-xs text-zinc-500">GPT 모델 사용에 필요합니다</p>
-            </div>
-
-            {/* TTSMaker API Key */}
-            <div className="space-y-2">
-              <Label htmlFor="ttsmaker-key" className="text-sm font-medium text-zinc-200">
-                TTSMaker API Key
-              </Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  id="ttsmaker-key"
-                  type={showKeys.ttsmaker ? "text" : "password"}
-                  placeholder="입력하세요"
-                  value={apiKeys.ttsmaker || ""}
-                  onChange={(e) => setApiKeys({ ...apiKeys, ttsmaker: e.target.value })}
-                  className="font-mono text-sm bg-black/40 border-white/15 text-zinc-100 placeholder:text-zinc-500"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setShowKeys({ ...showKeys, ttsmaker: !showKeys.ttsmaker })}
-                  className="shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
-                >
-                  {showKeys.ttsmaker ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={() => {
-                    navigator.clipboard.writeText(apiKeys.ttsmaker || "")
-                    setCopied(true)
-                    setTimeout(() => setCopied(false), 2000)
-                  }}
-                  disabled={!apiKeys.ttsmaker}
-                  className="shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
-                >
-                  <Copy className="w-4 h-4" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => testApiKey("ttsmaker")}
-                  disabled={testingKeys.ttsmaker || !apiKeys.ttsmaker}
-                  className="shrink-0 text-xs border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
-                >
-                  {testingKeys.ttsmaker ? "확인 중..." : "연결확인"}
-                </Button>
-              </div>
-              {testResults.ttsmaker && (
-                <p className={`text-xs ${testResults.ttsmaker.success ? "text-emerald-400" : "text-red-400"}`}>
-                  {testResults.ttsmaker.message}
-                </p>
-              )}
-              <p className="text-xs text-zinc-500">TTSMaker 음성 합성에 사용됩니다</p>
             </div>
 
             {/* ElevenLabs API Key */}
             <div className="space-y-2">
-              <Label htmlFor="elevenlabs-key" className="text-sm font-medium text-zinc-200">
-                ElevenLabs API Key
-              </Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="elevenlabs-key" className="text-sm font-medium text-zinc-200">
+                  ElevenLabs API Key
+                </Label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
+                  asChild
+                >
+                  <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" rel="noopener noreferrer">
+                    API 발급
+                  </a>
+                </Button>
+              </div>
               <div className="flex items-center gap-2">
                 <Input
                   id="elevenlabs-key"
@@ -1676,30 +1394,27 @@ ${apiKeys.vmakeSecret || "(미입력)"}
                 >
                   <Copy className="w-4 h-4" />
                 </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => testApiKey("elevenlabs")}
-                  disabled={testingKeys.elevenlabs || !apiKeys.elevenlabs}
-                  className="shrink-0 text-xs border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
-                >
-                  {testingKeys.elevenlabs ? "확인 중..." : "연결확인"}
-                </Button>
               </div>
-              {testResults.elevenlabs && (
-                <p className={`text-xs ${testResults.elevenlabs.success ? "text-emerald-400" : "text-red-400"}`}>
-                  {testResults.elevenlabs.message}
-                </p>
-              )}
               <p className="text-xs text-zinc-500">ElevenLabs 음성 합성에 사용됩니다</p>
             </div>
 
             {/* Supertone API Key */}
             <div className="space-y-2">
-              <Label htmlFor="supertone-key" className="text-sm font-medium text-zinc-200">
-                Supertone API Key
-              </Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="supertone-key" className="text-sm font-medium text-zinc-200">
+                  Supertone API Key
+                </Label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
+                  asChild
+                >
+                  <a href="https://console.supertoneapi.com/" target="_blank" rel="noopener noreferrer">
+                    API 발급
+                  </a>
+                </Button>
+              </div>
               <div className="flex items-center gap-2">
                 <Input
                   id="supertone-key"
@@ -1732,30 +1447,27 @@ ${apiKeys.vmakeSecret || "(미입력)"}
                 >
                   <Copy className="w-4 h-4" />
                 </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => testApiKey("supertone")}
-                  disabled={testingKeys.supertone || !apiKeys.supertone}
-                  className="shrink-0 text-xs border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
-                >
-                  {testingKeys.supertone ? "확인 중..." : "연결확인"}
-                </Button>
               </div>
-              {testResults.supertone && (
-                <p className={`text-xs ${testResults.supertone.success ? "text-emerald-400" : "text-red-400"}`}>
-                  {testResults.supertone.message}
-                </p>
-              )}
               <p className="text-xs text-zinc-500">Supertone 음성 합성에 사용됩니다</p>
             </div>
 
             {/* Typecast API Key */}
             <div className="space-y-2">
-              <Label htmlFor="typecast-key" className="text-sm font-medium text-zinc-200">
-                Typecast API Key
-              </Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="typecast-key" className="text-sm font-medium text-zinc-200">
+                  Typecast API Key
+                </Label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
+                  asChild
+                >
+                  <a href="https://typecast.ai/api" target="_blank" rel="noopener noreferrer">
+                    API 발급
+                  </a>
+                </Button>
+              </div>
               <div className="flex items-center gap-2">
                 <Input
                   id="typecast-key"
@@ -1788,22 +1500,7 @@ ${apiKeys.vmakeSecret || "(미입력)"}
                 >
                   <Copy className="w-4 h-4" />
                 </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => testApiKey("typecast")}
-                  disabled={testingKeys.typecast || !apiKeys.typecast}
-                  className="shrink-0 text-xs border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
-                >
-                  {testingKeys.typecast ? "확인 중..." : "연결확인"}
-                </Button>
               </div>
-              {testResults.typecast && (
-                <p className={`text-xs ${testResults.typecast.success ? "text-emerald-400" : "text-red-400"}`}>
-                  {testResults.typecast.message}
-                </p>
-              )}
               <p className="text-xs text-zinc-500">
                 타입캐스트 TTS에 사용됩니다 (AI 쇼핑 숏폼 · 숏폼 스튜디오 나레이션).
               </p>
@@ -1811,9 +1508,21 @@ ${apiKeys.vmakeSecret || "(미입력)"}
 
             {/* Replicate API Key */}
             <div className="space-y-2">
-              <Label htmlFor="replicate-key" className="text-sm font-medium text-zinc-200">
-                Replicate API Key
-              </Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="replicate-key" className="text-sm font-medium text-zinc-200">
+                  Replicate API Key
+                </Label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
+                  asChild
+                >
+                  <a href="https://replicate.com/account/api-tokens" target="_blank" rel="noopener noreferrer">
+                    API 발급
+                  </a>
+                </Button>
+              </div>
               <div className="flex items-center gap-2">
                 <Input
                   id="replicate-key"
@@ -1846,22 +1555,7 @@ ${apiKeys.vmakeSecret || "(미입력)"}
                 >
                   <Copy className="w-4 h-4" />
                 </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => testApiKey("replicate")}
-                  disabled={testingKeys.replicate || !apiKeys.replicate}
-                  className="shrink-0 text-xs border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
-                >
-                  {testingKeys.replicate ? "확인 중..." : "연결확인"}
-                </Button>
               </div>
-              {testResults.replicate && (
-                <p className={`text-xs ${testResults.replicate.success ? "text-emerald-400" : "text-red-400"}`}>
-                  {testResults.replicate.message}
-                </p>
-              )}
               <p className="text-xs text-zinc-500">AI 이미지/영상 생성(flux-schnell 등)에 사용됩니다</p>
             </div>
 
@@ -1914,22 +1608,7 @@ ${apiKeys.vmakeSecret || "(미입력)"}
                 >
                   <Copy className="w-4 h-4" />
                 </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => testApiKey("pixabay")}
-                  disabled={testingKeys.pixabay || !apiKeys.pixabay}
-                  className="shrink-0 text-xs border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
-                >
-                  {testingKeys.pixabay ? "확인 중..." : "연결확인"}
-                </Button>
               </div>
-              {testResults.pixabay && (
-                <p className={`text-xs ${testResults.pixabay.success ? "text-emerald-400" : "text-red-400"}`}>
-                  {testResults.pixabay.message}
-                </p>
-              )}
               <p className="text-xs text-zinc-500">AI 쇼핑 숏폼 · Pixabay 무료 이미지/동영상 검색에 사용됩니다</p>
             </div>
 
@@ -1982,22 +1661,7 @@ ${apiKeys.vmakeSecret || "(미입력)"}
                 >
                   <Copy className="w-4 h-4" />
                 </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => testApiKey("serpapi")}
-                  disabled={testingKeys.serpapi || !apiKeys.serpapi}
-                  className="shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white disabled:opacity-40"
-                >
-                  {testingKeys.serpapi ? "확인 중..." : "연결확인"}
-                </Button>
               </div>
-              {testResults.serpapi && (
-                <p className={`text-xs ${testResults.serpapi.success ? "text-emerald-400" : "text-red-400"}`}>
-                  {testResults.serpapi.message}
-                </p>
-              )}
               <p className="text-xs text-zinc-500">
                 스토리 쇼핑 · Google 이미지/동영상 검색, 제품 관련 소재 찾기에 사용됩니다
               </p>
@@ -2047,9 +1711,21 @@ ${apiKeys.vmakeSecret || "(미입력)"}
 
             {/* YouTube Data API Key */}
             <div className="space-y-2">
-              <Label htmlFor="youtube-data-api-key" className="text-sm font-medium text-zinc-200">
-                YouTube Data API Key
-              </Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="youtube-data-api-key" className="text-sm font-medium text-zinc-200">
+                  YouTube Data API Key
+                </Label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
+                  asChild
+                >
+                  <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer">
+                    API 발급
+                  </a>
+                </Button>
+              </div>
               <div className="flex items-center gap-2">
                 <Input
                   id="youtube-data-api-key"
@@ -2082,22 +1758,7 @@ ${apiKeys.vmakeSecret || "(미입력)"}
                 >
                   <Copy className="w-4 h-4" />
                 </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => testApiKey("youtubeDataApiKey")}
-                  disabled={testingKeys.youtubeDataApiKey || !apiKeys.youtubeDataApiKey}
-                  className="shrink-0 text-xs border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
-                >
-                  {testingKeys.youtubeDataApiKey ? "확인 중..." : "연결확인"}
-                </Button>
               </div>
-              {testResults.youtubeDataApiKey && (
-                <p className={`text-xs ${testResults.youtubeDataApiKey.success ? "text-emerald-400" : "text-red-400"}`}>
-                  {testResults.youtubeDataApiKey.message}
-                </p>
-              )}
               <p className="text-xs text-zinc-500">
                 유튜브 분석, 유튜브 실시간 분석 기능에 사용됩니다.
               </p>
@@ -2143,22 +1804,7 @@ ${apiKeys.vmakeSecret || "(미입력)"}
                 >
                   {showKeys.apify ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => testApiKey("apify")}
-                  disabled={testingKeys.apify || !apiKeys.apify}
-                  className="shrink-0 text-xs border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
-                >
-                  {testingKeys.apify ? "확인 중..." : "연결확인"}
-                </Button>
               </div>
-              {testResults.apify && (
-                <p className={`text-xs ${testResults.apify.success ? "text-emerald-400" : "text-red-400"}`}>
-                  {testResults.apify.message}
-                </p>
-              )}
               <p className="text-xs text-zinc-500">
                 리믹스·제품 검색에서 TikTok·샤오홍슈·더우인 후보 수집에 사용합니다.
               </p>
@@ -2216,24 +1862,7 @@ ${apiKeys.vmakeSecret || "(미입력)"}
                 >
                   {showKeys.vmake ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => testApiKey("vmake")}
-                  disabled={
-                    testingKeys.vmake || !apiKeys.vmake || !apiKeys.vmakeSecret
-                  }
-                  className="shrink-0 text-xs border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
-                >
-                  {testingKeys.vmake ? "확인 중..." : "연결확인"}
-                </Button>
               </div>
-              {testResults.vmake && (
-                <p className={`text-xs ${testResults.vmake.success ? "text-emerald-400" : "text-red-400"}`}>
-                  {testResults.vmake.message}
-                </p>
-              )}
               <p className="text-xs text-zinc-500">
                 샤오홍슈·더우인 중국어 하드 자막 제거용. API Key + Secret을 함께 저장하세요.
               </p>

@@ -193,6 +193,11 @@ export type EditPlanSegment = {
   reason: string
   /** 컷 중간 프레임 Vision 캡션 — 실제 화면 기준 */
   visual_caption?: string
+  /**
+   * true면 영상 없음(검정 공백). TTS·타임라인 길이는 유지하고
+   * 나중에 다른 영상을 넣을 수 있는 자리.
+   */
+  is_blank?: boolean
 }
 
 export type EditPlan = {

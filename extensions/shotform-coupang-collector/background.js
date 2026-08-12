@@ -150,19 +150,20 @@ async function finishOpen(downloadId) {
 }
 
 async function openAgentFromContent(content, filename) {
-  const dataUrl = `data:application/x-bat;base64,${toBase64Utf8(content)}`
-  const downloadId = await downloadUrl(
-    dataUrl,
-    filename || "ShotForm/start-shotform-agent.cmd"
-  )
+  const name = filename || "ShotForm/start-shotform-agent.cmd"
+  const isMac = /\.command$/i.test(name)
+  const mime = isMac ? "application/x-sh" : "application/x-bat"
+  const dataUrl = `data:${mime};base64,${toBase64Utf8(content)}`
+  const downloadId = await downloadUrl(dataUrl, name)
   return finishOpen(downloadId)
 }
 
-async function downloadAndOpenAgent(cmdUrl) {
+async function downloadAndOpenAgent(cmdUrl, filename) {
   if (!cmdUrl || !/^https?:\/\//i.test(cmdUrl)) {
     throw new Error("유효한 실행 파일 URL이 아닙니다.")
   }
-  const downloadId = await downloadUrl(cmdUrl, "ShotForm/start-shotform-agent.cmd")
+  const name = filename || "ShotForm/start-shotform-agent.cmd"
+  const downloadId = await downloadUrl(cmdUrl, name)
   return finishOpen(downloadId)
 }
 
@@ -223,7 +224,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === "SHOTFORM_DOWNLOAD_OPEN_AGENT") {
     ;(async () => {
       try {
-        sendResponse(await downloadAndOpenAgent(msg.cmdUrl))
+        sendResponse(await downloadAndOpenAgent(msg.cmdUrl, msg.filename))
       } catch (e) {
         sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) })
       }

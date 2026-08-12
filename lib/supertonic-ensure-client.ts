@@ -77,9 +77,9 @@ async function ensureViaLocalAgent(opts?: {
 
   onProgress?.({
     phase: "checking",
-    message: "로컬 에이전트(3847) 확인 중… (.cmd는 꺼져 있을 때만 받습니다)",
+    message: "로컬 에이전트(3847) 확인 중… (실행 파일은 꺼져 있을 때만 받습니다)",
   })
-  // 이미 떠 있으면 probe만 — 매번 .cmd 다운로드하지 않음
+  // 이미 떠 있으면 probe만 — 매번 스타터 다운로드하지 않음
   let agent = await probeLocalCompanion(base)
   if (!agent.ok) {
     agent = await connectLocalAgent({
@@ -114,7 +114,7 @@ async function ensureViaLocalAgent(opts?: {
         phase: "error",
         online: false,
         message:
-          "에이전트가 오래되어 Supertonic 자동 설치를 지원하지 않습니다.\n1) 에이전트 창을 닫고\n2) 사이트에서 「에이전트 실행」으로 start-shotform-agent.cmd 를 다시 받아 실행한 뒤\n3) 「Supertonic 자동 실행」을 다시 누르세요.",
+          "에이전트가 오래되어 Supertonic 자동 설치를 지원하지 않습니다.\n1) 에이전트 창을 닫고\n2) 사이트에서 「에이전트 실행」으로 start-shotform-agent 파일을 다시 받아 실행한 뒤\n3) 「Supertonic 자동 실행」을 다시 누르세요.",
       }
       onProgress?.(fail)
       return fail
@@ -157,7 +157,7 @@ async function ensureViaLocalAgent(opts?: {
         phase: "error",
         online: false,
         message:
-          "에이전트가 오래되어 Supertonic 자동 설치를 지원하지 않습니다. 에이전트 창을 닫고 start-shotform-agent.cmd 를 다시 받아 실행하세요.",
+          "에이전트가 오래되어 Supertonic 자동 설치를 지원하지 않습니다. 에이전트 창을 닫고 start-shotform-agent 파일을 다시 받아 실행하세요.",
       }
       onProgress?.(fail)
       return fail

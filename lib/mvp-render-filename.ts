@@ -14,10 +14,10 @@ export function mvpRenderDownloadFilename(projectName: string, ext = "mp4"): str
   return `${mvpFilenameBase(projectName, "render")}.${safeExt}`
 }
 
-/** 개별 자산 다운로드 파일명 — mix / tts / subtitles */
+/** 개별 자산 다운로드 파일명 — mix / tts / subtitles / thumbnail */
 export function mvpAssetDownloadFilename(
   projectName: string,
-  kind: "mix" | "tts" | "subtitles",
+  kind: "mix" | "tts" | "subtitles" | "thumbnail",
   ext: string
 ): string {
   const safeExt = ext.replace(/^\./, "").trim() || "bin"

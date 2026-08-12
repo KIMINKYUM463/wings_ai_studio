@@ -146,6 +146,7 @@ export function drawVideoContainWithSourceTransform(
 }
 
 export function videoSourceLabel(result: AutoEditJobResult, videoId: string): string {
+  if (videoId === "__blank__") return "공백"
   const title = result.analyses?.find((a) => a.video_id === videoId)?.title?.trim()
   if (title) return title.length > 20 ? `${title.slice(0, 18)}…` : title
   return videoId.replace(/^v_/, "").slice(0, 14) || "영상 소스"

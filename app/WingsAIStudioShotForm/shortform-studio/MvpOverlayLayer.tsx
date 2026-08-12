@@ -1,12 +1,17 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { cn } from "@/lib/utils"
 import {
   isMosaicOverlay,
   mosaicOverlayDimensions,
   type PlacedStudioOverlay,
 } from "@/lib/shotform-studio-overlay-catalog"
-import { filterOverlaysAtVideoTime } from "@/lib/mvp-mosaic-overlay-utils"
+import {
+  filterOverlaysAtVideoTime,
+  MVP_PREVIEW_STAGE_WIDTH_PX,
+} from "@/lib/mvp-mosaic-overlay-utils"
+import type { MvpVideoSourceTransform } from "@/lib/mvp-video-source-transform"
 import { StudioOverlayGraphic } from "../shoppingshotform/StudioOverlayGraphic"
 import { MosaicResizeHandles } from "./MosaicResizeHandles"
 import { useMvpOverlayInteraction } from "./useMvpOverlayInteraction"
@@ -23,6 +28,8 @@ type Props = {
   videoDurationSec?: number
   playing?: boolean
   onOverlayPointerDown?: () => void
+  /** 미리보기 영상 CSS transform과 맞춤 */
+  sourceTransform?: MvpVideoSourceTransform
 }
 
 export function MvpOverlayLayer({
@@ -36,6 +43,7 @@ export function MvpOverlayLayer({
   videoDurationSec,
   playing = false,
   onOverlayPointerDown,
+  sourceTransform,
 }: Props) {
   const {
     startMove,
@@ -46,9 +54,30 @@ export function MvpOverlayLayer({
     startResizeMosaicCorner,
   } = useMvpOverlayInteraction(stageRef, onUpdateOverlay)
 
+  const [stageSize, setStageSize] = useState({
+    w: MVP_PREVIEW_STAGE_WIDTH_PX,
+    h: Math.round(MVP_PREVIEW_STAGE_WIDTH_PX * (16 / 9)),
+  })
+
+  useEffect(() => {
+    const el = stageRef.current
+    if (!el) return
+    const measure = () => {
+      const w = el.clientWidth || MVP_PREVIEW_STAGE_WIDTH_PX
+      const h = el.clientHeight || Math.round(w * (16 / 9))
+      setStageSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }))
+    }
+    measure()
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null
+    ro?.observe(el)
+    return () => ro?.disconnect()
+  }, [stageRef])
+
   const video = videoRef?.current ?? null
   const visible = filterOverlaysAtVideoTime(overlays, videoTimeSec, videoDurationSec)
   if (!visible.length) return null
+
+  const designScale = stageSize.w / MVP_PREVIEW_STAGE_WIDTH_PX
 
   return (
     <>
@@ -56,8 +85,8 @@ export function MvpOverlayLayer({
         const selected = selectedId === ov.id
         const mosaic = isMosaicOverlay(ov.catalogId)
         const dims = mosaic ? mosaicOverlayDimensions(ov) : null
-        const boxW = dims?.w ?? ov.size
-        const boxH = dims?.h ?? ov.size
+        const boxW = dims ? Math.max(8, Math.round(dims.w * designScale)) : ov.size
+        const boxH = dims ? Math.max(8, Math.round(dims.h * designScale)) : ov.size
 
         return (
           <div
@@ -93,8 +122,11 @@ export function MvpOverlayLayer({
                 <VideoMosaicLayer
                   video={video}
                   overlay={ov}
+                  stageWidth={stageSize.w}
+                  stageHeight={stageSize.h}
                   videoTimeSec={videoTimeSec}
                   playing={playing}
+                  sourceTransform={sourceTransform}
                 />
               ) : mosaic ? (
                 <div className="flex h-full w-full items-center justify-center rounded-md border-2 border-dashed border-violet-400/40 bg-violet-500/10 text-[9px] text-violet-200/80">

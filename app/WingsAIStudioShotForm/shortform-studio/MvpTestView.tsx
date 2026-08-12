@@ -455,6 +455,31 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
   const editPickKeys = useMemo(() => new Set(editPicks.map((p) => p.key)), [editPicks])
   const editPicksKey = useMemo(() => editPicks.map((p) => p.key).join("|"), [editPicks])
 
+  /** 검색으로 가져온 전체 소스(선택 픽이 아님) — 추가 영상 팝업용 */
+  const sourceLibraryPicks = useMemo((): AutoEditPick[] => {
+    if (!data) return []
+    const out: AutoEditPick[] = []
+    const seen = new Set<string>()
+    const push = (video: MvpKeywordVideo, platform: MvpKeywordPlatform) => {
+      if (!video.videoUrl?.trim().startsWith("http")) return
+      const urls = normalizeMvpPickUrls({ url: video.url, videoUrl: video.videoUrl })
+      const key = videoPickKey(urls.noteUrl, urls.videoUrl)
+      if (seen.has(key)) return
+      seen.add(key)
+      out.push({
+        key,
+        video_id: `src_${String(out.length + 1).padStart(3, "0")}`,
+        videoUrl: urls.videoUrl,
+        title: video.title,
+        noteUrl: urls.noteUrl,
+        platform,
+      })
+    }
+    for (const v of data.douyin.videos) push(v, "douyin")
+    for (const v of data.xhs.videos) push(v, "xiaohongshu")
+    return out
+  }, [data])
+
   useEffect(() => {
     const d = project.data || {}
     setPostEditStudioOpen(false)
@@ -1410,6 +1435,22 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
             active={postEditStudioOpen}
             detailMode={postEditDetailMode}
             onClose={closePostEditStudio}
+            editPicks={editPicks}
+            sourceLibraryPicks={sourceLibraryPicks}
+            onResultChange={(nextResult, nextBlob) => {
+              setPostEditStudio((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      result: nextResult,
+                      videoBlob: nextBlob ?? prev.videoBlob,
+                      videoBlobUrl: nextBlob
+                        ? URL.createObjectURL(nextBlob)
+                        : prev.videoBlobUrl,
+                    }
+                  : prev
+              )
+            }}
           />
         </ShotFormEditorDialogShell>
       ) : null}

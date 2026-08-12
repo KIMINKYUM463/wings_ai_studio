@@ -48,6 +48,16 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { SeparateAssetDownloads } from "../components/SeparateAssetDownloads"
+import {
+  assetFilename,
+  buildSrtFromTimedCues,
+  downloadTextFile,
+  downloadTtsUrl,
+  downloadUrlAsFile,
+  downloadUrlsAsZip,
+  guessExtFromUrlOrType,
+} from "@/lib/shotform-separate-assets"
 import { Slider } from "@/components/ui/slider"
 import {
   MVP_THUMBNAIL_INTRO_SEC,
@@ -393,6 +403,7 @@ export const StoryEditorWorkspace = forwardRef<
   const [timelineZoom, setTimelineZoom] = useState(1)
   const [previewZoom, setPreviewZoom] = useState(1)
   const [isPreviewMode, setIsPreviewMode] = useState(false)
+  const [separateAssetBusy, setSeparateAssetBusy] = useState<string | null>(null)
   const [subtitleSizeDraft, setSubtitleSizeDraft] = useState(editSettings.subtitleSize)
   const [videoEditDraft, setVideoEditDraft] = useState<VideoEditDraft | null>(null)
   const [expandedSourceImage, setExpandedSourceImage] = useState<{
@@ -3686,6 +3697,88 @@ export const StoryEditorWorkspace = forwardRef<
     [slots, brief, timeline, totalDuration, frameSettings, editSettings, selectedKey]
   )
 
+  const handleSeparateAssetDownload = async (id: string) => {
+    const base =
+      brief.generatedStory?.title || brief.productName || "story-shopping"
+    setSeparateAssetBusy(id)
+    setSearchError("")
+    try {
+      if (id === "srt") {
+        const srt = buildSrtFromTimedCues(
+          timeline.map((slot) => ({
+            text: slot.text,
+            start: slot.startSec,
+            end: slot.endSec,
+          }))
+        )
+        if (!srt.trim()) throw new Error("자막 타임라인이 비어 있습니다.")
+        downloadTextFile(srt, assetFilename(base, "subtitles", "srt"))
+        return
+      }
+      if (id === "thumbnail") {
+        const selected = selectedThumbnailVariant(
+          brief.thumbnailState?.gallery || [],
+          brief.thumbnailState?.selectedId || null
+        )
+        const url = selected?.url || thumbnailIntroPreview.url
+        if (!url) {
+          throw new Error("썸네일이 없습니다. 썸네일 탭에서 먼저 만들어 주세요.")
+        }
+        await downloadUrlAsFile(url, assetFilename(base, "thumbnail", "png"))
+        return
+      }
+      if (id === "tts") {
+        const urls = new Set<string>()
+        for (const track of brief.voiceData?.tracks || []) {
+          if (track.audioUrl) urls.add(track.audioUrl)
+          for (const line of track.lineTracks || []) {
+            if (line.audioUrl) urls.add(line.audioUrl)
+          }
+        }
+        const list = Array.from(urls)
+        if (!list.length) {
+          throw new Error("TTS가 없습니다. 음성 단계에서 먼저 생성해 주세요.")
+        }
+        if (list.length === 1) {
+          await downloadTtsUrl(list[0]!, base)
+          return
+        }
+        await downloadUrlsAsZip(
+          list.map((url, i) => ({
+            url,
+            name: `tts_${String(i + 1).padStart(2, "0")}.${guessExtFromUrlOrType(url, undefined, "mp3")}`,
+          })),
+          assetFilename(base, "tts", "zip")
+        )
+        return
+      }
+      if (id === "video") {
+        const assets = (brief.sceneAssets || []).filter((a) => a?.mediaUrl)
+        if (!assets.length) {
+          throw new Error("장면 클립이 없습니다. 소재를 먼저 배치해 주세요.")
+        }
+        await downloadUrlsAsZip(
+          assets.map((asset, i) => ({
+            url: asset.mediaUrl,
+            name: `clip_${String(i + 1).padStart(2, "0")}.${guessExtFromUrlOrType(
+              asset.mediaUrl,
+              undefined,
+              asset.mediaType === "video" ? "mp4" : "png"
+            )}`,
+          })),
+          assetFilename(base, "videos", "zip")
+        )
+        return
+      }
+    } catch (error) {
+      setSearchError(
+        error instanceof Error ? error.message : "개별 파일 저장에 실패했습니다."
+      )
+    } finally {
+      setSeparateAssetBusy(null)
+    }
+  }
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.code !== "Space" || event.repeat) return
@@ -5720,6 +5813,52 @@ export const StoryEditorWorkspace = forwardRef<
                 onChange={onPublishMetaChange}
               />
             ) : null}
+
+            <SeparateAssetDownloads
+              tone="light"
+              className="mt-4"
+              busyId={separateAssetBusy}
+              onDownload={(id) => void handleSeparateAssetDownload(id)}
+              items={[
+                {
+                  id: "srt",
+                  label: "자막만 (SRT)",
+                  hint: "타임라인 자막 파일",
+                  disabled: timeline.length === 0,
+                  missingReason: "자막 없음",
+                },
+                {
+                  id: "thumbnail",
+                  label: "썸네일만",
+                  hint: "선택 썸네일 PNG",
+                  disabled: !(
+                    selectedThumbnailVariant(
+                      brief.thumbnailState?.gallery || [],
+                      brief.thumbnailState?.selectedId || null
+                    )?.url || thumbnailIntroPreview.url
+                  ),
+                  missingReason: "썸네일 없음",
+                },
+                {
+                  id: "video",
+                  label: "영상만",
+                  hint: "장면 클립 ZIP",
+                  disabled: !(brief.sceneAssets || []).some((a) => a?.mediaUrl),
+                  missingReason: "클립 없음",
+                },
+                {
+                  id: "tts",
+                  label: "TTS만",
+                  hint: "나레이션 오디오",
+                  disabled: !(brief.voiceData?.tracks || []).some(
+                    (t) =>
+                      Boolean(t.audioUrl) ||
+                      (t.lineTracks || []).some((l) => Boolean(l.audioUrl))
+                  ),
+                  missingReason: "TTS 없음",
+                },
+              ]}
+            />
           </div>
         </aside>
       </div>

@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Eye, FilePenLine, Loader2, RotateCcw, Sparkles } from "lucide-react"
+import { Eye, FilePenLine, Film, Loader2, RotateCcw, Sparkles, Volume2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { formatNarrationClock, narrationSegmentDuration } from "@/lib/shotform-factory-narration-script"
@@ -25,6 +25,13 @@ type Props = {
   onScriptOverride: (sceneId: number, text: string) => void
   onScriptOverrideBlur: (sceneId: number, text: string, sceneDur: number) => void
   onPlaySceneOnly: (index: number) => void
+  /** 해당 씬만 TTS 재생성 */
+  onRunTtsForScene?: (sceneIndex: number) => void
+  sceneTtsLoadingIndex?: number | null
+  onOpenInsertClip?: () => void
+  insertClipBusy?: boolean
+  /** false면 TTS 미생성 — 추가 영상 비활성 */
+  insertClipAllowed?: boolean
   light?: boolean
 }
 
@@ -47,6 +54,11 @@ export function MvpScriptAnalysisPanel({
   onScriptOverride,
   onScriptOverrideBlur,
   onPlaySceneOnly,
+  onRunTtsForScene,
+  sceneTtsLoadingIndex = null,
+  onOpenInsertClip,
+  insertClipBusy = false,
+  insertClipAllowed = true,
   light = true,
 }: Props) {
   const [visualEdits, setVisualEdits] = useState<Record<number, string>>({})
@@ -79,6 +91,33 @@ export function MvpScriptAnalysisPanel({
           )}
           {scriptNeedsAi ? "AI 대본 생성" : "대본 다시쓰기"}
         </Button>
+        {onOpenInsertClip ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={scriptGenerating || insertClipBusy || !insertClipAllowed}
+            onClick={onOpenInsertClip}
+            title={
+              insertClipAllowed
+                ? "TTS 생성 후 공백에 넣을 영상을 가져옵니다"
+                : "TTS를 먼저 생성한 뒤 공백에 영상을 넣을 수 있습니다"
+            }
+            className={cn(
+              "h-9 w-full gap-1.5 text-[11px] font-semibold",
+              light
+                ? "border-violet-200 bg-violet-50 text-violet-800 hover:bg-violet-100"
+                : "border-violet-400/40 bg-violet-500/10 text-violet-100 hover:bg-violet-500/20"
+            )}
+          >
+            {insertClipBusy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Film className="h-3.5 w-3.5" />
+            )}
+            {insertClipAllowed ? "추가 영상 가져오기" : "추가 영상 (TTS 먼저)"}
+          </Button>
+        ) : null}
         {canRestoreScript && scriptDirtyFromBaseline && onRestoreScript ? (
           <Button
             type="button"
@@ -176,35 +215,79 @@ export function MvpScriptAnalysisPanel({
                     onChange={(e) =>
                       setVisualEdits((prev) => ({ ...prev, [i]: e.target.value }))
                     }
-                    onFocus={() => onPlaySceneOnly(i)}
                   />
                 </div>
 
-                <div>
-                  <div className="mb-1.5 flex items-center gap-1.5">
-                    <Sparkles className={cn("h-3 w-3", light ? "text-amber-600" : "text-amber-300")} />
-                    <p className={light ? insp.label : "text-[9px] font-medium text-slate-400"}>
-                      나레이션 대본 · TTS·자막
-                    </p>
+                <div
+                  className={cn(
+                    "rounded-lg border p-2.5",
+                    light
+                      ? "border-amber-200/80 bg-amber-50/60"
+                      : "border-amber-400/25 bg-amber-500/[0.07]"
+                  )}
+                >
+                  <div className="mb-1.5 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <Sparkles className={cn("h-3 w-3", light ? "text-amber-600" : "text-amber-300")} />
+                      <p
+                        className={cn(
+                          "text-[9px] font-semibold tracking-wide",
+                          light ? "text-amber-800" : "text-amber-200"
+                        )}
+                      >
+                        나레이션 대본 · TTS·자막
+                      </p>
+                    </div>
+                    {onRunTtsForScene ? (
+                      <button
+                        type="button"
+                        disabled={
+                          scriptGenerating ||
+                          sceneTtsLoadingIndex != null ||
+                          !text.trim()
+                        }
+                        title="이 장면 대본만 TTS 다시 생성 (짧으면 영상 자름 · 길면 영상 반복)"
+                        className={cn(
+                          "inline-flex h-7 items-center gap-1 rounded-md px-2 text-[10px] font-semibold transition",
+                          light
+                            ? "bg-amber-500 text-white hover:bg-amber-400 disabled:opacity-40"
+                            : "bg-amber-500/90 text-zinc-900 hover:bg-amber-400 disabled:opacity-40"
+                        )}
+                        onClick={() => onRunTtsForScene(i)}
+                      >
+                        {sceneTtsLoadingIndex === i ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Volume2 className="h-3 w-3" />
+                        )}
+                        음성
+                      </button>
+                    ) : null}
                   </div>
                   <textarea
                     value={text}
                     rows={3}
                     placeholder="이 장면에 맞춰 말할 대본을 적어 주세요"
-                    disabled={scriptGenerating}
+                    disabled={scriptGenerating || sceneTtsLoadingIndex === i}
                     className={cn(
                       "w-full resize-y rounded-lg border px-2.5 py-2 text-[11px] leading-relaxed",
                       light
-                        ? "border-slate-200 bg-white text-slate-900 placeholder:text-slate-400"
-                        : "border-white/10 bg-black/50 text-slate-100 placeholder:text-slate-600"
+                        ? "border-amber-200 bg-white text-slate-900 placeholder:text-amber-700/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/60"
+                        : "border-amber-400/30 bg-black/50 text-slate-100 placeholder:text-amber-200/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/40"
                     )}
                     onChange={(e) => onScriptOverride(sceneId, e.target.value)}
                     onBlur={(e) => onScriptOverrideBlur(sceneId, e.target.value, sceneDur)}
-                    onFocus={() => onPlaySceneOnly(i)}
                   />
-                  <p className={cn("mt-1.5 text-[9px]", light ? "text-slate-500" : "text-slate-500")}>
+                  <p
+                    className={cn(
+                      "mt-1.5 text-[9px]",
+                      light ? "text-amber-800/70" : "text-amber-200/70"
+                    )}
+                  >
                     {fit.charCount}자 · 예상 {fit.estimatedSec}초
                     {fit.status === "ok" ? " · 길이 적절" : ""}
+                    {" · "}
+                    장면 {sceneDurationLabel}초
                   </p>
                 </div>
               </div>

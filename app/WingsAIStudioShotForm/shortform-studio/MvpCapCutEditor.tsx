@@ -5,6 +5,7 @@ import {
   ChevronRight,
   FilePenLine,
   FlipHorizontal,
+  Film,
   Hash,
   ImageIcon,
   Loader2,
@@ -96,7 +97,9 @@ import {
   mvpHoldEndZoomInfo,
   mvpSceneBoundaryFadeOpacity,
   timelineUsesAudioAxis,
+  videoTimeFromAudioCueSync,
 } from "@/lib/shotform-mvp-preview-sync"
+import { MVP_EDIT_PLAN_SPLIT_MIN_SEC, isEditPlanBlank } from "@/lib/mvp-edit-plan-split"
 import {
   drawVideoContainWithSourceTransform,
   editPlanSegmentIndexAtOutputTime,
@@ -136,6 +139,9 @@ type Props = {
   scriptOverrides: Record<string, string>
   onScriptOverride: (sceneId: number, text: string) => void
   onScriptOverrideBlur: (sceneId: number, text: string, sceneDur: number) => void
+  /** 씬 단위 TTS 재생성 */
+  onRunTtsForScene?: (sceneIndex: number) => void
+  sceneTtsLoadingIndex?: number | null
   scriptGenerating: boolean
   scriptNeedsAi: boolean
   ttsNeedsRegen?: boolean
@@ -222,12 +228,36 @@ type Props = {
   onVideoReplaced?: (blob: Blob) => void | Promise<void>
   projectId?: string
   videoBlobRef?: React.MutableRefObject<Blob | null>
+  /** 대본/음성 — 부족한 초 채울 추가 영상 (TTS 생성 후) */
+  onOpenInsertClip?: () => void
+  insertClipBusy?: boolean
+  /** false면 TTS 미생성 — 추가 영상 버튼 비활성 */
+  insertClipAllowed?: boolean
+  /** 팝업에서 타임라인으로 드래그 드롭 */
+  onInsertClipDrop?: (args: {
+    afterCutIndex: number
+    replaceCutIndex?: number | null
+  }) => void
+  insertClipDropEnabled?: boolean
   bgmClips: MvpBgmClip[]
   onBgmClipsChange: (next: MvpBgmClip[]) => void
   effectClips: MvpEffectClip[]
   onEffectClipsChange: (next: MvpEffectClip[]) => void
   videoSourceTransforms: MvpVideoSourceTransforms
   onVideoSourceTransformsChange: (next: MvpVideoSourceTransforms) => void
+  /** 선택 컷을 출력 타임라인 시각에서 자르기 */
+  onSplitEditPlanClip?: (cutIndex: number, splitOutputSec: number) => void
+  /** 선택 컷을 공백으로 (TTS·길이 유지) */
+  onBlankEditPlanClip?: (cutIndex: number) => void
+  /** 선택 컷을 타임라인에서 삭제 (Delete) */
+  onDeleteEditPlanClip?: (cutIndex: number) => void
+  /** 선택 컷 잘라내기 (Ctrl+X) */
+  onCutEditPlanClip?: (cutIndex: number) => void
+  /** 타임라인 편집 되돌리기 (Ctrl+Z) */
+  onTimelineUndo?: () => void
+  timelineEditBusy?: boolean
+  /** 영상 컷 드래그로 순서 변경 (TTS 유지) */
+  onReorderEditPlanClip?: (fromIndex: number, toIndex: number) => void
 }
 
 export function MvpCapCutEditor(props: Props) {
@@ -242,6 +272,8 @@ export function MvpCapCutEditor(props: Props) {
     scriptOverrides,
     onScriptOverride,
     onScriptOverrideBlur,
+    onRunTtsForScene,
+    sceneTtsLoadingIndex = null,
     scriptGenerating,
     scriptNeedsAi,
     ttsNeedsRegen = false,
@@ -316,19 +348,31 @@ export function MvpCapCutEditor(props: Props) {
     onAudioLoaded,
     onAudioTimeUpdate,
     onAudioEnded,
-    onPlaySceneOnly,
-    activeScene,
-    onClose,
-    onNext,
-    onVideoReplaced,
-    projectId,
-    videoBlobRef,
-    bgmClips,
+  onPlaySceneOnly,
+  activeScene,
+  onClose,
+  onNext,
+  onVideoReplaced,
+  projectId,
+  videoBlobRef,
+  onOpenInsertClip,
+  insertClipBusy = false,
+  insertClipAllowed = true,
+  onInsertClipDrop,
+  insertClipDropEnabled = false,
+  bgmClips,
     onBgmClipsChange,
     effectClips,
     onEffectClipsChange,
     videoSourceTransforms,
     onVideoSourceTransformsChange,
+    onSplitEditPlanClip,
+    onBlankEditPlanClip,
+    onDeleteEditPlanClip,
+    onCutEditPlanClip,
+    onTimelineUndo,
+    timelineEditBusy = false,
+    onReorderEditPlanClip,
   } = props
 
   const subStyle = normalizeSubtitleStyle(subtitleStyle)
@@ -393,6 +437,24 @@ export function MvpCapCutEditor(props: Props) {
         return
       }
 
+      // Ctrl+Z — 되돌리기
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z") {
+        if (onTimelineUndo) {
+          e.preventDefault()
+          onTimelineUndo()
+        }
+        return
+      }
+
+      // Ctrl+X — 선택 영상 컷 잘라내기
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "x") {
+        if (selectedEditPlanIndex != null && onCutEditPlanClip && !timelineEditBusy) {
+          e.preventDefault()
+          onCutEditPlanClip(selectedEditPlanIndex)
+        }
+        return
+      }
+
       if (e.key !== "Delete" && e.key !== "Backspace") return
       if (deleteSelectedOverlay()) {
         e.preventDefault()
@@ -402,6 +464,12 @@ export function MvpCapCutEditor(props: Props) {
         e.preventDefault()
         onEffectClipsChange(effectClips.filter((clip) => clip.id !== selectedEffectClipId))
         setSelectedEffectClipId(null)
+        return
+      }
+      // 선택 영상 컷 → 삭제하되 자리는 공백으로 유지 (뒤 클립 당기지 않음)
+      if (selectedEditPlanIndex != null && onBlankEditPlanClip) {
+        e.preventDefault()
+        onBlankEditPlanClip(selectedEditPlanIndex)
         return
       }
       if (!selectedBgmClipId) return
@@ -415,6 +483,11 @@ export function MvpCapCutEditor(props: Props) {
     selectedBgmClipId,
     selectedEffectClipId,
     selectedOverlayId,
+    selectedEditPlanIndex,
+    onBlankEditPlanClip,
+    onCutEditPlanClip,
+    onTimelineUndo,
+    timelineEditBusy,
     deleteSelectedBgmClip,
     deleteSelectedOverlay,
     effectClips,
@@ -618,6 +691,16 @@ export function MvpCapCutEditor(props: Props) {
     [onPlacedOverlaysChange, placedOverlays]
   )
   const editPlan = result.editPlan?.edit_plan ?? []
+  useEffect(() => {
+    if (selectedEditPlanIndex == null) return
+    if (editPlan.length === 0) {
+      setSelectedEditPlanIndex(null)
+      return
+    }
+    if (selectedEditPlanIndex >= editPlan.length) {
+      setSelectedEditPlanIndex(editPlan.length - 1)
+    }
+  }, [editPlan.length, selectedEditPlanIndex])
   const useAudioTimeline = timelineUsesAudioAxis(voiceLineCues, audioDuration)
   // 타임라인 표시 시각: TTS 있으면 음성 시간, 없으면 영상 시간
   const previewTimelineSec = useAudioTimeline
@@ -819,10 +902,57 @@ export function MvpCapCutEditor(props: Props) {
   )
   const selectedClipSegment =
     selectedEditPlanIndex != null ? editPlan[selectedEditPlanIndex] ?? null : null
+  const selectedClipIsBlank = isEditPlanBlank(selectedClipSegment)
+  const previewClipIsBlank = isEditPlanBlank(editPlan[previewClipIndex] ?? null)
   const selectedVideoTransform = getMvpEditPlanClipTransform(
     videoSourceTransforms,
     selectedEditPlanIndex
   )
+
+  const splitSelectedVideoClip = useCallback(() => {
+    if (!onSplitEditPlanClip) return
+    if (selectedEditPlanIndex == null || !selectedClipSegment) {
+      window.alert("자를 영상 컷을 타임라인에서 먼저 선택하세요.")
+      return
+    }
+    const videoDur = Math.max(
+      0.5,
+      segments.at(-1)?.end ?? editPlan.at(-1)?.output_end ?? playhead
+    )
+    const splitOutputSec =
+      useAudioTimeline && voiceLineCues?.length
+        ? videoTimeFromAudioCueSync(
+            audioPlayhead,
+            voiceLineCues,
+            segments,
+            videoDur,
+            audioDuration
+          )
+        : playhead
+
+    const min = MVP_EDIT_PLAN_SPLIT_MIN_SEC
+    if (
+      splitOutputSec <= selectedClipSegment.output_start + min ||
+      splitOutputSec >= selectedClipSegment.output_end - min
+    ) {
+      window.alert(
+        `빨간바를 선택한 컷 안쪽(양끝 ${min}초 제외)에 두고 자르세요.`
+      )
+      return
+    }
+    onSplitEditPlanClip(selectedEditPlanIndex, splitOutputSec)
+  }, [
+    onSplitEditPlanClip,
+    selectedEditPlanIndex,
+    selectedClipSegment,
+    useAudioTimeline,
+    voiceLineCues,
+    audioPlayhead,
+    segments,
+    editPlan,
+    playhead,
+    audioDuration,
+  ])
 
   useEffect(() => {
     if (!popupMode || !resolvedVideoUrl || !editPlan.length) {
@@ -1022,9 +1152,9 @@ export function MvpCapCutEditor(props: Props) {
               : "border-amber-500/35 bg-amber-950/25 text-amber-100"
           )}
         >
-          일부 컷에 TTS가 없습니다. 「대본」 탭에서 누락된 컷을 확인한 뒤{" "}
+          일부 컷의 대본과 TTS가 맞지 않습니다. 「대본」 탭에서 확인한 뒤{" "}
           <strong className={popupMode ? "text-amber-950" : "text-white"}>TTS 다시 생성</strong>을 눌러
-          주세요.
+          주세요. (영상만 자르거나 공백으로 바꾼 경우는 TTS를 다시 만들 필요 없습니다.)
         </div>
       ) : null}
 
@@ -1360,6 +1490,17 @@ export function MvpCapCutEditor(props: Props) {
                         className="pointer-events-none absolute inset-0 h-full w-full origin-center [backface-visibility:hidden]"
                         aria-hidden
                       />
+                      {/* 공백 컷 — TTS는 유지, 화면만 검정 */}
+                      {previewClipIsBlank && !showThumbnailIntro ? (
+                        <div
+                          className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center bg-black"
+                          aria-hidden
+                        >
+                          <span className="rounded-md border border-white/20 bg-white/5 px-2 py-1 text-[10px] text-white/70">
+                            공백 · TTS 후 추가 영상으로 채우기
+                          </span>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 ) : videoLoading ? (
@@ -1402,6 +1543,7 @@ export function MvpCapCutEditor(props: Props) {
                   videoDurationSec={previewTotalSec}
                   playing={playing}
                   onOverlayPointerDown={() => setInspectorTab("subtitle")}
+                  sourceTransform={previewTransform}
                 />
                 {previewSubtitleText ? (
                   <MvpFitOneLineSubtitle style={buildSubtitleOverlayStyle(subStyle, subtitleStageScalePx)}>
@@ -1632,6 +1774,26 @@ export function MvpCapCutEditor(props: Props) {
                   setSelectedBgmClipId(null)
                 }
               }}
+              onSplitSelectedVideoClip={
+                onSplitEditPlanClip ? splitSelectedVideoClip : undefined
+              }
+              onBlankSelectedVideoClip={
+                onBlankEditPlanClip && selectedEditPlanIndex != null
+                  ? () => onBlankEditPlanClip(selectedEditPlanIndex)
+                  : undefined
+              }
+              onDeleteSelectedVideoClip={
+                onBlankEditPlanClip && selectedEditPlanIndex != null
+                  ? () => onBlankEditPlanClip(selectedEditPlanIndex)
+                  : undefined
+              }
+              onReorderEditPlanClip={
+                onReorderEditPlanClip && !timelineEditBusy
+                  ? onReorderEditPlanClip
+                  : undefined
+              }
+              onInsertClipDrop={onInsertClipDrop}
+              insertClipDropEnabled={insertClipDropEnabled}
             />
             </div>
           </div>
@@ -1689,7 +1851,7 @@ export function MvpCapCutEditor(props: Props) {
                 )}
               >
                 <p className={popupMode ? insp.title : "text-xs font-medium text-emerald-100"}>
-                  컷 {selectedEditPlanIndex + 1} · 화면 크기
+                  컷 {selectedEditPlanIndex + 1} · {selectedClipIsBlank ? "공백" : "화면 크기"}
                 </p>
                 <p
                   className={cn(
@@ -1697,8 +1859,32 @@ export function MvpCapCutEditor(props: Props) {
                     popupMode ? "text-slate-600" : "text-white"
                   )}
                 >
-                  {videoSourceLabel(result, selectedClipSegment.video_id)}
+                  {selectedClipIsBlank
+                    ? insertClipAllowed
+                      ? "TTS는 유지됩니다. 「추가 영상」으로 이 자리에 다른 클립을 넣으세요."
+                      : "먼저 「TTS 생성」을 한 뒤, 이 공백에 영상을 넣으세요."
+                    : videoSourceLabel(result, selectedClipSegment.video_id)}
                 </p>
+                {selectedClipIsBlank ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {onOpenInsertClip ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-8 bg-amber-500 text-xs font-semibold text-zinc-900 hover:bg-amber-400 disabled:opacity-50"
+                        disabled={insertClipBusy || !insertClipAllowed}
+                        title={
+                          insertClipAllowed
+                            ? undefined
+                            : "TTS를 먼저 생성해 주세요"
+                        }
+                        onClick={() => onOpenInsertClip()}
+                      >
+                        공백에 영상 넣기
+                      </Button>
+                    ) : null}
+                  </div>
+                ) : (
                 <div className="mt-3 space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <Label className={popupMode ? insp.label : "text-[10px] text-slate-400"}>크기</Label>
@@ -1767,11 +1953,72 @@ export function MvpCapCutEditor(props: Props) {
                     </Button>
                   </div>
                 </div>
+                )}
+                {!selectedClipIsBlank && onBlankEditPlanClip ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className={cn(
+                      "mt-2 h-8 w-full text-xs",
+                      popupMode
+                        ? "border-rose-200 text-rose-700 hover:bg-rose-50"
+                        : "border-rose-400/40 text-rose-200 hover:bg-rose-500/10"
+                    )}
+                    onClick={() => onBlankEditPlanClip(selectedEditPlanIndex)}
+                  >
+                    이 컷 삭제 (Delete) · 자리(공백) 유지
+                  </Button>
+                ) : null}
+                {onDeleteEditPlanClip && !selectedClipIsBlank ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={timelineEditBusy}
+                    className={cn(
+                      "mt-2 h-8 w-full text-xs",
+                      popupMode
+                        ? "border-slate-200 text-slate-600 hover:bg-slate-50"
+                        : "border-white/20 text-slate-300 hover:bg-white/10"
+                    )}
+                    onClick={() => onDeleteEditPlanClip(selectedEditPlanIndex)}
+                  >
+                    컷 완전 제거 · 뒤 당김 (Ctrl+X)
+                  </Button>
+                ) : null}
               </div>
             ) : null}
 
             {inspectorTab === "voice" ? (
               <div className="space-y-3">
+                {onOpenInsertClip ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={insertClipBusy || !insertClipAllowed}
+                    title={
+                      insertClipAllowed
+                        ? "TTS 생성 후 공백에 넣을 영상을 가져옵니다"
+                        : "TTS를 먼저 생성한 뒤 공백에 영상을 넣을 수 있습니다"
+                    }
+                    className={cn(
+                      "h-8 w-full text-xs",
+                      popupMode
+                        ? "border-violet-200 bg-violet-50 text-violet-800 hover:bg-violet-100"
+                        : "border-violet-400/40 bg-violet-500/10 text-violet-100 hover:bg-violet-500/20"
+                    )}
+                    onClick={onOpenInsertClip}
+                  >
+                    {insertClipBusy ? (
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Film className="mr-1.5 h-3.5 w-3.5" />
+                    )}
+                    {insertClipAllowed ? "추가 영상 가져오기" : "추가 영상 (TTS 먼저)"}
+                  </Button>
+                ) : null}
                 <div className={popupMode ? insp.card : "rounded-xl border border-emerald-400/20 bg-gradient-to-br from-emerald-500/[0.07] to-transparent p-3"}>
                   <div className="flex items-center justify-between gap-2">
                     <div>
@@ -2379,7 +2626,12 @@ export function MvpCapCutEditor(props: Props) {
                 scriptDirtyFromBaseline={scriptDirtyFromBaseline}
                 onScriptOverride={onScriptOverride}
                 onScriptOverrideBlur={onScriptOverrideBlur}
+                onRunTtsForScene={onRunTtsForScene}
+                sceneTtsLoadingIndex={sceneTtsLoadingIndex}
                 onPlaySceneOnly={onPlaySceneOnly}
+                onOpenInsertClip={onOpenInsertClip}
+                insertClipBusy={insertClipBusy}
+                insertClipAllowed={insertClipAllowed}
               />
             ) : null}
 

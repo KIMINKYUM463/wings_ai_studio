@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type { AutoEditJobResult } from "@/lib/shotform-auto-edit-types"
+import type { AutoEditJobResult, AutoEditPick } from "@/lib/shotform-auto-edit-types"
 import {
   audioTimeFromVideoSync,
   previewTimelineEndSec,
@@ -18,11 +18,12 @@ import {
   padAudioUrlEnd,
   rebakeWavBlobUrl,
   MIN_TTS_PLAIN_CHARS,
+  narrationTtsTextFromScene,
   voiceLineCueAtTime,
   voiceSubtitleAtLineCues,
   type VoiceLineCue,
 } from "@/lib/shotform-factory-line-tts"
-import { narrationPlainCharCount, estimateNarrationDurationSec, cleanNarrationLineBreaks, formatNarrationForSceneDuration } from "@/lib/shotform-narration-timing"
+import { narrationPlainCharCount, estimateNarrationDurationSec, cleanNarrationLineBreaks } from "@/lib/shotform-narration-timing"
 import { normalizeTtsSpeed } from "@/lib/shotform-tts-speed"
 import {
   applyAudioFitEnds,
@@ -138,6 +139,18 @@ import { MvpExportPanel } from "./MvpExportPanel"
 import { MvpScriptStyleEditor } from "./MvpScriptStyleEditor"
 import { MvpStudioStepNav } from "./MvpStudioStepNav"
 import { MvpThumbnailGenerator } from "./MvpThumbnailGenerator"
+import { MvpInsertClipDialog, type InsertClipChoice } from "./MvpInsertClipDialog"
+import { MvpBlankFillTrimDialog } from "./MvpBlankFillTrimDialog"
+import {
+  fillBlankCutWithClip,
+  insertClipIntoEditPlan,
+  shiftScriptOverridesForInsert,
+} from "@/lib/mvp-edit-plan-insert"
+import {
+  clearMvpInsertClipDrag,
+  peekMvpInsertClipDrag,
+} from "@/lib/mvp-insert-clip-drag"
+import { splitEditPlanAtOutputTime, convertEditPlanCutToBlank, isEditPlanBlank, removeEditPlanCut, reorderEditPlanCut } from "@/lib/mvp-edit-plan-split"
 import styles from "./MvpPostEditStudio.module.css"
 import { useEditorChromeSlot } from "../components/ShotFormEditorDialogShell"
 
@@ -159,6 +172,15 @@ type Props = {
   onClose?: () => void
   active?: boolean
   detailMode?: boolean
+  /** 리믹스에 쓴 픽 (하위 호환) */
+  editPicks?: AutoEditPick[]
+  /**
+   * 키워드 검색으로 가져온 전체 영상 소스(샤오홍슈·도우인).
+   * 추가 영상 팝업에 표시. 없으면 editPicks로 폴백.
+   */
+  sourceLibraryPicks?: AutoEditPick[]
+  /** 컷 삽입 후 editPlan·메타 갱신 */
+  onResultChange?: (result: AutoEditJobResult, videoBlob?: Blob | null) => void
 }
 
 function shotformOpenAIKey(): string {
@@ -180,23 +202,34 @@ export function MvpPostEditStudio({
   onClose,
   active = true,
   detailMode = false,
+  editPicks = [],
+  sourceLibraryPicks,
+  onResultChange,
 }: Props) {
-  const baseSegments = useMemo(() => narrationSegmentsFromAutoEdit(result), [result])
+  const insertClipPicks =
+    sourceLibraryPicks && sourceLibraryPicks.length > 0 ? sourceLibraryPicks : editPicks
+  const [resultDraft, setResultDraft] = useState<AutoEditJobResult | null>(null)
+  useEffect(() => {
+    setResultDraft(null)
+  }, [result.jobId])
+  const liveResult = resultDraft ?? result
+
+  const baseSegments = useMemo(() => narrationSegmentsFromAutoEdit(liveResult), [liveResult])
 
   const segmentVisualHints = useMemo(() => {
-    const plan = result.editPlan?.edit_plan
+    const plan = liveResult.editPlan?.edit_plan
     if (!plan?.length) return [] as string[]
-    const analyses = result.analyses?.length
-      ? result.analyses
-      : result.analysis
-        ? [result.analysis]
+    const analyses = liveResult.analyses?.length
+      ? liveResult.analyses
+      : liveResult.analysis
+        ? [liveResult.analysis]
         : []
     const byId = analysisByVideoId(analyses)
     return plan.map((seg) => {
       const hint = cutVisualHintForSegment(seg, byId.get(seg.video_id))
       return hint ? formatSceneDescriptionHint(hint) : ""
     })
-  }, [result])
+  }, [liveResult])
   const [scriptOverrides, setScriptOverrides] = useState<Record<string, string>>(() =>
     fillScriptOverridesForAllCuts(baseSegments, scriptOverridesProp, segmentVisualHints)
   )
@@ -219,9 +252,9 @@ export function MvpPostEditStudio({
   useEffect(() => {
     if (scriptBaseline) return
     if (!Object.keys(scriptOverridesProp).length) return
-    if (needsAiNarrationFromScenes(result, scriptOverridesProp)) return
+    if (needsAiNarrationFromScenes(liveResult, scriptOverridesProp)) return
     setScriptBaseline(fillScriptOverridesForAllCuts(baseSegments, scriptOverridesProp, segmentVisualHints))
-  }, [result, scriptOverridesProp, baseSegments, scriptBaseline])
+  }, [liveResult, scriptOverridesProp, baseSegments, scriptBaseline])
 
   const updateOverride = useCallback(
     (sceneId: number, text: string) => {
@@ -261,8 +294,8 @@ export function MvpPostEditStudio({
   )
 
   const scriptNeedsAi = useMemo(
-    () => needsAiNarrationFromScenes(result, scriptOverrides),
-    [result, scriptOverrides]
+    () => needsAiNarrationFromScenes(liveResult, scriptOverrides),
+    [liveResult, scriptOverrides]
   )
   const totalSec = useMemo(() => narrationTotalSec(segments), [segments])
 
@@ -338,6 +371,31 @@ export function MvpPostEditStudio({
   }, [])
   const [voiceLineCues, setVoiceLineCues] = useState<VoiceLineCue[] | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  const [insertClipOpen, setInsertClipOpen] = useState(false)
+  const [insertClipBusy, setInsertClipBusy] = useState(false)
+  const [timelineEditBusy, setTimelineEditBusy] = useState(false)
+  const [blankFillEditor, setBlankFillEditor] = useState<{
+    blob: Blob
+    previewUrl: string
+    label: string
+    blankIndex: number
+    blankDurationSec: number
+  } | null>(null)
+  const undoStackRef = useRef<
+    Array<{
+      result: AutoEditJobResult
+      videoBlob: Blob | null
+      voiceLineCues: VoiceLineCue[] | null
+      scriptOverrides: Record<string, string>
+      videoSourceTransforms: MvpVideoSourceTransforms
+    }>
+  >([])
+  const cutClipboardRef = useRef<{
+    label: string
+    durationSec: number
+    reason?: string
+  } | null>(null)
+
   const [scriptGenerating, setScriptGenerating] = useState(false)
   const [scriptRevision, setScriptRevision] = useState(0)
   const [phase, setPhase] = useState<MvpStudioPhase>(() => normalizeStudioPhase(studioPersist?.phase))
@@ -399,6 +457,9 @@ export function MvpPostEditStudio({
   const thumbnailUrl = activeThumbnail?.url ?? ""
   /** 장면별 TTS 원본 URL — 장면 재생 시 말꼬리까지 보장 */
   const sceneLineAudioUrlsRef = useRef<string[] | null>(null)
+  /** 장면별 TTS 원본 URL (머지 전) — 씬 단위 재생성용 */
+  const ttsLineUrlsRef = useRef<string[] | null>(null)
+  const [sceneTtsLoadingIndex, setSceneTtsLoadingIndex] = useState<number | null>(null)
   const sceneSoloAudioRef = useRef<HTMLAudioElement | null>(null)
   const ttsBlobRef = useRef<Blob | null>(null)
   const fetchedTtsUrlRef = useRef<string | null>(null)
@@ -877,8 +938,15 @@ export function MvpPostEditStudio({
       }
       sceneLineAudioUrlsRef.current = null
     }
+    if (ttsLineUrlsRef.current?.length) {
+      for (const u of ttsLineUrlsRef.current) {
+        if (u.startsWith("blob:")) URL.revokeObjectURL(u)
+      }
+      ttsLineUrlsRef.current = null
+    }
     sceneSoloAudioRef.current?.pause()
     sceneSoloAudioRef.current = null
+    sceneSoloMetaRef.current = null
     ttsBlobRef.current = null
     setAudioUrl(null)
     setAudioKey((k) => k + 1)
@@ -1102,6 +1170,453 @@ export function MvpPostEditStudio({
       }
     },
     [projectId, result.jobId, markMp4Cached]
+  )
+
+  const clearTtsForClipInsert = useCallback(() => {
+    if (audioUrl?.startsWith("blob:")) {
+      try {
+        URL.revokeObjectURL(audioUrl)
+      } catch {
+        /* ignore */
+      }
+    }
+    ttsBlobRef.current = null
+    setAudioUrl(null)
+    setVoiceLineCues(null)
+    setAudioDuration(0)
+    audioDurationKnownRef.current = 0
+  }, [audioUrl])
+
+  const pushTimelineUndo = useCallback(() => {
+    undoStackRef.current = [
+      ...undoStackRef.current.slice(-24),
+      {
+        result: liveResult,
+        videoBlob: mp4BlobRef.current,
+        voiceLineCues: voiceLineCues ? voiceLineCues.map((c) => ({ ...c })) : null,
+        scriptOverrides: { ...scriptOverrides },
+        videoSourceTransforms: { ...videoSourceTransforms },
+      },
+    ]
+  }, [liveResult, voiceLineCues, scriptOverrides, videoSourceTransforms])
+
+  const handleTimelineUndo = useCallback(async () => {
+    const prev = undoStackRef.current.pop()
+    if (!prev) {
+      setErr("되돌릴 편집이 없습니다. (Ctrl+Z)")
+      return
+    }
+    setScriptOverrides(prev.scriptOverrides)
+    onScriptOverridesChange?.(prev.scriptOverrides)
+    setVoiceLineCues(prev.voiceLineCues)
+    setVideoSourceTransforms(prev.videoSourceTransforms)
+    setResultDraft(prev.result)
+    onResultChange?.(prev.result, prev.videoBlob)
+    if (prev.videoBlob && prev.videoBlob.size >= 1000) {
+      await applyVideoBlob(prev.videoBlob)
+    }
+    setErr("Ctrl+Z — 직전 타임라인 편집을 되돌렸습니다.")
+  }, [onScriptOverridesChange, onResultChange, applyVideoBlob])
+
+  const handleInsertClipConfirm = useCallback(
+    async (choice: InsertClipChoice): Promise<boolean> => {
+      setInsertClipBusy(true)
+      setErr(null)
+      try {
+        // 공백 채우기·영상 추가는 TTS 타임라인이 잡힌 뒤에만 (먼저 넣으면 빈 대본으로 TTS 실패)
+        if (!audioUrl || !voiceLineCues?.length) {
+          throw new Error(
+            "TTS를 먼저 생성한 뒤 「추가 영상」으로 공백을 채워 주세요."
+          )
+        }
+
+        const mainBlob = mp4BlobRef.current
+        if (!mainBlob || mainBlob.size < 1000) {
+          throw new Error(
+            "리믹스 영상 MP4가 아직 없습니다. 미리보기가 나온 뒤 다시 시도해 주세요."
+          )
+        }
+
+        const fillingBlank =
+          choice.replaceCutIndex != null &&
+          choice.replaceCutIndex >= 0 &&
+          isEditPlanBlank(liveResult.editPlan?.edit_plan?.[choice.replaceCutIndex] ?? null)
+
+        // 공백 채우기는 TTS 유지. 끼워넣기만 TTS 초기화 확인.
+        if (!fillingBlank && (audioUrl || voiceLineCues?.length)) {
+          const ok = window.confirm(
+            "이미 TTS가 있습니다. 클립을 넣으면 음성을 지우고 다시 만들어야 합니다. 계속할까요?"
+          )
+          if (!ok) {
+            clearMvpInsertClipDrag()
+            return false
+          }
+          clearTtsForClipInsert()
+        }
+
+        const videoId = `manual_insert_${Date.now()}`
+        pushTimelineUndo()
+        const planned = fillingBlank
+          ? fillBlankCutWithClip({
+              result: liveResult,
+              blankIndex: choice.replaceCutIndex!,
+              clipDurationSec: choice.durationSec,
+              videoId,
+              reason: `공백 채움 · ${choice.label}`,
+              visualCaption: choice.label,
+            })
+          : insertClipIntoEditPlan({
+              result: liveResult,
+              afterCutIndex: choice.afterCutIndex,
+              clipDurationSec: choice.durationSec,
+              videoId,
+              reason: `수동 추가 · ${choice.label}`,
+              visualCaption: choice.label,
+            })
+
+        const form = new FormData()
+        form.append("video", mainBlob, "main.mp4")
+        form.append("clip", choice.blob, "clip.mp4")
+        form.append("insertAtSec", String(planned.insertAtOutputSec))
+        form.append("clipDurationSec", String(choice.durationSec))
+        form.append("clipStartSec", String(Math.max(0, choice.trimStartSec || 0)))
+        if (planned.replaceEndOutputSec != null) {
+          form.append("replaceEndSec", String(planned.replaceEndOutputSec))
+        }
+        const mainDur =
+          liveResult.outputDuration ||
+          liveResult.editPlan?.edit_plan?.at(-1)?.output_end ||
+          videoDuration ||
+          0
+        if (mainDur > 0.1) form.append("mainDurationSec", String(mainDur))
+
+        const res = await fetch("/api/shotform/mvp-insert-clip", {
+          method: "POST",
+          body: form,
+        })
+        if (!res.ok) {
+          const data = (await res.json().catch(() => ({}))) as { error?: string }
+          throw new Error(data.error || `클립 합성 실패 (${res.status})`)
+        }
+        const outBlob = await res.blob()
+        if (outBlob.size < 4096) throw new Error("합성된 영상이 비어 있습니다.")
+
+        if (!fillingBlank) {
+          const shifted = shiftScriptOverridesForInsert(
+            scriptOverrides,
+            planned.insertedCutIndex
+          )
+          setScriptOverrides(shifted)
+          onScriptOverridesChange?.(shifted)
+          setScriptBaseline(null)
+          setScriptRevision((r) => r + 1)
+        }
+
+        setResultDraft(planned.result)
+
+        onResultChange?.(planned.result, outBlob)
+        await applyVideoBlob(outBlob)
+        setInsertClipOpen(false)
+        clearMvpInsertClipDrag()
+        setErr(
+          fillingBlank
+            ? `공백(장면 ${planned.insertedCutIndex + 1})을 ${choice.durationSec}초 영상으로 채웠습니다.`
+            : `장면 ${planned.insertedCutIndex + 1}에 ${choice.durationSec}초 클립을 넣었습니다. 대본을 채운 뒤 TTS를 생성하세요.`
+        )
+        return true
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : "추가 영상 넣기 실패")
+        return false
+      } finally {
+        setInsertClipBusy(false)
+      }
+    },
+    [
+      liveResult,
+      audioUrl,
+      voiceLineCues,
+      clearTtsForClipInsert,
+      scriptOverrides,
+      onScriptOverridesChange,
+      onResultChange,
+      applyVideoBlob,
+      videoDuration,
+      pushTimelineUndo,
+    ]
+  )
+
+  const closeBlankFillEditor = useCallback(() => {
+    setBlankFillEditor((prev) => {
+      if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl)
+      return null
+    })
+  }, [])
+
+  const handleInsertClipDrop = useCallback(
+    async (args: { afterCutIndex: number; replaceCutIndex?: number | null }) => {
+      if (!audioUrl || !voiceLineCues?.length) {
+        setErr("TTS를 먼저 생성한 뒤 「추가 영상」으로 공백을 채워 주세요.")
+        clearMvpInsertClipDrag()
+        return
+      }
+      const payload = peekMvpInsertClipDrag()
+      if (!payload) {
+        setErr("드래그한 영상 정보를 찾지 못했습니다. 팝업에서 다시 드래그해 주세요.")
+        return
+      }
+      setErr(null)
+      try {
+        const blob = await payload.resolveBlob()
+        clearMvpInsertClipDrag()
+
+        // 공백 위 드롭 → 공백 길이 기준 트림 편집기
+        if (args.replaceCutIndex != null && args.replaceCutIndex >= 0) {
+          const blank = liveResult.editPlan?.edit_plan?.[args.replaceCutIndex]
+          if (!isEditPlanBlank(blank)) {
+            throw new Error("공백 컷 위에 놓아 주세요.")
+          }
+          const blankDur = Math.max(0.4, blank!.output_end - blank!.output_start)
+          const previewUrl = URL.createObjectURL(blob)
+          setBlankFillEditor((prev) => {
+            if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl)
+            return {
+              blob,
+              previewUrl,
+              label: payload.label,
+              blankIndex: args.replaceCutIndex!,
+              blankDurationSec: blankDur,
+            }
+          })
+          setInsertClipOpen(true)
+          setErr(
+            `공백 장면 ${args.replaceCutIndex + 1}(${blankDur.toFixed(1)}초) — 오른쪽에서 넣을 구간을 고르세요.`
+          )
+          return
+        }
+
+        // 일반 삽입 — 기존처럼 바로 넣기
+        setInsertClipBusy(true)
+        await handleInsertClipConfirm({
+          blob,
+          label: payload.label,
+          durationSec: payload.durationSec,
+          trimStartSec: payload.trimStartSec,
+          afterCutIndex: args.afterCutIndex,
+          replaceCutIndex: null,
+        })
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : "드래그로 영상 넣기 실패")
+        setInsertClipBusy(false)
+        clearMvpInsertClipDrag()
+      }
+    },
+    [handleInsertClipConfirm, liveResult, audioUrl, voiceLineCues]
+  )
+
+  const handleSplitEditPlanClip = useCallback(
+    (cutIndex: number, splitOutputSec: number) => {
+      try {
+        pushTimelineUndo()
+        const split = splitEditPlanAtOutputTime({
+          result: liveResult,
+          cutIndex,
+          splitOutputSec,
+        })
+        // 캡컷식: 영상만 앞/뒤. TTS는 시간축 유지(큐 쪼개지 않음).
+        if (voiceLineCues?.length) {
+          setVoiceLineCues(split.voiceLineCuesShift(voiceLineCues))
+        }
+        const shiftedScripts = split.scriptOverridesShift(scriptOverrides)
+        setScriptOverrides(shiftedScripts)
+        onScriptOverridesChange?.(shiftedScripts)
+        setScriptBaseline(null)
+        setScriptRevision((r) => r + 1)
+        setVideoSourceTransforms((prev) => split.videoTransformsShift(prev))
+        setResultDraft(split.result)
+        onResultChange?.(split.result, mp4BlobRef.current)
+        setErr(
+          `컷 ${split.leftCutIndex + 1}을 잘랐습니다 → ${split.leftCutIndex + 1}·${split.rightCutIndex + 1}. ` +
+            "앞/뒤 중 지울 쪽을 고른 뒤 Delete(자리 공백 유지). Ctrl+Z로 되돌릴 수 있습니다."
+        )
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : "자르기에 실패했습니다.")
+      }
+    },
+    [
+      liveResult,
+      voiceLineCues,
+      scriptOverrides,
+      onScriptOverridesChange,
+      onResultChange,
+      pushTimelineUndo,
+    ]
+  )
+
+  /** 선택 컷 → 공백 (Delete: 영상만 지우고 자리 유지) */
+  const handleBlankEditPlanClip = useCallback(
+    (cutIndex: number) => {
+      try {
+        const seg = liveResult.editPlan?.edit_plan?.[cutIndex]
+        if (isEditPlanBlank(seg)) {
+          setErr(`컷 ${cutIndex + 1}은 이미 공백입니다. 자리는 유지됩니다.`)
+          return
+        }
+        pushTimelineUndo()
+        const next = convertEditPlanCutToBlank(liveResult, cutIndex)
+        setResultDraft(next)
+        onResultChange?.(next, mp4BlobRef.current)
+        setErr(
+          `컷 ${cutIndex + 1}을 삭제했습니다. 자리는 공백으로 유지됩니다. (뒤 클립은 당겨지지 않음 · TTS 유지 · Ctrl+Z 되돌리기)`
+        )
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : "삭제(공백)에 실패했습니다.")
+      }
+    },
+    [liveResult, onResultChange, pushTimelineUndo]
+  )
+
+  /** Ctrl+X — 선택 컷을 타임라인·MP4에서 완전히 제거하고 뒤를 당김 */
+  const handleDeleteEditPlanClip = useCallback(
+    async (cutIndex: number, opts?: { cut?: boolean }) => {
+      if (timelineEditBusy || insertClipBusy) return
+      setTimelineEditBusy(true)
+      setErr(null)
+      try {
+        const mainBlob = mp4BlobRef.current
+        if (!mainBlob || mainBlob.size < 1000) {
+          throw new Error("리믹스 MP4가 없습니다. 미리보기가 나온 뒤 다시 시도해 주세요.")
+        }
+        const planned = removeEditPlanCut(liveResult, cutIndex)
+        if (opts?.cut) {
+          const seg = liveResult.editPlan?.edit_plan?.[cutIndex]
+          cutClipboardRef.current = {
+            label: seg?.visual_caption || seg?.reason || `컷 ${cutIndex + 1}`,
+            durationSec: planned.removedDurationSec,
+            reason: seg?.reason,
+          }
+        }
+
+        pushTimelineUndo()
+
+        const form = new FormData()
+        form.append("video", mainBlob, "main.mp4")
+        form.append("removeStartSec", String(planned.removeStartSec))
+        form.append("removeEndSec", String(planned.removeEndSec))
+        const mainDur =
+          liveResult.outputDuration ||
+          liveResult.editPlan?.edit_plan?.at(-1)?.output_end ||
+          videoDuration ||
+          0
+        if (mainDur > 0.1) form.append("mainDurationSec", String(mainDur))
+
+        const res = await fetch("/api/shotform/mvp-remove-clip-range", {
+          method: "POST",
+          body: form,
+        })
+        if (!res.ok) {
+          const data = (await res.json().catch(() => ({}))) as { error?: string }
+          throw new Error(data.error || `컷 삭제 실패 (${res.status})`)
+        }
+        const outBlob = await res.blob()
+        if (outBlob.size < 4096) throw new Error("삭제 결과 영상이 비어 있습니다.")
+
+        if (voiceLineCues?.length) {
+          setVoiceLineCues(planned.voiceLineCuesShift(voiceLineCues))
+        }
+        const shiftedScripts = planned.scriptOverridesShift(scriptOverrides)
+        setScriptOverrides(shiftedScripts)
+        onScriptOverridesChange?.(shiftedScripts)
+        setScriptBaseline(null)
+        setScriptRevision((r) => r + 1)
+        setVideoSourceTransforms((prev) => planned.videoTransformsShift(prev))
+        setResultDraft(planned.result)
+        onResultChange?.(planned.result, outBlob)
+        await applyVideoBlob(outBlob)
+        setErr(
+          opts?.cut
+            ? `Ctrl+X — 컷 ${cutIndex + 1}을 완전 제거했고 뒤를 당겼습니다. Ctrl+Z로 되돌릴 수 있습니다.`
+            : `컷 ${cutIndex + 1}을 완전 제거했고 뒤를 당겼습니다. Ctrl+Z로 되돌릴 수 있습니다.`
+        )
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : "컷 삭제에 실패했습니다.")
+      } finally {
+        setTimelineEditBusy(false)
+      }
+    },
+    [
+      timelineEditBusy,
+      insertClipBusy,
+      liveResult,
+      voiceLineCues,
+      scriptOverrides,
+      onScriptOverridesChange,
+      onResultChange,
+      applyVideoBlob,
+      videoDuration,
+      pushTimelineUndo,
+    ]
+  )
+
+  const handleReorderEditPlanClip = useCallback(
+    async (fromIndex: number, toIndex: number) => {
+      if (timelineEditBusy || insertClipBusy) return
+      if (fromIndex === toIndex) return
+      setTimelineEditBusy(true)
+      setErr(null)
+      try {
+        const mainBlob = mp4BlobRef.current
+        if (!mainBlob || mainBlob.size < 1000) {
+          throw new Error("리믹스 MP4가 없습니다. 미리보기가 나온 뒤 다시 시도해 주세요.")
+        }
+        const planned = reorderEditPlanCut(liveResult, fromIndex, toIndex)
+        if (planned.fromIndex === planned.toIndex) return
+
+        pushTimelineUndo()
+
+        const form = new FormData()
+        form.append("video", mainBlob, "main.mp4")
+        form.append("rangesJson", JSON.stringify(planned.concatRanges))
+
+        const res = await fetch("/api/shotform/mvp-reorder-clips", {
+          method: "POST",
+          body: form,
+        })
+        if (!res.ok) {
+          const data = (await res.json().catch(() => ({}))) as { error?: string }
+          throw new Error(data.error || `컷 이동 실패 (${res.status})`)
+        }
+        const outBlob = await res.blob()
+        if (outBlob.size < 4096) throw new Error("이동 결과 영상이 비어 있습니다.")
+
+        // TTS는 시간축·큐 그대로 유지
+        const shiftedScripts = planned.scriptOverridesShift(scriptOverrides)
+        setScriptOverrides(shiftedScripts)
+        onScriptOverridesChange?.(shiftedScripts)
+        setScriptBaseline(null)
+        setScriptRevision((r) => r + 1)
+        setVideoSourceTransforms((prev) => planned.videoTransformsShift(prev))
+        setResultDraft(planned.result)
+        onResultChange?.(planned.result, outBlob)
+        await applyVideoBlob(outBlob)
+        setErr(
+          `컷 ${fromIndex + 1}을 ${toIndex + 1}번 위치로 옮겼습니다. TTS는 그대로입니다. Ctrl+Z로 되돌릴 수 있습니다.`
+        )
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : "컷 이동에 실패했습니다.")
+      } finally {
+        setTimelineEditBusy(false)
+      }
+    },
+    [
+      timelineEditBusy,
+      insertClipBusy,
+      liveResult,
+      scriptOverrides,
+      onScriptOverridesChange,
+      onResultChange,
+      applyVideoBlob,
+      pushTimelineUndo,
+    ]
   )
 
   useEffect(() => {
@@ -1371,6 +1886,12 @@ export function MvpPostEditStudio({
   const sceneStopAtRef = useRef<number | null>(null)
   /** 장면만 재생 시 오디오 타임라인 정지점 */
   const sceneAudioStopAtRef = useRef<number | null>(null)
+  /** 장면 단독 TTS 재생 시 타임라인(빨간바) 오프셋 */
+  const sceneSoloMetaRef = useRef<{
+    audioStartSec: number
+    videoStart: number
+    videoEnd: number
+  } | null>(null)
 
   const syncVideoToAudio = useCallback(
     (audioT: number, forceSeek = false) => {
@@ -1416,6 +1937,7 @@ export function MvpPostEditStudio({
       sceneSoloAudioRef.current.pause()
       sceneSoloAudioRef.current = null
     }
+    sceneSoloMetaRef.current = null
     if (v) v.playbackRate = 1
     audioLayersRef.current?.stop()
     setPlaying(false)
@@ -1558,8 +2080,23 @@ export function MvpPostEditStudio({
         audioUrl && voiceLineCues?.length && audioDuration > 0.05
       )
 
-      // 장면 단독 TTS 재생 중 — 메인 오디오/시크 루프가 끼어들지 않음
+      // 장면 단독 TTS 재생 중 — 메인 오디오 대신 솔로 진행으로 빨간바·플레이헤드 갱신
       if (sceneSoloAudioRef.current) {
+        const solo = sceneSoloAudioRef.current
+        const meta = sceneSoloMetaRef.current
+        if (meta && Number.isFinite(solo.currentTime)) {
+          const at = meta.audioStartSec + Math.max(0, solo.currentTime)
+          const vidDur = Math.max(0.05, meta.videoEnd - meta.videoStart)
+          const vt =
+            solo.currentTime < vidDur - 0.04
+              ? meta.videoStart + solo.currentTime
+              : Math.max(meta.videoStart, meta.videoEnd - 0.02)
+          if (now - lastPreviewUiUpdateRef.current >= 1000 / 30) {
+            lastPreviewUiUpdateRef.current = now
+            setAudioPlayhead(at)
+            setPlayhead(vt)
+          }
+        }
         if (playingRef.current && !timelineScrubLockRef.current) {
           previewClockRafRef.current = requestAnimationFrame(tick)
         } else {
@@ -1631,6 +2168,36 @@ export function MvpPostEditStudio({
           audioLayersRef.current?.stop()
           if (at != null) setAudioPlayhead(at)
           if (vt != null) setPlayhead(vt)
+          setPlaying(false)
+          previewClockRafRef.current = null
+          return
+        }
+
+        // 자동 재생: TTS 끝에서 정지 (이후 영상은 빨간바 수동 시크로만 탐색)
+        if (
+          useAudioAxis &&
+          at != null &&
+          audioDuration > 0.05 &&
+          at >= audioDuration - 0.04
+        ) {
+          playingRef.current = false
+          v?.pause()
+          a?.pause()
+          audioLayersRef.current?.stop()
+          const endAt = Math.min(at, Math.max(0, audioDuration - 0.01))
+          setAudioPlayhead(endAt)
+          if (vt != null) setPlayhead(vt)
+          else if (voiceLineCues?.length) {
+            setPlayhead(
+              videoTimeFromAudioCueSync(
+                endAt,
+                voiceLineCues,
+                playbackSegments,
+                videoDuration || totalSec,
+                audioDuration
+              )
+            )
+          }
           setPlaying(false)
           previewClockRafRef.current = null
           return
@@ -1730,11 +2297,25 @@ export function MvpPostEditStudio({
       setPlaying(true)
 
       // 1) 장면별 원본 TTS가 있으면 그걸 끝까지 재생 (말꼬리 보장)
-      const lineUrl = sceneLineAudioUrlsRef.current?.[index]
+      const cueLineIdx =
+        voiceLineCues?.findIndex((c) => c.sceneIndex === index) ?? -1
+      const lineUrl =
+        (cueLineIdx >= 0
+          ? sceneLineAudioUrlsRef.current?.[cueLineIdx]
+          : null) ?? sceneLineAudioUrlsRef.current?.[index]
+      const audioRangeForScene =
+        voiceLineCues?.length ? audioRangeForSceneIndex(index, voiceLineCues) : null
       if (lineUrl) {
         sceneStopAtRef.current = null
         sceneAudioStopAtRef.current = null
         a?.pause()
+        const audioStartSec = audioRangeForScene?.startSec ?? 0
+        sceneSoloMetaRef.current = {
+          audioStartSec,
+          videoStart: seg.start,
+          videoEnd: seg.end,
+        }
+        setAudioPlayhead(audioStartSec)
         if (v) {
           v.currentTime = seg.start
           setPlayhead(seg.start)
@@ -1747,14 +2328,21 @@ export function MvpPostEditStudio({
           const vid = videoRef.current
           if (!vid) return
           const vidDur = Math.max(0.05, seg.end - seg.start)
+          const at = audioStartSec + Math.max(0, solo.currentTime)
           if (solo.currentTime < vidDur - 0.04) {
             const target = seg.start + solo.currentTime
             if (Math.abs(vid.currentTime - target) > 0.2) vid.currentTime = target
             if (vid.paused) void vid.play().catch(() => {})
+            setPlayhead(target)
           } else {
-            vid.currentTime = Math.max(seg.start, seg.end - 0.02)
-            if (!vid.paused) vid.pause()
+            // TTS가 영상보다 길면 컷 루프
+            const looped = solo.currentTime % vidDur
+            const target = seg.start + looped
+            if (Math.abs(vid.currentTime - target) > 0.25) vid.currentTime = target
+            if (vid.paused) void vid.play().catch(() => {})
+            setPlayhead(target)
           }
+          setAudioPlayhead(at)
         }
         solo.ontimeupdate = syncSoloVideo
         solo.onended = () => {
@@ -1762,6 +2350,7 @@ export function MvpPostEditStudio({
           playingRef.current = false
           videoRef.current?.pause()
           sceneSoloAudioRef.current = null
+          sceneSoloMetaRef.current = null
           setPlaying(false)
         }
         void solo.play().then(() => {
@@ -1849,6 +2438,7 @@ export function MvpPostEditStudio({
       }
       timelineScrubLockRef.current = false
       if (audioPlayhead >= audioDuration - 0.05) {
+        // TTS 끝(또는 그 이후 시크)에서 재생 → 처음부터
         a.currentTime = 0
         setAudioPlayhead(0)
         setPlayhead(0)
@@ -1945,9 +2535,14 @@ export function MvpPostEditStudio({
       setSupertoneStyle(style)
     }
     const lines = collectNarrationSubtitleLines(segments, getSceneText)
+    const planSegs = liveResult.editPlan?.edit_plan
+    // 공백 컷은 대본·TTS 대상 아님 — TTS 먼저 만든 뒤 「추가 영상」으로 채움
     const uncovered = segments
       .map((_, i) => i)
-      .filter((i) => !lines.some((l) => l.sceneIndex === i))
+      .filter((i) => {
+        if (isEditPlanBlank(planSegs?.[i])) return false
+        return !lines.some((l) => l.sceneIndex === i)
+      })
     if (!lines.length) {
       setErr("리믹스 대본이 없습니다. 편집을 다시 실행해 주세요.")
       return
@@ -2074,6 +2669,12 @@ export function MvpPostEditStudio({
           if (u.startsWith("blob:")) URL.revokeObjectURL(u)
         }
       }
+      if (ttsLineUrlsRef.current?.length) {
+        for (const u of ttsLineUrlsRef.current) {
+          if (u.startsWith("blob:") && !audioUrls.includes(u)) URL.revokeObjectURL(u)
+        }
+      }
+      ttsLineUrlsRef.current = audioUrls
       // 장면 재생용 — 말꼬리만 아주 짧게 (장면 사이 무음과 무관)
       const paddedLineUrls: string[] = []
       for (const url of audioUrls) {
@@ -2130,7 +2731,195 @@ export function MvpPostEditStudio({
     projectId,
     result.jobId,
     commitAudioDuration,
+    liveResult.editPlan?.edit_plan,
   ])
+
+  /** 해당 씬 대본만 TTS 재생성 — 짧으면 영상 트림, 길면 재생 시 루프 */
+  const runTtsForScene = useCallback(
+    async (sceneIndex: number) => {
+      setErr(null)
+      const voiceId = selectedVoiceId
+      const style = supertoneStyle
+      const baseSpeed = normalizeTtsSpeed(speechSpeed)
+      const provider = ttsProviderFromVoiceId(voiceId)
+      if (!provider) {
+        setErr("목소리를 선택해 주세요. (수퍼톤 / 수퍼토닉3 / ElevenLabs / 타입캐스트)")
+        return
+      }
+      if (provider !== "supertonic" && !shotformTtsApiKey(provider)) {
+        setErr(ttsApiKeyMissingMessage(provider))
+        return
+      }
+
+      const lines = collectNarrationSubtitleLines(segments, getSceneText)
+      const lineIdx = lines.findIndex((l) => l.sceneIndex === sceneIndex)
+      if (lineIdx < 0) {
+        setErr(
+          `컷 ${sceneIndex + 1} 대본이 비어 있거나 너무 짧습니다. 대본을 입력한 뒤 다시 시도해 주세요.`
+        )
+        return
+      }
+      const target = lines[lineIdx]!
+      if (narrationPlainCharCount(target.text) < MIN_TTS_PLAIN_CHARS) {
+        setErr(`컷 ${sceneIndex + 1} 대본이 너무 짧습니다.`)
+        return
+      }
+
+      setSceneTtsLoadingIndex(sceneIndex)
+      setTtsLoading(true)
+      setTtsProgress(8)
+      try {
+        const videoDurs = lines.map((l) => {
+          const seg = baseSegments[l.sceneIndex]
+          return seg ? Math.max(0.1, seg.end - seg.start) : 3
+        })
+        let speeds = sceneFitEnabled
+          ? suggestSceneTtsSpeeds(
+              lines.map((l) => l.text),
+              videoDurs,
+              baseSpeed
+            )
+          : lines.map(() => baseSpeed)
+        if (sceneSpeeds?.length) {
+          speeds = lines.map((l, i) => {
+            const prev = sceneSpeeds[l.sceneIndex]
+            return prev != null ? normalizeTtsSpeed(prev) : speeds[i]!
+          })
+        }
+
+        const prevUrls = ttsLineUrlsRef.current
+        const canPatch =
+          Boolean(prevUrls?.length) &&
+          prevUrls!.length === lines.length &&
+          Boolean(voiceLineCues?.length)
+
+        const audioUrls: string[] = canPatch ? [...prevUrls!] : []
+        if (!canPatch) {
+          for (let i = 0; i < lines.length; i++) {
+            setTtsProgress(Math.min(80, Math.round(8 + ((i + 0.4) / lines.length) * 70)))
+            audioUrls.push(
+              await synthesizeTtsLine({
+                fullVoiceId: voiceId,
+                text: lines[i]!.text,
+                style,
+                speed: speeds[i] ?? baseSpeed,
+              })
+            )
+          }
+        } else {
+          setTtsProgress(40)
+          const old = audioUrls[lineIdx]
+          const nextUrl = await synthesizeTtsLine({
+            fullVoiceId: voiceId,
+            text: target.text,
+            style,
+            speed: speeds[lineIdx] ?? baseSpeed,
+          })
+          audioUrls[lineIdx] = nextUrl
+          if (old?.startsWith("blob:") && old !== nextUrl) URL.revokeObjectURL(old)
+        }
+
+        setTtsProgress(88)
+        const merged = await mergeAudioUrlsToWavBlobUrl(audioUrls, {
+          trimSilence: true,
+          interClipPadSec: 0.02,
+        })
+        const measured = lines.map(({ text, sceneIndex: si, displayLines }, i) => ({
+          text,
+          sceneIndex: si,
+          durationSec: merged.lineDurationsSec[i] ?? 0.5,
+          displayLines,
+          speed: speeds[i],
+        }))
+        const cues = buildVoiceLineCues(measured)
+        setVoiceLineCues(cues)
+        setSceneSpeeds(speeds)
+        // 짧으면 영상 끝 맞춤 / 길면 재생 루프(segments는 원본 유지)
+        setAudioFitEnds(audioFitEndsFromCues(baseSegments, cues))
+
+        if (sceneLineAudioUrlsRef.current?.length) {
+          for (const u of sceneLineAudioUrlsRef.current) {
+            if (u.startsWith("blob:")) URL.revokeObjectURL(u)
+          }
+        }
+        if (ttsLineUrlsRef.current?.length && ttsLineUrlsRef.current !== audioUrls) {
+          for (const u of ttsLineUrlsRef.current) {
+            if (u.startsWith("blob:") && !audioUrls.includes(u)) URL.revokeObjectURL(u)
+          }
+        }
+        ttsLineUrlsRef.current = audioUrls
+        const paddedLineUrls: string[] = []
+        for (const url of audioUrls) {
+          paddedLineUrls.push(await padAudioUrlEnd(url, 0.08))
+        }
+        sceneLineAudioUrlsRef.current = paddedLineUrls
+
+        if (fetchedTtsUrlRef.current) {
+          URL.revokeObjectURL(fetchedTtsUrlRef.current)
+          fetchedTtsUrlRef.current = null
+        }
+        const baked = await rebakeWavBlobUrl(merged.wavBlob)
+        if (merged.blobUrl.startsWith("blob:")) URL.revokeObjectURL(merged.blobUrl)
+        fetchedTtsUrlRef.current = baked.blobUrl
+        setAudioUrl(baked.blobUrl)
+        const authoritativeDur = Math.max(
+          baked.durationSec,
+          merged.totalDurationSec,
+          cues.at(-1)?.endSec ?? 0
+        )
+        commitAudioDuration(authoritativeDur, "replace")
+        ttsBlobRef.current = baked.wavBlob
+        try {
+          if (projectId && result.jobId && baked.wavBlob.size >= 512) {
+            await saveMvpTtsAudio(projectId, result.jobId, baked.wavBlob)
+            setEditTtsCachedJobId(result.jobId)
+          }
+        } catch {
+          /* ignore */
+        }
+        const range = audioRangeForSceneIndex(sceneIndex, cues)
+        if (range) {
+          setAudioPlayhead(range.startSec)
+          const vt = videoTimeFromAudioCueSync(
+            range.startSec,
+            cues,
+            applyAudioFitEnds(baseSegments, audioFitEndsFromCues(baseSegments, cues)),
+            videoDuration || totalSec,
+            authoritativeDur
+          )
+          setPlayhead(vt)
+        }
+        setAudioKey((k) => k + 1)
+        setTtsProgress(100)
+        setTtsGeneratedSpeed(baseSpeed)
+        setErr(
+          `컷 ${sceneIndex + 1} TTS를 다시 만들었습니다. (짧으면 영상 자름 · 길면 영상 반복)`
+        )
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : "씬 TTS 생성 실패")
+        setTtsProgress(0)
+      } finally {
+        setSceneTtsLoadingIndex(null)
+        setTtsLoading(false)
+      }
+    },
+    [
+      segments,
+      baseSegments,
+      getSceneText,
+      selectedVoiceId,
+      supertoneStyle,
+      speechSpeed,
+      sceneFitEnabled,
+      sceneSpeeds,
+      voiceLineCues,
+      projectId,
+      result.jobId,
+      commitAudioDuration,
+      videoDuration,
+      totalSec,
+    ]
+  )
 
   const trimSceneToAudio = useCallback(
     (sceneIndex: number) => {
@@ -2149,6 +2938,14 @@ export function MvpPostEditStudio({
     if (!voiceLineCues?.length) return
     setAudioFitEnds(audioFitEndsFromCues(baseSegments, voiceLineCues))
   }, [voiceLineCues, baseSegments])
+
+  // TTS가 있는데 장면 맞춤 끝이 없으면 자동으로 맞춤 (재생이 원본 길이에 묶이지 않도록)
+  useEffect(() => {
+    if (!sceneFitEnabled) return
+    if (!voiceLineCues?.length || !baseSegments.length) return
+    if (audioFitEnds?.length === baseSegments.length) return
+    setAudioFitEnds(audioFitEndsFromCues(baseSegments, voiceLineCues))
+  }, [sceneFitEnabled, voiceLineCues, baseSegments, audioFitEnds?.length])
 
   const handleAddThumbnail = useCallback(
     (entry: {
@@ -2221,22 +3018,37 @@ export function MvpPostEditStudio({
 
   const ttsReady = Boolean(audioUrl && voiceLineCues?.length)
 
-  /** 대본↔TTS 큐 불일치·누락 시 재생성 필요 */
+  /** 대본↔TTS 큐 불일치·누락 시 재생성 필요 (캡컷식: 공백·영상만 컷은 제외) */
   const ttsNeedsRegen = useMemo(() => {
     if (!voiceLineCues?.length || !segments.length) return false
+    const plan = liveResult.editPlan?.edit_plan
+    const stripNoise = (s: string) =>
+      s
+        .replace(/\s+/g, "")
+        .replace(/[.,!?~…·\-'"“”‘’、。！？]/g, "")
     for (let i = 0; i < segments.length; i++) {
-      const text = (segments[i]?.text ?? "").replace(/\s+/g, " ").trim()
-      if (!text) continue
-      const cue = voiceLineCues.find((c) => c.sceneIndex === i)
-      if (!cue) return true
-      const cueText = (cue.text ?? "").replace(/\s+/g, " ").trim()
-      // 대본이 바뀌었는데 TTS는 예전 문장이면 재생이 중간에 끊긴 것처럼 들림
-      if (cueText && text !== cueText && !text.startsWith(cueText) && !cueText.startsWith(text)) {
-        return true
-      }
+      if (isEditPlanBlank(plan?.[i])) continue
+      const rawScript = (segments[i]?.text ?? "").replace(/\r/g, "").trim()
+      // 자르기 뒤쪽처럼 대본 없는 「영상만」 컷 — TTS 재생성 불필요
+      if (!rawScript) continue
+      const sceneCues = voiceLineCues.filter((c) => c.sceneIndex === i)
+      if (!sceneCues.length) return true
+      // TTS에 넣은 문자열과 같은 규칙으로 비교 (줄바꿈·표시용 공백 차이로 오탐 방지)
+      const scriptTts = narrationTtsTextFromScene(rawScript).replace(/\s+/g, " ").trim()
+      const cueText = sceneCues
+        .map((c) => c.text ?? "")
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim()
+      const cueNorm = narrationTtsTextFromScene(cueText).replace(/\s+/g, " ").trim()
+      if (!scriptTts || !cueNorm) continue
+      if (scriptTts === cueNorm) continue
+      if (scriptTts.startsWith(cueNorm) || cueNorm.startsWith(scriptTts)) continue
+      if (stripNoise(scriptTts) === stripNoise(cueNorm)) continue
+      return true
     }
     return false
-  }, [voiceLineCues, segments])
+  }, [voiceLineCues, segments, liveResult.editPlan?.edit_plan])
 
   const speedNeedsRegen = useMemo(() => {
     if (ttsGeneratedSpeed == null || !audioUrl) return false
@@ -2286,7 +3098,7 @@ export function MvpPostEditStudio({
 
         {studioPhase === "thumbnail" ? (
         <MvpThumbnailGenerator
-          result={result}
+          result={liveResult}
           videoUrl={resolvedVideoUrl}
           segments={segments}
           scriptStyle={scriptStyle}
@@ -2309,7 +3121,7 @@ export function MvpPostEditStudio({
         <MvpExportPanel
           projectName={projectName}
           projectId={projectId}
-          result={result}
+          result={liveResult}
           videoUrl={resolvedVideoUrl}
           videoBlobRef={mp4BlobRef}
           audioUrl={audioUrl}
@@ -2330,12 +3142,12 @@ export function MvpPostEditStudio({
           seoMeta={seoMeta}
           onSeoMetaChange={setSeoMeta}
           productName={
-            result.productAnalysis?.productName ||
-            (result.sourceKeywords?.length ? result.sourceKeywords[0] : undefined) ||
+            liveResult.productAnalysis?.productName ||
+            (liveResult.sourceKeywords?.length ? liveResult.sourceKeywords[0] : undefined) ||
             sourceKeywords[0]
           }
           sourceKeywords={
-            result.sourceKeywords?.length ? result.sourceKeywords : sourceKeywords
+            liveResult.sourceKeywords?.length ? liveResult.sourceKeywords : sourceKeywords
           }
           bgmClips={bgmClips}
           effectClips={effectClips}
@@ -2348,19 +3160,21 @@ export function MvpPostEditStudio({
           active={active}
           popupMode
           detailMode={detailMode}
-          result={result}
+          result={liveResult}
           segments={playbackSegments}
           baseSegments={baseSegments}
           segmentVisualHints={segmentVisualHints}
           scriptOverrides={scriptOverrides}
           onScriptOverride={(sceneId, text) => updateOverride(sceneId, text)}
           onScriptOverrideBlur={(sceneId, text) => {
-            const seg = baseSegments[sceneId - 1]
-            const dur = seg ? Math.max(0.5, seg.end - seg.start) : 3
-            const fitted = formatNarrationForSceneDuration(text, dur)
-            const cleaned = sanitizeNarrationForOutput(fitted || text)
+            // 컷 길이에 맞춰 대본을 자르지 않음 — 사용자가 쓴 문장 유지 후 씬 TTS로 맞춤
+            const cleaned = sanitizeNarrationForOutput(
+              cleanNarrationLineBreaks(text.replace(/\r/g, "").trim())
+            )
             if (cleaned !== text.trim()) updateOverride(sceneId, cleaned)
           }}
+          onRunTtsForScene={(sceneIndex) => void runTtsForScene(sceneIndex)}
+          sceneTtsLoadingIndex={sceneTtsLoadingIndex}
           scriptGenerating={scriptGenerating}
           scriptNeedsAi={scriptNeedsAi}
           ttsNeedsRegen={ttsNeedsRegen}
@@ -2440,6 +3254,13 @@ export function MvpPostEditStudio({
           onEffectClipsChange={setEffectClips}
           videoSourceTransforms={videoSourceTransforms}
           onVideoSourceTransformsChange={setVideoSourceTransforms}
+          onSplitEditPlanClip={handleSplitEditPlanClip}
+          onBlankEditPlanClip={handleBlankEditPlanClip}
+          onDeleteEditPlanClip={(cutIndex) => void handleDeleteEditPlanClip(cutIndex)}
+          onCutEditPlanClip={(cutIndex) => void handleDeleteEditPlanClip(cutIndex, { cut: true })}
+          onTimelineUndo={() => void handleTimelineUndo()}
+          timelineEditBusy={timelineEditBusy}
+          onReorderEditPlanClip={(from, to) => void handleReorderEditPlanClip(from, to)}
           onSeek={(t) => {
             // 빨간바·타임라인 클릭 이동: 항상 일시정지 유지 (자동 재생 금지)
             timelineScrubLockRef.current = true
@@ -2449,34 +3270,63 @@ export function MvpPostEditStudio({
             }
             playingRef.current = false
             pausePreview()
-            const seekT = Math.max(0, t)
+            const seekT = Math.max(0, Math.min(previewTotalSec, t))
             const v = videoRef.current
             const a = audioRef.current
-            // TTS 생성 후 타임라인은 음성 시간축 — seek 값을 오디오로 적용
+            // TTS 생성 후: TTS 구간은 음성 축, TTS 이후는 영상만 시크 (오버분 탐색)
             if (timelineUsesAudioAxis(voiceLineCues, audioDuration) && audioUrl) {
-              const audioT = Math.min(
-                Math.max(0, audioDuration - 0.01),
-                seekT
-              )
-              if (a) {
-                a.pause()
-                a.currentTime = audioT
+              const ttsEnd = Math.max(0.05, audioDuration)
+              if (seekT <= ttsEnd + 0.02) {
+                const audioT = Math.min(Math.max(0, ttsEnd - 0.01), seekT)
+                if (a) {
+                  a.pause()
+                  a.currentTime = audioT
+                }
+                setAudioPlayhead(audioT)
+                syncVideoToAudio(audioT, true)
+                v?.pause()
+                const vt = videoTimeFromAudioCueSync(
+                  audioT,
+                  voiceLineCues!,
+                  playbackSegments,
+                  videoDuration || totalSec,
+                  audioDuration
+                )
+                setPlayhead(vt)
+                audioLayersRef.current?.onSeek(audioT)
+                audioLayersRef.current?.stop()
+              } else {
+                // TTS 끝 이후 — 음성은 끝에 두고, 빨간바·영상만 해당 위치로
+                if (a) {
+                  a.pause()
+                  try {
+                    a.currentTime = Math.max(0, ttsEnd - 0.01)
+                  } catch {
+                    /* ignore */
+                  }
+                }
+                setAudioPlayhead(seekT)
+                const vt = Math.min(
+                  Math.max(0, videoDuration || totalSec),
+                  seekT
+                )
+                if (v) {
+                  v.pause()
+                  try {
+                    if (Number.isFinite(v.duration) && v.duration > 0) {
+                      v.currentTime = Math.min(v.duration - 0.05, vt)
+                    } else {
+                      v.currentTime = vt
+                    }
+                  } catch {
+                    /* ignore */
+                  }
+                }
+                setPlayhead(vt)
+                audioLayersRef.current?.onSeek(ttsEnd)
+                audioLayersRef.current?.stop()
               }
-              setAudioPlayhead(audioT)
-              syncVideoToAudio(audioT, true)
-              v?.pause()
-              const vt = videoTimeFromAudioCueSync(
-                audioT,
-                voiceLineCues!,
-                playbackSegments,
-                videoDuration || totalSec,
-                audioDuration
-              )
-              setPlayhead(vt)
-              audioLayersRef.current?.onSeek(audioT)
-              audioLayersRef.current?.stop()
               setPlaying(false)
-              // 드래그 중 연속 seek — 마지막 이동 후에만 잠금 해제
               timelineScrubUnlockTimerRef.current = setTimeout(() => {
                 timelineScrubLockRef.current = false
                 timelineScrubUnlockTimerRef.current = null
@@ -2552,9 +3402,56 @@ export function MvpPostEditStudio({
           onVideoReplaced={applyVideoBlob}
           projectId={projectId}
           videoBlobRef={mp4BlobRef}
+          onOpenInsertClip={() => {
+            if (!ttsReady) {
+              setErr("TTS를 먼저 생성한 뒤 「추가 영상」으로 공백을 채워 주세요.")
+              return
+            }
+            setInsertClipOpen(true)
+          }}
+          insertClipBusy={insertClipBusy}
+          insertClipAllowed={ttsReady}
+          onInsertClipDrop={(args) => void handleInsertClipDrop(args)}
+          insertClipDropEnabled={insertClipOpen && !insertClipBusy && ttsReady}
         />
         ) : null}
       </div>
+
+      <MvpInsertClipDialog
+        open={insertClipOpen}
+        onOpenChange={setInsertClipOpen}
+        cutCount={baseSegments.length}
+        activeCutIndex={Math.max(0, activeScene)}
+        picks={insertClipPicks}
+        busy={insertClipBusy}
+        onConfirm={(choice) => void handleInsertClipConfirm(choice)}
+      />
+
+      <MvpBlankFillTrimDialog
+        open={Boolean(blankFillEditor)}
+        onOpenChange={(next) => {
+          if (!next) closeBlankFillEditor()
+        }}
+        previewUrl={blankFillEditor?.previewUrl ?? null}
+        blob={blankFillEditor?.blob ?? null}
+        label={blankFillEditor?.label ?? ""}
+        blankIndex={blankFillEditor?.blankIndex ?? 0}
+        blankDurationSec={blankFillEditor?.blankDurationSec ?? 2}
+        busy={insertClipBusy}
+        onConfirm={(result) => {
+          void (async () => {
+            const ok = await handleInsertClipConfirm({
+              blob: result.blob,
+              label: result.label,
+              durationSec: result.durationSec,
+              trimStartSec: result.trimStartSec,
+              afterCutIndex: result.replaceCutIndex - 1,
+              replaceCutIndex: result.replaceCutIndex,
+            })
+            if (ok) closeBlankFillEditor()
+          })()
+        }}
+      />
     </div>
   )
 }

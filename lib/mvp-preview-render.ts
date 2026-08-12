@@ -40,6 +40,7 @@ import {
 } from "@/lib/shotform-mvp-edit-script"
 import { convertWebmBlobToMp4 } from "@/lib/mvp-webm-to-mp4"
 import type { EditPlanSegment } from "@/lib/shotform-auto-edit-types"
+import { isEditPlanBlank } from "@/lib/mvp-edit-plan-split"
 import {
   drawVideoContainWithSourceTransform,
   editPlanSegmentIndexAtOutputTime,
@@ -184,7 +185,8 @@ function drawOverlay(
   cw: number,
   ch: number,
   previewW: number,
-  video?: HTMLVideoElement
+  video?: HTMLVideoElement,
+  sourceTransform?: import("@/lib/mvp-video-source-transform").MvpVideoSourceTransform
 ) {
   if (isMosaicOverlay(ov.catalogId) && video && video.readyState >= 2) {
     const dims = mosaicOverlayDimensions(ov)
@@ -197,6 +199,7 @@ function drawOverlay(
       blockPx: mosaicOverlayBlockSize(ov),
       circle: isMosaicCircleOverlay(ov.catalogId),
       rotation: ov.rotation,
+      sourceTransform,
     })
     return
   }
@@ -526,8 +529,10 @@ export async function renderMvpPreviewToBlob(
           }
           ctx.save()
           ctx.globalAlpha = sceneFade
-          // 홀드 줌이 있으면 항상 transform 경로(중심 고정 확대)로 그려 떨림·점프 방지
-          if (Math.abs(holdZoom - 1) < 0.001 && isDefaultMvpVideoSourceTransform(sourceTransform)) {
+          if (isEditPlanBlank(editPlan[clipIndex])) {
+            ctx.fillStyle = "#000000"
+            ctx.fillRect(0, 0, canvas.width, canvas.height)
+          } else if (Math.abs(holdZoom - 1) < 0.001 && isDefaultMvpVideoSourceTransform(sourceTransform)) {
             drawVideoContain(ctx, video, canvas.width, canvas.height)
           } else {
             drawVideoContainWithSourceTransform(
@@ -542,9 +547,34 @@ export async function renderMvpPreviewToBlob(
         }
 
         const overlayTimeSec = videoT
+        const mosaicTransform =
+          video.readyState >= 2
+            ? (() => {
+                const clipIndex = editPlan.length
+                  ? editPlanSegmentIndexAtOutputTime(editPlan, videoT)
+                  : 0
+                const sourceTransform = getMvpEditPlanClipTransform(
+                  videoSourceTransforms,
+                  clipIndex
+                )
+                const holdZoom = mvpHoldEndZoomScaleAtAudioTime(audioT, voiceLineCues, segments)
+                return {
+                  ...sourceTransform,
+                  scale: sourceTransform.scale * holdZoom,
+                }
+              })()
+            : undefined
 
         for (const ov of filterOverlaysAtVideoTime(placedOverlays, overlayTimeSec, videoDur)) {
-          drawOverlay(ctx, ov, canvas.width, canvas.height, MVP_PREVIEW_STAGE_WIDTH_PX, video)
+          drawOverlay(
+            ctx,
+            ov,
+            canvas.width,
+            canvas.height,
+            MVP_PREVIEW_STAGE_WIDTH_PX,
+            video,
+            mosaicTransform
+          )
         }
 
         const subText = resolveSubtitleText(

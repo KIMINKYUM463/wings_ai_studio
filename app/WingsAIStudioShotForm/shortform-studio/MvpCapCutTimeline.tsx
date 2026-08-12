@@ -1,7 +1,10 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react"
+import { Scissors, Square } from "lucide-react"
 import type { AutoEditJobResult } from "@/lib/shotform-auto-edit-types"
+import { isEditPlanBlank } from "@/lib/mvp-edit-plan-split"
+import { isMvpInsertClipDragEvent } from "@/lib/mvp-insert-clip-drag"
 import type { NarrationSegment } from "@/lib/shotform-factory-narration-script"
 import type { VoiceLineCue } from "@/lib/shotform-factory-line-tts"
 import type { LineSubtitleCue } from "@/lib/shotform-mvp-edit-script"
@@ -57,6 +60,23 @@ type Props = {
   onPlacedOverlaysChange?: (next: PlacedStudioOverlay[]) => void
   selectedEditPlanIndex?: number | null
   onSelectEditPlanIndex?: (index: number | null) => void
+  /** 선택 영상 컷을 빨간바 위치에서 자르기 */
+  onSplitSelectedVideoClip?: () => void
+  /** 선택 컷 → 공백 */
+  onBlankSelectedVideoClip?: () => void
+  /** 선택 컷 → 삭제 */
+  onDeleteSelectedVideoClip?: () => void
+  /** 영상 컷 순서 변경 (드래그 이동). TTS는 유지 */
+  onReorderEditPlanClip?: (fromIndex: number, toIndex: number) => void
+  /**
+   * 추가 영상 팝업에서 드래그 드롭.
+   * replaceCutIndex: 공백 채우기 / afterCutIndex: 그 컷 뒤에 삽입 (-1=맨 앞)
+   */
+  onInsertClipDrop?: (args: {
+    afterCutIndex: number
+    replaceCutIndex?: number | null
+  }) => void
+  insertClipDropEnabled?: boolean
   /** 팝업 편집기처럼 부모 높이를 가득 채울 때 */
   fillHeight?: boolean
 }
@@ -86,6 +106,16 @@ type EffectDragState = {
   originStart: number
   originEnd: number
   pointerX0: number
+}
+
+type VideoReorderDragState = {
+  fromIndex: number
+  trackEl: HTMLElement
+  originStart: number
+  originEnd: number
+  pointerX0: number
+  moved: boolean
+  targetIndex: number
 }
 
 const TRACK_LABEL_W = 56
@@ -138,6 +168,12 @@ export function MvpCapCutTimeline({
   onPlacedOverlaysChange,
   selectedEditPlanIndex = null,
   onSelectEditPlanIndex,
+  onSplitSelectedVideoClip,
+  onBlankSelectedVideoClip,
+  onDeleteSelectedVideoClip,
+  onReorderEditPlanClip,
+  onInsertClipDrop,
+  insertClipDropEnabled = false,
   fillHeight = false,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -147,12 +183,38 @@ export function MvpCapCutTimeline({
   const dragRef = useRef<DragState | null>(null)
   const mosaicDragRef = useRef<MosaicDragState | null>(null)
   const effectDragRef = useRef<EffectDragState | null>(null)
+  const videoReorderDragRef = useRef<VideoReorderDragState | null>(null)
   const [draggingClipId, setDraggingClipId] = useState<string | null>(null)
   const [draggingMosaicId, setDraggingMosaicId] = useState<string | null>(null)
   const [draggingEffectId, setDraggingEffectId] = useState<string | null>(null)
+  const [videoDragPreview, setVideoDragPreview] = useState<{
+    fromIndex: number
+    leftSec: number
+    widthSec: number
+    targetIndex: number
+  } | null>(null)
+  const [insertDropMarkerSec, setInsertDropMarkerSec] = useState<number | null>(null)
+  const [insertDropBlankIndex, setInsertDropBlankIndex] = useState<number | null>(null)
   const [pxPerSec, setPxPerSec] = useState(72)
   const pxPerSecRef = useRef(pxPerSec)
   pxPerSecRef.current = pxPerSec
+
+  // Ctrl+B — 선택 영상 컷 자르기
+  useEffect(() => {
+    if (!onSplitSelectedVideoClip) return
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "b") return
+      const tag = (e.target as HTMLElement | null)?.tagName
+      if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) {
+        return
+      }
+      if (selectedEditPlanIndex == null) return
+      e.preventDefault()
+      onSplitSelectedVideoClip()
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [onSplitSelectedVideoClip, selectedEditPlanIndex])
 
   const duration = Math.max(0.5, durationSec)
   const plan = result.editPlan?.edit_plan ?? []
@@ -208,36 +270,41 @@ export function MvpCapCutTimeline({
     [cues, segments, useAudioAxis]
   )
 
-  /** 영상 트랙 클립 — TTS 있으면 컷별 음성 길이로 표시(배속 시 짧아짐) */
+  /**
+   * 영상 트랙
+   * - TTS 전: 영상 출력 시간 그대로
+   * - TTS 후: 컷별 TTS 구간에 맞춰 배치·길이 표시 (음성이 짧으면 잘린 것처럼 보임)
+   * - TTS 없는 컷(자르기 뒤쪽 등): 직전 끝 뒤에 이어 붙임
+   */
   const videoTrackClips = useMemo(() => {
-    return plan.map((seg, i) => {
-      if (useAudioAxis) {
-        const audioRange = audioRangeForSceneIndex(i, cues)
-        if (audioRange) {
-          return {
-            index: i,
-            seg,
-            startSec: audioRange.startSec,
-            endSec: audioRange.endSec,
-          }
-        }
-        // 해당 컷 TTS 없으면 영상 비율로 축소 배치
-        const scale = audioDurationSec / videoContentSec
-        return {
-          index: i,
-          seg,
-          startSec: seg.output_start * scale,
-          endSec: seg.output_end * scale,
-        }
-      }
-      return {
+    if (!useAudioAxis || !cues.length) {
+      return plan.map((seg, i) => ({
         index: i,
         seg,
         startSec: seg.output_start,
         endSec: seg.output_end,
+      }))
+    }
+
+    let cursor = 0
+    return plan.map((seg, i) => {
+      const ar = audioRangeForSceneIndex(i, cues)
+      if (ar && ar.endSec > ar.startSec + 0.02) {
+        cursor = Math.max(cursor, ar.endSec)
+        return {
+          index: i,
+          seg,
+          startSec: ar.startSec,
+          endSec: ar.endSec,
+        }
       }
+      // TTS 없는 컷 — 타임라인을 늘리지 않고 최소 폭만 (본편은 TTS에 맞춤)
+      const startSec = cursor
+      const endSec = startSec + 0.05
+      cursor = endSec
+      return { index: i, seg, startSec, endSec }
     })
-  }, [plan, useAudioAxis, cues, audioDurationSec, videoContentSec])
+  }, [plan, useAudioAxis, cues])
 
   const toVideoSec = useCallback(
     (timelineSec: number) => {
@@ -432,6 +499,89 @@ export function MvpCapCutTimeline({
     [duration, onSeek, snapPlayheadSec]
   )
 
+  /** 드롭 시각 → 삽입 위치(컷 뒤) 또는 공백 채우기 */
+  const resolveInsertDropAtTime = useCallback(
+    (t: number): { afterCutIndex: number; replaceCutIndex?: number | null; markerSec: number } => {
+      if (!videoTrackClips.length) {
+        return { afterCutIndex: -1, markerSec: 0 }
+      }
+      for (const clip of videoTrackClips) {
+        if (t < clip.startSec - 0.001) {
+          return {
+            afterCutIndex: clip.index - 1,
+            markerSec: clip.startSec,
+          }
+        }
+        if (t >= clip.startSec && t < clip.endSec - 0.001) {
+          if (isEditPlanBlank(clip.seg)) {
+            return {
+              afterCutIndex: clip.index - 1,
+              replaceCutIndex: clip.index,
+              markerSec: clip.startSec,
+            }
+          }
+          const mid = (clip.startSec + clip.endSec) / 2
+          if (t < mid) {
+            return { afterCutIndex: clip.index - 1, markerSec: clip.startSec }
+          }
+          return { afterCutIndex: clip.index, markerSec: clip.endSec }
+        }
+      }
+      const last = videoTrackClips[videoTrackClips.length - 1]!
+      return { afterCutIndex: last.index, markerSec: last.endSec }
+    },
+    [videoTrackClips]
+  )
+
+  const clearInsertDropUi = useCallback(() => {
+    setInsertDropMarkerSec(null)
+    setInsertDropBlankIndex(null)
+  }, [])
+
+  const handleVideoTrackDragOver = useCallback(
+    (e: DragEvent<HTMLDivElement>) => {
+      if (!insertClipDropEnabled || !onInsertClipDrop) return
+      if (!isMvpInsertClipDragEvent(e.dataTransfer)) return
+      e.preventDefault()
+      e.dataTransfer.dropEffect = "copy"
+      const t = timeFromClientX(e.clientX, e.currentTarget)
+      const resolved = resolveInsertDropAtTime(t)
+      setInsertDropMarkerSec(resolved.markerSec)
+      setInsertDropBlankIndex(
+        resolved.replaceCutIndex != null ? resolved.replaceCutIndex : null
+      )
+    },
+    [
+      insertClipDropEnabled,
+      onInsertClipDrop,
+      timeFromClientX,
+      resolveInsertDropAtTime,
+    ]
+  )
+
+  const handleVideoTrackDrop = useCallback(
+    (e: DragEvent<HTMLDivElement>) => {
+      if (!insertClipDropEnabled || !onInsertClipDrop) return
+      if (!isMvpInsertClipDragEvent(e.dataTransfer)) return
+      e.preventDefault()
+      e.stopPropagation()
+      const t = timeFromClientX(e.clientX, e.currentTarget)
+      const resolved = resolveInsertDropAtTime(t)
+      clearInsertDropUi()
+      onInsertClipDrop({
+        afterCutIndex: resolved.afterCutIndex,
+        replaceCutIndex: resolved.replaceCutIndex ?? null,
+      })
+    },
+    [
+      insertClipDropEnabled,
+      onInsertClipDrop,
+      timeFromClientX,
+      resolveInsertDropAtTime,
+      clearInsertDropUi,
+    ]
+  )
+
   const patchClip = useCallback(
     (clipId: string, patch: Partial<Pick<MvpBgmClip, "startSec" | "endSec">>) => {
       if (!onBgmClipsChange) return
@@ -516,6 +666,20 @@ export function MvpCapCutTimeline({
   )
 
   useEffect(() => {
+    const resolveVideoReorderTarget = (
+      fromIndex: number,
+      floatingCenterSec: number
+    ): number => {
+      const others = videoTrackClips.filter((c) => c.index !== fromIndex)
+      let target = 0
+      for (const c of others) {
+        const mid = (c.startSec + c.endSec) / 2
+        if (floatingCenterSec > mid) target += 1
+        else break
+      }
+      return Math.max(0, Math.min(Math.max(0, videoTrackClips.length - 1), target))
+    }
+
     const onMove = (e: PointerEvent) => {
       const drag = dragRef.current
       if (drag && onBgmClipsChange) {
@@ -567,14 +731,41 @@ export function MvpCapCutTimeline({
           patchEffectClip(eDrag.clipId, { startSec: start, endSec: start + span })
         }
       }
+
+      const vDrag = videoReorderDragRef.current
+      if (vDrag && onReorderEditPlanClip) {
+        const rect = vDrag.trackEl.getBoundingClientRect()
+        const dt = ((e.clientX - vDrag.pointerX0) / Math.max(1, rect.width)) * duration
+        if (Math.abs(e.clientX - vDrag.pointerX0) > 4) vDrag.moved = true
+        const span = Math.max(0.05, vDrag.originEnd - vDrag.originStart)
+        let left = vDrag.originStart + dt
+        left = Math.max(0, Math.min(duration - span, left))
+        const center = left + span / 2
+        const targetIndex = resolveVideoReorderTarget(vDrag.fromIndex, center)
+        vDrag.targetIndex = targetIndex
+        setVideoDragPreview({
+          fromIndex: vDrag.fromIndex,
+          leftSec: left,
+          widthSec: span,
+          targetIndex,
+        })
+      }
     }
     const onUp = () => {
+      const vDrag = videoReorderDragRef.current
+      if (vDrag && onReorderEditPlanClip && vDrag.moved) {
+        if (vDrag.targetIndex !== vDrag.fromIndex) {
+          onReorderEditPlanClip(vDrag.fromIndex, vDrag.targetIndex)
+        }
+      }
       dragRef.current = null
       mosaicDragRef.current = null
       effectDragRef.current = null
+      videoReorderDragRef.current = null
       setDraggingClipId(null)
       setDraggingMosaicId(null)
       setDraggingEffectId(null)
+      setVideoDragPreview(null)
     }
     window.addEventListener("pointermove", onMove)
     window.addEventListener("pointerup", onUp)
@@ -586,11 +777,41 @@ export function MvpCapCutTimeline({
     onBgmClipsChange,
     onPlacedOverlaysChange,
     onEffectClipsChange,
+    onReorderEditPlanClip,
     patchClip,
     patchMosaicClip,
     patchEffectClip,
     duration,
+    videoTrackClips,
   ])
+
+  const beginVideoReorderDrag = (
+    e: React.PointerEvent,
+    fromIndex: number,
+    startSec: number,
+    endSec: number,
+    trackEl: HTMLElement
+  ) => {
+    if (!onReorderEditPlanClip) return
+    e.preventDefault()
+    e.stopPropagation()
+    onSelectEditPlanIndex?.(fromIndex)
+    videoReorderDragRef.current = {
+      fromIndex,
+      trackEl,
+      originStart: startSec,
+      originEnd: endSec,
+      pointerX0: e.clientX,
+      moved: false,
+      targetIndex: fromIndex,
+    }
+    setVideoDragPreview({
+      fromIndex,
+      leftSec: startSec,
+      widthSec: Math.max(0.05, endSec - startSec),
+      targetIndex: fromIndex,
+    })
+  }
 
   const beginDrag = (
     e: React.PointerEvent,
@@ -697,17 +918,73 @@ export function MvpCapCutTimeline({
           </p>
           <p className={cn("text-[9px]", fillHeight ? "text-slate-500" : "text-slate-500")}>
             Ctrl+휠 확대·축소 · Shift+휠 좌우 이동
+            {onSplitSelectedVideoClip ? " · Ctrl+B 자르기" : ""}
+            {onDeleteSelectedVideoClip ? " · Delete 삭제(공백 유지)" : ""}
+            {onReorderEditPlanClip ? " · 드래그로 이동" : ""}
+            {" · Ctrl+Z 되돌리기 · Ctrl+X 완전제거"}
           </p>
         </div>
-        <span
-          className={cn(
-            "font-mono text-[10px]",
-            fillHeight ? "text-slate-500" : "text-slate-500"
-          )}
-        >
-          {formatNarrationClock(headSec)}
-          {atThumbnailIntro ? " · 썸네일" : ""} / {formatNarrationClock(duration)}
-        </span>
+        <div className="flex items-center gap-2">
+          {onDeleteSelectedVideoClip ? (
+            <button
+              type="button"
+              disabled={selectedEditPlanIndex == null}
+              title="선택 컷 삭제 · 자리는 공백으로 유지 (Delete)"
+              onClick={() => onDeleteSelectedVideoClip()}
+              className={cn(
+                "inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[10px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-40",
+                fillHeight
+                  ? "border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100"
+                  : "border-rose-400/40 bg-rose-500/15 text-rose-100 hover:bg-rose-500/25"
+              )}
+            >
+              삭제
+            </button>
+          ) : null}
+          {onBlankSelectedVideoClip && !onDeleteSelectedVideoClip ? (
+            <button
+              type="button"
+              disabled={selectedEditPlanIndex == null}
+              title="선택 컷을 공백으로 (TTS·길이 유지)"
+              onClick={() => onBlankSelectedVideoClip()}
+              className={cn(
+                "inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[10px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-40",
+                fillHeight
+                  ? "border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  : "border-white/20 bg-white/10 text-slate-100 hover:bg-white/15"
+              )}
+            >
+              <Square className="h-3 w-3" />
+              공백
+            </button>
+          ) : null}
+          {onSplitSelectedVideoClip ? (
+            <button
+              type="button"
+              disabled={selectedEditPlanIndex == null}
+              title="선택 컷을 빨간바 위치에서 자르기 (Ctrl+B)"
+              onClick={() => onSplitSelectedVideoClip()}
+              className={cn(
+                "inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[10px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-40",
+                fillHeight
+                  ? "border-emerald-600/40 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                  : "border-emerald-500/40 bg-emerald-500/15 text-emerald-100 hover:bg-emerald-500/25"
+              )}
+            >
+              <Scissors className="h-3 w-3" />
+              자르기
+            </button>
+          ) : null}
+          <span
+            className={cn(
+              "font-mono text-[10px]",
+              fillHeight ? "text-slate-500" : "text-slate-500"
+            )}
+          >
+            {formatNarrationClock(headSec)}
+            {atThumbnailIntro ? " · 썸네일" : ""} / {formatNarrationClock(duration)}
+          </span>
+        </div>
       </div>
 
       <div
@@ -795,8 +1072,20 @@ export function MvpCapCutTimeline({
             </div>
             <div
               data-video-track
-              className={trackBodyCls}
+              className={cn(
+                trackBodyCls,
+                insertClipDropEnabled &&
+                  insertDropMarkerSec != null &&
+                  "ring-1 ring-inset ring-violet-400/80"
+              )}
               onClick={(e) => seekFromClientX(e.clientX, e.currentTarget)}
+              onDragOver={handleVideoTrackDragOver}
+              onDragLeave={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                  clearInsertDropUi()
+                }
+              }}
+              onDrop={handleVideoTrackDrop}
               role="presentation"
             >
               {thumbnailUrl ? (
@@ -813,38 +1102,87 @@ export function MvpCapCutTimeline({
               ) : null}
               {videoTrackClips.map(({ index: i, seg, startSec, endSec }) => {
                 const selected = selectedEditPlanIndex === i
-                const label = videoSourceLabel(result, seg.video_id)
+                const blank = isEditPlanBlank(seg)
+                const label = blank ? "공백" : videoSourceLabel(result, seg.video_id)
+                const dropTarget = insertDropBlankIndex === i
+                const isDragging = videoDragPreview?.fromIndex === i
+                const insertBefore =
+                  videoDragPreview != null &&
+                  videoDragPreview.fromIndex !== i &&
+                  videoDragPreview.targetIndex === i
                 return (
                   <button
                     key={`v-${i}`}
                     type="button"
-                    title={`컷 ${i + 1} · ${label} · ${seg.reason}`}
+                    title={
+                      blank
+                        ? `컷 ${i + 1} · 공백 · 드래그로 이동`
+                        : `컷 ${i + 1} · ${label} · 드래그로 좌우 이동 (TTS 유지)`
+                    }
                     className={cn(
-                      "absolute top-1.5 h-8 overflow-hidden border border-r-0 px-0.5 text-left text-[8px] leading-tight transition",
-                      i === 0 ? "rounded-l" : "",
-                      i === videoTrackClips.length - 1 ? "rounded-r border-r" : "",
-                      selected
-                        ? "z-10 border-emerald-300 bg-gradient-to-b from-emerald-500/85 to-emerald-700/70 text-white ring-1 ring-emerald-200/50"
-                        : "border-emerald-600/50 bg-gradient-to-b from-emerald-600/60 to-emerald-800/50 text-emerald-50 hover:from-emerald-500/70"
+                      "absolute top-1.5 h-8 overflow-hidden border px-0.5 text-left text-[8px] leading-tight transition",
+                      onReorderEditPlanClip ? "cursor-grab active:cursor-grabbing" : "",
+                      i === 0 ? "rounded-l" : "border-l-white/25",
+                      i === videoTrackClips.length - 1 ? "rounded-r" : "",
+                      isDragging && "opacity-35",
+                      insertBefore && "ring-2 ring-amber-300",
+                      dropTarget
+                        ? "z-20 border-violet-300 bg-gradient-to-b from-violet-500/90 to-violet-700/80 text-white ring-2 ring-violet-300"
+                        : blank
+                          ? selected
+                            ? "z-10 border-slate-300 bg-gradient-to-b from-slate-500/80 to-slate-700/70 text-white ring-1 ring-slate-200/40"
+                            : "border-slate-500/50 bg-gradient-to-b from-slate-600/50 to-slate-800/60 text-slate-200 hover:from-slate-500/60"
+                          : selected
+                            ? "z-10 border-emerald-300 bg-gradient-to-b from-emerald-500/85 to-emerald-700/70 text-white ring-1 ring-emerald-200/50"
+                            : "border-emerald-600/50 bg-gradient-to-b from-emerald-600/60 to-emerald-800/50 text-emerald-50 hover:from-emerald-500/70"
                     )}
                     style={{
                       left: pct(startSec),
-                      // 서브픽셀 틈 방지용 0.5px 겹침
-                      width: `calc(${pct(Math.max(0.01, endSec - startSec))} + 0.5px)`,
+                      // TTS 축에서는 컷 경계가 보이도록 0.5px만 겹침
+                      width: `calc(${pct(Math.max(0.01, endSec - startSec))} - 1px)`,
                     }}
                     onClick={(e) => {
                       e.stopPropagation()
+                      if (videoReorderDragRef.current?.moved) return
                       onSelectEditPlanIndex?.(i)
-                      onSeek(startSec)
+                      seekFromTimelineContentX(e.clientX)
+                    }}
+                    onPointerDown={(e) => {
+                      if (!onReorderEditPlanClip || e.button !== 0) return
+                      const track = e.currentTarget.parentElement
+                      if (!track) return
+                      beginVideoReorderDrag(e, i, startSec, endSec, track)
                     }}
                   >
-                    <span className="block truncate px-0.5 pt-0.5 font-semibold text-[7px] text-emerald-100/90">
+                    <span
+                      className={cn(
+                        "block truncate px-0.5 pt-0.5 font-semibold text-[7px]",
+                        blank ? "text-slate-200/90" : "text-emerald-100/90"
+                      )}
+                    >
                       {i + 1}
+                      {blank ? " · 공백" : ""}
                     </span>
                     <span className="block truncate px-0.5">{label}</span>
                   </button>
                 )
               })}
+              {videoDragPreview ? (
+                <div
+                  className="pointer-events-none absolute top-1.5 z-30 h-8 rounded border-2 border-dashed border-amber-300 bg-amber-400/30"
+                  style={{
+                    left: pct(videoDragPreview.leftSec),
+                    width: pct(Math.max(0.01, videoDragPreview.widthSec)),
+                  }}
+                />
+              ) : null}
+              {insertDropMarkerSec != null && insertDropBlankIndex == null ? (
+                <div
+                  className="pointer-events-none absolute top-0 z-30 h-full w-0.5 bg-violet-400 shadow-[0_0_6px_rgba(167,139,250,0.9)]"
+                  style={{ left: pct(insertDropMarkerSec) }}
+                  title="여기에 삽입"
+                />
+              ) : null}
             </div>
           </div>
 

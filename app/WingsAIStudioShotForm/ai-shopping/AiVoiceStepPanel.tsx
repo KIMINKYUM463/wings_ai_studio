@@ -432,7 +432,7 @@ export function AiVoiceStepPanel({
         setSupertonicHealthMsg(
           health.message ||
             health.error ||
-            "꺼져 있습니다. 아래 「Supertonic 자동 실행」을 누르세요. (에이전트 창이 이미 열려 있으면 .cmd를 다시 받지 않습니다)"
+            "꺼져 있습니다. 아래 「Supertonic 자동 실행」을 누르세요. (에이전트 창이 이미 열려 있으면 실행 파일을 다시 받지 않습니다)"
         )
       }
     } catch {
@@ -1101,7 +1101,7 @@ export function AiVoiceStepPanel({
             <Button
               variant="outline"
               size="sm"
-              className="h-8 border-emerald-400/30 text-emerald-100"
+              className="h-8 border-emerald-400/40 bg-zinc-900 text-emerald-200 hover:bg-zinc-800 hover:text-emerald-50"
               onClick={fetchSupertoneVoices}
               disabled={isLoadingSupertoneVoices}
             >
@@ -1211,7 +1211,7 @@ export function AiVoiceStepPanel({
             <Button
               variant="outline"
               size="sm"
-              className="h-8 border-emerald-400/30 text-emerald-100"
+              className="h-8 border-emerald-400/40 bg-zinc-900 text-emerald-200 hover:bg-zinc-800 hover:text-emerald-50"
               onClick={fetchTypecastVoices}
               disabled={isLoadingTypecastVoices}
             >

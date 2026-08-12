@@ -14,6 +14,17 @@ import {
   X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { SeparateAssetDownloads } from "../components/SeparateAssetDownloads"
+import {
+  assetFilename,
+  buildSrtFromTimedCues,
+  downloadTextFile,
+  downloadTtsUrl,
+  downloadUrlAsFile,
+  downloadUrlsAsZip,
+  guessExtFromUrlOrType,
+} from "@/lib/shotform-separate-assets"
+import { downloadBlob } from "@/lib/shotform-factory-capcut-export"
 import { getInfoSlideDisplayLines, InfoCardFrame } from "./InfoCardFrame"
 import { playInfoLinePop, playInfoLinePopInto } from "./info-line-sfx"
 import { INFO_TTS_CHAIN_TAIL_SKIP_SEC, playInfoTtsBuffer } from "./info-tts-audio"
@@ -154,6 +165,7 @@ export function InfoPreviewPanel({ brief }: { brief: InfoShoppingBrief }) {
   const [playheadSec, setPlayheadSec] = useState(0)
   const [durationMap, setDurationMap] = useState<Record<string, number>>({})
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [separateAssetBusy, setSeparateAssetBusy] = useState<string | null>(null)
 
   const cancelRef = useRef({ cancelled: false })
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -597,6 +609,161 @@ export function InfoPreviewPanel({ brief }: { brief: InfoShoppingBrief }) {
     }
   }
 
+  /** TTS 없는 카드 영상만 렌더해 바로 저장 */
+  const exportSilentVideoDownload = async () => {
+    if (!slides.length) return
+    stopPlayback()
+    setIsExporting(true)
+    setError("")
+    let captureSession: InfoCardCaptureSession | null = null
+    try {
+      const exportSlides = await Promise.all(
+        slides.map(async (slide) => ({
+          ...slide,
+          imageUrl: slide.imageUrl
+            ? await materializeImageDataUrl(slide.imageUrl).catch(() => slide.imageUrl)
+            : slide.imageUrl,
+        }))
+      )
+      const canvas = document.createElement("canvas")
+      canvas.width = EXPORT_W
+      canvas.height = EXPORT_H
+      const ctx = canvas.getContext("2d")
+      if (!ctx) throw new Error("캔버스를 사용할 수 없습니다.")
+      captureSession = createInfoCardCaptureSession()
+      const stream = canvas.captureStream(30)
+      const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
+        ? "video/webm;codecs=vp9"
+        : "video/webm"
+      const recorder = new MediaRecorder(stream, {
+        mimeType,
+        videoBitsPerSecond: 5_000_000,
+      })
+      const chunks: BlobPart[] = []
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) chunks.push(event.data)
+      }
+      const stopped = new Promise<Blob>((resolve) => {
+        recorder.onstop = () => resolve(new Blob(chunks, { type: "video/webm" }))
+      })
+      recorder.start(250)
+
+      const timeline = cues.length
+        ? cues
+        : exportSlides.map((slide, slideIndex) => ({
+            id: slide.id,
+            slideIndex,
+            revealCount: Math.max(1, getInfoSlideDisplayLines(slide).length),
+            startSec: slideIndex * (slide.durationSec || 4),
+            durationSec: slide.durationSec || 4,
+            text: getInfoSlideDisplayLines(slide).join(" "),
+          }))
+
+      for (const cue of timeline) {
+        const slide = exportSlides[cue.slideIndex]!
+        setSlideIndex(cue.slideIndex)
+        setRevealLines(cue.revealCount)
+        const frame = await captureSession.capture(
+          slide,
+          brief.themeId,
+          cue.slideIndex,
+          exportSlides.length,
+          cue.revealCount
+        )
+        const until = performance.now() + Math.max(280, cue.durationSec * 1000)
+        while (performance.now() < until) {
+          ctx.clearRect(0, 0, EXPORT_W, EXPORT_H)
+          ctx.drawImage(frame, 0, 0, EXPORT_W, EXPORT_H)
+          await sleep(40)
+        }
+      }
+
+      recorder.stop()
+      const blob = await stopped
+      downloadBlob(
+        blob,
+        assetFilename(brief.productName || "info-shopping", "video", "webm")
+      )
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "영상만 저장 실패")
+    } finally {
+      captureSession?.dispose()
+      setIsExporting(false)
+    }
+  }
+
+  const handleSeparateAssetDownload = async (id: string) => {
+    const base = brief.productName || "info-shopping"
+    setSeparateAssetBusy(id)
+    setError("")
+    try {
+      if (id === "srt") {
+        const srt = buildSrtFromTimedCues(
+          cues.map((cue) => ({
+            text: cue.text,
+            start: cue.startSec,
+            end: cue.startSec + cue.durationSec,
+          }))
+        )
+        if (!srt.trim()) throw new Error("자막 큐가 없습니다.")
+        downloadTextFile(srt, assetFilename(base, "subtitles", "srt"))
+        return
+      }
+      if (id === "thumbnail") {
+        const slide = slides[0]
+        if (!slide) throw new Error("카드가 없습니다.")
+        const session = createInfoCardCaptureSession()
+        try {
+          const frame = await session.capture(
+            slide,
+            brief.themeId,
+            0,
+            slides.length,
+            Math.max(1, getInfoSlideDisplayLines(slide).length)
+          )
+          await downloadUrlAsFile(
+            frame.toDataURL("image/png"),
+            assetFilename(base, "thumbnail", "png")
+          )
+        } finally {
+          session.dispose()
+        }
+        return
+      }
+      if (id === "tts") {
+        const urls = new Set<string>()
+        for (const track of tracks) {
+          if (track.audioUrl) urls.add(track.audioUrl)
+          for (const line of track.lineTracks || []) {
+            if (line.audioUrl) urls.add(line.audioUrl)
+          }
+        }
+        const list = Array.from(urls)
+        if (!list.length) throw new Error("TTS가 없습니다. 음성 단계에서 먼저 생성해 주세요.")
+        if (list.length === 1) {
+          await downloadTtsUrl(list[0]!, base)
+          return
+        }
+        await downloadUrlsAsZip(
+          list.map((url, i) => ({
+            url,
+            name: `tts_${String(i + 1).padStart(2, "0")}.${guessExtFromUrlOrType(url, undefined, "mp3")}`,
+          })),
+          assetFilename(base, "tts", "zip")
+        )
+        return
+      }
+      if (id === "video") {
+        await exportSilentVideoDownload()
+        return
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "개별 파일 저장 실패")
+    } finally {
+      setSeparateAssetBusy(null)
+    }
+  }
+
   if (!slides.length) {
     return (
       <p className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-100">
@@ -743,6 +910,46 @@ export function InfoPreviewPanel({ brief }: { brief: InfoShoppingBrief }) {
             </a>
           ) : null}
         </div>
+
+        <SeparateAssetDownloads
+          className="mt-4"
+          busyId={separateAssetBusy}
+          onDownload={(id) => void handleSeparateAssetDownload(id)}
+          items={[
+            {
+              id: "srt",
+              label: "자막만 (SRT)",
+              hint: "카드 나레이션 타이밍",
+              disabled: cues.length === 0,
+              missingReason: "자막 큐 없음",
+            },
+            {
+              id: "thumbnail",
+              label: "썸네일만",
+              hint: "첫 카드 PNG",
+              disabled: slides.length === 0,
+              missingReason: "카드 없음",
+            },
+            {
+              id: "video",
+              label: "영상만",
+              hint: "TTS 없는 카드 WebM",
+              disabled: slides.length === 0 || isExporting,
+              missingReason: "카드 없음",
+            },
+            {
+              id: "tts",
+              label: "TTS만",
+              hint: "나레이션 오디오",
+              disabled: !tracks.some(
+                (t) =>
+                  Boolean(t.audioUrl) ||
+                  (t.lineTracks || []).some((l) => Boolean(l.audioUrl))
+              ),
+              missingReason: "TTS 없음",
+            },
+          ]}
+        />
 
         {error ? (
           <p className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">

@@ -26,6 +26,11 @@ import {
   probeLocalCompanion,
   resolveLocalCompanionUrl,
 } from "@/lib/shotform-local-companion-client"
+import {
+  detectShotformClientOs,
+  localAgentStarterHint,
+  localAgentStarterLabel,
+} from "@/lib/shotform-client-os"
 import { ensureSupertonicReady } from "@/lib/supertonic-ensure-client"
 import { isBrowserOnDeployedHost } from "@/lib/supertonic-runtime-client"
 
@@ -121,7 +126,7 @@ export function SupertonicSetupWizard({
         if (res.status === 404) {
           setPythonState("fail")
           setPythonMsg(
-            "에이전트가 오래되었습니다. 검은 창을 닫고 「에이전트 받기」로 최신 .cmd를 실행한 뒤 「다시 확인」하세요."
+            "에이전트가 오래되었습니다. 검은 창을 닫고 「에이전트 받기」로 최신 실행 파일을 받은 뒤 「다시 확인」하세요."
           )
           return
         }
@@ -147,13 +152,21 @@ export function SupertonicSetupWizard({
         } else {
           setPythonState("fail")
           setPythonMsg(
-            "새 CMD에서는 Python이 보여도, 에이전트 창이 예전 PATH로 떠 있으면 실패합니다.\n" +
-              "지금 할 일:\n" +
-              "① 에이전트 검은 창을 완전히 닫기\n" +
-              "② Python이 되는 그 CMD 창에서 아래 실행:\n" +
-              '   "%LOCALAPPDATA%\\ShotForm\\local-agent\\run-agent.cmd"\n' +
-              "③ 창에 Python: 3.14... 가 보이면 Wings에서 「다시 확인」\n" +
-              "④ 더블클릭으로만 안 되면 PC 재시작 후 에이전트 다시 실행"
+            detectShotformClientOs() === "mac"
+              ? "새 Terminal에서는 Python이 보여도, 에이전트 창이 예전 PATH로 떠 있으면 실패합니다.\n" +
+                  "지금 할 일:\n" +
+                  "① 에이전트 Terminal 창을 완전히 닫기\n" +
+                  "② Python이 되는 Terminal에서 아래 실행:\n" +
+                  '   ~/Library/Application\\ Support/ShotForm/local-agent/run-agent.sh\n' +
+                  "③ 창에 Python: 3.x... 가 보이면 Wings에서 「다시 확인」\n" +
+                  "④ 더블클릭으로만 안 되면 PC 재시작 후 에이전트 다시 실행"
+              : "새 CMD에서는 Python이 보여도, 에이전트 창이 예전 PATH로 떠 있으면 실패합니다.\n" +
+                  "지금 할 일:\n" +
+                  "① 에이전트 검은 창을 완전히 닫기\n" +
+                  "② Python이 되는 그 CMD 창에서 아래 실행:\n" +
+                  '   "%LOCALAPPDATA%\\ShotForm\\local-agent\\run-agent.cmd"\n' +
+                  "③ 창에 Python: 3.14... 가 보이면 Wings에서 「다시 확인」\n" +
+                  "④ 더블클릭으로만 안 되면 PC 재시작 후 에이전트 다시 실행"
           )
           return
         }
@@ -176,9 +189,7 @@ export function SupertonicSetupWizard({
 
   const launchAgent = () => {
     downloadLocalAgentStarter()
-    setAgentMsg(
-      "start-shotform-agent.cmd 를 받았습니다. 다운로드 폴더에서 더블클릭하세요. (Chrome은 .cmd 자동 실행 불가)"
-    )
+    setAgentMsg(localAgentStarterHint())
     setAgentState("fail")
   }
 
@@ -286,7 +297,7 @@ export function SupertonicSetupWizard({
               onClick={launchAgent}
             >
               <PlugZap className="mr-1.5 h-3.5 w-3.5" />
-              에이전트 받기 (.cmd)
+              {localAgentStarterLabel()}
             </Button>
           ) : null}
           {agentMsg ? (

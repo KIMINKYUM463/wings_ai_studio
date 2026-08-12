@@ -46,6 +46,11 @@ export function videoTimeFromAudioCueSync(
   const sceneCues = cues.filter((c) => c.sceneIndex === cue.sceneIndex)
   const audioStart = sceneCues[0]?.startSec ?? cue.startSec
   const elapsed = Math.max(0, audioTimeSec - audioStart)
+  const videoSpan = Math.max(0.05, vidEnd - vidStart)
+  const audioSpan = sceneAudioDurationSec(cue.sceneIndex, cues)
+  if (audioSpan > videoSpan + 0.08) {
+    return vidStart + (elapsed % videoSpan)
+  }
   return Math.min(vidEnd, vidStart + elapsed)
 }
 
@@ -109,7 +114,7 @@ export function sceneAudioDurationSec(
 /**
  * 영상 배속 — 항상 1.
  * 장면 맞춤: TTS 배속으로 음성 길이를 컷에 맞추고, 음성이 짧으면 컷 앞부분만 재생(나머지 자름).
- * TTS가 길면(최대 배속 후에도) 끝 프레임을 잠시 유지.
+ * TTS가 길면 컷 영상을 반복 재생해 음성 길이에 맞춤.
  */
 export function previewPlaybackRateForCue(
   _cue: VoiceLineCue,
@@ -119,7 +124,7 @@ export function previewPlaybackRateForCue(
   return 1
 }
 
-/** 장면 TTS 경과 → 영상 시각 (1배속 1:1, 컷 끝에서 캡) */
+/** 장면 TTS 경과 → 영상 시각 (1배속). TTS가 더 길면 컷 안에서 루프 */
 function expectedVideoTimeInScene(
   audioT: number,
   sceneIndex: number,
@@ -131,13 +136,19 @@ function expectedVideoTimeInScene(
   if (!sceneCues.length) return vidStart
   const audioStart = sceneCues[0]!.startSec
   const elapsed = Math.max(0, audioT - audioStart)
+  const videoSpan = Math.max(0.05, vidEnd - vidStart)
+  const audioSpan = sceneAudioDurationSec(sceneIndex, cues)
+  if (audioSpan > videoSpan + 0.08) {
+    const looped = elapsed % videoSpan
+    return vidStart + looped
+  }
   return Math.min(vidEnd, vidStart + elapsed)
 }
 
 export type MvpVideoAudioSyncState = {
   lastScene: number
   lastCueKey: string
-  /** TTS가 컷보다 길 때 마지막 프레임 유지 */
+  /** @deprecated TTS 길면 루프 — 홀드 미사용 */
   holdingEnd?: boolean
 }
 
@@ -316,30 +327,28 @@ export function syncMvpPreviewVideoToAudio(
   }
 
   state.lastCueKey = cueKey
+  state.holdingEnd = false
 
   const audioStillGoing = audioDur <= 0 || audioT < audioDur - 0.05
   const atSceneEnd = video.ended || video.currentTime >= vidEnd - 0.04
 
-  // TTS가 더 김: 컷 끝 프레임 유지 — 말꼬리가 끝날 때까지 다음 컷으로 안 넘어감
-  if (ttsLongerThanVideo && audioStillGoing && (atSceneEnd || state.holdingEnd)) {
-    if (!state.holdingEnd) {
-      video.currentTime = Math.max(vidStart, vidEnd - 0.02)
-      state.holdingEnd = true
+  // TTS가 더 김: 컷 영상을 처음부터 다시 재생(루프)
+  if (ttsLongerThanVideo && audioStillGoing) {
+    if (atSceneEnd || video.ended) {
+      video.currentTime = vidStart
+      ensurePlaying()
+      return
     }
-    if (!video.paused) video.pause()
+    // 루프 위치와 크게 어긋나면 보정
+    if (Math.abs(video.currentTime - clampedExpected) > 0.35) {
+      video.currentTime = clampedExpected
+    }
+    ensurePlaying()
     return
-  }
-
-  if (state.holdingEnd) {
-    state.holdingEnd = false
   }
 
   if (video.ended || video.paused) {
     if (audioStillGoing) {
-      if (ttsLongerThanVideo && video.currentTime >= vidEnd - 0.08) {
-        state.holdingEnd = true
-        return
-      }
       video.currentTime = clampedExpected
       ensurePlaying()
     }
@@ -410,7 +419,7 @@ export function audioRangeForSceneIndex(
 
 /**
  * 타임라인·슬라이더 총 길이.
- * TTS 생성 후: 음성 큐(클립)가 끝나는 지점 — flush 패딩으로 빈 꼬리를 만들지 않음.
+ * TTS 생성 후: 음성(TTS) 길이 기준 — 영상 클립도 TTS 구간에 맞춰 표시.
  * TTS 전: 영상 길이.
  */
 export function previewTimelineEndSec(
@@ -423,10 +432,8 @@ export function previewTimelineEndSec(
 
   if (timelineUsesAudioAxis(voiceLineCues, audioDuration)) {
     const cuesEnd = voiceLineCues!.at(-1)?.endSec ?? 0
-    // 트랙 블록이 그려지는 끝(cuesEnd)에 맞춤.
-    // audioDuration이 rebake/flush 패딩으로 조금 더 길어도 타임라인에 빈 구간을 만들지 않음.
-    if (cuesEnd > 0.05) return Math.max(0.5, cuesEnd)
-    return Math.max(0.5, audioDuration)
+    const ttsEnd = cuesEnd > 0.05 ? cuesEnd : audioDuration
+    return Math.max(0.5, ttsEnd)
   }
 
   if (audioDuration > 0 && vid > 0) {

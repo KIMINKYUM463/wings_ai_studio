@@ -7,6 +7,7 @@ import {
   Download,
   FileText,
   Film,
+  ImageIcon,
   Loader2,
   Mic,
   Sparkles,
@@ -69,7 +70,7 @@ type Props = {
   videoSourceTransforms?: MvpVideoSourceTransforms
 }
 
-type BusyKind = "capcut" | "render" | "mix" | "tts" | "srt" | null
+type BusyKind = "capcut" | "render" | "mix" | "tts" | "srt" | "thumb" | null
 
 async function loadExportVideoBlob(
   videoBlobRef: React.MutableRefObject<Blob | null> | undefined,
@@ -346,6 +347,27 @@ export function MvpExportPanel({
     }
   }, [projectName, voiceLineCues, lineSchedule, sceneText, audioUrl, ttsBlobRef])
 
+  const handleDownloadThumbnail = useCallback(async () => {
+    setBusy("thumb")
+    setErr(null)
+    setExportMsg(null)
+    try {
+      if (!thumbnailUrl?.trim()) {
+        throw new Error("썸네일이 없습니다. 썸네일 단계에서 먼저 만들어 주세요.")
+      }
+      const res = await fetch(thumbnailUrl)
+      if (!res.ok) throw new Error(`썸네일을 불러오지 못했습니다 (${res.status})`)
+      const blob = await res.blob()
+      if (blob.size < 64) throw new Error("썸네일 파일이 비어 있습니다.")
+      downloadBlob(blob, mvpAssetDownloadFilename(projectName, "thumbnail", "png"))
+      setExportMsg("썸네일(PNG)을 다운로드했습니다.")
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "썸네일 다운로드 실패")
+    } finally {
+      setBusy(null)
+    }
+  }, [projectName, thumbnailUrl])
+
   const handleRender = useCallback(async () => {
     setBusy("render")
     setErr(null)
@@ -565,6 +587,14 @@ export function MvpExportPanel({
                 busy={busy === "srt"}
                 disabled={busy != null}
                 onClick={() => void handleDownloadSrt()}
+              />
+              <AssetDownloadButton
+                label="썸네일"
+                hint="썸네일 PNG만"
+                icon={<ImageIcon className="h-4 w-4" />}
+                busy={busy === "thumb"}
+                disabled={busy != null || !thumbnailUrl}
+                onClick={() => void handleDownloadThumbnail()}
               />
             </div>
           </section>

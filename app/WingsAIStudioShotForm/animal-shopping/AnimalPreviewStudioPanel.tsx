@@ -12,6 +12,13 @@ import {
   X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { downloadBlob } from "@/lib/shotform-factory-capcut-export"
+import { SeparateAssetDownloads } from "../components/SeparateAssetDownloads"
+import {
+  assetFilename,
+  downloadTtsUrl,
+  downloadUrlAsFile,
+} from "@/lib/shotform-separate-assets"
 import {
   fixWebmBlobDuration,
   remuxWebmWithDuration,
@@ -106,6 +113,7 @@ export function AnimalPreviewStudioPanel({
   /** 합본에 TTS가 들어갔는지 (별도 audio 태그 불필요) */
   const [muxedWithTts, setMuxedWithTts] = useState(false)
   const [statusHint, setStatusHint] = useState("")
+  const [separateAssetBusy, setSeparateAssetBusy] = useState<string | null>(null)
 
   const sortedVideos = [...brief.videoUrls]
     .sort((a, b) => a.index - b.index)
@@ -377,6 +385,41 @@ export function AnimalPreviewStudioPanel({
     }
   }
 
+  const handleSeparateAssetDownload = async (id: string) => {
+    const base = brief.productName || brief.character.name || "animal-shopping"
+    setSeparateAssetBusy(id)
+    setError("")
+    try {
+      if (id === "thumbnail") {
+        const url = brief.imageUrls.find(Boolean) || brief.imageUrls[0]
+        if (!url) throw new Error("썸네일로 쓸 이미지가 없습니다.")
+        await downloadUrlAsFile(url, assetFilename(base, "thumbnail", "png"))
+        return
+      }
+      if (id === "tts") {
+        const url = await resolveTtsForMerge()
+        if (!url) throw new Error("TTS가 없습니다. 음성 단계에서 먼저 생성해 주세요.")
+        await downloadTtsUrl(url, base)
+        return
+      }
+      if (id === "video") {
+        if (sortedVideos.length === 0) {
+          throw new Error("장면 영상이 없습니다.")
+        }
+        setStatusHint("TTS 없는 영상만 합치는 중…")
+        const merged = await mergeAnimalVideosClient(sortedVideos, undefined)
+        downloadBlob(merged.blob, assetFilename(base, "video", "webm"))
+        setStatusHint("영상만(무음/믹스) 저장 완료")
+        return
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "개별 파일 저장 실패")
+      setStatusHint("")
+    } finally {
+      setSeparateAssetBusy(null)
+    }
+  }
+
   const onVideoTimeUpdate = (el: HTMLVideoElement | null) => {
     if (!el) return
     if (!isValidDuration(mediaDuration) && isValidDuration(el.duration)) {
@@ -557,6 +600,35 @@ export function AnimalPreviewStudioPanel({
                 다운로드
               </Button>
             </div>
+            <SeparateAssetDownloads
+              className="mt-3"
+              busyId={separateAssetBusy}
+              onDownload={(id) => void handleSeparateAssetDownload(id)}
+              description="동물 숏폼은 자막을 쓰지 않습니다. 썸네일·영상·TTS만 따로 저장합니다."
+              items={[
+                {
+                  id: "thumbnail",
+                  label: "썸네일만",
+                  hint: "첫 장면 이미지",
+                  disabled: !brief.imageUrls.some(Boolean),
+                  missingReason: "이미지 없음",
+                },
+                {
+                  id: "video",
+                  label: "영상만",
+                  hint: "TTS 없는 합본 WebM",
+                  disabled: sortedVideos.length === 0,
+                  missingReason: "클립 없음",
+                },
+                {
+                  id: "tts",
+                  label: "TTS만",
+                  hint: "나레이션 오디오",
+                  disabled: !playableTtsUrl && !(brief.scenes || []).some((s) => s.ttsAudioUrl),
+                  missingReason: "TTS 없음",
+                },
+              ]}
+            />
           </div>
         </div>
 

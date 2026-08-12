@@ -40,6 +40,11 @@ export function resolveSceneNarrationText(
   const seg = baseSegments[sceneIndex0]
   if (!seg) return ""
   const key = String(sceneIndex0 + 1)
+  // 자르기 후 뒤 컷처럼 — 키가 있고 값이 비면 「대본 없음」(영상만)으로 존중
+  if (Object.prototype.hasOwnProperty.call(scriptOverrides, key)) {
+    const explicit = (scriptOverrides[key] ?? "").replace(/\r/g, "").trim()
+    if (!explicit) return ""
+  }
   // 실제 컷 길이 기준 (budget으로 더 줄이면 초단컷에서 문장이 붕괴됨)
   const dur = sceneDurationSec(seg)
   const base = seg.text.trim()
@@ -54,20 +59,9 @@ export function resolveSceneNarrationText(
   }
 
   if (hasOverride) {
+    // 사용자가 고친 대본은 컷 길이에 맞춰 자르지 않음 — TTS 재생성 후 영상이 맞춤
     const normalized = cleanNarrationLineBreaks(raw.replace(/\r/g, "").trim())
-    if (
-      !isUselessFallbackNarration(normalized) &&
-      !narrationLooksIncomplete(normalized.replace(/\n/g, " "))
-    ) {
-      // override도 너무 길면 컷에 맞게만 정리
-      if (narrationPlainCharCount(normalized) > maxCharsForSceneDuration(dur) + 8) {
-        const fitted = formatNarrationForSceneDuration(normalized, dur)
-        if (fitted && !isUselessFallbackNarration(fitted)) return fitted
-      }
-      return normalized
-    }
-    const formatted = formatNarrationForSceneDuration(normalized, dur)
-    if (formatted && !isUselessFallbackNarration(formatted)) return formatted
+    if (!isUselessFallbackNarration(normalized)) return normalized
     return visualFallback()
   }
 
@@ -112,6 +106,14 @@ export function fillScriptOverridesForAllCuts(
   const out: Record<string, string> = {}
   for (let i = 0; i < baseSegments.length; i++) {
     const key = String(i + 1)
+    // 자르기 뒤 컷 등 — 명시적 빈 대본은 채우지 않음 (영상만)
+    if (
+      Object.prototype.hasOwnProperty.call(overrides, key) &&
+      !(overrides[key] ?? "").trim()
+    ) {
+      out[key] = ""
+      continue
+    }
     const explicit = overrides[key]?.trim()
     if (explicit && !isUselessFallbackNarration(explicit)) {
       out[key] = sanitizeNarrationForOutput(explicit.replace(/\r/g, "").trim())
@@ -124,10 +126,19 @@ export function fillScriptOverridesForAllCuts(
   const values = Object.keys(out)
     .sort((a, b) => Number(a) - Number(b))
     .map((k) => out[k]!.trim())
+    .filter(Boolean)
   const unique = new Set(values.map((v) => v.replace(/\s+/g, "")))
   if (values.length >= 2 && unique.size === 1 && isUselessFallbackNarration(values[0]!)) {
     for (let i = 0; i < baseSegments.length; i++) {
-      out[String(i + 1)] = shortNarrationFromVisualHint(visualHints?.[i] || "", i)
+      const key = String(i + 1)
+      if (
+        Object.prototype.hasOwnProperty.call(overrides, key) &&
+        !(overrides[key] ?? "").trim()
+      ) {
+        out[key] = ""
+        continue
+      }
+      out[key] = shortNarrationFromVisualHint(visualHints?.[i] || "", i)
     }
   }
 

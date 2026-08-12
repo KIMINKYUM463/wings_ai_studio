@@ -78,6 +78,16 @@ import { Plus, Trash2, Edit2, Search, FolderOpen, Factory, Cog, ChevronLeft, Che
 import { CoupangReviewPanel, parsePastedReviews } from "./CoupangReviewPanel"
 import { ScriptTemplateManagerDialog } from "./ScriptTemplateManagerDialog"
 import { AiVoiceStepPanel } from "./AiVoiceStepPanel"
+import { SeparateAssetDownloads } from "../components/SeparateAssetDownloads"
+import {
+  assetFilename,
+  buildSrtFromTimedCues,
+  downloadTextFile,
+  downloadTtsUrl,
+  downloadUrlAsFile,
+  downloadUrlsAsZip,
+  guessExtFromUrlOrType,
+} from "@/lib/shotform-separate-assets"
 import { Ver2StepShell } from "./Ver2StepShell"
 import { BilingualPromptPanel } from "./BilingualPromptPanel"
 import { AiShoppingEditWorkspace, type ShoppingSubtitleStyle, DEFAULT_SHOPPING_SUBTITLE_STYLE, normalizeShoppingSubtitleStyle } from "./AiShoppingEditWorkspace"
@@ -862,6 +872,7 @@ export default function AiShoppingVer2Page() {
   
   // 썸네일 생성기 관련
   const [thumbnailUrl, setThumbnailUrl] = useState<string>("")
+  const [separateAssetBusy, setSeparateAssetBusy] = useState<string | null>(null)
   const [isGeneratingThumbnail, setIsGeneratingThumbnail] = useState(false)
   const [thumbnailHookingText, setThumbnailHookingText] = useState<{ line1: string; line2: string }>({ line1: "", line2: "" })
   const [thumbnailStudioDesign, setThumbnailStudioDesign] = useState<MvpThumbnailDesign | null>(null)
@@ -5044,6 +5055,61 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
     } catch (error) {
       console.error("썸네일 다운로드 실패:", error)
       alert("썸네일 다운로드에 실패했습니다.")
+    }
+  }
+
+  const handleSeparateAssetDownload = async (id: string) => {
+    const base = productName || "ai-shopping"
+    setSeparateAssetBusy(id)
+    try {
+      if (id === "srt") {
+        const srt = buildSrtFromTimedCues(
+          scriptLines.map((line) => ({
+            text: line.text,
+            start: line.startTime,
+            end: line.endTime,
+          }))
+        )
+        if (!srt.trim()) {
+          throw new Error("자막 타이밍이 없습니다. 음성·미리보기를 먼저 생성해 주세요.")
+        }
+        downloadTextFile(srt, assetFilename(base, "subtitles", "srt"))
+        return
+      }
+      if (id === "thumbnail") {
+        const selected = thumbnailImages[selectedThumbnailIndex]
+        if (selected?.url) {
+          await downloadUrlAsFile(selected.url, assetFilename(base, "thumbnail", "png"))
+          return
+        }
+        if (thumbnailUrl) {
+          await downloadUrlAsFile(thumbnailUrl, assetFilename(base, "thumbnail", "png"))
+          return
+        }
+        handleDownloadThumbnail()
+        return
+      }
+      if (id === "tts") {
+        await downloadTtsUrl(ttsAudioUrl, base)
+        return
+      }
+      if (id === "video") {
+        const entries: Array<{ url: string; name: string }> = []
+        convertedVideoUrls.forEach((url, index) => {
+          if (!url) return
+          const ext = guessExtFromUrlOrType(url, undefined, "mp4")
+          entries.push({ url, name: `scene_${String(index + 1).padStart(2, "0")}.${ext}` })
+        })
+        if (!entries.length) {
+          throw new Error("장면 영상이 없습니다. 영상 단계에서 클립을 먼저 만들어 주세요.")
+        }
+        await downloadUrlsAsZip(entries, assetFilename(base, "videos", "zip"))
+        return
+      }
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "개별 파일 저장에 실패했습니다.")
+    } finally {
+      setSeparateAssetBusy(null)
     }
   }
 
@@ -10577,6 +10643,43 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                       )}
                     </Button>
                   )}
+                  <SeparateAssetDownloads
+                    busyId={separateAssetBusy}
+                    onDownload={(id) => void handleSeparateAssetDownload(id)}
+                    items={[
+                      {
+                        id: "srt",
+                        label: "자막만 (SRT)",
+                        hint: "타이밍 자막 파일",
+                        disabled: scriptLines.length === 0,
+                        missingReason: "자막 타이밍 없음",
+                      },
+                      {
+                        id: "thumbnail",
+                        label: "썸네일만",
+                        hint: "선택한 썸네일 PNG",
+                        disabled:
+                          selectedThumbnailIndex < 0 &&
+                          !thumbnailUrl &&
+                          !thumbnailCanvasRef.current,
+                        missingReason: "썸네일 없음",
+                      },
+                      {
+                        id: "video",
+                        label: "영상만",
+                        hint: "장면 클립(ZIP/MP4)",
+                        disabled: convertedVideoUrls.size === 0,
+                        missingReason: "장면 영상 없음",
+                      },
+                      {
+                        id: "tts",
+                        label: "TTS만",
+                        hint: "나레이션 오디오",
+                        disabled: !ttsAudioUrl,
+                        missingReason: "TTS 없음",
+                      },
+                    ]}
+                  />
                 </div>
               }
             />
