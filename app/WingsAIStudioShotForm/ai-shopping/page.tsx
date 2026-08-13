@@ -42,6 +42,7 @@ import {
   Package,
   Square,
   BarChart3,
+  Menu,
 } from "lucide-react"
 import {
   Select,
@@ -995,6 +996,7 @@ export default function AiShoppingVer2Page() {
   const [projects, setProjects] = useState<ShoppingProject[]>([])
   const [currentProject, setCurrentProject] = useState<ShoppingProject | null>(null)
   const [showProjectList, setShowProjectList] = useState(true) // 프로젝트 목록 화면 표시 여부
+  const [mobileNavOpen, setMobileNavOpen] = useState(false) // 모바일 단계 사이드바(드로어)
   const [showFactoryView, setShowFactoryView] = useState(false) // 자동화 모드(공장 모드) 화면
   const [factorySchedules, setFactorySchedules] = useState<FactoryScheduleItem[]>([])
   const [showAddFactoryScheduleDialog, setShowAddFactoryScheduleDialog] = useState(false)
@@ -11921,16 +11923,42 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
 
       {!showProjectList && (
           <div className="fixed inset-0 z-20 flex bg-[#0a0b0d]">
-            <aside className="flex h-full w-[232px] shrink-0 flex-col border-r border-white/10 bg-[#0c0d10]">
+            {/* 모바일: 사이드바 열릴 때 배경 딤 */}
+            {mobileNavOpen ? (
+              <button
+                type="button"
+                aria-label="단계 메뉴 닫기"
+                className="fixed inset-0 z-30 bg-black/55 md:hidden"
+                onClick={() => setMobileNavOpen(false)}
+              />
+            ) : null}
+            <aside
+              className={`fixed inset-y-0 left-0 z-40 flex h-full w-[min(280px,86vw)] shrink-0 flex-col border-r border-white/10 bg-[#0c0d10] transition-transform duration-200 ease-out md:static md:z-auto md:w-[232px] md:translate-x-0 ${
+                mobileNavOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full md:translate-x-0"
+              }`}
+            >
               <div className="border-b border-white/10 px-4 py-4">
-                <button
-                  type="button"
-                  onClick={() => setShowProjectList(true)}
-                  className="mb-3 inline-flex items-center gap-1.5 text-xs text-zinc-500 transition hover:text-zinc-200"
-                >
-                  <ArrowLeft className="h-3.5 w-3.5" />
-                  프로젝트 목록
-                </button>
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileNavOpen(false)
+                      setShowProjectList(true)
+                    }}
+                    className="inline-flex items-center gap-1.5 text-xs text-zinc-500 transition hover:text-zinc-200"
+                  >
+                    <ArrowLeft className="h-3.5 w-3.5" />
+                    프로젝트 목록
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="메뉴 닫기"
+                    onClick={() => setMobileNavOpen(false)}
+                    className="rounded-lg p-1.5 text-zinc-400 hover:bg-white/10 hover:text-zinc-100 md:hidden"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
                 <div className="inline-flex items-center gap-1.5 rounded-full border border-orange-400/25 bg-orange-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-orange-200">
                   <ShoppingBag className="h-3 w-3" />
                   AI 쇼핑 숏폼
@@ -11949,7 +11977,10 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                     <button
                       key={item.step}
                       type="button"
-                      onClick={() => setActiveStep(item.step)}
+                      onClick={() => {
+                        setActiveStep(item.step)
+                        setMobileNavOpen(false)
+                      }}
                       className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${
                         isActive
                           ? "bg-orange-500/15 text-orange-200 ring-1 ring-orange-400/40"
@@ -12020,16 +12051,26 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
               </div>
             </aside>
             <div className="flex min-w-0 flex-1 flex-col">
-              <header className="flex items-center justify-between gap-3 border-b border-white/10 bg-[#0a0b0d]/90 px-5 py-3 backdrop-blur-md">
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
-                    {String(Math.max(1, VER2_PIPELINE_STEPS.findIndex((x) => x.step === activeStep) + 1)).padStart(2, "0")} / {String(VER2_PIPELINE_STEPS.length).padStart(2, "0")}
-                  </p>
-                  <h2 className="text-lg font-semibold text-zinc-50">
-                    {VER2_PIPELINE_STEPS.find((x) => x.step === activeStep)?.label || ""}
-                  </h2>
+              <header className="flex items-center justify-between gap-2 border-b border-white/10 bg-[#0a0b0d]/90 px-3 py-3 backdrop-blur-md sm:gap-3 sm:px-5">
+                <div className="flex min-w-0 items-center gap-2">
+                  <button
+                    type="button"
+                    aria-label="단계 메뉴 열기"
+                    onClick={() => setMobileNavOpen(true)}
+                    className="shrink-0 rounded-lg border border-white/10 bg-white/[0.04] p-2 text-zinc-200 hover:bg-white/10 md:hidden"
+                  >
+                    <Menu className="h-4 w-4" />
+                  </button>
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                      {String(Math.max(1, VER2_PIPELINE_STEPS.findIndex((x) => x.step === activeStep) + 1)).padStart(2, "0")} / {String(VER2_PIPELINE_STEPS.length).padStart(2, "0")}
+                    </p>
+                    <h2 className="truncate text-base font-semibold text-zinc-50 sm:text-lg">
+                      {VER2_PIPELINE_STEPS.find((x) => x.step === activeStep)?.label || ""}
+                    </h2>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
                   <Button
                     variant="outline"
                     size="sm"
@@ -12038,7 +12079,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                       const idx = VER2_PIPELINE_STEPS.findIndex((x) => x.step === activeStep)
                       if (idx > 0) setActiveStep(VER2_PIPELINE_STEPS[idx - 1].step)
                     }}
-                    className="rounded-lg border-white/10 bg-white/[0.03] text-zinc-300"
+                    className="rounded-lg border-white/10 bg-white/[0.03] px-2.5 text-zinc-300 sm:px-3"
                   >
                     이전
                   </Button>
@@ -12051,13 +12092,13 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                         setActiveStep(VER2_PIPELINE_STEPS[idx + 1].step)
                       }
                     }}
-                    className="rounded-lg bg-orange-500 text-white hover:bg-orange-400"
+                    className="rounded-lg bg-orange-500 px-2.5 text-white hover:bg-orange-400 sm:px-3"
                   >
                     다음
                   </Button>
                 </div>
               </header>
-              <main className="flex-1 overflow-y-auto bg-[#0a0b0d] p-5 md:p-8">
+              <main className="flex-1 overflow-y-auto bg-[#0a0b0d] p-3 sm:p-5 md:p-8">
                 {renderStepContent()}
               </main>
             </div>
