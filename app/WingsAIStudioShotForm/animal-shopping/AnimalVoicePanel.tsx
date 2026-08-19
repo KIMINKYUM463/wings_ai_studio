@@ -25,6 +25,7 @@ import {
   fetchSupertonicVoices,
 } from "@/lib/supertonic-runtime-client"
 import { SupertonicSetupBar } from "../components/SupertonicSetupBar"
+import { TypecastApiErrorNotice } from "@/components/TypecastApiGuideCard"
 
 type Provider = "supertone" | "supertonic" | "typecast" | "elevenlabs"
 
@@ -676,6 +677,7 @@ export function AnimalVoicePanel({
             {error}
           </p>
         ) : null}
+        <TypecastApiErrorNotice message={error} />
 
         <p className="flex items-center justify-center gap-1.5 text-[11px] text-[#6b7a6e]">
           <Volume2 className="h-3.5 w-3.5" />

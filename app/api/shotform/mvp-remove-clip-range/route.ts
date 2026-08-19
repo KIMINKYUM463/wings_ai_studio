@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { hasFfmpeg } from "@/lib/ffmpeg-binaries"
 import { removeRangeFromMp4Buffer } from "@/lib/mvp-insert-clip-ffmpeg"
+import { readFormMp4Buffer } from "@/lib/mvp-read-form-mp4"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
@@ -23,21 +24,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "요청 본문을 읽지 못했습니다." }, { status: 400 })
   }
 
-  const video = form.get("video")
   const removeStartSec = Number.parseFloat(String(form.get("removeStartSec") || "0"))
   const removeEndSec = Number.parseFloat(String(form.get("removeEndSec") || "0"))
   const mainDurationSec = Number.parseFloat(String(form.get("mainDurationSec") || "0"))
 
-  if (!(video instanceof Blob) || video.size < 1000) {
-    return NextResponse.json({ error: "원본 리믹스 영상이 없거나 너무 작습니다." }, { status: 400 })
-  }
   if (!Number.isFinite(removeStartSec) || !Number.isFinite(removeEndSec) || removeEndSec <= removeStartSec) {
     return NextResponse.json({ error: "삭제할 구간이 올바르지 않습니다." }, { status: 400 })
   }
 
   try {
+    const mainMp4 = await readFormMp4Buffer(form, "video", "videoUrl")
     const out = await removeRangeFromMp4Buffer({
-      mainMp4: Buffer.from(await video.arrayBuffer()),
+      mainMp4,
       removeStartSec,
       removeEndSec,
       mainDurationSec:
@@ -57,6 +55,7 @@ export async function POST(req: Request) {
   } catch (e) {
     const message = e instanceof Error ? e.message : "컷 삭제 합성 실패"
     console.error("[mvp-remove-clip-range]", message)
-    return NextResponse.json({ error: message }, { status: 500 })
+    const status = /없거나 너무 작|올바르지 않|https만|허용되지 않은/.test(message) ? 400 : 500
+    return NextResponse.json({ error: message }, { status })
   }
 }

@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { ArrowRight, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { TypecastApiErrorNotice } from "@/components/TypecastApiGuideCard"
 import { AnimalVoicePanel } from "./AnimalVoicePanel"
 import { concatAnimalTtsUrls, generateAnimalTts } from "./animal-tts"
 import {
@@ -144,6 +145,7 @@ export function AnimalStudioVoicePanel({
           {error}
         </p>
       ) : null}
+      <TypecastApiErrorNotice message={error} />
 
       <div className="flex justify-end">
         <Button

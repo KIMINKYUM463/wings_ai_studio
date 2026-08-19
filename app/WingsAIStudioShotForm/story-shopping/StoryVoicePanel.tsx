@@ -30,6 +30,7 @@ import { SupertonicSetupBar } from "../components/SupertonicSetupBar"
 import { splitNarrationIntoMeaningLines } from "./StoryChannelFrame"
 import { alignStoryCaptionsWithWhisper } from "./story-caption-align"
 import type { StoryShoppingBrief, StoryVoiceTrack } from "./story-types"
+import { TypecastApiErrorNotice } from "@/components/TypecastApiGuideCard"
 
 type Provider = "supertone" | "supertonic" | "typecast" | "elevenlabs"
 type CatalogVoice = {
@@ -948,6 +949,7 @@ export function StoryVoicePanel({
             {error}
           </p>
         ) : null}
+        <TypecastApiErrorNotice message={error} />
       </section>
 
       <section className="rounded-[28px] border border-white/10 bg-[#0d0d0c] p-5">

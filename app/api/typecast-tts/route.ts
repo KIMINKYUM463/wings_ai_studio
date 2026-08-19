@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { explainTypecastApiError } from "@/lib/typecast-api-error"
 
 export async function POST(request: NextRequest) {
   try {
@@ -70,7 +71,7 @@ export async function POST(request: NextRequest) {
         /* raw text */
       }
       return NextResponse.json(
-        { success: false, error: `타입캐스트 TTS 실패 (${response.status}): ${message}` },
+        { success: false, error: explainTypecastApiError(response.status, message) },
         { status: response.status }
       )
     }

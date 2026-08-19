@@ -28,6 +28,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { TypecastApiErrorNotice } from "@/components/TypecastApiGuideCard"
 import { Slider } from "@/components/ui/slider"
 import { cn } from "@/lib/utils"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -1148,7 +1149,12 @@ export function MvpCapCutEditor(props: Props) {
         </div>
       </div>
 
-      {err ? <p className="px-4 pt-3 text-sm text-red-300">{err}</p> : null}
+      {err ? (
+        <div className="px-4 pt-3">
+          <p className="text-sm text-red-300">{err}</p>
+          <TypecastApiErrorNotice message={err} />
+        </div>
+      ) : null}
 
       {speedNeedsRegen && ttsReady ? (
         <div className="mx-4 mt-3 rounded-lg border border-violet-500/35 bg-violet-950/25 px-3 py-2.5 text-xs leading-relaxed text-violet-100">

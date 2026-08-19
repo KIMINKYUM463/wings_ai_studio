@@ -22,6 +22,7 @@ import {
   fetchSupertonicVoices,
 } from "@/lib/supertonic-runtime-client"
 import { SupertonicSetupBar } from "../components/SupertonicSetupBar"
+import { TypecastApiErrorNotice } from "@/components/TypecastApiGuideCard"
 import { getInfoSlideTtsLines } from "./InfoCardFrame"
 import {
   groupInfoTtsLines,
@@ -756,6 +757,7 @@ export function InfoVoicePanel({
             {error}
           </p>
         ) : null}
+        <TypecastApiErrorNotice message={error} />
       </div>
     </section>
   )

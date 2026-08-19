@@ -39,6 +39,10 @@ type Props = {
   onOpenChange: (open: boolean) => void
   cutCount: number
   activeCutIndex: number
+  /** 장면 i가 공백 컷이면 true — 넣기 버튼이 뒤에 끼워넣지 않고 그 공백을 채움 */
+  cutIsBlank?: boolean[]
+  /** 장면 길이(초). 공백 채우기는 이 길이를 그대로 씀 */
+  cutDurationsSec?: number[]
   picks?: AutoEditPick[]
   busy?: boolean
   onConfirm: (choice: InsertClipChoice) => void
@@ -76,6 +80,8 @@ export function MvpInsertClipDialog({
   onOpenChange,
   cutCount,
   activeCutIndex,
+  cutIsBlank = [],
+  cutDurationsSec = [],
   picks = [],
   busy = false,
   onConfirm,
@@ -222,13 +228,20 @@ export function MvpInsertClipDialog({
         throw new Error("추가할 영상을 선택하거나 업로드해 주세요.")
       }
       const start = Math.max(0, Math.min(maxTrimStart, trimStartSec))
-      const dur = Math.max(0.4, Math.min(8, effectiveDuration))
+      const fillingBlank =
+        afterCutIndex >= 0 && Boolean(cutIsBlank[afterCutIndex])
+      const blankDur =
+        fillingBlank && Number.isFinite(cutDurationsSec[afterCutIndex])
+          ? Math.max(0.4, cutDurationsSec[afterCutIndex]!)
+          : null
+      const dur = blankDur ?? Math.max(0.4, Math.min(8, effectiveDuration))
       onConfirm({
         blob,
         label,
         durationSec: dur,
         trimStartSec: start,
         afterCutIndex,
+        replaceCutIndex: fillingBlank ? afterCutIndex : null,
       })
     } catch (e) {
       setErr(e instanceof Error ? e.message : "선택 실패")
@@ -368,7 +381,9 @@ export function MvpInsertClipDialog({
               <option value={-1}>맨 앞</option>
               {Array.from({ length: cutCount }, (_, i) => (
                 <option key={i} value={i}>
-                  장면 {i + 1} 뒤
+                  {cutIsBlank[i]
+                    ? `장면 ${i + 1} 공백 채우기`
+                    : `장면 ${i + 1} 뒤`}
                   {i === activeCutIndex ? " (현재 선택)" : ""}
                 </option>
               ))}
@@ -612,6 +627,8 @@ export function MvpInsertClipDialog({
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 넣는 중…
               </>
+            ) : afterCutIndex >= 0 && cutIsBlank[afterCutIndex] ? (
+              `${(cutDurationsSec[afterCutIndex] ?? effectiveDuration).toFixed(1)}초 · 공백 채우기`
             ) : (
               `${effectiveDuration.toFixed(1)}초 · 선택 위치에 넣기`
             )}

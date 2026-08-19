@@ -62,6 +62,7 @@ import {
   Film,
   PawPrint,
   Newspaper,
+  MessageSquareText,
 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import type { LucideIcon } from "lucide-react"
@@ -152,6 +153,16 @@ const generalShortformServices: ShotFormServiceItem[] = [
     hoverGradient: "from-rose-600 via-pink-600 to-fuchsia-600",
     isNew: true,
     locked: true,
+  },
+  {
+    id: "ssul-tts-tool",
+    title: "AI썰쇼핑숏폼 도구",
+    icon: MessageSquareText,
+    description: "TTS 모델 선택 + 대본만 넣으면 목소리·SRT를 바로 다운로드",
+    url: "/WingsAIStudioShotForm/ssul-tts-tool",
+    gradient: "from-amber-500 via-orange-500 to-rose-500",
+    hoverGradient: "from-amber-600 via-orange-600 to-rose-600",
+    isNew: true,
   },
 ]
 
@@ -1268,7 +1279,7 @@ ${apiKeys.vmakeSecret || "(미입력)"}
 
             <FeatureSection
               title="일반 숏폼"
-              subtitle="주제 기반 숏폼 제작 · 롱폼 URL을 바이럴 숏폼으로 자동 클립"
+              subtitle="주제 기반 숏폼 · 롱폼 클립 · 썰 쇼핑 대본→TTS/SRT 도구"
               services={generalShortformServices}
               onServiceClick={handleServiceClick}
               accent="violet"
@@ -1502,7 +1513,17 @@ ${apiKeys.vmakeSecret || "(미입력)"}
                 </Button>
               </div>
               <p className="text-xs text-zinc-500">
-                타입캐스트 TTS에 사용됩니다 (AI 쇼핑 숏폼 · 숏폼 스튜디오 나레이션).
+                타입캐스트 <strong className="font-medium text-zinc-400">API</strong> 키입니다.
+                웹(스튜디오) 유료 구독·크레딧과는 별개입니다. 키는{" "}
+                <a
+                  href="https://typecast.ai/api"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline underline-offset-2"
+                >
+                  typecast.ai/api
+                </a>
+                에서 발급하세요.
               </p>
             </div>
 

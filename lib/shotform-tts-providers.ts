@@ -10,6 +10,7 @@ import {
 } from "@/lib/shotform-factory-tts"
 import { clampTtsSpeed } from "@/lib/shotform-tts-speed"
 import { typecastKoreanName } from "@/lib/typecast-voice-names"
+import { isTypecastApi403Guide } from "@/lib/typecast-api-error"
 import { SUPERTONIC_BUILTIN_VOICES } from "@/lib/supertonic-local"
 
 export { shotformSupertoneKey } from "@/lib/shotform-factory-tts"
@@ -545,7 +546,15 @@ export async function synthesizeTtsLine(args: {
     audioBase64?: string
     error?: string
   }
-  if (!res.ok || data.success === false) throw new Error(data.error || `타입캐스트 TTS 실패 (${res.status})`)
+  if (!res.ok || data.success === false) {
+    const message = data.error || `타입캐스트 TTS 실패 (${res.status})`
+    if (typeof window !== "undefined" && isTypecastApi403Guide(message)) {
+      window.dispatchEvent(
+        new CustomEvent("wings:typecast-api-guide", { detail: { rawMessage: message } })
+      )
+    }
+    throw new Error(message)
+  }
   const url = audioUrlFromTtsResponse({ ...data, mime: "audio/wav" })
   if (!url) throw new Error("타입캐스트 오디오 응답이 비어 있습니다.")
   return url

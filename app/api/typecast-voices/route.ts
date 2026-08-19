@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { extractTypecastVoiceRows, normalizeTypecastVoiceRow } from "@/lib/shotform-tts-providers"
+import { explainTypecastApiError } from "@/lib/typecast-api-error"
 
 async function fetchTypecastVoices(apiKey: string, model?: string): Promise<Response> {
   const url = new URL("https://api.typecast.ai/v2/voices")
@@ -46,7 +47,7 @@ export async function GET(request: NextRequest) {
         /* raw text */
       }
       return NextResponse.json(
-        { success: false, error: `타입캐스트 목록 실패 (${response.status}): ${message}` },
+        { success: false, error: explainTypecastApiError(response.status, message) },
         { status: response.status }
       )
     }

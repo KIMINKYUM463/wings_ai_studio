@@ -151,6 +151,10 @@ import {
   peekMvpInsertClipDrag,
 } from "@/lib/mvp-insert-clip-drag"
 import { splitEditPlanAtOutputTime, convertEditPlanCutToBlank, isEditPlanBlank, removeEditPlanCut, reorderEditPlanCut } from "@/lib/mvp-edit-plan-split"
+import {
+  appendRemixMediaToForm,
+  throwIfRemixFfmpegFailed,
+} from "@/lib/mvp-upload-blob-for-ffmpeg"
 import styles from "./MvpPostEditStudio.module.css"
 import { useEditorChromeSlot } from "../components/ShotFormEditorDialogShell"
 
@@ -1222,6 +1226,7 @@ export function MvpPostEditStudio({
     async (choice: InsertClipChoice): Promise<boolean> => {
       setInsertClipBusy(true)
       setErr(null)
+      let undoPushed = false
       try {
         // 공백 채우기·영상 추가는 TTS 타임라인이 잡힌 뒤에만 (먼저 넣으면 빈 대본으로 TTS 실패)
         if (!audioUrl || !voiceLineCues?.length) {
@@ -1256,6 +1261,7 @@ export function MvpPostEditStudio({
 
         const videoId = `manual_insert_${Date.now()}`
         pushTimelineUndo()
+        undoPushed = true
         const planned = fillingBlank
           ? fillBlankCutWithClip({
               result: liveResult,
@@ -1274,11 +1280,30 @@ export function MvpPostEditStudio({
               visualCaption: choice.label,
             })
 
+        const clipDurSec =
+          fillingBlank && planned.replaceEndOutputSec != null
+            ? Math.max(0.4, planned.replaceEndOutputSec - planned.insertAtOutputSec)
+            : choice.durationSec
+
+        setResultDraft(planned.result)
+
         const form = new FormData()
-        form.append("video", mainBlob, "main.mp4")
-        form.append("clip", choice.blob, "clip.mp4")
+        await appendRemixMediaToForm(form, {
+          blob: mainBlob,
+          projectId,
+          blobField: "video",
+          urlField: "videoUrl",
+          fileName: "main.mp4",
+        })
+        await appendRemixMediaToForm(form, {
+          blob: choice.blob,
+          projectId,
+          blobField: "clip",
+          urlField: "clipUrl",
+          fileName: "clip.mp4",
+        })
         form.append("insertAtSec", String(planned.insertAtOutputSec))
-        form.append("clipDurationSec", String(choice.durationSec))
+        form.append("clipDurationSec", String(clipDurSec))
         form.append("clipStartSec", String(Math.max(0, choice.trimStartSec || 0)))
         if (planned.replaceEndOutputSec != null) {
           form.append("replaceEndSec", String(planned.replaceEndOutputSec))
@@ -1294,10 +1319,7 @@ export function MvpPostEditStudio({
           method: "POST",
           body: form,
         })
-        if (!res.ok) {
-          const data = (await res.json().catch(() => ({}))) as { error?: string }
-          throw new Error(data.error || `클립 합성 실패 (${res.status})`)
-        }
+        await throwIfRemixFfmpegFailed(res, "클립 합성")
         const outBlob = await res.blob()
         if (outBlob.size < 4096) throw new Error("합성된 영상이 비어 있습니다.")
 
@@ -1325,6 +1347,7 @@ export function MvpPostEditStudio({
         )
         return true
       } catch (e) {
+        if (undoPushed) await handleTimelineUndo()
         setErr(e instanceof Error ? e.message : "추가 영상 넣기 실패")
         return false
       } finally {
@@ -1342,6 +1365,8 @@ export function MvpPostEditStudio({
       applyVideoBlob,
       videoDuration,
       pushTimelineUndo,
+      handleTimelineUndo,
+      projectId,
     ]
   )
 
@@ -1481,6 +1506,7 @@ export function MvpPostEditStudio({
       if (timelineEditBusy || insertClipBusy) return
       setTimelineEditBusy(true)
       setErr(null)
+      let undoPushed = false
       try {
         const mainBlob = mp4BlobRef.current
         if (!mainBlob || mainBlob.size < 1000) {
@@ -1497,9 +1523,17 @@ export function MvpPostEditStudio({
         }
 
         pushTimelineUndo()
+        undoPushed = true
+        setResultDraft(planned.result)
 
         const form = new FormData()
-        form.append("video", mainBlob, "main.mp4")
+        await appendRemixMediaToForm(form, {
+          blob: mainBlob,
+          projectId,
+          blobField: "video",
+          urlField: "videoUrl",
+          fileName: "main.mp4",
+        })
         form.append("removeStartSec", String(planned.removeStartSec))
         form.append("removeEndSec", String(planned.removeEndSec))
         const mainDur =
@@ -1513,10 +1547,7 @@ export function MvpPostEditStudio({
           method: "POST",
           body: form,
         })
-        if (!res.ok) {
-          const data = (await res.json().catch(() => ({}))) as { error?: string }
-          throw new Error(data.error || `컷 삭제 실패 (${res.status})`)
-        }
+        await throwIfRemixFfmpegFailed(res, "컷 삭제")
         const outBlob = await res.blob()
         if (outBlob.size < 4096) throw new Error("삭제 결과 영상이 비어 있습니다.")
 
@@ -1538,6 +1569,7 @@ export function MvpPostEditStudio({
             : `컷 ${cutIndex + 1}을 완전 제거했고 뒤를 당겼습니다. Ctrl+Z로 되돌릴 수 있습니다.`
         )
       } catch (e) {
+        if (undoPushed) await handleTimelineUndo()
         setErr(e instanceof Error ? e.message : "컷 삭제에 실패했습니다.")
       } finally {
         setTimelineEditBusy(false)
@@ -1554,6 +1586,8 @@ export function MvpPostEditStudio({
       applyVideoBlob,
       videoDuration,
       pushTimelineUndo,
+      handleTimelineUndo,
+      projectId,
     ]
   )
 
@@ -1563,6 +1597,7 @@ export function MvpPostEditStudio({
       if (fromIndex === toIndex) return
       setTimelineEditBusy(true)
       setErr(null)
+      let undoPushed = false
       try {
         const mainBlob = mp4BlobRef.current
         if (!mainBlob || mainBlob.size < 1000) {
@@ -1572,19 +1607,24 @@ export function MvpPostEditStudio({
         if (planned.fromIndex === planned.toIndex) return
 
         pushTimelineUndo()
+        undoPushed = true
+        setResultDraft(planned.result)
 
         const form = new FormData()
-        form.append("video", mainBlob, "main.mp4")
+        await appendRemixMediaToForm(form, {
+          blob: mainBlob,
+          projectId,
+          blobField: "video",
+          urlField: "videoUrl",
+          fileName: "main.mp4",
+        })
         form.append("rangesJson", JSON.stringify(planned.concatRanges))
 
         const res = await fetch("/api/shotform/mvp-reorder-clips", {
           method: "POST",
           body: form,
         })
-        if (!res.ok) {
-          const data = (await res.json().catch(() => ({}))) as { error?: string }
-          throw new Error(data.error || `컷 이동 실패 (${res.status})`)
-        }
+        await throwIfRemixFfmpegFailed(res, "컷 이동")
         const outBlob = await res.blob()
         if (outBlob.size < 4096) throw new Error("이동 결과 영상이 비어 있습니다.")
 
@@ -1602,6 +1642,7 @@ export function MvpPostEditStudio({
           `컷 ${fromIndex + 1}을 ${toIndex + 1}번 위치로 옮겼습니다. TTS는 그대로입니다. Ctrl+Z로 되돌릴 수 있습니다.`
         )
       } catch (e) {
+        if (undoPushed) await handleTimelineUndo()
         setErr(e instanceof Error ? e.message : "컷 이동에 실패했습니다.")
       } finally {
         setTimelineEditBusy(false)
@@ -1616,6 +1657,8 @@ export function MvpPostEditStudio({
       onResultChange,
       applyVideoBlob,
       pushTimelineUndo,
+      handleTimelineUndo,
+      projectId,
     ]
   )
 
@@ -3422,6 +3465,10 @@ export function MvpPostEditStudio({
         onOpenChange={setInsertClipOpen}
         cutCount={baseSegments.length}
         activeCutIndex={Math.max(0, activeScene)}
+        cutIsBlank={(liveResult.editPlan?.edit_plan ?? []).map((seg) => isEditPlanBlank(seg))}
+        cutDurationsSec={(liveResult.editPlan?.edit_plan ?? []).map((seg) =>
+          Math.max(0.4, (seg.output_end ?? 0) - (seg.output_start ?? 0))
+        )}
         picks={insertClipPicks}
         busy={insertClipBusy}
         onConfirm={(choice) => void handleInsertClipConfirm(choice)}
