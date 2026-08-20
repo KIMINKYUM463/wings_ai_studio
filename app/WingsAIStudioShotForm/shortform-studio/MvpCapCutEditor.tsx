@@ -631,8 +631,14 @@ export function MvpCapCutEditor(props: Props) {
     (next: TtsProviderId) => {
       setSidebarProvider(next)
       setCustomIdDraft("")
-      if (shouldAutoLoadVoiceCatalog(next, voiceCatalog[next] ?? []) && !voicesLoading[next]) {
-        void onReloadVoices(next)
+      if (!voicesLoading[next]) {
+        if (next === "supertonic") {
+          void onReloadVoices(next)
+        } else if (
+          shouldAutoLoadVoiceCatalog(next, voiceCatalog[next] ?? [])
+        ) {
+          void onReloadVoices(next)
+        }
       }
       if (ttsProviderFromVoiceId(selectedVoiceId) === next) return
       const first =

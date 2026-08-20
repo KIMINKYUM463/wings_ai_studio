@@ -513,6 +513,8 @@ export default function SsulTtsToolPage() {
   const audioUrlRef = useRef<string | null>(null)
   const previewAudioRef = useRef<HTMLAudioElement | null>(null)
   const productImageInputRef = useRef<HTMLInputElement | null>(null)
+  /** 자동 로드 실패 후 빈 목록으로 재호출되는 무한 루프 방지 */
+  const voiceAutoLoadAttemptedRef = useRef<Set<TtsProviderId>>(new Set())
 
   const activeProvider = ttsProviderFromVoiceId(selectedVoiceId) ?? provider
   const displayVoice = selectedVoiceId
@@ -594,6 +596,7 @@ export default function SsulTtsToolPage() {
                 .filter((v) => v.voice_id)
             : supertonicBuiltinVoiceCatalog()
         setVoiceCatalog((prev) => ({ ...prev, supertonic: list }))
+        voiceAutoLoadAttemptedRef.current.add("supertonic")
       } catch (e) {
         setVoiceCatalog((prev) => ({
           ...prev,
@@ -606,6 +609,7 @@ export default function SsulTtsToolPage() {
             e instanceof Error ? e.message : "수퍼토닉3 목록 실패"
           ),
         }))
+        voiceAutoLoadAttemptedRef.current.add("supertonic")
       } finally {
         setVoicesLoading((prev) => ({ ...prev, supertonic: false }))
       }
@@ -616,6 +620,7 @@ export default function SsulTtsToolPage() {
       const key = shotformTtsApiKey("elevenlabs")
       if (!key) {
         setVoiceCatalog((prev) => ({ ...prev, elevenlabs: elevenlabsSampleVoiceCatalog() }))
+        voiceAutoLoadAttemptedRef.current.add("elevenlabs")
         return
       }
       setVoicesLoading((prev) => ({ ...prev, elevenlabs: true }))
@@ -632,6 +637,7 @@ export default function SsulTtsToolPage() {
           const errText = data.error || `목록 실패 (${res.status})`
           if (isElevenlabsVoicesReadError(errText, data.code)) {
             setVoiceCatalog((prev) => ({ ...prev, elevenlabs: elevenlabsSampleVoiceCatalog() }))
+            voiceAutoLoadAttemptedRef.current.add("elevenlabs")
             return
           }
           throw new Error(errText)
@@ -643,6 +649,7 @@ export default function SsulTtsToolPage() {
           ...prev,
           elevenlabs: mergeElevenlabsVoiceCatalog(apiList),
         }))
+        voiceAutoLoadAttemptedRef.current.add("elevenlabs")
       } catch (e) {
         const raw = e instanceof Error ? e.message : "ElevenLabs 목록 실패"
         setVoiceCatalog((prev) => ({ ...prev, elevenlabs: elevenlabsSampleVoiceCatalog() }))
@@ -652,6 +659,7 @@ export default function SsulTtsToolPage() {
             elevenlabs: formatVoiceLoadError("elevenlabs", raw),
           }))
         }
+        voiceAutoLoadAttemptedRef.current.add("elevenlabs")
       } finally {
         setVoicesLoading((prev) => ({ ...prev, elevenlabs: false }))
       }
@@ -661,6 +669,7 @@ export default function SsulTtsToolPage() {
     const key = shotformTtsApiKey(p)
     if (!key) {
       setVoiceLoadErrors((prev) => ({ ...prev, [p]: ttsApiKeyMissingMessage(p) }))
+      voiceAutoLoadAttemptedRef.current.add(p)
       return
     }
     setVoicesLoading((prev) => ({ ...prev, [p]: true }))
@@ -685,13 +694,26 @@ export default function SsulTtsToolPage() {
         list = filterSupertoneKoreanVoices(
           raw.map((v) => normalizeSupertoneVoiceRow(v as Record<string, unknown>))
         )
+        if (!list.length && raw.length > 0) {
+          setVoiceLoadErrors((prev) => ({
+            ...prev,
+            supertone: "한국어 지원 수퍼톤 목소리가 없습니다. API 키·계정을 확인해 주세요.",
+          }))
+        }
       } else {
         list = raw
           .map((v) => normalizeTypecastVoiceRow(v as Record<string, unknown>))
           .filter((v): v is ShotformTtsVoice => Boolean(v))
           .map(enrichTypecastVoice)
+        if (!list.length) {
+          setVoiceLoadErrors((prev) => ({
+            ...prev,
+            typecast: "타입캐스트 목소리 목록이 비어 있습니다. API 키·플랜을 확인해 주세요.",
+          }))
+        }
       }
       setVoiceCatalog((prev) => ({ ...prev, [p]: list }))
+      voiceAutoLoadAttemptedRef.current.add(p)
     } catch (e) {
       setVoiceLoadErrors((prev) => ({
         ...prev,
@@ -700,6 +722,7 @@ export default function SsulTtsToolPage() {
           e instanceof Error ? e.message : `${p} 목소리 목록 실패`
         ),
       }))
+      voiceAutoLoadAttemptedRef.current.add(p)
     } finally {
       setVoicesLoading((prev) => ({ ...prev, [p]: false }))
     }
@@ -707,6 +730,8 @@ export default function SsulTtsToolPage() {
 
   useEffect(() => {
     const list = voiceCatalog[provider] ?? []
+    if (voiceLoadErrors[provider]) return
+    if (voiceAutoLoadAttemptedRef.current.has(provider)) return
     if (shouldAutoLoadVoiceCatalog(provider, list) && !voicesLoading[provider]) {
       void loadVoices(provider)
     }
@@ -714,14 +739,25 @@ export default function SsulTtsToolPage() {
   }, [provider])
 
   useEffect(() => {
-    if (voicePickerOpen) {
-      const p = ttsProviderFromVoiceId(selectedVoiceId) ?? provider
-      const list = voiceCatalog[p] ?? []
-      if (shouldAutoLoadVoiceCatalog(p, list) && !voicesLoading[p]) {
-        void loadVoices(p)
-      }
+    if (!voicePickerOpen) return
+    const p = ttsProviderFromVoiceId(selectedVoiceId) ?? provider
+    if (voiceLoadErrors[p]) return
+    if (voiceAutoLoadAttemptedRef.current.has(p) && p !== "supertonic") return
+    const list = voiceCatalog[p] ?? []
+    if (shouldAutoLoadVoiceCatalog(p, list) && !voicesLoading[p]) {
+      void loadVoices(p)
     }
-  }, [voicePickerOpen, selectedVoiceId, provider, voiceCatalog, voicesLoading, loadVoices])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 팝업 열릴 때·선택 보이스 변경 시만
+  }, [voicePickerOpen, selectedVoiceId])
+
+  const handleReloadVoices = useCallback(
+    (p: TtsProviderId) => {
+      // 수동 새로고침은 재시도 허용
+      voiceAutoLoadAttemptedRef.current.delete(p)
+      void loadVoices(p)
+    },
+    [loadVoices]
+  )
 
   useEffect(() => {
     const p = ttsProviderFromVoiceId(selectedVoiceId)
@@ -1753,7 +1789,7 @@ export default function SsulTtsToolPage() {
         voiceStyle={voiceStyle}
         onVoiceIdChange={handleVoiceIdChange}
         onStyleChange={setVoiceStyle}
-        onReloadVoices={(p) => void loadVoices(p)}
+        onReloadVoices={handleReloadVoices}
         onPreviewVoice={(id, style) => void previewVoice(id, style)}
         previewingVoiceId={previewingVoiceId}
       />

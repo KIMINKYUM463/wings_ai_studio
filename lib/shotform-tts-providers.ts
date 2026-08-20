@@ -93,11 +93,14 @@ export function elevenlabsSampleVoiceCatalog(): ShotformTtsVoice[] {
   }))
 }
 
-/** ElevenLabs는 샘플 목록이 항상 있어 API 자동 로드가 필요 없음.
- * 수퍼토닉3는 로컬 서버 상태·커스텀 보이스를 위해 탭 전환 시 새로고침 */
+/**
+ * ElevenLabs는 샘플 목록이 항상 있어 API 자동 로드가 필요 없음.
+ * 수퍼토닉3는 내장 목록이 있어도 탭 전환 시 한 번 새로고침할 수 있지만,
+ * 여기서 true를 고정하면 useEffect가 목록 갱신마다 재호출되어 무한 루프 → 흰 화면 크래시가 납니다.
+ * 자동 로드는「목록이 비어 있을 때만」허용하고, 수퍼토닉 새로고침은 탭 클릭/새로고침 버튼에서 합니다.
+ */
 export function shouldAutoLoadVoiceCatalog(provider: TtsProviderId, voices: readonly ShotformTtsVoice[]): boolean {
   if (provider === "elevenlabs") return false
-  if (provider === "supertonic") return true
   return voices.length === 0
 }
 

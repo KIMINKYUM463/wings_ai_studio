@@ -45,11 +45,12 @@ type Props = {
 function VoiceAvatar({ voice, size = "md" }: { voice: ShotformTtsVoice; size?: "sm" | "md" | "lg" }) {
   const dim = size === "lg" ? "h-16 w-16" : size === "md" ? "h-11 w-11" : "h-9 w-9"
   const text = size === "lg" ? "text-xl" : size === "md" ? "text-sm" : "text-xs"
+  const label = (voice.name || voice.name_en || voice.voice_id || "?").trim() || "?"
   if (voice.thumbnail_image_url) {
     return (
       <img
         src={voice.thumbnail_image_url}
-        alt={voice.name}
+        alt={label}
         className={cn(dim, "shrink-0 rounded-full object-cover ring-2 ring-white/15")}
       />
     )
@@ -61,9 +62,9 @@ function VoiceAvatar({ voice, size = "md" }: { voice: ShotformTtsVoice; size?: "
         "flex shrink-0 items-center justify-center rounded-full font-bold text-white ring-2 ring-white/15",
         text
       )}
-      style={{ background: voiceAvatarFallbackColor(voice.name) }}
+      style={{ background: voiceAvatarFallbackColor(label) }}
     >
-      {voice.name.slice(0, 1)}
+      {label.slice(0, 1)}
     </span>
   )
 }
@@ -101,18 +102,22 @@ export function MvpVoicePickerDialog({
     setDraftStyle(voiceStyle)
     setQuery("")
     const bare = parseBareVoiceId(selectedVoiceId)?.bareId ?? ""
+    // voiceCatalog를 deps에 넣으면 목록 로드마다 탭이 초기 프로바이더로 되돌아가 탭 전환이 막힙니다.
     setCustomIdDraft(
       bare && selectedVoiceId && !isCatalogVoice(selectedVoiceId, voiceCatalog[p] ?? [], p) ? bare : ""
     )
-  }, [open, initialProvider, selectedVoiceId, voiceStyle, voiceCatalog])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- open 시 한 번만 동기화
+  }, [open, initialProvider, selectedVoiceId, voiceStyle])
 
   useEffect(() => {
     if (!open || loading) return
+    // 이미 실패한 프로바이더는 재시도하지 않음 (빈 목록 + 자동로드 → 무한 루프 방지)
+    if (providerError) return
     const list = voiceCatalog[provider] ?? []
     if (shouldAutoLoadVoiceCatalog(provider, list)) {
       onReloadVoices(provider)
     }
-  }, [open, provider, voiceCatalog, loading, onReloadVoices])
+  }, [open, provider, loading, providerError, voiceCatalog, onReloadVoices])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -133,10 +138,15 @@ export function MvpVoicePickerDialog({
     setQuery("")
     setCustomIdDraft("")
     const parsed = parseBareVoiceId(draftVoiceId)
-    if (parsed?.provider === next) return
-    setDraftVoiceId("")
+    if (parsed?.provider !== next) setDraftVoiceId("")
+    if (voicesLoading[next]) return
     const list = voiceCatalog[next] ?? []
-    if (shouldAutoLoadVoiceCatalog(next, list) && !voicesLoading[next]) {
+    // 수퍼토닉3: 내장 목록이 있어도 탭 진입 시 로컬 서버 목록을 한 번 갱신
+    if (next === "supertonic") {
+      onReloadVoices(next)
+      return
+    }
+    if (shouldAutoLoadVoiceCatalog(next, list) && !voiceLoadErrors?.[next]) {
       onReloadVoices(next)
     }
   }
