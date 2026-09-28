@@ -10,7 +10,7 @@ import {
   putAllSceneMedia,
 } from "@/lib/longform-v2/project-media-idb"
 
-export type StepId = "script" | "voice-image" | "overview"
+export type StepId = "script" | "voice-image" | "youtube-meta" | "overview"
 export type ScriptSubStep = "input" | "plan" | "script"
 export type MethodId = "benchmark" | "upload"
 
@@ -20,8 +20,14 @@ export type SceneAsset = {
   prompt?: string
   imageUrl?: string
   audioUrl?: string
-  /** 이미지+TTS 합성 MP4 (data URL 또는 http) */
+  /** Seedance 무음 AI 움직임 영상 (이미지→영상) */
+  motionVideoUrl?: string
+  /** 이미지+TTS(또는 AI영상+TTS) 합성 MP4 */
   videoUrl?: string
+  /** TTS 길이(초) — AI 영상 Seedance 길이 힌트 */
+  ttsDurationSec?: number
+  /** 실사(스톡) Pexels 검색용 한국어 키워드 */
+  stockSearchKeywordsKo?: string
   busy?: string | null
   error?: string | null
 }
@@ -41,9 +47,23 @@ export type LongformV2Project = {
   planMarkdown: string
   scriptText: string
   styleHint: string
-  /** 이미지 스타일 카드 id */
+  /** 이미지 스타일 카드 id — "custom" 이면 업로드 그림체 */
   imageStyleId: string
   imageStyleLabel: string
+  /** 커스텀 그림체 분석 결과(영문). custom일 때 styleHint와 동일하게 유지 */
+  customStylePrompt?: string
+  /** 커스텀 그림체 한글 이름 */
+  customStyleLabelKo?: string
+  /** 커스텀 그림체 한글 설명 */
+  customStyleDescriptionKo?: string
+  /** 유튜브 업로드용 메타 */
+  youtubeTitle?: string
+  youtubeDescription?: string
+  youtubeHashtags?: string
+  youtubeUploadTags?: string[]
+  youtubePinnedComment?: string
+  /** 대표 썸네일 (data URL 또는 http) */
+  thumbnailUrl?: string
   imageModel: string
   productionTab: "style" | "scenes"
   /** WingsStudio / 쇼핑숏폼 호환: elevenlabs | supertone(클라우드) | supertonic(로컬 3) */
@@ -159,13 +179,19 @@ export function compactProjectForStorage(project: LongformV2Project): LongformV2
         s.videoUrl && !isHeavyMediaUrl(s.videoUrl) && !s.videoUrl.startsWith("blob:")
           ? s.videoUrl
           : undefined
+      const motionVideoUrl =
+        s.motionVideoUrl && !isHeavyMediaUrl(s.motionVideoUrl) && !s.motionVideoUrl.startsWith("blob:")
+          ? s.motionVideoUrl
+          : undefined
       return {
         index: s.index,
         text: s.text,
         prompt: s.prompt,
         imageUrl,
         audioUrl,
+        motionVideoUrl,
         videoUrl,
+        ttsDurationSec: s.ttsDurationSec,
         busy: null,
         error: s.error || null,
       }
@@ -294,11 +320,13 @@ export async function loadProjectAsync(id: string): Promise<LongformV2Project | 
     const image = media.get(`${s.index}:image`)
     const audio = media.get(`${s.index}:audio`)
     const video = media.get(`${s.index}:video`)
+    const motion = media.get(`${s.index}:motion`)
     return {
       ...s,
       imageUrl: image || s.imageUrl,
       audioUrl: audio || s.audioUrl,
       videoUrl: video || s.videoUrl,
+      motionVideoUrl: motion || s.motionVideoUrl,
     }
   })
   return {

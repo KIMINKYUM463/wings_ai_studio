@@ -25,6 +25,33 @@ export function targetScriptCharsForVideoMinutes(minutes: number): number {
   return clampV2TargetChars(Math.round(minutes * 400))
 }
 
+/** 글자 수 → 대략 영상 분 (분당 400자 기준) */
+export function approxVideoMinutesFromChars(chars: number): number {
+  const m = Math.max(V2_SCRIPT_TARGET_CHARS_MIN, chars) / 400
+  return Math.round(m * 2) / 2 // 0.5분 단위
+}
+
+/** 슬라이더: 최소 1000자 ~ 최대 1시간(약 24,000자) */
+export const V2_TARGET_CHARS_SLIDER_MIN = V2_SCRIPT_TARGET_CHARS_MIN
+export const V2_TARGET_CHARS_SLIDER_MAX = targetScriptCharsForVideoMinutes(60)
+export const V2_TARGET_CHARS_SLIDER_STEP = 200
+
+export const V2_TARGET_MINUTES_MIN = approxVideoMinutesFromChars(V2_TARGET_CHARS_SLIDER_MIN) // 2.5
+export const V2_TARGET_MINUTES_MAX = 60
+export const V2_TARGET_MINUTES_DEFAULT = 10
+
+export function clampV2TargetMinutes(raw: number): number {
+  const n = Number.isFinite(raw) ? raw : V2_TARGET_MINUTES_DEFAULT
+  return Math.min(V2_TARGET_MINUTES_MAX, Math.max(V2_TARGET_MINUTES_MIN, n))
+}
+
+export function formatApproxTargetMinutes(minutes: number): string {
+  const m = clampV2TargetMinutes(minutes)
+  if (m >= 60) return "1시간"
+  if (Number.isInteger(m)) return `${m}분`
+  return `${m}분`
+}
+
 export function splitScriptIntoSceneLines(script: string): string[] {
   return script
     .split(/\n+/)

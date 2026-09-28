@@ -1,13 +1,15 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import "../longform-v2.css"
 import { ApiKeyStatusCard, LongformV2ApiSettingsModal } from "../ApiSettingsModal"
 import { ScriptWorkspacePanel } from "../components/ScriptWorkspacePanel"
 import { ProductionPanel } from "../components/ProductionPanel"
+import { YoutubeMetaPanel } from "../components/YoutubeMetaPanel"
+import { AnalyzeLoadingOverlay } from "../components/AnalyzeLoadingOverlay"
 import { loadApiKeys, type LongformV2ApiKeys } from "@/lib/longform-v2/api-keys"
-import { splitScriptIntoSceneLines } from "@/lib/longform-v2/script-utils"
+import { enforceV2ScriptLineFormat, splitScriptIntoSceneLines } from "@/lib/longform-v2/script-utils"
 import {
   loadProject,
   loadProjectAsync,
@@ -17,6 +19,17 @@ import {
   type SceneAsset,
   type StepId,
 } from "@/lib/longform-v2/project-storage"
+import {
+  assignSceneBgKinds,
+  batchHasPendingWork,
+  sceneHasPendingBatchWork,
+  type BatchGeneratePlan,
+} from "@/lib/longform-v2/batch-generate"
+import {
+  estimateNarrationDurationSec,
+  type MotionVideoResolution,
+} from "@/lib/longform-v2/motion-video"
+import { elevenlabsVoiceOptions } from "@/lib/longform-v2/voice-personas"
 import { SUPERTONIC_BUILTIN_VOICES } from "@/lib/supertonic-local"
 import {
   fetchSupertonicHealth,
@@ -26,11 +39,7 @@ import {
 
 type VoiceOption = { id: string; label: string }
 
-const ELEVEN_FALLBACK: VoiceOption[] = [
-  { id: "jB1Cifc2UQbq1gR3wnb0", label: "한국어 · 기본" },
-  { id: "EXAVITQu4vr4xnSDxMaL", label: "Sarah" },
-  { id: "21m00Tcm4TlvDq8ikWAM", label: "Rachel" },
-]
+const ELEVEN_FALLBACK: VoiceOption[] = elevenlabsVoiceOptions()
 
 export default function LongformV2WorkspacePage() {
   const params = useParams()
@@ -43,12 +52,24 @@ export default function LongformV2WorkspacePage() {
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
   const [batchProgress, setBatchProgress] = useState("")
+  const [batchSession, setBatchSession] = useState<BatchGeneratePlan | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [apiKeys, setApiKeys] = useState<LongformV2ApiKeys>(() => loadApiKeys())
   const [voices, setVoices] = useState<VoiceOption[]>(
     SUPERTONIC_BUILTIN_VOICES.map((v) => ({ id: v.voice_id, label: v.name }))
   )
   const [supertonicStatus, setSupertonicStatus] = useState<string>("확인 중…")
+  const projectRef = useRef<LongformV2Project | null>(null)
+  const batchAbortRef = useRef<AbortController | null>(null)
+
+  useEffect(() => {
+    projectRef.current = project
+  }, [project])
+
+  const batchCanResume = useMemo(() => {
+    if (!batchSession || !project || batchProgress) return false
+    return batchHasPendingWork(project.scenes, batchSession)
+  }, [batchSession, project, batchProgress])
 
   useEffect(() => {
     if (!id) return
@@ -72,83 +93,104 @@ export default function LongformV2WorkspacePage() {
 
   useEffect(() => {
     if (!project) return
-    const keys = loadApiKeys()
     let cancelled = false
-    async function loadVoices() {
-      try {
-        if (project!.ttsEngine === "supertonic") {
-          const health = await fetchSupertonicHealth()
-          if (cancelled) return
-          setSupertonicStatus(
-            health.online
-              ? `연결됨 · ${health.model || "supertonic-3"} · ${health.baseUrl || "127.0.0.1:7788"}`
-              : health.message ||
-                  "꺼져 있습니다. 「Supertonic 자동 연결」을 누르면 Mac/Windows에 맞게 설치·기동합니다."
-          )
-          const res = await fetchSupertonicVoices()
-          const data = await res.json().catch(() => ({}))
-          if (cancelled) return
-          const list = (data.voices || [])
-            .map((v: { voice_id?: string; id?: string; name?: string }) => ({
-              id: String(v.voice_id || v.id || ""),
-              label: String(v.name || v.voice_id || "voice"),
-            }))
-            .filter((v: VoiceOption) => v.id)
-          setVoices(
-            list.length
-              ? list
-              : SUPERTONIC_BUILTIN_VOICES.map((v) => ({ id: v.voice_id, label: v.name }))
-          )
-          return
-        }
-        setSupertonicStatus("")
-        if (project!.ttsEngine === "supertone") {
-          if (!keys.supertone) {
-            setVoices([{ id: "default", label: "Supertone 키 필요" }])
-            return
-          }
-          const res = await fetch(`/api/supertone-voices?apiKey=${encodeURIComponent(keys.supertone)}`)
-          const data = await res.json()
-          if (cancelled) return
-          const list = (data.voices || data.data || [])
-            .map((v: { id?: string; voice_id?: string; name?: string }) => ({
-              id: String(v.id || v.voice_id || ""),
-              label: String(v.name || v.id || "voice"),
-            }))
-            .filter((v: VoiceOption) => v.id)
-          setVoices(list.length ? list : [{ id: "default", label: "음성 목록 없음" }])
-          return
-        }
-        if (!keys.elevenlabs) {
-          setVoices(ELEVEN_FALLBACK)
-          return
-        }
-        const res = await fetch(`/api/elevenlabs-voices?apiKey=${encodeURIComponent(keys.elevenlabs)}`)
-        const data = await res.json()
-        if (cancelled) return
-        const list = (data.voices || [])
-          .map((v: { voice_id?: string; voiceId?: string; name?: string }) => ({
-            id: String(v.voice_id || v.voiceId || ""),
-            label: String(v.name || v.voice_id || "voice"),
-          }))
-          .filter((v: VoiceOption) => v.id)
-        setVoices(list.length ? list : ELEVEN_FALLBACK)
-      } catch {
-        if (!cancelled) {
-          if (project!.ttsEngine === "supertonic") {
-            setVoices(SUPERTONIC_BUILTIN_VOICES.map((v) => ({ id: v.voice_id, label: v.name })))
-            setSupertonicStatus("상태 확인 실패 — 로컬 serve가 켜져 있는지 확인하세요.")
-          } else {
-            setVoices(ELEVEN_FALLBACK)
-          }
-        }
-      }
-    }
-    void loadVoices()
+    void loadVoicesForEngine(project.ttsEngine, () => cancelled)
     return () => {
       cancelled = true
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.ttsEngine, settingsOpen])
+
+  async function loadVoicesForEngine(
+    engine: LongformV2Project["ttsEngine"],
+    isCancelled?: () => boolean
+  ) {
+    const keys = loadApiKeys()
+    const cancelled = () => isCancelled?.() === true
+    try {
+      if (engine === "supertonic") {
+        const health = await fetchSupertonicHealth()
+        if (cancelled()) return
+        setSupertonicStatus(
+          health.online
+            ? `연결됨 · ${health.model || "supertonic-3"} · ${health.baseUrl || "127.0.0.1:7788"}`
+            : health.message ||
+                "꺼져 있습니다. 「Supertonic 자동 연결」을 누르면 Mac/Windows에 맞게 설치·기동합니다."
+        )
+        const res = await fetchSupertonicVoices()
+        const data = await res.json().catch(() => ({}))
+        if (cancelled()) return
+        const list = (data.voices || [])
+          .map((v: { voice_id?: string; id?: string; name?: string }) => ({
+            id: String(v.voice_id || v.id || ""),
+            label: String(v.name || v.voice_id || "voice"),
+          }))
+          .filter((v: VoiceOption) => v.id)
+        setVoices(
+          list.length
+            ? list
+            : SUPERTONIC_BUILTIN_VOICES.map((v) => ({ id: v.voice_id, label: v.name }))
+        )
+        return
+      }
+      setSupertonicStatus("")
+      if (engine === "supertone") {
+        if (!keys.supertone) {
+          setVoices([{ id: "default", label: "Supertone 키 필요" }])
+          return
+        }
+        const res = await fetch(`/api/supertone-voices?apiKey=${encodeURIComponent(keys.supertone)}`)
+        const data = await res.json()
+        if (cancelled()) return
+        const list = (data.voices || data.data || [])
+          .map(
+            (v: {
+              id?: string
+              voice_id?: string
+              name?: string
+              gender?: string
+            }) => ({
+              id: String(v.id || v.voice_id || ""),
+              label: String(v.name || v.id || "voice"),
+            })
+          )
+          .filter((v: VoiceOption) => v.id)
+        setVoices(list.length ? list : [{ id: "default", label: "음성 목록 없음" }])
+        return
+      }
+      // elevenlabs
+      if (!keys.elevenlabs) {
+        setVoices(ELEVEN_FALLBACK)
+        return
+      }
+      const res = await fetch(`/api/elevenlabs-voices?apiKey=${encodeURIComponent(keys.elevenlabs)}`)
+      const data = await res.json()
+      if (cancelled()) return
+      const list = (data.voices || [])
+        .map((v: { voice_id?: string; voiceId?: string; name?: string }) => ({
+          id: String(v.voice_id || v.voiceId || ""),
+          label: String(v.name || v.voice_id || "voice"),
+        }))
+        .filter((v: VoiceOption) => v.id)
+      // 샘플 추천 보이스를 앞에 두고 API 목록과 합침
+      if (list.length) {
+        const seen = new Set(list.map((v: VoiceOption) => v.id))
+        setVoices([...ELEVEN_FALLBACK.filter((s) => !seen.has(s.id)), ...list])
+      } else {
+        setVoices(ELEVEN_FALLBACK)
+      }
+    } catch {
+      if (cancelled()) return
+      if (engine === "supertonic") {
+        setVoices(SUPERTONIC_BUILTIN_VOICES.map((v) => ({ id: v.voice_id, label: v.name })))
+        setSupertonicStatus("상태 확인 실패 — 로컬 serve가 켜져 있는지 확인하세요.")
+      } else if (engine === "supertone") {
+        setVoices([{ id: "default", label: "Supertone 목록 로드 실패" }])
+      } else {
+        setVoices(ELEVEN_FALLBACK)
+      }
+    }
+  }
 
   const persist = useCallback((next: LongformV2Project) => {
     const saved = saveProject(next)
@@ -308,9 +350,11 @@ export default function LongformV2WorkspacePage() {
       setError("대본을 붙여넣은 뒤 사용할 수 있습니다.")
       return
     }
-    const lines = splitScriptIntoSceneLines(project.benchmarkText)
+    const formatted = enforceV2ScriptLineFormat(project.benchmarkText)
+    const lines = splitScriptIntoSceneLines(formatted)
     patch({
-      scriptText: project.benchmarkText,
+      benchmarkText: formatted,
+      scriptText: formatted,
       scriptSub: "script",
       scenes: lines.map((text, index) => ({ index, text })),
       step: "script",
@@ -363,36 +407,78 @@ export default function LongformV2WorkspacePage() {
     return videoUrl
   }
 
-  async function generateOneScene(sceneIndex: number, mode: "tts" | "image" | "both" | "video") {
-    if (!project) return
+  async function generateOneScene(
+    sceneIndex: number,
+    mode: "tts" | "image" | "both" | "video",
+    opts?: {
+      imageKind?: "ai" | "stock"
+      stockKeyword?: string
+      /** 세분화된 작업 플래그 (있으면 mode보다 우선) */
+      tasks?: BatchGeneratePlan["tasks"]
+      /** true면 기존 자산도 다시 생성 */
+      overwrite?: boolean
+      signal?: AbortSignal
+    }
+  ) {
+    const live = projectRef.current
+    if (!live) return
     const k = loadApiKeys()
     setApiKeys(k)
     setError(null)
-    const scene = project.scenes.find((s) => s.index === sceneIndex)
+    if (opts?.signal?.aborted) throw new DOMException("Aborted", "AbortError")
+    const scene = live.scenes.find((s) => s.index === sceneIndex)
     if (!scene) return
+
+    const tasks = opts?.tasks
+    const overwrite = !!opts?.overwrite
+    let doTts = tasks ? tasks.tts : mode === "tts" || mode === "both"
+    let doImage = tasks ? tasks.image : mode === "image" || mode === "both"
+    let doPrompt = tasks ? tasks.prompt || (tasks.image && opts?.imageKind !== "stock") : doImage
+    /** 일괄 플랜이면 tasks.video, 단건이면 both/video 또는 양쪽 자산이 갖춰질 때 */
+    let wantVideo = tasks ? tasks.video : mode === "video" || mode === "both" || mode === "tts" || mode === "image"
+
+    // 이어하기: 이미 있는 자산은 건너뜀
+    if (!overwrite) {
+      if (doTts && scene.audioUrl) doTts = false
+      if (doPrompt && scene.prompt?.trim() && !doImage) doPrompt = false
+      if (doImage && scene.imageUrl) {
+        doImage = false
+        doPrompt = false
+      }
+      if (wantVideo && scene.videoUrl) wantVideo = false
+    }
+
+    if (!doTts && !doImage && !doPrompt && !wantVideo) {
+      return
+    }
 
     const updateScene = (partial: Partial<SceneAsset>) => {
       setProject((prev) => {
         if (!prev) return prev
         const scenes = prev.scenes.map((s) => (s.index === sceneIndex ? { ...s, ...partial } : s))
-        return persist({ ...prev, scenes })
+        const next = persist({ ...prev, scenes })
+        projectRef.current = next
+        return next
       })
     }
 
     try {
       let latestImage = scene.imageUrl
       let latestAudio = scene.audioUrl
+      let latestPrompt = scene.prompt
+      const imageKind = opts?.imageKind || "ai"
+      const proj = projectRef.current || live
 
-      if (mode === "tts" || mode === "both") {
-        const engine = project.ttsEngine || "supertonic"
+      if (doTts) {
+        const engine = proj.ttsEngine || "supertonic"
         if (engine === "supertonic") {
           updateScene({ busy: "Supertonic 3 음성 생성…", error: null })
-          const bare = String(project.voiceId || "F1").replace(/^supertonic-/, "")
+          const bare = String(proj.voiceId || "F1").replace(/^supertonic-/, "")
           const ttsRes = await fetchSupertonicTts({
             text: scene.text,
             voiceId: bare,
-            lang: project.ttsLanguage === "English" ? "en" : project.ttsLanguage === "日本語" ? "ja" : "ko",
-            speed: project.ttsSpeed ?? 1.05,
+            lang: proj.ttsLanguage === "English" ? "en" : proj.ttsLanguage === "日本語" ? "ja" : "ko",
+            speed: proj.ttsSpeed ?? 1.05,
           })
           const ttsData = await ttsRes.json()
           if (!ttsRes.ok || ttsData.success === false) {
@@ -406,7 +492,8 @@ export default function LongformV2WorkspacePage() {
           latestAudio = audioUrl
           updateScene({
             audioUrl,
-            busy: mode === "both" ? "이미지 준비…" : null,
+            ttsDurationSec: estimateNarrationDurationSec(scene.text),
+            busy: doImage || doPrompt ? "이미지 준비…" : null,
           })
         } else if (engine === "supertone") {
           if (!k.supertone) {
@@ -419,7 +506,7 @@ export default function LongformV2WorkspacePage() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               text: scene.text,
-              voiceId: project.voiceId,
+              voiceId: proj.voiceId,
               apiKey: k.supertone,
               language: "ko",
             }),
@@ -429,7 +516,11 @@ export default function LongformV2WorkspacePage() {
           const audioUrl = ttsData.audioUrl || ttsData.url
           if (!audioUrl) throw new Error("TTS 응답에 audioUrl이 없습니다.")
           latestAudio = audioUrl
-          updateScene({ audioUrl, busy: mode === "both" ? "이미지 준비…" : null })
+          updateScene({
+            audioUrl,
+            ttsDurationSec: estimateNarrationDurationSec(scene.text),
+            busy: doImage || doPrompt ? "이미지 준비…" : null,
+          })
         } else {
           if (!k.elevenlabs) {
             openSettings()
@@ -441,9 +532,9 @@ export default function LongformV2WorkspacePage() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               text: scene.text,
-              voiceId: project.voiceId,
+              voiceId: proj.voiceId,
               apiKey: k.elevenlabs,
-              speed: project.ttsSpeed ?? 1.0,
+              speed: proj.ttsSpeed ?? 1.0,
             }),
           })
           const ttsData = await ttsRes.json()
@@ -451,98 +542,346 @@ export default function LongformV2WorkspacePage() {
           const audioUrl = ttsData.audioUrl
           if (!audioUrl) throw new Error("TTS 응답에 audioUrl이 없습니다.")
           latestAudio = audioUrl
-          updateScene({ audioUrl, busy: mode === "both" ? "이미지 준비…" : null })
+          updateScene({
+            audioUrl,
+            ttsDurationSec: estimateNarrationDurationSec(scene.text),
+            busy: doImage || doPrompt ? "이미지 준비…" : null,
+          })
         }
       }
 
-      if (mode === "image" || mode === "both") {
-        if (!k.gemini) {
+      if (opts?.signal?.aborted) throw new DOMException("Aborted", "AbortError")
+
+      if (doImage && imageKind === "stock") {
+        const query =
+          (opts?.stockKeyword || "").trim() ||
+          (scene.stockSearchKeywordsKo || "").trim() ||
+          ""
+        if (!query) throw new Error("실사 장면 스톡 검색어가 없습니다.")
+        if (!k.pexels) {
           openSettings()
-          throw new Error("Gemini API 키가 필요합니다.")
+          throw new Error("Pexels API 키가 필요합니다. API 설정에서 등록하세요.")
         }
-        if (!k.replicate) {
+        updateScene({
+          busy: "Pexels 실사 스톡 검색…",
+          error: null,
+          stockSearchKeywordsKo: query,
+        })
+        const excludePhotoIds = (projectRef.current?.scenes || [])
+          .map((s) => {
+            const m = /^stock:pexels:(\d+)/.exec(s.prompt || "")
+            return m ? Number(m[1]) : NaN
+          })
+          .filter((n) => Number.isFinite(n))
+        const stockRes = await fetch("/api/longform-v2/stock-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query, apiKey: k.pexels, excludePhotoIds }),
+        })
+        const stockData = await stockRes.json()
+        if (!stockRes.ok || !stockData.success) {
+          throw new Error(stockData.error || "스톡 이미지 검색 실패")
+        }
+        latestImage = stockData.imageUrl
+        const photoId = stockData.photoId != null ? Number(stockData.photoId) : null
+        latestPrompt =
+          photoId != null && Number.isFinite(photoId)
+            ? `stock:pexels:${photoId}:${query}`
+            : `stock:${query}`
+        updateScene({
+          imageUrl: stockData.imageUrl,
+          prompt: latestPrompt,
+          stockSearchKeywordsKo: query,
+          busy: wantVideo ? "최종영상 합성…" : null,
+        })
+      } else if (doImage || (doPrompt && imageKind === "ai")) {
+        if (doImage || doPrompt) {
+          if (!k.gemini) {
+            openSettings()
+            throw new Error("Gemini API 키가 필요합니다.")
+          }
+        }
+        if (doImage && !k.replicate) {
           openSettings()
           throw new Error("Replicate API 키가 필요합니다.")
         }
-        updateScene({ busy: "이미지 프롬프트 작성…", error: null })
-        const promptRes = await fetch("/api/longform-v2/scene-prompt", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sceneText: scene.text,
-            styleHint: project.styleHint,
-            geminiApiKey: k.gemini,
-          }),
-        })
-        const promptData = await promptRes.json()
-        if (!promptRes.ok || !promptData.success) throw new Error(promptData.error || "프롬프트 실패")
 
-        updateScene({ prompt: promptData.prompt, busy: "이미지 생성 중…" })
-        const imgController = new AbortController()
-        const imgTimer = window.setTimeout(() => imgController.abort(), 180_000)
-        let imgRes: Response
-        try {
-          imgRes = await fetch("/api/generate-image", {
+        if (doPrompt || doImage) {
+          updateScene({ busy: "이미지 프롬프트 작성…", error: null })
+          const promptRes = await fetch("/api/longform-v2/scene-prompt", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              scriptText: scene.text,
-              customPrompt: promptData.prompt,
-              replicateApiKey: k.replicate,
+              sceneText: scene.text,
+              styleHint: proj.styleHint,
+              geminiApiKey: k.gemini,
             }),
-            signal: imgController.signal,
+            signal: opts?.signal,
           })
-        } catch (e) {
-          if (e instanceof Error && e.name === "AbortError") {
-            throw new Error("이미지 생성 시간이 너무 오래 걸립니다(3분). Replicate 상태·키를 확인하세요.")
+          const promptData = await promptRes.json()
+          if (!promptRes.ok || !promptData.success) throw new Error(promptData.error || "프롬프트 실패")
+          latestPrompt = promptData.prompt
+          updateScene({ prompt: promptData.prompt, busy: doImage ? "이미지 생성 중…" : null })
+
+          if (doImage) {
+            const imgController = new AbortController()
+            const onAbort = () => imgController.abort()
+            opts?.signal?.addEventListener("abort", onAbort)
+            const imgTimer = window.setTimeout(() => imgController.abort(), 180_000)
+            let imgRes: Response
+            try {
+              imgRes = await fetch("/api/generate-image", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  scriptText: scene.text,
+                  customPrompt: promptData.prompt,
+                  replicateApiKey: k.replicate,
+                }),
+                signal: imgController.signal,
+              })
+            } catch (e) {
+              if (e instanceof Error && e.name === "AbortError") {
+                if (opts?.signal?.aborted) throw e
+                throw new Error("이미지 생성 시간이 너무 오래 걸립니다(3분). Replicate 상태·키를 확인하세요.")
+              }
+              throw e
+            } finally {
+              window.clearTimeout(imgTimer)
+              opts?.signal?.removeEventListener("abort", onAbort)
+            }
+            const imgData = await imgRes.json()
+            if (!imgRes.ok || !imgData.success) throw new Error(imgData.error || "이미지 생성 실패")
+            latestImage = imgData.imageUrl
+            updateScene({
+              imageUrl: imgData.imageUrl,
+              prompt: imgData.prompt || promptData.prompt,
+              busy: wantVideo ? "최종영상 합성…" : null,
+            })
           }
-          throw e
-        } finally {
-          window.clearTimeout(imgTimer)
         }
-        const imgData = await imgRes.json()
-        if (!imgRes.ok || !imgData.success) throw new Error(imgData.error || "이미지 생성 실패")
-        latestImage = imgData.imageUrl
-        updateScene({
-          imageUrl: imgData.imageUrl,
-          prompt: imgData.prompt || promptData.prompt,
-          busy: mode === "both" ? "최종영상 합성…" : null,
-        })
       }
 
-      const needVideo =
-        mode === "video" ||
-        mode === "both" ||
-        ((mode === "tts" || mode === "image") && !!(latestImage && latestAudio))
+      if (opts?.signal?.aborted) throw new DOMException("Aborted", "AbortError")
+
+      const needVideo = wantVideo && !!(latestImage && latestAudio)
 
       if (needVideo) {
-        if (!latestImage || !latestAudio) {
-          if (mode === "video") {
-            throw new Error("최종영상은 이미지와 음성이 모두 있어야 합니다.")
-          }
-        } else {
-          updateScene({ busy: "최종영상 합성…", error: null })
-          const videoUrl = await composeSceneVideo(sceneIndex, latestImage, latestAudio)
-          updateScene({ videoUrl, busy: null })
-        }
+        updateScene({ busy: "최종영상 합성…", error: null })
+        const videoUrl = await composeSceneVideo(sceneIndex, latestImage!, latestAudio!)
+        updateScene({ videoUrl, busy: null })
+      } else if (wantVideo && mode === "video" && !tasks) {
+        throw new Error("최종영상은 이미지와 음성이 모두 있어야 합니다.")
       } else {
         updateScene({ busy: null })
       }
     } catch (e) {
+      if (e instanceof Error && e.name === "AbortError") {
+        updateScene({ busy: null })
+        throw e
+      }
       updateScene({ busy: null, error: e instanceof Error ? e.message : "생성 실패" })
     }
   }
 
-  async function batchGenerate(limit = 8) {
-    if (!project) return
+  async function batchGenerate(plan: BatchGeneratePlan) {
+    if (!projectRef.current) return
     setError(null)
-    const targets = project.scenes.slice(0, limit)
-    for (let i = 0; i < targets.length; i++) {
-      setBatchProgress(`일괄 생성 ${i + 1}/${targets.length}`)
-      await generateOneScene(targets[i].index, "both")
+    setBatchSession(plan)
+    const overwrite = !!plan.overwrite
+    const kinds = assignSceneBgKinds(plan.sceneIndexes, plan.videoBgMode, plan.aiRatioPercent)
+    const targets = plan.sceneIndexes
+    const ac = new AbortController()
+    batchAbortRef.current?.abort()
+    batchAbortRef.current = ac
+    let aborted = false
+    try {
+      for (let i = 0; i < targets.length; i++) {
+        if (ac.signal.aborted) {
+          aborted = true
+          break
+        }
+        const sceneIndex = targets[i]!
+        const live = projectRef.current
+        const scene = live?.scenes.find((s) => s.index === sceneIndex)
+        if (
+          scene &&
+          !overwrite &&
+          !sceneHasPendingBatchWork(scene, plan.tasks, false)
+        ) {
+          continue
+        }
+        setBatchProgress(
+          `${overwrite ? "재생성" : "일괄 생성"} ${i + 1}/${targets.length} · 장면 ${sceneIndex + 1}`
+        )
+        const imageKind = kinds.get(sceneIndex) || "ai"
+        await generateOneScene(sceneIndex, "both", {
+          tasks: plan.tasks,
+          imageKind,
+          stockKeyword: plan.stockKeywords[sceneIndex],
+          overwrite,
+          signal: ac.signal,
+        })
+      }
+    } catch (e) {
+      if (e instanceof Error && e.name === "AbortError") {
+        aborted = true
+      } else {
+        setError(e instanceof Error ? e.message : "일괄 생성 실패")
+      }
+    } finally {
+      batchAbortRef.current = null
+      setBatchProgress("")
+      const final = projectRef.current
+      if (final && batchHasPendingWork(final.scenes, plan)) {
+        setInfo(
+          aborted
+            ? "일괄 생성을 중지했습니다. 완료된 장면까지 저장되어 있습니다. 「이어하기」로 계속할 수 있습니다."
+            : overwrite
+              ? "일괄 재생성을 마쳤습니다. 실패하거나 남은 장면은 「이어하기」로 계속할 수 있습니다."
+              : "일괄 생성을 마쳤습니다. 실패하거나 남은 장면은 「이어하기」로 계속할 수 있습니다."
+        )
+      } else {
+        setBatchSession(null)
+        setInfo(
+          aborted
+            ? "일괄 생성을 중지했습니다."
+            : overwrite
+              ? "일괄 재생성이 완료되었습니다."
+              : "일괄 생성이 완료되었습니다."
+        )
+      }
     }
-    setBatchProgress("")
-    setInfo(`앞 ${targets.length}개 장면 완료`)
+  }
+
+  function resumeBatchGenerate() {
+    if (!batchSession) return
+    void batchGenerate({ ...batchSession, overwrite: false })
+  }
+
+  function stopBatchGenerate() {
+    batchAbortRef.current?.abort()
+  }
+
+  async function batchMotionVideos(
+    sceneIndexes: number[],
+    resolution: MotionVideoResolution,
+    overwrite: boolean
+  ) {
+    if (!projectRef.current) return
+    const k = loadApiKeys()
+    if (!k.replicate) {
+      openSettings()
+      setError("Replicate API 키가 필요합니다.")
+      return
+    }
+    const ac = new AbortController()
+    batchAbortRef.current?.abort()
+    batchAbortRef.current = ac
+    setError(null)
+    try {
+      for (let i = 0; i < sceneIndexes.length; i++) {
+        if (ac.signal.aborted) break
+        const sceneIndex = sceneIndexes[i]!
+        const live = projectRef.current
+        const scene = live?.scenes.find((s) => s.index === sceneIndex)
+        if (!scene?.imageUrl) continue
+        if (scene.motionVideoUrl && !overwrite) continue
+
+        setBatchProgress(`AI 영상 ${i + 1}/${sceneIndexes.length} · 장면 ${sceneIndex + 1}`)
+        setProject((prev) => {
+          if (!prev) return prev
+          const scenes = prev.scenes.map((s) =>
+            s.index === sceneIndex ? { ...s, busy: "Seedance AI 영상 생성…", error: null } : s
+          )
+          const next = persist({ ...prev, scenes })
+          projectRef.current = next
+          return next
+        })
+
+        const res = await fetch("/api/longform-v2/motion-video", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            imageUrl: scene.imageUrl,
+            sceneText: scene.text,
+            promptEn: scene.prompt,
+            replicateApiKey: k.replicate,
+            geminiApiKey: k.gemini,
+            ttsDurationSec:
+              scene.ttsDurationSec || estimateNarrationDurationSec(scene.text || ""),
+            resolution,
+          }),
+          signal: ac.signal,
+        })
+        const data = await res.json()
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || `장면 ${sceneIndex + 1} AI 영상 실패`)
+        }
+        const motionUrl = String(data.videoUrl || "")
+        if (!motionUrl) throw new Error("AI 영상 URL이 없습니다.")
+
+        setProject((prev) => {
+          if (!prev) return prev
+          const scenes = prev.scenes.map((s) =>
+            s.index === sceneIndex
+              ? { ...s, motionVideoUrl: motionUrl, busy: "TTS·최종영상 준비…", error: null }
+              : s
+          )
+          const next = persist({ ...prev, scenes })
+          projectRef.current = next
+          return next
+        })
+
+        // TTS 없으면 생성, 있으면 최종영상(정지+TTS)만
+        const after = projectRef.current?.scenes.find((s) => s.index === sceneIndex)
+        if (!after?.audioUrl) {
+          await generateOneScene(sceneIndex, "tts", { overwrite: false, signal: ac.signal })
+        }
+        const withAudio = projectRef.current?.scenes.find((s) => s.index === sceneIndex)
+        if (withAudio?.audioUrl && withAudio.imageUrl) {
+          setBatchProgress(`최종영상 ${i + 1}/${sceneIndexes.length} · 장면 ${sceneIndex + 1}`)
+          const videoUrl = await composeSceneVideo(
+            sceneIndex,
+            withAudio.imageUrl,
+            withAudio.audioUrl
+          )
+          setProject((prev) => {
+            if (!prev) return prev
+            const scenes = prev.scenes.map((s) =>
+              s.index === sceneIndex ? { ...s, videoUrl, busy: null, error: null } : s
+            )
+            const next = persist({ ...prev, scenes })
+            projectRef.current = next
+            return next
+          })
+        } else {
+          setProject((prev) => {
+            if (!prev) return prev
+            const scenes = prev.scenes.map((s) =>
+              s.index === sceneIndex ? { ...s, busy: null } : s
+            )
+            const next = persist({ ...prev, scenes })
+            projectRef.current = next
+            return next
+          })
+        }
+      }
+      setInfo(
+        ac.signal.aborted
+          ? "AI 영상 일괄 생성을 중지했습니다."
+          : `AI 영상→최종영상 일괄 생성을 완료했습니다. (${sceneIndexes.length}개 장면 요청)`
+      )
+    } catch (e) {
+      if (!(e instanceof Error && e.name === "AbortError")) {
+        setError(e instanceof Error ? e.message : "AI 영상 일괄 실패")
+      } else {
+        setInfo("AI 영상 일괄 생성을 중지했습니다.")
+      }
+    } finally {
+      batchAbortRef.current = null
+      setBatchProgress("")
+    }
   }
 
   const bannerText = error || batchProgress || busy || info
@@ -552,11 +891,17 @@ export default function LongformV2WorkspacePage() {
       ? "프로젝트 홈"
       : project.step === "script"
         ? "AI대본 기획 및 생성"
-        : "AI 음성·이미지 생성"
+        : project.step === "youtube-meta"
+          ? "썸네일 · 제목/설명 생성"
+          : "AI 음성·이미지 생성"
 
   const goStep = (step: StepId) => {
     if (step === "voice-image") {
       goVoiceImage()
+      return
+    }
+    if (step === "youtube-meta" && !project.scriptText?.trim()) {
+      setError("대본이 없습니다. 01 · AI대본에서 먼저 대본을 저장하세요.")
       return
     }
     patch({ step })
@@ -610,6 +955,16 @@ export default function LongformV2WorkspacePage() {
             <span className="lfv2-nav-btn__check">✓</span>
           )}
           02 · AI 음성·이미지 생성
+        </button>
+        <button
+          type="button"
+          className={"lfv2-nav-btn" + (project.step === "youtube-meta" ? " lfv2-nav-btn--on" : "")}
+          onClick={() => goStep("youtube-meta")}
+        >
+          {(project.youtubeTitle || project.thumbnailUrl) && project.step !== "youtube-meta" && (
+            <span className="lfv2-nav-btn__check">✓</span>
+          )}
+          03 · 썸네일 · 제목/설명
         </button>
 
         <div className="lfv2-sidebar__bottom">
@@ -730,9 +1085,35 @@ export default function LongformV2WorkspacePage() {
             voices={voices}
             supertonicStatus={supertonicStatus}
             batchProgress={batchProgress}
+            batchCanResume={batchCanResume}
             onPatch={patch}
-            onBatchGenerate={(limit) => void batchGenerate(limit)}
+            onBatchGenerate={(plan) => void batchGenerate(plan)}
+            onResumeBatch={resumeBatchGenerate}
+            onStopBatch={stopBatchGenerate}
+            onMotionVideoBatch={(indexes, resolution, overwrite) =>
+              void batchMotionVideos(indexes, resolution, overwrite)
+            }
             onGenerateOne={(idx, mode) => void generateOneScene(idx, mode)}
+            onUpdateScene={(idx, partial) => {
+              setProject((prev) => {
+                if (!prev) return prev
+                const scenes = prev.scenes.map((s) =>
+                  s.index === idx ? { ...s, ...partial } : s
+                )
+                const next = persist({ ...prev, scenes })
+                projectRef.current = next
+                return next
+              })
+            }}
+            onNotify={(message, kind) => {
+              if (kind === "error") {
+                setError(message)
+                setInfo(null)
+              } else {
+                setInfo(message)
+                setError(null)
+              }
+            }}
             onBackToScript={() => patch({ step: "script", scriptSub: "script" })}
             onSupertonicReady={(info) => {
               setSupertonicStatus(
@@ -740,20 +1121,28 @@ export default function LongformV2WorkspacePage() {
                   ? info.message || "연결됨"
                   : info.message || "로컬 Supertonic이 꺼져 있습니다."
               )
-              if (info.online) {
-                void (async () => {
-                  const res = await fetchSupertonicVoices()
-                  const data = await res.json().catch(() => ({}))
-                  const list = (data.voices || [])
-                    .map((v: { voice_id?: string; id?: string; name?: string }) => ({
-                      id: String(v.voice_id || v.id || ""),
-                      label: String(v.name || v.voice_id || "voice"),
-                    }))
-                    .filter((v: VoiceOption) => v.id)
-                  if (list.length) setVoices(list)
-                })()
+              if (info.online) void loadVoicesForEngine("supertonic")
+            }}
+            onPreviewEngine={(engine) => {
+              void loadVoicesForEngine(engine)
+            }}
+          />
+        )}
+
+        {project.step === "youtube-meta" && (
+          <YoutubeMetaPanel
+            project={project}
+            onPatch={patch}
+            onNotify={(message, kind) => {
+              if (kind === "error") {
+                setError(message)
+                setInfo(null)
+              } else {
+                setInfo(message)
+                setError(null)
               }
             }}
+            onBackToProduction={() => goStep("voice-image")}
           />
         )}
       </main>
@@ -766,6 +1155,8 @@ export default function LongformV2WorkspacePage() {
         }}
         onSaved={(keys) => setApiKeys(keys)}
       />
+
+      <AnalyzeLoadingOverlay busy={busy} />
     </div>
   )
 }

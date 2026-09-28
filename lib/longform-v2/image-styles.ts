@@ -13,7 +13,16 @@ export type StyleItem = {
   label: string
   hue: number
   hint: string
+  recommended?: boolean
 }
+
+/** WingsStudio sceneStyleCatalog 별칭 (확장 카테고리 포함) */
+export type SceneStyleCategory =
+  | StyleCategory
+  | "정보성 캐릭터"
+  | "ppt-korean-explain"
+export type SceneStyleItem = StyleItem
+
 
 export const STYLE_CATEGORIES: { id: StyleCategory; label: string; slug: string }[] = [
   { id: "실사", label: "실사화", slug: "realistic" },
@@ -303,3 +312,25 @@ export function findStyleById(id: string): (StyleItem & { category: StyleCategor
 export function categoryOfStyle(id: string): StyleCategory {
   return findStyleById(id)?.category || "실사"
 }
+
+/** WingsStudio `sceneStyleCatalog` 호환 별칭 */
+export const SCENE_STYLE_CATALOG: Record<string, SceneStyleItem[]> = {
+  ...STYLE_CATALOG,
+  "정보성 캐릭터": STYLE_CATALOG["캐릭터"],
+  "ppt-korean-explain": STYLE_CATALOG["일러스트"] ?? STYLE_CATALOG["실사"],
+}
+
+export function sceneStyleCategoryLabel(category: string): string {
+  const hit = STYLE_CATEGORIES.find((c) => c.id === category)
+  if (hit) return hit.label
+  if (category === "정보성 캐릭터") return "캐릭터"
+  if (category === "ppt-korean-explain") return "PPT 설명"
+  return category
+}
+
+export function sceneStyleSampleDataUrl(category: StyleCategory, styleId: string): string {
+  const item = (STYLE_CATALOG[category] ?? STYLE_CATALOG["실사"]).find((s) => s.id === styleId)
+  if (item) return styleThumbDataUrl(item.hue, item.label, item.id)
+  return styleThumbDataUrl(210, styleId, styleId)
+}
+

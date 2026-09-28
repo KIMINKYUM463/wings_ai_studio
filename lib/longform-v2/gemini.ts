@@ -46,11 +46,25 @@ async function geminiGenerateOnce(
   apiKey: string,
   model: string,
   prompt: string,
-  options?: { json?: boolean; temperature?: number }
+  options?: {
+    json?: boolean
+    temperature?: number
+    /** data URL 또는 순수 base64 + mime */
+    image?: { mimeType: string; data: string }
+  }
 ) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`
+  const parts: Array<Record<string, unknown>> = [{ text: prompt }]
+  if (options?.image?.data) {
+    parts.push({
+      inline_data: {
+        mime_type: options.image.mimeType || "image/jpeg",
+        data: options.image.data,
+      },
+    })
+  }
   const body: Record<string, unknown> = {
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    contents: [{ role: "user", parts }],
     generationConfig: {
       temperature: options?.temperature ?? 0.55,
       maxOutputTokens: 8192,
@@ -78,7 +92,11 @@ async function geminiGenerateOnce(
 async function geminiGenerate(
   apiKey: string,
   prompt: string,
-  options?: { json?: boolean; temperature?: number }
+  options?: {
+    json?: boolean
+    temperature?: number
+    image?: { mimeType: string; data: string }
+  }
 ) {
   const models = [PRIMARY_MODEL, ...FALLBACK_MODELS]
   let lastError: Error | null = null
@@ -106,6 +124,19 @@ export async function geminiChatText(
   options?: { temperature?: number }
 ): Promise<string> {
   return geminiGenerate(apiKey, prompt, { temperature: options?.temperature ?? 0.7 })
+}
+
+/** 이미지(그림체 샘플) + 텍스트로 Gemini 호출 */
+export async function geminiChatWithImage(
+  apiKey: string,
+  prompt: string,
+  image: { mimeType: string; data: string },
+  options?: { temperature?: number }
+): Promise<string> {
+  return geminiGenerate(apiKey, prompt, {
+    temperature: options?.temperature ?? 0.35,
+    image,
+  })
 }
 
 export async function geminiChatJson<T extends Record<string, unknown>>(

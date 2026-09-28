@@ -72,3 +72,6 @@ voices/supertonic/samples/
 
 
 .vercel
+.env*
+!.env.example
+_ext_analyze/

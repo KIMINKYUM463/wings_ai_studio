@@ -4,7 +4,7 @@ const DB_NAME = "wings_longform_v2_media"
 const DB_VERSION = 1
 const STORE = "sceneMedia"
 
-export type SceneMediaKind = "image" | "audio" | "video"
+export type SceneMediaKind = "image" | "audio" | "video" | "motion"
 
 type MediaRecord = {
   key: string
@@ -17,6 +17,10 @@ type MediaRecord = {
 
 function mediaKey(projectId: string, sceneIndex: number, kind: SceneMediaKind) {
   return `${projectId}:${sceneIndex}:${kind}`
+}
+
+function accountCustomStyleKey(accountId: string) {
+  return `account:${encodeURIComponent(accountId || "anonymous")}:customStyle`
 }
 
 function openDb(): Promise<IDBDatabase> {
@@ -80,7 +84,13 @@ export async function putSceneMedia(
 
 export async function putAllSceneMedia(
   projectId: string,
-  scenes: Array<{ index: number; imageUrl?: string; audioUrl?: string; videoUrl?: string }>
+  scenes: Array<{
+    index: number
+    imageUrl?: string
+    audioUrl?: string
+    videoUrl?: string
+    motionVideoUrl?: string
+  }>
 ): Promise<void> {
   const db = await openDb()
   await new Promise<void>((resolve, reject) => {
@@ -120,6 +130,16 @@ export async function putAllSceneMedia(
           updatedAt: now,
         } satisfies MediaRecord)
       }
+      if (shouldPersistMediaUrl(s.motionVideoUrl)) {
+        store.put({
+          key: mediaKey(projectId, s.index, "motion"),
+          projectId,
+          sceneIndex: s.index,
+          kind: "motion",
+          dataUrl: s.motionVideoUrl!,
+          updatedAt: now,
+        } satisfies MediaRecord)
+      }
     }
   })
   db.close()
@@ -149,6 +169,56 @@ export async function loadProjectMediaMap(
     /* ignore */
   }
   return out
+}
+
+export async function putCustomStyleImage(accountId: string, dataUrl: string): Promise<void> {
+  if (!shouldPersistMediaUrl(dataUrl)) return
+  const db = await openDb()
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite")
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error || new Error("putCustomStyleImage failed"))
+    tx.objectStore(STORE).put({
+      key: accountCustomStyleKey(accountId),
+      projectId: `account:${accountId}`,
+      sceneIndex: -1,
+      kind: "image",
+      dataUrl,
+      updatedAt: new Date().toISOString(),
+    } satisfies MediaRecord)
+  })
+  db.close()
+}
+
+export async function getCustomStyleImage(accountId: string): Promise<string | null> {
+  try {
+    const db = await openDb()
+    const row = await new Promise<MediaRecord | undefined>((resolve, reject) => {
+      const tx = db.transaction(STORE, "readonly")
+      const req = tx.objectStore(STORE).get(accountCustomStyleKey(accountId))
+      req.onsuccess = () => resolve(req.result as MediaRecord | undefined)
+      req.onerror = () => reject(req.error || new Error("getCustomStyleImage failed"))
+    })
+    db.close()
+    return row?.dataUrl || null
+  } catch {
+    return null
+  }
+}
+
+export async function deleteCustomStyleImage(accountId: string): Promise<void> {
+  try {
+    const db = await openDb()
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE, "readwrite")
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error || new Error("deleteCustomStyleImage failed"))
+      tx.objectStore(STORE).delete(accountCustomStyleKey(accountId))
+    })
+    db.close()
+  } catch {
+    /* ignore */
+  }
 }
 
 export async function deleteProjectMedia(projectId: string): Promise<void> {

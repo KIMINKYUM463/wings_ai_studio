@@ -1,0 +1,16 @@
+# 로컬 분석·확장 스크래치 (배포 불필요)
+_ext_analyze/
+extensions/
+scripts/wings_*
+scripts/_extract_exts.py
+scripts/wings-background.original.js
+scripts/wings-bridge.unused.js
+
+# 빌드 산출물 (원격에서 다시 빌드)
+.next/
+node_modules/
+out/
+dist/
+.data/
+.tmp/
+.playwright-browsers/

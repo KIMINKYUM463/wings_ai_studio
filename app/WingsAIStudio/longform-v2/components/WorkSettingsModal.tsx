@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react"
 import type { LongformV2Project } from "@/lib/longform-v2/project-storage"
 import { IMAGE_MODEL_GROUPS } from "@/lib/longform-v2/image-styles"
+import { resolveVoicePersona, defaultVoiceIdForEngine } from "@/lib/longform-v2/voice-personas"
 import { SupertonicSetupBar } from "@/app/WingsAIStudioShotForm/components/SupertonicSetupBar"
+import { VoicePersonaPicker } from "./VoicePersonaPicker"
 
 type VoiceOption = { id: string; label: string }
 
@@ -20,6 +22,8 @@ type Props = {
   supertonicStatus: string
   onSave: (partial: Partial<LongformV2Project>) => void
   onSupertonicReady?: (info: { online: boolean; message?: string }) => void
+  /** 설정에서 엔진만 바꿨을 때 해당 엔진 보이스 목록 즉시 로드 */
+  onPreviewEngine?: (engine: LongformV2Project["ttsEngine"]) => void
 }
 
 const ENGINE_LABEL: Record<LongformV2Project["ttsEngine"], string> = {
@@ -44,6 +48,7 @@ export function WorkSettingsModal({
   supertonicStatus,
   onSave,
   onSupertonicReady,
+  onPreviewEngine,
 }: Props) {
   const [draft, setDraft] = useState<Draft>({
     ttsEngine: project.ttsEngine,
@@ -53,6 +58,8 @@ export function WorkSettingsModal({
     imageModel: project.imageModel,
     imageStyleLabel: project.imageStyleLabel,
   })
+
+  const [voicePickerOpen, setVoicePickerOpen] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -64,12 +71,24 @@ export function WorkSettingsModal({
       imageModel: project.imageModel,
       imageStyleLabel: project.imageStyleLabel,
     })
+    setVoicePickerOpen(false)
   }, [open, project])
 
   if (!open) return null
 
-  const voiceLabel =
-    voices.find((v) => v.id === draft.voiceId)?.label || draft.voiceId || "미선택"
+  const catalogLabel =
+    voices.find((v) => v.id === draft.voiceId)?.label || draft.voiceId || ""
+  const persona = resolveVoicePersona(draft.voiceId, catalogLabel, draft.ttsEngine)
+  const voiceLabel = persona.aliasKo || catalogLabel || "미선택"
+
+  const switchEngine = (id: LongformV2Project["ttsEngine"]) => {
+    setDraft((d) => ({
+      ...d,
+      ttsEngine: id,
+      voiceId: defaultVoiceIdForEngine(id),
+    }))
+    onPreviewEngine?.(id)
+  }
 
   return (
     <div
@@ -78,7 +97,7 @@ export function WorkSettingsModal({
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
-        className="dm-settings-modal"
+        className="dm-settings-modal dm-settings-modal--wide"
         role="dialog"
         aria-modal="true"
         aria-labelledby="lfv2-settings-title"
@@ -89,6 +108,21 @@ export function WorkSettingsModal({
             ×
           </button>
         </header>
+
+        <section className="dm-settings-section">
+          <h4>현재 작업 설정</h4>
+          <div className="lfv2-settings-summary lfv2-settings-summary--in-modal">
+            <div className="lfv2-settings-summary__meta">
+              <span>
+                TTS {ENGINE_LABEL[draft.ttsEngine]} · {voiceLabel} ·{" "}
+                {(draft.ttsSpeed ?? 1.05).toFixed(2)}× · {draft.ttsLanguage || "한국어"}
+              </span>
+              {draft.ttsEngine === "supertonic" && supertonicStatus ? (
+                <span>{supertonicStatus}</span>
+              ) : null}
+            </div>
+          </div>
+        </section>
 
         <section className="dm-settings-section">
           <h4>🖼 이미지 (요약)</h4>
@@ -137,45 +171,52 @@ export function WorkSettingsModal({
                   className={
                     "v2sw-preset" + (draft.ttsEngine === id ? " v2sw-preset--on" : "")
                   }
-                  onClick={() =>
-                    setDraft((d) => ({
-                      ...d,
-                      ttsEngine: id,
-                      voiceId:
-                        id === "supertonic"
-                          ? "F1"
-                          : id === "elevenlabs"
-                            ? "jB1Cifc2UQbq1gR3wnb0"
-                            : d.voiceId,
-                    }))
-                  }
+                  onClick={() => switchEngine(id)}
                 >
                   {label}
                 </button>
               ))}
             </div>
+            <p className="v2sw-meta" style={{ marginTop: 6 }}>
+              엔진마다 목소리·인물 목록이 다릅니다. 전환하면 해당 엔진 보이스를 다시 불러옵니다.
+            </p>
           </label>
 
           {draft.ttsEngine === "supertonic" ? (
-            <div style={{ marginTop: 10 }}>
+            <div className="lfv2-supertonic-setup" style={{ marginTop: 10, marginBottom: 12 }}>
+              <p className="dm-muted dm-settings-hint" style={{ marginBottom: 8 }}>
+                Supertonic 로컬 연결 · 설치·재연결은 아래에서 진행합니다.
+              </p>
               {supertonicStatus ? <p className="v2sw-meta">{supertonicStatus}</p> : null}
               <SupertonicSetupBar onReady={onSupertonicReady} />
             </div>
           ) : null}
 
-          <label className="dm-field">
+          <div className="dm-field">
             <span>목소리</span>
-            <select
-              value={draft.voiceId}
-              onChange={(e) => setDraft((d) => ({ ...d, voiceId: e.target.value }))}
+            <button
+              type="button"
+              className="lfv2-voice-trigger"
+              onClick={() => setVoicePickerOpen(true)}
             >
-              {voices.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.label}
-                </option>
-              ))}
-            </select>
-          </label>
+              <span className="lfv2-voice-trigger__avatar">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={persona.previewSrc} alt="" />
+              </span>
+              <span className="lfv2-voice-trigger__text">
+                <strong>{voiceLabel}</strong>
+                <span>{persona.blurbKo}</span>
+              </span>
+              <span className="lfv2-voice-trigger__chev" aria-hidden>
+                ▾
+              </span>
+            </button>
+            <p className="v2sw-meta" style={{ marginTop: 6 }}>
+              얼굴·가명은 안내용입니다. 실제 음성은 {ENGINE_LABEL[draft.ttsEngine]} ID(
+              {draft.voiceId.length > 14 ? `${draft.voiceId.slice(0, 10)}…` : draft.voiceId})로
+              생성됩니다.
+            </p>
+          </div>
 
           <label className="dm-field">
             <span>속도 {draft.ttsSpeed.toFixed(2)}×</span>
@@ -190,16 +231,6 @@ export function WorkSettingsModal({
               }
             />
           </label>
-
-          <div className="dm-tts-pick-card" style={{ marginTop: 8 }}>
-            <div className="dm-tts-pick-card__meta">
-              <strong>{ENGINE_LABEL[draft.ttsEngine]}</strong>
-              <span className="dm-muted">{voiceLabel}</span>
-              <span className="dm-muted">
-                {draft.ttsLanguage} · 속도 {draft.ttsSpeed.toFixed(2)}×
-              </span>
-            </div>
-          </div>
         </section>
 
         <footer className="dm-settings-foot">
@@ -224,6 +255,18 @@ export function WorkSettingsModal({
           </button>
         </footer>
       </div>
+
+      <VoicePersonaPicker
+        open={voicePickerOpen}
+        onClose={() => setVoicePickerOpen(false)}
+        voices={voices}
+        selectedId={draft.voiceId}
+        engineLabel={ENGINE_LABEL[draft.ttsEngine]}
+        ttsEngine={draft.ttsEngine}
+        ttsSpeed={draft.ttsSpeed ?? 1.05}
+        ttsLanguage={draft.ttsLanguage || "한국어"}
+        onSelect={(id) => setDraft((d) => ({ ...d, voiceId: id }))}
+      />
     </div>
   )
 }

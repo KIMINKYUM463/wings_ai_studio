@@ -86,7 +86,7 @@ export default function LongformV2ProjectsPage() {
       </header>
 
       <div className="lfv2-list-body">
-        <div className="lfv2-list-head">
+        <div className="lfv2-list-head lfv2-anim-rise">
           <div>
             <h1>프로젝트</h1>
             <p>프로젝트를 만든 뒤 AI 대본 기획 · 음성·이미지 생성을 진행합니다.</p>
@@ -96,12 +96,12 @@ export default function LongformV2ProjectsPage() {
           </button>
         </div>
 
-        <div style={{ marginBottom: 18, maxWidth: 420 }}>
+        <div className="lfv2-anim-rise lfv2-anim-rise--late" style={{ marginBottom: 18, maxWidth: 420 }}>
           <ApiKeyStatusCard keys={apiKeys} />
         </div>
 
         {projects.length === 0 ? (
-          <div className="lfv2-empty">
+          <div className="lfv2-empty lfv2-anim-rise lfv2-anim-rise--late">
             <p className="lfv2-empty__title">아직 프로젝트가 없습니다</p>
             <p className="lfv2-empty__hint">
               <strong>새 프로젝트</strong>로 이름을 정해 시작하면,
@@ -114,18 +114,34 @@ export default function LongformV2ProjectsPage() {
           </div>
         ) : (
           <div className="lfv2-project-grid">
-            {projects.map((p) => (
-              <div key={p.id} className="lfv2-project-card">
+            {projects.map((p, index) => (
+              <div
+                key={p.id}
+                className="lfv2-project-card lfv2-project-card--enter"
+                style={{ ["--i" as string]: index }}
+              >
                 <h2 className="lfv2-project-card__title">{p.title}</h2>
                 <p className="lfv2-project-card__meta">수정 {formatDate(p.updatedAt)}</p>
                 <div className="lfv2-project-card__badges">
-                  <span className={"lfv2-pill" + (p.hasScript ? " lfv2-pill--ok" : "")}>
+                  <span
+                    className={
+                      "lfv2-pill lfv2-pill--enter" + (p.hasScript ? " lfv2-pill--ok" : "")
+                    }
+                  >
                     대본 {p.hasScript ? "✓" : "—"}
                   </span>
-                  <span className={"lfv2-pill" + (p.hasTTS ? " lfv2-pill--ok" : "")}>
+                  <span
+                    className={
+                      "lfv2-pill lfv2-pill--enter" + (p.hasTTS ? " lfv2-pill--ok" : "")
+                    }
+                  >
                     음성 {p.hasTTS ? "✓" : "—"}
                   </span>
-                  <span className={"lfv2-pill" + (p.hasImages ? " lfv2-pill--ok" : "")}>
+                  <span
+                    className={
+                      "lfv2-pill lfv2-pill--enter" + (p.hasImages ? " lfv2-pill--ok" : "")
+                    }
+                  >
                     이미지 {p.hasImages ? "✓" : "—"}
                   </span>
                 </div>

@@ -1,11 +1,15 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
+  approxVideoMinutesFromChars,
   clampV2TargetChars,
   enforceV2ScriptLineFormat,
+  formatApproxTargetMinutes,
   splitScriptIntoSceneLines,
-  targetScriptCharsForVideoMinutes,
+  V2_TARGET_CHARS_SLIDER_MAX,
+  V2_TARGET_CHARS_SLIDER_MIN,
+  V2_TARGET_CHARS_SLIDER_STEP,
 } from "@/lib/longform-v2/script-utils"
 import type { LongformV2Project, MethodId, ScriptSubStep } from "@/lib/longform-v2/project-storage"
 import { PlanDocumentView } from "./PlanDocumentView"
@@ -61,6 +65,16 @@ export function ScriptWorkspacePanel({
   onGoVoiceImage,
 }: Props) {
   const [planEditMode, setPlanEditMode] = useState(false)
+  const [pasteOpen, setPasteOpen] = useState(false)
+  const [pasteDraft, setPasteDraft] = useState("")
+
+  useEffect(() => {
+    if (project.method === "upload" && !project.benchmarkText.trim()) {
+      setPasteOpen(true)
+    }
+    // 최초 진입 시 한 번만 — 이후엔 방법 카드 / 버튼으로 연다
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const livePreview = useMemo(() => {
     if (project.scriptSub === "script" && project.scriptText.trim()) return project.scriptText
@@ -77,11 +91,46 @@ export function ScriptWorkspacePanel({
   const canOpenPlan = !!project.planMarkdown.trim() || !!project.analysis
   const canOpenScript = !!project.scriptText.trim()
   const scriptLineCount = splitScriptIntoSceneLines(project.scriptText).length
+  const targetMinutes = approxVideoMinutesFromChars(project.targetChars)
+  const sliderChars = clampV2TargetChars(
+    Math.min(V2_TARGET_CHARS_SLIDER_MAX, Math.max(V2_TARGET_CHARS_SLIDER_MIN, project.targetChars))
+  )
 
   const setSub = (sid: ScriptSubStep) => {
     if (sid === "plan" && !canOpenPlan && !project.planMarkdown.trim()) return
     if (sid === "script" && !canOpenScript) return
     onPatch({ scriptSub: sid })
+  }
+
+  const openPasteNotepad = (prefill = "") => {
+    setPasteDraft(prefill)
+    setPasteOpen(true)
+  }
+
+  const commitPasteUpload = () => {
+    const raw = pasteDraft.replace(/\r\n/g, "\n").trim()
+    if (!raw) return
+    const formatted = enforceV2ScriptLineFormat(raw)
+    onPatch({
+      method: "upload",
+      benchmarkText: formatted,
+      scriptText: formatted,
+      scriptSub: "input",
+    })
+    onFormatFixed()
+    setPasteOpen(false)
+    setPasteDraft("")
+  }
+
+  const clearAllScript = (scope: "upload" | "generated") => {
+    const label = scope === "upload" ? "업로드된 대본" : "생성된 대본"
+    if (!confirm(`${label}을 전부 삭제할까요?`)) return
+    if (scope === "upload") {
+      onPatch({ benchmarkText: "", scriptText: "", scenes: [] })
+      openPasteNotepad("")
+    } else {
+      onPatch({ scriptText: "", scenes: [] })
+    }
   }
 
   return (
@@ -96,7 +145,12 @@ export function ScriptWorkspacePanel({
               role="tab"
               aria-selected={on}
               className={"v2sw-method-card" + (on ? " v2sw-method-card--on" : "")}
-              onClick={() => onPatch({ method: m.id, scriptSub: "input" })}
+              onClick={() => {
+                onPatch({ method: m.id, scriptSub: "input" })
+                if (m.id === "upload" && !project.benchmarkText.trim()) {
+                  openPasteNotepad("")
+                }
+              }}
             >
               <span className="v2sw-method-card__tag">{m.tag}</span>
               <span className="v2sw-method-card__title">{m.title}</span>
@@ -152,49 +206,9 @@ export function ScriptWorkspacePanel({
             <section className="v2sw-card">
               <h3 className="v2sw-card__title">벤치마킹 영상 대본 붙여넣기</h3>
               <p className="v2sw-card__desc">
-                레퍼런스 대본을 붙여 넣으면 Gemini가 분석·기획안을 작성합니다. 영어는 원문 그대로 넣어도
-                됩니다(검증·번역은 이번 웹 범위 밖).
+                레퍼런스 대본만 붙여 넣으면 됩니다. Gemini가 주제·패턴을 분석해 기획안을 만듭니다.
+                목표 분량은 다음 단계(기획·검증)에서 정합니다.
               </p>
-              <div className="v2sw-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <label className="v2sw-label">
-                  주제 방향 (선택)
-                  <input
-                    className="v2sw-input"
-                    value={project.topicDirection}
-                    onChange={(e) => onPatch({ topicDirection: e.target.value })}
-                    placeholder="예: 시니어 건강·생활 정보"
-                  />
-                </label>
-                <label className="v2sw-label">
-                  목표 분량
-                  <div className="v2sw-preset-row">
-                    {[10, 15, 20, 30].map((m) => (
-                      <button
-                        key={m}
-                        type="button"
-                        className={
-                          "v2sw-preset" +
-                          (project.targetChars === targetScriptCharsForVideoMinutes(m)
-                            ? " v2sw-preset--on"
-                            : "")
-                        }
-                        onClick={() => onPatch({ targetChars: targetScriptCharsForVideoMinutes(m) })}
-                      >
-                        {m}분
-                      </button>
-                    ))}
-                    <input
-                      className="v2sw-input"
-                      style={{ width: 110 }}
-                      type="number"
-                      value={project.targetChars}
-                      onChange={(e) =>
-                        onPatch({ targetChars: clampV2TargetChars(Number(e.target.value) || 8300) })
-                      }
-                    />
-                  </div>
-                </label>
-              </div>
               <label className="v2sw-label">
                 벤치마킹 대본
                 <textarea
@@ -262,6 +276,41 @@ export function ScriptWorkspacePanel({
                 )}
               </div>
 
+              <div className="v2sw-target-slider">
+                <div className="v2sw-target-slider__head">
+                  <span className="v2sw-label" style={{ margin: 0 }}>
+                    목표 분량 (새 대본 생성 시)
+                  </span>
+                  <strong className="v2sw-target-slider__value">
+                    약 {formatApproxTargetMinutes(targetMinutes)} · 약{" "}
+                    {sliderChars.toLocaleString()}자
+                  </strong>
+                </div>
+                <input
+                  type="range"
+                  className="v2sw-target-slider__range"
+                  min={V2_TARGET_CHARS_SLIDER_MIN}
+                  max={V2_TARGET_CHARS_SLIDER_MAX}
+                  step={V2_TARGET_CHARS_SLIDER_STEP}
+                  value={sliderChars}
+                  onChange={(e) => {
+                    onPatch({
+                      targetChars: clampV2TargetChars(Number(e.target.value) || V2_TARGET_CHARS_SLIDER_MIN),
+                    })
+                  }}
+                  aria-label="목표 글자 수·영상 길이"
+                />
+                <div className="v2sw-target-slider__ticks">
+                  <span>1,000자</span>
+                  <span>약 15분</span>
+                  <span>약 30분</span>
+                  <span>1시간</span>
+                </div>
+                <p className="v2sw-meta" style={{ marginTop: 6 }}>
+                  최소 1,000자부터 · 분당 약 400자 기준으로 길이를 대략 맞춥니다.
+                </p>
+              </div>
+
               <div className="v2sw-fact-empty">
                 <strong>FACT CHECK</strong> — 출처·검증 자료가 있으면 여기에 표시됩니다. (이번 웹 범위에서는
                 빈 상태)
@@ -293,7 +342,7 @@ export function ScriptWorkspacePanel({
                 >
                   {busy
                     ? "대본 생성 중…"
-                    : `대본 생성 (${project.targetChars.toLocaleString()}자 목표)`}
+                    : `대본 생성 (약 ${formatApproxTargetMinutes(targetMinutes)} · ${sliderChars.toLocaleString()}자)`}
                 </button>
               </div>
             </section>
@@ -324,6 +373,14 @@ export function ScriptWorkspacePanel({
                   }}
                 >
                   줄 길이·도입부·본문 형식 자동 맞춤
+                </button>
+                <button
+                  type="button"
+                  className="v2sw-btn v2sw-btn--danger"
+                  disabled={!!busy || !project.scriptText.trim()}
+                  onClick={() => clearAllScript("generated")}
+                >
+                  대본 전체 삭제
                 </button>
                 <button
                   type="button"
@@ -358,40 +415,139 @@ export function ScriptWorkspacePanel({
         <section className="v2sw-card">
           <h3 className="v2sw-card__title">외부 대본 업로드</h3>
           <p className="v2sw-card__desc">
-            다른 프로그램에서 만든 대본을 붙여 넣으세요. 줄마다 번호가 붙어 편집할 수 있습니다.
+            메모장에 붙여 넣은 뒤 「업로드」하면 줄번호 편집기로 들어갑니다.
           </p>
-          <ScriptLineEditor
-            value={project.benchmarkText}
-            onChange={(t) => onPatch({ benchmarkText: t })}
-          />
-          <div className="v2sw-actions">
-            <button
-              type="button"
-              className="v2sw-btn v2sw-btn--secondary"
-              disabled={!project.benchmarkText.trim()}
-              onClick={() => {
-                onPatch({
-                  scriptText: enforceV2ScriptLineFormat(project.benchmarkText),
-                })
-                onFormatFixed()
-              }}
-            >
-              줄 길이·도입부·본문 형식 자동 맞춤
-            </button>
-            <button type="button" className="v2sw-btn v2sw-btn--primary" onClick={onApplyExternalScript}>
-              대본 저장
-            </button>
-            <button
-              type="button"
-              className="v2sw-btn v2sw-btn--secondary"
-              disabled={!project.scriptText.trim() && !project.benchmarkText.trim()}
-              onClick={onGoVoiceImage}
-            >
-              음성·이미지 단계로 →
-            </button>
-          </div>
+
+          {!project.benchmarkText.trim() ? (
+            <div className="v2sw-upload-empty">
+              <p>아직 업로드된 대본이 없습니다.</p>
+              <button
+                type="button"
+                className="v2sw-btn v2sw-btn--primary"
+                onClick={() => openPasteNotepad("")}
+              >
+                메모장에서 붙여넣기
+              </button>
+            </div>
+          ) : (
+            <>
+              <ScriptLineEditor
+                value={project.benchmarkText}
+                onChange={(t) => onPatch({ benchmarkText: t })}
+              />
+              <div className="v2sw-actions">
+                <button
+                  type="button"
+                  className="v2sw-btn v2sw-btn--secondary"
+                  onClick={() => openPasteNotepad(project.benchmarkText)}
+                >
+                  메모장에서 다시 붙여넣기
+                </button>
+                <button
+                  type="button"
+                  className="v2sw-btn v2sw-btn--secondary"
+                  disabled={!project.benchmarkText.trim()}
+                  onClick={() => {
+                    onPatch({
+                      scriptText: enforceV2ScriptLineFormat(project.benchmarkText),
+                    })
+                    onFormatFixed()
+                  }}
+                >
+                  줄 길이·도입부·본문 형식 자동 맞춤
+                </button>
+                <button
+                  type="button"
+                  className="v2sw-btn v2sw-btn--danger"
+                  disabled={!project.benchmarkText.trim()}
+                  onClick={() => clearAllScript("upload")}
+                >
+                  대본 전체 삭제
+                </button>
+                <button
+                  type="button"
+                  className="v2sw-btn v2sw-btn--primary"
+                  onClick={onApplyExternalScript}
+                >
+                  대본 저장
+                </button>
+                <button
+                  type="button"
+                  className="v2sw-btn v2sw-btn--secondary"
+                  disabled={!project.scriptText.trim() && !project.benchmarkText.trim()}
+                  onClick={onGoVoiceImage}
+                >
+                  음성·이미지 단계로 →
+                </button>
+              </div>
+            </>
+          )}
         </section>
       )}
+
+      {pasteOpen ? (
+        <div
+          className="v2sw-notepad-root"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setPasteOpen(false)
+          }}
+        >
+          <div className="v2sw-notepad" role="dialog" aria-modal="true" aria-labelledby="v2sw-notepad-title">
+            <header className="v2sw-notepad__bar">
+              <div className="v2sw-notepad__bar-left">
+                <span className="v2sw-notepad__dot" />
+                <span className="v2sw-notepad__dot v2sw-notepad__dot--amber" />
+                <span className="v2sw-notepad__dot v2sw-notepad__dot--green" />
+                <h2 id="v2sw-notepad-title">메모장 · 외부 대본</h2>
+              </div>
+              <button
+                type="button"
+                className="v2sw-notepad__close"
+                aria-label="닫기"
+                onClick={() => setPasteOpen(false)}
+              >
+                ×
+              </button>
+            </header>
+            <p className="v2sw-notepad__hint">
+              다른 프로그램에서 복사한 대본을 아래에 붙여 넣으세요. 「업로드」하면 줄마다 번호가 붙은
+              편집기로 들어갑니다.
+            </p>
+            <textarea
+              className="v2sw-notepad__area"
+              value={pasteDraft}
+              onChange={(e) => setPasteDraft(e.target.value)}
+              placeholder={"여기에 대본을 붙여 넣으세요…\n\n줄바꿈이 있으면 그대로 장면 줄로 나뉩니다."}
+              spellCheck={false}
+              autoFocus
+            />
+            <footer className="v2sw-notepad__foot">
+              <span className="v2sw-meta" style={{ margin: 0 }}>
+                {pasteDraft.trim().length.toLocaleString()}자 ·{" "}
+                {pasteDraft.trim() ? pasteDraft.trim().split(/\n+/).filter(Boolean).length : 0}줄
+              </span>
+              <div className="v2sw-notepad__actions">
+                <button
+                  type="button"
+                  className="v2sw-btn v2sw-btn--secondary"
+                  onClick={() => setPasteOpen(false)}
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  className="v2sw-btn v2sw-btn--primary"
+                  disabled={!pasteDraft.trim()}
+                  onClick={commitPasteUpload}
+                >
+                  업로드
+                </button>
+              </div>
+            </footer>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

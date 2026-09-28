@@ -99,5 +99,22 @@ ${sceneText.slice(0, 800)}
 Rules:
 - No text, letters, watermarks, logos in the image
 - 16:9 cinematic composition
+- Match the Style description closely (line work, shading, palette, rendering)
 - Output ONLY the English prompt, nothing else`
+}
+
+export function buildAnalyzeArtStylePrompt(): string {
+  return `You are an expert art-style analyzer.
+Analyze the uploaded image and extract ONLY the visual art style that can be reused on other scenes.
+
+Return STRICT JSON only (no markdown):
+{
+  "styleHint": "dense English comma-separated art-style descriptors (medium, line, shading, palette, lighting, aesthetic). NO specific characters/objects/story.",
+  "labelKo": "짧은 한글 그림체 이름 (예: 수채화 웹툰풍, 거친 연필 스케치)",
+  "descriptionKo": "한글로 2~3문장. 어떤 그림체인지, 선·채색·분위기 위주로 설명. 특정 인물/사물 이야기는 쓰지 마세요."
+}
+
+Rules for styleHint:
+- Focus on art medium, rendering, line quality, shading, color treatment, lighting mood, overall aesthetic
+- DO NOT describe specific characters, objects, or layout of this image`
 }
