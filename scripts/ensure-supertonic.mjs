@@ -280,6 +280,41 @@ async function waitUntilOnline(maxMs = 12 * 60 * 1000) {
   return null
 }
 
+/** WingsStudio 「퀄좋은 목소리」번들 → 로컬 serve 에 import */
+async function importBundledHqVoices() {
+  const dir = path.join(ROOT, "voices", "supertonic")
+  const list = [
+    { file: "hq1.json", name: "hq1" },
+    { file: "hq2.json", name: "hq2" },
+    { file: "hq3.json", name: "hq3" },
+    { file: "hq4.json", name: "hq4" },
+    { file: "dasom.json", name: "dasom" },
+  ]
+  for (const v of list) {
+    const abs = path.join(dir, v.file)
+    if (!fs.existsSync(abs)) continue
+    try {
+      const fd = new FormData()
+      const buf = fs.readFileSync(abs)
+      fd.append("file", new Blob([buf], { type: "application/json" }), v.file)
+      fd.append("name", v.name)
+      const res = await fetch(`${BASE}/v1/styles/import?overwrite=true`, {
+        method: "POST",
+        body: fd,
+        signal: AbortSignal.timeout(60000),
+      })
+      if (!res.ok) {
+        const t = await res.text().catch(() => "")
+        console.warn(`[ensure-supertonic] import ${v.name} failed:`, res.status, t.slice(0, 120))
+      } else {
+        console.log(`[ensure-supertonic] imported ${v.name}`)
+      }
+    } catch (e) {
+      console.warn(`[ensure-supertonic] import ${v.name}:`, e instanceof Error ? e.message : e)
+    }
+  }
+}
+
 async function main() {
   writeStatus({
     phase: "checking",
@@ -289,9 +324,10 @@ async function main() {
 
   const already = await probeHealth()
   if (already.online) {
+    await importBundledHqVoices()
     writeStatus({
       phase: "ready",
-      message: `이미 실행 중 · ${already.model || MODEL}`,
+      message: `이미 실행 중 · ${already.model || MODEL} · HQ 보이스 동기화`,
       installed: true,
       online: true,
       health: already,
@@ -362,9 +398,11 @@ async function main() {
     return
   }
 
+  await importBundledHqVoices()
+
   writeStatus({
     phase: "ready",
-    message: `연결됨 · ${health.model || MODEL} · ${BASE}`,
+    message: `연결됨 · ${health.model || MODEL} · ${BASE} · HQ 보이스 동기화`,
     installed: true,
     online: true,
     health,

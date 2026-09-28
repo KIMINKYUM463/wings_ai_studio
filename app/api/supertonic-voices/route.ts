@@ -3,6 +3,7 @@ import {
   getSupertonicBaseUrl,
   isSupertonicVoiceHidden,
   labelSupertonicVoice,
+  SUPERTONIC_BUNDLED_HQ_VOICES,
   SUPERTONIC_BUILTIN_VOICES,
 } from "@/lib/supertonic-local"
 
@@ -15,12 +16,21 @@ type VoiceRow = {
 
 export async function GET() {
   const base = getSupertonicBaseUrl()
-  const builtins: VoiceRow[] = SUPERTONIC_BUILTIN_VOICES.map((v) => ({
+  const hqBundled: VoiceRow[] = SUPERTONIC_BUNDLED_HQ_VOICES.map((v) => ({
     voice_id: v.voice_id,
     name: v.name,
     gender: v.gender,
-    kind: "builtin",
+    kind: "custom",
   }))
+  const builtins: VoiceRow[] = [
+    ...hqBundled,
+    ...SUPERTONIC_BUILTIN_VOICES.map((v) => ({
+      voice_id: v.voice_id,
+      name: v.name,
+      gender: v.gender,
+      kind: "builtin" as const,
+    })),
+  ]
 
   try {
     const res = await fetch(`${base}/v1/styles`, {
@@ -81,8 +91,12 @@ export async function GET() {
       }
     }
 
-    // 커스텀 보이스를 위로, 그다음 F*, M*
+    // HQ 번들 → 기타 커스텀 → F*/M*
+    const hqIds = new Set(hqBundled.map((v) => v.voice_id))
     const voices = (rows.length ? rows : builtins).slice().sort((a, b) => {
+      const ah = hqIds.has(a.voice_id) ? 0 : 1
+      const bh = hqIds.has(b.voice_id) ? 0 : 1
+      if (ah !== bh) return ah - bh
       const ac = a.kind === "custom" ? 0 : 1
       const bc = b.kind === "custom" ? 0 : 1
       if (ac !== bc) return ac - bc
@@ -92,6 +106,13 @@ export async function GET() {
     const ids = new Set(voices.map((v) => v.voice_id))
     for (const b of builtins) {
       if (!ids.has(b.voice_id)) voices.push(b)
+    }
+    // HQ는 항상 맨 앞
+    for (let i = hqBundled.length - 1; i >= 0; i--) {
+      const hq = hqBundled[i]!
+      const idx = voices.findIndex((v) => v.voice_id === hq.voice_id)
+      if (idx >= 0) voices.splice(idx, 1)
+      voices.unshift(hq)
     }
 
     return NextResponse.json({

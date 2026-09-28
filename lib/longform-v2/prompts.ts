@@ -100,6 +100,8 @@ Rules:
 - No text, letters, watermarks, logos in the image
 - 16:9 cinematic composition
 - Match the Style description closely (line work, shading, palette, rendering)
+- SAFE FOR WORK: never depict corpses, dead bodies, blood, gore, explicit violence, torture, or sexual content.
+  For war/tragedy themes use symbolic aftermath only (empty armor, abandoned weapons, smoke, solemn faces) — no fallen bodies.
 - Output ONLY the English prompt, nothing else`
 }
 

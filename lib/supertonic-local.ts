@@ -30,7 +30,20 @@ export const SUPERTONIC_CUSTOM_VOICE_META: Record<
   yeoseong1: { name: "여자목소리1", gender: "female" },
   namseong1: { name: "남자목소리1", gender: "male" },
   dasom: { name: "다솜", gender: "female" },
+  /** WingsStudio 「퀄좋은 목소리」번들 (supertonic-3) */
+  hq1: { name: "퀄좋은 목소리1", gender: "male" },
+  hq2: { name: "퀄좋은 목소리2", gender: "male" },
+  hq3: { name: "퀄좋은 목소리3", gender: "male" },
+  hq4: { name: "퀄좋은 목소리4", gender: "male" },
 }
+
+/** 앱에 포함된 HQ 보이스 — UI에 항상 표시, serve 시 import 대상 */
+export const SUPERTONIC_BUNDLED_HQ_VOICES = [
+  { voice_id: "hq1", name: "퀄좋은 목소리1", gender: "male" as const, file: "hq1.json" },
+  { voice_id: "hq2", name: "퀄좋은 목소리2", gender: "male" as const, file: "hq2.json" },
+  { voice_id: "hq3", name: "퀄좋은 목소리3", gender: "male" as const, file: "hq3.json" },
+  { voice_id: "hq4", name: "퀄좋은 목소리4", gender: "male" as const, file: "hq4.json" },
+] as const
 
 /**
  * UI/목록에서 잠시 숨길 보이스 id (파일·서버 등록은 유지).

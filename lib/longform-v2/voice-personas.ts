@@ -40,6 +40,10 @@ const SUPERTONIC_PERSONA: Record<
   M5: { aliasKo: "철호", blurbKo: "Supertonic · 깊은 시니어 남성", avatarId: "kr-m-50s-cheolho", gender: "male" },
   dasom: { aliasKo: "다솜", blurbKo: "Supertonic · 커스텀 여성", avatarId: "kr-f-20s-jiwoo", gender: "female" },
   yeoseong1: { aliasKo: "예린", blurbKo: "Supertonic · 커스텀 여성", avatarId: "kr-f-30s-seoyeon", gender: "female" },
+  hq1: { aliasKo: "퀄좋은 목소리1", blurbKo: "Supertonic 3 · 고품질 남성", avatarId: "kr-m-30s-junho", gender: "male" },
+  hq2: { aliasKo: "퀄좋은 목소리2", blurbKo: "Supertonic 3 · 고품질 남성", avatarId: "kr-m-20s-hyunwoo", gender: "male" },
+  hq3: { aliasKo: "퀄좋은 목소리3", blurbKo: "Supertonic 3 · 고품질 남성", avatarId: "kr-m-40s-seongmin", gender: "male" },
+  hq4: { aliasKo: "퀄좋은 목소리4", blurbKo: "Supertonic 3 · 고품질 남성", avatarId: "kr-m-50s-cheolho", gender: "male" },
 }
 
 /**

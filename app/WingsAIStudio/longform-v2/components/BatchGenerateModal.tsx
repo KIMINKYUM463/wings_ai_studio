@@ -254,8 +254,8 @@ export function BatchGenerateModal({
                 ) : null}
 
                 <p className="dm-batch-bg-note">
-                  실사 장면은 Pexels에서 스톡 이미지를 가져와 Ken Burns·mp4로 넣습니다. TTS 생성이
-                  함께 필요하며, 비율은 선택한 {selectedIndexes.length}개 장면에 고르게 배분됩니다
+                  실사 장면은 Pexels에서 <strong>스톡 영상(mp4)</strong>을 가져와 TTS와 합성합니다. TTS
+                  생성이 함께 필요하며, 비율은 선택한 {selectedIndexes.length}개 장면에 고르게 배분됩니다
                   {videoBgMode === "mix"
                     ? ` (실사 ${stockCount} · AI ${selectedIndexes.length - stockCount})`
                     : ""}

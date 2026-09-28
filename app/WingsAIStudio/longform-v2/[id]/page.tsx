@@ -378,15 +378,33 @@ export default function LongformV2WorkspacePage() {
     setInfo(`장면 ${scenes.length}개`)
   }
 
-  async function composeSceneVideo(sceneIndex: number, imageUrl: string, audioUrl: string) {
+  async function composeSceneVideo(
+    sceneIndex: number,
+    opts: { imageUrl?: string; motionVideoUrl?: string; audioUrl: string },
+  ) {
     const form = new FormData()
-    // http 이미지는 URL로, data URL은 파일로 보내 body 크기·서버 다운로드를 나눔
-    if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
-      form.append("imageUrl", imageUrl)
+    const motion = (opts.motionVideoUrl || "").trim()
+    const image = (opts.imageUrl || "").trim()
+    const audioUrl = opts.audioUrl
+
+    if (motion) {
+      if (motion.startsWith("http://") || motion.startsWith("https://")) {
+        form.append("videoUrl", motion)
+      } else {
+        const vBlob = await (await fetch(motion)).blob()
+        form.append("video", vBlob, "motion.mp4")
+      }
+    } else if (image) {
+      if (image.startsWith("http://") || image.startsWith("https://")) {
+        form.append("imageUrl", image)
+      } else {
+        const imgBlob = await (await fetch(image)).blob()
+        form.append("image", imgBlob, "still.png")
+      }
     } else {
-      const imgBlob = await (await fetch(imageUrl)).blob()
-      form.append("image", imgBlob, "still.png")
+      throw new Error("최종영상 합성에 이미지 또는 AI 영상이 필요합니다.")
     }
+
     if (audioUrl.startsWith("http://") || audioUrl.startsWith("https://")) {
       form.append("audioUrl", audioUrl)
     } else {
@@ -404,6 +422,7 @@ export default function LongformV2WorkspacePage() {
     }
     const videoUrl = String(data.videoUrl || "")
     if (!videoUrl) throw new Error("최종영상 URL이 없습니다.")
+    void sceneIndex
     return videoUrl
   }
 
@@ -434,10 +453,15 @@ export default function LongformV2WorkspacePage() {
     let doTts = tasks ? tasks.tts : mode === "tts" || mode === "both"
     let doImage = tasks ? tasks.image : mode === "image" || mode === "both"
     let doPrompt = tasks ? tasks.prompt || (tasks.image && opts?.imageKind !== "stock") : doImage
-    /** 일괄 플랜이면 tasks.video, 단건이면 both/video 또는 양쪽 자산이 갖춰질 때 */
-    let wantVideo = tasks ? tasks.video : mode === "video" || mode === "both" || mode === "tts" || mode === "image"
+    /** 단건「최종영상」클릭은 항상 재합성. 그 외는 both/tts/image 후 자동 합성 */
+    let wantVideo =
+      mode === "video"
+        ? true
+        : tasks
+          ? tasks.video
+          : mode === "both" || mode === "tts" || mode === "image"
 
-    // 이어하기: 이미 있는 자산은 건너뜀
+    // 이어하기: 이미 있는 자산은 건너뜀 (단, mode=video 는 최종영상 강제 재합성)
     if (!overwrite) {
       if (doTts && scene.audioUrl) doTts = false
       if (doPrompt && scene.prompt?.trim() && !doImage) doPrompt = false
@@ -445,7 +469,7 @@ export default function LongformV2WorkspacePage() {
         doImage = false
         doPrompt = false
       }
-      if (wantVideo && scene.videoUrl) wantVideo = false
+      if (wantVideo && scene.videoUrl && mode !== "video") wantVideo = false
     }
 
     if (!doTts && !doImage && !doPrompt && !wantVideo) {
@@ -563,36 +587,58 @@ export default function LongformV2WorkspacePage() {
           throw new Error("Pexels API 키가 필요합니다. API 설정에서 등록하세요.")
         }
         updateScene({
-          busy: "Pexels 실사 스톡 검색…",
+          busy: "Pexels 실사 스톡 영상 검색… (검색어 자동 조정)",
           error: null,
           stockSearchKeywordsKo: query,
         })
-        const excludePhotoIds = (projectRef.current?.scenes || [])
+        const excludeVideoIds = (projectRef.current?.scenes || [])
           .map((s) => {
-            const m = /^stock:pexels:(\d+)/.exec(s.prompt || "")
+            const m =
+              /^stock:pexels-video:(\d+)/.exec(s.prompt || "") ||
+              /^stock:pexels:(\d+)/.exec(s.prompt || "")
             return m ? Number(m[1]) : NaN
           })
           .filter((n) => Number.isFinite(n))
         const stockRes = await fetch("/api/longform-v2/stock-image", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query, apiKey: k.pexels, excludePhotoIds }),
+          body: JSON.stringify({ query, apiKey: k.pexels, excludeVideoIds }),
         })
         const stockData = await stockRes.json()
         if (!stockRes.ok || !stockData.success) {
-          throw new Error(stockData.error || "스톡 이미지 검색 실패")
+          throw new Error(stockData.error || "스톡 영상 검색 실패")
         }
-        latestImage = stockData.imageUrl
-        const photoId = stockData.photoId != null ? Number(stockData.photoId) : null
+        const stockVideoUrl = String(stockData.videoUrl || "").trim()
+        const stockPoster = String(
+          stockData.thumbnailUrl || stockData.imageUrl || "",
+        ).trim()
+        if (!stockVideoUrl) {
+          throw new Error("Pexels 스톡 영상 URL이 없습니다.")
+        }
+        latestImage = stockPoster || stockVideoUrl
+        const videoId =
+          stockData.videoId != null
+            ? Number(stockData.videoId)
+            : stockData.photoId != null
+              ? Number(stockData.photoId)
+              : null
+        const effectiveQuery =
+          typeof stockData.usedVariant === "string" && stockData.usedVariant.trim()
+            ? stockData.usedVariant.trim()
+            : query
         latestPrompt =
-          photoId != null && Number.isFinite(photoId)
-            ? `stock:pexels:${photoId}:${query}`
-            : `stock:${query}`
+          videoId != null && Number.isFinite(videoId)
+            ? `stock:pexels-video:${videoId}:${effectiveQuery}`
+            : `stock:video:${effectiveQuery}`
         updateScene({
-          imageUrl: stockData.imageUrl,
+          imageUrl: stockPoster || undefined,
+          motionVideoUrl: stockVideoUrl,
+          // 새 스톡 영상이면 옛 최종영상 무효
+          videoUrl: undefined,
           prompt: latestPrompt,
-          stockSearchKeywordsKo: query,
-          busy: wantVideo ? "최종영상 합성…" : null,
+          stockSearchKeywordsKo: effectiveQuery,
+          error: null,
+          busy: wantVideo ? "스톡영상+TTS 최종영상 합성…" : null,
         })
       } else if (doImage || (doPrompt && imageKind === "ai")) {
         if (doImage || doPrompt) {
@@ -664,14 +710,40 @@ export default function LongformV2WorkspacePage() {
 
       if (opts?.signal?.aborted) throw new DOMException("Aborted", "AbortError")
 
-      const needVideo = wantVideo && !!(latestImage && latestAudio)
+      const latestMotion =
+        projectRef.current?.scenes.find((s) => s.index === sceneIndex)?.motionVideoUrl ||
+        scene.motionVideoUrl
+      const hasVisualForVideo = !!(latestMotion || latestImage)
+      const needVideo = wantVideo && hasVisualForVideo && !!latestAudio
 
       if (needVideo) {
-        updateScene({ busy: "최종영상 합성…", error: null })
-        const videoUrl = await composeSceneVideo(sceneIndex, latestImage!, latestAudio!)
+        updateScene({
+          busy: latestMotion
+            ? "AI영상+TTS 최종영상 합성…"
+            : "최종영상 합성…",
+          error: null,
+          // 재합성 중에는 옛 최종영상을 숨겨 UI가 바뀌는 걸 보이게
+          ...(mode === "video" ? { videoUrl: undefined } : {}),
+        })
+        const videoUrl = await composeSceneVideo(sceneIndex, {
+          motionVideoUrl: latestMotion,
+          imageUrl: latestImage,
+          audioUrl: latestAudio!,
+        })
         updateScene({ videoUrl, busy: null })
+        if (mode === "video") {
+          setInfo(
+            latestMotion
+              ? `장면 ${sceneIndex + 1}: AI 영상 + TTS를 최종영상으로 합성했습니다.`
+              : `장면 ${sceneIndex + 1}: 이미지 + TTS를 최종영상으로 합성했습니다.`,
+          )
+        }
       } else if (wantVideo && mode === "video" && !tasks) {
-        throw new Error("최종영상은 이미지와 음성이 모두 있어야 합니다.")
+        throw new Error(
+          latestAudio
+            ? "최종영상은 이미지 또는 AI 영상이 필요합니다."
+            : "최종영상은 TTS(음성)와 이미지(또는 AI 영상)가 모두 있어야 합니다.",
+        )
       } else {
         updateScene({ busy: null })
       }
@@ -825,7 +897,13 @@ export default function LongformV2WorkspacePage() {
           if (!prev) return prev
           const scenes = prev.scenes.map((s) =>
             s.index === sceneIndex
-              ? { ...s, motionVideoUrl: motionUrl, busy: "TTS·최종영상 준비…", error: null }
+              ? {
+                  ...s,
+                  motionVideoUrl: motionUrl,
+                  videoUrl: undefined,
+                  busy: "TTS·최종영상 준비…",
+                  error: null,
+                }
               : s
           )
           const next = persist({ ...prev, scenes })
@@ -833,19 +911,19 @@ export default function LongformV2WorkspacePage() {
           return next
         })
 
-        // TTS 없으면 생성, 있으면 최종영상(정지+TTS)만
+        // TTS 없으면 생성, 있으면 AI영상(있으면)+TTS 최종 합성
         const after = projectRef.current?.scenes.find((s) => s.index === sceneIndex)
         if (!after?.audioUrl) {
           await generateOneScene(sceneIndex, "tts", { overwrite: false, signal: ac.signal })
         }
         const withAudio = projectRef.current?.scenes.find((s) => s.index === sceneIndex)
-        if (withAudio?.audioUrl && withAudio.imageUrl) {
+        if (withAudio?.audioUrl && (withAudio.motionVideoUrl || withAudio.imageUrl)) {
           setBatchProgress(`최종영상 ${i + 1}/${sceneIndexes.length} · 장면 ${sceneIndex + 1}`)
-          const videoUrl = await composeSceneVideo(
-            sceneIndex,
-            withAudio.imageUrl,
-            withAudio.audioUrl
-          )
+          const videoUrl = await composeSceneVideo(sceneIndex, {
+            motionVideoUrl: withAudio.motionVideoUrl,
+            imageUrl: withAudio.imageUrl,
+            audioUrl: withAudio.audioUrl,
+          })
           setProject((prev) => {
             if (!prev) return prev
             const scenes = prev.scenes.map((s) =>

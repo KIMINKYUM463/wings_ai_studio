@@ -127,6 +127,34 @@ const KO_EN_STOCK: Record<string, string> = {
   자동차: 'car driving',
   비행기: 'airplane aviation',
   배: 'ship boat',
+  // 전쟁·역사·감정 (한글 미번역 시 검색 전체가 스킵되던 케이스)
+  전쟁: 'war conflict battlefield',
+  군인: 'soldier military',
+  전장: 'battlefield war',
+  전투: 'battle combat',
+  군대: 'army military',
+  병사: 'soldier infantry',
+  영웅: 'hero statue memorial',
+  리더: 'leader commander',
+  부하: 'soldiers troops',
+  승리: 'victory celebration',
+  패배: 'defeat aftermath',
+  무기: 'weapons armor',
+  칼: 'sword blade',
+  방패: 'shield armor',
+  성: 'castle fortress',
+  왕궁: 'palace castle',
+  왕: 'king crown',
+  황제: 'emperor royal',
+  비극: 'tragedy drama solemn',
+  슬픔: 'sorrow melancholy',
+  절망: 'despair solitude',
+  후회: 'regret reflection',
+  죄책: 'guilt solemn face',
+  폭풍: 'storm clouds dramatic',
+  폐허: 'ruins abandoned',
+  유적: 'ruins ancient',
+  기념비: 'war memorial monument',
 }
 
 const SORTED_KO_TERMS = Object.keys(KO_EN_STOCK).sort((a, b) => b.length - a.length)
@@ -236,13 +264,61 @@ export function normalizePexelsIncomingQuery(raw: string): string {
   }
 }
 
-/** resolvePexelsSearchQuery — 실패 시 null (재시도 루프용) */
+/** 주제 힌트 → 영어 폴백 검색어 (번역 실패·0건일 때 무조건 히트용) */
+export function semanticStockFallbackQueries(rawQuery: string): string[] {
+  const raw = normalizePexelsIncomingQuery(rawQuery)
+  const hay = `${raw} ${translateStockQueryToPexelsEnglish(raw)}`.toLowerCase()
+  const out: string[] = []
+  const add = (q: string) => {
+    const t = q.trim()
+    if (t) out.push(t)
+  }
+
+  if (/전쟁|군인|전장|전투|군대|병사|weapon|battle|war|soldier|military|army/.test(hay + raw)) {
+    add('soldier silhouette sunset')
+    add('battlefield smoke dramatic sky')
+    add('military training field')
+    add('war memorial monument')
+    add('abandoned armor weapons ruins')
+  }
+  if (/우주|행성|은하|space|planet|galaxy|cosmos|astronomy/.test(hay + raw)) {
+    add('milky way night sky')
+    add('earth from space')
+    add('stars nebula cosmos')
+  }
+  if (/바다|ocean|sea|beach|wave/.test(hay + raw)) {
+    add('ocean waves sunset')
+    add('dramatic sea storm')
+  }
+  if (/도시|거리|city|urban|street/.test(hay + raw)) {
+    add('city skyline dusk')
+    add('busy city street night')
+  }
+
+  // 최후 보편 검색어 — Pexels에 거의 항상 결과 있음
+  add('dramatic cinematic landscape')
+  add('storm clouds atmosphere')
+  add('mountain valley fog')
+  add('forest sunlight nature')
+  add('ocean horizon sunset')
+  add('city urban skyline')
+  return [...new Set(out)]
+}
+
+/** resolvePexelsSearchQuery — 빈 입력만 null (한글 미번역이어도 폴백으로 통과) */
 export function tryResolvePexelsSearchQuery(rawQuery: string): PexelsResolvedSearchQuery | null {
   const trimmed = normalizePexelsIncomingQuery(rawQuery)
   if (!trimmed) return null
   const translatedFromKorean = !isPrimarilyLatinText(trimmed)
-  const englishCore = translatedFromKorean ? translateStockQueryToPexelsEnglish(trimmed) : trimmed
-  if (!englishCore.trim()) return null
+  let englishCore = translatedFromKorean ? translateStockQueryToPexelsEnglish(trimmed) : trimmed
+  // 이미 영어 폴백 쿼리이거나 라틴 텍스트면 그대로
+  if (!englishCore.trim() && isPrimarilyLatinText(trimmed)) {
+    englishCore = trimmed
+  }
+  // 한글인데 사전 미등록 → 의미 폴백 첫 항 사용 (검색 루프가 스킵되지 않게)
+  if (!englishCore.trim()) {
+    englishCore = semanticStockFallbackQueries(trimmed)[0] || 'dramatic cinematic landscape'
+  }
   return {
     apiQuery: buildLiveActionPexelsQuery(englishCore),
     englishCore,
@@ -251,7 +327,7 @@ export function tryResolvePexelsSearchQuery(rawQuery: string): PexelsResolvedSea
 }
 
 /**
- * Pexels 검색 재시도용 — 원문 → 핵심 키워드 → 점진적 축소(3·2·1단어)
+ * Pexels 검색 재시도용 — 원문 → 핵심 키워드 → 점진적 축소 → 의미/보편 영어 폴백
  */
 export function buildStockPexelsQueryVariants(rawQuery: string): string[] {
   const trimmed = normalizePexelsIncomingQuery(rawQuery)
@@ -282,6 +358,15 @@ export function buildStockPexelsQueryVariants(rawQuery: string): string[] {
     for (let n = Math.min(words.length - 1, 4); n >= 1; n--) {
       add(words.slice(0, n).join(' '))
     }
+  }
+
+  // 개별 한글 토큰 (전쟁 / 군인 / 전장 각각 재시도)
+  for (const w of trimmed.split(/\s+/).filter((x) => x.length >= 2)) {
+    add(w)
+  }
+
+  for (const fb of semanticStockFallbackQueries(trimmed)) {
+    add(fb)
   }
 
   return out

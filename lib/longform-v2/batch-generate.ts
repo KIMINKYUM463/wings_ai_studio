@@ -74,8 +74,8 @@ export const DEFAULT_BATCH_TASKS: BatchTasks = {
 
 export const BATCH_VIDEO_BG_MODE_LABELS: Record<BatchVideoBgMode, string> = {
   ai: "모두 AI 이미지",
-  stock: "모두 실사 이미지",
-  mix: "AI + 실사(스톡) 비율",
+  stock: "모두 실사 영상(Pexels)",
+  mix: "AI + 실사 영상(스톡) 비율",
 }
 
 /** WingsStudio `factoryVideoSceneTargetCount` — 비율(%) → AI 장면 수 */

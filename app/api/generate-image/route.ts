@@ -1,5 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { generateImagePrompt, generateImageWithReplicate } from "@/app/WingsAIStudio/longform/actions"
+import {
+  isNsfwImageError,
+  softenImagePromptForSafety,
+} from "@/lib/longform-v2/image-prompt-safety"
 
 export async function POST(request: NextRequest) {
   try {
@@ -41,22 +45,40 @@ export async function POST(request: NextRequest) {
     }
     console.log("[v0] 프롬프트 생성 완료")
 
-    // 2. 이미지 생성 (aspectRatio 파라미터 추가 가능)
+    // 2. 이미지 생성 — NSFW 차단 시 완화 프롬프트로 1회 재시도
     const aspectRatio = prompt.includes("9:16") ? "9:16" : "16:9"
-    const imageUrl = await generateImageWithReplicate(prompt, replicateApiKey, aspectRatio as "16:9" | "9:16")
+    let usedPrompt = prompt
+    let imageUrl: string
+    try {
+      imageUrl = await generateImageWithReplicate(prompt, replicateApiKey, aspectRatio as "16:9" | "9:16")
+    } catch (firstErr) {
+      if (!isNsfwImageError(firstErr)) throw firstErr
+      usedPrompt = softenImagePromptForSafety(prompt)
+      console.warn("[v0] NSFW 차단 → 완화 프롬프트로 재시도")
+      imageUrl = await generateImageWithReplicate(
+        usedPrompt,
+        replicateApiKey,
+        aspectRatio as "16:9" | "9:16",
+      )
+    }
     console.log("[v0] 이미지 생성 완료")
 
     return NextResponse.json({
       success: true,
       imageUrl,
-      prompt,
+      prompt: usedPrompt,
+      nsfwRetried: usedPrompt !== prompt,
     })
   } catch (error) {
     console.error("[v0] 이미지 생성 API 오류:", error)
+    const raw = error instanceof Error ? error.message : "이미지 생성에 실패했습니다."
+    const friendly = /nsfw|content.?detect/i.test(raw)
+      ? "이미지 안전 필터(NSFW)에 걸렸습니다. 전쟁·시체 등 자극 묘사를 줄인 뒤 다시 시도해 주세요."
+      : raw
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : "이미지 생성에 실패했습니다.",
+        error: friendly,
       },
       { status: 500 }
     )

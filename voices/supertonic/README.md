@@ -2,6 +2,10 @@
 
 | 파일 | 서버 voice id | UI 표시 |
 |------|---------------|---------|
+| `hq1.json` | `hq1` | 퀄좋은 목소리1 · WingsStudio 번들 |
+| `hq2.json` | `hq2` | 퀄좋은 목소리2 · WingsStudio 번들 |
+| `hq3.json` | `hq3` | 퀄좋은 목소리3 · WingsStudio 번들 |
+| `hq4.json` | `hq4` | 퀄좋은 목소리4 · WingsStudio 번들 |
 | `yeoseong1.json` | `yeoseong1` | 여자목소리1 · 커스텀 |
 | `namseong1.json` | `namseong1` | 남자목소리1 · 커스텀 |
 | `dasom.json` | `dasom` | 다솜 · 커스텀 |

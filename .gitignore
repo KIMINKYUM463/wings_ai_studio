@@ -60,11 +60,15 @@ tsconfig.tsbuildinfo
 __pycache__/
 diff_shopping_vs_*.txt
 
-# Supertonic 로컬 커스텀 보이스·녹음 샘플 (README만 추적)
+# Supertonic 로컬 커스텀 보이스·녹음 샘플 (README·번들 HQ만 추적)
 voices/supertonic/*.json
 voices/supertonic/samples/
 !voices/supertonic/README.md
 !voices/supertonic/dasom.json
+!voices/supertonic/hq1.json
+!voices/supertonic/hq2.json
+!voices/supertonic/hq3.json
+!voices/supertonic/hq4.json
 
 
 

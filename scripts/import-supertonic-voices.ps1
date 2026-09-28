@@ -6,6 +6,10 @@ $base = "http://127.0.0.1:7788"
 $dir = Join-Path $PSScriptRoot "..\voices\supertonic" | Resolve-Path
 
 $voices = @(
+  @{ file = "hq1.json"; name = "hq1" },
+  @{ file = "hq2.json"; name = "hq2" },
+  @{ file = "hq3.json"; name = "hq3" },
+  @{ file = "hq4.json"; name = "hq4" },
   @{ file = "yeoseong1.json"; name = "yeoseong1" },
   @{ file = "namseong1.json"; name = "namseong1" },
   @{ file = "dasom.json"; name = "dasom" }

@@ -3350,6 +3350,12 @@
   border-color: rgba(200, 80, 80, 0.4);
 }
 
+.dm-gen-panel--motionVideo {
+  --dm-gen-accent: #5ec8e8;
+  --dm-gen-accent-soft: rgba(94, 200, 232, 0.45);
+  border-color: rgba(80, 180, 220, 0.4);
+}
+
 @keyframes dm-gen-shimmer {
   0% {
     background-position: 200% 0;

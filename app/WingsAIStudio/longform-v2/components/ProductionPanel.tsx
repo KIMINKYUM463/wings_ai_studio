@@ -44,6 +44,7 @@ import { AiMotionVideoBatchModal } from "./AiMotionVideoBatchModal"
 import { FlowWatermarkMosaicModal } from "./FlowWatermarkMosaicModal"
 import { WorkSettingsModal } from "./WorkSettingsModal"
 import { estimateNarrationDurationSec } from "@/lib/longform-v2/motion-video"
+import { SceneGenerating } from "./SceneGenerating"
 
 type VoiceOption = { id: string; label: string }
 
@@ -1105,6 +1106,8 @@ export function ProductionPanel({
           onSaved={(result) => {
             onUpdateScene(motionSceneIndex, {
               motionVideoUrl: result.videoUrl,
+              // AI 영상을 새로 만들었으면 옛 최종영상은 무효 → 「최종영상」으로 다시 합성
+              videoUrl: undefined,
               error: null,
             })
           }}
@@ -1135,16 +1138,41 @@ function SceneCard({
   const hasFinal = Boolean(scene.videoUrl)
   const hasTts = Boolean(scene.audioUrl)
   const hasPrompt = Boolean(scene.prompt)
+  const isStockMotion =
+    hasMotion &&
+    (scene.prompt?.startsWith("stock:pexels-video:") ||
+      scene.prompt?.startsWith("stock:pexels:") ||
+      scene.prompt?.startsWith("stock:video:"))
   const busyLower = (scene.busy || "").toLowerCase()
+  // busy 문자열에 "이미지 프롬프트"가 같이 들어가므로 우선순위로 구분
   const promptLoading = busyLower.includes("프롬프트")
-  const imageLoading = busyLower.includes("이미지") || busyLower.includes("스톡")
-  const ttsLoading = busyLower.includes("음성") || busyLower.includes("tts") || busyLower.includes("eleven") || busyLower.includes("superton")
-  const videoLoading = busyLower.includes("최종") || busyLower.includes("합성")
-  const motionLoading = busyLower.includes("seedance") || busyLower.includes("ai 영상")
+  const videoLoading =
+    busyLower.includes("최종") ||
+    (busyLower.includes("합성") && !busyLower.includes("프롬프트"))
+  const motionLoading =
+    busyLower.includes("seedance") ||
+    (busyLower.includes("ai 영상") && !busyLower.includes("최종"))
+  const imageLoading =
+    !promptLoading &&
+    !videoLoading &&
+    !motionLoading &&
+    (busyLower.includes("이미지") ||
+      busyLower.includes("스톡") ||
+      busyLower.includes("pexels") ||
+      busyLower.includes("이미지 준비"))
+  const ttsLoading =
+    !videoLoading &&
+    (busyLower.includes("음성") ||
+      busyLower.includes("tts") ||
+      busyLower.includes("eleven") ||
+      busyLower.includes("superton"))
 
   const ttsLabel = scene.ttsDurationSec
     ? `0:${String(Math.max(1, Math.round(scene.ttsDurationSec))).padStart(2, "0")}`
     : null
+
+  const showVisualLoading = imageLoading || motionLoading
+  const showVisualMedia = (hasMotion || hasImage) && !showVisualLoading
 
   return (
     <article
@@ -1218,7 +1246,13 @@ function SceneCard({
             "dm-scene-act dm-scene-act--video" + (videoLoading ? " dm-scene-act--busy" : "")
           }
           disabled={working || (!hasImage && !hasMotion) || !hasTts}
-          title={!hasTts || !hasVisual ? "이미지(또는 AI영상)와 TTS가 필요합니다" : "최종영상 합성"}
+          title={
+            !hasTts || !hasVisual
+              ? "이미지(또는 AI영상)와 TTS가 필요합니다"
+              : hasMotion
+                ? "AI 영상 + TTS로 최종영상 합성 (다시 눌러 재합성)"
+                : "최종영상 합성 (다시 눌러 재합성)"
+          }
           onClick={() => onGenerate(scene.index, "video")}
         >
           최종영상
@@ -1237,7 +1271,9 @@ function SceneCard({
         />
       </div>
 
-      {scene.prompt ? (
+      {promptLoading ? (
+        <SceneGenerating task="prompt" variant="panel" />
+      ) : scene.prompt ? (
         <div className="dm-scene-block">
           <label>프롬프트</label>
           <textarea
@@ -1247,16 +1283,15 @@ function SceneCard({
             disabled={working}
             onChange={(e) => onUpdateScene(scene.index, { prompt: e.target.value })}
           />
-          {styleLabel ? <p className="dm-muted" style={{ margin: "0.25rem 0 0", fontSize: 11 }}>스타일: {styleLabel}</p> : null}
+          {styleLabel ? (
+            <p className="dm-muted" style={{ margin: "0.25rem 0 0", fontSize: 11 }}>
+              스타일: {styleLabel}
+            </p>
+          ) : null}
         </div>
       ) : null}
 
       {scene.error ? <p className="dm-scene-card__err">{scene.error}</p> : null}
-      {scene.busy ? (
-        <p className="dm-scene-media-regenerating" aria-live="polite">
-          <span className="lfv2-spin" /> {scene.busy}
-        </p>
-      ) : null}
 
       <div className="dm-scene-media-row">
         <div className="dm-scene-media-cell">
@@ -1264,7 +1299,9 @@ function SceneCard({
             <label>이미지(영상)</label>
             <div className="dm-scene-media-label__actions">
               {hasMotion ? (
-                <span className="dm-scene-media-model">Seedance AI 영상</span>
+                <span className="dm-scene-media-model">
+                  {isStockMotion ? "무료 영상(Pexels)" : "Seedance AI 영상"}
+                </span>
               ) : hasImage ? (
                 <span className="dm-scene-media-model">AI 이미지</span>
               ) : null}
@@ -1308,7 +1345,26 @@ function SceneCard({
               />
             </div>
           </div>
-          {hasMotion ? (
+          {showVisualLoading ? (
+            <SceneGenerating
+              task={motionLoading ? "motionVideo" : "image"}
+              variant="media"
+              label={
+                motionLoading
+                  ? "AI 영상 생성 중…"
+                  : busyLower.includes("스톡") || busyLower.includes("pexels")
+                    ? "Pexels 검색 중…"
+                    : undefined
+              }
+              hint={
+                motionLoading
+                  ? "Seedance AI 영상"
+                  : busyLower.includes("스톡") || busyLower.includes("pexels")
+                    ? "스톡 영상 다운로드 중"
+                    : undefined
+              }
+            />
+          ) : showVisualMedia && hasMotion ? (
             <video
               className="dm-scene-video"
               controls
@@ -1316,13 +1372,9 @@ function SceneCard({
               playsInline
               preload="metadata"
             />
-          ) : hasImage ? (
+          ) : showVisualMedia && hasImage ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img className="dm-scene-img" src={scene.imageUrl} alt={`장면 ${scene.index + 1}`} />
-          ) : imageLoading || motionLoading ? (
-            <div className="dm-scene-media-placeholder">
-              {motionLoading ? "AI 영상 생성 중…" : "이미지 생성 중…"}
-            </div>
           ) : (
             <div className="dm-scene-media-placeholder">이미지·영상 대기</div>
           )}
@@ -1332,19 +1384,29 @@ function SceneCard({
           <div className="dm-scene-media-label">
             <label>최종영상</label>
             <div className="dm-scene-media-label__actions">
-              {hasFinal ? <span className="dm-scene-media-model">TTS 합성</span> : null}
+              {hasFinal ? (
+                <span className="dm-scene-media-model">
+                  {hasMotion ? "AI영상+TTS" : "이미지+TTS"}
+                </span>
+              ) : null}
               <button
                 type="button"
                 className="dm-scene-media-upload"
                 disabled={working || !hasVisual || !hasTts}
-                title="이미지(또는 AI영상)+TTS → 최종 mp4"
+                title={
+                  hasMotion
+                    ? "AI 영상 + TTS → 최종 mp4 (다시 누르면 재합성)"
+                    : "이미지 + TTS → 최종 mp4 (다시 누르면 재합성)"
+                }
                 onClick={() => onGenerate(scene.index, "video")}
               >
-                TTS 합성
+                {hasFinal ? "다시 합성" : "TTS 합성"}
               </button>
             </div>
           </div>
-          {hasFinal ? (
+          {videoLoading ? (
+            <SceneGenerating task="video" variant="media" label="최종영상 생성 중…" />
+          ) : hasFinal ? (
             <video
               className="dm-scene-video"
               controls
@@ -1352,17 +1414,21 @@ function SceneCard({
               playsInline
               preload="metadata"
             />
-          ) : videoLoading ? (
-            <div className="dm-scene-media-placeholder">최종영상 생성 중…</div>
           ) : hasVisual && hasTts ? (
-            <div className="dm-scene-media-placeholder">「TTS 합성」으로 최종영상을 만드세요</div>
+            <div className="dm-scene-media-placeholder">
+              {hasMotion
+                ? "「최종영상」을 누르면 AI영상+TTS로 합성합니다"
+                : "「TTS 합성」으로 최종영상을 만드세요"}
+            </div>
           ) : (
             <div className="dm-scene-media-placeholder">최종영상 대기</div>
           )}
         </div>
       </div>
 
-      {hasTts ? (
+      {ttsLoading ? (
+        <SceneGenerating task="tts" variant="panel" />
+      ) : hasTts ? (
         <div className="dm-scene-tts-bar">
           <div className="dm-scene-tts-bar__head">
             <span>TTS</span>

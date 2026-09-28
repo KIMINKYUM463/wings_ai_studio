@@ -129,8 +129,8 @@ export function StockKeywordModal({
         </header>
 
         <p className="dm-stock-kw-modal__hint" style={{ margin: "0 0 0.75rem" }}>
-          장면 대본에서 <strong>실사로 보일 시각 요소</strong>만 골라 넣습니다. 대본 앞부분을 그대로
-          쓰지 않습니다.
+          장면 대본에서 <strong>실사로 보일 시각 요소</strong>만 골라 넣습니다. Pexels{" "}
+          <strong>스톡 영상</strong> 검색에 쓰입니다. 대본 앞부분을 그대로 쓰지 않습니다.
           {aiBusy ? " · 검색어 추출 중…" : null}
         </p>
 

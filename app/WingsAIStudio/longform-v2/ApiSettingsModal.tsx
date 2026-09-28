@@ -25,7 +25,7 @@ const FIELDS: { key: keyof LongformV2ApiKeys; label: string; hint: string }[] = 
   { key: "elevenlabs", label: "ElevenLabs API Key", hint: "TTS 음성 (권장)" },
   { key: "supertone", label: "Supertone API Key", hint: "TTS 음성 (대안)" },
   { key: "perplexity", label: "Perplexity API Key", hint: "기획 검증 (선택)" },
-  { key: "pexels", label: "Pexels API Key", hint: "실사(스톡) 장면 배경 (선택)" },
+  { key: "pexels", label: "Pexels API Key", hint: "실사 스톡 영상(Videos API) (선택)" },
 ]
 
 export function LongformV2ApiSettingsModal({ open, onClose, onSaved }: Props) {
