@@ -2,6 +2,9 @@
 .env.local
 .env*.local
 
+# Local extension secrets (never commit)
+extensions/wings-research/wings-secrets.local.js
+
 # Service account keys (보안상 중요!)
 service-account-key.json
 *.json.json

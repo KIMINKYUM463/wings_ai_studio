@@ -260,7 +260,8 @@ export function SupertonicMacSetupGuide({
             Mac 준비 가이드
           </DialogTitle>
           <DialogDescription className="text-zinc-400">
-            Windows와 달리 Mac은 아래 순서를 그대로 따라 주세요. 한 단계씩 진행합니다.
+            「자동 연결」이 실패했거나 에이전트가 필요할 때 사용합니다. 아래 순서를 한 단계씩
+            따라 주세요.
           </DialogDescription>
         </DialogHeader>
 

@@ -75,7 +75,16 @@ const videoProductionServices = [
     url: "/WingsAIStudio/longform",
     gradient: "from-blue-500 via-cyan-500 to-teal-500",
     hoverGradient: "from-blue-600 via-cyan-600 to-teal-600",
-    featured: true, // 추천 배지 표시
+  },
+  {
+    id: "longform-v2",
+    title: "신규 롱폼",
+    icon: Sparkles,
+    description: "WingsStudio v2 — AI 대본 기획·음성·이미지",
+    url: "/WingsAIStudio/longform-v2",
+    gradient: "from-emerald-500 via-teal-500 to-cyan-500",
+    hoverGradient: "from-emerald-600 via-teal-600 to-cyan-600",
+    featured: true,
   },
   {
     id: "shopping",
@@ -476,9 +485,12 @@ function FeatureSection({
   onServiceClick: (service: (typeof services)[0]) => void
   columns?: number
 }) {
-  const gridCols = columns === 5 
-    ? "grid-cols-2 md:grid-cols-3 lg:grid-cols-5" 
-    : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3"
+  const gridCols =
+    columns === 5
+      ? "grid-cols-2 md:grid-cols-3 lg:grid-cols-5"
+      : columns === 4
+        ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4"
+        : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3"
   
   return (
     <section className="space-y-6">
@@ -1182,6 +1194,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
               subtitle="AI로 쇼츠부터 롱폼까지 자동 제작"
               services={videoProductionServices}
               onServiceClick={handleServiceClick}
+              columns={4}
             />
 
             {/* 분석 & 도구 섹션 */}

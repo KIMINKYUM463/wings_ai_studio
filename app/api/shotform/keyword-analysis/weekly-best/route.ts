@@ -26,6 +26,23 @@ const NAVER_CATEGORY_CODES = [
 ]
 const COUPANG_CATEGORY_IDS = ["1001", "1010", "1016", "1012", "1017", "1014"]
 
+async function fetchCoupangSignals() {
+  const lists: Awaited<ReturnType<typeof fetchCoupangRankedProducts>>[] = []
+  for (const categoryId of COUPANG_CATEGORY_IDS) {
+    try {
+      lists.push(await fetchCoupangRankedProducts({ mode: "best", categoryId, limit: 5 }))
+    } catch (error) {
+      console.warn(
+        "[weekly-best] coupang skipped",
+        error instanceof Error ? error.message : error
+      )
+      break
+    }
+  }
+  while (lists.length < COUPANG_CATEGORY_IDS.length) lists.push([])
+  return lists
+}
+
 function cleanJson(content: string) {
   return content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")
 }
@@ -47,14 +64,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const [naverSnapshots, coupangLists] = await Promise.all([
-      Promise.all(NAVER_CATEGORY_CODES.map((code) => fetchNaverShoppingRankSnapshot(code))),
-      Promise.all(
-        COUPANG_CATEGORY_IDS.map((categoryId) =>
-          fetchCoupangRankedProducts({ mode: "best", categoryId, limit: 5 })
-        )
-      ),
-    ])
+    const naverSnapshots = await Promise.all(
+      NAVER_CATEGORY_CODES.map((code) => fetchNaverShoppingRankSnapshot(code))
+    )
+    const coupangLists = await fetchCoupangSignals()
 
     const naverSignals = naverSnapshots.flatMap((snapshot) => {
       const latestDate = snapshot.latestAvailableDate

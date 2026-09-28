@@ -1030,6 +1030,8 @@ export default function AiShoppingVer2Page() {
   const [showCreateProjectDialog, setShowCreateProjectDialog] = useState(false)
   /** empty: 빈 새 프로젝트 / saveCurrent: 현재 작업물을 이름으로 저장 */
   const [createProjectMode, setCreateProjectMode] = useState<"empty" | "saveCurrent">("empty")
+  /** 새 프로젝트 타입: 일반 9단계 vs 고퀄리티 Seedance 2.5 */
+  const [newProjectQualityMode, setNewProjectQualityMode] = useState<"standard" | "high">("standard")
   const [projectSearchQuery, setProjectSearchQuery] = useState("") // 프로젝트 검색어
   const [userId, setUserId] = useState<string>("") // 사용자 ID
   const [isEditingProjectName, setIsEditingProjectName] = useState(false)
@@ -2173,9 +2175,35 @@ export default function AiShoppingVer2Page() {
         alert(formatSaveAlert())
       } else {
         // 빈 새 프로젝트 만들기
+        const qualityMode = newProjectQualityMode
+        if (qualityMode === "high") {
+          const emptyProjectData: ShoppingProjectData = {
+            appVariant: "ver2",
+            qualityMode: "high",
+            hqAvatarId: "kr-f-20s-jiwoo",
+            hqDurationSec: 15,
+            videoDuration: 15,
+            activeStep: "preview",
+          }
+          const newProject = await createShoppingProject(
+            userId,
+            name,
+            newProjectDescription || undefined,
+            emptyProjectData
+          )
+          setShowCreateProjectDialog(false)
+          setNewProjectName("")
+          setNewProjectDescription("")
+          setNewProjectQualityMode("standard")
+          setCreateProjectMode("empty")
+          window.location.href = `/WingsAIStudioShotForm/ai-shopping/high-quality?projectId=${newProject.id}`
+          return
+        }
+
         resetWorkspaceToEmpty()
         const emptyProjectData: ShoppingProjectData = {
           appVariant: "ver2",
+          qualityMode: "standard",
           activeStep: "keywordAnalysis",
         }
         const newProject = await createShoppingProject(
@@ -2188,6 +2216,7 @@ export default function AiShoppingVer2Page() {
         setShowCreateProjectDialog(false)
         setNewProjectName("")
         setNewProjectDescription("")
+        setNewProjectQualityMode("standard")
         setCreateProjectMode("empty")
         setShowProjectList(false)
       }
@@ -2207,6 +2236,12 @@ export default function AiShoppingVer2Page() {
       const project = await getShoppingProject(projectId)
       if (!project) {
         alert("프로젝트를 찾을 수 없습니다.")
+        return
+      }
+
+      // 고퀄리티 프로젝트는 전용 Recreate 화면으로 이동
+      if (project.data?.qualityMode === "high") {
+        window.location.href = `/WingsAIStudioShotForm/ai-shopping/high-quality?projectId=${project.id}`
         return
       }
 
@@ -11618,8 +11653,10 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                 <Button
                   onClick={() => {
                     setShowCreateProjectDialog(true)
+                    setCreateProjectMode("empty")
                     setNewProjectName("")
                     setNewProjectDescription("")
+                    setNewProjectQualityMode("standard")
                   }}
                   className="h-11 shrink-0 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 px-5 font-semibold text-white shadow-lg shadow-orange-500/30 hover:from-orange-400 hover:to-amber-400"
                 >
@@ -11706,8 +11743,11 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                       render: "AI영상",
                       thumbnail: "썸네일",
                     }
+                    const isHq = project.data?.qualityMode === "high"
                     const stepKey = project.data?.activeStep || "collect"
-                    const stepLabel = stepLabelMap[stepKey] || "키워드 분석"
+                    const stepLabel = isHq
+                      ? "고퀄리티 · Seedance 2.5"
+                      : stepLabelMap[stepKey] || "키워드 분석"
 
                     return (
                       <article
@@ -11717,13 +11757,18 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                         }`}
                       >
                         <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-orange-500/10 to-transparent opacity-80" />
-                        {isRecent && (
-                          <div className="absolute right-3 top-3 z-20">
+                        <div className="absolute right-3 top-3 z-20 flex gap-1.5">
+                          {isHq ? (
+                            <span className="rounded-full border border-lime-400/35 bg-lime-500/15 px-2 py-0.5 text-[10px] font-semibold text-lime-200">
+                              고퀄리티
+                            </span>
+                          ) : null}
+                          {isRecent && (
                             <span className="rounded-full border border-orange-400/30 bg-orange-500/20 px-2 py-0.5 text-[10px] font-semibold text-orange-200">
                               최근
                             </span>
-                          </div>
-                        )}
+                          )}
+                        </div>
                         <div className="relative z-10 space-y-4 p-4 pt-5">
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0 flex-1">
@@ -11741,7 +11786,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                                 <p className="mt-1 line-clamp-2 text-sm text-zinc-500">{project.description}</p>
                               )}
                               <div className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] text-zinc-400">
-                                <Sparkles className="h-3 w-3 text-orange-300" />
+                                <Sparkles className={`h-3 w-3 ${isHq ? "text-lime-300" : "text-orange-300"}`} />
                                 {stepLabel}
                               </div>
                             </div>
@@ -11833,8 +11878,10 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                 <Button
                   onClick={() => {
                     setShowCreateProjectDialog(true)
+                    setCreateProjectMode("empty")
                     setNewProjectName("")
                     setNewProjectDescription("")
+                    setNewProjectQualityMode("standard")
                   }}
                   className="rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 px-6 font-semibold text-white shadow-lg shadow-orange-500/25"
                 >
@@ -11846,7 +11893,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
 
             {/* 새 프로젝트 생성 다이얼로그 */}
             <Dialog open={showCreateProjectDialog} onOpenChange={setShowCreateProjectDialog}>
-              <DialogContent className="border-white/10 bg-[#141518] text-zinc-100 shadow-2xl">
+              <DialogContent className="border-white/10 bg-[#141518] text-zinc-100 shadow-2xl sm:max-w-lg">
                 <DialogHeader>
                   <DialogTitle className="flex items-center gap-2 text-xl font-bold text-zinc-50">
                     <div className="rounded-xl border border-orange-400/25 bg-orange-500/15 p-2">
@@ -11855,10 +11902,50 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                     새 프로젝트 만들기
                   </DialogTitle>
                   <DialogDescription className="text-zinc-400">
-                    이름만 정하면 바로 9단계 제작을 시작할 수 있습니다.
+                    제작 방식을 고른 뒤 이름을 입력하면 바로 시작할 수 있습니다.
                   </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-2">
+                  {createProjectMode === "empty" ? (
+                    <div className="space-y-2">
+                      <Label className="font-medium text-zinc-300">프로젝트 유형</Label>
+                      <div className="grid gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setNewProjectQualityMode("standard")}
+                          className={`rounded-xl border px-4 py-3 text-left transition ${
+                            newProjectQualityMode === "standard"
+                              ? "border-orange-400/50 bg-orange-500/10"
+                              : "border-white/10 bg-black/30 hover:border-white/20"
+                          }`}
+                        >
+                          <p className="text-sm font-semibold text-zinc-50">일반 AI쇼핑숏폼</p>
+                          <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+                            키워드·대본·TTS·이미지·영상까지 9단계로 직접 제작 (기존 방식)
+                          </p>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNewProjectQualityMode("high")}
+                          className={`rounded-xl border px-4 py-3 text-left transition ${
+                            newProjectQualityMode === "high"
+                              ? "border-lime-400/50 bg-lime-500/10"
+                              : "border-white/10 bg-black/30 hover:border-white/20"
+                          }`}
+                        >
+                          <p className="text-sm font-semibold text-zinc-50">
+                            고퀄리티 AI쇼핑숏폼
+                            <span className="ml-2 rounded-full border border-lime-400/30 bg-lime-500/15 px-2 py-0.5 text-[10px] font-semibold text-lime-200">
+                              Seedance 2.5
+                            </span>
+                          </p>
+                          <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+                            제품 사진 + 한국 인물 아바타로 15초 제품 소개 영상을 한 번에 생성
+                          </p>
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                   <div className="space-y-2">
                     <Label className="font-medium text-zinc-300">프로젝트 이름</Label>
                     <Input
@@ -11886,6 +11973,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                       setShowCreateProjectDialog(false)
                       setNewProjectName("")
                       setNewProjectDescription("")
+                      setNewProjectQualityMode("standard")
                     }}
                     className="border-white/15 bg-white/[0.04] text-zinc-300 hover:bg-white/10"
                   >
@@ -11894,13 +11982,17 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                   <Button
                     onClick={() => {
                       if (newProjectName.trim()) {
-                        saveProject(undefined, true)
+                        saveProject(undefined, createProjectMode === "empty")
                       } else {
                         alert("프로젝트 이름을 입력해주세요.")
                       }
                     }}
                     disabled={isSavingProject}
-                    className="bg-gradient-to-r from-orange-500 to-amber-500 font-semibold text-white hover:from-orange-400 hover:to-amber-400"
+                    className={
+                      newProjectQualityMode === "high" && createProjectMode === "empty"
+                        ? "bg-[#9CAF3E] font-semibold text-black hover:bg-[#b0c44a]"
+                        : "bg-gradient-to-r from-orange-500 to-amber-500 font-semibold text-white hover:from-orange-400 hover:to-amber-400"
+                    }
                   >
                     {isSavingProject ? (
                       <>

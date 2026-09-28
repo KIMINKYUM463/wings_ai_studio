@@ -162,12 +162,12 @@ export function CoupangShoppingRankPanel() {
             <p className="mt-1 text-xs text-zinc-500">
               쿠팡 파트너스 카테고리 베스트 · {categoryName} TOP 10
             </p>
-            <p className="mt-2 flex items-center gap-2 text-[10px] text-amber-300/70">
+            <p className={`mt-2 flex items-center gap-2 text-[10px] ${error ? "text-red-300/80" : "text-amber-300/70"}`}>
               <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-50" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-400" />
+                <span className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-50 ${error ? "bg-red-400" : "bg-amber-400"}`} />
+                <span className={`relative inline-flex h-2 w-2 rounded-full ${error ? "bg-red-400" : "bg-amber-400"}`} />
               </span>
-              쿠팡 카테고리 상품 랭킹 수집 연결됨
+              {error ? "쿠팡 파트너스 호출이 일시 중지되었습니다" : "쿠팡 카테고리 상품 랭킹 수집 연결됨"}
             </p>
           </div>
           <Button

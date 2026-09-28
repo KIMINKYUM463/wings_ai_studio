@@ -98,6 +98,11 @@ export type CoupangDetailInsightsData = CoupangDetailInsights
 
 export interface ShoppingProjectData {
   appVariant?: "ver1" | "ver2" | "story" | "animal"
+  /**
+   * 일반(9단계) vs 고퀄리티(Seedance 2.5 Recreate)
+   * — 목록은 둘 다 appVariant=ver2 로 보이며, qualityMode 로 분기
+   */
+  qualityMode?: "standard" | "high"
 
   keywordAnalysis?: KeywordAnalysisSnapshot
   selectedKeywordProduct?: SelectedKeywordProduct
@@ -120,7 +125,22 @@ export interface ShoppingProjectData {
   reviewInsights?: CoupangReviewInsightsData
   reviewCountText?: string
 
-  videoDuration?: 12 | 15 | 20 | 30
+  /** 고퀄리티: 업로드 제품 사진 */
+  hqProductImageUrl?: string
+  /** 고퀄리티: 선택한 한국 인물 아바타 id */
+  hqAvatarId?: string
+  /** 고퀄리티: 편집 설명 프롬프트 */
+  hqEditDescription?: string
+  /** 고퀄리티: 합성 미리보기 스틸 */
+  hqPreviewImageUrl?: string
+  /** 고퀄리티: Seedance 2.5 결과 영상 */
+  hqVideoUrl?: string
+  /** 고퀄리티: 선택 길이(초) — Seedance 2.5 지원 범위에 맞춤 */
+  hqDurationSec?: number
+  /** 고퀄리티: 길이에 맞춘 한국어 대본(대사) */
+  hqScript?: string
+
+  videoDuration?: 12 | 15 | 20 | 30 | 5 | 8 | 10
   /** 대본 목표 길이(초) · 슬라이더 10~60 */
   targetScriptSeconds?: number
   sceneCount?: number

@@ -25,8 +25,9 @@ type Props = {
 }
 
 /**
- * Windows: 원클릭 「Supertonic 자동 실행」유지
- * Mac: 단계별 「Mac 준비 가이드」로 따라하기
+ * OS(Mac/Windows)를 브라우저에서 감지한 뒤,
+ * 「연결」 한 번으로 Supertonic 3 설치·기동(ensure)을 시도합니다.
+ * 실패 시에만 OS별 체크리스트/가이드를 엽니다.
  */
 export function SupertonicSetupBar({ onReady, disabled, className = "" }: Props) {
   const isMac = detectShotformClientOs() === "mac"
@@ -52,9 +53,7 @@ export function SupertonicSetupBar({ onReady, disabled, className = "" }: Props)
       setHealthMsg(
         data.error ||
           data.message ||
-          (isMac
-            ? "꺼져 있습니다. 아래 「Mac 준비 가이드」를 순서대로 따라 하세요."
-            : "꺼져 있습니다. 아래 「Supertonic 자동 실행」을 누르세요.")
+          "꺼져 있습니다. 아래 「Supertonic 자동 연결」을 누르면 OS에 맞게 설치·기동합니다."
       )
     }
     return data.online
@@ -69,12 +68,14 @@ export function SupertonicSetupBar({ onReady, disabled, className = "" }: Props)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busy, isMac])
 
-  /** Windows 핵심: 터미널 없이 serve 자동 기동 */
+  /** Mac·Windows 공통: OS 감지된 에이전트/스크립트로 설치·기동 */
   const autoStart = async () => {
     setBusy(true)
     setOnline(false)
     setHealthMsg(
-      "Supertonic 자동 실행 중…\n(supertonic serve --host 127.0.0.1 --port 7788 --model supertonic-3)"
+      isMac
+        ? "Mac 감지 · Supertonic 자동 설치·실행 중…\n(필요 시 에이전트 .command 다운로드 → 더블클릭)"
+        : "Windows 감지 · Supertonic 자동 실행 중…\n(supertonic serve --host 127.0.0.1 --port 7788 --model supertonic-3)"
     )
     try {
       const ensured = await ensureSupertonicReady({
@@ -83,7 +84,7 @@ export function SupertonicSetupBar({ onReady, disabled, className = "" }: Props)
             setHealthMsg(
               s.online
                 ? s.message
-                : `${s.message}\n→ serve 자동 기동 진행 중`
+                : `${s.message}\n→ ${isMac ? "Mac" : "Windows"} 자동 설치·기동 진행 중`
             )
           }
         },
@@ -91,7 +92,7 @@ export function SupertonicSetupBar({ onReady, disabled, className = "" }: Props)
       const isOnline = Boolean(ensured.online)
       setOnline(isOnline)
       const failText =
-        ensured.message || ensured.error || "자동 실행에 실패했습니다."
+        ensured.message || ensured.error || "자동 연결에 실패했습니다."
       const message = isOnline
         ? ensured.message ||
           `실행 완료 · ${ensured.model || "supertonic-3"} · ${ensured.baseUrl || "127.0.0.1:7788"}`
@@ -105,7 +106,7 @@ export function SupertonicSetupBar({ onReady, disabled, className = "" }: Props)
       }
     } catch (e) {
       const message =
-        e instanceof Error ? e.message : "Supertonic 자동 실행 실패"
+        e instanceof Error ? e.message : "Supertonic 자동 연결 실패"
       setOnline(false)
       setHealthMsg(message)
       onReady?.({ online: false, message })
@@ -115,20 +116,11 @@ export function SupertonicSetupBar({ onReady, disabled, className = "" }: Props)
     }
   }
 
-  /** Mac: 이미 연결된 경우만 재확인, 아니면 가이드 */
   const onPrimaryClick = () => {
-    if (isMac) {
-      if (online === true) {
-        void autoStart()
-        return
-      }
-      openChecklist()
-      return
-    }
     void autoStart()
   }
 
-  /** Windows 전용 fallback .cmd — Mac은 가이드에서 처리 */
+  /** Windows 전용 fallback .cmd — Mac은 가이드에서 .command 처리 */
   const downloadStarter = () => {
     const body = `@echo off
 chcp 65001 >nul
@@ -163,9 +155,8 @@ pause
 
   const primaryLabel = (() => {
     if (online === true) return "Supertonic 다시 연결"
-    if (busy) return isMac ? "확인 중…" : "자동 실행 중…"
-    if (isMac) return "Mac 준비 가이드 시작"
-    return "Supertonic 자동 실행"
+    if (busy) return "자동 연결 중…"
+    return isMac ? "Supertonic 자동 연결 (Mac)" : "Supertonic 자동 연결 (Windows)"
   })()
 
   return (
@@ -179,8 +170,6 @@ pause
       >
         {busy ? (
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        ) : isMac && online !== true ? (
-          <Terminal className="mr-2 h-4 w-4" />
         ) : (
           <Power className="mr-2 h-4 w-4" />
         )}
@@ -189,8 +178,8 @@ pause
 
       <p className="text-[10px] leading-relaxed text-zinc-500">
         {isMac
-          ? "Mac은 Windows와 달라 자동 실행이 제한됩니다. 가이드에서 Node → Python → .command 더블클릭 → Supertonic 순서로 따라 하세요. Terminal 창은 닫지 마세요."
-          : "에이전트 창이 이미 열려 있으면 실행 파일을 다시 받지 않고 설치·기동만 진행합니다. (1) 3847 창 유지 (2) Python 3 + PATH (3) 상태가 installing → starting → ready. 구버전 에이전트면 아래「에이전트 업데이트」한 번만."}
+          ? "Mac으로 감지했습니다. 버튼을 누르면 Python·Supertonic 설치와 serve 기동을 자동으로 시도합니다. 배포 사이트에서는 에이전트(.command)가 필요할 수 있습니다 — 그때만 다운로드 안내가 뜹니다. Terminal/에이전트 창은 닫지 마세요."
+          : "Windows로 감지했습니다. 에이전트 창이 이미 열려 있으면 실행 파일을 다시 받지 않고 설치·기동만 진행합니다. (1) 3847 창 유지 (2) Python 3 + PATH (3) installing → starting → ready."}
       </p>
 
       {healthMsg ? (
@@ -218,7 +207,7 @@ pause
             </>
           )}
         </button>
-        {!isMac && isBrowserOnDeployedHost() ? (
+        {isBrowserOnDeployedHost() ? (
           <button
             type="button"
             disabled={disabled || busy}

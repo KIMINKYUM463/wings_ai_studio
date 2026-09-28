@@ -80,37 +80,64 @@ async function tryExec(cmd, args, opts = {}) {
 
 function listCommonPythonExes() {
   const found = []
-  const roots = [
-    process.env.LOCALAPPDATA,
-    process.env.PROGRAMFILES,
-    process.env["PROGRAMFILES(X86)"],
-  ].filter(Boolean)
-  for (const root of roots) {
-    for (const base of [
-      path.join(root, "Programs", "Python"),
-      path.join(root, "Python"),
-    ]) {
-      try {
-        if (!fs.existsSync(base)) continue
-        for (const name of fs.readdirSync(base)) {
-          if (!/^Python3\d+$/i.test(name)) continue
-          const exe = path.join(base, name, "python.exe")
-          if (fs.existsSync(exe)) found.push(exe)
+  const isWin = process.platform === "win32"
+
+  if (isWin) {
+    const roots = [
+      process.env.LOCALAPPDATA,
+      process.env.PROGRAMFILES,
+      process.env["PROGRAMFILES(X86)"],
+    ].filter(Boolean)
+    for (const root of roots) {
+      for (const base of [
+        path.join(root, "Programs", "Python"),
+        path.join(root, "Python"),
+      ]) {
+        try {
+          if (!fs.existsSync(base)) continue
+          for (const name of fs.readdirSync(base)) {
+            if (!/^Python3\d+$/i.test(name)) continue
+            const exe = path.join(base, name, "python.exe")
+            if (fs.existsSync(exe)) found.push(exe)
+          }
+        } catch {
+          /* next */
         }
-      } catch {
-        /* next */
+      }
+    }
+  } else {
+    // macOS / Linux — Homebrew·공식 설치·프레임워크 경로
+    const home = process.env.HOME || ""
+    for (const exe of [
+      "/opt/homebrew/bin/python3",
+      "/usr/local/bin/python3",
+      "/usr/bin/python3",
+      home ? path.join(home, "Library/Python") : "",
+    ].filter(Boolean)) {
+      if (exe.includes("Library/Python")) {
+        try {
+          if (!fs.existsSync(exe)) continue
+          for (const ver of fs.readdirSync(exe)) {
+            const bin = path.join(exe, ver, "bin", "python3")
+            if (fs.existsSync(bin)) found.push(bin)
+          }
+        } catch {
+          /* next */
+        }
+      } else if (fs.existsSync(exe)) {
+        found.push(exe)
       }
     }
   }
   return [...new Set(found)]
 }
 
-/** Python 런처 탐색 (Windows py / python / 일반 설치 경로) */
+/** Python 런처 탐색 (Windows py / mac·linux python3 / 일반 설치 경로) */
 async function findPython() {
   const candidates = [
-    { cmd: "py", prefix: ["-3"] },
-    { cmd: "python", prefix: [] },
+    ...(process.platform === "win32" ? [{ cmd: "py", prefix: ["-3"] }] : []),
     { cmd: "python3", prefix: [] },
+    { cmd: "python", prefix: [] },
     ...listCommonPythonExes().map((exe) => ({ cmd: exe, prefix: [] })),
   ]
   for (const c of candidates) {
