@@ -28,8 +28,8 @@ export async function GET(request: NextRequest) {
     }
 
     // 카카오 인증 URL 생성
-    // scope: account_email (이메일, 필수 동의), profile_nickname (닉네임), profile_image (프로필 이미지)
-    const scope = "account_email,profile_nickname,profile_image"
+    // 이메일·프로필 + 전화번호(명단 자동 승인 매칭용)
+    const scope = "account_email,profile_nickname,profile_image,phone_number"
     const kakaoAuthUrl = `https://kauth.kakao.com/oauth/authorize?client_id=${KAKAO_REST_API_KEY}&redirect_uri=${encodeURIComponent(KAKAO_REDIRECT_URI)}&response_type=code&scope=${encodeURIComponent(scope)}`
 
     console.log("[Kakao Auth] 인증 URL:", kakaoAuthUrl)

@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { cookies } from "next/headers"
 import { createClient } from "@supabase/supabase-js"
+import { shouldAutoApproveSignup } from "@/lib/signup-auto-approve"
 
 /**
  * 카카오 로그인 콜백 처리 API
@@ -171,36 +172,47 @@ export async function GET(request: NextRequest) {
         let dbUser = null
         let dbError = null
 
+        const autoApprove = shouldAutoApproveSignup({
+          email: profileFields.email,
+          phone: profileFields.phone_number,
+        })
+
         if (existingUser?.id) {
-          // 기존 회원: 프로필만 갱신 (approved / instructor 절대 덮어쓰지 않음)
+          // 기존 회원: instructor는 유지. 명단에 있으면 미승인 → 승인만 올림(이미 승인은 유지)
           const result = await supabase
             .from("users")
-            .update(profileFields)
+            .update({
+              ...profileFields,
+              ...(autoApprove && !existingUser.approved ? { approved: true } : {}),
+            })
             .eq("kakao_id", userInfo.id)
             .select("id, kakao_id, email, approved")
             .single()
           dbUser = result.data
           dbError = result.error
         } else {
-          // 신규 가입: 바로 승인
+          // 신규 가입: 수강생 명단(이메일/전화)만 자동 승인, 그 외는 관리자 승인 대기
           const result = await supabase
             .from("users")
             .insert({
               kakao_id: userInfo.id,
               ...profileFields,
               instructor: null,
-              approved: true,
+              approved: autoApprove,
             })
             .select("id, kakao_id, email, approved")
             .single()
           dbUser = result.data
           dbError = result.error
 
-          // 레이스로 insert가 겹친 경우: 프로필만 갱신하고 approved는 유지
+          // 레이스로 insert가 겹친 경우: 프로필 갱신 + 명단이면 승인
           if (dbError?.code === "23505") {
             const retry = await supabase
               .from("users")
-              .update(profileFields)
+              .update({
+                ...profileFields,
+                ...(autoApprove ? { approved: true } : {}),
+              })
               .eq("kakao_id", userInfo.id)
               .select("id, kakao_id, email, approved")
               .single()
