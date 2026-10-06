@@ -28,8 +28,9 @@ export async function GET(request: NextRequest) {
     }
 
     // 카카오 인증 URL 생성
-    // 이메일·프로필 + 전화번호(명단 자동 승인 매칭용)
-    const scope = "account_email,profile_nickname,profile_image,phone_number"
+    // phone_number는 콘솔에 동의 항목이 없으면 KOE205(잘못된 요청)가 난다.
+    // 자동 승인은 이메일로 매칭한다.
+    const scope = "account_email,profile_nickname,profile_image"
     const kakaoAuthUrl = `https://kauth.kakao.com/oauth/authorize?client_id=${KAKAO_REST_API_KEY}&redirect_uri=${encodeURIComponent(KAKAO_REDIRECT_URI)}&response_type=code&scope=${encodeURIComponent(scope)}`
 
     console.log("[Kakao Auth] 인증 URL:", kakaoAuthUrl)
