@@ -1,4 +1,5 @@
-import { useCallback, useRef } from 'react'
+import { FolderOpen, ImageIcon, Layers, Palette, PencilLine, Search, Shapes, Sparkles, Type, Wand2 } from 'lucide-react'
+import { useCallback, useRef, type ReactNode } from 'react'
 import type { TextItem } from '../YoutubeThumbnailManualEditor'
 import {
   THUMBNAIL_QUICK_TEXT_STYLES,
@@ -73,15 +74,15 @@ export type StudioSidebarTab =
   | 'ai'
   | 'works'
 
-const NAV: { id: StudioSidebarTab; label: string; icon: string }[] = [
-  { id: 'works', label: '불러오기', icon: '📂' },
-  { id: 'text', label: '텍스트', icon: 'T' },
-  { id: 'style', label: '스타일', icon: '◎' },
-  { id: 'elements', label: '요소', icon: '◇' },
-  { id: 'layers', label: '레이어', icon: '≡' },
-  { id: 'background', label: '배경', icon: '▣' },
-  { id: 'bgAiStyle', label: 'AI스타일', icon: '◈' },
-  { id: 'ai', label: 'AI', icon: '✦' },
+const NAV: { id: StudioSidebarTab; label: string; icon: ReactNode }[] = [
+  { id: 'works', label: '불러오기', icon: <FolderOpen className="lfv2-ico" aria-hidden /> },
+  { id: 'text', label: '텍스트', icon: <Type className="lfv2-ico" aria-hidden /> },
+  { id: 'style', label: '스타일', icon: <Palette className="lfv2-ico" aria-hidden /> },
+  { id: 'elements', label: '요소', icon: <Shapes className="lfv2-ico" aria-hidden /> },
+  { id: 'layers', label: '레이어', icon: <Layers className="lfv2-ico" aria-hidden /> },
+  { id: 'background', label: '배경', icon: <ImageIcon className="lfv2-ico" aria-hidden /> },
+  { id: 'bgAiStyle', label: 'AI스타일', icon: <Wand2 className="lfv2-ico" aria-hidden /> },
+  { id: 'ai', label: 'AI', icon: <Sparkles className="lfv2-ico" aria-hidden /> },
 ]
 
 export type ThumbnailStudioSidebarProps = {
@@ -435,7 +436,7 @@ export function ThumbnailStudioSidebar(props: ThumbnailStudioSidebarProps) {
                   className="thumb-ui-btn thumb-ui-btn--outline"
                   onClick={onOpenCopyResearch}
                 >
-                  ✎ 카피라이팅 작업
+                  <PencilLine className="lfv2-ico lfv2-ico--lead" aria-hidden />카피라이팅 작업
                 </button>
               </section>
             ) : null}
@@ -492,7 +493,7 @@ export function ThumbnailStudioSidebar(props: ThumbnailStudioSidebarProps) {
                   }
                   onClick={onRegenerateSelectedText}
                 >
-                  {textRegenerateBusy ? '문구 재생성 중…' : '✦ AI 텍스트 재생성'}
+                  <Sparkles className="lfv2-ico lfv2-ico--lead" aria-hidden />{textRegenerateBusy ? '문구 재생성 중…' : 'AI 텍스트 재생성'}
                 </button>
                 <p className="thumb-ui-hint">
                   대본·주제·출력 언어를 바탕으로 <strong>이 줄만</strong> 새 카피를 씁니다. 1·2줄이 연결된
@@ -1532,7 +1533,7 @@ export function ThumbnailStudioSidebar(props: ThumbnailStudioSidebarProps) {
                   }
                   onClick={onVerifyThumbnail}
                 >
-                  {verifyBusy ? '검증 분석 중…' : '🔍 썸네일 CTR 검증'}
+                  <Search className="lfv2-ico lfv2-ico--lead" aria-hidden />{verifyBusy ? '검증 분석 중…' : '썸네일 CTR 검증'}
                 </button>
               ) : null}
               <p className="thumb-ui-hint">
@@ -1547,7 +1548,7 @@ export function ThumbnailStudioSidebar(props: ThumbnailStudioSidebarProps) {
                 disabled={genBusy || bgOnlyBusy || textOnlyBusy || verifyBusy}
                 onClick={onGenerateFull}
               >
-                {genBusy ? '생성 중…' : '✨ 배경 AI 생성'}
+                <Sparkles className="lfv2-ico lfv2-ico--lead" aria-hidden />{genBusy ? '생성 중…' : '배경 AI 생성'}
               </button>
               <p className="thumb-ui-hint">배경만 생성합니다. 문구는 아래 「문구만 AI 재생성」을 사용하세요.</p>
               <button
@@ -1629,7 +1630,7 @@ export function ThumbnailStudioSidebar(props: ThumbnailStudioSidebarProps) {
                     }
                     onClick={onBenchmarkRemix}
                   >
-                    {benchmarkRemixBusy ? '리믹스 생성 중…' : '✦ 참고 리믹스 (배경·하단 2줄)'}
+                    <Sparkles className="lfv2-ico lfv2-ico--lead" aria-hidden />{benchmarkRemixBusy ? '리믹스 생성 중…' : '참고 리믹스 (배경·하단 2줄)'}
                   </button>
                 ) : null}
                 {analyzedBenchmarkStyle ? (
@@ -1688,7 +1689,7 @@ export function ThumbnailStudioSidebar(props: ThumbnailStudioSidebarProps) {
                     disabled={hookBusy || textOnlyBusy || textRewriteBusy}
                     onClick={onGenerateHookSuggestions}
                   >
-                    {hookBusy ? '훅 생성 중…' : '✦ 훅 후보 5개 생성'}
+                    <Sparkles className="lfv2-ico lfv2-ico--lead" aria-hidden />{hookBusy ? '훅 생성 중…' : '훅 후보 5개 생성'}
                   </button>
                 ) : null}
                 {hookSuggestions.length ? (
@@ -1737,7 +1738,7 @@ export function ThumbnailStudioSidebar(props: ThumbnailStudioSidebarProps) {
                     disabled={paletteBusy || !hasBackgroundImage}
                     onClick={onExtractPalette}
                   >
-                    {paletteBusy ? '색 추출 중…' : '🎨 배경에서 색 팔레트 추출'}
+                    <Palette className="lfv2-ico lfv2-ico--lead" aria-hidden />{paletteBusy ? '색 추출 중…' : '배경에서 색 팔레트 추출'}
                   </button>
                 ) : null}
                 {extractedPalette.length && onApplyPaletteColor ? (
@@ -1761,7 +1762,7 @@ export function ThumbnailStudioSidebar(props: ThumbnailStudioSidebarProps) {
                     disabled={magicEnhanceBusy || !hasBackgroundImage}
                     onClick={onMagicEnhance}
                   >
-                    {magicEnhanceBusy ? '보정 중…' : '✨ Magic Enhance (밝기·대비)'}
+                    <Wand2 className="lfv2-ico lfv2-ico--lead" aria-hidden />{magicEnhanceBusy ? '보정 중…' : 'Magic Enhance (밝기·대비)'}
                   </button>
                 ) : null}
                 {onAutoTextContrast ? (

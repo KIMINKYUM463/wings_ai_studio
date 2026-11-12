@@ -37,7 +37,7 @@ export function ShotFormMobileEditorTabs({
         "z-40 flex shrink-0 border-t pb-[env(safe-area-inset-bottom,0px)]",
         light
           ? "border-slate-200 bg-white/95 backdrop-blur"
-          : "border-white/10 bg-[#101012]/95 backdrop-blur",
+          : "border-white/10 bg-[#fafafd]/95 backdrop-blur",
         className
       )}
       aria-label="모바일 편집 모드"

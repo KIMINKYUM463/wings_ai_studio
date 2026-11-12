@@ -51,7 +51,7 @@ export function PickedVideoDetailModal({ video, onClose }: Props) {
           <motion.div
             role="dialog"
             aria-modal
-            className="relative z-10 flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-slate-700/80 bg-[#12151c] shadow-2xl"
+            className="relative z-10 flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-slate-700/80 bg-[#faffff] shadow-2xl"
             initial={{ opacity: 0, scale: 0.94, y: 24 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: 16 }}
@@ -141,7 +141,7 @@ export function PickedVideoDetailModal({ video, onClose }: Props) {
                     href={video.coupangLink}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex w-full items-center justify-center rounded-xl bg-[#e52528] py-3.5 text-sm font-bold text-white shadow-lg shadow-red-900/30 transition hover:bg-[#ff2d31]"
+                    className="flex w-full items-center justify-center rounded-xl bg-[#e52528] py-3.5 text-sm font-bold text-[#181818] shadow-lg shadow-red-900/30 transition hover:bg-[#ff2d31]"
                   >
                     쿠팡 상품링크 바로가기
                   </a>

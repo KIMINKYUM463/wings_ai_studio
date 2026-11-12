@@ -206,7 +206,7 @@ export default function InfoShoppingPage() {
 
   if (!currentProject) {
     return (
-      <div className="min-h-screen bg-[#0a0b0d] text-zinc-100">
+      <div className="min-h-screen bg-[#f5f7fa] text-zinc-100">
         <div className="mx-auto max-w-5xl px-4 py-8 md:px-6">
           <div className="mb-8 flex items-center justify-between gap-4">
             <div>
@@ -298,7 +298,7 @@ export default function InfoShoppingPage() {
         </div>
 
         <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-          <DialogContent className="border-white/10 bg-[#141518] text-zinc-100">
+          <DialogContent className="border-white/10 bg-[#fdffff] text-zinc-100">
             <DialogHeader>
               <DialogTitle>새 카드뉴스 쇼핑숏폼 프로젝트</DialogTitle>
               <DialogDescription className="text-zinc-400">
@@ -345,8 +345,8 @@ export default function InfoShoppingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0b0d] text-zinc-100">
-      <header className="sticky top-0 z-30 border-b border-white/[0.06] bg-[#0a0b0d]/90 backdrop-blur-md">
+    <div className="min-h-screen bg-[#f5f7fa] text-zinc-100">
+      <header className="sticky top-0 z-30 border-b border-white/[0.06] bg-[#f5f7fa]/90 backdrop-blur-md">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 md:px-6">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-xs text-zinc-500">

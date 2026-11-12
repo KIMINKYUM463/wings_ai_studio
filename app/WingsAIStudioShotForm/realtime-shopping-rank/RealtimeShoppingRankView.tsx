@@ -295,7 +295,7 @@ export function RealtimeShoppingRankView() {
                     <motion.section
                       key={col.date}
                       variants={columnCard}
-                      className="overflow-hidden rounded-xl border border-slate-700/80 bg-[#0f1419]/95 backdrop-blur-sm"
+                      className="overflow-hidden rounded-xl border border-slate-700/80 bg-[#f8ffff]/95 backdrop-blur-sm"
                       whileHover={{
                         borderColor: "rgba(34, 211, 238, 0.35)",
                         boxShadow: "0 8px 32px rgba(6, 182, 212, 0.08)",

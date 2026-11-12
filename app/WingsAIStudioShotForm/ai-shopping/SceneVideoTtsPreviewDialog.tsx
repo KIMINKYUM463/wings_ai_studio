@@ -139,7 +139,7 @@ export function SceneVideoTtsPreviewDialog({ open, onOpenChange, audioUrl, items
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg border-white/10 bg-[#111318] text-zinc-100">
+      <DialogContent className="max-w-lg border-white/10 bg-[#fbfeff] text-zinc-100">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Film className="h-4 w-4 text-amber-400" />

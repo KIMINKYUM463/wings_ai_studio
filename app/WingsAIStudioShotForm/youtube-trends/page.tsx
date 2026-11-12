@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Search, TrendingUp, TrendingDown, Minus, Loader2, ArrowLeft, Settings, Eye, EyeOff } from "lucide-react"
+import { Search, TrendingUp, TrendingDown, Minus, Loader2, ArrowLeft, Settings, Eye, EyeOff, Target, Zap, TriangleAlert } from "lucide-react"
 import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
 
@@ -84,7 +84,8 @@ export default function YouTubeTrendsPage() {
       })
 
       if (!response.ok) {
-        throw new Error("분석에 실패했습니다")
+        const body = await response.json().catch(() => null)
+        throw new Error(body?.error || "분석에 실패했습니다")
       }
 
       const data = await response.json()
@@ -252,12 +253,23 @@ export default function YouTubeTrendsPage() {
                 <CardContent>
                   <div className="space-y-4">
                     <div className="space-y-3">
-                      <div className="font-semibold text-lg">
-                        {trendData.trendScore >= 70 && "🎯 매우 유망한 키워드입니다!"}
-                        {trendData.trendScore >= 40 &&
-                          trendData.trendScore < 70 &&
-                          "⚡ 적절한 전략이 필요한 키워드입니다"}
-                        {trendData.trendScore < 40 && "⚠️ 신중한 접근이 필요한 키워드입니다"}
+                      <div className="flex items-center gap-2 font-semibold text-lg">
+                        {trendData.trendScore >= 70 ? (
+                          <>
+                            <Target className="h-5 w-5 shrink-0 text-[#2c5fd6]" />
+                            매우 유망한 키워드입니다!
+                          </>
+                        ) : trendData.trendScore >= 40 ? (
+                          <>
+                            <Zap className="h-5 w-5 shrink-0 text-amber-500" />
+                            적절한 전략이 필요한 키워드입니다
+                          </>
+                        ) : (
+                          <>
+                            <TriangleAlert className="h-5 w-5 shrink-0 text-red-500" />
+                            신중한 접근이 필요한 키워드입니다
+                          </>
+                        )}
                       </div>
 
                       {/* 검색량 분석 */}

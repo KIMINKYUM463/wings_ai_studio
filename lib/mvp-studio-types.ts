@@ -333,6 +333,9 @@ export type MvpStudioPersistData = {
   thumbnailIntroOn?: boolean
   voiceLineCues?: VoiceLineCue[]
   selectedVoiceId?: string
+  /** TTS 목소리 톤(감정) */
+  voiceStyle?: string
+  /** @deprecated 예전 저장분의 voiceStyle 이름. 읽기 전용 호환. */
   supertoneStyle?: string
   /** TTS 나레이션 배속 (0.8~1.5) — 장면 맞춤 OFF일 때 전역 기본값 */
   speechSpeed?: number

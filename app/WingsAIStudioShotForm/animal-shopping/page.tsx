@@ -207,25 +207,25 @@ export default function AnimalShoppingPage() {
 
   if (!currentProject) {
     return (
-      <div className="animal-shopping-dark min-h-screen text-[#fff6ee]">
+      <div className="animal-shopping-dark min-h-screen text-[#221c16]">
         <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(125,211,168,0.14),_transparent_55%),radial-gradient(ellipse_at_bottom_right,_rgba(255,143,171,0.1),_transparent_50%)]" />
         <div className="relative mx-auto max-w-5xl px-4 py-8 md:px-6">
           <div className="mb-8 flex items-center justify-between gap-4">
             <div>
               <Link
                 href="/WingsAIStudioShotForm"
-                className="mb-3 inline-flex items-center gap-1.5 text-sm text-[#9aa89c] hover:text-[#fff6ee]"
+                className="mb-3 inline-flex items-center gap-1.5 text-sm text-[#49554b] hover:text-[#221c16]"
               >
                 <ArrowLeft className="h-4 w-4" />
                 숏폼 홈
               </Link>
               <h1 className="animal-display flex items-center gap-3 text-3xl font-bold tracking-tight">
-                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-[#7dd3a8] to-[#ff8fab]">
-                  <PawPrint className="h-5 w-5 text-[#0d1a14]" />
+                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-[#7dd3a8] to-[#85b6ff]">
+                  <PawPrint className="h-5 w-5 text-[#f2fffb]" />
                 </span>
                 AI 동물 쇼핑 숏폼
               </h1>
-              <p className="mt-2 text-sm text-[#9aa89c]">
+              <p className="mt-2 text-sm text-[#49554b]">
                 동물 쇼퍼 + 쿠팡 제품 → 대본 · 음성 · 장면 · 영상 → 숏폼 미리보기
               </p>
             </div>
@@ -246,14 +246,14 @@ export default function AnimalShoppingPage() {
           ) : null}
 
           {isLoadingProjects ? (
-            <div className="flex items-center justify-center py-20 text-[#9aa89c]">
+            <div className="flex items-center justify-center py-20 text-[#49554b]">
               <Loader2 className="mr-2 h-5 w-5 animate-spin" />
               불러오는 중…
             </div>
           ) : projects.length === 0 ? (
-            <div className="rounded-3xl border border-dashed border-[rgba(255,246,238,0.2)] bg-black/20 px-6 py-16 text-center">
-              <FolderOpen className="mx-auto h-10 w-10 text-[#6b7a6e]" />
-              <p className="mt-4 text-[#9aa89c]">아직 프로젝트가 없습니다.</p>
+            <div className="rounded-3xl border border-dashed border-[rgba(34,28,22,0.2)] bg-black/20 px-6 py-16 text-center">
+              <FolderOpen className="mx-auto h-10 w-10 text-[#657468]" />
+              <p className="mt-4 text-[#49554b]">아직 프로젝트가 없습니다.</p>
               <Button
                 type="button"
                 className="animal-mint-btn mt-6 rounded-full font-bold"
@@ -269,19 +269,19 @@ export default function AnimalShoppingPage() {
                 return (
                   <div
                     key={project.id}
-                    className="flex items-start justify-between gap-3 rounded-2xl border border-[rgba(255,246,238,0.12)] bg-black/25 p-4"
+                    className="flex items-start justify-between gap-3 rounded-2xl border border-[rgba(34,28,22,0.12)] bg-black/25 p-4"
                   >
                     <button
                       type="button"
                       className="min-w-0 flex-1 text-left"
                       onClick={() => void openProject(project.id)}
                     >
-                      <p className="truncate font-semibold text-[#fff6ee]">{project.name}</p>
-                      <p className="mt-1 truncate text-xs text-[#9aa89c]">
+                      <p className="truncate font-semibold text-[#221c16]">{project.name}</p>
+                      <p className="mt-1 truncate text-xs text-[#49554b]">
                         {projectBrief.character.name}
                         {projectBrief.productName ? ` · ${projectBrief.productName}` : " · 제품 미선택"}
                       </p>
-                      <p className="mt-2 text-[11px] text-[#6b7a6e]">
+                      <p className="mt-2 text-[11px] text-[#657468]">
                         {new Date(project.updated_at).toLocaleString("ko-KR")}
                       </p>
                     </button>
@@ -289,7 +289,7 @@ export default function AnimalShoppingPage() {
                       type="button"
                       size="icon"
                       variant="ghost"
-                      className="text-[#6b7a6e] hover:text-red-300"
+                      className="text-[#657468] hover:text-red-300"
                       onClick={() => void removeProject(project.id)}
                     >
                       <Trash2 className="h-4 w-4" />
@@ -302,10 +302,10 @@ export default function AnimalShoppingPage() {
         </div>
 
         <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-          <DialogContent className="border-[rgba(255,246,238,0.12)] bg-[#1a2a26] text-[#fff6ee]">
+          <DialogContent className="border-[rgba(34,28,22,0.12)] bg-[#e1f6f0] text-[#221c16]">
             <DialogHeader>
               <DialogTitle className="animal-display">새 동물 쇼핑 프로젝트</DialogTitle>
-              <DialogDescription className="text-[#9aa89c]">
+              <DialogDescription className="text-[#49554b]">
                 캐릭터와 쿠팡 제품을 매장에서 시연하는 바이럴 숏폼을 만듭니다.
               </DialogDescription>
             </DialogHeader>
@@ -315,7 +315,7 @@ export default function AnimalShoppingPage() {
                 <Input
                   value={projectName}
                   onChange={(e) => setProjectName(e.target.value)}
-                  className="mt-1 border-[rgba(243,235,224,0.12)] bg-black/40"
+                  className="mt-1 border-[rgba(41,36,27,0.12)] bg-black/40"
                   placeholder="예: 강아지 이어폰 리뷰 숏폼"
                 />
               </div>
@@ -324,7 +324,7 @@ export default function AnimalShoppingPage() {
                 <Textarea
                   value={projectDescription}
                   onChange={(e) => setProjectDescription(e.target.value)}
-                  className="mt-1 border-[rgba(243,235,224,0.12)] bg-black/40"
+                  className="mt-1 border-[rgba(41,36,27,0.12)] bg-black/40"
                   rows={3}
                 />
               </div>
@@ -349,20 +349,20 @@ export default function AnimalShoppingPage() {
   }
 
   return (
-    <div className="animal-shopping-dark min-h-screen text-[#fff6ee]">
+    <div className="animal-shopping-dark min-h-screen text-[#221c16]">
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(125,211,168,0.12),_transparent_55%),radial-gradient(ellipse_at_bottom_right,_rgba(255,143,171,0.08),_transparent_50%)]" />
 
-      <header className="sticky top-0 z-30 border-b border-[rgba(255,246,238,0.08)] bg-[#101c1a]/90 backdrop-blur-md">
+      <header className="sticky top-0 z-30 border-b border-[rgba(34,28,22,0.08)] bg-[#f3ffff]/90 backdrop-blur-md">
         <div className="relative mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 md:px-6">
           <div className="min-w-0">
-            <div className="flex items-center gap-2 text-xs text-[#9aa89c]">
-              <Link href="/WingsAIStudioShotForm" className="hover:text-[#fff6ee]">
+            <div className="flex items-center gap-2 text-xs text-[#49554b]">
+              <Link href="/WingsAIStudioShotForm" className="hover:text-[#221c16]">
                 <Home className="h-3.5 w-3.5" />
               </Link>
               <span>/</span>
               <button
                 type="button"
-                className="hover:text-[#fff6ee]"
+                className="hover:text-[#221c16]"
                 onClick={() => {
                   setCurrentProject(null)
                   setBrief(cloneAnimalBrief())
@@ -372,7 +372,7 @@ export default function AnimalShoppingPage() {
                 프로젝트
               </button>
               <span>/</span>
-              <span className="truncate text-[#d7e0d8]">{currentProject.name}</span>
+              <span className="truncate text-[#2d342e]">{currentProject.name}</span>
             </div>
             <h1 className="animal-display mt-1 truncate text-lg font-bold">{currentProject.name}</h1>
           </div>
@@ -404,22 +404,22 @@ export default function AnimalShoppingPage() {
                 onClick={() => setActiveStep(step.id)}
                 className={`flex min-w-[132px] items-center gap-2 rounded-xl border px-3 py-2 text-left transition ${
                   active
-                    ? "border-[#7dd3a8]/60 bg-[#7dd3a8]/15"
+                    ? "border-[#005835]/60 bg-[#7dd3a8]/15"
                     : done
                       ? "border-emerald-500/20 bg-emerald-500/5"
-                      : "border-[rgba(255,246,238,0.1)] bg-black/20"
+                      : "border-[rgba(34,28,22,0.1)] bg-black/20"
                 }`}
               >
                 <span
                   className={`flex h-7 w-7 items-center justify-center rounded-lg ${
-                    active ? "bg-[#7dd3a8] text-[#0d1a14]" : "bg-white/5 text-[#9aa89c]"
+                    active ? "bg-[#7dd3a8] text-[#f2fffb]" : "bg-white/5 text-[#49554b]"
                   }`}
                 >
                   <Icon className="h-3.5 w-3.5" />
                 </span>
                 <span>
-                  <span className="block text-xs font-semibold text-[#fff6ee]">{step.label}</span>
-                  <span className="block text-[10px] text-[#6b7a6e]">{step.description}</span>
+                  <span className="block text-xs font-semibold text-[#221c16]">{step.label}</span>
+                  <span className="block text-[10px] text-[#657468]">{step.description}</span>
                 </span>
               </button>
             )

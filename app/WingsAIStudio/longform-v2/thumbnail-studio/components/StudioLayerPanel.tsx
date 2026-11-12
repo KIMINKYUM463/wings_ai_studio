@@ -1,3 +1,5 @@
+import { Dot, Eye, EyeOff, ImageIcon, Layers, Shapes, Square, Type } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { buildStudioLayerList } from '@/lib/longform-v2/thumbnailTemplateStudio/layerList'
 import { isStudioLayerRefSelected } from '@/lib/longform-v2/thumbnailTemplateStudio/layerSelection'
 import type { StudioLayerRef, ThumbnailStudioDocument } from '@/lib/longform-v2/thumbnailTemplateStudio/types'
@@ -58,7 +60,7 @@ export function StudioLayerPanel({
                 onToggleLayerVisible(layer.ref, !layer.visible)
               }}
             >
-              {layer.visible ? '👁' : '◌'}
+              {layer.visible ? <Eye className="lfv2-ico" aria-hidden /> : <EyeOff className="lfv2-ico" aria-hidden />}
             </button>
           ) : (
             <span className="thumb-layer-panel__eye thumb-layer-panel__eye--fixed" aria-hidden />
@@ -69,19 +71,19 @@ export function StudioLayerPanel({
   )
 }
 
-function layerKindIcon(kind: StudioLayerRef['kind']): string {
+function layerKindIcon(kind: StudioLayerRef['kind']): ReactNode {
   switch (kind) {
     case 'background':
-      return '▣'
+      return <Square className="lfv2-ico" aria-hidden />
     case 'text':
-      return 'T'
+      return <Type className="lfv2-ico" aria-hidden />
     case 'image':
-      return '🖼'
+      return <ImageIcon className="lfv2-ico" aria-hidden />
     case 'shape':
-      return '◇'
+      return <Shapes className="lfv2-ico" aria-hidden />
     case 'overlay':
-      return '◐'
+      return <Layers className="lfv2-ico" aria-hidden />
     default:
-      return '·'
+      return <Dot className="lfv2-ico" aria-hidden />
   }
 }

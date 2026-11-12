@@ -12,7 +12,7 @@ export function MixPipelineProgressCard({ title, percent, elapsedSec, totalEstim
   const rem = Math.max(0, Math.round(totalEstimateSec - elapsedSec))
 
   return (
-    <div className="rounded-xl border border-slate-800 bg-[#0c101c]/90 p-4 shadow-lg">
+    <div className="rounded-xl border border-slate-800 bg-[#f4fbff]/90 p-4 shadow-lg">
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
         <div className="flex min-w-0 items-center gap-2 text-slate-200">
           <span className="h-2 w-2 shrink-0 rounded-full bg-gradient-to-r from-violet-500 to-pink-500" aria-hidden />

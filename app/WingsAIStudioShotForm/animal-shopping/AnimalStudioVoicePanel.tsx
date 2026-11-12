@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, type Dispatch, type SetStateAction } from "react"
 import { ArrowRight, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { TypecastApiErrorNotice } from "@/components/TypecastApiGuideCard"
@@ -18,7 +18,7 @@ export function AnimalStudioVoicePanel({
   onContinue,
 }: {
   brief: AnimalShoppingBrief
-  onChange: (brief: AnimalShoppingBrief) => void
+  onChange: Dispatch<SetStateAction<AnimalShoppingBrief>>
   onContinue: () => void
 }) {
   const [isGenerating, setIsGenerating] = useState(false)
@@ -91,10 +91,10 @@ export function AnimalStudioVoicePanel({
     <div className="space-y-6">
       <div>
         <p className="animal-bubble-chip inline-flex px-2.5 py-1 text-[10px]">VOICE</p>
-        <h2 className="animal-display mt-2 text-xl font-bold text-[#fff6ee]">
+        <h2 className="animal-display mt-2 text-xl font-bold text-[#221c16]">
           {brief.character.name}의 목소리
         </h2>
-        <p className="mt-1 text-sm text-[#9aa89c]">
+        <p className="mt-1 text-sm text-[#49554b]">
           {sceneCount}개 씬마다 TTS를 만들고, 각 음성 길이가 그 씬 영상 길이가 됩니다.
         </p>
       </div>
@@ -108,9 +108,9 @@ export function AnimalStudioVoicePanel({
         ttsSpeed={brief.ttsSpeed}
         isGeneratingTTS={isGenerating}
         ttsProgress={progress}
-        onVoiceChange={(voiceId) => onChange({ ...brief, selectedVoiceId: voiceId })}
-        onStyleChange={(style) => onChange({ ...brief, selectedStyle: style })}
-        onSpeedChange={(speed) => onChange({ ...brief, ttsSpeed: speed })}
+        onVoiceChange={(voiceId) => onChange((prev) => ({ ...prev, selectedVoiceId: voiceId }))}
+        onStyleChange={(style) => onChange((prev) => ({ ...prev, selectedStyle: style }))}
+        onSpeedChange={(speed) => onChange((prev) => ({ ...prev, ttsSpeed: speed }))}
         onGenerate={() => void generate()}
       />
 
@@ -119,19 +119,19 @@ export function AnimalStudioVoicePanel({
           {scenes.map((scene, index) => (
             <div
               key={scene.id}
-              className="rounded-xl border border-[rgba(255,246,238,0.12)] bg-black/25 p-3"
+              className="rounded-xl border border-[rgba(34,28,22,0.12)] bg-black/25 p-3"
             >
-              <p className="text-[10px] font-bold text-[#7dd3a8]">
+              <p className="text-[10px] font-bold text-[#005835]">
                 SCENE {index + 1} · {ANIMAL_SCENE_LABELS[scene.type] || scene.type}
               </p>
-              <p className="mt-1 line-clamp-2 text-xs text-[#d7e0d8]">{scene.narration}</p>
+              <p className="mt-1 line-clamp-2 text-xs text-[#2d342e]">{scene.narration}</p>
               {scene.ttsAudioUrl ? (
                 <audio controls src={scene.ttsAudioUrl} className="mt-2 w-full" preload="metadata" />
               ) : (
-                <p className="mt-2 text-[11px] text-[#6b7a6e]">TTS 대기</p>
+                <p className="mt-2 text-[11px] text-[#657468]">TTS 대기</p>
               )}
               {scene.ttsDurationSec ? (
-                <p className="mt-1 text-[11px] text-[#9aa89c]">
+                <p className="mt-1 text-[11px] text-[#49554b]">
                   {scene.ttsDurationSec.toFixed(1)}초
                 </p>
               ) : null}

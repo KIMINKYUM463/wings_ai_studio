@@ -98,7 +98,7 @@ import type {
   CoupangRankedProduct,
   KeywordAnalysisSnapshot,
 } from "@/lib/shotform-keyword-analysis-types"
-import { enrichTypecastVoice } from "@/lib/shotform-tts-providers"
+import { enrichTypecastVoice, isRetiredSupertoneVoiceId, RETIRED_SUPERTONE_MESSAGE } from "@/lib/shotform-tts-providers"
 import { formatInsightsForScript } from "@/lib/shotform-coupang-review-insights"
 import { formatDetailInsightsForScript } from "@/lib/shotform-coupang-detail-insights"
 import { renderImageZoomClipObjectUrl } from "@/lib/shotform-image-zoom-clip"
@@ -119,6 +119,12 @@ import {
 } from "@/lib/shotform-coupang-reviews"
 import type { CoupangDetailInsights } from "@/lib/shotform-coupang-detail-insights"
 import { CollectBriefingPanel } from "./CollectAiInsightPanels"
+
+const DEFAULT_VOICE_ID = "elevenlabs-jB1Cifc2UQbq1gR3wnb0"
+
+function restorableVoiceId(voiceId: string): string {
+  return isRetiredSupertoneVoiceId(voiceId) ? DEFAULT_VOICE_ID : voiceId
+}
 
 function normalizeReviewImageUrls(value: unknown): string[] {
   if (!Array.isArray(value)) return []
@@ -421,7 +427,7 @@ export interface FactoryScheduleItem {
   productName: string
   productDescription?: string
   productImageBase64: string | null // 썸네일용 작은 base64 가능
-  voiceId: string // selectedVoiceId 형식 (ttsmaker-여성1, supertone-xxx 등)
+  voiceId: string // selectedVoiceId 형식 (ttsmaker-여성1, typecast-xxx 등)
   status: "pending" | "generating" | "ready" | "failed"
   phase?: string // 실행 단계: product | script | video | render | thumbnail | preview
   createdAt: string
@@ -831,10 +837,6 @@ export default function AiShoppingVer2Page() {
   const [currentTime, setCurrentTime] = useState(0)
   const [selectedVoiceId, setSelectedVoiceId] = useState<string>("elevenlabs-jB1Cifc2UQbq1gR3wnb0") // 기본: ElevenLabs
   const [customElevenLabsVoices, setCustomElevenLabsVoices] = useState<Array<{ id: string; name: string }>>([]) // 사용자 추가 일레븐랩스 목소리
-  const [supertoneVoices, setSupertoneVoices] = useState<Array<{ voice_id: string; name: string; language: string[]; styles: string[]; thumbnail_image_url?: string }>>([]) // 수퍼톤 음성 목록
-  const [isLoadingSupertoneVoices, setIsLoadingSupertoneVoices] = useState(false) // 수퍼톤 음성 목록 로딩 중
-  const [selectedSupertoneVoiceId, setSelectedSupertoneVoiceId] = useState<string>("") // 선택된 수퍼톤 음성 ID
-  const [selectedSupertoneStyle, setSelectedSupertoneStyle] = useState<string>("neutral") // 선택된 수퍼톤 스타일
   const [customElevenLabsVoiceId, setCustomElevenLabsVoiceId] = useState<string>("") // 사용자가 입력한 ElevenLabs 음성 ID
   const [typecastVoices, setTypecastVoices] = useState<
     Array<{
@@ -1446,13 +1448,6 @@ export default function AiShoppingVer2Page() {
     })
   }, [factoryAutoRunItem?.id, activeStep])
 
-  // 예약 추가 다이얼로그 열릴 때 수퍼톤 목록이 없으면 자동 로드
-  useEffect(() => {
-    if (showAddFactoryScheduleDialog && supertoneVoices.length === 0 && !isLoadingSupertoneVoices) {
-      fetchSupertoneVoices()
-    }
-  }, [showAddFactoryScheduleDialog])
-
   // 미리보기 열리거나 장 바뀌면 돋보기 배율 초기화 (상세는 가로 맞춤 기본)
   useEffect(() => {
     if (!imagePreview) {
@@ -1791,8 +1786,6 @@ export default function AiShoppingVer2Page() {
     setScriptLines([])
     setVideoDuration(12)
     setSelectedVoiceId("elevenlabs-jB1Cifc2UQbq1gR3wnb0")
-    setSelectedSupertoneVoiceId("")
-    setSelectedSupertoneStyle("neutral")
     setSubtitleStyle(DEFAULT_SHOPPING_SUBTITLE_STYLE)
     setBgmUrl("")
     setBgmFile(null)
@@ -2032,8 +2025,6 @@ export default function AiShoppingVer2Page() {
         editedScript,
         storyboardScenes: storyboardScenesForSave,
         selectedVoiceId,
-        selectedSupertoneVoiceId,
-        selectedSupertoneStyle,
         selectedTypecastVoiceId: selectedTypecastVoiceId || undefined,
         selectedTypecastEmotion: selectedTypecastEmotion || undefined,
         ttsAudioUrl: ttsAudioUrlToSave,
@@ -2399,12 +2390,10 @@ export default function AiShoppingVer2Page() {
       if (data.selectedVoiceId) {
         setSelectedVoiceId(
           data.selectedVoiceId.startsWith("ttsmaker-")
-            ? "elevenlabs-jB1Cifc2UQbq1gR3wnb0"
-            : data.selectedVoiceId
+            ? DEFAULT_VOICE_ID
+            : restorableVoiceId(data.selectedVoiceId)
         )
       }
-      if (data.selectedSupertoneVoiceId) setSelectedSupertoneVoiceId(data.selectedSupertoneVoiceId)
-      if (data.selectedSupertoneStyle) setSelectedSupertoneStyle(data.selectedSupertoneStyle)
       if (data.selectedTypecastVoiceId) setSelectedTypecastVoiceId(data.selectedTypecastVoiceId)
       if (data.selectedTypecastEmotion) setSelectedTypecastEmotion(data.selectedTypecastEmotion)
       // TTS 오디오 URL 복원 (빈 문자열이 아닌 경우에만)
@@ -2978,61 +2967,6 @@ export default function AiShoppingVer2Page() {
     }
   }
 
-  // 수퍼톤 음성 목록 가져오기
-  const fetchSupertoneVoices = async () => {
-    setIsLoadingSupertoneVoices(true)
-    try {
-      // WingsAIStudioShotForm 설정창에서만 API 키 가져오기
-      const supertoneApiKey = typeof window !== "undefined" 
-        ? (localStorage.getItem("shotform_supertone_api_key") || "").trim() 
-        : null
-      if (!supertoneApiKey || supertoneApiKey.length === 0) {
-        alert("수퍼톤 API 키가 필요합니다. 설정에서 API 키를 입력해주세요.\n\n수퍼톤 API 콘솔(console.supertoneapi.com)에서 API 키를 발급받을 수 있습니다.")
-        setIsLoadingSupertoneVoices(false)
-        return
-      }
-
-      // API 키 형식 검증
-      if (supertoneApiKey.length < 20) {
-        alert(`수퍼톤 API 키 형식이 올바르지 않습니다. (길이: ${supertoneApiKey.length}자)\n\n수퍼톤 API 콘솔(console.supertoneapi.com)에서 올바른 API 키를 확인하고 다시 입력해주세요.`)
-        setIsLoadingSupertoneVoices(false)
-        return
-      }
-
-      const response = await fetch(`/api/supertone-voices?apiKey=${encodeURIComponent(supertoneApiKey)}`, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-        },
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || "음성 목록을 가져오는데 실패했습니다.")
-      }
-
-      const data = await response.json()
-      if (data.success && data.voices) {
-        const excludedNames = ["달팽이A", "기억의정령_알마냐", "틈새의정령_알마냐"]
-        const filteredVoices = data.voices.filter((voice: { name: string }) => 
-          !excludedNames.some(excluded => voice.name.includes(excluded))
-        )
-        setSupertoneVoices(filteredVoices)
-        if (filteredVoices.length > 0 && !selectedSupertoneVoiceId) {
-          setSelectedSupertoneVoiceId(filteredVoices[0].voice_id)
-          setSelectedVoiceId(`supertone-${filteredVoices[0].voice_id}`)
-        }
-      } else {
-        throw new Error(data.error || "음성 목록을 가져오는데 실패했습니다.")
-      }
-    } catch (error) {
-      console.error("수퍼톤 음성 목록 가져오기 실패:", error)
-      alert(`수퍼톤 음성 목록을 가져오는데 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
-    } finally {
-      setIsLoadingSupertoneVoices(false)
-    }
-  }
-
   const fetchTypecastVoices = async () => {
     setIsLoadingTypecastVoices(true)
     try {
@@ -3111,7 +3045,7 @@ export default function AiShoppingVer2Page() {
     if (providerHint === "supertonic" || providerHint?.startsWith("supertonic")) {
       return Math.min(2, Math.max(0.7, Math.round(s * 100) / 100))
     }
-    // SuperTone / Typecast / TTSMaker
+    // Typecast / TTSMaker
     return Math.min(2, Math.max(0.5, Math.round(s * 10) / 10))
   }
 
@@ -3123,40 +3057,13 @@ export default function AiShoppingVer2Page() {
       let response: Response
       
       if (voiceId?.startsWith("supertonic-")) {
-        // 로컬 Supertonic 3 — 반드시 "supertone-" 보다 먼저 분기
+        // 로컬 Supertonic 3
         const bare = voiceId.replace("supertonic-", "")
         response = await fetchSupertonicTts({
           text: "안녕하세요 윙스에이아이 테스트입니다",
           voiceId: bare,
           lang: "ko",
           speed: resolveTtsSpeed("supertonic"),
-        })
-      } else if (voiceId?.startsWith("supertone-")) {
-        const actualVoiceId = voiceId.replace("supertone-", "")
-        // WingsAIStudioShotForm 설정창에서만 API 키 가져오기
-        const supertoneApiKey = typeof window !== "undefined" 
-          ? (localStorage.getItem("shotform_supertone_api_key") || "").trim() 
-          : null
-        
-        if (!supertoneApiKey) {
-          alert("수퍼톤 API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
-          setPreviewingVoiceId(null)
-          return
-        }
-        
-        response = await fetch("/api/supertone-tts", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            text: "여러분 환영합니다",
-            voiceId: actualVoiceId,
-            apiKey: supertoneApiKey,
-            style: selectedSupertoneStyle || "neutral",
-            language: "ko",
-            speed: resolveTtsSpeed("supertone"),
-          }),
         })
       } else if (voiceId?.startsWith("ttsmaker-")) {
         const voiceName = voiceId.replace("ttsmaker-", "")
@@ -3235,7 +3142,11 @@ export default function AiShoppingVer2Page() {
           }),
         })
       } else {
-        alert("지원하지 않는 보이스입니다. SuperTone / Supertonic 3 / ElevenLabs / 타입캐스트를 선택해주세요.")
+        alert(
+          isRetiredSupertoneVoiceId(voiceId)
+            ? RETIRED_SUPERTONE_MESSAGE
+            : "지원하지 않는 보이스입니다. Supertonic 3 / ElevenLabs / 타입캐스트를 선택해주세요."
+        )
         setPreviewingVoiceId(null)
         return
       }
@@ -3311,15 +3222,19 @@ export default function AiShoppingVer2Page() {
       return
     }
 
+    if (isRetiredSupertoneVoiceId(selectedVoiceId)) {
+      alert(RETIRED_SUPERTONE_MESSAGE)
+      return
+    }
+
     if (
       !selectedVoiceId ||
       selectedVoiceId.startsWith("ttsmaker-") ||
       (!selectedVoiceId.startsWith("supertonic-") &&
-        !selectedVoiceId.startsWith("supertone-") &&
         !selectedVoiceId.startsWith("elevenlabs-") &&
         !selectedVoiceId.startsWith("typecast-"))
     ) {
-      alert("SuperTone / Supertonic 3 / ElevenLabs / 타입캐스트 보이스를 선택해주세요.")
+      alert("Supertonic 3 / ElevenLabs / 타입캐스트 보이스를 선택해주세요.")
       setSelectedVoiceId("elevenlabs-jB1Cifc2UQbq1gR3wnb0")
       return
     }
@@ -3394,34 +3309,6 @@ export default function AiShoppingVer2Page() {
           voiceId,
           lang: "ko",
           speed: resolveTtsSpeed("supertonic"),
-        })
-      } else if (selectedVoiceId?.startsWith("supertone-")) {
-        // 수퍼톤(Cloud)인 경우 — "supertonic-" 보다 뒤에서 분기
-        const voiceId = selectedVoiceId.replace("supertone-", "")
-        // WingsAIStudioShotForm 설정창에서만 API 키 가져오기
-        const supertoneApiKey = typeof window !== "undefined" 
-          ? (localStorage.getItem("shotform_supertone_api_key") || "").trim() 
-          : null
-        
-        if (!supertoneApiKey) {
-          alert("수퍼톤 API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
-          setIsGeneratingTTS(false)
-          return
-        }
-        
-        response = await fetch("/api/supertone-tts", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            text: ttsText,
-            voiceId: voiceId,
-            apiKey: supertoneApiKey,
-            style: selectedSupertoneStyle || "neutral",
-            language: "ko",
-            speed: resolveTtsSpeed("supertone"),
-          }),
         })
       } else if (selectedVoiceId?.startsWith("elevenlabs-")) {
         // ElevenLabs인 경우
@@ -8341,10 +8228,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
     setProductName(item.productName)
     setProductDescription(item.productDescription || "")
     setProductImage(item.productImageBase64)
-    setSelectedVoiceId(item.voiceId)
-    if (item.voiceId.startsWith("supertone-")) {
-      setSelectedSupertoneVoiceId(item.voiceId.replace("supertone-", ""))
-    }
+    setSelectedVoiceId(restorableVoiceId(item.voiceId))
     setShowFactoryView(false)
     setShowProjectList(false)
     setActiveStep("collect")
@@ -8387,12 +8271,10 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
           if (data.selectedVoiceId) {
             setSelectedVoiceId(
               data.selectedVoiceId.startsWith("ttsmaker-")
-                ? "elevenlabs-jB1Cifc2UQbq1gR3wnb0"
-                : data.selectedVoiceId
+                ? DEFAULT_VOICE_ID
+                : restorableVoiceId(data.selectedVoiceId)
             )
           }
-          if (data.selectedSupertoneVoiceId) setSelectedSupertoneVoiceId(data.selectedSupertoneVoiceId)
-          if (data.selectedSupertoneStyle) setSelectedSupertoneStyle(data.selectedSupertoneStyle)
           if (data.selectedTypecastVoiceId) setSelectedTypecastVoiceId(data.selectedTypecastVoiceId)
           if (data.selectedTypecastEmotion) setSelectedTypecastEmotion(data.selectedTypecastEmotion)
           setTtsAudioUrl(data.ttsAudioUrl && data.ttsAudioUrl.trim() ? data.ttsAudioUrl : "")
@@ -8443,8 +8325,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
           setProductName(item.productName)
           setProductDescription(item.productDescription || "")
           setProductImage(item.productImageBase64)
-          setSelectedVoiceId(item.voiceId)
-          if (item.voiceId.startsWith("supertone-")) setSelectedSupertoneVoiceId(item.voiceId.replace("supertone-", ""))
+          setSelectedVoiceId(restorableVoiceId(item.voiceId))
           setActiveStep("collect")
           setCurrentProject(null)
         }
@@ -8453,8 +8334,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
         setProductName(item.productName)
         setProductDescription(item.productDescription || "")
         setProductImage(item.productImageBase64)
-        setSelectedVoiceId(item.voiceId)
-        if (item.voiceId.startsWith("supertone-")) setSelectedSupertoneVoiceId(item.voiceId.replace("supertone-", ""))
+        setSelectedVoiceId(restorableVoiceId(item.voiceId))
         setActiveStep("collect")
         setCurrentProject(null)
       }
@@ -8462,8 +8342,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
       setProductName(item.productName)
       setProductDescription(item.productDescription || "")
       setProductImage(item.productImageBase64)
-      setSelectedVoiceId(item.voiceId)
-      if (item.voiceId.startsWith("supertone-")) setSelectedSupertoneVoiceId(item.voiceId.replace("supertone-", ""))
+      setSelectedVoiceId(restorableVoiceId(item.voiceId))
       setActiveStep("collect")
       setCurrentProject(null)
     }
@@ -8630,25 +8509,6 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
           lang: "ko",
           speed: resolveTtsSpeed("supertonic"),
         })
-      } else if (voiceId.startsWith("supertone-")) {
-        const sid = voiceId.replace("supertone-", "")
-        const supertoneKey = (localStorage.getItem("shotform_supertone_api_key") || "").trim()
-        if (!supertoneKey) {
-          updatePhase("tts", "failed", "수퍼톤 API 키가 없습니다.")
-          return
-        }
-        ttsResponse = await fetch("/api/supertone-tts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            text: ttsText,
-            voiceId: sid,
-            apiKey: supertoneKey,
-            style: "neutral",
-            language: "ko",
-            speed: resolveTtsSpeed("supertone"),
-          }),
-        })
       } else if (voiceId.startsWith("elevenlabs-")) {
         const eid = voiceId.replace("elevenlabs-", "")
         const elevenKey = (localStorage.getItem("shotform_elevenlabs_api_key") || "").trim()
@@ -8689,7 +8549,11 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
           }),
         })
       } else {
-        updatePhase("tts", "failed", "지원하지 않는 목소리입니다.")
+        updatePhase(
+          "tts",
+          "failed",
+          isRetiredSupertoneVoiceId(voiceId) ? RETIRED_SUPERTONE_MESSAGE : "지원하지 않는 목소리입니다."
+        )
         return
       }
       if (!ttsResponse.ok) {
@@ -9097,7 +8961,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
       case "collect":
         return (
           <div className="space-y-6">
-            <Card className="border border-white/10 rounded-2xl shadow-2xl bg-[#121316] overflow-hidden relative">
+            <Card className="border border-white/10 rounded-2xl shadow-2xl bg-[#fdfeff] overflow-hidden relative">
               <div className="absolute inset-0 bg-gradient-to-br from-orange-500/10 to-transparent"></div>
               <CardHeader className="pb-4 relative z-10 border-b border-white/10">
                 <div className="flex items-center gap-3">
@@ -9126,7 +8990,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                     variant="outline"
                     size="sm"
                     onClick={() => setActiveStep("keywordAnalysis")}
-                    className="border-white/15 bg-[#17191e] text-zinc-200 hover:bg-white/10"
+                    className="border-white/15 bg-[#fcffff] text-zinc-200 hover:bg-white/10"
                   >
                     <ArrowLeft className="mr-1 h-4 w-4" />
                     이전 · 키워드 분석
@@ -9693,7 +9557,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                     const slice = reviews.slice(start, end)
 
                     return (
-                      <div className="rounded-2xl border border-white/[0.08] bg-[#0b1220] p-4 space-y-3">
+                      <div className="rounded-2xl border border-white/[0.08] bg-[#f3feff] p-4 space-y-3">
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-300/75">
@@ -9734,7 +9598,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                                       onClick={() => setReviewListPage(n)}
                                       className={`h-8 min-w-8 px-2 rounded-md text-xs font-semibold transition-colors ${
                                         n === page
-                                          ? "bg-amber-400 text-[#0b1220]"
+                                          ? "bg-amber-400 text-[#f3feff]"
                                           : "bg-white/5 text-zinc-400 hover:bg-white/10"
                                       }`}
                                     >
@@ -9772,7 +9636,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                               return (
                                 <div
                                   key={index}
-                                  className="rounded-xl border border-white/[0.07] bg-[#121a28] px-3.5 py-3 space-y-2"
+                                  className="rounded-xl border border-white/[0.07] bg-[#f4ffff] px-3.5 py-3 space-y-2"
                                 >
                                   <div className="flex items-center justify-between gap-2">
                                     <p className="text-[13px] font-semibold text-amber-300">
@@ -9859,7 +9723,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                       <Button
                         onClick={() => setActiveStep("scriptJson")}
                         disabled={!canApplyInsights}
-                        className="w-full h-16 text-base md:text-lg bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 hover:from-amber-400 hover:via-orange-400 hover:to-amber-400 text-[#0b1220] font-extrabold rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 shadow-lg shadow-amber-500/40 hover:shadow-xl hover:shadow-amber-500/50"
+                        className="w-full h-16 text-base md:text-lg bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 hover:from-amber-400 hover:via-orange-400 hover:to-amber-400 text-[#f3feff] font-extrabold rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 shadow-lg shadow-amber-500/40 hover:shadow-xl hover:shadow-amber-500/50"
                         size="lg"
                       >
                         <Wand2 className="w-6 h-6 mr-2.5" />
@@ -9899,7 +9763,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
 
         return (
           <div className="space-y-6">
-            <Card className="border border-white/10 rounded-2xl shadow-2xl bg-[#121316] overflow-hidden relative">
+            <Card className="border border-white/10 rounded-2xl shadow-2xl bg-[#fdfeff] overflow-hidden relative">
               <div className="absolute inset-0 bg-gradient-to-br from-orange-500/10 to-transparent pointer-events-none" />
               <CardHeader className="pb-4 relative z-10 border-b border-white/10">
                 <div className="flex items-center gap-3">
@@ -9918,7 +9782,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
               </CardHeader>
               <CardContent className="relative z-10 py-5 space-y-5">
                 {/* 비주얼 포커스 — 대본 생성 전 필수 선택 */}
-                <div className="rounded-xl border border-white/10 bg-[#0b1220] overflow-hidden">
+                <div className="rounded-xl border border-white/10 bg-[#f3feff] overflow-hidden">
                   <div className="px-3.5 py-3 border-b border-white/[0.06]">
                     <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-sky-300/70">
                       Visual Focus
@@ -9948,7 +9812,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                             <span
                               className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
                                 on
-                                  ? "border-sky-300 bg-sky-400 text-[#062033]"
+                                  ? "border-sky-300 bg-sky-400 text-[#efffff]"
                                   : "border-zinc-600"
                               }`}
                             >
@@ -10009,7 +9873,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                       type="button"
                       onClick={() => void handleGenerateScript()}
                       disabled={isGeneratingScript || !productName.trim()}
-                      className="shrink-0 bg-emerald-500 hover:bg-emerald-400 text-[#04120a] font-bold shadow-lg shadow-emerald-500/30"
+                      className="shrink-0 bg-emerald-500 hover:bg-emerald-400 text-[#eafef2] font-bold shadow-lg shadow-emerald-500/30"
                       size="lg"
                     >
                       {isGeneratingScript ? (
@@ -10050,7 +9914,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                 </div>
 
                 {/* 템플릿 — 2열 그리드 */}
-                <div className="rounded-xl border border-white/10 bg-[#0b1220] overflow-hidden">
+                <div className="rounded-xl border border-white/10 bg-[#f3feff] overflow-hidden">
                   <div className="px-3.5 py-3 border-b border-white/[0.06] flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-300/70">
@@ -10093,7 +9957,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                             <span
                               className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
                                 on
-                                  ? "border-sky-300 bg-sky-400 text-[#062033]"
+                                  ? "border-sky-300 bg-sky-400 text-[#efffff]"
                                   : "border-zinc-600"
                               }`}
                             >
@@ -10127,7 +9991,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
 
                 <div className="grid grid-cols-1 gap-5">
                   {/* 워크스페이스 */}
-                  <div className="rounded-xl border border-white/10 bg-[#0b1220] overflow-hidden min-w-0">
+                  <div className="rounded-xl border border-white/10 bg-[#f3feff] overflow-hidden min-w-0">
                     <div className="px-4 py-3 border-b border-white/[0.06] flex flex-wrap items-center justify-between gap-2">
                       <div>
                         <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-300/70">
@@ -10152,7 +10016,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                           onClick={() =>
                             navigator.clipboard?.writeText(editedScript || script)
                           }
-                          className="h-8 border-white/15 bg-[#17191e] text-zinc-200 hover:bg-white/10 hover:text-white disabled:bg-[#111318] disabled:text-zinc-600"
+                          className="h-8 border-white/15 bg-[#fcffff] text-zinc-200 hover:bg-white/10 hover:text-white disabled:bg-[#fbfeff] disabled:text-zinc-600"
                         >
                           <Copy className="h-3.5 w-3.5 mr-1" />
                           복사
@@ -10265,7 +10129,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                                 return (
                                   <div
                                     key={scene.id}
-                                    className="rounded-xl border border-white/10 bg-[#121a28] p-3.5 space-y-3"
+                                    className="rounded-xl border border-white/10 bg-[#f4ffff] p-3.5 space-y-3"
                                   >
                                     <div className="flex items-center justify-end gap-2">
                                       <Button
@@ -10370,7 +10234,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                   <Button
                     variant="outline"
                     onClick={() => setActiveStep("collect")}
-                    className="flex-1 border-white/20 bg-[#17191e] text-zinc-100 hover:bg-white/10 hover:text-white hover:border-orange-400/50 font-semibold shadow-md transition-all"
+                    className="flex-1 border-white/20 bg-[#fcffff] text-zinc-100 hover:bg-white/10 hover:text-white hover:border-orange-400/50 font-semibold shadow-md transition-all"
                   >
                     <ArrowLeft className="w-4 h-4 mr-2" />
                     이전
@@ -10399,15 +10263,8 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
             editedScript={editedScript}
             selectedVoiceId={selectedVoiceId}
             setSelectedVoiceId={setSelectedVoiceId}
-            selectedSupertoneVoiceId={selectedSupertoneVoiceId}
-            setSelectedSupertoneVoiceId={setSelectedSupertoneVoiceId}
-            selectedSupertoneStyle={selectedSupertoneStyle}
-            setSelectedSupertoneStyle={setSelectedSupertoneStyle}
             customElevenLabsVoiceId={customElevenLabsVoiceId}
             setCustomElevenLabsVoiceId={setCustomElevenLabsVoiceId}
-            supertoneVoices={supertoneVoices}
-            isLoadingSupertoneVoices={isLoadingSupertoneVoices}
-            fetchSupertoneVoices={fetchSupertoneVoices}
             typecastVoices={typecastVoices}
             isLoadingTypecastVoices={isLoadingTypecastVoices}
             fetchTypecastVoices={fetchTypecastVoices}
@@ -10726,7 +10583,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
               <Button
                 variant="outline"
                 onClick={() => setActiveStep("thumbnail")}
-                className="flex-1 !border-orange-400/60 !bg-[#211711] !text-orange-100 font-semibold shadow-md transition-all hover:!border-orange-300 hover:!bg-[#322016] hover:!text-white"
+                className="flex-1 !border-orange-400/60 !bg-[#fffcf3] !text-orange-100 font-semibold shadow-md transition-all hover:!border-orange-300 hover:!bg-[#ffeee2] hover:!text-white"
               >
                 <ArrowLeft className="w-4 h-4 mr-2" />
                 이전 · 썸네일
@@ -10751,7 +10608,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
             icon={FileText}
             accent="amber"
           >
-            <Card className="border border-white/10 bg-[#121316]">
+            <Card className="border border-white/10 bg-[#fdfeff]">
               <CardHeader className="border-b border-white/10">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
@@ -10902,7 +10759,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                 type="button"
                 variant="outline"
                 onClick={() => setActiveStep("preview")}
-                className="flex-1 border-white/15 bg-[#17191e] text-zinc-200 hover:bg-white/10 hover:text-white"
+                className="flex-1 border-white/15 bg-[#fcffff] text-zinc-200 hover:bg-white/10 hover:text-white"
               >
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 이전 · AI영상편집
@@ -10983,7 +10840,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                   variant="outline"
                   size="sm"
                   onClick={() => setActiveStep("images")}
-                  className="border-white/15 bg-[#151b28] text-zinc-200 hover:bg-white/10"
+                  className="border-white/15 bg-[#f6ffff] text-zinc-200 hover:bg-white/10"
                 >
                   <ArrowLeft className="w-4 h-4 mr-1" />
                   이전
@@ -11022,7 +10879,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                     className={`shrink-0 rounded-xl border px-3 py-2 text-left transition ${
                       active
                         ? "border-amber-400/50 bg-amber-500/15 text-amber-100"
-                        : "border-white/10 bg-[#121316] text-zinc-400 hover:border-white/20"
+                        : "border-white/10 bg-[#fdfeff] text-zinc-400 hover:border-white/20"
                     }`}
                   >
                     <span className="block text-[10px] font-semibold uppercase tracking-wider opacity-70">
@@ -11050,7 +10907,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
             {/* 3패널 레이아웃 */}
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
               {/* Left: 프리뷰 */}
-              <div className="xl:col-span-5 rounded-2xl border border-white/10 bg-[#121316] p-4 space-y-3">
+              <div className="xl:col-span-5 rounded-2xl border border-white/10 bg-[#fdfeff] p-4 space-y-3">
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="text-sm font-semibold text-zinc-100">
                     <span className="text-amber-300">M{sceneIdx + 1}</span>{" "}
@@ -11179,7 +11036,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
               </div>
 
               {/* Middle: 컨트롤 */}
-              <div className="xl:col-span-4 rounded-2xl border border-white/10 bg-[#121316] p-4 space-y-4">
+              <div className="xl:col-span-4 rounded-2xl border border-white/10 bg-[#fdfeff] p-4 space-y-4">
                 <h3 className="text-sm font-semibold text-zinc-100">컨트롤 M{sceneIdx + 1}</h3>
 
                 <div className="flex gap-2">
@@ -11187,7 +11044,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="h-9 flex-1 border-white/15 bg-[#17191e] text-zinc-300 hover:bg-white/10 hover:text-white"
+                    className="h-9 flex-1 border-white/15 bg-[#fcffff] text-zinc-300 hover:bg-white/10 hover:text-white"
                     onClick={() => setSelectedVideoSlots(new Set())}
                   >
                     <X className="w-3.5 h-3.5 mr-1" />
@@ -11230,7 +11087,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="w-full border-white/15 bg-[#17191e] text-zinc-200 hover:bg-white/10 hover:text-white"
+                    className="w-full border-white/15 bg-[#fcffff] text-zinc-200 hover:bg-white/10 hover:text-white"
                     onClick={() => {
                       setEditingVideoPrompt(currentPrompt || sceneDialogue || "")
                       setShowVideoPromptEditor(true)
@@ -11302,7 +11159,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
               </div>
 
               {/* Right: 일괄 / 무료 */}
-              <div className="xl:col-span-3 rounded-2xl border border-white/10 bg-[#121316] p-4 space-y-3">
+              <div className="xl:col-span-3 rounded-2xl border border-white/10 bg-[#fdfeff] p-4 space-y-3">
                 <div className="rounded-xl border border-cyan-400/30 bg-cyan-500/10 p-3 space-y-3">
                   <label className="flex items-start gap-2.5 cursor-pointer">
                     <Checkbox
@@ -11384,7 +11241,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                 <Button
                   type="button"
                   variant="outline"
-                  className="w-full h-9 border-white/15 bg-[#17191e] text-zinc-300 hover:bg-white/10 hover:text-white text-xs"
+                  className="w-full h-9 border-white/15 bg-[#fcffff] text-zinc-300 hover:bg-white/10 hover:text-white text-xs"
                   disabled={
                     useImageZoomInsteadOfAiVideo ||
                     isBusyAny ||
@@ -11485,7 +11342,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
 
             {/* 프롬프트 편집 */}
             <Dialog open={showVideoPromptEditor} onOpenChange={setShowVideoPromptEditor}>
-              <DialogContent className="max-w-lg bg-[#121316] border-white/15 text-zinc-100">
+              <DialogContent className="max-w-lg bg-[#fdfeff] border-white/15 text-zinc-100">
                 <DialogHeader>
                   <DialogTitle>영상 프롬프트 · M{sceneIdx + 1}</DialogTitle>
                   <DialogDescription className="text-zinc-400">
@@ -11500,7 +11357,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                 <DialogFooter className="gap-2">
                   <Button
                     variant="outline"
-                    className="border-white/15 bg-[#17191e] text-zinc-200 hover:bg-white/10 hover:text-white"
+                    className="border-white/15 bg-[#fcffff] text-zinc-200 hover:bg-white/10 hover:text-white"
                     onClick={() => setShowVideoPromptEditor(false)}
                   >
                     취소
@@ -11525,7 +11382,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
 
             {/* Pixabay 동영상 */}
             <Dialog open={showPixabayVideoDialog} onOpenChange={setShowPixabayVideoDialog}>
-              <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto bg-[#121316] border-white/15 text-zinc-100">
+              <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto bg-[#fdfeff] border-white/15 text-zinc-100">
                 <DialogHeader>
                   <DialogTitle>Pixabay 무료 동영상</DialogTitle>
                   <DialogDescription className="text-zinc-400">
@@ -11605,7 +11462,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0b0d] relative overflow-hidden text-zinc-100">
+    <div className="min-h-screen bg-[#f5f7fa] relative overflow-hidden text-zinc-100">
       {/* 배경 글로우 */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none" aria-hidden>
         <div className="absolute -left-20 top-0 h-80 w-80 rounded-full bg-orange-500/15 blur-3xl" />
@@ -11752,7 +11609,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                     return (
                       <article
                         key={project.id}
-                        className={`group relative overflow-hidden rounded-2xl border bg-[#121316] transition hover:border-orange-400/40 ${
+                        className={`group relative overflow-hidden rounded-2xl border bg-[#fdfeff] transition hover:border-orange-400/40 ${
                           isRecent ? "border-orange-400/35" : "border-white/10"
                         }`}
                       >
@@ -11893,7 +11750,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
 
             {/* 새 프로젝트 생성 다이얼로그 */}
             <Dialog open={showCreateProjectDialog} onOpenChange={setShowCreateProjectDialog}>
-              <DialogContent className="border-white/10 bg-[#141518] text-zinc-100 shadow-2xl sm:max-w-lg">
+              <DialogContent className="border-white/10 bg-[#fdffff] text-zinc-100 shadow-2xl sm:max-w-lg">
                 <DialogHeader>
                   <DialogTitle className="flex items-center gap-2 text-xl font-bold text-zinc-50">
                     <div className="rounded-xl border border-orange-400/25 bg-orange-500/15 p-2">
@@ -11990,7 +11847,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                     disabled={isSavingProject}
                     className={
                       newProjectQualityMode === "high" && createProjectMode === "empty"
-                        ? "bg-[#9CAF3E] font-semibold text-black hover:bg-[#b0c44a]"
+                        ? "bg-[#9caf3e] font-semibold text-black hover:bg-[#b0c44a]"
                         : "bg-gradient-to-r from-orange-500 to-amber-500 font-semibold text-white hover:from-orange-400 hover:to-amber-400"
                     }
                   >
@@ -12014,7 +11871,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
       </div>
 
       {!showProjectList && (
-          <div className="fixed inset-0 z-20 flex bg-[#0a0b0d]">
+          <div className="fixed inset-0 z-20 flex bg-[#f5f7fa]">
             {/* 모바일: 사이드바 열릴 때 배경 딤 */}
             {mobileNavOpen ? (
               <button
@@ -12025,7 +11882,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
               />
             ) : null}
             <aside
-              className={`fixed inset-y-0 left-0 z-40 flex h-full w-[min(280px,86vw)] shrink-0 flex-col border-r border-white/10 bg-[#0c0d10] transition-transform duration-200 ease-out md:static md:z-auto md:w-[232px] md:translate-x-0 ${
+              className={`fixed inset-y-0 left-0 z-40 flex h-full w-[min(280px,86vw)] shrink-0 flex-col border-r border-white/10 bg-[#f5f7fb] transition-transform duration-200 ease-out md:static md:z-auto md:w-[232px] md:translate-x-0 ${
                 mobileNavOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full md:translate-x-0"
               }`}
             >
@@ -12143,7 +12000,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
               </div>
             </aside>
             <div className="flex min-w-0 flex-1 flex-col">
-              <header className="flex items-center justify-between gap-2 border-b border-white/10 bg-[#0a0b0d]/90 px-3 py-3 backdrop-blur-md sm:gap-3 sm:px-5">
+              <header className="flex items-center justify-between gap-2 border-b border-white/10 bg-[#f5f7fa]/90 px-3 py-3 backdrop-blur-md sm:gap-3 sm:px-5">
                 <div className="flex min-w-0 items-center gap-2">
                   <button
                     type="button"
@@ -12190,7 +12047,7 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                   </Button>
                 </div>
               </header>
-              <main className="flex-1 overflow-y-auto bg-[#0a0b0d] p-3 sm:p-5 md:p-8">
+              <main className="flex-1 overflow-y-auto bg-[#f5f7fa] p-3 sm:p-5 md:p-8">
                 {renderStepContent()}
               </main>
             </div>

@@ -149,7 +149,7 @@ export function AiShoppingThumbnailStep({
           <Button
             variant="outline"
             onClick={onBack}
-            className="border-white/15 bg-[#151b28] text-zinc-200 hover:bg-white/10"
+            className="border-white/15 bg-[#f6ffff] text-zinc-200 hover:bg-white/10"
           >
             <ArrowLeft className="mr-1.5 h-4 w-4" />
             이전
@@ -165,7 +165,7 @@ export function AiShoppingThumbnailStep({
       }
     >
       <div className="mx-auto grid w-full max-w-5xl grid-cols-1 gap-4 lg:grid-cols-2 lg:items-start">
-        <Card className="rounded-2xl border border-white/10 bg-[#121316] shadow-2xl">
+        <Card className="rounded-2xl border border-white/10 bg-[#fdfeff] shadow-2xl">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-sm text-zinc-100">
               <ImageIcon className="h-4 w-4 text-violet-400" />
@@ -241,7 +241,7 @@ export function AiShoppingThumbnailStep({
           </CardContent>
         </Card>
 
-        <Card className="rounded-2xl border border-violet-400/20 bg-[#121316] shadow-2xl">
+        <Card className="rounded-2xl border border-violet-400/20 bg-[#fdfeff] shadow-2xl">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-sm text-zinc-100">
               <Sparkles className="h-4 w-4 text-fuchsia-400" />

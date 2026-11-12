@@ -164,7 +164,7 @@ export function ShotFormEditorDialogShell({
       className={cn(
         "flex shrink-0 items-center justify-between border-b transition-[height,padding]",
         detailMode ? "h-10 px-2" : "h-14 px-4",
-        dark ? "border-white/10 bg-[#111114]" : "border-slate-200 bg-white"
+        dark ? "border-white/10 bg-[#fbfbff]" : "border-slate-200 bg-white"
       )}
     >
       <div className="flex min-w-0 items-center gap-3">
@@ -186,7 +186,7 @@ export function ShotFormEditorDialogShell({
           <p className={cn("truncate text-sm font-black", dark ? "text-white" : "text-slate-900")}>
             {title}
           </p>
-          <p className={cn("hidden text-[10px] sm:block", dark ? "text-slate-500" : "text-slate-400")}>
+          <p className={cn("hidden text-xs sm:block", dark ? "text-slate-500" : "text-slate-400")}>
             {autoHideChrome
               ? "상단을 터치하거나 가리키면 메뉴가 나타납니다 · Esc로 닫기"
               : "Esc를 눌러 닫을 수 있습니다."}
@@ -292,7 +292,7 @@ export function ShotFormEditorDialogShell({
       className={cn(
         "fixed inset-0 z-[100] h-[100dvh] max-h-[100dvh]",
         detailMode || autoHideChrome ? "p-0" : "p-0 sm:p-2 md:p-4",
-        dark ? "bg-black/70 backdrop-blur-[2px]" : "bg-[#f7f8fa]"
+        dark ? "bg-black/70 backdrop-blur-[2px]" : "light-keep bg-[#f7f8fa]"
       )}
       onWheel={(event) => event.stopPropagation()}
       onTouchStart={autoHideChrome ? revealChrome : undefined}
@@ -301,7 +301,7 @@ export function ShotFormEditorDialogShell({
         className={cn(
           "relative flex h-full min-h-0 flex-col overflow-hidden border",
           detailMode || autoHideChrome ? "rounded-none shadow-none" : "rounded-xl shadow-2xl",
-          dark ? "border-white/10 bg-[#09090b]" : "border-slate-200 bg-[#f7f8fa]"
+          dark ? "border-white/10 bg-[#f6f6fa]" : "border-slate-200 bg-[#f7f8fa]"
         )}
       >
         <EditorChromeSlotContext.Provider value={chromeSlotValue}>
@@ -326,7 +326,7 @@ export function ShotFormEditorDialogShell({
                   <div
                     className={cn(
                       "border-b px-3 py-2",
-                      dark ? "border-white/10 bg-[#111114]" : "border-slate-200 bg-white"
+                      dark ? "border-white/10 bg-[#fbfbff]" : "border-slate-200 bg-white"
                     )}
                   >
                     {chromeExtra}

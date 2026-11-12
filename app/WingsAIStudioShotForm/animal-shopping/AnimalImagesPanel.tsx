@@ -339,9 +339,9 @@ export function AnimalImagesPanel({
 
   if (sceneCount < 3) {
     return (
-      <div className="rounded-3xl border border-dashed border-[rgba(255,246,238,0.2)] bg-black/20 px-6 py-16 text-center">
-        <ImagePlus className="mx-auto h-10 w-10 text-[#6b7a6e]" />
-        <p className="mt-3 text-[#9aa89c]">대본 단계에서 씬을 먼저 만들어주세요.</p>
+      <div className="rounded-3xl border border-dashed border-[rgba(34,28,22,0.2)] bg-black/20 px-6 py-16 text-center">
+        <ImagePlus className="mx-auto h-10 w-10 text-[#657468]" />
+        <p className="mt-3 text-[#49554b]">대본 단계에서 씬을 먼저 만들어주세요.</p>
       </div>
     )
   }
@@ -351,13 +351,13 @@ export function AnimalImagesPanel({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="animal-bubble-chip inline-flex px-2.5 py-1 text-[10px]">IMAGES</p>
-          <h2 className="animal-display mt-2 text-xl font-bold text-[#fff6ee]">
+          <h2 className="animal-display mt-2 text-xl font-bold text-[#221c16]">
             스토리 컷 {sceneCount}장
           </h2>
-          <p className="mt-1 text-sm text-[#9aa89c]">
+          <p className="mt-1 text-sm text-[#49554b]">
             씬 칸이 먼저 보이고, 생성 시 프롬프트 → 이미지를 1컷씩 채웁니다. 실패하면 업로드로 대체하세요.
           </p>
-          <p className="mt-1 text-xs text-[#6b7a6e]">
+          <p className="mt-1 text-xs text-[#657468]">
             채움 {filledCount}/{sceneCount}
             {isGenerating && generatingIndex != null
               ? ` · 지금 ${generatingIndex + 1}번 생성 중`
@@ -382,7 +382,7 @@ export function AnimalImagesPanel({
       </div>
 
       {progress ? (
-        <p className="flex items-center gap-2 text-sm text-[#7dd3a8]">
+        <p className="flex items-center gap-2 text-sm text-[#005835]">
           <Loader2 className="h-4 w-4 animate-spin" />
           {progress}
         </p>
@@ -405,8 +405,8 @@ export function AnimalImagesPanel({
               onClick={() => setSelectedIndex(index)}
               className={`relative aspect-[9/16] overflow-hidden rounded-xl border ${
                 selectedIndex === index
-                  ? "border-[#7dd3a8] ring-2 ring-[#7dd3a8]/40"
-                  : "border-[rgba(255,246,238,0.12)]"
+                  ? "border-[#005835] ring-2 ring-[#005835]/40"
+                  : "border-[rgba(34,28,22,0.12)]"
               }`}
             >
               {images[index] ? (
@@ -417,9 +417,9 @@ export function AnimalImagesPanel({
                   className="h-full w-full object-cover"
                 />
               ) : (
-                <div className="flex h-full flex-col items-center justify-center gap-2 bg-black/40 px-2 text-center text-xs text-[#6b7a6e]">
+                <div className="flex h-full flex-col items-center justify-center gap-2 bg-black/40 px-2 text-center text-xs text-[#657468]">
                   {generatingIndex === index ? (
-                    <Loader2 className="h-5 w-5 animate-spin text-[#7dd3a8]" />
+                    <Loader2 className="h-5 w-5 animate-spin text-[#005835]" />
                   ) : null}
                   <span>{ANIMAL_SCENE_LABELS[scene.type]}</span>
                 </div>
@@ -431,9 +431,9 @@ export function AnimalImagesPanel({
           ))}
         </div>
 
-        <div className="space-y-3 rounded-2xl border border-[rgba(255,246,238,0.12)] bg-black/25 p-4">
+        <div className="space-y-3 rounded-2xl border border-[rgba(34,28,22,0.12)] bg-black/25 p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="font-semibold text-[#fff6ee]">
+            <p className="font-semibold text-[#221c16]">
               씬 {selectedIndex + 1}
               {scenes[selectedIndex]
                 ? ` · ${ANIMAL_SCENE_LABELS[scenes[selectedIndex].type]}`
@@ -464,19 +464,19 @@ export function AnimalImagesPanel({
           </div>
 
           {scenes[selectedIndex]?.narration ? (
-            <p className="text-sm text-[#9aa89c]">{scenes[selectedIndex].narration}</p>
+            <p className="text-sm text-[#49554b]">{scenes[selectedIndex].narration}</p>
           ) : null}
 
           <div className="space-y-1.5">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-xs font-semibold text-[#9aa89c]">이미지 프롬프트</p>
+              <p className="text-xs font-semibold text-[#49554b]">이미지 프롬프트</p>
               <Button
                 type="button"
                 size="sm"
                 variant="ghost"
                 disabled={!prompts[selectedIndex]?.prompt?.trim()}
                 onClick={() => void copyPrompt()}
-                className="h-7 px-2 text-xs text-[#7dd3a8] hover:bg-[#7dd3a8]/10 hover:text-[#a7f3c8]"
+                className="h-7 px-2 text-xs text-[#005835] hover:bg-[#7dd3a8]/10 hover:text-[#003d1d]"
               >
                 {copied ? (
                   <>
@@ -500,11 +500,11 @@ export function AnimalImagesPanel({
                   ? "프롬프트 작성 중…"
                   : "이미지 프롬프트 (생성 후 수정·복사 가능)"
               }
-              className="border-[rgba(243,235,224,0.12)] bg-black/35 text-sm text-[#f3ebe0]"
+              className="border-[rgba(41,36,27,0.12)] bg-black/35 text-sm text-[#29241b]"
             />
           </div>
 
-          <div className="relative mx-auto aspect-[9/16] max-h-[420px] w-full max-w-[260px] overflow-hidden rounded-xl border border-[rgba(255,246,238,0.12)] bg-black/40">
+          <div className="relative mx-auto aspect-[9/16] max-h-[420px] w-full max-w-[260px] overflow-hidden rounded-xl border border-[rgba(34,28,22,0.12)] bg-black/40">
             {images[selectedIndex] ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -517,12 +517,12 @@ export function AnimalImagesPanel({
                 type="button"
                 disabled={isGenerating && generatingIndex === selectedIndex}
                 onClick={() => uploadRef.current?.click()}
-                className="flex h-full w-full flex-col items-center justify-center gap-2 px-4 text-center text-sm text-[#6b7a6e] hover:bg-white/[0.03]"
+                className="flex h-full w-full flex-col items-center justify-center gap-2 px-4 text-center text-sm text-[#657468] hover:bg-white/[0.03]"
               >
                 {generatingIndex === selectedIndex ? (
                   <>
-                    <Loader2 className="h-6 w-6 animate-spin text-[#7dd3a8]" />
-                    <span className="text-[#7dd3a8]">생성 중…</span>
+                    <Loader2 className="h-6 w-6 animate-spin text-[#005835]" />
+                    <span className="text-[#005835]">생성 중…</span>
                   </>
                 ) : (
                   <>

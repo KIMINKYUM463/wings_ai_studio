@@ -179,7 +179,7 @@ export function InfoCardFrame({
 
       {/* 종이 카드 */}
       <div
-        className="absolute inset-[4.5%] flex flex-col overflow-hidden rounded-[4.2cqw] shadow-[0_12px_40px_rgba(0,0,0,0.18)]"
+        className="absolute inset-[4.5%] flex flex-col overflow-hidden rounded-[4.2cqw] shadow-[0_12px_40px_rgba(20,35,70,0.063)]"
         style={{ background: cardBg }}
       >
         {/* 상단 컬러 바 */}

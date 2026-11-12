@@ -156,7 +156,7 @@ export default function WingsChatbotPage() {
   }
 
   return (
-    <div className="wings-chat-page relative min-h-screen overflow-hidden bg-[#0a0b0d] text-zinc-100">
+    <div className="wings-chat-page relative min-h-screen overflow-hidden bg-[#f5f7fa] text-zinc-100">
       {/* 배경 글로우 */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
         <div className="absolute -left-20 top-0 h-80 w-80 rounded-full bg-emerald-500/10 blur-3xl wings-chat-orb" />
@@ -219,7 +219,7 @@ export default function WingsChatbotPage() {
         </div>
 
         {/* 채팅 패널 */}
-        <div className="wings-chat-panel overflow-hidden rounded-3xl border border-white/[0.08] bg-[#0e0f12]/85 shadow-[0_0_60px_-20px_rgba(16,185,129,0.25)] backdrop-blur-md">
+        <div className="wings-chat-panel overflow-hidden rounded-3xl border border-white/[0.08] bg-[#f7f9fe]/85 shadow-[0_0_60px_-20px_rgba(16,185,129,0.25)] backdrop-blur-md">
           <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-3.5 md:px-6">
             <div className="flex items-center gap-2.5">
               <span className="relative flex h-8 w-8 items-center justify-center">

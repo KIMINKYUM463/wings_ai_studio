@@ -1,5 +1,6 @@
 "use client"
 
+import { CheckSquare, Film, Square } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import type { SceneAsset } from "@/lib/longform-v2/project-storage"
 import {
@@ -67,7 +68,7 @@ export function AiMotionVideoBatchModal({ open, onClose, scenes, onConfirm }: Pr
         aria-labelledby="lfv2-motion-batch-title"
       >
         <header className="dm-batch-head">
-          <h3 id="lfv2-motion-batch-title">🎞 AI 영상 일괄 생성</h3>
+          <h3 id="lfv2-motion-batch-title"><Film className="lfv2-ico lfv2-ico--lead" aria-hidden />AI 영상 일괄 생성</h3>
           <button type="button" className="dm-close" aria-label="닫기" onClick={onClose}>
             ×
           </button>
@@ -110,7 +111,7 @@ export function AiMotionVideoBatchModal({ open, onClose, scenes, onConfirm }: Pr
           className="dm-batch-deselect"
           onClick={() => setSelected(allOn ? new Set() : new Set(selectable))}
         >
-          {allOn ? "☑ 전체 해제" : "☐ 선택 가능 장면 전체 선택"}
+          {allOn ? <><CheckSquare className="lfv2-ico lfv2-ico--lead" aria-hidden />전체 해제</> : <><Square className="lfv2-ico lfv2-ico--lead" aria-hidden />선택 가능 장면 전체 선택</>}
         </button>
 
         <ul className="dm-batch-list dm-motion-batch-scenes" style={{ maxHeight: "40vh", overflow: "auto" }}>

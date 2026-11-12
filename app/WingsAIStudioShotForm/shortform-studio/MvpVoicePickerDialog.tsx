@@ -9,8 +9,10 @@ import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { voiceAvatarFallbackColor } from "@/lib/shotform-factory-tts"
 import {
+  DEFAULT_TTS_PROVIDER,
   TTS_PROVIDER_META,
   TTS_PROVIDER_ORDER,
+  TTS_PROVIDER_SUMMARY,
   buildTtsVoiceKey,
   customTtsVoiceLabel,
   defaultStyleForTtsVoice,
@@ -84,7 +86,7 @@ export function MvpVoicePickerDialog({
   onPreviewVoice,
   previewingVoiceId,
 }: Props) {
-  const [provider, setProvider] = useState<TtsProviderId>("supertone")
+  const [provider, setProvider] = useState<TtsProviderId>(DEFAULT_TTS_PROVIDER)
   const [query, setQuery] = useState("")
   const [draftVoiceId, setDraftVoiceId] = useState(selectedVoiceId)
   const [draftStyle, setDraftStyle] = useState(voiceStyle)
@@ -96,7 +98,7 @@ export function MvpVoicePickerDialog({
 
   useEffect(() => {
     if (!open) return
-    const p = initialProvider ?? ttsProviderFromVoiceId(selectedVoiceId) ?? "supertone"
+    const p = initialProvider ?? ttsProviderFromVoiceId(selectedVoiceId) ?? DEFAULT_TTS_PROVIDER
     setProvider(p)
     setDraftVoiceId(selectedVoiceId)
     setDraftStyle(voiceStyle)
@@ -178,7 +180,7 @@ export function MvpVoicePickerDialog({
       <DialogPortal>
         <DialogOverlay className="fixed inset-0 z-[180] bg-black/85 backdrop-blur-[2px]" />
         <DialogPrimitive.Content
-          className="fixed left-1/2 top-1/2 z-[181] flex max-h-[min(90vh,720px)] w-[min(96vw,560px)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0c0f16] shadow-2xl outline-none"
+          className="fixed left-1/2 top-1/2 z-[181] flex max-h-[min(90vh,720px)] w-[min(96vw,560px)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#f4f9ff] shadow-2xl outline-none"
           onInteractOutside={(e) => e.preventDefault()}
         >
           <DialogTitle className="sr-only">나레이션 목소리 선택</DialogTitle>
@@ -190,7 +192,7 @@ export function MvpVoicePickerDialog({
               </span>
               <div>
                 <p className="text-sm font-semibold text-white">나레이션 캐릭터</p>
-                <p className="text-[10px] text-slate-500">수퍼톤 · Supertonic 3 · ElevenLabs · 타입캐스트</p>
+                <p className="text-[10px] text-slate-500">{TTS_PROVIDER_SUMMARY}</p>
               </div>
             </div>
             <button
@@ -396,7 +398,7 @@ export function MvpVoicePickerDialog({
                         <div className="relative">
                           <VoiceAvatar voice={voice} size="md" />
                           {selected ? (
-                            <span className="absolute -bottom-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-white ring-2 ring-[#0c0f16]">
+                            <span className="absolute -bottom-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-white ring-2 ring-[#f4f9ff]">
                               <Check className="h-3 w-3" />
                             </span>
                           ) : null}
@@ -432,7 +434,7 @@ export function MvpVoicePickerDialog({
             )}
           </div>
 
-          <footer className="flex items-center justify-end gap-2 border-t border-white/[0.08] bg-[#0a0d14] px-4 py-3">
+          <footer className="flex items-center justify-end gap-2 border-t border-white/[0.08] bg-[#f2f7ff] px-4 py-3">
             <Button type="button" variant="ghost" className="h-9 text-xs text-slate-400" onClick={() => onOpenChange(false)}>
               취소
             </Button>

@@ -563,7 +563,7 @@ function ProductSearchAnalyzingOverlay({ stepIndex }: { stepIndex: number }) {
   const label = ANALYSIS_LOADING_STEPS[stepIndex % ANALYSIS_LOADING_STEPS.length]
   return (
     <div
-      className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-8 rounded-2xl border border-cyan-500/20 bg-gradient-to-b from-[#0c1525]/95 via-[#080d18]/98 to-[#060a12]/95 px-6 py-16 text-center shadow-[0_0_60px_rgba(34,211,238,0.08)] backdrop-blur-md"
+      className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-8 rounded-2xl border border-cyan-500/20 bg-gradient-to-b from-[#f4ffff]/95 via-[#eef7ff]/98 to-[#f0f7ff]/95 px-6 py-16 text-center shadow-[0_0_60px_rgba(34,211,238,0.08)] backdrop-blur-md"
       role="status"
       aria-live="polite"
       aria-busy="true"
@@ -1260,7 +1260,7 @@ export function ProductUrlSearchView({ backHref, backLabel = "프로젝트로", 
       {mixPicks.length > 0 ? (
         <div
           className={cn(
-            "fixed bottom-0 right-0 z-[45] border-t border-slate-800 bg-[#070b14]/95 px-4 py-3 shadow-[0_-8px_30px_rgba(0,0,0,0.45)] backdrop-blur-md sm:px-6",
+            "fixed bottom-0 right-0 z-[45] border-t border-slate-800 bg-[#f0f7ff]/95 px-4 py-3 shadow-[0_-8px_30px_rgba(20,35,70,0.158)] backdrop-blur-md sm:px-6",
             embedded ? "left-[268px]" : "left-0"
           )}
         >

@@ -9,6 +9,7 @@ import {
   type AnimalCharacter,
 } from "./animal-character"
 import type { ShoppingProjectData } from "./project-actions"
+import { isRetiredSupertoneVoiceId } from "@/lib/shotform-tts-providers"
 
 /** 정보/AI 쇼핑과 동일: 10~60초, 5초 단위 */
 export function clampAnimalDuration(sec: number | undefined | null): number {
@@ -70,7 +71,7 @@ export function briefFromProjectData(data?: ShoppingProjectData | null): AnimalS
 
   if (data.animalBrief) {
     const scenes = data.animalBrief.scenes || []
-    return {
+    return withoutRetiredVoice({
       ...empty,
       ...data.animalBrief,
       character: data.animalBrief.character || empty.character,
@@ -86,11 +87,11 @@ export function briefFromProjectData(data?: ShoppingProjectData | null): AnimalS
         ...DEFAULT_ANIMAL_SUBTITLE_STYLE,
         ...(data.animalBrief.subtitleStyle || {}),
       },
-    }
+    })
   }
 
   const character: AnimalCharacter = data.animalCharacter || createDefaultAnimalCharacter()
-  return {
+  return withoutRetiredVoice({
     ...empty,
     character,
     videoDuration: clampAnimalDuration(data.videoDuration),
@@ -137,7 +138,12 @@ export function briefFromProjectData(data?: ShoppingProjectData | null): AnimalS
           }
         : {}),
     },
-  }
+  })
+}
+
+function withoutRetiredVoice(brief: AnimalShoppingBrief): AnimalShoppingBrief {
+  if (!isRetiredSupertoneVoiceId(brief.selectedVoiceId)) return brief
+  return { ...brief, selectedVoiceId: "", selectedStyle: "normal" }
 }
 
 export function flatFieldsFromBrief(brief: AnimalShoppingBrief): Partial<ShoppingProjectData> {

@@ -642,7 +642,7 @@ export function StorySmartMashupPanel({
 
   return (
     <div className="space-y-4">
-      <section className="rounded-[28px] border border-emerald-400/25 bg-gradient-to-br from-[#0b1210] to-[#0a0c0b] p-5">
+      <section className="rounded-[28px] border border-emerald-400/25 bg-gradient-to-br from-[#f3fdfa] to-[#f4f8f6] p-5">
         <div className="flex items-center gap-2 text-[9px] font-black tracking-[0.18em] text-emerald-300">
           <Wand2 className="h-4 w-4" />
           SMART MASHUP · 끝판왕 모드
@@ -818,7 +818,7 @@ export function StorySmartMashupPanel({
         ) : null}
       </section>
 
-      <section className="rounded-[24px] border border-white/10 bg-[#0d0d0c] p-4">
+      <section className="rounded-[24px] border border-white/10 bg-[#f7f7f5] p-4">
         <div className="mb-3 flex items-center gap-2 text-[9px] font-black tracking-[0.16em] text-zinc-500">
           <Film className="h-3.5 w-3.5" />
           담아둔 소재 풀
@@ -865,7 +865,7 @@ export function StorySmartMashupPanel({
       </section>
 
       <Dialog open={popupOpen} onOpenChange={setPopupOpen}>
-        <DialogContent className="flex h-[min(92vh,900px)] w-[min(96vw,1440px)] !max-w-[min(96vw,1440px)] flex-col gap-0 overflow-hidden border-white/10 bg-[#0c0e10] p-0 text-zinc-100 sm:!max-w-[min(96vw,1440px)]">
+        <DialogContent className="flex h-[min(92vh,900px)] w-[min(96vw,1440px)] !max-w-[min(96vw,1440px)] flex-col gap-0 overflow-hidden border-white/10 bg-[#f5f8fb] p-0 text-zinc-100 sm:!max-w-[min(96vw,1440px)]">
           <DialogHeader className="shrink-0 border-b border-white/10 px-6 py-4 pr-12 text-left">
             <DialogTitle className="flex items-center gap-2 text-base font-black">
               <Clapperboard className="h-5 w-5 text-emerald-300" />
@@ -1031,7 +1031,7 @@ export function StorySmartMashupPanel({
           </div>
 
           {/* 장바구니 바 */}
-          <div className="shrink-0 border-t border-white/10 bg-[#0a0c0e] px-6 py-3">
+          <div className="shrink-0 border-t border-white/10 bg-[#f4f7fa] px-6 py-3">
             <div className="flex flex-wrap items-center gap-3">
               <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
                 <ShoppingCart className="h-4 w-4 shrink-0 text-emerald-300" />

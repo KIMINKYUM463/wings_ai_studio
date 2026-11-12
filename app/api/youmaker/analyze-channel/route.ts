@@ -18,6 +18,12 @@ interface AnalyzedVideo {
   baselineViewCount: number
 }
 
+/** 평균 대비 비율(1=평균)을 0~100 점수로 변환. 1→50, 4→약 90, 0.25→약 10 */
+function ratioToScore(ratio: number): number {
+  if (!(ratio > 0)) return 0
+  return 100 / (1 + Math.pow(ratio, -1.6))
+}
+
 function parseIsoDuration(duration: string): number {
   const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/)
   if (!match) return 0
@@ -122,15 +128,12 @@ async function getChannelData(channelId: string, youtubeApiKey: string): Promise
 
   const videosData = await videosResponse.json()
 
-  const rawVideos: Omit<AnalyzedVideo, "mutationX" | "baselineViewCount">[] = (
+  const rawVideos: Omit<AnalyzedVideo, "mutationX" | "baselineViewCount" | "popularityScore">[] = (
     videosData.items || []
   ).map((v: any) => {
     const views = parseInt(v.statistics.viewCount || "0", 10)
     const likes = parseInt(v.statistics.likeCount || "0", 10)
     const comments = parseInt(v.statistics.commentCount || "0", 10)
-
-    // 인기 점수 계산 (유메이커 알고리즘)
-    const score = Math.min((views / 10000) * 0.6 + (likes / 100) * 0.3 + (comments / 10) * 0.1, 100)
 
     return {
       title: v.snippet.title,
@@ -138,7 +141,6 @@ async function getChannelData(channelId: string, youtubeApiKey: string): Promise
       likeCount: likes,
       commentCount: comments,
       publishedAt: v.snippet.publishedAt,
-      popularityScore: Math.round(score * 100) / 100, // 소수점 2자리
       videoId: v.id,
       thumbnailUrl: v.snippet.thumbnails?.high?.url || v.snippet.thumbnails?.medium?.url || v.snippet.thumbnails?.default?.url || "",
       description: v.snippet.description || "",
@@ -155,19 +157,31 @@ async function getChannelData(channelId: string, youtubeApiKey: string): Promise
     ? baselineVideos.reduce((sum, video) => sum + video.viewCount, 0) /
       baselineVideos.length
     : 1
+  const engagementRate = (v: { viewCount: number; likeCount: number; commentCount: number }) =>
+    (v.likeCount + v.commentCount * 3) / Math.max(1, v.viewCount)
+  const baselineEngagement = baselineVideos.length
+    ? baselineVideos.reduce((sum, video) => sum + engagementRate(video), 0) / baselineVideos.length
+    : 0
+
   const videos: AnalyzedVideo[] = rawVideos
-    .map((video) => ({
-      ...video,
-      baselineViewCount: Math.round(baselineViewCount),
-      mutationX:
-        Math.round((video.viewCount / Math.max(1, baselineViewCount)) * 100) / 100,
-    }))
+    .map((video) => {
+      const viewRatio = video.viewCount / Math.max(1, baselineViewCount)
+      const engagementRatio = baselineEngagement > 0 ? engagementRate(video) / baselineEngagement : 1
+      // 채널 평균 대비 비율 → 0~100 (평균=50, 4배≈90, 1/4≈10). 조회수 80% · 참여율 20%
+      const score = 0.8 * ratioToScore(viewRatio) + 0.2 * ratioToScore(engagementRatio)
+      return {
+        ...video,
+        baselineViewCount: Math.round(baselineViewCount),
+        mutationX: Math.round(viewRatio * 100) / 100,
+        popularityScore: Math.round(score * 10) / 10,
+      }
+    })
     .sort((a, b) => b.viewCount - a.viewCount)
 
   // 채널 메타데이터 계산
   const channelPublishedAt = channel.snippet.publishedAt || ""
-  const firstVideo = videos.length > 0 ? videos[videos.length - 1] : null // 가장 오래된 영상
-  const recentVideos = videos.slice(0, 10) // 최근 10개 영상
+  const firstVideo = latestVideos.length > 0 ? latestVideos[latestVideos.length - 1] : null // 가져온 영상 중 가장 오래된 영상
+  const recentVideos = latestVideos.slice(0, 10) // 최근 10개 영상
 
   // 평균 업로드 주기 계산 (최근 10개 영상 기준)
   let averageDays = 0

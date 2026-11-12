@@ -325,7 +325,7 @@ export function StoryProductSearchPanel({
   const selectedVideo = brief.winningContent
 
   return (
-    <section className="relative overflow-hidden rounded-[30px] border border-orange-400/15 bg-[linear-gradient(145deg,#15130f_0%,#0d0d0c_48%,#12100e_100%)] shadow-[0_28px_90px_rgba(0,0,0,0.45)]">
+    <section className="relative overflow-hidden rounded-[30px] border border-orange-400/15 bg-[linear-gradient(145deg,#fbfaf7_0%,#ffffff_48%,#faf8f5_100%)] shadow-[0_28px_90px_rgba(20,35,70,0.158)]">
       <div className="pointer-events-none absolute -right-32 -top-40 h-80 w-80 rounded-full bg-orange-500/[0.08] blur-3xl" />
       <div className="pointer-events-none absolute -left-32 top-64 h-72 w-72 rounded-full bg-cyan-500/[0.04] blur-3xl" />
       <div className="relative grid gap-6 border-b border-white/[0.08] p-6 md:p-8 lg:grid-cols-[1fr_auto] lg:items-center">
@@ -356,7 +356,7 @@ export function StoryProductSearchPanel({
 
       {selectedVideo ? (
         <div className="relative grid gap-4 border-b border-white/[0.08] p-5 md:p-6 lg:grid-cols-[320px_1fr]">
-          <div className="rounded-2xl border border-white/10 bg-black/30 p-3 shadow-xl">
+          <div className="rounded-2xl border border-white/10 bg-[#fff]/80 p-3 shadow-xl">
             <div className="relative aspect-video overflow-hidden rounded-xl bg-black">
               <img
                 src={selectedVideo.thumbnailUrl}
@@ -364,7 +364,7 @@ export function StoryProductSearchPanel({
                 className="h-full w-full object-cover"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-transparent" />
-              <span className="absolute bottom-2 left-2 rounded-md border border-white/15 bg-black/65 px-2 py-1 text-[9px] font-black text-white backdrop-blur">
+              <span className="absolute bottom-2 left-2 rounded-md border border-white/15 bg-[#fff]/80 px-2 py-1 text-[9px] font-black text-white backdrop-blur">
                 분석 원본 영상
               </span>
             </div>
@@ -425,7 +425,7 @@ export function StoryProductSearchPanel({
                     {analysis.evidence.map((evidence) => (
                       <span
                         key={evidence}
-                        className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-1.5 text-[9px] text-zinc-300"
+                        className="rounded-lg border border-white/10 bg-[#fff]/80 px-2.5 py-1.5 text-[9px] text-zinc-300"
                       >
                         {evidence}
                       </span>
@@ -493,7 +493,7 @@ export function StoryProductSearchPanel({
                         alt={tag.title}
                         className="h-full w-full object-cover transition duration-300 group-hover/tag-image:scale-105"
                       />
-                      <span className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition group-hover/tag-image:bg-black/35 group-hover/tag-image:opacity-100">
+                      <span className="absolute inset-0 flex items-center justify-center bg-[#fff]/80 opacity-0 transition group-hover/tag-image:bg-[#fff]/80 group-hover/tag-image:opacity-100">
                         <ZoomIn className="h-5 w-5 text-white" />
                       </span>
                     </button>
@@ -512,7 +512,7 @@ export function StoryProductSearchPanel({
                     ) : null}
                   </div>
                 </div>
-                <div className="flex gap-2 border-t border-white/10 bg-black/20 p-2">
+                <div className="flex gap-2 border-t border-white/10 bg-[#fff]/80 p-2">
                   {tag.url && /coupang\.com/i.test(tag.url) ? (
                     <a
                       href={tag.url}
@@ -544,8 +544,8 @@ export function StoryProductSearchPanel({
         </div>
       ) : null}
 
-      <div className="relative bg-black/[0.12] p-5 md:p-7">
-        <div className="rounded-2xl border border-white/10 bg-black/25 p-2 shadow-2xl backdrop-blur">
+      <div className="relative bg-[#fff]/80 p-5 md:p-7">
+        <div className="rounded-2xl border border-white/10 bg-[#fff]/80 p-2 shadow-2xl backdrop-blur">
           <div className="flex flex-col gap-2 sm:flex-row">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
@@ -640,11 +640,11 @@ export function StoryProductSearchPanel({
                       alt={product.productName}
                       className="h-full w-full object-cover transition duration-300 group-hover/image:scale-105"
                     />
-                    <span className="absolute left-1.5 top-1.5 flex h-6 min-w-6 items-center justify-center rounded-md border border-white/20 bg-black/70 px-1.5 text-[9px] font-black text-white backdrop-blur">
+                    <span className="absolute left-1.5 top-1.5 flex h-6 min-w-6 items-center justify-center rounded-md border border-white/20 bg-[#fff]/80 px-1.5 text-[9px] font-black text-white backdrop-blur">
                       {index < 3 ? <Crown className="mr-0.5 h-3 w-3 text-amber-300" /> : null}
                       {product.rank || index + 1}
                     </span>
-                    <span className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition group-hover/image:bg-black/35 group-hover/image:opacity-100">
+                    <span className="absolute inset-0 flex items-center justify-center bg-[#fff]/80 opacity-0 transition group-hover/image:bg-[#fff]/80 group-hover/image:opacity-100">
                       <ZoomIn className="h-6 w-6 text-white" />
                     </span>
                   </button>
@@ -660,7 +660,7 @@ export function StoryProductSearchPanel({
                     ) : null}
                   </div>
                 </div>
-                <div className="flex gap-2 border-t border-white/[0.08] bg-black/20 p-2">
+                <div className="flex gap-2 border-t border-white/[0.08] bg-[#fff]/80 p-2">
                   <a
                     href={product.productUrl}
                     target="_blank"
@@ -710,7 +710,7 @@ export function StoryProductSearchPanel({
           if (!open) setPreviewImage(null)
         }}
       >
-        <DialogContent className="max-w-3xl border-white/15 bg-[#11100e] p-4 text-white">
+        <DialogContent className="max-w-3xl border-white/15 bg-[#fcfaf7] p-4 text-white">
           <DialogTitle className="pr-8 text-base font-black">
             {previewImage?.title}
           </DialogTitle>

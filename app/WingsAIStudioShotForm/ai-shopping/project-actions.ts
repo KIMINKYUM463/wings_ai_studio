@@ -155,8 +155,6 @@ export interface ShoppingProjectData {
   storyboardScenes?: StoryboardScene[]
 
   selectedVoiceId?: string
-  selectedSupertoneVoiceId?: string
-  selectedSupertoneStyle?: string
   selectedTypecastVoiceId?: string
   selectedTypecastEmotion?: string
   ttsAudioUrl?: string

@@ -1,5 +1,6 @@
 "use client"
 
+import { AudioLines, ImageIcon, Settings } from "lucide-react"
 import { useEffect, useState } from "react"
 import type { LongformV2Project } from "@/lib/longform-v2/project-storage"
 import { IMAGE_MODEL_GROUPS } from "@/lib/longform-v2/image-styles"
@@ -29,7 +30,6 @@ type Props = {
 const ENGINE_LABEL: Record<LongformV2Project["ttsEngine"], string> = {
   supertonic: "Supertonic 3",
   elevenlabs: "ElevenLabs",
-  supertone: "Supertone",
 }
 
 function modelLabel(id: string): string {
@@ -103,7 +103,7 @@ export function WorkSettingsModal({
         aria-labelledby="lfv2-settings-title"
       >
         <header className="dm-settings-head">
-          <h3 id="lfv2-settings-title">⚙ 설정</h3>
+          <h3 id="lfv2-settings-title"><Settings className="lfv2-ico lfv2-ico--lead" aria-hidden />설정</h3>
           <button type="button" className="dm-close" aria-label="닫기" onClick={onClose}>
             ×
           </button>
@@ -125,7 +125,7 @@ export function WorkSettingsModal({
         </section>
 
         <section className="dm-settings-section">
-          <h4>🖼 이미지 (요약)</h4>
+          <h4><ImageIcon className="lfv2-ico lfv2-ico--lead" aria-hidden />이미지 (요약)</h4>
           <p className="dm-muted dm-settings-hint">
             이미지 모델·스타일은 「이미지 스타일」 탭에서 고릅니다. WingsStudio v2와 같습니다.
           </p>
@@ -137,10 +137,10 @@ export function WorkSettingsModal({
         </section>
 
         <section className="dm-settings-section">
-          <h4>🔊 TTS 설정</h4>
+          <h4><AudioLines className="lfv2-ico lfv2-ico--lead" aria-hidden />TTS 설정</h4>
           <p className="dm-muted dm-settings-hint">
-            「AI 음성·이미지 생성」과 동일한 엔진·목소리입니다. Supertonic 3(로컬), ElevenLabs,
-            Supertone을 고를 수 있습니다.
+            「AI 음성·이미지 생성」과 동일한 엔진·목소리입니다. Supertonic 3(로컬), ElevenLabs를
+            고를 수 있습니다.
           </p>
 
           <label className="dm-field">
@@ -162,7 +162,6 @@ export function WorkSettingsModal({
                 [
                   ["supertonic", "Supertonic 3"],
                   ["elevenlabs", "ElevenLabs"],
-                  ["supertone", "Supertone"],
                 ] as const
               ).map(([id, label]) => (
                 <button

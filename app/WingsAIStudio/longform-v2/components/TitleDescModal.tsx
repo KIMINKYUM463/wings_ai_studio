@@ -55,7 +55,7 @@ export function TitleDescModal({
     >
       <div className="dm-title-modal" role="dialog" aria-modal="true" aria-labelledby="lfv2-title-desc-title">
         <header className="dm-batch-head">
-          <h3 id="lfv2-title-desc-title">✨ 제목/설명 생성</h3>
+          <h3 id="lfv2-title-desc-title"><Sparkles className="lfv2-ico lfv2-ico--lead" aria-hidden />제목/설명 생성</h3>
           <button type="button" className="dm-close" aria-label="닫기" onClick={onClose}>
             ×
           </button>

@@ -64,8 +64,8 @@ const COLOR_PRESETS = [
 ]
 
 const CLIP_COLORS = [
-  { track: "bg-[#7dd3a8]/70 border-[#7dd3a8]/50", text: "text-[#0d1a14]", accent: "bg-[#fff6ee]" },
-  { track: "bg-[#ff8fab]/70 border-[#ff8fab]/50", text: "text-white", accent: "bg-[#fff6ee]" },
+  { track: "bg-[#7dd3a8]/70 border-[#005835]/50", text: "text-[#f2fffb]", accent: "bg-[#221c16]" },
+  { track: "bg-[#85b6ff]/70 border-[#1d4594]/50", text: "text-white", accent: "bg-[#221c16]" },
   { track: "bg-amber-500/70 border-amber-300/50", text: "text-white", accent: "bg-amber-100" },
   { track: "bg-sky-500/70 border-sky-300/50", text: "text-white", accent: "bg-sky-100" },
 ] as const
@@ -169,23 +169,23 @@ export function AnimalCapCutEditWorkspace({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[rgba(125,211,168,0.25)] bg-gradient-to-r from-[#122018] to-[#1a1520] px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[rgba(0,88,53,0.25)] bg-gradient-to-r from-[#f2fff9] to-[#fffcff] px-4 py-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#ff8fab]/30 bg-[#ff8fab]/15">
-            <PawPrint className="h-5 w-5 text-[#ff8fab]" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#1d4594]/30 bg-[#85b6ff]/15">
+            <PawPrint className="h-5 w-5 text-[#1d4594]" />
           </div>
           <div>
             <p className="animal-bubble-chip inline-flex px-2 py-0.5 text-[10px]">?�️ CAPCUT EDIT</p>
-            <h3 className="animal-display mt-1 text-lg font-bold text-[#fff6ee]">
+            <h3 className="animal-display mt-1 text-lg font-bold text-[#221c16]">
               {characterName} ?�폼 ?�집
             </h3>
           </div>
         </div>
-        <div className="flex items-center gap-2 text-xs text-[#9aa89c]">
+        <div className="flex items-center gap-2 text-xs text-[#49554b]">
           <Scissors className="h-3.5 w-3.5 opacity-50" />
           <Undo2 className="h-3.5 w-3.5 opacity-40" />
           <Redo2 className="h-3.5 w-3.5 opacity-40" />
-          <span className="font-mono text-[#7dd3a8]">
+          <span className="font-mono text-[#005835]">
             {formatTime(currentTime)} / {formatTime(duration || 15)}
           </span>
         </div>
@@ -193,13 +193,13 @@ export function AnimalCapCutEditWorkspace({
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-12 xl:items-start">
         {/* Preview phone */}
-        <div className="space-y-3 rounded-2xl border border-[rgba(255,246,238,0.1)] bg-[#121a16] p-4 xl:col-span-4 xl:row-span-2">
-          <div className="flex items-center justify-between text-[10px] uppercase tracking-wider text-[#6b7a6e]">
+        <div className="space-y-3 rounded-2xl border border-[rgba(34,28,22,0.1)] bg-[#f7fffc] p-4 xl:col-span-4 xl:row-span-2">
+          <div className="flex items-center justify-between text-[10px] uppercase tracking-wider text-[#657468]">
             <span>Preview</span>
-            <span className="font-mono text-[#9aa89c]">9:16</span>
+            <span className="font-mono text-[#49554b]">9:16</span>
           </div>
 
-          <div className="relative mx-auto aspect-[9/16] w-full max-w-[260px] overflow-hidden rounded-xl border border-[#7dd3a8]/35 bg-black shadow-[0_0_0_1px_rgba(125,211,168,0.12)]">
+          <div className="relative mx-auto aspect-[9/16] w-full max-w-[260px] overflow-hidden rounded-xl border border-[#005835]/35 bg-black shadow-[0_0_0_1px_rgba(125,211,168,0.12)]">
             {previewGenerated && hasVideos ? (
               <>
                 {previewMedia}
@@ -241,7 +241,7 @@ export function AnimalCapCutEditWorkspace({
                 ) : null}
               </>
             ) : (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-4 text-center text-[#6b7a6e]">
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-4 text-center text-[#657468]">
                 <Film className="h-10 w-10 opacity-40" />
                 <p className="text-xs">미리보기�??�성?�주?�요</p>
               </div>
@@ -251,9 +251,9 @@ export function AnimalCapCutEditWorkspace({
 
         <div className="min-w-0 space-y-3 xl:contents">
           {/* Timeline */}
-          <div className="order-2 space-y-3 rounded-2xl border border-[rgba(255,246,238,0.1)] bg-[#121a16] p-3 xl:col-span-12">
+          <div className="order-2 space-y-3 rounded-2xl border border-[rgba(34,28,22,0.1)] bg-[#f7fffc] p-3 xl:col-span-12">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-3 text-xs text-[#9aa89c]">
+              <div className="flex items-center gap-3 text-xs text-[#49554b]">
                 <Button
                   type="button"
                   size="sm"
@@ -264,16 +264,16 @@ export function AnimalCapCutEditWorkspace({
                   {isPlaying ? <Pause className="mr-1.5 h-3.5 w-3.5" /> : <Play className="mr-1.5 h-3.5 w-3.5" />}
                   {isPlaying ? "?�시?��?" : "?�생"}
                 </Button>
-                <span className="font-mono text-[#ff8fab]">{formatTime(currentTime)}</span>
+                <span className="font-mono text-[#1d4594]">{formatTime(currentTime)}</span>
               </div>
-              <p className="text-[10px] text-[#6b7a6e]">?�립 · TTS · BGM · SFX · ?�막 ?�랙</p>
+              <p className="text-[10px] text-[#657468]">?�립 · TTS · BGM · SFX · ?�막 ?�랙</p>
             </div>
 
-            <div className="relative h-5 border-b border-[rgba(255,246,238,0.08)]">
+            <div className="relative h-5 border-b border-[rgba(34,28,22,0.08)]">
               {ticks.map((t) => (
                 <span
                   key={t}
-                  className="absolute top-0 -translate-x-1/2 text-[9px] text-[#6b7a6e]"
+                  className="absolute top-0 -translate-x-1/2 text-[9px] text-[#657468]"
                   style={{ left: `${(t / safeDuration) * 100}%` }}
                 >
                   {formatTime(t)}
@@ -284,7 +284,7 @@ export function AnimalCapCutEditWorkspace({
             <div className="space-y-2">
               {/* Clips */}
               <div className="flex items-stretch gap-2">
-                <div className="flex w-14 shrink-0 items-center text-[10px] text-[#6b7a6e]">?�립</div>
+                <div className="flex w-14 shrink-0 items-center text-[10px] text-[#657468]">?�립</div>
                 <div className="relative flex h-12 min-w-0 flex-1 gap-1 overflow-hidden rounded-lg">
                   {Array.from({ length: Math.max(1, sceneCount) }, (_, index) => {
                     const color = CLIP_COLORS[index % CLIP_COLORS.length]!
@@ -327,7 +327,7 @@ export function AnimalCapCutEditWorkspace({
               {/* TTS */}
               <TrackRow
                 label="TTS"
-                className="bg-[#ff8fab]/25 border-[#ff8fab]/35"
+                className="bg-[#85b6ff]/25 border-[#1d4594]/35"
                 playheadPct={playheadPct}
                 onSeekRatio={onSeekRatio}
                 active={scriptLineCount > 0}
@@ -335,7 +335,7 @@ export function AnimalCapCutEditWorkspace({
 
               {/* BGM */}
               <div className="flex items-stretch gap-2">
-                <div className="flex w-14 shrink-0 items-center gap-1 text-[10px] text-[#6b7a6e]">
+                <div className="flex w-14 shrink-0 items-center gap-1 text-[10px] text-[#657468]">
                   <Music2 className="h-3 w-3" /> BGM
                 </div>
                 <div
@@ -354,7 +354,7 @@ export function AnimalCapCutEditWorkspace({
                       }}
                     />
                   ) : (
-                    <div className="flex h-full items-center justify-center text-[9px] text-[#6b7a6e]">
+                    <div className="flex h-full items-center justify-center text-[9px] text-[#657468]">
                       BGM ?�음 · ?�디????��??추�?
                     </div>
                   )}
@@ -367,7 +367,7 @@ export function AnimalCapCutEditWorkspace({
 
               {/* SFX */}
               <div className="flex items-stretch gap-2">
-                <div className="flex w-14 shrink-0 items-center text-[10px] text-[#6b7a6e]">SFX</div>
+                <div className="flex w-14 shrink-0 items-center text-[10px] text-[#657468]">SFX</div>
                 <div
                   className="relative h-9 flex-1 cursor-pointer overflow-hidden rounded-lg border border-amber-500/30 bg-amber-900/25"
                   onClick={(e) => {
@@ -384,7 +384,7 @@ export function AnimalCapCutEditWorkspace({
                       }}
                     />
                   ) : (
-                    <div className="flex h-full items-center justify-center text-[9px] text-[#6b7a6e]">
+                    <div className="flex h-full items-center justify-center text-[9px] text-[#657468]">
                       ?�과???�음
                     </div>
                   )}
@@ -398,7 +398,7 @@ export function AnimalCapCutEditWorkspace({
               {/* Subtitles */}
               <TrackRow
                 label="?�막"
-                className="bg-[#7dd3a8]/30 border-[#7dd3a8]/40"
+                className="bg-[#7dd3a8]/30 border-[#005835]/40"
                 playheadPct={playheadPct}
                 onSeekRatio={onSeekRatio}
                 active={scriptLineCount > 0}
@@ -408,7 +408,7 @@ export function AnimalCapCutEditWorkspace({
 
           {/* Inspector */}
           <div className="order-1 grid grid-cols-1 gap-3 xl:col-span-8 xl:col-start-5 xl:row-start-1">
-            <div className="space-y-3 rounded-2xl border border-[rgba(255,246,238,0.1)] bg-[#121a16] p-4">
+            <div className="space-y-3 rounded-2xl border border-[rgba(34,28,22,0.1)] bg-[#f7fffc] p-4">
               <div className="flex flex-wrap gap-2">
                 {(
                   [
@@ -423,8 +423,8 @@ export function AnimalCapCutEditWorkspace({
                     onClick={() => onInspectorTabChange(id)}
                     className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
                       inspectorTab === id
-                        ? "border-[#ff8fab]/50 bg-[#ff8fab]/20 text-[#fff6ee]"
-                        : "border-[rgba(255,246,238,0.1)] bg-black/25 text-[#9aa89c] hover:border-[#7dd3a8]/40"
+                        ? "border-[#1d4594]/50 bg-[#85b6ff]/20 text-[#221c16]"
+                        : "border-[rgba(34,28,22,0.1)] bg-black/25 text-[#49554b] hover:border-[#005835]/40"
                     }`}
                   >
                     <Icon className="h-3.5 w-3.5" />
@@ -437,14 +437,14 @@ export function AnimalCapCutEditWorkspace({
                 <div className="max-h-[480px] space-y-4 overflow-y-auto pr-1">
                   <div className="flex flex-wrap items-center gap-3">
                     <Select value="default" disabled>
-                      <SelectTrigger className="h-8 w-[200px] border-[rgba(243,235,224,0.12)] bg-black/40 text-xs text-[#f3ebe0]">
+                      <SelectTrigger className="h-8 w-[200px] border-[rgba(41,36,27,0.12)] bg-black/40 text-xs text-[#29241b]">
                         <SelectValue placeholder="기본 ?�막" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="default">?�?�라???�막</SelectItem>
                       </SelectContent>
                     </Select>
-                    <span className="ml-auto text-[10px] text-[#ff8fab]">
+                    <span className="ml-auto text-[10px] text-[#1d4594]">
                       {subtitleStyle.position === "top"
                         ? "?�단"
                         : subtitleStyle.position === "center"
@@ -454,7 +454,7 @@ export function AnimalCapCutEditWorkspace({
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label className="text-[11px] text-[#9aa89c]">?�스???�기 {subtitleStyle.fontSize}px</Label>
+                    <Label className="text-[11px] text-[#49554b]">?�스???�기 {subtitleStyle.fontSize}px</Label>
                     <Slider
                       min={32}
                       max={82}
@@ -465,18 +465,18 @@ export function AnimalCapCutEditWorkspace({
                   </div>
 
                   <div className="space-y-2">
-                    <Label className="text-[11px] text-[#9aa89c]">?�트 ?�상</Label>
+                    <Label className="text-[11px] text-[#49554b]">?�트 ?�상</Label>
                     <div className="flex items-center gap-2">
                       <Input
                         value={subtitleStyle.color}
                         onChange={(e) => patch({ color: e.target.value })}
-                        className="h-8 border-[rgba(243,235,224,0.12)] bg-black/40 font-mono text-xs text-[#f3ebe0]"
+                        className="h-8 border-[rgba(41,36,27,0.12)] bg-black/40 font-mono text-xs text-[#29241b]"
                       />
                       <Button
                         type="button"
                         size="sm"
                         variant="outline"
-                        className="h-8 border-[rgba(255,246,238,0.14)] text-xs text-[#d7e0d8]"
+                        className="h-8 border-[rgba(34,28,22,0.14)] text-xs text-[#2d342e]"
                         onClick={() => patch({ color: randomColor() })}
                       >
                         ?�덤
@@ -489,7 +489,7 @@ export function AnimalCapCutEditWorkspace({
                           type="button"
                           className={`h-6 w-6 rounded-md border ${
                             subtitleStyle.color.toLowerCase() === c.toLowerCase()
-                              ? "border-[#7dd3a8] ring-1 ring-[#7dd3a8]"
+                              ? "border-[#005835] ring-1 ring-[#005835]"
                               : "border-white/20"
                           }`}
                           style={{ backgroundColor: c }}
@@ -499,8 +499,8 @@ export function AnimalCapCutEditWorkspace({
                     </div>
                   </div>
 
-                  <div className="space-y-2 rounded-lg border border-[rgba(255,246,238,0.08)] p-2.5">
-                    <label className="flex items-center gap-2 text-xs text-[#d7e0d8]">
+                  <div className="space-y-2 rounded-lg border border-[rgba(34,28,22,0.08)] p-2.5">
+                    <label className="flex items-center gap-2 text-xs text-[#2d342e]">
                       <Checkbox
                         checked={subtitleStyle.outlineEnabled !== false}
                         onCheckedChange={(c) => patch({ outlineEnabled: c === true })}
@@ -509,7 +509,7 @@ export function AnimalCapCutEditWorkspace({
                     </label>
                     {subtitleStyle.outlineEnabled !== false ? (
                       <>
-                        <Label className="text-[11px] text-[#9aa89c]">
+                        <Label className="text-[11px] text-[#49554b]">
                           ???�께 {subtitleStyle.outlineWidth ?? 8}px
                         </Label>
                         <Slider
@@ -522,14 +522,14 @@ export function AnimalCapCutEditWorkspace({
                         <Input
                           value={subtitleStyle.outlineColor || "#000000"}
                           onChange={(e) => patch({ outlineColor: e.target.value })}
-                          className="h-8 border-[rgba(243,235,224,0.12)] bg-black/40 font-mono text-xs text-[#f3ebe0]"
+                          className="h-8 border-[rgba(41,36,27,0.12)] bg-black/40 font-mono text-xs text-[#29241b]"
                         />
                       </>
                     ) : null}
                   </div>
 
-                  <div className="space-y-2 rounded-lg border border-[rgba(255,246,238,0.08)] p-2.5">
-                    <label className="flex items-center gap-2 text-xs text-[#d7e0d8]">
+                  <div className="space-y-2 rounded-lg border border-[rgba(34,28,22,0.08)] p-2.5">
+                    <label className="flex items-center gap-2 text-xs text-[#2d342e]">
                       <Checkbox
                         checked={subtitleStyle.shadowEnabled !== false && subtitleStyle.textShadow}
                         onCheckedChange={(c) =>
@@ -543,9 +543,9 @@ export function AnimalCapCutEditWorkspace({
                         <Input
                           value={subtitleStyle.shadowColor || "#000000"}
                           onChange={(e) => patch({ shadowColor: e.target.value })}
-                          className="h-8 border-[rgba(243,235,224,0.12)] bg-black/40 font-mono text-xs text-[#f3ebe0]"
+                          className="h-8 border-[rgba(41,36,27,0.12)] bg-black/40 font-mono text-xs text-[#29241b]"
                         />
-                        <Label className="text-[11px] text-[#9aa89c]">
+                        <Label className="text-[11px] text-[#49554b]">
                           거리 {subtitleStyle.shadowDistance ?? 12}
                         </Label>
                         <Slider
@@ -560,7 +560,7 @@ export function AnimalCapCutEditWorkspace({
                   </div>
 
                   <div className="space-y-2">
-                    <Label className="text-[11px] text-[#9aa89c]">?�이???�치</Label>
+                    <Label className="text-[11px] text-[#49554b]">?�이???�치</Label>
                     <div className="grid grid-cols-3 gap-1.5">
                       {(
                         [
@@ -574,8 +574,8 @@ export function AnimalCapCutEditWorkspace({
                           type="button"
                           className={`h-8 rounded-md border text-xs ${
                             subtitleStyle.position === pos
-                              ? "border-[#ff8fab]/50 bg-[#ff8fab]/20 text-[#fff6ee]"
-                              : "border-[rgba(255,246,238,0.1)] text-[#9aa89c]"
+                              ? "border-[#1d4594]/50 bg-[#85b6ff]/20 text-[#221c16]"
+                              : "border-[rgba(34,28,22,0.1)] text-[#49554b]"
                           }`}
                           onClick={() => patch({ position: pos, verticalPercent: y, positionOffset: 0 })}
                         >
@@ -583,7 +583,7 @@ export function AnimalCapCutEditWorkspace({
                         </button>
                       ))}
                     </div>
-                    <Label className="text-[11px] text-[#9aa89c]">가�?{horizontalPercent}%</Label>
+                    <Label className="text-[11px] text-[#49554b]">가�?{horizontalPercent}%</Label>
                     <Slider
                       min={0}
                       max={100}
@@ -591,7 +591,7 @@ export function AnimalCapCutEditWorkspace({
                       value={[horizontalPercent]}
                       onValueChange={([v]) => patch({ horizontalPercent: v ?? 50 })}
                     />
-                    <Label className="text-[11px] text-[#9aa89c]">?�로 {verticalPercent}%</Label>
+                    <Label className="text-[11px] text-[#49554b]">?�로 {verticalPercent}%</Label>
                     <Slider
                       min={0}
                       max={100}
@@ -607,7 +607,7 @@ export function AnimalCapCutEditWorkspace({
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label className="text-[11px] text-[#9aa89c]">배경 ?�명??/Label>
+                    <Label className="text-[11px] text-[#49554b]">배경 ?�명??/Label>
                     <Slider
                       value={[
                         parseFloat(subtitleStyle.backgroundColor.split(",")[3]?.replace(")", "") || "0.5"),
@@ -634,7 +634,7 @@ export function AnimalCapCutEditWorkspace({
           </div>
 
           {/* Export */}
-          <div className="order-1 space-y-3 rounded-2xl border border-[rgba(255,246,238,0.1)] bg-[#121a16] p-3 xl:col-span-8 xl:col-start-5">
+          <div className="order-1 space-y-3 rounded-2xl border border-[rgba(34,28,22,0.1)] bg-[#f7fffc] p-3 xl:col-span-8 xl:col-start-5">
             <Button
               type="button"
               onClick={onGeneratePreview}
@@ -655,7 +655,7 @@ export function AnimalCapCutEditWorkspace({
             </Button>
             {exportActions}
             {!previewGenerated ? (
-              <p className="text-center text-xs text-[#6b7a6e]">먼�? 미리보기�??�성?�주?�요</p>
+              <p className="text-center text-xs text-[#657468]">먼�? 미리보기�??�성?�주?�요</p>
             ) : null}
           </div>
         </div>
@@ -679,7 +679,7 @@ function TrackRow({
 }) {
   return (
     <div className="flex items-stretch gap-2">
-      <div className="flex w-14 shrink-0 items-center text-[10px] text-[#6b7a6e]">{label}</div>
+      <div className="flex w-14 shrink-0 items-center text-[10px] text-[#657468]">{label}</div>
       <div
         className={`relative h-9 flex-1 cursor-pointer rounded-lg border ${className}`}
         onClick={(e) => {
@@ -710,7 +710,7 @@ export function AnimalExportPrimaryButton(props: {
     <Button
       onClick={props.onClick}
       disabled={props.disabled}
-      className="bg-[#ff8fab] text-white hover:bg-[#ff7a9a]"
+      className="bg-[#85b6ff] text-[#181818] hover:bg-[#71a9ff]"
       size="lg"
     >
       {props.loading ? (

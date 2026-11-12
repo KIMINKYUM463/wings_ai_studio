@@ -763,7 +763,7 @@ export function StoryAssetFindingPanel({
 
   return (
     <div className="grid gap-5 xl:grid-cols-[300px_1fr]">
-      <section className="rounded-[28px] border border-white/10 bg-[#0d0d0c] p-4">
+      <section className="rounded-[28px] border border-white/10 bg-[#f7f7f5] p-4">
         <div className="flex items-center gap-2 px-1 text-[9px] font-black tracking-[0.18em] text-emerald-300">
           <Clapperboard className="h-4 w-4" />
           SCENE ASSETS
@@ -810,7 +810,7 @@ export function StoryAssetFindingPanel({
         </div>
       </section>
 
-      <section className="rounded-[28px] border border-emerald-400/15 bg-[#0b0e0c] p-5">
+      <section className="rounded-[28px] border border-emerald-400/15 bg-[#f3f8f5] p-5">
         <h2 className="text-xl font-black text-white">장면 {selectedScene.order} 소재 찾기</h2>
         <p className="mt-2 text-xs leading-6 text-zinc-400">{selectedScene.visualPrompt}</p>
 
@@ -1328,7 +1328,7 @@ export function StoryAssetFindingPanel({
       </section>
 
       <Dialog open={youtubePopupOpen} onOpenChange={setYoutubePopupOpen}>
-        <DialogContent className="max-h-[90vh] w-[min(960px,95vw)] max-w-[960px] overflow-hidden border-white/10 bg-[#0c0e10] p-0 text-zinc-100">
+        <DialogContent className="max-h-[90vh] w-[min(960px,95vw)] max-w-[960px] overflow-hidden border-white/10 bg-[#f5f8fb] p-0 text-zinc-100">
           <DialogHeader className="border-b border-white/10 px-5 py-4">
             <DialogTitle className="flex items-center gap-2 text-base font-black text-white">
               <Youtube className="h-5 w-5 text-red-400" />

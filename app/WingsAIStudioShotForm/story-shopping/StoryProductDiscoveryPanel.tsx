@@ -178,7 +178,7 @@ export function StoryProductDiscoveryPanel({
   }
 
   return (
-    <section className="mb-6 overflow-hidden rounded-[26px] border border-white/[0.08] bg-[#11100e]/95 shadow-2xl shadow-black/25">
+    <section className="mb-6 overflow-hidden rounded-[26px] border border-white/[0.08] bg-[#fcfaf7]/95 shadow-2xl shadow-black/25">
       <div className="grid border-b border-white/[0.07] lg:grid-cols-[1fr_360px]">
         <div className="p-6 md:p-7">
           <div className="flex items-center gap-2 text-[9px] font-black tracking-[0.2em] text-orange-400">

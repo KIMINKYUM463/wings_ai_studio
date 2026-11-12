@@ -9,7 +9,6 @@ import {
   Loader2,
   Mic2,
   Play,
-  Radio,
   RefreshCw,
   Sparkles,
   Upload,
@@ -26,13 +25,26 @@ import {
   fetchSupertonicVoices,
 } from "@/lib/supertonic-runtime-client"
 import { uploadTtsBlobToStorage } from "@/lib/shotform-tts-storage-upload"
+import { trimSilenceFromAudioUrl } from "@/lib/shotform-factory-line-tts"
+import { DEFAULT_TTS_PROVIDER, isRetiredSupertoneVoiceId } from "@/lib/shotform-tts-providers"
 import { SupertonicSetupBar } from "../components/SupertonicSetupBar"
 import { splitNarrationIntoMeaningLines } from "./StoryChannelFrame"
 import { alignStoryCaptionsWithWhisper } from "./story-caption-align"
 import type { StoryShoppingBrief, StoryVoiceTrack } from "./story-types"
 import { TypecastApiErrorNotice } from "@/components/TypecastApiGuideCard"
 
-type Provider = "supertone" | "supertonic" | "typecast" | "elevenlabs"
+type Provider = "supertonic" | "typecast" | "elevenlabs"
+
+/** 편집기 재생(StoryEditorWorkspace)과 같은 무음 기준 */
+const STORY_TTS_SILENCE_THRESHOLD = 0.018
+
+// 썰쇼핑 채널 실측 낭독 속도(초당 8~8.7자)에 맞춘 엔진별 기본값 — Supertonic은 무음 제거 후 1.35에서 9.3자/초로 빨랐음
+const DEFAULT_SPEED_BY_PROVIDER: Record<Provider, number> = {
+  supertonic: 1.2,
+  typecast: 1.15,
+  elevenlabs: 1.15,
+}
+
 type CatalogVoice = {
   voice_id: string
   name: string
@@ -111,14 +123,8 @@ const PROVIDERS: Array<{
   id: Provider
   title: string
   description: string
-  icon: typeof Radio
+  icon: typeof Sparkles
 }> = [
-  {
-    id: "supertone",
-    title: "SuperTone",
-    description: "쇼츠 나레이션용 클라우드 보이스",
-    icon: Radio,
-  },
   {
     id: "supertonic",
     title: "Supertonic 3",
@@ -155,18 +161,16 @@ function normalizeVoiceId(voiceId?: string) {
 }
 
 function providerFromVoiceId(voiceId: string): Provider {
-  // "supertonic-" 가 "supertone-" 보다 먼저여야 함 (접두사 충돌)
   if (voiceId.startsWith("supertonic-")) return "supertonic"
-  if (voiceId.startsWith("supertone-")) return "supertone"
   if (voiceId.startsWith("typecast-")) return "typecast"
   if (voiceId.startsWith("elevenlabs-")) return "elevenlabs"
   if (/^[FM]\d+$/i.test(voiceId)) return "supertonic"
   return "elevenlabs"
 }
 
-/** 접두사 제거 — supertonic을 supertone보다 앞에 둬야 함 */
+/** 접두사 제거 */
 function bareVoiceId(voiceId: string): string {
-  return voiceId.replace(/^(supertonic|supertone|typecast|elevenlabs)-/, "")
+  return voiceId.replace(/^(supertonic|typecast|elevenlabs)-/, "")
 }
 
 function voiceIdForProvider(provider: Provider, voiceId: string, fallbackBare: string): string {
@@ -177,7 +181,6 @@ function voiceIdForProvider(provider: Provider, voiceId: string, fallbackBare: s
     const id = bare && /^[A-Za-z0-9_-]+$/.test(bare) ? bare : "F1"
     return `supertonic-${id}`
   }
-  if (provider === "supertone") return bare ? `supertone-${bare}` : voiceId
   if (provider === "typecast") return bare ? `typecast-${bare}` : voiceId
   return `elevenlabs-${bare || ELEVEN_PRESETS[0]?.voice_id || "jB1Cifc2UQbq1gR3wnb0"}`
 }
@@ -193,14 +196,19 @@ export function StoryVoicePanel({
   userId?: string
   projectId?: string
 }) {
-  const initialVoiceId = normalizeVoiceId(brief.voiceData?.voiceId)
-  const [provider, setProvider] = useState<Provider>(
-    brief.voiceData?.provider || providerFromVoiceId(initialVoiceId)
-  )
+  const savedProvider = brief.voiceData?.provider
+  const hasRetiredVoice = isRetiredSupertoneVoiceId(brief.voiceData?.voiceId)
+  const initialVoiceId = hasRetiredVoice ? "" : normalizeVoiceId(brief.voiceData?.voiceId)
+  const [provider, setProvider] = useState<Provider>(() => {
+    if (hasRetiredVoice) return DEFAULT_TTS_PROVIDER
+    if (PROVIDERS.some((item) => item.id === savedProvider)) return savedProvider as Provider
+    return providerFromVoiceId(initialVoiceId)
+  })
   const [selectedVoiceId, setSelectedVoiceId] = useState(initialVoiceId)
-  const [speed, setSpeed] = useState(brief.voiceData?.speed || 1.05)
-  const [style, setStyle] = useState(brief.voiceData?.style || "normal")
-  const [supertoneVoices, setSupertoneVoices] = useState<CatalogVoice[]>([])
+  const [speed, setSpeed] = useState(
+    () => brief.voiceData?.speed || DEFAULT_SPEED_BY_PROVIDER[provider]
+  )
+  const [style, setStyle] = useState(hasRetiredVoice ? "normal" : brief.voiceData?.style || "normal")
   const [supertonicVoices, setSupertonicVoices] = useState<CatalogVoice[]>(
     SUPERTONIC_BUILTIN_VOICES.map((voice) => ({ ...voice }))
   )
@@ -218,36 +226,24 @@ export function StoryVoicePanel({
   const canPersistCloud = Boolean(userId && userId !== "anonymous" && projectId)
 
   const voices = useMemo(() => {
-    if (provider === "supertone") return supertoneVoices
     if (provider === "supertonic") return supertonicVoices
     if (provider === "typecast") return typecastVoices
     return ELEVEN_PRESETS
-  }, [provider, supertoneVoices, supertonicVoices, typecastVoices])
+  }, [provider, supertonicVoices, typecastVoices])
 
   const selectedBareId = bareVoiceId(selectedVoiceId)
   const selectedVoice = voices.find((voice) => voice.voice_id === selectedBareId)
 
   useEffect(() => {
-    if (provider === "supertonic") void loadSupertonicVoices()
+    if (hasRetiredVoice) selectProvider(provider)
+    else if (provider === "supertonic") void loadSupertonicVoices()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const selectProvider = (nextProvider: Provider) => {
     setProvider(nextProvider)
+    setSpeed(DEFAULT_SPEED_BY_PROVIDER[nextProvider])
     setError("")
-    if (nextProvider === "supertone") {
-      if (supertoneVoices[0]) {
-        setSelectedVoiceId(`supertone-${supertoneVoices[0].voice_id}`)
-        setStyle(
-          supertoneVoices[0].styles?.includes("neutral")
-            ? "neutral"
-            : supertoneVoices[0].styles?.[0] || "neutral"
-        )
-      } else {
-        void loadSupertoneVoices()
-      }
-      return
-    }
     if (nextProvider === "supertonic") {
       const id = SUPERTONIC_BUILTIN_VOICES[0]?.voice_id || "F1"
       setSelectedVoiceId(`supertonic-${id}`)
@@ -269,45 +265,6 @@ export function StoryVoicePanel({
     }
     if (ELEVEN_PRESETS[0]) {
       setSelectedVoiceId(`elevenlabs-${ELEVEN_PRESETS[0].voice_id}`)
-    }
-  }
-
-  const loadSupertoneVoices = async () => {
-    const apiKey = (
-      localStorage.getItem("shotform_supertone_api_key") ||
-      localStorage.getItem("supertone_api_key") ||
-      ""
-    ).trim()
-    if (!apiKey) {
-      setError("SuperTone API 키가 필요합니다. 설정에서 API 키를 등록해주세요.")
-      return
-    }
-    setIsLoadingVoices(true)
-    setError("")
-    try {
-      // 다른 쇼핑숏폼과 동일 — /api/supertone-voices 는 GET + query 만 지원
-      const response = await fetch(
-        `/api/supertone-voices?apiKey=${encodeURIComponent(apiKey)}`
-      )
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(payload.error || "SuperTone 음성 목록을 가져오지 못했습니다.")
-      const excluded = ["아동", "아이", "어린이", "키즈", "baby", "child", "kid"]
-      const nextVoices = (payload.voices || []).filter(
-        (voice: CatalogVoice) => !excluded.some((name) => voice.name.includes(name))
-      )
-      setSupertoneVoices(nextVoices)
-      if (nextVoices[0]) {
-        setSelectedVoiceId(`supertone-${nextVoices[0].voice_id}`)
-        setStyle(
-          nextVoices[0].styles?.includes("neutral")
-            ? "neutral"
-            : nextVoices[0].styles?.[0] || "neutral"
-        )
-      }
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "음성 목록 조회에 실패했습니다.")
-    } finally {
-      setIsLoadingVoices(false)
     }
   }
 
@@ -391,14 +348,6 @@ export function StoryVoicePanel({
     if (resolvedId.startsWith("supertonic-") || provider === "supertonic") {
       endpoint = "/api/supertonic-tts"
       body = { text, voiceId: bareId || "F1", speed: ttsSpeed }
-    } else if (resolvedId.startsWith("supertone-") || provider === "supertone") {
-      endpoint = "/api/supertone-tts"
-      const apiKey = (
-        localStorage.getItem("shotform_supertone_api_key") ||
-        localStorage.getItem("supertone_api_key") ||
-        ""
-      ).trim()
-      body = { ...body, apiKey, style }
     } else if (resolvedId.startsWith("typecast-") || provider === "typecast") {
       endpoint = "/api/typecast-tts"
       const apiKey = (
@@ -510,8 +459,12 @@ export function StoryVoicePanel({
       for (let index = 0; index < brief.generatedStory.scenes.length; index += 1) {
         const scene = brief.generatedStory.scenes[index]!
         setProgress(`장면 ${index + 1}/${brief.generatedStory.scenes.length} 통 TTS 생성 중`)
-        let audioUrl = await requestTts(scene.narration, voiceId)
-        audioUrl = await persistAudioUrl(audioUrl, `장면 ${index + 1}`)
+        const rawAudioUrl = await requestTts(scene.narration, voiceId)
+        // 재생은 앞뒤 무음을 자른 음성을 쓰므로 저장본·Whisper 싱크도 같은 길이로 맞춤
+        const trimmed = await trimSilenceFromAudioUrl(rawAudioUrl, STORY_TTS_SILENCE_THRESHOLD)
+          .then((result) => result.blobUrl)
+          .catch(() => rawAudioUrl)
+        const audioUrl = await persistAudioUrl(trimmed, `장면 ${index + 1}`)
         const durationSec = await measureAudioDuration(audioUrl)
 
         setProgress(
@@ -730,7 +683,7 @@ export function StoryVoicePanel({
         onChange={(event) => void handleUploadFile(event.target.files?.[0] || null)}
       />
 
-      <section className="rounded-[28px] border border-cyan-400/20 bg-[#0c0e10] p-5">
+      <section className="rounded-[28px] border border-cyan-400/20 bg-[#f5f8fb] p-5">
         <div className="flex items-center gap-2 text-[9px] font-black tracking-[0.18em] text-cyan-300">
           <Mic2 className="h-4 w-4" />
           AI VOICE MODELS
@@ -799,13 +752,6 @@ export function StoryVoicePanel({
                     type="button"
                     onClick={() => {
                       setSelectedVoiceId(id)
-                      if (provider === "supertone") {
-                        setStyle(
-                          voice.styles?.includes("neutral")
-                            ? "neutral"
-                            : voice.styles?.[0] || "neutral"
-                        )
-                      }
                       if (provider === "typecast") {
                         setStyle(
                           voice.styles?.includes("normal")
@@ -870,17 +816,6 @@ export function StoryVoicePanel({
           ) : null}
         </div>
 
-        {provider === "supertone" ? (
-          <div className="mt-4">
-            <Label className="text-xs text-zinc-300">SuperTone 스타일</Label>
-            <Input
-              value={style}
-              onChange={(event) => setStyle(event.target.value)}
-              className="mt-2 h-10 border-white/10 bg-black/30 text-xs"
-            />
-          </div>
-        ) : null}
-
         {provider === "typecast" ? (
           <div className="mt-4">
             <Label className="text-xs text-zinc-300">타입캐스트 감정</Label>
@@ -906,7 +841,7 @@ export function StoryVoicePanel({
           <Slider
             value={[speed]}
             min={0.7}
-            max={1.5}
+            max={2}
             step={0.05}
             onValueChange={([value]) => setSpeed(value)}
             className="mt-4"
@@ -952,7 +887,7 @@ export function StoryVoicePanel({
         <TypecastApiErrorNotice message={error} />
       </section>
 
-      <section className="rounded-[28px] border border-white/10 bg-[#0d0d0c] p-5">
+      <section className="rounded-[28px] border border-white/10 bg-[#f7f7f5] p-5">
         <div className="flex flex-wrap items-center gap-2">
           <AudioLines className="h-4 w-4 text-cyan-300" />
           <h3 className="text-sm font-black text-white">장면별 음성 트랙</h3>

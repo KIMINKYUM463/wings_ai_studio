@@ -247,7 +247,7 @@ export function AiShoppingImagesStep({
             variant="outline"
             size="sm"
             onClick={onBack}
-            className="border-white/15 bg-[#151b28] text-zinc-200 hover:bg-white/10"
+            className="border-white/15 bg-[#f6ffff] text-zinc-200 hover:bg-white/10"
           >
             <ArrowLeft className="mr-1 h-4 w-4" />
             이전
@@ -265,7 +265,7 @@ export function AiShoppingImagesStep({
       }
     >
       <div className="grid min-h-[70vh] grid-cols-1 gap-3 xl:grid-cols-12">
-        <aside className="flex overflow-hidden rounded-2xl border border-white/10 bg-[#121316] xl:col-span-12">
+        <aside className="flex overflow-hidden rounded-2xl border border-white/10 bg-[#fdfeff] xl:col-span-12">
           <div className="flex min-w-0 flex-1 flex-col">
             <div className="flex items-center justify-between border-b border-white/10 px-3 py-2.5">
               <h3 className="text-sm font-semibold text-zinc-100">
@@ -356,7 +356,7 @@ export function AiShoppingImagesStep({
           </div>
         </aside>
 
-        <section className="flex flex-col space-y-3 rounded-2xl border border-white/10 bg-[#121316] p-4 xl:col-span-7">
+        <section className="flex flex-col space-y-3 rounded-2xl border border-white/10 bg-[#fdfeff] p-4 xl:col-span-7">
           <h3 className="truncate text-sm font-semibold text-zinc-100">
             <span className="text-emerald-300">M{sceneIndex + 1}</span>{" "}
             <span className="font-normal text-zinc-400">
@@ -460,7 +460,7 @@ export function AiShoppingImagesStep({
 
         </section>
 
-        <aside className="space-y-3 rounded-2xl border border-white/10 bg-[#121316] p-4 xl:col-span-5">
+        <aside className="space-y-3 rounded-2xl border border-white/10 bg-[#fdfeff] p-4 xl:col-span-5">
           <h3 className="text-sm font-semibold text-zinc-100">
             컨트롤 <span className="text-emerald-300">M{sceneIndex + 1}</span>
           </h3>
@@ -514,7 +514,7 @@ export function AiShoppingImagesStep({
               type="button"
               variant="outline"
               size="sm"
-              className="w-full border-white/15 bg-[#17191e] text-zinc-200 hover:bg-white/10 hover:text-white"
+              className="w-full border-white/15 bg-[#fcffff] text-zinc-200 hover:bg-white/10 hover:text-white"
               onClick={() => {
                 setEditingPrompt(currentPrompt)
                 setShowPromptEditor(true)
@@ -558,7 +558,7 @@ export function AiShoppingImagesStep({
           <div className="grid grid-cols-2 gap-2">
             <Button
               variant="outline"
-              className="border-sky-400/30 bg-sky-500/10 text-sky-200 hover:bg-sky-500/20 hover:text-sky-100 disabled:bg-[#17191e] disabled:text-zinc-500"
+              className="border-sky-400/30 bg-sky-500/10 text-sky-200 hover:bg-sky-500/20 hover:text-sky-100 disabled:bg-[#fcffff] disabled:text-zinc-500"
               disabled={filledCount === 0}
               onClick={() =>
                 setSelectedSlots(
@@ -570,7 +570,7 @@ export function AiShoppingImagesStep({
             </Button>
             <Button
               variant="outline"
-              className="border-white/15 bg-[#17191e] text-zinc-300 hover:bg-white/10 hover:text-white"
+              className="border-white/15 bg-[#fcffff] text-zinc-300 hover:bg-white/10 hover:text-white"
               onClick={() => setSelectedSlots(new Set())}
             >
               <X className="mr-1 h-3.5 w-3.5" />
@@ -730,7 +730,7 @@ export function AiShoppingImagesStep({
       </Dialog>
 
       <Dialog open={showFreeImageDialog} onOpenChange={setShowFreeImageDialog}>
-        <DialogContent className="max-w-3xl border-white/15 bg-[#121316] text-zinc-100">
+        <DialogContent className="max-w-3xl border-white/15 bg-[#fdfeff] text-zinc-100">
           <DialogHeader>
             <DialogTitle>무료 이미지 등록 · M{sceneIndex + 1}</DialogTitle>
             <DialogDescription className="text-zinc-400">
@@ -834,7 +834,7 @@ export function AiShoppingImagesStep({
       </Dialog>
 
       <Dialog open={showPromptEditor} onOpenChange={setShowPromptEditor}>
-        <DialogContent className="max-w-lg border-white/15 bg-[#121316] text-zinc-100">
+        <DialogContent className="max-w-lg border-white/15 bg-[#fdfeff] text-zinc-100">
           <DialogHeader>
             <DialogTitle>이미지 프롬프트 · M{sceneIndex + 1}</DialogTitle>
             <DialogDescription className="text-zinc-400">
@@ -849,7 +849,7 @@ export function AiShoppingImagesStep({
           <DialogFooter>
             <Button
               variant="outline"
-              className="border-white/15 bg-[#17191e] text-zinc-200 hover:bg-white/10 hover:text-white"
+              className="border-white/15 bg-[#fcffff] text-zinc-200 hover:bg-white/10 hover:text-white"
               onClick={() => setShowPromptEditor(false)}
             >
               취소

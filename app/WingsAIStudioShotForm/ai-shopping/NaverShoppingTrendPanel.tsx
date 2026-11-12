@@ -87,7 +87,7 @@ export function NaverShoppingTrendPanel({ onKeywordSelect }: Props) {
   const totalMonthlySearches = latestItems.reduce((sum, item) => sum + (item.monthly_searches || 0), 0)
 
   return (
-    <Card className="relative overflow-hidden border-cyan-400/20 bg-[radial-gradient(circle_at_top_left,#0b2835_0%,#0d1422_38%,#090d17_100%)] shadow-[0_28px_90px_rgba(6,182,212,0.08)]">
+    <Card className="relative overflow-hidden border-cyan-400/20 bg-[radial-gradient(circle_at_top_left,#e3f6fb_0%,#f5fbfd_38%,#ffffff_100%)] shadow-[0_28px_90px_rgba(6,182,212,0.08)]">
       <motion.div
         aria-hidden
         className="pointer-events-none absolute -left-24 -top-24 h-64 w-64 rounded-full bg-cyan-400/10 blur-3xl"
@@ -159,7 +159,7 @@ export function NaverShoppingTrendPanel({ onKeywordSelect }: Props) {
               className={`relative shrink-0 overflow-hidden rounded-xl border px-3.5 py-2.5 text-xs font-semibold transition ${
                 categoryCode === category.code
                   ? "border-cyan-300/40 text-white shadow-[0_8px_28px_rgba(6,182,212,0.16)]"
-                  : "border-white/10 bg-black/20 text-zinc-400 hover:border-cyan-400/30 hover:text-zinc-200"
+                  : "border-white/10 bg-[#fff]/80 text-zinc-400 hover:border-cyan-400/30 hover:text-zinc-200"
               }`}
             >
               {categoryCode === category.code ? (
@@ -181,7 +181,7 @@ export function NaverShoppingTrendPanel({ onKeywordSelect }: Props) {
             <motion.section
               initial={{ opacity: 0, y: 18 }}
               animate={{ opacity: 1, y: 0 }}
-              className="relative overflow-hidden rounded-2xl border border-cyan-300/15 bg-black/25 p-4 backdrop-blur-xl lg:col-span-3"
+              className="relative overflow-hidden rounded-2xl border border-cyan-300/15 bg-[#fff]/80 p-4 backdrop-blur-xl lg:col-span-3"
             >
               <div className="mb-2 flex items-start justify-between gap-3">
                 <div>
@@ -281,7 +281,7 @@ export function NaverShoppingTrendPanel({ onKeywordSelect }: Props) {
                   className="relative grid h-24 w-24 shrink-0 place-items-center rounded-full"
                   style={{ background: `conic-gradient(#22d3ee 0 ${momentumScore}%, rgba(255,255,255,.06) ${momentumScore}% 100%)` }}
                 >
-                  <div className="grid h-[74px] w-[74px] place-items-center rounded-full bg-[#0c1421]">
+                  <div className="grid h-[74px] w-[74px] place-items-center rounded-full bg-[#f4ffff]">
                     <div className="text-center">
                       <motion.p
                         key={momentumScore}
@@ -324,7 +324,7 @@ export function NaverShoppingTrendPanel({ onKeywordSelect }: Props) {
           </div>
         ) : null}
 
-        <section className="overflow-hidden rounded-2xl border border-white/10 bg-black/20 p-2 backdrop-blur-xl">
+        <section className="overflow-hidden rounded-2xl border border-white/10 bg-[#fff]/80 p-2 backdrop-blur-xl">
           <div className="grid gap-2 md:grid-cols-[1fr_1fr_1.25fr]">
             <motion.button
               type="button"
@@ -471,7 +471,7 @@ export function NaverShoppingTrendPanel({ onKeywordSelect }: Props) {
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 transition={{ delay: columnIndex * 0.12, duration: 0.45 }}
                 whileHover={{ y: -3, borderColor: "rgba(34,211,238,.28)" }}
-                className={`overflow-hidden rounded-2xl border bg-black/25 shadow-[0_18px_50px_rgba(0,0,0,0.16)] backdrop-blur-xl ${
+                className={`overflow-hidden rounded-2xl border bg-[#fff]/80 shadow-[0_18px_50px_rgba(20,35,70,0.056)] backdrop-blur-xl ${
                   columnIndex === 0
                     ? "border-cyan-300/60 ring-1 ring-cyan-300/25 shadow-[0_18px_55px_rgba(6,182,212,0.13)]"
                     : "border-white/10"
@@ -556,7 +556,7 @@ function MetricCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay }}
       whileHover={{ y: -3, borderColor: "rgba(103,232,249,.3)" }}
-      className="overflow-hidden rounded-2xl border border-white/10 bg-black/25 p-3.5"
+      className="overflow-hidden rounded-2xl border border-white/10 bg-[#fff]/80 p-3.5"
     >
       <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-zinc-500">{label}</p>
       <p className="mt-2 truncate text-lg font-black text-white">{value}</p>

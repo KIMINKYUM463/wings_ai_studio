@@ -13,7 +13,7 @@ import {
   Play,
   Plus,
   Sparkles,
-  Star,
+  Mic2,
   Volume2,
   X,
 } from "lucide-react"
@@ -52,11 +52,6 @@ import {
 } from "@/lib/shotform-factory-narration-script"
 import { useFactoryContentBundle } from "./useFactoryContentBundle"
 import {
-  filterSupertoneKoreanVoices,
-  shotformSupertoneKey,
-  SUPERTONE_VOICE_PREVIEW_TEXT,
-} from "@/lib/shotform-factory-tts"
-import {
   buildVoiceLineCues,
   collectNarrationSubtitleLines,
   mergeAudioUrlsToWavBlobUrl,
@@ -83,7 +78,18 @@ import {
   writeCapCutExportToDirectory,
   type FactoryCapCutExportInput,
 } from "@/lib/shotform-factory-capcut-export"
-import { synthesizeTtsLine } from "@/lib/shotform-tts-providers"
+import {
+  defaultStyleForTtsVoice,
+  labelTtsStyle,
+  parseBareVoiceId,
+  providerLabelFromVoiceId,
+  resolveTtsVoiceDisplay,
+  synthesizeTtsLine,
+  synthesizeTtsPreview,
+  ttsProviderFromVoiceId,
+} from "@/lib/shotform-tts-providers"
+import { MvpVoicePickerDialog } from "../shortform-studio/MvpVoicePickerDialog"
+import { useTtsVoiceCatalog } from "../components/useTtsVoiceCatalog"
 import { DEFAULT_TTS_SPEED, TTS_SPEED_OPTIONS } from "@/lib/shotform-tts-speed"
 
 const STEPS = [
@@ -105,20 +111,6 @@ type FactoryStep = 1 | 2 | 3 | 4 | 5 | 6 | 7
 const JOB_TOTAL_SEC = 360
 const PHASE_LABELS = ["소스 영상 다운로드 중...", "장면 분석 중...", "영상 합성 중..."] as const
 const PHASE_REAL_MS = [14_000, 16_000, 18_000] as const
-
-type FactoryVoiceOption = {
-  id: string
-  name: string
-  desc: string
-  provider: "Supertone"
-}
-
-type FactorySupertoneVoiceRow = {
-  voice_id: string
-  name: string
-  styles?: string[]
-  language?: string[]
-}
 
 const FONT_OPTIONS = [
   { value: "pretendard-bold", label: "프리텐다드 Bold" },
@@ -217,7 +209,7 @@ function StepperPill({
       aria-current={active ? "step" : undefined}
       className={cn(
         "flex w-full items-center gap-2 rounded-full border px-3 py-1.5 text-left text-xs font-medium transition-colors",
-        "cursor-pointer hover:opacity-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/45 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0c101c]",
+        "cursor-pointer hover:opacity-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/45 focus-visible:ring-offset-2 focus-visible:ring-offset-[#f4fbff]",
         active
           ? "border-cyan-500/60 bg-cyan-950/40 text-cyan-50 shadow-[0_0_16px_rgba(34,211,238,0.22)]"
           : done
@@ -264,16 +256,15 @@ export function ShoppingFactoryView() {
 
   /** 3단계 진입 직후 대본 생성 로딩 */
   const [scriptVoiceLoading, setScriptVoiceLoading] = useState(false)
-  const [voiceSearch, setVoiceSearch] = useState("")
   const [selectedVoiceId, setSelectedVoiceId] = useState<string>("")
+  const [voiceStyle, setVoiceStyle] = useState("normal")
+  const [voicePickerOpen, setVoicePickerOpen] = useState(false)
+  const { voiceCatalog, voicesLoading, voiceLoadErrors, reloadVoices } = useTtsVoiceCatalog()
   const [speechSpeed, setSpeechSpeed] = useState<number>(DEFAULT_TTS_SPEED)
   const [sceneIndex, setSceneIndex] = useState(1)
   const narrationSceneCount = factoryNarSegments.length
   const [narrationPlayheadSec, setNarrationPlayheadSec] = useState(0)
   const [narrationPlaying, setNarrationPlaying] = useState(false)
-  const [factorySupertoneVoices, setFactorySupertoneVoices] = useState<FactorySupertoneVoiceRow[]>([])
-  const [factorySupertoneLoading, setFactorySupertoneLoading] = useState(false)
-  const [factorySupertoneStyle, setFactorySupertoneStyle] = useState("neutral")
   const [factoryVoicePreviewingId, setFactoryVoicePreviewingId] = useState<string | null>(null)
   const factoryVoicePreviewAudioRef = useRef<HTMLAudioElement | null>(null)
 
@@ -578,7 +569,7 @@ export function ShoppingFactoryView() {
         voicePreviewVideoDuration > 0.1 ? voicePreviewVideoDuration : undefined,
       capCutSyncAudioDurationSec: voicePreviewAudioDuration > 0.1 ? voicePreviewAudioDuration : undefined,
       voiceId: selectedVoiceId,
-      voiceStyle: factorySupertoneStyle,
+      voiceStyle,
       seo:
         seoVideoTitle.trim() || seoVideoDesc.trim()
           ? {
@@ -599,7 +590,7 @@ export function ShoppingFactoryView() {
     voicePreviewVideoDuration,
     voicePreviewAudioDuration,
     selectedVoiceId,
-    factorySupertoneStyle,
+    voiceStyle,
     seoVideoTitle,
     seoVideoDesc,
     seoTags,
@@ -772,17 +763,11 @@ export function ShoppingFactoryView() {
 
     const run = async () => {
       try {
-        const apiKey = shotformSupertoneKey()
-        if (!apiKey) {
-          setToast("수퍼톤 API 키가 없습니다. ShotForm 메인 설정에서 저장하세요.")
+        if (!selectedVoiceId) {
+          setToast("「목소리 선택」에서 나레이션 목소리를 먼저 골라 주세요.")
           setVoiceGenProgress(0)
           return
         }
-        if (!selectedVoiceId.startsWith("supertone-")) {
-          setVoiceGenProgress(0)
-          return
-        }
-        const voiceId = selectedVoiceId.replace(/^supertone-/, "")
         const lines = collectNarrationSubtitleLines(factoryNarSegments, getNarrationSceneTextByIndex)
         if (lines.length === 0) {
           setToast("나레이션 자막 줄이 없습니다.")
@@ -806,7 +791,7 @@ export function ShoppingFactoryView() {
           const url = await synthesizeTtsLine({
             fullVoiceId: selectedVoiceId,
             text,
-            style: factorySupertoneStyle,
+            style: voiceStyle,
             speed: speechSpeed,
           })
           if (cancelled) return
@@ -874,7 +859,7 @@ export function ShoppingFactoryView() {
     voicePreviewLoading,
     voiceTtsRunNonce,
     selectedVoiceId,
-    factorySupertoneStyle,
+    voiceStyle,
     speechSpeed,
     getNarrationSceneTextByIndex,
   ])
@@ -1060,54 +1045,7 @@ export function ShoppingFactoryView() {
 
   useEffect(() => {
     setNarrationPlaying(false)
-  }, [selectedVoiceId, factorySupertoneStyle])
-
-  const fetchSupertoneVoicesForFactory = useCallback(async () => {
-    const key = shotformSupertoneKey()
-    if (!key) {
-      setToast("수퍼톤 API 키가 없습니다. ShotForm 메인 설정에서 저장하세요.")
-      return
-    }
-    setFactorySupertoneLoading(true)
-    try {
-      const res = await fetch(`/api/supertone-voices?apiKey=${encodeURIComponent(key)}`)
-      const data = (await res.json().catch(() => ({}))) as { success?: boolean; voices?: unknown[]; error?: string }
-      if (!res.ok || data.success === false) {
-        setToast(typeof data.error === "string" ? data.error : "수퍼톤 목록을 불러오지 못했습니다.")
-        return
-      }
-      const raw = Array.isArray(data.voices) ? data.voices : []
-      const allRows: FactorySupertoneVoiceRow[] = raw.map((x: unknown) => {
-        const o = x as Record<string, unknown>
-        const vid = String(o.voice_id ?? o.id ?? "")
-        return {
-          voice_id: vid,
-          name: String(o.name ?? vid),
-          styles: Array.isArray(o.styles) ? (o.styles as string[]) : ["neutral"],
-          language: Array.isArray(o.language) ? (o.language as string[]) : undefined,
-        }
-      })
-      const rows = filterSupertoneKoreanVoices(allRows)
-      setFactorySupertoneVoices(rows)
-      if (rows.length > 0) {
-        setToast(`한국어 수퍼톤 음성 ${rows.length}개를 불러왔습니다.`)
-        setSelectedVoiceId((prev) => {
-          if (prev.startsWith("supertone-") && rows.some((r) => `supertone-${r.voice_id}` === prev)) return prev
-          return `supertone-${rows[0]!.voice_id}`
-        })
-      } else {
-        setToast(
-          allRows.length > 0
-            ? "한국어를 지원하는 수퍼톤 음성이 없습니다. (다른 언어 전용 목소리는 표시하지 않습니다.)"
-            : "수퍼톤에서 사용 가능한 음성이 없습니다."
-        )
-      }
-    } catch {
-      setToast("수퍼톤 목록 요청에 실패했습니다.")
-    } finally {
-      setFactorySupertoneLoading(false)
-    }
-  }, [])
+  }, [selectedVoiceId, voiceStyle])
 
   const stopFactoryVoicePreview = useCallback(() => {
     const a = factoryVoicePreviewAudioRef.current
@@ -1122,57 +1060,12 @@ export function ShoppingFactoryView() {
 
   useEffect(() => () => stopFactoryVoicePreview(), [stopFactoryVoicePreview])
 
-  const handleFactorySupertonePreview = useCallback(
-    async (voiceOptionId: string) => {
+  const handleFactoryVoicePreview = useCallback(
+    async (voiceId: string, style: string) => {
       stopFactoryVoicePreview()
-      const key = shotformSupertoneKey()
-      if (!key) {
-        setToast("수퍼톤 API 키가 없습니다. ShotForm 메인 설정에서 저장하세요.")
-        return
-      }
-      const supertoneVoiceId = voiceOptionId.replace(/^supertone-/, "")
-      const row = factorySupertoneVoices.find((v) => v.voice_id === supertoneVoiceId)
-      const styles = row?.styles?.length ? row.styles : ["neutral"]
-      const style = styles.includes(factorySupertoneStyle)
-        ? factorySupertoneStyle
-        : styles.includes("neutral")
-          ? "neutral"
-          : styles[0]!
-
-      setFactoryVoicePreviewingId(voiceOptionId)
+      setFactoryVoicePreviewingId(voiceId)
       try {
-        const res = await fetch("/api/supertone-tts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            text: SUPERTONE_VOICE_PREVIEW_TEXT,
-            voiceId: supertoneVoiceId,
-            apiKey: key,
-            style,
-            language: "ko",
-          }),
-        })
-        const data = (await res.json().catch(() => ({}))) as {
-          success?: boolean
-          audioUrl?: string
-          audioBase64?: string
-          error?: string
-        }
-        if (!res.ok || data.success === false) {
-          setToast(typeof data.error === "string" ? data.error : "미리듣기에 실패했습니다.")
-          setFactoryVoicePreviewingId(null)
-          return
-        }
-        let url = typeof data.audioUrl === "string" ? data.audioUrl : ""
-        if (!url && typeof data.audioBase64 === "string") {
-          url = `data:audio/wav;base64,${data.audioBase64}`
-        }
-        if (!url) {
-          setToast("미리듣기 오디오 응답이 없습니다.")
-          setFactoryVoicePreviewingId(null)
-          return
-        }
-        const audio = new Audio(url)
+        const audio = new Audio(await synthesizeTtsPreview(voiceId, style, speechSpeed))
         factoryVoicePreviewAudioRef.current = audio
         audio.onended = () => setFactoryVoicePreviewingId(null)
         audio.onerror = () => {
@@ -1180,22 +1073,28 @@ export function ShoppingFactoryView() {
           setFactoryVoicePreviewingId(null)
         }
         await audio.play()
-      } catch {
-        setToast("미리듣기 요청에 실패했습니다.")
+      } catch (e) {
+        setToast(e instanceof Error ? e.message : "미리듣기에 실패했습니다.")
         setFactoryVoicePreviewingId(null)
       }
     },
-    [factorySupertoneVoices, factorySupertoneStyle, stopFactoryVoicePreview]
+    [speechSpeed, stopFactoryVoicePreview]
   )
 
-  useEffect(() => {
-    if (!selectedVoiceId.startsWith("supertone-")) return
-    const vid = selectedVoiceId.replace(/^supertone-/, "")
-    const row = factorySupertoneVoices.find((v) => v.voice_id === vid)
-    if (!row?.styles?.length) return
-    const st = row.styles
-    setFactorySupertoneStyle((cur) => (st.includes(cur) ? cur : st.includes("neutral") ? "neutral" : st[0]!))
-  }, [selectedVoiceId, factorySupertoneVoices])
+  const handleFactoryVoiceIdChange = useCallback(
+    (id: string) => {
+      stopFactoryVoicePreview()
+      setSelectedVoiceId(id)
+      const p = ttsProviderFromVoiceId(id)
+      if (!p) return
+      const bare = parseBareVoiceId(id)?.bareId ?? ""
+      setVoiceStyle(defaultStyleForTtsVoice(p, (voiceCatalog[p] ?? []).find((v) => v.voice_id === bare) ?? null))
+    },
+    [stopFactoryVoicePreview, voiceCatalog]
+  )
+
+  const selectedVoiceDisplay = selectedVoiceId ? resolveTtsVoiceDisplay(selectedVoiceId, voiceCatalog) : null
+  const selectedVoiceProvider = ttsProviderFromVoiceId(selectedVoiceId)
 
   const firstTitle = summary?.titles[0] || titleForUrl(filledUrls[0] || "") || "다용도 무타공 압축봉"
 
@@ -1215,24 +1114,6 @@ export function ShoppingFactoryView() {
     setNarrationPlaying(true)
     void v?.play().catch(() => setToast("미리보기 영상 재생을 시작할 수 없습니다."))
   }
-
-  const supertoneVoiceOptions: FactoryVoiceOption[] = useMemo(
-    () =>
-      factorySupertoneVoices.map((v) => ({
-        id: `supertone-${v.voice_id}`,
-        name: v.name || v.voice_id,
-        desc: "한국어 · Supertone",
-        provider: "Supertone" as const,
-      })),
-    [factorySupertoneVoices]
-  )
-
-  const filteredVoices = useMemo(() => {
-    const all = supertoneVoiceOptions
-    const q = voiceSearch.trim().toLowerCase()
-    if (!q) return all
-    return all.filter((v) => v.name.toLowerCase().includes(q) || v.desc.toLowerCase().includes(q))
-  }, [voiceSearch, supertoneVoiceOptions])
 
   const activeNarrationSeg = useMemo(() => {
     if (!factoryNarSegments.length) return undefined
@@ -1421,7 +1302,7 @@ export function ShoppingFactoryView() {
       : currentStep === 4
           ? "왼쪽 미리보기와 오른쪽 자막 패널을 5:5로 배치합니다. 자막은 기본으로 화면 정중앙에 둡니다."
           : currentStep === 5
-            ? "샘플 영상과 장면별 자막, 수퍼톤 TTS를 한 화면에서 동기 재생해 확인합니다."
+            ? "샘플 영상과 장면별 자막, AI 나레이션(TTS)을 한 화면에서 동기 재생해 확인합니다."
             : currentStep === 6
               ? "제목·설명·태그·해시태그를 정리합니다."
               : currentStep === 7
@@ -1437,7 +1318,7 @@ export function ShoppingFactoryView() {
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-2xl border border-slate-800/90 bg-[#0c101c]/80 text-slate-100 shadow-xl"
+        "relative overflow-hidden rounded-2xl border border-slate-800/90 bg-[#f4fbff]/80 text-slate-100 shadow-xl"
       )}
     >
       {toast ? (
@@ -2194,121 +2075,54 @@ export function ShoppingFactoryView() {
 
             <div className="space-y-5 rounded-xl border border-slate-800 bg-slate-950/50 p-4">
                 <div>
-                  <Label className="text-sm text-slate-300">음성 선택</Label>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <Label className="text-sm text-slate-300">나레이션 목소리</Label>
+                  <div className="mt-2 flex flex-wrap items-center gap-3 rounded-xl border border-slate-800 bg-slate-900/40 p-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium text-white">
+                          {selectedVoiceId ? (selectedVoiceDisplay?.name ?? selectedVoiceId) : "아직 선택하지 않았어요"}
+                        </span>
+                        {selectedVoiceId ? (
+                          <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">
+                            {providerLabelFromVoiceId(selectedVoiceId)}
+                          </span>
+                        ) : null}
+                      </div>
+                      {selectedVoiceProvider ? (
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          톤 · {labelTtsStyle(selectedVoiceProvider, voiceStyle)}
+                        </p>
+                      ) : null}
+                    </div>
+                    {selectedVoiceId ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="border-slate-600 bg-slate-900 text-xs text-white hover:bg-slate-800"
+                        disabled={factoryVoicePreviewingId === selectedVoiceId}
+                        onClick={() => void handleFactoryVoicePreview(selectedVoiceId, voiceStyle)}
+                      >
+                        {factoryVoicePreviewingId === selectedVoiceId ? (
+                          <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
+                        ) : (
+                          <Volume2 className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                        )}
+                        미리듣기
+                      </Button>
+                    ) : null}
                     <Button
                       type="button"
                       size="sm"
                       variant="outline"
-                      className="border-cyan-600/60 bg-cyan-950/45 text-cyan-100 shadow-sm shadow-cyan-950/20 hover:border-cyan-500/75 hover:bg-cyan-900/55 hover:text-cyan-50"
-                      disabled={factorySupertoneLoading}
-                      onClick={() => void fetchSupertoneVoicesForFactory()}
+                      className="border-cyan-600/60 bg-cyan-950/45 text-cyan-100 hover:border-cyan-500/75 hover:bg-cyan-900/55 hover:text-cyan-50"
+                      onClick={() => setVoicePickerOpen(true)}
                     >
-                      {factorySupertoneLoading ? (
-                        <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden />
-                      ) : null}
-                      수퍼톤 목소리 불러오기
+                      <Mic2 className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                      목소리 선택
                     </Button>
                   </div>
-                  <Input
-                    value={voiceSearch}
-                    onChange={(e) => setVoiceSearch(e.target.value)}
-                    placeholder="음성 이름 검색..."
-                    className="mt-2 h-10 border-slate-700 bg-slate-900/80 text-white placeholder:text-slate-600"
-                  />
                 </div>
-
-                <div className="max-h-[280px] space-y-1 overflow-y-auto rounded-xl border border-slate-800 p-1">
-                  {filteredVoices.length === 0 ? (
-                    <p className="px-3 py-8 text-center text-xs text-slate-500">
-                      「수퍼톤 목소리 불러오기」를 눌러 목록을 가져온 뒤 음성을 선택하세요.
-                    </p>
-                  ) : (
-                    filteredVoices.map((v) => {
-                      const sel = selectedVoiceId === v.id
-                      const previewing = factoryVoicePreviewingId === v.id
-                      return (
-                        <div
-                          key={v.id}
-                          className={cn(
-                            "rounded-lg border border-transparent p-1 transition-colors",
-                            sel ? cn(studio.btnSegmentActive, "border-transparent") : "hover:bg-slate-800/50"
-                          )}
-                        >
-                          <button
-                            type="button"
-                            onClick={() => {
-                              stopFactoryVoicePreview()
-                              setSelectedVoiceId(v.id)
-                              const row = factorySupertoneVoices.find((x) => `supertone-${x.voice_id}` === v.id)
-                              const styles = row?.styles?.length ? row.styles : ["neutral"]
-                              setFactorySupertoneStyle(styles.includes("neutral") ? "neutral" : (styles[0] ?? "neutral"))
-                            }}
-                            className="flex w-full items-start gap-3 rounded-md px-2 py-2 text-left"
-                          >
-                            <Star
-                              className={cn("mt-0.5 h-4 w-4 shrink-0", sel ? "text-amber-400" : "text-slate-600")}
-                              aria-hidden
-                            />
-                            <div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="font-medium text-white">{v.name}</span>
-                                <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">
-                                  {v.provider}
-                                </span>
-                                {sel ? <Check className="h-4 w-4 shrink-0 text-violet-400" aria-label="선택됨" /> : null}
-                              </div>
-                              <p className="mt-0.5 text-xs text-slate-500">{v.desc}</p>
-                            </div>
-                          </button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="mx-2 mb-2 h-8 w-[calc(100%-1rem)] border-slate-600 bg-slate-900 text-xs font-medium text-white hover:bg-slate-800 hover:text-white [&_svg]:shrink-0 [&_svg]:text-cyan-200"
-                            disabled={previewing}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              void handleFactorySupertonePreview(v.id)
-                            }}
-                          >
-                            {previewing ? (
-                              <>
-                                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
-                                재생 중…
-                              </>
-                            ) : (
-                              <>
-                                <Volume2 className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-                                미리듣기
-                              </>
-                            )}
-                          </Button>
-                        </div>
-                      )
-                    })
-                  )}
-                </div>
-
-                {selectedVoiceId.startsWith("supertone-") ? (
-                  <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-900/40 p-3">
-                    <Label className="text-sm text-slate-300">수퍼톤 스타일</Label>
-                    <Select value={factorySupertoneStyle} onValueChange={setFactorySupertoneStyle}>
-                      <SelectTrigger className="border-slate-700 bg-slate-900 text-white">
-                        <SelectValue placeholder="스타일" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {(factorySupertoneVoices.find((v) => `supertone-${v.voice_id}` === selectedVoiceId)?.styles ?? [
-                          "neutral",
-                        ]).map((st) => (
-                          <SelectItem key={st} value={st}>
-                            {st}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                ) : null}
 
                 <div>
                   <Label className="text-sm text-slate-300">속도</Label>
@@ -2877,6 +2691,21 @@ export function ShoppingFactoryView() {
       </div>
         </div>
       </div>
+
+      <MvpVoicePickerDialog
+        open={voicePickerOpen}
+        onOpenChange={setVoicePickerOpen}
+        voiceCatalog={voiceCatalog}
+        voicesLoading={voicesLoading}
+        voiceLoadErrors={voiceLoadErrors}
+        selectedVoiceId={selectedVoiceId}
+        voiceStyle={voiceStyle}
+        onVoiceIdChange={handleFactoryVoiceIdChange}
+        onStyleChange={setVoiceStyle}
+        onReloadVoices={reloadVoices}
+        onPreviewVoice={handleFactoryVoicePreview}
+        previewingVoiceId={factoryVoicePreviewingId}
+      />
     </div>
   )
 }

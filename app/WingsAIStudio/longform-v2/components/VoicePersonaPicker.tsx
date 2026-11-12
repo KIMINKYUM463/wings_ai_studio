@@ -106,27 +106,6 @@ async function fetchPreviewAudioUrl(opts: {
     return audioUrl as string
   }
 
-  if (opts.ttsEngine === "supertone") {
-    if (!keys.supertone) throw new Error("Supertone API 키가 필요합니다. API 설정에서 입력하세요.")
-    const ttsRes = await fetch("/api/supertone-tts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        text: PREVIEW_TEXT,
-        voiceId: bare,
-        apiKey: keys.supertone,
-        language: "ko",
-      }),
-    })
-    const ttsData = await ttsRes.json()
-    if (!ttsRes.ok || ttsData.success === false) {
-      throw new Error(ttsData.error || "Supertone 미리듣기 실패")
-    }
-    const audioUrl = ttsData.audioUrl || ttsData.url
-    if (!audioUrl) throw new Error("TTS 응답에 audioUrl이 없습니다.")
-    return audioUrl as string
-  }
-
   if (!keys.elevenlabs) throw new Error("ElevenLabs API 키가 필요합니다. API 설정에서 입력하세요.")
   const ttsRes = await fetch("/api/elevenlabs-tts", {
     method: "POST",
@@ -199,7 +178,7 @@ export function VoicePersonaPicker({
 
   const personas = useMemo(() => {
     return voices.map((v) => {
-      const bare = String(v.id || "").replace(/^supertonic-|^supertone-|^elevenlabs-/, "")
+      const bare = String(v.id || "").replace(/^supertonic-|^elevenlabs-/, "")
       return resolveVoicePersona(bare || v.id, v.label, ttsEngine)
     })
   }, [voices, ttsEngine])

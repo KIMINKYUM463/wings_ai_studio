@@ -473,15 +473,15 @@ export function AnimalPreviewStudioPanel({
     <div className="space-y-6">
       <div>
         <p className="animal-bubble-chip inline-flex px-2.5 py-1 text-[10px]">PREVIEW</p>
-        <h2 className="animal-display mt-2 text-xl font-bold text-[#fff6ee]">
+        <h2 className="animal-display mt-2 text-xl font-bold text-[#221c16]">
           숏폼 미리보기 · 내보내기
         </h2>
-        <p className="mt-1 text-sm text-[#9aa89c]">
+        <p className="mt-1 text-sm text-[#49554b]">
           {expectedClips || "N"}클립을 이어 붙일 때 TTS 나레이션을 파일에 넣습니다. 다운로드 시
           Windows에서 길이가 보이도록 메타데이터도 보정합니다.
         </p>
         {statusHint ? (
-          <p className="mt-2 flex items-center gap-2 text-sm text-[#7dd3a8]">
+          <p className="mt-2 flex items-center gap-2 text-sm text-[#005835]">
             {(isMerging || isDownloading) && (
               <Loader2 className="h-4 w-4 animate-spin" />
             )}
@@ -492,7 +492,7 @@ export function AnimalPreviewStudioPanel({
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,360px)_1fr]">
         <div className="mx-auto w-full max-w-[min(100%,320px)]">
-          <div className="overflow-hidden rounded-[1.75rem] border border-[rgba(255,246,238,0.14)] bg-black shadow-[0_24px_60px_rgba(0,0,0,0.45)]">
+          <div className="overflow-hidden rounded-[1.75rem] border border-[rgba(34,28,22,0.14)] bg-black shadow-[0_24px_60px_rgba(20,35,70,0.158)]">
             <div className="relative aspect-[9/16] bg-black">
               {hasMerged ? (
                 <>
@@ -506,7 +506,7 @@ export function AnimalPreviewStudioPanel({
                   <button
                     type="button"
                     onClick={openFullscreen}
-                    className="absolute right-3 top-3 z-10 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-black/55 text-[#fff6ee] backdrop-blur-sm transition hover:bg-black/75"
+                    className="absolute right-3 top-3 z-10 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-black/55 text-[#221c16] backdrop-blur-sm transition hover:bg-black/75"
                     title="전체화면으로 확대"
                     aria-label="전체화면으로 확대"
                   >
@@ -514,10 +514,10 @@ export function AnimalPreviewStudioPanel({
                   </button>
                 </>
               ) : (
-                <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-[#6b7a6e]">
+                <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-[#657468]">
                   {isMerging ? (
                     <>
-                      <Loader2 className="h-8 w-8 animate-spin text-[#7dd3a8]" />
+                      <Loader2 className="h-8 w-8 animate-spin text-[#005835]" />
                       <p className="text-sm">클립+TTS 이어 붙이는 중…</p>
                     </>
                   ) : (
@@ -536,9 +536,9 @@ export function AnimalPreviewStudioPanel({
               step={0.05}
               value={sliderValue}
               onChange={(e) => seekTo(Number(e.target.value))}
-              className="w-full accent-[#7dd3a8]"
+              className="w-full accent-[#005835]"
             />
-            <div className="flex items-center justify-between text-xs text-[#9aa89c]">
+            <div className="flex items-center justify-between text-xs text-[#49554b]">
               <span>{formatTime(currentTime)}</span>
               <span>{formatTime(duration)}</span>
             </div>
@@ -632,26 +632,26 @@ export function AnimalPreviewStudioPanel({
           </div>
         </div>
 
-        <div className="space-y-4 rounded-2xl border border-[rgba(255,246,238,0.12)] bg-black/25 p-5">
-          <h3 className="animal-display text-lg font-bold text-[#fff6ee]">프로젝트 요약</h3>
+        <div className="space-y-4 rounded-2xl border border-[rgba(34,28,22,0.12)] bg-black/25 p-5">
+          <h3 className="animal-display text-lg font-bold text-[#221c16]">프로젝트 요약</h3>
           <dl className="space-y-3 text-sm">
             <div>
-              <dt className="text-[#6b7a6e]">캐릭터</dt>
-              <dd className="font-semibold text-[#fff6ee]">
+              <dt className="text-[#657468]">캐릭터</dt>
+              <dd className="font-semibold text-[#221c16]">
                 {brief.character.name} · {brief.character.breedOrLook || brief.character.species}
               </dd>
             </div>
             <div>
-              <dt className="text-[#6b7a6e]">제품</dt>
-              <dd className="font-semibold text-[#fff6ee]">{brief.productName || "-"}</dd>
+              <dt className="text-[#657468]">제품</dt>
+              <dd className="font-semibold text-[#221c16]">{brief.productName || "-"}</dd>
             </div>
             <div>
-              <dt className="text-[#6b7a6e]">대본</dt>
-              <dd className="leading-6 text-[#d7e0d8]">{brief.script || "-"}</dd>
+              <dt className="text-[#657468]">대본</dt>
+              <dd className="leading-6 text-[#2d342e]">{brief.script || "-"}</dd>
             </div>
             <div>
-              <dt className="text-[#6b7a6e]">생성</dt>
-              <dd className="text-[#d7e0d8]">
+              <dt className="text-[#657468]">생성</dt>
+              <dd className="text-[#2d342e]">
                 씬 {brief.scenes?.length || 0} · 이미지 {brief.imageUrls.length}/
                 {brief.scenes?.length || 0} · 클립 {sortedVideos.length}/
                 {brief.scenes?.length || 0} · TTS{" "}
@@ -685,7 +685,7 @@ export function AnimalPreviewStudioPanel({
       {isFullscreen && brief.mergedVideoUrl ? (
         <div className="fixed inset-0 z-[80] flex flex-col bg-black/95 backdrop-blur-sm">
           <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-6">
-            <p className="text-sm font-semibold text-[#fff6ee]">전체화면 미리보기</p>
+            <p className="text-sm font-semibold text-[#221c16]">전체화면 미리보기</p>
             <div className="flex items-center gap-2">
               <Button
                 type="button"
@@ -720,7 +720,7 @@ export function AnimalPreviewStudioPanel({
               <button
                 type="button"
                 onClick={closeFullscreen}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-white/10 text-[#fff6ee] hover:bg-white/20"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-white/10 text-[#221c16] hover:bg-white/20"
                 aria-label="닫기"
               >
                 <X className="h-4 w-4" />
@@ -748,9 +748,9 @@ export function AnimalPreviewStudioPanel({
               step={0.05}
               value={sliderValue}
               onChange={(e) => seekTo(Number(e.target.value))}
-              className="w-full accent-[#7dd3a8]"
+              className="w-full accent-[#005835]"
             />
-            <div className="flex items-center justify-between text-xs text-[#9aa89c]">
+            <div className="flex items-center justify-between text-xs text-[#49554b]">
               <span>{formatTime(currentTime)}</span>
               <span>{formatTime(duration)}</span>
             </div>

@@ -99,7 +99,7 @@ export function FavoritePickerModal({
         onClick={onClose}
         disabled={loading}
       />
-      <div className="relative z-10 w-full max-w-md overflow-hidden rounded-3xl border border-white/10 bg-[#121316] shadow-2xl">
+      <div className="relative z-10 w-full max-w-md overflow-hidden rounded-3xl border border-white/10 bg-[#fdfeff] shadow-2xl">
         <div className="flex items-start justify-between gap-3 border-b border-white/[0.06] px-5 py-4">
           <div>
             <h3 className="text-base font-bold text-zinc-50">{title}</h3>

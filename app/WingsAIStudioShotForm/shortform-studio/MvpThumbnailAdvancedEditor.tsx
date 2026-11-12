@@ -1293,14 +1293,14 @@ export function MvpThumbnailAdvancedEditor({
       <DialogPortal>
         <DialogOverlay className="fixed inset-0 z-[200] bg-black/85" />
         <DialogPrimitive.Content
-          className="dark fixed inset-0 z-[201] flex h-screen max-h-screen w-screen max-w-none flex-col bg-[#0a0c10] outline-none"
+          className="dark fixed inset-0 z-[201] flex h-screen max-h-screen w-screen max-w-none flex-col bg-[#f4f7fd] outline-none"
           onInteractOutside={(e) => e.preventDefault()}
           onPointerDownOutside={(e) => e.preventDefault()}
         >
           <DialogTitle className="sr-only">썸네일 스튜디오</DialogTitle>
 
           {/* 상단 — 캔바/미리캔버스 스타일 툴바 */}
-          <header className="flex h-14 shrink-0 items-center justify-between border-b border-black/[0.08] bg-white px-4 dark:border-white/[0.08] dark:bg-[#0c0f16]">
+          <header className="flex h-14 shrink-0 items-center justify-between border-b border-black/[0.08] bg-white px-4 dark:border-white/[0.08] dark:bg-[#f4f9ff]">
             <div className="flex items-center gap-3">
               <Button
                 type="button"
@@ -1419,7 +1419,7 @@ export function MvpThumbnailAdvancedEditor({
 
           <div className="flex min-h-0 flex-1">
             {/* 왼쪽 아이콘 레일 — 미리캔버스 스타일 */}
-            <nav className="flex w-[72px] shrink-0 flex-col items-center gap-1 border-r border-black/[0.06] bg-white py-3 dark:border-white/[0.06] dark:bg-[#0c0f16]">
+            <nav className="flex w-[72px] shrink-0 flex-col items-center gap-1 border-r border-black/[0.06] bg-white py-3 dark:border-white/[0.06] dark:bg-[#f4f9ff]">
               {SIDE_TABS.map((tab) => (
                 <button
                   key={tab.id}
@@ -1440,7 +1440,7 @@ export function MvpThumbnailAdvancedEditor({
             </nav>
 
             {/* 왼쪽 패널 */}
-            <aside className="flex w-[280px] shrink-0 flex-col border-r border-black/[0.06] bg-white dark:border-white/[0.06] dark:bg-[#0c0f16]">
+            <aside className="flex w-[280px] shrink-0 flex-col border-r border-black/[0.06] bg-white dark:border-white/[0.06] dark:bg-[#f4f9ff]">
               <div className="flex-1 overflow-y-auto p-4">
                 {sideTab === "template" ? (
                   <div className="space-y-3">
@@ -1949,7 +1949,7 @@ export function MvpThumbnailAdvancedEditor({
             {/* 중앙 캔버스 — 크게 */}
             <div
               ref={canvasAreaRef}
-              className="relative flex min-w-0 flex-1 items-center justify-center overflow-auto bg-[#080a0f]"
+              className="relative flex min-w-0 flex-1 items-center justify-center overflow-auto bg-[#f3f7ff]"
               style={{
                 backgroundImage:
                   "linear-gradient(45deg,#141820 25%,transparent 25%),linear-gradient(-45deg,#141820 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#141820 75%),linear-gradient(-45deg,transparent 75%,#141820 75%)",
@@ -1961,7 +1961,7 @@ export function MvpThumbnailAdvancedEditor({
               <div
                 ref={stageRef}
                 data-thumbnail-stage
-                className="relative shrink-0 overflow-hidden rounded-sm bg-black shadow-[0_12px_48px_rgba(0,0,0,0.55)] ring-1 ring-white/10"
+                className="relative shrink-0 overflow-hidden rounded-sm bg-black shadow-[0_12px_48px_rgba(20,35,70,0.193)] ring-1 ring-white/10"
                 style={{
                   width: `${stagePxW}px`,
                   aspectRatio: "9/16",
@@ -2091,7 +2091,7 @@ export function MvpThumbnailAdvancedEditor({
                             <button
                               type="button"
                               title="AI 문구 변환"
-                              className="absolute -top-9 left-1/2 z-30 flex -translate-x-1/2 items-center gap-1 rounded-full border border-violet-400/60 bg-[#0c0f16]/95 px-2.5 py-1 text-[10px] font-medium text-violet-200 shadow-lg backdrop-blur-sm pointer-events-auto"
+                              className="absolute -top-9 left-1/2 z-30 flex -translate-x-1/2 items-center gap-1 rounded-full border border-violet-400/60 bg-[#f4f9ff]/95 px-2.5 py-1 text-[10px] font-medium text-violet-200 shadow-lg backdrop-blur-sm pointer-events-auto"
                               disabled={aiTextLoadingId === t.id}
                               onPointerDown={(e) => e.stopPropagation()}
                               onClick={(e) => {
@@ -2233,7 +2233,7 @@ export function MvpThumbnailAdvancedEditor({
             </div>
 
             {/* 오른쪽 속성 패널 */}
-            <aside className="flex w-[300px] shrink-0 flex-col border-l border-black/[0.06] bg-white dark:border-white/[0.06] dark:bg-[#0c0f16]">
+            <aside className="flex w-[300px] shrink-0 flex-col border-l border-black/[0.06] bg-white dark:border-white/[0.06] dark:bg-[#f4f9ff]">
               <div className="border-b border-black/[0.06] px-4 py-3 dark:border-white/[0.06]">
                 <p className="text-sm font-bold text-slate-900 dark:text-white">속성</p>
                 <p className="text-[10px] text-slate-500">
@@ -2815,7 +2815,7 @@ export function MvpThumbnailAdvancedEditor({
             </aside>
           </div>
 
-          <footer className="flex h-10 shrink-0 items-center justify-between border-t border-black/[0.06] bg-white px-4 text-[10px] text-slate-500 dark:border-white/[0.06] dark:bg-[#0c0f16]">
+          <footer className="flex h-10 shrink-0 items-center justify-between border-t border-black/[0.06] bg-white px-4 text-[10px] text-slate-500 dark:border-white/[0.06] dark:bg-[#f4f9ff]">
             <span>
               {design.aiBaked ? "쇼핑숏폼 AI 합성" : THUMBNAIL_TEMPLATES.find((t) => t.id === design.templateId)?.label ?? "커스텀"} ·
               1080×1920

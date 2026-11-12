@@ -1,5 +1,6 @@
 'use client'
 
+import { ImageIcon } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { StepToolbarSaveBinder } from '@/lib/longform-v2/thumbnail-bridge/useRegisterStepToolbarSave'
@@ -95,7 +96,7 @@ export function ThumbnailTemplateStudioModal({
         <header className="thumb-studio-modal__header">
           <div className="thumb-studio-modal__brand">
             <span className="thumb-studio-modal__logo" aria-hidden>
-              🖼
+              <ImageIcon className="lfv2-ico" aria-hidden />
             </span>
             <div>
               <h2 id="thumb-studio-modal-title" className="thumb-studio-modal__title">

@@ -7,7 +7,6 @@ import {
   Mic2,
   Pause,
   Play,
-  Radio,
   Sparkles,
   UserRound,
   Volume2,
@@ -17,6 +16,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Slider } from "@/components/ui/slider"
 import { SUPERTONIC_BUILTIN_VOICES } from "@/lib/supertonic-local"
+import { DEFAULT_TTS_PROVIDER, isRetiredSupertoneVoiceId } from "@/lib/shotform-tts-providers"
 import {
   fetchSupertonicTts,
   fetchSupertonicVoices,
@@ -36,7 +36,7 @@ import {
   type InfoVoiceTrack,
 } from "./info-types"
 
-type Provider = "supertone" | "supertonic" | "typecast" | "elevenlabs"
+type Provider = "supertonic" | "typecast" | "elevenlabs"
 type CatalogVoice = {
   voice_id: string
   name: string
@@ -50,8 +50,7 @@ const ELEVEN_PRESETS: CatalogVoice[] = [
   { voice_id: "uyVNoMrnUku1dZyVEXwD", name: "Voice 3", gender: "female" },
 ]
 
-const PROVIDERS: Array<{ id: Provider; title: string; icon: typeof Radio }> = [
-  { id: "supertone", title: "SuperTone", icon: Radio },
+const PROVIDERS: Array<{ id: Provider; title: string; icon: typeof Sparkles }> = [
   { id: "supertonic", title: "Supertonic 3", icon: Sparkles },
   { id: "typecast", title: "타입캐스트", icon: UserRound },
   { id: "elevenlabs", title: "ElevenLabs", icon: Globe2 },
@@ -65,7 +64,6 @@ function normalizeVoiceId(voiceId?: string) {
 
 function providerFromVoiceId(voiceId: string): Provider {
   if (voiceId.startsWith("supertonic-")) return "supertonic"
-  if (voiceId.startsWith("supertone-")) return "supertone"
   if (voiceId.startsWith("typecast-")) return "typecast"
   return "elevenlabs"
 }
@@ -79,14 +77,17 @@ export function InfoVoicePanel({
   onChange: (brief: InfoShoppingBrief) => void
   onContinue: () => void
 }) {
-  const initialVoiceId = normalizeVoiceId(brief.voiceData?.voiceId)
-  const [provider, setProvider] = useState<Provider>(
-    brief.voiceData?.provider || providerFromVoiceId(initialVoiceId)
-  )
+  const savedProvider = brief.voiceData?.provider
+  const hasRetiredVoice = isRetiredSupertoneVoiceId(brief.voiceData?.voiceId)
+  const initialVoiceId = hasRetiredVoice ? "" : normalizeVoiceId(brief.voiceData?.voiceId)
+  const [provider, setProvider] = useState<Provider>(() => {
+    if (hasRetiredVoice) return DEFAULT_TTS_PROVIDER
+    if (PROVIDERS.some((item) => item.id === savedProvider)) return savedProvider as Provider
+    return providerFromVoiceId(initialVoiceId)
+  })
   const [selectedVoiceId, setSelectedVoiceId] = useState(initialVoiceId)
   const [speed, setSpeed] = useState(brief.voiceData?.speed || 1.15)
-  const [style, setStyle] = useState(brief.voiceData?.style || "normal")
-  const [supertoneVoices, setSupertoneVoices] = useState<CatalogVoice[]>([])
+  const [style, setStyle] = useState(hasRetiredVoice ? "normal" : brief.voiceData?.style || "normal")
   const [supertonicVoices, setSupertonicVoices] = useState<CatalogVoice[]>(
     SUPERTONIC_BUILTIN_VOICES.map((voice) => ({ ...voice }))
   )
@@ -107,14 +108,14 @@ export function InfoVoicePanel({
   const tracks = brief.voiceData?.tracks || []
 
   const voices = useMemo(() => {
-    if (provider === "supertone") return supertoneVoices
     if (provider === "supertonic") return supertonicVoices
     if (provider === "typecast") return typecastVoices
     return ELEVEN_PRESETS
-  }, [provider, supertoneVoices, typecastVoices, supertonicVoices])
+  }, [provider, typecastVoices, supertonicVoices])
 
   useEffect(() => {
-    if (provider === "supertonic") void loadSupertonicVoices()
+    if (hasRetiredVoice) selectProvider(provider)
+    else if (provider === "supertonic") void loadSupertonicVoices()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -279,27 +280,6 @@ export function InfoVoicePanel({
     }
   }
 
-  const loadSupertoneVoices = async () => {
-    const apiKey = (localStorage.getItem("shotform_supertone_api_key") || "").trim()
-    if (!apiKey) {
-      setError("SuperTone API 키가 필요합니다.")
-      return
-    }
-    setIsLoadingVoices(true)
-    try {
-      const response = await fetch(`/api/supertone-voices?apiKey=${encodeURIComponent(apiKey)}`)
-      const payload = await response.json()
-      if (!response.ok) throw new Error(payload.error || "목록 실패")
-      const nextVoices = (payload.voices || []) as CatalogVoice[]
-      setSupertoneVoices(nextVoices)
-      if (nextVoices[0]) setSelectedVoiceId(`supertone-${nextVoices[0].voice_id}`)
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "음성 목록 실패")
-    } finally {
-      setIsLoadingVoices(false)
-    }
-  }
-
   const loadTypecastVoices = async () => {
     const apiKey = (
       localStorage.getItem("shotform_typecast_api_key") ||
@@ -348,9 +328,6 @@ export function InfoVoicePanel({
       void loadSupertonicVoices()
     } else if (next === "elevenlabs") {
       setSelectedVoiceId(`elevenlabs-${ELEVEN_PRESETS[0].voice_id}`)
-    } else if (next === "supertone") {
-      if (supertoneVoices[0]) setSelectedVoiceId(`supertone-${supertoneVoices[0].voice_id}`)
-      else void loadSupertoneVoices()
     } else {
       if (typecastVoices[0]) setSelectedVoiceId(`typecast-${typecastVoices[0].voice_id}`)
       else void loadTypecastVoices()
@@ -367,7 +344,7 @@ export function InfoVoicePanel({
     voiceId = selectedVoiceId,
     speedOverride?: number
   ) => {
-    const bareId = voiceId.replace(/^(supertone|supertonic|typecast|elevenlabs)-/, "")
+    const bareId = voiceId.replace(/^(supertonic|typecast|elevenlabs)-/, "")
     const ttsSpeed =
       typeof speedOverride === "number" && Number.isFinite(speedOverride)
         ? speedOverride
@@ -378,11 +355,6 @@ export function InfoVoicePanel({
     if (voiceId.startsWith("supertonic-")) {
       endpoint = "/api/supertonic-tts"
       body = { ...body, lang: "ko" }
-    } else if (voiceId.startsWith("supertone-")) {
-      const apiKey = (localStorage.getItem("shotform_supertone_api_key") || "").trim()
-      if (!apiKey) throw new Error("SuperTone API 키가 필요합니다.")
-      endpoint = "/api/supertone-tts"
-      body = { ...body, apiKey, style: style || "neutral", language: "ko" }
     } else if (voiceId.startsWith("typecast-")) {
       const apiKey = (
         localStorage.getItem("shotform_typecast_api_key") ||
@@ -499,7 +471,7 @@ export function InfoVoicePanel({
 
   return (
     <section className="space-y-6">
-      <div className="rounded-[28px] border border-white/[0.08] bg-[#11100e]/95 p-6 md:p-8">
+      <div className="rounded-[28px] border border-white/[0.08] bg-[#fcfaf7]/95 p-6 md:p-8">
         <p className="text-[10px] font-black tracking-[0.2em] text-sky-400">STEP 04 · VOICE</p>
         <h2 className="mt-2 text-3xl font-black text-white">AI 음성</h2>
         <p className="mt-2 text-sm text-zinc-400">
@@ -509,7 +481,7 @@ export function InfoVoicePanel({
           해주세요.
         </p>
 
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-5 grid gap-3 sm:grid-cols-3">
           {PROVIDERS.map((item) => {
             const Icon = item.icon
             return (
@@ -542,14 +514,12 @@ export function InfoVoicePanel({
         ) : null}
 
         <div className="mt-5 flex flex-wrap gap-2">
-          {(provider === "supertone" || provider === "typecast") && !voices.length ? (
+          {provider === "typecast" && !voices.length ? (
             <Button
               type="button"
               variant="secondary"
               disabled={isLoadingVoices}
-              onClick={() =>
-                void (provider === "supertone" ? loadSupertoneVoices() : loadTypecastVoices())
-              }
+              onClick={() => void loadTypecastVoices()}
             >
               {isLoadingVoices ? <Loader2 className="h-4 w-4 animate-spin" /> : "음성 목록 불러오기"}
             </Button>
@@ -600,7 +570,7 @@ export function InfoVoicePanel({
         <div className="mt-6 flex flex-wrap gap-3">
           <Button
             type="button"
-            disabled={isGenerating}
+            disabled={isGenerating || !selectedVoiceId}
             onClick={() => void generate()}
             className="bg-sky-500 font-bold text-white hover:bg-sky-400"
           >

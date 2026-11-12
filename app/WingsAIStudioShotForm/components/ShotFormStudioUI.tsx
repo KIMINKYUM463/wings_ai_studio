@@ -5,13 +5,13 @@ import { cn } from "@/lib/utils"
 
 /** Wings AI Studio 다크 UI 토큰 (Tailwind class 조합) */
 export const studio = {
-  page: "min-h-screen bg-[#060912] text-slate-100",
-  sidebar: "border-r border-white/[0.06] bg-[#0a0f1a]/95 backdrop-blur-xl",
-  header: "border-b border-white/[0.06] bg-[#060912]/80 backdrop-blur-md",
-  surface: "rounded-2xl border border-white/[0.08] bg-[#0d1322]/90 shadow-[0_8px_32px_rgba(0,0,0,0.35)]",
-  surfaceMuted: "rounded-xl border border-white/[0.06] bg-[#0a0f1a]/70",
+  page: "min-h-screen bg-[#f0f7ff] text-slate-100",
+  sidebar: "border-r border-white/[0.06] bg-[#f1faff]/95 backdrop-blur-xl",
+  header: "border-b border-white/[0.06] bg-[#f0f7ff]/80 backdrop-blur-md",
+  surface: "rounded-2xl border border-white/[0.08] bg-[#f6ffff]/90 shadow-[0_8px_32px_rgba(20,35,70,0.122)]",
+  surfaceMuted: "rounded-xl border border-white/[0.06] bg-[#f1faff]/70",
   input:
-    "h-12 rounded-xl border-white/10 bg-[#0a0f1a] text-white shadow-inner placeholder:text-slate-500 focus-visible:border-violet-500/50 focus-visible:ring-violet-500/25",
+    "h-12 rounded-xl border-white/10 bg-[#f1faff] text-white shadow-inner placeholder:text-slate-500 focus-visible:border-violet-500/50 focus-visible:ring-violet-500/25",
   btnPrimary:
     "rounded-xl border border-cyan-400/35 bg-cyan-500/10 font-semibold text-cyan-50 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)] transition hover:border-cyan-300/50 hover:bg-cyan-500/20 hover:text-white disabled:opacity-50",
   btnSecondary:
@@ -25,7 +25,7 @@ export const studio = {
   btnTabActive:
     "border-violet-400/50 bg-violet-500/20 font-medium text-violet-50 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)] ring-1 ring-violet-400/20",
   btnTabIdle:
-    "border-white/10 bg-[#0a0f1a]/50 text-slate-400 hover:border-violet-400/30 hover:bg-violet-500/10 hover:text-slate-200",
+    "border-white/10 bg-[#f1faff]/50 text-slate-400 hover:border-violet-400/30 hover:bg-violet-500/10 hover:text-slate-200",
   badgeAccent: "border border-cyan-400/30 bg-cyan-500/15 text-cyan-100",
   btnGhost: "rounded-xl border border-white/10 bg-white/[0.03] text-slate-200 hover:bg-white/[0.06] hover:text-white",
   navActive:

@@ -51,7 +51,6 @@ export interface ShoppingProjectData {
   
   // TTS 관련
   selectedVoiceId?: string
-  selectedSupertoneVoiceId?: string
   selectedSupertoneStyle?: string
   ttsAudioUrl?: string
   ttsSpeed?: number

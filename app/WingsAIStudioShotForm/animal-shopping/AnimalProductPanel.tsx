@@ -198,15 +198,15 @@ export function AnimalProductPanel({
     <div className="space-y-8">
       <section className="space-y-4">
         <div className="flex items-start gap-3">
-          <div className="rounded-xl border border-[#7dd3a8]/30 bg-[#7dd3a8]/15 p-2.5">
-            <PawPrint className="h-5 w-5 text-[#7dd3a8]" />
+          <div className="rounded-xl border border-[#005835]/30 bg-[#7dd3a8]/15 p-2.5">
+            <PawPrint className="h-5 w-5 text-[#005835]" />
           </div>
           <div>
-            <p className="animal-bubble-chip inline-flex px-2.5 py-1 text-[10px]">🐾 CHARACTER</p>
-            <h2 className="animal-display mt-2 text-xl font-bold text-[#fff6ee]">
+            <p className="animal-bubble-chip inline-flex items-center gap-1 px-2.5 py-1 text-[10px]"><PawPrint className="h-3 w-3" />CHARACTER</p>
+            <h2 className="animal-display mt-2 text-xl font-bold text-[#221c16]">
               동물 쇼퍼 고르기
             </h2>
-            <p className="mt-1 text-sm text-[#9aa89c]">
+            <p className="mt-1 text-sm text-[#49554b]">
               캐릭터가 쿠팡 제품을 매장에서 직접 쓰고 시연하는 숏폼의 주인공이에요. 확대 버튼으로
               외형을 크게 확인할 수 있어요.
             </p>
@@ -226,8 +226,8 @@ export function AnimalProductPanel({
                 key={preset.id}
                 className={`relative overflow-hidden rounded-2xl border text-left transition ${
                   active
-                    ? "border-[#7dd3a8]/70 bg-[#7dd3a8]/15 ring-2 ring-[#7dd3a8]/40"
-                    : "border-[rgba(255,246,238,0.12)] bg-black/25 hover:border-[#7dd3a8]/35"
+                    ? "border-[#005835]/70 bg-[#7dd3a8]/15 ring-2 ring-[#005835]/40"
+                    : "border-[rgba(34,28,22,0.12)] bg-black/25 hover:border-[#005835]/35"
                 }`}
               >
                 <button
@@ -250,10 +250,10 @@ export function AnimalProductPanel({
                     )}
                   </div>
                   <div className="p-3">
-                    <p className="font-semibold text-[#fff6ee]">
+                    <p className="font-semibold text-[#221c16]">
                       {preset.emoji} {preset.label}
                     </p>
-                    <p className="mt-0.5 text-xs text-[#9aa89c]">{preset.character.name}</p>
+                    <p className="mt-0.5 text-xs text-[#49554b]">{preset.character.name}</p>
                   </div>
                 </button>
                 {previewSrc ? (
@@ -263,7 +263,7 @@ export function AnimalProductPanel({
                       e.stopPropagation()
                       setPreviewPreset(preset)
                     }}
-                    className="absolute right-2.5 top-2.5 z-10 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/25 bg-black/60 text-[#fff6ee] shadow-lg backdrop-blur-sm transition hover:border-[#7dd3a8]/50 hover:bg-black/80"
+                    className="absolute right-2.5 top-2.5 z-10 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/25 bg-black/60 text-[#221c16] shadow-lg backdrop-blur-sm transition hover:border-[#005835]/50 hover:bg-black/80"
                     title="이미지 확대 보기"
                     aria-label={`${preset.label} 이미지 확대`}
                   >
@@ -281,14 +281,14 @@ export function AnimalProductPanel({
             if (!open) setPreviewPreset(null)
           }}
         >
-          <DialogContent className="max-w-3xl border-[rgba(255,246,238,0.14)] bg-[#121612] p-0 text-[#fff6ee] sm:rounded-2xl">
+          <DialogContent className="max-w-3xl border-[rgba(34,28,22,0.14)] bg-[#fbfffb] p-0 text-[#221c16] sm:rounded-2xl">
             {previewPreset ? (
               <>
                 <DialogHeader className="space-y-1 border-b border-white/10 px-5 py-4 text-left">
                   <DialogTitle className="animal-display text-lg font-bold">
                     {previewPreset.emoji} {previewPreset.label}
                   </DialogTitle>
-                  <DialogDescription className="text-[#9aa89c]">
+                  <DialogDescription className="text-[#49554b]">
                     {previewPreset.character.name} ·{" "}
                     {previewPreset.character.breedOrLook ||
                       previewPreset.character.personality}
@@ -311,7 +311,7 @@ export function AnimalProductPanel({
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/10 px-5 py-3">
-                  <p className="text-xs text-[#6b7a6e]">
+                  <p className="text-xs text-[#657468]">
                     이미지를 확대해 외형·무늬를 확인하세요.
                   </p>
                   <div className="flex gap-2">
@@ -341,42 +341,42 @@ export function AnimalProductPanel({
           </DialogContent>
         </Dialog>
 
-        <div className="grid gap-4 rounded-2xl border border-[rgba(255,246,238,0.12)] bg-black/25 p-4 md:grid-cols-2">
+        <div className="grid gap-4 rounded-2xl border border-[rgba(34,28,22,0.12)] bg-black/25 p-4 md:grid-cols-2">
           <div className="space-y-3">
             <div>
-              <Label className="text-[#d7e0d8]">이름</Label>
+              <Label className="text-[#2d342e]">이름</Label>
               <Input
                 value={character.name}
                 onChange={(e) => updateCharacter({ name: e.target.value })}
-                className="mt-1 border-[rgba(243,235,224,0.12)] bg-black/35 text-[#f3ebe0]"
+                className="mt-1 border-[rgba(41,36,27,0.12)] bg-black/35 text-[#29241b]"
               />
             </div>
             <div>
-              <Label className="text-[#d7e0d8]">외모</Label>
+              <Label className="text-[#2d342e]">외모</Label>
               <Input
                 value={character.breedOrLook}
                 onChange={(e) => updateCharacter({ breedOrLook: e.target.value })}
                 placeholder="예: 주황색 줄무나고양이"
-                className="mt-1 border-[rgba(243,235,224,0.12)] bg-black/35 text-[#f3ebe0]"
+                className="mt-1 border-[rgba(41,36,27,0.12)] bg-black/35 text-[#29241b]"
               />
             </div>
             <div>
-              <Label className="text-[#d7e0d8]">성격</Label>
+              <Label className="text-[#2d342e]">성격</Label>
               <Input
                 value={character.personality}
                 onChange={(e) => updateCharacter({ personality: e.target.value })}
-                className="mt-1 border-[rgba(243,235,224,0.12)] bg-black/35 text-[#f3ebe0]"
+                className="mt-1 border-[rgba(41,36,27,0.12)] bg-black/35 text-[#29241b]"
               />
             </div>
             {character.presetId === "custom" ? (
               <div>
-                <Label className="text-[#d7e0d8]">종류</Label>
+                <Label className="text-[#2d342e]">종류</Label>
                 <select
                   value={character.species}
                   onChange={(e) =>
                     updateCharacter({ species: e.target.value as AnimalSpecies })
                   }
-                  className="mt-1 h-10 w-full rounded-xl border border-[rgba(243,235,224,0.12)] bg-black/35 px-3 text-[#f3ebe0]"
+                  className="mt-1 h-10 w-full rounded-xl border border-[rgba(41,36,27,0.12)] bg-black/35 px-3 text-[#29241b]"
                 >
                   <option value="cat">고양이</option>
                   <option value="dog">강아지</option>
@@ -390,8 +390,8 @@ export function AnimalProductPanel({
           </div>
 
           <div className="space-y-3">
-            <Label className="text-[#d7e0d8]">캐릭터 레퍼런스 (얼굴 고정)</Label>
-            <div className="aspect-[9/16] max-h-64 overflow-hidden rounded-xl border border-[rgba(255,246,238,0.12)] bg-black/40">
+            <Label className="text-[#2d342e]">캐릭터 레퍼런스 (얼굴 고정)</Label>
+            <div className="aspect-[9/16] max-h-64 overflow-hidden rounded-xl border border-[rgba(34,28,22,0.12)] bg-black/40">
               {character.referenceImage ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
@@ -400,7 +400,7 @@ export function AnimalProductPanel({
                   className="h-full w-full object-cover"
                 />
               ) : (
-                <div className="flex h-full items-center justify-center text-sm text-[#6b7a6e]">
+                <div className="flex h-full items-center justify-center text-sm text-[#657468]">
                   레퍼런스 없음
                 </div>
               )}
@@ -419,7 +419,7 @@ export function AnimalProductPanel({
                 )}
                 AI로 만들기
               </Button>
-              <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-[rgba(255,246,238,0.2)] px-4 py-2 text-sm text-[#fff6ee] hover:bg-white/5">
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-[rgba(34,28,22,0.2)] px-4 py-2 text-sm text-[#221c16] hover:bg-white/5">
                 <Upload className="h-4 w-4" />
                 업로드
                 <input
@@ -447,7 +447,7 @@ export function AnimalProductPanel({
           onSelectProduct={selectProduct}
         />
 
-        <div className="grid gap-4 rounded-2xl border border-[rgba(255,246,238,0.12)] bg-black/25 p-4 md:grid-cols-[120px_1fr]">
+        <div className="grid gap-4 rounded-2xl border border-[rgba(34,28,22,0.12)] bg-black/25 p-4 md:grid-cols-[120px_1fr]">
           <div className="aspect-square overflow-hidden rounded-xl bg-black/40">
             {brief.productImage ? (
               // eslint-disable-next-line @next/next/no-img-element
@@ -457,36 +457,36 @@ export function AnimalProductPanel({
                 className="h-full w-full object-cover"
               />
             ) : (
-              <div className="flex h-full items-center justify-center text-xs text-[#6b7a6e]">
+              <div className="flex h-full items-center justify-center text-xs text-[#657468]">
                 제품 이미지
               </div>
             )}
           </div>
           <div className="space-y-3">
             <div>
-              <Label className="text-[#d7e0d8]">
-                제품명<span className="text-[#ff8fab]">*</span>
+              <Label className="text-[#2d342e]">
+                제품명<span className="text-[#1d4594]">*</span>
               </Label>
               <Input
                 value={brief.productName}
                 onChange={(e) => onChange({ ...brief, productName: e.target.value })}
                 placeholder="제품명을 입력하거나 쿠팡에서 고르세요"
-                className="mt-1 border-[rgba(243,235,224,0.12)] bg-black/35 text-[#f3ebe0]"
+                className="mt-1 border-[rgba(41,36,27,0.12)] bg-black/35 text-[#29241b]"
               />
             </div>
             <div>
-              <Label className="text-[#d7e0d8]">제품 설명</Label>
+              <Label className="text-[#2d342e]">제품 설명</Label>
               <Textarea
                 value={brief.productDescription}
                 onChange={(e) => onChange({ ...brief, productDescription: e.target.value })}
                 rows={3}
-                className="mt-1 border-[rgba(243,235,224,0.12)] bg-black/35 text-[#f3ebe0]"
+                className="mt-1 border-[rgba(41,36,27,0.12)] bg-black/35 text-[#29241b]"
               />
             </div>
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-3">
-                <Label className="text-[#d7e0d8]">영상 길이</Label>
-                <span className="rounded-full bg-[#ff8fab]/20 px-2.5 py-0.5 text-xs font-bold text-[#ff8fab]">
+                <Label className="text-[#2d342e]">영상 길이</Label>
+                <span className="rounded-full bg-[#85b6ff]/20 px-2.5 py-0.5 text-xs font-bold text-[#1d4594]">
                   {brief.videoDuration}초
                 </span>
               </div>
@@ -503,7 +503,7 @@ export function AnimalProductPanel({
                 }
                 className="w-full"
               />
-              <div className="flex justify-between text-[11px] text-[#6b7a6e]">
+              <div className="flex justify-between text-[11px] text-[#657468]">
                 <span>10초</span>
                 <span>60초</span>
               </div>

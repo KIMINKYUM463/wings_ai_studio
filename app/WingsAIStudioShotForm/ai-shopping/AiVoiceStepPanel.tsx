@@ -79,7 +79,7 @@ const ELEVEN_PRESETS = [
   { id: "4JJwo477JUAx3HV0T7n7", name: "Voice 5", gender: "male" as const },
 ] as const
 
-type Provider = "supertone" | "elevenlabs" | "typecast" | "supertonic"
+type Provider = "elevenlabs" | "typecast" | "supertonic"
 type GenderFilter = "all" | "female" | "male"
 
 type CatalogVoice = {
@@ -118,12 +118,6 @@ const PROVIDERS: Array<{
   icon: typeof Radio
 }> = [
   {
-    id: "supertone",
-    title: "SuperTone",
-    blurb: "쇼츠 나레이션용 연동 보이스",
-    icon: Radio,
-  },
-  {
     id: "supertonic",
     title: "Supertonic 3",
     blurb: "PC 설치형 · 로컬 무료 TTS",
@@ -144,9 +138,7 @@ const PROVIDERS: Array<{
 ]
 
 function providerFromVoiceId(voiceId: string): Provider {
-  // 주의: "supertonic-" 가 "supertone-" 보다 먼저여야 함
   if (voiceId.startsWith("supertonic-")) return "supertonic"
-  if (voiceId.startsWith("supertone-")) return "supertone"
   if (voiceId.startsWith("typecast-")) return "typecast"
   return "elevenlabs"
 }
@@ -170,15 +162,8 @@ export function AiVoiceStepPanel({
   editedScript,
   selectedVoiceId,
   setSelectedVoiceId,
-  selectedSupertoneVoiceId,
-  setSelectedSupertoneVoiceId,
-  selectedSupertoneStyle,
-  setSelectedSupertoneStyle,
   customElevenLabsVoiceId,
   setCustomElevenLabsVoiceId,
-  supertoneVoices,
-  isLoadingSupertoneVoices,
-  fetchSupertoneVoices,
   typecastVoices,
   isLoadingTypecastVoices,
   fetchTypecastVoices,
@@ -213,15 +198,8 @@ export function AiVoiceStepPanel({
   editedScript: string
   selectedVoiceId: string
   setSelectedVoiceId: (id: string) => void
-  selectedSupertoneVoiceId: string
-  setSelectedSupertoneVoiceId: (id: string) => void
-  selectedSupertoneStyle: string
-  setSelectedSupertoneStyle: (s: string) => void
   customElevenLabsVoiceId: string
   setCustomElevenLabsVoiceId: (id: string) => void
-  supertoneVoices: CatalogVoice[]
-  isLoadingSupertoneVoices: boolean
-  fetchSupertoneVoices: () => void
   typecastVoices: CatalogVoice[]
   isLoadingTypecastVoices: boolean
   fetchTypecastVoices: () => void
@@ -295,7 +273,6 @@ export function AiVoiceStepPanel({
     if (!selectedVoiceId?.startsWith("ttsmaker-") && selectedVoiceId) return
     const eid = customElevenLabsVoiceId || DEFAULT_ELEVEN_ID
     setCustomElevenLabsVoiceId(eid)
-    setSelectedSupertoneVoiceId("")
     setSelectedVoiceId(`elevenlabs-${eid}`)
   }, [selectedVoiceId])
 
@@ -341,21 +318,6 @@ export function AiVoiceStepPanel({
   const audioSrc = ttsAudioUrl || voiceRecordings.main || ""
 
   const setProvider = (next: Provider) => {
-    if (next === "supertone") {
-      if (supertoneVoices.length === 0) fetchSupertoneVoices()
-      const first = selectedSupertoneVoiceId || supertoneVoices[0]?.voice_id
-      if (first) {
-        setSelectedSupertoneVoiceId(first)
-        setSelectedVoiceId(`supertone-${first}`)
-        const v = supertoneVoices.find((x) => x.voice_id === first)
-        if (v?.styles?.length) {
-          const neu = v.styles.find((s) => s.toLowerCase().includes("neutral") || s === "중립")
-          setSelectedSupertoneStyle(neu || v.styles[0])
-        }
-      }
-      setGenderFilter("all")
-      return
-    }
     if (next === "typecast") {
       if (typecastVoices.length === 0) fetchTypecastVoices()
       const first = selectedTypecastVoiceId || typecastVoices[0]?.voice_id
@@ -391,7 +353,6 @@ export function AiVoiceStepPanel({
     }
     const eid = customElevenLabsVoiceId || DEFAULT_ELEVEN_ID
     setCustomElevenLabsVoiceId(eid)
-    setSelectedSupertoneVoiceId("")
     setSelectedVoiceId(`elevenlabs-${eid}`)
     setGenderFilter("all")
   }
@@ -647,35 +608,8 @@ export function AiVoiceStepPanel({
           }
         })
     }
-    if (provider === "typecast") return []
-    const note = selectedSupertoneStyle || "style"
-    return supertoneVoices
-      .filter((v) => {
-        if (genderFilter === "all") return true
-        const g = guessGender(v.name)
-        return g === genderFilter || g === "all"
-      })
-      .map((v, i) => {
-        const g = guessGender(v.name)
-        const gender: "female" | "male" = g === "male" ? "male" : "female"
-        return {
-          key: v.voice_id,
-          voiceId: `supertone-${v.voice_id}`,
-          name: v.name,
-          code: gender === "female" ? `F${i + 1}` : `M${i + 1}`,
-          gender,
-          note,
-          thumb: v.thumbnail_image_url,
-        }
-      })
-  }, [
-    provider,
-    genderFilter,
-    supertoneVoices,
-    selectedSupertoneStyle,
-    supertonicVoices,
-    recordedVoiceMeta,
-  ])
+    return []
+  }, [provider, genderFilter, supertonicVoices, recordedVoiceMeta])
 
   /** 학습 녹음으로 추가한 보이스만 (짧은 이름 · 삭제 가능) */
   const recordedVoiceCards = useMemo(() => {
@@ -734,7 +668,6 @@ export function AiVoiceStepPanel({
     if (voiceId.startsWith("elevenlabs-")) {
       const id = voiceId.replace("elevenlabs-", "")
       setCustomElevenLabsVoiceId(id)
-      setSelectedSupertoneVoiceId("")
       setSelectedVoiceId(voiceId)
       return
     }
@@ -747,17 +680,6 @@ export function AiVoiceStepPanel({
         setSelectedTypecastEmotion(
           v.styles.includes("normal") ? "normal" : v.styles[0]
         )
-      }
-      return
-    }
-    if (voiceId.startsWith("supertone-")) {
-      const id = voiceId.replace("supertone-", "")
-      setSelectedSupertoneVoiceId(id)
-      setSelectedVoiceId(voiceId)
-      const v = supertoneVoices.find((x) => x.voice_id === id)
-      if (v?.styles?.length) {
-        const neu = v.styles.find((s) => s.toLowerCase().includes("neutral") || s === "중립")
-        setSelectedSupertoneStyle(neu || v.styles[0])
       }
     }
   }
@@ -975,7 +897,7 @@ export function AiVoiceStepPanel({
           <Button
             variant="outline"
             onClick={onBack}
-            className="border-white/15 bg-[#151b28] text-zinc-200 hover:bg-white/10"
+            className="border-white/15 bg-[#f6ffff] text-zinc-200 hover:bg-white/10"
           >
             <ArrowLeft className="w-4 h-4 mr-1.5" />
             이전
@@ -1009,13 +931,13 @@ export function AiVoiceStepPanel({
                   className={`w-[220px] rounded-xl border px-3.5 py-3 text-left transition-colors ${
                     on
                       ? "border-orange-400/60 bg-orange-500/20 ring-1 ring-orange-400/25"
-                      : "border-white/12 bg-[#1a1d27] hover:border-orange-400/30 hover:bg-[#1e2230]"
+                      : "border-white/12 bg-[#faffff] hover:border-orange-400/30 hover:bg-[#f0f6ff]"
                   }`}
                 >
                   <span
                     className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-bold tracking-wide ${
                       on
-                        ? "bg-orange-400 text-[#1a1208]"
+                        ? "bg-orange-400 text-[#fffdef]"
                         : "bg-white/10 text-orange-200"
                     }`}
                   >
@@ -1031,7 +953,7 @@ export function AiVoiceStepPanel({
                 </button>
                 {idx < sceneItems.length - 1 ? (
                   <span
-                    className="flex h-8 w-8 shrink-0 items-center justify-center self-center rounded-full border border-orange-400/30 bg-[#1a1d27] text-orange-300"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center self-center rounded-full border border-orange-400/30 bg-[#faffff] text-orange-300"
                     aria-hidden
                   >
                     <ArrowRight className="h-4 w-4" strokeWidth={2.25} />
@@ -1042,7 +964,7 @@ export function AiVoiceStepPanel({
           })}
         </div>
         {active?.body ? (
-          <div className="mt-3 rounded-xl border border-orange-400/20 bg-[#0c0e14] px-4 py-3">
+          <div className="mt-3 rounded-xl border border-orange-400/20 bg-[#f4f8ff] px-4 py-3">
             <p className="text-[11px] font-semibold text-orange-200/90 mb-1.5">
               선택 장면 · {active.label}
             </p>
@@ -1057,9 +979,9 @@ export function AiVoiceStepPanel({
       <Ver2StepPanel
         eyebrow="Engine"
         title="TTS 엔진"
-        description="SuperTone · Supertonic 3(로컬) · 타입캐스트 · ElevenLabs"
+        description="Supertonic 3(로컬) · 타입캐스트 · ElevenLabs"
       >
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
           {PROVIDERS.map((p) => {
             const on = provider === p.id
             const Icon = p.icon
@@ -1075,7 +997,7 @@ export function AiVoiceStepPanel({
                 }`}
               >
                 {on ? (
-                  <span className="absolute right-2.5 top-2.5 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-400 text-[#062016]">
+                  <span className="absolute right-2.5 top-2.5 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-400 text-[#edfffa]">
                     <Check className="h-3 w-3" strokeWidth={3} />
                   </span>
                 ) : null}
@@ -1096,58 +1018,6 @@ export function AiVoiceStepPanel({
             )
           })}
         </div>
-        {provider === "supertone" ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 border-emerald-400/40 bg-zinc-900 text-emerald-200 hover:bg-zinc-800 hover:text-emerald-50"
-              onClick={fetchSupertoneVoices}
-              disabled={isLoadingSupertoneVoices}
-            >
-              {isLoadingSupertoneVoices ? (
-                <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-              ) : (
-                <RefreshCw className="h-3.5 w-3.5 mr-1" />
-              )}
-              SuperTone 목록 불러오기
-            </Button>
-            {selectedSupertoneVoiceId &&
-            (supertoneVoices.find((v) => v.voice_id === selectedSupertoneVoiceId)?.styles?.length ||
-              0) > 0 ? (
-              <select
-                value={selectedSupertoneStyle}
-                onChange={(e) => setSelectedSupertoneStyle(e.target.value)}
-                className="h-8 rounded-md border border-white/15 bg-black/40 px-2 text-[12px] text-zinc-200"
-              >
-                {supertoneVoices
-                  .find((v) => v.voice_id === selectedSupertoneVoiceId)!
-                  .styles.map((style) => (
-                    <option key={style} value={style}>
-                      스타일 · {style}
-                    </option>
-                  ))}
-              </select>
-            ) : null}
-            <Input
-              placeholder="또는 Voice ID 직접 입력"
-              value={
-                selectedSupertoneVoiceId &&
-                !supertoneVoices.find((v) => v.voice_id === selectedSupertoneVoiceId)
-                  ? selectedSupertoneVoiceId
-                  : ""
-              }
-              onChange={(e) => {
-                const inputId = e.target.value.trim()
-                if (!inputId) return
-                setSelectedSupertoneVoiceId(inputId)
-                setSelectedVoiceId(`supertone-${inputId}`)
-                setSelectedSupertoneStyle("neutral")
-              }}
-              className="h-8 max-w-[220px] bg-black/30 border-white/15 text-xs"
-            />
-          </div>
-        ) : null}
         {provider === "supertonic" ? (
           <div className="space-y-3">
             <SupertonicSetupBar
@@ -1419,7 +1289,7 @@ export function AiVoiceStepPanel({
                 ).map((section) =>
                   section.rows.length === 0 ? null : (
                     <div key={section.key}>
-                      <div className="sticky top-0 z-[1] border-b border-white/10 bg-[#141821] px-3 py-1.5">
+                      <div className="sticky top-0 z-[1] border-b border-white/10 bg-[#f9ffff] px-3 py-1.5">
                         <p className="text-[11px] font-semibold text-zinc-300">
                           {section.title}
                           <span className="ml-1 text-zinc-500">({section.rows.length})</span>
@@ -1482,7 +1352,7 @@ export function AiVoiceStepPanel({
                                   </p>
                                 </div>
                                 {on ? (
-                                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-400 text-[#062016]">
+                                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-400 text-[#edfffa]">
                                     <Check className="h-3 w-3" strokeWidth={3} />
                                   </span>
                                 ) : null}
@@ -1562,11 +1432,7 @@ export function AiVoiceStepPanel({
               </div>
             </div>
 
-            {provider === "supertone" && voiceCards.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-white/12 px-4 py-10 text-center text-sm text-zinc-500">
-                「SuperTone 목록 불러오기」를 눌러 보이스를 가져오세요
-              </div>
-            ) : provider === "supertonic" &&
+            {provider === "supertonic" &&
               voiceCards.length === 0 &&
               recordedVoiceCards.length === 0 ? (
               <div className="rounded-xl border border-dashed border-white/12 px-4 py-10 text-center text-sm text-zinc-500">
@@ -1600,7 +1466,7 @@ export function AiVoiceStepPanel({
                           >
                             <div className="absolute right-1.5 top-1.5 flex items-center gap-1">
                               {on ? (
-                                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-400 text-[#062016]">
+                                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-400 text-[#edfffa]">
                                   <Check className="h-3 w-3" strokeWidth={3} />
                                 </span>
                               ) : null}
@@ -1692,7 +1558,7 @@ export function AiVoiceStepPanel({
                           }`}
                         >
                           {on ? (
-                            <span className="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-400 text-[#062016]">
+                            <span className="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-400 text-[#edfffa]">
                               <Check className="h-3 w-3" strokeWidth={3} />
                             </span>
                           ) : null}
@@ -2009,7 +1875,7 @@ export function AiVoiceStepPanel({
           }
         }}
       >
-        <DialogContent className="bg-[#141518] border-white/10 text-zinc-100 sm:max-w-lg">
+        <DialogContent className="bg-[#fdffff] border-white/10 text-zinc-100 sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-zinc-50">
               <Mic className="w-5 h-5 text-orange-400" />

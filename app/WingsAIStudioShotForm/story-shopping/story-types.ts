@@ -1,4 +1,5 @@
 import type { MvpThumbnailVariant } from "@/lib/mvp-studio-types"
+import type { StoryCaptionAnimation } from "./story-caption-motion"
 
 export type StoryTone =
   | "reversal"
@@ -116,10 +117,15 @@ export interface StoryGeneratedScript {
   typeReason: string
   hook: string
   title: string
+  /** 영상 첫 1~3초 표지에 크게 띄우는 2줄 제목 (accent 줄은 강조색) */
+  narrationStyle?: StoryNarrationStyle
   script: string
   scenes: StoryScriptScene[]
   generatedAt: string
 }
+
+/** ssul: 썰쇼핑 채널식 음슴체 서사 · polite: 존댓말 구어체 */
+export type StoryNarrationStyle = "ssul" | "polite"
 
 export interface StoryTemplateRecommendation {
   templateId: StoryScriptTemplateId
@@ -148,7 +154,7 @@ export interface StoryVoiceTrack {
 
 export interface StoryVoiceData {
   voiceId: string
-  provider: "supertone" | "supertonic" | "typecast" | "elevenlabs"
+  provider: "supertonic" | "typecast" | "elevenlabs"
   style: string
   speed: number
   tracks: StoryVoiceTrack[]
@@ -156,6 +162,9 @@ export interface StoryVoiceData {
 }
 
 export type StoryFrameTemplateId =
+  | "channel-shop-green"
+  | "channel-shop-orange"
+  | "channel-shop-white"
   | "channel-search"
   | "channel-pill"
   | "channel-minimal"
@@ -190,6 +199,10 @@ export interface StoryFrameSettings {
   viewCountLabel: string
   likeCountLabel: string
   commentCountLabel: string
+  /** 영상 시작 표지(큰 2줄 제목) — 기본 켜짐 */
+  coverEnabled?: boolean
+  coverTitleTop?: string
+  coverTitleAccent?: string
 }
 
 export interface StoryVideoMosaic {
@@ -288,6 +301,7 @@ export interface StoryEditSettings {
   subtitleBackgroundColor?: string
   subtitleOutlineWidth?: number
   subtitleOutlineColor?: string
+  subtitleAnimation?: StoryCaptionAnimation
 }
 
 export interface StoryMediaPoolItem {

@@ -23,7 +23,6 @@ const FIELDS: { key: keyof LongformV2ApiKeys; label: string; hint: string }[] = 
     hint: "썸네일 카피라이팅 참고 수집 · 트렌드 검색 (권장)",
   },
   { key: "elevenlabs", label: "ElevenLabs API Key", hint: "TTS 음성 (권장)" },
-  { key: "supertone", label: "Supertone API Key", hint: "TTS 음성 (대안)" },
   { key: "perplexity", label: "Perplexity API Key", hint: "기획 검증 (선택)" },
   { key: "pexels", label: "Pexels API Key", hint: "실사 스톡 영상(Videos API) (선택)" },
 ]
@@ -35,7 +34,6 @@ export function LongformV2ApiSettingsModal({ open, onClose, onSaved }: Props) {
     replicate: false,
     perplexity: false,
     elevenlabs: false,
-    supertone: false,
     pexels: false,
     youtube: false,
   })
@@ -124,7 +122,6 @@ const STATUS_ITEMS: { key: keyof LongformV2ApiKeys; label: string }[] = [
   { key: "replicate", label: "Replicate" },
   { key: "youtube", label: "YouTube Data" },
   { key: "elevenlabs", label: "ElevenLabs" },
-  { key: "supertone", label: "Supertone" },
   { key: "perplexity", label: "Perplexity" },
   { key: "pexels", label: "Pexels" },
 ]
@@ -163,7 +160,6 @@ export function ApiKeyStatusCard({ keys }: { keys: LongformV2ApiKeys }) {
     keys.replicate,
     keys.youtube,
     keys.elevenlabs,
-    keys.supertone,
     keys.perplexity,
     keys.pexels,
   ])

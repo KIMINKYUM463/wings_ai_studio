@@ -80,7 +80,7 @@ export function SeparateAssetDownloads({
               </span>
               <span
                 className={cn(
-                  "pl-5 text-[10px] font-normal leading-snug",
+                  "pl-5 text-[11px] font-normal leading-snug",
                   dark ? "text-zinc-500" : "text-slate-500"
                 )}
               >

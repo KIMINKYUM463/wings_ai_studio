@@ -1,5 +1,6 @@
 "use client"
 
+import { ImageIcon, Sparkles } from "lucide-react"
 import { useEffect, useState } from "react"
 import type { LongformV2Project } from "@/lib/longform-v2/project-storage"
 import { useTitleDesc } from "./useTitleDesc"
@@ -70,7 +71,7 @@ export function YoutubeMetaPanel({ project, onPatch, onNotify, onBackToProductio
           onClick={() => setSub("title")}
         >
           <span className="lfv2-yt-meta__pill-icon" aria-hidden>
-            ✨
+            <Sparkles className="lfv2-ico" aria-hidden />
           </span>
           <span>
             <strong>제목/설명</strong>
@@ -83,7 +84,7 @@ export function YoutubeMetaPanel({ project, onPatch, onNotify, onBackToProductio
           onClick={() => setSub("thumb")}
         >
           <span className="lfv2-yt-meta__pill-icon" aria-hidden>
-            🖼
+            <ImageIcon className="lfv2-ico" aria-hidden />
           </span>
           <span>
             <strong>썸네일</strong>
@@ -118,11 +119,12 @@ export function YoutubeMetaPanel({ project, onPatch, onNotify, onBackToProductio
                 else titleDesc.startGenerate()
               }}
             >
+              <Sparkles className="lfv2-ico lfv2-ico--lead" aria-hidden />
               {titleDesc.busy
                 ? "생성 중…"
                 : titleDesc.items.length > 0
-                  ? "✨ 제목/설명 다시 열기"
-                  : "✨ 제목/설명 생성"}
+                  ? "제목/설명 다시 열기"
+                  : "제목/설명 생성"}
             </button>
           </div>
 
@@ -164,7 +166,7 @@ export function YoutubeMetaPanel({ project, onPatch, onNotify, onBackToProductio
               disabled={!hasScript}
               onClick={() => setThumbOpen(true)}
             >
-              🖼 썸네일 편집기 열기
+              <ImageIcon className="lfv2-ico lfv2-ico--lead" aria-hidden />썸네일 편집기 열기
             </button>
           </div>
           {thumbUrl ? (

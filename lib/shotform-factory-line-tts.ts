@@ -3,7 +3,7 @@
 import { cleanNarrationLineBreaks, narrationPlainCharCount } from "@/lib/shotform-narration-timing"
 import { clampTtsSpeed } from "@/lib/shotform-tts-speed"
 
-/** Supertone 등 TTS API 최소 글자 수 (1자 요청 시 400 오류) */
+/** TTS API 최소 글자 수 (1자 요청 시 400 오류) */
 export const MIN_TTS_PLAIN_CHARS = 2
 
 /** 1~2자짜리 잘린 조각을 앞 줄에 합침 */
@@ -508,7 +508,7 @@ export async function applyPlaybackSpeedToAudioUrl(
   return { url, durationSec, wavBlob }
 }
 
-/** Supertone TTS 앞뒤 무음 제거 — 줄 사이 텀 방지 */
+/** TTS 앞뒤 무음 제거 — 줄 사이 텀 방지 */
 export async function trimSilenceFromAudioUrl(
   audioUrl: string,
   threshold = 0.01,

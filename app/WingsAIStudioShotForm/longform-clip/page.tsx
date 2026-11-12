@@ -138,14 +138,14 @@ export default function LongformClipPage() {
   }
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#0a0b0d] text-zinc-100">
+    <div className="relative min-h-screen overflow-hidden bg-[#f5f7fa] text-zinc-100">
       <div className="pointer-events-none absolute inset-0" aria-hidden>
         <div className="absolute -left-20 top-0 h-72 w-72 rounded-full bg-rose-500/15 blur-3xl" />
         <div className="absolute right-0 top-1/3 h-80 w-80 rounded-full bg-fuchsia-500/12 blur-3xl" />
         <div className="absolute bottom-0 left-1/3 h-64 w-64 rounded-full bg-indigo-500/10 blur-3xl" />
       </div>
 
-      <header className="sticky top-0 z-40 border-b border-white/10 bg-[#0a0b0d]/85 backdrop-blur-md">
+      <header className="sticky top-0 z-40 border-b border-white/10 bg-[#f5f7fa]/85 backdrop-blur-md">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
           <div className="flex items-center gap-2">
             <Button
@@ -332,7 +332,7 @@ export default function LongformClipPage() {
               {sortedClips.map((clip) => (
                 <article
                   key={clip.id}
-                  className="overflow-hidden rounded-2xl border border-white/[0.08] bg-[#121316] transition hover:border-rose-400/35"
+                  className="overflow-hidden rounded-2xl border border-white/[0.08] bg-[#fdfeff] transition hover:border-rose-400/35"
                 >
                   <div className="flex items-start justify-between gap-2 border-b border-white/[0.06] px-4 py-3">
                     <div className="min-w-0">

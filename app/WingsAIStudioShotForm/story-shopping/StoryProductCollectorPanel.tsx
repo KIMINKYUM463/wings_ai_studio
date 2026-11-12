@@ -87,7 +87,7 @@ export function StoryProductCollectorPanel({
   }
 
   return (
-    <section className="mt-5 overflow-hidden rounded-[26px] border border-cyan-400/15 bg-gradient-to-br from-cyan-500/[0.06] via-[#10100f] to-orange-500/[0.04]">
+    <section className="mt-5 overflow-hidden rounded-[26px] border border-cyan-400/15 bg-gradient-to-br from-cyan-500/[0.06] via-[#fafaf9] to-orange-500/[0.04]">
       <div className="border-b border-white/10 p-5 md:p-6">
         <div className="flex items-center gap-2 text-[9px] font-black tracking-[0.18em] text-cyan-300">
           <Database className="h-4 w-4" />
@@ -142,7 +142,7 @@ export function StoryProductCollectorPanel({
                 if (!open) setOpenDetail(null)
               }}
             >
-              <DialogContent className="max-h-[88vh] max-w-5xl overflow-hidden border-white/10 bg-[#0b0d0e] p-0 text-white">
+              <DialogContent className="max-h-[88vh] max-w-5xl overflow-hidden border-white/10 bg-[#f4f7f9] p-0 text-white">
                 <DialogHeader className="border-b border-white/10 px-6 py-5 text-left">
                   <div className="pr-8">
                     <div>

@@ -46,7 +46,7 @@ export function MvpEditPicksBar({
   if (picks.length === 0 && editComplete) {
     return (
       <div className="sticky bottom-4 z-20 mx-auto max-w-3xl px-2">
-        <div className="flex items-start gap-3 rounded-2xl border border-emerald-400/30 bg-[#0a1210]/95 px-4 py-3.5 shadow-2xl backdrop-blur-md">
+        <div className="flex items-start gap-3 rounded-2xl border border-emerald-400/30 bg-[#f2fdfa]/95 px-4 py-3.5 shadow-2xl backdrop-blur-md">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15 ring-1 ring-emerald-400/30">
             <CheckCircle2 className="h-5 w-5 text-emerald-300" />
           </span>
@@ -78,8 +78,8 @@ export function MvpEditPicksBar({
         className={cn(
           "flex flex-col gap-3 rounded-2xl border px-4 py-3.5 shadow-2xl backdrop-blur-md sm:flex-row sm:items-center sm:justify-between",
           editComplete
-            ? "border-emerald-400/25 bg-[#0a1218]/95"
-            : "border-violet-400/25 bg-[#0c0f18]/95"
+            ? "border-emerald-400/25 bg-[#f2fdff]/95"
+            : "border-violet-400/25 bg-[#f4f9ff]/95"
         )}
       >
         <div className="flex min-w-0 items-start gap-3">

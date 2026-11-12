@@ -53,39 +53,39 @@ export default function WingsAIStudioPage() {
   }, [router])
 
   return (
-    <div className="min-h-screen bg-[oklch(0.13_0_0)] text-[oklch(0.98_0_0)] font-sans">
+    <div className="min-h-screen bg-[oklch(0.975_0_0)] text-[oklch(0.228_0_0)] font-sans">
       {/* Header */}
-      <header className="fixed top-0 left-0 right-0 z-50 border-b border-[oklch(0.28_0_0)] bg-[oklch(0.13_0_0)]/80 backdrop-blur-sm">
+      <header className="fixed top-0 left-0 right-0 z-50 border-b border-[oklch(0.947_0_0)] bg-[oklch(0.975_0_0)]/80 backdrop-blur-sm">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
           {/* Logo */}
           <Link href="/WingsAIStudio" className="flex items-center gap-2">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[oklch(0.98_0_0)]">
-              <span className="text-xl font-bold text-[oklch(0.13_0_0)]">W</span>
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[oklch(0.228_0_0)]">
+              <span className="text-xl font-bold text-[oklch(0.975_0_0)]">W</span>
             </div>
             <span className="text-lg font-semibold">
-              wings <span className="text-[oklch(0.98_0_0)]">AI</span>
+              wings <span className="text-[oklch(0.228_0_0)]">AI</span>
             </span>
           </Link>
 
           {/* Navigation */}
           <nav className="hidden items-center gap-8 md:flex">
-            <a href="#categories" className="text-sm text-[oklch(0.65_0_0)] hover:text-[oklch(0.98_0_0)] transition-colors">
+            <a href="#categories" className="text-sm text-[oklch(0.482_0_0)] hover:text-[oklch(0.228_0_0)] transition-colors">
               카테고리
             </a>
-            <a href="#pricing" className="text-sm text-[oklch(0.65_0_0)] hover:text-[oklch(0.98_0_0)] transition-colors">
+            <a href="#pricing" className="text-sm text-[oklch(0.482_0_0)] hover:text-[oklch(0.228_0_0)] transition-colors">
               요금제
             </a>
-            <a href="#" className="text-sm text-[oklch(0.65_0_0)] hover:text-[oklch(0.98_0_0)] transition-colors">
+            <a href="#" className="text-sm text-[oklch(0.482_0_0)] hover:text-[oklch(0.228_0_0)] transition-colors">
               문서
             </a>
           </nav>
 
           {/* Auth Buttons */}
           <div className="flex items-center gap-3">
-            <Link href="/WingsAIStudio/login" className="hidden sm:inline-flex px-4 py-2 text-sm rounded-md hover:bg-[oklch(0.18_0_0)] transition-colors">
+            <Link href="/WingsAIStudio/login" className="hidden sm:inline-flex px-4 py-2 text-sm rounded-md hover:bg-[oklch(0.992_0_0)] transition-colors">
               로그인
             </Link>
-            <Link href="/WingsAIStudio/signup" className="inline-flex px-4 py-2 text-sm rounded-md bg-[oklch(0.98_0_0)] text-[oklch(0.13_0_0)] hover:opacity-90 transition-opacity">
+            <Link href="/WingsAIStudio/signup" className="inline-flex px-4 py-2 text-sm rounded-md bg-[oklch(0.228_0_0)] text-[oklch(0.975_0_0)] hover:opacity-90 transition-opacity">
               시작하기
             </Link>
           </div>
@@ -95,22 +95,22 @@ export default function WingsAIStudioPage() {
       <main>
         {/* Hero Section */}
         <section className="flex min-h-[70vh] flex-col items-center justify-center px-6 pt-24 text-center">
-          <p className="mb-4 text-sm font-medium text-[oklch(0.65_0_0)]">wings AI로 시작하는 유튜브</p>
+          <p className="mb-4 text-sm font-medium text-[oklch(0.482_0_0)]">wings AI로 시작하는 유튜브</p>
           <h1 className="max-w-4xl text-4xl font-bold tracking-tight md:text-6xl lg:text-7xl">
             유튜브만을 위한<br />
             가장 빠른 플랫폼
           </h1>
-          <p className="mt-6 max-w-2xl text-lg text-[oklch(0.65_0_0)]">
+          <p className="mt-6 max-w-2xl text-lg text-[oklch(0.482_0_0)]">
             스크립트, 썸네일, 쇼츠·롱폼 제작까지. 유튜브에 집중한 AI 프로그램입니다.
           </p>
           <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
-            <Link href="/WingsAIStudio/signup" className="inline-flex items-center gap-2 px-6 py-3 text-sm font-medium rounded-md bg-[oklch(0.98_0_0)] text-[oklch(0.13_0_0)] hover:opacity-90 transition-opacity">
+            <Link href="/WingsAIStudio/signup" className="inline-flex items-center gap-2 px-6 py-3 text-sm font-medium rounded-md bg-[oklch(0.228_0_0)] text-[oklch(0.975_0_0)] hover:opacity-90 transition-opacity">
               무료로 시작하기
               <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
               </svg>
             </Link>
-            <a href="#pricing" className="px-6 py-3 text-sm font-medium rounded-md border border-[oklch(0.28_0_0)] hover:bg-[oklch(0.18_0_0)] transition-colors">
+            <a href="#pricing" className="px-6 py-3 text-sm font-medium rounded-md border border-[oklch(0.947_0_0)] hover:bg-[oklch(0.992_0_0)] transition-colors">
               요금제 보기
             </a>
           </div>
@@ -120,12 +120,12 @@ export default function WingsAIStudioPage() {
         <section id="categories" className="mx-auto max-w-7xl px-6 py-24">
           <div className="mb-12 text-center">
             <h2 className="text-3xl font-bold tracking-tight md:text-4xl">프로그램 목록</h2>
-            <p className="mt-4 text-[oklch(0.65_0_0)]">유튜브 전문 프로그램을 확인하세요</p>
+            <p className="mt-4 text-[oklch(0.482_0_0)]">유튜브 전문 프로그램을 확인하세요</p>
           </div>
 
-          <div className="min-h-[400px] rounded-2xl border-2 border-dashed border-[oklch(0.28_0_0)] bg-[oklch(0.18_0_0)]/50 p-12">
+          <div className="min-h-[400px] rounded-2xl border-2 border-dashed border-[oklch(0.947_0_0)] bg-[oklch(0.992_0_0)]/50 p-12">
             <div className="flex h-full items-center justify-center">
-              <p className="text-center text-[oklch(0.65_0_0)]">강사별 프로그램이 여기에 표시됩니다</p>
+              <p className="text-center text-[oklch(0.482_0_0)]">강사별 프로그램이 여기에 표시됩니다</p>
             </div>
           </div>
         </section>
@@ -134,20 +134,20 @@ export default function WingsAIStudioPage() {
         <section id="pricing" className="mx-auto max-w-7xl px-6 py-24">
           <div className="mb-12 text-center">
             <h2 className="text-3xl font-bold tracking-tight md:text-4xl">요금제</h2>
-            <p className="mt-4 text-[oklch(0.65_0_0)]">필요에 맞는 플랜을 선택하세요</p>
+            <p className="mt-4 text-[oklch(0.482_0_0)]">필요에 맞는 플랜을 선택하세요</p>
           </div>
 
           <div className="mx-auto grid max-w-3xl gap-6 md:grid-cols-2">
             {/* Free Plan */}
-            <div className="relative flex flex-col rounded-2xl border border-[oklch(0.28_0_0)] bg-[oklch(0.18_0_0)] p-8">
-              <span className="absolute -top-3 left-6 rounded-full bg-[oklch(0.98_0_0)] px-3 py-1 text-xs font-medium text-[oklch(0.13_0_0)]">
+            <div className="relative flex flex-col rounded-2xl border border-[oklch(0.947_0_0)] bg-[oklch(0.992_0_0)] p-8">
+              <span className="absolute -top-3 left-6 rounded-full bg-[oklch(0.228_0_0)] px-3 py-1 text-xs font-medium text-[oklch(0.975_0_0)]">
                 수강생 전용
               </span>
               <h3 className="text-lg font-semibold">Free</h3>
-              <p className="mt-2 text-sm text-[oklch(0.65_0_0)]">수강생 전용 무료 플랜</p>
+              <p className="mt-2 text-sm text-[oklch(0.482_0_0)]">수강생 전용 무료 플랜</p>
               <div className="mt-6">
                 <span className="text-4xl font-bold">₩0</span>
-                <span className="text-sm text-[oklch(0.65_0_0)]">/월</span>
+                <span className="text-sm text-[oklch(0.482_0_0)]">/월</span>
               </div>
               <ul className="mt-8 flex-1 space-y-3">
                 <li className="flex items-center gap-3 text-sm">
@@ -169,13 +169,13 @@ export default function WingsAIStudioPage() {
                   커뮤니티 지원
                 </li>
               </ul>
-              <button className="mt-8 w-full px-4 py-2 text-sm font-medium rounded-md border border-[oklch(0.28_0_0)] hover:bg-[oklch(0.18_0_0)] transition-colors">
+              <button className="mt-8 w-full px-4 py-2 text-sm font-medium rounded-md border border-[oklch(0.947_0_0)] hover:bg-[oklch(0.992_0_0)] transition-colors">
                 수강생 인증하기
               </button>
             </div>
 
             {/* Pro Plan */}
-            <div className="relative flex flex-col rounded-2xl border border-[oklch(0.98_0_0)] bg-[oklch(0.98_0_0)] text-[oklch(0.13_0_0)] p-8">
+            <div className="relative flex flex-col rounded-2xl border border-[oklch(0.228_0_0)] bg-[oklch(0.228_0_0)] text-[oklch(0.975_0_0)] p-8">
               <h3 className="text-lg font-semibold">Pro</h3>
               <p className="mt-2 text-sm opacity-70">모든 기능을 무제한으로</p>
               <div className="mt-6">
@@ -214,7 +214,7 @@ export default function WingsAIStudioPage() {
                   새로운 기능 우선 제공
                 </li>
               </ul>
-              <button className="mt-8 w-full px-4 py-2 text-sm font-medium rounded-md bg-[oklch(0.13_0_0)] text-[oklch(0.98_0_0)] hover:opacity-90 transition-opacity">
+              <button className="mt-8 w-full px-4 py-2 text-sm font-medium rounded-md bg-[oklch(0.975_0_0)] text-[oklch(0.228_0_0)] hover:opacity-90 transition-opacity">
                 Pro 시작하기
               </button>
             </div>
@@ -223,24 +223,24 @@ export default function WingsAIStudioPage() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-[oklch(0.28_0_0)]">
+      <footer className="border-t border-[oklch(0.947_0_0)]">
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 px-6 py-8 md:flex-row">
           <div className="flex items-center gap-3">
             {/* Logo */}
             <div className="flex items-center gap-2">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[oklch(0.98_0_0)]">
-                <span className="text-xl font-bold text-[oklch(0.13_0_0)]">W</span>
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[oklch(0.228_0_0)]">
+                <span className="text-xl font-bold text-[oklch(0.975_0_0)]">W</span>
               </div>
               <span className="text-lg font-semibold">
-                wings <span className="text-[oklch(0.98_0_0)]">AI</span>
+                wings <span className="text-[oklch(0.228_0_0)]">AI</span>
               </span>
             </div>
-            <span className="text-sm text-[oklch(0.65_0_0)]">© 2026</span>
+            <span className="text-sm text-[oklch(0.482_0_0)]">© 2026</span>
           </div>
           <nav className="flex gap-6">
-            <a href="#" className="text-sm text-[oklch(0.65_0_0)] hover:text-[oklch(0.98_0_0)]">이용약관</a>
-            <a href="#" className="text-sm text-[oklch(0.65_0_0)] hover:text-[oklch(0.98_0_0)]">개인정보처리방침</a>
-            <a href="#" className="text-sm text-[oklch(0.65_0_0)] hover:text-[oklch(0.98_0_0)]">문의</a>
+            <a href="#" className="text-sm text-[oklch(0.482_0_0)] hover:text-[oklch(0.228_0_0)]">이용약관</a>
+            <a href="#" className="text-sm text-[oklch(0.482_0_0)] hover:text-[oklch(0.228_0_0)]">개인정보처리방침</a>
+            <a href="#" className="text-sm text-[oklch(0.482_0_0)] hover:text-[oklch(0.228_0_0)]">문의</a>
           </nav>
         </div>
       </footer>

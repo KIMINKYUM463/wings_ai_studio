@@ -522,7 +522,6 @@ export default function HomePage() {
     replicate: "",
     gemini: "",
     ttsmaker: "",
-    supertone: "",
     youtubeClientId: "",
     youtubeClientSecret: "",
     youtubeDataApiKey: "",
@@ -535,7 +534,6 @@ export default function HomePage() {
     replicate: false,
     gemini: false,
     ttsmaker: false,
-    supertone: false,
     youtubeClientId: false,
     youtubeClientSecret: false,
     youtubeDataApiKey: false,
@@ -629,7 +627,6 @@ export default function HomePage() {
       const storedReplicate = localStorage.getItem("replicate_api_key") || ""
       const storedGemini = localStorage.getItem("gemini_api_key") || ""
       const storedTTSMaker = localStorage.getItem("ttsmaker_api_key") || ""
-      const storedSupertone = localStorage.getItem("supertone_api_key") || ""
       const storedYoutubeClientId = localStorage.getItem("youtube_client_id") || ""
       const storedYoutubeClientSecret = localStorage.getItem("youtube_client_secret") || ""
       const storedYoutubeDataApiKey = localStorage.getItem("wings_youtube_data_api_key") || ""
@@ -640,7 +637,6 @@ export default function HomePage() {
         replicate: storedReplicate,
         gemini: storedGemini,
         ttsmaker: storedTTSMaker,
-        supertone: storedSupertone,
         youtubeClientId: storedYoutubeClientId,
         youtubeClientSecret: storedYoutubeClientSecret,
         youtubeDataApiKey: storedYoutubeDataApiKey,
@@ -733,7 +729,6 @@ export default function HomePage() {
     localStorage.setItem("replicate_api_key", apiKeys.replicate)
     localStorage.setItem("gemini_api_key", apiKeys.gemini)
     localStorage.setItem("ttsmaker_api_key", apiKeys.ttsmaker || "")
-    localStorage.setItem("supertone_api_key", apiKeys.supertone || "")
     localStorage.setItem("youtube_client_id", apiKeys.youtubeClientId)
     localStorage.setItem("youtube_client_secret", apiKeys.youtubeClientSecret)
     localStorage.setItem("wings_youtube_data_api_key", apiKeys.youtubeDataApiKey)
@@ -768,16 +763,13 @@ ${apiKeys.gemini || "(미입력)"}
 5. TTSMaker API Key
 ${apiKeys.ttsmaker || "(미입력)"}
 
-6. Supertone API Key
-${apiKeys.supertone || "(미입력)"}
-
-7. YouTube Client ID
+6. YouTube Client ID
 ${apiKeys.youtubeClientId || "(미입력)"}
 
-8. YouTube Client Secret
+7. YouTube Client Secret
 ${apiKeys.youtubeClientSecret || "(미입력)"}
 
-9. YouTube Data API Key
+8. YouTube Data API Key
 ${apiKeys.youtubeDataApiKey || "(미입력)"}
 
 ========================================
@@ -918,14 +910,6 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
         }
         case "elevenlabs": {
           // ElevenLabs API 키는 연결 확인만 표시 (실제 API 호출 없음)
-          setTestResults({
-            ...testResults,
-            [keyType]: { success: true, message: "연결 확인" }
-          })
-          break
-        }
-        case "supertone": {
-          // Supertone API 키는 연결 확인만 표시 (실제 API 호출 없음)
           setTestResults({
             ...testResults,
             [keyType]: { success: true, message: "연결 확인" }
@@ -1387,62 +1371,6 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
                 </p>
               )}
               <p className="text-xs text-muted-foreground">ElevenLabs 음성 합성에 사용됩니다</p>
-            </div>
-
-            {/* Supertone API Key */}
-            <div className="space-y-2">
-              <Label htmlFor="supertone-key" className="text-sm font-medium">
-                Supertone API Key
-              </Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  id="supertone-key"
-                  type={showKeys.supertone ? "text" : "password"}
-                  placeholder="입력하세요"
-                  value={apiKeys.supertone || ""}
-                  onChange={(e) => setApiKeys({ ...apiKeys, supertone: e.target.value })}
-                  className="font-mono text-sm"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setShowKeys({ ...showKeys, supertone: !showKeys.supertone })}
-                  className="shrink-0"
-                >
-                  {showKeys.supertone ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={() => {
-                    navigator.clipboard.writeText(apiKeys.supertone || "")
-                    setCopied(true)
-                    setTimeout(() => setCopied(false), 2000)
-                  }}
-                  disabled={!apiKeys.supertone}
-                  className="shrink-0"
-                >
-                  <Copy className="w-4 h-4" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => testApiKey("supertone")}
-                  disabled={testingKeys.supertone || !apiKeys.supertone}
-                  className="shrink-0 text-xs"
-                >
-                  {testingKeys.supertone ? "확인 중..." : "연결확인"}
-                </Button>
-              </div>
-              {testResults.supertone && (
-                <p className={`text-xs ${testResults.supertone.success ? "text-green-600" : "text-red-600"}`}>
-                  {testResults.supertone.message}
-                </p>
-              )}
-              <p className="text-xs text-muted-foreground">Supertone 음성 합성에 사용됩니다 (롱폼과 연동)</p>
             </div>
 
             {/* Replicate API Key */}

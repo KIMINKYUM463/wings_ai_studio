@@ -579,7 +579,7 @@ export function StoryThumbnailAdvancedEditor({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="z-[320] h-[96vh] w-[98vw] max-w-[1500px] overflow-hidden border-slate-700 bg-[#111318] p-0 text-white sm:max-w-[min(98vw,1500px)]"
+        className="z-[320] h-[96vh] w-[98vw] max-w-[1500px] overflow-hidden border-slate-700 bg-[#fbfeff] p-0 text-white sm:max-w-[min(98vw,1500px)]"
         overlayClassName="z-[310] bg-black/80"
       >
         <DialogHeader className="sr-only">
@@ -609,7 +609,7 @@ export function StoryThumbnailAdvancedEditor({
           </header>
 
           <div className="grid min-h-0 grid-cols-[280px_minmax(0,1fr)_300px]">
-            <aside className="min-h-0 overflow-y-auto border-r border-white/10 bg-[#151820]">
+            <aside className="min-h-0 overflow-y-auto border-r border-white/10 bg-[#faffff]">
               <div className="grid grid-cols-6 border-b border-white/10">
                 {tabs.map(([id, label, Icon]) => (
                   <button key={id} type="button" onClick={() => setSideTab(id)} className={`flex flex-col items-center gap-1 px-1 py-2 text-[9px] ${sideTab === id ? "bg-violet-500/15 text-violet-300" : "text-white/45 hover:bg-white/5"}`}>
@@ -818,8 +818,8 @@ export function StoryThumbnailAdvancedEditor({
               </div>
             </aside>
 
-            <main className="flex min-h-0 items-center justify-center overflow-auto bg-[#090b0f] p-6">
-              <div ref={stageRef} onPointerDown={() => setSelectedId(null)} className="relative aspect-[9/16] h-[min(78vh,780px)] w-auto overflow-hidden bg-black shadow-[0_24px_80px_rgba(0,0,0,.65)]">
+            <main className="flex min-h-0 items-center justify-center overflow-auto bg-[#f4f7fd] p-6">
+              <div ref={stageRef} onPointerDown={() => setSelectedId(null)} className="relative aspect-[9/16] h-[min(78vh,780px)] w-auto overflow-hidden bg-black shadow-[0_24px_80px_rgba(20,35,70,0.227)]">
                 {design.backgroundUrl ? (
                   <img
                     data-thumb-bg
@@ -942,7 +942,7 @@ export function StoryThumbnailAdvancedEditor({
               </div>
             </main>
 
-            <aside className="min-h-0 overflow-y-auto border-l border-white/10 bg-[#151820] p-4">
+            <aside className="min-h-0 overflow-y-auto border-l border-white/10 bg-[#faffff] p-4">
               <p className="text-xs font-black">선택 레이어 속성</p>
               <p className="mt-1 text-[9px] text-white/35">캔버스의 텍스트와 요소를 드래그해 이동할 수 있습니다.</p>
               {selectedText ? (
@@ -1021,7 +1021,7 @@ function StoryThumbnailTemplateChrome({
         }}
       />
       {chrome.backgroundMode === "blurred-poster" ? (
-        <div className="absolute inset-x-0 top-0 h-[10px] bg-[#0f2a50]" />
+        <div className="absolute inset-x-0 top-0 h-[10px] bg-[#e0edff]" />
       ) : null}
       <div
         className="absolute h-[3px]"
@@ -1033,7 +1033,7 @@ function StoryThumbnailTemplateChrome({
         }}
       />
       <div
-        className="absolute shadow-[0_2px_8px_rgba(0,0,0,.16)]"
+        className="absolute shadow-[0_2px_8px_rgba(20,35,70,0.056)]"
         style={{
           left: `${inset}%`,
           right: `${inset}%`,

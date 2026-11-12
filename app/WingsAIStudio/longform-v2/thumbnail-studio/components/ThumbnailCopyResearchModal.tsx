@@ -1,3 +1,4 @@
+import { PencilLine, RefreshCw, Search, Sparkles } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ThumbnailCopyResearchItem, ThumbnailCopyResearchResult } from '@/lib/longform-v2/youtube/thumbnailCopyResearch'
 import type { ThumbnailCopyResearchSession } from '@/lib/longform-v2/thumbnailTemplateStudio/copyResearchStorage'
@@ -637,7 +638,7 @@ export function ThumbnailCopyResearchModal({
               disabled={keywordsLoading || researchBusy || aiBusy || !topicDraft.trim()}
               onClick={() => void loadAiKeywords(topicDraft)}
             >
-              {keywordsLoading ? '추출 중…' : '↻ 다시 추출'}
+              <RefreshCw className="lfv2-ico lfv2-ico--lead" aria-hidden />{keywordsLoading ? '추출 중…' : '다시 추출'}
             </button>
           </div>
           <p className="thumb-ui-hint">
@@ -686,7 +687,7 @@ export function ThumbnailCopyResearchModal({
             disabled={researchBusy || aiBusy || keywordsLoading || !topicDraft.trim()}
             onClick={() => void onCollect()}
           >
-            {researchBusy ? '수집 중…' : '🔍 유튜브 참고 수집'}
+            <Search className="lfv2-ico lfv2-ico--lead" aria-hidden />{researchBusy ? '수집 중…' : '유튜브 참고 수집'}
           </button>
           <button
             type="button"
@@ -694,7 +695,7 @@ export function ThumbnailCopyResearchModal({
             disabled={researchBusy || aiBusy || subCopyBusy || !result?.items?.length}
             onClick={() => void onAiCombine()}
           >
-            {aiBusy ? 'AI 조합·서브카피 생성 중…' : '✦ AI 조합 + 서브카피'}
+            <Sparkles className="lfv2-ico lfv2-ico--lead" aria-hidden />{aiBusy ? 'AI 조합·서브카피 생성 중…' : 'AI 조합 + 서브카피'}
           </button>
           <button
             type="button"
@@ -702,7 +703,7 @@ export function ThumbnailCopyResearchModal({
             disabled={researchBusy || aiBusy || subCopyBusy || !result?.items?.length}
             onClick={() => void onAiSubCopy()}
           >
-            {subCopyBusy ? '서브카피 생성 중…' : '↻ 서브카피만 다시'}
+            <RefreshCw className="lfv2-ico lfv2-ico--lead" aria-hidden />{subCopyBusy ? '서브카피 생성 중…' : '서브카피만 다시'}
           </button>
           <button
             type="button"
@@ -710,13 +711,13 @@ export function ThumbnailCopyResearchModal({
             disabled={researchBusy || aiBusy || subCopyBusy || !result?.items?.length}
             onClick={onManualWorkClick}
           >
-            ✎ 수동작업 (참고 패널)
+            <PencilLine className="lfv2-ico lfv2-ico--lead" aria-hidden />수동작업 (참고 패널)
           </button>
         </div>
 
         {(combos.length > 0 || aiBusy) && (
           <section className="thumb-copy-research-modal__combos" aria-label="AI 추천 2줄 조합">
-            <h3 className="thumb-copy-research-modal__combos-title">✦ 추천 조합 (2줄 · 템플릿 슬롯)</h3>
+            <h3 className="thumb-copy-research-modal__combos-title"><Sparkles className="lfv2-ico lfv2-ico--lead" aria-hidden />추천 조합 (2줄 · 템플릿 슬롯)</h3>
             <p className="thumb-ui-hint">
               {aiBusy && !combos.length
                 ? '2줄 조합과 서브카피를 함께 만드는 중… 완료되면 우측 「추천 조합」·좌측 「카피 참고」 패널에 표시됩니다.'
@@ -763,7 +764,7 @@ export function ThumbnailCopyResearchModal({
 
         {(subCopies.length > 0 || subCopyBusy || aiBusy) && (
           <section className="thumb-copy-research-modal__subcopies" aria-label="AI 서브카피">
-            <h3 className="thumb-copy-research-modal__combos-title">✦ 서브카피 (괄호·라벨)</h3>
+            <h3 className="thumb-copy-research-modal__combos-title"><Sparkles className="lfv2-ico lfv2-ico--lead" aria-hidden />서브카피 (괄호·라벨)</h3>
             <p className="thumb-ui-hint">
               {(subCopyBusy || aiBusy) && !subCopies.length
                 ? '서브카피를 생성하는 중… 완료되면 「카피 참고」 패널에도 표시됩니다.'

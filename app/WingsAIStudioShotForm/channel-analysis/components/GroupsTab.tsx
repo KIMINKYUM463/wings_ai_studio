@@ -577,7 +577,7 @@ export function GroupsTab() {
                       href={`https://www.youtube.com/watch?v=${v.videoId}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="scout-row group overflow-hidden rounded-2xl border border-white/[0.06] bg-[#121316] transition hover:border-teal-400/30"
+                      className="scout-row group overflow-hidden rounded-2xl border border-white/[0.06] bg-[#fdfeff] transition hover:border-teal-400/30"
                     >
                       <div className="relative aspect-video bg-black/40">
                         {/* eslint-disable-next-line @next/next/no-img-element */}

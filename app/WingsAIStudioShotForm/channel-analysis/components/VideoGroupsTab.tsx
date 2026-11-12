@@ -524,7 +524,7 @@ export function VideoGroupsTab() {
                 {filteredVideos.map((v) => (
                   <div
                     key={v.videoId}
-                    className="group relative overflow-hidden rounded-2xl border border-white/[0.06] bg-[#121316] transition hover:border-teal-400/30"
+                    className="group relative overflow-hidden rounded-2xl border border-white/[0.06] bg-[#fdfeff] transition hover:border-teal-400/30"
                   >
                     <a
                       href={`https://www.youtube.com/watch?v=${v.videoId}`}

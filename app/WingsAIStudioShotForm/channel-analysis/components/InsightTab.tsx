@@ -525,7 +525,7 @@ export function InsightTab() {
             return (
               <div
                 key={`${c.channelId}-${i}`}
-                className="scout-row flex items-center gap-3 rounded-2xl border border-white/[0.06] bg-[#121316]/90 px-3 py-3 md:gap-4 md:px-4"
+                className="scout-row flex items-center gap-3 rounded-2xl border border-white/[0.06] bg-[#fdfeff]/90 px-3 py-3 md:gap-4 md:px-4"
                 style={{ animationDelay: `${Math.min(i, 12) * 40}ms` }}
               >
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center">
@@ -594,7 +594,7 @@ export function InsightTab() {
       />
 
       {toast && (
-        <div className="fixed bottom-6 left-1/2 z-[70] -translate-x-1/2 rounded-full border border-teal-400/30 bg-[#16171c] px-4 py-2 text-sm text-teal-100 shadow-xl">
+        <div className="fixed bottom-6 left-1/2 z-[70] -translate-x-1/2 rounded-full border border-teal-400/30 bg-[#fdffff] px-4 py-2 text-sm text-teal-100 shadow-xl">
           {toast}
         </div>
       )}

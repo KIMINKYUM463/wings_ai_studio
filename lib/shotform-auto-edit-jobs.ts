@@ -153,23 +153,24 @@ export async function getAutoEditJobResolved(jobId: string): Promise<JobRecord |
 }
 
 export async function readAutoEditOutput(jobId: string): Promise<{ buffer: Buffer; filename: string } | null> {
+  // 작업 기록은 TTL 뒤 사라져도 Storage 의 결과 MP4 는 남아 있으므로 jobId 경로로도 찾는다.
   const job = await getAutoEditJobAsync(jobId)
-  if (!job) return null
 
   const storageCandidates = [
-    job.outputStoragePath,
+    job?.outputStoragePath,
     autoEditOutputStoragePath(jobId),
   ].filter((p, i, arr): p is string => Boolean(p) && arr.indexOf(p) === i)
 
   for (const storagePath of storageCandidates) {
     const remote = await downloadAutoEditOutputFromSupabase(storagePath)
     if (remote) {
-      const title = job.analysis?.title || job.analyses?.[0]?.title || "shopping-short"
+      const title = job?.analysis?.title || job?.analyses?.[0]?.title || "shopping-short"
       const safe = title.slice(0, 32).replace(/[^\w\uac00-\ud7af\u4e00-\u9fff-]+/g, "_")
       return { buffer: remote, filename: `${safe || "auto-edit"}_${jobId.slice(0, 8)}.mp4` }
     }
   }
 
+  if (!job) return null
   if (!job.outputPath) {
     const localPath = job.localOutputPath
     if (localPath) {

@@ -56,7 +56,7 @@ function PremiumAnalysisLoading({ detailDisabled }: { detailDisabled?: boolean }
   }, [phases.length])
 
   return (
-    <div className="relative overflow-hidden rounded-xl border border-amber-400/20 bg-[#0a101c] px-4 py-10 sm:py-12">
+    <div className="relative overflow-hidden rounded-xl border border-amber-400/20 bg-[#f1fbff] px-4 py-10 sm:py-12">
       {/* ambient glow */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="pa-glow-a absolute left-1/2 top-1/2 h-56 w-56 -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-500/10 blur-3xl" />
@@ -217,7 +217,7 @@ function SectionCard({
 }) {
   return (
     <div
-      className={`rounded-xl border border-white/[0.07] bg-gradient-to-b from-[#141c2c] to-[#0f1624] px-3.5 py-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] ${className}`}
+      className={`rounded-xl border border-white/[0.07] bg-gradient-to-b from-[#f5ffff] to-[#f5ffff] px-3.5 py-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] ${className}`}
     >
       <div className="mb-2.5 flex items-center gap-2">
         {icon ? (
@@ -315,7 +315,7 @@ function FactCheckPanel({ factCheck }: { factCheck: CoupangFactCheck }) {
         : "text-orange-300 border-orange-400/25 bg-orange-500/10"
 
   return (
-    <div className="relative overflow-hidden rounded-xl border border-amber-400/20 bg-gradient-to-br from-[#121a2a] via-[#0e1524] to-[#0a101c] px-4 py-4 sm:px-5">
+    <div className="relative overflow-hidden rounded-xl border border-amber-400/20 bg-gradient-to-br from-[#f5ffff] via-[#f5ffff] to-[#f1fbff] px-4 py-4 sm:px-5">
       <div className="pointer-events-none absolute -right-10 -top-16 h-40 w-40 rounded-full bg-amber-500/10 blur-3xl" />
       <div className="pointer-events-none absolute -left-8 bottom-0 h-28 w-28 rounded-full bg-orange-500/5 blur-2xl" />
 
@@ -631,7 +631,7 @@ export function CollectBriefingPanel({
   ])
 
   return (
-    <div className="rounded-2xl border border-white/[0.08] bg-[#0b1220] overflow-hidden shadow-[0_20px_50px_-28px_rgba(0,0,0,0.65)]">
+    <div className="rounded-2xl border border-white/[0.08] bg-[#f3feff] overflow-hidden shadow-[0_20px_50px_-28px_rgba(20,35,70,0.227)]">
       <div className="relative px-4 sm:px-5 py-4 border-b border-white/[0.06] flex flex-wrap items-start justify-between gap-3 overflow-hidden">
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-amber-500/[0.06] via-transparent to-transparent" />
         <div className="relative min-w-0 flex-1 flex items-start gap-3">
@@ -654,7 +654,7 @@ export function CollectBriefingPanel({
           size="sm"
           disabled={loading || !canAnalyze}
           onClick={() => void runAnalyze()}
-          className="relative shrink-0 bg-amber-500 hover:bg-amber-400 text-[#0b1220] font-semibold shadow-[0_8px_24px_-10px_rgba(245,158,11,0.8)]"
+          className="relative shrink-0 bg-amber-500 hover:bg-amber-400 text-[#f3feff] font-semibold shadow-[0_8px_24px_-10px_rgba(245,158,11,0.8)]"
         >
           {loading ? (
             <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
@@ -694,7 +694,7 @@ export function CollectBriefingPanel({
               <SectionCard
                 title="한눈에 요약"
                 icon={<ShieldCheck className="h-3.5 w-3.5" />}
-                className="border-amber-400/20 from-amber-500/[0.08] to-[#0f1624]"
+                className="border-amber-400/20 from-amber-500/[0.08] to-[#f5ffff]"
               >
                 <p className="text-[13px] text-zinc-100 leading-[1.7]">{briefing.summary}</p>
               </SectionCard>

@@ -21,15 +21,7 @@ import {
   Play,
   Pause,
   Volume2,
-  RefreshCw,
 } from "lucide-react"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Slider } from "@/components/ui/slider"
 import Link from "next/link"
 import { generateShoppingScript, generateVideoWithSora2, generateImagesWith3Scenes, splitScriptIntoScenes, convertImageToVideoWithWan, generateImage, generateVideoWithSeedance, generateShortsThumbnail, generateThumbnailHookingText } from "./actions"
@@ -137,10 +129,6 @@ export default function ShoppingPage() {
   const [currentTime, setCurrentTime] = useState(0)
   const [selectedVoiceId, setSelectedVoiceId] = useState<string>("ttsmaker-여성1") // 기본: TTSMaker 여성1
   const [customElevenLabsVoices, setCustomElevenLabsVoices] = useState<Array<{ id: string; name: string }>>([]) // 사용자 추가 일레븐랩스 목소리
-  const [supertoneVoices, setSupertoneVoices] = useState<Array<{ voice_id: string; name: string; language: string[]; styles: string[]; thumbnail_image_url?: string }>>([]) // 수퍼톤 음성 목록
-  const [isLoadingSupertoneVoices, setIsLoadingSupertoneVoices] = useState(false) // 수퍼톤 음성 목록 로딩 중
-  const [selectedSupertoneVoiceId, setSelectedSupertoneVoiceId] = useState<string>("") // 선택된 수퍼톤 음성 ID
-  const [selectedSupertoneStyle, setSelectedSupertoneStyle] = useState<string>("neutral") // 선택된 수퍼톤 스타일
   const [previewingVoiceId, setPreviewingVoiceId] = useState<string | null>(null)
   const [previewAudioUrl, setPreviewAudioUrl] = useState<string | null>(null)
   const [previewVideoElements, setPreviewVideoElements] = useState<HTMLVideoElement[]>([]) // 미리보기용 비디오 엘리먼트
@@ -260,51 +248,6 @@ export default function ShoppingPage() {
     }
   }
 
-  // 수퍼톤 음성 목록 가져오기
-  const fetchSupertoneVoices = async () => {
-    setIsLoadingSupertoneVoices(true)
-    try {
-      const supertoneApiKey = typeof window !== "undefined" ? localStorage.getItem("supertone_api_key") || undefined : undefined
-      if (!supertoneApiKey) {
-        alert("수퍼톤 API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
-        setIsLoadingSupertoneVoices(false)
-      return
-    }
-
-      const response = await fetch(`/api/supertone-voices?apiKey=${encodeURIComponent(supertoneApiKey)}`, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-        },
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || "음성 목록을 가져오는데 실패했습니다.")
-      }
-
-      const data = await response.json()
-      if (data.success && data.voices) {
-        const excludedNames = ["달팽이A", "기억의정령_알마냐", "틈새의정령_알마냐"]
-        const filteredVoices = data.voices.filter((voice: { name: string }) => 
-          !excludedNames.some(excluded => voice.name.includes(excluded))
-        )
-        setSupertoneVoices(filteredVoices)
-        if (filteredVoices.length > 0 && !selectedSupertoneVoiceId) {
-          setSelectedSupertoneVoiceId(filteredVoices[0].voice_id)
-          setSelectedVoiceId(`supertone-${filteredVoices[0].voice_id}`)
-        }
-      } else {
-        throw new Error(data.error || "음성 목록을 가져오는데 실패했습니다.")
-      }
-    } catch (error) {
-      console.error("수퍼톤 음성 목록 가져오기 실패:", error)
-      alert(`수퍼톤 음성 목록을 가져오는데 실패했습니다: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
-    } finally {
-      setIsLoadingSupertoneVoices(false)
-    }
-  }
-
   // 목소리 미리듣기 함수
   const handlePreviewVoice = async (voiceId: string) => {
     setPreviewingVoiceId(voiceId)
@@ -312,30 +255,7 @@ export default function ShoppingPage() {
     try {
       let response: Response
       
-      if (voiceId?.startsWith("supertone-")) {
-        const actualVoiceId = voiceId.replace("supertone-", "")
-        const supertoneApiKey = typeof window !== "undefined" ? localStorage.getItem("supertone_api_key") || undefined : undefined
-        
-        if (!supertoneApiKey) {
-          alert("수퍼톤 API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
-          setPreviewingVoiceId(null)
-          return
-        }
-        
-        response = await fetch("/api/supertone-tts", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            text: "여러분 환영합니다",
-            voiceId: actualVoiceId,
-            apiKey: supertoneApiKey,
-            style: selectedSupertoneStyle || "neutral",
-            language: "ko",
-          }),
-        })
-      } else if (voiceId?.startsWith("ttsmaker-")) {
+      if (voiceId?.startsWith("ttsmaker-")) {
         const voiceName = voiceId.replace("ttsmaker-", "")
         const pitch = voiceName === "남성5" ? 0.9 : 1.0
         const ttsmakerApiKey = typeof window !== "undefined" ? localStorage.getItem("ttsmaker_api_key") || undefined : undefined
@@ -494,32 +414,6 @@ export default function ShoppingPage() {
             speed: 1.0,
             pitch: pitch,
             apiKey: ttsmakerApiKey,
-          }),
-        })
-      } else if (selectedVoiceId?.startsWith("supertone-")) {
-        // 수퍼톤인 경우
-        const voiceId = selectedVoiceId.replace("supertone-", "")
-        let supertoneApiKey = typeof window !== "undefined" 
-          ? (localStorage.getItem("supertone_api_key") || "").trim() 
-          : null
-        
-        if (!supertoneApiKey || supertoneApiKey.length === 0) {
-          alert("수퍼톤 API 키가 필요합니다. 설정에서 API 키를 입력해주세요.")
-          setIsGeneratingTTS(false)
-          return
-        }
-        
-        response = await fetch("/api/supertone-tts", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            text: ttsText,
-            voiceId: voiceId,
-            apiKey: supertoneApiKey,
-            style: selectedSupertoneStyle || "neutral",
-            language: "ko",
           }),
         })
       } else {
@@ -1969,147 +1863,6 @@ export default function ShoppingPage() {
                       <div className="space-y-2">
                         <Label className="text-sm font-medium text-gray-700">목소리 선택</Label>
                         
-                        {/* 수퍼톤 선택 */}
-                        <div className="space-y-2 p-3 border border-gray-200 rounded-lg bg-white">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center space-x-2">
-                              <div
-                                className={`w-4 h-4 rounded-full border-2 cursor-pointer ${
-                                  selectedVoiceId?.startsWith("supertone-") ? "border-purple-500 bg-purple-500" : "border-gray-300"
-                                }`}
-                                onClick={() => {
-                                  if (supertoneVoices.length > 0 && !selectedSupertoneVoiceId) {
-                                    setSelectedSupertoneVoiceId(supertoneVoices[0].voice_id)
-                                    setSelectedVoiceId(`supertone-${supertoneVoices[0].voice_id}`)
-                                    const firstVoice = supertoneVoices[0]
-                                    if (firstVoice.styles && firstVoice.styles.length > 0) {
-                                      const neutralStyle = firstVoice.styles.find(s => s.toLowerCase().includes("neutral") || s === "중립")
-                                      setSelectedSupertoneStyle(neutralStyle || firstVoice.styles[0])
-                                    }
-                                  } else if (selectedSupertoneVoiceId) {
-                                    setSelectedSupertoneVoiceId("")
-                                    setSelectedVoiceId("ttsmaker-여성1")
-                                  } else {
-                                    fetchSupertoneVoices()
-                                  }
-                                }}
-                              >
-                                {selectedVoiceId?.startsWith("supertone-") && (
-                                  <div className="w-2 h-2 bg-white rounded-full mx-auto mt-0.5"></div>
-                                )}
-                              </div>
-                              <p className={`text-sm font-medium ${selectedVoiceId?.startsWith("supertone-") ? "text-purple-900" : "text-gray-700"}`}>수퍼톤 (SuperTone)</p>
-                            </div>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={fetchSupertoneVoices}
-                              disabled={isLoadingSupertoneVoices}
-                              className={selectedVoiceId?.startsWith("supertone-") ? "border-purple-300 text-purple-700" : ""}
-                            >
-                              {isLoadingSupertoneVoices ? (
-                                <>
-                                  <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                                  로딩 중...
-                                </>
-                              ) : (
-                                <>
-                                  <RefreshCw className="w-3 h-3 mr-1" />
-                                  음성 목록 가져오기
-                                </>
-                              )}
-                            </Button>
-                          </div>
-                          {supertoneVoices.length > 0 && (
-                            <Select
-                              value={selectedSupertoneVoiceId}
-                              onValueChange={(value) => {
-                                setSelectedSupertoneVoiceId(value)
-                                setSelectedVoiceId(`supertone-${value}`)
-                                const selectedVoice = supertoneVoices.find(v => v.voice_id === value)
-                                if (selectedVoice && selectedVoice.styles && selectedVoice.styles.length > 0) {
-                                  const neutralStyle = selectedVoice.styles.find(s => s.toLowerCase().includes("neutral") || s === "중립")
-                                  setSelectedSupertoneStyle(neutralStyle || selectedVoice.styles[0])
-                                } else {
-                                  setSelectedSupertoneStyle("neutral")
-                                }
-                              }}
-                            >
-                              <SelectTrigger className="w-full">
-                                <SelectValue placeholder="수퍼톤 음성을 선택하세요" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {supertoneVoices.map((voice) => (
-                                  <SelectItem key={voice.voice_id} value={voice.voice_id}>
-                                    <div className="flex items-center gap-2">
-                                      {voice.thumbnail_image_url && (
-                                        <img
-                                          src={voice.thumbnail_image_url}
-                                          alt={voice.name}
-                                          className="w-6 h-6 rounded-full object-cover"
-                                        />
-                                      )}
-                                      <div>
-                                        <div className="font-medium">{voice.name}</div>
-                                        {voice.styles && voice.styles.length > 0 && (
-                                          <div className="text-xs text-gray-500">
-                                            스타일: {voice.styles.join(", ")}
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          )}
-                          {selectedSupertoneVoiceId && (() => {
-                            const selectedVoice = supertoneVoices.find(v => v.voice_id === selectedSupertoneVoiceId)
-                            const availableStyles = selectedVoice?.styles || []
-                            return availableStyles.length > 0 && (
-                              <div className="mt-2">
-                                <p className="text-sm font-medium text-gray-700 mb-2">스타일 선택</p>
-                                <Select
-                                  value={selectedSupertoneStyle}
-                                  onValueChange={setSelectedSupertoneStyle}
-                                >
-                                  <SelectTrigger className="w-full">
-                                    <SelectValue placeholder="스타일을 선택하세요" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {availableStyles.map((style) => (
-                                      <SelectItem key={style} value={style}>
-                                        {style}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                            )
-                          })()}
-                          {selectedSupertoneVoiceId && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="w-full mt-2 border-purple-300 text-purple-700 hover:bg-purple-100"
-                              onClick={() => handlePreviewVoice(`supertone-${selectedSupertoneVoiceId}`)}
-                              disabled={previewingVoiceId === `supertone-${selectedSupertoneVoiceId}`}
-                            >
-                              {previewingVoiceId === `supertone-${selectedSupertoneVoiceId}` ? (
-                                <>
-                                  <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                                  재생 중...
-                                </>
-                              ) : (
-                                <>
-                                  <Volume2 className="w-3 h-3 mr-1" />
-                                  미리듣기
-                                </>
-                              )}
-                            </Button>
-                          )}
-                        </div>
-
                         {/* TTSMaker 및 ElevenLabs 목소리 선택 */}
                         <div className="space-y-2">
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -2137,12 +1890,7 @@ export default function ShoppingPage() {
                                     className={`w-4 h-4 rounded-full border-2 cursor-pointer ${
                                       selectedVoiceId === voice.id ? "border-red-500 bg-red-500" : "border-gray-300"
                                     }`}
-                                    onClick={() => {
-                                      setSelectedVoiceId(voice.id)
-                                      if (selectedSupertoneVoiceId) {
-                                        setSelectedSupertoneVoiceId("")
-                                      }
-                                    }}
+                                    onClick={() => setSelectedVoiceId(voice.id)}
                                   >
                                     {selectedVoiceId === voice.id && (
                                       <div className="w-2 h-2 bg-white rounded-full mx-auto mt-0.5"></div>
@@ -2150,12 +1898,7 @@ export default function ShoppingPage() {
                                   </div>
                                   <div 
                                     className="flex-1 cursor-pointer"
-                                    onClick={() => {
-                                      setSelectedVoiceId(voice.id)
-                                      if (selectedSupertoneVoiceId) {
-                                        setSelectedSupertoneVoiceId("")
-                                      }
-                                    }}
+                                    onClick={() => setSelectedVoiceId(voice.id)}
                                   >
                                     <p className="text-sm font-medium">{voice.name}</p>
                                     {voice.note && <p className="text-xs text-gray-500">{voice.note}</p>}

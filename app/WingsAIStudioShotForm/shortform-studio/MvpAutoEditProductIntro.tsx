@@ -24,7 +24,7 @@ export function MvpAutoEditProductIntro({ result, videoUrl, playhead = 0, classN
 
   return (
     <div className={cn("space-y-3", className)}>
-      <div className="overflow-hidden rounded-xl border border-white/10 bg-gradient-to-br from-[#12141a] to-[#0a0b0f]">
+      <div className="overflow-hidden rounded-xl border border-white/10 bg-gradient-to-br from-[#fcffff] to-[#f5f6fd]">
         <div className="grid gap-0 sm:grid-cols-[minmax(0,120px)_1fr]">
           {videoUrl ? (
             <div className="relative aspect-[9/16] max-h-[200px] w-full bg-black sm:max-h-none sm:w-auto">

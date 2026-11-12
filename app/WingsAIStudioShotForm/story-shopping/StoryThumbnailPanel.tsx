@@ -248,7 +248,7 @@ export function StoryThumbnailPanel({
     <div className="space-y-4">
       <div>
         <p className="text-xs font-black text-slate-900">썸네일 스튜디오</p>
-        <p className="mt-1 text-[10px] leading-4 text-slate-500">
+        <p className="mt-1 text-[12px] leading-4 text-slate-500">
           9:16 템플릿을 고른 뒤 상세 스튜디오에서 모든 레이어를 편집합니다.
         </p>
       </div>
@@ -264,14 +264,14 @@ export function StoryThumbnailPanel({
               <p>{hookingText.line1}</p>
               <p className="mt-1 text-yellow-300">{hookingText.line2}</p>
             </div>
-            <div className="absolute inset-x-2 top-[30%] bg-white/95 px-2 py-1 text-center text-[8px] font-bold text-slate-900">
+            <div className="absolute inset-x-2 top-[30%] bg-white/95 px-2 py-1 text-center text-[11px] font-bold text-slate-900">
               {subheadline}
             </div>
           </div>
         ) : (
           <div className="flex h-full flex-col items-center justify-center text-slate-500">
             <ImageIcon className="h-8 w-8" />
-            <span className="mt-2 text-[10px]">배경 이미지를 선택하세요</span>
+            <span className="mt-2 text-[12px]">배경 이미지를 선택하세요</span>
           </div>
         )}
       </div>
@@ -284,10 +284,10 @@ export function StoryThumbnailPanel({
         }`}
       >
         <div>
-          <p className="text-[11px] font-black text-slate-800">
+          <p className="text-[13px] font-black text-slate-800">
             영상 맨 앞 썸네일
           </p>
-          <p className="mt-0.5 text-[9px] leading-4 text-slate-500">
+          <p className="mt-0.5 text-[12px] leading-4 text-slate-500">
             ON이면 0~0.01초에만 표시됩니다.
           </p>
         </div>
@@ -314,7 +314,7 @@ export function StoryThumbnailPanel({
       </Button>
 
       {isHydrating ? (
-        <div className="flex items-center justify-center gap-2 text-[10px] text-slate-400">
+        <div className="flex items-center justify-center gap-2 text-[12px] text-slate-400">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           저장된 썸네일 불러오는 중…
         </div>

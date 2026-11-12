@@ -59,7 +59,7 @@ export function Ver2StepShell({
   const a = ACCENT[accent] || ACCENT.orange
   return (
     <div className={cn("space-y-6", className)}>
-      <Card className="border border-white/10 rounded-2xl shadow-2xl bg-[#121316] overflow-hidden relative">
+      <Card className="border border-white/10 rounded-2xl shadow-2xl bg-[#fdfeff] overflow-hidden relative">
         <div
           className={cn(
             "absolute inset-0 bg-gradient-to-br pointer-events-none",
@@ -130,7 +130,7 @@ export function Ver2StepPanel({
   return (
     <div
       className={cn(
-        "rounded-xl border border-white/10 bg-[#0b1220] overflow-hidden",
+        "rounded-xl border border-white/10 bg-[#f3feff] overflow-hidden",
         className
       )}
     >

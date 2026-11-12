@@ -69,22 +69,6 @@ export async function generateAnimalTts(params: {
       speed,
       lang: "ko",
     })
-  } else if (voiceId.startsWith("supertone-")) {
-    const id = voiceId.replace("supertone-", "")
-    const apiKey = (localStorage.getItem("shotform_supertone_api_key") || "").trim()
-    if (!apiKey) throw new Error("수퍼톤 API 키가 필요합니다. 설정에서 입력해주세요.")
-    response = await fetch("/api/supertone-tts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        text: ttsText,
-        voiceId: id,
-        apiKey,
-        style: params.style || "neutral",
-        language: "ko",
-        speed,
-      }),
-    })
   } else if (voiceId.startsWith("typecast-")) {
     const id = voiceId.replace("typecast-", "")
     const apiKey = (

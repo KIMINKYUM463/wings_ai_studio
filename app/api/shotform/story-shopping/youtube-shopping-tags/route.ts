@@ -174,9 +174,8 @@ function collectProducts(root: unknown) {
 
   const merged = new Map<string, ShoppingTagProduct>()
   products.forEach((product) => {
-    const key = product.imageUrl
-      ? `image:${product.imageUrl}`
-      : product.title.toLocaleLowerCase("ko-KR").replace(/\s+/g, " ")
+    // 같은 상품이 이미지 있는 렌더러·없는 렌더러로 두 번 잡히므로 상품명으로 합친다.
+    const key = product.title.toLocaleLowerCase("ko-KR").replace(/\s+/g, " ").trim()
     const existing = merged.get(key)
     if (!existing) {
       merged.set(key, product)

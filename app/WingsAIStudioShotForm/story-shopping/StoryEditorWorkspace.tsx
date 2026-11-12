@@ -104,6 +104,17 @@ import {
   StoryChannelFrame,
 } from "./StoryChannelFrame"
 import { isSameStoryAssetSlot, resolveStoryLineAsset } from "./story-line-assets"
+import {
+  DEFAULT_STORY_CAPTION_ANIMATION,
+  STORY_CAPTION_ANIMATIONS,
+} from "./story-caption-motion"
+import {
+  STORY_TWO_CUT_MIN_LINE_SEC,
+  countStoryTwoCutCandidates,
+  splitLongStoryLinesIntoTwoCuts,
+} from "./story-line-split"
+import { storyCoverEndSec } from "./story-cover"
+import { groupStoryVisualCuts, sameMediaRunRange } from "./story-visual-cuts"
 import { shiftCaptionCuesForTrim } from "./story-caption-align"
 import {
   clampStorySfxToTimeline,
@@ -151,6 +162,7 @@ const DEFAULT_EDIT: StoryEditSettings = {
   subtitleBackgroundColor: "#ffffff",
   subtitleOutlineWidth: 0,
   subtitleOutlineColor: "#ffffff",
+  subtitleAnimation: DEFAULT_STORY_CAPTION_ANIMATION,
 }
 
 const FREE_SUBTITLE_FONTS = [
@@ -252,6 +264,10 @@ function mediaFingerprint(url: string): string {
       .replace(/_(\d+)(?=\.(?:jpe?g|png|webp|gif)$)/i, "")
   }
 }
+
+/** 이미지 모델이 한국어 대본 문구를 화면 글자로 그려 넣는 경우가 있어 영어로 한 번 더 금지 */
+const STORY_IMAGE_NO_TEXT_RULE =
+  "Absolutely no text, letters, captions, signs or typography anywhere in the image."
 
 /** 클립마다 검색 각도를 살짝 바꿔 같은 1등 결과가 반복되지 않게 함 */
 const PIXABAY_DIVERSITY_HINTS = [
@@ -364,6 +380,60 @@ export const StoryEditorWorkspace = forwardRef<
     () => (story ? buildStoryMashupLineSlots(story, brief.voiceData) : []),
     [brief.voiceData, story]
   )
+
+  const twoCutCandidateCount = useMemo(
+    () => countStoryTwoCutCandidates(story, brief.voiceData),
+    [brief.voiceData, story]
+  )
+  const [twoCutMessage, setTwoCutMessage] = useState("")
+  const [twoCutUndo, setTwoCutUndo] = useState<{
+    splitVoiceData: StoryShoppingBrief["voiceData"]
+    before: Pick<StoryShoppingBrief, "voiceData" | "sceneAssets" | "sfxClips">
+  } | null>(null)
+  // 나눈 뒤 음성을 다시 만들면 되돌릴 대상이 사라지므로 취소 버튼을 숨김
+  const canUndoTwoCut = Boolean(twoCutUndo && twoCutUndo.splitVoiceData === brief.voiceData)
+
+  const splitLongLinesIntoTwoCuts = () => {
+    if (!story || !brief.voiceData) {
+      setTwoCutMessage("먼저 음성을 만들어 주세요. 음성 길이를 기준으로 나눕니다.")
+      return
+    }
+    const result = splitLongStoryLinesIntoTwoCuts({
+      story,
+      voiceData: brief.voiceData,
+      sceneAssets: brief.sceneAssets,
+      sfxClips: brief.sfxClips,
+    })
+    if (!result.splitCount) {
+      setTwoCutMessage("나눌 만큼 긴 줄이 없습니다.")
+      return
+    }
+    setTwoCutUndo({
+      splitVoiceData: result.voiceData,
+      before: {
+        voiceData: brief.voiceData,
+        sceneAssets: brief.sceneAssets,
+        sfxClips: brief.sfxClips,
+      },
+    })
+    onChange((prev) => ({
+      ...prev,
+      voiceData: result.voiceData,
+      sceneAssets: result.sceneAssets,
+      sfxClips: result.sfxClips,
+    }))
+    setTwoCutMessage(
+      `긴 줄 ${result.splitCount}개를 두 컷으로 나눴습니다. 새로 생긴 뒤쪽 컷은 비어 있으니 아래 「전체 클립 AI 자동 배치」로 채워 주세요.`
+    )
+  }
+
+  const undoTwoCutSplit = () => {
+    if (!twoCutUndo || !canUndoTwoCut) return
+    const { before } = twoCutUndo
+    onChange((prev) => ({ ...prev, ...before }))
+    setTwoCutUndo(null)
+    setTwoCutMessage("나누기 전으로 되돌렸습니다.")
+  }
 
   const [selectedKey, setSelectedKey] = useState("")
   const [selectedElementKey, setSelectedElementKey] = useState<string | null>(null)
@@ -672,6 +742,26 @@ export const StoryEditorWorkspace = forwardRef<
   }, [slots])
 
   const totalDuration = timeline[timeline.length - 1]?.endSec || 1
+  // 같은 그림이 여러 자막 줄에 이어지면 모션(줌 등)도 그 구간 전체에 걸쳐 진행
+  const selectedMotionDurationSec = useMemo(() => {
+    const index = timeline.findIndex(
+      (item) =>
+        item.sceneId === selected?.sceneId && item.lineIndex === selected?.lineIndex
+    )
+    if (index < 0) return selected?.durationSec
+    const run = sameMediaRunRange(
+      timeline,
+      index,
+      (item) =>
+        resolveStoryLineAsset(brief.sceneAssets, item.sceneId, item.lineIndex)?.mediaUrl
+    )
+    return timeline[run.end]!.endSec - timeline[run.start]!.startSec
+  }, [brief.sceneAssets, selected, timeline])
+  // 표지는 첫 장면(제목 문장)을 읽는 동안만 — 미리보기와 MP4가 같은 값을 씀
+  const coverEndSec = storyCoverEndSec(
+    timeline.filter((slot) => slot.sceneId === timeline[0]?.sceneId).at(-1)?.endSec
+  )
+  const showStoryCover = playheadSec < coverEndSec
   timelineRef.current = timeline
   briefRef.current = brief
   editSettingsRef.current = editSettings
@@ -737,10 +827,12 @@ export const StoryEditorWorkspace = forwardRef<
     textOutlineColor: editSettings.subtitleOutlineColor,
     subtitlePosition: editSettings.subtitlePosition || ("bottom" as const),
   }
+  // 클립 목록 썸네일은 정지 화면이라 애니메이션은 큰 미리보기에만 적용
   const activeSubtitleFrameStyle = {
     ...subtitleFrameStyle,
     textScale: Math.max(0.75, Math.min(1.35, subtitleSizeDraft / 36)),
     subtitlePosition: editSettings.subtitlePosition || "bottom",
+    textAnimation: editSettings.subtitleAnimation,
   }
 
   const patchEdit = (patch: Partial<StoryEditSettings>) => {
@@ -866,6 +958,28 @@ export const StoryEditorWorkspace = forwardRef<
     brief.collectorData?.reviews,
     brief.productImage,
   ])
+
+  /** 줄마다 다른 그림을 자막 2~3줄당 그림 1장으로 묶습니다(각 컷의 첫 그림 사용). */
+  const groupExistingAssetsIntoCuts = () => {
+    let changed = 0
+    for (const group of groupStoryVisualCuts(slots)) {
+      const assets = group.map((slot) =>
+        resolveStoryLineAsset(brief.sceneAssets, slot.sceneId, slot.lineIndex)
+      )
+      const lead = assets.find((asset) => asset?.mediaUrl)
+      if (!lead) continue
+      group.forEach((slot, index) => {
+        if (assets[index]?.mediaUrl === lead.mediaUrl) return
+        applyAssetToSlot(slot.sceneId, slot.lineIndex, lead)
+        changed += 1
+      })
+    }
+    setAutoPlacementProgress(
+      changed
+        ? `${changed}개 클립을 앞 그림에 이어 붙였습니다. 그림이 약 1.8초마다 바뀝니다.`
+        : "이미 컷 단위로 묶여 있습니다."
+    )
+  }
 
   const runAutomaticAssetPlacement = async () => {
     if (!slots.length || isAutoPlacing) return
@@ -1020,24 +1134,53 @@ export const StoryEditorWorkspace = forwardRef<
       )
 
     // 이미 이미지가 있는 클립은 유지하되, 앞에 쓴 이미지와 중복이면 다시 채웁니다.
+    // 바로 앞 줄과 같은 그림은 한 컷이 이어지는 것이라 중복이 아닙니다.
     const filledKeys = new Set<string>()
+    const existingAssetByKey = new Map<string, StorySceneAsset>()
+    let previousUrl = ""
     for (const slot of slots) {
       const existing = resolveStoryLineAsset(
         brief.sceneAssets,
         slot.sceneId,
         slot.lineIndex
       )
-      if (!existing?.mediaUrl) continue
-      if (isMediaUsed(existing.mediaUrl)) {
-        // 같은 이미지가 앞 클립에 이미 있음 → 이 슬롯은 빈 것으로 보고 재배치
+      const url = existing?.mediaUrl || ""
+      const continuesPrevious = Boolean(url) && url === previousUrl
+      if (!existing || !url || (!continuesPrevious && isMediaUsed(url))) {
+        previousUrl = ""
         continue
       }
-      filledKeys.add(clipKey(slot.sceneId, slot.lineIndex))
-      markMediaUsed(existing.mediaUrl)
+      previousUrl = url
+      const key = clipKey(slot.sceneId, slot.lineIndex)
+      filledKeys.add(key)
+      existingAssetByKey.set(key, existing)
+      if (!continuesPrevious) markMediaUsed(url)
     }
-    const emptySlots = slots.filter(
-      (slot) => !filledKeys.has(clipKey(slot.sceneId, slot.lineIndex))
-    )
+
+    // 자막 줄 2~3개를 그림 1장짜리 컷으로 묶음. 일부만 비어 있는 컷은 같은 컷의 그림을 이어 씀
+    const placementCuts: Array<{ lead: StoryMashupLineSlot; members: StoryMashupLineSlot[] }> = []
+    for (const group of groupStoryVisualCuts(slots)) {
+      const empties = group.filter(
+        (slot) => !filledKeys.has(clipKey(slot.sceneId, slot.lineIndex))
+      )
+      if (!empties.length) continue
+      const keptAsset = group
+        .map((slot) => existingAssetByKey.get(clipKey(slot.sceneId, slot.lineIndex)))
+        .find(Boolean)
+      if (keptAsset) {
+        for (const slot of empties) applyAssetToSlot(slot.sceneId, slot.lineIndex, keptAsset)
+        continue
+      }
+      placementCuts.push({
+        lead: {
+          ...group[0]!,
+          text: group.map((slot) => slot.text).join(" "),
+          durationSec: group.reduce((sum, slot) => sum + slot.durationSec, 0),
+        },
+        members: group,
+      })
+    }
+    const emptySlots = placementCuts.map((cut) => cut.lead)
     if (!emptySlots.length) {
       setIsAutoPlacing(false)
       setAutoPlacementProgress("이미 모든 클립에 이미지가 있습니다.")
@@ -1552,6 +1695,7 @@ export const StoryEditorWorkspace = forwardRef<
                   "추상적인 분위기 사진, 제품만 놓인 정물 사진, 관련 없는 사람 사진을 만들지 않는다.",
                   "글자, 자막, 로고, 워터마크, 가짜 기능, 추가 제품을 생성하지 않는다.",
                   "사실적인 세로형 9:16 쇼츠 장면.",
+                  STORY_IMAGE_NO_TEXT_RULE,
                 ]
               : [
                   `대본 장면: ${slot.text}`,
@@ -1562,6 +1706,7 @@ export const StoryEditorWorkspace = forwardRef<
                   "단순한 제품 정물 사진 대신 문맥을 즉시 이해할 수 있는 자연스러운 생활 장면을 만든다.",
                   "글자, 자막, 로고, 워터마크를 생성하지 않는다.",
                   "사실적인 세로형 9:16 쇼츠 장면.",
+                  STORY_IMAGE_NO_TEXT_RULE,
                 ]
             const imageUrl = await generateImageWithNanobanana(
               generationPrompt.join("\n"),
@@ -1697,7 +1842,7 @@ export const StoryEditorWorkspace = forwardRef<
                 }
             : rawPlan
         setAutoPlacementProgress(
-          `빈 클립 ${emptyIndex + 1}/${emptySlots.length}` +
+          `컷 ${emptyIndex + 1}/${emptySlots.length}` +
             (skipped ? ` · 유지 ${skipped}개` : "") +
             ` · ${plan.reason} · ${plan.source}`
         )
@@ -1733,7 +1878,7 @@ export const StoryEditorWorkspace = forwardRef<
         ]
         if (replicateUnavailable) {
           setAutoPlacementProgress(
-            `빈 클립 ${emptyIndex + 1}/${emptySlots.length}` +
+            `컷 ${emptyIndex + 1}/${emptySlots.length}` +
               (skipped ? ` · 유지 ${skipped}개` : "") +
               ` · Replicate 장애 · 관련 이미지 검색 중`
           )
@@ -1766,7 +1911,9 @@ export const StoryEditorWorkspace = forwardRef<
           asset.mediaUrl,
           pixabayIdByMediaUrl.get(asset.mediaUrl)
         )
-        applyAssetToSlot(slot.sceneId, slot.lineIndex, asset)
+        for (const member of placementCuts[emptyIndex]!.members) {
+          applyAssetToSlot(member.sceneId, member.lineIndex, asset)
+        }
         completed += 1
       }
 
@@ -3616,6 +3763,9 @@ export const StoryEditorWorkspace = forwardRef<
           clips: exportClips,
           frameSettings,
           headerColor,
+          captionAnimation: editSettings.subtitleAnimation,
+          captionTextScale: subtitleFrameStyle.textScale,
+          coverEndSec,
           totalDurationSec: totalDuration,
           audioStream: recordDest.stream,
           getPlayheadSec: () => playheadRef.current,
@@ -4086,7 +4236,7 @@ export const StoryEditorWorkspace = forwardRef<
   return (
     <div
       className={cn(
-        "h-full min-h-0 overflow-hidden bg-[#f7f8fa] text-slate-900",
+        "light-keep h-full min-h-0 overflow-hidden bg-[#f7f8fa] text-slate-900",
         isMobile ? "flex flex-col" : "grid"
       )}
       style={
@@ -4156,13 +4306,13 @@ export const StoryEditorWorkspace = forwardRef<
               <span className="absolute bottom-2 left-1 h-1.5 w-1.5 animate-ping rounded-full bg-violet-300 [animation-delay:500ms]" />
             </div>
 
-            <p className="relative text-[11px] font-black uppercase tracking-[0.24em] text-cyan-300">
+            <p className="relative text-[13px] font-black uppercase tracking-[0.24em] text-cyan-300">
               AI Visual Director
             </p>
             <h3 className="relative mt-2 text-xl font-black">
               장면에 맞는 영상을 만들고 있어요
             </h3>
-            <p className="relative mt-2 min-h-10 text-[11px] font-medium leading-5 text-white/65">
+            <p className="relative mt-2 min-h-10 text-[13px] font-medium leading-5 text-white/65">
               {autoPlacementProgress ||
                 "대본을 분석하고 가장 어울리는 소재를 찾는 중…"}
             </p>
@@ -4174,7 +4324,7 @@ export const StoryEditorWorkspace = forwardRef<
               />
               <div className="pointer-events-none absolute inset-0 animate-pulse bg-gradient-to-r from-transparent via-white/20 to-transparent" />
             </div>
-            <div className="relative mt-2 flex items-center justify-between text-[9px] font-bold text-white/45">
+            <div className="relative mt-2 flex items-center justify-between text-[12px] font-bold text-white/45">
               <span>이미지 분석</span>
               <span>{autoProgressPercent}%</span>
               <span>AI 영상 생성</span>
@@ -4200,7 +4350,7 @@ export const StoryEditorWorkspace = forwardRef<
                 setIsAutoPlacing(false)
                 setAutoPlacementProgress("자동 배치를 중단했습니다.")
               }}
-              className="relative mt-6 h-9 border-white/15 bg-white/5 px-5 text-[10px] font-bold text-white hover:bg-white/10 hover:text-white"
+              className="relative mt-6 h-9 border-white/15 bg-white/5 px-5 text-[12px] font-bold text-white hover:bg-white/10 hover:text-white"
             >
               자동 배치 중단
             </Button>
@@ -4223,13 +4373,13 @@ export const StoryEditorWorkspace = forwardRef<
               <div className="absolute inset-5 animate-pulse rounded-2xl bg-gradient-to-br from-cyan-500 to-violet-600 shadow-lg shadow-violet-500/30" />
               <Film className="relative h-8 w-8 text-white" />
             </div>
-            <p className="relative text-[11px] font-black uppercase tracking-[0.22em] text-cyan-300">
+            <p className="relative text-[13px] font-black uppercase tracking-[0.22em] text-cyan-300">
               Remix Vision Editor
             </p>
             <h3 className="relative mt-2 text-xl font-black">
               대본에 맞는 영상 구간을 찾고 있어요
             </h3>
-            <p className="relative mt-3 min-h-10 text-[11px] font-medium leading-5 text-white/65">
+            <p className="relative mt-3 min-h-10 text-[13px] font-medium leading-5 text-white/65">
               {remixAssignProgress ||
                 "영상을 프레임별로 분석하고 TTS 길이에 맞춰 자르는 중…"}
             </p>
@@ -4307,14 +4457,14 @@ export const StoryEditorWorkspace = forwardRef<
               closePreview()
             }
           }}
-          className="fixed inset-0 z-[220] flex flex-col bg-[#111318] text-white outline-none"
+          className="fixed inset-0 z-[220] flex flex-col bg-[#fbfeff] text-white outline-none"
         >
           <div className="flex h-14 shrink-0 items-center justify-between border-b border-white/10 px-4 md:px-6">
             <div className="flex items-center gap-3">
               <MonitorPlay className="h-5 w-5 text-blue-400" />
               <div>
                 <p className="text-sm font-black">영상 미리보기</p>
-                <p className="text-[10px] text-white/45">편집 도구 없이 최종 화면만 확인합니다.</p>
+                <p className="text-[12px] text-white/45">편집 도구 없이 최종 화면만 확인합니다.</p>
               </div>
             </div>
             <Button
@@ -4328,7 +4478,7 @@ export const StoryEditorWorkspace = forwardRef<
           </div>
 
           <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-3 md:p-5">
-            <div className="relative aspect-[9/16] h-full max-h-[calc(100vh-128px)] overflow-hidden rounded-none bg-white shadow-[0_24px_80px_rgba(0,0,0,.55)] ring-1 ring-white/15">
+            <div className="relative aspect-[9/16] h-full max-h-[calc(100vh-128px)] overflow-hidden rounded-none bg-white shadow-[0_24px_80px_rgba(20,35,70,0.193)] ring-1 ring-white/15">
               {selectedScene ? (
                 <StoryChannelFrame
                   settings={frameSettings}
@@ -4339,8 +4489,9 @@ export const StoryEditorWorkspace = forwardRef<
                   narrationDisplayLines={displayLines}
                   {...activeSubtitleFrameStyle}
                   mediaBackgroundColor={editSettings.backgroundColor}
-                  motionDurationSec={selected?.durationSec}
+                  motionDurationSec={selectedMotionDurationSec}
                   prefetchMedia={prefetchMedia}
+                  coverVisible={showStoryCover}
                   className="h-full w-full shadow-none"
                 />
               ) : null}
@@ -4418,10 +4569,10 @@ export const StoryEditorWorkspace = forwardRef<
         <div>
           <div className="flex items-center gap-3">
             <h2 className="text-sm font-black text-slate-900">영상 편집</h2>
-            <span className="rounded-full bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-600">
+            <span className="rounded-full bg-blue-50 px-2 py-1 text-[12px] font-bold text-blue-600">
               소재 {filledCount}/{slots.length}
             </span>
-            <p className="hidden text-[11px] text-slate-500 md:block">
+            <p className="hidden text-[13px] text-slate-500 md:block">
               대본 줄 단위로 클립을 선택하고 우측에서 요소를 추가하세요.
             </p>
           </div>
@@ -4451,7 +4602,7 @@ export const StoryEditorWorkspace = forwardRef<
         >
           <p
             className={cn(
-              "mb-2 px-1 text-[10px] font-black text-slate-500",
+              "mb-2 px-1 text-[12px] font-black text-slate-500",
               isMobile && "sr-only"
             )}
           >
@@ -4516,14 +4667,14 @@ export const StoryEditorWorkspace = forwardRef<
                         <Film className="h-5 w-5" />
                       </div>
                     )}
-                    <span className="absolute left-0.5 top-0.5 rounded bg-black/70 px-1 text-[8px] text-white">
+                    <span className="absolute left-0.5 top-0.5 rounded bg-black/70 px-1 text-[11px] text-white">
                       {index + 1}
                     </span>
                   </div>
                   {!isMobile ? (
                     <div className="min-w-0 pt-1">
-                      <p className="line-clamp-2 text-[9px] font-bold leading-3 text-slate-700">{slot.text}</p>
-                      <p className="mt-1 text-[8px] text-slate-400">
+                      <p className="line-clamp-2 text-[12px] font-bold leading-4 text-slate-700">{slot.text}</p>
+                      <p className="mt-1 text-[11px] text-slate-400">
                         {slot.durationSec.toFixed(1)}초 · 장면 {slot.sceneOrder}
                       </p>
                     </div>
@@ -4546,7 +4697,7 @@ export const StoryEditorWorkspace = forwardRef<
             <button
               type="button"
               onClick={launchPreview}
-              className="mr-1 flex h-7 items-center gap-1.5 rounded-md bg-blue-600 px-2.5 text-[10px] font-black text-white hover:bg-blue-500"
+              className="mr-1 flex h-7 items-center gap-1.5 rounded-md bg-blue-600 px-2.5 text-[12px] font-black text-white hover:bg-blue-500"
             >
               <MonitorPlay className="h-3.5 w-3.5" />
               {isMobile ? "미리보기" : "미리보기 실행"}
@@ -4567,7 +4718,7 @@ export const StoryEditorWorkspace = forwardRef<
               aria-label="미리보기 배율 초기화"
               title="100%로 초기화"
               onClick={() => setPreviewZoom(1)}
-              className="flex h-7 min-w-12 items-center justify-center gap-1 rounded px-1 text-[9px] font-bold tabular-nums text-slate-600 hover:bg-slate-100"
+              className="flex h-7 min-w-12 items-center justify-center gap-1 rounded px-1 text-[12px] font-bold tabular-nums text-slate-600 hover:bg-slate-100"
             >
               <Maximize2 className="h-3 w-3" />
               {Math.round(previewZoom * 100)}%
@@ -4593,7 +4744,7 @@ export const StoryEditorWorkspace = forwardRef<
             <div
               ref={exportStageRef}
               data-story-export-stage="true"
-              className="relative aspect-[9/16] h-full max-h-[min(100%,680px)] shrink-0 overflow-hidden rounded-none border border-slate-300 bg-white shadow-[0_12px_40px_rgba(15,23,42,.16)]"
+              className="relative aspect-[9/16] h-full max-h-[min(100%,680px)] shrink-0 overflow-hidden rounded-none border border-slate-300 bg-white shadow-[0_12px_40px_rgba(20,35,70,0.056)]"
               style={{ zoom: previewZoom }}
             >
               {selectedScene ? (
@@ -4606,9 +4757,10 @@ export const StoryEditorWorkspace = forwardRef<
                   narrationDisplayLines={displayLines}
                   {...activeSubtitleFrameStyle}
                   mediaBackgroundColor={editSettings.backgroundColor}
-                  motionDurationSec={selected?.durationSec}
+                  motionDurationSec={selectedMotionDurationSec}
                   mediaEditable
                   prefetchMedia={prefetchMedia}
+                  coverVisible={showStoryCover}
                   onMediaTransformCommit={(patch) => {
                     if (selectedAsset) applyAsset({ ...selectedAsset, ...patch })
                   }}
@@ -4625,7 +4777,7 @@ export const StoryEditorWorkspace = forwardRef<
             </div>
           </div>
           <div className="grid h-12 shrink-0 grid-cols-[1fr_auto_1fr] items-center border-t border-slate-200 bg-white px-3">
-            <span className="justify-self-start text-[10px] tabular-nums text-slate-500">
+            <span className="justify-self-start text-[12px] tabular-nums text-slate-500">
               <strong className="font-bold text-blue-500">{formatPlayerTime(playheadSec)}</strong>
               {" / "}
               {formatPlayerTime(totalDuration)}
@@ -4697,7 +4849,7 @@ export const StoryEditorWorkspace = forwardRef<
                 type="button"
                 onClick={() => setRightTab(id)}
                 className={cn(
-                  "flex flex-col items-center gap-1 border-b-2 px-1 py-2.5 text-[9px] font-bold",
+                  "flex flex-col items-center gap-1 border-b-2 px-1 py-2.5 text-[12px] font-bold",
                   rightTab === id
                     ? "border-blue-500 bg-blue-50 text-blue-700"
                     : "border-transparent text-slate-400 hover:bg-slate-50 hover:text-slate-700"
@@ -4716,12 +4868,12 @@ export const StoryEditorWorkspace = forwardRef<
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
             {rightTab === "script" ? (
               <div className="space-y-4">
-                <p className="text-[10px] text-slate-500">현재 클립 대본</p>
+                <p className="text-[12px] text-slate-500">현재 클립 대본</p>
                 <p className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs leading-5 text-slate-700">
                   {selected?.text || "—"}
                 </p>
                 <div>
-                  <Label className="text-[10px] text-slate-500">자막 위치</Label>
+                  <Label className="text-[12px] text-slate-500">자막 위치</Label>
                   <div className="mt-2 grid grid-cols-3 gap-1">
                     {(
                       [
@@ -4734,7 +4886,7 @@ export const StoryEditorWorkspace = forwardRef<
                         key={pos}
                         type="button"
                         onClick={() => patchEdit({ subtitlePosition: pos })}
-                        className={`rounded-md border py-2 text-[9px] font-bold ${
+                        className={`rounded-md border py-2 text-[12px] font-bold ${
                           (editSettings.subtitlePosition || "bottom") === pos
                             ? "border-blue-500 bg-blue-50 text-blue-700"
                             : "border-slate-200 text-slate-500 hover:bg-slate-50"
@@ -4744,12 +4896,38 @@ export const StoryEditorWorkspace = forwardRef<
                       </button>
                     ))}
                   </div>
-                  <p className="mt-1.5 text-[9px] text-slate-400">
+                  <p className="mt-1.5 text-[12px] text-slate-400">
                     하단=채널 템플릿 밴드 · 상단/중앙=영상 위 오버레이 (전체 클립 공통)
                   </p>
                 </div>
                 <div>
-                  <Label className="text-[10px] text-slate-500">글꼴</Label>
+                  <Label className="text-[12px] text-slate-500">자막 애니메이션</Label>
+                  <div className="mt-2 grid grid-cols-3 gap-1">
+                    {STORY_CAPTION_ANIMATIONS.map((preset) => (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => patchEdit({ subtitleAnimation: preset.id })}
+                        title={preset.description}
+                        className={`rounded-md border px-1 py-1.5 text-center ${
+                          editSettings.subtitleAnimation === preset.id
+                            ? "border-blue-500 bg-blue-50 text-blue-700"
+                            : "border-slate-200 text-slate-500 hover:bg-slate-50"
+                        }`}
+                      >
+                        <span className="block text-[12px] font-bold">{preset.label}</span>
+                        <span className="block text-[11px] leading-tight opacity-70">
+                          {preset.description}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-1.5 text-[12px] text-slate-400">
+                    자막이 바뀔 때마다 재생되고, MP4에도 똑같이 들어갑니다.
+                  </p>
+                </div>
+                <div>
+                  <Label className="text-[12px] text-slate-500">글꼴</Label>
                   <select
                     value={editSettings.subtitleFontFamily}
                     onChange={(event) =>
@@ -4770,8 +4948,8 @@ export const StoryEditorWorkspace = forwardRef<
                 </div>
                 <div>
                   <div className="flex items-center justify-between">
-                    <Label className="text-[10px] text-slate-500">자막 크기</Label>
-                    <span className="text-[10px] text-blue-600">{subtitleSizeDraft}px</span>
+                    <Label className="text-[12px] text-slate-500">자막 크기</Label>
+                    <span className="text-[12px] text-blue-600">{subtitleSizeDraft}px</span>
                   </div>
                   <Slider
                     value={[subtitleSizeDraft]}
@@ -4784,7 +4962,7 @@ export const StoryEditorWorkspace = forwardRef<
                   />
                 </div>
                 <div>
-                  <Label className="text-[10px] text-slate-500">글자 굵기</Label>
+                  <Label className="text-[12px] text-slate-500">글자 굵기</Label>
                   <div className="mt-2 grid grid-cols-4 gap-1">
                     {(
                       [
@@ -4798,7 +4976,7 @@ export const StoryEditorWorkspace = forwardRef<
                         key={weight}
                         type="button"
                         onClick={() => patchEdit({ subtitleFontWeight: weight })}
-                        className={`rounded-md border px-1 py-2 text-[9px] ${
+                        className={`rounded-md border px-1 py-2 text-[12px] ${
                           editSettings.subtitleFontWeight === weight
                             ? "border-blue-500 bg-blue-50 font-bold text-blue-700"
                             : "border-slate-200 text-slate-500"
@@ -4811,7 +4989,7 @@ export const StoryEditorWorkspace = forwardRef<
                   </div>
                 </div>
                 <div>
-                  <Label className="text-[10px] text-slate-500">글자 색</Label>
+                  <Label className="text-[12px] text-slate-500">글자 색</Label>
                   <div className="mt-2 flex gap-2">
                     <Input
                       type="color"
@@ -4828,7 +5006,7 @@ export const StoryEditorWorkspace = forwardRef<
                 </div>
                 <div>
                   <div className="flex items-center justify-between">
-                    <Label className="text-[10px] text-slate-500">자막 배경</Label>
+                    <Label className="text-[12px] text-slate-500">자막 배경</Label>
                     <button
                       type="button"
                       onClick={() =>
@@ -4836,7 +5014,7 @@ export const StoryEditorWorkspace = forwardRef<
                           subtitleBackgroundEnabled: !editSettings.subtitleBackgroundEnabled,
                         })
                       }
-                      className={`rounded-full px-2 py-1 text-[9px] font-bold ${
+                      className={`rounded-full px-2 py-1 text-[12px] font-bold ${
                         editSettings.subtitleBackgroundEnabled
                           ? "bg-blue-600 text-white"
                           : "bg-slate-100 text-slate-500"
@@ -4858,8 +5036,8 @@ export const StoryEditorWorkspace = forwardRef<
                 </div>
                 <div>
                   <div className="flex items-center justify-between">
-                    <Label className="text-[10px] text-slate-500">글자 외곽선</Label>
-                    <span className="text-[10px] text-blue-600">
+                    <Label className="text-[12px] text-slate-500">글자 외곽선</Label>
+                    <span className="text-[12px] text-blue-600">
                       {editSettings.subtitleOutlineWidth}px
                     </span>
                   </div>
@@ -4884,7 +5062,7 @@ export const StoryEditorWorkspace = forwardRef<
                     />
                   ) : null}
                 </div>
-                <p className="text-[10px] leading-5 text-slate-400">
+                <p className="text-[12px] leading-5 text-slate-400">
                   TTS는 음성 단계에서 장면 통으로 생성됩니다. 재생 시 줄 타이밍에 맞춰 클립이
                   넘어갑니다.
                 </p>
@@ -4895,10 +5073,10 @@ export const StoryEditorWorkspace = forwardRef<
               <div className="space-y-3">
                 <div className="flex items-center justify-between rounded-lg bg-slate-100 px-3 py-2">
                   <div>
-                    <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                    <p className="text-[12px] font-bold uppercase tracking-wider text-slate-400">
                       선택한 클립
                     </p>
-                    <p className="mt-0.5 text-[11px] font-black text-slate-700">
+                    <p className="mt-0.5 text-[13px] font-black text-slate-700">
                       {selected
                         ? `장면 ${selected.sceneOrder} · 클립 ${selected.lineIndex + 1}`
                         : "클립을 선택해주세요"}
@@ -4911,23 +5089,63 @@ export const StoryEditorWorkspace = forwardRef<
                     title={selectedAsset?.mediaUrl ? "요소 적용됨" : "요소 없음"}
                   />
                 </div>
+                <div className="rounded-xl border border-slate-200 bg-white p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-[13px] font-black text-slate-900">
+                        긴 문장 2컷 나누기
+                      </p>
+                      <p className="mt-1 text-[12px] leading-4 text-slate-500">
+                        {STORY_TWO_CUT_MIN_LINE_SEC}초 넘게 같은 화면이 이어지는 줄을
+                        자막 끊는 자리에서 두 컷으로 나눠 템포를 올립니다.
+                      </p>
+                    </div>
+                    <Scissors className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={!twoCutCandidateCount || isAutoPlacing}
+                    onClick={splitLongLinesIntoTwoCuts}
+                    className="mt-3 h-9 w-full text-[12px] font-black"
+                  >
+                    <Scissors className="mr-1.5 h-3.5 w-3.5" />
+                    {twoCutCandidateCount
+                      ? `긴 줄 ${twoCutCandidateCount}개 나누기`
+                      : "나눌 긴 줄 없음"}
+                  </Button>
+                  {twoCutMessage ? (
+                    <p className="mt-2 rounded-md bg-slate-50 px-2 py-1.5 text-[12px] font-bold leading-4 text-slate-700">
+                      {twoCutMessage}
+                    </p>
+                  ) : null}
+                  {canUndoTwoCut ? (
+                    <button
+                      type="button"
+                      onClick={undoTwoCutSplit}
+                      className="mt-1.5 text-[12px] font-bold text-slate-500 underline underline-offset-2 hover:text-slate-800"
+                    >
+                      나누기 취소
+                    </button>
+                  ) : null}
+                </div>
                 <div className="rounded-xl border border-cyan-200 bg-gradient-to-br from-cyan-50 to-violet-50 p-3">
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <p className="text-[11px] font-black text-slate-900">
+                      <p className="text-[13px] font-black text-slate-900">
                         AI 이미지·영상 자동 배치
                       </p>
-                      <p className="mt-1 text-[9px] leading-4 text-slate-500">
+                      <p className="mt-1 text-[12px] leading-4 text-slate-500">
                         대본마다 리뷰·무료 소재·도우인·샤오홍슈·GIF·AI 생성 중
                         가장 적합한 소스를 판단해, 비어 있는 클립만 채웁니다.
                       </p>
                     </div>
                     <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-violet-500" />
                   </div>
-                  <p className="mt-3 rounded-md bg-white/70 px-2 py-1.5 text-[9px] font-bold text-violet-700">
+                  <p className="mt-3 rounded-md bg-white/70 px-2 py-1.5 text-[12px] font-bold text-violet-700">
                     이미 이미지나 영상이 있는 클립은 그대로 두고, 비어 있는
-                    클립만 AI로 채웁니다. 새로 넣는 소재는 서로 겹치지 않게
-                    배치합니다.
+                    클립만 AI로 채웁니다. 자막 2~3줄(약 1.8초)마다 그림 1장이
+                    이어지도록 컷 단위로 배치합니다.
                   </p>
                   <Button
                     type="button"
@@ -4940,7 +5158,7 @@ export const StoryEditorWorkspace = forwardRef<
                       }
                       void runAutomaticAssetPlacement()
                     }}
-                    className={`mt-3 h-9 w-full text-[10px] font-black text-white ${
+                    className={`mt-3 h-9 w-full text-[12px] font-black text-white ${
                       isAutoPlacing
                         ? "bg-rose-600 hover:bg-rose-500"
                         : "bg-gradient-to-r from-cyan-600 to-violet-600 hover:from-cyan-500 hover:to-violet-500"
@@ -4958,16 +5176,24 @@ export const StoryEditorWorkspace = forwardRef<
                       </>
                     )}
                   </Button>
+                  <button
+                    type="button"
+                    disabled={isAutoPlacing}
+                    onClick={groupExistingAssetsIntoCuts}
+                    className="mt-1.5 w-full text-[12px] font-bold text-slate-500 underline underline-offset-2 hover:text-slate-800 disabled:opacity-40"
+                  >
+                    줄마다 바뀌는 그림을 컷으로 묶기
+                  </button>
                   {autoPlacementProgress ? (
-                    <p className="mt-2 rounded-md bg-white/70 px-2 py-1.5 text-[9px] font-bold leading-4 text-cyan-800">
+                    <p className="mt-2 rounded-md bg-white/70 px-2 py-1.5 text-[12px] font-bold leading-4 text-cyan-800">
                       {autoPlacementProgress}
                     </p>
                   ) : null}
                 </div>
                 {selectedAsset?.mediaUrl ? (
                   <div className="rounded-xl border border-blue-200 bg-blue-50/70 p-3">
-                    <p className="text-[10px] font-bold text-slate-700">미리보기에서 직접 조절</p>
-                    <p className="mt-1 text-[9px] leading-4 text-slate-500">
+                    <p className="text-[12px] font-bold text-slate-700">미리보기에서 직접 조절</p>
+                    <p className="mt-1 text-[12px] leading-4 text-slate-500">
                       안쪽을 드래그하면 이동, 모서리 조절점을 끌거나 마우스 휠을 사용하면 크기가 조절됩니다.
                     </p>
                     <div className="mt-3 grid grid-cols-2 gap-1">
@@ -4981,7 +5207,7 @@ export const StoryEditorWorkspace = forwardRef<
                           key={fit}
                           type="button"
                           onClick={() => applyAsset({ ...selectedAsset, mediaFit: fit })}
-                          className={`rounded-md border py-2 text-[9px] font-bold ${
+                          className={`rounded-md border py-2 text-[12px] font-bold ${
                             (selectedAsset.mediaFit || "cover") === fit
                               ? "border-blue-500 bg-blue-600 text-white"
                               : "border-slate-200 bg-white text-slate-500"
@@ -4992,7 +5218,7 @@ export const StoryEditorWorkspace = forwardRef<
                       ))}
                     </div>
                     <div className="mt-2 flex items-center justify-between">
-                      <span className="text-[9px] text-slate-500">
+                      <span className="text-[12px] text-slate-500">
                         확대 {Math.round((selectedAsset.mediaScale || 1) * 100)}%
                       </span>
                       <button
@@ -5005,7 +5231,7 @@ export const StoryEditorWorkspace = forwardRef<
                             mediaOffsetY: 0,
                           })
                         }
-                        className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[9px] font-bold text-slate-600 hover:bg-slate-100"
+                        className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[12px] font-bold text-slate-600 hover:bg-slate-100"
                       >
                         위치 초기화
                       </button>
@@ -5020,7 +5246,7 @@ export const StoryEditorWorkspace = forwardRef<
                             revokeOnCancel: false,
                           })
                         }
-                        className="mt-3 h-9 w-full border-blue-200 bg-white text-[10px] font-bold text-blue-700 hover:bg-blue-50"
+                        className="mt-3 h-9 w-full border-blue-200 bg-white text-[12px] font-bold text-blue-700 hover:bg-blue-50"
                       >
                         비디오 자르기 · 모자이크 편집
                       </Button>
@@ -5031,15 +5257,15 @@ export const StoryEditorWorkspace = forwardRef<
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                     <div className="flex items-center justify-between gap-2">
                       <div>
-                        <p className="text-[10px] font-bold text-slate-700">
+                        <p className="text-[12px] font-bold text-slate-700">
                           캡컷형 화면 효과
                         </p>
-                        <p className="mt-0.5 text-[9px] text-slate-400">
+                        <p className="mt-0.5 text-[12px] text-slate-400">
                           카메라 이동 + 강조 효과를 같이 쓸 수 있어요
                         </p>
                       </div>
                     </div>
-                    <p className="mt-2 text-[9px] font-bold text-slate-500">카메라 이동</p>
+                    <p className="mt-2 text-[12px] font-bold text-slate-500">카메라 이동</p>
                     <div className="mt-1 grid grid-cols-3 gap-1">
                       {(
                         [
@@ -5059,7 +5285,7 @@ export const StoryEditorWorkspace = forwardRef<
                             onClick={() =>
                               applyAsset({ ...selectedAsset, motionEffect: effect })
                             }
-                            className={`rounded-md border py-2 text-[9px] font-bold ${
+                            className={`rounded-md border py-2 text-[12px] font-bold ${
                               active
                                 ? "border-blue-500 bg-blue-600 text-white"
                                 : "border-slate-200 bg-white text-slate-500 hover:bg-slate-100"
@@ -5070,7 +5296,7 @@ export const StoryEditorWorkspace = forwardRef<
                         )
                       })}
                     </div>
-                    <p className="mt-3 text-[9px] font-bold text-slate-500">강조 효과 (중복 가능)</p>
+                    <p className="mt-3 text-[12px] font-bold text-slate-500">강조 효과 (중복 가능)</p>
                     <div className="mt-1 grid grid-cols-3 gap-1">
                       {(
                         [
@@ -5093,7 +5319,7 @@ export const StoryEditorWorkspace = forwardRef<
                                 motionAccentEffect: effect,
                               })
                             }
-                            className={`rounded-md border py-2 text-[9px] font-bold ${
+                            className={`rounded-md border py-2 text-[12px] font-bold ${
                               active
                                 ? "border-violet-500 bg-violet-600 text-white"
                                 : "border-slate-200 bg-white text-slate-500 hover:bg-slate-100"
@@ -5112,7 +5338,7 @@ export const StoryEditorWorkspace = forwardRef<
                             motionEffect: selectedAsset.motionEffect || "none",
                           })
                         }
-                        className="rounded-md border border-blue-200 bg-white px-2 py-2 text-[9px] font-bold text-blue-700 hover:bg-blue-50"
+                        className="rounded-md border border-blue-200 bg-white px-2 py-2 text-[12px] font-bold text-blue-700 hover:bg-blue-50"
                       >
                         카메라 효과 일괄적용
                       </button>
@@ -5124,7 +5350,7 @@ export const StoryEditorWorkspace = forwardRef<
                               selectedAsset.motionAccentEffect || "none",
                           })
                         }
-                        className="rounded-md border border-violet-200 bg-white px-2 py-2 text-[9px] font-bold text-violet-700 hover:bg-violet-50"
+                        className="rounded-md border border-violet-200 bg-white px-2 py-2 text-[12px] font-bold text-violet-700 hover:bg-violet-50"
                       >
                         강조 효과 일괄적용
                       </button>
@@ -5134,8 +5360,8 @@ export const StoryEditorWorkspace = forwardRef<
                 <div className="rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm">
                   <div className="mb-2 flex items-center justify-between px-1">
                     <div>
-                      <p className="text-[11px] font-black text-slate-800">새 요소 추가</p>
-                      <p className="mt-0.5 text-[9px] text-slate-400">
+                      <p className="text-[13px] font-black text-slate-800">새 요소 추가</p>
+                      <p className="mt-0.5 text-[12px] text-slate-400">
                         원하는 소재 유형을 선택하세요.
                       </p>
                     </div>
@@ -5181,13 +5407,13 @@ export const StoryEditorWorkspace = forwardRef<
                           </span>
                           <span className="min-w-0">
                             <span
-                              className={`block truncate text-[9px] font-black ${
+                              className={`block break-keep text-[12px] font-black leading-tight ${
                                 active ? "text-blue-800" : "text-slate-700"
                               }`}
                             >
                               {item.label}
                             </span>
-                            <span className="mt-0.5 block truncate text-[8px] text-slate-400">
+                            <span className="mt-0.5 line-clamp-2 break-keep text-[11px] leading-snug text-slate-400">
                               {item.description}
                             </span>
                           </span>
@@ -5202,20 +5428,20 @@ export const StoryEditorWorkspace = forwardRef<
                     <ActiveElementSourceIcon className="h-4 w-4" />
                   </span>
                   <div>
-                    <p className="text-[10px] font-black text-slate-800">
+                    <p className="text-[12px] font-black text-slate-800">
                       {activeElementSource.label}
                     </p>
-                    <p className="text-[9px] text-slate-400">
+                    <p className="text-[12px] text-slate-400">
                       {activeElementSource.description}
                     </p>
                   </div>
                 </div>
 
                 {elementSource === "upload" ? (
-                  <label className="flex h-28 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-blue-200 bg-blue-50/40 text-[11px] font-bold text-blue-700 transition hover:border-blue-400 hover:bg-blue-50">
+                  <label className="flex h-28 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-blue-200 bg-blue-50/40 text-[13px] font-bold text-blue-700 transition hover:border-blue-400 hover:bg-blue-50">
                     <Upload className="h-5 w-5" />
                     <span>이미지 또는 영상 업로드</span>
-                    <span className="text-[8px] font-normal text-slate-400">
+                    <span className="text-[11px] font-normal text-slate-400">
                       영상을 선택하면 자르기·모자이크 편집이 열립니다.
                     </span>
                     <input
@@ -5230,7 +5456,7 @@ export const StoryEditorWorkspace = forwardRef<
                   </label>
                 ) : elementSource === "review-nano" ? (
                   <div className="space-y-2">
-                    <p className="text-[10px] leading-relaxed text-slate-500">
+                    <p className="text-[12px] leading-relaxed text-slate-500">
                       쿠팡 리뷰 사진과 제품이 실제로 나온 상품 이미지만 불러와 선택
                       클립 대본 맥락에 맞게 AI로 변형합니다. 긴 상세페이지,
                       설명표, 도표 이미지는 제외합니다.
@@ -5254,10 +5480,10 @@ export const StoryEditorWorkspace = forwardRef<
                       <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3">
                         <div className="flex items-center justify-between gap-2">
                           <div>
-                            <p className="text-[10px] font-black text-emerald-800">
+                            <p className="text-[12px] font-black text-emerald-800">
                               장면 맞춤 무료 소재 키워드
                             </p>
-                            <p className="mt-0.5 text-[9px] leading-4 text-emerald-700">
+                            <p className="mt-0.5 text-[12px] leading-4 text-emerald-700">
                               현재 대본과 장면 상황을 분석해 사진·영상 검색어를 추천합니다.
                             </p>
                           </div>
@@ -5265,13 +5491,13 @@ export const StoryEditorWorkspace = forwardRef<
                             type="button"
                             disabled={isSuggestingPixabayKeywords}
                             onClick={() => void recommendPixabaySearchKeywords()}
-                            className="shrink-0 rounded-md border border-emerald-200 bg-white px-2 py-1 text-[9px] font-bold text-emerald-700 disabled:opacity-50"
+                            className="shrink-0 rounded-md border border-emerald-200 bg-white px-2 py-1 text-[12px] font-bold text-emerald-700 disabled:opacity-50"
                           >
                             {isSuggestingPixabayKeywords ? "추천 중…" : "다시 추천"}
                           </button>
                         </div>
                         {isSuggestingPixabayKeywords ? (
-                          <div className="mt-3 flex items-center gap-2 text-[10px] text-emerald-700">
+                          <div className="mt-3 flex items-center gap-2 text-[12px] text-emerald-700">
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
                             대본에 맞는 무료 이미지·영상 키워드를 만드는 중…
                           </div>
@@ -5286,14 +5512,14 @@ export const StoryEditorWorkspace = forwardRef<
                                   setQuery(suggestion.labelKo)
                                   setTranslatedSearchQuery(suggestion.queryEn)
                                 }}
-                                className={`rounded-lg border px-2 py-1 text-left text-[9px] font-bold ${
+                                className={`rounded-lg border px-2 py-1 text-left text-[12px] font-bold ${
                                   query === suggestion.labelKo
                                     ? "border-emerald-500 bg-emerald-600 text-white"
                                     : "border-emerald-200 bg-white text-emerald-800 hover:bg-emerald-100"
                                 }`}
                               >
                                 <span className="block">{suggestion.labelKo}</span>
-                                <span className={`block text-[8px] font-normal ${
+                                <span className={`block text-[11px] font-normal ${
                                   query === suggestion.labelKo
                                     ? "text-emerald-100"
                                     : "text-emerald-600"
@@ -5310,10 +5536,10 @@ export const StoryEditorWorkspace = forwardRef<
                       <div className="mb-3 rounded-xl border border-violet-200 bg-violet-50/70 p-3">
                         <div className="flex items-center justify-between gap-2">
                           <div>
-                            <p className="text-[10px] font-black text-violet-800">
+                            <p className="text-[12px] font-black text-violet-800">
                               AI 제품 검색어 추천
                             </p>
-                            <p className="mt-0.5 text-[9px] text-violet-600">
+                            <p className="mt-0.5 text-[12px] text-violet-600">
                               제품명·카테고리 키워드를 중국어로 자동 변환해 검색합니다.
                             </p>
                           </div>
@@ -5323,13 +5549,13 @@ export const StoryEditorWorkspace = forwardRef<
                             onClick={() =>
                               void recommendCnSearchKeywords(elementSource)
                             }
-                            className="shrink-0 rounded-md border border-violet-200 bg-white px-2 py-1 text-[9px] font-bold text-violet-700 disabled:opacity-50"
+                            className="shrink-0 rounded-md border border-violet-200 bg-white px-2 py-1 text-[12px] font-bold text-violet-700 disabled:opacity-50"
                           >
                             {isSuggestingCnKeywords ? "추천 중…" : "다시 추천"}
                           </button>
                         </div>
                         {isSuggestingCnKeywords ? (
-                          <div className="mt-3 flex items-center gap-2 text-[10px] text-violet-700">
+                          <div className="mt-3 flex items-center gap-2 text-[12px] text-violet-700">
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
                             제품에 맞는 검색어를 만드는 중…
                           </div>
@@ -5341,7 +5567,7 @@ export const StoryEditorWorkspace = forwardRef<
                                 type="button"
                                 title={suggestion.reason}
                                 onClick={() => setQuery(suggestion.labelKo)}
-                                className={`rounded-full border px-2 py-1 text-[9px] font-bold ${
+                                className={`rounded-full border px-2 py-1 text-[12px] font-bold ${
                                   query === suggestion.labelKo
                                     ? "border-violet-500 bg-violet-600 text-white"
                                     : "border-violet-200 bg-white text-violet-700 hover:bg-violet-100"
@@ -5395,7 +5621,7 @@ export const StoryEditorWorkspace = forwardRef<
                           </Button>
                         </div>
                         {elementSource === "pixabay" && translatedSearchQuery ? (
-                          <p className="mt-1.5 rounded-md bg-slate-100 px-2 py-1 text-[9px] text-slate-500">
+                          <p className="mt-1.5 rounded-md bg-slate-100 px-2 py-1 text-[12px] text-slate-500">
                             실제 영어 검색어:{" "}
                             <strong className="text-emerald-700">
                               {translatedSearchQuery}
@@ -5424,10 +5650,10 @@ export const StoryEditorWorkspace = forwardRef<
                   <div className="rounded-xl border border-violet-300 bg-gradient-to-br from-violet-50 to-cyan-50 p-3">
                     <div className="flex items-center justify-between gap-2">
                       <div>
-                        <p className="text-[10px] font-black text-violet-900">
+                        <p className="text-[12px] font-black text-violet-900">
                           리믹스 정밀 분석 영상 {selectedRemixHits.length}/3개
                         </p>
-                        <p className="mt-0.5 text-[9px] leading-4 text-violet-600">
+                        <p className="mt-0.5 text-[12px] leading-4 text-violet-600">
                           리믹스 쇼핑숏폼의 프레임 분석 시스템으로 대본별 최적
                           구간을 자동으로 자릅니다.
                         </p>
@@ -5436,7 +5662,7 @@ export const StoryEditorWorkspace = forwardRef<
                         type="button"
                         disabled={isRemixAutoAssigning}
                         onClick={() => setSelectedRemixHits([])}
-                        className="shrink-0 text-[9px] font-bold text-slate-400 hover:text-red-500"
+                        className="shrink-0 text-[12px] font-bold text-slate-400 hover:text-red-500"
                       >
                         초기화
                       </button>
@@ -5445,7 +5671,7 @@ export const StoryEditorWorkspace = forwardRef<
                       type="button"
                       disabled={isRemixAutoAssigning}
                       onClick={() => void runRemixVideoAutoAssignment()}
-                      className="mt-3 h-9 w-full bg-gradient-to-r from-violet-600 to-cyan-600 text-[10px] font-black text-white hover:from-violet-500 hover:to-cyan-500"
+                      className="mt-3 h-9 w-full bg-gradient-to-r from-violet-600 to-cyan-600 text-[12px] font-black text-white hover:from-violet-500 hover:to-cyan-500"
                     >
                       {isRemixAutoAssigning ? (
                         <>
@@ -5460,7 +5686,7 @@ export const StoryEditorWorkspace = forwardRef<
                       )}
                     </Button>
                     {remixAssignProgress && !isRemixAutoAssigning ? (
-                      <p className="mt-2 rounded-md bg-white/80 px-2 py-1.5 text-[9px] font-bold text-violet-700">
+                      <p className="mt-2 rounded-md bg-white/80 px-2 py-1.5 text-[12px] font-bold text-violet-700">
                         {remixAssignProgress}
                       </p>
                     ) : null}
@@ -5468,7 +5694,7 @@ export const StoryEditorWorkspace = forwardRef<
                 ) : null}
 
                 {searchError ? (
-                  <p className="rounded-lg border border-red-200 bg-red-50 p-2 text-[10px] text-red-700">
+                  <p className="rounded-lg border border-red-200 bg-red-50 p-2 text-[12px] text-red-700">
                     {searchError}
                   </p>
                 ) : null}
@@ -5502,14 +5728,14 @@ export const StoryEditorWorkspace = forwardRef<
                           <Maximize2 className="h-3 w-3" />
                         </span>
                       </button>
-                      <p className="line-clamp-2 px-1.5 pt-1 text-[8px] text-slate-500">{hit.title}</p>
+                      <p className="line-clamp-2 px-1.5 pt-1 text-[11px] text-slate-500">{hit.title}</p>
                       {hit.mediaType === "video" &&
                       (hit.source === "douyin" ||
                         hit.source === "xiaohongshu") ? (
                         <button
                           type="button"
                           onClick={() => toggleRemixVideoSelection(hit)}
-                          className={`mx-1.5 mt-1 flex h-7 w-[calc(100%-12px)] items-center justify-center rounded-md border text-[9px] font-black ${
+                          className={`mx-1.5 mt-1 flex h-7 w-[calc(100%-12px)] items-center justify-center rounded-md border text-[12px] font-black ${
                             selectedRemixHits.some(
                               (item) =>
                                 videoPickKey(item.pageUrl, item.mediaUrl) ===
@@ -5554,7 +5780,7 @@ export const StoryEditorWorkspace = forwardRef<
                             trimEndSec: hit.durationSec,
                           })
                         }}
-                        className="m-1.5 flex h-7 w-[calc(100%-12px)] items-center justify-center rounded-md bg-blue-600 text-[9px] font-black text-white disabled:opacity-50"
+                        className="m-1.5 flex h-7 w-[calc(100%-12px)] items-center justify-center rounded-md bg-blue-600 text-[12px] font-black text-white disabled:opacity-50"
                       >
                         {elementSource === "review-nano" ? (
                           isTransforming === hit.mediaUrl ? (
@@ -5601,17 +5827,17 @@ export const StoryEditorWorkspace = forwardRef<
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="text-[11px] font-black text-slate-900">
+                      <p className="text-[13px] font-black text-slate-900">
                         AI 효과음 자동 배치
                       </p>
-                      <p className="mt-0.5 text-[9px] leading-4 text-slate-500">
+                      <p className="mt-0.5 text-[12px] leading-4 text-slate-500">
                         모든 장면에 최소 1개씩, 놀람·반전·클릭·실패·깨달음에
                         어울리는 재미있는 효과음을 넣습니다.
                       </p>
                     </div>
                   </div>
                   {isAutoPlacingSfx ? (
-                    <div className="mt-3 flex items-center gap-1.5 rounded-lg bg-violet-950 px-3 py-2 text-[9px] font-bold text-violet-100">
+                    <div className="mt-3 flex items-center gap-1.5 rounded-lg bg-violet-950 px-3 py-2 text-[12px] font-bold text-violet-100">
                       <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-cyan-300" />
                       <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-300 [animation-delay:150ms]" />
                       <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-pink-300 [animation-delay:300ms]" />
@@ -5624,7 +5850,7 @@ export const StoryEditorWorkspace = forwardRef<
                     type="button"
                     disabled={isAutoPlacingSfx}
                     onClick={() => void runAutomaticSfxPlacement()}
-                    className="mt-3 h-9 w-full bg-gradient-to-r from-violet-600 to-cyan-600 text-[10px] font-black text-white hover:from-violet-500 hover:to-cyan-500 disabled:opacity-70"
+                    className="mt-3 h-9 w-full bg-gradient-to-r from-violet-600 to-cyan-600 text-[12px] font-black text-white hover:from-violet-500 hover:to-cyan-500 disabled:opacity-70"
                   >
                     {isAutoPlacingSfx ? (
                       <>
@@ -5639,18 +5865,18 @@ export const StoryEditorWorkspace = forwardRef<
                     )}
                   </Button>
                   {autoSfxMessage && !isAutoPlacingSfx ? (
-                    <p className="mt-2 rounded-md bg-white/80 px-2 py-1.5 text-[9px] font-bold text-violet-700">
+                    <p className="mt-2 rounded-md bg-white/80 px-2 py-1.5 text-[12px] font-bold text-violet-700">
                       {autoSfxMessage}
                     </p>
                   ) : null}
-                  <p className="mt-2 text-[8px] leading-3 text-slate-400">
+                  <p className="mt-2 text-[11px] leading-4 text-slate-400">
                     다시 실행하면 기존 AI 효과음만 교체하며 직접 추가한 효과음은
                     유지합니다.
                   </p>
                 </div>
                 <div>
                   <div className="flex items-center justify-between">
-                    <p className="text-[11px] font-black text-slate-800">
+                    <p className="text-[13px] font-black text-slate-800">
                       효과음 라이브러리
                     </p>
                     <div className="flex items-center gap-1.5">
@@ -5658,7 +5884,7 @@ export const StoryEditorWorkspace = forwardRef<
                         type="button"
                         aria-pressed={showFavoriteSfxOnly}
                         onClick={() => setShowFavoriteSfxOnly((visible) => !visible)}
-                        className={`flex h-7 items-center gap-1 rounded-md border px-2 text-[9px] font-bold ${
+                        className={`flex h-7 items-center gap-1 rounded-md border px-2 text-[12px] font-bold ${
                           showFavoriteSfxOnly
                             ? "border-amber-300 bg-amber-50 text-amber-700"
                             : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
@@ -5671,12 +5897,12 @@ export const StoryEditorWorkspace = forwardRef<
                         />
                         {favoriteSfxIds.length}
                       </button>
-                      <span className="text-[9px] font-bold text-slate-400">
+                      <span className="text-[12px] font-bold text-slate-400">
                         {filteredSfxCatalog.length}/{STORY_SHOPPING_SFX_CATALOG.length}
                       </span>
                     </div>
                   </div>
-                  <p className="mt-1 text-[9px] text-slate-500">
+                  <p className="mt-1 text-[12px] text-slate-500">
                     재생 버튼으로 들어보고 선택 클립 시작점에 추가하세요.
                   </p>
                 </div>
@@ -5686,7 +5912,7 @@ export const StoryEditorWorkspace = forwardRef<
                     value={sfxSearch}
                     onChange={(event) => setSfxSearch(event.target.value)}
                     placeholder="효과음 이름 또는 번호 검색"
-                    className="h-9 border-slate-200 bg-white pl-8 text-[10px] text-slate-900"
+                    className="h-9 border-slate-200 bg-white pl-8 text-[12px] text-slate-900"
                   />
                 </div>
                 <div className="max-h-[360px] space-y-1 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-1.5">
@@ -5713,7 +5939,7 @@ export const StoryEditorWorkspace = forwardRef<
                         )}
                       </button>
                       <span
-                        className="min-w-0 flex-1 truncate text-[10px] font-semibold text-slate-700"
+                        className="min-w-0 flex-1 truncate text-[12px] font-semibold text-slate-700"
                         title={`${item.number}. ${item.label}`}
                       >
                         {item.number}. {item.label}
@@ -5755,7 +5981,7 @@ export const StoryEditorWorkspace = forwardRef<
                     </div>
                   ))}
                   {!filteredSfxCatalog.length ? (
-                    <p className="py-8 text-center text-[10px] text-slate-400">
+                    <p className="py-8 text-center text-[12px] text-slate-400">
                       검색 결과가 없습니다.
                     </p>
                   ) : null}
@@ -5764,10 +5990,10 @@ export const StoryEditorWorkspace = forwardRef<
                   <div className="space-y-3 rounded-xl border border-amber-300 bg-amber-50 p-3">
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="truncate text-[10px] font-black text-amber-950">
+                        <p className="truncate text-[12px] font-black text-amber-950">
                           {selectedSfx.label}
                         </p>
-                        <p className="mt-0.5 text-[9px] text-amber-700">
+                        <p className="mt-0.5 text-[12px] text-amber-700">
                           타임라인에서 선택됨 · Ctrl+B로 분할
                         </p>
                       </div>
@@ -5781,7 +6007,7 @@ export const StoryEditorWorkspace = forwardRef<
                       </button>
                     </div>
                     <div>
-                      <div className="mb-2 flex items-center justify-between text-[9px] font-bold text-amber-900">
+                      <div className="mb-2 flex items-center justify-between text-[12px] font-bold text-amber-900">
                         <span>음량</span>
                         <span>{Math.round(selectedSfx.volumePct ?? 100)}%</span>
                       </div>
@@ -5799,18 +6025,18 @@ export const StoryEditorWorkspace = forwardRef<
                       type="button"
                       variant="outline"
                       onClick={() => splitSelectedSfxAtPlayhead()}
-                      className="h-8 w-full border-amber-300 bg-white text-[9px] font-bold text-amber-900 hover:bg-amber-100"
+                      className="h-8 w-full border-amber-300 bg-white text-[12px] font-bold text-amber-900 hover:bg-amber-100"
                     >
                       빨간 재생바 위치에서 분할 (Ctrl+B)
                     </Button>
                   </div>
                 ) : (
-                  <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-[9px] leading-4 text-slate-500">
+                  <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-[12px] leading-4 text-slate-500">
                     타임라인의 효과음을 선택하면 음량·분할·삭제 설정이 표시됩니다.
                   </p>
                 )}
                 <div className="border-t border-slate-200 pt-3">
-                  <p className="mb-2 text-[10px] font-bold text-slate-600">
+                  <p className="mb-2 text-[12px] font-bold text-slate-600">
                     직접 파일 추가
                   </p>
                 <Input
@@ -5819,7 +6045,7 @@ export const StoryEditorWorkspace = forwardRef<
                   placeholder="효과음 이름"
                   className="border-slate-200 bg-white text-slate-900"
                 />
-                <label className="flex h-20 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 text-[11px] text-slate-600 hover:bg-slate-50">
+                <label className="flex h-20 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 text-[13px] text-slate-600 hover:bg-slate-50">
                   <Volume2 className="h-4 w-4" />
                   오디오 파일 업로드
                   <input
@@ -5834,14 +6060,14 @@ export const StoryEditorWorkspace = forwardRef<
                 </label>
                 </div>
                 <div>
-                  <p className="mb-1.5 text-[10px] font-bold text-slate-600">
+                  <p className="mb-1.5 text-[12px] font-bold text-slate-600">
                     타임라인에 추가됨 {(brief.sfxClips || []).length}
                   </p>
                   <div className="space-y-1">
                     {(brief.sfxClips || []).map((clip) => (
                       <div
                         key={clip.id}
-                        className={`flex items-center justify-between rounded-lg border px-2 py-1.5 text-[10px] ${
+                        className={`flex items-center justify-between rounded-lg border px-2 py-1.5 text-[12px] ${
                           selectedSfxId === clip.id
                             ? "border-amber-400 bg-amber-50 text-amber-950"
                             : "border-slate-200 text-slate-600"
@@ -5981,10 +6207,10 @@ export const StoryEditorWorkspace = forwardRef<
           </button>
         ) : null}
         <div className="flex h-8 items-center justify-between border-b border-slate-200 px-3">
-          <p className="text-[10px] font-black text-slate-500">
+          <p className="text-[12px] font-black text-slate-500">
             타임라인 · 클립 {timeline.findIndex((t) => t.sceneId === selected?.sceneId && t.lineIndex === selected?.lineIndex) + 1}/{timeline.length}
           </p>
-          <div className="flex items-center gap-3 text-[9px] text-slate-400">
+          <div className="flex items-center gap-3 text-[12px] text-slate-400">
             <span className="font-bold text-blue-600">{Math.round(timelineZoom * 100)}%</span>
             <span className="hidden sm:inline">Ctrl+휠 확대·축소 · Shift+휠 가로 이동</span>
           </div>
@@ -6010,7 +6236,7 @@ export const StoryEditorWorkspace = forwardRef<
             </button>
 
             <div className="flex h-6 items-stretch gap-2">
-              <div className="flex w-14 shrink-0 items-center text-[9px] font-bold tabular-nums text-slate-500">
+              <div className="flex w-14 shrink-0 items-center text-[12px] font-bold tabular-nums text-slate-500">
                 {formatTimelineTime(playheadSec)}
               </div>
               <div
@@ -6023,7 +6249,7 @@ export const StoryEditorWorkspace = forwardRef<
                     className="absolute bottom-0 top-0 border-l border-slate-300"
                     style={{ left: time * pxPerSec }}
                   >
-                    <span className="absolute left-1 top-0 whitespace-nowrap text-[8px] tabular-nums text-slate-400">
+                    <span className="absolute left-1 top-0 whitespace-nowrap text-[11px] tabular-nums text-slate-400">
                       {formatTimelineTime(time)}
                     </span>
                   </div>
@@ -6041,7 +6267,7 @@ export const StoryEditorWorkspace = forwardRef<
               ] as const
             ).map((track) => (
               <div key={track.id} className="flex items-stretch gap-2">
-                <div className="flex w-14 shrink-0 items-center text-[9px] font-bold text-slate-500">
+                <div className="flex w-14 shrink-0 items-center text-[12px] font-bold text-slate-500">
                   {track.label}
                 </div>
                 <div className="relative h-10 flex-1 rounded-md border border-slate-200 bg-slate-50">
@@ -6054,7 +6280,7 @@ export const StoryEditorWorkspace = forwardRef<
                             stopPlayback()
                             setPlayheadSec(0)
                           }}
-                          className="absolute left-0 top-1 h-8 min-w-[18px] overflow-hidden rounded bg-fuchsia-600 px-1 text-left text-[7px] font-black text-white ring-1 ring-fuchsia-300"
+                          className="absolute left-0 top-1 h-8 min-w-[18px] overflow-hidden rounded bg-fuchsia-600 px-1 text-left text-[10px] font-black text-white ring-1 ring-fuchsia-300"
                           style={{
                             width: Math.max(
                               18,
@@ -6094,7 +6320,7 @@ export const StoryEditorWorkspace = forwardRef<
                               )
                               setSelectedSfxId(null)
                             }}
-                            className={`absolute top-1 h-8 overflow-hidden rounded px-1 text-left text-[8px] font-bold ${
+                            className={`absolute top-1 h-8 overflow-hidden rounded px-1 text-left text-[11px] font-bold ${
                               elementSelected
                                 ? "z-10 bg-amber-500 text-black ring-2 ring-red-500 ring-offset-1"
                                 : track.id === "caption"
@@ -6141,7 +6367,7 @@ export const StoryEditorWorkspace = forwardRef<
                             key={sfx.id}
                             type="button"
                             onPointerDown={(event) => beginSfxDrag(event, sfx)}
-                            className={`absolute top-1 h-8 touch-none overflow-hidden rounded text-left text-[8px] font-bold ${
+                            className={`absolute top-1 h-8 touch-none overflow-hidden rounded text-left text-[11px] font-bold ${
                               selected
                                 ? "z-20 bg-amber-600 text-white ring-2 ring-red-500 ring-offset-1"
                                 : "bg-amber-400 text-amber-950 hover:bg-amber-500"
@@ -6159,7 +6385,7 @@ export const StoryEditorWorkspace = forwardRef<
                               width={width}
                               selected={selected}
                             />
-                            <span className="pointer-events-none relative z-10 block truncate bg-gradient-to-r from-black/35 to-transparent px-1 py-0.5 text-[7px] text-white">
+                            <span className="pointer-events-none relative z-10 block truncate bg-gradient-to-r from-black/35 to-transparent px-1 py-0.5 text-[10px] text-white">
                               {sfx.label}
                             </span>
                           </button>,

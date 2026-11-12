@@ -1,3 +1,4 @@
+import { Sparkles } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import type { ThumbnailCopyResearchItem } from '@/lib/longform-v2/youtube/thumbnailCopyResearch'
 import type { ThumbnailSubCopy } from '@/lib/longform-v2/youtube/thumbnailSubCopy'
@@ -306,7 +307,7 @@ export function CopyResearchReferencePanel({
       <div className="thumb-studio__copy-ref-body">
         <section className="thumb-studio__copy-ref-subcopies" aria-label="AI 서브카피">
           <div className="thumb-studio__copy-ref-subcopies-head">
-            <h3 className="thumb-studio__copy-ref-subcopies-title">✦ 서브카피 (괄호·라벨)</h3>
+            <h3 className="thumb-studio__copy-ref-subcopies-title"><Sparkles className="lfv2-ico lfv2-ico--lead" aria-hidden />서브카피 (괄호·라벨)</h3>
             {onGenerateSubCopies ? (
               <button
                 type="button"

@@ -51,6 +51,7 @@ import {
   shouldAutoLoadVoiceCatalog,
   stylesForTtsVoice,
   ttsProviderFromVoiceId,
+  DEFAULT_TTS_PROVIDER,
   type ShotformTtsVoice,
   type TtsProviderId,
 } from "@/lib/shotform-tts-providers"
@@ -561,7 +562,7 @@ export function MvpCapCutEditor(props: Props) {
   const [scriptOpen, setScriptOpen] = useState(false)
   const [voicePickerOpen, setVoicePickerOpen] = useState(false)
   const [sidebarProvider, setSidebarProvider] = useState<TtsProviderId>(
-    () => ttsProviderFromVoiceId(selectedVoiceId) ?? "supertone"
+    () => ttsProviderFromVoiceId(selectedVoiceId) ?? DEFAULT_TTS_PROVIDER
   )
   const [customIdDraft, setCustomIdDraft] = useState("")
 
@@ -1121,7 +1122,7 @@ export function MvpCapCutEditor(props: Props) {
     <StudioPageCard
       padded={false}
       className={cn(
-        "overflow-hidden border-violet-500/25 bg-[#0c0c0e] p-0",
+        "overflow-hidden border-violet-500/25 bg-[#f6f6fa] p-0",
         popupMode &&
           "flex h-full min-h-0 flex-col rounded-none border-0 bg-[#f7f8fa] shadow-none"
       )}
@@ -1279,7 +1280,7 @@ export function MvpCapCutEditor(props: Props) {
         {popupMode ? (
           <aside
             className={cn(
-              "min-h-0 overflow-y-auto border-r border-white/10 bg-[#101012] p-2",
+              "min-h-0 overflow-y-auto border-r border-white/10 bg-[#fafafd] p-2",
               mobileEditor &&
                 (mobilePane === "preview"
                   ? "max-h-[88px] shrink-0 overflow-x-auto overflow-y-hidden border-b border-r-0 p-1.5"
@@ -1381,7 +1382,7 @@ export function MvpCapCutEditor(props: Props) {
         >
           <div
             className={cn(
-              "flex flex-col bg-[#080808]",
+              "flex flex-col bg-[#f7f7f7]",
               popupMode
                 ? "relative min-h-0 items-stretch overflow-hidden px-2 pb-0 pt-0"
                 : "items-center px-4 py-4",
@@ -1644,7 +1645,7 @@ export function MvpCapCutEditor(props: Props) {
                 "w-full overflow-hidden border",
                 popupMode
                   ? "mt-0 shrink-0 rounded-none border-x-0 border-b-0 border-t border-slate-200 bg-white"
-                  : "mt-3 max-w-xl rounded-xl border-white/10 bg-[#141414]"
+                  : "mt-3 max-w-xl rounded-xl border-white/10 bg-[#ffffff]"
               )}
             >
               <div
@@ -1880,7 +1881,7 @@ export function MvpCapCutEditor(props: Props) {
             "flex max-h-[min(85vh,920px)] flex-col overflow-hidden",
             popupMode
               ? cn(insp.shell, "max-h-none min-h-0 border-l border-slate-200")
-              : "bg-[#101012]",
+              : "bg-[#fafafd]",
             mobileEditor &&
               (mobilePane === "edit"
                 ? "min-h-0 flex-1 border-l-0"

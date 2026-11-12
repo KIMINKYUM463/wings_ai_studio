@@ -1,3 +1,4 @@
+import { ImageIcon, RefreshCw } from 'lucide-react'
 import type { ThumbnailStudioSavedWorkMeta } from '@/lib/longform-v2/thumbnail-bridge/thumbnailStudioSavedWorksApi'
 import { savedWorkSourceLabel } from '@/lib/longform-v2/thumbnail-bridge/thumbnailStudioSavedWorksApi'
 import { getApiBase } from '@/lib/longform-v2/thumbnail-bridge/apiBase'
@@ -67,7 +68,7 @@ export function ThumbnailSavedWorksPanel({
           disabled={loading || busy}
           onClick={onRefresh}
         >
-          {loading ? '목록 불러오는 중…' : '↻ 새로고침'}
+          <RefreshCw className="lfv2-ico lfv2-ico--lead" aria-hidden />{loading ? '목록 불러오는 중…' : '새로고침'}
         </button>
       </div>
       {works.length ? (
@@ -91,7 +92,7 @@ export function ThumbnailSavedWorksPanel({
                 >
                   {src ? <img src={src} alt="" loading="lazy" decoding="async" /> : (
                     <span className="thumb-saved-works__placeholder" aria-hidden>
-                      🖼
+                      <ImageIcon className="lfv2-ico" aria-hidden />
                     </span>
                   )}
                   <span className="thumb-variant-tray__label">{w.label}</span>

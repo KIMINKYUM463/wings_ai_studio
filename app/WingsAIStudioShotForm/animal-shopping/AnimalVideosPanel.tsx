@@ -209,10 +209,10 @@ export function AnimalVideosPanel({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="animal-bubble-chip inline-flex px-2.5 py-1 text-[10px]">VIDEOS</p>
-          <h2 className="animal-display mt-2 text-xl font-bold text-[#fff6ee]">
+          <h2 className="animal-display mt-2 text-xl font-bold text-[#221c16]">
             영상 제작
           </h2>
-          <p className="mt-1 max-w-xl text-sm text-[#9aa89c]">
+          <p className="mt-1 max-w-xl text-sm text-[#49554b]">
             AI로 움직임을 만들거나, API 없이 이미지 줌인 효과로 클립을 만들 수 있습니다.
           </p>
         </div>
@@ -248,8 +248,8 @@ export function AnimalVideosPanel({
           onClick={() => setMode("ai")}
           className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
             mode === "ai"
-              ? "border-[#7dd3a8]/50 bg-[#7dd3a8]/15 text-[#c8f5dc]"
-              : "border-[rgba(255,246,238,0.12)] bg-black/20 text-[#9aa89c] hover:border-[rgba(255,246,238,0.25)]"
+              ? "border-[#005835]/50 bg-[#7dd3a8]/15 text-[#032e1c]"
+              : "border-[rgba(34,28,22,0.12)] bg-black/20 text-[#49554b] hover:border-[rgba(34,28,22,0.25)]"
           }`}
         >
           <span className="inline-flex items-center gap-1.5">
@@ -263,8 +263,8 @@ export function AnimalVideosPanel({
           onClick={() => setMode("zoom")}
           className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
             mode === "zoom"
-              ? "border-[#7dd3a8]/50 bg-[#7dd3a8]/15 text-[#c8f5dc]"
-              : "border-[rgba(255,246,238,0.12)] bg-black/20 text-[#9aa89c] hover:border-[rgba(255,246,238,0.25)]"
+              ? "border-[#005835]/50 bg-[#7dd3a8]/15 text-[#032e1c]"
+              : "border-[rgba(34,28,22,0.12)] bg-black/20 text-[#49554b] hover:border-[rgba(34,28,22,0.25)]"
           }`}
         >
           <span className="inline-flex items-center gap-1.5">
@@ -275,27 +275,27 @@ export function AnimalVideosPanel({
       </div>
 
       {mode === "zoom" ? (
-        <p className="rounded-xl border border-[rgba(125,211,168,0.25)] bg-[rgba(125,211,168,0.08)] px-4 py-3 text-sm text-[#c8f5dc]">
+        <p className="rounded-xl border border-[rgba(0,88,53,0.25)] bg-[rgba(125,211,168,0.08)] px-4 py-3 text-sm text-[#032e1c]">
           정지 이미지에 부드러운 줌인을 입혀 WebM 클립을 만듭니다. Replicate API 키·비용이 없고,
           TTS 길이에 맞춰 씬별로 생성됩니다. 미리보기에서 TTS와 합쳐집니다.
         </p>
       ) : (
-        <p className="rounded-xl border border-[rgba(255,246,238,0.1)] bg-black/20 px-4 py-3 text-sm text-[#9aa89c]">
+        <p className="rounded-xl border border-[rgba(34,28,22,0.1)] bg-black/20 px-4 py-3 text-sm text-[#49554b]">
           장면 이미지를 Seedance로 짧은 모션 영상으로 변환합니다. Replicate API 키가 필요합니다.
         </p>
       )}
 
       {progress ? (
-        <p className="flex items-center gap-2 text-sm text-[#7dd3a8]">
+        <p className="flex items-center gap-2 text-sm text-[#005835]">
           <Loader2 className="h-4 w-4 animate-spin" />
           {progress}
         </p>
       ) : null}
 
       {videos.length === 0 && !isGenerating ? (
-        <div className="rounded-3xl border border-dashed border-[rgba(255,246,238,0.2)] bg-black/20 px-6 py-16 text-center">
-          <Film className="mx-auto h-10 w-10 text-[#6b7a6e]" />
-          <p className="mt-3 text-[#9aa89c]">
+        <div className="rounded-3xl border border-dashed border-[rgba(34,28,22,0.2)] bg-black/20 px-6 py-16 text-center">
+          <Film className="mx-auto h-10 w-10 text-[#657468]" />
+          <p className="mt-3 text-[#49554b]">
             {mode === "zoom"
               ? "아직 줌인 클립이 없습니다. 위 버튼으로 만들어 주세요."
               : "아직 영상 클립이 없습니다."}
@@ -318,7 +318,7 @@ export function AnimalVideosPanel({
             return (
               <div
                 key={index}
-                className="overflow-hidden rounded-2xl border border-[rgba(255,246,238,0.12)] bg-black/30"
+                className="overflow-hidden rounded-2xl border border-[rgba(34,28,22,0.12)] bg-black/30"
               >
                 <div className="aspect-[9/16] bg-black">
                   {clip?.videoUrl ? (
@@ -341,23 +341,23 @@ export function AnimalVideosPanel({
                       className="h-full w-full object-cover opacity-50"
                     />
                   ) : (
-                    <div className="flex h-full items-center justify-center text-[#6b7a6e]">
+                    <div className="flex h-full items-center justify-center text-[#657468]">
                       <Play className="h-8 w-8" />
                     </div>
                   )}
                 </div>
                 <div className="space-y-1 px-3 py-2">
-                  <p className="text-sm font-semibold text-[#fff6ee]">
+                  <p className="text-sm font-semibold text-[#221c16]">
                     씬 {index + 1}
                     {scene ? ` · ${ANIMAL_SCENE_LABELS[scene.type]}` : ""}
                     {clip?.videoUrl && mode === "zoom" ? (
-                      <span className="ml-1 text-[10px] font-normal text-[#7dd3a8]">
+                      <span className="ml-1 text-[10px] font-normal text-[#005835]">
                         줌인
                       </span>
                     ) : null}
                   </p>
                   {durationText ? (
-                    <p className="text-[11px] text-[#9aa89c]">{durationText}</p>
+                    <p className="text-[11px] text-[#49554b]">{durationText}</p>
                   ) : null}
                 </div>
               </div>

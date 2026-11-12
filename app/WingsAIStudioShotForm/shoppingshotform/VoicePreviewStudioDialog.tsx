@@ -427,11 +427,11 @@ export function VoicePreviewStudioDialog(props: VoicePreviewStudioDialogProps) {
       <DialogContent
         showCloseButton={false}
         className={cn(
-          "fixed inset-0 left-0 top-0 z-50 flex h-[100dvh] max-h-none w-screen max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-0 bg-[#0b0f18] p-0 text-slate-100 shadow-none sm:max-w-none"
+          "fixed inset-0 left-0 top-0 z-50 flex h-[100dvh] max-h-none w-screen max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-0 bg-[#f3f9ff] p-0 text-slate-100 shadow-none sm:max-w-none"
         )}
       >
         {/* 상단 바 */}
-        <header className="flex h-12 shrink-0 items-center justify-between border-b border-slate-800/90 bg-[#0e1420] px-3 sm:px-4">
+        <header className="flex h-12 shrink-0 items-center justify-between border-b border-slate-800/90 bg-[#f6ffff] px-3 sm:px-4">
           <Button
             type="button"
             variant="ghost"
@@ -458,7 +458,7 @@ export function VoicePreviewStudioDialog(props: VoicePreviewStudioDialogProps) {
         <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
           {/* 중앙 프리뷰 */}
           <div className="flex min-h-0 min-w-0 flex-1 flex-col border-b border-slate-800/80 lg:border-b-0 lg:border-r">
-            <div className="flex flex-1 items-center justify-center overflow-auto bg-[#06080d] p-3 sm:p-6">
+            <div className="flex flex-1 items-center justify-center overflow-auto bg-[#f3f7ff] p-3 sm:p-6">
               <div
                 ref={previewStageRef}
                 className="relative aspect-[9/16] w-[min(100%,280px)] overflow-hidden rounded-lg border border-slate-700 bg-black shadow-2xl"
@@ -578,7 +578,7 @@ export function VoicePreviewStudioDialog(props: VoicePreviewStudioDialogProps) {
           </div>
 
           {/* 우측 패널 */}
-          <aside className="flex w-full shrink-0 flex-col border-t border-slate-800/80 bg-[#0e1420] lg:w-[min(100%,380px)] lg:border-l lg:border-t-0">
+          <aside className="flex w-full shrink-0 flex-col border-t border-slate-800/80 bg-[#f6ffff] lg:w-[min(100%,380px)] lg:border-l lg:border-t-0">
             <div className="flex shrink-0 gap-0 overflow-x-auto border-b border-slate-800/90 px-1 text-[11px]">
               {(
                 [
@@ -922,7 +922,7 @@ export function VoicePreviewStudioDialog(props: VoicePreviewStudioDialogProps) {
         </div>
 
         {/* 하단 타임라인 */}
-        <footer className="flex shrink-0 flex-col border-t border-slate-800/90 bg-[#0e1420]">
+        <footer className="flex shrink-0 flex-col border-t border-slate-800/90 bg-[#f6ffff]">
           <div className="flex flex-wrap items-center gap-2 border-b border-slate-800/80 px-2 py-2 sm:px-3">
             <div className="ml-auto flex items-center gap-2">
               <Label className="text-[10px] text-slate-500">속도</Label>

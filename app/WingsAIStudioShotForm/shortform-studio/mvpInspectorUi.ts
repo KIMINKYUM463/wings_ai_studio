@@ -1,13 +1,13 @@
 /** 팝업 편집기 우측 인스펙터 — 라이트 톤 공통 클래스 */
 export const insp = {
-  shell: "bg-[#f4f5f7] text-slate-800",
+  shell: "light-keep bg-[#f4f5f7] text-slate-800",
   tabBar: "border-b border-slate-200/90 bg-white px-2 pt-2",
   tabTrack: "flex gap-0.5 rounded-lg bg-slate-100/90 p-0.5",
   tab: "flex flex-1 flex-col items-center justify-center gap-0.5 rounded-md px-0.5 py-1.5 text-[10px] font-medium transition sm:flex-row sm:gap-1 sm:text-[11px]",
   tabActive: "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/80",
   tabIdle: "text-slate-500 hover:text-slate-700",
   body: "flex-1 space-y-3 overflow-y-auto p-3",
-  card: "rounded-xl border border-slate-200/90 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
+  card: "rounded-xl border border-slate-200/90 bg-white p-3.5 shadow-[0_1px_2px_rgba(20,35,70,0.014)]",
   cardMuted: "rounded-xl border border-dashed border-slate-200 bg-slate-50/80 p-3.5",
   title: "text-[12px] font-semibold tracking-tight text-slate-900",
   subtitle: "mt-0.5 text-[10px] leading-relaxed text-slate-500",

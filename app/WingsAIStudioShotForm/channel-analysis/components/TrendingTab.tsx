@@ -717,7 +717,7 @@ export function TrendingTab() {
             return (
               <div
                 key={v.id}
-                className={`scout-row group relative overflow-hidden rounded-2xl border bg-[#121316] transition hover:-translate-y-0.5 hover:border-teal-400/40 ${
+                className={`scout-row group relative overflow-hidden rounded-2xl border bg-[#fdfeff] transition hover:-translate-y-0.5 hover:border-teal-400/40 ${
                   i === 0 ? "border-amber-400/50 ring-1 ring-amber-400/30" : "border-white/[0.06]"
                 }`}
                 style={{ animationDelay: `${Math.min(i, 12) * 35}ms` }}
@@ -793,7 +793,7 @@ export function TrendingTab() {
                   key={c.channelId}
                   type="button"
                   onClick={() => openChannel(c, rank)}
-                  className="scout-row group flex w-full items-center gap-3 rounded-2xl border border-white/[0.06] bg-[#121316]/95 px-3 py-3 text-left transition hover:border-teal-400/35 hover:bg-white/[0.04] md:gap-4 md:px-4"
+                  className="scout-row group flex w-full items-center gap-3 rounded-2xl border border-white/[0.06] bg-[#fdfeff]/95 px-3 py-3 text-left transition hover:border-teal-400/35 hover:bg-white/[0.04] md:gap-4 md:px-4"
                   style={{ animationDelay: `${Math.min(i, 12) * 35}ms` }}
                 >
                   <RankBadge rank={rank} />
@@ -875,7 +875,7 @@ export function TrendingTab() {
       />
 
       {toast && (
-        <div className="fixed bottom-6 left-1/2 z-[70] -translate-x-1/2 rounded-full border border-teal-400/30 bg-[#16171c] px-4 py-2 text-sm text-teal-100 shadow-xl">
+        <div className="fixed bottom-6 left-1/2 z-[70] -translate-x-1/2 rounded-full border border-teal-400/30 bg-[#fdffff] px-4 py-2 text-sm text-teal-100 shadow-xl">
           {toast}
         </div>
       )}

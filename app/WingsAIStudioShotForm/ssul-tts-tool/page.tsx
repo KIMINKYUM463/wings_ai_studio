@@ -40,11 +40,7 @@ import {
   downloadTtsUrl,
 } from "@/lib/shotform-separate-assets"
 import { decodeAudioDurationSec } from "@/lib/shotform-factory-line-tts"
-import {
-  filterSupertoneKoreanVoices,
-  normalizeSupertoneVoiceRow,
-  voiceAvatarFallbackColor,
-} from "@/lib/shotform-factory-tts"
+import { voiceAvatarFallbackColor } from "@/lib/shotform-factory-tts"
 import {
   DEFAULT_TTS_SPEED,
   TTS_SPEED_OPTIONS,
@@ -52,34 +48,24 @@ import {
   labelTtsSpeed,
 } from "@/lib/shotform-tts-speed"
 import {
+  DEFAULT_TTS_PROVIDER,
   TTS_PROVIDER_META,
+  TTS_PROVIDER_SUMMARY,
   buildTtsVoiceKey,
   customTtsVoiceLabel,
   defaultStyleForTtsVoice,
-  elevenlabsSampleVoiceCatalog,
-  enrichTypecastVoice,
-  formatVoiceLoadError,
   isCatalogVoice,
-  isElevenlabsVoicesReadError,
   labelTtsStyle,
-  mergeElevenlabsVoiceCatalog,
-  normalizeElevenlabsVoiceRow,
-  normalizeTypecastVoiceRow,
   parseBareVoiceId,
   providerLabelFromVoiceId,
   resolveTtsVoiceDisplay,
-  shouldAutoLoadVoiceCatalog,
-  shotformTtsApiKey,
   stylesForTtsVoice,
-  supertonicBuiltinVoiceCatalog,
   synthesizeTtsLine,
   synthesizeTtsPreview,
-  ttsApiKeyMissingMessage,
   ttsProviderFromVoiceId,
-  type ShotformTtsVoice,
   type TtsProviderId,
 } from "@/lib/shotform-tts-providers"
-import { fetchSupertonicVoices } from "@/lib/supertonic-runtime-client"
+import { useTtsVoiceCatalog } from "../components/useTtsVoiceCatalog"
 import {
   buildSsulTimedCuesFromDuration,
   ssulTtsTextFromScript,
@@ -87,9 +73,6 @@ import {
 } from "@/lib/shotform-ssul-tts-srt"
 import { narrationPlainCharCount } from "@/lib/shotform-narration-timing"
 
-type CatalogMap = Record<TtsProviderId, ShotformTtsVoice[]>
-type LoadingMap = Record<TtsProviderId, boolean>
-type ErrorMap = Record<TtsProviderId, string | null>
 type SsulToolStep = "content" | "voice" | "script" | "export" | "keywords"
 
 type LangKeyword = { keyword: string; ko: string }
@@ -133,13 +116,6 @@ const SSUL_TOOL_STEPS: Array<{
     icon: Search,
   },
 ]
-
-const EMPTY_CATALOG: CatalogMap = {
-  supertone: [],
-  supertonic: supertonicBuiltinVoiceCatalog(),
-  elevenlabs: elevenlabsSampleVoiceCatalog(),
-  typecast: [],
-}
 
 function normalizeTranscriptForScript(raw: string): string {
   return raw
@@ -236,7 +212,7 @@ const PLATFORM_SEARCH_GUIDES = [
     downloaderLabel: "sssInstagram",
     downloaderUrl: "https://sssinstagram.com/en1",
     icon: (
-      <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#f58529] via-[#dd2a7b] to-[#515bd4] shadow-lg shadow-fuchsia-900/30">
+      <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6ba4ff] via-[#2e74ff] to-[#2b64d5] shadow-lg shadow-fuchsia-900/30">
         <svg viewBox="0 0 24 24" className="h-6 w-6 fill-white" aria-hidden>
           <path d="M12 7.2A4.8 4.8 0 1 0 12 16.8 4.8 4.8 0 0 0 12 7.2zm0 7.9a3.1 3.1 0 1 1 0-6.2 3.1 3.1 0 0 1 0 6.2zm6.1-8.2a1.1 1.1 0 1 1-2.2 0 1.1 1.1 0 0 1 2.2 0zM12 3.4c-2.3 0-2.6 0-3.5.1-.9 0-1.5.2-2 .4a4 4 0 0 0-1.5 1 4 4 0 0 0-1 1.5c-.2.5-.3 1.1-.4 2C3.4 9.4 3.4 9.7 3.4 12s0 2.6.1 3.5c0 .9.2 1.5.4 2a4 4 0 0 0 1 1.5 4 4 0 0 0 1.5 1c.5.2 1.1.3 2 .4.9.1 1.2.1 3.5.1s2.6 0 3.5-.1c.9 0 1.5-.2 2-.4a4 4 0 0 0 1.5-1 4 4 0 0 0 1-1.5c.2-.5.3-1.1.4-2 .1-.9.1-1.2.1-3.5s0-2.6-.1-3.5c0-.9-.2-1.5-.4-2a4 4 0 0 0-1-1.5 4 4 0 0 0-1.5-1c-.5-.2-1.1-.3-2-.4-.9-.1-1.2-.1-3.5-.1zm0 1.6c2.3 0 2.5 0 3.4.1.8 0 1.2.2 1.5.3.4.1.6.3.9.6.3.3.5.5.6.9.1.3.3.7.3 1.5.1.9.1 1.1.1 3.4s0 2.5-.1 3.4c0 .8-.2 1.2-.3 1.5-.1.4-.3.6-.6.9-.3.3-.5.5-.9.6-.3.1-.7.3-1.5.3-.9.1-1.1.1-3.4.1s-2.5 0-3.4-.1c-.8 0-1.2-.2-1.5-.3a2.4 2.4 0 0 1-.9-.6 2.4 2.4 0 0 1-.6-.9c-.1-.3-.3-.7-.3-1.5-.1-.9-.1-1.1-.1-3.4s0-2.5.1-3.4c0-.8.2-1.2.3-1.5.1-.4.3-.6.6-.9.3-.3.5-.5.9-.6.3-.1.7-.3 1.5-.3.9-.1 1.1-.1 3.4-.1z" />
         </svg>
@@ -267,7 +243,7 @@ const PLATFORM_SEARCH_GUIDES = [
     downloaderLabel: "TikVideo",
     downloaderUrl: "https://tikvideo.app/ko/download-douyin-video",
     icon: (
-      <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-black ring-1 ring-[#fe2c55]/50 shadow-lg">
+      <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-black ring-1 ring-[#c10026]/50 shadow-lg">
         <span className="text-[11px] font-black tracking-tight text-white">抖音</span>
       </span>
     ),
@@ -306,7 +282,7 @@ function VideoPickCriteriaGuide() {
   ] as const
 
   return (
-    <div className="rounded-2xl border border-amber-400/25 bg-gradient-to-b from-amber-500/10 to-[#0c0e14] p-4 sm:p-5">
+    <div className="rounded-2xl border border-amber-400/25 bg-gradient-to-b from-amber-500/10 to-[#f4f8ff] p-4 sm:p-5">
       <div className="mb-3">
         <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-200/80">
           소스 영상 체크리스트
@@ -318,7 +294,7 @@ function VideoPickCriteriaGuide() {
         </p>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-white/10 bg-[#0a0b0f]">
+      <div className="overflow-hidden rounded-xl border border-white/10 bg-[#f5f6fd]">
         <img
           src="/shotform/ssul-video-source-checklist.png"
           alt="소스 영상 체크리스트: 주인공이 또렷함, 해상도가 충분함, 글자가 박혀 있지 않음"
@@ -434,7 +410,7 @@ function PlatformSearchGuide({
         )}
       </div>
 
-      <div className="rounded-2xl border border-white/10 bg-[#0c0e14]/90 p-4 sm:p-5">
+      <div className="rounded-2xl border border-white/10 bg-[#f4f8ff]/90 p-4 sm:p-5">
         <p className="text-xs font-semibold text-zinc-200">영상 다운로더 바로가기</p>
         <p className="mt-1 text-[11px] text-zinc-500">
           찾은 영상 링크를 복사한 뒤, 아래 사이트에서 다운로드하세요.
@@ -468,20 +444,8 @@ function PlatformSearchGuide({
 
 export default function SsulTtsToolPage() {
   const [userId, setUserId] = useState("")
-  const [provider, setProvider] = useState<TtsProviderId>("supertone")
-  const [voiceCatalog, setVoiceCatalog] = useState<CatalogMap>(EMPTY_CATALOG)
-  const [voicesLoading, setVoicesLoading] = useState<LoadingMap>({
-    supertone: false,
-    supertonic: false,
-    elevenlabs: false,
-    typecast: false,
-  })
-  const [voiceLoadErrors, setVoiceLoadErrors] = useState<ErrorMap>({
-    supertone: null,
-    supertonic: null,
-    elevenlabs: null,
-    typecast: null,
-  })
+  const [provider, setProvider] = useState<TtsProviderId>(DEFAULT_TTS_PROVIDER)
+  const { voiceCatalog, voicesLoading, voiceLoadErrors, ensureVoices, reloadVoices } = useTtsVoiceCatalog()
   const [selectedVoiceId, setSelectedVoiceId] = useState("")
   const [voiceStyle, setVoiceStyle] = useState("neutral")
   const [speed, setSpeed] = useState(DEFAULT_TTS_SPEED)
@@ -513,8 +477,6 @@ export default function SsulTtsToolPage() {
   const audioUrlRef = useRef<string | null>(null)
   const previewAudioRef = useRef<HTMLAudioElement | null>(null)
   const productImageInputRef = useRef<HTMLInputElement | null>(null)
-  /** 자동 로드 실패 후 빈 목록으로 재호출되는 무한 루프 방지 */
-  const voiceAutoLoadAttemptedRef = useRef<Set<TtsProviderId>>(new Set())
 
   const activeProvider = ttsProviderFromVoiceId(selectedVoiceId) ?? provider
   const displayVoice = selectedVoiceId
@@ -574,190 +536,16 @@ export default function SsulTtsToolPage() {
     void resolveUser()
   }, [])
 
-  const loadVoices = useCallback(async (p: TtsProviderId) => {
-    if (p === "supertonic") {
-      setVoicesLoading((prev) => ({ ...prev, supertonic: true }))
-      setVoiceLoadErrors((prev) => ({ ...prev, supertonic: null }))
-      try {
-        const res = await fetchSupertonicVoices()
-        const data = (await res.json().catch(() => ({}))) as {
-          success?: boolean
-          voices?: Array<{ voice_id?: string; name?: string; gender?: string }>
-          error?: string
-        }
-        const list =
-          Array.isArray(data.voices) && data.voices.length
-            ? data.voices
-                .map((v) => ({
-                  voice_id: String(v.voice_id || "").trim(),
-                  name: String(v.name || v.voice_id || "Voice"),
-                  gender: v.gender,
-                }))
-                .filter((v) => v.voice_id)
-            : supertonicBuiltinVoiceCatalog()
-        setVoiceCatalog((prev) => ({ ...prev, supertonic: list }))
-        voiceAutoLoadAttemptedRef.current.add("supertonic")
-      } catch (e) {
-        setVoiceCatalog((prev) => ({
-          ...prev,
-          supertonic: prev.supertonic.length ? prev.supertonic : supertonicBuiltinVoiceCatalog(),
-        }))
-        setVoiceLoadErrors((prev) => ({
-          ...prev,
-          supertonic: formatVoiceLoadError(
-            "supertonic",
-            e instanceof Error ? e.message : "수퍼토닉3 목록 실패"
-          ),
-        }))
-        voiceAutoLoadAttemptedRef.current.add("supertonic")
-      } finally {
-        setVoicesLoading((prev) => ({ ...prev, supertonic: false }))
-      }
-      return
-    }
-
-    if (p === "elevenlabs") {
-      const key = shotformTtsApiKey("elevenlabs")
-      if (!key) {
-        setVoiceCatalog((prev) => ({ ...prev, elevenlabs: elevenlabsSampleVoiceCatalog() }))
-        voiceAutoLoadAttemptedRef.current.add("elevenlabs")
-        return
-      }
-      setVoicesLoading((prev) => ({ ...prev, elevenlabs: true }))
-      setVoiceLoadErrors((prev) => ({ ...prev, elevenlabs: null }))
-      try {
-        const res = await fetch(`/api/elevenlabs-voices?apiKey=${encodeURIComponent(key)}`)
-        const data = (await res.json().catch(() => ({}))) as {
-          success?: boolean
-          voices?: unknown[]
-          error?: string
-          code?: string
-        }
-        if (!res.ok || data.success === false) {
-          const errText = data.error || `목록 실패 (${res.status})`
-          if (isElevenlabsVoicesReadError(errText, data.code)) {
-            setVoiceCatalog((prev) => ({ ...prev, elevenlabs: elevenlabsSampleVoiceCatalog() }))
-            voiceAutoLoadAttemptedRef.current.add("elevenlabs")
-            return
-          }
-          throw new Error(errText)
-        }
-        const apiList = (Array.isArray(data.voices) ? data.voices : [])
-          .map((v) => normalizeElevenlabsVoiceRow(v as Record<string, unknown>))
-          .filter((v) => v.voice_id)
-        setVoiceCatalog((prev) => ({
-          ...prev,
-          elevenlabs: mergeElevenlabsVoiceCatalog(apiList),
-        }))
-        voiceAutoLoadAttemptedRef.current.add("elevenlabs")
-      } catch (e) {
-        const raw = e instanceof Error ? e.message : "ElevenLabs 목록 실패"
-        setVoiceCatalog((prev) => ({ ...prev, elevenlabs: elevenlabsSampleVoiceCatalog() }))
-        if (!isElevenlabsVoicesReadError(raw)) {
-          setVoiceLoadErrors((prev) => ({
-            ...prev,
-            elevenlabs: formatVoiceLoadError("elevenlabs", raw),
-          }))
-        }
-        voiceAutoLoadAttemptedRef.current.add("elevenlabs")
-      } finally {
-        setVoicesLoading((prev) => ({ ...prev, elevenlabs: false }))
-      }
-      return
-    }
-
-    const key = shotformTtsApiKey(p)
-    if (!key) {
-      setVoiceLoadErrors((prev) => ({ ...prev, [p]: ttsApiKeyMissingMessage(p) }))
-      voiceAutoLoadAttemptedRef.current.add(p)
-      return
-    }
-    setVoicesLoading((prev) => ({ ...prev, [p]: true }))
-    setVoiceLoadErrors((prev) => ({ ...prev, [p]: null }))
-    try {
-      const endpoint =
-        p === "supertone"
-          ? `/api/supertone-voices?apiKey=${encodeURIComponent(key)}`
-          : `/api/typecast-voices?apiKey=${encodeURIComponent(key)}`
-      const res = await fetch(endpoint)
-      const data = (await res.json().catch(() => ({}))) as {
-        success?: boolean
-        voices?: unknown[]
-        error?: string
-      }
-      if (!res.ok || data.success === false) {
-        throw new Error(data.error || `목소리 목록 실패 (${res.status})`)
-      }
-      const raw = Array.isArray(data.voices) ? data.voices : []
-      let list: ShotformTtsVoice[] = []
-      if (p === "supertone") {
-        list = filterSupertoneKoreanVoices(
-          raw.map((v) => normalizeSupertoneVoiceRow(v as Record<string, unknown>))
-        )
-        if (!list.length && raw.length > 0) {
-          setVoiceLoadErrors((prev) => ({
-            ...prev,
-            supertone: "한국어 지원 수퍼톤 목소리가 없습니다. API 키·계정을 확인해 주세요.",
-          }))
-        }
-      } else {
-        list = raw
-          .map((v) => normalizeTypecastVoiceRow(v as Record<string, unknown>))
-          .filter((v): v is ShotformTtsVoice => Boolean(v))
-          .map(enrichTypecastVoice)
-        if (!list.length) {
-          setVoiceLoadErrors((prev) => ({
-            ...prev,
-            typecast: "타입캐스트 목소리 목록이 비어 있습니다. API 키·플랜을 확인해 주세요.",
-          }))
-        }
-      }
-      setVoiceCatalog((prev) => ({ ...prev, [p]: list }))
-      voiceAutoLoadAttemptedRef.current.add(p)
-    } catch (e) {
-      setVoiceLoadErrors((prev) => ({
-        ...prev,
-        [p]: formatVoiceLoadError(
-          p,
-          e instanceof Error ? e.message : `${p} 목소리 목록 실패`
-        ),
-      }))
-      voiceAutoLoadAttemptedRef.current.add(p)
-    } finally {
-      setVoicesLoading((prev) => ({ ...prev, [p]: false }))
-    }
-  }, [])
-
   useEffect(() => {
-    const list = voiceCatalog[provider] ?? []
-    if (voiceLoadErrors[provider]) return
-    if (voiceAutoLoadAttemptedRef.current.has(provider)) return
-    if (shouldAutoLoadVoiceCatalog(provider, list) && !voicesLoading[provider]) {
-      void loadVoices(provider)
-    }
+    ensureVoices(provider)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider])
 
   useEffect(() => {
     if (!voicePickerOpen) return
-    const p = ttsProviderFromVoiceId(selectedVoiceId) ?? provider
-    if (voiceLoadErrors[p]) return
-    if (voiceAutoLoadAttemptedRef.current.has(p) && p !== "supertonic") return
-    const list = voiceCatalog[p] ?? []
-    if (shouldAutoLoadVoiceCatalog(p, list) && !voicesLoading[p]) {
-      void loadVoices(p)
-    }
+    ensureVoices(ttsProviderFromVoiceId(selectedVoiceId) ?? provider, { retrySupertonic: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 팝업 열릴 때·선택 보이스 변경 시만
   }, [voicePickerOpen, selectedVoiceId])
-
-  const handleReloadVoices = useCallback(
-    (p: TtsProviderId) => {
-      // 수동 새로고침은 재시도 허용
-      voiceAutoLoadAttemptedRef.current.delete(p)
-      void loadVoices(p)
-    },
-    [loadVoices]
-  )
 
   useEffect(() => {
     const p = ttsProviderFromVoiceId(selectedVoiceId)
@@ -1166,7 +954,7 @@ export default function SsulTtsToolPage() {
   )
 
   return (
-    <div className="fixed inset-0 z-20 flex bg-[#07080c] text-zinc-100">
+    <div className="fixed inset-0 z-20 flex bg-[#f4f6fd] text-zinc-100">
       {mobileNavOpen ? (
         <button
           type="button"
@@ -1177,7 +965,7 @@ export default function SsulTtsToolPage() {
       ) : null}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex h-full w-[min(280px,86vw)] shrink-0 flex-col border-r border-white/10 bg-[#0c0d10] transition-transform duration-200 ease-out md:static md:z-auto md:w-[240px] md:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 flex h-full w-[min(280px,86vw)] shrink-0 flex-col border-r border-white/10 bg-[#f5f7fb] transition-transform duration-200 ease-out md:static md:z-auto md:w-[240px] md:translate-x-0 ${
           mobileNavOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full md:translate-x-0"
         }`}
       >
@@ -1185,7 +973,7 @@ export default function SsulTtsToolPage() {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-between gap-2 border-b border-white/10 bg-[#0a0b0f]/90 px-3 py-3 backdrop-blur-md sm:gap-3 sm:px-5">
+        <header className="flex items-center justify-between gap-2 border-b border-white/10 bg-[#f5f6fd]/90 px-3 py-3 backdrop-blur-md sm:gap-3 sm:px-5">
           <div className="flex min-w-0 items-center gap-2">
             <button
               type="button"
@@ -1225,7 +1013,7 @@ export default function SsulTtsToolPage() {
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto bg-[#07080c] p-3 sm:p-5 md:p-6">
+        <main className="flex-1 overflow-y-auto bg-[#f4f6fd] p-3 sm:p-5 md:p-6">
           {activeStep === "content" ? (
             <section className="mx-auto max-w-6xl space-y-3">
               <div>
@@ -1303,7 +1091,7 @@ export default function SsulTtsToolPage() {
           ) : null}
 
           {activeStep === "voice" ? (
-            <section className="mx-auto max-w-2xl rounded-2xl border border-white/10 bg-[#0c0e14]/90 p-4 sm:p-5">
+            <section className="mx-auto max-w-2xl rounded-2xl border border-white/10 bg-[#f4f8ff]/90 p-4 sm:p-5">
               <div className="mb-3">
                 <h3 className="text-sm font-semibold text-zinc-100">목소리 선택</h3>
                 <p className="mt-1 text-[11px] text-zinc-500">
@@ -1355,7 +1143,7 @@ export default function SsulTtsToolPage() {
                         : voiceStyle
                           ? `${providerMeta.label} · ${labelTtsStyle(activeProvider, voiceStyle)}`
                           : providerMeta.subtitle
-                      : "수퍼톤 · Supertonic 3 · ElevenLabs · 타입캐스트"}
+                      : TTS_PROVIDER_SUMMARY}
                   </p>
                 </div>
                 <ChevronRight className="h-4 w-4 shrink-0 text-zinc-500" />
@@ -1412,7 +1200,7 @@ export default function SsulTtsToolPage() {
           ) : null}
 
           {activeStep === "script" ? (
-            <section className="mx-auto max-w-2xl rounded-2xl border border-white/10 bg-[#0c0e14]/90 p-4 sm:p-5">
+            <section className="mx-auto max-w-2xl rounded-2xl border border-white/10 bg-[#f4f8ff]/90 p-4 sm:p-5">
               <div className="mb-3 flex items-end justify-between gap-2">
                 <div>
                   <h3 className="text-sm font-semibold text-zinc-100">
@@ -1457,7 +1245,7 @@ export default function SsulTtsToolPage() {
                 }}
                 disabled={isPullingScript}
                 placeholder={`예)\n오늘 소개할 제품은 이거예요.\n진짜 솔직하게 말해볼게요.\n단점이 거의 없어서 계속 쓰게 되더라고요.`}
-                className="min-h-[min(52vh,420px)] resize-y rounded-xl border-white/10 bg-[#0a0b0f] text-sm text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-amber-500/30 disabled:opacity-60"
+                className="min-h-[min(52vh,420px)] resize-y rounded-xl border-white/10 bg-[#f5f6fd] text-sm text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-amber-500/30 disabled:opacity-60"
               />
 
               {error && activeStep === "script" ? (
@@ -1488,7 +1276,7 @@ export default function SsulTtsToolPage() {
           ) : null}
 
           {activeStep === "export" ? (
-            <section className="mx-auto max-w-2xl rounded-2xl border border-white/10 bg-[#0c0e14]/90 p-4 sm:p-5">
+            <section className="mx-auto max-w-2xl rounded-2xl border border-white/10 bg-[#f4f8ff]/90 p-4 sm:p-5">
               <h3 className="text-sm font-semibold text-zinc-100">목소리 + SRT 만들기</h3>
               <p className="mt-1 text-[11px] text-zinc-500">
                 선택한 TTS로 대본을 읽고, 자막 타이밍 SRT까지 만듭니다.
@@ -1610,7 +1398,7 @@ export default function SsulTtsToolPage() {
 
           {activeStep === "keywords" ? (
             <section className="mx-auto max-w-3xl space-y-4">
-              <div className="rounded-2xl border border-white/10 bg-[#0c0e14]/90 p-4 sm:p-5">
+              <div className="rounded-2xl border border-white/10 bg-[#f4f8ff]/90 p-4 sm:p-5">
                 <h3 className="text-sm font-semibold text-zinc-100">제품 이미지 · 쿠팡 제품명</h3>
                 <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
                   이미지를 보고 영상 플랫폼 검색용 키워드를 영어·중국어·일본어로 만듭니다. 각
@@ -1682,7 +1470,7 @@ export default function SsulTtsToolPage() {
                         setKeywordResult(null)
                       }}
                       placeholder="예: 무선 미니 핸디 청소기"
-                      className="h-11 border-white/10 bg-[#0a0b0f] text-sm text-zinc-100 placeholder:text-zinc-600"
+                      className="h-11 border-white/10 bg-[#f5f6fd] text-sm text-zinc-100 placeholder:text-zinc-600"
                     />
                     <p className="text-[11px] leading-relaxed text-zinc-500">
                       쿠팡에 등록된 상품명 그대로 넣으면, 이미지와 맞춰 일반 키워드 /
@@ -1724,7 +1512,7 @@ export default function SsulTtsToolPage() {
                     키워드 생성 완료 · 키워드 클릭=복사 · 아이콘=검색 · 다운 버튼=다운로더
                   </div>
 
-                  <div className="rounded-2xl border border-white/10 bg-[#0c0e14]/90 p-4 sm:p-5">
+                  <div className="rounded-2xl border border-white/10 bg-[#f4f8ff]/90 p-4 sm:p-5">
                     <h4 className="text-sm font-semibold text-zinc-100">광범위한 일반 키워드</h4>
                     <p className="mt-1 text-[11px] text-zinc-500">
                       카테고리·용도·형태처럼 넓게 검색할 때
@@ -1748,7 +1536,7 @@ export default function SsulTtsToolPage() {
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-white/10 bg-[#0c0e14]/90 p-4 sm:p-5">
+                  <div className="rounded-2xl border border-white/10 bg-[#f4f8ff]/90 p-4 sm:p-5">
                     <h4 className="text-sm font-semibold text-zinc-100">정확한 제품명 키워드</h4>
                     <p className="mt-1 text-[11px] text-zinc-500">
                       제품명·특징에 가깝게 좁혀 검색할 때
@@ -1789,7 +1577,7 @@ export default function SsulTtsToolPage() {
         voiceStyle={voiceStyle}
         onVoiceIdChange={handleVoiceIdChange}
         onStyleChange={setVoiceStyle}
-        onReloadVoices={handleReloadVoices}
+        onReloadVoices={reloadVoices}
         onPreviewVoice={(id, style) => void previewVoice(id, style)}
         previewingVoiceId={previewingVoiceId}
       />

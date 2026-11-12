@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog"
 import { extractKeywordFromVideo } from "./actions"
 import { BenchmarkHeader } from "../components/BenchmarkHeader"
+import { formatCount } from "../lib/types"
 
 interface AnalyzedVideo {
   title: string
@@ -181,7 +182,7 @@ export default function ChannelAnalysisPage() {
   }
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#0c1214] text-zinc-100">
+    <div className="relative min-h-screen overflow-hidden bg-[#f4fdff] text-zinc-100">
       <div className="pointer-events-none absolute inset-0" aria-hidden>
         <div className="absolute -left-24 top-0 h-80 w-80 rounded-full bg-teal-500/10 blur-3xl" />
         <div className="absolute right-0 top-1/4 h-96 w-96 rounded-full bg-sky-500/8 blur-3xl" />
@@ -362,17 +363,13 @@ export default function ChannelAnalysisPage() {
                       <div className="p-4 rounded-2xl bg-gradient-to-br from-red-500/10 to-red-600/10 border border-red-500/20 backdrop-blur-sm">
                         <p className="text-slate-400 text-xs font-medium mb-2 uppercase tracking-wider">구독자 수</p>
                         <p className="text-3xl font-bold bg-gradient-to-r from-red-400 to-red-500 bg-clip-text text-transparent">
-                          {parseInt(analysisResult.channelInfo.subscriberCount) >= 10000
-                            ? `${(parseInt(analysisResult.channelInfo.subscriberCount) / 10000).toFixed(0)}만`
-                            : parseInt(analysisResult.channelInfo.subscriberCount).toLocaleString()}
+                          {formatCount(analysisResult.channelInfo.subscriberCount)}
                         </p>
                       </div>
                       <div className="p-4 rounded-2xl bg-gradient-to-br from-blue-500/10 to-cyan-500/10 border border-blue-500/20 backdrop-blur-sm">
                         <p className="text-slate-400 text-xs font-medium mb-2 uppercase tracking-wider">총 조회수</p>
                         <p className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
-                          {parseInt(analysisResult.channelInfo.viewCount) >= 10000
-                            ? `${(parseInt(analysisResult.channelInfo.viewCount) / 10000).toFixed(0)}만`
-                            : parseInt(analysisResult.channelInfo.viewCount).toLocaleString()}
+                          {formatCount(analysisResult.channelInfo.viewCount)}
                         </p>
                       </div>
                       <div className="p-4 rounded-2xl bg-gradient-to-br from-purple-500/10 to-teal-500/10 border border-purple-500/20 backdrop-blur-sm">
@@ -391,7 +388,7 @@ export default function ChannelAnalysisPage() {
                           <span className="text-white font-semibold">{analysisResult.metadata.channelCreationDate}</span>
                         </div>
                         <div className="flex justify-between items-center py-2 border-b border-slate-700/50">
-                          <span className="text-slate-400 font-medium">최초 업로드</span>
+                          <span className="text-slate-400 font-medium">최근 50개 중 첫 업로드</span>
                           <span className="text-white font-semibold">{analysisResult.metadata.firstUploadDate}</span>
                         </div>
                         <div className="flex justify-between items-center py-2 border-b border-slate-700/50">
@@ -774,15 +771,15 @@ export default function ChannelAnalysisPage() {
                             <div className="flex items-center gap-4 text-xs text-slate-400 mb-3">
                               <div className="flex items-center gap-1">
                                 <Eye className="w-3 h-3" />
-                                <span>{video.viewCount >= 10000 ? `${(video.viewCount / 10000).toFixed(1)}만` : video.viewCount.toLocaleString()}</span>
+                                <span>{formatCount(video.viewCount)}</span>
                               </div>
                               <div className="flex items-center gap-1">
                                 <Heart className="w-3 h-3" />
-                                <span>{video.likeCount >= 1000 ? `${(video.likeCount / 1000).toFixed(1)}K` : video.likeCount.toLocaleString()}</span>
+                                <span>{formatCount(video.likeCount)}</span>
                               </div>
                               <div className="flex items-center gap-1">
                                 <MessageSquare className="w-3 h-3" />
-                                <span>{video.commentCount >= 1000 ? `${(video.commentCount / 1000).toFixed(1)}K` : video.commentCount.toLocaleString()}</span>
+                                <span>{formatCount(video.commentCount)}</span>
                               </div>
                             </div>
                             <div className="pt-3 border-t border-slate-700/50">
@@ -866,7 +863,7 @@ export default function ChannelAnalysisPage() {
                         <div className="flex items-center gap-4 text-xs text-slate-500">
                           <div className="flex items-center gap-1">
                             <Eye className="w-3 h-3 flex-shrink-0" />
-                            <span className="whitespace-nowrap">{product.viewCount >= 10000 ? `${(product.viewCount / 10000).toFixed(1)}만` : product.viewCount.toLocaleString()} 조회</span>
+                            <span className="whitespace-nowrap">{formatCount(product.viewCount)} 조회</span>
                           </div>
                         </div>
                       </div>

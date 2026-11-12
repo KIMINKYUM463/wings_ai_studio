@@ -1,3 +1,4 @@
+import { Pencil, Trash2 } from 'lucide-react'
 import { useEffect, useState, type MouseEvent } from 'react'
 import type { ThumbnailProTemplate } from '@/lib/longform-v2/thumbnailTemplateStudio/types'
 import { resolveTemplatePreviewAssetUrl } from '@/lib/longform-v2/thumbnailTemplateStudio/templatePreviewUrl'
@@ -157,7 +158,7 @@ export function ThumbnailTemplateCard({
           <div className="thumb-tpl-card__custom-actions">
             {onEdit ? (
               <button type="button" className="thumb-tpl-card__action" onClick={onEdit} title="편집">
-                ✎
+                <Pencil className="lfv2-ico" aria-hidden />
               </button>
             ) : null}
             {onDelete ? (
@@ -167,7 +168,7 @@ export function ThumbnailTemplateCard({
                 onClick={onDelete}
                 title="삭제"
               >
-                🗑
+                <Trash2 className="lfv2-ico" aria-hidden />
               </button>
             ) : null}
           </div>

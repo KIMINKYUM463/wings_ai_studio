@@ -44,9 +44,37 @@ import { Slider } from "@/components/ui/slider"
 import { Textarea } from "@/components/ui/textarea"
 import type {
   StoryGeneratedScript,
+  StoryNarrationStyle,
   StoryScriptTemplateId,
   StoryShoppingBrief,
 } from "./story-types"
+import { DEFAULT_STORY_FRAME_SETTINGS } from "./StoryChannelFrame"
+import {
+  DEFAULT_STORY_NARRATION_STYLE,
+  storyTargetCharacters,
+  storyTargetSceneCount,
+} from "./story-script-pace"
+
+const NARRATION_STYLES: Array<{ id: StoryNarrationStyle; label: string; hint: string }> = [
+  { id: "ssul", label: "썰 채널형", hint: "~했음·~버림 빠른 음슴체 (선물가게·신사들 스타일)" },
+  { id: "polite", label: "존댓말형", hint: "~했어요 차분한 구어체" },
+]
+
+/** 참고 영상 자막은 문체·구조 참고용 — 실패해도 대본 생성은 계속 */
+async function fetchReferenceTranscript(videoId?: string) {
+  if (!videoId) return ""
+  try {
+    const response = await fetch("/api/youmaker/get-video-transcript", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ videoId }),
+    })
+    const data = await response.json()
+    return String(data.transcript || "")
+  } catch {
+    return ""
+  }
+}
 
 const TEMPLATES: Array<{
   id: StoryScriptTemplateId
@@ -215,6 +243,9 @@ export function StoryGenerationPanel({
       brief.storyTemplateRecommendation?.templateId ||
       "origin"
   )
+  const [narrationStyle, setNarrationStyle] = useState<StoryNarrationStyle>(
+    brief.generatedStory?.narrationStyle || DEFAULT_STORY_NARRATION_STYLE
+  )
   const [isGenerating, setIsGenerating] = useState(false)
   const [isRecommending, setIsRecommending] = useState(false)
   const [isTemplateDialogOpen, setIsTemplateDialogOpen] = useState(false)
@@ -293,16 +324,21 @@ export function StoryGenerationPanel({
     setIsGenerating(true)
     setError("")
     try {
+      const reference = brief.winningContent
+      const referenceTranscript = await fetchReferenceTranscript(reference?.videoId)
       const response = await fetch("/api/shotform/story-shopping/generate-story", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           templateId: selectedTemplate,
+          narrationStyle,
           productName: brief.productName,
           productDescription: brief.productDescription,
           priceBenefit: brief.priceBenefit,
           targetSeconds: brief.durationSec,
           collectorData: brief.collectorData,
+          referenceTitle: reference?.title,
+          referenceTranscript,
           apiKey:
             typeof window !== "undefined"
               ? localStorage.getItem("shotform_openai_api_key") || undefined
@@ -315,9 +351,14 @@ export function StoryGenerationPanel({
       onChange({
         ...brief,
         generatedStory,
-        frameSettings: brief.frameSettings
-          ? { ...brief.frameSettings, videoTitle: generatedStory.title }
-          : undefined,
+        frameSettings: {
+          ...DEFAULT_STORY_FRAME_SETTINGS,
+          ...brief.frameSettings,
+          videoTitle: generatedStory.title,
+          // 표지는 새 제목을 두 줄로 자동 분할 — 이전 대본의 수동 표지 문구는 비움
+          coverTitleTop: "",
+          coverTitleAccent: "",
+        },
         voiceData: undefined,
         sceneAssets: undefined,
       })
@@ -360,7 +401,7 @@ export function StoryGenerationPanel({
 
   return (
     <div className="space-y-5">
-      <section className="relative overflow-hidden rounded-[30px] border border-violet-400/20 bg-[#0b0a0f] p-5 md:p-7">
+      <section className="relative overflow-hidden rounded-[30px] border border-violet-400/20 bg-[#f7f5fe] p-5 md:p-7">
         <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-violet-500/10 blur-[90px]" />
         <div className="relative flex flex-wrap items-end justify-between gap-4">
           <div>
@@ -399,8 +440,8 @@ export function StoryGenerationPanel({
               </span>
               <span className="ml-1 text-sm font-bold text-amber-300">초</span>
               <p className="mt-1 text-[9px] text-zinc-500">
-                약 {Math.round(brief.durationSec * 4.2)}자 · 장면{" "}
-                {Math.max(4, Math.min(10, Math.round(brief.durationSec / 5)))}개
+                약 {storyTargetCharacters(brief.durationSec, narrationStyle)}자 · 장면{" "}
+                {storyTargetSceneCount(brief.durationSec, narrationStyle)}개
               </p>
             </div>
           </div>
@@ -425,6 +466,23 @@ export function StoryGenerationPanel({
                 }`}
               >
                 {seconds}초
+              </button>
+            ))}
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            {NARRATION_STYLES.map((style) => (
+              <button
+                key={style.id}
+                type="button"
+                onClick={() => setNarrationStyle(style.id)}
+                className={`rounded-lg border px-3 py-2 text-left transition ${
+                  narrationStyle === style.id
+                    ? "border-amber-300 bg-amber-400 text-amber-950"
+                    : "border-white/10 bg-black/20 text-zinc-400 hover:border-amber-300/40 hover:text-amber-100"
+                }`}
+              >
+                <span className="block text-[11px] font-black">{style.label}</span>
+                <span className="block text-[9px] opacity-75">{style.hint}</span>
               </button>
             ))}
           </div>
@@ -487,7 +545,7 @@ export function StoryGenerationPanel({
         </button>
 
         <Dialog open={isTemplateDialogOpen} onOpenChange={setIsTemplateDialogOpen}>
-          <DialogContent className="max-h-[88vh] w-[min(96vw,80rem)] max-w-[calc(100%-2rem)] overflow-y-auto border-white/15 bg-[#0b0a0f] text-white sm:max-w-7xl">
+          <DialogContent className="max-h-[88vh] w-[min(96vw,80rem)] max-w-[calc(100%-2rem)] overflow-y-auto border-white/15 bg-[#f7f5fe] text-white sm:max-w-7xl">
             <DialogHeader>
               <DialogTitle>스토리 템플릿 선택</DialogTitle>
               <DialogDescription className="text-zinc-400">
@@ -563,7 +621,7 @@ export function StoryGenerationPanel({
           {isGenerating ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              수집 근거로 30~40초 스토리 구성 중
+              수집 근거로 {brief.durationSec}초 스토리 구성 중
             </>
           ) : (
             <>
@@ -580,7 +638,7 @@ export function StoryGenerationPanel({
       </section>
 
       {brief.generatedStory ? (
-        <section className="rounded-[30px] border border-white/10 bg-[#0d0d0c] p-5 md:p-7">
+        <section className="rounded-[30px] border border-white/10 bg-[#f7f7f5] p-5 md:p-7">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-[9px] font-black tracking-[0.18em] text-fuchsia-300">

@@ -93,7 +93,7 @@ export type InfoVoiceTrack = {
 
 export type InfoVoiceData = {
   voiceId: string
-  provider?: "supertone" | "supertonic" | "typecast" | "elevenlabs"
+  provider?: "supertonic" | "typecast" | "elevenlabs"
   style?: string
   speed: number
   tracks: InfoVoiceTrack[]

@@ -472,7 +472,7 @@ export default function StoryShoppingPage() {
 
   if (!currentProject) {
     return (
-      <main className="relative min-h-screen overflow-hidden bg-[#080706] px-4 py-8 text-zinc-100 md:px-8">
+      <main className="relative min-h-screen overflow-hidden bg-[#f8f6f4] px-4 py-8 text-zinc-100 md:px-8">
         <div className="pointer-events-none absolute inset-0">
           <motion.div
             className="absolute -left-40 -top-52 h-[520px] w-[520px] rounded-full bg-orange-600/10 blur-[120px]"
@@ -506,7 +506,7 @@ export default function StoryShoppingPage() {
             initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
-            className="mb-10 overflow-hidden rounded-[32px] border border-white/10 bg-[#11100e]/80 shadow-2xl shadow-black/50"
+            className="mb-10 overflow-hidden rounded-[32px] border border-white/10 bg-[#fcfaf7]/80 shadow-2xl shadow-black/50"
           >
             <div className="grid min-h-[310px] lg:grid-cols-[1fr_340px]">
               <div className="flex flex-col justify-between p-7 md:p-10">
@@ -578,7 +578,7 @@ export default function StoryShoppingPage() {
                       rotate: { delay: 0.35, duration: 0.5 },
                       y: { duration: 4, repeat: Infinity, ease: "easeInOut" },
                     }}
-                    className="relative h-[270px] w-[152px] overflow-hidden rounded-[24px] border-4 border-zinc-700/80 bg-[#0c0b0a] shadow-[0_30px_80px_rgba(0,0,0,.65)]"
+                    className="relative h-[270px] w-[152px] overflow-hidden rounded-[24px] border-4 border-zinc-700/80 bg-[#f8f6f5] shadow-[0_30px_80px_rgba(20,35,70,0.227)]"
                   >
                     <div className="absolute left-1/2 top-1.5 h-3 w-12 -translate-x-1/2 rounded-full bg-black" />
                     <div className="absolute inset-x-2 top-7 rounded-md bg-amber-400 px-2 py-2 text-center text-[9px] font-black text-black">
@@ -619,7 +619,7 @@ export default function StoryShoppingPage() {
                   ].map((item) => (
                     <motion.div
                       key={item.label}
-                      className="absolute rounded-xl border border-white/10 bg-[#171512]/90 px-3 py-2 shadow-xl backdrop-blur"
+                      className="absolute rounded-xl border border-white/10 bg-[#fffffa]/90 px-3 py-2 shadow-xl backdrop-blur"
                       style={{
                         top: item.top,
                         bottom: item.bottom,
@@ -681,7 +681,7 @@ export default function StoryShoppingPage() {
                   whileHover={{ y: -5 }}
                 >
                 <Card
-                  className="group relative h-full overflow-hidden rounded-2xl border-white/10 bg-[#12100e]/90 transition duration-300 hover:border-orange-400/35 hover:shadow-2xl hover:shadow-orange-950/20"
+                  className="group relative h-full overflow-hidden rounded-2xl border-white/10 bg-[#fdfaf7]/90 transition duration-300 hover:border-orange-400/35 hover:shadow-2xl hover:shadow-orange-950/20"
                 >
                   <div className="absolute right-4 top-2 font-mono text-5xl font-black text-white/[0.025]">
                     {String(index + 1).padStart(2, "0")}
@@ -736,7 +736,7 @@ export default function StoryShoppingPage() {
         </div>
 
         <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-          <DialogContent className="border-white/10 bg-[#12151c] text-zinc-100">
+          <DialogContent className="border-white/10 bg-[#faffff] text-zinc-100">
             <DialogHeader>
               <DialogTitle>새 스토리 쇼핑 프로젝트</DialogTitle>
               <DialogDescription className="text-zinc-500">
@@ -790,8 +790,8 @@ export default function StoryShoppingPage() {
     <main
       className={`relative overflow-hidden ${
         activeStep === "edit"
-          ? "min-h-[100dvh] bg-[#f7f8fa] text-slate-900"
-          : "min-h-screen bg-[#080706] text-zinc-100"
+          ? "light-keep min-h-[100dvh] bg-[#f7f8fa] text-slate-900"
+          : "min-h-screen bg-[#f8f6f4] text-zinc-100"
       }`}
     >
       <div className={`pointer-events-none fixed inset-0 ${activeStep === "edit" ? "hidden" : ""}`}>
@@ -803,7 +803,7 @@ export default function StoryShoppingPage() {
         className={`sticky top-0 z-40 h-[61px] border-b backdrop-blur-2xl ${
           activeStep === "edit"
             ? "border-slate-200 bg-white/95"
-            : "border-white/[0.07] bg-[#080706]/85"
+            : "border-white/[0.07] bg-[#f8f6f4]/85"
         }`}
       >
         <div className={`mx-auto flex h-full items-center justify-between gap-3 px-4 md:px-8 ${
@@ -837,7 +837,7 @@ export default function StoryShoppingPage() {
               <div className={`hidden h-8 w-px sm:block ${activeStep === "edit" ? "bg-slate-200" : "bg-white/10"}`} />
               <div className="min-w-0">
                 <p className={`truncate text-sm font-bold ${activeStep === "edit" ? "text-slate-900" : ""}`}>{currentProject.name}</p>
-                <p className={`text-[9px] font-bold tracking-[0.18em] ${
+                <p className={`text-[11px] font-bold tracking-[0.18em] ${
                   activeStep === "edit" ? "text-blue-500" : "text-orange-400/70"
                 }`}>
                   {activeStep === "edit" ? "VIDEO EDITOR" : "NARRATIVE COMMERCE"}
@@ -903,7 +903,7 @@ export default function StoryShoppingPage() {
           ? "h-[calc(100dvh-61px)] max-w-none p-0"
           : "mx-auto max-w-[1440px] px-4 py-7 md:px-8"
       }`}>
-        <div className={`relative mb-7 rounded-2xl border border-white/[0.07] bg-[#11100e]/80 px-3 py-3 md:px-5 ${
+        <div className={`relative mb-7 rounded-2xl border border-white/[0.07] bg-[#fcfaf7]/80 px-3 py-3 md:px-5 ${
           activeStep === "edit" ? "hidden" : ""
         }`}>
           <div className="relative grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-7">
@@ -944,7 +944,7 @@ export default function StoryShoppingPage() {
                         ? "border-orange-300/50 bg-orange-500 text-white shadow-orange-950/50"
                         : complete
                           ? "border-emerald-400/30 bg-emerald-500 text-white"
-                          : "border-white/15 bg-[#191714] text-zinc-300"
+                          : "border-white/15 bg-[#fffffa] text-zinc-300"
                     }`}
                   >
                     {complete ? <Check className="h-3.5 w-3.5" /> : index + 1}
@@ -1105,7 +1105,7 @@ export default function StoryShoppingPage() {
         {legacyStep === "brief" ? (
           <>
             <div className="grid gap-5 xl:grid-cols-[1fr_380px]">
-            <Card className="overflow-hidden rounded-[24px] border-white/[0.08] bg-[#12100e]/95 shadow-2xl shadow-black/20">
+            <Card className="overflow-hidden rounded-[24px] border-white/[0.08] bg-[#fdfaf7]/95 shadow-2xl shadow-black/20">
               <CardHeader>
                 <div className="flex items-start justify-between gap-4 border-b border-white/[0.07] pb-5">
                   <div>
@@ -1239,7 +1239,7 @@ export default function StoryShoppingPage() {
             </Card>
 
             <div className="space-y-4 xl:sticky xl:top-24 xl:self-start">
-              <Card className="overflow-hidden rounded-[24px] border-white/[0.08] bg-[#12100e]/95">
+              <Card className="overflow-hidden rounded-[24px] border-white/[0.08] bg-[#fdfaf7]/95">
                 <CardHeader>
                   <p className="text-[9px] font-black tracking-[0.2em] text-orange-400">
                     DIRECTING TONE
@@ -1266,7 +1266,7 @@ export default function StoryShoppingPage() {
                   ))}
                 </CardContent>
               </Card>
-              <Card className="overflow-hidden rounded-[24px] border-orange-400/15 bg-gradient-to-b from-orange-500/[0.08] to-[#12100e]">
+              <Card className="overflow-hidden rounded-[24px] border-orange-400/15 bg-gradient-to-b from-orange-500/[0.08] to-[#fdfaf7]">
                 <CardContent className="space-y-4 pt-5">
                   <div>
                     <Label className="text-xs text-zinc-400">목표 길이</Label>
@@ -1330,7 +1330,7 @@ export default function StoryShoppingPage() {
         {legacyStep === "blueprint" && blueprint ? (
           <div className="space-y-5">
             <div className="grid gap-5 lg:grid-cols-[320px_1fr]">
-              <Card className="border-orange-400/20 bg-gradient-to-b from-orange-500/10 to-[#12151c]">
+              <Card className="border-orange-400/20 bg-gradient-to-b from-orange-500/10 to-[#faffff]">
                 <CardContent className="pt-6">
                   <div className="text-center">
                     <p className="text-xs font-semibold text-orange-300">STORY COMMERCE SCORE</p>
@@ -1362,7 +1362,7 @@ export default function StoryShoppingPage() {
                 </CardContent>
               </Card>
 
-              <Card className="border-white/10 bg-[#12151c]">
+              <Card className="border-white/10 bg-[#faffff]">
                 <CardHeader>
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -1423,7 +1423,7 @@ export default function StoryShoppingPage() {
               </Card>
             </div>
 
-            <Card className="border-white/10 bg-[#12151c]">
+            <Card className="border-white/10 bg-[#faffff]">
               <CardHeader>
                 <CardTitle className="text-base text-zinc-100">
                   {blueprint.scenes.length}개 장면 스토리 흐름
@@ -1468,7 +1468,7 @@ export default function StoryShoppingPage() {
 
         {legacyStep === "frames" && blueprint && selectedScene ? (
           <div className="grid gap-5 xl:grid-cols-[310px_1fr]">
-            <Card className="border-white/10 bg-[#12151c] xl:sticky xl:top-24 xl:self-start">
+            <Card className="border-white/10 bg-[#faffff] xl:sticky xl:top-24 xl:self-start">
               <CardHeader>
                 <CardTitle className="text-sm text-zinc-100">이야기 채널 프레임</CardTitle>
               </CardHeader>
@@ -1508,7 +1508,7 @@ export default function StoryShoppingPage() {
                     className={`min-w-32 rounded-xl border p-3 text-left ${
                       index === selectedSceneIndex
                         ? "border-orange-400/50 bg-orange-500/15"
-                        : "border-white/10 bg-[#12151c]"
+                        : "border-white/10 bg-[#faffff]"
                     }`}
                   >
                     <p className="text-[10px] font-bold text-orange-300">장면 {index + 1}</p>
@@ -1517,7 +1517,7 @@ export default function StoryShoppingPage() {
                 ))}
               </div>
 
-              <Card className="border-white/10 bg-[#12151c]">
+              <Card className="border-white/10 bg-[#faffff]">
                 <CardHeader>
                   <div className="flex items-center justify-between gap-3">
                     <div>
@@ -1624,7 +1624,7 @@ export default function StoryShoppingPage() {
         {legacyStep === "review" && blueprint ? (
           <div className="space-y-5">
             <div className="grid gap-5 lg:grid-cols-2">
-              <Card className="border-white/10 bg-[#12151c]">
+              <Card className="border-white/10 bg-[#faffff]">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-base text-zinc-100">
                     <ShieldCheck className="h-5 w-5 text-emerald-400" />
@@ -1652,7 +1652,7 @@ export default function StoryShoppingPage() {
                 </CardContent>
               </Card>
 
-              <Card className="border-white/10 bg-[#12151c]">
+              <Card className="border-white/10 bg-[#faffff]">
                 <CardHeader>
                   <CardTitle className="text-base text-zinc-100">제작 준비도</CardTitle>
                 </CardHeader>
@@ -1698,7 +1698,7 @@ export default function StoryShoppingPage() {
               </Card>
             </div>
 
-            <Card className="border-white/10 bg-[#12151c]">
+            <Card className="border-white/10 bg-[#faffff]">
               <CardHeader>
                 <CardTitle className="text-base text-zinc-100">최종 장면 목록</CardTitle>
               </CardHeader>

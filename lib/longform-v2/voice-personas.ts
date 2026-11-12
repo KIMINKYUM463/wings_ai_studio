@@ -1,6 +1,6 @@
 /**
  * 롱폼 v2 TTS 보이스 → UI용 가명·얼굴 (실제 TTS id는 그대로 사용)
- * 엔진(Supertonic / ElevenLabs / Supertone)마다 카탈로그·인물이 다름
+ * 엔진(Supertonic / ElevenLabs)마다 카탈로그·인물이 다름
  */
 
 import { HQ_SHOPPING_AVATARS } from "@/lib/hq-shopping-avatars"
@@ -99,20 +99,6 @@ const ELEVENLABS_PERSONA: Record<
   },
 }
 
-/** 자주 쓰는 Supertone 보이스 가명 (API name이 영문/ID일 때) */
-const SUPERTONE_PERSONA: Record<
-  string,
-  { aliasKo: string; blurbKo: string; avatarId: string; gender: "female" | "male" }
-> = {
-  // 계정마다 ID가 달라 API name 우선. 알려진 슬러그만 보강
-  default: {
-    aliasKo: "수퍼톤",
-    blurbKo: "Supertone · 기본",
-    avatarId: "kr-f-20s-jiwoo",
-    gender: "female",
-  },
-}
-
 const FALLBACK_FEMALE = ["kr-f-20s-jiwoo", "kr-f-30s-seoyeon", "kr-f-10s-sua", "kr-f-40s-mikyeong", "kr-f-50s-yeonghui"]
 const FALLBACK_MALE = ["kr-m-20s-hyunwoo", "kr-m-30s-junho", "kr-m-10s-minjun", "kr-m-40s-seongmin", "kr-m-50s-cheolho"]
 
@@ -128,7 +114,6 @@ function hashStr(s: string): number {
 function stripPrefix(voiceId: string): string {
   return String(voiceId || "")
     .replace(/^supertonic-/, "")
-    .replace(/^supertone-/, "")
     .replace(/^elevenlabs-/, "")
     .trim()
 }
@@ -193,18 +178,13 @@ function recordedAlias(voiceId: string): string | null {
 export function resolveVoicePersona(
   voiceId: string,
   catalogLabel?: string,
-  engine?: "supertonic" | "elevenlabs" | "supertone"
+  engine?: "supertonic" | "elevenlabs"
 ): LongformVoicePersona {
   const id = stripPrefix(voiceId)
   const label = (catalogLabel || "").trim()
 
   if (engine === "elevenlabs" || (!engine && ELEVENLABS_PERSONA[id])) {
     const hit = ELEVENLABS_PERSONA[id]
-    if (hit) return fromFixed(id, hit)
-  }
-
-  if (engine === "supertone" || (!engine && SUPERTONE_PERSONA[id])) {
-    const hit = SUPERTONE_PERSONA[id]
     if (hit) return fromFixed(id, hit)
   }
 
@@ -216,7 +196,6 @@ export function resolveVoicePersona(
   // 엔진 미지정 시에도 알려진 ID는 매핑
   if (ELEVENLABS_PERSONA[id]) return fromFixed(id, ELEVENLABS_PERSONA[id])
   if (SUPERTONIC_PERSONA[id]) return fromFixed(id, SUPERTONIC_PERSONA[id])
-  if (SUPERTONE_PERSONA[id]) return fromFixed(id, SUPERTONE_PERSONA[id])
 
   const recorded = recordedAlias(id)
   if (recorded) {
@@ -251,11 +230,9 @@ export function resolveVoicePersona(
   const engineBlurb =
     engine === "elevenlabs"
       ? "ElevenLabs"
-      : engine === "supertone"
-        ? "Supertone"
-        : engine === "supertonic"
-          ? "Supertonic"
-          : ""
+      : engine === "supertonic"
+        ? "Supertonic"
+        : ""
 
   return {
     voiceId: id || voiceId,
@@ -278,7 +255,7 @@ export function resolveVoicePersona(
 export function personaLabelForVoice(
   voiceId: string,
   catalogLabel?: string,
-  engine?: "supertonic" | "elevenlabs" | "supertone"
+  engine?: "supertonic" | "elevenlabs"
 ): string {
   return resolveVoicePersona(voiceId, catalogLabel, engine).aliasKo
 }
@@ -294,8 +271,7 @@ export function elevenlabsVoiceOptions(): { id: string; label: string }[] {
   })
 }
 
-export function defaultVoiceIdForEngine(engine: "supertonic" | "elevenlabs" | "supertone"): string {
+export function defaultVoiceIdForEngine(engine: "supertonic" | "elevenlabs"): string {
   if (engine === "elevenlabs") return ELEVENLABS_SAMPLE_VOICES[0]!.id
-  if (engine === "supertone") return "default"
   return "F1"
 }

@@ -193,7 +193,7 @@ export function InfoSourcePanel({
 
   return (
     <section className="space-y-6">
-      <div className="rounded-[28px] border border-white/[0.08] bg-[#11100e]/95 p-6 md:p-8">
+      <div className="rounded-[28px] border border-white/[0.08] bg-[#fcfaf7]/95 p-6 md:p-8">
         <p className="text-[10px] font-black tracking-[0.2em] text-sky-400">STEP 01 · SOURCE & PRODUCT</p>
         <h2 className="mt-2 text-3xl font-black tracking-tight text-white">
           딱 두개만 있으면 끝!

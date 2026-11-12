@@ -18,9 +18,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // YouTube Data API로 검색 결과 가져오기
+    // 최근 30일 안에 올라온 영상 중 조회수 상위 50개 (화면 문구 "최근 30일간"과 일치)
+    const publishedAfter = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
     const searchResponse = await fetch(
-      `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(keyword)}&type=video&maxResults=50&order=date&key=${apiKey}`,
+      `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(keyword)}&type=video&maxResults=50&order=viewCount&publishedAfter=${publishedAfter}&key=${apiKey}`,
     )
 
     if (!searchResponse.ok) {
@@ -28,6 +29,9 @@ export async function POST(request: NextRequest) {
     }
 
     const searchData = await searchResponse.json()
+    if (!searchData.items?.length) {
+      return NextResponse.json({ error: "최근 30일 안에 이 키워드로 올라온 영상이 없습니다" }, { status: 404 })
+    }
     const videoIds = searchData.items.map((item: any) => item.id.videoId).join(",")
 
     // 비디오 상세 정보 가져오기 (조회수 등)
@@ -46,7 +50,7 @@ export async function POST(request: NextRequest) {
       return sum + Number.parseInt(item.statistics.viewCount || "0")
     }, 0)
 
-    const avgViews = Math.floor(totalViews / videosData.items.length)
+    const avgViews = Math.floor(totalViews / Math.max(1, videosData.items.length))
     const recentVideos = searchData.items.length
 
     const estimatedSearchVolume = Math.round((avgViews * recentVideos) / 10 + recentVideos * 500)
@@ -72,7 +76,7 @@ export async function POST(request: NextRequest) {
     // 관련 키워드 생성 (실제로는 Google Trends API나 YouTube Suggest API 사용)
     const relatedKeywords = [
       `${keyword} 튜토리얼`,
-      `${keyword} 2025`,
+      `${keyword} ${new Date().getFullYear()}`,
       `${keyword} 초보`,
       `${keyword} 팁`,
       `${keyword} 추천`,

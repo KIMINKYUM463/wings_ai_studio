@@ -54,7 +54,7 @@ export function WeeklyKeywordBestPanel({ onKeywordSelect }: Props) {
   }, [analyze])
 
   return (
-    <Card className="relative overflow-hidden border-violet-400/25 bg-gradient-to-br from-[#121426] via-[#101827] to-[#0c1720]">
+    <Card className="relative overflow-hidden border-violet-400/25 bg-gradient-to-br from-[#fafeff] via-[#f4ffff] to-[#f2ffff]">
       <motion.div
         aria-hidden
         className="pointer-events-none absolute inset-y-0 w-40 bg-gradient-to-r from-transparent via-cyan-300/[0.07] to-transparent"

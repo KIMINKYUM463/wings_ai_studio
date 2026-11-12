@@ -1,5 +1,6 @@
 'use client'
 
+import { FolderOpen, Sparkles } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { saveProjectThumbnail } from '@/lib/longform-v2/thumbnail-bridge/mediaApi'
 import { getSceneImages } from '@/lib/longform-v2/thumbnail-bridge/sceneGenerationApi'
@@ -4429,7 +4430,7 @@ export function YoutubeThumbnailTemplateStudio({
           title="프로젝트에 저장한 썸네일 파일 폴더"
           onClick={() => void onOpenProjectThumbnailFolder()}
         >
-          📁 썸네일 저장 폴더
+          <FolderOpen className="lfv2-ico lfv2-ico--lead" aria-hidden />썸네일 저장 폴더
         </button>
         <button
           type="button"
@@ -4929,7 +4930,7 @@ export function YoutubeThumbnailTemplateStudio({
             disabled={textRegenerateBusy || textRewriteBusy}
             onClick={() => void onRegenerateTextFromContextMenu()}
           >
-            {textRegenerateBusy ? '문구 재생성 중…' : '✦ AI 텍스트 재생성'}
+            <Sparkles className="lfv2-ico lfv2-ico--lead" aria-hidden />{textRegenerateBusy ? '문구 재생성 중…' : 'AI 텍스트 재생성'}
           </button>
           <p className="thumb-studio__text-ctx-sub">톤만 바꾸기 (Magic Write)</p>
           {THUMBNAIL_TEXT_REWRITE_PRESETS.map((preset) => (

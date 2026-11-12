@@ -15,7 +15,11 @@ export type AutoEditPlayableUrl = {
   kind: "supabase" | "api"
 }
 
-async function signedOrPublicStorageUrl(storagePath: string): Promise<string | null> {
+/** allowPublicFallback=false 이면 서명 URL(파일이 실제로 있을 때만 발급)만 돌려준다 */
+async function signedOrPublicStorageUrl(
+  storagePath: string,
+  allowPublicFallback = true
+): Promise<string | null> {
   if (!autoEditJobStoreEnabled()) return null
   try {
     const supabase = await createMvpProjectsClient()
@@ -23,6 +27,7 @@ async function signedOrPublicStorageUrl(storagePath: string): Promise<string | n
       .from(STORAGE_BUCKET)
       .createSignedUrl(storagePath, 3600)
     if (!error && data?.signedUrl) return data.signedUrl
+    if (!allowPublicFallback) return null
     const { data: pub } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(storagePath)
     return pub?.publicUrl || null
   } catch (e) {
@@ -36,7 +41,11 @@ export async function resolveAutoEditOutputPlayableUrl(
   jobId: string
 ): Promise<AutoEditPlayableUrl | null> {
   const job = await getAutoEditJobAsync(jobId)
-  if (!job) return null
+  if (!job) {
+    // 작업 기록이 만료돼도(TTL 1시간) Storage 의 결과 MP4 는 남아 있다.
+    const url = await signedOrPublicStorageUrl(autoEditOutputStoragePath(jobId), false)
+    return url ? { url, kind: "supabase" } : null
+  }
 
   const storageCandidates = [
     job.outputStoragePath,

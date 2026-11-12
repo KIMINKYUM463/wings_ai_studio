@@ -3,7 +3,9 @@ import { GeistSans } from 'geist/font/sans'
 import { GeistMono } from 'geist/font/mono'
 import { Analytics } from '@vercel/analytics/next'
 import { AppClientHosts } from '@/components/AppClientHosts'
+import { LIGHT_REMAP_BOOT_SCRIPT } from '@/lib/light-remap'
 import './globals.css'
+import './light-remap.css'
 
 export const metadata: Metadata = {
   title: 'wings AI',
@@ -20,7 +22,10 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: LIGHT_REMAP_BOOT_SCRIPT }} />
+      </head>
       <body className={`font-sans antialiased ${GeistSans.variable} ${GeistMono.variable}`}>
         {children}
         <AppClientHosts />

@@ -6,14 +6,19 @@ import {
   CalendarDays,
   Check,
   ChevronDown,
+  Crown,
   ExternalLink,
+  Flame,
   FolderOpen,
   Info,
   Loader2,
+  Minus,
   Play,
   Plus,
   RefreshCw,
+  Rocket,
   ShoppingBag,
+  Star,
   Trash2,
   TrendingUp,
   Users,
@@ -405,13 +410,13 @@ function ShoppingTagBadge({ videoId }: { videoId: string }) {
 
 const getTakeoffGrade = (ratio: number) => {
   if (ratio >= 10)
-    return { icon: "👑", label: "초대박(바이럴)", className: "bg-fuchsia-500/90" }
-  if (ratio >= 5) return { icon: "⭐", label: "대박 영상", className: "bg-amber-500/90" }
-  if (ratio >= 3) return { icon: "🚀", label: "강한 떡상", className: "bg-cyan-500/90" }
-  if (ratio >= 2) return { icon: "🔥", label: "떡상", className: "bg-orange-500/90" }
+    return { icon: Crown, label: "초대박(바이럴)", className: "bg-fuchsia-500/90" }
+  if (ratio >= 5) return { icon: Star, label: "대박 영상", className: "bg-amber-500/90" }
+  if (ratio >= 3) return { icon: Rocket, label: "강한 떡상", className: "bg-cyan-500/90" }
+  if (ratio >= 2) return { icon: Flame, label: "떡상", className: "bg-orange-500/90" }
   if (ratio >= 1)
-    return { icon: "↗️", label: "평균 이상 영상", className: "bg-emerald-500/90" }
-  return { icon: "－", label: "평균 이하 영상", className: "bg-zinc-700/90" }
+    return { icon: TrendingUp, label: "평균 이상 영상", className: "bg-emerald-500/90" }
+  return { icon: Minus, label: "평균 이하 영상", className: "bg-zinc-700/90" }
 }
 
 const formatPublishedDate = (value: string) => {
@@ -1111,7 +1116,7 @@ export function StoryWinningContentPanel({
     activeChannelIds.some((channelId) => selectedChannelIds.has(channelId))
 
   return (
-    <section className="overflow-hidden rounded-[28px] border border-white/[0.08] bg-[#11100e]/95 shadow-2xl shadow-black/30">
+    <section className="overflow-hidden rounded-[28px] border border-white/[0.08] bg-[#fcfaf7]/95 shadow-2xl shadow-black/30">
       <div className="grid min-h-[620px] lg:grid-cols-[230px_1fr]">
         <aside className="border-b border-white/[0.07] bg-black/20 p-3 lg:border-b-0 lg:border-r">
           <div className="mb-3 flex items-center justify-between px-2 py-1">
@@ -1374,7 +1379,7 @@ export function StoryWinningContentPanel({
             </div>
           </div>
 
-          <div className="border-b border-white/[0.07] bg-[#0d0c0b] p-4">
+          <div className="border-b border-white/[0.07] bg-[#f8f6f5] p-4">
             <div className="grid gap-3 text-[10px] md:grid-cols-[72px_1fr]">
               <span className="pt-1.5 font-black text-zinc-300">정렬</span>
               <FilterButtons
@@ -1487,10 +1492,11 @@ export function StoryWinningContentPanel({
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
                       <span
-                        className={`absolute left-2 top-2 rounded-lg border border-white/15 px-2 py-1 text-[10px] font-black text-white shadow-lg backdrop-blur ${takeoffGrade.className}`}
+                        className={`absolute left-2 top-2 inline-flex items-center gap-1 rounded-lg border border-white/15 px-2 py-1 text-[10px] font-black text-white shadow-lg backdrop-blur ${takeoffGrade.className}`}
                         title={`${takeoffGrade.label} · 최근 30개 영상 평균 조회수 ${formatCount(video.channelBaselineViews)} 대비`}
                       >
-                        {takeoffGrade.icon} {video.outlierRatio.toFixed(1)}x
+                        <takeoffGrade.icon className="h-3 w-3" strokeWidth={2.5} />
+                        {video.outlierRatio.toFixed(1)}x
                       </span>
                       <div className="absolute right-2 top-2">
                         <ShoppingTagBadge videoId={video.videoId} />
@@ -1612,7 +1618,7 @@ export function StoryWinningContentPanel({
           if (!open) setPreviewVideo(null)
         }}
       >
-        <DialogContent className="max-w-lg border-white/15 bg-[#11100e] p-4 text-white">
+        <DialogContent className="max-w-lg border-white/15 bg-[#fcfaf7] p-4 text-white">
           <DialogTitle className="line-clamp-2 pr-8 text-sm font-black">
             {previewVideo?.title}
           </DialogTitle>
@@ -1631,7 +1637,7 @@ export function StoryWinningContentPanel({
       </Dialog>
 
       <Dialog open={showCreateGroupDialog} onOpenChange={setShowCreateGroupDialog}>
-        <DialogContent className="border-white/10 bg-[#12151c] text-zinc-100 sm:max-w-md">
+        <DialogContent className="border-white/10 bg-[#faffff] text-zinc-100 sm:max-w-md">
           <DialogTitle>새 채널 그룹</DialogTitle>
           <div className="space-y-3 pt-2">
             <div className="space-y-1.5">

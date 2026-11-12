@@ -888,15 +888,15 @@ export function MvpCapCutTimeline({
   }%)`
   // sticky left — 확대·축소·좌우 스크롤해도 트랙 이름(영상/TTS/…)은 왼쪽에 고정
   const trackLabelCls = fillHeight
-    ? "sticky left-0 z-30 flex shrink-0 items-center border-r border-slate-200 bg-slate-100 px-2 text-[9px] shadow-[2px_0_6px_rgba(15,23,42,0.06)]"
-    : "sticky left-0 z-30 flex shrink-0 items-center border-r border-white/10 bg-[#0f0f0f] px-2 text-[9px] shadow-[2px_0_6px_rgba(0,0,0,0.35)]"
+    ? "sticky left-0 z-30 flex shrink-0 items-center border-r border-slate-200 bg-slate-100 px-2 text-[9px] shadow-[2px_0_6px_rgba(20,35,70,0.021)]"
+    : "sticky left-0 z-30 flex shrink-0 items-center border-r border-white/10 bg-[#f9f9f9] px-2 text-[9px] shadow-[2px_0_6px_rgba(20,35,70,0.122)]"
   const trackBodyCls = fillHeight
     ? "relative flex-1 cursor-pointer bg-slate-100"
-    : "relative flex-1 cursor-pointer bg-[#1a1a1a]"
+    : "relative flex-1 cursor-pointer bg-[#ffffff]"
   const trackRowBorder = fillHeight ? "border-b border-slate-200" : "border-b border-white/5"
   const rulerGutterCls = fillHeight
-    ? "sticky left-0 z-30 shrink-0 border-r border-slate-200 bg-slate-100 shadow-[2px_0_6px_rgba(15,23,42,0.06)]"
-    : "sticky left-0 z-30 shrink-0 border-r border-white/10 bg-[#0f0f0f] shadow-[2px_0_6px_rgba(0,0,0,0.35)]"
+    ? "sticky left-0 z-30 shrink-0 border-r border-slate-200 bg-slate-100 shadow-[2px_0_6px_rgba(20,35,70,0.021)]"
+    : "sticky left-0 z-30 shrink-0 border-r border-white/10 bg-[#f9f9f9] shadow-[2px_0_6px_rgba(20,35,70,0.122)]"
 
   return (
     <div
@@ -905,7 +905,7 @@ export function MvpCapCutTimeline({
         "rounded-lg border",
         fillHeight
           ? "flex h-full min-h-0 flex-col border-slate-200 bg-white"
-          : "border-white/10 bg-[#141414]"
+          : "border-white/10 bg-[#ffffff]"
       )}
     >
       <div

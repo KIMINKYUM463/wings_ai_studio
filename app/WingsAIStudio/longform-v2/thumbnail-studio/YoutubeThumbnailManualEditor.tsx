@@ -1,3 +1,4 @@
+import { FolderOpen, ImageIcon, Sparkles } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { saveProjectThumbnail } from '@/lib/longform-v2/thumbnail-bridge/mediaApi'
 import { fetchUrlAsBase64, postThumbnailImage, postThumbnailText } from '@/lib/longform-v2/thumbnail-bridge/thumbnailAiApi'
@@ -1281,7 +1282,7 @@ export function YoutubeThumbnailManualEditor({
               disabled={aiBusy}
               onClick={() => void onAiSuggestLines()}
             >
-              {aiBusy ? '생성 중…' : '✨ AI로 훅 문구 생성'}
+              <Sparkles className="lfv2-ico lfv2-ico--lead" aria-hidden />{aiBusy ? '생성 중…' : 'AI로 훅 문구 생성'}
             </button>
           </div>
 
@@ -1348,7 +1349,7 @@ export function YoutubeThumbnailManualEditor({
               disabled={aiBgImageBusy || aiBusy}
               onClick={() => void onAiBackgroundImageOnly()}
             >
-              {aiBgImageBusy ? '생성 중…' : '🖼 AI로 배경 이미지만 생성·적용'}
+              <ImageIcon className="lfv2-ico lfv2-ico--lead" aria-hidden />{aiBgImageBusy ? '생성 중…' : 'AI로 배경 이미지만 생성·적용'}
             </button>
           </div>
 
@@ -1595,7 +1596,7 @@ export function YoutubeThumbnailManualEditor({
               className="pd-open-folder-btn"
               onClick={() => void onOpenProjectThumbnailFolder()}
             >
-              📁 썸네일 저장 폴더
+              <FolderOpen className="lfv2-ico lfv2-ico--lead" aria-hidden />썸네일 저장 폴더
             </button>
             <button
               type="button"

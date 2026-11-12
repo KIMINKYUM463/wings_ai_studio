@@ -59,19 +59,19 @@ export function AnimalCoupangSearchPanel({
   }
 
   return (
-    <div className="space-y-4 rounded-2xl border border-[rgba(125,211,168,0.25)] bg-[#7dd3a8]/5 p-4 md:p-5">
+    <div className="space-y-4 rounded-2xl border border-[rgba(0,88,53,0.25)] bg-[#7dd3a8]/5 p-4 md:p-5">
       <div className="flex items-start gap-3">
-        <div className="rounded-xl border border-[#7dd3a8]/30 bg-[#7dd3a8]/15 p-2">
-          <PackageSearch className="h-5 w-5 text-[#7dd3a8]" />
+        <div className="rounded-xl border border-[#005835]/30 bg-[#7dd3a8]/15 p-2">
+          <PackageSearch className="h-5 w-5 text-[#005835]" />
         </div>
         <div className="min-w-0 flex-1">
           <p className="animal-bubble-chip inline-flex px-2.5 py-1 text-[10px]">COUPANG</p>
-          <h3 className="animal-display mt-2 text-lg font-bold text-[#fff6ee]">
+          <h3 className="animal-display mt-2 text-lg font-bold text-[#221c16]">
             쿠팡에서 제품 찾기
           </h3>
-          <p className="mt-1 text-sm leading-6 text-[#9aa89c]">
+          <p className="mt-1 text-sm leading-6 text-[#49554b]">
             검색어 하나로{" "}
-            <span className="font-semibold text-[#ff8fab]">{characterName}</span>
+            <span className="font-semibold text-[#1d4594]">{characterName}</span>
             이(가) 쿠팡에서 고를 수 있는 인기 상품을 골라보세요.
           </p>
         </div>
@@ -85,7 +85,7 @@ export function AnimalCoupangSearchPanel({
             if (e.key === "Enter") handleSearch()
           }}
           placeholder="예: 간식 자동급식기, 고양이 간식, 츄르"
-          className="h-11 flex-1 border-[rgba(243,235,224,0.12)] bg-black/35 text-[#f3ebe0] placeholder:text-[#6b7a6e]"
+          className="h-11 flex-1 border-[rgba(41,36,27,0.12)] bg-black/35 text-[#29241b] placeholder:text-[#657468]"
         />
         <Button
           type="button"
@@ -115,7 +115,7 @@ export function AnimalCoupangSearchPanel({
 
       {products.length > 0 ? (
         <div className="space-y-3">
-          <p className="text-sm font-semibold text-[#d7e0d8]">
+          <p className="text-sm font-semibold text-[#2d342e]">
             검색 결과 · 상품을 누르면 {characterName}이(가) 그 제품을 활용하는 장면 레퍼런스로 쓰입니다 (동물·제품 외형 유지)
           </p>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -126,8 +126,8 @@ export function AnimalCoupangSearchPanel({
                   key={product.productId}
                   className={`overflow-hidden rounded-2xl border transition ${
                     selected
-                      ? "border-[#ff8fab]/50 bg-[#ff8fab]/10 shadow-lg shadow-[#ff8fab]/10"
-                      : "border-[rgba(255,246,238,0.1)] bg-black/25 hover:border-[#7dd3a8]/40"
+                      ? "border-[#1d4594]/50 bg-[#85b6ff]/10 shadow-lg shadow-[#ff8fab]/10"
+                      : "border-[rgba(34,28,22,0.1)] bg-black/25 hover:border-[#005835]/40"
                   }`}
                 >
                   <button
@@ -143,32 +143,32 @@ export function AnimalCoupangSearchPanel({
                         className="h-full w-full object-contain p-3"
                       />
                       {selected ? (
-                        <span className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-[#ff8fab] text-white shadow-md">
+                        <span className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-[#85b6ff] text-[#181818] shadow-md">
                           <Check className="h-4 w-4" />
                         </span>
                       ) : null}
                       {product.isRocket ? (
-                        <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-[#7dd3a8] px-2 py-0.5 text-[10px] font-bold text-[#0d1a14]">
+                        <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-[#7dd3a8] px-2 py-0.5 text-[10px] font-bold text-[#f2fffb]">
                           <Rocket className="h-3 w-3" />
                           로켓
                         </span>
                       ) : null}
                     </div>
                     <div className="space-y-1.5 p-3">
-                      <p className="line-clamp-2 text-xs font-semibold text-[#f3ebe0]">
+                      <p className="line-clamp-2 text-xs font-semibold text-[#29241b]">
                         {product.productName}
                       </p>
-                      <p className="text-sm font-bold text-[#7dd3a8]">
+                      <p className="text-sm font-bold text-[#005835]">
                         {product.productPrice.toLocaleString("ko-KR")}원
                       </p>
                     </div>
                   </button>
-                  <div className="border-t border-[rgba(255,246,238,0.06)] px-3 pb-3">
+                  <div className="border-t border-[rgba(34,28,22,0.06)] px-3 pb-3">
                     <a
                       href={product.productUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-[11px] text-[#6b7a6e] hover:text-[#9aa89c]"
+                      className="inline-flex items-center gap-1 text-[11px] text-[#657468] hover:text-[#49554b]"
                     >
                       쿠팡에서 보기 <ExternalLink className="h-3 w-3" />
                     </a>
@@ -179,10 +179,10 @@ export function AnimalCoupangSearchPanel({
           </div>
         </div>
       ) : !isSearching && !searchError ? (
-        <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-[rgba(125,211,168,0.2)] bg-black/20 px-4 py-8 text-center">
-          <ShoppingBag className="h-8 w-8 text-[#7dd3a8]/60" />
-          <p className="text-sm text-[#9aa89c]">키워드를 입력하고 쿠팡 검색을 눌러보세요</p>
-          <p className="text-xs text-[#6b7a6e]">
+        <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-[rgba(0,88,53,0.2)] bg-black/20 px-4 py-8 text-center">
+          <ShoppingBag className="h-8 w-8 text-[#005835]/60" />
+          <p className="text-sm text-[#49554b]">키워드를 입력하고 쿠팡 검색을 눌러보세요</p>
+          <p className="text-xs text-[#657468]">
             <Sparkles className="mr-1 inline h-3 w-3" />
             인기 상품이 여기에 표시됩니다
           </p>

@@ -1,5 +1,6 @@
 "use client"
 
+import { Settings } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import "../longform-v2.css"
@@ -134,30 +135,6 @@ export default function LongformV2WorkspacePage() {
         return
       }
       setSupertonicStatus("")
-      if (engine === "supertone") {
-        if (!keys.supertone) {
-          setVoices([{ id: "default", label: "Supertone 키 필요" }])
-          return
-        }
-        const res = await fetch(`/api/supertone-voices?apiKey=${encodeURIComponent(keys.supertone)}`)
-        const data = await res.json()
-        if (cancelled()) return
-        const list = (data.voices || data.data || [])
-          .map(
-            (v: {
-              id?: string
-              voice_id?: string
-              name?: string
-              gender?: string
-            }) => ({
-              id: String(v.id || v.voice_id || ""),
-              label: String(v.name || v.id || "voice"),
-            })
-          )
-          .filter((v: VoiceOption) => v.id)
-        setVoices(list.length ? list : [{ id: "default", label: "음성 목록 없음" }])
-        return
-      }
       // elevenlabs
       if (!keys.elevenlabs) {
         setVoices(ELEVEN_FALLBACK)
@@ -184,8 +161,6 @@ export default function LongformV2WorkspacePage() {
       if (engine === "supertonic") {
         setVoices(SUPERTONIC_BUILTIN_VOICES.map((v) => ({ id: v.voice_id, label: v.name })))
         setSupertonicStatus("상태 확인 실패 — 로컬 serve가 켜져 있는지 확인하세요.")
-      } else if (engine === "supertone") {
-        setVoices([{ id: "default", label: "Supertone 목록 로드 실패" }])
       } else {
         setVoices(ELEVEN_FALLBACK)
       }
@@ -511,32 +486,6 @@ export default function LongformV2WorkspacePage() {
                 "Supertonic TTS 실패. 로컬에서 `supertonic serve --host 127.0.0.1 --port 7788 --model supertonic-3` 를 실행하세요."
             )
           }
-          const audioUrl = ttsData.audioUrl || ttsData.url
-          if (!audioUrl) throw new Error("TTS 응답에 audioUrl이 없습니다.")
-          latestAudio = audioUrl
-          updateScene({
-            audioUrl,
-            ttsDurationSec: estimateNarrationDurationSec(scene.text),
-            busy: doImage || doPrompt ? "이미지 준비…" : null,
-          })
-        } else if (engine === "supertone") {
-          if (!k.supertone) {
-            openSettings()
-            throw new Error("Supertone(클라우드) API 키가 필요합니다.")
-          }
-          updateScene({ busy: "Supertone 음성 생성…", error: null })
-          const ttsRes = await fetch("/api/supertone-tts", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              text: scene.text,
-              voiceId: proj.voiceId,
-              apiKey: k.supertone,
-              language: "ko",
-            }),
-          })
-          const ttsData = await ttsRes.json()
-          if (!ttsRes.ok || ttsData.success === false) throw new Error(ttsData.error || "Supertone TTS 실패")
           const audioUrl = ttsData.audioUrl || ttsData.url
           if (!audioUrl) throw new Error("TTS 응답에 audioUrl이 없습니다.")
           latestAudio = audioUrl
@@ -1048,7 +997,7 @@ export default function LongformV2WorkspacePage() {
         <div className="lfv2-sidebar__bottom">
           <ApiKeyStatusCard keys={apiKeys} />
           <button type="button" className="lfv2-side-btn" onClick={openSettings}>
-            ⚙ API 키 설정
+            <Settings className="lfv2-ico lfv2-ico--lead" aria-hidden />API 키 설정
           </button>
           <button
             type="button"
@@ -1099,7 +1048,7 @@ export default function LongformV2WorkspacePage() {
             <div className="lfv2-overview-card">
               <h3>시작하기</h3>
               <p>
-                Gemini로 대본을 만들고, Supertonic 3(로컬)·ElevenLabs/Supertone으로 음성 · Replicate로
+                Gemini로 대본을 만들고, Supertonic 3(로컬)·ElevenLabs로 음성 · Replicate로
                 이미지를 생성합니다.
               </p>
               <ul className="lfv2-checklist">
@@ -1113,7 +1062,7 @@ export default function LongformV2WorkspacePage() {
                   <span className={project.scenes.some((s) => s.audioUrl) ? "ok" : "wait"}>
                     {project.scenes.some((s) => s.audioUrl) ? "✓" : "○"}
                   </span>
-                  AI 음성 (Supertonic 3 / ElevenLabs / Supertone)
+                  AI 음성 (Supertonic 3 / ElevenLabs)
                 </li>
                 <li>
                   <span className={project.scenes.some((s) => s.imageUrl) ? "ok" : "wait"}>

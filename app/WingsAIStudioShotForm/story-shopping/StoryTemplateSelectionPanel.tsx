@@ -28,6 +28,7 @@ import {
   STORY_FRAME_TEMPLATES,
   StoryChannelFrame,
 } from "./StoryChannelFrame"
+import { resolveStoryCoverLines } from "./story-cover"
 import type {
   StoryFrameSettings,
   StoryFrameTemplateId,
@@ -46,6 +47,7 @@ export function StoryTemplateSelectionPanel({
   const [isTemplateDialogOpen, setIsTemplateDialogOpen] = useState(false)
   const [isRecommendingTitles, setIsRecommendingTitles] = useState(false)
   const [titleError, setTitleError] = useState("")
+  const [showCoverPreview, setShowCoverPreview] = useState(false)
   const settings: StoryFrameSettings = {
     ...DEFAULT_STORY_FRAME_SETTINGS,
     videoTitle: brief.generatedStory?.title || DEFAULT_STORY_FRAME_SETTINGS.videoTitle,
@@ -62,6 +64,12 @@ export function StoryTemplateSelectionPanel({
   const selectedTemplate =
     STORY_FRAME_TEMPLATES.find((template) => template.id === settings.templateId) ||
     STORY_FRAME_TEMPLATES[0]
+  const coverEnabled = settings.coverEnabled !== false
+  const autoCoverLines = resolveStoryCoverLines({
+    ...settings,
+    coverTitleTop: "",
+    coverTitleAccent: "",
+  })
 
   const patchSettings = (patch: Partial<StoryFrameSettings>) => {
     onChange((current) => ({
@@ -120,7 +128,7 @@ export function StoryTemplateSelectionPanel({
 
   return (
     <div className="space-y-5">
-      <section className="rounded-[28px] border border-amber-400/20 bg-[#0d0c09] p-5 md:p-6">
+      <section className="rounded-[28px] border border-amber-400/20 bg-[#f8f7f2] p-5 md:p-6">
         <div className="flex items-center gap-2 text-[9px] font-black tracking-[0.18em] text-amber-300">
           <LayoutTemplate className="h-4 w-4" />
           STORY CHANNEL TEMPLATE
@@ -157,7 +165,7 @@ export function StoryTemplateSelectionPanel({
         </button>
 
         <Dialog open={isTemplateDialogOpen} onOpenChange={setIsTemplateDialogOpen}>
-          <DialogContent className="max-h-[94vh] w-[96vw] max-w-[1400px] overflow-y-auto border-white/15 bg-[#0b0a08] p-7 text-white sm:max-w-[min(96vw,1400px)]">
+          <DialogContent className="max-h-[94vh] w-[96vw] max-w-[1400px] overflow-y-auto border-white/15 bg-[#f8f7f3] p-7 text-white sm:max-w-[min(96vw,1400px)]">
             <DialogHeader>
               <DialogTitle className="text-2xl">이야기 채널 템플릿 선택</DialogTitle>
               <DialogDescription className="text-sm text-zinc-400">
@@ -217,7 +225,7 @@ export function StoryTemplateSelectionPanel({
         </Dialog>
       </section>
 
-      <section className="grid gap-5 rounded-[28px] border border-white/10 bg-[#0c0c0b] p-5 xl:grid-cols-[380px_1fr]">
+      <section className="grid gap-5 rounded-[28px] border border-white/10 bg-[#f7f7f5] p-5 xl:grid-cols-[380px_1fr]">
         <div>
           <p className="text-[9px] font-black tracking-[0.18em] text-amber-300">
             LIVE TEMPLATE PREVIEW
@@ -228,6 +236,7 @@ export function StoryTemplateSelectionPanel({
               scene={selectedScene}
               asset={selectedAsset}
               fallbackMediaUrl={brief.productImage}
+              coverVisible={showCoverPreview && coverEnabled}
             />
           </div>
           {selectedTrack ? (
@@ -309,6 +318,60 @@ export function StoryTemplateSelectionPanel({
                 className="border-white/10 bg-black/25 text-white"
               />
             </Field>
+          </div>
+
+          <div className="mt-5 rounded-2xl border border-amber-400/20 bg-amber-500/[0.05] p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-black text-white">영상 시작 표지</p>
+                <p className="mt-1 text-[10px] leading-5 text-zinc-500">
+                  첫 문장(제목)을 읽는 1~3초 동안 상단을 큰 2줄 제목으로 덮습니다. 썰쇼핑
+                  채널들이 쓰는 썸네일 겸 오프닝입니다.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={!coverEnabled}
+                  onClick={() => setShowCoverPreview((value) => !value)}
+                  className="h-8 border-white/15 bg-black/20 text-[11px] font-bold text-white"
+                >
+                  {showCoverPreview && coverEnabled ? "본문 보기" : "표지 보기"}
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => patchSettings({ coverEnabled: !coverEnabled })}
+                  className={`h-8 text-[11px] font-black ${
+                    coverEnabled
+                      ? "bg-amber-400 text-amber-950 hover:bg-amber-300"
+                      : "bg-white/10 text-zinc-300 hover:bg-white/20"
+                  }`}
+                >
+                  {coverEnabled ? "켜짐" : "꺼짐"}
+                </Button>
+              </div>
+            </div>
+            {coverEnabled ? (
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <Field label="표지 윗줄 (흰색)">
+                  <Input
+                    value={settings.coverTitleTop || ""}
+                    placeholder={autoCoverLines?.top || "비우면 제목에서 자동"}
+                    onChange={(event) => patchSettings({ coverTitleTop: event.target.value })}
+                    className="border-white/10 bg-black/25 text-white"
+                  />
+                </Field>
+                <Field label="표지 강조 줄 (강조색)">
+                  <Input
+                    value={settings.coverTitleAccent || ""}
+                    placeholder={autoCoverLines?.accent || "비우면 제목에서 자동"}
+                    onChange={(event) => patchSettings({ coverTitleAccent: event.target.value })}
+                    className="border-white/10 bg-black/25 text-white"
+                  />
+                </Field>
+              </div>
+            ) : null}
           </div>
 
           <div className="mt-5 rounded-2xl border border-fuchsia-400/20 bg-gradient-to-br from-fuchsia-500/[0.08] to-violet-500/[0.05] p-4">

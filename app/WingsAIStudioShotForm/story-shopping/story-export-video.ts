@@ -5,6 +5,13 @@ import {
   remuxWebmWithDuration,
 } from "@/lib/mvp-webm-to-mp4"
 import type { StoryFrameSettings } from "./story-types"
+import {
+  CAPTION_KEYWORD_BG,
+  CAPTION_KEYWORD_TEXT,
+  captionMotionAt,
+  captionSegments,
+  type StoryCaptionAnimation,
+} from "./story-caption-motion"
 
 export type StoryExportProgress = {
   phase: "prepare" | "record" | "encode" | "done" | "error"
@@ -918,50 +925,176 @@ function measureCaptionBox(
   }
 }
 
-/** 클립마다 바뀌는 대본 — 매 프레임 clip.text로 다시 그림 */
+type CanvasBox = { x: number; y: number; w: number; h: number }
+
+/** 미리보기 자막 DOM에서 위치·글꼴·색·외곽선을 읽어 캔버스 좌표로 변환 */
+type CaptionLayout = {
+  textBox: CanvasBox
+  /** 상단/중앙 자막의 반투명 검정 판 */
+  overlayBox?: CanvasBox
+  color: string
+  fontFamily: string
+  fontWeight: string
+  letterSpacingEm: number
+  background: string
+  strokeWidth: number
+  strokeColor: string
+}
+
+function isTransparentColor(color: string) {
+  return !color || color === "transparent" || /rgba\([^)]*,\s*0\)$/.test(color)
+}
+
+function readCaptionLayout(
+  stageEl: HTMLElement,
+  width: number,
+  height: number,
+  mediaBox: CanvasBox
+): CaptionLayout {
+  const stageRect = stageEl.getBoundingClientRect()
+  const toCanvas = (rect: DOMRect): CanvasBox => ({
+    x: Math.round(((rect.left - stageRect.left) / stageRect.width) * width),
+    y: Math.round(((rect.top - stageRect.top) / stageRect.height) * height),
+    w: Math.max(1, Math.round((rect.width / stageRect.width) * width)),
+    h: Math.max(1, Math.round((rect.height / stageRect.height) * height)),
+  })
+  const textEl = stageEl.querySelector(
+    '[data-story-caption-text="true"]'
+  ) as HTMLElement | null
+  const spanEl = textEl?.firstElementChild as HTMLElement | null
+  if (!textEl || !spanEl || stageRect.width < 2 || stageRect.height < 2) {
+    const box = measureCaptionBox(stageEl, width, height, mediaBox)
+    const inset = { x: box.x + box.w * 0.07, y: box.y, w: box.w * 0.86, h: box.h }
+    return {
+      textBox: inset,
+      overlayBox: box.overlay ? box : undefined,
+      color: box.overlay ? "#ffffff" : "#000000",
+      fontFamily: 'Pretendard, "Noto Sans KR", Malgun Gothic, sans-serif',
+      fontWeight: "700",
+      letterSpacingEm: 0,
+      background: "transparent",
+      strokeWidth: box.overlay ? width * 0.0024 : 0,
+      strokeColor: "#000000",
+    }
+  }
+
+  const pxScale = width / stageRect.width
+  const textStyle = getComputedStyle(textEl)
+  const spanStyle = getComputedStyle(spanEl)
+  const fontSizePx = parseFloat(textStyle.fontSize) || 1
+  const overlayPlate = stageEl.querySelector(
+    '[data-story-caption-overlay="true"] > div'
+  ) as HTMLElement | null
+  return {
+    textBox: toCanvas(textEl.getBoundingClientRect()),
+    overlayBox: overlayPlate ? toCanvas(overlayPlate.getBoundingClientRect()) : undefined,
+    color: textStyle.color,
+    fontFamily: textStyle.fontFamily,
+    fontWeight: textStyle.fontWeight,
+    letterSpacingEm: (parseFloat(textStyle.letterSpacing) || 0) / fontSizePx,
+    background: spanStyle.backgroundColor,
+    strokeWidth:
+      (parseFloat(spanStyle.getPropertyValue("-webkit-text-stroke-width")) || 0) * pxScale,
+    strokeColor: spanStyle.getPropertyValue("-webkit-text-stroke-color") || "#000000",
+  }
+}
+
+function setCaptionFont(
+  ctx: CanvasRenderingContext2D,
+  layout: CaptionLayout,
+  size: number
+) {
+  ctx.font = `${layout.fontWeight} ${size}px ${layout.fontFamily}`
+  if ("letterSpacing" in ctx) {
+    ;(ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing =
+      `${(layout.letterSpacingEm * size).toFixed(2)}px`
+  }
+}
+
+/** 클립마다 바뀌는 대본 — 매 프레임 clip.text와 등장 애니메이션으로 다시 그림 */
 function drawLiveCaption(
   ctx: CanvasRenderingContext2D,
   width: number,
-  box: { x: number; y: number; w: number; h: number; overlay?: boolean },
-  text: string
+  layout: CaptionLayout,
+  rawText: string,
+  animation: StoryCaptionAnimation,
+  textScale: number,
+  localSec: number
 ) {
-  const captionText = (text || "").replace(/\.{2,}|…+/g, "").trim()
-  if (box.overlay) {
+  const text = (rawText || "").replace(/\.{2,}|…+/g, "").trim()
+  if (layout.overlayBox) {
+    const { x, y, w, h } = layout.overlayBox
     ctx.fillStyle = "rgba(0,0,0,0.35)"
-    ctx.fillRect(box.x + width * 0.04, box.y, box.w - width * 0.08, box.h)
-  } else {
-    ctx.fillStyle = "#ffffff"
-    ctx.fillRect(box.x, box.y, box.w, box.h)
+    ctx.beginPath()
+    ctx.roundRect(x, y, w, h, width * 0.012)
+    ctx.fill()
+  }
+  if (!text) return
+
+  // 미리보기 AutoFitCaption과 같은 규칙: 최대 5.2cqw, 좌우 여백 1.5cqw씩
+  const padX = width * 0.015
+  const padY = width * 0.008
+  const box = layout.textBox
+  const maxSize = width * 0.052 * textScale
+  const minSize = width * 0.028 * Math.min(1, textScale)
+  let size = maxSize
+  setCaptionFont(ctx, layout, size)
+  if (ctx.measureText(text).width + padX * 2 > box.w) {
+    let low = minSize
+    let high = maxSize
+    for (let index = 0; index < 7; index += 1) {
+      const middle = (low + high) / 2
+      setCaptionFont(ctx, layout, middle)
+      if (ctx.measureText(text).width + padX * 2 <= box.w) low = middle
+      else high = middle
+    }
+    size = low
+    setCaptionFont(ctx, layout, size)
   }
 
-  if (!box.overlay) {
-    const border = Math.max(2, Math.round(width * 0.0035))
-    ctx.strokeStyle = "#111111"
-    ctx.lineWidth = border
+  const frame = captionMotionAt(animation, text, localSec)
+  const segments = captionSegments(animation, text, frame)
+  const widths = segments.map((segment) => ctx.measureText(segment.text).width)
+  const textW = widths.reduce((sum, value) => sum + value, 0)
+
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(box.x, box.y, box.w, box.h)
+  ctx.clip()
+  ctx.globalAlpha = frame.opacity
+  ctx.translate(box.x + box.w / 2, box.y + box.h / 2 + frame.offsetEm * size)
+  ctx.scale(frame.scale, frame.scale)
+
+  if (!isTransparentColor(layout.background)) {
+    ctx.fillStyle = layout.background
     ctx.beginPath()
-    ctx.moveTo(box.x, box.y)
-    ctx.lineTo(box.x + box.w, box.y)
-    ctx.stroke()
-    ctx.beginPath()
-    ctx.moveTo(box.x, box.y + box.h)
-    ctx.lineTo(box.x + box.w, box.y + box.h)
-    ctx.stroke()
+    ctx.roundRect(-textW / 2 - padX, -size / 2 - padY, textW + padX * 2, size + padY * 2, width * 0.012)
+    ctx.fill()
   }
 
-  const maxW = box.w * 0.86
-  const size = fitFontSize(
-    ctx,
-    captionText || " ",
-    maxW,
-    Math.round(width * 0.048),
-    Math.round(width * 0.028),
-    "700"
-  )
-  ctx.fillStyle = box.overlay ? "#ffffff" : "#000000"
-  ctx.font = `700 ${size}px Pretendard, "Noto Sans KR", Malgun Gothic, sans-serif`
-  ctx.textAlign = "center"
+  ctx.textAlign = "left"
   ctx.textBaseline = "middle"
-  ctx.fillText(captionText, box.x + box.w / 2, box.y + box.h / 2)
+  ctx.lineJoin = "round"
+  let cursor = -textW / 2
+  segments.forEach((segment, index) => {
+    const segmentW = widths[index]!
+    if (!segment.hidden) {
+      const highlighted = segment.keyword && frame.highlight > 0
+      if (highlighted) {
+        ctx.fillStyle = CAPTION_KEYWORD_BG
+        ctx.fillRect(cursor, -size * 0.55, segmentW * frame.highlight, size * 1.1)
+      }
+      if (layout.strokeWidth > 0) {
+        ctx.strokeStyle = layout.strokeColor
+        ctx.lineWidth = layout.strokeWidth
+        ctx.strokeText(segment.text, cursor, 0)
+      }
+      ctx.fillStyle = highlighted ? CAPTION_KEYWORD_TEXT : layout.color
+      ctx.fillText(segment.text, cursor, 0)
+    }
+    cursor += segmentW
+  })
+  ctx.restore()
 }
 
 /**
@@ -990,9 +1123,15 @@ async function capturePreviewChrome(opts: {
     height: sh,
     imageTimeout: 1500,
     onclone: (_doc, cloned) => {
-      cloned.querySelectorAll("img, video, canvas").forEach((node) => {
+      cloned.querySelectorAll("img, video, canvas, [data-story-cover]").forEach((node) => {
         node.remove()
       })
+      // 자막 글자는 매 프레임 애니메이션으로 따로 그리므로 밴드 배경만 남김
+      cloned
+        .querySelectorAll<HTMLElement>('[data-story-caption-text="true"]')
+        .forEach((node) => {
+          node.style.visibility = "hidden"
+        })
       const media = cloned.querySelector(
         '[data-story-media-stage="true"]'
       ) as HTMLElement | null
@@ -1025,11 +1164,54 @@ async function capturePreviewChrome(opts: {
   return chrome
 }
 
+/** 미리보기의 표지 오버레이(숨김 상태여도)를 캡처해 1080×1920 기준 위치와 함께 반환 */
+async function capturePreviewCover(opts: {
+  stageEl: HTMLElement
+  width: number
+  height: number
+}): Promise<{ canvas: HTMLCanvasElement; box: CanvasBox } | null> {
+  const { stageEl, width, height } = opts
+  const coverEl = stageEl.querySelector<HTMLElement>('[data-story-cover="true"]')
+  if (!coverEl) return null
+  const stageRect = stageEl.getBoundingClientRect()
+  const coverRect = coverEl.getBoundingClientRect()
+  if (!stageRect.width || !coverRect.height) return null
+
+  const { default: html2canvas } = await import("html2canvas-pro")
+  const scale = Math.min(3, Math.max(2.5, width / Math.max(1, stageEl.clientWidth)))
+  const shot = await html2canvas(coverEl, {
+    backgroundColor: null,
+    useCORS: true,
+    allowTaint: false,
+    logging: false,
+    scale,
+    onclone: (_doc, cloned) => {
+      cloned.style.visibility = "visible"
+    },
+  })
+  const sx = width / stageRect.width
+  const sy = height / stageRect.height
+  return {
+    canvas: shot,
+    box: {
+      x: (coverRect.left - stageRect.left) * sx,
+      y: (coverRect.top - stageRect.top) * sy,
+      w: coverRect.width * sx,
+      h: coverRect.height * sy,
+    },
+  }
+}
+
 type StoryRecordOpts = {
   stageEl: HTMLElement
   clips: StoryExportClip[]
   frameSettings: StoryFrameSettings
   headerColor?: string
+  captionAnimation?: StoryCaptionAnimation
+  /** 미리보기 자막 크기 배율 (editSettings.subtitleSize / 36) */
+  captionTextScale?: number
+  /** 이 시점 전까지 표지 오버레이를 덮어 그림 (표지 꺼짐이면 무시) */
+  coverEndSec?: number
   totalDurationSec: number
   audioStream?: MediaStream | null
   play: () => Promise<void>
@@ -1038,6 +1220,42 @@ type StoryRecordOpts = {
   isActive: () => boolean
   onProgress?: (progress: StoryExportProgress) => void
   fileBaseName?: string
+}
+
+const sameMediaShot = (a: StoryExportClip, b: StoryExportClip) =>
+  Boolean(a.mediaUrl) &&
+  a.mediaUrl === b.mediaUrl &&
+  a.mediaType === b.mediaType &&
+  a.trimStartSec === b.trimStartSec &&
+  a.motionEffect === b.motionEffect &&
+  a.motionAccentEffect === b.motionAccentEffect &&
+  a.mediaFit === b.mediaFit &&
+  a.mediaScale === b.mediaScale &&
+  a.mediaOffsetX === b.mediaOffsetX &&
+  a.mediaOffsetY === b.mediaOffsetY
+
+/** 자막 줄이 바뀌어도 같은 그림이면 한 컷 — 모션·영상 재생이 줄마다 처음부터 다시 시작되지 않게 */
+function mergeContinuousMediaClips(clips: StoryExportClip[]): StoryExportClip[] {
+  const merged: StoryExportClip[] = []
+  for (const clip of clips) {
+    const last = merged[merged.length - 1]
+    if (last && sameMediaShot(last, clip)) {
+      last.endSec = clip.endSec
+      last.durationSec = last.endSec - last.startSec
+      last.trimEndSec = clip.trimEndSec
+      continue
+    }
+    merged.push({ ...clip })
+  }
+  return merged
+}
+
+/**
+ * 실제 녹화된 길이를 영상 길이로 씀. 재생은 앞뒤 무음을 자른 TTS를 따라가므로
+ * 타임라인 합계보다 짧을 수 있고, 타임라인 길이로 늘리면 뒤쪽이 정지 화면이 됨.
+ */
+function recordedDurationSec(recordedWallSec: number) {
+  return Math.max(0.5, recordedWallSec)
 }
 
 async function finalizeRecordedWebm(opts: {
@@ -1324,7 +1542,7 @@ async function recordStoryPreviewStageFromDom(
   canvas.remove()
 
   const recordedWallSec = (performance.now() - recordStartedAt) / 1000
-  const durationSec = Math.max(0.5, totalDurationSec, recordedWallSec * 0.98)
+  const durationSec = recordedDurationSec(recordedWallSec)
   return finalizeRecordedWebm({
     webmBlob,
     durationSec,
@@ -1344,7 +1562,7 @@ async function recordStoryPreviewStageCanvas(opts: StoryRecordOpts): Promise<{
 }> {
   const {
     stageEl,
-    clips,
+    clips: captionClips,
     frameSettings,
     headerColor = "#f7cf68",
     totalDurationSec,
@@ -1357,7 +1575,9 @@ async function recordStoryPreviewStageCanvas(opts: StoryRecordOpts): Promise<{
     fileBaseName = "story-shopping",
   } = opts
 
-  if (!clips.length) throw new Error("다운로드할 클립이 없습니다.")
+  if (!captionClips.length) throw new Error("다운로드할 클립이 없습니다.")
+  // 그림·모션은 같은 그림이 이어지는 구간을 한 컷으로, 자막은 줄 단위 그대로
+  const clips = mergeContinuousMediaClips(captionClips)
 
   onProgress?.({
     phase: "prepare",
@@ -1546,11 +1766,12 @@ async function recordStoryPreviewStageCanvas(opts: StoryRecordOpts): Promise<{
   let lastChromeKey = ""
   let chromeCanvas: HTMLCanvasElement | null = null
   let chromeBusy = false
-  let captionBox = measureCaptionBox(stageEl, width, height, mediaBox)
+  let captionLayout = readCaptionLayout(stageEl, width, height, mediaBox)
+  const captionAnimation = opts.captionAnimation || "none"
+  const captionTextScale = opts.captionTextScale || 1
   /** 직전 성공 미디어 프레임 — 전환 시 언더레이/크로스페이드용 */
   let holdCanvas: HTMLCanvasElement | null = null
   let holdClipKey = ""
-  let prevCaptionText = clips[0]?.text || ""
   /** 폴백 캔버스 경로: 크로스페이드는 앞뒤 이미지가 섞여 보이므로 끔 */
   const CROSSFADE_SEC = 0
   const reloadingKeys = new Set<string>()
@@ -1691,7 +1912,7 @@ async function recordStoryPreviewStageCanvas(opts: StoryRecordOpts): Promise<{
     try {
       await wait(40)
       mediaBox = measureMediaBox(stageEl, width, height)
-      captionBox = measureCaptionBox(stageEl, width, height, mediaBox)
+      captionLayout = readCaptionLayout(stageEl, width, height, mediaBox)
       const captured = await capturePreviewChrome({
         stageEl,
         width,
@@ -1931,43 +2152,31 @@ async function recordStoryPreviewStageCanvas(opts: StoryRecordOpts): Promise<{
     }
   }
 
-  const paintCaptionSmooth = (clip: StoryExportClip, playhead: number) => {
-    const localSec = Math.max(0, playhead - clip.startSec)
-    const captionFadeSec = 0.28
-    const fade =
-      localSec < captionFadeSec && prevCaptionText && prevCaptionText !== clip.text
-        ? easeInOutCubic(localSec / captionFadeSec)
-        : 1
+  const captionClipAt = (sec: number) => {
+    const t = Math.max(0, sec)
+    return (
+      captionClips.find((item) => t >= item.startSec && t < item.endSec - 0.0001) ||
+      captionClips[captionClips.length - 1]!
+    )
+  }
 
-    if (fade < 1 && prevCaptionText && prevCaptionText !== clip.text) {
-      // 이전 대본 → 새 대본 크로스페이드
-      drawLiveCaption(ctx, width, captionBox, prevCaptionText)
-      ctx.save()
-      // drawLiveCaption이 흰 배경을 깔으므로, 새 대본만 알파로 덮기 위해 직접 그림
-      const box = captionBox
-      ctx.globalAlpha = fade
-      ctx.fillStyle = "#ffffff"
-      ctx.fillRect(box.x, box.y, box.w, box.h)
-      const captionText = (clip.text || "").replace(/\.{2,}|…+/g, "").trim()
-      const maxW = box.w * 0.86
-      const size = fitFontSize(
-        ctx,
-        captionText || " ",
-        maxW,
-        Math.round(width * 0.048),
-        Math.round(width * 0.028),
-        "700"
-      )
-      ctx.fillStyle = "#000000"
-      ctx.font = `700 ${size}px Pretendard, "Noto Sans KR", Malgun Gothic, sans-serif`
-      ctx.textAlign = "center"
-      ctx.textBaseline = "middle"
-      ctx.fillText(captionText, box.x + box.w / 2, box.y + box.h / 2)
-      ctx.restore()
-    } else {
-      drawLiveCaption(ctx, width, captionBox, clip.text)
+  const paintCaption = (playhead: number) => {
+    const clip = captionClipAt(playhead)
+    // 같은 문장이 이어지는 컷은 다시 튀어나오지 않게 첫 컷 시작 기준으로 계산
+    let startSec = clip.startSec
+    for (let index = captionClips.indexOf(clip) - 1; index >= 0; index -= 1) {
+      if (captionClips[index]!.text !== clip.text) break
+      startSec = captionClips[index]!.startSec
     }
-    if (localSec >= captionFadeSec) prevCaptionText = clip.text
+    drawLiveCaption(
+      ctx,
+      width,
+      captionLayout,
+      clip.text,
+      captionAnimation,
+      captionTextScale,
+      playhead - startSec
+    )
   }
 
   const paintFrame = () => {
@@ -1992,13 +2201,17 @@ async function recordStoryPreviewStageCanvas(opts: StoryRecordOpts): Promise<{
         width,
         mediaBox.y,
         frameSettings,
-        clip.text,
+        "",
         headerColor
       )
     }
 
-    paintCaptionSmooth(clip, playhead)
     paintMedia(clip, motion, effect, playhead)
+    // 상단/중앙 자막은 미디어 위에 겹치므로 미디어 다음에 그림
+    paintCaption(playhead)
+    if (cover && playhead < coverEndSec) {
+      ctx.drawImage(cover.canvas, cover.box.x, cover.box.y, cover.box.w, cover.box.h)
+    }
     lastMediaKey = clip.key
     prefetchNextClipMedia(playhead)
 
@@ -2015,6 +2228,14 @@ async function recordStoryPreviewStageCanvas(opts: StoryRecordOpts): Promise<{
     ratio: 0.08,
   })
   await refreshChrome(clips[0]!, true)
+  const coverEndSec = opts.coverEndSec ?? 0
+  const cover =
+    coverEndSec > 0
+      ? await capturePreviewCover({ stageEl, width, height }).catch((error) => {
+          console.warn("[StoryExport] 표지 캡처 실패:", error)
+          return null
+        })
+      : null
   bakeOpeningFrames()
 
   for (let i = 0; i < 8; i++) {
@@ -2126,7 +2347,7 @@ async function recordStoryPreviewStageCanvas(opts: StoryRecordOpts): Promise<{
     }
   }
 
-  const durationSec = Math.max(0.5, totalDurationSec, recordedWallSec * 0.98)
+  const durationSec = recordedDurationSec(recordedWallSec)
   return finalizeRecordedWebm({
     webmBlob,
     durationSec,

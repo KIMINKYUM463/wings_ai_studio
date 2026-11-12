@@ -25,6 +25,7 @@ import {
   Send,
   Sparkles,
   Star,
+  Store,
   Trophy,
   UserRound,
   Users,
@@ -38,6 +39,19 @@ import type {
   StoryScriptScene,
 } from "./story-types"
 import { StoryVideoMosaicLayer } from "./StoryVideoMosaicLayer"
+import {
+  CAPTION_KEYWORD_BG,
+  CAPTION_KEYWORD_TEXT,
+  captionMotionAt,
+  captionMotionDurationSec,
+  captionSegments,
+  type StoryCaptionAnimation,
+} from "./story-caption-motion"
+import {
+  DEFAULT_STORY_COVER_ACCENT,
+  resolveStoryCoverLines,
+  type StoryCoverLines,
+} from "./story-cover"
 
 function preloadStoryImage(url: string): Promise<void> {
   return new Promise((resolve) => {
@@ -124,7 +138,7 @@ export function prefetchStoryMediaUrls(
 }
 
 export const DEFAULT_STORY_FRAME_SETTINGS: StoryFrameSettings = {
-  templateId: "channel-search",
+  templateId: "channel-shop-green",
   channelName: "이야기 상점",
   videoTitle: "알고 나면 계속 생각나는 이야기",
   authorLabel: "익명",
@@ -134,6 +148,7 @@ export const DEFAULT_STORY_FRAME_SETTINGS: StoryFrameSettings = {
 }
 
 type StoryFrameVariant =
+  | "shop"
   | "search"
   | "pill"
   | "minimal"
@@ -166,7 +181,14 @@ export const STORY_FRAME_TEMPLATES: Array<{
   color: string
   foreground?: string
   variant: StoryFrameVariant
+  /** 영상 시작 표지의 강조 줄 색 */
+  coverAccent?: string
+  /** 헤더 채널명 앞 상점 아이콘 */
+  headerIcon?: boolean
 }> = [
+  { id: "channel-shop-green", name: "썰쇼핑 그린형", description: "선물가게 스타일 · 연두 헤더 + 형광 표지", color: "#9fd36d", foreground: "#1d3510", variant: "shop", coverAccent: "#8dff3c" },
+  { id: "channel-shop-orange", name: "썰쇼핑 오렌지형", description: "수상한상점 스타일 · 주황 헤더 + 노랑 표지", color: "#f6a03b", foreground: "#ffffff", variant: "shop", coverAccent: "#ffd500" },
+  { id: "channel-shop-white", name: "썰쇼핑 화이트형", description: "신사들 스타일 · 흰 헤더 + 주황 표지", color: "#ffffff", foreground: "#111111", variant: "shop", coverAccent: "#ff9d1c", headerIcon: true },
   { id: "channel-search", name: "검색 바형", description: "뒤로가기·검색·메뉴", color: "#f7cf68", variant: "search" },
   { id: "channel-pill", name: "중앙 검색형", description: "강한 노란색 채널 헤더", color: "#ffc400", variant: "pill" },
   { id: "channel-minimal", name: "미니멀형", description: "차분한 크림색 헤더", color: "#f6e8bf", variant: "minimal" },
@@ -382,11 +404,13 @@ function findBestCutIndex(text: string, ideal: number): number {
   let bestScore = Infinity
   for (let i = min; i <= max; i += 1) {
     const ch = text[i - 1] || ""
+    // 어절 중간에서 자르면 "이어플러 그를"처럼 단어가 깨지므로 띄어쓰기 경계만 우선
+    const atWordBoundary = /\s/.test(ch) || /\s/.test(text[i] || "")
     const score =
       Math.abs(i - ideal) +
-      (/\s/.test(ch) ? -3 : 0) +
-      (/[은는이가을를의에과와로도만]/.test(ch) ? -2 : 0) +
-      (/[요죠네다]/.test(ch) ? -1 : 0)
+      (atWordBoundary ? -3 : 12) +
+      (atWordBoundary && /[은는이가을를의에과와로도만]/.test(ch) ? -2 : 0) +
+      (atWordBoundary && /[요죠네다음함]/.test(ch) ? -1 : 0)
     if (score < bestScore) {
       bestScore = score
       best = i
@@ -410,6 +434,7 @@ export function StoryChannelFrame({
   textBackgroundColor = "transparent",
   textOutlineWidth = 0,
   textOutlineColor = "#ffffff",
+  textAnimation = "none",
   subtitlePosition = "bottom",
   mediaBackgroundColor = "#c6c6c6",
   motionDurationSec,
@@ -418,6 +443,7 @@ export function StoryChannelFrame({
   activeNarrationLine,
   narrationDisplayLines,
   prefetchMedia,
+  coverVisible = false,
   className = "",
 }: {
   settings: StoryFrameSettings
@@ -432,6 +458,8 @@ export function StoryChannelFrame({
   textBackgroundColor?: string
   textOutlineWidth?: number
   textOutlineColor?: string
+  /** 자막이 바뀔 때마다 재생되는 등장 애니메이션 */
+  textAnimation?: StoryCaptionAnimation
   /** 자막 위치 — bottom=템플릿 밴드, top/center=미디어 위 오버레이 */
   subtitlePosition?: "top" | "center" | "bottom"
   mediaBackgroundColor?: string
@@ -452,6 +480,8 @@ export function StoryChannelFrame({
     mediaType?: "image" | "video"
     trimStartSec?: number
   }>
+  /** 영상 시작 표지(큰 2줄 제목) 표시 — 꺼져 있어도 MP4 캡처용으로 DOM에는 남김 */
+  coverVisible?: boolean
   className?: string
 }) {
   const mediaUrl = asset?.mediaUrl || fallbackMediaUrl || ""
@@ -730,9 +760,11 @@ export function StoryChannelFrame({
     Math.max(0, activeNarrationLine ?? 0)
   )
   const visibleLine = narrationLines[lineIndex] || narrationLines[0] || ""
-  const frameVariant =
-    STORY_FRAME_TEMPLATES.find((template) => template.id === settings.templateId)
-      ?.variant || "search"
+  const frameTemplate = STORY_FRAME_TEMPLATES.find(
+    (template) => template.id === settings.templateId
+  )
+  const frameVariant = frameTemplate?.variant || "search"
+  const coverLines = resolveStoryCoverLines(settings)
   const primaryEffect =
     paintAsset?.motionEffect && paintAsset.motionEffect !== "none"
       ? paintAsset.motionEffect
@@ -767,13 +799,14 @@ export function StoryChannelFrame({
       backgroundColor={captionOverlay ? "transparent" : textBackgroundColor}
       outlineWidth={captionOverlay ? Math.max(textOutlineWidth || 0, 2) : textOutlineWidth}
       outlineColor={captionOverlay ? "#000000" : textOutlineColor}
+      animation={textAnimation}
       overlay={captionOverlay}
     />
   )
 
   return (
     <div
-      className={`relative flex aspect-[9/16] flex-col overflow-hidden bg-white text-black shadow-2xl ${className}`}
+      className={`light-keep relative flex aspect-[9/16] flex-col overflow-hidden bg-white text-black shadow-2xl ${className}`}
       style={{ containerType: "inline-size" }}
     >
       <FrameHeader settings={settings} />
@@ -875,8 +908,8 @@ export function StoryChannelFrame({
             </div>
           </div>
         ) : (
-          <div className="flex h-full items-center justify-center bg-[#c6c6c6]">
-            <span className="flex h-[38cqw] w-[38cqw] items-center justify-center rounded-full bg-[#444] text-white shadow-lg">
+          <div className="flex h-full items-center justify-center bg-[#454545]">
+            <span className="flex h-[38cqw] w-[38cqw] items-center justify-center rounded-full bg-[#d2d2d2] text-white shadow-lg">
               <Video
                 style={{
                   width: "22cqw",
@@ -921,6 +954,78 @@ export function StoryChannelFrame({
           </div>
         ) : null}
       </section>
+
+      {coverLines ? (
+        <StoryCoverOverlay
+          lines={coverLines}
+          title={settings.videoTitle}
+          accentColor={frameTemplate?.coverAccent || DEFAULT_STORY_COVER_ACCENT}
+          visible={coverVisible}
+        />
+      ) : null}
+    </div>
+  )
+}
+
+/** 큰 글자 테두리 — html2canvas(내보내기)도 그대로 그리도록 text-shadow 8방향으로 만듦 */
+function coverOutline(widthCqw: number) {
+  const w = `${widthCqw}cqw`
+  const n = `-${widthCqw}cqw`
+  return [
+    `${w} 0 0 #000`, `${n} 0 0 #000`, `0 ${w} 0 #000`, `0 ${n} 0 #000`,
+    `${w} ${w} 0 #000`, `${n} ${n} 0 #000`, `${w} ${n} 0 #000`, `${n} ${w} 0 #000`,
+  ].join(", ")
+}
+
+/** 썰쇼핑 채널 표지: 어두운 띠 위 흰 줄 + 강조색 줄, 아래 흰 띠에 영상 제목 */
+function StoryCoverOverlay({
+  lines,
+  title,
+  accentColor,
+  visible,
+}: {
+  lines: StoryCoverLines
+  title: string
+  accentColor: string
+  visible: boolean
+}) {
+  // 한글 1자 ≈ 1em → 띠 너비 88cqw 안에 들어가는 최대 크기 (최대 11.5cqw)
+  const longest = Math.max(
+    1,
+    ...[lines.top, lines.accent].map((line) => line.replace(/\s/g, "").length + line.split(" ").length * 0.3)
+  )
+  const fontCqw = Math.min(11.5, 88 / longest)
+  const lineStyle = {
+    fontSize: `${fontCqw}cqw`,
+    lineHeight: 1.18,
+    textShadow: coverOutline(Math.max(0.45, fontCqw * 0.07)),
+  }
+
+  return (
+    <div
+      data-story-cover="true"
+      aria-hidden={!visible}
+      className="pointer-events-none absolute inset-x-0 top-0 z-40"
+      style={{ visibility: visible ? "visible" : "hidden" }}
+    >
+      <div
+        className="flex flex-col items-center justify-center px-[5%] text-center font-black"
+        style={{ height: "56cqw", background: "linear-gradient(180deg, #161616 0%, #3b3b3b 100%)" }}
+      >
+        {lines.top ? (
+          <p className="whitespace-nowrap text-white" style={lineStyle}>
+            {lines.top}
+          </p>
+        ) : null}
+        {lines.accent ? (
+          <p className="whitespace-nowrap" style={{ ...lineStyle, color: accentColor }}>
+            {lines.accent}
+          </p>
+        ) : null}
+      </div>
+      <div className="bg-white px-[6%] py-[3.2cqw] text-center text-black">
+        <AutoFitTitle text={title} />
+      </div>
     </div>
   )
 }
@@ -940,16 +1045,25 @@ function StoryPostPanel({
     </>
   )
 
+  if (variant === "shop") {
+    return (
+      <section className="shrink-0 bg-white px-[6%] pt-[3.2%] text-center">
+        <AutoFitTitle text={settings.videoTitle} />
+        <div className="mt-[3.2%] h-[0.3cqw] bg-[#d6d6d6]" />
+      </section>
+    )
+  }
+
   if (variant === "board") {
     return (
-      <section className="shrink-0 border-b-[0.35cqw] border-[#c9dfe0] bg-white px-[7%] py-[3.5%]">
-        <div className="mb-[2cqw] flex items-center justify-between text-[#168487]" style={{ fontSize: "2.3cqw" }}>
+      <section className="shrink-0 border-b-[0.35cqw] border-[#293b3c] bg-white px-[7%] py-[3.5%]">
+        <div className="mb-[2cqw] flex items-center justify-between text-[#0e8184]" style={{ fontSize: "2.3cqw" }}>
           <strong>오늘의 익명 사연</strong>
           <span>일상 · 인기</span>
         </div>
         <AutoFitTitle text={settings.videoTitle} />
-        <div className="mt-[2.5cqw] flex items-center gap-[2cqw] text-[#7c8b8c]" style={{ fontSize: "2.3cqw" }}>
-          <strong className="text-[#354748]">{settings.authorLabel}</strong>
+        <div className="mt-[2.5cqw] flex items-center gap-[2cqw] text-[#586667]" style={{ fontSize: "2.3cqw" }}>
+          <strong className="text-[#c5dadb]">{settings.authorLabel}</strong>
           <span className="ml-auto">조회 {settings.viewCountLabel}</span>
           <span>공감 {settings.likeCountLabel}</span>
         </div>
@@ -959,13 +1073,13 @@ function StoryPostPanel({
 
   if (variant === "hot") {
     return (
-      <section className="shrink-0 border-b-[0.5cqw] border-[#f59e0b] bg-[#171a1f] px-[7%] py-[3.5%] text-white">
+      <section className="shrink-0 border-b-[0.5cqw] border-[#803100] bg-[#fbffff] px-[7%] py-[3.5%] text-white">
         <div className="mb-[2cqw] flex items-center gap-[1.5cqw]" style={{ fontSize: "2.4cqw" }}>
           <span className="rounded-[0.8cqw] bg-[#f59e0b] px-[1.5cqw] py-[0.6cqw] font-black text-black">POTEN</span>
-          <span className="text-[#aab2c0]">실시간 화제</span>
+          <span className="text-[#464d59]">실시간 화제</span>
         </div>
         <AutoFitTitle text={settings.videoTitle} />
-        <div className="mt-[2.5cqw] flex gap-[2.5cqw] font-bold text-[#8f9bad]" style={{ fontSize: "2.3cqw" }}>
+        <div className="mt-[2.5cqw] flex gap-[2.5cqw] font-bold text-[#4d5868]" style={{ fontSize: "2.3cqw" }}>
           {stats}
         </div>
       </section>
@@ -974,15 +1088,15 @@ function StoryPostPanel({
 
   if (variant === "best-comment") {
     return (
-      <section className="shrink-0 bg-[#fff8f6] px-[7%] py-[3.5%]">
+      <section className="shrink-0 bg-[#1e1a18] px-[7%] py-[3.5%]">
         <div className="mb-[2cqw] flex items-center justify-between">
-          <span className="rounded-full bg-[#f05a47] px-[2cqw] py-[0.7cqw] font-black text-white" style={{ fontSize: "2.3cqw" }}>
+          <span className="rounded-full bg-[#f05a47] px-[2cqw] py-[0.7cqw] font-black text-[#181818]" style={{ fontSize: "2.3cqw" }}>
             댓글이 난리 난 글
           </span>
-          <span className="text-[#a06860]" style={{ fontSize: "2.2cqw" }}>BEST</span>
+          <span className="text-[#935d55]" style={{ fontSize: "2.2cqw" }}>BEST</span>
         </div>
         <AutoFitTitle text={settings.videoTitle} />
-        <div className="mt-[2.5cqw] flex items-center gap-[2cqw] border-t-[0.3cqw] border-[#f0d8d2] pt-[2cqw] text-[#a06d65]" style={{ fontSize: "2.3cqw" }}>
+        <div className="mt-[2.5cqw] flex items-center gap-[2cqw] border-t-[0.3cqw] border-[#3e2c28] pt-[2cqw] text-[#8e5c55]" style={{ fontSize: "2.3cqw" }}>
           <span>공감 ♥ {settings.likeCountLabel}</span>
           <span className="ml-auto">댓글 {settings.commentCountLabel}</span>
         </div>
@@ -992,13 +1106,13 @@ function StoryPostPanel({
 
   if (variant === "chat") {
     return (
-      <section className="shrink-0 bg-[#b8cad8] px-[7%] py-[3.5%] text-center">
+      <section className="shrink-0 bg-[#374752] px-[7%] py-[3.5%] text-center">
         <span className="inline-block rounded-full bg-black/15 px-[2.5cqw] py-[0.8cqw] text-white" style={{ fontSize: "2.2cqw" }}>
           오늘
         </span>
         <div className="mt-[2cqw] rounded-[2cqw] bg-white/85 px-[4cqw] py-[2.5cqw] text-left shadow-sm">
-          <div className="mb-[1.5cqw] flex items-center gap-[1.5cqw] text-[#63717b]" style={{ fontSize: "2.2cqw" }}>
-            <span className="h-[4cqw] w-[4cqw] rounded-full bg-[#f7dc48]" />
+          <div className="mb-[1.5cqw] flex items-center gap-[1.5cqw] text-[#6c7a85]" style={{ fontSize: "2.2cqw" }}>
+            <span className="h-[4cqw] w-[4cqw] rounded-full bg-[#d3b800]" />
             <strong>{settings.authorLabel}</strong>
             <span className="ml-auto">방금</span>
           </div>
@@ -1010,17 +1124,17 @@ function StoryPostPanel({
 
   if (variant === "office") {
     return (
-      <section className="shrink-0 bg-[#f2f3f5] px-[6%] py-[3.5%]">
-        <div className="rounded-[1.5cqw] bg-white px-[4cqw] py-[3cqw] shadow-[0_0.5cqw_2cqw_rgba(0,0,0,.08)]">
+      <section className="shrink-0 bg-[#212223] px-[6%] py-[3.5%]">
+        <div className="rounded-[1.5cqw] bg-white px-[4cqw] py-[3cqw] shadow-[0_0.5cqw_2cqw_rgba(20,35,70,0.028)]">
           <div className="mb-[2cqw] flex items-center gap-[1.5cqw]" style={{ fontSize: "2.3cqw" }}>
-            <span className="flex h-[5cqw] w-[5cqw] items-center justify-center rounded-full bg-[#ef6c35] font-black text-white">B</span>
+            <span className="flex h-[5cqw] w-[5cqw] items-center justify-center rounded-full bg-[#5a95ff] font-black text-[#181818]">B</span>
             <span>
               <strong className="block">회사원 · 익명</strong>
-              <span className="text-[#9a9da3]">방금 전</span>
+              <span className="text-[#52555a]">방금 전</span>
             </span>
           </div>
           <AutoFitTitle text={settings.videoTitle} />
-          <div className="mt-[2.5cqw] flex gap-[2.5cqw] text-[#858990]" style={{ fontSize: "2.2cqw" }}>{stats}</div>
+          <div className="mt-[2.5cqw] flex gap-[2.5cqw] text-[#5f6269]" style={{ fontSize: "2.2cqw" }}>{stats}</div>
         </div>
       </section>
     )
@@ -1028,13 +1142,13 @@ function StoryPostPanel({
 
   if (variant === "breaking") {
     return (
-      <section className="shrink-0 border-b-[1cqw] border-[#c9252d] bg-white px-[6%] py-[3.5%]">
+      <section className="shrink-0 border-b-[1cqw] border-[#d33135] bg-white px-[6%] py-[3.5%]">
         <div className="mb-[2cqw] flex items-center gap-[2cqw]">
-          <span className="bg-[#c9252d] px-[2cqw] py-[0.8cqw] font-black text-white" style={{ fontSize: "2.5cqw" }}>단독</span>
-          <span className="font-bold text-[#777]" style={{ fontSize: "2.3cqw" }}>지금 가장 뜨거운 이야기</span>
+          <span className="bg-[#c9252d] px-[2cqw] py-[0.8cqw] font-black text-[#181818]" style={{ fontSize: "2.5cqw" }}>단독</span>
+          <span className="font-bold text-[#6e6e6e]" style={{ fontSize: "2.3cqw" }}>지금 가장 뜨거운 이야기</span>
         </div>
         <AutoFitTitle text={settings.videoTitle} />
-        <div className="mt-[2.5cqw] flex justify-between text-[#888]" style={{ fontSize: "2.2cqw" }}>
+        <div className="mt-[2.5cqw] flex justify-between text-[#636363]" style={{ fontSize: "2.2cqw" }}>
           <span>{settings.authorLabel} 제보</span>
           <span>조회 {settings.viewCountLabel}</span>
         </div>
@@ -1049,7 +1163,7 @@ function StoryPostPanel({
         style={{ backgroundColor: "#fffdf3", backgroundImage: "radial-gradient(#d5cce8 0.8cqw, transparent 0.8cqw)", backgroundSize: "4cqw 4cqw" }}
       >
         <div className="rotate-[-0.5deg] border-[0.7cqw] border-black bg-white px-[4cqw] py-[3cqw] shadow-[1.5cqw_1.5cqw_0_#f5c842]">
-          <div className="mb-[1.5cqw] font-black text-[#8b5cf6]" style={{ fontSize: "2.4cqw" }}>EP. 오늘의 황당한 썰</div>
+          <div className="mb-[1.5cqw] font-black text-[#1158e1]" style={{ fontSize: "2.4cqw" }}>EP. 오늘의 황당한 썰</div>
           <AutoFitTitle text={settings.videoTitle} />
         </div>
       </section>
@@ -1059,17 +1173,17 @@ function StoryPostPanel({
   if (variant === "diary") {
     return (
       <section
-        className="shrink-0 border-b-[0.35cqw] border-[#b9a98d] px-[8%] py-[4%]"
+        className="shrink-0 border-b-[0.35cqw] border-[#5b4d33] px-[8%] py-[4%]"
         style={{ backgroundColor: "#f8f0df", backgroundImage: "repeating-linear-gradient(transparent, transparent 5.5cqw, rgba(126,105,72,.12) 5.8cqw)" }}
       >
-        <div className="mb-[2cqw] flex justify-between font-bold text-[#8a7659]" style={{ fontFamily: "'Noto Serif KR', serif", fontSize: "2.3cqw" }}>
+        <div className="mb-[2cqw] flex justify-between font-bold text-[#7d6a4d]" style={{ fontFamily: "'Noto Serif KR', serif", fontSize: "2.3cqw" }}>
           <span>{settings.authorLabel}의 기록</span>
           <span>오늘, 맑음</span>
         </div>
         <div style={{ fontFamily: "'Noto Serif KR', serif" }}>
           <AutoFitTitle text={settings.videoTitle} />
         </div>
-        <div className="mt-[2.5cqw] text-right text-[#9b8768]" style={{ fontSize: "2.2cqw" }}>조회 {settings.viewCountLabel}</div>
+        <div className="mt-[2.5cqw] text-right text-[#715e40]" style={{ fontSize: "2.2cqw" }}>조회 {settings.viewCountLabel}</div>
       </section>
     )
   }
@@ -1077,12 +1191,12 @@ function StoryPostPanel({
   return (
     <section className="shrink-0 border-b-[0.4cqw] border-black bg-white px-[8%] py-[3%]">
       <AutoFitTitle text={settings.videoTitle} />
-      <div className="mt-[3%] flex items-center gap-[1.2cqw] truncate font-bold text-[#999]" style={{ fontSize: "2.4cqw" }}>
+      <div className="mt-[3%] flex items-center gap-[1.2cqw] truncate font-bold text-[#575757]" style={{ fontSize: "2.4cqw" }}>
         {settings.templateId === "channel-red" ? (
           <>
             <span>조회수 {settings.viewCountLabel}</span>
             <span>| 좋아요 {settings.likeCountLabel}</span>
-            <span className="ml-auto border border-[#bbb] px-[1.5cqw] py-[0.5cqw] text-[#c64343]">댓글 {settings.commentCountLabel}</span>
+            <span className="ml-auto border border-[#494949] px-[1.5cqw] py-[0.5cqw] text-[#bd3a3b]">댓글 {settings.commentCountLabel}</span>
           </>
         ) : (
           <>
@@ -1106,6 +1220,7 @@ function StoryCaptionPanel({
   backgroundColor,
   outlineWidth,
   outlineColor,
+  animation,
   overlay = false,
 }: {
   variant: StoryFrameVariant
@@ -1117,6 +1232,7 @@ function StoryCaptionPanel({
   backgroundColor: string
   outlineWidth: number
   outlineColor: string
+  animation: StoryCaptionAnimation
   /** 미디어 위 오버레이 — 템플릿 밴드 스타일 없이 텍스트만 */
   overlay?: boolean
 }) {
@@ -1132,6 +1248,7 @@ function StoryCaptionPanel({
       backgroundColor={backgroundColor}
       outlineWidth={outlineWidth}
       outlineColor={outlineColor}
+      animation={animation}
     />
   )
 
@@ -1139,17 +1256,20 @@ function StoryCaptionPanel({
     return <div className="w-full">{caption}</div>
   }
 
+  if (variant === "shop") {
+    return <section className="flex min-h-[24cqw] shrink-0 items-center justify-center bg-white px-[7%] py-[4%]">{caption}</section>
+  }
   if (variant === "board") {
-    return <section className="flex shrink-0 items-center border-l-[2cqw] border-[#23a6a8] bg-[#eefafa] px-[6%] py-[4%]">{caption}</section>
+    return <section className="flex shrink-0 items-center border-l-[2cqw] border-[#006d70] bg-[#172020] px-[6%] py-[4%]">{caption}</section>
   }
   if (variant === "hot") {
-    return <section className="flex shrink-0 items-center border-b-[0.35cqw] border-[#333944] bg-[#20242b] px-[7%] py-[4%]">{caption}</section>
+    return <section className="flex shrink-0 items-center border-b-[0.35cqw] border-[#dbe3f1] bg-[#eff5ff] px-[7%] py-[4%]">{caption}</section>
   }
   if (variant === "best-comment") {
     return (
-      <section className="shrink-0 bg-[#fff1ed] px-[6%] py-[3.5%]">
-        <div className="rounded-[2cqw] border-[0.35cqw] border-[#f5b8aa] bg-white px-[3cqw] py-[2.5cqw] shadow-sm">
-          <div className="mb-[1cqw] font-black text-[#f05a47]" style={{ fontSize: "2.2cqw" }}>베스트 댓글</div>
+      <section className="shrink-0 bg-[#281f1c] px-[6%] py-[3.5%]">
+        <div className="rounded-[2cqw] border-[0.35cqw] border-[#653429] bg-white px-[3cqw] py-[2.5cqw] shadow-sm">
+          <div className="mb-[1cqw] font-black text-[#ad0d01]" style={{ fontSize: "2.2cqw" }}>베스트 댓글</div>
           {caption}
         </div>
       </section>
@@ -1157,7 +1277,7 @@ function StoryCaptionPanel({
   }
   if (variant === "chat") {
     return (
-      <section className="flex shrink-0 items-start gap-[2cqw] bg-[#b8cad8] px-[6%] py-[3.5%]">
+      <section className="flex shrink-0 items-start gap-[2cqw] bg-[#374752] px-[6%] py-[3.5%]">
         <span className="flex h-[7cqw] w-[7cqw] shrink-0 items-center justify-center rounded-full bg-white font-black" style={{ fontSize: "3cqw" }}>나</span>
         <div className="relative min-w-0 flex-1 rounded-[1.8cqw] bg-white px-[2cqw] py-[2.5cqw] shadow-sm">
           {caption}
@@ -1168,8 +1288,8 @@ function StoryCaptionPanel({
   }
   if (variant === "office") {
     return (
-      <section className="shrink-0 bg-[#f2f3f5] px-[6%] py-[3.5%]">
-        <div className="rounded-[1.5cqw] border-l-[1.2cqw] border-[#ef6c35] bg-white px-[3cqw] py-[2.5cqw] shadow-sm">{caption}</div>
+      <section className="shrink-0 bg-[#212223] px-[6%] py-[3.5%]">
+        <div className="rounded-[1.5cqw] border-l-[1.2cqw] border-[#194eb7] bg-white px-[3cqw] py-[2.5cqw] shadow-sm">{caption}</div>
       </section>
     )
   }
@@ -1183,15 +1303,15 @@ function StoryCaptionPanel({
   }
   if (variant === "webtoon") {
     return (
-      <section className="shrink-0 bg-[#fffdf3] px-[6%] py-[3.5%]">
+      <section className="shrink-0 bg-[#1b1913] px-[6%] py-[3.5%]">
         <div className="rounded-[45%] border-[0.7cqw] border-black bg-white px-[5cqw] py-[3cqw] shadow-[1cqw_1cqw_0_#8b5cf6]">{caption}</div>
       </section>
     )
   }
   if (variant === "diary") {
     return (
-      <section className="shrink-0 bg-[#f8f0df] px-[7%] py-[4%]">
-        <div className="border-y-[0.3cqw] border-[#c9b998] py-[2.5cqw]">{caption}</div>
+      <section className="shrink-0 bg-[#282215] px-[7%] py-[4%]">
+        <div className="border-y-[0.3cqw] border-[#55472a] py-[2.5cqw]">{caption}</div>
       </section>
     )
   }
@@ -1253,6 +1373,7 @@ function AutoFitCaption({
   backgroundColor,
   outlineWidth,
   outlineColor,
+  animation,
 }: {
   text: string
   textScale?: number
@@ -1262,7 +1383,10 @@ function AutoFitCaption({
   backgroundColor: string
   outlineWidth: number
   outlineColor: string
+  animation: StoryCaptionAnimation
 }) {
+  const motion = useCaptionMotionFrame(animation, text)
+  const segments = captionSegments(animation, text, motion)
   const ref = useRef<HTMLParagraphElement>(null)
   const [fontCqw, setFontCqw] = useState(5.2 * textScale)
 
@@ -1308,6 +1432,7 @@ function AutoFitCaption({
       className="w-full overflow-hidden whitespace-nowrap text-center leading-none tracking-tight"
       style={{ fontSize: `${fontCqw}cqw`, color, fontFamily, fontWeight }}
       title={text}
+      data-story-caption-text="true"
     >
       <span
         className="inline-block rounded-[1.2cqw] px-[1.5cqw] py-[0.8cqw]"
@@ -1316,12 +1441,58 @@ function AutoFitCaption({
           WebkitTextStroke:
             outlineWidth > 0 ? `${outlineWidth * 0.12}cqw ${outlineColor}` : undefined,
           paintOrder: "stroke fill",
+          opacity: motion.opacity,
+          transform: `translateY(${motion.offsetEm}em) scale(${motion.scale})`,
         }}
       >
-        {text}
+        {segments.map((segment, index) => (
+          <span
+            key={index}
+            style={
+              segment.hidden
+                ? { opacity: 0 }
+                : segment.keyword && motion.highlight > 0
+                  ? {
+                      color: CAPTION_KEYWORD_TEXT,
+                      backgroundImage: `linear-gradient(${CAPTION_KEYWORD_BG}, ${CAPTION_KEYWORD_BG})`,
+                      backgroundRepeat: "no-repeat",
+                      backgroundSize: `${motion.highlight * 100}% 100%`,
+                    }
+                  : undefined
+            }
+          >
+            {segment.text}
+          </span>
+        ))}
       </span>
     </p>
   )
+}
+
+/** 자막이 바뀔 때만 애니메이션 길이만큼 프레임을 돌리고, 끝나면 멈춤 */
+function useCaptionMotionFrame(animation: StoryCaptionAnimation, text: string) {
+  const [localSec, setLocalSec] = useState(Number.POSITIVE_INFINITY)
+
+  // 페인트 전에 0초로 되돌려야 새 자막이 한 프레임 완성된 채로 번쩍이지 않음
+  useLayoutEffect(() => {
+    const durationSec = captionMotionDurationSec(animation, text)
+    if (!durationSec) {
+      setLocalSec(Number.POSITIVE_INFINITY)
+      return
+    }
+    const startedAt = performance.now()
+    let frameId = 0
+    const tick = (now: number) => {
+      const sec = (now - startedAt) / 1000
+      setLocalSec(sec)
+      if (sec < durationSec) frameId = requestAnimationFrame(tick)
+    }
+    setLocalSec(0)
+    frameId = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(frameId)
+  }, [animation, text])
+
+  return captionMotionAt(animation, text, localSec)
 }
 
 function FrameVideo({
@@ -1434,7 +1605,14 @@ function FrameHeader({ settings }: { settings: StoryFrameSettings }) {
       className="flex shrink-0 items-center justify-between px-[5%] py-[3.5%]"
       style={{ backgroundColor: background, color: foreground }}
     >
-      {variant === "search" ? (
+      {variant === "shop" ? (
+        <span className="flex min-w-0 flex-1 items-center justify-center gap-[2cqw] py-[0.6cqw]">
+          {template?.headerIcon ? <Store style={{ width: "6.5cqw", height: "6.5cqw", strokeWidth: 2.6 }} /> : null}
+          <strong className="truncate" style={{ fontSize: "6.2cqw" }}>
+            {settings.channelName}
+          </strong>
+        </span>
+      ) : variant === "search" ? (
         <>
           <ArrowLeft style={commonIconStyle} />
           <ChannelPill name={settings.channelName} />
@@ -1577,7 +1755,7 @@ function FrameHeader({ settings }: { settings: StoryFrameSettings }) {
             <strong className="truncate" style={{ fontSize: "5.8cqw" }}>
               {settings.channelName}
             </strong>
-            <span className="mt-[1cqw] text-[#796b13]" style={{ fontSize: "2.2cqw" }}>
+            <span className="mt-[1cqw] text-[#8f8130]" style={{ fontSize: "2.2cqw" }}>
               대화 중
             </span>
           </span>
@@ -1602,7 +1780,7 @@ function FrameHeader({ settings }: { settings: StoryFrameSettings }) {
           <Newspaper style={commonIconStyle} />
           <span className="flex min-w-0 items-center gap-[2cqw]">
             <span
-              className="shrink-0 bg-white px-[1.4cqw] py-[0.6cqw] font-black text-[#c9252d]"
+              className="shrink-0 bg-white px-[1.4cqw] py-[0.6cqw] font-black text-[#d33135]"
               style={{ fontSize: "2.5cqw" }}
             >
               속보

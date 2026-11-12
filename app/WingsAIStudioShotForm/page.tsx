@@ -31,38 +31,27 @@ import {
   CheckCircle2,
   User,
   BookOpen,
-  CreditCard,
   ImageIcon,
   Volume2,
   Sparkles,
-  Zap,
   Play,
-  Search,
   Lock,
+  TriangleAlert,
   Eye,
   EyeOff,
   Copy,
   ExternalLink,
-  Youtube,
-  Link2,
-  Unlink,
-  X,
   Loader2,
-  TrendingUp,
-  Clock,
-  Target,
-  Wand2,
-  Edit,
   Clapperboard,
   Bot,
   ChartNoAxesCombined,
-  Cpu,
-  Brain,
   Scissors,
   Film,
   PawPrint,
   Newspaper,
   MessageSquareText,
+  Check,
+  ArrowUpRight,
 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import type { LucideIcon } from "lucide-react"
@@ -73,8 +62,6 @@ type ShotFormServiceItem = {
   icon: LucideIcon
   description: string
   url: string
-  gradient: string
-  hoverGradient: string
   featured?: boolean
   isNew?: boolean
   locked?: boolean
@@ -90,8 +77,6 @@ const shotFormServices: ShotFormServiceItem[] = [
     icon: Sparkles,
     description: "제품 서칭→대본→스토리보드→오디오→이미지→비디오→프리뷰, 7단계 수동 파이프라인",
     url: "/WingsAIStudioShotForm/ai-shopping",
-    gradient: "from-violet-500 via-fuchsia-500 to-pink-500",
-    hoverGradient: "from-violet-600 via-fuchsia-600 to-pink-600",
   },
   {
     id: "story-shopping",
@@ -99,8 +84,6 @@ const shotFormServices: ShotFormServiceItem[] = [
     icon: BookOpen,
     description: "썰 채널형 쇼핑 숏폼: 훅 제목·장면별 나레이션을 썰 프레임으로 합성해 소개하는 숏폼",
     url: "/WingsAIStudioShotForm/story-shopping",
-    gradient: "from-amber-500 via-orange-500 to-rose-500",
-    hoverGradient: "from-amber-600 via-orange-600 to-rose-600",
   },
   {
     id: "shortform-studio",
@@ -108,8 +91,6 @@ const shotFormServices: ShotFormServiceItem[] = [
     icon: Clapperboard,
     description: "키워드·소스·리믹스·자막·썸네일 프로젝트",
     url: "/WingsAIStudioShotForm/shortform-studio",
-    gradient: "from-violet-500 via-purple-500 to-fuchsia-500",
-    hoverGradient: "from-violet-600 via-purple-600 to-fuchsia-600",
   },
   {
     id: "animal-shopping",
@@ -117,8 +98,6 @@ const shotFormServices: ShotFormServiceItem[] = [
     icon: PawPrint,
     description: "의인화 동물이 마트에서 쇼핑하는 바이럴 숏폼",
     url: "/WingsAIStudioShotForm/animal-shopping",
-    gradient: "from-lime-500 via-emerald-500 to-teal-500",
-    hoverGradient: "from-lime-600 via-emerald-600 to-teal-600",
   },
   {
     id: "info-shopping",
@@ -126,8 +105,6 @@ const shotFormServices: ShotFormServiceItem[] = [
     icon: Newspaper,
     description: "벤치마크 URL → 쿠팡 매칭 → 카드뉴스 쇼핑숏폼",
     url: "/WingsAIStudioShotForm/info-shopping",
-    gradient: "from-sky-500 via-blue-500 to-indigo-500",
-    hoverGradient: "from-sky-600 via-blue-600 to-indigo-600",
   },
 ]
 
@@ -139,8 +116,6 @@ const generalShortformServices: ShotFormServiceItem[] = [
     icon: Film,
     description: "명언·건강·자기계발 등 주제로 대본·이미지·TTS 숏폼 제작",
     url: "/WingsAIStudioShotForm/shorts",
-    gradient: "from-indigo-500 via-blue-500 to-cyan-500",
-    hoverGradient: "from-indigo-600 via-blue-600 to-cyan-600",
     locked: true,
   },
   {
@@ -149,8 +124,6 @@ const generalShortformServices: ShotFormServiceItem[] = [
     icon: Scissors,
     description: "롱폼 URL만 넣으면 AI가 바이럴 숏폼 구간을 자동으로 잘라줍니다",
     url: "/WingsAIStudioShotForm/longform-clip",
-    gradient: "from-rose-500 via-pink-500 to-fuchsia-500",
-    hoverGradient: "from-rose-600 via-pink-600 to-fuchsia-600",
     isNew: true,
     locked: true,
   },
@@ -160,8 +133,6 @@ const generalShortformServices: ShotFormServiceItem[] = [
     icon: MessageSquareText,
     description: "TTS 모델 선택 + 대본만 넣으면 목소리·SRT를 바로 다운로드",
     url: "/WingsAIStudioShotForm/ssul-tts-tool",
-    gradient: "from-amber-500 via-orange-500 to-rose-500",
-    hoverGradient: "from-amber-600 via-orange-600 to-rose-600",
     isNew: true,
   },
 ]
@@ -174,8 +145,6 @@ const analysisToolsServices: ShotFormServiceItem[] = [
     icon: ChartNoAxesCombined,
     description: "내 채널 진단 · YouTube 성장 포인트",
     url: "/WingsAIStudioShotForm/channel-analysis/deep-dive",
-    gradient: "from-sky-500 via-cyan-500 to-teal-500",
-    hoverGradient: "from-sky-600 via-cyan-600 to-teal-600",
   },
   {
     id: "chatbot",
@@ -183,316 +152,185 @@ const analysisToolsServices: ShotFormServiceItem[] = [
     icon: Bot,
     description: "AI가 1:1로 답변해드립니다",
     url: "/WingsAIStudioShotForm/wings-chatbot",
-    gradient: "from-emerald-500 via-green-500 to-teal-500",
-    hoverGradient: "from-emerald-600 via-green-600 to-teal-600",
   },
 ]
+
+const GUIDE_VIDEO_URL = "https://loud-cowl-c24.notion.site/3b6565477d5980deb680e80c49c98b39"
 
 // Header 컴포넌트
 function Header({ onSettingsClick }: { onSettingsClick: () => void }) {
   const router = useRouter()
-  
+  const iconButtonClass = "rounded-lg text-[#5b6472] hover:bg-[#eef2f8] hover:text-[#111827]"
+
   return (
-    <header className="w-full border-b border-white/10 bg-[#0a0b0d]/80 backdrop-blur-sm sticky top-0 z-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
-          {/* 로고 + 가이드 */}
-          <div className="flex items-center gap-2">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-pink-500/15 to-orange-500/15 border border-pink-400/25 text-pink-300 text-sm font-semibold">
-              <span className="w-2 h-2 bg-pink-500 rounded-full animate-pulse" />
-              wingsAIStudio ShotForm
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              asChild
-              className="rounded-full border-sky-400/35 bg-sky-500/10 px-3 font-semibold text-sky-100 hover:bg-sky-500/20 hover:text-white"
-            >
-              <a
-                href="https://loud-cowl-c24.notion.site/3b6565477d5980deb680e80c49c98b39"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <Play className="mr-1.5 h-3.5 w-3.5" />
-                가이드 영상
-              </a>
-            </Button>
-          </div>
+    <header className="sticky top-0 z-50 w-full border-b border-[#e5e9f0] bg-[#fbfcfe]/85 backdrop-blur-md">
+      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6 lg:px-8">
+        <div className="flex items-center gap-3">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#14213d] text-[13px] font-bold text-[#fff]">
+            W
+          </span>
+          <span className="text-[15px] font-semibold tracking-[-0.01em] text-[#111827]">Wings AI Studio</span>
+          <span className="h-4 w-px bg-[#d9dee7]" aria-hidden />
+          <span className="text-[15px] font-medium text-[#6b7280]">ShotForm</span>
+        </div>
 
-          {/* 우측 아이콘들 */}
-          <div className="flex items-center gap-2">
-            {/* 홈 버튼 */}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="rounded-full text-zinc-300 hover:text-white hover:bg-white/5"
-              onClick={() => router.push('/')}
-              title="wings AI 홈"
-            >
-              <Home className="w-5 h-5" />
-            </Button>
-
-            {/* 설정 버튼 */}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="rounded-full text-zinc-300 hover:text-white hover:bg-white/5"
-              onClick={onSettingsClick}
-              title="설정"
-            >
-              <Settings className="w-5 h-5" />
-            </Button>
-
-            {/* 사용자 메뉴 */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="rounded-full text-zinc-300 hover:text-white hover:bg-white/5">
-                  <User className="w-5 h-5" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48 bg-[#141518] border-white/10 text-zinc-100">
-                <DropdownMenuLabel>계정 설정</DropdownMenuLabel>
-                <DropdownMenuSeparator className="bg-white/10" />
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+        <div className="flex items-center gap-1">
+          <a
+            href={GUIDE_VIDEO_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mr-2 hidden items-center gap-1.5 rounded-lg border border-[#e1e6ee] bg-[#fff] px-3 py-1.5 text-[13px] font-medium text-[#374151] transition-colors hover:border-[#c9d3e3] hover:bg-[#f7f9fc] sm:inline-flex"
+          >
+            <Play className="h-3.5 w-3.5" />
+            가이드 영상
+          </a>
+          <Button variant="ghost" size="icon" className={iconButtonClass} onClick={() => router.push("/")} title="wings AI 홈">
+            <Home className="h-[18px] w-[18px]" />
+          </Button>
+          <Button variant="ghost" size="icon" className={iconButtonClass} onClick={onSettingsClick} title="설정">
+            <Settings className="h-[18px] w-[18px]" />
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className={iconButtonClass} title="계정">
+                <User className="h-[18px] w-[18px]" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48 border-[#e5e9f0] bg-[#fff] text-[#111827]">
+              <DropdownMenuLabel>계정 설정</DropdownMenuLabel>
+              <DropdownMenuSeparator className="bg-[#eef1f6]" />
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     </header>
   )
 }
 
-// 자동화 파이프라인 애니메이션 컴포넌트 (숏폼 전용)
+const PIPELINE_STEPS = [
+  { icon: FileText, label: "대본", detail: "제품 소구점으로 15초 대본 작성" },
+  { icon: ImageIcon, label: "이미지", detail: "장면별 이미지 생성" },
+  { icon: Volume2, label: "음성", detail: "나레이션 TTS 합성" },
+  { icon: Play, label: "영상", detail: "자막·컷 편집 후 렌더링" },
+] as const
+
+/** 히어로 오른쪽: 자동 제작이 단계별로 진행되는 모습 (완성 화면을 잠깐 보여준 뒤 반복) */
 function AutomationPipeline() {
   const [activeStep, setActiveStep] = useState(0)
-  
-  const steps = [
-    { icon: FileText, label: "대본", color: "from-blue-500 to-cyan-500", glow: "rgba(56,189,248,0.45)" },
-    { icon: ImageIcon, label: "이미지", color: "from-purple-500 to-pink-500", glow: "rgba(236,72,153,0.45)" },
-    { icon: Volume2, label: "음성", color: "from-green-500 to-emerald-500", glow: "rgba(52,211,153,0.45)" },
-    { icon: Play, label: "영상", color: "from-orange-500 to-red-500", glow: "rgba(249,115,22,0.45)" },
-  ]
 
   useEffect(() => {
     const interval = setInterval(() => {
-      setActiveStep((prev) => (prev + 1) % (steps.length + 1))
-    }, 1400)
+      setActiveStep((prev) => (prev + 1) % (PIPELINE_STEPS.length + 2))
+    }, 1600)
     return () => clearInterval(interval)
   }, [])
 
-  const statusText =
-    activeStep === 0
-      ? "AI가 자동으로 처리합니다"
-      : activeStep === 1
-        ? "AI가 대본을 생성하고 있습니다"
-        : activeStep === 2
-          ? "AI가 이미지를 생성하고 있습니다"
-          : activeStep === 3
-            ? "AI가 음성을 생성하고 있습니다"
-            : "15초 쇼츠 완성!"
+  const doneCount = Math.min(activeStep, PIPELINE_STEPS.length)
+  const isComplete = doneCount === PIPELINE_STEPS.length
+  const progress = Math.round((doneCount / PIPELINE_STEPS.length) * 100)
 
   return (
-    <div className="shotform-ai-pipeline relative py-10">
-      {/* AI 뉴럴 파티클 배경 */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
-        <div className="shotform-ai-orb absolute left-[8%] top-2 h-2 w-2 rounded-full bg-cyan-400/70" />
-        <div className="shotform-ai-orb absolute right-[12%] top-6 h-1.5 w-1.5 rounded-full bg-pink-400/70" style={{ animationDelay: "0.6s" }} />
-        <div className="shotform-ai-orb absolute left-[22%] bottom-4 h-1.5 w-1.5 rounded-full bg-violet-400/60" style={{ animationDelay: "1.1s" }} />
-        <div className="shotform-ai-orb absolute right-[28%] bottom-2 h-2 w-2 rounded-full bg-orange-400/50" style={{ animationDelay: "1.7s" }} />
-        <div className="shotform-ai-node-line absolute left-1/2 top-1/2 h-px w-[70%] -translate-x-1/2 -translate-y-1/2 bg-gradient-to-r from-transparent via-pink-400/20 to-transparent" />
-      </div>
-
-      {/* AI 코어 뱃지 */}
-      <div className="mb-5 flex justify-center">
-        <div className="shotform-ai-core inline-flex items-center gap-2 rounded-full border border-pink-400/25 bg-gradient-to-r from-pink-500/10 via-violet-500/10 to-cyan-500/10 px-3.5 py-1.5 backdrop-blur-sm">
-          <span className="relative flex h-6 w-6 items-center justify-center">
-            <span className="shotform-ai-ping absolute inset-0 rounded-full bg-pink-500/30" />
-            <Cpu className="relative h-3.5 w-3.5 text-pink-300" strokeWidth={2} />
-          </span>
-          <span className="text-[11px] font-semibold tracking-[0.18em] text-zinc-300 uppercase">
-            AI Engine
-          </span>
-          <Brain className="h-3.5 w-3.5 text-cyan-300 shotform-ai-brain" strokeWidth={2} />
+    <div className="rounded-2xl border border-[#e3e8f0] bg-[#fff] p-6 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_24px_48px_-24px_rgba(30,58,138,0.2)]">
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <p className="text-[13px] font-medium text-[#6b7280]">예시 프로젝트</p>
+          <p className="mt-0.5 text-[15px] font-semibold text-[#111827]">무선 핸디 청소기 · 15초</p>
         </div>
+        <span
+          className={`rounded-md px-2 py-1 text-[12px] font-semibold tabular-nums ${
+            isComplete ? "bg-[#e8f6ee] text-[#18794e]" : "bg-[#eef3fd] text-[#2c5fd6]"
+          }`}
+        >
+          {isComplete ? "완성" : `${progress}%`}
+        </span>
       </div>
 
-      {/* 파이프라인 아이콘들 */}
-      <div className="relative z-10 flex items-center justify-center gap-2 md:gap-4">
-        {steps.map((step, index) => {
-          const Icon = step.icon
-          const isActive = activeStep > index
-          const isCurrent = activeStep === index + 1
-          const isComplete = activeStep === steps.length
-          
+      <div className="mb-4 h-1 overflow-hidden rounded-full bg-[#eef1f6]">
+        <div
+          className="h-full rounded-full bg-[#2c5fd6] transition-[width] duration-700 ease-out"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+
+      <ol className="space-y-1">
+        {PIPELINE_STEPS.map((step, index) => {
+          const state = activeStep > index ? "done" : activeStep === index ? "current" : "todo"
+          const StepIcon = step.icon
           return (
-            <div key={index} className="flex items-center">
-              <div
-                className={`relative flex flex-col items-center transition-all duration-500 ${
-                  isCurrent ? "scale-110" : isActive || isComplete ? "scale-100" : "scale-95"
+            <li
+              key={step.label}
+              className={`flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors duration-500 ${
+                state === "current" ? "bg-[#f3f6fd]" : ""
+              }`}
+            >
+              <span
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors duration-500 ${
+                  state === "done"
+                    ? "bg-[#2c5fd6] text-[#fff]"
+                    : state === "current"
+                      ? "shotform-pulse-ring bg-[#fff] text-[#2c5fd6] ring-1 ring-[#2c5fd6]"
+                      : "bg-[#f3f5f9] text-[#9aa3b2]"
                 }`}
               >
-                {/* 현재 단계 스캔 링 */}
-                {isCurrent && (
-                  <>
-                    <span
-                      className="shotform-ai-scan pointer-events-none absolute left-1/2 top-0 h-14 w-14 -translate-x-1/2 rounded-2xl md:h-16 md:w-16"
-                      style={{ boxShadow: `0 0 0 1px ${step.glow}` }}
-                    />
-                    <span className="shotform-ai-orbit pointer-events-none absolute left-1/2 top-7 -translate-x-1/2 md:top-8">
-                      <Sparkles className="h-3 w-3 text-amber-300" />
-                    </span>
-                  </>
-                )}
-
-                <div
-                  className={`relative z-[1] flex h-14 w-14 items-center justify-center rounded-2xl shadow-lg transition-all duration-500 md:h-16 md:w-16 ${
-                    isActive || isComplete
-                      ? `bg-gradient-to-br ${step.color} shadow-xl`
-                      : isCurrent
-                        ? `bg-gradient-to-br ${step.color} shadow-xl ring-4 ring-pink-400/30`
-                        : "border-2 border-white/15 bg-white/5"
-                  }`}
-                  style={
-                    isCurrent
-                      ? { boxShadow: `0 0 28px ${step.glow}` }
-                      : undefined
-                  }
-                >
-                  {/* 생성 중 내부 스캔 라인 */}
-                  {isCurrent && (
-                    <span className="shotform-ai-scanline pointer-events-none absolute inset-x-1 top-0 h-full overflow-hidden rounded-2xl">
-                      <span className="absolute inset-x-0 h-1/3 bg-gradient-to-b from-white/35 to-transparent" />
-                    </span>
-                  )}
-
-                  <Icon
-                    className={`relative z-[1] h-6 w-6 transition-colors duration-500 md:h-7 md:w-7 ${
-                      isActive || isCurrent || isComplete ? "text-white" : "text-zinc-500"
-                    } ${isCurrent ? "shotform-ai-icon-pulse" : ""}`}
-                  />
-                  
-                  {(isActive || isComplete) && (
-                    <div className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-green-500 animate-scale-in">
-                      <CheckCircle2 className="h-4 w-4 text-white" />
-                    </div>
-                  )}
-                </div>
-                
-                <span
-                  className={`mt-2 text-xs font-medium transition-colors duration-500 md:text-sm ${
-                    isActive || isCurrent || isComplete ? "text-zinc-100" : "text-zinc-500"
-                  }`}
-                >
+                {state === "done" ? <Check className="h-4 w-4" strokeWidth={2.5} /> : <StepIcon className="h-4 w-4" />}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className={`text-[14px] font-semibold ${state === "todo" ? "text-[#9aa3b2]" : "text-[#111827]"}`}>
                   {step.label}
-                </span>
-                
-                {isCurrent && (
-                  <div className="absolute -bottom-7 left-1/2 flex -translate-x-1/2 items-center gap-1">
-                    <span className="shotform-ai-dot h-1 w-1 rounded-full bg-amber-300" />
-                    <span className="shotform-ai-dot h-1 w-1 rounded-full bg-pink-300" style={{ animationDelay: "0.2s" }} />
-                    <span className="shotform-ai-dot h-1 w-1 rounded-full bg-cyan-300" style={{ animationDelay: "0.4s" }} />
-                  </div>
-                )}
+                </p>
+                <p className="truncate text-[13px] text-[#6b7280]">{step.detail}</p>
               </div>
-              
-              {index < steps.length - 1 && (
-                <div className="relative mx-1 h-1 w-8 overflow-visible md:mx-2 md:w-16">
-                  <div className="absolute inset-0 rounded-full bg-white/15" />
-                  <div
-                    className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 transition-all duration-500 ease-out"
-                    style={{
-                      width:
-                        activeStep > index + 1 || isComplete
-                          ? "100%"
-                          : activeStep === index + 1
-                            ? "55%"
-                            : "0%",
-                    }}
-                  />
-                  {/* 데이터 패킷 이동 */}
-                  {(activeStep === index + 1 || (isComplete && index < steps.length - 1)) && (
-                    <>
-                      <span className="shotform-ai-packet absolute top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-white shadow-[0_0_8px_rgba(255,255,255,0.9)]" />
-                      <span
-                        className="shotform-ai-packet absolute top-1/2 h-1 w-1 -translate-y-1/2 rounded-full bg-cyan-300"
-                        style={{ animationDelay: "0.45s" }}
-                      />
-                    </>
-                  )}
-                </div>
+              {state === "current" ? (
+                <Loader2 className="h-4 w-4 animate-spin text-[#2c5fd6]" />
+              ) : (
+                <span className="text-[12px] font-medium text-[#9aa3b2]">{state === "done" ? "완료" : "대기"}</span>
               )}
-            </div>
+            </li>
           )
         })}
-      </div>
-
-      {/* 상태 메시지 */}
-      <div className="relative z-10 mt-10 text-center">
-        <div className="shotform-ai-status inline-flex items-center gap-2.5 rounded-full border border-pink-400/30 bg-gradient-to-r from-pink-500/15 via-violet-500/10 to-cyan-500/15 px-5 py-2.5 shadow-[0_0_24px_rgba(236,72,153,0.12)] backdrop-blur-sm">
-          <span className="relative flex h-5 w-5 items-center justify-center">
-            <span className="shotform-ai-ping absolute inset-0 rounded-full bg-pink-500/40" />
-            <Zap className="relative h-3.5 w-3.5 text-pink-400" />
-          </span>
-          <span className="text-sm font-medium text-zinc-100" key={activeStep}>
-            <span className="shotform-ai-status-text">{statusText}</span>
-            {activeStep > 0 && activeStep < steps.length && (
-              <span className="ml-0.5 inline-flex gap-0.5 align-middle">
-                <span className="shotform-ai-dot inline-block h-1 w-1 rounded-full bg-zinc-300" />
-                <span className="shotform-ai-dot inline-block h-1 w-1 rounded-full bg-zinc-300" style={{ animationDelay: "0.2s" }} />
-                <span className="shotform-ai-dot inline-block h-1 w-1 rounded-full bg-zinc-300" style={{ animationDelay: "0.4s" }} />
-              </span>
-            )}
-          </span>
-          {activeStep === steps.length && (
-            <Sparkles className="h-4 w-4 text-amber-300 shotform-ai-brain" />
-          )}
-        </div>
-      </div>
+      </ol>
     </div>
   )
 }
 
 // Hero Section 컴포넌트
 function HeroSection() {
-  const [displayText, setDisplayText] = useState("")
-  const fullText = "AI 쇼핑숏폼 자동 제작"
-  
-  // 타이핑 효과
-  useEffect(() => {
-    let index = 0
-    const timer = setInterval(() => {
-      if (index <= fullText.length) {
-        setDisplayText(fullText.slice(0, index))
-        index++
-      } else {
-        clearInterval(timer)
-      }
-    }, 100)
-    return () => clearInterval(timer)
-  }, [])
-
   return (
-    <section className="text-center py-8 md:py-12 lg:py-16 space-y-6">
-      {/* 타이틀 with 타이핑 효과 */}
-      <div className="relative">
-        <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold bg-gradient-to-r from-pink-400 via-red-400 to-orange-400 bg-clip-text text-transparent min-h-[1.2em]">
-          {displayText}
-          <span className="animate-blink text-zinc-500">|</span>
-      </h1>
-        
-        {/* 배경 블러 효과 */}
-        <div className="absolute inset-0 -z-10 blur-3xl opacity-25">
-          <div className="absolute inset-0 bg-gradient-to-r from-pink-400 via-red-400 to-orange-400 rounded-full animate-pulse" />
+    <section className="grid items-center gap-12 pb-6 pt-4 lg:grid-cols-[1.1fr_1fr] lg:gap-16 lg:pt-8">
+      <div className="shotform-rise">
+        <p className="mb-5 inline-flex items-center gap-2 text-[13px] font-semibold text-[#2c5fd6]">
+          <span className="h-1.5 w-1.5 rounded-full bg-[#2c5fd6]" />
+          AI 쇼핑숏폼 자동 제작
+        </p>
+        <h1 className="text-[40px] font-bold leading-[1.15] tracking-[-0.035em] text-[#0f172a] [text-wrap:balance] sm:text-5xl lg:text-[56px]">
+          대본부터 영상까지,
+          <br />
+          <span className="text-[#2c5fd6]">15초 쇼핑 숏폼</span>을 한 번에
+        </h1>
+        <p className="mt-5 max-w-[34rem] text-[17px] leading-relaxed text-[#5b6472] [text-wrap:pretty]">
+          제품만 정하면 AI가 대본·이미지·음성·영상을 차례로 만듭니다. 아래에서 만들 숏폼 종류를 고르세요.
+        </p>
+        <div className="mt-8 flex flex-wrap items-center gap-2">
+          <a
+            href="#features"
+            className="inline-flex h-11 items-center gap-2 rounded-xl bg-[#2c5fd6] px-5 text-[15px] font-semibold text-[#fff] shadow-[0_8px_20px_-8px_rgba(44,95,214,0.6)] transition hover:bg-[#2350bb] active:scale-[0.98]"
+          >
+            제작 시작하기
+            <ArrowRight className="h-4 w-4" />
+          </a>
+          <a
+            href={GUIDE_VIDEO_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex h-11 items-center gap-2 rounded-xl px-4 text-[15px] font-medium text-[#374151] transition hover:bg-[#eef2f8]"
+          >
+            <Play className="h-4 w-4" />
+            가이드 영상 보기
+          </a>
         </div>
       </div>
-      
-      <p className="text-lg md:text-xl text-zinc-400 max-w-2xl mx-auto animate-fade-in-up" style={{ animationDelay: "1s" }}>
-        15초 쇼츠를 빠르고 쉽게 제작하세요
-      </p>
 
-      {/* 자동화 파이프라인 애니메이션 */}
-      <div className="pt-4 animate-fade-in-up" style={{ animationDelay: "1.2s" }}>
+      <div className="shotform-rise" style={{ animationDelay: "120ms" }}>
         <AutomationPipeline />
       </div>
     </section>
@@ -510,172 +348,80 @@ function FeatureCard({
   onServiceClick: (service: ShotFormServiceItem) => void
 }) {
   const Icon = service.icon
-  const isLocked = "locked" in service && service.locked
+  const isLocked = Boolean(service.locked)
+  const badge = service.sticker ?? (service.isNew ? "NEW" : service.featured ? "추천" : null)
 
   return (
     <button
       type="button"
       disabled={isLocked}
-      onClick={() => !isLocked && onServiceClick(service)}
-      className={`shotform-feature-card group relative w-full text-left overflow-hidden rounded-2xl border border-white/[0.08] bg-gradient-to-br from-white/[0.07] to-white/[0.02] p-[1px] transition-all duration-500 ease-out ${
+      onClick={() => onServiceClick(service)}
+      className={`shotform-rise group flex h-full w-full flex-col rounded-2xl border p-6 text-left transition duration-300 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2c5fd6]/40 ${
         isLocked
-          ? "cursor-not-allowed opacity-55"
-          : "hover:-translate-y-1 hover:border-white/20 hover:shadow-[0_20px_50px_-20px_rgba(236,72,153,0.35)]"
+          ? "cursor-not-allowed border-[#eceff4] bg-[#fafbfc]"
+          : "border-[#e5e9f0] bg-[#fff] shadow-[0_1px_2px_rgba(16,24,40,0.04)] hover:-translate-y-0.5 hover:border-[#c9d7f6] hover:shadow-[0_18px_40px_-22px_rgba(30,58,138,0.35)] active:translate-y-0 active:scale-[0.99]"
       }`}
-      style={{ animationDelay: `${index * 120}ms` }}
+      style={{ animationDelay: `${index * 60}ms` }}
     >
-      <div className="relative h-full rounded-[15px] bg-[#101114]/95 backdrop-blur-md overflow-hidden">
-        {/* 호버 시 은은한 빛 스윕 */}
-        {!isLocked && (
-          <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-500 group-hover:opacity-100">
-            <div className="shotform-card-shine absolute -inset-x-1/2 -top-1/2 h-full w-[200%] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-          </div>
+      <div className="mb-5 flex items-start justify-between">
+        <span
+          className={`flex h-11 w-11 items-center justify-center rounded-xl transition-colors duration-300 ${
+            isLocked
+              ? "bg-[#f1f3f6] text-[#a3abb8]"
+              : "bg-[#eef3fd] text-[#2c5fd6] group-hover:bg-[#2c5fd6] group-hover:text-[#fff]"
+          }`}
+        >
+          <Icon className="h-5 w-5" strokeWidth={1.75} />
+        </span>
+        {isLocked ? (
+          <span className="inline-flex items-center gap-1 rounded-md bg-[#f1f3f6] px-2 py-1 text-[11px] font-semibold text-[#8a93a3]">
+            <Lock className="h-3 w-3" />
+            일시 중지
+          </span>
+        ) : badge ? (
+          <span className="rounded-md bg-[#eef3fd] px-2 py-1 text-[11px] font-semibold tracking-wide text-[#2c5fd6]">
+            {badge}
+          </span>
+        ) : (
+          <ArrowUpRight className="h-5 w-5 text-[#c0c7d3] transition duration-300 group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-[#2c5fd6]" />
         )}
-
-        {/* 잠금 오버레이 */}
-        {isLocked && (
-          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-black/70 backdrop-blur-[4px]">
-            <Lock className="h-7 w-7 text-zinc-400" />
-          </div>
-        )}
-
-        {/* 우측 상단 스티커 / New / 추천 */}
-        {service.sticker ? (
-          <div className="absolute -right-1 -top-1 z-10 rotate-[8deg]">
-            <span
-              className={`inline-flex items-center rounded-md px-2.5 py-1 text-[11px] font-bold tracking-wide shadow-lg ring-1 ${
-                service.sticker === "ver2"
-                  ? "bg-gradient-to-br from-violet-500 to-fuchsia-600 text-white ring-white/20 shadow-fuchsia-900/40"
-                  : "bg-gradient-to-br from-orange-500 to-amber-500 text-white ring-white/20 shadow-orange-900/40"
-              }`}
-            >
-              {service.sticker}
-            </span>
-          </div>
-        ) : service.isNew ? (
-          <div className="absolute right-3 top-3 z-10">
-            <span className="inline-flex items-center rounded-full bg-violet-500/20 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-violet-200 ring-1 ring-violet-400/30">
-              New
-            </span>
-          </div>
-        ) : service.featured ? (
-          <div className="absolute right-3 top-3 z-10">
-            <span className="inline-flex items-center rounded-full bg-orange-500/20 px-2.5 py-0.5 text-[10px] font-semibold tracking-wider text-orange-200 ring-1 ring-orange-400/30">
-              추천
-            </span>
-          </div>
-        ) : null}
-
-        <div className="relative flex gap-4 p-5 md:p-6">
-          {/* 아이콘 */}
-          <div className="relative shrink-0">
-            <div
-              className={`absolute inset-0 rounded-2xl bg-gradient-to-br ${service.gradient} opacity-40 blur-xl shotform-icon-glow`}
-            />
-            <div
-              className={`relative flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br ${service.gradient} shadow-lg ring-1 ring-white/20 shotform-icon-float`}
-            >
-              <Icon className="h-7 w-7 text-white drop-shadow-sm" strokeWidth={1.75} />
-            </div>
-          </div>
-
-          <div className="min-w-0 flex-1">
-            <h3 className="mb-1 text-lg font-semibold tracking-tight text-zinc-50 transition-colors duration-300 group-hover:text-white md:text-xl">
-              {service.title}
-            </h3>
-            <p className="mb-3 text-sm leading-relaxed text-zinc-400 transition-colors duration-300 group-hover:text-zinc-300">
-              {service.description}
-            </p>
-            {!isLocked && (
-              <div className="flex items-center gap-1.5 text-xs font-medium text-zinc-500 transition-all duration-300 group-hover:gap-2.5 group-hover:text-pink-300">
-                <span>바로 시작하기</span>
-                <ArrowRight className="h-3.5 w-3.5 transition-transform duration-300 group-hover:translate-x-0.5" />
-              </div>
-            )}
-          </div>
-        </div>
       </div>
+      <h3
+        className={`text-[17px] font-semibold tracking-[-0.015em] ${isLocked ? "text-[#8a93a3]" : "text-[#111827]"}`}
+      >
+        {service.title}
+      </h3>
+      <p className="mt-1.5 text-[14px] leading-relaxed text-[#6b7280] [text-wrap:pretty]">{service.description}</p>
     </button>
   )
 }
 
-// Feature Section 컴포넌트 (좌우 컬럼용)
+// Feature Section 컴포넌트: 번호·제목 + 3열 카드 그리드
 function FeatureSection({
+  index,
   title,
   subtitle,
   services,
   onServiceClick,
-  accent = "warm",
-  sectionIndex = 0,
-  cardLayout = "stack",
 }: {
+  index: number
   title: string
   subtitle: string
   services: ShotFormServiceItem[]
   onServiceClick: (service: ShotFormServiceItem) => void
-  accent?: "warm" | "cool" | "violet"
-  sectionIndex?: number
-  /** stack: 세로 / row: 앞 2개만 좌우, 나머지는 한 줄씩 */
-  cardLayout?: "stack" | "row"
 }) {
-  const accentBar =
-    accent === "warm"
-      ? "from-pink-500 via-orange-400 to-amber-400"
-      : accent === "violet"
-        ? "from-indigo-500 via-violet-400 to-fuchsia-400"
-        : "from-sky-500 via-cyan-400 to-teal-400"
-  const accentGlow =
-    accent === "warm"
-      ? "bg-orange-500/10"
-      : accent === "violet"
-        ? "bg-violet-500/10"
-        : "bg-cyan-500/10"
-  const HeaderIcon =
-    accent === "warm" ? Wand2 : accent === "violet" ? Scissors : ChartNoAxesCombined
-
-  const pairedServices = cardLayout === "row" ? services.slice(0, 2) : []
-  const stackedServices = cardLayout === "row" ? services.slice(2) : services
-
   return (
-    <section
-      className="shotform-feature-panel relative flex h-full flex-col overflow-hidden rounded-3xl border border-white/[0.08] bg-[#0e0f12]/80 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-sm md:p-7"
-      style={{ animationDelay: `${sectionIndex * 150}ms` }}
-    >
-      <div className={`pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full ${accentGlow} blur-3xl`} />
-      <div className={`mb-5 h-1 w-16 rounded-full bg-gradient-to-r ${accentBar}`} />
-
-      <div className="mb-6 flex items-start gap-3">
-        <div
-          className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${accentBar} text-white shadow-lg ring-1 ring-white/15`}
-        >
-          <HeaderIcon className="h-5 w-5" strokeWidth={1.75} />
+    <section className="border-t border-[#e5e9f0] pt-10">
+      <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-[13px] font-semibold tabular-nums text-[#2c5fd6]">{String(index + 1).padStart(2, "0")}</p>
+          <h2 className="mt-1 text-2xl font-bold tracking-[-0.025em] text-[#0f172a]">{title}</h2>
         </div>
-        <div className="min-w-0 space-y-1">
-          <h2 className="text-xl font-bold tracking-tight text-zinc-50 md:text-2xl">{title}</h2>
-          <p className="text-sm text-zinc-400 md:text-[15px]">{subtitle}</p>
-        </div>
+        <p className="text-[14px] text-[#6b7280]">{subtitle}</p>
       </div>
-
-      <div className="flex flex-1 flex-col gap-3.5">
-        {pairedServices.length > 0 && (
-          <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-            {pairedServices.map((service, index) => (
-              <FeatureCard
-                key={service.id}
-                service={service}
-                index={index + sectionIndex * 2}
-                onServiceClick={onServiceClick}
-              />
-            ))}
-          </div>
-        )}
-        {stackedServices.map((service, index) => (
-          <FeatureCard
-            key={service.id}
-            service={service}
-            index={index + pairedServices.length + sectionIndex * 2}
-            onServiceClick={onServiceClick}
-          />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {services.map((service, i) => (
+          <FeatureCard key={service.id} service={service} index={i} onServiceClick={onServiceClick} />
         ))}
       </div>
     </section>
@@ -689,7 +435,6 @@ type ShotFormApiKeysState = {
   pixabay: string
   serpapi: string
   klipy: string
-  supertone: string
   typecast: string
   youtubeClientId: string
   youtubeClientSecret: string
@@ -708,7 +453,6 @@ function parseShotFormApiKeysBackup(text: string): Partial<ShotFormApiKeysState>
     { key: "pixabay", match: /pixabay\s*api\s*key/i },
     { key: "serpapi", match: /serpapi\s*key/i },
     { key: "klipy", match: /klipy\s*api\s*key/i },
-    { key: "supertone", match: /supertone\s*api\s*key/i },
     { key: "typecast", match: /typecast\s*api\s*key/i },
     { key: "youtubeClientId", match: /youtube\s*client\s*id/i },
     { key: "youtubeClientSecret", match: /youtube\s*client\s*secret/i },
@@ -758,7 +502,6 @@ export default function ShotFormPage() {
     pixabay: "",
     serpapi: "",
     klipy: "",
-    supertone: "",
     typecast: "",
     youtubeClientId: "",
     youtubeClientSecret: "",
@@ -777,7 +520,6 @@ export default function ShotFormPage() {
     pixabay: false,
     serpapi: false,
     klipy: false,
-    supertone: false,
     typecast: false,
     youtubeClientId: false,
     youtubeClientSecret: false,
@@ -869,7 +611,6 @@ export default function ShotFormPage() {
         localStorage.getItem("serpapi_api_key") ||
         ""
       const storedKlipy = localStorage.getItem("shotform_klipy_api_key") || ""
-      const storedSupertone = localStorage.getItem("shotform_supertone_api_key") || ""
       const storedTypecast =
         localStorage.getItem("shotform_typecast_api_key") ||
         localStorage.getItem("typecast_api_key") ||
@@ -889,7 +630,6 @@ export default function ShotFormPage() {
         pixabay: storedPixabay,
         serpapi: storedSerpapi,
         klipy: storedKlipy,
-        supertone: storedSupertone,
         typecast: storedTypecast,
         youtubeClientId: storedYoutubeClientId,
         youtubeClientSecret: storedYoutubeClientSecret,
@@ -1002,7 +742,6 @@ export default function ShotFormPage() {
     localStorage.setItem("shotform_serpapi_key", apiKeys.serpapi || "")
     localStorage.setItem("serpapi_api_key", apiKeys.serpapi || "")
     localStorage.setItem("shotform_klipy_api_key", apiKeys.klipy || "")
-    localStorage.setItem("shotform_supertone_api_key", apiKeys.supertone || "")
     localStorage.setItem("shotform_typecast_api_key", apiKeys.typecast || "")
     localStorage.setItem("typecast_api_key", apiKeys.typecast || "")
     localStorage.setItem("shotform_youtube_client_id", apiKeys.youtubeClientId)
@@ -1049,28 +788,25 @@ ${apiKeys.serpapi || "(미입력)"}
 6. Klipy API Key
 ${apiKeys.klipy || "(미입력)"}
 
-7. Supertone API Key
-${apiKeys.supertone || "(미입력)"}
-
-8. Typecast API Key
+7. Typecast API Key
 ${apiKeys.typecast || "(미입력)"}
 
-9. YouTube Client ID
+8. YouTube Client ID
 ${apiKeys.youtubeClientId || "(미입력)"}
 
-10. YouTube Client Secret
+9. YouTube Client Secret
 ${apiKeys.youtubeClientSecret || "(미입력)"}
 
-11. YouTube Data API Key
+10. YouTube Data API Key
 ${apiKeys.youtubeDataApiKey || "(미입력)"}
 
-12. Apify API
+11. Apify API
 ${apiKeys.apify || "(미입력)"}
 
-13. Vmake AI API Key (MT_AK)
+12. Vmake AI API Key (MT_AK)
 ${apiKeys.vmake || "(미입력)"}
 
-14. Vmake AI Secret Access Key (MT_SK)
+13. Vmake AI Secret Access Key (MT_SK)
 ${apiKeys.vmakeSecret || "(미입력)"}
 
 ========================================
@@ -1120,7 +856,6 @@ ${apiKeys.vmakeSecret || "(미입력)"}
       localStorage.setItem("shotform_serpapi_key", next.serpapi || "")
       localStorage.setItem("serpapi_api_key", next.serpapi || "")
       localStorage.setItem("shotform_klipy_api_key", next.klipy || "")
-      localStorage.setItem("shotform_supertone_api_key", next.supertone || "")
       localStorage.setItem("shotform_typecast_api_key", next.typecast || "")
       localStorage.setItem("typecast_api_key", next.typecast || "")
       localStorage.setItem("shotform_youtube_client_id", next.youtubeClientId)
@@ -1156,7 +891,7 @@ ${apiKeys.vmakeSecret || "(미입력)"}
   // 로그인 확인 중이면 로딩 화면 표시
   if (isCheckingLogin) {
     return (
-      <div className="min-h-screen bg-[#0a0b0d] flex items-center justify-center">
+      <div className="min-h-screen bg-[#f5f7fa] flex items-center justify-center">
         <div className="text-center">
           <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-pink-600 mb-4"></div>
           <p className="text-zinc-400">로그인 확인 중...</p>
@@ -1179,7 +914,7 @@ ${apiKeys.vmakeSecret || "(미입력)"}
           router.push('/')
         }
       }}>
-        <DialogContent className="sm:max-w-md bg-[#141518] border-white/10 text-zinc-100">
+        <DialogContent className="sm:max-w-md bg-[#fdffff] border-white/10 text-zinc-100">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Lock className="w-5 h-5" />
@@ -1193,8 +928,9 @@ ${apiKeys.vmakeSecret || "(미입력)"}
             <div className="space-y-4 py-4">
               {/* 경고 메시지 */}
               <div className="bg-amber-500/10 border border-amber-400/25 rounded-lg p-3">
-                <p className="text-sm text-amber-200 font-medium">
-                  ⚠️ 매일 수강생인지 확인 후 아닐 시 영구정지됩니다.
+                <p className="flex items-center gap-2 text-sm text-amber-200 font-medium">
+                  <TriangleAlert className="h-4 w-4 shrink-0" />
+                  매일 수강생인지 확인 후 아닐 시 영구정지됩니다.
                 </p>
               </div>
               <div className="space-y-2">
@@ -1235,64 +971,33 @@ ${apiKeys.vmakeSecret || "(미입력)"}
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0b0d] text-zinc-100">
-      {/* 배경 장식 */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
-        <div className="absolute top-0 left-0 w-96 h-96 bg-gradient-to-br from-pink-500/10 to-red-500/10 rounded-full blur-3xl" />
-        <div className="absolute bottom-0 right-0 w-96 h-96 bg-gradient-to-tl from-orange-500/10 to-yellow-500/10 rounded-full blur-3xl" />
-        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-gradient-to-r from-pink-500/5 to-orange-500/5 rounded-full blur-3xl" />
-      </div>
+    <div className="relative min-h-screen break-keep bg-[#f7f8fb] text-[#111827]">
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[560px] bg-[radial-gradient(55%_60%_at_75%_0%,rgba(44,95,214,0.09),transparent_70%)]"
+        aria-hidden
+      />
 
-      {/* 헤더 */}
       <Header onSettingsClick={() => setOpen(true)} />
 
-      {/* 메인 컨텐츠 */}
       <main className="relative z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12 lg:py-16">
-          {/* Hero Section */}
+        <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 md:py-14 lg:px-8 lg:py-16">
           <HeroSection />
 
-          {/* Features Section */}
-          <div
-            id="features"
-            className="mt-16 space-y-5 md:mt-20 lg:mt-24 lg:space-y-7"
-          >
-            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-7">
-              <FeatureSection
-                title="쇼핑숏폼 제작"
-                subtitle="15초 쇼츠를 빠르고 쉽게 제작하세요"
-                services={shotFormServices}
-                onServiceClick={handleServiceClick}
-                accent="warm"
-                sectionIndex={0}
-              />
-
-              <FeatureSection
-                title="분석 & 도구"
-                subtitle="채널 성장과 운영을 돕는 보조 도구"
-                services={analysisToolsServices}
-                onServiceClick={handleServiceClick}
-                accent="cool"
-                sectionIndex={1}
-              />
-            </div>
-
-            <FeatureSection
-              title="일반 숏폼"
-              subtitle="주제 기반 숏폼 · 롱폼 클립 · 썰 쇼핑 대본→TTS/SRT 도구"
-              services={generalShortformServices}
-              onServiceClick={handleServiceClick}
-              accent="violet"
-              sectionIndex={2}
-              cardLayout="row"
-            />
+          <div id="features" className="mt-16 scroll-mt-24 space-y-14 md:mt-20">
+            {[
+              { title: "쇼핑숏폼 제작", subtitle: "15초 쇼핑 쇼츠를 빠르고 쉽게 제작하세요", services: shotFormServices },
+              { title: "일반 숏폼", subtitle: "주제 기반 숏폼 · 롱폼 클립 · 썰 쇼핑 대본→TTS/SRT 도구", services: generalShortformServices },
+              { title: "분석 & 도구", subtitle: "채널 성장과 운영을 돕는 보조 도구", services: analysisToolsServices },
+            ].map((section, index) => (
+              <FeatureSection key={section.title} index={index} onServiceClick={handleServiceClick} {...section} />
+            ))}
           </div>
         </div>
       </main>
 
       {/* API 키 설정 다이얼로그 - WingsAIStudio와 동일한 구조 */}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-[500px] max-h-[90vh] flex flex-col bg-[#141518] border-white/10 text-zinc-100">
+        <DialogContent className="sm:max-w-[500px] max-h-[90vh] flex flex-col bg-[#fdffff] border-white/10 text-zinc-100">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-zinc-50">
               <Key className="w-5 h-5" />
@@ -1407,59 +1112,6 @@ ${apiKeys.vmakeSecret || "(미입력)"}
                 </Button>
               </div>
               <p className="text-xs text-zinc-500">ElevenLabs 음성 합성에 사용됩니다</p>
-            </div>
-
-            {/* Supertone API Key */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <Label htmlFor="supertone-key" className="text-sm font-medium text-zinc-200">
-                  Supertone API Key
-                </Label>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 text-xs shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
-                  asChild
-                >
-                  <a href="https://console.supertoneapi.com/" target="_blank" rel="noopener noreferrer">
-                    API 발급
-                  </a>
-                </Button>
-              </div>
-              <div className="flex items-center gap-2">
-                <Input
-                  id="supertone-key"
-                  type={showKeys.supertone ? "text" : "password"}
-                  placeholder="입력하세요"
-                  value={apiKeys.supertone || ""}
-                  onChange={(e) => setApiKeys({ ...apiKeys, supertone: e.target.value })}
-                  className="font-mono text-sm bg-black/40 border-white/15 text-zinc-100 placeholder:text-zinc-500"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setShowKeys({ ...showKeys, supertone: !showKeys.supertone })}
-                  className="shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
-                >
-                  {showKeys.supertone ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={() => {
-                    navigator.clipboard.writeText(apiKeys.supertone || "")
-                    setCopied(true)
-                    setTimeout(() => setCopied(false), 2000)
-                  }}
-                  disabled={!apiKeys.supertone}
-                  className="shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
-                >
-                  <Copy className="w-4 h-4" />
-                </Button>
-              </div>
-              <p className="text-xs text-zinc-500">Supertone 음성 합성에 사용됩니다</p>
             </div>
 
             {/* Typecast API Key */}
@@ -1953,12 +1605,12 @@ ${apiKeys.vmakeSecret || "(미입력)"}
       </Dialog>
 
       {/* 푸터 - 저작권 문구 */}
-      <footer className="relative z-10 border-t border-white/10 bg-[#0a0b0d]/80 backdrop-blur-sm mt-16">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <footer className="relative z-10 mt-16 border-t border-[#e5e9f0]">
+        <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
           <div className="space-y-4">
-            <div className="text-center text-sm text-zinc-500 space-y-2">
-              <p className="font-semibold text-zinc-100">© 2025 wingsAIStudio ShotForm. All Rights Reserved.</p>
-              <div className="space-y-1 text-xs">
+            <div className="space-y-2 text-[13px] text-[#8a93a3]">
+              <p className="font-semibold text-[#374151]">© 2025 wingsAIStudio ShotForm. All Rights Reserved.</p>
+              <div className="space-y-1 text-xs leading-relaxed">
                 <p>
                   <strong>저작권 보호:</strong> 본 소프트웨어 및 모든 관련 코드, 디자인, 알고리즘, 프롬프트 엔지니어링, 
                   비즈니스 로직은 저작권법에 의해 보호받습니다.

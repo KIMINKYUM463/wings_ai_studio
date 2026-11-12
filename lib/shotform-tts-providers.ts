@@ -1,21 +1,16 @@
-import {
-  SUPERTONE_VOICE_PREVIEW_TEXT,
-  defaultStyleForSupertoneVoice,
-  labelSupertoneStyle,
-  parseSupertoneVoiceId,
-  shotformSupertoneKey,
-  stylesForSupertoneVoice,
-  supertoneVoiceKey,
-  type ShotformSupertoneVoice,
-} from "@/lib/shotform-factory-tts"
 import { clampTtsSpeed } from "@/lib/shotform-tts-speed"
 import { typecastKoreanName } from "@/lib/typecast-voice-names"
 import { isTypecastApi403Guide } from "@/lib/typecast-api-error"
 import { SUPERTONIC_BUILTIN_VOICES } from "@/lib/supertonic-local"
 
-export { shotformSupertoneKey } from "@/lib/shotform-factory-tts"
+export type TtsProviderId = "typecast" | "supertonic" | "elevenlabs"
 
-export type TtsProviderId = "supertone" | "supertonic" | "elevenlabs" | "typecast"
+/** 지원을 끝낸 수퍼톤(클라우드) 목소리 ID. 예전 프로젝트에 남아 있을 수 있다. */
+export const RETIRED_SUPERTONE_MESSAGE = "수퍼톤은 더 이상 지원하지 않습니다. 다른 목소리를 선택해 주세요."
+
+export function isRetiredSupertoneVoiceId(fullId: string | null | undefined): boolean {
+  return Boolean(fullId?.startsWith("supertone-"))
+}
 
 export type ShotformTtsVoice = {
   voice_id: string
@@ -29,23 +24,14 @@ export type ShotformTtsVoice = {
   use_cases?: string[]
 }
 
-export const TTS_PROVIDER_ORDER: TtsProviderId[] = [
-  "supertone",
-  "supertonic",
-  "elevenlabs",
-  "typecast",
-]
+export const TTS_PROVIDER_ORDER: TtsProviderId[] = ["typecast", "supertonic", "elevenlabs"]
+
+export const DEFAULT_TTS_PROVIDER: TtsProviderId = TTS_PROVIDER_ORDER[0]!
 
 export const TTS_PROVIDER_META: Record<
   TtsProviderId,
   { label: string; prefix: string; idPlaceholder: string; subtitle: string }
 > = {
-  supertone: {
-    label: "수퍼톤",
-    prefix: "supertone-",
-    idPlaceholder: "수퍼톤 voice ID",
-    subtitle: "한국어 나레이션 · 스타일(톤) 선택",
-  },
   supertonic: {
     label: "수퍼토닉3",
     prefix: "supertonic-",
@@ -65,6 +51,9 @@ export const TTS_PROVIDER_META: Record<
     subtitle: "한국어 캐릭터 · 감정 프리셋",
   },
 }
+
+/** 화면 안내용 엔진 이름 요약 (예: "타입캐스트 · 수퍼토닉3 · ElevenLabs") */
+export const TTS_PROVIDER_SUMMARY = TTS_PROVIDER_ORDER.map((id) => TTS_PROVIDER_META[id].label).join(" · ")
 
 /** 수퍼토닉3 기본 보이스 카탈로그 (로컬 서버 없이도 UI에 표시) */
 export function supertonicBuiltinVoiceCatalog(): ShotformTtsVoice[] {
@@ -111,14 +100,13 @@ export function mergeElevenlabsVoiceCatalog(apiVoices: ShotformTtsVoice[]): Shot
   return [...apiVoices, ...samples.filter((s) => !seen.has(s.voice_id))]
 }
 
-export const TTS_VOICE_PREVIEW_TEXT = SUPERTONE_VOICE_PREVIEW_TEXT
+export const TTS_VOICE_PREVIEW_TEXT = "안녕하세요, 쇼핑 숏폼 나레이션 음성입니다."
 export const SHORT_VOICE_PREVIEW_TEXT = "안녕하세요"
-/** 타입캐스트·수퍼톤 미리듣기 — 짧은 샘플만 재생 */
+/** 타입캐스트 미리듣기 — 짧은 샘플만 재생 */
 export const TYPECAST_VOICE_PREVIEW_TEXT = SHORT_VOICE_PREVIEW_TEXT
 
 export function ttsPreviewTextForProvider(provider: TtsProviderId): string {
-  if (provider === "typecast") return TYPECAST_VOICE_PREVIEW_TEXT
-  if (provider === "supertone" || provider === "supertonic") return SHORT_VOICE_PREVIEW_TEXT
+  if (provider === "typecast" || provider === "supertonic") return SHORT_VOICE_PREVIEW_TEXT
   return TTS_VOICE_PREVIEW_TEXT
 }
 
@@ -133,9 +121,7 @@ export function shotformTypecastKey(): string {
 }
 
 export function ttsProviderFromVoiceId(fullId: string): TtsProviderId | null {
-  // "supertonic-" 이 "supertone-" 보다 먼저여야 함
   if (fullId.startsWith("supertonic-")) return "supertonic"
-  if (fullId.startsWith("supertone-")) return "supertone"
   if (fullId.startsWith("elevenlabs-")) return "elevenlabs"
   if (fullId.startsWith("typecast-")) return "typecast"
   return null
@@ -190,9 +176,6 @@ export function resolveTtsVoiceDisplay(
 }
 
 export function stylesForTtsVoice(provider: TtsProviderId, voice: ShotformTtsVoice | null): string[] {
-  if (provider === "supertone" && voice) {
-    return stylesForSupertoneVoice(voice as ShotformSupertoneVoice)
-  }
   if (provider === "typecast") {
     if (voice?.styles?.length) return voice.styles
     return ["normal", "happy", "sad", "angry", "whisper"]
@@ -201,7 +184,6 @@ export function stylesForTtsVoice(provider: TtsProviderId, voice: ShotformTtsVoi
 }
 
 export function labelTtsStyle(provider: TtsProviderId, style: string): string {
-  if (provider === "supertone") return labelSupertoneStyle(style)
   const typecastLabels: Record<string, string> = {
     smart: "스마트",
     normal: "보통",
@@ -218,9 +200,6 @@ export function labelTtsStyle(provider: TtsProviderId, style: string): string {
 }
 
 export function defaultStyleForTtsVoice(provider: TtsProviderId, voice: ShotformTtsVoice | null): string {
-  if (provider === "supertone" && voice) {
-    return defaultStyleForSupertoneVoice(voice as ShotformSupertoneVoice)
-  }
   if (provider === "typecast") {
     const styles = stylesForTtsVoice(provider, voice)
     if (styles.includes("normal")) return "normal"
@@ -232,14 +211,12 @@ export function defaultStyleForTtsVoice(provider: TtsProviderId, voice: Shotform
 
 export function shotformTtsApiKey(provider: TtsProviderId): string {
   if (provider === "supertonic") return "" // 로컬 서버 — API 키 불필요
-  if (provider === "supertone") return shotformSupertoneKey()
   if (provider === "elevenlabs") return shotformElevenlabsKey()
   return shotformTypecastKey()
 }
 
 export function ttsApiKeyMissingMessage(provider: TtsProviderId): string {
   const names: Record<TtsProviderId, string> = {
-    supertone: "수퍼톤(supertone_api_key)",
     supertonic: "수퍼토닉3(로컬 서버)",
     elevenlabs: "ElevenLabs(elevenlabs_api_key)",
     typecast: "타입캐스트(typecast_api_key)",
@@ -453,6 +430,9 @@ export async function synthesizeTtsLine(args: {
   style?: string
   speed?: number
 }): Promise<string> {
+  if (isRetiredSupertoneVoiceId(args.fullVoiceId)) {
+    throw new Error(RETIRED_SUPERTONE_MESSAGE)
+  }
   const parsed = parseBareVoiceId(args.fullVoiceId)
   if (!parsed) throw new Error("목소리 형식이 올바르지 않습니다.")
 
@@ -483,31 +463,6 @@ export async function synthesizeTtsLine(args: {
 
   const apiKey = shotformTtsApiKey(parsed.provider)
   if (!apiKey) throw new Error(ttsApiKeyMissingMessage(parsed.provider))
-
-  if (parsed.provider === "supertone") {
-    const res = await fetch("/api/supertone-tts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        text: args.text,
-        voiceId: parsed.bareId,
-        apiKey,
-        style: args.style || "neutral",
-        language: "ko",
-        speed,
-      }),
-    })
-    const data = (await res.json().catch(() => ({}))) as {
-      success?: boolean
-      audioUrl?: string
-      audioBase64?: string
-      error?: string
-    }
-    if (!res.ok || data.success === false) throw new Error(data.error || `수퍼톤 TTS 실패 (${res.status})`)
-    const url = audioUrlFromTtsResponse({ ...data, mime: "audio/wav" })
-    if (!url) throw new Error("수퍼톤 오디오 응답이 비어 있습니다.")
-    return url
-  }
 
   if (parsed.provider === "elevenlabs") {
     const res = await fetch("/api/elevenlabs-tts", {

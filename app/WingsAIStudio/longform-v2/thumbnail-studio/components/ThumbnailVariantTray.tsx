@@ -1,3 +1,4 @@
+import { Sparkles } from 'lucide-react'
 import type { ThumbnailStudioVariant } from '@/lib/longform-v2/thumbnailTemplateStudio/studioVariants'
 import { MAX_STUDIO_VARIANTS } from '@/lib/longform-v2/thumbnailTemplateStudio/studioVariants'
 
@@ -41,7 +42,7 @@ export function ThumbnailVariantTray({
           disabled={busy}
           onClick={onGenerateAi}
         >
-          {busy ? 'AI 생성 중…' : '✨ AI 문구 후보'}
+          <Sparkles className="lfv2-ico lfv2-ico--lead" aria-hidden />{busy ? 'AI 생성 중…' : 'AI 문구 후보'}
         </button>
       </div>
       {variants.length ? (

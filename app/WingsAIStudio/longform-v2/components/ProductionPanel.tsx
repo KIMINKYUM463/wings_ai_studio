@@ -1,5 +1,6 @@
 "use client"
 
+import { Archive, AudioLines, Check, Clapperboard, ClipboardCopy, Download, Eraser, Film, ImageIcon, ImageUp, RefreshCw, Scissors, Settings, Zap } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import JSZip from "jszip"
 import type { LongformV2Project, SceneAsset } from "@/lib/longform-v2/project-storage"
@@ -733,7 +734,7 @@ export function ProductionPanel({
                             ) : null}
                             {on ? (
                               <span className="dm-img-model-card__check" aria-hidden>
-                                ✓
+                                <Check className="lfv2-ico" aria-hidden />
                               </span>
                             ) : null}
                           </div>
@@ -766,7 +767,7 @@ export function ProductionPanel({
         <>
           <div className="lfv2-prod-toolbar">
             <button type="button" className="dm-btn dm-btn--ghost" onClick={() => setWorkOpen(true)}>
-              ⚙ 설정
+              <Settings className="lfv2-ico lfv2-ico--lead" aria-hidden />설정
             </button>
             <button
               type="button"
@@ -776,7 +777,7 @@ export function ProductionPanel({
               title="저장된 모든 장면 프롬프트를 한 번에 복사합니다."
             >
               <span className="dm-head-action__icon" aria-hidden>
-                📋
+                <ClipboardCopy className="lfv2-ico" aria-hidden />
               </span>
               프롬프트 일괄 복사
             </button>
@@ -788,7 +789,7 @@ export function ProductionPanel({
               title="1.jpg·2.png 또는 사진(1)·사진(2)처럼 번호가 있는 이미지를 장면에 넣습니다."
             >
               <span className="dm-head-action__icon" aria-hidden>
-                🖼
+                <ImageUp className="lfv2-ico" aria-hidden />
               </span>
               {bulkImportBusy
                 ? bulkImportStatus.trim() || "일괄 업로드 중…"
@@ -808,7 +809,7 @@ export function ProductionPanel({
               title="첫 이미지로 모자이크 위치·강도를 맞춘 뒤, 나머지 장면에도 같은 비율로 적용합니다."
             >
               <span className="dm-head-action__icon" aria-hidden>
-                ▦
+                <Eraser className="lfv2-ico" aria-hidden />
               </span>
               {flowWmBusy ? flowWmStatus || "워터마크 처리 중…" : "기존 장면 워터마크 제거"}
             </button>
@@ -822,23 +823,23 @@ export function ProductionPanel({
                 aria-haspopup="menu"
               >
                 <span className="dm-head-action__icon" aria-hidden>
-                  ↓
+                  <Download className="lfv2-ico" aria-hidden />
                 </span>
                 {exportBusy ? "준비 중…" : "전체 다운로드"}
               </button>
               {exportOpen ? (
                 <div className="dm-export-menu" role="menu">
                   <button type="button" role="menuitem" onClick={() => void onExport("tts")}>
-                    🔊 TTS 다운로드
+                    <AudioLines className="lfv2-ico lfv2-ico--lead" aria-hidden />TTS 다운로드
                   </button>
                   <button type="button" role="menuitem" onClick={() => void onExport("images")}>
-                    🖼 이미지 다운로드
+                    <ImageIcon className="lfv2-ico lfv2-ico--lead" aria-hidden />이미지 다운로드
                   </button>
                   <button type="button" role="menuitem" onClick={() => void onExport("videos")}>
-                    🎬 비디오 다운로드
+                    <Clapperboard className="lfv2-ico lfv2-ico--lead" aria-hidden />비디오 다운로드
                   </button>
                   <button type="button" role="menuitem" onClick={() => void onExport("all")}>
-                    📦 전체 ZIP
+                    <Archive className="lfv2-ico lfv2-ico--lead" aria-hidden />전체 ZIP
                   </button>
                 </div>
               ) : null}
@@ -853,7 +854,7 @@ export function ProductionPanel({
               }}
             >
               <span className="dm-head-action__icon" aria-hidden>
-                ⚡
+                <Zap className="lfv2-ico" aria-hidden />
               </span>
               {batchProgress || "일괄 생성"}
             </button>
@@ -865,7 +866,7 @@ export function ProductionPanel({
               title="선택한 장면에 AI 영상 생성 후 TTS와 합쳐 최종영상까지 순차 생성"
             >
               <span className="dm-head-action__icon" aria-hidden>
-                🎞
+                <Film className="lfv2-ico" aria-hidden />
               </span>
               AI 영상 일괄
             </button>
@@ -880,13 +881,13 @@ export function ProductionPanel({
               }}
             >
               <span className="dm-head-action__icon" aria-hidden>
-                ↻
+                <RefreshCw className="lfv2-ico" aria-hidden />
               </span>
               재생성
             </button>
             <button type="button" className="dm-head-action dm-head-action--composer" disabled title="영상 편집은 준비 중">
               <span className="dm-head-action__icon" aria-hidden>
-                ✂
+                <Scissors className="lfv2-ico" aria-hidden />
               </span>
               영상 편집
             </button>
@@ -926,7 +927,7 @@ export function ProductionPanel({
           />
           <p className="lfv2-disabled-hint">
             빠른 모드와 같이 이미지 스타일을 고른 뒤 장면별 또는 일괄 생성으로 프롬프트·음성·이미지·비디오를
-            한 번에 만듭니다. TTS·Supertonic 연결은 「⚙ 설정」에서 바꿉니다.
+            한 번에 만듭니다. TTS·Supertonic 연결은 「설정」에서 바꿉니다.
           </p>
           {batchCanResume && !batchProgress ? (
             <p className="lfv2-batch-done-banner">

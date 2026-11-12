@@ -465,7 +465,7 @@ export function StoryVideoEditPanel({
   return (
     <div className="space-y-5">
       <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
-        <section className="rounded-[28px] border border-white/10 bg-[#080808] p-5">
+        <section className="rounded-[28px] border border-white/10 bg-[#f7f7f7] p-5">
           <div className="mb-4 flex items-center justify-between">
             <div>
               <div className="flex items-center gap-2 text-[9px] font-black tracking-[0.18em] text-orange-300">
@@ -520,7 +520,7 @@ export function StoryVideoEditPanel({
           </div>
         </section>
 
-        <aside className="rounded-[28px] border border-white/10 bg-[#0d0d0c] p-5">
+        <aside className="rounded-[28px] border border-white/10 bg-[#f7f7f5] p-5">
           <div className="flex items-center gap-2 text-sm font-black text-white">
             <Type className="h-4 w-4 text-orange-300" />
             자막 스타일
@@ -576,7 +576,7 @@ export function StoryVideoEditPanel({
         </aside>
       </div>
 
-      <section className="rounded-[24px] border border-white/10 bg-[#0a0a09] p-4">
+      <section className="rounded-[24px] border border-white/10 bg-[#f7f7f5] p-4">
         <div className="mb-3 text-[9px] font-black tracking-[0.16em] text-zinc-500">TIMELINE</div>
         <div className="flex gap-2 overflow-x-auto pb-2">
           {scenes.map((item, index) => {

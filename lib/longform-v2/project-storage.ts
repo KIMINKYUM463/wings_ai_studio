@@ -9,6 +9,7 @@ import {
   loadProjectMediaMap,
   putAllSceneMedia,
 } from "@/lib/longform-v2/project-media-idb"
+import { defaultVoiceIdForEngine } from "@/lib/longform-v2/voice-personas"
 
 export type StepId = "script" | "voice-image" | "youtube-meta" | "overview"
 export type ScriptSubStep = "input" | "plan" | "script"
@@ -66,8 +67,8 @@ export type LongformV2Project = {
   thumbnailUrl?: string
   imageModel: string
   productionTab: "style" | "scenes"
-  /** WingsStudio / 쇼핑숏폼 호환: elevenlabs | supertone(클라우드) | supertonic(로컬 3) */
-  ttsEngine: "elevenlabs" | "supertone" | "supertonic"
+  /** WingsStudio / 쇼핑숏폼 호환: elevenlabs | supertonic(로컬 3) */
+  ttsEngine: "elevenlabs" | "supertonic"
   voiceId: string
   ttsLanguage: string
   ttsSpeed: number
@@ -204,6 +205,10 @@ export function compactProjectForStorage(project: LongformV2Project): LongformV2
 
 function normalizeLoadedProject(p: LongformV2Project): LongformV2Project {
   if (!p.ttsEngine) p.ttsEngine = "supertonic"
+  else if (p.ttsEngine !== "elevenlabs" && p.ttsEngine !== "supertonic") {
+    p.ttsEngine = "supertonic"
+    p.voiceId = defaultVoiceIdForEngine("supertonic")
+  }
   if (!p.ttsLanguage) p.ttsLanguage = "한국어"
   if (typeof p.ttsSpeed !== "number" || !Number.isFinite(p.ttsSpeed)) p.ttsSpeed = 1.05
   else p.ttsSpeed = Math.min(1.25, Math.max(0.75, p.ttsSpeed))

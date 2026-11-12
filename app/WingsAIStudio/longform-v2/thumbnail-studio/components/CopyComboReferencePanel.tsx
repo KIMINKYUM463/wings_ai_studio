@@ -1,3 +1,4 @@
+import { Sparkles } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import type { ThumbnailCopyCombo } from '@/lib/longform-v2/youtube/thumbnailCopyCombos'
 import { CopyComboLineRow } from './CopyComboLineRow'
@@ -275,7 +276,7 @@ export function CopyComboReferencePanel({
 
       <div className="thumb-studio__combo-ref-body">
         <section className="thumb-studio__copy-ref-combos" aria-label="AI 추천 조합">
-          <h3 className="thumb-studio__copy-ref-combos-title">✦ 추천 조합 (2줄)</h3>
+          <h3 className="thumb-studio__copy-ref-combos-title"><Sparkles className="lfv2-ico lfv2-ico--lead" aria-hidden />추천 조합 (2줄)</h3>
           <p className="thumb-studio__copy-ref-hint thumb-studio__copy-ref-hint--combo">
             {combosLoading
               ? 'AI가 템플릿에 맞는 2줄 조합을 만드는 중…'

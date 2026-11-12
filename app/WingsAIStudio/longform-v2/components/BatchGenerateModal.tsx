@@ -1,5 +1,6 @@
 "use client"
 
+import { CheckSquare, ImageIcon, Mic, Pencil, RefreshCw, Square, Zap } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import type { LongformV2Project, SceneAsset } from "@/lib/longform-v2/project-storage"
 import {
@@ -24,7 +25,6 @@ type Props = {
 const ENGINE_SHORT: Record<LongformV2Project["ttsEngine"], string> = {
   supertonic: "Supertonic 3",
   elevenlabs: "ElevenLabs",
-  supertone: "Supertone",
 }
 
 function sceneStatusLine(s: SceneAsset): string {
@@ -124,7 +124,7 @@ export function BatchGenerateModal({
         aria-labelledby="lfv2-batch-title"
       >
         <header className="dm-batch-head">
-          <h3 id="lfv2-batch-title">{mode === "overwrite" ? "↻ 일괄 재생성" : "⚡ 일괄 생성"}</h3>
+          <h3 id="lfv2-batch-title">{mode === "overwrite" ? <><RefreshCw className="lfv2-ico lfv2-ico--lead" aria-hidden />일괄 재생성</> : <><Zap className="lfv2-ico lfv2-ico--lead" aria-hidden />일괄 생성</>}</h3>
           <button type="button" className="dm-close" aria-label="닫기" onClick={onClose}>
             ×
           </button>
@@ -156,7 +156,7 @@ export function BatchGenerateModal({
                 )
               }
             >
-              {allTasksOn ? "☑ 작업 전체 해제" : "☐ 작업 전체 선택"}
+              {allTasksOn ? <><CheckSquare className="lfv2-ico lfv2-ico--lead" aria-hidden />작업 전체 해제</> : <><Square className="lfv2-ico lfv2-ico--lead" aria-hidden />작업 전체 선택</>}
             </button>
             <ul className="dm-batch-list">
               <li>
@@ -167,7 +167,7 @@ export function BatchGenerateModal({
                     onChange={() => toggleTask("prompt")}
                   />
                   <span className="dm-batch-item__icon" aria-hidden>
-                    ✏
+                    <Pencil className="lfv2-ico" aria-hidden />
                   </span>
                   <span className="dm-batch-item__label">프롬프트 생성</span>
                   <span className="dm-batch-item__count">{counts.prompt}장면</span>
@@ -177,7 +177,7 @@ export function BatchGenerateModal({
                 <label className={"dm-batch-item" + (tasks.image ? " dm-batch-item--on" : "")}>
                   <input type="checkbox" checked={tasks.image} onChange={() => toggleTask("image")} />
                   <span className="dm-batch-item__icon" aria-hidden>
-                    🖼
+                    <ImageIcon className="lfv2-ico" aria-hidden />
                   </span>
                   <span className="dm-batch-item__label">이미지(영상)</span>
                   <span className="dm-batch-item__count">{counts.image}장면</span>
@@ -190,7 +190,7 @@ export function BatchGenerateModal({
                 <label className={"dm-batch-item" + (tasks.tts ? " dm-batch-item--on" : "")}>
                   <input type="checkbox" checked={tasks.tts} onChange={() => toggleTask("tts")} />
                   <span className="dm-batch-item__icon" aria-hidden>
-                    🎙
+                    <Mic className="lfv2-ico" aria-hidden />
                   </span>
                   <span className="dm-batch-item__label">TTS 생성</span>
                   <span className="dm-batch-item__count">{counts.tts}장면</span>
@@ -276,7 +276,7 @@ export function BatchGenerateModal({
                 )
               }
             >
-              {allScenesSelected ? "☑ 장면 전체 해제" : "☐ 장면 전체 선택"}
+              {allScenesSelected ? <><CheckSquare className="lfv2-ico lfv2-ico--lead" aria-hidden />장면 전체 해제</> : <><Square className="lfv2-ico lfv2-ico--lead" aria-hidden />장면 전체 선택</>}
             </button>
             <ul className="dm-batch-list dm-batch-split__scene-list">
               {project.scenes.map((s) => {
@@ -306,7 +306,7 @@ export function BatchGenerateModal({
         <p className="dm-batch-note">
           {showBgRatio
             ? "실사 장면은 생성 전 스톡 검색어를 입력합니다. Pexels API 키는 설정에서 등록하세요."
-            : "⚙ TTS·이미지 모델 변경은 「설정」에서 가능합니다."}
+            : "TTS·이미지 모델 변경은 「설정」에서 가능합니다."}
         </p>
 
         <footer className="dm-batch-foot">

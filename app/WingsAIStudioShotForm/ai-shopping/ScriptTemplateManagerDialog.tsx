@@ -38,7 +38,7 @@ function DetailBlock({
   children: React.ReactNode
 }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-[#0e1420] px-3.5 py-3 space-y-2">
+    <div className="rounded-xl border border-white/10 bg-[#f6ffff] px-3.5 py-3 space-y-2">
       <p className="text-[12px] font-semibold text-sky-200/90">{title}</p>
       <div className="text-[13px] text-zinc-200 leading-relaxed whitespace-pre-wrap">
         {children}
@@ -49,7 +49,7 @@ function DetailBlock({
 
 function GuidelineRow({ label, text }: { label: string; text: string }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-[#0e1420] px-3.5 py-3">
+    <div className="rounded-xl border border-white/10 bg-[#f6ffff] px-3.5 py-3">
       <p className="text-[12px] font-bold text-amber-200/90 mb-1.5">{label}</p>
       <p className="text-[13px] text-zinc-200 leading-relaxed">{text}</p>
     </div>
@@ -90,7 +90,7 @@ export function ScriptTemplateManagerDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="max-w-[min(96vw,1480px)] sm:max-w-[min(96vw,1480px)] w-full h-[min(90vh,860px)] p-0 gap-0 border-white/10 bg-[#0b0f16] overflow-hidden flex flex-col"
+        className="max-w-[min(96vw,1480px)] sm:max-w-[min(96vw,1480px)] w-full h-[min(90vh,860px)] p-0 gap-0 border-white/10 bg-[#f3f9ff] overflow-hidden flex flex-col"
       >
         <DialogTitle className="sr-only">템플릿 관리</DialogTitle>
         <DialogDescription className="sr-only">
@@ -99,7 +99,7 @@ export function ScriptTemplateManagerDialog({
 
         <div className="flex min-h-0 flex-1">
           {/* 좌측 리스트 */}
-          <aside className="w-[320px] shrink-0 border-r border-white/10 bg-[#0a101a] flex flex-col">
+          <aside className="w-[320px] shrink-0 border-r border-white/10 bg-[#f1fbff] flex flex-col">
             <div className="px-4 py-3.5 border-b border-white/[0.06]">
               <p className="text-sm font-semibold text-zinc-50">템플릿 리스트</p>
               <p className="text-[11px] text-zinc-500 mt-0.5">
@@ -165,7 +165,7 @@ export function ScriptTemplateManagerDialog({
                 variant="outline"
                 size="sm"
                 onClick={() => onOpenChange(false)}
-                className="shrink-0 border-white/20 bg-[#151b28] text-zinc-200 hover:bg-white/10 hover:text-white"
+                className="shrink-0 border-white/20 bg-[#f6ffff] text-zinc-200 hover:bg-white/10 hover:text-white"
               >
                 <X className="h-3.5 w-3.5 mr-1" />
                 닫기
@@ -277,7 +277,7 @@ export function ScriptTemplateManagerDialog({
               ) : null}
             </div>
 
-            <div className="border-t border-white/[0.06] px-5 py-3 flex justify-end bg-[#0b0f16]">
+            <div className="border-t border-white/[0.06] px-5 py-3 flex justify-end bg-[#f3f9ff]">
               <Button
                 type="button"
                 onClick={apply}

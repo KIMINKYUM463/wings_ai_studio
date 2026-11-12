@@ -56,8 +56,6 @@ export interface ShoppingProjectData {
 
   // TTS 관련
   selectedVoiceId?: string
-  selectedSupertoneVoiceId?: string
-  selectedSupertoneStyle?: string
   ttsAudioUrl?: string
 
   // 이미지 및 영상

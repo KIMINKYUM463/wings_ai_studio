@@ -93,10 +93,10 @@ export function AnimalScriptPanel({
     <div className="space-y-6">
       <div>
         <p className="animal-bubble-chip inline-flex px-2.5 py-1 text-[10px]">SCRIPT</p>
-        <h2 className="animal-display mt-2 text-xl font-bold text-[#fff6ee]">
+        <h2 className="animal-display mt-2 text-xl font-bold text-[#221c16]">
           {brief.character.name}의 쇼핑 스토리
         </h2>
-        <p className="mt-1 text-sm text-[#9aa89c]">
+        <p className="mt-1 text-sm text-[#49554b]">
           {brief.videoDuration}초 · 약 {expectedCount}씬 (길수록 컷↑) · 문제 → 마트 → 활용 ·{" "}
           {brief.productName || "제품 미선택"}
         </p>
@@ -121,7 +121,7 @@ export function AnimalScriptPanel({
       </div>
 
       {scenes.length === 0 ? (
-        <div className="rounded-3xl border border-dashed border-[rgba(255,246,238,0.2)] bg-black/20 px-6 py-14 text-center text-sm text-[#9aa89c]">
+        <div className="rounded-3xl border border-dashed border-[rgba(34,28,22,0.2)] bg-black/20 px-6 py-14 text-center text-sm text-[#49554b]">
           영상 길이에 맞춰 3~8씬이 생성됩니다. 컷이 많을수록 후킹이 강해져요.
         </div>
       ) : (
@@ -134,14 +134,14 @@ export function AnimalScriptPanel({
                 onClick={() => setSelectedIndex(index)}
                 className={`w-full rounded-xl border px-3 py-2.5 text-left transition ${
                   selectedIndex === index
-                    ? "border-[#7dd3a8]/60 bg-[#7dd3a8]/15"
-                    : "border-[rgba(255,246,238,0.1)] bg-black/20 hover:border-[#7dd3a8]/30"
+                    ? "border-[#005835]/60 bg-[#7dd3a8]/15"
+                    : "border-[rgba(34,28,22,0.1)] bg-black/20 hover:border-[#005835]/30"
                 }`}
               >
-                <span className="block text-[10px] font-bold tracking-wide text-[#7dd3a8]">
+                <span className="block text-[10px] font-bold tracking-wide text-[#005835]">
                   SCENE {index + 1} · {ANIMAL_SCENE_LABELS[scene.type] || scene.type}
                 </span>
-                <span className="mt-1 block truncate text-sm font-semibold text-[#fff6ee]">
+                <span className="mt-1 block truncate text-sm font-semibold text-[#221c16]">
                   {scene.title}
                 </span>
               </button>
@@ -149,15 +149,15 @@ export function AnimalScriptPanel({
           </div>
 
           {selected ? (
-            <div className="space-y-3 rounded-2xl border border-[rgba(255,246,238,0.12)] bg-black/25 p-4">
-              <p className="text-xs font-bold text-[#7dd3a8]">
+            <div className="space-y-3 rounded-2xl border border-[rgba(34,28,22,0.12)] bg-black/25 p-4">
+              <p className="text-xs font-bold text-[#005835]">
                 {ANIMAL_SCENE_LABELS[selected.type] || selected.type} · {scenes.length}씬 중{" "}
                 {selectedIndex + 1}
               </p>
               <Input
                 value={selected.title}
                 onChange={(e) => updateScene(selectedIndex, { title: e.target.value })}
-                className="border-[rgba(243,235,224,0.12)] bg-black/35 text-[#f3ebe0]"
+                className="border-[rgba(41,36,27,0.12)] bg-black/35 text-[#29241b]"
                 placeholder="씬 제목"
               />
               <Textarea
@@ -165,9 +165,9 @@ export function AnimalScriptPanel({
                 onChange={(e) => updateScene(selectedIndex, { narration: e.target.value })}
                 rows={7}
                 placeholder="이 씬의 나레이션"
-                className="border-[rgba(243,235,224,0.12)] bg-black/35 text-base leading-7 text-[#f3ebe0]"
+                className="border-[rgba(41,36,27,0.12)] bg-black/35 text-base leading-7 text-[#29241b]"
               />
-              <p className="text-xs text-[#6b7a6e]">
+              <p className="text-xs text-[#657468]">
                 이 씬 {selected.narration.length}자 · 전체 {brief.script.length}자 · 목표 약{" "}
                 {Math.round(brief.videoDuration * 6.7)}자 · {scenes.length}컷
               </p>

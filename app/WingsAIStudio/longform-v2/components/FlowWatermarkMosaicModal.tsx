@@ -1,5 +1,6 @@
 "use client"
 
+import { Eraser } from "lucide-react"
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import {
   DEFAULT_FLOW_WATERMARK_MOSAIC_PARAMS,
@@ -208,7 +209,7 @@ export function FlowWatermarkMosaicModal({
         aria-labelledby="lfv2-flow-wm-title"
       >
         <header className="dm-settings-head">
-          <h3 id="lfv2-flow-wm-title">▦ Flow 워터마크 모자이크</h3>
+          <h3 id="lfv2-flow-wm-title"><Eraser className="lfv2-ico lfv2-ico--lead" aria-hidden />Flow 워터마크 모자이크</h3>
           <button type="button" className="dm-close" aria-label="닫기" disabled={busy} onClick={onClose}>
             ×
           </button>

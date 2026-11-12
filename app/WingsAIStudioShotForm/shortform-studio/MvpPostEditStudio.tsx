@@ -48,11 +48,8 @@ import {
 } from "@/lib/mvp-thumbnail-persist"
 import { narrationSegmentDuration } from "@/lib/shotform-factory-narration-script"
 import {
-  filterSupertoneKoreanVoices,
-  normalizeSupertoneVoiceRow,
-} from "@/lib/shotform-factory-tts"
-import {
   buildTtsVoiceKey,
+  DEFAULT_TTS_PROVIDER,
   defaultStyleForTtsVoice,
   ELEVENLABS_DEFAULT_VOICE_ID,
   elevenlabsSampleVoiceCatalog,
@@ -68,6 +65,8 @@ import {
   supertonicBuiltinVoiceCatalog,
   ttsApiKeyMissingMessage,
   ttsProviderFromVoiceId,
+  isRetiredSupertoneVoiceId,
+  TTS_PROVIDER_SUMMARY,
   type ShotformTtsVoice,
   type TtsProviderId,
 } from "@/lib/shotform-tts-providers"
@@ -324,32 +323,33 @@ export function MvpPostEditStudio({
   )
 
   const [voiceCatalog, setVoiceCatalog] = useState<Record<TtsProviderId, ShotformTtsVoice[]>>({
-    supertone: [],
     supertonic: supertonicBuiltinVoiceCatalog(),
     elevenlabs: elevenlabsSampleVoiceCatalog(),
     typecast: [],
   })
   const [voicesLoading, setVoicesLoading] = useState<Record<TtsProviderId, boolean>>({
-    supertone: false,
     supertonic: false,
     elevenlabs: false,
     typecast: false,
   })
   const [voiceLoadErrors, setVoiceLoadErrors] = useState<Record<TtsProviderId, string | null>>({
-    supertone: null,
     supertonic: null,
     elevenlabs: null,
     typecast: null,
   })
   const [voiceListUnavailable, setVoiceListUnavailable] = useState<Record<TtsProviderId, boolean>>({
-    supertone: false,
     supertonic: false,
     elevenlabs: false,
     typecast: false,
   })
   const skipVoiceListLoadRef = useRef<Set<TtsProviderId>>(new Set())
-  const [selectedVoiceId, setSelectedVoiceId] = useState(studioPersist?.selectedVoiceId ?? "")
-  const [supertoneStyle, setSupertoneStyle] = useState(studioPersist?.supertoneStyle ?? "neutral")
+  const [selectedVoiceId, setSelectedVoiceId] = useState(() => {
+    const saved = studioPersist?.selectedVoiceId ?? ""
+    return isRetiredSupertoneVoiceId(saved) ? "" : saved
+  })
+  const [voiceStyle, setVoiceStyle] = useState(
+    studioPersist?.voiceStyle ?? studioPersist?.supertoneStyle ?? "neutral"
+  )
   const [speechSpeed, setSpeechSpeed] = useState(() => normalizeTtsSpeed(studioPersist?.speechSpeed))
   const [ttsGeneratedSpeed, setTtsGeneratedSpeed] = useState<number | null>(null)
   const [previewingVoiceId, setPreviewingVoiceId] = useState<string | null>(null)
@@ -560,8 +560,11 @@ export function MvpPostEditStudio({
     setScriptStyle(studioPersist?.scriptStyle ?? scriptStyleFromBundle(result.script?.bundle))
     setVoiceLineCues(studioPersist?.voiceLineCues?.length ? studioPersist.voiceLineCues : null)
     setPhase(normalizeStudioPhase(studioPersist?.phase))
-    if (studioPersist?.selectedVoiceId) setSelectedVoiceId(studioPersist.selectedVoiceId)
-    if (studioPersist?.supertoneStyle) setSupertoneStyle(studioPersist.supertoneStyle)
+    if (studioPersist?.selectedVoiceId && !isRetiredSupertoneVoiceId(studioPersist.selectedVoiceId)) {
+      setSelectedVoiceId(studioPersist.selectedVoiceId)
+    }
+    const savedStyle = studioPersist?.voiceStyle ?? studioPersist?.supertoneStyle
+    if (savedStyle) setVoiceStyle(savedStyle)
     if (studioPersist?.speechSpeed != null) setSpeechSpeed(normalizeTtsSpeed(studioPersist.speechSpeed))
     setSceneFitEnabled(studioPersist?.sceneFitEnabled !== false)
     setSceneSpeeds(studioPersist?.sceneSpeeds?.length ? studioPersist.sceneSpeeds : null)
@@ -616,7 +619,7 @@ export function MvpPostEditStudio({
           : undefined,
       voiceLineCues: voiceLineCues ?? undefined,
       selectedVoiceId,
-      supertoneStyle,
+      voiceStyle,
       speechSpeed,
       sceneFitEnabled,
       sceneSpeeds: sceneSpeeds ?? undefined,
@@ -663,7 +666,7 @@ export function MvpPostEditStudio({
     seoMeta,
     voiceLineCues,
     selectedVoiceId,
-    supertoneStyle,
+    voiceStyle,
     speechSpeed,
     sceneFitEnabled,
     sceneSpeeds,
@@ -809,11 +812,9 @@ export function MvpPostEditStudio({
     setVoiceLoadErrors((prev) => ({ ...prev, [provider]: null }))
     try {
       const endpoint =
-        provider === "supertone"
-          ? `/api/supertone-voices?apiKey=${encodeURIComponent(key)}`
-          : provider === "elevenlabs"
-            ? `/api/elevenlabs-voices?apiKey=${encodeURIComponent(key)}`
-            : `/api/typecast-voices?apiKey=${encodeURIComponent(key)}`
+        provider === "elevenlabs"
+          ? `/api/elevenlabs-voices?apiKey=${encodeURIComponent(key)}`
+          : `/api/typecast-voices?apiKey=${encodeURIComponent(key)}`
 
       const res = await fetch(endpoint)
       const data = (await res.json().catch(() => ({}))) as {
@@ -836,17 +837,7 @@ export function MvpPostEditStudio({
 
       const raw = Array.isArray(data.voices) ? data.voices : []
       let list: ShotformTtsVoice[] = []
-      if (provider === "supertone") {
-        list = filterSupertoneKoreanVoices(
-          raw.map((v) => normalizeSupertoneVoiceRow(v as Record<string, unknown>))
-        )
-        if (!list.length && raw.length > 0) {
-          setVoiceLoadErrors((prev) => ({
-            ...prev,
-            supertone: "한국어 지원 수퍼톤 목소리가 없습니다. API 키·계정을 확인해 주세요.",
-          }))
-        }
-      } else if (provider === "elevenlabs") {
+      if (provider === "elevenlabs") {
         const apiList = raw
           .map((v) => normalizeElevenlabsVoiceRow(v as Record<string, unknown>))
           .filter((v) => v.voice_id)
@@ -926,7 +917,7 @@ export function MvpPostEditStudio({
         voiceCatalog[parsed.provider]?.find((v) => buildTtsVoiceKey(parsed.provider, v.voice_id) === id) ??
         voiceCatalog[parsed.provider]?.find((v) => v.voice_id === parsed.bareId) ??
         null
-      setSupertoneStyle(defaultStyleForTtsVoice(parsed.provider, voice))
+      setVoiceStyle(defaultStyleForTtsVoice(parsed.provider, voice))
     },
     [voiceCatalog]
   )
@@ -1900,7 +1891,7 @@ export function MvpPostEditStudio({
   const activeScene = sceneIndexAtTime(segments, playhead)
 
   useEffect(() => {
-    void loadVoicesForProvider("supertone")
+    void loadVoicesForProvider(DEFAULT_TTS_PROVIDER)
   }, [loadVoicesForProvider])
 
   useEffect(() => {
@@ -2561,11 +2552,11 @@ export function MvpPostEditStudio({
   const runTts = useCallback(async (opts?: { voiceId?: string; style?: string; speed?: number }) => {
     setErr(null)
     const voiceId = opts?.voiceId?.trim() || selectedVoiceId
-    const style = opts?.style ?? supertoneStyle
+    const style = opts?.style ?? voiceStyle
     const baseSpeed = normalizeTtsSpeed(opts?.speed ?? speechSpeed)
     const provider = ttsProviderFromVoiceId(voiceId)
     if (!provider) {
-      setErr("목소리를 선택해 주세요. (수퍼톤 / 수퍼토닉3 / ElevenLabs / 타입캐스트)")
+      setErr(`목소리를 선택해 주세요. (${TTS_PROVIDER_SUMMARY})`)
       return
     }
     // 수퍼토닉3는 로컬 서버 — API 키 검사 생략
@@ -2575,7 +2566,7 @@ export function MvpPostEditStudio({
     }
     if (voiceId !== selectedVoiceId) {
       setSelectedVoiceId(voiceId)
-      setSupertoneStyle(style)
+      setVoiceStyle(style)
     }
     const lines = collectNarrationSubtitleLines(segments, getSceneText)
     const planSegs = liveResult.editPlan?.edit_plan
@@ -2768,7 +2759,7 @@ export function MvpPostEditStudio({
     baseSegments,
     getSceneText,
     selectedVoiceId,
-    supertoneStyle,
+    voiceStyle,
     speechSpeed,
     sceneFitEnabled,
     projectId,
@@ -2782,11 +2773,11 @@ export function MvpPostEditStudio({
     async (sceneIndex: number) => {
       setErr(null)
       const voiceId = selectedVoiceId
-      const style = supertoneStyle
+      const style = voiceStyle
       const baseSpeed = normalizeTtsSpeed(speechSpeed)
       const provider = ttsProviderFromVoiceId(voiceId)
       if (!provider) {
-        setErr("목소리를 선택해 주세요. (수퍼톤 / 수퍼토닉3 / ElevenLabs / 타입캐스트)")
+        setErr(`목소리를 선택해 주세요. (${TTS_PROVIDER_SUMMARY})`)
         return
       }
       if (provider !== "supertonic" && !shotformTtsApiKey(provider)) {
@@ -2951,7 +2942,7 @@ export function MvpPostEditStudio({
       baseSegments,
       getSceneText,
       selectedVoiceId,
-      supertoneStyle,
+      voiceStyle,
       speechSpeed,
       sceneFitEnabled,
       sceneSpeeds,
@@ -3172,7 +3163,7 @@ export function MvpPostEditStudio({
           voiceLineCues={voiceLineCues}
           sceneText={(i) => getSceneText(i)}
           voiceId={selectedVoiceId}
-          voiceStyle={supertoneStyle}
+          voiceStyle={voiceStyle}
           videoDurationSec={videoDuration || totalSec}
           audioDurationSec={audioDuration}
           scriptStyle={scriptStyle}
@@ -3277,8 +3268,8 @@ export function MvpPostEditStudio({
           voiceListUnavailable={voiceListUnavailable}
           selectedVoiceId={selectedVoiceId}
           onVoiceIdChange={handleVoiceIdChange}
-          voiceStyle={supertoneStyle}
-          onVoiceStyleChange={setSupertoneStyle}
+          voiceStyle={voiceStyle}
+          onVoiceStyleChange={setVoiceStyle}
           onReloadVoices={(provider) => void loadVoicesForProvider(provider)}
           onPreviewVoice={(voiceId, style) => void previewVoice(voiceId, style)}
           previewingVoiceId={previewingVoiceId}

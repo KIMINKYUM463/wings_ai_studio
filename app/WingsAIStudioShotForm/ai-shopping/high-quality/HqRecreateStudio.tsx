@@ -435,7 +435,7 @@ export default function HqShoppingRecreatePage() {
 
   if (!projectId) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#0a0b0d] px-4 text-zinc-200">
+      <div className="flex min-h-screen items-center justify-center bg-[#f5f7fa] px-4 text-zinc-200">
         <div className="max-w-md space-y-4 text-center">
           <p>프로젝트 ID가 없습니다. AI 쇼핑숏폼에서 고퀄리티 프로젝트를 먼저 만들어주세요.</p>
           <Link href="/WingsAIStudioShotForm/ai-shopping">
@@ -448,14 +448,14 @@ export default function HqShoppingRecreatePage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#0a0b0d] text-zinc-300">
+      <div className="flex min-h-screen items-center justify-center bg-[#f5f7fa] text-zinc-300">
         <Loader2 className="h-8 w-8 animate-spin text-lime-400" />
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0b0d] text-zinc-100">
+    <div className="min-h-screen bg-[#f5f7fa] text-zinc-100">
       <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-4 md:px-6 lg:h-screen lg:flex-row lg:gap-0 lg:px-0 lg:py-0">
         {/* 미리보기 */}
         <section className="relative flex flex-1 items-center justify-center bg-black lg:min-h-screen">
@@ -470,7 +470,7 @@ export default function HqShoppingRecreatePage() {
               프로젝트 목록
             </Button>
           </div>
-          <div className="relative aspect-[9/16] h-[min(82vh,720px)] overflow-hidden rounded-sm bg-[#111] shadow-2xl shadow-black/60">
+          <div className="relative aspect-[9/16] h-[min(82vh,720px)] overflow-hidden rounded-sm bg-[#fcfcfc] shadow-2xl shadow-black/60">
             {videoUrl ? (
               <video
                 key={videoUrl}
@@ -501,7 +501,7 @@ export default function HqShoppingRecreatePage() {
         </section>
 
         {/* 우측 패널 — Higgsfield Recreate 스타일 */}
-        <aside className="flex w-full flex-col border-t border-white/10 bg-[#121212] lg:h-screen lg:w-[380px] lg:shrink-0 lg:border-l lg:border-t-0">
+        <aside className="flex w-full flex-col border-t border-white/10 bg-[#fdfdfd] lg:h-screen lg:w-[380px] lg:shrink-0 lg:border-l lg:border-t-0">
           <div className="flex items-start justify-between border-b border-white/10 px-5 py-5">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
@@ -741,7 +741,7 @@ export default function HqShoppingRecreatePage() {
             <Button
               onClick={() => void handleRecreate()}
               disabled={isGenerating || !productPreview}
-              className="h-12 w-full rounded-xl bg-[#9CAF3E] text-base font-semibold text-black hover:bg-[#b0c44a] disabled:opacity-50"
+              className="h-12 w-full rounded-xl bg-[#9caf3e] text-base font-semibold text-black hover:bg-[#b0c44a] disabled:opacity-50"
             >
               {isGenerating ? (
                 <>
@@ -773,7 +773,7 @@ export default function HqShoppingRecreatePage() {
       </div>
 
       <Dialog open={avatarDialogOpen} onOpenChange={setAvatarDialogOpen}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto border-white/10 bg-[#141518] text-zinc-100 sm:max-w-lg">
+        <DialogContent className="max-h-[85vh] overflow-y-auto border-white/10 bg-[#fdffff] text-zinc-100 sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>한국 인물 페르소나 선택</DialogTitle>
             <DialogDescription className="text-zinc-400">
@@ -850,7 +850,7 @@ export default function HqShoppingRecreatePage() {
 
       {/* 인물 확대 미리보기 */}
       <Dialog open={Boolean(zoomAvatar)} onOpenChange={(open) => !open && setZoomAvatar(null)}>
-        <DialogContent className="border-white/10 bg-[#0c0d10] p-0 text-zinc-100 sm:max-w-md overflow-hidden">
+        <DialogContent className="border-white/10 bg-[#f5f7fb] p-0 text-zinc-100 sm:max-w-md overflow-hidden">
           {zoomAvatar ? (
             <>
               <DialogHeader className="space-y-1 border-b border-white/10 px-5 py-4 text-left">
@@ -883,7 +883,7 @@ export default function HqShoppingRecreatePage() {
                   닫기
                 </Button>
                 <Button
-                  className="flex-1 bg-[#9CAF3E] font-semibold text-black hover:bg-[#b0c44a]"
+                  className="flex-1 bg-[#9caf3e] font-semibold text-black hover:bg-[#b0c44a]"
                   onClick={() => {
                     const picked = zoomAvatar
                     setZoomAvatar(null)

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { STORY_TITLE_FORMULAS } from "@/app/WingsAIStudioShotForm/story-shopping/story-title-formulas"
 
 export const runtime = "nodejs"
 
@@ -37,14 +38,14 @@ export async function POST(request: NextRequest) {
             role: "system",
             content: `너는 조회수를 높이는 한국어 썰 채널 제목 전문 작가다.
 
-입력된 스토리를 바탕으로 서로 다른 후킹 방식의 제목 6개를 만든다.
+입력된 스토리를 바탕으로 서로 다른 공식을 쓴 제목 6개를 만든다.
+
+${STORY_TITLE_FORMULAS}
 
 규칙:
-- 12~28자
-- 제목만 봐도 결말이 궁금해야 한다.
-- 제품명은 가능하면 숨기고 사건·갈등·반전부터 보여준다.
-- 질문형, 경고형, 반전형, 숫자형, 고백형, 결과 선공개형을 각각 활용한다.
-- 과장 광고 문구, 구매 유도, 느낌표 남발을 피한다.
+- 제목만 봐도 결말이 궁금해야 한다. 마침표·물음표·느낌표 없이 끝낸다.
+- 제품명 대신 "○○" 자리에 제품 종류(귀마개, 간식 등)를 쓴다.
+- 과장 광고 문구와 구매 유도를 피한다.
 - 대본에 없는 사실·수치·효능·인물을 만들지 않는다.
 - 결말을 제목에서 전부 공개하지 않는다.
 - "충격", "소름" 같은 단어를 반복하지 않고 자연스럽게 쓴다.

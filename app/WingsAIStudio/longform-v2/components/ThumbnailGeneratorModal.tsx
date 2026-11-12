@@ -1,5 +1,6 @@
 "use client"
 
+import { ImageIcon } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { loadApiKeys } from "@/lib/longform-v2/api-keys"
 import type { CtrThumbnailPackageOption } from "@/lib/longform-v2/youtube/youtubeCtrThumbnailPackageKo"
@@ -222,7 +223,7 @@ export function ThumbnailGeneratorModal({
         style={{ width: "min(960px, 100%)", maxHeight: "92vh", overflow: "auto" }}
       >
         <header className="dm-batch-head">
-          <h3 id="lfv2-thumb-title">🖼 썸네일 생성기</h3>
+          <h3 id="lfv2-thumb-title"><ImageIcon className="lfv2-ico lfv2-ico--lead" aria-hidden />썸네일 생성기</h3>
           <button type="button" className="dm-close" aria-label="닫기" disabled={busy} onClick={onClose}>
             ×
           </button>

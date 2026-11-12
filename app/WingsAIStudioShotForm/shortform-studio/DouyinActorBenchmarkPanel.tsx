@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { CheckSquare, ExternalLink, FlaskConical, Loader2, RefreshCw, Square } from "lucide-react"
+import { Camera, CheckSquare, ExternalLink, FlaskConical, Loader2, Play, RefreshCw, Square } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { DOUYIN_VIDEO_APIFY_ACTORS } from "@/lib/apify-douyin-video-actors"
@@ -228,8 +228,8 @@ function VideoThumbCard({
           aspectClass="aspect-[9/16]"
           loadPriority={loadPriority}
         />
-        <span className="pointer-events-none absolute left-1.5 top-1.5 z-[1] rounded bg-black/75 px-1 py-0.5 text-[9px] text-amber-200">
-          {item.videoUrl ? "▶ 영상" : "📷 노트"}
+        <span className="pointer-events-none absolute left-1.5 top-1.5 z-[1] inline-flex items-center gap-0.5 rounded bg-black/75 px-1 py-0.5 text-[9px] text-amber-200">
+          {item.videoUrl ? <><Play className="h-2.5 w-2.5" />영상</> : <><Camera className="h-2.5 w-2.5" />노트</>}
         </span>
         {badge ? (
           <span className="pointer-events-none absolute left-1.5 right-9 top-8 z-[1] truncate rounded bg-black/80 px-1 py-0.5 text-[9px] text-violet-200">

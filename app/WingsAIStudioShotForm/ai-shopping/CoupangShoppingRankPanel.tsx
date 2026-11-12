@@ -121,7 +121,7 @@ export function CoupangShoppingRankPanel() {
   }, [loading, products, categoryName, analyzeTop3])
 
   return (
-    <Card className="relative overflow-hidden border-amber-400/20 bg-[radial-gradient(circle_at_top_right,#31200d_0%,#15131a_34%,#0c1019_100%)] shadow-[0_28px_90px_rgba(245,158,11,0.08)]">
+    <Card className="relative overflow-hidden border-amber-400/20 bg-[radial-gradient(circle_at_top_right,#fff3df_0%,#fffaf3_34%,#ffffff_100%)] shadow-[0_28px_90px_rgba(245,158,11,0.08)]">
       <motion.div
         aria-hidden
         className="pointer-events-none absolute -right-24 -top-28 h-72 w-72 rounded-full bg-amber-400/10 blur-3xl"
@@ -193,7 +193,7 @@ export function CoupangShoppingRankPanel() {
               className={`relative shrink-0 overflow-hidden rounded-xl border px-3.5 py-2.5 text-xs font-semibold transition ${
                 categoryId === category.id
                   ? "border-amber-300/40 text-zinc-950 shadow-[0_8px_28px_rgba(245,158,11,0.18)]"
-                  : "border-white/10 bg-black/20 text-zinc-400 hover:border-amber-400/30 hover:text-zinc-200"
+                  : "border-white/10 bg-[#fff]/80 text-zinc-400 hover:border-amber-400/30 hover:text-zinc-200"
               }`}
             >
               {categoryId === category.id ? (
@@ -215,7 +215,7 @@ export function CoupangShoppingRankPanel() {
             <motion.section
               initial={{ opacity: 0, y: 18 }}
               animate={{ opacity: 1, y: 0 }}
-              className="relative overflow-hidden rounded-2xl border border-amber-300/15 bg-black/25 p-4 backdrop-blur-xl lg:col-span-3"
+              className="relative overflow-hidden rounded-2xl border border-amber-300/15 bg-[#fff]/80 p-4 backdrop-blur-xl lg:col-span-3"
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -290,7 +290,7 @@ export function CoupangShoppingRankPanel() {
                   className="relative grid h-24 w-24 shrink-0 place-items-center rounded-full"
                   style={{ background: `conic-gradient(#38bdf8 0 ${rocketRatio}%, rgba(255,255,255,.06) ${rocketRatio}% 100%)` }}
                 >
-                  <div className="grid h-[74px] w-[74px] place-items-center rounded-full bg-[#10141c]">
+                  <div className="grid h-[74px] w-[74px] place-items-center rounded-full bg-[#f9ffff]">
                     <div className="text-center">
                       <Rocket className="mx-auto h-4 w-4 text-sky-300" />
                       <p className="mt-1 text-xl font-black text-white">{rocketRatio}%</p>
@@ -353,7 +353,7 @@ export function CoupangShoppingRankPanel() {
                 {[0, 1, 2].map((index) => (
                   <motion.div
                     key={index}
-                    className="h-52 overflow-hidden rounded-2xl border border-white/8 bg-black/25"
+                    className="h-52 overflow-hidden rounded-2xl border border-white/8 bg-[#fff]/80"
                     animate={{ opacity: [0.35, 0.8, 0.35] }}
                     transition={{ duration: 1.5, repeat: Infinity, delay: index * 0.18 }}
                   >
@@ -381,7 +381,7 @@ export function CoupangShoppingRankPanel() {
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       transition={{ delay: index * 0.13, duration: 0.45 }}
                       whileHover={{ y: -4, borderColor: "rgba(196,181,253,.35)" }}
-                      className="overflow-hidden rounded-2xl border border-white/10 bg-black/30 p-4"
+                      className="overflow-hidden rounded-2xl border border-white/10 bg-[#fff]/80 p-4"
                     >
                       <div className="flex items-center gap-3">
                         <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-white">
@@ -441,7 +441,7 @@ export function CoupangShoppingRankPanel() {
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   transition={{ delay: index * 0.06, duration: 0.4 }}
                   whileHover={{ y: -6, scale: 1.012 }}
-                  className="group overflow-hidden rounded-2xl border border-white/10 bg-black/25 shadow-[0_16px_45px_rgba(0,0,0,0.16)] transition hover:border-amber-400/35 hover:shadow-[0_20px_55px_rgba(245,158,11,0.09)]"
+                  className="group overflow-hidden rounded-2xl border border-white/10 bg-[#fff]/80 shadow-[0_16px_45px_rgba(20,35,70,0.056)] transition hover:border-amber-400/35 hover:shadow-[0_20px_55px_rgba(245,158,11,0.09)]"
                 >
                   <div className="relative aspect-square overflow-hidden bg-white">
                     {product.productImage ? (
@@ -511,7 +511,7 @@ function CommerceMetric({
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay }}
       whileHover={{ y: -3, borderColor: "rgba(252,211,77,.3)" }}
-      className="overflow-hidden rounded-2xl border border-white/10 bg-black/25 p-3.5"
+      className="overflow-hidden rounded-2xl border border-white/10 bg-[#fff]/80 p-3.5"
     >
       <span className="grid h-7 w-7 place-items-center rounded-lg bg-amber-400/10 text-amber-300">
         <Icon className="h-3.5 w-3.5" />

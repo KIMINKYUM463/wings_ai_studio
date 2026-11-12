@@ -118,7 +118,7 @@ function ChartTooltip({
   if (!active || !payload?.length) return null
   const p = payload[0].payload
   return (
-    <div className="rounded-xl border border-white/10 bg-[#16171c]/95 px-3.5 py-2.5 shadow-[0_12px_40px_-8px_rgba(0,0,0,0.7)] backdrop-blur-md">
+    <div className="rounded-xl border border-white/10 bg-[#fdffff]/95 px-3.5 py-2.5 shadow-[0_12px_40px_-8px_rgba(20,35,70,0.245)] backdrop-blur-md">
       <p className="mb-1.5 text-xs font-medium text-zinc-400">{p.date}</p>
       <p className="text-sm font-semibold text-teal-400">
         일간 조회수: {formatCount(p.views)}
@@ -334,7 +334,7 @@ export function ChannelDetailModal({
         aria-label="닫기"
         onClick={onClose}
       />
-      <div className="relative z-10 flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#0f1014] shadow-[0_0_80px_-16px_rgba(236,72,153,0.4)] bench-modal-in">
+      <div className="relative z-10 flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#f9faff] shadow-[0_0_80px_-16px_rgba(236,72,153,0.4)] bench-modal-in">
         {/* Header */}
         <div className="flex items-start justify-between gap-3 border-b border-white/[0.06] px-5 py-4 md:px-6">
           <div className="flex min-w-0 items-center gap-3">
@@ -626,7 +626,7 @@ export function ChannelDetailModal({
       />
 
       {toast && (
-        <div className="fixed bottom-6 left-1/2 z-[80] -translate-x-1/2 rounded-full border border-teal-400/30 bg-[#16171c] px-4 py-2 text-sm text-teal-100 shadow-xl">
+        <div className="fixed bottom-6 left-1/2 z-[80] -translate-x-1/2 rounded-full border border-teal-400/30 bg-[#fdffff] px-4 py-2 text-sm text-teal-100 shadow-xl">
           {toast}
         </div>
       )}

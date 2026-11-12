@@ -114,7 +114,7 @@ function UrlHeroInput({
           onClick={onSubmit}
           className={cn(
             "absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-bold text-white transition disabled:opacity-70",
-            "bg-[#1c1917] hover:bg-[#292524]"
+            "bg-[#fffefb] hover:bg-[#f5efee]"
           )}
         >
           {loading ? (
@@ -167,8 +167,8 @@ function SourceVideoCard({
         className={cn(
           "relative w-full overflow-hidden rounded-[1.25rem] text-left transition-all",
           selected
-            ? "ring-[3px] ring-[#ff4d3d] ring-offset-4 ring-offset-[#f7f4ef] shadow-[0_20px_40px_rgba(255,77,61,0.2)]"
-            : "ring-1 ring-[#1c1917]/10 shadow-[0_8px_24px_rgba(28,25,23,0.08)] hover:ring-[#1c1917]/20 hover:shadow-[0_12px_32px_rgba(28,25,23,0.12)]",
+            ? "ring-[3px] ring-[#b40000] ring-offset-4 ring-offset-[#23211d] shadow-[0_20px_40px_rgba(255,77,61,0.2)]"
+            : "ring-1 ring-[#fffefb]/10 shadow-[0_8px_24px_rgba(20,35,70,0.028)] hover:ring-[#fffefb]/20 hover:shadow-[0_12px_32px_rgba(20,35,70,0.042)]",
           disabled && "cursor-not-allowed opacity-50"
         )}
         aria-pressed={selected}
@@ -183,12 +183,12 @@ function SourceVideoCard({
           />
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
 
-          <span className="absolute left-3 top-3 rounded-full bg-[#ff4d3d] px-2.5 py-0.5 text-[10px] font-bold text-white">
+          <span className="absolute left-3 top-3 rounded-full bg-[#ff4d3d] px-2.5 py-0.5 text-[10px] font-bold text-[#181818]">
             小红书
           </span>
 
           {selected ? (
-            <span className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-[#ff4d3d] text-white shadow-lg">
+            <span className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-[#ff4d3d] text-[#181818] shadow-lg">
               ✓
             </span>
           ) : (
@@ -373,7 +373,7 @@ export function ProductUrlSearchStudioView({ onStepChange }: ProductUrlSearchStu
           aria-hidden
         />
         <div
-          className="pointer-events-none absolute -bottom-10 left-10 h-40 w-40 rounded-full bg-[#1c1917]/10 blur-2xl"
+          className="pointer-events-none absolute -bottom-10 left-10 h-40 w-40 rounded-full bg-[#fffefb]/10 blur-2xl"
           aria-hidden
         />
 
@@ -414,10 +414,10 @@ export function ProductUrlSearchStudioView({ onStepChange }: ProductUrlSearchStu
 
         {loading ? (
           <div className={cn(pack.card, "-mt-10 relative z-10 mx-auto max-w-md p-10 text-center")}>
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-[#fff0ec]">
-              <Loader2 className="h-8 w-8 animate-spin text-[#ff4d3d]" />
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-[#291f1c]">
+              <Loader2 className="h-8 w-8 animate-spin text-[#b40000]" />
             </div>
-            <p className="mt-5 text-lg font-bold text-[#1c1917]">소스 찾는 중…</p>
+            <p className="mt-5 text-lg font-bold text-[#fffefb]">소스 찾는 중…</p>
             <p className="mt-2 text-sm text-stone-500">
               {retryAttempt > 1
                 ? `小红书 검색 재시도 ${retryAttempt}/${MAX_XHS_URL_ATTEMPTS}`
@@ -443,10 +443,10 @@ export function ProductUrlSearchStudioView({ onStepChange }: ProductUrlSearchStu
               { icon: Wand2, title: "AI 쇼츠 생성", desc: `1~${MAX_AUTO_EDIT_VIDEOS}개 고르면 짜집기 + 대본` },
             ].map(({ icon: Icon, title, desc }) => (
               <div key={title} className={cn(pack.card, "p-6")}>
-                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#fff0ec] text-[#ff4d3d]">
+                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#291f1c] text-[#b40000]">
                   <Icon className="h-5 w-5" />
                 </span>
-                <h3 className="mt-4 font-bold text-[#1c1917]">{title}</h3>
+                <h3 className="mt-4 font-bold text-[#fffefb]">{title}</h3>
                 <p className="mt-1 text-sm text-stone-500">{desc}</p>
               </div>
             ))}
@@ -463,7 +463,7 @@ export function ProductUrlSearchStudioView({ onStepChange }: ProductUrlSearchStu
               {/* 제품 카드 — sticky */}
               <aside className="lg:sticky lg:top-20 lg:self-start">
                 <div className={cn(pack.card, "overflow-hidden")}>
-                  <div className="bg-gradient-to-br from-[#1c1917] to-[#44403c] px-6 py-8 text-white">
+                  <div className="bg-gradient-to-br from-[#fffefb] to-[#dfdad5] px-6 py-8 text-white">
                     <p className={cn(pack.label, "!text-white/50")}>분석된 제품</p>
                     <h2 className="mt-2 text-2xl font-black leading-tight">{data.extraction.productName}</h2>
                     <p className="mt-2 text-sm text-white/70">{data.extraction.category}</p>
@@ -472,9 +472,9 @@ export function ProductUrlSearchStudioView({ onStepChange }: ProductUrlSearchStu
                     {data.extraction.summary ? (
                       <p className="text-sm leading-relaxed text-stone-600">{data.extraction.summary}</p>
                     ) : null}
-                    <div className="flex items-center justify-between rounded-2xl bg-[#faf8f5] px-4 py-3">
+                    <div className="flex items-center justify-between rounded-2xl bg-[#1e1c1a] px-4 py-3">
                       <span className="text-sm font-medium text-stone-600">편집 가능 소스</span>
-                      <span className="text-2xl font-black text-[#ff4d3d]">{playableVideos.length}</span>
+                      <span className="text-2xl font-black text-[#b40000]">{playableVideos.length}</span>
                     </div>
                     {data.extraction.xhsSearchQueries.length > 0 ? (
                       <div className="flex flex-wrap gap-1.5">
@@ -494,7 +494,7 @@ export function ProductUrlSearchStudioView({ onStepChange }: ProductUrlSearchStu
                 <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
                   <div>
                     <p className={pack.label}>소스 선택</p>
-                    <h3 className="mt-1 text-xl font-black text-[#1c1917]">
+                    <h3 className="mt-1 text-xl font-black text-[#fffefb]">
                       탭해서 고르세요 · 최대 {MAX_AUTO_EDIT_VIDEOS}개
                     </h3>
                   </div>
@@ -552,16 +552,16 @@ export function ProductUrlSearchStudioView({ onStepChange }: ProductUrlSearchStu
       {/* ── 플로팅 CTA ── */}
       {editPicks.length > 0 ? (
         <div className="fixed bottom-6 left-1/2 z-50 w-[min(calc(100vw-2rem),520px)] -translate-x-1/2">
-          <div className={cn(pack.card, "flex flex-col gap-3 p-4 shadow-[0_24px_60px_rgba(28,25,23,0.18)] sm:flex-row sm:items-center sm:justify-between")}>
+          <div className={cn(pack.card, "flex flex-col gap-3 p-4 shadow-[0_24px_60px_rgba(20,35,70,0.063)] sm:flex-row sm:items-center sm:justify-between")}>
             <div className="min-w-0">
-              <p className="text-sm font-bold text-[#1c1917]">
+              <p className="text-sm font-bold text-[#fffefb]">
                 {editPicks.length}개 선택됨 · AI 쇼츠 만들 준비 완료
               </p>
               <div className="mt-1 flex flex-wrap gap-1">
                 {editPicks.map((p, i) => (
                   <span
                     key={p.key}
-                    className="inline-flex max-w-[140px] items-center gap-1 rounded-full bg-[#faf8f5] px-2 py-0.5 text-[10px] text-stone-600"
+                    className="inline-flex max-w-[140px] items-center gap-1 rounded-full bg-[#1e1c1a] px-2 py-0.5 text-[10px] text-stone-600"
                   >
                     <span className="truncate">{i + 1}. {p.title.slice(0, 16)}</span>
                     <button
