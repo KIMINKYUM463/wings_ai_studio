@@ -78,6 +78,12 @@ export async function analyzeReference(file: string): Promise<Analysis> {
   return { ...a, duration };
 }
 
+/** 영상 파일 없이 유튜브 주소를 Gemini 에 바로 넘겨 분석한다 (클라우드 PC 에서 유튜브 다운로드가 막힐 때) */
+export async function analyzeReferenceYoutube(youtubeUrl: string): Promise<Analysis> {
+  const a = await generateJson(AnalysisSchema, ANALYZE_PROMPT, undefined, [createPartFromUri(youtubeUrl, 'video/mp4')]);
+  return { ...a, duration: 0 };
+}
+
 export async function describeClips(
   file: string,
   clips: { id: string; start: number; end: number }[],

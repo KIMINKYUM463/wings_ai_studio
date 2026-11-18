@@ -10,7 +10,7 @@ import {
   applyPunchZooms, composeTemplate, concatAudios, concatVideos, cutsToClips, detectScenes, extractFrame, mux, probeDuration, probeTargetFps, renderPiece, runFfmpeg, trimSpeechSilence,
 } from './media/ffmpeg';
 import { punchZoomWindows , motionExtras, transitionZoomWindows } from './motion/ass';
-import { analyzeReference, describeClips, detectContentBox, detectTextBoxes, generateJson, writeScript, writeSsulScript } from './ai/gemini';
+import { analyzeReference, analyzeReferenceYoutube, describeClips, detectContentBox, detectTextBoxes, generateJson, writeScript, writeSsulScript } from './ai/gemini';
 import { DEFAULT_REMIX_TEMPLATE_ID, getRemixTemplate, getTemplate } from './templates/catalog';
 import { prependStill } from './thumbnails/render';
 import { buildTemplateAss } from './templates/ass';
@@ -136,13 +136,25 @@ export function runAnalyze(id: string) {
     const file = rel(id, 'sources', `${REF_SOURCE_ID}.mp4`);
     await progress('레퍼런스 영상을 내려받는 중...', 0.1);
     let dl: { file: string; duration: number; title?: string } = { file, duration: 0 };
+    const youtubeUrl = normalizeYoutubeUrl(p.referenceUrl);
+    let downloaded = true;
     if (await exists(file)) dl.duration = await probeDuration(file);
-    else dl = await download(url, file);
+    else {
+      try {
+        dl = await download(url, file);
+      } catch (e) {
+        // 유튜브가 서버 다운로드를 막아도 분석은 Gemini 가 주소로 직접 볼 수 있다
+        if (!youtubeUrl) throw e;
+        downloaded = false;
+      }
+    }
     await progress('AI가 영상을 분석하는 중... (1~2분)', 0.4);
-    const analysis = await analyzeReference(file);
+    const analysis = downloaded ? await analyzeReference(file) : await analyzeReferenceYoutube(youtubeUrl!);
+    if (!downloaded && !analysis.duration) analysis.duration = analysis.estimatedDurationSec || 0;
     await updateProject(id, (x) => {
       x.analysis = analysis;
       x.name = analysis.productName || x.name;
+      if (!downloaded) return;
       x.referenceSourceId = REF_SOURCE_ID;
       if (!x.sources.some((s) => s.id === REF_SOURCE_ID)) {
         x.sources.unshift({ id: REF_SOURCE_ID, url: p.referenceUrl, platform: detectPlatform(p.referenceUrl), title: dl.title ?? '레퍼런스', file: `sources/${REF_SOURCE_ID}.mp4`, duration: dl.duration, status: 'ready' });
