@@ -8,6 +8,8 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  // 배포 서버(Vercel)는 파일을 못 쓰고, 써도 모든 사용자가 한 키를 공유하게 됨 → 키는 각자 브라우저에만 둔다
+  if (process.env.VERCEL) return NextResponse.json({ ok: true, configured: false, stored: false })
   const body = (await request.json().catch(() => ({}))) as { apiKey?: unknown }
   const apiKey = String(body.apiKey ?? "").trim()
   if (apiKey.length > 512) {
