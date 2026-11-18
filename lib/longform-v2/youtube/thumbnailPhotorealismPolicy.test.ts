@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import {
   isThumbnailPhotorealisticStyle,
   isThumbnailStickmanStyle,
-} from '../../shared/thumbnailPhotorealismPolicy'
+} from './thumbnailPhotorealismPolicy'
 
 test('isThumbnailPhotorealisticStyle — 실사 only', () => {
   assert.equal(isThumbnailPhotorealisticStyle('실사', 'cinematic'), true)

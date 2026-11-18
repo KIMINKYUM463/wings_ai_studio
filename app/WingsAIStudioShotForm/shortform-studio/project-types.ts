@@ -24,6 +24,8 @@ export interface MvpTestProjectData {
   keywordPairs?: KoZhKeywordPair[]
   sourceResult?: MvpKeywordSourceResult | null
   editPicks?: AutoEditPick[]
+  /** 버전2 중간 단계(장면 나누기·문장별 컷 지정·대본·음성) 워크스페이스 프로젝트 ID */
+  v2RemixProjectId?: string | null
   analyzedVideoUrl?: string | null
   postEditResult?: AutoEditJobResult | null
   /** 1-based 구간 번호 → 편집된 나레이션 */

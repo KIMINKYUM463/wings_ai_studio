@@ -33,7 +33,6 @@ export async function POST() {
     const health = await probeLocalAgentHealth()
     if (health.ok) {
       return NextResponse.json({
-        ok: true,
         installed: installed.ok,
         started: true,
         ...health,

@@ -1,19 +1,35 @@
 "use client"
 
-import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react"
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react"
+import {
+  MVP_SUBTITLE_ENTRANCE_SEC,
+  subtitleEntranceKeyframes,
+  type MvpSubtitleEntrance,
+} from "@/lib/mvp-subtitle-entrance"
 
 type Props = {
   /** buildSubtitleOverlayStyle(...) 결과 */
   style: CSSProperties
   children: ReactNode
+  /** 문구가 바뀔 때 등장 효과 */
+  entrance?: MvpSubtitleEntrance
 }
 
 /**
  * 자막을 한 줄로 유지하고, 스테이지 가로 92%를 넘으면 비율만 줄여 화면 밖으로 나가지 않게 합니다.
  */
-export function MvpFitOneLineSubtitle({ style, children }: Props) {
+export function MvpFitOneLineSubtitle({ style, children, entrance }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const [fit, setFit] = useState(1)
+
+  useEffect(() => {
+    const el = ref.current
+    // 측정(useLayoutEffect)이 먼저 돌며 el.style.transform에 위치·맞춤 축소를 써 둠
+    const frames = subtitleEntranceKeyframes(entrance, el?.style.transform ?? "")
+    if (!frames || !el?.animate) return
+    const anim = el.animate(frames, { duration: MVP_SUBTITLE_ENTRANCE_SEC * 1000, fill: "none" })
+    return () => anim.cancel()
+  }, [children, entrance])
 
   useLayoutEffect(() => {
     const el = ref.current

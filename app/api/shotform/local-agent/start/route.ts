@@ -33,7 +33,6 @@ export async function POST(request: NextRequest) {
   const existing = await probeLocalAgentHealth()
   if (existing.ok) {
     return NextResponse.json({
-      ok: true,
       alreadyRunning: true,
       message: "로컬 에이전트가 이미 실행 중입니다. (http://127.0.0.1:3847)",
       ...existing,
@@ -53,7 +52,6 @@ export async function POST(request: NextRequest) {
     const health = await probeLocalAgentHealth()
     if (health.ok) {
       return NextResponse.json({
-        ok: true,
         started: true,
         openTerminal,
         message: openTerminal

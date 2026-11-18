@@ -1,8 +1,12 @@
 import { type NextRequest, NextResponse } from "next/server"
 
 export async function POST(request: NextRequest) {
+  let text: string | undefined
+  let voiceId: string | undefined
   try {
-    const { text, voiceId, apiKey, speed: speedRaw } = await request.json()
+    const body = await request.json()
+    ;({ text, voiceId } = body)
+    const { apiKey, speed: speedRaw } = body
     const speed =
       typeof speedRaw === "number" && Number.isFinite(speedRaw)
         ? Math.min(1.5, Math.max(0.8, Math.round(speedRaw * 10) / 10))

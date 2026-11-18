@@ -25,7 +25,9 @@ async function generateSRT(audioFilePath) {
     const formData = new FormData()
     const audioFile = fs.createReadStream(audioFilePath)
     formData.append('audio', audioFile, path.basename(audioFilePath))
-    formData.append('apiKey', 'CYm46zmVT9RVNxVTWVefTVfFEF4nWUuZ')
+    const apiKey = process.env.LEMONFOX_API_KEY
+    if (!apiKey) throw new Error('LEMONFOX_API_KEY 환경변수가 필요합니다.')
+    formData.append('apiKey', apiKey)
     formData.append('language', 'korean')
     formData.append('outputDir', './output')
     

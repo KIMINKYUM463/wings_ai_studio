@@ -1218,7 +1218,7 @@ export function StoryAssetFindingPanel({
                   }
                   className="border-white/10 bg-black/30 text-white"
                 />
-                <Button onClick={searchExternalAssets} disabled={isSearching} className="bg-emerald-500 font-bold text-black hover:bg-emerald-300">
+                <Button onClick={() => searchExternalAssets()} disabled={isSearching} className="bg-emerald-500 font-bold text-black hover:bg-emerald-300">
                   {isSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
                 </Button>
               </div>

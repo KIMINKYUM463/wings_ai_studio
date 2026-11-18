@@ -4,7 +4,7 @@
  * → 항상 decode 후 AudioBufferSource로 전체 길이를 재생합니다.
  */
 
-import { padAudioUrlEnd } from "@/lib/shotform-factory-line-tts"
+import { padAudioUrlEnd, trimSilenceFromAudioUrl } from "@/lib/shotform-factory-line-tts"
 
 /** 말꼬리 보호용 끝 무음 — 너무 길면 장면 사이 공백처럼 들림 */
 const END_PAD_SEC = 0.08
@@ -31,14 +31,17 @@ export async function blobToDataUrl(blob: Blob): Promise<string> {
   })
 }
 
-/** TTS 원본 → 끝 패딩 + data URL (저장·재생용) */
+/** TTS 원본 → 앞뒤 무음 제거 + 끝 패딩 + data URL (저장·재생용) */
 export async function hardenInfoTtsAudioUrl(rawUrl: string): Promise<string> {
-  const paddedBlobUrl = await padAudioUrlEnd(rawUrl, END_PAD_SEC)
+  // 엔진이 붙이는 앞뒤 무음(각 0.5초 안팎)이 줄·슬라이드마다 쌓여 1초 넘는 공백이 됨
+  const trimmed = await trimSilenceFromAudioUrl(rawUrl).catch(() => null)
+  const paddedBlobUrl = await padAudioUrlEnd(trimmed?.blobUrl ?? rawUrl, END_PAD_SEC)
   try {
     const blob = await (await fetch(paddedBlobUrl)).blob()
     return (await blobToDataUrl(blob)) || rawUrl
   } finally {
     URL.revokeObjectURL(paddedBlobUrl)
+    if (trimmed) URL.revokeObjectURL(trimmed.blobUrl)
   }
 }
 

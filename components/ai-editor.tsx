@@ -201,7 +201,7 @@ export default function AIEditor({ videoId, script = "", onComplete }: AIEditorP
       onComplete?.(renderData)
     } catch (error) {
       console.error("[v0] AI 편집 실패:", error)
-      alert(`AI 편집 실패: ${error.message}`)
+      alert(`AI 편집 실패: ${(error as Error).message}`)
     } finally {
       setIsProcessing(false)
     }

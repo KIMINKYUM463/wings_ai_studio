@@ -1,0 +1,14 @@
+{
+  "id": "long-120s",
+  "durationSec": 120,
+  "thresholds": {
+    "minQualityScore": 0.88,
+    "maxCostUsd": 0.28,
+    "maxLatencyMs": 52000
+  },
+  "observed": {
+    "qualityScore": 0.9,
+    "costUsd": 0.23,
+    "latencyMs": 43800
+  }
+}

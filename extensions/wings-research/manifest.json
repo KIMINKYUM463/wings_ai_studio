@@ -1,0 +1,424 @@
+{
+  "action": {
+    "default_icon": {
+      "16": "icons/wings-16.png",
+      "32": "icons/wings-32.png",
+      "48": "icons/wings-48.png"
+    },
+    "default_popup": "popup.html",
+    "default_title": "WINGS Research"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "js": [
+        "content-scripts/wings-presence.js"
+      ],
+      "css": [
+        "content-scripts/wings-skin.css",
+        "content-scripts/wings-ui.css"
+      ],
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://youtube.com/*",
+        "https://m.youtube.com/*",
+        "https://*.instagram.com/*",
+        "https://www.threads.com/*",
+        "https://*.tiktok.com/*",
+        "https://www.tiktok.com/*",
+        "https://*.douyin.com/*",
+        "https://www.douyin.com/*",
+        "https://*.rednote.com/*",
+        "https://*.xiaohongshu.com/*",
+        "https://www.coupang.com/*"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "js": [
+        "content-scripts/baidu.js"
+      ],
+      "matches": [
+        "https://graph.baidu.com/*"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "js": [
+        "content-scripts/content.js"
+      ],
+      "matches": [
+        "https://*.instagram.com/*"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "js": [
+        "content-scripts/coupang-image-badge.js"
+      ],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "js": [
+        "content-scripts/coupang.js"
+      ],
+      "matches": [
+        "https://www.coupang.com/*"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "js": [
+        "content-scripts/douyin-interceptor.js"
+      ],
+      "matches": [
+        "https://*.douyin.com/*",
+        "https://www.douyin.com/*"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "js": [
+        "content-scripts/douyin.js"
+      ],
+      "matches": [
+        "https://*.douyin.com/*",
+        "https://www.douyin.com/*"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "js": [
+        "content-scripts/feed.js",
+        "content-scripts/wings-sort-loader.js"
+      ],
+      "matches": [
+        "https://*.instagram.com/*"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "js": [
+        "content-scripts/interceptor.js"
+      ],
+      "matches": [
+        "https://*.instagram.com/*"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "js": [
+        "content-scripts/rednote-interceptor.js"
+      ],
+      "matches": [
+        "https://www.rednote.com/discovery/item/*",
+        "https://www.rednote.com/explore*",
+        "https://www.rednote.com/search_result*",
+        "https://www.rednote.com/user/profile/*",
+        "https://www.xiaohongshu.com/discovery/item/*",
+        "https://www.xiaohongshu.com/explore*",
+        "https://www.xiaohongshu.com/search_result*",
+        "https://www.xiaohongshu.com/user/profile/*"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "js": [
+        "content-scripts/rednote.js"
+      ],
+      "matches": [
+        "https://*.rednote.com/*",
+        "https://*.xiaohongshu.com/*"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "js": [
+        "content-scripts/threads-interceptor.js"
+      ],
+      "matches": [
+        "https://www.threads.com/*"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "js": [
+        "content-scripts/threads.js"
+      ],
+      "matches": [
+        "https://www.threads.com/*"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "js": [
+        "content-scripts/tiktok-interceptor.js"
+      ],
+      "matches": [
+        "https://*.tiktok.com/*",
+        "https://www.tiktok.com/*"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "js": [
+        "content-scripts/tiktok.js"
+      ],
+      "matches": [
+        "https://*.tiktok.com/*",
+        "https://www.tiktok.com/*"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "js": [
+        "content-scripts/youtube-interceptor.js"
+      ],
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://youtube.com/*",
+        "https://m.youtube.com/*"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "js": [
+        "content-scripts/youtube.js",
+        "content-scripts/wings-yt-ai.js",
+        "content-scripts/wings-channel-qstat.js"
+      ],
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://youtube.com/*",
+        "https://m.youtube.com/*"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "js": [
+        "content-scripts/wings-skin.js",
+        "content-scripts/wings-panel-skin.js"
+      ],
+      "css": [
+        "content-scripts/wings-skin.css",
+        "content-scripts/wings-ui.css"
+      ],
+      "matches": [
+        "https://*.instagram.com/*",
+        "https://www.threads.com/*",
+        "https://www.youtube.com/*",
+        "https://youtube.com/*",
+        "https://m.youtube.com/*",
+        "https://*.tiktok.com/*",
+        "https://www.tiktok.com/*",
+        "https://*.douyin.com/*",
+        "https://www.douyin.com/*",
+        "https://*.rednote.com/*",
+        "https://*.xiaohongshu.com/*",
+        "https://www.coupang.com/*"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "js": [
+        "vendor/chart.umd.min.js",
+        "content-scripts/wings-pro-dashboard.js"
+      ],
+      "css": [
+        "content-scripts/wings-pro-dashboard.css"
+      ],
+      "matches": [
+        "https://*.instagram.com/*"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "js": [
+        "content-scripts/wings-ig-rescue.js"
+      ],
+      "matches": [
+        "https://*.instagram.com/*"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "default_locale": "en",
+  "description": "__MSG_extDescription__",
+  "host_permissions": [
+    "https://www.instagram.com/*",
+    "https://*.instagram.com/*",
+    "https://www.threads.com/*",
+    "https://www.coupang.com/*",
+    "https://cmapi.coupang.com/*",
+    "https://s3-cdp-prod-hive.s3.ap-northeast-2.amazonaws.com/*",
+    "https://*.coupangcdn.com/*",
+    "https://graph.baidu.com/*",
+    "https://www.youtube.com/*",
+    "https://www.rednote.com/*",
+    "https://*.rednote.com/*",
+    "https://www.xiaohongshu.com/*",
+    "https://*.xiaohongshu.com/*",
+    "https://www.tiktok.com/*",
+    "https://*.tiktok.com/*",
+    "https://www.douyin.com/*",
+    "https://*.douyin.com/*",
+    "https://api.openai.com/*",
+    "https://*.openai.com/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://api-gateway.coupang.com/*",
+    "https://api.replicate.com/*",
+    "https://youtube.com/*",
+    "https://m.youtube.com/*"
+  ],
+  "icons": {
+    "16": "icons/wings-16.png",
+    "32": "icons/wings-32.png",
+    "48": "icons/wings-48.png",
+    "128": "icons/wings-128.png"
+  },
+  "manifest_version": 3,
+  "name": "__MSG_extName__",
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "permissions": [
+    "alarms",
+    "clipboardWrite",
+    "contextMenus",
+    "cookies",
+    "downloads",
+    "scripting",
+    "storage",
+    "tabs",
+    "unlimitedStorage"
+  ],
+  "version": "0.3.65.52",
+  "web_accessible_resources": [
+    {
+      "matches": [
+        "https://www.instagram.com/*",
+        "https://*.instagram.com/*",
+        "https://www.threads.com/*",
+        "https://www.coupang.com/*",
+        "https://cmapi.coupang.com/*",
+        "https://s3-cdp-prod-hive.s3.ap-northeast-2.amazonaws.com/*",
+        "https://*.coupangcdn.com/*",
+        "https://graph.baidu.com/*",
+        "https://www.youtube.com/*",
+        "https://www.rednote.com/*",
+        "https://*.rednote.com/*",
+        "https://www.xiaohongshu.com/*",
+        "https://*.xiaohongshu.com/*",
+        "https://www.tiktok.com/*",
+        "https://*.tiktok.com/*",
+        "https://www.douyin.com/*",
+        "https://*.douyin.com/*"
+      ],
+      "resources": [
+        "icons/*",
+        "assets/*"
+      ]
+    },
+    {
+      "matches": [
+        "https://*.instagram.com/*"
+      ],
+      "resources": [
+        "content-scripts/content.css"
+      ]
+    },
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "resources": [
+        "content-scripts/coupang-image-badge.css"
+      ]
+    },
+    {
+      "matches": [
+        "https://*.douyin.com/*",
+        "https://www.douyin.com/*"
+      ],
+      "resources": [
+        "content-scripts/douyin.css"
+      ]
+    },
+    {
+      "matches": [
+        "https://*.rednote.com/*",
+        "https://*.xiaohongshu.com/*"
+      ],
+      "resources": [
+        "content-scripts/rednote.css"
+      ]
+    },
+    {
+      "matches": [
+        "https://*.instagram.com/*"
+      ],
+      "resources": [
+        "content-scripts/sort.css"
+      ]
+    },
+    {
+      "matches": [
+        "https://www.threads.com/*"
+      ],
+      "resources": [
+        "content-scripts/threads.css"
+      ]
+    },
+    {
+      "matches": [
+        "https://*.tiktok.com/*",
+        "https://www.tiktok.com/*"
+      ],
+      "resources": [
+        "content-scripts/tiktok.css"
+      ]
+    },
+    {
+      "matches": [
+        "https://www.youtube.com/*"
+      ],
+      "resources": [
+        "content-scripts/youtube.css"
+      ]
+    },
+    {
+      "matches": [
+        "https://*.instagram.com/*",
+        "https://www.threads.com/*",
+        "https://www.youtube.com/*",
+        "https://*.tiktok.com/*",
+        "https://www.tiktok.com/*",
+        "https://*.douyin.com/*",
+        "https://www.douyin.com/*",
+        "https://*.rednote.com/*",
+        "https://*.xiaohongshu.com/*",
+        "https://www.coupang.com/*"
+      ],
+      "resources": [
+        "content-scripts/wings-skin.css",
+        "content-scripts/wings-ui.css",
+        "content-scripts/wings-shadow-ui.css",
+        "icons/*"
+      ]
+    }
+  ]
+}

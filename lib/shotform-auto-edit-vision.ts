@@ -38,6 +38,13 @@ export type VideoVisionScreenResult = {
   "other",
 ]
 
+/** 얼굴이 주인공인 talking_head·person_presenting은 제품을 들고 있어도 승격하지 않는다 */
+function promoteMixedProductUse(frame: { content_type: SceneContentType; hand_action?: string }): void {
+  if (frame.content_type === "mixed" && frame.hand_action && descriptionSuggestsProductInUse(frame.hand_action)) {
+    frame.content_type = "product_in_use"
+  }
+}
+
 export async function visionClassifyFrames(
   apiKey: string,
   title: string,
@@ -115,15 +122,7 @@ JSON: {"frames":[{"index":0,"content_type":"product_in_use","shot_type":"클로�
       frames[i]!.timeSec,
       CONTENT_TYPES.includes(ct) ? ct : "other"
     )
-    if (
-      (parsed.content_type === "mixed" ||
-        parsed.content_type === "person_presenting" ||
-        parsed.content_type === "talking_head") &&
-      parsed.hand_action &&
-      descriptionSuggestsProductInUse(parsed.hand_action)
-    ) {
-      parsed.content_type = "product_in_use"
-    }
+    promoteMixedProductUse(parsed)
     out.push({
       timeSec: frames[i]!.timeSec,
       content_type: parsed.content_type,
@@ -229,28 +228,19 @@ JSON: {"frames":[{"imageIndex":0,"srcIndex":0,"timeSec":1.2,"content_type":"prod
       | Record<string, unknown>
       | undefined
     const rowFallback = raw[i] as Record<string, unknown> | undefined
-    const srcIndex = Number((row || rowFallback)?.srcIndex ?? f.srcIndex)
-    const timeSec = Number((row || rowFallback)?.timeSec ?? f.timeSec)
     const ctRaw = String((row || rowFallback)?.content_type || "other")
     let ct = ctRaw as SceneContentType
     if (ctRaw === "subtitle") ct = "text_overlay"
+    // 시각·소스는 캡처한 값이 정답 — 모델이 돌려준 timeSec·srcIndex는 자주 틀린다
     const parsed = parseActionFrameFromVisionRow(
       (row || rowFallback || {}) as Record<string, unknown>,
-      Number.isFinite(timeSec) ? timeSec : f.timeSec,
+      f.timeSec,
       CONTENT_TYPES.includes(ct) ? ct : "other"
     )
-    if (
-      (parsed.content_type === "mixed" ||
-        parsed.content_type === "person_presenting" ||
-        parsed.content_type === "talking_head") &&
-      parsed.hand_action &&
-      descriptionSuggestsProductInUse(parsed.hand_action)
-    ) {
-      parsed.content_type = "product_in_use"
-    }
+    promoteMixedProductUse(parsed)
     out.push({
-      srcIndex: Number.isFinite(srcIndex) ? srcIndex : f.srcIndex,
-      timeSec: Number.isFinite(timeSec) ? timeSec : f.timeSec,
+      srcIndex: f.srcIndex,
+      timeSec: f.timeSec,
       content_type: parsed.content_type,
       ...(parsed.caption ? { caption: parsed.caption } : {}),
       ...(parsed.shot_type ? { shot_type: parsed.shot_type } : {}),

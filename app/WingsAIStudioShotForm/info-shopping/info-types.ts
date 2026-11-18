@@ -93,7 +93,7 @@ export type InfoVoiceTrack = {
 
 export type InfoVoiceData = {
   voiceId: string
-  provider?: "supertonic" | "typecast" | "elevenlabs"
+  provider?: "supertonic" | "typecast" | "elevenlabs" | "adam"
   style?: string
   speed: number
   tracks: InfoVoiceTrack[]
@@ -113,7 +113,14 @@ export type InfoShoppingBrief = {
   selectedProduct?: InfoCoupangProduct
   generatedCards?: InfoGeneratedCards
   voiceData?: InfoVoiceData
+  /** 배경음 트랙 id — "" 이면 없음, 미지정이면 INFO_DEFAULT_BGM_ID */
+  bgmId?: string
+  /** 배경음 크기 0~100 */
+  bgmVolume?: number
 }
+
+export const INFO_DEFAULT_BGM_ID = "1"
+export const INFO_DEFAULT_BGM_VOLUME = 35
 
 export const EMPTY_INFO_BRIEF: InfoShoppingBrief = {
   sourceUrl: "",

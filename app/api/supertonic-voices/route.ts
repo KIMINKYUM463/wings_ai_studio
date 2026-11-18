@@ -84,7 +84,7 @@ export async function GET() {
             const o = item as Record<string, unknown>
             pushVoice(
               String(o.name ?? o.voice ?? o.voice_id ?? o.id ?? ""),
-              String(o.kind ?? (key === "custom" ? "custom" : "") ?? "")
+              String(o.kind ?? (key === "custom" ? "custom" : ""))
             )
           }
         }

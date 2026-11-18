@@ -3,6 +3,8 @@
  * SERPAPI_KEY 환경변수 필요.
  */
 
+import { isUnloadableImageUrl, isWatermarkedStockUrl } from "@/lib/stock-watermark-filter"
+
 const SERP = "https://serpapi.com/search.json"
 
 export type SerpVideoRow = {
@@ -22,7 +24,8 @@ export type SerpVideoRow = {
 /** Apify duration(ms 또는 초) → 초 */
 export function normalizeMediaDurationSec(raw: number | undefined | null): number | null {
   if (raw == null || !Number.isFinite(raw) || raw <= 0) return null
-  const sec = raw >= 500 ? raw / 1000 : raw
+  // 플랫폼마다 초/밀리초가 섞여 온다. 3초 미만 영상보다 50분 미만 영상이 훨씬 흔하므로 3000 미만은 초로 본다
+  const sec = raw >= 3000 ? raw / 1000 : raw
   return Math.round(Math.min(7200, sec) * 10) / 10
 }
 
@@ -52,7 +55,12 @@ export function formatMediaDurationLabel(sec: number | null | undefined): string
   return Math.abs(total - Math.round(total)) < 0.05 ? `${Math.round(total)}초` : `${total.toFixed(1)}초`
 }
 
-export type SerpKeyframe = { index: number; imageUrl: string; label?: string }
+export type SerpKeyframe = {
+  index: number
+  imageUrl: string
+  label?: string
+  pageUrl?: string
+}
 
 function thumbPick(thumbnail: unknown): string {
   if (!thumbnail) return ""
@@ -330,16 +338,19 @@ export async function serpGoogleImagesAsKeyframes(apiKey: string, q: string, lim
   const r = await fetch(u.toString(), { next: { revalidate: 0 } })
   if (!r.ok) return []
   const data = (await r.json().catch(() => ({}))) as {
-    images_results?: Array<{ original?: string; thumbnail?: string }>
+    images_results?: Array<{ original?: string; thumbnail?: string; link?: string }>
   }
   const imgs = data.images_results || []
   const out: SerpKeyframe[] = []
   for (const im of imgs) {
     const url = (im.original || im.thumbnail || "").trim()
-    if (!url.startsWith("http")) continue
+    if (!url.startsWith("http") || isUnloadableImageUrl(url) || isWatermarkedStockUrl(url, im.link)) {
+      continue
+    }
     out.push({
       index: out.length + 1,
       imageUrl: url,
+      pageUrl: (im.link || "").trim(),
       label: `제품 시각 ${out.length + 1} (웹 이미지)`,
     })
     if (out.length >= limit) break
@@ -389,7 +400,14 @@ export async function serpGoogleLensVisualMatches(
   const seen = new Set<string>()
   for (const row of data.visual_matches) {
     const image = (row.image || row.thumbnail || "").trim()
-    if (!image.startsWith("http") || seen.has(image)) continue
+    if (
+      !image.startsWith("http") ||
+      seen.has(image) ||
+      isUnloadableImageUrl(image) ||
+      isWatermarkedStockUrl(image, row.link)
+    ) {
+      continue
+    }
     seen.add(image)
     out.push({
       title: (row.title || row.source || "유사 이미지").trim(),

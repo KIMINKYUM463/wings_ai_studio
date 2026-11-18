@@ -78,6 +78,7 @@ import { extractClientVideoMetaForPicks } from "@/lib/shotform-client-video-meta
 import { fetchCnKeywordTranslation } from "@/lib/shotform-cn-keyword-translate-client"
 import { trimSilenceFromAudioUrl } from "@/lib/shotform-factory-line-tts"
 import { refreshExpiredMvpEditPicks } from "@/lib/shotform-mvp-pick-video-download"
+import { createBackgroundFrameScheduler } from "@/lib/shotform-render-ticker"
 import {
   videoPickKey,
   type AutoEditPick,
@@ -87,6 +88,13 @@ import {
   STORY_SHOPPING_SFX_CATALOG,
   type StoryShoppingSfxCatalogItem,
 } from "@/lib/story-shopping-sfx-catalog"
+import {
+  WINGS_SSUL_BGM,
+  wingsSsulBgmGain,
+  wingsSsulBgmSrc,
+} from "@/lib/wings-ssul-bgm"
+import { uploadMediaBlobToStorage } from "@/lib/shotform-tts-storage-upload"
+import { shotformTikhubKey } from "@/lib/shotform-tikhub-key-client"
 import {
   convertImageToVideoWithWan,
   generateCnVideoKeywordSuggestions,
@@ -127,6 +135,7 @@ import {
   downloadBlobAsFile,
   pickStoryVideoSaveHandle,
   recordStoryPreviewStage,
+  storyVideoExtension,
   type StoryExportClip,
   type StoryExportProgress,
 } from "./story-export-video"
@@ -164,6 +173,9 @@ const DEFAULT_EDIT: StoryEditSettings = {
   subtitleOutlineColor: "#ffffff",
   subtitleAnimation: DEFAULT_STORY_CAPTION_ANIMATION,
 }
+
+// rAF는 창 포커스를 잃으면 수 fps로 떨어져 재생 타임라인(=다운로드 녹화)이 늘어짐
+const playbackFrames = createBackgroundFrameScheduler()
 
 const FREE_SUBTITLE_FONTS = [
   {
@@ -232,6 +244,7 @@ type AutoAssetPlan = {
     | "google"
     | "pixabay-video"
     | "pixabay-image"
+    | "youtube-cc"
     | "douyin"
     | "xiaohongshu"
     | "klipy"
@@ -251,7 +264,11 @@ function mediaFingerprint(url: string): string {
   const raw = (url || "").trim()
   if (!raw) return ""
   try {
-    const parsed = new URL(raw)
+    const parsed = new URL(raw, "https://story.local")
+    if (parsed.pathname === "/api/proxy-video") {
+      const originalUrl = parsed.searchParams.get("url")
+      if (originalUrl && originalUrl !== raw) return mediaFingerprint(originalUrl)
+    }
     const path = parsed.pathname
       .toLowerCase()
       .replace(/_(\d+)(?=\.(?:jpe?g|png|webp|gif)$)/i, "")
@@ -330,6 +347,29 @@ function getProductImage(brief: StoryShoppingBrief) {
   return ""
 }
 
+/** 상세페이지·상품·리뷰에서 이미 가져온 사진. 컷 소재로 다시 쓰지 않는다. */
+function ownedProductMediaKeys(brief: StoryShoppingBrief) {
+  const raw = [
+    brief.productImage,
+    brief.selectedShoppingTag?.imageUrl,
+    ...(brief.collectorData?.productImages || []),
+    ...(brief.collectorData?.detailImages || []),
+    ...(brief.collectorData?.reviewImages || []),
+    ...(brief.collectorData?.reviews || []).flatMap((review) => review.images || []),
+  ]
+  const keys = new Set<string>()
+  for (const item of raw) {
+    const key = mediaFingerprint(String(item || ""))
+    if (key) keys.add(key)
+  }
+  return keys
+}
+
+function isOwnedProductMedia(url: string, owned: Set<string>) {
+  const key = mediaFingerprint(url)
+  return Boolean(key && owned.has(key))
+}
+
 const ELEMENT_SOURCES: Array<{
   id: ElementSource
   label: string
@@ -356,6 +396,7 @@ export const StoryEditorWorkspace = forwardRef<
     brief: StoryShoppingBrief
     onChange: Dispatch<SetStateAction<StoryShoppingBrief>>
     detailMode?: boolean
+    userId: string
     projectId: string
     onDownloadProgress?: (progress: StoryExportProgress | null) => void
     publishMeta?: StoryPublishMeta
@@ -366,6 +407,7 @@ export const StoryEditorWorkspace = forwardRef<
     brief,
     onChange,
     detailMode = false,
+    userId,
     projectId,
     onDownloadProgress,
     publishMeta,
@@ -495,6 +537,12 @@ export const StoryEditorWorkspace = forwardRef<
   const sfxBufferCacheRef = useRef(
     new Map<string, Promise<AudioBuffer | null>>()
   )
+  const bgmPlaybackRef = useRef<{
+    source: AudioBufferSourceNode
+    gain: GainNode
+    /** 녹화 중에는 음소거·볼륨 변경이 녹화본에 영향을 주지 않게 */
+    recording: boolean
+  } | null>(null)
   const sfxAudioContextRef = useRef<AudioContext | null>(null)
   const mediaElementSourcesRef = useRef(
     new WeakMap<HTMLAudioElement, MediaElementAudioSourceNode>()
@@ -513,6 +561,7 @@ export const StoryEditorWorkspace = forwardRef<
   >([])
   const briefRef = useRef(brief)
   const editSettingsRef = useRef(editSettings)
+  const publishMetaRef = useRef(publishMeta)
   const [isDownloading, setIsDownloading] = useState(false)
   const [downloadStatusText, setDownloadStatusText] = useState(
     "영상 다운로드 중…"
@@ -538,7 +587,9 @@ export const StoryEditorWorkspace = forwardRef<
   const timelinePanelRef = useRef<HTMLDivElement | null>(null)
   const timelineScrollRef = useRef<HTMLDivElement | null>(null)
   const autoPlacementRunRef = useRef(0)
-  playheadRef.current = playheadSec
+  const autoPlacementAbortRef = useRef<AbortController | null>(null)
+  // 재생 중엔 재생 루프가 ref를 직접 갱신 — 렌더 시 지연된 state로 덮으면 뒤로 튐
+  if (!isPlayingRef.current) playheadRef.current = playheadSec
 
   const handleThumbnailIntroPreviewChange = useCallback(
     (url: string | null, enabled: boolean) => {
@@ -726,7 +777,7 @@ export const StoryEditorWorkspace = forwardRef<
         ): item is {
           url: string
           mediaType: "image" | "video"
-          trimStartSec?: number
+          trimStartSec: number | undefined
         } => Boolean(item?.url)
       )
   }, [brief.sceneAssets, selected, slots])
@@ -765,6 +816,7 @@ export const StoryEditorWorkspace = forwardRef<
   timelineRef.current = timeline
   briefRef.current = brief
   editSettingsRef.current = editSettings
+  publishMetaRef.current = publishMeta
   const basePxPerSec = Math.max(28, Math.min(72, 900 / Math.max(8, totalDuration)))
   const pxPerSec = Math.max(16, Math.min(240, basePxPerSec * timelineZoom))
 
@@ -800,6 +852,34 @@ export const StoryEditorWorkspace = forwardRef<
       item.sceneId === selected.sceneId &&
       item.lineIndex === selected.lineIndex
   )
+  const selectedVideoPlaybackTimeSec = useMemo(() => {
+    if (selectedAsset?.mediaType !== "video" || !selectedTimeline) return undefined
+    const selectedIndex = timeline.indexOf(selectedTimeline)
+    let runStartIndex = Math.max(0, selectedIndex)
+    while (runStartIndex > 0) {
+      const previous = timeline[runStartIndex - 1]!
+      const previousAsset = resolveStoryLineAsset(
+        brief.sceneAssets,
+        previous.sceneId,
+        previous.lineIndex
+      )
+      if (
+        previousAsset?.mediaUrl !== selectedAsset.mediaUrl ||
+        previousAsset.trimStartSec !== selectedAsset.trimStartSec ||
+        previousAsset.trimEndSec !== selectedAsset.trimEndSec
+      ) {
+        break
+      }
+      runStartIndex -= 1
+    }
+    const trimStart = Math.max(0, selectedAsset.trimStartSec || 0)
+    const trimEnd = selectedAsset.trimEndSec
+    const elapsed = Math.max(0, playheadSec - timeline[runStartIndex]!.startSec)
+    if (trimEnd != null && trimEnd > trimStart) {
+      return trimStart + (elapsed % Math.max(0.05, trimEnd - trimStart))
+    }
+    return trimStart + elapsed
+  }, [brief.sceneAssets, playheadSec, selectedAsset, selectedTimeline, timeline])
   const selectedSfx = selectedSfxId
     ? (brief.sfxClips || []).find((clip) => clip.id === selectedSfxId) || null
     : null
@@ -868,8 +948,36 @@ export const StoryEditorWorkspace = forwardRef<
           asset,
         ],
       }))
+      if (
+        asset.source === "youtube" &&
+        asset.license === "creativeCommon" &&
+        asset.sourcePageUrl &&
+        onPublishMetaChange
+      ) {
+        const currentMeta = publishMetaRef.current
+        if (
+          currentMeta &&
+          !currentMeta.youtubeDescription.includes(asset.sourcePageUrl)
+        ) {
+          const credit = `영상 출처 (CC BY): ${
+            asset.attribution || "YouTube 원작자"
+          } — ${asset.sourcePageUrl}`
+          const nextMeta = {
+            ...currentMeta,
+            youtubeDescription: [
+              currentMeta.youtubeDescription.trim(),
+              "",
+              credit,
+            ]
+              .filter((line, index) => index > 0 || Boolean(line))
+              .join("\n"),
+          }
+          publishMetaRef.current = nextMeta
+          onPublishMetaChange(nextMeta)
+        }
+      }
     },
-    [onChange]
+    [onChange, onPublishMetaChange]
   )
 
   const applyAsset = useCallback(
@@ -983,6 +1091,21 @@ export const StoryEditorWorkspace = forwardRef<
 
   const runAutomaticAssetPlacement = async () => {
     if (!slots.length || isAutoPlacing) return
+    autoPlacementAbortRef.current?.abort()
+    const placementAbort = new AbortController()
+    autoPlacementAbortRef.current = placementAbort
+    const placementDeadline = Date.now() + 120_000
+    let placementRequestCount = 0
+    const placementFetch: typeof fetch = (input, init) => {
+      placementRequestCount += 1
+      if (placementRequestCount > 40 || Date.now() > placementDeadline) {
+        placementAbort.abort()
+        throw new Error(
+          "자동 배치의 실행당 검색 예산(40회/120초)을 초과해 중단했습니다."
+        )
+      }
+      return fetch(input, { ...init, signal: placementAbort.signal })
+    }
     const runId = autoPlacementRunRef.current + 1
     autoPlacementRunRef.current = runId
     const openAiKey =
@@ -993,6 +1116,8 @@ export const StoryEditorWorkspace = forwardRef<
       localStorage.getItem("shotform_pixabay_api_key") || undefined
     const apifyKey =
       localStorage.getItem("shotform_apify_token") || undefined
+    const youtubeApiKey =
+      localStorage.getItem("shotform_youtube_data_api_key") || undefined
     const klipyKey =
       localStorage.getItem("shotform_klipy_api_key") || undefined
     const productImage = getProductImage(brief)
@@ -1000,7 +1125,6 @@ export const StoryEditorWorkspace = forwardRef<
     const usedFingerprints = new Set<string>()
     const usedPixabayIds = new Set<number>()
     const pixabayIdByMediaUrl = new Map<string, number>()
-    const usedReferenceUrls = new Set<string>()
     const markMediaUsed = (url: string, pixabayId?: number) => {
       if (!url) return
       usedUrls.add(url)
@@ -1019,38 +1143,6 @@ export const StoryEditorWorkspace = forwardRef<
       const fp = mediaFingerprint(url)
       return Boolean(fp && usedFingerprints.has(fp))
     }
-    const pickUnused = <T,>(
-      items: T[],
-      getMediaUrl: (item: T) => string,
-      getSearchText?: (item: T) => string,
-      relevanceQuery?: string,
-      getPixabayId?: (item: T) => number | undefined,
-      diversityIndex = 0
-    ) => {
-      const tokens = (relevanceQuery || "")
-        .toLowerCase()
-        .split(/[\s,./_-]+/)
-        .map((token) => token.trim())
-        .filter((token) => token.length >= 2)
-      const unused = [...items].filter((item) => {
-        const url = getMediaUrl(item)
-        return Boolean(url) && !isMediaUsed(url, getPixabayId?.(item))
-      })
-      if (!unused.length) return undefined
-      const ranked = unused.sort((a, b) => {
-        const score = (item: T) => {
-          const text = (getSearchText?.(item) || "").toLowerCase()
-          return tokens.reduce(
-            (sum, token) => sum + (text.includes(token) ? 2 : 0),
-            0
-          )
-        }
-        return score(b) - score(a)
-      })
-      // 상위 후보 안에서 클립 번호로 돌려 가며 고름 → 같은 1등 반복 방지
-      const pool = ranked.slice(0, Math.min(6, ranked.length))
-      return pool[diversityIndex % pool.length]
-    }
     const pickAiRelevant = async <T,>(
       items: T[],
       getMediaUrl: (item: T) => string,
@@ -1058,9 +1150,8 @@ export const StoryEditorWorkspace = forwardRef<
       getLabel: (item: T) => string,
       visualQuery: string,
       sceneText: string,
-      needsProduct: boolean,
-      getPixabayId?: (item: T) => number | undefined,
-      diversityIndex = 0
+      _needsProduct: boolean,
+      getPixabayId?: (item: T) => number | undefined
     ): Promise<T | undefined> => {
       const candidates = items
         .filter(
@@ -1069,10 +1160,10 @@ export const StoryEditorWorkspace = forwardRef<
             !isMediaUsed(getMediaUrl(item), getPixabayId?.(item)) &&
             /^https?:\/\//i.test(getPreviewUrl(item))
         )
-        .slice(0, 3)
+        .slice(0, 6)
       if (!candidates.length) return undefined
       try {
-        const response = await fetch(
+        const response = await placementFetch(
           "/api/shotform/story-shopping/asset-search",
           {
             method: "POST",
@@ -1080,7 +1171,7 @@ export const StoryEditorWorkspace = forwardRef<
             body: JSON.stringify({
               source: "rank_candidates",
               sceneText,
-              productName: needsProduct ? brief.productName : "",
+              productName: brief.productName,
               visualQuery,
               openaiApiKey: openAiKey,
               candidates: candidates.map((item, index) => ({
@@ -1092,17 +1183,15 @@ export const StoryEditorWorkspace = forwardRef<
           }
         )
         const payload = await response.json().catch(() => ({}))
-        // 비전 AI가 전부 부적합으로 판정 → 관련 없는 키워드 폴백으로 억지 채우지 않음
+        // 비전이 고른 후보만 사용. 거절했는데 1번 영상을 넣으면
+        // 대본·상품과 무관한 영상이 컷에 들어간다.
         if (
           response.ok &&
           payload.aiRanked === true &&
-          (payload.selectedId == null ||
-            payload.selectedId === "" ||
-            payload.selectedId === "null")
+          payload.selectedId != null &&
+          payload.selectedId !== "" &&
+          payload.selectedId !== "null"
         ) {
-          return undefined
-        }
-        if (response.ok && payload.selectedId != null && payload.selectedId !== "") {
           const byId = candidates.find(
             (_, index) => String(index) === String(payload.selectedId)
           )
@@ -1110,17 +1199,10 @@ export const StoryEditorWorkspace = forwardRef<
           const selected = byId || byNum
           if (selected) return selected
         }
-      } catch {
-        // ranking 실패 시 아래 키워드 매칭으로 폴백
+      } catch (error) {
+        if (error instanceof Error && error.message.includes("검색 예산")) throw error
       }
-      return pickUnused(
-        items,
-        getMediaUrl,
-        getLabel,
-        visualQuery,
-        getPixabayId,
-        diversityIndex
-      )
+      return undefined
     }
 
     setIsAutoPlacing(true)
@@ -1133,8 +1215,16 @@ export const StoryEditorWorkspace = forwardRef<
         message
       )
 
-    // 이미 이미지가 있는 클립은 유지하되, 앞에 쓴 이미지와 중복이면 다시 채웁니다.
-    // 바로 앞 줄과 같은 그림은 한 컷이 이어지는 것이라 중복이 아닙니다.
+    const ownedMedia = ownedProductMediaKeys(brief)
+    const cameFromProductPage = (asset: StorySceneAsset | null | undefined) =>
+      Boolean(
+        asset &&
+          (isOwnedProductMedia(asset.mediaUrl, ownedMedia) ||
+            isOwnedProductMedia(asset.generatedFromImageUrl || "", ownedMedia) ||
+            /상세페이지|리뷰 기반|상품 사진/.test(asset.editorNote || ""))
+      )
+    // 상세페이지에서 온 사진과, 그 사진을 참고해 만든 이미지는 다시 고른다.
+    const keptSources = new Set(["ai", "image-to-video"])
     const filledKeys = new Set<string>()
     const existingAssetByKey = new Map<string, StorySceneAsset>()
     let previousUrl = ""
@@ -1146,7 +1236,15 @@ export const StoryEditorWorkspace = forwardRef<
       )
       const url = existing?.mediaUrl || ""
       const continuesPrevious = Boolean(url) && url === previousUrl
-      if (!existing || !url || (!continuesPrevious && isMediaUsed(url))) {
+      const keepUploaded =
+        existing?.source === "upload" && url && !cameFromProductPage(existing)
+      if (
+        !existing ||
+        !url ||
+        cameFromProductPage(existing) ||
+        (!keptSources.has(existing.source) && !keepUploaded) ||
+        (!continuesPrevious && isMediaUsed(url))
+      ) {
         previousUrl = ""
         continue
       }
@@ -1214,7 +1312,7 @@ export const StoryEditorWorkspace = forwardRef<
           durationSec: slot.durationSec,
         }
       })
-      const planResponse = await fetch(
+      const planResponse = await placementFetch(
         "/api/shotform/story-shopping/asset-search",
         {
           method: "POST",
@@ -1224,12 +1322,15 @@ export const StoryEditorWorkspace = forwardRef<
             productName: brief.productName,
             productDescription: brief.productDescription,
             openaiApiKey: openAiKey,
+            tikhubApiKey: shotformTikhubKey(),
             availability: {
               review: reviewPhotoPool.length > 0,
               product: Boolean(productImage),
               google: Boolean(getSerpKey()),
               pixabay: Boolean(pixabayKey),
-              apify: Boolean(apifyKey),
+              // 서버 환경변수 키도 사용할 수 있으므로 검색 가능성은 서버에서 최종 판정
+              youtube: true,
+              apify: true,
               klipy: Boolean(klipyKey),
               replicate: Boolean(replicateKey),
             },
@@ -1248,6 +1349,129 @@ export const StoryEditorWorkspace = forwardRef<
           plan,
         ])
       )
+      const cnCandidatePools = new Map<
+        "douyin" | "xiaohongshu",
+        Array<SearchHit & { source?: string }>
+      >()
+      const productLabel = brief.productName.trim()
+      const sceneBits = emptySlots
+        .map((slot) => slot.text.replace(/\s+/g, " ").trim().slice(0, 24))
+        .filter((text) => text.length >= 4)
+      const sharedQueries = Array.from(
+        new Set(
+          [
+            productLabel,
+            sceneBits[0] && productLabel
+              ? `${productLabel} ${sceneBits[0]}`
+              : sceneBits[0],
+          ].filter((item): item is string => Boolean(item))
+        )
+      ).slice(0, 2)
+      for (const platform of ["douyin", "xiaohongshu"] as const) {
+        if (!sharedQueries.length) continue
+        const groupedContext = emptySlots
+          .map((slot) => slot.text)
+          .filter(Boolean)
+          .join(" → ")
+          .slice(0, 500)
+        try {
+          const response = await placementFetch(
+            "/api/shotform/story-shopping/asset-search",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                source: platform,
+                query: sharedQueries[0],
+                keywords: sharedQueries,
+                sceneText: groupedContext,
+                tikhubApiKey: shotformTikhubKey(),
+                openaiApiKey: openAiKey,
+                limits: {
+                  maxActors: 1,
+                  maxDurationMs: 60_000,
+                  maxEstimatedCostUsd: 0.08,
+                  maxCandidates: 12,
+                },
+              }),
+            }
+          )
+          const payload = await response.json().catch(() => ({}))
+          if (response.ok && Array.isArray(payload.items)) {
+            cnCandidatePools.set(platform, payload.items)
+          } else if (!response.ok) {
+            console.warn(
+              `[StoryEditor] ${platform} 검색 실패:`,
+              payload.error || response.status
+            )
+          }
+        } catch (error) {
+          if (
+            error instanceof DOMException &&
+            error.name === "AbortError"
+          ) {
+            throw error
+          }
+          console.warn(`[StoryEditor] ${platform} 배치 검색 실패:`, error)
+        }
+      }
+      let youtubeCcCandidatePool: SearchHit[] = []
+      {
+        const groupedKeywords = Array.from(
+          new Set(plans.map((plan) => plan.queryKo.trim()).filter(Boolean))
+        )
+          .slice(0, 4)
+          .join(",")
+        const groupedContext = emptySlots
+          .map((slot) => slot.text)
+          .filter(Boolean)
+          .join(" → ")
+          .slice(0, 600)
+        try {
+          const params = new URLSearchParams({
+            q: brief.productName || groupedKeywords,
+            context: groupedContext,
+            keywords: groupedKeywords,
+            license: "cc",
+          })
+          if (youtubeApiKey) params.set("apiKey", youtubeApiKey)
+          const response = await placementFetch(
+            `/api/shotform/story-shopping/youtube-references?${params.toString()}`
+          )
+          const payload = (await response.json().catch(() => ({}))) as {
+            items?: Array<{
+              id: string
+              title: string
+              thumbnailUrl: string
+              url: string
+              channelTitle: string
+              durationSec?: number
+            }>
+          }
+          if (response.ok && payload.items?.length) {
+            youtubeCcCandidatePool = payload.items.map((item) => ({
+              id: item.id,
+              title: item.title,
+              mediaUrl: item.url,
+              thumbnailUrl: item.thumbnailUrl,
+              pageUrl: item.url,
+              mediaType: "video",
+              source: "youtube",
+              attribution: item.channelTitle,
+              license: "creativeCommon",
+              durationSec: item.durationSec,
+            }))
+          }
+        } catch (error) {
+          if (
+            error instanceof DOMException &&
+            error.name === "AbortError"
+          ) {
+            throw error
+          }
+          console.warn("[StoryEditor] YouTube CC 배치 검색 실패:", error)
+        }
+      }
 
       const buildAsset = async (
         plan: AutoAssetPlan,
@@ -1267,108 +1491,14 @@ export const StoryEditorWorkspace = forwardRef<
               : contextSlot.text
           )
           .join(" → ")
-        const reviewImage =
-          Array.from(
-            { length: reviewPhotoPool.length },
-            (_, offset) =>
-              reviewPhotoPool[
-                (slotIndex + offset) % reviewPhotoPool.length
-              ]!
-          ).find((url) => !usedReferenceUrls.has(url)) ||
-          reviewPhotoPool[slotIndex % Math.max(1, reviewPhotoPool.length)]
 
-        // Replicate 장애 시: AI 변형 없이 리뷰/제품 원본으로라도 빈 슬롯을 채움
+        // 상세페이지·리뷰 원본과, 그 사진을 참고한 생성은 자동 배치에 쓰지 않는다.
         if (
-          (plan.source === "review-original" || plan.source === "product") &&
-          plan.needsProduct
+          plan.source === "review-original" ||
+          plan.source === "product" ||
+          plan.source === "review-ai"
         ) {
-          const fallbackUrl =
-            (plan.source === "review-original" ? reviewImage : null) ||
-            productImage ||
-            reviewImage
-          if (fallbackUrl && !usedUrls.has(fallbackUrl)) {
-            if (reviewImage && fallbackUrl === reviewImage) {
-              usedReferenceUrls.add(reviewImage)
-            }
-            return {
-              mediaUrl: fallbackUrl,
-              mediaType: "image",
-              source: "upload",
-              license: "user-upload",
-              rightsConfirmed: true,
-              motionEffect: "zoom-in",
-              editorNote: `AI 자동 배치 · 원본 사진 폴백 · ${plan.reason}`,
-            }
-          }
-        }
-
-        if (plan.source === "review-ai" && plan.needsProduct && reviewImage) {
-          if (replicateUnavailable) return null
-          try {
-            const imageUrl = await generateImageWithNanobanana(
-              [
-                `대본 장면: ${slot.text}`,
-                `앞뒤 대본 문맥: ${sceneContext}`,
-                `화면 행동: ${queryKo}`,
-                "실제 리뷰 사진 속 제품의 모양, 색상, 재질, 버튼, 비율을 정확히 유지한다.",
-                "참조 사진의 구도, 카메라 각도, 피사체 위치, 제품 방향은 그대로 복사하지 않고 완전히 새롭게 구성한다.",
-                "참조 사진에 사람의 손·팔·신체가 있으면 사람과 제품의 사용 관계만 유지하고, 손동작·잡는 자세·제품 접촉 위치·촬영 각도는 자연스럽게 다르게 연출한다.",
-                "손에 감겨 있거나 손으로 쥔 제품은 새로운 손동작으로 다시 사용하되 제품만 있는 정물 사진으로 바꾸지 않는다.",
-                "참조 사진에 사람이 없다면 대본에서 실제 사용 행동이 필요한 경우에만 새로운 자연스러운 손을 추가한다.",
-                "제품이 화면 중심을 차지하고 사용 행동이 한눈에 이해되는 사실적인 세로형 9:16 사진.",
-                "제품과 손의 관계는 유지하되 배경, 조명, 색감, 피사계 심도는 대본 상황에 맞는 새로운 생활 공간으로 눈에 띄게 재연출한다.",
-                "원본 사진을 그대로 복사하지 말고 광고 촬영처럼 선명하고 완성도 높은 새 사진으로 변형한다.",
-                "제품을 다른 물건으로 바꾸거나 추가 제품, 글자, 로고, 워터마크를 만들지 않는다.",
-              ].join("\n"),
-              brief.productName || "product",
-              reviewImage,
-              replicateKey,
-              slotIndex,
-              brief.productDescription,
-              "9:16",
-              "nano-banana",
-              "strict-review",
-              openAiKey
-            )
-            if (imageUrl.trim() === reviewImage.trim()) {
-              throw new Error("AI가 참조 사진을 그대로 반환함")
-            }
-            const approvedImage = await pickAiRelevant(
-              [imageUrl],
-              (url) => url,
-              (url) => url,
-              () => "리뷰 사진을 바탕으로 생성한 제품 사용 장면",
-              queryKo,
-              sceneContext,
-              true
-            )
-            if (!approvedImage) {
-              throw new Error("생성 이미지가 대본 장면과 일치하지 않음")
-            }
-            usedReferenceUrls.add(reviewImage)
-            return {
-              mediaUrl: approvedImage,
-              mediaType: "image",
-              source: "ai",
-              license: "generated",
-              rightsConfirmed: true,
-              generatedFromImageUrl: reviewImage,
-              motionEffect: "zoom-in",
-              editorNote: `AI 자동 배치 · 상세페이지/리뷰 기반 생성 · ${plan.reason}`,
-            }
-          } catch (reviewAiError) {
-            const message =
-              reviewAiError instanceof Error
-                ? reviewAiError.message
-                : String(reviewAiError)
-            if (isReplicateOutageMessage(message)) {
-              replicateUnavailable = true
-              console.warn(
-                "[StoryEditor] Replicate 장애 감지 → 이후 AI 생성 건너뛰고 검색 폴백"
-              )
-            }
-            return null
-          }
+          return null
         }
 
         if (plan.source === "google") {
@@ -1389,7 +1519,7 @@ export const StoryEditorWorkspace = forwardRef<
             ).slice(0, 2)
             const googleHits: SearchHit[] = []
             for (const q of queries) {
-              const response = await fetch(
+              const response = await placementFetch(
                 "/api/shotform/story-shopping/asset-search",
                 {
                   method: "POST",
@@ -1398,6 +1528,13 @@ export const StoryEditorWorkspace = forwardRef<
                     source: "google",
                     query: q,
                     serpApiKey: serp,
+                    productPageUrl: brief.productUrl || undefined,
+                    excludeImageUrls: [
+                      brief.productImage,
+                      ...(brief.collectorData?.productImages || []),
+                      ...(brief.collectorData?.detailImages || []),
+                      ...(brief.collectorData?.reviewImages || []),
+                    ].filter(Boolean),
                   }),
                 }
               )
@@ -1406,6 +1543,7 @@ export const StoryEditorWorkspace = forwardRef<
                 for (const item of payload.items as SearchHit[]) {
                   if (
                     item?.mediaUrl &&
+                    !isOwnedProductMedia(item.mediaUrl, ownedMedia) &&
                     !googleHits.some((hit) => hit.mediaUrl === item.mediaUrl)
                   ) {
                     googleHits.push(item)
@@ -1420,9 +1558,7 @@ export const StoryEditorWorkspace = forwardRef<
               (item) => item.title || queryKo,
               queryKo,
               sceneContext,
-              plan.needsProduct,
-              undefined,
-              slotIndex
+              plan.needsProduct
             )
             if (picked?.mediaUrl) {
               return {
@@ -1484,8 +1620,7 @@ export const StoryEditorWorkspace = forwardRef<
               queryEnBase,
               sceneContext,
               plan.needsProduct,
-              (item) => item.id,
-              slotIndex
+              (item) => item.id
             )
             if (picked) {
               pixabayIdByMediaUrl.set(picked.videoURL, picked.id)
@@ -1525,8 +1660,7 @@ export const StoryEditorWorkspace = forwardRef<
             queryEnBase,
             sceneContext,
             plan.needsProduct,
-            (item) => item.id,
-            slotIndex
+            (item) => item.id
           )
           if (picked) {
             const mediaUrl = picked.largeImageURL || picked.webformatURL
@@ -1553,44 +1687,78 @@ export const StoryEditorWorkspace = forwardRef<
         }
 
         if (
+          plan.source === "youtube-cc" &&
+          youtubeCcCandidatePool.length
+        ) {
+          const picked = await pickAiRelevant(
+            youtubeCcCandidatePool,
+            (item) => item.mediaUrl,
+            (item) => item.thumbnailUrl || "",
+            (item) => item.title,
+            queryKo,
+            sceneContext,
+            plan.needsProduct
+          )
+          if (picked?.pageUrl) {
+            const playableResponse = await placementFetch(
+              "/api/shotform/mvp-download",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  tikhubApiKey: shotformTikhubKey(),
+                  apifyApiKey: apifyKey,
+                  items: [
+                    {
+                      url: picked.pageUrl,
+                      platform: "youtube",
+                      title: picked.title,
+                      refreshFromNote: true,
+                    },
+                  ],
+                }),
+              }
+            )
+            const playablePayload = (await playableResponse
+              .json()
+              .catch(() => ({}))) as {
+              results?: Array<{ downloadUrl?: string | null }>
+            }
+            const playableUrl = playablePayload.results?.[0]?.downloadUrl || ""
+            if (playableResponse.ok && playableUrl) {
+              return {
+                mediaUrl: playableUrl,
+                mediaType: "video",
+                source: "youtube",
+                sourcePageUrl: picked.pageUrl,
+                attribution: picked.attribution || "YouTube CC",
+                license: "creativeCommon",
+                rightsConfirmed: false,
+                trimEndSec: picked.durationSec,
+                editorNote:
+                  `AI 자동 배치 · 해외 YouTube CC · 출처표시/상업 이용 조건 확인 필요 · ${plan.reason}`,
+              }
+            }
+          }
+        }
+
+        if (
           (plan.source === "douyin" ||
             plan.source === "xiaohongshu")
         ) {
-          const translated = await fetchCnKeywordTranslation({
-            keywords: [queryKo],
-            platform: plan.source,
-            openaiApiKey: openAiKey || null,
-          })
-          const queries =
-            translated.searchQueries?.length > 0
-              ? translated.searchQueries
-              : [queryKo]
-          const response = await fetch(
-            "/api/shotform/story-shopping/asset-search",
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                source: plan.source,
-                query: queries[0],
-                keywords: queries,
-                apifyApiKey: apifyKey,
-              }),
-            }
-          )
-          const payload = await response.json().catch(() => ({}))
-          if (response.ok) {
+          const pooledCandidates = cnCandidatePools.get(plan.source) || []
+          if (pooledCandidates.length) {
             const picked = await pickAiRelevant(
-              (payload.items || []) as Array<SearchHit & { source?: string }>,
+              pooledCandidates,
               (item) => item.mediaUrl,
               (item) => item.thumbnailUrl || item.mediaUrl,
               (item) => item.title,
-              queries[0],
+              queryKo,
               sceneContext,
               plan.needsProduct
             )
             if (picked?.mediaUrl) {
-              const playableResponse = await fetch(
+              const playableResponse = await placementFetch(
                 "/api/shotform/mvp-download",
                 {
                   method: "POST",
@@ -1615,7 +1783,23 @@ export const StoryEditorWorkspace = forwardRef<
               }
               const playableUrl =
                 playablePayload.results?.[0]?.downloadUrl || ""
-              if (!playableResponse.ok || !playableUrl) return null
+              if (!playableResponse.ok || !playableUrl) {
+                const poster = picked.thumbnailUrl || ""
+                if (/^https?:\/\//i.test(poster)) {
+                  return {
+                    mediaUrl: poster,
+                    mediaType: "image",
+                    source: plan.source,
+                    sourcePageUrl: picked.pageUrl,
+                    attribution: picked.attribution,
+                    license: "permission-required",
+                    rightsConfirmed: false,
+                    motionEffect: "zoom-in",
+                    editorNote: `AI 자동 배치 · 영상 대신 장면 사진 · ${plan.reason}`,
+                  }
+                }
+                return null
+              }
               return {
                 mediaUrl: playableUrl,
                 mediaType: "video",
@@ -1639,7 +1823,7 @@ export const StoryEditorWorkspace = forwardRef<
           for (const q of gifQueries) {
             const params = new URLSearchParams({ q, limit: "24" })
             if (klipyKey) params.set("apiKey", klipyKey)
-            const response = await fetch(
+            const response = await placementFetch(
               `/api/shotform/klipy/search?${params.toString()}`
             )
             const payload = await response.json().catch(() => ({}))
@@ -1689,7 +1873,7 @@ export const StoryEditorWorkspace = forwardRef<
                   `앞뒤 대본 문맥: ${sceneContext}`,
                   `반드시 보여줄 행동: ${queryKo}`,
                   `제품: ${brief.productName}`,
-                  "참조 제품의 외형, 색상, 구조, 버튼, 크기 비율을 정확히 유지한다.",
+                  "쇼핑몰 상세페이지에 있던 기존 사진과 같은 구도, 같은 모델, 같은 배경을 다시 만들지 않는다.",
                   "사람의 손이 제품을 실제 생활 공간에서 직접 사용·설치·세척·보관하는 구체적인 순간을 연출한다.",
                   "제품과 손의 행동을 클로즈업하고 배경은 대본 상황과 일치시킨다.",
                   "추상적인 분위기 사진, 제품만 놓인 정물 사진, 관련 없는 사람 사진을 만들지 않는다.",
@@ -1713,7 +1897,7 @@ export const StoryEditorWorkspace = forwardRef<
               plan.needsProduct
                 ? brief.productName || "product"
                 : "story context scene",
-              plan.needsProduct ? productImage || reviewImage || "" : "",
+              "",
               replicateKey,
               slotIndex,
               plan.needsProduct ? brief.productDescription : slot.text,
@@ -1824,22 +2008,14 @@ export const StoryEditorWorkspace = forwardRef<
             reason: "기본 상품 장면",
           } satisfies AutoAssetPlan)
         const plan: AutoAssetPlan =
-          rawPlan.needsProduct &&
-          (rawPlan.source === "review-original" || rawPlan.source === "product")
+          rawPlan.source === "review-ai" ||
+          rawPlan.source === "review-original" ||
+          rawPlan.source === "product"
             ? {
                 ...rawPlan,
-                source: reviewPhotoPool.length ? "review-ai" : "ai-image",
-                reason: "원본 사진을 직접 쓰지 않고 AI로 변형",
+                source: "google",
+                reason: "상세페이지 사진 대신 검색으로 장면을 찾음",
               }
-            : !rawPlan.needsProduct &&
-                (rawPlan.source === "review-ai" ||
-                  rawPlan.source === "review-original" ||
-                  rawPlan.source === "product")
-              ? {
-                  ...rawPlan,
-                  source: "ai-image",
-                  reason: "제품이 필요 없는 문맥을 상황 이미지로 생성",
-                }
             : rawPlan
         setAutoPlacementProgress(
           `컷 ${emptyIndex + 1}/${emptySlots.length}` +
@@ -1852,13 +2028,14 @@ export const StoryEditorWorkspace = forwardRef<
           plan.source === "review-ai" ||
           plan.source === "ai-image" ||
           plan.source === "ai-video"
-        // 비제품: Google → Pixabay → GIF → AI. 제품: 계획 소스 → 리뷰AI → 검색 폴백
+        // 해외 실사 영상(도우인·샤오홍슈·YouTube CC)을 먼저 찾고,
+        // 엄격 관련성 검사를 통과하지 못할 때만 사진·생성으로 넘어감
         const fallbackSources: AutoAssetPlan["source"][] = [
+          "douyin",
+          "xiaohongshu",
+          ...(youtubeCcCandidatePool.length ? (["youtube-cc"] as const) : []),
           ...(replicateUnavailable && isAiImagePlan ? [] : [plan.source]),
-          ...(plan.needsProduct && reviewPhotoPool.length && !replicateUnavailable
-            ? (["review-ai"] as const)
-            : []),
-          ...(!plan.needsProduct ? (["google"] as const) : []),
+          "google",
           ...(!replicateUnavailable && isAiImagePlan
             ? (["ai-image"] as const)
             : []),
@@ -1866,12 +2043,6 @@ export const StoryEditorWorkspace = forwardRef<
           "pixabay-video",
           "pixabay-image",
           "klipy",
-          "douyin",
-          "xiaohongshu",
-          // Replicate 장애 + 제품 장면: 검색 실패해도 원본 사진으로 채움
-          ...(replicateUnavailable && plan.needsProduct
-            ? (["review-original", "product"] as const)
-            : []),
           ...(!replicateUnavailable && !isAiImagePlan
             ? (["ai-image"] as const)
             : []),
@@ -1883,8 +2054,9 @@ export const StoryEditorWorkspace = forwardRef<
               ` · Replicate 장애 · 관련 이미지 검색 중`
           )
         }
+        let budgetExceeded = false
         for (const source of Array.from(new Set(fallbackSources))) {
-          if (autoPlacementRunRef.current !== runId) return
+          if (budgetExceeded || autoPlacementRunRef.current !== runId) break
           try {
             asset = await buildAsset(
               { ...plan, source },
@@ -1892,13 +2064,23 @@ export const StoryEditorWorkspace = forwardRef<
               globalIndex >= 0 ? globalIndex : emptyIndex
             )
             if (!asset?.mediaUrl) continue
+            if (
+              isOwnedProductMedia(asset.mediaUrl, ownedMedia) ||
+              isOwnedProductMedia(asset.generatedFromImageUrl || "", ownedMedia)
+            ) {
+              asset = null
+              continue
+            }
             if (isMediaUsed(asset.mediaUrl, pixabayIdByMediaUrl.get(asset.mediaUrl))) {
               asset = null
               continue
             }
             break
-          } catch {
+          } catch (error) {
             asset = null
+            if (error instanceof Error && error.message.includes("검색 예산")) {
+              budgetExceeded = true
+            }
           }
         }
 
@@ -1931,7 +2113,7 @@ export const StoryEditorWorkspace = forwardRef<
         setSearchError(
           replicateUnavailable
             ? "Replicate가 일시 장애라 AI 생성은 건너뛰었습니다. Pixabay API 키를 설정하면 관련 이미지로 빈 클립을 채울 수 있습니다."
-            : "일부 장면은 사용 가능한 원본 사진이나 API 키가 없어 채우지 못했습니다."
+            : "일부 장면은 대본·상품과 맞는 영상을 찾지 못해 비워 두었습니다. 주제와 다른 영상은 넣지 않습니다."
         )
       } else if (replicateUnavailable) {
         setSearchError(
@@ -1939,12 +2121,21 @@ export const StoryEditorWorkspace = forwardRef<
         )
       }
     } catch (reason) {
+      if (
+        autoPlacementRunRef.current !== runId ||
+        (reason instanceof DOMException && reason.name === "AbortError")
+      ) {
+        return
+      }
       setSearchError(
         reason instanceof Error ? reason.message : "자동 소재 배치 실패"
       )
       setAutoPlacementProgress("")
     } finally {
-      if (autoPlacementRunRef.current === runId) setIsAutoPlacing(false)
+      if (autoPlacementRunRef.current === runId) {
+        autoPlacementAbortRef.current = null
+        setIsAutoPlacing(false)
+      }
     }
   }
 
@@ -2490,10 +2681,24 @@ export const StoryEditorWorkspace = forwardRef<
     }
   }
 
-  const onUploadFile = (file: File) => {
+  const onUploadFile = async (file: File) => {
     if (!selected) return
-    const url = URL.createObjectURL(file)
     const isVideo = file.type.startsWith("video/")
+    setSearchError("")
+    let url = ""
+    try {
+      url = await uploadMediaBlobToStorage(
+        file,
+        userId,
+        projectId,
+        isVideo ? "clip" : "image"
+      )
+    } catch (error) {
+      setSearchError(
+        error instanceof Error ? error.message : "업로드 파일 저장에 실패했습니다."
+      )
+      return
+    }
     if (isVideo) {
       setVideoEditDraft({
         asset: {
@@ -2508,7 +2713,7 @@ export const StoryEditorWorkspace = forwardRef<
           mediaFit: "cover",
           editorNote: file.name,
         },
-        revokeOnCancel: true,
+        revokeOnCancel: false,
       })
       return
     }
@@ -2625,7 +2830,16 @@ export const StoryEditorWorkspace = forwardRef<
   }
 
   const addSfxFromFile = async (file: File) => {
-    const url = URL.createObjectURL(file)
+    setSearchError("")
+    let url = ""
+    try {
+      url = await uploadMediaBlobToStorage(file, userId, projectId, "sfx")
+    } catch (error) {
+      setSearchError(
+        error instanceof Error ? error.message : "효과음 파일 저장에 실패했습니다."
+      )
+      return
+    }
     const { startSec, clipKey: insertClipKey } = resolveSfxInsertAtPlayhead()
     const sourceDurationSec = await readAudioDuration(url)
     const draft: StorySfxClip = {
@@ -2996,6 +3210,19 @@ export const StoryEditorWorkspace = forwardRef<
     })
   }
 
+  const stopBgmPlayback = () => {
+    const bgm = bgmPlaybackRef.current
+    if (!bgm) return
+    try {
+      bgm.source.stop()
+    } catch {
+      // 이미 끝난 소스입니다.
+    }
+    bgm.source.disconnect()
+    bgm.gain.disconnect()
+    bgmPlaybackRef.current = null
+  }
+
   const stopPlayback = () => {
     playGenRef.current += 1
     audioRef.current?.pause()
@@ -3012,9 +3239,10 @@ export const StoryEditorWorkspace = forwardRef<
       playback.gain.disconnect()
     }
     playingSfxRef.current.clear()
-    if (rafRef.current) cancelAnimationFrame(rafRef.current)
+    stopBgmPlayback()
+    playbackFrames.cancel(rafRef.current)
     if (sfxSchedulerRafRef.current) {
-      cancelAnimationFrame(sfxSchedulerRafRef.current)
+      playbackFrames.cancel(sfxSchedulerRafRef.current)
       sfxSchedulerRafRef.current = null
     }
     isPlayingRef.current = false
@@ -3033,6 +3261,13 @@ export const StoryEditorWorkspace = forwardRef<
     setPlayheadSec(0)
     if (audioRef.current) audioRef.current.currentTime = 0
   }, [thumbnailIntroPreview.enabled, thumbnailIntroPreview.url])
+
+  // 재생 중에 볼륨·음소거를 바꾸면 바로 반영. 녹화 중에는 녹화 시작 값을 유지
+  useEffect(() => {
+    const bgm = bgmPlaybackRef.current
+    if (!bgm || bgm.recording) return
+    bgm.gain.gain.value = isMuted ? 0 : wingsSsulBgmGain(brief.bgmVolume)
+  }, [brief.bgmVolume, isMuted])
 
   const moveToAdjacentClip = (offset: -1 | 1) => {
     stopPlayback()
@@ -3053,6 +3288,8 @@ export const StoryEditorWorkspace = forwardRef<
     recordOptions?: {
       audioDestination?: AudioNode
       audioContext?: AudioContext
+      onPrepared?: () => void
+      startGate?: Promise<void>
     }
   ) => {
     stopPlayback()
@@ -3190,6 +3427,9 @@ export const StoryEditorWorkspace = forwardRef<
     ])
     if (gen !== playGenRef.current) return
     await sfxContext.resume().catch(() => undefined)
+    recordOptions?.onPrepared?.()
+    if (recordOptions?.startGate) await recordOptions.startGate
+    if (gen !== playGenRef.current) return
 
     const playbackTimelineStart =
       requestedStartSec ??
@@ -3200,10 +3440,38 @@ export const StoryEditorWorkspace = forwardRef<
       )?.startSec ??
       0
     playheadRef.current = playbackTimelineStart
+
+    // 윙스 배경음악: 영상 처음부터 끝까지 반복. 녹화 중이면 같은 소리로 담김
+    const bgmSrc = wingsSsulBgmSrc(brief.bgmId ?? "1")
+    if (bgmSrc) {
+      const bgmBuffer = await prepareSfxBuffer(bgmSrc)
+      if (bgmBuffer && gen === playGenRef.current && bgmBuffer.duration > 0) {
+        stopBgmPlayback()
+        const source = sfxContext.createBufferSource()
+        const gain = sfxContext.createGain()
+        source.buffer = bgmBuffer
+        source.loop = true
+        const bgmGain = wingsSsulBgmGain(brief.bgmVolume)
+        // 내보내기에서는 내레이션 명료도를 위해 BGM을 자동 덕킹합니다.
+        gain.gain.value =
+          recordDest || !isMuted ? bgmGain * (recordDest ? 0.45 : 1) : 0
+        source.connect(gain)
+        gain.connect(sfxContext.destination)
+        if (recordDest) gain.connect(recordDest)
+        source.start(
+          sfxContext.currentTime,
+          playbackTimelineStart % bgmBuffer.duration
+        )
+        bgmPlaybackRef.current = { source, gain, recording: Boolean(recordDest) }
+      }
+    }
+    if (gen !== playGenRef.current) return
+
     const scheduledSfxIds = new Set<string>()
     const stopAllSfx = () => {
+      stopBgmPlayback()
       if (sfxSchedulerRafRef.current) {
-        cancelAnimationFrame(sfxSchedulerRafRef.current)
+        playbackFrames.cancel(sfxSchedulerRafRef.current)
         sfxSchedulerRafRef.current = null
       }
       for (const playback of playingSfxRef.current.values()) {
@@ -3267,7 +3535,10 @@ export const StoryEditorWorkspace = forwardRef<
         // 녹화 시에는 미리보기 음소거와 무관하게 효과음을 트랙에 넣음
         const sfxMuted = recordDest ? false : isMuted
         source.buffer = buffer
-        gain.gain.value = sfxMuted ? 0 : volumePct / 100
+        // 200% 효과음도 마스터 limiter 앞에서 헤드룸을 남깁니다.
+        gain.gain.value = sfxMuted
+          ? 0
+          : (volumePct / 100) * (recordDest ? 0.6 : 1)
         source.connect(gain)
         gain.connect(sfxContext.destination)
         if (recordDest) gain.connect(recordDest)
@@ -3294,7 +3565,7 @@ export const StoryEditorWorkspace = forwardRef<
           playableDurationSec
         )
       }
-      sfxSchedulerRafRef.current = requestAnimationFrame(
+      sfxSchedulerRafRef.current = playbackFrames.request(
         scheduleSfxNearPlayhead
       )
     }
@@ -3463,12 +3734,18 @@ export const StoryEditorWorkspace = forwardRef<
                 })
               }
               if (currentTimeline) {
+                // 문장 사이 숨 구간까지 현재 컷 구간으로 포함해야 모션이 멈추지 않음
+                const nextCue = runCues[runCues.indexOf(currentCue) + 1]
+                const spanEnd = Math.max(
+                  currentCue.endSec,
+                  nextCue ? nextCue.startSec : lastCue.endSec
+                )
                 const cueProgress = Math.max(
                   0,
                   Math.min(
                     1,
                     (audio.currentTime - currentCue.startSec) /
-                      Math.max(0.08, currentCue.endSec - currentCue.startSec)
+                      Math.max(0.08, spanEnd - currentCue.startSec)
                   )
                 )
                 syncPlayhead(
@@ -3480,9 +3757,9 @@ export const StoryEditorWorkspace = forwardRef<
                 resolve()
                 return
               }
-              rafRef.current = requestAnimationFrame(tick)
+              rafRef.current = playbackFrames.request(tick)
             }
-            rafRef.current = requestAnimationFrame(tick)
+            rafRef.current = playbackFrames.request(tick)
           })
           orderIndex += sceneRun.length
           requestedStartSec = undefined
@@ -3551,9 +3828,9 @@ export const StoryEditorWorkspace = forwardRef<
                 resolve()
                 return
               }
-              rafRef.current = requestAnimationFrame(tick)
+              rafRef.current = playbackFrames.request(tick)
             }
-            rafRef.current = requestAnimationFrame(tick)
+            rafRef.current = playbackFrames.request(tick)
           })
           continue
         }
@@ -3575,9 +3852,9 @@ export const StoryEditorWorkspace = forwardRef<
               resolve()
               return
             }
-            rafRef.current = requestAnimationFrame(tick)
+            rafRef.current = playbackFrames.request(tick)
           }
-          rafRef.current = requestAnimationFrame(tick)
+          rafRef.current = playbackFrames.request(tick)
         })
       }
       orderIndex += sceneRun.length
@@ -3635,6 +3912,141 @@ export const StoryEditorWorkspace = forwardRef<
       throw new Error(message)
     }
 
+    const unconfirmedAssets = (brief.sceneAssets || []).filter(
+      (asset) => asset.mediaUrl && asset.rightsConfirmed !== true
+    )
+    if (unconfirmedAssets.length) {
+      const creativeCommonsCount = unconfirmedAssets.filter(
+        (asset) => asset.license === "creativeCommon"
+      ).length
+      const sources = Array.from(
+        new Set(
+          unconfirmedAssets.map(
+            (asset) => asset.sourcePageUrl || `${asset.source} 소재`
+          )
+        )
+      )
+      const confirmed = window.confirm(
+        [
+          `저작권·사용 권한을 확인하지 않은 소재 ${unconfirmedAssets.length}개가 있습니다.`,
+          "",
+          ...sources.slice(0, 8).map((source, index) => `${index + 1}. ${source}`),
+          sources.length > 8 ? `외 ${sources.length - 8}개` : "",
+          creativeCommonsCount
+            ? `YouTube CC ${creativeCommonsCount}개: 원작자·원본 URL 출처표시와 상업 이용 조건을 확인하세요.`
+            : "",
+          "",
+          "각 원본의 사용 허가와 플랫폼 약관을 직접 확인했습니까?",
+          "확인하지 않았다면 취소를 눌러 소재를 교체하세요.",
+        ]
+          .filter(Boolean)
+          .join("\n")
+      )
+      if (!confirmed) {
+        const message = "사용 권한을 확인하지 않은 소재가 있어 내보내기를 중단했습니다."
+        setDownloadBannerError(message)
+        throw new Error(message)
+      }
+      const unconfirmedKeys = new Set(
+        unconfirmedAssets.map(
+          (asset) => `${asset.sceneId}:${asset.lineIndex ?? -1}:${asset.mediaUrl}`
+        )
+      )
+      onChange((current) => ({
+        ...current,
+        sceneAssets: (current.sceneAssets || []).map((asset) =>
+          unconfirmedKeys.has(
+            `${asset.sceneId}:${asset.lineIndex ?? -1}:${asset.mediaUrl}`
+          )
+            ? {
+                ...asset,
+                rightsConfirmed: true,
+                license:
+                  asset.license === "permission-required"
+                    ? "permission-confirmed"
+                    : asset.license,
+              }
+            : asset
+        ),
+      }))
+    }
+
+    let exportAssets = brief.sceneAssets || []
+    const volatileAssets = exportAssets.filter(
+      (asset) =>
+        asset.mediaType === "video" &&
+        (asset.source === "douyin" ||
+          asset.source === "xiaohongshu" ||
+          asset.source === "youtube") &&
+        Boolean(asset.sourcePageUrl) &&
+        !asset.mediaUrl.includes("supabase")
+    )
+    if (volatileAssets.length) {
+      setDownloadStatusText("해외 영상 원본을 안전하게 보관하는 중…")
+      onDownloadProgress?.({
+        phase: "prepare",
+        message: "만료될 수 있는 해외 영상을 프로젝트에 보관하는 중…",
+        ratio: 0.02,
+      })
+      const resolvedResponse = await fetch("/api/shotform/mvp-download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tikhubApiKey: shotformTikhubKey(),
+          items: volatileAssets.map((asset) => ({
+            url: asset.sourcePageUrl,
+            videoUrl: asset.mediaUrl,
+            platform: asset.source,
+            refreshFromNote: true,
+          })),
+        }),
+      })
+      const resolvedPayload = (await resolvedResponse.json().catch(() => ({}))) as {
+        results?: Array<{ downloadUrl?: string | null; error?: string }>
+        error?: string
+      }
+      if (!resolvedResponse.ok) {
+        throw new Error(
+          resolvedPayload.error || "해외 영상 원본 URL을 복구하지 못했습니다."
+        )
+      }
+      const durableUrls = new Map<string, string>()
+      const durableAssetKey = (asset: StorySceneAsset) =>
+        `${asset.sceneId}:${asset.lineIndex ?? -1}:${asset.mediaUrl}`
+      for (let index = 0; index < volatileAssets.length; index += 1) {
+        const asset = volatileAssets[index]!
+        const result = resolvedPayload.results?.[index]
+        if (!result?.downloadUrl) {
+          throw new Error(
+            `해외 영상 원본을 복구하지 못했습니다: ${result?.error || asset.sourcePageUrl}`
+          )
+        }
+        const mediaResponse = await fetch(result.downloadUrl)
+        if (!mediaResponse.ok) {
+          throw new Error(`해외 영상을 내려받지 못했습니다. (${mediaResponse.status})`)
+        }
+        const blob = await mediaResponse.blob()
+        const durableUrl = await uploadMediaBlobToStorage(
+          blob,
+          userId,
+          projectId,
+          "clip"
+        )
+        durableUrls.set(durableAssetKey(asset), durableUrl)
+      }
+      exportAssets = exportAssets.map((asset) => {
+        const durableUrl = durableUrls.get(durableAssetKey(asset))
+        return durableUrl ? { ...asset, mediaUrl: durableUrl } : asset
+      })
+      onChange((current) => ({
+        ...current,
+        sceneAssets: (current.sceneAssets || []).map((asset) => {
+          const durableUrl = durableUrls.get(durableAssetKey(asset))
+          return durableUrl ? { ...asset, mediaUrl: durableUrl } : asset
+        }),
+      }))
+    }
+
     const fileBaseName =
       (
         brief.generatedStory?.title ||
@@ -3643,7 +4055,7 @@ export const StoryEditorWorkspace = forwardRef<
       )
         .replace(/[\\/:*?"<>|]+/g, "")
         .slice(0, 40) || "story-shopping"
-    const suggestedFilename = `${fileBaseName}-${Date.now()}.webm`
+    const suggestedFilename = `${fileBaseName}-${Date.now()}.${storyVideoExtension()}`
 
     // 클릭 직후 저장 위치 확보 (Chrome) — 긴 녹화 후 a.click() 차단 방지
     let saveHandle: FileSystemFileHandle | null = null
@@ -3686,6 +4098,13 @@ export const StoryEditorWorkspace = forwardRef<
 
     const recordContext = new AudioContext()
     const recordDest = recordContext.createMediaStreamDestination()
+    const recordLimiter = recordContext.createDynamicsCompressor()
+    recordLimiter.threshold.value = -6
+    recordLimiter.knee.value = 6
+    recordLimiter.ratio.value = 12
+    recordLimiter.attack.value = 0.003
+    recordLimiter.release.value = 0.18
+    recordLimiter.connect(recordDest)
 
     try {
       onDownloadProgress?.({
@@ -3729,7 +4148,7 @@ export const StoryEditorWorkspace = forwardRef<
       const downloadGen = playGenRef.current
       const exportClips: StoryExportClip[] = timeline.map((slot) => {
         const asset = resolveStoryLineAsset(
-          brief.sceneAssets,
+          exportAssets,
           slot.sceneId,
           slot.lineIndex
         )
@@ -3743,6 +4162,7 @@ export const StoryEditorWorkspace = forwardRef<
           mediaType: asset?.mediaType,
           trimStartSec: asset?.trimStartSec,
           trimEndSec: asset?.trimEndSec,
+          videoMosaics: asset?.videoMosaics,
           mediaFit: asset?.mediaFit,
           mediaScale: asset?.mediaScale,
           mediaOffsetX: asset?.mediaOffsetX,
@@ -3782,10 +4202,12 @@ export const StoryEditorWorkspace = forwardRef<
             }
             onDownloadProgress?.(progress)
           },
-          play: async () => {
+          play: async (controls) => {
             await playFromClip(firstSlot, 0, {
               audioContext: recordContext,
-              audioDestination: recordDest,
+              audioDestination: recordLimiter,
+              onPrepared: controls?.onPrepared,
+              startGate: controls?.startGate,
             })
           },
         })
@@ -4043,7 +4465,7 @@ export const StoryEditorWorkspace = forwardRef<
   useEffect(() => {
     if (!isPlaying) {
       if (sfxSchedulerRafRef.current) {
-        cancelAnimationFrame(sfxSchedulerRafRef.current)
+        playbackFrames.cancel(sfxSchedulerRafRef.current)
         sfxSchedulerRafRef.current = null
       }
       for (const playback of playingSfxRef.current.values()) {
@@ -4346,6 +4768,8 @@ export const StoryEditorWorkspace = forwardRef<
               type="button"
               variant="outline"
               onClick={() => {
+                autoPlacementAbortRef.current?.abort()
+                autoPlacementAbortRef.current = null
                 autoPlacementRunRef.current += 1
                 setIsAutoPlacing(false)
                 setAutoPlacementProgress("자동 배치를 중단했습니다.")
@@ -4485,6 +4909,7 @@ export const StoryEditorWorkspace = forwardRef<
                   scene={selectedScene}
                   asset={selectedAsset}
                   isPlaying={isPlaying}
+                  videoPlaybackTimeSec={selectedVideoPlaybackTimeSec}
                   activeNarrationLine={0}
                   narrationDisplayLines={displayLines}
                   {...activeSubtitleFrameStyle}
@@ -4753,6 +5178,7 @@ export const StoryEditorWorkspace = forwardRef<
                   scene={selectedScene}
                   asset={selectedAsset}
                   isPlaying={isPlaying}
+                  videoPlaybackTimeSec={selectedVideoPlaybackTimeSec}
                   activeNarrationLine={0}
                   narrationDisplayLines={displayLines}
                   {...activeSubtitleFrameStyle}
@@ -5136,8 +5562,9 @@ export const StoryEditorWorkspace = forwardRef<
                         AI 이미지·영상 자동 배치
                       </p>
                       <p className="mt-1 text-[12px] leading-4 text-slate-500">
-                        대본마다 리뷰·무료 소재·도우인·샤오홍슈·GIF·AI 생성 중
-                        가장 적합한 소스를 판단해, 비어 있는 클립만 채웁니다.
+                        도우인과 샤오홍슈를 TikHub로 한 번씩 검색하고, 이어서
+                        구글·해외 무료 소재에서 장면과 상품이 맞는 것만 넣습니다.
+                        상세페이지 썸네일은 넣지 않습니다.
                       </p>
                     </div>
                     <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-violet-500" />
@@ -5151,6 +5578,8 @@ export const StoryEditorWorkspace = forwardRef<
                     type="button"
                     onClick={() => {
                       if (isAutoPlacing) {
+                        autoPlacementAbortRef.current?.abort()
+                        autoPlacementAbortRef.current = null
                         autoPlacementRunRef.current += 1
                         setIsAutoPlacing(false)
                         setAutoPlacementProgress("자동 배치를 중단했습니다.")
@@ -5814,6 +6243,48 @@ export const StoryEditorWorkspace = forwardRef<
 
             {rightTab === "sfx" ? (
               <div className="space-y-3">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-[13px] font-black text-slate-800">배경음악</p>
+                  <p className="mt-0.5 text-[12px] leading-4 text-slate-500">
+                    윙스 BGM과 추가 등록 음원입니다. 재생과 영상 내보내기에
+                    처음부터 끝까지 깔립니다.
+                  </p>
+                  <p className="mt-1.5 rounded-md bg-amber-50 px-2 py-1.5 text-[10px] leading-4 text-amber-700">
+                    YouTube 쇼핑 상품 스티커를 사용할 때는 YouTube가 허용한 Shopping
+                    사운드인지 별도로 확인하세요. 일반 음원은 상품 태그가 제한될 수 있습니다.
+                  </p>
+                  <select
+                    value={brief.bgmId ?? "1"}
+                    onChange={(event) =>
+                      onChange((prev) => ({ ...prev, bgmId: event.target.value }))
+                    }
+                    className="mt-2 h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-[12px] font-semibold text-slate-800"
+                    aria-label="배경음악"
+                  >
+                    <option value="">없음</option>
+                    {WINGS_SSUL_BGM.map((track) => (
+                      <option key={track.id} value={track.id}>
+                        {track.label}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="mt-2 flex items-center gap-2">
+                    <span className="text-[12px] font-bold text-slate-500">볼륨</span>
+                    <Slider
+                      value={[brief.bgmVolume ?? 30]}
+                      min={0}
+                      max={100}
+                      step={5}
+                      disabled={!(brief.bgmId ?? "1")}
+                      onValueChange={([volume]) =>
+                        onChange((prev) => ({ ...prev, bgmVolume: volume }))
+                      }
+                    />
+                    <span className="w-9 text-right text-[12px] font-bold tabular-nums text-slate-600">
+                      {brief.bgmVolume ?? 30}%
+                    </span>
+                  </div>
+                </div>
                 <div className="overflow-hidden rounded-xl border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-cyan-50 p-3">
                   <div className="flex items-start gap-2">
                     <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 to-cyan-500 text-white shadow-md shadow-violet-200">

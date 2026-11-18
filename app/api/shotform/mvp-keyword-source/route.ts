@@ -6,16 +6,9 @@ import {
   type MvpKeywordPlatform,
 } from "@/lib/shotform-mvp-keyword-source"
 import { resolveCnSearchKeywords, type KoZhKeywordPair } from "@/lib/shotform-xhs-ko-zh-keywords"
+import { resolveTikhubKey } from "@/lib/tikhub"
 
 export const maxDuration = 800
-
-function apifyTokenFromBody(body: Record<string, unknown>): string {
-  return (
-    (typeof body.apifyApiKey === "string" && body.apifyApiKey.trim()) ||
-    process.env.APIFY_TOKEN ||
-    ""
-  )
-}
 
 function openaiKeyFromBody(body: Record<string, unknown>): string {
   return (
@@ -38,23 +31,34 @@ function parseKeywordInputs(body: Record<string, unknown>): string[] {
   return []
 }
 
-/** POST — 한국어 키워드 → 中文 변환 → 抖音·小红书 Apify 동시 검색 */
+const PLATFORM_ALIASES: Record<string, MvpKeywordPlatform> = {
+  douyin: "douyin",
+  抖音: "douyin",
+  xiaohongshu: "xiaohongshu",
+  xhs: "xiaohongshu",
+  小红书: "xiaohongshu",
+  tiktok: "tiktok",
+  youtube: "youtube",
+}
+
+function parsePlatform(raw: unknown): MvpKeywordPlatform | null {
+  return typeof raw === "string" ? (PLATFORM_ALIASES[raw.trim().toLowerCase()] ?? null) : null
+}
+
+/** POST — 한국어 키워드 → 中文 변환 → 抖音·小红书(中文)·TikTok·YouTube(한국어) TikHub 동시 검색 */
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
-    const apifyToken = apifyTokenFromBody(body)
+    const tikhubKey = resolveTikhubKey(body.tikhubApiKey)
     const openaiApiKey = openaiKeyFromBody(body)
 
     const koInputs = parseKeywordInputs(body)
     if (!koInputs.length) {
       return NextResponse.json({ error: "키워드를 입력해 주세요." }, { status: 400 })
     }
-    if (!apifyToken) {
+    if (!tikhubKey) {
       return NextResponse.json(
-        {
-          error:
-            "소스 검색 토큰이 필요합니다. ShotForm 설정에 소스 검색 토큰을 저장하거나 서버 환경 변수를 설정하세요.",
-        },
+        { error: "TikHub API 키가 필요합니다. ShotForm 설정에 TikHub API 키를 저장해 주세요." },
         { status: 400 }
       )
     }
@@ -81,9 +85,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "중국어 검색어를 만들지 못했습니다." }, { status: 400 })
     }
 
-    const platformRaw = typeof body.platform === "string" ? body.platform.trim().toLowerCase() : ""
-    const platform: MvpKeywordPlatform | null =
-      platformRaw === "douyin" || platformRaw === "抖音" ? "douyin" : platformRaw === "xiaohongshu" || platformRaw === "xhs" || platformRaw === "小红书" ? "xiaohongshu" : null
+    const platform = parsePlatform(body.platform)
 
     if (platform) {
       const maxAttemptsRaw = body.maxAttempts
@@ -97,7 +99,8 @@ export async function POST(req: NextRequest) {
       const result = await runMvpKeywordPlatformSearch({
         platform,
         searchQueries,
-        apifyToken,
+        keywordPairs,
+        tikhubKey,
         maxAttempts,
       })
       return NextResponse.json({
@@ -112,7 +115,7 @@ export async function POST(req: NextRequest) {
     const result = await runMvpKeywordSourceSearch({
       searchQueries,
       keywordPairs,
-      apifyToken,
+      tikhubKey,
     })
 
     return NextResponse.json(result)

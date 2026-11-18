@@ -259,6 +259,52 @@ export function isLikelyPresenterTitle(title: string): boolean {
   return PRESENTER_TITLE.test(t)
 }
 
+/** 제품을 깎아내리는 리뷰 — 쇼핑 리믹스 소스로 쓰면 메시지가 정반대가 된다 */
+const NEGATIVE_REVIEW_TITLE = /避雷|智商税|别买|不要买|千万别|别再|踩坑|坑人|坑多|翻车|打假|吐槽|劝退|割韭菜|收割|放过/
+/** 여러 제품 비교 — 한 제품만 보여주는 컷이 적다 */
+const COMPARISON_TITLE = /横评|测评|评测|对比|\d+\s*款/
+
+export type RemixSourceWarning = "negative" | "comparison" | "long"
+
+export function remixSourceWarning(video: { title: string; durationSec?: number | null }): RemixSourceWarning | null {
+  if (NEGATIVE_REVIEW_TITLE.test(video.title)) return "negative"
+  if ((video.durationSec ?? 0) > 180) return "long"
+  if (COMPARISON_TITLE.test(video.title)) return "comparison"
+  return null
+}
+
+/** 리믹스 소스 적합도 — 짧은 단일 제품 시연이 높다 */
+export function remixSourceFitScore(video: { title: string; durationSec?: number | null }): number {
+  const d = video.durationSec
+  let score = d == null ? 0 : d >= 6 && d <= 60 ? 3 : d <= 120 ? 1 : d > 180 ? -4 : 0
+  if (NEGATIVE_REVIEW_TITLE.test(video.title)) score -= 5
+  if (COMPARISON_TITLE.test(video.title)) score -= 2
+  if (isLikelyPresenterTitle(video.title)) score -= 2
+  return score
+}
+
+const PRESENTER_HEAVY_RATIO = 0.35
+
+function presenterFrameRatio(a: Pick<VideoAnalysis, "vision_frames">): number {
+  const frames = a.vision_frames ?? []
+  if (!frames.length) return 0
+  const faces = frames.filter((f) => f.content_type === "talking_head" || f.content_type === "person_presenting")
+  return faces.length / frames.length
+}
+
+/**
+ * 입방송형 소스(샘플 프레임의 35% 이상이 얼굴 출연)는 샘플 사이 구간에도 얼굴이 나올 확률이 높아 mix에서 뺀다.
+ * 남은 소스로 목표 길이를 채우기 어려우면 전부 유지한다.
+ */
+export function preferNonPresenterAnalyses<T extends Pick<VideoAnalysis, "vision_frames" | "duration">>(
+  analyses: T[],
+  targetDuration: number
+): T[] {
+  const clean = analyses.filter((a) => presenterFrameRatio(a) < PRESENTER_HEAVY_RATIO)
+  const cleanSec = clean.reduce((sum, a) => sum + a.duration, 0)
+  return clean.length > 0 && cleanSec >= targetDuration * 1.5 ? clean : analyses
+}
+
 export function isProductSafeContentType(t: SceneContentType | string | undefined): boolean {
   return PRODUCT_SAFE.has(t as SceneContentType)
 }
@@ -309,13 +355,13 @@ function visionFramesSafeForInterval(frames: VisionFrameLabel[], start: number, 
 
   if (intervalTextOverlayDominant(frames, start, end)) return false
 
+  // 얼굴 출연 프레임이 하나라도 걸리면 컷 전체에서 얼굴이 노출된다
+  if (inRange.some((f) => f.content_type === "talking_head" || f.content_type === "person_presenting")) {
+    return false
+  }
+
   const productInUse = inRange.filter((f) => f.content_type === "product_in_use").length
   if (productInUse >= Math.ceil(inRange.length * 0.35)) return true
-
-  const talking = inRange.filter(
-    (f) => f.content_type === "talking_head" || f.content_type === "person_presenting"
-  ).length
-  if (talking >= Math.ceil(inRange.length * 0.45)) return false
 
   const safe = inRange.filter((f) => isProductSafeContentType(f.content_type)).length
   return safe / inRange.length >= 0.4

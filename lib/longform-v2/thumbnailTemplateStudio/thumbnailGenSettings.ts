@@ -56,7 +56,7 @@ export function normalizeThumbnailGenSettings(
   const imageModel = (partial.imageModel ?? fallback.imageModel) as SceneImageModelId
   let styleCategory = (partial.styleCategory ?? fallback.styleCategory) as SceneStyleCategory
   const cats = thumbnailStyleCategoriesForModel(imageModel)
-  if (styleCategory === '커스텀' || !cats.includes(styleCategory)) {
+  if ((styleCategory as string) === '커스텀' || !cats.includes(styleCategory)) {
     styleCategory = cats[0] ?? '실사'
   }
   const styles = SCENE_STYLE_CATALOG[styleCategory] ?? SCENE_STYLE_CATALOG.실사

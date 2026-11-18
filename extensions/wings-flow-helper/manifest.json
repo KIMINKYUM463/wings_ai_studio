@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "윙즈 Flow 도우미",
+  "version": "0.1.0",
+  "description": "윙즈 AI 쇼핑 숏폼 장면을 Google Flow에 넣고, 완성된 영상을 다시 윙즈로 보내는 사용자 보조 도구입니다.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "윙즈 Flow 도우미",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "permissions": ["sidePanel", "storage", "tabs", "unlimitedStorage"],
+  "host_permissions": [
+    "https://labs.google/*",
+    "http://localhost:3000/*",
+    "https://wingsedit.vercel.app/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://labs.google/fx/*"],
+      "js": ["content-flow.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["http://localhost:3000/*", "https://wingsedit.vercel.app/*"],
+      "js": ["content-app.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

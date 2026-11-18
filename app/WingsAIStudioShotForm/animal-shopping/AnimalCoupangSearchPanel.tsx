@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import type { CoupangRankedProduct } from "@/lib/shotform-keyword-analysis-types"
+import { withSubjectParticle } from "./animal-studio-utils"
 
 function productImageSrc(url: string) {
   if (!url) return url
@@ -71,8 +72,10 @@ export function AnimalCoupangSearchPanel({
           </h3>
           <p className="mt-1 text-sm leading-6 text-[#49554b]">
             검색어 하나로{" "}
-            <span className="font-semibold text-[#1d4594]">{characterName}</span>
-            이(가) 쿠팡에서 고를 수 있는 인기 상품을 골라보세요.
+            <span className="font-semibold text-[#1d4594]">
+              {withSubjectParticle(characterName)}
+            </span>{" "}
+            쿠팡에서 고를 수 있는 인기 상품을 골라보세요.
           </p>
         </div>
       </div>
@@ -116,7 +119,7 @@ export function AnimalCoupangSearchPanel({
       {products.length > 0 ? (
         <div className="space-y-3">
           <p className="text-sm font-semibold text-[#2d342e]">
-            검색 결과 · 상품을 누르면 {characterName}이(가) 그 제품을 활용하는 장면 레퍼런스로 쓰입니다 (동물·제품 외형 유지)
+            검색 결과 · 상품을 누르면 {withSubjectParticle(characterName)} 그 제품을 활용하는 장면 레퍼런스로 쓰입니다 (동물·제품 외형 유지)
           </p>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {products.slice(0, 9).map((product) => {

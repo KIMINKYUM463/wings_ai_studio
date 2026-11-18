@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import type { AutoEditJobResult } from "@/lib/shotform-auto-edit-types"
 import { benchmarkScriptFewShotJson } from "@/lib/shotform-benchmark-script"
+import { buildToneProfilePromptBlock, normalizeToneProfile } from "@/lib/mvp-tone-profile"
 import {
   buildNaturalShortsNarrationSystemPrompt,
   buildNaturalShortsNarrationUserPrompt,
@@ -10,7 +11,12 @@ import {
   sanitizeNarrationForOutput,
 } from "@/lib/shotform-natural-shorts-script"
 import { sanitizeProductNameForNarration } from "@/lib/shotform-cut-narration"
-import { narrationLooksIncomplete } from "@/lib/shotform-narration-timing"
+import {
+  maxCharsForSceneDuration,
+  minCharsForSceneDuration,
+  narrationLooksIncomplete,
+  narrationPlainCharCount,
+} from "@/lib/shotform-narration-timing"
 import {
   alignNarrationLinesToCuts,
   buildNarrationCutsPromptBlock,
@@ -40,6 +46,7 @@ import {
 } from "@/lib/shotform-narration-script-audit"
 import { auditShoppingScriptWithAi } from "@/lib/shotform-auto-edit-precision-script"
 import { formatSceneNarrationLines } from "@/lib/shotform-benchmark-script"
+import { buildRemixFlowPrompt } from "@/lib/remix-shopping-market-intelligence"
 
 async function requestNarrationJson(args: {
   apiKey: string
@@ -91,6 +98,8 @@ export async function POST(request: NextRequest) {
       sourceKeywords?: string[]
       /** 다시쓰기 시 클라이언트 nonce — 동일 대본 방지 */
       rewriteNonce?: number
+      /** 선택한 말투 프로필 */
+      toneProfile?: unknown
     }
     const apiKey = body.openaiApiKey?.trim()
     const result = body.result
@@ -169,6 +178,7 @@ export async function POST(request: NextRequest) {
     const sourceVideosBlock = buildSourceVideosNarrationBlock(analyses)
     const cutsBlock = buildNarrationCutsPromptBlock(cuts, naturalShorts, sceneMetas, userKeywords)
     const repeatGroupsBlock = buildRepeatedSceneGroupsPrompt(cuts, sceneMetas)
+    const marketFlowBlock = buildRemixFlowPrompt(cuts.length)
 
     const systemContent = naturalShorts
       ? buildNaturalShortsNarrationSystemPrompt({ cutCount: cuts.length, mode })
@@ -189,16 +199,17 @@ ${benchmarkScriptFewShotJson()}
 - **각 lines[i]는 i번째 컷의 「화면」에 실제로 보이는 사물·행동을 구체적으로 말할 것** (추상 칭찬만 금지)
 - 컷마다 화면 키워드(장면에 실제로 보이는 사물·행동·장소) 중 **최소 1개** 반드시 포함
 - 스토리 골격: ①문제·후킹 → ②해결책·제품 → ③~N-1 화면별 데모(앞 컷 맥락 이어받기) → ④마무리·구매
+${marketFlowBlock}
 - **금지 문구**: "이 포인트", "이 부분이 핵심", "충분히 만족", "손이 가요", "이렇게 활용하면", "생각보다 편해요", "이렇게 쉬워요", "제품 사용 장면" 읽기, "완벽하게 작동", "모든 것이 해결", "설치가 이렇게 간편"
 - ${NARRATION_PRODUCT_NAME_USAGE_RULE}
 - **중국어·영문(unboxing/review 등) 그대로 읽기 금지** — 한국어 구어체만
 - **그리고/그래서/바로/이어서로 문장 시작 금지** — 접속사 남발 없이 내용으로 이어질 것
 - lines[i] = i번째 컷 (\\n = 자막 줄). 완결된 구어체. 장면 설명·중국어 그대로 읽기 금지
-- **각 컷 duration(초)에 맞는 짧은 분량만** — 초당 약 4자. 긴 문장으로 시간을 넘기지 말 것
+- **각 컷에 표시된 글자 수 범위(최소~최대)를 지킬 것** — 너무 짧으면 컷이 비고, 길면 시간을 넘김
 
 JSON: {"lines":["나레이션줄1\\n줄2", ...]} — lines 길이 = ${cuts.length}, **「컷1」번호·라벨 금지** (순수 나레이션만)`
 
-    const userContent = naturalShorts
+    const baseUserContent = naturalShorts
       ? buildNaturalShortsNarrationUserPrompt({
           topic,
           productName,
@@ -239,7 +250,7 @@ ${previousScriptBlock}
 
 `
     : ""
-}스토리 골격: 문제·후킹 → 제품·해결 → 화면별 데모 → 마무리·CTA.
+}${marketFlowBlock}
 
 **화면 정합성 (최우선)**:
 - **사용자 입력 키워드 = 홍보 제품**. 영상 분석이 다른 제품으로 보여도 키워드 제품 기준으로만 작성.
@@ -253,6 +264,9 @@ ${previousScriptBlock}
 ${repeatGroupsBlock}
 
 위 ${cuts.length}개 컷이 **한 편의 쇼핑숏폼**처럼 읽히도록 lines 배열을 ${mode === "rewrite" ? "다시" : ""} 작성하세요.`
+
+    const toneBlock = buildToneProfilePromptBlock(normalizeToneProfile(body.toneProfile))
+    const userContent = toneBlock ? `${baseUserContent}\n\n${toneBlock}` : baseUserContent
 
     const temperature = mode === "rewrite" ? 0.82 : naturalShorts ? 0.45 : 0.42
     const maxTokens = naturalShorts ? 4000 : 3200
@@ -314,20 +328,28 @@ ${repeatGroupsBlock}
       )
     )
 
-    const weakIndices = polished
-      .map((text, i) => ({ i, weak: !text.trim() || narrationLooksIncomplete(text.replace(/\n/g, " ")) }))
-      .filter((x) => x.weak)
-      .map((x) => x.i)
+    const isWeak = (text: string) => !text.trim() || narrationLooksIncomplete(text.replace(/\n/g, " "))
+    // 너무 짧은 줄은 음성이 컷의 절반도 안 돼 영상이 잘려 나감 → 같은 패치 요청에서 길게 다시 받음
+    const isShort = (text: string, i: number) =>
+      narrationPlainCharCount(text) < minCharsForSceneDuration(cuts[i]!.duration)
+    const weakIndices = polished.map((_, i) => i).filter((i) => isWeak(polished[i]!) || isShort(polished[i]!, i))
 
     if (weakIndices.length) {
       try {
+        const problemList = weakIndices
+          .map((i) => {
+            const c = cuts[i]!
+            const reason = isWeak(polished[i]!) ? "비었거나 끊김" : "너무 짧음"
+            return `- 컷 ${i + 1} (${reason}, ${minCharsForSceneDuration(c.duration)}~${maxCharsForSceneDuration(c.duration)}자로)`
+          })
+          .join("\n")
         const patchParsed = await requestNarrationJson({
           apiKey,
           systemContent,
           userContent: `${userContent}
 
-**필수 수정**: 아래 컷 번호의 lines가 비었거나 문장이 끊겼습니다. **해당 컷만** 키워드 제품 + 화면에 맞는 완결 구어체로 다시 작성하세요.
-문제 컷: ${weakIndices.map((i) => i + 1).join(", ")}
+**필수 수정**: 아래 컷의 lines를 **해당 컷만** 키워드 제품 + 화면에 맞는 완결 구어체로 다시 작성하세요. 괄호 안 글자 수(공백 제외)를 반드시 지키세요.
+${problemList}
 전체 lines 길이는 반드시 ${cuts.length}개 유지.`,
           temperature: Math.min(temperature + 0.1, 0.85),
           maxTokens,
@@ -335,7 +357,9 @@ ${repeatGroupsBlock}
         const patchLines = alignNarrationLinesToCuts(parseNarrationLinesFromAi(patchParsed.lines), cuts, productName)
         for (const i of weakIndices) {
           const patched = patchLines[i]?.trim()
-          if (patched && !narrationLooksIncomplete(patched.replace(/\n/g, " "))) {
+          const improves =
+            isWeak(polished[i]!) || narrationPlainCharCount(patched ?? "") > narrationPlainCharCount(polished[i]!)
+          if (patched && improves && !narrationLooksIncomplete(patched.replace(/\n/g, " "))) {
             polished[i] = sanitizeNarrationForOutput(
               formatSceneNarrationLines(patched, cuts[i]!.duration)
             )

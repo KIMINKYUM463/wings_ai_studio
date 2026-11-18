@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
+import { guardStoryApiRequest } from "@/lib/story-shopping-security"
+import { analyzeStoryMarketVideo } from "@/lib/story-market-intelligence"
 
 type YouTubeSearchItem = {
   id?: { videoId?: string }
@@ -48,10 +50,15 @@ const parseDuration = (duration: string) => {
   )
 }
 
-async function createGlobalSearchQuery(productName: string) {
+async function createGlobalSearchQueries(productName: string): Promise<string[]> {
   const openAiKey =
     process.env.OPENAI_API_KEY || process.env.GPT_API_KEY || process.env.CHATGPT_API_KEY
-  if (!openAiKey) return `${productName} product demo review #shorts`
+  const fallback = [
+    `${productName} product demo review #shorts`,
+    `${productName} problem solution #shorts`,
+    `${productName} before after hack #shorts`,
+  ]
+  if (!openAiKey) return fallback
 
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -63,25 +70,32 @@ async function createGlobalSearchQuery(productName: string) {
       body: JSON.stringify({
         model: "gpt-4o-mini",
         temperature: 0.2,
-        max_tokens: 80,
+        max_tokens: 180,
+        response_format: { type: "json_object" },
         messages: [
           {
             role: "system",
             content:
-              "Translate the Korean product into a concise English YouTube search phrase. Return plain English only. Add product demo review #shorts. Do not add quotes.",
+              `Translate the Korean product into concise English YouTube Shorts searches.
+Return JSON only: {"queries":["product demo review #shorts","problem solution #shorts","before after hack #shorts"]}.
+Keep the exact product category in every query. Return exactly 3 distinct queries.`,
           },
           { role: "user", content: productName },
         ],
       }),
     })
-    if (!response.ok) return `${productName} product demo review #shorts`
+    if (!response.ok) return fallback
     const data = await response.json()
-    return (
-      String(data.choices?.[0]?.message?.content || "").trim() ||
-      `${productName} product demo review #shorts`
-    )
+    const parsed = JSON.parse(String(data.choices?.[0]?.message?.content || "{}")) as {
+      queries?: unknown
+    }
+    const queries = (Array.isArray(parsed.queries) ? parsed.queries : [])
+      .map((item) => String(item || "").replace(/["']/g, "").trim())
+      .filter((item, index, list) => item.length >= 5 && list.indexOf(item) === index)
+      .slice(0, 3)
+    return queries.length === 3 ? queries : fallback
   } catch {
-    return `${productName} product demo review #shorts`
+    return fallback
   }
 }
 
@@ -216,7 +230,7 @@ async function searchYoutubeIds(
   const params = new URLSearchParams({
     part: "snippet",
     maxResults: creativeCommonsOnly ? "12" : "24",
-    q: query,
+    q: creativeCommonsOnly ? `${query} vertical shorts` : query,
     type: "video",
     order: creativeCommonsOnly ? "relevance" : "viewCount",
     publishedAfter: publishedAfter.toISOString(),
@@ -277,7 +291,7 @@ async function hydrateVideos(
       .map((item) => [item.id!.videoId!, item.matchedKeyword || ""])
   )
 
-  const maxDurationSec = creativeCommonsOnly ? 360 : 180
+  const maxDurationSec = 90
   return searchItems
     .map((item) => {
       const id = item.id?.videoId || ""
@@ -315,6 +329,8 @@ async function hydrateVideos(
 }
 
 export async function GET(request: NextRequest) {
+  const access = await guardStoryApiRequest(request, { limit: 30 })
+  if (access.error) return access.error
   const requestUrl = new URL(request.url)
   const productName = requestUrl.searchParams.get("q")?.trim()
   const context = requestUrl.searchParams.get("context")?.trim() || ""
@@ -342,12 +358,41 @@ export async function GET(request: NextRequest) {
   try {
     // 비-CC: 기존 단일 쿼리
     if (!creativeCommonsOnly) {
-      const searchQuery = await createGlobalSearchQuery(productName || context)
-      const searchItems = await searchYoutubeIds(apiKey, searchQuery, false)
-      const items = (await hydrateVideos(apiKey, searchItems, false))
-        .sort((a, b) => b.viewCount - a.viewCount)
-        .slice(0, 12)
-      return NextResponse.json({ success: true, searchQuery, keywords: [searchQuery], items })
+      const searchQueries = await createGlobalSearchQueries(productName || context)
+      const searchBatches = await Promise.all(
+        searchQueries.map(async (keyword) =>
+          (await searchYoutubeIds(apiKey, keyword, false)).map((item) => ({
+            ...item,
+            matchedKeyword: keyword,
+          }))
+        )
+      )
+      const hydrated = await hydrateVideos(apiKey, searchBatches.flat(), false)
+      const items = hydrated
+        .filter((item, index, list) => list.findIndex((other) => other.id === item.id) === index)
+        .map((item) => ({
+          ...item,
+          ...analyzeStoryMarketVideo(item),
+        }))
+        .sort(
+          (a, b) =>
+            b.performanceScore - a.performanceScore ||
+            b.viewCount - a.viewCount
+        )
+        .slice(0, 18)
+      return NextResponse.json({
+        success: true,
+        searchQuery: searchQueries.join(" · "),
+        keywords: searchQueries,
+        items,
+        marketSummary: {
+          sampled: items.length,
+          formats: items.reduce<Record<string, number>>((counts, item) => {
+            counts[item.format] = (counts[item.format] || 0) + 1
+            return counts
+          }, {}),
+        },
+      })
     }
 
     // CC: 짧은 키워드로 여러 번 검색 (제품 + 상황)
@@ -368,7 +413,7 @@ export async function GET(request: NextRequest) {
       // 너무 긴 건 키워드가 아님 — 강제 컷
       .map((item) => item.split(/\s+/).slice(0, 5).join(" "))
       .filter((item, index, arr) => arr.indexOf(item) === index)
-      .slice(0, 6)
+      .slice(0, 4)
 
     if (!keywordQueries.length) {
       return NextResponse.json({
@@ -391,7 +436,12 @@ export async function GET(request: NextRequest) {
 
     const items = (await hydrateVideos(apiKey, mergedSearchItems, true))
       .filter((item, index, arr) => arr.findIndex((other) => other.id === item.id) === index)
-      .sort((a, b) => b.viewCount - a.viewCount)
+      .map((item) => ({ ...item, ...analyzeStoryMarketVideo(item) }))
+      .sort(
+        (a, b) =>
+          b.performanceScore - a.performanceScore ||
+          b.viewCount - a.viewCount
+      )
       .slice(0, 18)
 
     return NextResponse.json({

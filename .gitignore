@@ -11,6 +11,13 @@ service-account-key.json
 *-key.json
 *-credentials.json
 
+# User-entered API keys from the settings dialog (never commit)
+data/shotform-gemini-key.txt
+data/shotform-tikhub-key.txt
+
+# Local Adam TTS kit (voice sample + model cache, not for git)
+tools/adam-tts-kit/
+
 # Dependencies
 node_modules/
 vendor/
@@ -79,3 +86,6 @@ voices/supertonic/samples/
 .env*
 !.env.example
 _ext_analyze/
+
+# 루트 로컬 스크래치 영상
+/_*.mp4

@@ -41,6 +41,12 @@ export function slimPostEditResultForPersist(result: AutoEditJobResult): AutoEdi
     localWorkDir: result.localWorkDir,
     localOutputPath: result.localOutputPath,
     localRenderPending: result.localRenderPending,
+    sourceKeywords: result.sourceKeywords,
+    mosaicMode: result.mosaicMode,
+    v2Picture: result.v2Picture,
+    voiceLineCues: result.voiceLineCues,
+    ttsVoiceId: result.ttsVoiceId,
+    ttsVoiceStyle: result.ttsVoiceStyle,
   }
 
   if (result.analyses?.length) {
@@ -70,6 +76,7 @@ export function prepareMvpProjectDataForSave(data: MvpTestProjectData): MvpTestP
     keywordPairs: data.keywordPairs,
     sourceResult: data.sourceResult ?? null,
     editPicks: data.editPicks,
+    v2RemixProjectId: data.v2RemixProjectId ?? null,
     analyzedVideoUrl: data.analyzedVideoUrl ?? null,
     postEditResult: data.postEditResult ? slimPostEditResultForPersist(data.postEditResult) : null,
     postEditScriptOverrides: data.postEditScriptOverrides,

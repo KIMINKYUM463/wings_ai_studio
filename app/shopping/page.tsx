@@ -410,8 +410,7 @@ export default function ShoppingPage() {
 
       // 이미지 1개 생성
       setGenerationProgress({ current: 1, total: 1 })
-      const apiKey = getApiKey()
-      const imageUrl = await generateImage(productName, replicateApiKey, imageBase64, productDescription, apiKey)
+      const imageUrl = await generateImage(productName, replicateApiKey, imageBase64)
       
       setImageUrls([imageUrl])
       setActiveStep("render") // 이미지 확인 단계로 이동
@@ -449,7 +448,8 @@ export default function ShoppingPage() {
 
     try {
       // 영상 생성 (bytedance/seedance-1-lite)
-      const apiKey = getApiKey()
+      // 기존 getApiKey() 호출은 항상 null이라 OpenAI 상품 분석이 실행된 적 없음. 동작 유지를 위해 undefined. 분석을 켜려면 getApiKey("openai") ?? undefined
+      const apiKey: string | undefined = undefined
       const generatedVideoUrl = await generateVideoWithSeedance(imageUrls[0], productName, replicateApiKey, productDescription, apiKey)
       
       setVideoUrl(generatedVideoUrl)
@@ -689,8 +689,8 @@ export default function ShoppingPage() {
         audio.volume = 1.0
 
         await new Promise<void>((resolve, reject) => {
-          audio.onloadeddata = () => resolve()
-          audio.onerror = reject
+          audio!.onloadeddata = () => resolve()
+          audio!.onerror = reject
         })
         setPreviewAudio(audio)
       } else {

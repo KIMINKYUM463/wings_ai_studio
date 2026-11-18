@@ -88,6 +88,12 @@ export async function generateAnimalTts(params: {
         speed,
       }),
     })
+  } else if (voiceId.startsWith("adam-")) {
+    response = await fetch("/api/adam-tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: ttsText, tempo: speed }),
+    })
   } else {
     const id = voiceId.replace("elevenlabs-", "")
     const apiKey = (localStorage.getItem("shotform_elevenlabs_api_key") || "").trim()
@@ -118,7 +124,7 @@ export async function generateAnimalTts(params: {
   return { audioUrl, durationSec }
 }
 
-function blobToDataUrl(blob: Blob): Promise<string> {
+export function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => {

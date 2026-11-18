@@ -1,6 +1,6 @@
 /** 한 줄 등장 시 '뽁' 짧은 팝 효과음 (Web Audio) */
 
-function makePopBuffer(ctx: AudioContext, durationSec = 0.09): AudioBuffer {
+export function makePopBuffer(ctx: BaseAudioContext, durationSec = 0.09): AudioBuffer {
   const sampleRate = ctx.sampleRate
   const length = Math.max(1, Math.floor(sampleRate * durationSec))
   const buffer = ctx.createBuffer(1, length, sampleRate)

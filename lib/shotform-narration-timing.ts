@@ -65,16 +65,25 @@ export function estimateNarrationDurationSec(text: string): number {
 
 
 
-/** 장면 길이에 맞춘 권장 최대 글자 수 — TTS 1.25~1.5x 여유를 반영 (초단컷도 의미 있는 한 줄) */
+/**
+ * 대본 글자 예산용 실측 TTS 속도 (공백·문장부호 제외, 1.0x).
+ * Typecast ≈ 6.9자/초, Supertonic ≈ 5.1자/초 — 4.5로 잡으면 음성이 컷의 절반 남짓이라 영상이 목표보다 크게 짧아짐.
+ * 느린 엔진에서 넘치는 분량은 영상 슬로모션으로 흡수되므로 빠른 엔진 쪽에 가깝게 잡는다.
+ */
+const SCRIPT_TTS_CHARS_PER_SEC = 7
+
+/** 장면 길이에 맞춘 권장 최대 글자 수 — 음성은 배속 없이 읽고, 넘치는 만큼은 영상 슬로모션(최저 0.6x)으로 흡수 */
 export function maxCharsForSceneDuration(sceneDurationSec: number, ratio = 0.9): number {
   const d = Math.max(0.5, sceneDurationSec)
-  // 초당 글자 × 배속 여유(1.25) × ratio — 「한번 보세요」만 남을 정도로 조이지 않음
-  const withSpeedHeadroom = Math.floor(d * KOREAN_NARRATION_CHARS_PER_SEC * 1.25 * ratio)
-  // 최대 배속(1.5x)으로도 영상에 들어가는 상한
-  const hardCap = Math.floor(d * KOREAN_NARRATION_CHARS_PER_SEC * 1.5 * 0.92)
-  // 1.5초 컷도 최소 한 짧은 구(8~12자)는 쓸 수 있게
-  const floor = d < 2.2 ? 10 : d < 3.5 ? 12 : 10
-  return Math.max(floor, Math.min(withSpeedHeadroom, Math.max(floor, hardCap)))
+  // 1.5초 컷도 최소 한 짧은 구(10~12자)는 쓸 수 있게
+  const floor = d < 2.2 ? 10 : 12
+  return Math.max(floor, Math.floor(d * SCRIPT_TTS_CHARS_PER_SEC * ratio))
+}
+
+/** 컷을 비워 두지 않을 최소 글자 수 — 이보다 짧으면 음성에 맞춰 컷이 잘려 영상이 목표보다 크게 짧아짐 */
+export function minCharsForSceneDuration(sceneDurationSec: number): number {
+  const d = Math.max(0.5, sceneDurationSec)
+  return Math.min(maxCharsForSceneDuration(d) - 3, Math.max(8, Math.floor(d * SCRIPT_TTS_CHARS_PER_SEC * 0.75)))
 }
 
 /**
@@ -106,7 +115,7 @@ function narrationLineLooksIncomplete(line: string): boolean {
   if (/[.!?…]$/.test(t)) return false
   if (NARRATION_COMPLETE_ENDINGS.test(t)) return false
   if (NARRATION_FLOWING_ENDINGS.test(t)) return false
-  if (/[요죠네다음][.!?]?$/.test(t)) return false
+  if (/[요죠네다][.!?]?$/.test(t)) return false
   if (/[을를이가의에과와도로으로]$/.test(t)) return true
   // 「자를 수」「깎을 수 있」처럼 가능 표현 중간에서 끊김
   if (/(?:할|줄|갈|볼|쓸|자를|깎을|썰을|넣을|빼)\s*수$/.test(t)) return true
@@ -119,7 +128,7 @@ function narrationLineLooksIncomplete(line: string): boolean {
   if (/[가-힣]{2,}하$/.test(t) && !/하(세요|십시오|면|니|네요|나요|죠)?$/.test(t)) return true
   if (/[가-힣]{2,}게$/.test(t)) return true
   const lastWord = t.split(/\s+/).pop() ?? t
-  if (lastWord.length <= 2 && !/[요죠네다음다]$/.test(lastWord)) return true
+  if (lastWord.length <= 2 && !/[요죠네다]$/.test(lastWord)) return true
   // 명사·수식어 어간에서 한 글자만 남은 경우 (흩어진 음 ← 음식물)
   if (/[가-힣]{2,}\s+[가-힣]$/.test(t) && lastWord.length === 1) return true
   if (t.length <= 18 && !NARRATION_COMPLETE_ENDINGS.test(t) && !/[.!?…]$/.test(t)) return true
@@ -244,7 +253,7 @@ export function trimToCompleteNarration(text: string, maxPlainChars: number): st
 
   const parts = t
 
-    .split(/(?<=[.!?…])\s*|(?<=[요죠네다음][.!?]?)\s*|\n+/)
+    .split(/(?<=[.!?…])\s*|(?<=[요죠네다])\s+|\n+/)
 
     .map((s) => s.trim())
 

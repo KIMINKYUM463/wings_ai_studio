@@ -24,7 +24,7 @@ export default function SettingsPage() {
     const savedYoutubeKey = localStorage.getItem("youmaker_youtube_api_key") || ""
     const savedGeminiKey = localStorage.getItem("youmaker_gemini_api_key") || ""
     const savedReplicateKey = localStorage.getItem("youmaker_replicate_api_key")
-    const defaultReplicateKey = "r8_AgOeBCpTw8baE7gXQsErwViD1taChAB19ZHLA"
+    const defaultReplicateKey = ""
     
     setYoutubeApiKey(savedYoutubeKey)
     setGeminiApiKey(savedGeminiKey)

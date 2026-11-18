@@ -16,6 +16,7 @@ import {
   segmentScaleCropFilter,
   segmentScalePadFilter,
 } from "@/lib/shotform-edit-segment-clamp"
+import { fetchUpstreamVideo } from "@/lib/video-upstream-fetch"
 
 function ffmpegBin(): string {
   return resolveFfmpegPath()
@@ -209,7 +210,7 @@ export async function renderEditPlanToMp4(args: {
     const { sourceStart, duration } = clampEditSegmentTiming(seg, sourceDuration)
     const outSeg = path.join(workDir, `seg_${i}.mp4`)
     const segTimeout = serverless ? 120_000 : 180_000
-    const crf = serverless ? "28" : "26"
+    const crf = serverless ? "28" : "20"
     const cropVf = segmentScaleCropFilter(w, h)
     const padVf = segmentScalePadFilter(w, h)
 
@@ -296,7 +297,7 @@ export async function renderEditPlanToMp4(args: {
   const padSec = Math.max(0, targetDuration - concatDur)
 
   const finalPreset = serverless ? "ultrafast" : "fast"
-  const finalCrf = serverless ? "26" : "23"
+  const finalCrf = serverless ? "26" : "20"
   const finalTimeout = serverless ? 180_000 : 120_000
 
   if (padSec > 0.12) {

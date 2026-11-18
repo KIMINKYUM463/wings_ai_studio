@@ -100,7 +100,7 @@ export default function AllInOneEditor({ onComplete }: AllInOneEditorProps) {
 
   // 비디오 편집 상태
   const videoRef = useRef<HTMLVideoElement>(null)
-  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const canvasRef = useRef<HTMLDivElement>(null)
   const timelineRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -283,7 +283,7 @@ export default function AllInOneEditor({ onComplete }: AllInOneEditorProps) {
 
     setIsGenerating(true)
     try {
-      const generatedTopics = await generateShortsTopics(keywords)
+      const generatedTopics = await generateShortsTopics(keywords as Parameters<typeof generateShortsTopics>[0])
       setTopics(generatedTopics)
     } catch (error) {
       console.error("주제 생성 실패:", error)
@@ -667,7 +667,7 @@ export default function AllInOneEditor({ onComplete }: AllInOneEditorProps) {
       onComplete?.({ success: true })
     } catch (error) {
       console.error("[v0] AI 편집 실패:", error)
-      alert(`AI 편집 실패: ${error.message}`)
+      alert(`AI 편집 실패: ${(error as Error).message}`)
     } finally {
       setIsProcessing(false)
     }
@@ -778,7 +778,7 @@ export default function AllInOneEditor({ onComplete }: AllInOneEditorProps) {
       }, 2000)
     } catch (error) {
       console.error("[v0] TTS 생성 실패:", error)
-      alert(`TTS 생성 실패: ${error.message}`)
+      alert(`TTS 생성 실패: ${(error as Error).message}`)
       setIsProcessing(false)
       setProgress(0)
       setCurrentStep("")

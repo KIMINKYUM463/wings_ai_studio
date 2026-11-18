@@ -34,7 +34,7 @@ export async function prependMvpThumbnailIntroViaApi(
 
   const fd = new FormData()
   fd.append("video", input.mainMp4, "render.mp4")
-  fd.append("thumbnail", new Blob([input.thumbBytes], { type: "image/png" }), "thumb.png")
+  fd.append("thumbnail", new Blob([input.thumbBytes as BlobPart], { type: "image/png" }), "thumb.png")
   fd.append("introSec", String(introSec))
   fd.append("durationSec", String(input.mainDurationSec))
 

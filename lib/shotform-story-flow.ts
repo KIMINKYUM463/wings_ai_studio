@@ -2,11 +2,12 @@ import type { MixPick, ProductVideoStructure, VideoAnalysis } from "@/lib/shotfo
 import { analysisBySrcIndex } from "@/lib/shotform-analysis-src-index"
 import { scoreHookImpactPick, scoreMixPick } from "@/lib/shotform-scene-priority"
 import { describeSourceRangeFromAnalysis } from "@/lib/shotform-visual-scene-match"
+import { buildRemixMarketFlow } from "@/lib/remix-shopping-market-intelligence"
 
 /** 벤치마킹 짜집기 — 스토리 비트 (후킹 → 소개 → 설치 → 데모 → 결과 → 마무리) */
-export type StoryBeat = "hook" | "intro" | "setup" | "demo" | "result" | "close"
+export type StoryBeat = "hook" | "intro" | "setup" | "demo" | "result" | "trust" | "close"
 
-const BEAT_ORDER: StoryBeat[] = ["hook", "intro", "setup", "demo", "result", "close"]
+const BEAT_ORDER: StoryBeat[] = ["hook", "intro", "setup", "demo", "result", "trust", "close"]
 
 const BEAT_PATTERNS: Record<StoryBeat, RegExp> = {
   hook: /4[kK]|1080|비교|분할|선명|감동|임팩트|후킹|충격|와우|impact|해상도|생생|몰입|눈길|흡입|싹|말끔|클로즈.*비교|영화.*장면/i,
@@ -14,6 +15,7 @@ const BEAT_PATTERNS: Record<StoryBeat, RegExp> = {
   setup: /설치|고정|나사|스크린|내리|조립|펼치|봉|벽|천장|매달|걸|지지|포장|도구|문\s*위|조립|부착/i,
   demo: /사용|조작|손|작동|버튼|데모|시연|닦|청소|조절|돌리|누르|착용|적용|분사|흡입|청소기|칫솔/i,
   result: /결과|화질|재생|영화|애니|색감|고화질|분위기|마법|풍부|선명|아이언|투사된|스크린.*재생|큰\s*화면/i,
+  trust: /한계|주의|대상|추천|비추천|구성|선택|크기|재질|세척|관리|솔직|단점|대신|다만/i,
   close: /완료|마무리|조정|설정|끝|마지막|디버그|세팅|드디어|완벽|사다리|크기\s*조정|마지막\s*디버/i,
 }
 
@@ -73,22 +75,16 @@ export function classifyPickStoryBeat(
 
 /** pick 개수·목표 길이에 맞는 스토리 골격 */
 export function buildDesiredBeatSequence(pickCount: number, _targetDuration?: number): StoryBeat[] {
-  if (pickCount <= 0) return []
-  if (pickCount === 1) return ["hook"]
-  if (pickCount === 2) return ["hook", "close"]
-
-  const beats: StoryBeat[] = ["hook", "intro"]
-  const remaining = pickCount - 3
-  const setupCount = Math.max(1, Math.round(remaining * 0.32))
-  const demoCount = Math.max(1, Math.round(remaining * 0.38))
-  const resultCount = Math.max(1, remaining - setupCount - demoCount)
-
-  for (let i = 0; i < setupCount; i++) beats.push("setup")
-  for (let i = 0; i < demoCount; i++) beats.push("demo")
-  for (let i = 0; i < resultCount; i++) beats.push("result")
-  beats.push("close")
-
-  return beats.slice(0, pickCount)
+  const map = {
+    hook: "hook",
+    reveal: "intro",
+    problem: "setup",
+    demo: "demo",
+    proof: "result",
+    trust: "trust",
+    cta: "close",
+  } as const
+  return buildRemixMarketFlow(pickCount).map((beat) => map[beat])
 }
 
 function pickKey(p: MixPick): string {
@@ -147,6 +143,7 @@ export function reorderMixPicksByStoryFlow(
       if (wantBeat === "hook" && /비교|4[kK]|선명|감동|임팩트/.test(text)) score += 6
       if (wantBeat === "setup" && /설치|고정|스크린|나사/.test(text)) score += 4
       if (wantBeat === "result" && /화질|재생|영화|선명/.test(text)) score += 4
+      if (wantBeat === "trust" && BEAT_PATTERNS.trust.test(text)) score += 4
 
       if (score > bestScore) {
         bestScore = score

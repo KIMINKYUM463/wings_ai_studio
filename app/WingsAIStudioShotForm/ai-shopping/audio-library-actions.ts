@@ -66,7 +66,7 @@ export async function getAudioLibrary(type: "bgm" | "sfx"): Promise<AudioLibrary
       
       if (error) {
         console.error(`[Audio Library] ${type} 목록 가져오기 실패 (offset: ${offset}):`, error)
-        console.error(`[Audio Library] 에러 코드:`, error.statusCode)
+        console.error(`[Audio Library] 에러 코드:`, (error as { statusCode?: string }).statusCode)
         console.error(`[Audio Library] 에러 메시지:`, error.message)
         console.error(`[Audio Library] 에러 상세:`, JSON.stringify(error, null, 2))
         hasError = true

@@ -1,5 +1,6 @@
 import type { NarrationSegment } from "@/lib/shotform-factory-narration-script"
 import {
+  voiceLineCueAtTime,
   voiceSubtitleAtLineCues,
   type VoiceLineCue,
 } from "@/lib/shotform-factory-line-tts"
@@ -22,8 +23,15 @@ import {
   normalizeSubtitleStyle,
   type MvpBgmClip,
   type MvpEffectClip,
+  type MvpScriptStyleState,
   type MvpSubtitleStyle,
 } from "@/lib/mvp-studio-types"
+import { drawMvpVideoTextLayers } from "@/lib/mvp-video-text-layers"
+import {
+  createSubtitleEntranceClock,
+  subtitleEntranceFrame,
+  type MvpSubtitleEntranceFrame,
+} from "@/lib/mvp-subtitle-entrance"
 import {
   isMosaicCircleOverlay,
   isMosaicOverlay,
@@ -39,6 +47,14 @@ import {
   type LineSubtitleCue,
 } from "@/lib/shotform-mvp-edit-script"
 import { convertWebmBlobToMp4 } from "@/lib/mvp-webm-to-mp4"
+import { startRenderTicker } from "@/lib/shotform-render-ticker"
+import {
+  drawMvpFxFlash,
+  MVP_FX_IDENTITY,
+  mvpAutoFxFrame,
+  withMvpFxCanvasTransform,
+  type MvpAutoFxSettings,
+} from "@/lib/mvp-auto-fx"
 import type { EditPlanSegment } from "@/lib/shotform-auto-edit-types"
 import { isEditPlanBlank } from "@/lib/mvp-edit-plan-split"
 import {
@@ -59,6 +75,8 @@ export type MvpPreviewRenderInput = {
   segments: NarrationSegment[]
   lineSchedule: LineSubtitleCue[]
   subtitleStyle: MvpSubtitleStyle
+  /** 헤드카피·워터마크·[광고] */
+  scriptStyle?: MvpScriptStyleState
   thumbnailUrl?: string
   thumbnailIntroOn: boolean
   placedOverlays: PlacedStudioOverlay[]
@@ -66,8 +84,15 @@ export type MvpPreviewRenderInput = {
   audioDurationSec: number
   bgmClips?: MvpBgmClip[]
   effectClips?: MvpEffectClip[]
+  /** 컷 전환·카메라 모션 (음성 큐가 있을 때만 적용) */
+  autoFx?: MvpAutoFxSettings
   editPlan?: readonly EditPlanSegment[]
   videoSourceTransforms?: MvpVideoSourceTransforms
+  /**
+   * 버전2 리믹스 그림. 컷마다 끝 프레임을 붙잡거나 다음 컷으로 점프하지 않고
+   * 렌더된 영상을 음성 시각과 1배로 재생한다.
+   */
+  linearPicture?: boolean
   onProgress?: (ratio: number) => void
 }
 
@@ -245,7 +270,8 @@ function drawSubtitle(
   style: MvpSubtitleStyle,
   cw: number,
   ch: number,
-  previewW: number
+  previewW: number,
+  entrance: MvpSubtitleEntranceFrame
 ) {
   if (!text.trim()) return
 
@@ -269,6 +295,14 @@ function drawSubtitle(
 
   ctx.textAlign = (style.textAlign ?? "center") as CanvasTextAlign
   ctx.textBaseline = "middle"
+
+  ctx.save()
+  if (entrance.opacity < 1 || entrance.offsetEm !== 0 || entrance.scale !== 1) {
+    ctx.globalAlpha *= entrance.opacity
+    ctx.translate(x, y + entrance.offsetEm * fontSize)
+    ctx.scale(entrance.scale, entrance.scale)
+    ctx.translate(-x, -y)
+  }
 
   if (style.bgOn) {
     const outlinePad = style.outlineOn ? (style.outlineWidthPx ?? 1) * scale * 2 : 0
@@ -300,10 +334,7 @@ function drawSubtitle(
   ctx.fillStyle = style.color
   ctx.fillText(text, x, y)
 
-  ctx.shadowColor = "transparent"
-  ctx.shadowBlur = 0
-  ctx.shadowOffsetX = 0
-  ctx.shadowOffsetY = 0
+  ctx.restore()
 }
 
 function resolveSubtitleText(
@@ -352,6 +383,7 @@ export async function renderMvpPreviewToBlob(
     segments,
     lineSchedule,
     subtitleStyle: rawStyle,
+    scriptStyle,
     thumbnailUrl,
     thumbnailIntroOn,
     placedOverlays,
@@ -359,10 +391,13 @@ export async function renderMvpPreviewToBlob(
     audioDurationSec,
     bgmClips = [],
     effectClips = [],
+    autoFx,
     editPlan = [],
     videoSourceTransforms = {},
+    linearPicture = false,
     onProgress,
   } = input
+  const useAutoTransitions = Boolean(autoFx?.transitions && voiceLineCues?.length)
 
   const subtitleStyle = normalizeSubtitleStyle(rawStyle)
   const canvas = document.createElement("canvas")
@@ -370,8 +405,44 @@ export async function renderMvpPreviewToBlob(
   canvas.height = 1920
   const ctx = canvas.getContext("2d")
   if (!ctx) throw new Error("canvas context failed")
+  // 컷 전환 seek 중(readyState < 2)에는 프레임이 없어 검은 화면이 녹화됨 — 마지막 영상 프레임으로 대신 채움
+  const lastVideoFrame = document.createElement("canvas")
+  lastVideoFrame.width = canvas.width
+  lastVideoFrame.height = canvas.height
+  const lastVideoFrameCtx = lastVideoFrame.getContext("2d")
+  let hasLastVideoFrame = false
 
-  const video = await loadVideo(videoUrl)
+  // 컷 경계 seek(0.2~0.4초 정지)를 숨기려고 대기 영상을 다음 컷 시작에 미리 맞춰 두고 경계에서 교체
+  let video = await loadVideo(videoUrl)
+  let standbyVideo = await loadVideo(videoUrl)
+  let preparedScene: number | null = null
+  const syncLinear = (audioT: number, force = false) => {
+    const target = Math.min(Math.max(0, videoDur - 0.04), Math.max(0, audioT))
+    if (Math.abs(video.playbackRate - 1) > 0.02) video.playbackRate = 1
+    const drift = Math.abs(video.currentTime - target)
+    if (force) {
+      if (drift > 0.03) video.currentTime = target
+      return
+    }
+    if (!video.seeking && drift > 0.45) video.currentTime = target
+  }
+  const prepareNextScene = (audioT: number) => {
+    if (linearPicture || !voiceLineCues?.length) return
+    const cue = voiceLineCueAtTime(voiceLineCues, audioT)
+    if (!cue) return
+    if (preparedScene === cue.sceneIndex) {
+      ;[video, standbyVideo] = [standbyVideo, video]
+      standbyVideo.pause()
+      preparedScene = null
+      return
+    }
+    if (preparedScene != null && cue.sceneIndex > preparedScene) preparedScene = null
+    const next = segments[cue.sceneIndex + 1]
+    if (!next || preparedScene != null) return
+    standbyVideo.pause()
+    standbyVideo.currentTime = next.start
+    preparedScene = cue.sceneIndex + 1
+  }
   const audio = new Audio(audioUrl)
   audio.crossOrigin = "anonymous"
   audio.preload = "auto"
@@ -433,26 +504,43 @@ export async function renderMvpPreviewToBlob(
   })
 
   const syncState: MvpVideoAudioSyncState = { lastScene: -1, lastCueKey: "", holdingEnd: false }
+  const subtitleEntranceClock = createSubtitleEntranceClock()
 
   video.currentTime = 0
   audio.currentTime = 0
-  syncMvpPreviewVideoToAudio(
-    video,
-    0,
-    voiceLineCues,
-    segments,
-    videoDur,
-    audioDur,
-    syncState,
-    { forceSeek: true, holdOnEnd: true }
-  )
-  void video.play().catch(() => {})
+  if (linearPicture) {
+    syncLinear(0, true)
+  } else {
+    syncMvpPreviewVideoToAudio(
+      video,
+      0,
+      voiceLineCues,
+      segments,
+      videoDur,
+      audioDur,
+      syncState,
+      { forceSeek: true, holdOnEnd: true }
+    )
+  }
+  await video.play().catch(() => {})
+  const firstFrameDeadline = performance.now() + 3000
+  while (video.readyState < 2 && performance.now() < firstFrameDeadline) {
+    await new Promise((r) => setTimeout(r, 30))
+  }
+  ctx.fillStyle = "#000000"
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  if (useThumbnailIntro && thumbnailImg) {
+    drawThumbnailCover(ctx, thumbnailImg, canvas.width, canvas.height)
+  } else if (video.readyState >= 2) {
+    drawVideoContain(ctx, video, canvas.width, canvas.height)
+  }
 
   recorder.start(100)
   await audio.play()
 
   await new Promise<void>((resolve) => {
     let finished = false
+    let stopTicker = () => {}
     let stopScheduledAt = 0
     const recordStartedAt = performance.now()
 
@@ -464,8 +552,10 @@ export async function renderMvpPreviewToBlob(
     const finish = () => {
       if (finished) return
       finished = true
+      stopTicker()
       if (recorder.state !== "inactive") recorder.stop()
       video.pause()
+      standbyVideo.pause()
       audio.pause()
       renderLayers.cleanup()
       try {
@@ -483,26 +573,33 @@ export async function renderMvpPreviewToBlob(
       const audioT = audio.currentTime
       onProgress?.(Math.min(0.78, (audioT / audioDur) * 0.78))
 
-      syncMvpPreviewVideoToAudio(
-        video,
-        audioT,
-        voiceLineCues,
-        segments,
-        videoDur,
-        audioDur,
-        syncState,
-        { holdOnEnd: true }
-      )
+      if (linearPicture) {
+        syncLinear(audioT)
+      } else {
+        prepareNextScene(audioT)
+        syncMvpPreviewVideoToAudio(
+          video,
+          audioT,
+          voiceLineCues,
+          segments,
+          videoDur,
+          audioDur,
+          syncState,
+          { holdOnEnd: true }
+        )
+      }
 
-      const videoT = resolveMvpPreviewVideoTime(
-        video,
-        audioT,
-        voiceLineCues,
-        segments,
-        videoDur,
-        audioDur,
-        Boolean(audioUrl)
-      )
+      const videoT = linearPicture
+        ? Math.min(videoDur, Math.max(0, audioT))
+        : resolveMvpPreviewVideoTime(
+            video,
+            audioT,
+            voiceLineCues,
+            segments,
+            videoDur,
+            audioDur,
+            Boolean(audioUrl)
+          )
 
       // 효과음은 TTS 큐가 있으면 음성 타임라인 축에 저장됨
       renderLayers.syncLayers(
@@ -522,7 +619,8 @@ export async function renderMvpPreviewToBlob(
           const clipIndex = editPlan.length ? editPlanSegmentIndexAtOutputTime(editPlan, videoT) : 0
           const sourceTransform = getMvpEditPlanClipTransform(videoSourceTransforms, clipIndex)
           const holdZoom = mvpHoldEndZoomScaleAtAudioTime(audioT, voiceLineCues, segments)
-          const sceneFade = mvpSceneBoundaryFadeOpacity(audioT, voiceLineCues)
+          const sceneFade = useAutoTransitions ? 1 : mvpSceneBoundaryFadeOpacity(audioT, voiceLineCues)
+          const fx = autoFx ? mvpAutoFxFrame(audioT, voiceLineCues, autoFx) : MVP_FX_IDENTITY
           const drawTransform = {
             ...sourceTransform,
             scale: sourceTransform.scale * holdZoom,
@@ -532,18 +630,23 @@ export async function renderMvpPreviewToBlob(
           if (isEditPlanBlank(editPlan[clipIndex])) {
             ctx.fillStyle = "#000000"
             ctx.fillRect(0, 0, canvas.width, canvas.height)
-          } else if (Math.abs(holdZoom - 1) < 0.001 && isDefaultMvpVideoSourceTransform(sourceTransform)) {
-            drawVideoContain(ctx, video, canvas.width, canvas.height)
           } else {
-            drawVideoContainWithSourceTransform(
-              ctx,
-              video,
-              canvas.width,
-              canvas.height,
-              drawTransform
-            )
+            withMvpFxCanvasTransform(ctx, fx, canvas.width, canvas.height, () => {
+              if (Math.abs(holdZoom - 1) < 0.001 && isDefaultMvpVideoSourceTransform(sourceTransform)) {
+                drawVideoContain(ctx, video, canvas.width, canvas.height)
+              } else {
+                drawVideoContainWithSourceTransform(ctx, video, canvas.width, canvas.height, drawTransform)
+              }
+            })
           }
           ctx.restore()
+          drawMvpFxFlash(ctx, fx, canvas.width, canvas.height)
+          if (lastVideoFrameCtx && sceneFade >= 1 && fx.flashAlpha <= 0) {
+            lastVideoFrameCtx.drawImage(canvas, 0, 0)
+            hasLastVideoFrame = true
+          }
+        } else if (hasLastVideoFrame) {
+          ctx.drawImage(lastVideoFrame, 0, 0)
         }
 
         const overlayTimeSec = videoT
@@ -585,7 +688,18 @@ export async function renderMvpPreviewToBlob(
           true,
           lineSchedule
         )
-        drawSubtitle(ctx, subText, subtitleStyle, canvas.width, canvas.height, MVP_PREVIEW_STAGE_WIDTH_PX)
+        drawSubtitle(
+          ctx,
+          subText,
+          subtitleStyle,
+          canvas.width,
+          canvas.height,
+          MVP_PREVIEW_STAGE_WIDTH_PX,
+          subtitleEntranceFrame(subtitleStyle.entrance, subtitleEntranceClock(subText, audioT))
+        )
+        if (scriptStyle) {
+          drawMvpVideoTextLayers(ctx, scriptStyle, canvas.width, canvas.height, MVP_PREVIEW_STAGE_WIDTH_PX)
+        }
       }
 
       if (stopScheduledAt > 0 && performance.now() >= stopScheduledAt) {
@@ -612,8 +726,6 @@ export async function renderMvpPreviewToBlob(
       ) {
         scheduleStop()
       }
-
-      requestAnimationFrame(renderFrame)
     }
 
     audio.onended = () => {
@@ -630,6 +742,7 @@ export async function renderMvpPreviewToBlob(
       scheduleStop()
     }
     renderFrame()
+    if (!finished) stopTicker = startRenderTicker(renderFrame, 60)
   })
 
   const recorded = await blobPromise

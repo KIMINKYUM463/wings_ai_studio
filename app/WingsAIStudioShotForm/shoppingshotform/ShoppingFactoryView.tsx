@@ -612,7 +612,7 @@ export function ShoppingFactoryView() {
         if (tryFolder) {
           try {
             const dir = await (
-              window as Window & {
+              window as unknown as Window & {
                 showDirectoryPicker: (opts?: { mode?: "read" | "readwrite" }) => Promise<FileSystemDirectoryHandle>
               }
             ).showDirectoryPicker({ mode: "readwrite" })

@@ -8,6 +8,7 @@ import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
 import { MVP_SUBTITLE_FONT_OPTIONS } from "@/lib/mvp-subtitle-style"
+import { MVP_SUBTITLE_ENTRANCE_OPTIONS } from "@/lib/mvp-subtitle-entrance"
 import type { MvpSubtitleStyle } from "@/lib/mvp-studio-types"
 import { normalizeSubtitleStyle } from "@/lib/mvp-studio-types"
 import { studio } from "../components/ShotFormStudioUI"
@@ -78,6 +79,22 @@ export function MvpSubtitleStylePanel({ value, onChange, className, tone = "dark
               onClick={() => onChange({ fontWeight: w })}
             >
               {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <Label className={labelCls}>등장 효과 (줄이 바뀔 때)</Label>
+        <div className="mt-1.5 grid grid-cols-4 gap-1.5">
+          {MVP_SUBTITLE_ENTRANCE_OPTIONS.map((o) => (
+            <button
+              key={o.id}
+              type="button"
+              className={cn(insp.segment, s.entrance === o.id ? segActive : segIdle)}
+              onClick={() => onChange({ entrance: o.id })}
+            >
+              {o.label}
             </button>
           ))}
         </div>

@@ -3,15 +3,22 @@
 import { useState } from "react"
 import { ArrowRight, Film, Loader2, Play, RefreshCw, Sparkles, ZoomIn } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { renderImageZoomClip } from "@/lib/shotform-image-zoom-clip"
+import { renderImageZoomClip, type ImageZoomClipMotion } from "@/lib/shotform-image-zoom-clip"
 import { generateVideoPromptFromScript, generateVideoWithSeedance } from "./actions"
 import {
   ANIMAL_SCENE_LABELS,
   type AnimalShoppingBrief,
 } from "./animal-studio-types"
-import { productDisplayUrl } from "./animal-studio-utils"
+import {
+  persistAnimalMediaBlob,
+  productDisplayUrl,
+  type AnimalStorageScope,
+} from "./animal-studio-utils"
 
 type VideoClipMode = "ai" | "zoom"
+
+/** 정지 이미지 씬이 연달아 같은 줌인만 반복하지 않도록 씬마다 카메라 움직임을 바꿈 */
+const ZOOM_MOTION_CYCLE: ImageZoomClipMotion[] = ["zoom-in", "pan-right", "zoom-out", "pan-left"]
 
 function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -55,10 +62,12 @@ export function AnimalVideosPanel({
   brief,
   onChange,
   onContinue,
+  storageScope,
 }: {
   brief: AnimalShoppingBrief
   onChange: (brief: AnimalShoppingBrief) => void
   onContinue: () => void
+  storageScope?: AnimalStorageScope
 }) {
   const [isGenerating, setIsGenerating] = useState(false)
   const [progress, setProgress] = useState("")
@@ -112,7 +121,8 @@ export function AnimalVideosPanel({
         prompt,
         durationPerVideo,
         replicateKey || undefined,
-        "seedance-1.5-pro"
+        // seedance-1.5-pro 는 Replicate 에서 서비스 종료(422 Version disabled)
+        "seedance-1-pro-fast"
       )
       results.push({ index: i, videoUrl })
       nextScenes[i] = { ...nextScenes[i], videoUrl }
@@ -150,9 +160,11 @@ export function AnimalVideosPanel({
         imageUrl: brief.imageUrls[i],
         durationSec,
         maxScale: 1.14,
+        motion: scene.type === "detail" ? "zoom-in" : ZOOM_MOTION_CYCLE[i % ZOOM_MOTION_CYCLE.length],
       })
-      // blob: 은 새로고침 후 깨지므로 data URL로 저장 (미리보기·다운로드·저장 호환)
-      const videoUrl = await blobToDataUrl(blob)
+      // blob: 은 새로고침 후 깨지므로 Storage URL로 저장, 업로드가 안 되면 data URL로 폴백
+      const videoUrl =
+        (await persistAnimalMediaBlob(blob, storageScope, "clip")) ?? (await blobToDataUrl(blob))
       results.push({ index: i, videoUrl })
       nextScenes[i] = { ...nextScenes[i], videoUrl }
       onChange({

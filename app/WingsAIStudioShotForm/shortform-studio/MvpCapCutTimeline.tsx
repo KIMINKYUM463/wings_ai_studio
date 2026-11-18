@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react"
-import { Scissors, Square } from "lucide-react"
+import { Magnet, Scissors, Square, Undo2, ZoomIn, ZoomOut } from "lucide-react"
 import type { AutoEditJobResult } from "@/lib/shotform-auto-edit-types"
 import { isEditPlanBlank } from "@/lib/mvp-edit-plan-split"
 import { isMvpInsertClipDragEvent } from "@/lib/mvp-insert-clip-drag"
@@ -81,6 +81,18 @@ type Props = {
   fillHeight?: boolean
   /** 타임라인 가로 줌 초기값 (모바일은 더 작게) */
   initialPxPerSec?: number
+  /** 각 컷의 대표 썸네일 (영상 트랙 필름스트립 표시용) */
+  clipThumbnails?: Record<number, string>
+  /** 나레이션 오디오 URL (소리 트랙 파형 표시용) */
+  audioUrl?: string | null
+  /** 상단 고정 문구 요약 (문구 트랙 표시용) */
+  headcopySummary?: string
+  /** 마지막 CTA 유도 문구 요약 */
+  ctaSummary?: string
+  /** 되돌리기 (Ctrl+Z) */
+  onTimelineUndo?: () => void
+  /** 문구 트랙 클릭 시 상단 글자 추가 탭으로 이동 */
+  onClickCopyTrack?: () => void
 }
 
 type DragState = {
@@ -178,6 +190,11 @@ export function MvpCapCutTimeline({
   insertClipDropEnabled = false,
   fillHeight = false,
   initialPxPerSec = 72,
+  clipThumbnails = {},
+  headcopySummary = "",
+  ctaSummary = "",
+  onTimelineUndo,
+  onClickCopyTrack,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const timelinePanelRef = useRef<HTMLDivElement>(null)
@@ -886,110 +903,145 @@ export function MvpCapCutTimeline({
   const playheadLeft = `calc(${TRACK_LABEL_W * (1 - playheadRatio)}px + ${
     playheadRatio * 100
   }%)`
-  // sticky left — 확대·축소·좌우 스크롤해도 트랙 이름(영상/TTS/…)은 왼쪽에 고정
-  const trackLabelCls = fillHeight
-    ? "sticky left-0 z-30 flex shrink-0 items-center border-r border-slate-200 bg-slate-100 px-2 text-[9px] shadow-[2px_0_6px_rgba(20,35,70,0.021)]"
-    : "sticky left-0 z-30 flex shrink-0 items-center border-r border-white/10 bg-[#f9f9f9] px-2 text-[9px] shadow-[2px_0_6px_rgba(20,35,70,0.122)]"
-  const trackBodyCls = fillHeight
-    ? "relative flex-1 cursor-pointer bg-slate-100"
-    : "relative flex-1 cursor-pointer bg-[#ffffff]"
-  const trackRowBorder = fillHeight ? "border-b border-slate-200" : "border-b border-white/5"
-  const rulerGutterCls = fillHeight
-    ? "sticky left-0 z-30 shrink-0 border-r border-slate-200 bg-slate-100 shadow-[2px_0_6px_rgba(20,35,70,0.021)]"
-    : "sticky left-0 z-30 shrink-0 border-r border-white/10 bg-[#f9f9f9] shadow-[2px_0_6px_rgba(20,35,70,0.122)]"
+
+  const nudgeSelectedCue = (edge: "start" | "end", delta: number) => {
+    if (selectedCueIndex < 0 || !cues[selectedCueIndex]) {
+      onSeek(Math.max(0, Math.min(duration, headSec + delta)))
+      return
+    }
+    const cur = cues[selectedCueIndex]!
+    onSeek(Math.max(0, Math.min(duration, (edge === "start" ? cur.startSec : cur.endSec) + delta)))
+  }
+
+  // sticky left — 확대·축소·좌우 스크롤해도 트랙 이름은 왼쪽에 고정
+  const trackLabelCls =
+    "sticky left-0 z-30 flex shrink-0 items-center justify-center border-r border-slate-200/80 bg-[#f8f9fc] px-1.5 text-[10px] font-semibold text-slate-500"
+  const trackBodyCls = "relative flex-1 cursor-pointer bg-white"
+  const trackRowBorder = "border-b border-slate-100"
+  const rulerGutterCls =
+    "sticky left-0 z-30 shrink-0 border-r border-slate-200/80 bg-[#f8f9fc]"
 
   return (
     <div
       ref={timelinePanelRef}
       className={cn(
-        "rounded-lg border",
-        fillHeight
-          ? "flex h-full min-h-0 flex-col border-slate-200 bg-white"
-          : "border-white/10 bg-[#ffffff]"
+        "rounded-xl border border-slate-200/90 bg-white shadow-[0_-1px_4px_rgba(15,23,42,0.03)]",
+        fillHeight ? "flex h-full min-h-0 flex-col" : ""
       )}
     >
-      <div
-        className={cn(
-          "flex shrink-0 items-center justify-between border-b px-3 py-2",
-          fillHeight ? "border-slate-200" : "border-white/10"
-        )}
-      >
-        <div>
-          <p
-            className={cn(
-              "text-[11px] font-medium",
-              fillHeight ? "text-slate-800" : "text-slate-300"
-            )}
+      {/* 타임라인 상단 툴바 */}
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 bg-white px-3 py-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            disabled={!onTimelineUndo}
+            onClick={() => onTimelineUndo?.()}
+            title="되돌리기 (Ctrl+Z)"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 disabled:opacity-35"
           >
-            타임라인
-          </p>
-          <p className={cn("text-[9px]", fillHeight ? "text-slate-500" : "text-slate-500")}>
-            Ctrl+휠 확대·축소 · Shift+휠 좌우 이동
-            {onSplitSelectedVideoClip ? " · Ctrl+B 자르기" : ""}
-            {onDeleteSelectedVideoClip ? " · Delete 삭제(공백 유지)" : ""}
-            {onReorderEditPlanClip ? " · 드래그로 이동" : ""}
-            {" · Ctrl+Z 되돌리기 · Ctrl+X 완전제거"}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {onDeleteSelectedVideoClip ? (
-            <button
-              type="button"
-              disabled={selectedEditPlanIndex == null}
-              title="선택 컷 삭제 · 자리는 공백으로 유지 (Delete)"
-              onClick={() => onDeleteSelectedVideoClip()}
-              className={cn(
-                "inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[10px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-40",
-                fillHeight
-                  ? "border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100"
-                  : "border-rose-400/40 bg-rose-500/15 text-rose-100 hover:bg-rose-500/25"
-              )}
-            >
-              삭제
-            </button>
-          ) : null}
-          {onBlankSelectedVideoClip && !onDeleteSelectedVideoClip ? (
-            <button
-              type="button"
-              disabled={selectedEditPlanIndex == null}
-              title="선택 컷을 공백으로 (TTS·길이 유지)"
-              onClick={() => onBlankSelectedVideoClip()}
-              className={cn(
-                "inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[10px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-40",
-                fillHeight
-                  ? "border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200"
-                  : "border-white/20 bg-white/10 text-slate-100 hover:bg-white/15"
-              )}
-            >
-              <Square className="h-3 w-3" />
-              공백
-            </button>
-          ) : null}
+            <Undo2 className="h-3.5 w-3.5" />
+          </button>
+
+          <span
+            title="장면 경계 자동 자석 스냅 켜짐"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-[#7c3aed] text-white shadow-sm"
+          >
+            <Magnet className="h-3.5 w-3.5" />
+          </span>
+
           {onSplitSelectedVideoClip ? (
             <button
               type="button"
               disabled={selectedEditPlanIndex == null}
-              title="선택 컷을 빨간바 위치에서 자르기 (Ctrl+B)"
+              title="선택한 영상 컷을 재생바 위치에서 자르기 (Ctrl+B)"
               onClick={() => onSplitSelectedVideoClip()}
-              className={cn(
-                "inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[10px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-40",
-                fillHeight
-                  ? "border-emerald-600/40 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
-                  : "border-emerald-500/40 bg-emerald-500/15 text-emerald-100 hover:bg-emerald-500/25"
-              )}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 transition hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700 disabled:cursor-not-allowed disabled:opacity-35"
             >
-              <Scissors className="h-3 w-3" />
-              자르기
+              <Scissors className="h-3.5 w-3.5" />
             </button>
           ) : null}
-          <span
-            className={cn(
-              "font-mono text-[10px]",
-              fillHeight ? "text-slate-500" : "text-slate-500"
-            )}
+
+          {onDeleteSelectedVideoClip || onBlankSelectedVideoClip ? (
+            <button
+              type="button"
+              disabled={selectedEditPlanIndex == null}
+              title="선택한 컷을 공백으로 비우기 (Delete)"
+              onClick={() => {
+                if (onDeleteSelectedVideoClip) onDeleteSelectedVideoClip()
+                else onBlankSelectedVideoClip?.()
+              }}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-35"
+            >
+              <Square className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
+
+          <div className="mx-1 h-4 w-px bg-slate-200" />
+
+          <button
+            type="button"
+            title="타임라인 축소"
+            onClick={() => setPxPerSec((p) => Math.max(28, Math.round(p * 0.8)))}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50"
           >
-            {formatNarrationClock(headSec)}
-            {atThumbnailIntro ? " · 썸네일" : ""} / {formatNarrationClock(duration)}
+            <ZoomOut className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            title="타임라인 확대"
+            onClick={() => setPxPerSec((p) => Math.min(220, Math.round(p * 1.25)))}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50"
+          >
+            <ZoomIn className="h-3.5 w-3.5" />
+          </button>
+
+          <p className="ml-2 hidden text-[11px] text-slate-500 xl:block">
+            주황 = 상단·CTA 문구, 보라 = 자막·목소리 ·{" "}
+            <strong className="font-semibold text-slate-700">구간 끝을 마우스로 끌면</strong> 늘리거나 줄일 수 있어요.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => nudgeSelectedCue("start", -0.1)}
+            className="hidden h-7 items-center rounded-md border border-slate-200 bg-slate-50 px-2 text-[10px] font-medium text-slate-600 hover:bg-slate-100 sm:inline-flex"
+          >
+            ◀ 시작
+          </button>
+          <button
+            type="button"
+            onClick={() => nudgeSelectedCue("start", 0.1)}
+            className="hidden h-7 items-center rounded-md border border-slate-200 bg-slate-50 px-2 text-[10px] font-medium text-slate-600 hover:bg-slate-100 sm:inline-flex"
+          >
+            시작 ▶
+          </button>
+          <button
+            type="button"
+            onClick={() => nudgeSelectedCue("end", -0.1)}
+            className="hidden h-7 items-center rounded-md border border-slate-200 bg-slate-50 px-2 text-[10px] font-medium text-slate-600 hover:bg-slate-100 md:inline-flex"
+          >
+            ◀ 끝
+          </button>
+          <button
+            type="button"
+            onClick={() => nudgeSelectedCue("end", 0.1)}
+            className="hidden h-7 items-center rounded-md border border-slate-200 bg-slate-50 px-2 text-[10px] font-medium text-slate-600 hover:bg-slate-100 md:inline-flex"
+          >
+            끝 ▶
+          </button>
+          {onDeleteSelectedVideoClip ? (
+            <button
+              type="button"
+              disabled={selectedEditPlanIndex == null}
+              onClick={() => onDeleteSelectedVideoClip()}
+              className="inline-flex h-7 items-center rounded-md border border-slate-200 bg-slate-50 px-2.5 text-[10px] font-semibold text-slate-600 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-40"
+            >
+              빼기
+            </button>
+          ) : null}
+          <span className="ml-1.5 font-mono text-[11px] font-medium tabular-nums text-slate-500">
+            {formatNarrationClock(headSec)} / {formatNarrationClock(duration)}
           </span>
         </div>
       </div>
@@ -997,8 +1049,8 @@ export function MvpCapCutTimeline({
       <div
         ref={scrollRef}
         className={cn(
-          "overflow-x-auto overflow-y-auto overscroll-contain",
-          fillHeight ? "min-h-0 flex-1 bg-slate-50" : "max-h-[300px]"
+          "overflow-x-auto overflow-y-auto overscroll-contain bg-white",
+          fillHeight ? "min-h-0 flex-1" : "max-h-[320px]"
         )}
       >
         <div
@@ -1006,14 +1058,15 @@ export function MvpCapCutTimeline({
           className="relative"
           style={{ width: timelineWidth + TRACK_LABEL_W + 24 }}
         >
+          {/* 세로 재생 헤드 (진한 네이비/보라 바) */}
           <div
-            className="pointer-events-none absolute bottom-0 top-0 z-40 w-[2px] bg-red-500 shadow-[0_0_5px_rgba(239,68,68,0.65)]"
+            className="pointer-events-none absolute bottom-0 top-0 z-40 w-[2px] bg-[#1e1b4b] shadow-[0_0_6px_rgba(109,40,217,0.45)]"
             style={{ left: playheadLeft }}
           >
             <button
               type="button"
               aria-label="재생 위치 이동"
-              className="pointer-events-auto absolute -left-[7px] top-0 h-4 w-4 cursor-ew-resize rounded-b-md bg-red-500 p-0 shadow-md ring-1 ring-red-700/40"
+              className="pointer-events-auto absolute -left-[6px] top-0 h-3.5 w-3.5 cursor-ew-resize rounded-full border-2 border-white bg-[#6d28d9] p-0 shadow-md"
               onPointerDown={(event) => {
                 event.preventDefault()
                 playheadDraggingRef.current = true
@@ -1036,13 +1089,9 @@ export function MvpCapCutTimeline({
               }}
             />
           </div>
-          <div
-            className={cn(
-              "relative flex",
-              fillHeight ? "border-b border-slate-200" : "border-b border-white/10"
-            )}
-            style={{ height: 28 }}
-          >
+
+          {/* 시간 눈금자 */}
+          <div className="relative flex border-b border-slate-200/80 bg-[#fbfcfe]" style={{ height: 26 }}>
             <div className={rulerGutterCls} style={{ width: TRACK_LABEL_W }} aria-hidden />
             <div
               className="relative h-full flex-1 cursor-pointer"
@@ -1052,29 +1101,142 @@ export function MvpCapCutTimeline({
               {rulerMarks.map((t) => (
                 <span
                   key={t}
-                  className={cn(
-                    "absolute top-0 flex h-full -translate-x-1/2 flex-col items-center text-[9px]",
-                    fillHeight ? "text-slate-500" : "text-slate-500"
-                  )}
+                  className="absolute top-0 flex h-full -translate-x-1/2 flex-col items-center text-[9px] font-medium tabular-nums text-slate-400"
                   style={{ left: `${(t / duration) * 100}%` }}
                 >
                   <span className="mt-1">{formatNarrationClock(t)}</span>
-                  <span
-                    className={cn(
-                      "mt-auto h-2 w-px",
-                      fillHeight ? "bg-slate-300" : "bg-white/20"
-                    )}
-                  />
+                  <span className="mt-auto h-1.5 w-px bg-slate-200" />
                 </span>
               ))}
             </div>
           </div>
 
-          <div className={cn("flex", trackRowBorder)} style={{ height: 44 }}>
+          {/* 1. 그래픽 (모자이크 · 오버레이) */}
+          <div className={cn("flex", trackRowBorder)} style={{ height: 32 }}>
+            <div className={trackLabelCls} style={{ width: TRACK_LABEL_W }}>
+              그래픽
+            </div>
             <div
-              className={cn(trackLabelCls, fillHeight ? "text-emerald-700" : "text-emerald-400/90")}
-              style={{ width: TRACK_LABEL_W }}
+              data-mosaic-track
+              className={trackBodyCls}
+              onClick={(e) => {
+                if (draggingMosaicId) return
+                seekFromClientX(e.clientX, e.currentTarget)
+              }}
+              role="presentation"
             >
+              {mosaicClips.length ? (
+                mosaicClips.map((clip, i) => {
+                  const selected = selectedOverlayId === clip.id
+                  const active = activeMosaicIdx === i
+                  const span = Math.max(0.05, clip.endSec - clip.startSec)
+                  return (
+                    <div
+                      key={clip.id}
+                      className={cn(
+                        "absolute top-1 flex h-6 overflow-hidden rounded-md border text-[9px] font-semibold leading-tight",
+                        selected || active
+                          ? "z-10 border-cyan-500 bg-cyan-500 text-white ring-2 ring-cyan-300/50"
+                          : "border-cyan-300 bg-cyan-50 text-cyan-800 hover:bg-cyan-100"
+                      )}
+                      style={{
+                        left: pct(clip.startSec),
+                        width: `max(12px, calc(${pct(span)} - 2px))`,
+                      }}
+                      title={`${clip.label} · ${formatNarrationClock(clip.startSec)}–${formatNarrationClock(clip.endSec)}`}
+                    >
+                      <div
+                        className="z-20 shrink-0 cursor-ew-resize bg-black/10 hover:bg-black/25"
+                        style={{ width: HANDLE_W }}
+                        onPointerDown={(e) => {
+                          const track = (e.currentTarget as HTMLElement).closest("[data-mosaic-track]")
+                          if (track) beginMosaicDrag(e, clip, "start", track as HTMLElement)
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="min-w-0 flex-1 cursor-grab truncate px-1 text-left active:cursor-grabbing"
+                        onPointerDown={(e) => {
+                          const track = (e.currentTarget as HTMLElement).closest("[data-mosaic-track]")
+                          if (track) beginMosaicDrag(e, clip, "move", track as HTMLElement)
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onSelectOverlayId?.(clip.id)
+                          onSeek(clip.startSec)
+                        }}
+                      >
+                        {clip.label}
+                      </button>
+                      <div
+                        className="z-20 shrink-0 cursor-ew-resize bg-black/10 hover:bg-black/25"
+                        style={{ width: HANDLE_W }}
+                        onPointerDown={(e) => {
+                          const track = (e.currentTarget as HTMLElement).closest("[data-mosaic-track]")
+                          if (track) beginMosaicDrag(e, clip, "end", track as HTMLElement)
+                        }}
+                      />
+                    </div>
+                  )
+                })
+              ) : null}
+            </div>
+          </div>
+
+          {/* 2. 자막 (T 보라색 블록) */}
+          <div className={cn("flex", trackRowBorder)} style={{ height: 36 }}>
+            <div className={trackLabelCls} style={{ width: TRACK_LABEL_W }}>
+              자막
+            </div>
+            <div
+              className={trackBodyCls}
+              onClick={(e) => seekFromClientX(e.clientX, e.currentTarget)}
+              role="presentation"
+            >
+              {subtitleBlocks.length ? (
+                subtitleBlocks.map((c, i) => {
+                  const selected = selectedCueIndex === i || (selectedCueIndex < 0 && activeCueIdx === i)
+                  return (
+                    <button
+                      key={c.key}
+                      type="button"
+                      title={c.text}
+                      className={cn(
+                        "absolute top-1.5 flex h-6 items-center gap-1 overflow-hidden rounded-md border px-1.5 text-left text-[10px] font-semibold leading-none transition",
+                        c.draft
+                          ? selected
+                            ? "z-10 border-violet-500 bg-violet-500 text-white"
+                            : "border-violet-200 bg-violet-100 text-violet-800 hover:bg-violet-200"
+                          : selected
+                            ? "z-10 border-[#5b21b6] bg-[#5b21b6] text-white ring-2 ring-violet-300"
+                            : "border-[#6d28d9] bg-[#6d28d9] text-white hover:bg-[#5b21b6]"
+                      )}
+                      style={{
+                        left: pct(c.startSec),
+                        width: `max(14px, calc(${pct(c.endSec - c.startSec)} - 2px))`,
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onSelectCue(i)
+                        onSeek(c.startSec)
+                      }}
+                    >
+                      <span className="shrink-0 font-bold opacity-80">T</span>
+                      <span className="truncate">{c.text.replace(/\s+/g, " ")}</span>
+                    </button>
+                  )
+                })
+              ) : (
+                <span className="absolute inset-0 flex items-center px-2 text-[10px] text-slate-400">
+                  자막 구간 표시
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* 3. 영상 (연속 썸네일 필름스트립 + 원형 번호 배지) */}
+          <div className={cn("flex", trackRowBorder)} style={{ height: 54 }}>
+            <div className={trackLabelCls} style={{ width: TRACK_LABEL_W }}>
               영상
             </div>
             <div
@@ -1098,8 +1260,8 @@ export function MvpCapCutTimeline({
               {thumbnailUrl ? (
                 <button
                   type="button"
-                  title="쇼츠 첫 프레임 썸네일 (0~0.01초)"
-                  className="absolute top-1.5 z-10 h-8 w-1.5 min-w-[6px] rounded-sm border border-amber-500/70 bg-gradient-to-b from-amber-500/80 to-amber-700/60 hover:from-amber-400/90"
+                  title="쇼츠 첫 프레임 썸네일 (0~0.3초)"
+                  className="absolute top-1.5 z-20 h-10 w-2 min-w-[6px] rounded-sm border border-amber-500 bg-amber-400 hover:bg-amber-300"
                   style={{ left: 0 }}
                   onClick={(e) => {
                     e.stopPropagation()
@@ -1117,36 +1279,37 @@ export function MvpCapCutTimeline({
                   videoDragPreview != null &&
                   videoDragPreview.fromIndex !== i &&
                   videoDragPreview.targetIndex === i
+                const thumb = clipThumbnails[i]
+                const clipPxW = Math.max(24, (endSec - startSec) * pxPerSec)
+                const tileCount = Math.max(1, Math.min(12, Math.ceil(clipPxW / 38)))
+
                 return (
                   <button
                     key={`v-${i}`}
                     type="button"
                     title={
                       blank
-                        ? `컷 ${i + 1} · 공백 · 드래그로 이동`
-                        : `컷 ${i + 1} · ${label} · 드래그로 좌우 이동 (TTS 유지)`
+                        ? `장면 ${i + 1} · 공백 · 드래그로 이동`
+                        : `장면 ${i + 1} · ${label} · 드래그로 좌우 이동`
                     }
                     className={cn(
-                      "absolute top-1.5 h-8 overflow-hidden border px-0.5 text-left text-[8px] leading-tight transition",
+                      "absolute top-1.5 h-10 overflow-hidden rounded-md border text-left transition",
                       onReorderEditPlanClip ? "cursor-grab active:cursor-grabbing" : "",
-                      i === 0 ? "rounded-l" : "border-l-white/25",
-                      i === videoTrackClips.length - 1 ? "rounded-r" : "",
                       isDragging && "opacity-35",
-                      insertBefore && "ring-2 ring-amber-300",
+                      insertBefore && "ring-2 ring-amber-400",
                       dropTarget
-                        ? "z-20 border-violet-300 bg-gradient-to-b from-violet-500/90 to-violet-700/80 text-white ring-2 ring-violet-300"
+                        ? "z-20 border-violet-500 bg-violet-100 ring-2 ring-violet-400"
                         : blank
                           ? selected
-                            ? "z-10 border-slate-300 bg-gradient-to-b from-slate-500/80 to-slate-700/70 text-white ring-1 ring-slate-200/40"
-                            : "border-slate-500/50 bg-gradient-to-b from-slate-600/50 to-slate-800/60 text-slate-200 hover:from-slate-500/60"
+                            ? "z-10 border-slate-500 bg-slate-200 ring-2 ring-slate-400/50"
+                            : "border-slate-300 bg-slate-100 hover:bg-slate-200/80"
                           : selected
-                            ? "z-10 border-emerald-300 bg-gradient-to-b from-emerald-500/85 to-emerald-700/70 text-white ring-1 ring-emerald-200/50"
-                            : "border-emerald-600/50 bg-gradient-to-b from-emerald-600/60 to-emerald-800/50 text-emerald-50 hover:from-emerald-500/70"
+                            ? "z-10 border-[#7c3aed] ring-2 ring-[#7c3aed]/45"
+                            : "border-slate-300/90 hover:border-violet-400"
                     )}
                     style={{
                       left: pct(startSec),
-                      // TTS 축에서는 컷 경계가 보이도록 0.5px만 겹침
-                      width: `calc(${pct(Math.max(0.01, endSec - startSec))} - 1px)`,
+                      width: `calc(${pct(Math.max(0.01, endSec - startSec))} - 2px)`,
                     }}
                     onClick={(e) => {
                       e.stopPropagation()
@@ -1161,22 +1324,40 @@ export function MvpCapCutTimeline({
                       beginVideoReorderDrag(e, i, startSec, endSec, track)
                     }}
                   >
+                    {!blank && thumb ? (
+                      <div
+                        className="grid h-full w-full bg-slate-900"
+                        style={{ gridTemplateColumns: `repeat(${tileCount}, minmax(0, 1fr))` }}
+                      >
+                        {Array.from({ length: tileCount }).map((_, ti) => (
+                          <img
+                            key={ti}
+                            src={thumb}
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex h-full w-full items-center bg-slate-100 px-6 text-[10px] font-medium text-slate-500">
+                        <span className="truncate">{label}</span>
+                      </div>
+                    )}
+
                     <span
                       className={cn(
-                        "block truncate px-0.5 pt-0.5 font-semibold text-[7px]",
-                        blank ? "text-slate-200/90" : "text-emerald-100/90"
+                        "absolute left-1 top-1 flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[9px] font-bold text-white shadow",
+                        selected ? "bg-[#6d28d9]" : "bg-slate-900/80"
                       )}
                     >
                       {i + 1}
-                      {blank ? " · 공백" : ""}
                     </span>
-                    <span className="block truncate px-0.5">{label}</span>
                   </button>
                 )
               })}
               {videoDragPreview ? (
                 <div
-                  className="pointer-events-none absolute top-1.5 z-30 h-8 rounded border-2 border-dashed border-amber-300 bg-amber-400/30"
+                  className="pointer-events-none absolute top-1.5 z-30 h-10 rounded-md border-2 border-dashed border-violet-500 bg-violet-400/25"
                   style={{
                     left: pct(videoDragPreview.leftSec),
                     width: pct(Math.max(0.01, videoDragPreview.widthSec)),
@@ -1185,7 +1366,7 @@ export function MvpCapCutTimeline({
               ) : null}
               {insertDropMarkerSec != null && insertDropBlankIndex == null ? (
                 <div
-                  className="pointer-events-none absolute top-0 z-30 h-full w-0.5 bg-violet-400 shadow-[0_0_6px_rgba(167,139,250,0.9)]"
+                  className="pointer-events-none absolute top-0 z-30 h-full w-0.5 bg-violet-500"
                   style={{ left: pct(insertDropMarkerSec) }}
                   title="여기에 삽입"
                 />
@@ -1193,12 +1374,10 @@ export function MvpCapCutTimeline({
             </div>
           </div>
 
-          <div className={cn("flex", trackRowBorder)} style={{ height: 36 }}>
-            <div
-              className={cn(trackLabelCls, fillHeight ? "text-violet-700" : "text-violet-400/90")}
-              style={{ width: TRACK_LABEL_W }}
-            >
-              TTS
+          {/* 4. 소리 (보라색 나레이션 파형) */}
+          <div className={cn("flex", trackRowBorder)} style={{ height: 38 }}>
+            <div className={trackLabelCls} style={{ width: TRACK_LABEL_W }}>
+              소리
             </div>
             <div
               className={trackBodyCls}
@@ -1206,335 +1385,201 @@ export function MvpCapCutTimeline({
               role="presentation"
             >
               {hasAudio && ttsBlocks.length ? (
-                ttsBlocks.map((b, bi) => (
-                  <div
-                    key={b.key}
-                    className={cn(
-                      "absolute top-2 h-5 border border-r-0 border-violet-500/40 bg-gradient-to-r from-violet-700/50 via-violet-600/40 to-violet-700/50",
-                      bi === 0 ? "rounded-l" : "",
-                      bi === ttsBlocks.length - 1 ? "rounded-r border-r" : ""
-                    )}
-                    style={{
-                      left: pct(b.startSec),
-                      width: `calc(${pct(Math.max(0.01, b.endSec - b.startSec))} + 0.5px)`,
-                    }}
-                    title={`TTS · ${formatNarrationClock(b.startSec)}–${formatNarrationClock(b.endSec)}`}
-                  />
-                ))
+                ttsBlocks.map((b, bi) => {
+                  const span = Math.max(0.05, b.endSec - b.startSec)
+                  const barCount = Math.max(6, Math.min(48, Math.round(span * pxPerSec * 0.28)))
+                  return (
+                    <div
+                      key={b.key}
+                      className="absolute inset-y-1 flex items-center justify-between gap-[1.5px] overflow-hidden rounded bg-violet-50/70 px-1"
+                      style={{
+                        left: pct(b.startSec),
+                        width: `calc(${pct(span)} - 2px)`,
+                      }}
+                      title={`목소리 ${bi + 1} · ${formatNarrationClock(b.startSec)}–${formatNarrationClock(b.endSec)}`}
+                    >
+                      {Array.from({ length: barCount }).map((_, k) => {
+                        // 문장 내 자연스러운 발화 엔벨로프 파형
+                        const phase = ((bi + 1) * 13 + k * 7) % 19
+                        const edgeFade =
+                          k === 0 || k === barCount - 1 ? 0.35 : k === 1 || k === barCount - 2 ? 0.65 : 1
+                        const hPct = Math.round((28 + (phase / 18) * 66) * edgeFade)
+                        return (
+                          <span
+                            key={k}
+                            className="w-[2px] shrink-0 rounded-full bg-[#7c3aed]/80"
+                            style={{ height: `${Math.max(18, hPct)}%` }}
+                          />
+                        )
+                      })}
+                    </div>
+                  )
+                })
               ) : hasAudio ? (
                 <div
-                  className="absolute top-2 h-5 rounded border border-violet-500/40 bg-gradient-to-r from-violet-700/50 via-violet-600/40 to-violet-700/50"
+                  className="absolute inset-y-1.5 rounded bg-violet-100"
                   style={{
                     left: "0%",
                     width: pct(Math.min(duration, audioDurationSec || duration)),
                   }}
-                  title={`TTS ${Math.round((audioDurationSec || 0) * 10) / 10}초`}
                 />
               ) : (
-                <span className="absolute inset-0 flex items-center px-2 text-[10px] text-slate-600">
-                  TTS 생성 후 오디오 트랙 표시
+                <span className="absolute inset-0 flex items-center px-2 text-[10px] text-slate-400">
+                  목소리 파형 표시
                 </span>
               )}
             </div>
           </div>
 
-          <div className={cn("flex", trackRowBorder)} style={{ height: 44 }}>
-            <div
-              className={cn(trackLabelCls, "font-semibold", fillHeight ? "text-orange-700" : "text-orange-600")}
-              style={{ width: TRACK_LABEL_W }}
-            >
+          {/* 5. 효과음 · 배경음 */}
+          <div className={cn("flex", trackRowBorder)} style={{ height: 36 }}>
+            <div className={trackLabelCls} style={{ width: TRACK_LABEL_W }}>
               효과음
             </div>
             <div
               data-effect-track
+              data-bgm-track
               className={trackBodyCls}
               onClick={(event) => {
-                if (draggingEffectId) return
+                if (draggingEffectId || draggingClipId) return
                 seekFromClientX(event.clientX, event.currentTarget)
               }}
               role="presentation"
             >
-              {effectTrackClips.length ? (
-                effectTrackClips.map(({ clip, startSec, durationSec: clipDur }) => {
-                  const selected = selectedEffectClipId === clip.id
-                  const endSec = startSec + clipDur
-                  return (
-                    <div
-                      key={clip.id}
-                      className={cn(
-                        "absolute top-1.5 flex h-8 min-w-[10px] overflow-hidden rounded-md border text-left text-[8px]",
-                        selected
-                          ? "z-10 border-orange-500 bg-orange-400 text-orange-950 ring-2 ring-orange-300/50"
-                          : "border-orange-400 bg-orange-200 text-orange-900 hover:bg-orange-300",
-                        draggingEffectId === clip.id && "opacity-95"
-                      )}
-                      style={{
-                        left: pct(startSec),
-                        width: `max(10px, calc(${pct(clipDur)} - 2px))`,
-                      }}
-                      title={`${clip.label} · ${formatNarrationClock(startSec)}–${formatNarrationClock(endSec)} · 드래그로 이동`}
-                    >
-                      <div
-                        className="z-20 w-2 shrink-0 cursor-ew-resize bg-black/15 hover:bg-black/30"
-                        style={{ width: HANDLE_W }}
-                        onPointerDown={(e) => {
-                          const track = (e.currentTarget as HTMLElement).closest("[data-effect-track]")
-                          if (track) {
-                            beginEffectDrag(e, clip.id, startSec, endSec, "start", track as HTMLElement)
-                          }
-                        }}
-                      />
-                      <button
-                        type="button"
-                        className="relative min-w-0 flex-1 cursor-grab overflow-hidden text-left active:cursor-grabbing"
-                        onPointerDown={(e) => {
-                          const track = (e.currentTarget as HTMLElement).closest("[data-effect-track]")
-                          if (track) {
-                            beginEffectDrag(e, clip.id, startSec, endSec, "move", track as HTMLElement)
-                          }
-                        }}
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          onSelectEffectClipId?.(clip.id)
-                          onSeek(startSec)
-                        }}
-                      >
-                        <StorySfxWaveform
-                          audioUrl={clip.src}
-                          sourceOffsetSec={clip.sourceOffsetSec}
-                          durationSec={clip.durationSec}
-                          width={Math.max(20, clipDur * pxPerSec)}
-                          selected={selected}
-                        />
-                        <span className="relative z-10 block truncate px-1 font-semibold">
-                          {clip.label}
-                        </span>
-                      </button>
-                      <div
-                        className="z-20 w-2 shrink-0 cursor-ew-resize bg-black/15 hover:bg-black/30"
-                        style={{ width: HANDLE_W }}
-                        onPointerDown={(e) => {
-                          const track = (e.currentTarget as HTMLElement).closest("[data-effect-track]")
-                          if (track) {
-                            beginEffectDrag(e, clip.id, startSec, endSec, "end", track as HTMLElement)
-                          }
-                        }}
-                      />
-                    </div>
-                  )
-                })
-              ) : (
-                <span className="absolute inset-0 flex items-center px-2 text-[10px] text-slate-600">
-                  오디오 탭에서 스토리 효과음을 추가하거나 AI 자동배치를 실행하세요
-                </span>
-              )}
-            </div>
-          </div>
-
-          <div className={cn("flex", trackRowBorder)} style={{ height: 44 }}>
-            <div
-              className={cn(trackLabelCls, fillHeight ? "text-sky-700" : "text-sky-400/90")}
-              style={{ width: TRACK_LABEL_W }}
-            >
-              배경음
-            </div>
-            <div
-              data-bgm-track
-              className={trackBodyCls}
-              onClick={(e) => {
-                if (draggingClipId) return
-                onSeek(timeFromClientX(e.clientX, e.currentTarget))
-              }}
-              role="presentation"
-            >
-              {bgmClips.length ? (
-                bgmClips.map((clip) => {
-                  const selected = selectedBgmClipId === clip.id
-                  const span = Math.max(0.05, clip.endSec - clip.startSec)
-                  return (
-                    <div
-                      key={clip.id}
-                      className={cn(
-                        "absolute top-2 flex h-7 overflow-hidden rounded border text-[8px] leading-tight",
-                        selected
-                          ? "z-10 border-sky-300 bg-sky-500/70 text-white ring-1 ring-sky-200/40"
-                          : "border-sky-600/40 bg-sky-700/50 text-sky-50 hover:bg-sky-600/60"
-                      )}
-                      style={{
-                        left: pct(clip.startSec),
-                        width: `max(12px, calc(${pct(span)} - 2px))`,
-                      }}
-                      title={`${clip.label} · ${formatNarrationClock(clip.startSec)}–${formatNarrationClock(clip.endSec)}`}
-                    >
-                      <div
-                        className="z-20 w-2 shrink-0 cursor-ew-resize bg-white/25 hover:bg-white/45"
-                        style={{ width: HANDLE_W }}
-                        onPointerDown={(e) => {
-                          const track = (e.currentTarget as HTMLElement).closest("[data-bgm-track]")
-                          if (track) beginDrag(e, clip, "start", track as HTMLElement)
-                        }}
-                      />
-                      <button
-                        type="button"
-                        className="min-w-0 flex-1 cursor-grab truncate px-0.5 text-left active:cursor-grabbing"
-                        onPointerDown={(e) => {
-                          const track = (e.currentTarget as HTMLElement).closest("[data-bgm-track]")
-                          if (track) beginDrag(e, clip, "move", track as HTMLElement)
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          onSelectBgmClipId?.(clip.id)
-                          onSeek(clip.startSec)
-                        }}
-                      >
-                        {clip.label}
-                      </button>
-                      <div
-                        className="z-20 w-2 shrink-0 cursor-ew-resize bg-white/25 hover:bg-white/45"
-                        style={{ width: HANDLE_W }}
-                        onPointerDown={(e) => {
-                          const track = (e.currentTarget as HTMLElement).closest("[data-bgm-track]")
-                          if (track) beginDrag(e, clip, "end", track as HTMLElement)
-                        }}
-                      />
-                    </div>
-                  )
-                })
-              ) : (
-                <span className="absolute inset-0 flex items-center px-2 text-[10px] text-slate-500">
-                  배경음악 없음 (TTS·효과음만 사용)
-                </span>
-              )}
-            </div>
-          </div>
-
-          <div className={cn("flex", trackRowBorder)} style={{ height: 44 }}>
-            <div
-              className={cn(trackLabelCls, "font-semibold", fillHeight ? "text-cyan-700" : "text-cyan-300")}
-              style={{ width: TRACK_LABEL_W }}
-            >
-              모자이크
-            </div>
-            <div
-              data-mosaic-track
-              className={trackBodyCls}
-              onClick={(e) => {
-                if (draggingMosaicId) return
-                seekFromClientX(e.clientX, e.currentTarget)
-              }}
-              role="presentation"
-            >
-              {mosaicClips.length ? (
-                mosaicClips.map((clip, i) => {
-                  const selected = selectedOverlayId === clip.id
-                  const active = activeMosaicIdx === i
-                  const span = Math.max(0.05, clip.endSec - clip.startSec)
-                  return (
-                    <div
-                      key={clip.id}
-                      className={cn(
-                        "absolute top-2 flex h-7 overflow-hidden rounded border text-[8px] leading-tight",
-                        selected || active
-                          ? "z-10 border-cyan-300 bg-cyan-500/75 text-white ring-1 ring-cyan-200/40"
-                          : "border-cyan-600/40 bg-cyan-900/55 text-cyan-50 hover:bg-cyan-700/60"
-                      )}
-                      style={{
-                        left: pct(clip.startSec),
-                        width: `max(12px, calc(${pct(span)} - 2px))`,
-                      }}
-                      title={`${clip.label} · ${formatNarrationClock(clip.startSec)}–${formatNarrationClock(clip.endSec)}`}
-                    >
-                      <div
-                        className="z-20 shrink-0 cursor-ew-resize bg-white/25 hover:bg-white/45"
-                        style={{ width: HANDLE_W }}
-                        onPointerDown={(e) => {
-                          const track = (e.currentTarget as HTMLElement).closest("[data-mosaic-track]")
-                          if (track) beginMosaicDrag(e, clip, "start", track as HTMLElement)
-                        }}
-                      />
-                      <button
-                        type="button"
-                        className="min-w-0 flex-1 cursor-grab truncate px-0.5 text-left active:cursor-grabbing"
-                        onPointerDown={(e) => {
-                          const track = (e.currentTarget as HTMLElement).closest("[data-mosaic-track]")
-                          if (track) beginMosaicDrag(e, clip, "move", track as HTMLElement)
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          onSelectOverlayId?.(clip.id)
-                          onSeek(clip.startSec)
-                        }}
-                      >
-                        {clip.label}
-                      </button>
-                      <div
-                        className="z-20 shrink-0 cursor-ew-resize bg-white/25 hover:bg-white/45"
-                        style={{ width: HANDLE_W }}
-                        onPointerDown={(e) => {
-                          const track = (e.currentTarget as HTMLElement).closest("[data-mosaic-track]")
-                          if (track) beginMosaicDrag(e, clip, "end", track as HTMLElement)
-                        }}
-                      />
-                    </div>
-                  )
-                })
-              ) : (
-                <span className="absolute inset-0 flex items-center px-2 text-[10px] text-slate-600">
-                  AI·수동 모자이크 추가 시 구간 클립 표시 · 핸들로 시간 조절 · Delete 삭제
-                </span>
-              )}
-            </div>
-          </div>
-
-          <div className="flex" style={{ height: 52 }}>
-            <div
-              className={cn(trackLabelCls, fillHeight ? "text-amber-700" : "text-amber-400/90")}
-              style={{ width: TRACK_LABEL_W }}
-            >
-              자막
-            </div>
-            <div
-              className={trackBodyCls}
-              onClick={(e) => seekFromClientX(e.clientX, e.currentTarget)}
-              role="presentation"
-            >
-              {subtitleBlocks.length ? (
-                subtitleBlocks.map((c, i) => {
-                  const selected = selectedCueIndex === i || (selectedCueIndex < 0 && activeCueIdx === i)
-                  return (
+              {bgmClips.map((clip) => {
+                const selected = selectedBgmClipId === clip.id
+                const span = Math.max(0.05, clip.endSec - clip.startSec)
+                return (
+                  <div
+                    key={clip.id}
+                    className={cn(
+                      "absolute bottom-1 flex h-4 overflow-hidden rounded border text-[8px] leading-none",
+                      selected
+                        ? "z-10 border-sky-500 bg-sky-500/85 text-white"
+                        : "border-sky-200 bg-sky-50/90 text-sky-700 hover:bg-sky-100"
+                    )}
+                    style={{
+                      left: pct(clip.startSec),
+                      width: `max(12px, calc(${pct(span)} - 2px))`,
+                    }}
+                    title={`배경음: ${clip.label}`}
+                  >
                     <button
-                      key={c.key}
                       type="button"
-                      title={c.text}
-                      className={cn(
-                        "absolute top-2 h-8 overflow-hidden rounded border px-1 text-left text-[9px] leading-tight transition",
-                        c.draft
-                          ? selected
-                            ? "z-10 border-slate-300/50 bg-slate-600/55 text-slate-100 ring-1 ring-slate-300/30"
-                            : "border-slate-500/35 bg-slate-700/40 text-slate-200 hover:bg-slate-600/50"
-                          : selected
-                            ? "z-10 border-amber-300 bg-amber-500/80 text-white ring-1 ring-amber-200/50"
-                            : "border-amber-600/30 bg-amber-700/45 text-amber-50 hover:bg-amber-600/55"
-                      )}
-                      style={{
-                        left: pct(c.startSec),
-                        width: `max(6px, calc(${pct(c.endSec - c.startSec)} - 2px))`,
+                      className="min-w-0 flex-1 cursor-grab truncate px-1 text-left active:cursor-grabbing"
+                      onPointerDown={(e) => {
+                        const track = (e.currentTarget as HTMLElement).closest("[data-bgm-track]")
+                        if (track) beginDrag(e, clip, "move", track as HTMLElement)
                       }}
                       onClick={(e) => {
                         e.stopPropagation()
-                        onSelectCue(i)
-                        onSeek(c.startSec)
+                        onSelectBgmClipId?.(clip.id)
+                        onSeek(clip.startSec)
                       }}
                     >
-                      <span className="block truncate">{c.text}</span>
+                      ♪ {clip.label}
                     </button>
-                  )
-                })
-              ) : (
-                <span className="absolute inset-0 flex items-center px-2 text-[10px] text-slate-600">
-                  TTS 생성 후 자막 클립이 표시됩니다 · 클릭하여 편집
+                  </div>
+                )
+              })}
+
+              {effectTrackClips.map(({ clip, startSec, durationSec: clipDur }) => {
+                const selected = selectedEffectClipId === clip.id
+                const endSec = startSec + clipDur
+                return (
+                  <div
+                    key={clip.id}
+                    className={cn(
+                      "absolute top-1 flex h-6 min-w-[10px] overflow-hidden rounded-md border text-left text-[8px]",
+                      selected
+                        ? "z-20 border-violet-500 bg-violet-500 text-white ring-1 ring-violet-300"
+                        : "border-violet-300 bg-violet-100 text-violet-900 hover:bg-violet-200",
+                      draggingEffectId === clip.id && "opacity-95"
+                    )}
+                    style={{
+                      left: pct(startSec),
+                      width: `max(12px, calc(${pct(clipDur)} - 2px))`,
+                    }}
+                    title={`${clip.label} · ${formatNarrationClock(startSec)}–${formatNarrationClock(endSec)}`}
+                  >
+                    <button
+                      type="button"
+                      className="relative min-w-0 flex-1 cursor-grab overflow-hidden text-left active:cursor-grabbing"
+                      onPointerDown={(e) => {
+                        const track = (e.currentTarget as HTMLElement).closest("[data-effect-track]")
+                        if (track) {
+                          beginEffectDrag(e, clip.id, startSec, endSec, "move", track as HTMLElement)
+                        }
+                      }}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onSelectEffectClipId?.(clip.id)
+                        onSeek(startSec)
+                      }}
+                    >
+                      <StorySfxWaveform
+                        audioUrl={clip.src}
+                        sourceOffsetSec={clip.sourceOffsetSec}
+                        durationSec={clip.durationSec}
+                        width={Math.max(20, clipDur * pxPerSec)}
+                        selected={selected}
+                      />
+                      <span className="relative z-10 block truncate px-1 font-semibold">
+                        {clip.label}
+                      </span>
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* 6. 문구 (주황색 상단 고정 문구 + 우측 끝 CTA 유도 바) */}
+          <div className="flex" style={{ height: 34 }}>
+            <div className={trackLabelCls} style={{ width: TRACK_LABEL_W }}>
+              문구
+            </div>
+            <div
+              className={trackBodyCls}
+              onClick={() => onClickCopyTrack?.()}
+              role="presentation"
+            >
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onClickCopyTrack?.()
+                }}
+                title="클릭하여 상단 문구 수정"
+                className="absolute top-1.5 flex h-6 items-center gap-1.5 overflow-hidden rounded-l-md bg-[#ea580c] px-2.5 text-left text-[10px] font-bold text-white shadow-sm transition hover:bg-[#c2410c]"
+                style={{
+                  left: "0%",
+                  width: duration > 4 ? pct(Math.max(1, duration - 3.2)) : "78%",
+                }}
+              >
+                <span className="inline-block h-2 w-2 shrink-0 rounded-xs bg-white/90" />
+                <span className="truncate">
+                  상단 · {headcopySummary.trim() || "상단 고정 제목 문구 (클릭해 편집)"}
                 </span>
-              )}
+              </button>
+
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onClickCopyTrack?.()
+                }}
+                title="클릭하여 마무리 CTA 문구 확인"
+                className="absolute top-1.5 flex h-6 items-center gap-1 overflow-hidden rounded-r-md bg-[#b45309] px-2 text-left text-[10px] font-bold text-amber-50 shadow-sm transition hover:bg-[#92400e]"
+                style={{
+                  left: duration > 4 ? pct(Math.max(1, duration - 3.15)) : "78.5%",
+                  width: duration > 4 ? `calc(${pct(Math.min(duration, 3.15))} - 2px)` : "21%",
+                }}
+              >
+                <span className="truncate">
+                  CTA · {ctaSummary.trim() || "댓글·구매 유도"}
+                </span>
+              </button>
             </div>
           </div>
         </div>

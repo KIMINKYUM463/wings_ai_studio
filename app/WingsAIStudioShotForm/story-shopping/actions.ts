@@ -1,5 +1,7 @@
 "use server"
 
+import { persistGeneratedMediaUrl } from "@/lib/shotform-persist-generated-media"
+
 import { fetchNaverTrendingKeywordsForCategory } from "@/lib/shotform-naver-datalab"
 import type { ThumbnailHookingText } from "@/lib/shotform-mvp-thumbnail"
 import {
@@ -309,6 +311,12 @@ function needsHandsInImage(productName: string, productDescription?: string): bo
 
 // 나노바나나를 사용한 이미지 생성 (제품 이미지 참고)
 export async function generateImageWithNanobanana(
+  ...args: Parameters<typeof generateImageWithNanobananaRaw>
+): Promise<string> {
+  return persistGeneratedMediaUrl(await generateImageWithNanobananaRaw(...args), "images")
+}
+
+async function generateImageWithNanobananaRaw(
   sceneScript: string,
   productName: string,
   productImageBase64: string | undefined,
@@ -341,7 +349,7 @@ export async function generateImageWithNanobanana(
         const productActions = await generateProductActionPromptWithAI(
           productName,
           productDescription,
-          sceneIndex !== undefined ? sceneIndex : 0,
+          (sceneIndex !== undefined ? sceneIndex : 0) as 0 | 1 | 2,
           openaiApiKey
         )
         needsHands = productActions.needsHands
@@ -647,7 +655,7 @@ async function generateProductActionPromptWithAI(
   
   if (!GPT_API_KEY) {
     // API 키가 없으면 기본 함수 사용
-    return getProductSpecificActions(productName, productDescription)
+    return { ...getProductSpecificActions(productName, productDescription), needsHands: needsHandsInImage(productName, productDescription) }
   }
 
   try {
@@ -1041,6 +1049,12 @@ function generateBasicVideoPrompt(
 // 이미지를 영상으로 변환 (wan-video/wan-2.2-i2v-fast 모델 사용)
 // sample_shift 파라미터 추가 (TTS 길이에 맞게 설정)
 export async function convertImageToVideoWithWan(
+  ...args: Parameters<typeof convertImageToVideoWithWanRaw>
+): Promise<string> {
+  return persistGeneratedMediaUrl(await convertImageToVideoWithWanRaw(...args), "videos")
+}
+
+async function convertImageToVideoWithWanRaw(
   imageUrl: string,
   prompt: string, // 프롬프트 (필수)
   audioUrl?: string, // 오디오 URL (선택, wan-2.2-i2v-fast는 오디오 불필요)
@@ -2609,6 +2623,12 @@ export async function generateVideoWithSora2(
 
 // bytedance/seedance-1-pro-fast 모델로 영상 생성
 export async function generateVideoWithSeedance(
+  ...args: Parameters<typeof generateVideoWithSeedanceRaw>
+): Promise<string> {
+  return persistGeneratedMediaUrl(await generateVideoWithSeedanceRaw(...args), "videos")
+}
+
+async function generateVideoWithSeedanceRaw(
   imageUrl: string,
   prompt: string, // 프롬프트 (필수)
   duration: number, // 영상 길이 (초 단위)

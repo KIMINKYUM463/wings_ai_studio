@@ -1,0 +1,1550 @@
+/* WINGS Research — light-DOM overlay + AI analysis panel */
+:root {
+  --wings-ink: #0f1c1a;
+  --wings-panel: rgba(255, 255, 255, 0.97);
+  --wings-accent: #14b8a6;
+  --wings-accent-2: #0f766e;
+  --wings-soft: #e8efed;
+}
+
+[data-hd-yt-card] {
+  font-variant-numeric: tabular-nums !important;
+}
+
+/* ===== AI analysis panel ===== */
+.wings-ai-panel {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px;
+  border-radius: 16px;
+  background:
+    radial-gradient(120% 80% at 0% 0%, rgba(20, 184, 166, 0.12), transparent 55%),
+    linear-gradient(165deg, #ffffff 0%, #f4faf8 100%);
+  border: 1px solid rgba(15, 118, 110, 0.18);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 18px 40px -20px rgba(15, 28, 26, 0.45);
+  color: #0f1c1a;
+  pointer-events: none;
+  animation: wingsAiIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  overflow: hidden;
+  position: relative;
+  transition: opacity 0.28s ease, transform 0.28s ease, max-height 0.28s ease;
+}
+
+/* Fold tab + collapsed rail */
+[data-hd-yt-card="shorts"],
+[data-hd-yt-card="watch"] {
+  transition: width 0.28s cubic-bezier(0.22, 1, 0.36, 1), min-width 0.28s ease !important;
+  overflow: visible !important;
+}
+
+.wings-ai-fold-tab {
+  appearance: none;
+  position: absolute;
+  top: 12px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 34px;
+  height: 84px;
+  padding: 8px 6px;
+  border: 1px solid rgba(15, 118, 110, 0.28);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #ffffff, #eef8f5);
+  color: #0f766e;
+  box-shadow: 0 10px 22px -14px rgba(15, 28, 26, 0.45);
+  cursor: pointer;
+  pointer-events: auto !important;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font: 800 11px/1 Pretendard, Apple SD Gothic Neo, system-ui, sans-serif;
+  letter-spacing: 0.12em;
+}
+
+/* Expanded: keep tab outside the panel so channel/metrics text stays readable */
+[data-hd-yt-card]:not(.wings-ai-folded)[data-fold-side="left"] .wings-ai-fold-tab {
+  right: auto;
+  left: -40px;
+}
+
+[data-hd-yt-card]:not(.wings-ai-folded)[data-fold-side="right"] .wings-ai-fold-tab {
+  left: auto;
+  right: -40px;
+}
+
+.wings-ai-fold-tab-chevron::before {
+  content: "〈";
+  display: inline-block;
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+[data-hd-yt-card]:not(.wings-ai-folded)[data-fold-side="left"] .wings-ai-fold-tab-chevron::before {
+  content: "〈";
+}
+
+[data-hd-yt-card]:not(.wings-ai-folded)[data-fold-side="right"] .wings-ai-fold-tab-chevron::before,
+[data-hd-yt-card][data-fold-side="right"] .wings-ai-fold-tab-chevron::before {
+  content: "〉";
+}
+
+[data-hd-yt-card].wings-ai-folded {
+  width: 44px !important;
+  min-width: 44px !important;
+  max-width: 44px !important;
+  overflow: visible !important;
+}
+
+[data-hd-yt-card].wings-ai-folded .wings-ai-panel {
+  opacity: 0;
+  transform: scale(0.96);
+  max-height: 0;
+  padding: 0 !important;
+  margin: 0 !important;
+  border-width: 0 !important;
+  pointer-events: none !important;
+}
+
+[data-hd-yt-card].wings-ai-folded .wings-ai-fold-tab {
+  top: 10px;
+  height: 120px;
+  min-width: 42px;
+  background: linear-gradient(180deg, #14b8a6, #0f766e);
+  color: #ecfdf8;
+  border-color: transparent;
+  box-shadow: 0 14px 28px -14px rgba(15, 118, 110, 0.7);
+}
+
+/* Folded: tab stays on the video-facing edge */
+[data-hd-yt-card].wings-ai-folded[data-fold-side="left"] .wings-ai-fold-tab {
+  left: auto;
+  right: 0;
+}
+
+[data-hd-yt-card].wings-ai-folded[data-fold-side="right"] .wings-ai-fold-tab {
+  right: auto;
+  left: 0;
+}
+
+[data-hd-yt-card].wings-ai-folded[data-fold-side="left"] .wings-ai-fold-tab-chevron::before {
+  content: "〉";
+}
+
+[data-hd-yt-card].wings-ai-folded[data-fold-side="right"] .wings-ai-fold-tab-chevron::before {
+  content: "〈";
+}
+
+[data-hd-yt-card]:not(.wings-ai-folded) .wings-ai-fold-tab {
+  opacity: 0.92;
+}
+
+[data-hd-yt-card]:not(.wings-ai-folded) .wings-ai-fold-tab:hover {
+  filter: brightness(1.03);
+}
+
+.wings-ai-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: linear-gradient(180deg, #14b8a6, #0f766e 55%, #99f6e4);
+  animation: wingsAiScan 2.8s ease-in-out infinite;
+}
+
+@keyframes wingsAiIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
+@keyframes wingsAiScan {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.wings-ai-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.wings-ai-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.08);
+  border: 1px solid rgba(15, 118, 110, 0.18);
+  color: #0f766e;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.wings-ai-badge i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #14b8a6;
+  box-shadow: 0 0 0 0 rgba(20, 184, 166, 0.55);
+  animation: wingsAiDot 1.6s ease-out infinite;
+}
+
+@keyframes wingsAiDot {
+  0% {
+    box-shadow: 0 0 0 0 rgba(20, 184, 166, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgba(20, 184, 166, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(20, 184, 166, 0);
+  }
+}
+
+.wings-ai-grade {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: #0f766e;
+  color: #ecfdf8;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  box-shadow: 0 10px 20px -12px rgba(15, 118, 110, 0.7);
+  animation: wingsAiGrade 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.08s both;
+}
+
+.wings-ai-grade--soft {
+  background: #eef6f4;
+  color: #0f1c1a;
+  box-shadow: none;
+}
+
+@keyframes wingsAiGrade {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.wings-ai-body {
+  display: grid;
+  grid-template-columns: 66px 1fr;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.wings-ai-chart {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 8px 4px 6px;
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(15, 118, 110, 0.06), rgba(15, 118, 110, 0.02)),
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 9px,
+      rgba(15, 118, 110, 0.06) 9px,
+      rgba(15, 118, 110, 0.06) 10px
+    );
+  border: 1px solid rgba(15, 118, 110, 0.12);
+  min-height: 132px;
+  position: relative;
+  overflow: hidden;
+}
+
+.wings-ai-chart-label {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #0f766e;
+  opacity: 0.9;
+}
+
+.wings-ai-chart-sub {
+  font-size: 8px;
+  font-weight: 700;
+  color: #5b6b66;
+  margin-top: -2px;
+  margin-bottom: 2px;
+}
+
+.wings-ai-chart-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+
+.wings-ai-svg {
+  display: block;
+  overflow: visible;
+}
+
+.wings-ai-bar-group {
+  transform-origin: bottom;
+  transform-box: fill-box;
+  animation: wingsAiBar 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.wings-ai-bar {
+  fill: url(#wingsAiBarGrad);
+  opacity: 0.95;
+}
+
+.wings-ai-bar-glow {
+  fill: #ecfdf8;
+  opacity: 0.55;
+  animation: wingsAiBarGlow 1.8s ease-in-out infinite;
+}
+
+.wings-ai-scan {
+  fill: #5eead4;
+  opacity: 0;
+  animation: wingsAiScanLine 2.4s ease-in-out infinite;
+}
+
+.wings-ai-chart-keys {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 1px;
+  width: 58px;
+}
+
+.wings-ai-chart-key {
+  font-size: 7px;
+  font-weight: 800;
+  color: #0f766e;
+  text-align: center;
+  line-height: 1.1;
+  opacity: 0;
+  animation: wingsAiKeyIn 0.4s ease both;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+}
+
+@keyframes wingsAiBar {
+  from {
+    transform: scaleY(0.12);
+    opacity: 0;
+  }
+  to {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+@keyframes wingsAiBarGlow {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@keyframes wingsAiScanLine {
+  0% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.85;
+  }
+  85% {
+    opacity: 0.35;
+  }
+  100% {
+    transform: translateY(78px);
+    opacity: 0;
+  }
+}
+
+@keyframes wingsAiKeyIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 0.9;
+    transform: none;
+  }
+}
+
+.wings-ai-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.wings-ai-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 9px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(15, 28, 26, 0.08);
+  animation: wingsAiRow 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.wings-ai-row:nth-child(1) {
+  animation-delay: 0.05s;
+}
+.wings-ai-row:nth-child(2) {
+  animation-delay: 0.09s;
+}
+.wings-ai-row:nth-child(3) {
+  animation-delay: 0.13s;
+}
+.wings-ai-row:nth-child(4) {
+  animation-delay: 0.17s;
+}
+.wings-ai-row:nth-child(5) {
+  animation-delay: 0.21s;
+}
+.wings-ai-row:nth-child(6) {
+  animation-delay: 0.25s;
+}
+.wings-ai-row:nth-child(7) {
+  animation-delay: 0.29s;
+}
+
+@keyframes wingsAiRow {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.wings-ai-k {
+  color: #5b6b66;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  flex: none;
+}
+
+.wings-ai-v {
+  color: #0f1c1a;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  text-align: right;
+  min-width: 0;
+}
+
+.wings-ai-channel {
+  display: inline-block;
+  max-width: 132px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+/* vidIQ Scorecard-style insight blocks under metrics */
+.wings-ai-insights {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: wingsAiIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: 0.12s;
+}
+
+.wings-ai-insight {
+  padding: 10px 11px;
+  border-radius: 12px;
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, 0.95), rgba(240, 249, 247, 0.92));
+  border: 1px solid rgba(15, 118, 110, 0.14);
+}
+
+.wings-ai-insight--ch {
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, 0.95), rgba(236, 253, 245, 0.9));
+  border-color: rgba(15, 118, 110, 0.2);
+}
+
+.wings-ai-insight-h {
+  margin: 0 0 6px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #0f766e;
+}
+
+.wings-ai-insight ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wings-ai-insight li {
+  position: relative;
+  padding-left: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: #1f2d2a;
+}
+
+.wings-ai-insight li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #14b8a6;
+}
+
+.wings-ai-insight--ch li::before {
+  background: #0f766e;
+}
+
+.wings-ai-tools {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  pointer-events: auto;
+}
+
+.wings-ai-analyze-btn {
+  appearance: none;
+  border: 0;
+  border-radius: 10px;
+  padding: 9px 12px;
+  font: 800 12px/1 Pretendard, Apple SD Gothic Neo, system-ui, sans-serif;
+  color: #042f2e;
+  background: linear-gradient(135deg, #5eead4, #14b8a6 45%, #0f766e);
+  box-shadow: 0 10px 22px -12px rgba(15, 118, 110, 0.7);
+  cursor: pointer;
+  width: 100%;
+  transition: transform 0.15s ease, filter 0.15s ease;
+}
+
+.wings-ai-analyze-btn:hover {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+}
+
+.wings-ai-analyze-btn.is-busy,
+.wings-ai-analyze-btn:disabled {
+  opacity: 0.75;
+  cursor: wait;
+  filter: none;
+  transform: none;
+}
+
+.wings-ai-dl-btn {
+  appearance: none;
+  width: 100%;
+  border-radius: 10px;
+  padding: 9px 12px;
+  border: 1px solid rgba(15, 118, 110, 0.28);
+  background: #ffffff;
+  color: #0f1c1a;
+  font: 800 12px/1 Pretendard, Apple SD Gothic Neo, system-ui, sans-serif;
+  cursor: pointer;
+  box-shadow: 0 6px 14px -12px rgba(15, 28, 26, 0.35);
+}
+
+.wings-ai-dl-btn:hover {
+  border-color: rgba(15, 118, 110, 0.55);
+  background: #f3faf8;
+}
+
+.wings-ai-dl-btn:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+.wings-ai-dl-btn--ghost {
+  background: #f7fbfa;
+}
+
+/* Hide old family FAB so it never covers the player */
+[data-hd-yt-card="shorts"] .hd-yfam,
+.hd-yfam {
+  display: none !important;
+}
+
+/* Keep panel from covering the shorts stage when docked beside it */
+[data-hd-yt-card="shorts"] {
+  max-height: calc(100vh - 96px);
+  overflow: auto;
+}
+
+/* AI result drawer */
+#wings-ai-result-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483646;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(8, 16, 14, 0.42);
+  backdrop-filter: blur(6px);
+  animation: wingsAiIn 0.28s ease both;
+}
+
+.wings-ai-result-card {
+  width: min(520px, 100%);
+  max-height: min(84vh, 820px);
+  overflow: auto;
+  border-radius: 18px;
+  background:
+    radial-gradient(120% 70% at 100% 0%, rgba(20, 184, 166, 0.14), transparent 50%),
+    #ffffff;
+  border: 1px solid rgba(15, 118, 110, 0.18);
+  box-shadow: 0 28px 60px -24px rgba(15, 28, 26, 0.55);
+  color: #0f1c1a;
+}
+
+.wings-ai-result-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 16px 10px;
+  border-bottom: 1px solid rgba(15, 28, 26, 0.08);
+  position: sticky;
+  top: 0;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(8px);
+}
+
+.wings-ai-result-top h2 {
+  margin: 6px 0 0;
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.wings-ai-result-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #0f766e;
+}
+
+.wings-ai-result-badge i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #14b8a6;
+  animation: wingsAiDot 1.6s ease-out infinite;
+}
+
+.wings-ai-result-close {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid rgba(15, 28, 26, 0.1);
+  background: #fff;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.wings-ai-result-body {
+  padding: 14px 16px 18px;
+  display: grid;
+  gap: 12px;
+}
+
+.wings-ai-result-summary {
+  padding: 12px;
+  border-radius: 14px;
+  background: #f3faf8;
+  border: 1px solid rgba(15, 118, 110, 0.12);
+}
+
+.wings-ai-result-summary p {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.wings-ai-score {
+  display: inline-flex;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #0f766e;
+  color: #ecfdf8;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.wings-ai-result-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.wings-ai-result-sec {
+  padding: 10px 11px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid rgba(15, 28, 26, 0.08);
+}
+
+.wings-ai-result-sec h3 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #0f766e;
+}
+
+.wings-ai-result-sec p,
+.wings-ai-result-sec li {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #0f1c1a;
+}
+
+.wings-ai-result-sec ul {
+  margin: 0;
+  padding-left: 16px;
+  display: grid;
+  gap: 4px;
+}
+
+.wings-ai-beats {
+  display: grid;
+  gap: 8px;
+}
+
+.wings-ai-beat {
+  padding: 10px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #f7fbfa, #ffffff);
+  border: 1px solid rgba(15, 118, 110, 0.12);
+}
+
+.wings-ai-beat header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+
+.wings-ai-beat header span {
+  color: #5b6b66;
+  font-weight: 700;
+}
+
+.wings-ai-beat p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.wings-ai-beat small {
+  display: block;
+  margin-top: 4px;
+  color: #5b6b66;
+  font-size: 11px;
+}
+
+@media (max-width: 520px) {
+  .wings-ai-result-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.wings-ai-panel--loading .wings-ai-pulse {
+  font-size: 11px;
+  font-weight: 700;
+  color: #0f766e;
+  animation: wingsAiPulse 1.1s ease-in-out infinite;
+}
+
+@keyframes wingsAiPulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.wings-ai-skel {
+  height: 118px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, #eef6f4 25%, #f8fbfa 40%, #eef6f4 55%);
+  background-size: 200% 100%;
+  animation: wingsAiShimmer 1.2s linear infinite;
+}
+
+@keyframes wingsAiShimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* Legacy chip classes */
+.hd-rv,
+[class*="hd-"][style*="flex-direction:column"] {
+  gap: 6px !important;
+}
+
+.hd-rv-chip,
+.hd-native-chip,
+.hd-feed-chip [style*="border-radius:9999px"],
+span[style*="border-radius:9999px"][style*="rgba(0,0,0"] {
+  border-radius: 10px !important;
+  border: 1px solid rgba(15, 28, 26, 0.1) !important;
+  border-left: 3px solid var(--wings-accent) !important;
+  box-shadow: 0 8px 18px -12px rgba(15, 28, 26, 0.35) !important;
+  font-family: "IBM Plex Sans KR", "Pretendard", "Apple SD Gothic Neo", system-ui, sans-serif !important;
+  font-weight: 650 !important;
+  background: rgba(255, 255, 255, 0.97) !important;
+  color: #0f1c1a !important;
+}
+
+.hd-feed-chip {
+  border-radius: 8px !important;
+  background: #f7faf9 !important;
+  border: 1px solid #cfdad6 !important;
+}
+
+img[src*="hypeduck"],
+img[src*="duck-load"],
+img[src*="expression"] {
+  opacity: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* Channel Quick stats host — keep visible on channel pages */
+wings-yt-dashboard {
+  display: block !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  margin: 8px 0 12px !important;
+  box-sizing: border-box !important;
+  position: relative !important;
+  z-index: 3 !important;
+}
+
+/* Light-DOM Quick channel stats — editorial teal console */
+#wings-channel-qstat.wings-channel-qstat {
+  display: block !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  margin: 14px 0 18px !important;
+  padding: 0 24px !important;
+  position: relative !important;
+  z-index: 6 !important;
+  font-family: "YouTube Sans", "Segoe UI", "Noto Sans KR", sans-serif !important;
+  color: #071512 !important;
+}
+
+#wings-channel-qstat .wings-cq-shell {
+  position: relative !important;
+  isolation: isolate !important;
+  border: 1px solid rgba(8, 60, 54, 0.18) !important;
+  background: linear-gradient(145deg, #0b2f2a 0%, #0f3f38 42%, #123f37 100%) !important;
+  border-radius: 22px !important;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.08) inset,
+    0 18px 40px -24px rgba(4, 30, 26, 0.75) !important;
+  overflow: hidden !important;
+  color: #e8f7f3 !important;
+}
+
+#wings-channel-qstat .wings-cq-glow {
+  position: absolute !important;
+  inset: -20% -10% auto auto !important;
+  width: 280px !important;
+  height: 180px !important;
+  background: radial-gradient(circle, rgba(45, 212, 191, 0.28), transparent 70%) !important;
+  pointer-events: none !important;
+  z-index: 0 !important;
+}
+
+#wings-channel-qstat .wings-cq-toggle,
+#wings-channel-qstat .wings-cq-body {
+  position: relative !important;
+  z-index: 1 !important;
+}
+
+#wings-channel-qstat .wings-cq-toggle {
+  width: 100% !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  padding: 16px 18px 12px !important;
+  border: 0 !important;
+  background: transparent !important;
+  cursor: pointer !important;
+  text-align: left !important;
+  color: inherit !important;
+}
+
+#wings-channel-qstat .wings-cq-brand {
+  flex: 0 0 auto !important;
+  width: 34px !important;
+  height: 34px !important;
+  border-radius: 12px !important;
+  background: linear-gradient(145deg, #5eead4, #0d9488) !important;
+  color: #042f2e !important;
+  font-weight: 900 !important;
+  font-size: 14px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-shadow: 0 10px 18px -10px rgba(45, 212, 191, 0.9) !important;
+}
+
+#wings-channel-qstat .wings-cq-head {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 2px !important;
+}
+
+#wings-channel-qstat .wings-cq-kicker {
+  font-size: 10px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.12em !important;
+  color: #5eead4 !important;
+}
+
+#wings-channel-qstat .wings-cq-title {
+  font-size: 16px !important;
+  font-weight: 800 !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  letter-spacing: -0.02em !important;
+  color: #f3fffb !important;
+}
+
+#wings-channel-qstat .wings-cq-count {
+  flex: 0 0 auto !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  color: #99f6e4 !important;
+  background: rgba(15, 118, 110, 0.35) !important;
+  border: 1px solid rgba(94, 234, 212, 0.25) !important;
+  border-radius: 999px !important;
+  padding: 4px 10px !important;
+}
+
+#wings-channel-qstat .wings-cq-chevron {
+  color: #9cb5af !important;
+  font-size: 12px !important;
+}
+
+#wings-channel-qstat .wings-cq-body {
+  padding: 0 16px 16px !important;
+}
+
+#wings-channel-qstat .wings-cq-hero {
+  display: grid !important;
+  grid-template-columns: 1.5fr 0.9fr !important;
+  gap: 12px !important;
+}
+
+#wings-channel-qstat .wings-cq-hero-main {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 8px !important;
+}
+
+#wings-channel-qstat .wings-cq-stat {
+  background: rgba(255,255,255,0.06) !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  border-radius: 16px !important;
+  padding: 12px !important;
+  min-height: 84px !important;
+}
+
+#wings-channel-qstat .wings-cq-stat--accent {
+  background: linear-gradient(160deg, rgba(45,212,191,0.22), rgba(255,255,255,0.05)) !important;
+  border-color: rgba(94, 234, 212, 0.35) !important;
+}
+
+#wings-channel-qstat .wings-cq-label {
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  color: #9eb8b1 !important;
+  margin-bottom: 8px !important;
+}
+
+#wings-channel-qstat .wings-cq-value {
+  font-size: 26px !important;
+  font-weight: 800 !important;
+  color: #f7fffc !important;
+  letter-spacing: -0.04em !important;
+  line-height: 1 !important;
+}
+
+#wings-channel-qstat .wings-cq-hero-side {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  padding: 10px 12px !important;
+  border-radius: 16px !important;
+  background: rgba(0,0,0,0.18) !important;
+  border: 1px solid rgba(255,255,255,0.06) !important;
+}
+
+#wings-channel-qstat .wings-cq-meters {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+}
+
+#wings-channel-qstat .wings-cq-ring {
+  position: relative !important;
+  width: 88px !important;
+  height: 88px !important;
+  flex: 0 0 auto !important;
+}
+
+#wings-channel-qstat .wings-cq-ring svg {
+  display: block !important;
+}
+
+#wings-channel-qstat .wings-cq-ring-track {
+  fill: none !important;
+  stroke: rgba(255,255,255,0.1) !important;
+  stroke-width: 8 !important;
+}
+
+#wings-channel-qstat .wings-cq-ring-val {
+  fill: none !important;
+  stroke: #5eead4 !important;
+  stroke-width: 8 !important;
+  stroke-linecap: round !important;
+  animation: wings-cq-ring 1.05s cubic-bezier(.22,.9,.28,1) both !important;
+}
+
+#wings-channel-qstat .wings-cq-meter-track span {
+  display: block !important;
+  height: 100% !important;
+  width: var(--w, 0%) !important;
+  border-radius: inherit !important;
+  background: linear-gradient(90deg, #0d9488, #5eead4 55%, #ccfbf1) !important;
+  transform: scaleX(0) !important;
+  transform-origin: left center !important;
+  animation: wings-cq-meter 0.9s cubic-bezier(.22,.9,.28,1) 0.12s forwards !important;
+}
+
+#wings-channel-qstat .wings-cq-ring-center {
+  position: absolute !important;
+  inset: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  pointer-events: none !important;
+}
+
+#wings-channel-qstat .wings-cq-ring-center strong {
+  font-size: 15px !important;
+  font-weight: 800 !important;
+  color: #f7fffc !important;
+  letter-spacing: -0.03em !important;
+}
+
+#wings-channel-qstat .wings-cq-ring-center span {
+  font-size: 9px !important;
+  font-weight: 700 !important;
+  color: #8eaaa3 !important;
+  margin-top: 2px !important;
+}
+
+#wings-channel-qstat .wings-cq-meter-row {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: baseline !important;
+  margin-bottom: 4px !important;
+}
+
+#wings-channel-qstat .wings-cq-meter-track {
+  height: 7px !important;
+  border-radius: 999px !important;
+  background: rgba(255,255,255,0.08) !important;
+  overflow: hidden !important;
+}
+
+#wings-channel-qstat .wings-cq-meter-label {
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  color: #b7cec8 !important;
+}
+
+#wings-channel-qstat .wings-cq-meter-pct {
+  font-size: 10px !important;
+  font-weight: 800 !important;
+  color: #99f6e4 !important;
+}
+
+#wings-channel-qstat .wings-cq-panel {
+  margin-top: 12px !important;
+  padding: 14px !important;
+  border-radius: 16px !important;
+  background: rgba(255,255,255,0.06) !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+}
+
+#wings-channel-qstat .wings-cq-panel-h {
+  display: flex !important;
+  align-items: baseline !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+  margin-bottom: 8px !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  color: #edfaf6 !important;
+}
+
+#wings-channel-qstat .wings-cq-panel-sub {
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  color: #8eaaa3 !important;
+}
+
+#wings-channel-qstat .wings-cq-chart { min-height: 210px !important; }
+
+#wings-channel-qstat .wings-cq-risechart {
+  display: grid !important;
+  grid-template-columns: 118px 1fr !important;
+  gap: 12px !important;
+  align-items: stretch !important;
+}
+
+#wings-channel-qstat .wings-cq-hook {
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  padding: 14px 12px !important;
+  border-radius: 14px !important;
+  background:
+    radial-gradient(120% 90% at 20% 0%, rgba(251, 191, 36, 0.28), transparent 55%),
+    linear-gradient(160deg, rgba(45,212,191,0.18), rgba(0,0,0,0.25)) !important;
+  border: 1px solid rgba(251, 191, 36, 0.35) !important;
+  box-shadow: 0 10px 24px -18px rgba(251, 191, 36, 0.55) !important;
+  animation: wings-cq-hook-pop 0.7s cubic-bezier(.22,.9,.28,1) both !important;
+}
+
+#wings-channel-qstat .wings-cq-hook-k {
+  font-size: 10px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.08em !important;
+  color: #fde68a !important;
+}
+
+#wings-channel-qstat .wings-cq-hook-v {
+  margin-top: 6px !important;
+  font-size: 34px !important;
+  font-weight: 900 !important;
+  letter-spacing: -0.05em !important;
+  line-height: 1 !important;
+  color: #fff7ed !important;
+  text-shadow: 0 0 24px rgba(251, 191, 36, 0.35) !important;
+}
+
+#wings-channel-qstat .wings-cq-hook-s {
+  margin-top: 8px !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  color: #d6d3d1 !important;
+  line-height: 1.35 !important;
+}
+
+#wings-channel-qstat .wings-cq-riseplot {
+  display: grid !important;
+  grid-template-columns: 36px 1fr !important;
+  gap: 6px !important;
+  min-height: 180px !important;
+}
+
+#wings-channel-qstat .wings-cq-ylabels {
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: space-between !important;
+  align-items: flex-end !important;
+  padding: 4px 0 22px !important;
+  font-size: 9px !important;
+  font-weight: 700 !important;
+  color: #8eaaa3 !important;
+}
+
+#wings-channel-qstat .wings-cq-riseframe {
+  position: relative !important;
+  border-radius: 12px !important;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01)),
+    repeating-linear-gradient(
+      to top,
+      transparent 0,
+      transparent calc(25% - 1px),
+      rgba(255,255,255,0.06) calc(25% - 1px),
+      rgba(255,255,255,0.06) 25%
+    ) !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  overflow: hidden !important;
+  padding: 8px 8px 4px !important;
+}
+
+#wings-channel-qstat .wings-cq-medline {
+  position: absolute !important;
+  left: 8px !important;
+  right: 8px !important;
+  height: 0 !important;
+  border-top: 1.5px dashed rgba(251, 191, 36, 0.85) !important;
+  z-index: 2 !important;
+  pointer-events: none !important;
+}
+
+#wings-channel-qstat .wings-cq-medline span {
+  position: absolute !important;
+  right: 0 !important;
+  top: -14px !important;
+  font-size: 9px !important;
+  font-weight: 800 !important;
+  color: #fbbf24 !important;
+  background: rgba(11, 47, 42, 0.85) !important;
+  padding: 1px 5px !important;
+  border-radius: 999px !important;
+}
+
+#wings-channel-qstat .wings-cq-cols {
+  position: relative !important;
+  z-index: 1 !important;
+  display: flex !important;
+  align-items: flex-end !important;
+  gap: 4px !important;
+  height: 170px !important;
+  padding-bottom: 22px !important;
+  box-sizing: border-box !important;
+}
+
+#wings-channel-qstat .wings-cq-col {
+  flex: 1 1 0 !important;
+  min-width: 0 !important;
+  height: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: flex-end !important;
+  align-items: center !important;
+  gap: 4px !important;
+}
+
+#wings-channel-qstat .wings-cq-col-bar {
+  width: 100% !important;
+  height: 148px !important;
+  display: flex !important;
+  align-items: flex-end !important;
+}
+
+#wings-channel-qstat .wings-cq-fill {
+  display: block !important;
+  width: 100% !important;
+  height: 0px;
+  min-height: 0 !important;
+  border-radius: 6px 6px 2px 2px !important;
+  flex: 0 0 auto !important;
+}
+
+#wings-channel-qstat .wings-cq-col.is-low .wings-cq-fill {
+  background: linear-gradient(180deg, rgba(153,246,228,0.85), rgba(153,246,228,0.25)) !important;
+}
+
+#wings-channel-qstat .wings-cq-col.is-mid .wings-cq-fill {
+  background: linear-gradient(180deg, #5eead4, #0f766e) !important;
+  box-shadow: 0 0 16px -6px rgba(45, 212, 191, 0.8) !important;
+}
+
+#wings-channel-qstat .wings-cq-col.is-hot .wings-cq-fill {
+  background: linear-gradient(180deg, #fde68a, #f59e0b 55%, #0f766e) !important;
+  box-shadow: 0 0 18px -4px rgba(251, 191, 36, 0.75) !important;
+}
+
+#wings-channel-qstat .wings-cq-col-lab {
+  font-size: 8px !important;
+  font-weight: 800 !important;
+  color: #9eb8b1 !important;
+  line-height: 1 !important;
+  height: 12px !important;
+  opacity: 0 !important;
+  animation: wings-cq-fade 0.35s ease forwards !important;
+  animation-delay: calc(0.5s + var(--i, 0) * 0.02s) !important;
+  white-space: nowrap !important;
+}
+
+#wings-channel-qstat .wings-cq-col.is-hot .wings-cq-col-lab {
+  color: #fde68a !important;
+}
+
+#wings-channel-qstat .wings-cq-xaxis {
+  grid-column: 1 / -1 !important;
+  display: flex !important;
+  justify-content: space-between !important;
+  padding-left: 118px !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  color: #8eaaa3 !important;
+}
+
+#wings-channel-qstat .wings-cq-chart-empty {
+  height: 180px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  color: #8eaaa3 !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+}
+
+@keyframes wings-cq-hook-pop {
+  from { opacity: 0; transform: translateY(8px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (max-width: 980px) {
+  #wings-channel-qstat .wings-cq-risechart { grid-template-columns: 1fr !important; }
+  #wings-channel-qstat .wings-cq-xaxis { padding-left: 0 !important; }
+}
+
+#wings-channel-qstat .wings-cq-ai {
+  position: relative !important;
+  margin-top: 12px !important;
+  padding: 14px !important;
+  border-radius: 16px !important;
+  background: linear-gradient(135deg, rgba(45,212,191,0.14), rgba(255,255,255,0.04) 42%, rgba(0,0,0,0.12)) !important;
+  border: 1px solid rgba(94, 234, 212, 0.28) !important;
+  overflow: hidden !important;
+}
+
+#wings-channel-qstat .wings-cq-ai-top {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+}
+
+#wings-channel-qstat .wings-cq-ai-copy {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+}
+
+#wings-channel-qstat .wings-cq-steps {
+  display: flex !important;
+  gap: 6px !important;
+  margin-left: auto !important;
+}
+
+#wings-channel-qstat .wings-cq-step {
+  width: 7px !important;
+  height: 7px !important;
+  border-radius: 999px !important;
+  background: rgba(255,255,255,0.14) !important;
+  display: block !important;
+  transition: background 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease !important;
+}
+
+#wings-channel-qstat .wings-cq-step.is-on {
+  background: #5eead4 !important;
+  box-shadow: 0 0 0 3px rgba(94, 234, 212, 0.18) !important;
+  transform: scale(1.15) !important;
+}
+
+#wings-channel-qstat .wings-cq-ai-orb {
+  width: 30px !important;
+  height: 30px !important;
+  border-radius: 999px !important;
+  background: radial-gradient(circle at 30% 30%, #ccfbf1, #0d9488 68%) !important;
+  box-shadow: 0 0 0 0 rgba(45, 212, 191, 0.45) !important;
+}
+
+#wings-channel-qstat .wings-cq-ai.is-scanning .wings-cq-ai-orb {
+  animation: wings-cq-pulse 1.1s ease-in-out infinite !important;
+}
+
+#wings-channel-qstat .wings-cq-ai-label {
+  font-size: 13px !important;
+  font-weight: 800 !important;
+  color: #f3fffb !important;
+}
+
+#wings-channel-qstat .wings-cq-ai-status {
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  color: #5eead4 !important;
+  margin-top: 2px !important;
+}
+
+#wings-channel-qstat .wings-cq-scan {
+  display: none !important;
+  height: 2px !important;
+  margin: 12px 0 8px !important;
+  border-radius: 999px !important;
+  background: linear-gradient(90deg, transparent, #5eead4, transparent) !important;
+  background-size: 35% 100% !important;
+  background-repeat: no-repeat !important;
+}
+
+#wings-channel-qstat .wings-cq-ai.is-scanning .wings-cq-scan {
+  display: block !important;
+  animation: wings-cq-scan 1.15s linear infinite !important;
+}
+
+#wings-channel-qstat .wings-cq-ai-list {
+  list-style: none !important;
+  margin: 10px 0 0 !important;
+  padding: 0 !important;
+  display: grid !important;
+  gap: 8px !important;
+}
+
+#wings-channel-qstat .wings-cq-ai-list li {
+  display: flex !important;
+  align-items: flex-start !important;
+  gap: 10px !important;
+  font-size: 12.5px !important;
+  line-height: 1.45 !important;
+  color: #e7f6f1 !important;
+  padding: 10px 12px !important;
+  border-radius: 12px !important;
+  background: rgba(0,0,0,0.22) !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  opacity: 1 !important;
+}
+
+#wings-channel-qstat .wings-cq-ai.is-scanning .wings-cq-ai-list li {
+  opacity: 0.72 !important;
+}
+
+#wings-channel-qstat .wings-cq-ai.is-ready .wings-cq-ai-list li {
+  opacity: 1 !important;
+  animation: wings-cq-rise 0.4s ease both !important;
+  animation-delay: calc(var(--i, 0) * 0.08s) !important;
+}
+
+#wings-channel-qstat .wings-cq-ai-tag {
+  flex: 0 0 auto !important;
+  font-size: 10px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.04em !important;
+  color: #042f2e !important;
+  background: #5eead4 !important;
+  border-radius: 999px !important;
+  padding: 3px 8px !important;
+  margin-top: 1px !important;
+}
+
+#wings-channel-qstat .wings-cq-ai-text {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  font-weight: 650 !important;
+}
+
+#wings-channel-qstat .wings-cq-note {
+  margin: 12px 2px 0 !important;
+  font-size: 11px !important;
+  color: #8eaaa3 !important;
+}
+
+@keyframes wings-cq-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(45, 212, 191, 0.45); transform: scale(1); }
+  50% { box-shadow: 0 0 0 10px rgba(45, 212, 191, 0); transform: scale(1.05); }
+}
+
+@keyframes wings-cq-scan {
+  0% { background-position: -40% 0; }
+  100% { background-position: 140% 0; }
+}
+
+@keyframes wings-cq-bar {
+  to { transform: scaleY(1); opacity: 1; }
+}
+
+@keyframes wings-cq-draw {
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes wings-cq-fade {
+  to { opacity: 1; }
+}
+
+@keyframes wings-cq-ring {
+  from { stroke-dashoffset: 220; }
+}
+
+@keyframes wings-cq-meter {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@keyframes wings-cq-rise {
+  from { opacity: 0.5; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 980px) {
+  #wings-channel-qstat { padding: 0 12px !important; }
+  #wings-channel-qstat .wings-cq-hero { grid-template-columns: 1fr !important; }
+  #wings-channel-qstat .wings-cq-hero-main { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  #wings-channel-qstat .wings-cq-hero-side { flex-wrap: wrap !important; }
+}
+

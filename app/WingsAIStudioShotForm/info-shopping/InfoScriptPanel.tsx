@@ -113,9 +113,9 @@ export function InfoScriptPanel({
 
   return (
     <section className="space-y-6">
-      <div className="rounded-[28px] border border-white/[0.08] bg-[#fcfaf7]/95 p-6 md:p-8">
-        <p className="text-[10px] font-black tracking-[0.2em] text-sky-400">STEP 02 · CARD SCRIPT</p>
-        <h2 className="mt-2 text-3xl font-black text-white">꿀팁·리뷰 카드 대본</h2>
+      <div className="rounded-[24px] border border-[#e3e6ec] bg-[#ffffff] p-6 shadow-[0_1px_2px_rgba(14,16,22,0.04),0_16px_40px_-24px_rgba(14,16,22,0.18)] md:p-8">
+        <p className="text-[12px] font-black tracking-[0.18em] text-[#1f6fe0]">STEP 02 · CARD SCRIPT</p>
+        <h2 className="mt-2 text-3xl font-black tracking-[-0.035em] text-[#0e1016]">꿀팁·리뷰 카드 대본</h2>
         <p className="mt-2 text-sm text-zinc-400">
           전개: 문제제기 → 공감 → 해결(제품) → 후기 → CTA. 처음부터 제품을 들이밀지 않고, 불편을
           먼저 말한 뒤 해결책으로 이어집니다.
@@ -126,7 +126,7 @@ export function InfoScriptPanel({
             type="button"
             disabled={isGenerating || !brief.selectedProduct}
             onClick={() => void generate()}
-            className="bg-sky-500 font-bold text-white hover:bg-sky-400"
+            className="rounded-full bg-[#0e1016] font-bold text-[#ffffff] hover:bg-[#262a33] disabled:bg-[#9aa0ad]"
           >
             {isGenerating ? (
               <>

@@ -80,19 +80,19 @@ function PromptLangBlock({
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+        <p className="text-[12px] font-semibold text-[#5c6170]">
           {label}
         </p>
         <button
           type="button"
           disabled={!text.trim() || loading}
           onClick={onCopy}
-          className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] text-zinc-400 transition hover:border-white/20 hover:text-zinc-100 disabled:opacity-40"
+          className="inline-flex items-center gap-1 rounded-[8px] border border-[#e3e6ec] bg-[#ffffff] px-2 py-0.5 text-[12px] text-[#5c6170] hover:bg-[#f5f6fa] hover:text-[#0e1016] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f3beb] disabled:opacity-40"
           title={`${label} 복사`}
         >
           {copied ? (
             <>
-              <Check className="h-3 w-3 text-emerald-400" />
+              <Check className="h-3 w-3 text-[#12a26b]" />
               복사됨
             </>
           ) : (
@@ -103,9 +103,9 @@ function PromptLangBlock({
           )}
         </button>
       </div>
-      <div className="max-h-28 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-white/10 bg-black/40 p-2.5 font-mono text-[11px] leading-relaxed text-zinc-300">
+      <div className="max-h-28 overflow-y-auto whitespace-pre-wrap break-words rounded-[10px] border border-[#e3e6ec] bg-[#ffffff] p-2.5 font-mono text-[12px] leading-relaxed text-[#2a2e38]">
         {loading && !text ? (
-          <span className="inline-flex items-center gap-1.5 text-zinc-500">
+          <span className="inline-flex items-center gap-1.5 text-[#9aa0ad]">
             <Loader2 className="h-3 w-3 animate-spin" />
             변환 중…
           </span>
@@ -200,23 +200,24 @@ export function BilingualPromptPanel({
   }
 
   const referenceBlock = refUrl ? (
-    <div className="flex items-center gap-2 rounded-lg border border-sky-500/25 bg-sky-500/10 p-2">
+    <div className="flex items-center gap-2.5 rounded-[12px] border border-[#e3e6ec] bg-[#ffffff] p-2">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={refUrl}
         alt="제품 원본"
-        className="h-12 w-12 shrink-0 rounded-md object-cover border border-white/15 bg-black/40"
+        className="h-12 w-12 shrink-0 rounded-[8px] border border-[#e3e6ec] bg-[#f5f6fa] object-cover"
       />
       <div className="min-w-0 flex-1">
-        <p className="text-[11px] font-semibold text-sky-100">제품 원본 사진</p>
-        <p className="text-[10px] text-sky-200/70">
+        <p className="text-[12px] font-semibold text-[#0e1016]">제품 원본 사진</p>
+        <p className="text-[12px] text-[#9aa0ad]">
           외부 AI에 프롬프트와 같이 넣을 레퍼런스
         </p>
       </div>
       <Button
         type="button"
         size="sm"
-        className="h-8 shrink-0 bg-sky-600 px-2.5 text-[11px] font-semibold text-white hover:bg-sky-500"
+        variant="outline"
+        className="h-8 shrink-0 rounded-[10px] border-[#e3e6ec] bg-[#ffffff] px-2.5 text-[12px] font-semibold text-[#0e1016] hover:bg-[#f5f6fa] hover:text-[#0e1016] focus-visible:ring-2 focus-visible:ring-[#2f3beb]"
         disabled={dlBusy}
         onClick={() => void handleDownloadRef()}
       >
@@ -229,7 +230,7 @@ export function BilingualPromptPanel({
       </Button>
     </div>
   ) : (
-    <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/30 px-2.5 py-2 text-[10px] text-zinc-500">
+    <div className="flex items-center gap-2 rounded-[12px] border border-[#e3e6ec] bg-[#ffffff] px-2.5 py-2 text-[12px] text-[#9aa0ad]">
       <ImageIcon className="h-3.5 w-3.5 shrink-0" />
       제품 원본 사진이 없습니다. 소싱 단계에서 상품 사진을 넣어 주세요.
     </div>
@@ -237,23 +238,23 @@ export function BilingualPromptPanel({
 
   if (!prompt.trim()) {
     return (
-      <div className={`rounded-xl border border-white/10 bg-black/25 p-3 space-y-2 ${className || ""}`}>
-        <p className="text-xs font-semibold text-zinc-300">{title}</p>
+      <div className={`rounded-[14px] border border-[#eceef3] bg-[#f8f9fb] p-3 space-y-2 ${className || ""}`}>
+        <p className="text-[12px] font-semibold text-[#0e1016]">{title}</p>
         {referenceBlock}
-        <p className="text-[11px] text-zinc-600">{emptyText}</p>
+        <p className="text-[12px] text-[#9aa0ad]">{emptyText}</p>
       </div>
     )
   }
 
   return (
-    <div className={`rounded-xl border border-white/10 bg-black/25 p-3 space-y-3 ${className || ""}`}>
+    <div className={`rounded-[14px] border border-[#eceef3] bg-[#f8f9fb] p-3 space-y-3 ${className || ""}`}>
       <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-semibold text-zinc-300">{title}</p>
+        <p className="text-[12px] font-semibold text-[#0e1016]">{title}</p>
         <Button
           type="button"
           variant="ghost"
           size="sm"
-          className="h-7 px-2 text-[11px] text-zinc-400 hover:text-zinc-100"
+          className="h-7 rounded-[8px] px-2 text-[12px] text-[#5c6170] hover:bg-[#f0f1f5] hover:text-[#0e1016] focus-visible:ring-2 focus-visible:ring-[#2f3beb]"
           disabled={loading}
           onClick={() => setReloadKey((n) => n + 1)}
           title="한·영 다시 변환"
@@ -285,7 +286,7 @@ export function BilingualPromptPanel({
       />
 
       {error ? (
-        <p className="text-[10px] leading-snug text-amber-300/90">{error}</p>
+        <p className="text-[12px] leading-snug text-[#8a5a00]">{error}</p>
       ) : null}
     </div>
   )

@@ -13,9 +13,9 @@ type KlipyItem = {
   title?: string
   slug?: string
   file?: {
-    sm?: { gif?: KlipyFile; webp?: KlipyFile }
-    md?: { gif?: KlipyFile; webp?: KlipyFile }
-    hd?: { gif?: KlipyFile; webp?: KlipyFile }
+    sm?: { gif?: KlipyFile; webp?: KlipyFile; jpg?: KlipyFile }
+    md?: { gif?: KlipyFile; webp?: KlipyFile; jpg?: KlipyFile }
+    hd?: { gif?: KlipyFile; webp?: KlipyFile; jpg?: KlipyFile }
   }
   media_formats?: Record<string, { url?: string }>
 }
@@ -30,7 +30,9 @@ function pickUrl(item: KlipyItem): { mediaUrl: string; thumbnailUrl: string } | 
     item.media_formats?.tinygif?.url
   const mediaUrl = (md || hd || sm || legacy || "").trim()
   if (!mediaUrl.startsWith("http")) return null
-  const thumbnailUrl = (sm || md || mediaUrl).trim()
+  // 비전 AI는 움직이는 GIF를 거부하므로 정지 프레임(jpg)을 우선
+  const still = item.file?.sm?.jpg?.url || item.file?.md?.jpg?.url
+  const thumbnailUrl = (still || sm || md || mediaUrl).trim()
   return { mediaUrl, thumbnailUrl }
 }
 

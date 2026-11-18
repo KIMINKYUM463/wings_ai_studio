@@ -9,6 +9,8 @@ import { MAX_AUTO_EDIT_VIDEOS, type AutoEditPick } from "@/lib/shotform-auto-edi
 type Props = {
   picks: AutoEditPick[]
   editComplete?: boolean
+  /** 저장된 영상이 버전2 렌더인지. 아니면 편집기 대신 리믹스를 다시 엽니다. */
+  v2Picture?: boolean
   urlRefreshing?: boolean
   urlRefreshMsg?: string
   onClearPicks: () => void
@@ -31,6 +33,7 @@ function PlatformChip({ label, count }: { label: string; count: number }) {
 export function MvpEditPicksBar({
   picks,
   editComplete,
+  v2Picture = false,
   urlRefreshing,
   urlRefreshMsg,
   onClearPicks,
@@ -51,9 +54,11 @@ export function MvpEditPicksBar({
             <CheckCircle2 className="h-5 w-5 text-emerald-300" />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-white">영상 리믹스 완료</p>
+            <p className="text-sm font-semibold text-white">버전2 리믹스 진행 중</p>
             <p className="mt-0.5 text-[11px] leading-relaxed text-emerald-100/75">
-              영상 편집기를 열어 TTS·자막과 최종 영상을 완성하세요.
+              {v2Picture
+                ? "버전2 완성 MP4가 만들어져 있습니다. 내보내기·썸네일·업로드 문구를 확인하세요."
+                : "버전2 워크스페이스에서 대본·음성·MP4 렌더링까지 한 번에 완성하세요."}
             </p>
           </div>
           {onOpenEditor ? (
@@ -64,7 +69,7 @@ export function MvpEditPicksBar({
               onClick={onOpenEditor}
             >
               <Scissors className="mr-1.5 h-3.5 w-3.5" />
-              영상 편집 계속
+              {v2Picture ? "완성본 · 내보내기 열기" : "버전2 리믹스 계속"}
             </Button>
           ) : null}
         </div>
@@ -101,13 +106,18 @@ export function MvpEditPicksBar({
               <span className="text-slate-500"> · </span>
               <span>AI 리믹스</span>
             </p>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-slate-400">
+              {v2Picture
+                ? "버전2 렌더링 완성본이 준비되었습니다. 바로 재생하거나 MP4·썸네일·업로드 문구를 내려받으세요."
+                : "장면 나누기 · 대본 · 음성부터 자막·배경음·MP4 렌더링까지 버전2에서 한 번에 완성합니다."}
+            </p>
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
               <PlatformChip label="도우인" count={douyinCount} />
               <PlatformChip label="샤오홍슈" count={xhsCount} />
-              {editComplete ? (
+              {v2Picture ? (
                 <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-100">
                   <CheckCircle2 className="h-3 w-3" />
-                  리믹스 완료 · TTS·자막
+                  버전2 완성본 준비됨
                 </span>
               ) : null}
             </div>
@@ -129,7 +139,7 @@ export function MvpEditPicksBar({
               onClick={onOpenEditor}
             >
               <Scissors className="mr-1.5 h-3.5 w-3.5" />
-              영상 편집 계속
+              {v2Picture ? "완성본 · 내보내기" : "버전2 리믹스 계속"}
             </Button>
           ) : null}
           {onRefreshUrls ? (

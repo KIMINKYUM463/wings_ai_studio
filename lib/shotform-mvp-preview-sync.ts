@@ -1,5 +1,6 @@
 import type { NarrationSegment } from "@/lib/shotform-factory-narration-script"
 import { voiceLineCueAtTime, type VoiceLineCue } from "@/lib/shotform-factory-line-tts"
+import { isV2RemixPicture, type AutoEditJobResult } from "@/lib/shotform-auto-edit-types"
 
 /** TTS 큐(오디오 타임라인) → 짜집기 영상 타임라인 구간 — 1배속·앞부분만 사용 */
 export function videoRangeFromVoiceCue(
@@ -30,8 +31,15 @@ export function videoTimeFromAudioCueSync(
   cues: readonly VoiceLineCue[],
   segments: readonly NarrationSegment[],
   fallbackVideoDuration: number,
-  _fallbackAudioDuration: number
+  _fallbackAudioDuration: number,
+  linearPicture = false
 ): number {
+  if (linearPicture) {
+    if (fallbackVideoDuration > 0) {
+      return Math.min(fallbackVideoDuration, Math.max(0, audioTimeSec))
+    }
+    return Math.max(0, audioTimeSec)
+  }
   if (!cues.length || !segments.length) {
     if (fallbackVideoDuration > 0) {
       return Math.min(fallbackVideoDuration, Math.max(0, audioTimeSec))
@@ -41,17 +49,7 @@ export function videoTimeFromAudioCueSync(
 
   const cue = voiceLineCueAtTime(cues, audioTimeSec)
   if (!cue) return 0
-
-  const { startSec: vidStart, endSec: vidEnd } = sceneVideoRange(cue.sceneIndex, segments)
-  const sceneCues = cues.filter((c) => c.sceneIndex === cue.sceneIndex)
-  const audioStart = sceneCues[0]?.startSec ?? cue.startSec
-  const elapsed = Math.max(0, audioTimeSec - audioStart)
-  const videoSpan = Math.max(0.05, vidEnd - vidStart)
-  const audioSpan = sceneAudioDurationSec(cue.sceneIndex, cues)
-  if (audioSpan > videoSpan + 0.08) {
-    return vidStart + (elapsed % videoSpan)
-  }
-  return Math.min(vidEnd, vidStart + elapsed)
+  return expectedVideoTimeInScene(audioTimeSec, cue.sceneIndex, segments, cues)
 }
 
 /** 영상 시각 → 오디오 시각 (슬라이더 역변환, 1배속 1:1) */
@@ -60,8 +58,15 @@ export function audioTimeFromVideoSync(
   cues: readonly VoiceLineCue[],
   segments: readonly NarrationSegment[],
   fallbackVideoDuration: number,
-  fallbackAudioDuration: number
+  fallbackAudioDuration: number,
+  linearPicture = false
 ): number {
+  if (linearPicture) {
+    if (fallbackAudioDuration > 0) {
+      return Math.min(fallbackAudioDuration, Math.max(0, videoTimeSec))
+    }
+    return Math.max(0, videoTimeSec)
+  }
   if (!cues.length || !segments.length) {
     if (fallbackVideoDuration > 0 && fallbackAudioDuration > 0) {
       return Math.min(fallbackAudioDuration, Math.max(0, videoTimeSec))
@@ -77,7 +82,8 @@ export function audioTimeFromVideoSync(
     const audioStart = sceneCues[0]!.startSec
     const audioEnd = sceneCues[sceneCues.length - 1]!.endSec
     const elapsed = Math.max(0, videoTimeSec - vidStart)
-    return Math.min(audioEnd, audioStart + elapsed)
+    const rate = sceneVideoPlaybackRate(sceneIndex, segments, cues)
+    return Math.min(audioEnd, audioStart + elapsed / rate)
   }
 
   const lastSeg = segments[segments.length - 1]
@@ -111,20 +117,56 @@ export function sceneAudioDurationSec(
   )
 }
 
+/** TTS가 컷보다 길면 이 배속까지 느리게 늘림. 그래도 모자라면 끝 프레임을 붙잡지 않고 컷 영상을 다시 재생 */
+export const MVP_SCENE_MIN_STRETCH_RATE = 0.6
+
 /**
- * 영상 배속 — 항상 1.
- * 장면 맞춤: TTS 배속으로 음성 길이를 컷에 맞추고, 음성이 짧으면 컷 앞부분만 재생(나머지 자름).
- * TTS가 길면 컷 영상을 반복 재생해 음성 길이에 맞춤.
+ * 장면 영상 배속 — 음성은 그대로, 영상이 음성 길이에 맞춘다.
+ * - TTS ≤ 컷: 1배속 (구간은 applyAudioFitEnds가 컷 가운데로 잘라 둠)
+ * - TTS > 컷: 컷 ÷ TTS 배속으로 느리게 (최저 0.6x), 남는 시간은 같은 컷 영상을 처음부터 다시 재생
  */
-export function previewPlaybackRateForCue(
-  _cue: VoiceLineCue,
-  _segments: readonly NarrationSegment[],
-  _cues: readonly VoiceLineCue[]
+export function sceneVideoPlaybackRate(
+  sceneIndex: number,
+  segments: readonly NarrationSegment[],
+  cues: readonly VoiceLineCue[]
 ): number {
-  return 1
+  const { startSec, endSec } = sceneVideoRange(sceneIndex, segments)
+  const videoSpan = Math.max(0.05, endSec - startSec)
+  const audioSpan = sceneAudioDurationSec(sceneIndex, cues)
+  if (audioSpan <= videoSpan + 0.08) return 1
+  return Math.max(MVP_SCENE_MIN_STRETCH_RATE, videoSpan / audioSpan)
 }
 
-/** 장면 TTS 경과 → 영상 시각 (1배속). TTS가 더 길면 컷 안에서 루프 */
+/** 컷 끝 프레임에서 멈추는 시간(초) */
+function sceneHoldSec(sceneIndex: number, segments: readonly NarrationSegment[], cues: readonly VoiceLineCue[]): number {
+  const { startSec, endSec } = sceneVideoRange(sceneIndex, segments)
+  const rate = sceneVideoPlaybackRate(sceneIndex, segments, cues)
+  return Math.max(0, sceneAudioDurationSec(sceneIndex, cues) - (endSec - startSec) / rate)
+}
+
+/** 컷 목록 배지용 — 늘림 배속이면 "0.8x", 끝 프레임 정지가 생기면 "+1.2s 정지", 1배속이면 null */
+export function sceneVideoFitBadge(
+  sceneIndex: number,
+  segments: readonly NarrationSegment[],
+  cues: readonly VoiceLineCue[] | null | undefined
+): { label: string; looped: boolean } | null {
+  if (!cues?.length || !segments[sceneIndex]) return null
+  const hold = sceneHoldSec(sceneIndex, segments, cues)
+  if (hold > 0.15) return { label: "영상 반복", looped: true }
+  const rate = sceneVideoPlaybackRate(sceneIndex, segments, cues)
+  if (rate < 1) return { label: `${rate.toFixed(2)}x`, looped: false }
+  return null
+}
+
+export function previewPlaybackRateForCue(
+  cue: VoiceLineCue,
+  segments: readonly NarrationSegment[],
+  cues: readonly VoiceLineCue[]
+): number {
+  return sceneVideoPlaybackRate(cue.sceneIndex, segments, cues)
+}
+
+/** 장면 TTS 경과 → 영상 시각. 늘림 배속을 반영하고, 컷 끝을 넘지 않음(넘는 시간은 정지) */
 function expectedVideoTimeInScene(
   audioT: number,
   sceneIndex: number,
@@ -134,21 +176,15 @@ function expectedVideoTimeInScene(
   const { startSec: vidStart, endSec: vidEnd } = sceneVideoRange(sceneIndex, segments)
   const sceneCues = cues.filter((c) => c.sceneIndex === sceneIndex)
   if (!sceneCues.length) return vidStart
-  const audioStart = sceneCues[0]!.startSec
-  const elapsed = Math.max(0, audioT - audioStart)
-  const videoSpan = Math.max(0.05, vidEnd - vidStart)
-  const audioSpan = sceneAudioDurationSec(sceneIndex, cues)
-  if (audioSpan > videoSpan + 0.08) {
-    const looped = elapsed % videoSpan
-    return vidStart + looped
-  }
-  return Math.min(vidEnd, vidStart + elapsed)
+  const elapsed = Math.max(0, audioT - sceneCues[0]!.startSec)
+  const rate = sceneVideoPlaybackRate(sceneIndex, segments, cues)
+  return Math.min(vidEnd, vidStart + elapsed * rate)
 }
 
 export type MvpVideoAudioSyncState = {
   lastScene: number
   lastCueKey: string
-  /** @deprecated TTS 길면 루프 — 홀드 미사용 */
+  /** 음성이 컷보다 길어 끝 프레임에서 정지 중 */
   holdingEnd?: boolean
 }
 
@@ -253,9 +289,8 @@ export function mvpSceneBoundaryFadeOpacity(
 
 /**
  * TTS ↔ 영상 동기화
- * - 영상은 항상 1배속
- * - TTS가 컷보다 짧음 → 컷 앞부분을 TTS 길이만큼만 재생(뒤 자름), 배속 없음
- * - TTS가 컷보다 김 → 끝 프레임 유지(홀드). 말은 끝까지 재생한 뒤 다음 컷으로 전환
+ * - TTS가 컷보다 짧음 → 컷 가운데를 TTS 길이만큼 1배속 재생 (구간은 applyAudioFitEnds가 정함)
+ * - TTS가 컷보다 김 → `sceneVideoPlaybackRate`로 느리게 늘려 재생, 그래도 모자라면 그 컷 영상을 다시 재생
  */
 export function syncMvpPreviewVideoToAudio(
   video: HTMLVideoElement,
@@ -284,17 +319,16 @@ export function syncMvpPreviewVideoToAudio(
   if (!cue) return
 
   const { startSec: vidStart, endSec: vidEnd } = sceneVideoRange(cue.sceneIndex, segments)
-  if (Math.abs(video.playbackRate - 1) > 0.02) {
-    video.playbackRate = 1
+  const rate = sceneVideoPlaybackRate(cue.sceneIndex, segments, cues)
+  if (Math.abs(video.playbackRate - rate) > 0.02) {
+    video.playbackRate = rate
   }
 
   const cueKey = `${cue.sceneIndex}:${cue.startSec.toFixed(3)}`
   const sceneChanged = cue.sceneIndex !== state.lastScene
   const expected = expectedVideoTimeInScene(audioT, cue.sceneIndex, segments, cues)
-  const audioSpan = sceneAudioDurationSec(cue.sceneIndex, cues)
-  const videoSpan = Math.max(0.05, vidEnd - vidStart)
-  const ttsLongerThanVideo = audioSpan > videoSpan + 0.08
-  const clampedExpected = Math.min(vidEnd - 0.02, Math.max(vidStart, expected))
+  const holdAt = Math.max(vidStart, vidEnd - 0.04)
+  const clampedExpected = Math.min(holdAt, Math.max(vidStart, expected))
 
   const ensurePlaying = () => {
     if (!allowAutoPlay) {
@@ -330,18 +364,16 @@ export function syncMvpPreviewVideoToAudio(
   state.holdingEnd = false
 
   const audioStillGoing = audioDur <= 0 || audioT < audioDur - 0.05
-  const atSceneEnd = video.ended || video.currentTime >= vidEnd - 0.04
 
-  // TTS가 더 김: 컷 영상을 처음부터 다시 재생(루프)
-  if (ttsLongerThanVideo && audioStillGoing) {
-    if (atSceneEnd || video.ended) {
-      video.currentTime = vidStart
-      ensurePlaying()
-      return
-    }
-    // 루프 위치와 크게 어긋나면 보정
-    if (Math.abs(video.currentTime - clampedExpected) > 0.35) {
-      video.currentTime = clampedExpected
+  // 음성이 컷보다 김: 끝 프레임을 캡처처럼 붙잡지 않고, 그 컷 영상을 다시 재생
+  if (expected >= holdAt && audioStillGoing) {
+    const span = Math.max(0.2, vidEnd - vidStart)
+    const sceneCues = cues.filter((item) => item.sceneIndex === cue.sceneIndex)
+    const elapsed = Math.max(0, audioT - (sceneCues[0]?.startSec ?? audioT))
+    const looped = vidStart + ((elapsed * rate) % span)
+    state.holdingEnd = false
+    if (!video.seeking && Math.abs(video.currentTime - looped) > 0.3) {
+      video.currentTime = looped
     }
     ensurePlaying()
     return
@@ -349,7 +381,10 @@ export function syncMvpPreviewVideoToAudio(
 
   if (video.ended || video.paused) {
     if (audioStillGoing) {
-      video.currentTime = clampedExpected
+      // play() 대기 중에도 paused=true — 매 틱 다시 seek하면 디코딩이 계속 리셋돼 화면이 멈춤
+      if (video.ended || (!video.seeking && Math.abs(video.currentTime - clampedExpected) > 0.25)) {
+        video.currentTime = clampedExpected
+      }
       ensurePlaying()
     }
     return
@@ -441,4 +476,24 @@ export function previewTimelineEndSec(
   }
 
   return Math.max(0.5, previewDurationSec(vid, audioDuration, audioDuration > 0))
+}
+
+/**
+ * 버전2 리믹스 그림은 문장 길이에 맞춰 이미 이어져 있다.
+ * 플래그가 저장에서 빠져도, 컷 길이와 음성 길이가 거의 같으면 예전 컷 정지·반복을 쓰지 않는다.
+ */
+export function remixPicturePlaysStraight(
+  result: Pick<AutoEditJobResult, "v2Picture" | "editPlan"> | null | undefined,
+  segments: readonly { start: number; end: number }[],
+  cues: readonly { startSec: number; endSec: number }[] | null | undefined
+): boolean {
+  if (isV2RemixPicture(result)) return true
+  if (!cues?.length || cues.length !== segments.length) return false
+  let close = 0
+  for (let i = 0; i < segments.length; i++) {
+    const video = segments[i]!.end - segments[i]!.start
+    const audio = cues[i]!.endSec - cues[i]!.startSec
+    if (video > 0.4 && Math.abs(video - audio) < 0.35) close += 1
+  }
+  return close >= Math.max(1, Math.ceil(segments.length * 0.75))
 }

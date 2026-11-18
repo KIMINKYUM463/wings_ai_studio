@@ -8,7 +8,13 @@ import type {
   VideoScene,
   SceneVisualType,
 } from "@/lib/shotform-auto-edit-types"
-import { filterScenesForEdit, isProductSafeScene, pickIntervalIsProductSafe, sceneHasUnsafeVision } from "@/lib/shotform-auto-edit-product-filter"
+import {
+  filterScenesForEdit,
+  isProductSafeScene,
+  pickIntervalIsProductSafe,
+  preferNonPresenterAnalyses,
+  sceneHasUnsafeVision,
+} from "@/lib/shotform-auto-edit-product-filter"
 import { compareScenesByEditorialPriority, sceneEditorialScore } from "@/lib/shotform-scene-priority"
 
 const ROUND = (n: number) => Math.round(n * 100) / 100
@@ -23,8 +29,8 @@ export const EDIT_SEGMENT_TTS_PAD_SEC = 0.5
 export const IDEAL_NARRATION_SEGMENT_SEC = 5
 /** 실제 영상 컷 이상 길이 */
 export const IDEAL_EDIT_SEGMENT_SEC = 5.5
-/** 컷당 최대 영상 길이 */
-export const MAX_EDIT_SEGMENT_SEC = 12
+/** 컷당 최대 영상 길이 — 쇼츠는 7초를 넘는 한 컷이 지루하게 느껴진다 */
+export const MAX_EDIT_SEGMENT_SEC = 7
 /** 컷당 최소 영상 길이 — 초단컷(1.5초)에 긴 문장 넣는 문제 방지 */
 export const MIN_EDIT_SEGMENT_SEC = 3
 
@@ -80,18 +86,21 @@ function findFreshSourceStart(
 ): number | null {
   const maxStart = Math.max(0, analysis.duration - clipLen - 0.05)
   if (maxStart < 0.1) return null
+  const usable = (t: number) =>
+    !sourceRangeUsedByPlan(analysis.video_id, edit_plan, t, t + clipLen) &&
+    pickIntervalIsProductSafe(analysis, t, t + clipLen)
 
   for (let attempt = 0; attempt < 32; attempt++) {
     const t = ROUND((round * 2.3 + attempt * 1.41 + analysis.duration * 0.07) % Math.max(0.25, maxStart))
-    if (!sourceRangeUsedByPlan(analysis.video_id, edit_plan, t, t + clipLen)) return t
+    if (usable(t)) return t
   }
 
   for (let attempt = 0; attempt < 16; attempt++) {
     const t = ROUND((attempt * 0.9) % Math.max(0.25, maxStart))
-    if (!sourceRangeUsedByPlan(analysis.video_id, edit_plan, t, t + clipLen)) return t
+    if (usable(t)) return t
   }
 
-  return ROUND((round * 3.1) % Math.max(0.25, maxStart))
+  return null
 }
 
 function appendFillClipsToPlan(
@@ -102,11 +111,12 @@ function appendFillClipsToPlan(
   const out = [...edit_plan]
   let outCursor = out.length ? out[out.length - 1]!.output_end : 0
   let round = 0
+  const sources = preferNonPresenterAnalyses(analyses, target)
 
   while (outCursor < target - 0.08 && round < 120) {
     round++
     let added = false
-    for (const a of analyses) {
+    for (const a of sources) {
       if (outCursor >= target - 0.08) break
       const need = target - outCursor
       const clipLen = Math.min(
@@ -411,7 +421,7 @@ export function buildSceneBasedEditPlan(
 }
 
 /** finalizeEditPlan 정규화 실패 시 — buildSceneBasedEditPlan 재호출 금지 (스택 오버플로 방지) */
-function minimalEditPlanFallback(analyses: VideoAnalysis[], target: number): EditPlan {
+function minimalEditPlanFallback(analyses: VideoAnalysis[], target: AutoEditTargetDuration): EditPlan {
   const a = analyses.find((x) => x.duration > 0.3) ?? analyses[0]
   if (!a) return { target_duration: target, edit_plan: [] }
 
@@ -556,34 +566,50 @@ export function forceFillEditPlanToTarget(
   return stretchEditPlanLastSegment({ target_duration: target, edit_plan }, analyses)
 }
 
+/** 이 길이 미만으로 남는 마지막 컷은 버림 (나레이션 한 구도 못 넣음) */
+const MIN_TAIL_SEGMENT_SEC = 2
+
+/**
+ * 소스 길이를 넘는 구간을 자르고, 목표 길이를 넘는 컷은 통째로 버린 뒤 출력 시각을 다시 매김.
+ * 최소 3초로 늘린 초단 pick이 많으면 합계가 목표의 2배가 될 수 있음 — 마지막 컷만 줄이면 안 됨.
+ */
+function fitEditPlanToTarget(
+  segments: EditPlanSegment[],
+  target: number,
+  analyses: VideoAnalysis[]
+): EditPlanSegment[] {
+  const durationById = new Map(analyses.map((a) => [a.video_id, a.duration]))
+  const out: EditPlanSegment[] = []
+  let cursor = 0
+  for (const seg of segments) {
+    const remaining = target - cursor
+    if (remaining < MIN_TAIL_SEGMENT_SEC - 0.01) break
+    const srcDur = durationById.get(seg.video_id)
+    const srcEnd = srcDur != null ? Math.min(seg.source_end, srcDur) : seg.source_end
+    const dur = Math.min(srcEnd - seg.source_start, remaining)
+    if (dur < MIN_TAIL_SEGMENT_SEC - 0.01) continue
+    out.push({
+      ...seg,
+      source_end: ROUND(seg.source_start + dur),
+      output_start: ROUND(cursor),
+      output_end: ROUND(cursor + dur),
+    })
+    cursor += dur
+  }
+  return out
+}
+
 function stretchEditPlanLastSegment(plan: EditPlan, analyses: VideoAnalysis[]): EditPlan {
   const target = plan.target_duration
-  let edit_plan = capSegmentsToMaxLength(plan.edit_plan)
-  let out = editPlanTotalOutputSeconds({ target_duration: target, edit_plan })
+  let edit_plan = fitEditPlanToTarget(capSegmentsToMaxLength(plan.edit_plan), target, analyses)
 
-  if (out > target + 0.05 && edit_plan.length) {
-    const last = edit_plan[edit_plan.length - 1]!
-    const trim = out - target
-    const newDur = Math.max(MIN_EDIT_SEGMENT_SEC, segmentOutputDur(last) - trim)
-    last.output_end = ROUND(last.output_start + newDur)
-    last.source_end = ROUND(last.source_start + newDur)
-    return { target_duration: target, edit_plan }
-  }
-
-  if (out < target - 0.08) {
+  if (editPlanTotalOutputSeconds({ target_duration: target, edit_plan }) < target - 0.08) {
     edit_plan = appendFillClipsToPlan(edit_plan, analyses, target)
-    edit_plan = capSegmentsToMaxLength(
-      finalizeEditPlan({ target_duration: target, edit_plan }, analyses).edit_plan
+    edit_plan = fitEditPlanToTarget(
+      capSegmentsToMaxLength(finalizeEditPlan({ target_duration: target, edit_plan }, analyses).edit_plan),
+      target,
+      analyses
     )
-    out = editPlanTotalOutputSeconds({ target_duration: target, edit_plan })
-
-    if (out > target + 0.05 && edit_plan.length) {
-      const last = edit_plan[edit_plan.length - 1]!
-      const trim = out - target
-      const newDur = Math.max(MIN_EDIT_SEGMENT_SEC, segmentOutputDur(last) - trim)
-      last.output_end = ROUND(last.output_start + newDur)
-      last.source_end = ROUND(last.source_start + newDur)
-    }
   }
 
   return { target_duration: target, edit_plan }

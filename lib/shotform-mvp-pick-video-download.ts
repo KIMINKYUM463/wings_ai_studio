@@ -3,6 +3,7 @@
 import type { AutoEditPick } from "@/lib/shotform-auto-edit-types"
 import { fetchGoogleVideoBlobInBrowser } from "@/lib/shotform-youtube-browser-resolve"
 import { isAllowedVideoHost } from "@/lib/video-upstream-fetch"
+import { shotformTikhubKey } from "@/lib/shotform-tikhub-key-client"
 
 function shotformApifyToken(): string | null {
   if (typeof window === "undefined") return null
@@ -232,6 +233,7 @@ async function resolveDownloadUrl(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       apifyApiKey: apifyApiKey || undefined,
+      tikhubApiKey: shotformTikhubKey(),
       items: [
         {
           url: pick.noteUrl,

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { guardStoryApiRequest } from "@/lib/story-shopping-security"
 
 export const runtime = "nodejs"
 
@@ -12,6 +13,11 @@ type AnalyzeProductBody = {
 
 export async function POST(request: NextRequest) {
   try {
+    const access = await guardStoryApiRequest(request, {
+      limit: 12,
+      maxBytes: 150_000,
+    })
+    if (access.error) return access.error
     const body = (await request.json()) as AnalyzeProductBody
     const title = String(body.title || "").trim()
     const description = String(body.description || "").trim()

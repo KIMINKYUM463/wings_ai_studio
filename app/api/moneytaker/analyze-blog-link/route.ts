@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
     console.log("[MoneyTaker] 블로그 링크 분석 시작:", url)
 
     // OpenAI API를 활용하여 블로그 링크 내용 분석
-    const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "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"
+    const OPENAI_API_KEY = process.env.OPENAI_API_KEY
 
     // 실제로는 블로그 링크에서 내용을 크롤링해야 하지만,
     // 여기서는 OpenAI API를 활용하여 링크 분석 프롬프트 생성
@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
           analysis = JSON.parse(jsonMatch[0])
         } else {
           // JSON 형식이 아니면 텍스트에서 키워드 추출
-          const keywords = analysisText.match(/키워드[:\s]*([^\n]+)/i)?.[1]?.split(/[,，]/).map(k => k.trim()) || []
+          const keywords = analysisText.match(/키워드[:\s]*([^\n]+)/i)?.[1]?.split(/[,，]/).map((k: string) => k.trim()) || []
           analysis = {
             keywords: keywords.length > 0 ? keywords : ["분석 실패"],
             summary: analysisText.substring(0, 200),

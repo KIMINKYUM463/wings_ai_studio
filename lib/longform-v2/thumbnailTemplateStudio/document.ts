@@ -682,7 +682,7 @@ const SUB_COPY_SLOT_PRIORITY = ['sub', 'accent'] as const
 /** AI 서브카피 — 괄호·라벨 슬롯 (sub · accent 우선) */
 export function resolveSubCopySlotSpec(
   doc: ThumbnailStudioDocument,
-): import('../../../shared/thumbnailSubCopy').ThumbnailSubCopySlotSpec | null {
+): import('../youtube/thumbnailSubCopy').ThumbnailSubCopySlotSpec | null {
   const frame = buildCopywriterFramesFromDocument(doc)
   if (!frame) return null
 

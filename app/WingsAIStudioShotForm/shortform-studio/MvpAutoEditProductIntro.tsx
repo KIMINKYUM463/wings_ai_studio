@@ -20,7 +20,13 @@ export function MvpAutoEditProductIntro({ result, videoUrl, playhead = 0, classN
     result.mixInfo?.actualDuration ?? result.outputDuration ?? pa.videoDuration ?? 0
   const outputScenes = pa.scenes ?? []
   const vs = pa.videoStructure
-  const hasStructure = Boolean(vs?.hook?.trim() || vs?.body?.trim() || vs?.cta?.trim())
+  const hasStructure = Boolean(
+    vs?.hook?.trim() ||
+      vs?.body?.trim() ||
+      vs?.cta?.trim() ||
+      vs?.shotFlow?.length ||
+      vs?.platformSignals?.length
+  )
 
   return (
     <div className={cn("space-y-3", className)}>
@@ -86,12 +92,22 @@ export function MvpAutoEditProductIntro({ result, videoUrl, playhead = 0, classN
       {hasStructure ? (
         <details className="rounded-lg border border-white/8 bg-black/30 px-3 py-2">
           <summary className="cursor-pointer text-[10px] font-medium text-violet-300">
-            영상 구조 (hook · body · cta)
+            교차 플랫폼 영상 구조 분석
           </summary>
           <div className="mt-2 space-y-2 text-[10px] leading-relaxed text-slate-500">
+            {vs?.format ? (
+              <p>
+                <span className="font-semibold text-fuchsia-300/90">Format</span> {vs.format}
+              </p>
+            ) : null}
             {vs?.hook ? (
               <p>
                 <span className="font-semibold text-rose-300/90">Hook</span> {vs.hook}
+              </p>
+            ) : null}
+            {vs?.openingVisual ? (
+              <p>
+                <span className="font-semibold text-pink-300/90">첫 화면</span> {vs.openingVisual}
               </p>
             ) : null}
             {vs?.body ? (
@@ -99,9 +115,45 @@ export function MvpAutoEditProductIntro({ result, videoUrl, playhead = 0, classN
                 <span className="font-semibold text-amber-300/90">Body</span> {vs.body}
               </p>
             ) : null}
+            {vs?.proof ? (
+              <p>
+                <span className="font-semibold text-cyan-300/90">증명</span> {vs.proof}
+              </p>
+            ) : null}
+            {vs?.trust ? (
+              <p>
+                <span className="font-semibold text-sky-300/90">신뢰</span> {vs.trust}
+              </p>
+            ) : null}
             {vs?.cta ? (
               <p>
                 <span className="font-semibold text-emerald-300/90">CTA</span> {vs.cta}
+              </p>
+            ) : null}
+            {vs?.pacing ? (
+              <p>
+                <span className="font-semibold text-orange-300/90">컷 리듬</span> {vs.pacing}
+              </p>
+            ) : null}
+            {vs?.shotFlow?.length ? (
+              <div>
+                <p className="font-semibold text-violet-300/90">영상 흐름도</p>
+                <ol className="mt-1 flex flex-wrap items-center gap-1">
+                  {vs.shotFlow.map((step, index) => (
+                    <li key={`${step}-${index}`} className="flex items-center gap-1">
+                      <span className="rounded bg-violet-500/10 px-1.5 py-0.5 text-slate-300">
+                        {index + 1}. {step}
+                      </span>
+                      {index < vs.shotFlow!.length - 1 ? <span>→</span> : null}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            ) : null}
+            {vs?.platformSignals?.length ? (
+              <p>
+                <span className="font-semibold text-blue-300/90">플랫폼 신호</span>{" "}
+                {vs.platformSignals.join(" · ")}
               </p>
             ) : null}
           </div>

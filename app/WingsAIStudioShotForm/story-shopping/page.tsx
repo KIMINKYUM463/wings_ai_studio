@@ -1,6 +1,13 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react"
 import Link from "next/link"
 import { motion } from "framer-motion"
 import {
@@ -62,6 +69,11 @@ import {
   type ShoppingProject,
   type SsulTemplateId,
 } from "./project-actions"
+import { migrateStoryProjectData } from "./story-project-schema"
+import {
+  invalidateChangedStoryVoiceTracks,
+  isCurrentStoryVoiceTrack,
+} from "./story-tts-resume"
 import { generateStoryShoppingBlueprint } from "./story-blueprint-actions"
 import {
   EMPTY_STORY_BRIEF,
@@ -83,7 +95,7 @@ const STEPS: Array<{
 }> = [
   { id: "content", label: "콘텐츠 발굴", description: "채널 성과 분석" },
   { id: "product", label: "상품 서칭", description: "영상 제품 분석" },
-  { id: "story", label: "스토리 생성", description: "6개 서사 템플릿" },
+  { id: "story", label: "스토리 생성", description: "썰채널·기본 서사 템플릿" },
   { id: "voice", label: "AI 음성", description: "장면별 TTS" },
   { id: "template", label: "이야기 템플릿", description: "채널 화면 선택" },
   { id: "edit", label: "영상 편집", description: "클립·게시 정보" },
@@ -123,6 +135,7 @@ export default function StoryShoppingPage() {
   const [projectDescription, setProjectDescription] = useState("")
   const [isLoadingProjects, setIsLoadingProjects] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [isDirty, setIsDirty] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [isDetailWorkMode, setIsDetailWorkMode] = useState(false)
@@ -132,6 +145,9 @@ export default function StoryShoppingPage() {
   )
   const [error, setError] = useState("")
   const editorRef = useRef<StoryEditorHandle | null>(null)
+  const saveProjectRef = useRef<() => Promise<void>>(async () => undefined)
+  const savedDraftFingerprintRef = useRef("")
+  const baselineProjectIdRef = useRef("")
 
   const [activeStep, setActiveStep] = useState<StoryLiveActiveStep>("content")
   const [brief, setBrief] = useState<StoryShoppingBrief>(cloneEmptyBrief)
@@ -144,6 +160,36 @@ export default function StoryShoppingPage() {
     youtubeDescription: "",
     youtubeTags: [],
   })
+  const draftFingerprint = useMemo(
+    () =>
+      JSON.stringify({
+        activeStep,
+        brief,
+        blueprint,
+        template,
+        postTime,
+        publishMeta,
+      }),
+    [activeStep, brief, blueprint, postTime, publishMeta, template]
+  )
+
+  useEffect(() => {
+    const scenes = brief.generatedStory?.scenes
+    const voiceData = brief.voiceData
+    if (!scenes?.length || !voiceData?.tracks.length) return
+    const stale = voiceData.tracks.some((track) => {
+      const scene = scenes.find((item) => item.id === track.sceneId)
+      return !scene || !isCurrentStoryVoiceTrack(scene, track)
+    })
+    if (!stale) return
+    setBrief((current) => ({
+      ...current,
+      voiceData: invalidateChangedStoryVoiceTracks(
+        current.generatedStory?.scenes || [],
+        current.voiceData
+      ),
+    }))
+  }, [brief.generatedStory?.scenes, brief.voiceData])
 
   const loadProjects = useCallback(async (id: string) => {
     setIsLoadingProjects(true)
@@ -161,28 +207,25 @@ export default function StoryShoppingPage() {
       try {
         const response = await fetch("/api/kakao/user")
         const data = await response.json()
-        const id =
-          data.loggedIn && data.user
-            ? data.user.email || `kakao_${data.user.id}`
-            : localStorage.getItem("user_id") ||
-              localStorage.getItem("user_email") ||
-              "anonymous"
+        if (!response.ok || !data.loggedIn || !data.user) {
+          setError("스토리 쇼핑 프로젝트를 사용하려면 카카오 로그인이 필요합니다.")
+          return
+        }
+        const id = data.user.email || `kakao_${data.user.id}`
         setUserId(id)
         await loadProjects(id)
       } catch {
-        const id =
-          localStorage.getItem("user_id") ||
-          localStorage.getItem("user_email") ||
-          "anonymous"
-        setUserId(id)
-        await loadProjects(id)
+        setError("로그인 정보를 확인하지 못했습니다. 다시 로그인해주세요.")
       }
     }
     void resolveUser()
   }, [loadProjects])
 
   const hydrateProject = (project: ShoppingProject) => {
-    const data = project.data || {}
+    const data = migrateStoryProjectData(project.data || {})
+    baselineProjectIdRef.current = ""
+    savedDraftFingerprintRef.current = ""
+    setIsDirty(false)
     setCurrentProject(project)
     setBrief(
       data.storyBrief
@@ -290,6 +333,9 @@ export default function StoryShoppingPage() {
         },
       })
       setCurrentProject(updated)
+      savedDraftFingerprintRef.current = draftFingerprint
+      baselineProjectIdRef.current = updated.id
+      setIsDirty(false)
       setProjects((previous) =>
         previous.map((project) => (project.id === updated.id ? updated : project))
       )
@@ -299,6 +345,39 @@ export default function StoryShoppingPage() {
       setIsSaving(false)
     }
   }
+  saveProjectRef.current = saveProject
+
+  useEffect(() => {
+    if (!currentProject) {
+      setIsDirty(false)
+      return
+    }
+    if (baselineProjectIdRef.current !== currentProject.id) {
+      baselineProjectIdRef.current = currentProject.id
+      savedDraftFingerprintRef.current = draftFingerprint
+      setIsDirty(false)
+      return
+    }
+    setIsDirty(savedDraftFingerprintRef.current !== draftFingerprint)
+  }, [currentProject, draftFingerprint])
+
+  useEffect(() => {
+    if (!isDirty || !currentProject || isSaving || isDownloading) return
+    const timeout = window.setTimeout(() => {
+      void saveProjectRef.current()
+    }, 8000)
+    return () => window.clearTimeout(timeout)
+  }, [currentProject, draftFingerprint, isDirty, isDownloading, isSaving])
+
+  useEffect(() => {
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!isDirty) return
+      event.preventDefault()
+      event.returnValue = ""
+    }
+    window.addEventListener("beforeunload", warnBeforeUnload)
+    return () => window.removeEventListener("beforeunload", warnBeforeUnload)
+  }, [isDirty])
 
   const downloadVideo = async () => {
     if (isDownloading) return
@@ -892,7 +971,7 @@ export default function StoryShoppingPage() {
               ) : (
                 <Save className="mr-2 h-4 w-4" />
               )}
-              저장
+              {isSaving ? "저장 중" : isDirty ? "변경 저장" : "저장됨"}
             </Button>
           </div>
         </div>
@@ -1002,7 +1081,9 @@ export default function StoryShoppingPage() {
                 className="flex-1 bg-orange-500 font-black text-white hover:bg-orange-400"
               >
                 {brief.selectedProductVideoId === brief.winningContent?.videoId
-                  ? "선택 상품으로 스토리 생성"
+                  ? brief.selectedProductSource === "manual"
+                    ? "쿠팡 없이 스토리 생성"
+                    : "선택 상품으로 스토리 생성"
                   : "상품을 먼저 선택하세요"}
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
@@ -1095,6 +1176,7 @@ export default function StoryShoppingPage() {
             brief={brief}
             onChange={setBrief}
             detailMode={isDetailWorkMode}
+            userId={userId}
             projectId={currentProject.id}
             onDownloadProgress={setDownloadProgress}
             publishMeta={publishMeta}

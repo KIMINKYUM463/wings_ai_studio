@@ -69,7 +69,7 @@ export function KeywordAnalysisStep({
         <Button
           type="button"
           onClick={onNext}
-          className="bg-sky-500 font-semibold text-white hover:bg-sky-400"
+          className="h-10 rounded-full bg-[#0e1016] px-5 font-semibold text-[#ffffff] hover:bg-[#262a36] focus-visible:ring-2 focus-visible:ring-[#2f3beb] focus-visible:ring-offset-2"
         >
           다음 · 제품 서칭
           <ArrowRight className="ml-2 h-4 w-4" />

@@ -91,6 +91,7 @@ function buildInfoImagePrompt(
   return [
     base,
     sceneHint,
+    "set in a modern Korean apartment, any people shown are Korean",
     detail ? `product context: ${detail}` : "",
     isProblem
       ? "do not show any product, packaging, brand, or shopping item"
@@ -552,9 +553,9 @@ export function InfoImagesPanel({
 
   return (
     <section className="space-y-6">
-      <div className="rounded-[28px] border border-white/[0.08] bg-[#fcfaf7]/95 p-6 md:p-8">
-        <p className="text-[10px] font-black tracking-[0.2em] text-sky-400">STEP 03 · IMAGES</p>
-        <h2 className="mt-2 text-3xl font-black text-white">카드 이미지</h2>
+      <div className="rounded-[24px] border border-[#e3e6ec] bg-[#ffffff] p-6 shadow-[0_1px_2px_rgba(14,16,22,0.04),0_16px_40px_-24px_rgba(14,16,22,0.18)] md:p-8">
+        <p className="text-[12px] font-black tracking-[0.18em] text-[#1f6fe0]">STEP 03 · IMAGES</p>
+        <h2 className="mt-2 text-3xl font-black tracking-[-0.035em] text-[#0e1016]">카드 이미지</h2>
         <p className="mt-2 text-sm text-zinc-400">
           카드는 비어 있습니다. 장면마다{" "}
           <span className="text-zinc-200">무료 이미지 검색</span>·AI·업로드로 채우세요. 각 장면
@@ -584,7 +585,7 @@ export function InfoImagesPanel({
             type="button"
             disabled={isBatch}
             onClick={() => void generateAiBatch()}
-            className="bg-sky-500 font-bold text-white hover:bg-sky-400"
+            className="rounded-full bg-[#0e1016] font-bold text-[#ffffff] hover:bg-[#262a33] disabled:bg-[#9aa0ad]"
           >
             {isBatch && progress.startsWith("AI") ? (
               <>

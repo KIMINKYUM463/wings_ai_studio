@@ -165,7 +165,22 @@ export async function triggerBlobDownload(
       '저장할 데이터가 비어 있습니다. 원본 파일이 0바이트이거나 네트워크로 받지 못했을 수 있습니다.',
     )
   }
-  const api = typeof window !== 'undefined' ? window.pywebview?.api : undefined
+  const api =
+    typeof window !== 'undefined'
+      ? (
+          window as Window & {
+            pywebview?: {
+              api?: {
+                save_binary_file?: (
+                  name: string,
+                  b64: string,
+                  subdir: string,
+                ) => Promise<{ ok?: boolean; cancelled?: boolean; path?: unknown; error?: string } | null>
+              }
+            }
+          }
+        ).pywebview?.api
+      : undefined
   if (api?.save_binary_file) {
     const b64 = await blobToBase64(blob)
     const res = await api.save_binary_file(safeName, b64, subdir)

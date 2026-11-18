@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     const openaiApiKey = openaiKeyFromBody(body as Record<string, unknown>)
 
     const keywords = Array.isArray(body.keywords)
-      ? body.keywords.filter((k): k is string => typeof k === "string").map((k) => k.trim()).filter(Boolean)
+      ? body.keywords.filter((k: unknown): k is string => typeof k === "string").map((k: string) => k.trim()).filter(Boolean)
       : typeof body.keyword === "string"
         ? [body.keyword.trim()].filter(Boolean)
         : []

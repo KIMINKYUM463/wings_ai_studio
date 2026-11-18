@@ -41,6 +41,24 @@ export type CapCutNativeDraftInput = {
     volume?: number
   }
   subtitles: CapCutSubtitleCue[]
+  /** 영상 전체 길이 동안 떠 있는 글자(헤드카피·워터마크·광고 표시) — 각자 트랙 */
+  overlayTexts?: CapCutOverlayText[]
+}
+
+export type CapCutTextRun = { text: string; color: string }
+
+export type CapCutOverlayText = {
+  /** 줄마다 색이 다를 수 있음 — 줄바꿈으로 이어 붙임 */
+  lines: CapCutTextRun[]
+  /** 글자 묶음 중심의 화면 위쪽 기준 % (0=맨 위) */
+  yPercent: number
+  /** 글자 묶음 중심의 화면 왼쪽 기준 % (기본 50) */
+  xPercent?: number
+  /** 기본 자막(10) 대비 글자 크기 */
+  size: number
+  outline?: boolean
+  background?: boolean
+  alpha?: number
 }
 
 export type CapCutNativeDraftBundle = {
@@ -257,35 +275,59 @@ export async function getUrlMediaDurationSec(url: string, kind: "video" | "audio
   }
 }
 
+const SUBTITLE_TEXT_RGB = [1, 0.906, 0.227]
+
+function hexToCapCutRgb(hex: string): number[] {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
+  if (!m) return [1, 1, 1]
+  const n = parseInt(m[1]!, 16)
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => Math.round((v / 255) * 1000) / 1000)
+}
+
+function buildCapCutRichTextContent(
+  runs: { text: string; rgb: number[] }[],
+  opts: { size: number; background: boolean; outline: boolean; alpha: number }
+): string {
+  let cursor = 0
+  const styles = runs.map((run, i) => {
+    // 줄 사이 "\n"은 앞 줄 스타일 범위에 포함
+    const len = run.text.length + (i < runs.length - 1 ? 1 : 0)
+    const range = [cursor, cursor + Math.max(1, len)]
+    cursor += len
+    return {
+      fill: { alpha: opts.alpha, content: { render_type: "solid", solid: { alpha: opts.alpha, color: run.rgb } } },
+      font: { id: "", path: "" },
+      range,
+      size: opts.size,
+      useLetterColor: true,
+      ...(opts.outline
+        ? { strokes: [{ content: { solid: { alpha: 1, color: [0, 0, 0] } }, width: 0.08 }] }
+        : {}),
+      ...(opts.background
+        ? {
+            background: {
+              alpha: 0.7,
+              color: [0, 0, 0],
+              height: 0.14,
+              horizontal_offset: 0.5,
+              round_radius: 0,
+              style: 1,
+              vertical_offset: 0.5,
+              width: 0.14,
+            },
+          }
+        : {}),
+    }
+  })
+  return JSON.stringify({ styles, text: runs.map((r) => r.text).join("\n") })
+}
+
 function buildCapCutTextContent(text: string): string {
-  const len = Math.max(1, text.length)
-  return JSON.stringify({
-    styles: [
-      {
-        fill: {
-          alpha: 1,
-          content: {
-            render_type: "solid",
-            solid: { alpha: 1, color: [1, 0.906, 0.227] },
-          },
-        },
-        font: { id: "", path: "" },
-        range: [0, len],
-        size: 10,
-        useLetterColor: true,
-        background: {
-          alpha: 0.7,
-          color: [0, 0, 0],
-          height: 0.14,
-          horizontal_offset: 0.5,
-          round_radius: 0,
-          style: 1,
-          vertical_offset: 0.5,
-          width: 0.14,
-        },
-      },
-    ],
-    text,
+  return buildCapCutRichTextContent([{ text, rgb: SUBTITLE_TEXT_RGB }], {
+    size: 10,
+    background: true,
+    outline: false,
+    alpha: 1,
   })
 }
 
@@ -293,9 +335,8 @@ function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
 }
 
-function buildTextMaterial(text: string) {
+function buildTextMaterial(text: string, content = buildCapCutTextContent(text)) {
   const material = cloneJson(textSubtitleSample.material) as Record<string, unknown>
-  const content = buildCapCutTextContent(text)
   material.id = capCutUuid()
   material.content = content
   material.base_content = content
@@ -759,6 +800,30 @@ export function buildCapCutDraftContent(
     }
   }
 
+  input.overlayTexts?.forEach((overlay, index) => {
+    const runs = overlay.lines
+      .filter((l) => l.text.trim())
+      .map((l) => ({ text: l.text.trim(), rgb: hexToCapCutRgb(l.color) }))
+    if (!runs.length) return
+    const content = buildCapCutRichTextContent(runs, {
+      size: overlay.size,
+      background: Boolean(overlay.background),
+      outline: Boolean(overlay.outline),
+      alpha: overlay.alpha ?? 1,
+    })
+    const material = buildTextMaterial(runs.map((r) => r.text).join("\n"), content)
+    materials.texts!.push(material)
+    const segment = buildTextSegment(material.id as string, 0, input.durationUs, 15000 + index)
+    const clip = segment.clip as { transform: { x: number; y: number } }
+    // CapCut 좌표: 화면 중앙 0, 위·오른쪽 +1, 아래·왼쪽 -1
+    const toUnit = (pct: number) => Math.round(((pct / 100) * 2 - 1) * 1000) / 1000
+    clip.transform = { x: toUnit(overlay.xPercent ?? 50), y: -toUnit(overlay.yPercent) }
+    const track = cloneJson(textSubtitleSample.track) as Record<string, unknown>
+    track.id = capCutUuid()
+    track.segments = [segment]
+    tracks.push(track)
+  })
+
   const emptyMaterialLists = [
     "flowers",
     "tail_leaders",
@@ -1179,7 +1244,7 @@ export function buildCapCutNativeDraftBundle(
       layoutOrientation: 1,
     }),
     "draft_settings": `[General]\ndraft_create_time=${nowSec}\ndraft_last_edit_time=${nowSec}\nreal_edit_seconds=0\nreal_edit_keys=0\n`,
-    "draft_cover.jpg": new Blob([base64ToUint8Array(MINIMAL_JPEG_BASE64)], { type: "image/jpeg" }),
+    "draft_cover.jpg": new Blob([base64ToUint8Array(MINIMAL_JPEG_BASE64) as BlobPart], { type: "image/jpeg" }),
   }
 
   for (const [fileName, blob] of Object.entries(mediaBlobs)) {

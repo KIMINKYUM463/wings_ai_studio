@@ -160,7 +160,14 @@ export function InfoSourcePanel({
       )
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || "쿠팡 검색 실패")
-      const products = (Array.isArray(data.products) ? data.products : []) as InfoCoupangProduct[]
+      const seen = new Set<string>()
+      const products = ((Array.isArray(data.products) ? data.products : []) as InfoCoupangProduct[])
+        .filter((product) => {
+          const key = product.productId || product.productName
+          if (seen.has(key)) return false
+          seen.add(key)
+          return true
+        })
       onChange({
         ...baseBrief,
         searchQuery: query,
@@ -193,9 +200,9 @@ export function InfoSourcePanel({
 
   return (
     <section className="space-y-6">
-      <div className="rounded-[28px] border border-white/[0.08] bg-[#fcfaf7]/95 p-6 md:p-8">
-        <p className="text-[10px] font-black tracking-[0.2em] text-sky-400">STEP 01 · SOURCE & PRODUCT</p>
-        <h2 className="mt-2 text-3xl font-black tracking-tight text-white">
+      <div className="rounded-[24px] border border-[#e3e6ec] bg-[#ffffff] p-6 shadow-[0_1px_2px_rgba(14,16,22,0.04),0_16px_40px_-24px_rgba(14,16,22,0.18)] md:p-8">
+        <p className="text-[12px] font-black tracking-[0.18em] text-[#1f6fe0]">STEP 01 · SOURCE & PRODUCT</p>
+        <h2 className="mt-2 text-3xl font-black tracking-[-0.035em] text-[#0e1016]">
           딱 두개만 있으면 끝!
         </h2>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
@@ -203,16 +210,23 @@ export function InfoSourcePanel({
         </p>
 
         <div className="mt-6 grid gap-4">
-          <div>
-            <Label className="text-zinc-300">벤치마크 URL (유튜브 · 웹)</Label>
-            <div className="mt-1.5 flex gap-2">
+          {/* 신문 스크랩(오려낸 기사) 모티프 — 벤치마크 URL */}
+          <div className="relative -rotate-[0.4deg] rounded-[16px] border-2 border-dashed border-[#cfd3dc] bg-[#fbfbfd] p-4 pt-5 motion-reduce:rotate-0 sm:p-5 sm:pt-6">
+            <span className="absolute -top-3 left-4 rounded-full bg-[#0e1016] px-2.5 py-0.5 text-[11px] font-black tracking-[0.16em] text-[#ffffff]">
+              CLIPPING
+            </span>
+            <Label htmlFor="info-source-url" className="text-[13px] font-bold text-[#0e1016]">
+              벤치마크 URL <span className="font-normal text-[#5c6170]">· 잘 된 유튜브 영상이나 웹 글</span>
+            </Label>
+            <div className="mt-2 flex gap-2">
               <div className="relative flex-1">
-                <Link2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                <Link2 className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9aa0ad]" />
                 <Input
+                  id="info-source-url"
                   value={brief.sourceUrl}
                   onChange={(e) => onChange({ ...brief, sourceUrl: e.target.value })}
                   placeholder="https://youtu.be/... 또는 https://blog.naver.com/..."
-                  className="border-white/10 bg-black/40 pl-9 text-white"
+                  className="h-12 rounded-[12px] border-[#e3e6ec] bg-[#ffffff] pl-10 font-mono text-[14px] text-[#0e1016] placeholder:text-[#9aa0ad] focus-visible:ring-2 focus-visible:ring-[#1f6fe0]"
                 />
               </div>
             </div>
@@ -297,7 +311,7 @@ export function InfoSourcePanel({
             type="button"
             disabled={busy}
             onClick={() => void analyzeAndSearch()}
-            className="h-12 w-full bg-sky-500 text-base font-bold text-white hover:bg-sky-400"
+            className="h-12 w-full rounded-full bg-[#0e1016] text-base font-bold text-[#ffffff] hover:bg-[#262a33] disabled:bg-[#9aa0ad]"
           >
             {busy ? (
               <>

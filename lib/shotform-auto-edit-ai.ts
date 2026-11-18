@@ -22,6 +22,7 @@ import {
 import { boostSceneImportance, compareScenesByEditorialPriority, sceneEditorialScore } from "@/lib/shotform-scene-priority"
 import { ACTION_SCENE_MERGE_SYSTEM_PROMPT } from "@/lib/shotform-scene-understanding"
 import { normalizeBenchmarkVisualScenes } from "@/lib/shotform-visual-scene-match"
+import { REMIX_MARKET_ANALYSIS_SCHEMA_PROMPT } from "@/lib/remix-shopping-market-intelligence"
 
 const BENCHMARK_VISION_HINT_MAX = 8
 import type { VideoVisionScreenResult } from "@/lib/shotform-auto-edit-vision"
@@ -139,7 +140,18 @@ export async function analyzeVideoWithAi(args: {
       productName?: string
       category?: string
       targetKeywords?: unknown
-      videoStructure?: { hook?: string; body?: string; cta?: string }
+      videoStructure?: {
+        hook?: string
+        body?: string
+        cta?: string
+        format?: string
+        openingVisual?: string
+        proof?: string
+        trust?: string
+        pacing?: string
+        shotFlow?: unknown
+        platformSignals?: unknown
+      }
       summary?: string
       scenes?: unknown
       edit_scenes?: unknown
@@ -150,7 +162,8 @@ export async function analyzeVideoWithAi(args: {
 ${ACTION_SCENE_MERGE_SYSTEM_PROMPT}
 
 추가 필드:
-productName, category, targetKeywords[](한국어), videoStructure{hook,body,cta}, summary(한국어)
+productName, category, targetKeywords[](한국어), summary(한국어)
+${REMIX_MARKET_ANALYSIS_SCHEMA_PROMPT}
 
 edit_scenes[{start,end,description,importance,visual_type,content_type,scene_role,script_lines}] — 편집용.
 - description = scene_description (행동 중심, [샷타입] 포함)
@@ -172,7 +185,7 @@ ${JSON.stringify(
           : ""
       }
 
-JSON: {"productName":"","category":"","targetKeywords":[],"videoStructure":{"hook":"","body":"","cta":""},"summary":"","scenes":[],"edit_scenes":[]}`,
+JSON: {"productName":"","category":"","targetKeywords":[],"videoStructure":{"format":"","hook":"","openingVisual":"","body":"","proof":"","trust":"","cta":"","pacing":"","shotFlow":[],"platformSignals":[]},"summary":"","scenes":[],"edit_scenes":[]}`,
       2000
     )
     const semanticScenes = normalizeVisualScenes(parsed.scenes, duration)
@@ -207,6 +220,17 @@ JSON: {"productName":"","category":"","targetKeywords":[],"videoStructure":{"hoo
             hook: String(parsed.videoStructure.hook || ""),
             body: String(parsed.videoStructure.body || ""),
             cta: String(parsed.videoStructure.cta || ""),
+            format: String(parsed.videoStructure.format || ""),
+            openingVisual: String(parsed.videoStructure.openingVisual || ""),
+            proof: String(parsed.videoStructure.proof || ""),
+            trust: String(parsed.videoStructure.trust || ""),
+            pacing: String(parsed.videoStructure.pacing || ""),
+            shotFlow: Array.isArray(parsed.videoStructure.shotFlow)
+              ? parsed.videoStructure.shotFlow.map(String).map((v) => v.trim()).filter(Boolean).slice(0, 8)
+              : [],
+            platformSignals: Array.isArray(parsed.videoStructure.platformSignals)
+              ? parsed.videoStructure.platformSignals.map(String).map((v) => v.trim()).filter(Boolean).slice(0, 6)
+              : [],
           }
         : undefined,
       summary: parsed.summary || "",

@@ -6,6 +6,22 @@ import {
 } from "@/lib/shotform-script-templates"
 
 /**
+ * 대본 생성·재작성이 함께 쓰는 IMAGE/MOTION 규칙.
+ * 영상 단계(generateVideoWithSeedance)가 camera_fixed로 카메라를 고정하므로
+ * MOTION에 카메라 이동을 쓰면 무시되거나 제품이 뭉개진다 — 피사체 동작만 쓴다.
+ */
+export const SHOPPING_SCENE_VISUAL_RULES = `IMAGE 필수 규칙:
+- 그 장면 나레이션이 말하는 상황·장소·행동을 그대로 보여줄 것 (나레이션이 지하철이면 지하철, 통화면 통화)
+- 화면 안 글자·자막·로고·텍스트 오버레이·말풍선·UI 금지 (자막은 편집 단계에서 따로 얹음). 마지막 CTA 장면도 텍스트 대신 제품 히어로 컷
+- 연속한 장면은 샷 크기(클로즈업/미디엄/와이드)를 바꿔 단조롭지 않게
+
+MOTION 필수 규칙 (English, 12~22 words):
+- 카메라는 고정. zoom, pan, tilt, orbit, track, dolly, pull back, reveal, fade, text 같은 카메라·편집 단어 금지
+- 피사체의 작고 자연스러운 동작 1개 + 주변의 미세한 움직임 1개
+  예: "fingers gently press the earbud, soft light glints on the case, steady locked camera, high quality, commercial look"
+- 끝은 항상 "steady locked camera, high quality, commercial look"`
+
+/**
  * 장면 IMAGE(한)·MOTION(영)을 벤치마크 숏폼 공식으로 재작성
  */
 export async function refineSceneVisualPrompts(opts: {
@@ -51,7 +67,6 @@ ${opts.detailInsightsText?.trim() || "(없음)"}
 비주얼 포커스(${visualFocus})를 IMAGE/MOTION에 최우선 반영하세요.
 IMAGE: 한국어 1~2문장(약 120~220자). 제품 형태·색은 전 장면 동일.
 인물이 나오면 한국인 기본 + 전 장면 동일 인물(얼굴·헤어·연령대). 제품 유지와 같은 수준으로 지킬 것.
-MOTION: 영어 12~22 words. "… high quality, commercial look" 패턴.
 ${urls.length ? "첨부 사진은 실물입니다. 형태·색을 사진과 다르게 쓰지 말고, 제품 풀네임으로 고정하세요." : ""}
 
 ${focusBlock}
@@ -102,7 +117,7 @@ IMAGE: 샷, 앵글, 주체(포커스에 맞게), 제품 풀네임+색+위치, �
 제품 풀네임 반복, 실물 형태 보존, f값/렌즈 mm 금지. 역할 태그는 본문에 쓰지 말 것.
 인물 컷: Korean person / East Asian features, 시리즈 전체 동일 인물 앵커 유지.
 
-MOTION: [camera move] + [action matching focus] + "high quality, commercial look"`,
+${SHOPPING_SCENE_VISUAL_RULES}`,
         },
         { role: "user", content },
       ],

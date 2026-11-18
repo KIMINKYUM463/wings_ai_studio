@@ -5,8 +5,13 @@ import {
   isWithinShoppingProjectRetention,
   purgeExpiredShoppingProjects,
 } from "@/lib/shopping-projects-retention"
+import { requireStoryUserId } from "@/lib/story-shopping-security"
 import type { StoryActiveStep } from "./story-steps"
 import type { StoryShoppingBlueprint, StoryShoppingBrief } from "./story-types"
+import {
+  migrateStoryProjectData,
+  STORY_PROJECT_SCHEMA_VERSION,
+} from "./story-project-schema"
 
 export type { StoryActiveStep } from "./story-steps"
 
@@ -31,6 +36,7 @@ export interface StoryScene {
 }
 
 export interface ShoppingProjectData {
+  schemaVersion?: number
   // 새 AI 스토리 쇼핑 워크플로
   storyBrief?: StoryShoppingBrief
   storyBlueprint?: StoryShoppingBlueprint
@@ -109,31 +115,40 @@ export interface ShoppingProjectData {
   completedSteps?: string[]
 
   appVariant?: "ver1" | "ver2" | "story" | "animal"
+  /** 2 = AI 스토리 쇼핑숏폼 ver2 (콘텐츠발굴→상품서칭→v2 파이프라인) */
+  pipelineVersion?: 1 | 2
 }
 
 /**
  * 사용자의 모든 쇼핑 프로젝트 목록 조회
  */
-export async function getShoppingProjects(userId: string): Promise<ShoppingProject[]> {
+export async function getShoppingProjects(
+  userId: string,
+  options?: { pipelineVersion?: 1 | 2 }
+): Promise<ShoppingProject[]> {
   try {
+    const verifiedUserId = await requireStoryUserId(userId)
     await purgeExpiredShoppingProjects()
     const supabase = await createClient()
     const { data, error } = await supabase
       .from("shopping_projects")
       .select("*")
-      .eq("user_id", userId)
+      .eq("user_id", verifiedUserId)
       .order("updated_at", { ascending: false })
     
     if (error) {
       console.error("[Shopping Projects] 프로젝트 목록 조회 실패:", error)
       throw error
     }
+
+    const wantV2 = options?.pipelineVersion === 2
     
-    return (data || []).filter(
-      (project) =>
-        project.data?.appVariant === "story" &&
-        isWithinShoppingProjectRetention(project.created_at)
-    )
+    return (data || []).filter((project) => {
+      if (project.data?.appVariant !== "story") return false
+      if (!isWithinShoppingProjectRetention(project.created_at)) return false
+      const isV2 = project.data?.pipelineVersion === 2
+      return wantV2 ? isV2 : !isV2
+    })
   } catch (error) {
     console.error("[Shopping Projects] 프로젝트 목록 조회 중 오류:", error)
     throw error
@@ -150,14 +165,19 @@ export async function createShoppingProject(
   data?: ShoppingProjectData
 ): Promise<ShoppingProject> {
   try {
+    const verifiedUserId = await requireStoryUserId(userId)
     const supabase = await createClient()
     const { data: project, error } = await supabase
       .from("shopping_projects")
       .insert({
-        user_id: userId,
+        user_id: verifiedUserId,
         name,
         description: description || null,
-        data: { ...(data || {}), appVariant: "story" },
+        data: migrateStoryProjectData({
+          ...(data || {}),
+          schemaVersion: STORY_PROJECT_SCHEMA_VERSION,
+          appVariant: "story",
+        }),
       })
       .select()
       .single()
@@ -186,6 +206,7 @@ export async function updateShoppingProject(
   }
 ): Promise<ShoppingProject> {
   try {
+    const verifiedUserId = await requireStoryUserId()
     const supabase = await createClient()
     const updateData: any = {
       updated_at: new Date().toISOString(),
@@ -202,7 +223,11 @@ export async function updateShoppingProject(
         if (dataSizeMB > 1) {
           console.warn(`[Shopping Projects] 데이터 크기가 1MB를 초과합니다: ${dataSizeMB.toFixed(2)}MB`)
         }
-        updateData.data = { ...updates.data, appVariant: "story" }
+        updateData.data = migrateStoryProjectData({
+          ...updates.data,
+          schemaVersion: STORY_PROJECT_SCHEMA_VERSION,
+          appVariant: "story",
+        })
       } catch (serializeError) {
         console.error("[Shopping Projects] 데이터 직렬화 실패:", serializeError)
         throw new Error(`데이터 직렬화 실패: ${serializeError instanceof Error ? serializeError.message : String(serializeError)}`)
@@ -213,6 +238,7 @@ export async function updateShoppingProject(
       .from("shopping_projects")
       .update(updateData)
       .eq("id", projectId)
+      .eq("user_id", verifiedUserId)
       .select()
       .single()
     
@@ -244,11 +270,13 @@ export async function updateShoppingProject(
  */
 export async function deleteShoppingProject(projectId: string): Promise<void> {
   try {
+    const verifiedUserId = await requireStoryUserId()
     const supabase = await createClient()
     const { error } = await supabase
       .from("shopping_projects")
       .delete()
       .eq("id", projectId)
+      .eq("user_id", verifiedUserId)
     
     if (error) {
       console.error("[Shopping Projects] 프로젝트 삭제 실패:", error)
@@ -265,11 +293,13 @@ export async function deleteShoppingProject(projectId: string): Promise<void> {
  */
 export async function getShoppingProject(projectId: string): Promise<ShoppingProject | null> {
   try {
+    const verifiedUserId = await requireStoryUserId()
     const supabase = await createClient()
     const { data, error } = await supabase
       .from("shopping_projects")
       .select("*")
       .eq("id", projectId)
+      .eq("user_id", verifiedUserId)
       .single()
     
     if (error) {

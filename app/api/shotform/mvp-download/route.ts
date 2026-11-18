@@ -5,8 +5,11 @@ import { detectReprocessUrlPlatform, resolveReprocessUrl } from "@/lib/shotform-
 import { isApifyHostedVideoUrl } from "@/lib/shotform-mvp-reprocess-url-shared"
 import { fetchXhsNoteVideoUrl } from "@/lib/xhs-video"
 import { isAllowedVideoHost } from "@/lib/video-upstream-fetch"
+import { resolveTikhubKey, resolveTikhubVideo, tikhubErrorMessage } from "@/lib/tikhub"
 
 export const maxDuration = 300
+
+const TIKHUB_NOTE_URL_RE = /douyin\.com|xiaohongshu\.com|xhslink\.com|tiktok\.com|youtube\.com|youtu\.be/i
 
 function apifyTokenFromBody(body: Record<string, unknown>): string {
   return (
@@ -14,6 +17,26 @@ function apifyTokenFromBody(body: Record<string, unknown>): string {
     process.env.APIFY_TOKEN ||
     ""
   )
+}
+
+type ResolvedDownload = { downloadUrl: string | null; refreshedVideoUrl?: string; error?: string }
+
+/** YouTube·TikTok 페이지 URL → yt-dlp 등으로 재생 URL 조회 (TikHub 실패 시 대체 경로) */
+async function resolveViaReprocess(apifyToken: string, pageUrl: string): Promise<ResolvedDownload> {
+  try {
+    const resolved = await resolveReprocessUrl(apifyToken, pageUrl)
+    if (!resolved.videoUrl.startsWith("http")) {
+      return { downloadUrl: null, error: resolved.error || "YouTube·TikTok 재생 URL 조회 실패" }
+    }
+    return {
+      refreshedVideoUrl: resolved.videoUrl,
+      downloadUrl: isApifyHostedVideoUrl(resolved.videoUrl)
+        ? resolved.videoUrl
+        : `/api/proxy-video?url=${encodeURIComponent(resolved.videoUrl)}`,
+    }
+  } catch (e) {
+    return { downloadUrl: null, error: e instanceof Error ? e.message : "YouTube·TikTok 영상 URL 조회 실패" }
+  }
 }
 
 type DownloadItem = {
@@ -30,6 +53,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
     const apifyToken = apifyTokenFromBody(body)
+    const tikhubKey = resolveTikhubKey(body.tikhubApiKey)
     const raw = body.items
     if (!Array.isArray(raw) || raw.length === 0) {
       return NextResponse.json({ error: "items 배열이 필요합니다." }, { status: 400 })
@@ -79,20 +103,23 @@ export async function POST(req: NextRequest) {
         } catch {
           downloadUrl = direct
         }
-      } else if (detectReprocessUrlPlatform(pageUrl)) {
+      } else if (tikhubKey && TIKHUB_NOTE_URL_RE.test(pageUrl)) {
         try {
-          const resolved = await resolveReprocessUrl(apifyToken, pageUrl)
-          if (resolved.videoUrl.startsWith("http")) {
+          const resolved = await resolveTikhubVideo(tikhubKey, pageUrl)
+          if (resolved?.videoUrl) {
             refreshedVideoUrl = resolved.videoUrl
-            downloadUrl = isApifyHostedVideoUrl(resolved.videoUrl)
-              ? resolved.videoUrl
-              : `/api/proxy-video?url=${encodeURIComponent(resolved.videoUrl)}`
+            downloadUrl = `/api/proxy-video?url=${encodeURIComponent(resolved.videoUrl)}`
           } else {
-            error = resolved.error || "YouTube·TikTok 재생 URL 조회 실패"
+            error = "TikHub에서 재생 URL을 찾지 못했습니다"
           }
         } catch (e) {
-          error = e instanceof Error ? e.message : "YouTube·TikTok 영상 URL 조회 실패"
+          error = tikhubErrorMessage(e)
         }
+        if (!downloadUrl && detectReprocessUrlPlatform(pageUrl)) {
+          ;({ downloadUrl, refreshedVideoUrl, error } = await resolveViaReprocess(apifyToken, pageUrl))
+        }
+      } else if (detectReprocessUrlPlatform(pageUrl)) {
+        ;({ downloadUrl, refreshedVideoUrl, error } = await resolveViaReprocess(apifyToken, pageUrl))
       } else if (
         (item.platform === "xiaohongshu" || pageUrl.includes("xiaohongshu.com")) &&
         pageUrl.includes("xiaohongshu")

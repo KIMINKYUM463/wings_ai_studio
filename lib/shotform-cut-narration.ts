@@ -1,9 +1,10 @@
-import type {
-  AutoEditJobResult,
-  EditPlan,
-  EditPlanSegment,
-  SceneSubtitleBlock,
-  VideoAnalysis,
+import {
+  BEAT_SCRIPT_TONE,
+  type AutoEditJobResult,
+  type EditPlan,
+  type EditPlanSegment,
+  type SceneSubtitleBlock,
+  type VideoAnalysis,
 } from "@/lib/shotform-auto-edit-types"
 import type { NarrationSegment } from "@/lib/shotform-factory-narration-script"
 import {
@@ -598,7 +599,7 @@ function expandNarrationUnits(text: string): string[] {
   if (!single) return []
 
   const sentences = single
-    .split(/(?<=[.!?…])\s+|(?<=[요죠네음다][.!?]?)\s+|\n+/)
+    .split(/(?<=[.!?…])\s+|(?<=[요죠네다][.!?]?)\s+|\n+/)
     .map((p) => p.trim())
     .filter(Boolean)
   if (sentences.length > 1) return sentences
@@ -924,6 +925,7 @@ export function needsAiNarrationFromScenes(
 
   const plan = result.editPlan?.edit_plan
   if (!plan?.length) return false
+  if (result.script?.tone === BEAT_SCRIPT_TONE && result.script.script.length === plan.length) return false
 
   const analyses = result.analyses?.length ? result.analyses : result.analysis ? [result.analysis] : []
   const byId = analysisByVideoId(analyses)

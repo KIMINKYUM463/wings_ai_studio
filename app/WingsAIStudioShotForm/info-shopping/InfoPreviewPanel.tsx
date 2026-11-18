@@ -1,12 +1,12 @@
-﻿"use client"
+"use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { createRoot, type Root } from "react-dom/client"
 import {
   Download,
   Loader2,
   Maximize2,
   Minimize2,
+  Music,
   Pause,
   Play,
   SkipBack,
@@ -25,13 +25,26 @@ import {
   guessExtFromUrlOrType,
 } from "@/lib/shotform-separate-assets"
 import { downloadBlob } from "@/lib/shotform-factory-capcut-export"
+import {
+  bgmGainFromVolumePct,
+  VOICE_PREVIEW_BGM_OPTIONS,
+  voicePreviewBgmSrc,
+} from "@/lib/shotform-factory-voice-preview-bgm"
 import { getInfoSlideDisplayLines, InfoCardFrame } from "./InfoCardFrame"
-import { playInfoLinePop, playInfoLinePopInto } from "./info-line-sfx"
+import { playInfoLinePop } from "./info-line-sfx"
 import { INFO_TTS_CHAIN_TAIL_SKIP_SEC, playInfoTtsBuffer } from "./info-tts-audio"
-import type { InfoShoppingBrief, InfoSlide, InfoThemeId, InfoVoiceTrack } from "./info-types"
-
-const EXPORT_W = 1080
-const EXPORT_H = 1920
+import {
+  INFO_DEFAULT_BGM_ID,
+  INFO_DEFAULT_BGM_VOLUME,
+  type InfoShoppingBrief,
+  type InfoSlide,
+  type InfoVoiceTrack,
+} from "./info-types"
+import {
+  createInfoCardCaptureSession,
+  renderInfoVideo,
+  type InfoVideoBgm,
+} from "./info-video-export"
 
 type PreviewCue = {
   id: string
@@ -41,10 +54,6 @@ type PreviewCue = {
   durationSec: number
   audioUrl?: string
   text: string
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 function formatClock(sec: number) {
@@ -152,15 +161,26 @@ function cueIndexAtTime(cues: PreviewCue[], timeSec: number) {
   return 0
 }
 
-export function InfoPreviewPanel({ brief }: { brief: InfoShoppingBrief }) {
+export function InfoPreviewPanel({
+  brief,
+  onChange,
+}: {
+  brief: InfoShoppingBrief
+  onChange: (brief: InfoShoppingBrief) => void
+}) {
   const slides = brief.generatedCards?.slides || []
   const tracks = brief.voiceData?.tracks || []
+  const productBaseName = brief.selectedProduct?.productName || "info-shopping"
+  const bgmId = brief.bgmId ?? INFO_DEFAULT_BGM_ID
+  const bgmVolume = brief.bgmVolume ?? INFO_DEFAULT_BGM_VOLUME
 
   const [slideIndex, setSlideIndex] = useState(0)
   const [revealLines, setRevealLines] = useState<number | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
+  const [exportStage, setExportStage] = useState("")
   const [exportUrl, setExportUrl] = useState("")
+  const [exportFilename, setExportFilename] = useState("")
   const [error, setError] = useState("")
   const [playheadSec, setPlayheadSec] = useState(0)
   const [durationMap, setDurationMap] = useState<Record<string, number>>({})
@@ -169,6 +189,7 @@ export function InfoPreviewPanel({ brief }: { brief: InfoShoppingBrief }) {
 
   const cancelRef = useRef({ cancelled: false })
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const bgmAudioRef = useRef<HTMLAudioElement | null>(null)
   const playheadRef = useRef(0)
   const cuesRef = useRef<PreviewCue[]>([])
   const wasPlayingRef = useRef(false)
@@ -408,6 +429,26 @@ export function InfoPreviewPanel({ brief }: { brief: InfoShoppingBrief }) {
     void playFromCue(cueIndexAtTime(list, playheadRef.current))
   }
 
+  const bgmSrc = voicePreviewBgmSrc(bgmId)
+  useEffect(() => {
+    if (!isPlaying || !bgmSrc) return
+    const audio = new Audio(bgmSrc)
+    audio.loop = true
+    audio.volume = bgmGainFromVolumePct(bgmVolume)
+    bgmAudioRef.current = audio
+    void audio.play().catch(() => undefined)
+    return () => {
+      audio.pause()
+      bgmAudioRef.current = null
+    }
+    // 볼륨 변경은 아래 effect에서 재생을 끊지 않고 반영
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPlaying, bgmSrc])
+
+  useEffect(() => {
+    if (bgmAudioRef.current) bgmAudioRef.current.volume = bgmGainFromVolumePct(bgmVolume)
+  }, [bgmVolume])
+
   useEffect(() => {
     if (!isFullscreen) return
     const onKey = (event: KeyboardEvent) => {
@@ -422,278 +463,64 @@ export function InfoPreviewPanel({ brief }: { brief: InfoShoppingBrief }) {
     }
   }, [isFullscreen])
 
+  const bgmSelection = (): InfoVideoBgm | null => {
+    const src = voicePreviewBgmSrc(bgmId)
+    return src ? { src, volumePct: bgmVolume } : null
+  }
+
   const exportVideo = async () => {
     if (!slides.length) return
     stopPlayback()
     setIsExporting(true)
     setError("")
     setExportUrl("")
-
-    let captureSession: InfoCardCaptureSession | null = null
     try {
-      // 외부 이미지를 data URL로 고정 → CORS/프록시 실패로 제품컷이 비는 문제 방지
-      const exportSlides = await Promise.all(
-        slides.map(async (slide) => ({
-          ...slide,
-          imageUrl: slide.imageUrl
-            ? await materializeImageDataUrl(slide.imageUrl).catch(() => slide.imageUrl)
-            : slide.imageUrl,
-        }))
-      )
-
-      const canvas = document.createElement("canvas")
-      canvas.width = EXPORT_W
-      canvas.height = EXPORT_H
-      const ctx = canvas.getContext("2d")
-      if (!ctx) throw new Error("캔버스를 사용할 수 없습니다.")
-
-      captureSession = createInfoCardCaptureSession()
-      let frameKey = ""
-      let frameBitmap: HTMLCanvasElement | null = null
-
-      const paintFrame = async (
-        slide: InfoSlide,
-        index: number,
-        reveal: number,
-        force = false
-      ) => {
-        const key = `${slide.id}:${reveal}`
-        if (!force && key === frameKey && frameBitmap) {
-          ctx.clearRect(0, 0, EXPORT_W, EXPORT_H)
-          ctx.drawImage(frameBitmap, 0, 0, EXPORT_W, EXPORT_H)
-          return
-        }
-        frameBitmap = await captureSession!.capture(
-          slide,
-          brief.themeId,
-          index,
-          exportSlides.length,
-          reveal
-        )
-        frameKey = key
-        ctx.clearRect(0, 0, EXPORT_W, EXPORT_H)
-        ctx.drawImage(frameBitmap, 0, 0, EXPORT_W, EXPORT_H)
-      }
-
-      const stream = canvas.captureStream(30)
-      const audioCtx = new AudioContext()
-      const dest = audioCtx.createMediaStreamDestination()
-      for (const track of dest.stream.getAudioTracks()) {
-        stream.addTrack(track)
-      }
-
-      const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
-        ? "video/webm;codecs=vp9,opus"
-        : "video/webm"
-      const recorder = new MediaRecorder(stream, {
-        mimeType,
-        videoBitsPerSecond: 5_000_000,
-        audioBitsPerSecond: 192_000,
+      const { blob, extension } = await renderInfoVideo({
+        slides,
+        tracks,
+        themeId: brief.themeId,
+        withVoice: true,
+        bgm: bgmSelection(),
+        onStage: setExportStage,
       })
-      const chunks: BlobPart[] = []
-      recorder.ondataavailable = (event) => {
-        if (event.data.size) chunks.push(event.data)
-      }
-      const stopped = new Promise<Blob>((resolve) => {
-        recorder.onstop = () => resolve(new Blob(chunks, { type: "video/webm" }))
-      })
-      recorder.start(250)
-
-      for (let index = 0; index < exportSlides.length; index += 1) {
-        const slide = exportSlides[index]!
-        const displayLines = getInfoSlideDisplayLines(slide)
-        const track = tracks.find((item) => item.slideId === slide.id)
-        setSlideIndex(index)
-
-        const lineAudios =
-          track?.lineTracks?.length
-            ? track.lineTracks
-            : track?.audioUrl
-              ? [{ lineIndex: 0, text: displayLines[0] || "", audioUrl: track.audioUrl }]
-              : []
-        const steps = Math.max(displayLines.length, lineAudios.length, 1)
-
-        for (let step = 0; step < steps; ) {
-          const entry = lineAudios[step]
-          let end = step
-          if (entry?.audioUrl) {
-            while (end + 1 < steps && !lineAudios[end + 1]?.audioUrl) end += 1
-          }
-          const groupSteps = Array.from({ length: end - step + 1 }, (_, k) => step + k)
-          const weights = groupSteps.map((s) =>
-            Math.max(1, (displayLines[s] || "").replace(/\s/g, "").length)
-          )
-          const weightSum = weights.reduce((a, b) => a + b, 0) || groupSteps.length
-
-          if (entry?.audioUrl) {
-            void playInfoLinePopInto(audioCtx, dest, 0.16)
-            let lastReveal = step
-            const firstReveal = Math.min(displayLines.length, step + 1)
-            setRevealLines(firstReveal)
-            await paintFrame(slide, index, firstReveal, true)
-
-            const ab = await (await fetch(entry.audioUrl)).arrayBuffer()
-            const decoded = await audioCtx.decodeAudioData(ab.slice(0))
-            const totalDur = Math.max(0.2, decoded.duration)
-            const hasMoreAfter = end + 1 < steps || index < exportSlides.length - 1
-            const playUntil = Math.max(
-              0.12,
-              totalDur - (hasMoreAfter ? INFO_TTS_CHAIN_TAIL_SKIP_SEC : 0)
-            )
-            const source = audioCtx.createBufferSource()
-            source.buffer = decoded
-            source.connect(dest)
-            source.connect(audioCtx.destination)
-            const startedAt = audioCtx.currentTime
-            source.start(0)
-
-            while (audioCtx.currentTime - startedAt < playUntil - 0.02) {
-              const local = audioCtx.currentTime - startedAt
-              const ratio = Math.min(0.999, Math.max(0, local / playUntil))
-              let acc = 0
-              let target = step
-              for (let gi = 0; gi < groupSteps.length; gi += 1) {
-                acc += weights[gi]! / weightSum
-                target = groupSteps[gi]!
-                if (ratio < acc) break
-              }
-              if (target !== lastReveal) {
-                lastReveal = target
-                const nextReveal = Math.min(displayLines.length, target + 1)
-                setRevealLines(nextReveal)
-                await paintFrame(slide, index, nextReveal, true)
-                void playInfoLinePopInto(audioCtx, dest, 0.12)
-              } else {
-                // captureStream이 프레임을 유지하도록 동일 비트맵 재전송
-                await paintFrame(
-                  slide,
-                  index,
-                  Math.min(displayLines.length, lastReveal + 1)
-                )
-              }
-              await sleep(40)
-            }
-            try {
-              source.stop()
-            } catch {
-              /* ended */
-            }
-            const finalReveal = Math.min(displayLines.length, end + 1)
-            setRevealLines(finalReveal)
-            await paintFrame(slide, index, finalReveal, true)
-          } else {
-            const reveal = Math.min(displayLines.length, step + 1)
-            setRevealLines(reveal)
-            await paintFrame(slide, index, reveal, true)
-            void playInfoLinePopInto(audioCtx, dest, 0.16)
-            const holdMs = Math.max(380, ((slide.durationSec || 4) * 850) / steps)
-            const holdUntil = performance.now() + holdMs
-            while (performance.now() < holdUntil) {
-              await paintFrame(slide, index, reveal)
-              await sleep(40)
-            }
-          }
-          step = end + 1
-        }
-      }
-
-      recorder.stop()
-      const blob = await stopped
+      const filename = assetFilename(productBaseName, "video", extension)
       setExportUrl(URL.createObjectURL(blob))
-      await audioCtx.close().catch(() => undefined)
+      setExportFilename(filename)
+      downloadBlob(blob, filename)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "내보내기 실패")
     } finally {
-      captureSession?.dispose()
+      setExportStage("")
       setIsExporting(false)
     }
   }
 
-  /** TTS 없는 카드 영상만 렌더해 바로 저장 */
+  /** TTS·효과음·배경음 없이 같은 움직임의 카드 영상만 저장 */
   const exportSilentVideoDownload = async () => {
     if (!slides.length) return
     stopPlayback()
     setIsExporting(true)
     setError("")
-    let captureSession: InfoCardCaptureSession | null = null
     try {
-      const exportSlides = await Promise.all(
-        slides.map(async (slide) => ({
-          ...slide,
-          imageUrl: slide.imageUrl
-            ? await materializeImageDataUrl(slide.imageUrl).catch(() => slide.imageUrl)
-            : slide.imageUrl,
-        }))
-      )
-      const canvas = document.createElement("canvas")
-      canvas.width = EXPORT_W
-      canvas.height = EXPORT_H
-      const ctx = canvas.getContext("2d")
-      if (!ctx) throw new Error("캔버스를 사용할 수 없습니다.")
-      captureSession = createInfoCardCaptureSession()
-      const stream = canvas.captureStream(30)
-      const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
-        ? "video/webm;codecs=vp9"
-        : "video/webm"
-      const recorder = new MediaRecorder(stream, {
-        mimeType,
-        videoBitsPerSecond: 5_000_000,
+      const { blob, extension } = await renderInfoVideo({
+        slides,
+        tracks,
+        themeId: brief.themeId,
+        withVoice: false,
+        bgm: null,
+        onStage: setExportStage,
       })
-      const chunks: BlobPart[] = []
-      recorder.ondataavailable = (event) => {
-        if (event.data.size) chunks.push(event.data)
-      }
-      const stopped = new Promise<Blob>((resolve) => {
-        recorder.onstop = () => resolve(new Blob(chunks, { type: "video/webm" }))
-      })
-      recorder.start(250)
-
-      const timeline = cues.length
-        ? cues
-        : exportSlides.map((slide, slideIndex) => ({
-            id: slide.id,
-            slideIndex,
-            revealCount: Math.max(1, getInfoSlideDisplayLines(slide).length),
-            startSec: slideIndex * (slide.durationSec || 4),
-            durationSec: slide.durationSec || 4,
-            text: getInfoSlideDisplayLines(slide).join(" "),
-          }))
-
-      for (const cue of timeline) {
-        const slide = exportSlides[cue.slideIndex]!
-        setSlideIndex(cue.slideIndex)
-        setRevealLines(cue.revealCount)
-        const frame = await captureSession.capture(
-          slide,
-          brief.themeId,
-          cue.slideIndex,
-          exportSlides.length,
-          cue.revealCount
-        )
-        const until = performance.now() + Math.max(280, cue.durationSec * 1000)
-        while (performance.now() < until) {
-          ctx.clearRect(0, 0, EXPORT_W, EXPORT_H)
-          ctx.drawImage(frame, 0, 0, EXPORT_W, EXPORT_H)
-          await sleep(40)
-        }
-      }
-
-      recorder.stop()
-      const blob = await stopped
-      downloadBlob(
-        blob,
-        assetFilename(brief.productName || "info-shopping", "video", "webm")
-      )
+      downloadBlob(blob, assetFilename(productBaseName, "video", extension))
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "영상만 저장 실패")
     } finally {
-      captureSession?.dispose()
+      setExportStage("")
       setIsExporting(false)
     }
   }
 
   const handleSeparateAssetDownload = async (id: string) => {
-    const base = brief.productName || "info-shopping"
+    const base = productBaseName
     setSeparateAssetBusy(id)
     setError("")
     try {
@@ -714,7 +541,7 @@ export function InfoPreviewPanel({ brief }: { brief: InfoShoppingBrief }) {
         if (!slide) throw new Error("카드가 없습니다.")
         const session = createInfoCardCaptureSession()
         try {
-          const frame = await session.capture(
+          const { canvas } = await session.capture(
             slide,
             brief.themeId,
             0,
@@ -722,7 +549,7 @@ export function InfoPreviewPanel({ brief }: { brief: InfoShoppingBrief }) {
             Math.max(1, getInfoSlideDisplayLines(slide).length)
           )
           await downloadUrlAsFile(
-            frame.toDataURL("image/png"),
+            canvas.toDataURL("image/png"),
             assetFilename(base, "thumbnail", "png")
           )
         } finally {
@@ -862,9 +689,9 @@ export function InfoPreviewPanel({ brief }: { brief: InfoShoppingBrief }) {
 
   return (
     <section className="space-y-6">
-      <div className="rounded-[28px] border border-white/[0.08] bg-[#fcfaf7]/95 p-6 md:p-8">
-        <p className="text-[10px] font-black tracking-[0.2em] text-sky-400">STEP 05 · PREVIEW</p>
-        <h2 className="mt-2 text-xl font-black text-white sm:text-3xl">미리보기 · 내보내기</h2>
+      <div className="rounded-[24px] border border-[#e3e6ec] bg-[#ffffff] p-6 shadow-[0_1px_2px_rgba(14,16,22,0.04),0_16px_40px_-24px_rgba(14,16,22,0.18)] md:p-8">
+        <p className="text-[12px] font-black tracking-[0.18em] text-[#1f6fe0]">STEP 05 · PREVIEW</p>
+        <h2 className="mt-2 text-xl font-black tracking-[-0.035em] text-[#0e1016] sm:text-3xl">미리보기 · 내보내기</h2>
         <p className="mt-2 text-sm text-zinc-400">
           재생바로 중간에 멈추거나, 원하는 위치부터 다시 재생할 수 있습니다.
         </p>
@@ -877,7 +704,7 @@ export function InfoPreviewPanel({ brief }: { brief: InfoShoppingBrief }) {
               stopPlayback()
               void playFromCue(0)
             }}
-            className="bg-sky-500 font-bold text-white hover:bg-sky-400"
+            className="rounded-full bg-[#0e1016] font-bold text-[#ffffff] hover:bg-[#262a33] disabled:bg-[#9aa0ad]"
           >
             <Play className="mr-2 h-4 w-4" />
             처음부터
@@ -891,24 +718,62 @@ export function InfoPreviewPanel({ brief }: { brief: InfoShoppingBrief }) {
             {isExporting ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                렌더 중…
+                {exportStage || "렌더 준비 중…"}
               </>
             ) : (
               <>
                 <Download className="mr-2 h-4 w-4" />
-                WebM 내보내기
+                영상 내보내기
               </>
             )}
           </Button>
           {exportUrl ? (
             <a
               href={exportUrl}
-              download={`info-shopping-${Date.now()}.webm`}
+              download={exportFilename}
               className="inline-flex h-10 items-center rounded-md bg-emerald-500 px-4 text-sm font-bold text-white hover:bg-emerald-400"
             >
-              다운로드
+              다시 다운로드
             </a>
           ) : null}
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+          <Music className="h-4 w-4 shrink-0 text-sky-300" />
+          <label className="flex items-center gap-2 text-sm font-semibold text-zinc-200">
+            배경음악
+            <select
+              value={bgmId}
+              disabled={isExporting}
+              onChange={(e) => onChange({ ...brief, bgmId: e.target.value })}
+              className="h-9 rounded-lg border border-white/15 bg-zinc-900 px-2 text-sm text-white"
+            >
+              <option value="">없음</option>
+              {VOICE_PREVIEW_BGM_OPTIONS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex min-w-[180px] flex-1 items-center gap-2 text-xs text-zinc-400">
+            볼륨
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={5}
+              value={bgmVolume}
+              disabled={isExporting || !bgmId}
+              onChange={(e) => onChange({ ...brief, bgmVolume: Number(e.target.value) })}
+              className="h-2 flex-1 cursor-pointer appearance-none rounded-full bg-zinc-700 accent-sky-400 disabled:opacity-40"
+              aria-label="배경음악 볼륨"
+            />
+            <span className="w-9 text-right tabular-nums">{bgmVolume}%</span>
+          </label>
+          <p className="w-full text-[11px] text-zinc-500">
+            재생과 영상 내보내기에 함께 들어갑니다. 카드 전환·줄 등장·제품 이미지 줌 모션도 영상에 그대로 담깁니다.
+          </p>
         </div>
 
         <SeparateAssetDownloads
@@ -933,7 +798,7 @@ export function InfoPreviewPanel({ brief }: { brief: InfoShoppingBrief }) {
             {
               id: "video",
               label: "영상만",
-              hint: "TTS 없는 카드 WebM",
+              hint: "TTS 없는 카드 영상",
               disabled: slides.length === 0 || isExporting,
               missingReason: "카드 없음",
             },
@@ -963,7 +828,7 @@ export function InfoPreviewPanel({ brief }: { brief: InfoShoppingBrief }) {
         ) : null}
       </div>
 
-      <div className="relative mx-auto flex w-full max-w-[min(100%,420px)] flex-col items-center gap-3">
+      <div className="relative mx-auto flex w-full max-w-[min(100%,420px)] flex-col items-center gap-3 overflow-x-clip">
         <div className="flex w-full justify-end">
           <Button
             type="button"
@@ -976,14 +841,22 @@ export function InfoPreviewPanel({ brief }: { brief: InfoShoppingBrief }) {
             확대
           </Button>
         </div>
-        <InfoCardFrame
-          slide={current}
-          themeId={brief.themeId}
-          slideIndex={slideIndex}
-          slideCount={slides.length}
-          revealLineCount={revealLines}
-          className="max-w-[420px]"
-        />
+        {/* 폰 프레임 — 앱 UI 장식일 뿐, 내보내기 캡처(captureMode)와 무관 */}
+        <div className="w-full max-w-[420px] rounded-[44px] bg-[#0e1016] p-[10px] shadow-[0_30px_60px_-30px_rgba(14,16,22,0.55)]">
+          <div className="relative overflow-hidden rounded-[34px]">
+            <span className="pointer-events-none absolute left-1/2 top-2 z-10 h-[18px] w-[30%] -translate-x-1/2 rounded-full bg-[#0e1016]" aria-hidden />
+            <div key={slideIndex} className="info-card-swipe-in w-full motion-reduce:animate-none">
+              <InfoCardFrame
+                slide={current}
+                themeId={brief.themeId}
+                slideIndex={slideIndex}
+                slideCount={slides.length}
+                revealLineCount={revealLines}
+                className="max-w-[420px] !rounded-none !border-0"
+              />
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="mx-auto w-full max-w-md rounded-2xl border border-white/10 bg-black/40 px-4 py-3">
@@ -1036,14 +909,16 @@ export function InfoPreviewPanel({ brief }: { brief: InfoShoppingBrief }) {
           </div>
 
           <div className="flex min-h-0 flex-1 items-center justify-center px-4 py-2">
-            <InfoCardFrame
-              slide={current}
-              themeId={brief.themeId}
-              slideIndex={slideIndex}
-              slideCount={slides.length}
-              revealLineCount={revealLines}
-              className="max-h-[min(78vh,820px)] w-auto max-w-[min(92vw,520px)]"
-            />
+            <div key={slideIndex} className="info-card-swipe-in">
+              <InfoCardFrame
+                slide={current}
+                themeId={brief.themeId}
+                slideIndex={slideIndex}
+                slideCount={slides.length}
+                revealLineCount={revealLines}
+                className="max-h-[min(78vh,820px)] w-auto max-w-[min(92vw,520px)]"
+              />
+            </div>
           </div>
 
           <div className="mx-auto w-full max-w-xl px-4 pb-6">
@@ -1056,152 +931,4 @@ export function InfoPreviewPanel({ brief }: { brief: InfoShoppingBrief }) {
       ) : null}
     </section>
   )
-}
-
-/** 외부/상대 이미지를 data URL로 바꿔 html2canvas·캔버스에 안전하게 넣음 */
-async function materializeImageDataUrl(rawUrl: string): Promise<string> {
-  const trimmed = rawUrl.trim()
-  if (!trimmed) return trimmed
-  if (trimmed.startsWith("data:image/")) return trimmed
-  const src = /^https?:\/\//i.test(trimmed)
-    ? `/api/shotform/image-proxy?url=${encodeURIComponent(trimmed)}`
-    : trimmed
-  const res = await fetch(src)
-  if (!res.ok) throw new Error(`이미지 로드 실패 (${res.status})`)
-  const blob = await res.blob()
-  return await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result || ""))
-    reader.onerror = () => reject(new Error("이미지 변환 실패"))
-    reader.readAsDataURL(blob)
-  })
-}
-
-function waitForHostImages(host: HTMLElement): Promise<void> {
-  const imgs = Array.from(host.querySelectorAll("img"))
-  if (!imgs.length) return Promise.resolve()
-  return Promise.all(
-    imgs.map(
-      (img) =>
-        new Promise<void>((resolve) => {
-          if (img.complete && img.naturalWidth > 0) {
-            resolve()
-            return
-          }
-          const done = () => resolve()
-          img.addEventListener("load", done, { once: true })
-          img.addEventListener("error", done, { once: true })
-          window.setTimeout(done, 12_000)
-        })
-    )
-  ).then(() => undefined)
-}
-
-type InfoCardCaptureSession = {
-  capture: (
-    slide: InfoSlide,
-    themeId: InfoThemeId,
-    slideIndex: number,
-    slideCount: number,
-    revealLines: number
-  ) => Promise<HTMLCanvasElement>
-  dispose: () => void
-}
-
-/**
- * 미리보기와 같은 InfoCardFrame DOM을 오프스크린에 그려 html2canvas로 캡처.
- * (구 캔버스 수동 드로잉은 글자 겹침·하이라이트·제품컷 누락이 났음)
- */
-function createInfoCardCaptureSession(): InfoCardCaptureSession {
-  const host = document.createElement("div")
-  host.setAttribute("aria-hidden", "true")
-  // 화면 안쪽에 투명 배치 — 멀리 치우면 cqw/이미지 레이아웃이 깨질 수 있음
-  host.style.cssText = [
-    "position:fixed",
-    "left:0",
-    "top:0",
-    `width:${EXPORT_W}px`,
-    "opacity:0",
-    "pointer-events:none",
-    "z-index:-1",
-    "overflow:hidden",
-  ].join(";")
-  document.body.appendChild(host)
-  const root: Root = createRoot(host)
-  type Html2Canvas = (
-    el: HTMLElement,
-    opts: Record<string, unknown>
-  ) => Promise<HTMLCanvasElement>
-  let html2canvasFn: Html2Canvas | null = null
-
-  const capture: InfoCardCaptureSession["capture"] = async (
-    slide,
-    themeId,
-    slideIndex,
-    slideCount,
-    revealLines
-  ) => {
-    if (!html2canvasFn) {
-      const mod = await import("html2canvas-pro")
-      html2canvasFn = (mod.default || mod) as Html2Canvas
-    }
-
-    await new Promise<void>((resolve) => {
-      root.render(
-        <InfoCardFrame
-          slide={slide}
-          themeId={themeId}
-          slideIndex={slideIndex}
-          slideCount={slideCount}
-          revealLineCount={revealLines}
-          captureMode
-          className="!max-w-none w-[1080px] rounded-none shadow-none"
-        />
-      )
-      requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-    })
-    if (document.fonts?.ready) {
-      await document.fonts.ready.catch(() => undefined)
-    }
-    await waitForHostImages(host)
-    // 레이아웃·이미지 decode 한 프레임 더 대기
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
-
-    const card = host.querySelector("[data-info-card-capture='1']") as HTMLElement | null
-    if (!card) throw new Error("내보내기용 카드 프레임을 찾지 못했습니다.")
-
-    return html2canvasFn(card, {
-      width: EXPORT_W,
-      height: EXPORT_H,
-      windowWidth: EXPORT_W,
-      windowHeight: EXPORT_H,
-      scale: 1,
-      useCORS: true,
-      allowTaint: false,
-      backgroundColor: null,
-      logging: false,
-      imageTimeout: 15_000,
-      onclone: (_doc: Document, cloned: HTMLElement) => {
-        cloned.style.width = `${EXPORT_W}px`
-        cloned.style.height = `${EXPORT_H}px`
-        cloned.style.maxWidth = "none"
-        cloned.querySelectorAll("img").forEach((img) => {
-          img.classList.remove("info-card-kenburns")
-          ;(img as HTMLImageElement).style.transform = "none"
-        })
-      },
-    })
-  }
-
-  return {
-    capture,
-    dispose: () => {
-      try {
-        root.unmount()
-      } catch {
-        /* ignore */
-      }
-      host.remove()
-    },
-  }
 }

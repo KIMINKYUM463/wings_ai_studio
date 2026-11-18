@@ -1,4 +1,4 @@
-import type { AutoEditJobResult } from "@/lib/shotform-auto-edit-types"
+import { BEAT_SCRIPT_TONE, type AutoEditJobResult } from "@/lib/shotform-auto-edit-types"
 import type { NarrationSegment } from "@/lib/shotform-factory-narration-script"
 import {
   expandSubtitleScheduleLines,
@@ -221,7 +221,8 @@ export function narrationSegmentsFromAutoEdit(result: AutoEditJobResult): Narrat
     })
   }
 
-  if (plan?.length && isPrecisionScript && result.script?.script?.length === plan.length) {
+  const isBeatScript = result.script?.tone === BEAT_SCRIPT_TONE
+  if (plan?.length && (isPrecisionScript || isBeatScript) && result.script?.script?.length === plan.length) {
     return result.script.script.map((line) => ({
       start: line.start,
       end: line.end,

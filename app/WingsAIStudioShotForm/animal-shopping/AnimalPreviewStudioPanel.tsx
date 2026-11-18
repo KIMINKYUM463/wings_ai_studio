@@ -20,6 +20,7 @@ import {
   downloadUrlAsFile,
 } from "@/lib/shotform-separate-assets"
 import {
+  convertWebmBlobToMp4,
   fixWebmBlobDuration,
   remuxWebmWithDuration,
 } from "@/lib/mvp-webm-to-mp4"
@@ -115,10 +116,12 @@ export function AnimalPreviewStudioPanel({
   const [statusHint, setStatusHint] = useState("")
   const [separateAssetBusy, setSeparateAssetBusy] = useState<string | null>(null)
 
-  const sortedVideos = [...brief.videoUrls]
+  const sortedClips = [...brief.videoUrls]
     .sort((a, b) => a.index - b.index)
-    .map((v) => v.videoUrl)
-    .filter(Boolean)
+    .filter((v) => Boolean(v.videoUrl))
+  const sortedVideos = sortedClips.map((v) => v.videoUrl)
+  /** 각 클립을 해당 씬 TTS 길이만큼만 보여줘 나레이션과 화면 전환을 맞춤 */
+  const clipDurationsSec = sortedClips.map((v) => brief.scenes?.[v.index]?.ttsDurationSec)
 
   /** UI 표시용 — data/https는 확실, blob은 세션 중일 수 있음 */
   const playableTtsUrl = useMemo(() => {
@@ -134,8 +137,7 @@ export function AnimalPreviewStudioPanel({
   const fallbackDuration = useMemo(() => {
     const sceneSum = (brief.scenes || []).reduce((sum, scene) => {
       const sec = scene.ttsDurationSec
-      if (!isValidDuration(sec)) return sum
-      return sum + Math.min(12, Math.max(4, Math.ceil(sec)))
+      return isValidDuration(sec) ? sum + sec : sum
     }, 0)
     return pickDuration(brief.ttsDurationSec, sceneSum)
   }, [brief.scenes, brief.ttsDurationSec])
@@ -182,7 +184,7 @@ export function AnimalPreviewStudioPanel({
           setError("TTS가 없어 무음으로 합칩니다. 음성 단계에서 나레이션을 만들어 주세요.")
         }
       }
-      const merged = await mergeAnimalVideosClient(sortedVideos, tts)
+      const merged = await mergeAnimalVideosClient(sortedVideos, tts, { clipDurationsSec })
       setMediaDuration(merged.durationSec)
       setCurrentTime(0)
       setMuxedWithTts(merged.hasAudio)
@@ -345,23 +347,38 @@ export function AnimalPreviewStudioPanel({
         )
       }
 
+      // 브라우저가 MP4로 녹화했으면 그대로, WebM이면 MP4 변환을 시도
       let blob = remade.blob
-      setStatusHint("Windows 속성·재생용으로 길이 정보 정리 중… (잠시만요)")
-      try {
-        blob = await remuxWebmWithDuration(blob, remade.durationSec)
-      } catch (remuxError) {
-        console.warn("[AnimalPreview] remux 실패, duration 보정만 사용:", remuxError)
-      }
-      try {
-        blob = await fixWebmBlobDuration(blob, remade.durationSec)
-      } catch {
-        /* ignore */
+      let extension = "mp4"
+      if (!blob.type.startsWith("video/mp4")) {
+        try {
+          setStatusHint("MP4로 변환 중… (잠시만요)")
+          blob = await convertWebmBlobToMp4(
+            blob,
+            (ratio) => setStatusHint(`MP4로 변환 중… ${Math.round(ratio * 100)}%`),
+            { durationSec: remade.durationSec }
+          )
+        } catch (convertError) {
+          // MP4 변환이 안 되는 환경이면 길이 메타만 보정한 WebM으로 저장
+          console.warn("[AnimalPreview] MP4 변환 실패, WebM으로 저장:", convertError)
+          extension = "webm"
+          try {
+            blob = await remuxWebmWithDuration(blob, remade.durationSec)
+          } catch {
+            /* ignore */
+          }
+          try {
+            blob = await fixWebmBlobDuration(blob, remade.durationSec)
+          } catch {
+            /* ignore */
+          }
+        }
       }
 
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url
-      a.download = `animal-shopping-${brief.character.name}-${Date.now()}.webm`
+      a.download = `animal-shopping-${brief.character.name}-${Date.now()}.${extension}`
       document.body.appendChild(a)
       a.click()
       a.remove()
@@ -407,8 +424,9 @@ export function AnimalPreviewStudioPanel({
           throw new Error("장면 영상이 없습니다.")
         }
         setStatusHint("TTS 없는 영상만 합치는 중…")
-        const merged = await mergeAnimalVideosClient(sortedVideos, undefined)
-        downloadBlob(merged.blob, assetFilename(base, "video", "webm"))
+        const merged = await mergeAnimalVideosClient(sortedVideos, undefined, { clipDurationsSec })
+        const ext = merged.blob.type.startsWith("video/mp4") ? "mp4" : "webm"
+        downloadBlob(merged.blob, assetFilename(base, "video", ext))
         setStatusHint("영상만(무음/믹스) 저장 완료")
         return
       }
@@ -492,8 +510,10 @@ export function AnimalPreviewStudioPanel({
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,360px)_1fr]">
         <div className="mx-auto w-full max-w-[min(100%,320px)]">
-          <div className="overflow-hidden rounded-[1.75rem] border border-[rgba(34,28,22,0.14)] bg-black shadow-[0_24px_60px_rgba(20,35,70,0.158)]">
-            <div className="relative aspect-[9/16] bg-black">
+          {/* Phone frame */}
+          <div className="relative rounded-[2.75rem] bg-[#0e1016] p-2.5 shadow-[0_30px_70px_rgba(14,16,22,0.22),inset_0_0_0_1px_rgba(255,255,255,0.08)]">
+            <span aria-hidden className="pointer-events-none absolute left-1/2 top-4 z-20 h-5 w-20 -translate-x-1/2 rounded-full bg-[#0e1016]" />
+            <div className="relative aspect-[9/16] overflow-hidden rounded-[2.2rem] bg-black">
               {hasMerged ? (
                 <>
                   <video
@@ -506,7 +526,7 @@ export function AnimalPreviewStudioPanel({
                   <button
                     type="button"
                     onClick={openFullscreen}
-                    className="absolute right-3 top-3 z-10 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-black/55 text-[#221c16] backdrop-blur-sm transition hover:bg-black/75"
+                    className="absolute right-3 top-3 z-10 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-black/55 text-white backdrop-blur-sm transition hover:bg-black/75"
                     title="전체화면으로 확대"
                     aria-label="전체화면으로 확대"
                   >
@@ -616,7 +636,7 @@ export function AnimalPreviewStudioPanel({
                 {
                   id: "video",
                   label: "영상만",
-                  hint: "TTS 없는 합본 WebM",
+                  hint: "TTS 없는 합본 영상",
                   disabled: sortedVideos.length === 0,
                   missingReason: "클립 없음",
                 },

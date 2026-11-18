@@ -114,9 +114,8 @@ export function MvpVideoUrlKeywordPanel({ disabled, onApplyKeywords, onAnalyzedU
         <span className="text-[10px] text-slate-500">YouTube · TikTok · Instagram</span>
       </div>
       <p className="mt-1 text-xs text-slate-500">
-        영상 URL만 넣으면 AI가 <span className="text-violet-200">대본(자막)</span>과{" "}
-        <span className="text-violet-200">영상 장면·썸네일</span>을 분석해,{" "}
-        <span className="text-amber-200">제품과 관련된 키워드만</span> 추출합니다.
+        영상을 장면마다 보고, 화면에 나온 형태·색·재질이 들어간 검색어만 만듭니다.
+        텐트·난방처럼 종류만 가리키는 말은 빼서, 다른 제품이 같이 검색되지 않게 합니다.
       </p>
 
       <div className="mt-3 flex flex-col gap-2 sm:flex-row">
@@ -141,7 +140,7 @@ export function MvpVideoUrlKeywordPanel({ disabled, onApplyKeywords, onAnalyzedU
           {loading ? (
             <>
               <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-              대본·장면 분석 중…
+              장면을 나누어 보는 중…
             </>
           ) : (
             <>
@@ -213,7 +212,7 @@ export function MvpVideoUrlKeywordPanel({ disabled, onApplyKeywords, onAnalyzedU
           ) : null}
 
           <div>
-            <p className="text-xs text-slate-400">제품 관련 키워드 — 클릭하여 선택</p>
+            <p className="text-xs text-slate-400">이 제품만 가리키는 검색어 — 클릭하여 선택</p>
             <div className="mt-2 flex flex-wrap gap-2">
               {analysis.keywords.map((item) => {
                 const on = selected.has(item.keyword)

@@ -50,7 +50,7 @@ function clampPct(n: number): number {
   return Math.min(100, Math.max(0, n))
 }
 
-function padBox(box: DetectedChineseMosaicBox, padPct = 0.85): DetectedChineseMosaicBox {
+export function padBox(box: DetectedChineseMosaicBox, padPct = 0.85): DetectedChineseMosaicBox {
   const rect = {
     left: box.center_x_pct - box.width_pct / 2,
     top: box.center_y_pct - box.height_pct / 2,

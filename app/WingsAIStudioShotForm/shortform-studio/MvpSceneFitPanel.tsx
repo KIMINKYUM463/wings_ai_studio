@@ -27,7 +27,7 @@ type Props = {
 }
 
 function statusLabel(row: SceneFitRow): string {
-  if (row.status === "overflow") return "음성 초과"
+  if (row.status === "overflow") return "슬로모션"
   if (row.status === "trim") return "자동 자르기 가능"
   return "맞춤"
 }
@@ -72,7 +72,7 @@ export function MvpSceneFitPanel({
                 light ? "text-[10px] text-slate-500" : "text-[10px] text-slate-400"
               )}
             >
-              컷 길이에 TTS 배속을 맞춥니다. 말이 길면 배속 대신 영상 끝 홀드로 문장 전체를 유지하고, 음성이 짧으면 영상을 자릅니다.
+              음성은 모든 문장을 같은 속도로 읽고, 영상이 음성에 맞춥니다. 음성이 짧으면 컷 가운데만 쓰고, 길면 슬로모션으로 늘립니다.
             </p>
           </div>
           <button
@@ -104,7 +104,7 @@ export function MvpSceneFitPanel({
               light ? "bg-emerald-50 text-emerald-800" : "bg-emerald-950/40 text-emerald-200/90"
             )}
           >
-            ON — TTS 시 장면마다 배속 자동 · 음성이 짧으면 영상을 음성 길이에 맞춰 자동 자르기
+            ON — 음성이 짧으면 컷 가운데를 음성 길이만큼 자동 사용 · 길면 영상 슬로모션
           </p>
         ) : (
           <p

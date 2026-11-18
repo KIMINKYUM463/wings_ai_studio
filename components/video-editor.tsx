@@ -47,7 +47,7 @@ interface TextTemplate {
 
 export default function VideoEditor({ videoUrl, onSave }: VideoEditorProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
-  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const canvasRef = useRef<HTMLDivElement>(null)
   const timelineRef = useRef<HTMLDivElement>(null)
 
   // 비디오 상태

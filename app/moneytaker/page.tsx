@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import Anthropic from "@anthropic-ai/sdk"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -200,6 +199,21 @@ function Sidebar({
   )
 }
 
+async function callAnthropic(
+  body: Record<string, unknown>
+): Promise<{ content: Array<{ type: string; text?: string }> }> {
+  const response = await fetch("/api/moneytaker/anthropic", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new Error(payload.error || "AI 요청에 실패했습니다.")
+  }
+  return payload
+}
+
 export default function MoneyTakerPage() {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState("keyword-analysis")
@@ -297,8 +311,6 @@ export default function MoneyTakerPage() {
     setIsChatbotLoading(true)
 
     try {
-      const OPENAI_API_KEY = "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"
-
       const systemPrompt = `당신은 블로그 마케팅 전문가 AI 어시스턴트 'MoneyTaker AI'입니다.
 
 당신의 역할:
@@ -320,11 +332,10 @@ export default function MoneyTakerPage() {
 
 항상 사용자의 질문에 정확하고 도움이 되는 답변을 제공하세요.`
 
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      const response = await fetch("/api/moneytaker/openai", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
           model: "gpt-4o-mini",
@@ -427,7 +438,7 @@ export default function MoneyTakerPage() {
     recipientCEO: "", // 수신인 대표
     items: [] as { name: string; category: string; price: number; quantity: number; remarks: string }[],
   })
-  const [documentFormat, setDocumentFormat] = useState<"pdf" | "html" | "docx" | "word">("pdf") // 문서 형식
+  const [documentFormat, setDocumentFormat] = useState<"pdf" | "html" | "docx" | "word" | "hwp">("pdf") // 문서 형식
 
   // 키워드 분류 함수
   const categorizeKeyword = (total: number): "세부키워드" | "중형키워드" | "대형키워드" => {
@@ -502,7 +513,7 @@ export default function MoneyTakerPage() {
   const filteredRelatedKeywords = (() => {
     // 카테고리 필터링 (중복 선택 가능)
     let filtered = selectedCategories.length > 0
-      ? relatedKeywords.filter((k) => selectedCategories.includes(k.category))
+      ? relatedKeywords.filter((k) => !!k.category && selectedCategories.includes(k.category))
       : relatedKeywords
 
     // 검색량순 정렬 적용
@@ -882,8 +893,6 @@ export default function MoneyTakerPage() {
 
     try {
       // OpenAI API 키 (하드코딩)
-      const OPENAI_API_KEY = "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"
-
       const prompt = `다음 키워드에 대한 상세한 분석을 제공해주세요:
 
 키워드: ${keyword}
@@ -902,11 +911,10 @@ PC 검색량: ${keywordData.pc.toLocaleString()}
 
 분석은 구체적이고 실행 가능한 인사이트를 제공해주세요.`
 
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      const response = await fetch("/api/moneytaker/openai", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
           model: "gpt-4o-mini",
@@ -1002,14 +1010,11 @@ PC 검색량: ${keywordData.pc.toLocaleString()}
       console.log(`[MoneyTaker] 이미지 ${imageIndex + 1} 재생성 시작`)
       
       // OpenAI API 키
-      const OPENAI_API_KEY = "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"
-      
       // 해당 이미지에 대한 프롬프트 생성
-      const imagePromptResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+      const imagePromptResponse = await fetch("/api/moneytaker/openai", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
           model: "gpt-4o-mini",
@@ -1053,7 +1058,7 @@ PC 검색량: ${keywordData.pc.toLocaleString()}
         })
         return true
       } else {
-        throw new Error(data.error || "이미지 생성 실패")
+        throw new Error(result.error || "이미지 생성 실패")
       }
     } catch (error) {
       console.error(`[MoneyTaker] ❌ 이미지 ${imageIndex + 1} 재생성 실패:`, error)
@@ -1071,14 +1076,11 @@ PC 검색량: ${keywordData.pc.toLocaleString()}
       console.log(`[Reporter AI] 이미지 ${imageIndex + 1} 재생성 시작`)
       
       // OpenAI API 키
-      const OPENAI_API_KEY = "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"
-      
       // 해당 이미지에 대한 프롬프트 생성
-      const imagePromptResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+      const imagePromptResponse = await fetch("/api/moneytaker/openai", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
           model: "gpt-4o-mini",
@@ -1122,7 +1124,7 @@ PC 검색량: ${keywordData.pc.toLocaleString()}
         })
         return true
       } else {
-        throw new Error(data.error || "이미지 생성 실패")
+        throw new Error(result.error || "이미지 생성 실패")
       }
     } catch (error) {
       console.error(`[Reporter AI] ❌ 이미지 ${imageIndex + 1} 재생성 실패:`, error)
@@ -1272,8 +1274,6 @@ PC 검색량: ${keywordData.pc.toLocaleString()}
       setTotalImageCount(imageSuggestionCount)
       
       // OpenAI API 키 (하드코딩)
-      const OPENAI_API_KEY = "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"
-      
       // 콘텐츠에서 이미지 제안 위치 및 설명 추출
       const imageSuggestionRegex = /\*\*\[?이미지 제안:\s*([^\]]+)\]?\*\*/g
       const imageSuggestions: string[] = []
@@ -1301,11 +1301,10 @@ PC 검색량: ${keywordData.pc.toLocaleString()}
         : ""
       
       // 생성된 콘텐츠를 기반으로 이미지 프롬프트 생성 (전체 내용 사용)
-      const imagePromptResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+      const imagePromptResponse = await fetch("/api/moneytaker/openai", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
           model: "gpt-4o-mini",
@@ -1656,8 +1655,6 @@ PC 검색량: ${keywordData.pc.toLocaleString()}
     setPostStructureAnalysis(null)
 
     try {
-      const OPENAI_API_KEY = "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"
-
       const structurePrompt = `다음 상위노출 블로그 글들의 구조를 분석해주세요:
 
 ${blogTopPosts.map((post, idx) => `${idx + 1}. 제목: ${post.title}\n   설명: ${post.description}`).join("\n\n")}
@@ -1680,11 +1677,10 @@ ${blogTopPosts.map((post, idx) => `${idx + 1}. 제목: ${post.title}\n   설명:
   "overallFlow": "전체 흐름 분석"
 }`
 
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      const response = await fetch("/api/moneytaker/openai", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
           model: "gpt-4o-mini",
@@ -1886,12 +1882,7 @@ ${blogTopPosts.map((post, idx) => `${idx + 1}. 제목: ${post.title}\n   설명:
       await new Promise(resolve => setTimeout(resolve, 4000)) // 4초 대기
       
       // Step 2.5: 제목 생성 (콘텐츠 생성 전에 먼저 생성)
-      const ANTHROPIC_API_KEY = "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"
-      
-      const anthropic = new Anthropic({
-        apiKey: ANTHROPIC_API_KEY,
-        dangerouslyAllowBrowser: true,
-      })
+      const anthropic = { messages: { create: callAnthropic } }
       
       let generatedTitle = ""
       try {
@@ -2028,7 +2019,7 @@ ${blogTopPosts.map((post, idx) => `${idx + 1}. 제목: ${post.title}\n   설명:
           ],
         })
 
-        generatedTitle = titleMsg.content[0].type === "text" ? titleMsg.content[0].text.trim() : blogAIKeyword || "AI 생성 블로그 포스트"
+        generatedTitle = titleMsg.content[0].type === "text" ? titleMsg.content[0].text!.trim() : blogAIKeyword || "AI 생성 블로그 포스트"
         
         // 제목에서 따옴표나 불필요한 문자 제거
         generatedTitle = generatedTitle.replace(/^["']|["']$/g, "").trim()
@@ -2938,7 +2929,7 @@ ${analysisContext}`
         ],
       })
 
-      const fullContent = msg.content[0].type === "text" ? msg.content[0].text : "콘텐츠를 생성할 수 없습니다."
+      const fullContent = msg.content[0].type === "text" ? msg.content[0].text! : "콘텐츠를 생성할 수 없습니다."
 
       // 제목과 본문 분리 (제목: 형식으로 시작하는 경우)
       const lines = fullContent.split("\n")
@@ -3059,8 +3050,6 @@ ${analysisContext}`
     setGeneratedGuide("")
 
     try {
-      const OPENAI_API_KEY = "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"
-
       let prompt = ""
       if (experienceMode === "auto") {
         // 자동 모드: 플레이스 URL에서 정보 추출 (실제로는 URL 파싱 필요)
@@ -3145,11 +3134,10 @@ ${prompt}
 
 위 정보를 바탕으로 위 포맷에 맞춰 1PAGE 가이드를 작성해주세요. 서식은 코드 블록 없이 일반 텍스트로만 보여줘.`
 
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      const response = await fetch("/api/moneytaker/openai", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
           model: "gpt-4o-mini",
@@ -3195,8 +3183,6 @@ ${prompt}
     setGeneratedRecruitment("")
 
     try {
-      const OPENAI_API_KEY = "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"
-
       const recruitmentPrompt = `## 📍 5단계: 오픈채팅 모집글 작성 (요청 시)
 
 다음 체험단 가이드를 바탕으로 오픈채팅 모집글을 작성해주세요:
@@ -3223,11 +3209,10 @@ ${generatedGuide}
 
 서식은 코드 블록 없이 일반 텍스트로만 보여줘. 친근하고 매력적인 톤으로 작성해주세요.`
 
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      const response = await fetch("/api/moneytaker/openai", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
           model: "gpt-4o-mini",
@@ -3365,8 +3350,6 @@ ${generatedGuide}
     setReporterImages([])
 
     try {
-      const OPENAI_API_KEY = "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"
-
       // 이미지 생성 모드인 경우 이미지 제안 위치를 포함한 프롬프트 생성
       const imagePromptPart = reporterImageMode === "generate" 
         ? `\n7. 본문 중간에 이미지를 삽입할 위치를 표시해주세요. 이미지 제안 위치는 다음과 같이 표시하세요:
@@ -3407,11 +3390,10 @@ ${generatedGuide}
 
 원고를 작성해주세요.`
 
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      const response = await fetch("/api/moneytaker/openai", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
           model: "gpt-4o-mini",
@@ -3492,8 +3474,6 @@ ${generatedGuide}
       setTotalImageCount(imageSuggestionCount)
       
       // OpenAI API 키
-      const OPENAI_API_KEY = "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"
-      
       // 각 이미지 제안 주변의 콘텐츠 컨텍스트 추출 (앞뒤 800자로 확대)
       const imageSuggestionPositions: number[] = []
       let searchPos = 0
@@ -3520,11 +3500,10 @@ ${generatedGuide}
         : ""
       
       // 생성된 콘텐츠를 기반으로 이미지 프롬프트 생성 (전체 내용 사용)
-      const imagePromptResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+      const imagePromptResponse = await fetch("/api/moneytaker/openai", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
           model: "gpt-4o-mini",
@@ -5481,14 +5460,7 @@ ${generatedGuide}
                             onClick={async () => {
                               setIsRegeneratingTitle(true)
                               try {
-                                const OPENAI_API_KEY = "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"
-                                
-                                const ANTHROPIC_API_KEY = "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"
-                                
-                                const anthropic = new Anthropic({
-                                  apiKey: ANTHROPIC_API_KEY,
-                                  dangerouslyAllowBrowser: true,
-                                })
+      const anthropic = { messages: { create: callAnthropic } }
                                 
                                 const titlePrompt = `${blogAIKeyword}를 활용하여 독자의 핵심 반박에 맞는 제목 1개를 생성하세요.
 
@@ -5623,7 +5595,7 @@ ${generatedGuide}
                                   ],
                                 })
                                 
-                                const newTitle = titleMsg.content[0].type === "text" ? titleMsg.content[0].text.trim() : blogTitle
+                                const newTitle = titleMsg.content[0].type === "text" ? titleMsg.content[0].text!.trim() : blogTitle
                                 // 제목에서 따옴표나 불필요한 문자 제거
                                 const cleanedTitle = newTitle.replace(/^["']|["']$/g, "").trim()
                                 setBlogTitle(cleanedTitle)

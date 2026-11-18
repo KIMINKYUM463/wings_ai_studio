@@ -321,7 +321,7 @@ export function CoupangReviewPanel({
           : obj
 
       await applyCollectedResult({
-        status: "ok",
+        status: "ok" as string as CoupangCollectResult["status"],
         productName: String(payload.productName || ""),
         images: Array.isArray(payload.images) ? (payload.images as string[]) : undefined,
         productImages: Array.isArray(payload.productImages)

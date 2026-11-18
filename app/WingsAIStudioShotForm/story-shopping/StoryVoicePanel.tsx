@@ -1,6 +1,13 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react"
 import {
   AudioLines,
   Check,
@@ -29,11 +36,28 @@ import { trimSilenceFromAudioUrl } from "@/lib/shotform-factory-line-tts"
 import { DEFAULT_TTS_PROVIDER, isRetiredSupertoneVoiceId } from "@/lib/shotform-tts-providers"
 import { SupertonicSetupBar } from "../components/SupertonicSetupBar"
 import { splitNarrationIntoMeaningLines } from "./StoryChannelFrame"
-import { alignStoryCaptionsWithWhisper } from "./story-caption-align"
-import type { StoryShoppingBrief, StoryVoiceTrack } from "./story-types"
+import {
+  alignStoryCaptionsWithWhisper,
+  shiftCaptionCuesForTrim,
+} from "./story-caption-align"
+import type {
+  StoryShoppingBrief,
+  StoryVoiceCheckpoint,
+  StoryVoiceData,
+  StoryVoiceTrack,
+} from "./story-types"
 import { TypecastApiErrorNotice } from "@/components/TypecastApiGuideCard"
+import {
+  buildEstimatedStoryCaptionCues,
+  buildProviderCaptionCues,
+  isCurrentStoryVoiceTrack,
+  narrationHash,
+  upsertVoiceCheckpoint,
+  voiceSettingsHash,
+  type ElevenLabsAlignment,
+} from "./story-tts-resume"
 
-type Provider = "supertonic" | "typecast" | "elevenlabs"
+type Provider = "supertonic" | "typecast" | "elevenlabs" | "adam"
 
 /** 편집기 재생(StoryEditorWorkspace)과 같은 무음 기준 */
 const STORY_TTS_SILENCE_THRESHOLD = 0.018
@@ -43,6 +67,7 @@ const DEFAULT_SPEED_BY_PROVIDER: Record<Provider, number> = {
   supertonic: 1.2,
   typecast: 1.15,
   elevenlabs: 1.15,
+  adam: 1,
 }
 
 type CatalogVoice = {
@@ -143,6 +168,12 @@ const PROVIDERS: Array<{
     description: "한국어·다국어 공유 보이스",
     icon: Globe2,
   },
+  {
+    id: "adam",
+    title: "아담",
+    description: "PC 로컬 · Qwen3 목소리 복제",
+    icon: Mic2,
+  },
 ]
 
 const TYPECAST_EMOTIONS = [
@@ -163,6 +194,7 @@ function normalizeVoiceId(voiceId?: string) {
 function providerFromVoiceId(voiceId: string): Provider {
   if (voiceId.startsWith("supertonic-")) return "supertonic"
   if (voiceId.startsWith("typecast-")) return "typecast"
+  if (voiceId.startsWith("adam-")) return "adam"
   if (voiceId.startsWith("elevenlabs-")) return "elevenlabs"
   if (/^[FM]\d+$/i.test(voiceId)) return "supertonic"
   return "elevenlabs"
@@ -170,7 +202,7 @@ function providerFromVoiceId(voiceId: string): Provider {
 
 /** 접두사 제거 */
 function bareVoiceId(voiceId: string): string {
-  return voiceId.replace(/^(supertonic|typecast|elevenlabs)-/, "")
+  return voiceId.replace(/^(supertonic|typecast|elevenlabs|adam)-/, "")
 }
 
 function voiceIdForProvider(provider: Provider, voiceId: string, fallbackBare: string): string {
@@ -182,6 +214,7 @@ function voiceIdForProvider(provider: Provider, voiceId: string, fallbackBare: s
     return `supertonic-${id}`
   }
   if (provider === "typecast") return bare ? `typecast-${bare}` : voiceId
+  if (provider === "adam") return "adam-adam"
   return `elevenlabs-${bare || ELEVEN_PRESETS[0]?.voice_id || "jB1Cifc2UQbq1gR3wnb0"}`
 }
 
@@ -192,7 +225,7 @@ export function StoryVoicePanel({
   projectId,
 }: {
   brief: StoryShoppingBrief
-  onChange: (brief: StoryShoppingBrief) => void
+  onChange: Dispatch<SetStateAction<StoryShoppingBrief>>
   userId?: string
   projectId?: string
 }) {
@@ -222,12 +255,26 @@ export function StoryVoicePanel({
   const [error, setError] = useState("")
   const uploadInputRef = useRef<HTMLInputElement | null>(null)
   const [uploadTargetSceneId, setUploadTargetSceneId] = useState<string | null>(null)
+  const latestBriefRef = useRef(brief)
+  const generationOperationRef = useRef("")
+
+  useEffect(() => {
+    latestBriefRef.current = brief
+  }, [brief])
+
+  useEffect(
+    () => () => {
+      generationOperationRef.current = ""
+    },
+    []
+  )
 
   const canPersistCloud = Boolean(userId && userId !== "anonymous" && projectId)
 
   const voices = useMemo(() => {
     if (provider === "supertonic") return supertonicVoices
     if (provider === "typecast") return typecastVoices
+    if (provider === "adam") return [{ voice_id: "adam", name: "아담", gender: "male" }]
     return ELEVEN_PRESETS
   }, [provider, supertonicVoices, typecastVoices])
 
@@ -248,6 +295,11 @@ export function StoryVoicePanel({
       const id = SUPERTONIC_BUILTIN_VOICES[0]?.voice_id || "F1"
       setSelectedVoiceId(`supertonic-${id}`)
       void loadSupertonicVoices()
+      return
+    }
+    if (nextProvider === "adam") {
+      setSelectedVoiceId("adam-adam")
+      void fetch("/api/adam-tts").catch(() => {})
       return
     }
     if (nextProvider === "typecast") {
@@ -331,7 +383,10 @@ export function StoryVoicePanel({
     return Math.min(2, Math.max(0.5, Math.round(speed * 10) / 10))
   }
 
-  const requestTts = async (text: string, voiceId = selectedVoiceId) => {
+  const requestTts = async (
+    text: string,
+    voiceId = selectedVoiceId
+  ): Promise<{ audioUrl: string; alignment?: ElevenLabsAlignment }> => {
     // UI에서 고른 provider를 우선 — 카드만 바꾸고 보이스 id가 예전 ElevenLabs로 남는 경우 방지
     const resolvedId = voiceIdForProvider(
       provider,
@@ -356,6 +411,9 @@ export function StoryVoicePanel({
         ""
       ).trim()
       body = { ...body, apiKey, emotion: style }
+    } else if (resolvedId.startsWith("adam-") || provider === "adam") {
+      endpoint = "/api/adam-tts"
+      body = { text, tempo: ttsSpeed }
     } else {
       endpoint = "/api/elevenlabs-tts"
       const apiKey = (
@@ -376,8 +434,18 @@ export function StoryVoicePanel({
           })
     const payload = await response.json().catch(() => ({}))
     if (!response.ok) throw new Error(payload.error || payload.message || "TTS 생성에 실패했습니다.")
-    if (payload.audioUrl) return String(payload.audioUrl)
-    if (payload.audioBase64) return `data:audio/wav;base64,${payload.audioBase64}`
+    if (payload.audioUrl) {
+      return {
+        audioUrl: String(payload.audioUrl),
+        alignment: payload.alignment || undefined,
+      }
+    }
+    if (payload.audioBase64) {
+      return {
+        audioUrl: `data:audio/wav;base64,${payload.audioBase64}`,
+        alignment: payload.alignment || undefined,
+      }
+    }
     throw new Error("생성된 오디오가 없습니다.")
   }
 
@@ -399,7 +467,10 @@ export function StoryVoicePanel({
     setPreviewingVoiceId(voiceId)
     setError("")
     try {
-      const audioUrl = await requestTts("이 목소리로 흥미로운 이야기를 들려드릴게요.", voiceId)
+      const { audioUrl } = await requestTts(
+        "이 목소리로 흥미로운 이야기를 들려드릴게요.",
+        voiceId
+      )
       const audio = new Audio(audioUrl)
       audio.onended = () => setPreviewingVoiceId("")
       audio.onerror = () => setPreviewingVoiceId("")
@@ -413,18 +484,35 @@ export function StoryVoicePanel({
   const buildLineTracksForScene = async (
     scene: { id: string; narration: string },
     audioUrl: string,
-    durationSec?: number
+    durationSec?: number,
+    providerAlignment?: ElevenLabsAlignment,
+    trimStartSec = 0
   ) => {
     const lines = splitNarrationIntoMeaningLines(scene.narration)
       .map((line) => line.replace(/\.{2,}|…+/g, "").trim())
       .filter(Boolean)
     const narrationLines = lines.length ? lines : [scene.narration]
-    const cues = await alignStoryCaptionsWithWhisper({
-      audioUrl,
-      script: scene.narration,
-      lines: narrationLines,
-      durationSec,
-    })
+    let cues = buildProviderCaptionCues(
+      narrationLines,
+      providerAlignment,
+      undefined
+    )
+    if (cues && durationSec) {
+      cues = shiftCaptionCuesForTrim(cues, trimStartSec, durationSec)
+    }
+    if (!cues) {
+      try {
+        cues = await alignStoryCaptionsWithWhisper({
+          audioUrl,
+          script: scene.narration,
+          lines: narrationLines,
+          durationSec,
+        })
+      } catch (whisperError) {
+        console.warn("[StoryVoice] Whisper 정렬 실패, 추정 큐 사용:", whisperError)
+        cues = buildEstimatedStoryCaptionCues(narrationLines, durationSec)
+      }
+    }
     const syncedDuration =
       cues[cues.length - 1]?.endSec ||
       durationSec ||
@@ -442,11 +530,18 @@ export function StoryVoicePanel({
     }
   }
 
-  const generate = async () => {
+  const commitVoiceData = (voiceData: StoryVoiceData) => {
+    onChange((current) => {
+      const next = { ...current, voiceData }
+      latestBriefRef.current = next
+      return next
+    })
+  }
+
+  const generate = async (retrySceneIds?: string[]) => {
     if (!brief.generatedStory) return
     setIsGenerating(true)
     setError("")
-    const tracks: StoryVoiceTrack[] = []
     const voiceId = voiceIdForProvider(
       provider,
       selectedVoiceId,
@@ -455,57 +550,118 @@ export function StoryVoicePanel({
         : bareVoiceId(selectedVoiceId)
     )
     if (voiceId !== selectedVoiceId) setSelectedVoiceId(voiceId)
+    const settingsHash = voiceSettingsHash({ provider, voiceId, style, speed })
+    const operationId = `tts_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    generationOperationRef.current = operationId
+    const story = brief.generatedStory
+    const retrySet = retrySceneIds ? new Set(retrySceneIds) : null
+    let tracks = (brief.voiceData?.tracks || []).filter((track) => {
+      const scene = story.scenes.find((item) => item.id === track.sceneId)
+      return scene && isCurrentStoryVoiceTrack(scene, track, settingsHash)
+    })
+    let checkpoints = brief.voiceData?.checkpoints || []
+    const makeVoiceData = (): StoryVoiceData => ({
+      voiceId,
+      provider,
+      style,
+      speed,
+      tracks,
+      checkpoints,
+      operationId,
+      generatedAt: new Date().toISOString(),
+    })
+    const setCheckpoint = (
+      sceneId: string,
+      status: StoryVoiceCheckpoint["status"],
+      attempts: number,
+      sceneNarrationHash: string,
+      message?: string
+    ) => {
+      checkpoints = upsertVoiceCheckpoint(checkpoints, {
+        sceneId,
+        status,
+        attempts,
+        narrationHash: sceneNarrationHash,
+        voiceSettingsHash: settingsHash,
+        updatedAt: new Date().toISOString(),
+        error: message,
+      })
+      commitVoiceData(makeVoiceData())
+    }
+    const failedScenes: number[] = []
     try {
-      for (let index = 0; index < brief.generatedStory.scenes.length; index += 1) {
-        const scene = brief.generatedStory.scenes[index]!
-        setProgress(`장면 ${index + 1}/${brief.generatedStory.scenes.length} 통 TTS 생성 중`)
-        const rawAudioUrl = await requestTts(scene.narration, voiceId)
-        // 재생은 앞뒤 무음을 자른 음성을 쓰므로 저장본·Whisper 싱크도 같은 길이로 맞춤
-        const trimmed = await trimSilenceFromAudioUrl(rawAudioUrl, STORY_TTS_SILENCE_THRESHOLD)
-          .then((result) => result.blobUrl)
-          .catch(() => rawAudioUrl)
-        const audioUrl = await persistAudioUrl(trimmed, `장면 ${index + 1}`)
-        const durationSec = await measureAudioDuration(audioUrl)
-
-        setProgress(
-          `장면 ${index + 1}/${brief.generatedStory.scenes.length} Whisper로 자막 싱크 분석 중…`
-        )
+      for (let index = 0; index < story.scenes.length; index += 1) {
+        if (generationOperationRef.current !== operationId) return
+        const scene = story.scenes[index]!
+        if (retrySet && !retrySet.has(scene.id)) continue
+        if (!retrySet && tracks.some((track) => isCurrentStoryVoiceTrack(scene, track, settingsHash))) {
+          continue
+        }
+        const sceneHash = narrationHash(scene.narration)
+        const previousCheckpoint = checkpoints.find((item) => item.sceneId === scene.id)
+        const attempts = (previousCheckpoint?.attempts || 0) + 1
+        setCheckpoint(scene.id, "generating", attempts, sceneHash)
         try {
-          const aligned = await buildLineTracksForScene(scene, audioUrl, durationSec)
-          tracks.push({
+          setProgress(`장면 ${index + 1}/${story.scenes.length} 통 TTS 생성 중`)
+          const generated = await requestTts(scene.narration, voiceId)
+          const trimResult = await trimSilenceFromAudioUrl(
+            generated.audioUrl,
+            STORY_TTS_SILENCE_THRESHOLD
+          ).catch(() => null)
+          const trimmedUrl = trimResult?.blobUrl || generated.audioUrl
+          const audioUrl = await persistAudioUrl(trimmedUrl, `장면 ${index + 1}`)
+          const durationSec =
+            trimResult?.durationSec || (await measureAudioDuration(audioUrl))
+          if (generationOperationRef.current !== operationId) return
+          setCheckpoint(scene.id, "aligning", attempts, sceneHash)
+          setProgress(
+            `장면 ${index + 1}/${story.scenes.length} 공급자/Whisper 자막 싱크 분석 중…`
+          )
+          const aligned = await buildLineTracksForScene(
+            scene,
+            audioUrl,
+            durationSec,
+            generated.alignment,
+            trimResult?.trimStartSec || 0
+          )
+          const nextTrack: StoryVoiceTrack = {
             sceneId: scene.id,
             audioUrl,
             durationSec: aligned.durationSec,
             lineTracks: aligned.lineTracks,
-          })
-        } catch (alignError) {
-          throw new Error(
-            alignError instanceof Error
-              ? `장면 ${index + 1} 자막 싱크 실패: ${alignError.message}`
-              : `장면 ${index + 1} 자막 싱크 분석에 실패했습니다.`
+            narrationHash: sceneHash,
+            voiceSettingsHash: settingsHash,
+            generatedAt: new Date().toISOString(),
+          }
+          tracks = tracks.some((track) => track.sceneId === scene.id)
+            ? tracks.map((track) => (track.sceneId === scene.id ? nextTrack : track))
+            : [...tracks, nextTrack]
+          setCheckpoint(scene.id, "completed", attempts, sceneHash)
+        } catch (sceneError) {
+          failedScenes.push(index + 1)
+          setCheckpoint(
+            scene.id,
+            "failed",
+            attempts,
+            sceneHash,
+            sceneError instanceof Error ? sceneError.message : "음성 생성에 실패했습니다."
           )
         }
       }
-      onChange({
-        ...brief,
-        voiceData: {
-          voiceId,
-          provider,
-          style,
-          speed,
-          tracks,
-          generatedAt: new Date().toISOString(),
-        },
-      })
-      setProgress(
-        canPersistCloud
-          ? "모든 장면 음성 클라우드 저장 + Whisper 싱크 완료 · 상단에서 프로젝트도 저장하세요"
-          : "모든 장면 음성 + Whisper 싱크 완료 (새로고침 전에 다운로드하세요)"
-      )
+      if (failedScenes.length) {
+        setError(`장면 ${failedScenes.join(", ")} 생성에 실패했습니다. 해당 장면만 재시도할 수 있습니다.`)
+        setProgress(`${tracks.length}/${story.scenes.length}개 장면 체크포인트 저장 완료`)
+      } else {
+        setProgress(
+          canPersistCloud
+            ? "모든 장면 음성 저장 + 자막 싱크 완료 · 상단에서 프로젝트도 저장하세요"
+            : "모든 장면 음성 + 자막 싱크 완료 (새로고침 전에 다운로드하세요)"
+        )
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "음성 생성에 실패했습니다.")
     } finally {
-      setIsGenerating(false)
+      if (generationOperationRef.current === operationId) setIsGenerating(false)
     }
   }
 
@@ -536,14 +692,16 @@ export function StoryVoicePanel({
           lineTracks: aligned.lineTracks,
         })
       }
-      onChange({
-        ...brief,
-        voiceData: {
-          ...brief.voiceData,
-          tracks,
-          generatedAt: new Date().toISOString(),
-        },
-      })
+      onChange((current) => ({
+        ...current,
+        voiceData: current.voiceData
+          ? {
+              ...current.voiceData,
+              tracks,
+              generatedAt: new Date().toISOString(),
+            }
+          : undefined,
+      }))
       setProgress("Whisper 자막 싱크 재분석 완료")
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "자막 싱크 재분석에 실패했습니다.")
@@ -602,14 +760,16 @@ export function StoryVoicePanel({
         const audioUrl = await persistAudioUrl(existing.audioUrl, `장면 ${index + 1}`)
         tracks.push({ ...existing, audioUrl })
       }
-      onChange({
-        ...brief,
-        voiceData: {
-          ...brief.voiceData,
-          tracks,
-          generatedAt: new Date().toISOString(),
-        },
-      })
+      onChange((current) => ({
+        ...current,
+        voiceData: current.voiceData
+          ? {
+              ...current.voiceData,
+              tracks,
+              generatedAt: new Date().toISOString(),
+            }
+          : undefined,
+      }))
       setProgress("클라우드 저장 완료 · 상단에서 프로젝트도 저장해주세요")
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "클라우드 저장에 실패했습니다.")
@@ -641,21 +801,50 @@ export function StoryVoicePanel({
         audioUrl,
         durationSec: aligned.durationSec,
         lineTracks: aligned.lineTracks,
-      }
-      const prevTracks = brief.voiceData?.tracks || []
-      const tracks = prevTracks.some((item) => item.sceneId === scene.id)
-        ? prevTracks.map((item) => (item.sceneId === scene.id ? nextTrack : item))
-        : [...prevTracks, nextTrack]
-      onChange({
-        ...brief,
-        voiceData: {
-          voiceId: brief.voiceData?.voiceId || selectedVoiceId,
+        narrationHash: narrationHash(scene.narration),
+        voiceSettingsHash: voiceSettingsHash({
           provider: brief.voiceData?.provider || provider,
+          voiceId: brief.voiceData?.voiceId || selectedVoiceId,
           style: brief.voiceData?.style || style,
           speed: brief.voiceData?.speed || speed,
-          tracks,
-          generatedAt: new Date().toISOString(),
-        },
+        }),
+        generatedAt: new Date().toISOString(),
+      }
+      onChange((current) => {
+        const currentVoice = current.voiceData
+        const prevTracks = currentVoice?.tracks || []
+        const tracks = prevTracks.some((item) => item.sceneId === scene.id)
+          ? prevTracks.map((item) => (item.sceneId === scene.id ? nextTrack : item))
+          : [...prevTracks, nextTrack]
+        const settingsHash =
+          nextTrack.voiceSettingsHash ||
+          voiceSettingsHash({
+            provider: currentVoice?.provider || provider,
+            voiceId: currentVoice?.voiceId || selectedVoiceId,
+            style: currentVoice?.style || style,
+            speed: currentVoice?.speed || speed,
+          })
+        return {
+          ...current,
+          voiceData: {
+            voiceId: currentVoice?.voiceId || selectedVoiceId,
+            provider: currentVoice?.provider || provider,
+            style: currentVoice?.style || style,
+            speed: currentVoice?.speed || speed,
+            tracks,
+            checkpoints: upsertVoiceCheckpoint(currentVoice?.checkpoints, {
+              sceneId: scene.id,
+              status: "completed",
+              attempts:
+                (currentVoice?.checkpoints?.find((item) => item.sceneId === scene.id)
+                  ?.attempts || 0) + 1,
+              narrationHash: nextTrack.narrationHash!,
+              voiceSettingsHash: settingsHash,
+              updatedAt: new Date().toISOString(),
+            }),
+            generatedAt: new Date().toISOString(),
+          },
+        }
       })
       setProgress("업로드 + 자막 싱크 완료")
     } catch (reason) {
@@ -695,7 +884,7 @@ export function StoryVoicePanel({
           {canPersistCloud ? " 또는 클라우드 저장" : ""} 후, 상단에서 프로젝트를 저장하세요.
         </p>
 
-        <div className="mt-5 grid gap-2 sm:grid-cols-2">
+        <div className="mt-5 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
           {PROVIDERS.map((item) => {
             const Icon = item.icon
             const active = provider === item.id
@@ -849,7 +1038,7 @@ export function StoryVoicePanel({
         </div>
 
         <Button
-          onClick={generate}
+          onClick={() => void generate()}
           disabled={busy || !selectedVoiceId}
           className="mt-6 h-11 w-full bg-cyan-500 font-black text-black hover:bg-cyan-300"
         >
@@ -921,11 +1110,14 @@ export function StoryVoicePanel({
           ) : null}
         </div>
         <p className="mt-2 text-[10px] leading-4 text-zinc-500">
-          장면마다 다운로드하거나, 로컬 오디오를 업로드하면 Whisper 싱크를 다시 맞춥니다.
+          장면마다 체크포인트를 저장합니다. ElevenLabs 타임스탬프, Whisper, 글자 비율 추정 순으로 싱크합니다.
         </p>
         <div className="mt-4 space-y-3">
           {brief.generatedStory.scenes.map((scene, index) => {
             const track = brief.voiceData?.tracks.find((item) => item.sceneId === scene.id)
+            const checkpoint = brief.voiceData?.checkpoints?.find(
+              (item) => item.sceneId === scene.id
+            )
             const ephemeral = track?.audioUrl ? isEphemeralAudioUrl(track.audioUrl) : false
             return (
               <div key={scene.id} className="rounded-2xl border border-white/10 bg-black/25 p-4">
@@ -972,7 +1164,7 @@ export function StoryVoicePanel({
                       )}
                     </div>
                     <p className="text-[9px] text-zinc-500">
-                      장면 통 TTS · 자막 줄은 Whisper 발화 싱크
+                      장면 통 TTS · 자막 줄은 공급자/Whisper/추정 발화 싱크
                     </p>
                     {(track.lineTracks?.length
                       ? track.lineTracks
@@ -988,7 +1180,9 @@ export function StoryVoicePanel({
                           typeof lineTrack.endSec === "number"
                             ? ` · ${lineTrack.startSec.toFixed(2)}–${lineTrack.endSec.toFixed(2)}s`
                             : ""}
-                          {lineTrack.alignmentSource === "whisper"
+                          {lineTrack.alignmentSource === "provider"
+                            ? " · 공급자 싱크"
+                            : lineTrack.alignmentSource === "whisper"
                             ? " · AI싱크"
                             : lineTrack.alignmentSource === "estimated"
                               ? " · 추정"
@@ -1016,6 +1210,24 @@ export function StoryVoicePanel({
                     </Button>
                   </div>
                 )}
+                {checkpoint?.status === "failed" ? (
+                  <div className="mt-2 rounded-lg border border-red-400/20 bg-red-500/10 p-2">
+                    <p className="text-[9px] text-red-200">
+                      {checkpoint.error || "이 장면 생성에 실패했습니다."} · 시도 {checkpoint.attempts}회
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => void generate([scene.id])}
+                      className="mt-2 h-7 w-full border-red-300/30 bg-red-500/10 text-[10px] font-bold text-red-100"
+                    >
+                      <RefreshCw className="mr-1 h-3 w-3" />
+                      이 장면만 재시도
+                    </Button>
+                  </div>
+                ) : null}
               </div>
             )
           })}

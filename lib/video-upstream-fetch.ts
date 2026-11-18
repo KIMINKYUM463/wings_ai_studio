@@ -8,8 +8,12 @@ const ALLOWED_HOST_SUFFIXES = [
   ".zjcdn.com",
   ".douyinstatic.com",
   ".amemv.com",
+  ".douyin.com",
+  ".byteoversea.com",
   ".xhscdn.com",
   ".xhscdn.net",
+  ".rednotecdn.com", // 샤오홍슈 새 CDN
+  ".douyinpic.com",
   ".googlevideo.com",
   ".tiktokcdn.com",
   ".tiktokcdn-us.com",
@@ -23,7 +27,7 @@ export function isAllowedVideoHost(hostname: string): boolean {
 }
 
 export function upstreamReferer(hostname: string): string {
-  if (hostname.endsWith(".xhscdn.com") || hostname.endsWith(".xhscdn.net")) {
+  if (hostname.endsWith(".xhscdn.com") || hostname.endsWith(".xhscdn.net") || hostname.endsWith(".rednotecdn.com")) {
     return "https://www.xiaohongshu.com/"
   }
   if (hostname.includes("googlevideo.com")) {
@@ -75,7 +79,7 @@ export async function fetchUpstreamVideo(
     Accept: "*/*",
     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,ko;q=0.7",
   }
-  if (hostname.endsWith(".xhscdn.com") || hostname.endsWith(".xhscdn.net")) {
+  if (hostname.endsWith(".xhscdn.com") || hostname.endsWith(".xhscdn.net") || hostname.endsWith(".rednotecdn.com")) {
     baseHeaders.Origin = "https://www.xiaohongshu.com"
   }
   if (hostname.includes("googlevideo.com")) {

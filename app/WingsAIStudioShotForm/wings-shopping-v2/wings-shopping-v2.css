@@ -1,0 +1,370 @@
+/* 밝은 버전 — ShotForm / 스토리·리믹스 v1과 비슷한 라이트 톤 + 오렌지 포인트 */
+.wings-shopping-v2 {
+  --page: #f8f6f4;
+  --ink: #ffffff;
+  --panel: #ffffff;
+  --panel-2: #f1efec;
+  --line: #e5e1db;
+  --text: #18181b;
+  --muted: #71717a;
+  --amber: #f97316;
+  --amber-ink: #ffffff;
+  --danger: #dc2626;
+  --ok: #16a34a;
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 24px 48px -28px rgba(249, 115, 22, 0.22);
+  --color-ink: var(--ink);
+  --color-panel: var(--panel);
+  --color-panel-2: var(--panel-2);
+  --color-line: var(--line);
+  --color-amber: var(--amber);
+  --color-amber-ink: var(--amber-ink);
+  --color-danger: var(--danger);
+  --color-ok: var(--ok);
+  color-scheme: light;
+  background: var(--page);
+  color: var(--text);
+  font-family: var(--font-body), "Malgun Gothic", sans-serif;
+  line-height: 1.55;
+}
+.wings-shopping-v2 ::selection {
+  background: rgba(249, 115, 22, 0.22);
+  color: var(--text);
+}
+
+.wings-shopping-v2 .font-display {
+  font-family: var(--font-display), sans-serif;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+.wings-shopping-v2 .text-text,
+.wings-shopping-v2 .hover\:text-text:hover {
+  color: var(--text);
+}
+.wings-shopping-v2 .text-muted {
+  color: var(--muted);
+}
+.wings-shopping-v2 .text-amber {
+  color: #c2410c;
+}
+.wings-shopping-v2 .text-danger {
+  color: var(--danger);
+}
+.wings-shopping-v2 .border-line {
+  border-color: var(--line);
+}
+.wings-shopping-v2 .border-muted,
+.wings-shopping-v2 .hover\:border-muted:hover {
+  border-color: var(--muted);
+}
+.wings-shopping-v2 .border-amber {
+  border-color: var(--amber);
+}
+.wings-shopping-v2 .bg-panel {
+  background: var(--panel);
+}
+.wings-shopping-v2 .bg-panel-2 {
+  background: var(--panel-2);
+}
+
+.wings-shopping-v2 :focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
+.wings-shopping-v2 .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border-radius: 12px;
+  padding: 0.7rem 1.2rem;
+  font-weight: 700;
+  font-size: 0.95rem;
+  transition: transform 0.15s ease, background 0.15s ease, opacity 0.15s, box-shadow 0.15s ease;
+}
+.wings-shopping-v2 .btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.wings-shopping-v2 .btn-primary {
+  background: var(--amber);
+  color: var(--amber-ink);
+  box-shadow: 0 10px 28px -12px rgba(249, 115, 22, 0.55);
+}
+.wings-shopping-v2 .btn-primary:not(:disabled):hover {
+  background: #fb923c;
+  transform: translateY(-1px);
+}
+.wings-shopping-v2 .btn-primary:not(:disabled):active {
+  transform: scale(0.98);
+}
+.wings-shopping-v2 .btn-ghost {
+  background: var(--panel-2);
+  color: var(--text);
+}
+.wings-shopping-v2 .btn-ghost:not(:disabled):hover {
+  filter: brightness(0.97);
+}
+
+.wings-shopping-v2 .field {
+  width: 100%;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+  color: var(--text);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  caret-color: var(--amber);
+}
+.wings-shopping-v2 .field::placeholder {
+  color: #a1a1aa;
+}
+.wings-shopping-v2 .bg-panel\/60 {
+  background-color: #ffffff;
+}
+.wings-shopping-v2 .field:focus {
+  border-color: #fdba74;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.15);
+}
+
+/* —— 밝은 사이드바 (v1 ShotForm 톤) —— */
+.wings-shopping-v2 .v2-rail {
+  background: #ffffff;
+  border-color: var(--line);
+  color: var(--text);
+}
+.wings-shopping-v2 .v2-rail a {
+  color: var(--muted);
+  transition: color 0.15s ease;
+}
+.wings-shopping-v2 .v2-rail a:hover {
+  color: var(--text);
+}
+.wings-shopping-v2 .v2-rail__brand {
+  color: #c2410c !important;
+  line-height: 1.25;
+}
+.wings-shopping-v2 .v2-rail__label {
+  color: var(--muted);
+}
+.wings-shopping-v2 .v2-rail__empty {
+  color: var(--muted);
+}
+.wings-shopping-v2 .v2-rail__item {
+  color: var(--muted);
+  border-radius: 10px;
+}
+.wings-shopping-v2 .v2-rail__item:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+.wings-shopping-v2 .v2-rail__item.is-active {
+  background: #fff7ed;
+  color: var(--text);
+}
+.wings-shopping-v2 .v2-rail__meta {
+  color: #a1a1aa;
+}
+
+/* —— 시작 화면 (v1 히어로 카드와 유사한 밝은 구성) —— */
+.wings-shopping-v2 .v2-start {
+  position: relative;
+  display: flex;
+  min-height: 100dvh;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.25rem 3rem;
+  overflow: hidden;
+}
+.wings-shopping-v2 .v2-start__glow {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(520px 420px at 12% 0%, rgba(249, 115, 22, 0.12), transparent 60%),
+    radial-gradient(480px 400px at 95% 20%, rgba(244, 63, 94, 0.08), transparent 55%);
+}
+.wings-shopping-v2 .v2-start__inner {
+  position: relative;
+  width: 100%;
+  max-width: 44rem;
+  animation: v2-rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.wings-shopping-v2 .v2-start__card {
+  border-radius: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  background: rgba(252, 250, 247, 0.92);
+  box-shadow: var(--shadow);
+  padding: 1.75rem 1.5rem 1.6rem;
+}
+@media (min-width: 768px) {
+  .wings-shopping-v2 .v2-start__card {
+    padding: 2.25rem 2.25rem 1.85rem;
+  }
+}
+.wings-shopping-v2 .v2-start__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border-radius: 999px;
+  border: 1px solid rgba(249, 115, 22, 0.22);
+  background: rgba(249, 115, 22, 0.08);
+  padding: 0.35rem 0.75rem;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #c2410c;
+}
+.wings-shopping-v2 .v2-start__pill-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: #fb923c;
+  animation: v2-pulse 1.8s ease-in-out infinite;
+}
+.wings-shopping-v2 .v2-start__title {
+  margin-top: 1.15rem;
+  font-family: var(--font-display), sans-serif;
+  font-size: clamp(2.15rem, 5vw, 3.15rem);
+  line-height: 1.1;
+  letter-spacing: -0.035em;
+  color: var(--text);
+  text-wrap: balance;
+}
+.wings-shopping-v2 .v2-start__title em {
+  font-style: normal;
+  background: linear-gradient(90deg, #fb923c, #f97316, #f43f5e);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.wings-shopping-v2 .v2-start__subtitle {
+  margin-top: 0.9rem;
+  max-width: 34rem;
+  font-size: 0.95rem;
+  line-height: 1.7;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+.wings-shopping-v2 .v2-start__hint {
+  margin-top: 1.1rem;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  color: #a1a1aa;
+}
+.wings-shopping-v2 .v2-start__modes {
+  margin-top: 1.35rem;
+  display: grid;
+  gap: 0.65rem;
+}
+@media (min-width: 640px) {
+  .wings-shopping-v2 .v2-start__modes {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.wings-shopping-v2 .v2-start__mode {
+  cursor: pointer;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+  padding: 0.9rem 1rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+.wings-shopping-v2 .v2-start__mode:hover {
+  border-color: #fdba74;
+  transform: translateY(-1px);
+}
+.wings-shopping-v2 .v2-start__mode.is-on {
+  border-color: #fb923c;
+  box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.12);
+}
+.wings-shopping-v2 .v2-start__mode-name {
+  font-family: var(--font-display), sans-serif;
+  font-size: 1.1rem;
+  color: var(--text);
+}
+.wings-shopping-v2 .v2-start__mode-desc {
+  margin-top: 0.3rem;
+  display: block;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.wings-shopping-v2 .v2-start__form {
+  margin-top: 1.35rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+@media (min-width: 640px) {
+  .wings-shopping-v2 .v2-start__form {
+    flex-direction: row;
+    align-items: stretch;
+  }
+  .wings-shopping-v2 .v2-start__form .btn {
+    min-width: 7.5rem;
+  }
+}
+.wings-shopping-v2 .v2-start__error {
+  margin-top: 0.75rem;
+  font-size: 0.88rem;
+  color: var(--danger);
+}
+.wings-shopping-v2 .v2-start__steps {
+  margin-top: 1.5rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem 1rem;
+  padding-top: 1.15rem;
+  border-top: 1px solid var(--line);
+}
+@media (min-width: 640px) {
+  .wings-shopping-v2 .v2-start__steps {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+.wings-shopping-v2 .v2-start__step {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.wings-shopping-v2 .v2-start__step-num {
+  display: block;
+  font-family: var(--font-display), sans-serif;
+  font-size: 1.15rem;
+  color: #c2410c;
+  line-height: 1;
+  margin-bottom: 0.3rem;
+}
+
+@keyframes v2-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes v2-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.55);
+    opacity: 0.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wings-shopping-v2 .v2-start__inner,
+  .wings-shopping-v2 .v2-start__pill-dot {
+    animation: none;
+  }
+  .wings-shopping-v2 .btn,
+  .wings-shopping-v2 .v2-start__mode {
+    transition: none;
+  }
+}

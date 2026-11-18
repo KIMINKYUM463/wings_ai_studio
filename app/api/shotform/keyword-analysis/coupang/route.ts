@@ -7,7 +7,8 @@ export async function GET(request: NextRequest) {
   try {
     const modeParam = request.nextUrl.searchParams.get("mode")
     const mode = modeParam === "goldbox" || modeParam === "best" ? modeParam : "search"
-    const query = request.nextUrl.searchParams.get("query")?.trim() || ""
+    // 쿠팡 파트너스 검색어는 50자까지 (긴 상품명이 그대로 오면 "keyword maximum length is 50")
+    const query = (request.nextUrl.searchParams.get("query")?.trim() || "").slice(0, 50).trim()
     const categoryId = request.nextUrl.searchParams.get("categoryId")?.trim() || "1001"
     const products = await fetchCoupangRankedProducts({
       mode,

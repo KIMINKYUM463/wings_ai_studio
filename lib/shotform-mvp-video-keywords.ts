@@ -124,23 +124,60 @@ async function collectVideoVisionImages(
   url: string,
   oembedThumb: string
 ): Promise<string[]> {
-  const out: string[] = []
-  if (oembedThumb.startsWith("http")) out.push(oembedThumb)
+  const frames: string[] = []
+  const thumbs: string[] = []
+  if (oembedThumb.startsWith("http")) thumbs.push(oembedThumb)
 
   if (platform === "youtube") {
     const ytId = youtubeIdFromUrl(url)
     if (ytId) {
-      out.push(`https://img.youtube.com/vi/${ytId}/hqdefault.jpg`)
-      const cells = await fetchYoutubeStoryboardCellCandidates(ytId, 12)
-      const picks = cells.filter((_, i) => i % Math.max(1, Math.floor(cells.length / 4)) === 0).slice(0, 4)
+      thumbs.push(`https://img.youtube.com/vi/${ytId}/hqdefault.jpg`)
+      const cells = await fetchYoutubeStoryboardCellCandidates(ytId, 24)
+      const step = Math.max(1, Math.floor(cells.length / 8))
+      const picks = cells.filter((_, i) => i % step === 0).slice(0, 8)
       for (const cell of picks) {
         const dataUrl = await storyboardCellToDataUrl(cell.imageUrl)
-        if (dataUrl) out.push(dataUrl)
+        if (dataUrl) frames.push(dataUrl)
       }
     }
   }
 
-  return [...new Set(out)].slice(0, 4)
+  return [...new Set([...frames, ...thumbs])].slice(0, 8)
+}
+
+/** 종류만 가리키는 말. 이것만으로는 다른 제품이 같이 검색된다. */
+const GENERIC_PRODUCT_KEYWORDS = new Set([
+  "텐트",
+  "난방",
+  "난방텐트",
+  "온열",
+  "보온",
+  "침대",
+  "매트",
+  "매트리스",
+  "이불",
+  "담요",
+  "쿠션",
+  "방석",
+  "전기장판",
+  "캠핑",
+  "겨울",
+  "추위",
+  "리뷰",
+  "추천",
+  "제품",
+  "상품",
+  "후기",
+  "쇼츠",
+  "숏폼",
+])
+
+function isSpecificProductKeyword(keyword: string): boolean {
+  const compact = keyword.replace(/\s+/g, "")
+  if (compact.length < 4 || GENERIC_PRODUCT_KEYWORDS.has(compact)) return false
+  const parts = keyword.split(/\s+/).filter(Boolean)
+  if (parts.length === 1 && GENERIC_PRODUCT_KEYWORDS.has(parts[0]!)) return false
+  return parts.some((part) => !GENERIC_PRODUCT_KEYWORDS.has(part))
 }
 
 function ensureStrArr(raw: unknown, max: number): string[] {
@@ -250,6 +287,30 @@ export async function runMvpVideoKeywordAnalysis(args: {
   const hasTranscript = transcript.length >= 20
   const hasOcr = videoOcrNotes.length >= 10
 
+  const userContent: Array<
+    | { type: "text"; text: string }
+    | { type: "image_url"; image_url: { url: string; detail: "low" } }
+  > = [
+    {
+      type: "text",
+      text: `영상 URL: ${url}
+플랫폼: ${platform}
+영상 제목: ${title || "(없음)"}
+작성자: ${author || "(없음)"}
+시간축으로 자른 장면: ${visionImages.length}장. 각 장면에서 제품의 형태·색·재질·부품·설치 위치를 따로 보라.
+
+=== 대본·자막 ===
+${(transcript || "(자막 없음)").slice(0, 4500)}
+
+=== 장면에 적힌 글자 ===
+${(videoOcrNotes || "(없음)").slice(0, 2800)}`,
+    },
+    ...visionImages.slice(0, 6).map((image) => ({
+      type: "image_url" as const,
+      image_url: { url: image, detail: "low" as const },
+    })),
+  ]
+
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -257,52 +318,36 @@ export async function runMvpVideoKeywordAnalysis(args: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
-      temperature: 0.2,
+      model: "gpt-4o",
+      temperature: 0.1,
       max_tokens: 1600,
       response_format: { type: "json_object" as const },
       messages: [
         {
           role: "system" as const,
-          content: `당신은 쇼핑 숏폼·제품 리뷰 영상 분석 전문가입니다.
-**대본(자막)·영상 제목·장면 OCR**만 근거로, 영상에서 다루는 **제품/카테고리와 직접 관련된** 한국어 검색 키워드만 추출합니다.
-(이후 抖音·小红书에서 비슷한 제품·사용 장면 영상을 찾을 검색어)
+          content: `당신은 쇼핑 숏폼의 제품을 장면 단위로 보는 분석가입니다.
+첨부된 장면 이미지와 자막만 보고, 화면에 나온 그 제품 하나를 다른 제품과 구분하는 검색어만 만듭니다.
+이 검색어는 나중에 도우인·샤오홍슈에서 같은 제품을 찾을 때 씁니다.
 
-## 분석 순서 (내부 추론)
-1. **대본 분석** — 제품명·브랜드·기능·사용 장면·문제 해결 포인트가 나오는 구간만 추출. 인사·구독·채널 소개·BGM만 있으면 제품 정보 없음으로 처리.
-2. **이미지/OCR 분석** — 제품 실물·포장·화면 UI·자막 텍스트에서 확인된 특징만. 추측 금지.
-3. **제품 특정** — productName: 영상이 실제로 홍보/리뷰하는 핵심 상품 1개.
-4. **키워드** — searchFeatures·keywords는 **제품 검색에 쓸 구문만**. 인물·채널·일반 브이로그 키워드 제외.
+보는 순서:
+1. 장면마다 제품이 어떻게 생겼는지 적는다. 형태, 색, 재질, 지퍼·창·폴대·코드 같은 부품, 침대 위·바닥·벽 같은 설치 위치.
+2. 자막과 화면 글자에서 그 생김새와 맞는 말만 남긴다. 화면에 없는 브랜드·가격·스펙은 만들지 않는다.
+3. 키워드는 그 생김새가 들어간 한국어 구로만 쓴다.
 
-## 절대 금지
-- 대본·OCR·제목에 **없는** 스펙·브랜드·가격 지어내기
-- "영상", "리뷰", "추천", "구독", "좋아요", "쇼츠", "브이로그" 단독 키워드
-- 인물 소개·채널명·일반 여행·먹방 등 **제품과 무관한** 키워드
-- 제품과 무관한 키워드는 keywords 배열에 **넣지 말 것**
+키워드 규칙:
+- 4~6개. 한 키워드는 2~5단어.
+- 모든 키워드에 실제로 본 구분 특징이 하나 이상 들어가야 한다. 예: "침대 위 사각 실내텐트", "지퍼문 난방텐트", "핑크 접이식 바닥텐트".
+- 종류만 있는 말은 금지한다. 텐트, 난방, 난방텐트, 매트리스, 전기장판, 이불, 캠핑, 겨울처럼 다른 제품도 같이 걸리는 단어는 단독으로 쓰지 않는다.
+- 리뷰, 추천, 구독, 쇼츠, 채널명, 사람 이름은 넣지 않는다.
 
-## 출력
-- searchFeatures: 6~12개, 제품 특징·용도 태그 (근거 있는 것만)
-- keywords: 6~10개, **제품·카테고리·기능·사용장면** 관련 한국어 검색어 (2~12자)
-- evidence: "transcript"|"ocr"|"title"|"author"
-- dataQuality: high=자막+OCR, medium=하나, low=제목 위주
+searchFeatures는 화면에서 확인한 생김새 태그 4~8개다.
+evidence는 transcript, ocr, title 중 하나다.
+dataQuality는 장면과 자막이 둘 다 있으면 high, 하나만 있으면 medium, 제목뿐이면 low다.
 
 JSON만:
 {"productName":"","category":"","summary":"","searchFeatures":[],"keywords":[{"keyword":"","reason":"","evidence":""}],"dataQuality":"high|medium|low","qualityNote":""}`,
         },
-        {
-          role: "user" as const,
-          content: `영상 URL: ${url}
-플랫폼: ${platform}
-영상 제목: ${title || "(없음)"}
-작성자: ${author || "(없음)"}
-분석한 영상 장면/썸네일: ${visionImages.length}장
-
-=== 대본·자막 (전문) ===
-${(transcript || "(자막 없음 — 제목·OCR 위주로 분석)").slice(0, 4500)}
-
-=== 영상 장면·썸네일 OCR ===
-${(videoOcrNotes || "(OCR 없음)").slice(0, 2800)}`,
-        },
+        { role: "user" as const, content: userContent },
       ],
     }),
     signal: AbortSignal.timeout(90_000),
@@ -322,13 +367,15 @@ ${(videoOcrNotes || "(OCR 없음)").slice(0, 2800)}`,
   const parsed = JSON.parse(content) as Record<string, unknown>
   const productName = String(parsed.productName || title || "").trim()
   const category = String(parsed.category || "").trim()
-  let keywords = ensureKeywordItems(parsed.keywords, 10)
-  const searchFeatures = ensureStrArr(parsed.searchFeatures, 12)
+  let keywords = ensureKeywordItems(parsed.keywords, 8).filter((item) =>
+    isSpecificProductKeyword(item.keyword)
+  )
+  const searchFeatures = ensureStrArr(parsed.searchFeatures, 8).filter(isSpecificProductKeyword)
 
   if (keywords.length === 0 && searchFeatures.length > 0) {
     keywords = searchFeatures.slice(0, 6).map((k) => ({ keyword: k, evidence: "ocr" as const }))
   }
-  if (keywords.length === 0 && productName) {
+  if (keywords.length === 0 && isSpecificProductKeyword(productName)) {
     keywords = [{ keyword: productName, evidence: hasTranscript ? "transcript" : hasTitle ? "title" : undefined }]
   }
 

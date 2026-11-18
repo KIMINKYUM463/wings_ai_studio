@@ -107,7 +107,7 @@ async function importStyleJson(name: string, jsonBytes: Buffer, fileName: string
   const out = new FormData()
   out.append(
     "file",
-    new Blob([jsonBytes], { type: "application/json" }),
+    new Blob([jsonBytes as Uint8Array<ArrayBuffer>], { type: "application/json" }),
     fileName || `${name}.json`
   )
   out.append("name", name)

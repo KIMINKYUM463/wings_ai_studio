@@ -389,12 +389,12 @@ function FeatureCard({
   index,
   onServiceClick,
 }: {
-  service: (typeof videoProductionServices)[0] | (typeof analysisToolsServices)[0] | (typeof otherToolsServices)[0]
+  service: (typeof videoProductionServices)[0] | (typeof analysisToolsServices)[0]
   index: number
-  onServiceClick: (service: (typeof videoProductionServices)[0] | (typeof analysisToolsServices)[0] | (typeof otherToolsServices)[0]) => void
+  onServiceClick: (service: (typeof videoProductionServices)[0] | (typeof analysisToolsServices)[0]) => void
 }) {
   const Icon = service.icon
-  const isLocked = 'locked' in service && service.locked
+  const isLocked = 'locked' in service && service.locked === true
 
   return (
     <Card
@@ -932,7 +932,7 @@ ${apiKeys.youtubeDataApiKey || "(미입력)"}
     }
   }
 
-  const handleServiceClick = (service: (typeof videoProductionServices)[0] | (typeof analysisToolsServices)[0] | (typeof otherToolsServices)[0]) => {
+  const handleServiceClick = (service: (typeof videoProductionServices)[0] | (typeof analysisToolsServices)[0]) => {
     if (service.url.startsWith("http")) {
       window.open(service.url, "_blank")
     } else {

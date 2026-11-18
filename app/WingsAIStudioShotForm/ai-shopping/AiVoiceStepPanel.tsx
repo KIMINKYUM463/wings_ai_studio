@@ -12,6 +12,8 @@ import {
   Loader2,
   Mic,
   Music2,
+  Pause,
+  Play,
   Radio,
   RefreshCw,
   Search,
@@ -49,6 +51,8 @@ import {
   fetchSupertonicVoices,
 } from "@/lib/supertonic-runtime-client"
 import { SupertonicSetupBar } from "../components/SupertonicSetupBar"
+import { GEMINI_VOICES } from "@/lib/wings-shopping-v2/tts/gemini-voices"
+import { voicePersonaPhoto } from "@/components/wings-shopping-v2/VoiceFace"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -65,6 +69,8 @@ import { VoiceRecordWaveform } from "./VoiceRecordWaveform"
 import { Ver2StepPanel, Ver2StepShell } from "./Ver2StepShell"
 
 const DEFAULT_ELEVEN_ID = "jB1Cifc2UQbq1gR3wnb0"
+const FOCUS =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f3beb] focus-visible:ring-offset-2"
 const TRAIN_SAMPLE_SECONDS = 10
 const TRAIN_SAMPLE_SCRIPT =
   "안녕하세요. 윙스에이아이입니다. 오늘도 좋은 하루 되세요. 제 목소리로 쇼츠 나레이션을 테스트합니다."
@@ -79,7 +85,7 @@ const ELEVEN_PRESETS = [
   { id: "4JJwo477JUAx3HV0T7n7", name: "Voice 5", gender: "male" as const },
 ] as const
 
-type Provider = "elevenlabs" | "typecast" | "supertonic"
+type Provider = "gemini" | "elevenlabs" | "typecast" | "supertonic" | "adam"
 type GenderFilter = "all" | "female" | "male"
 
 type CatalogVoice = {
@@ -92,6 +98,26 @@ type CatalogVoice = {
   gender?: string
   age?: string
   use_cases?: string[]
+}
+
+function TypecastPortrait({ src, name }: { src?: string; name: string }) {
+  const [broken, setBroken] = useState(false)
+  if (!src || broken) {
+    return (
+      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-orange-500/15 text-sm font-bold text-orange-100">
+        {name.slice(0, 1)}
+      </span>
+    )
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt=""
+      className="h-11 w-11 shrink-0 rounded-lg border border-white/15 bg-white object-cover"
+      onError={() => setBroken(true)}
+    />
+  )
 }
 
 const TYPECAST_AGE_LABELS: Record<string, string> = {
@@ -118,6 +144,12 @@ const PROVIDERS: Array<{
   icon: typeof Radio
 }> = [
   {
+    id: "gemini",
+    title: "Gemini",
+    blurb: "자연스러운 쇼츠 톤 · 16 보이스",
+    icon: Radio,
+  },
+  {
     id: "supertonic",
     title: "Supertonic 3",
     blurb: "PC 설치형 · 로컬 무료 TTS",
@@ -135,11 +167,19 @@ const PROVIDERS: Array<{
     blurb: "한국어/다국어 공유 보이스",
     icon: Globe2,
   },
+  {
+    id: "adam",
+    title: "아담",
+    blurb: "PC 로컬 · 쇼핑숏폼 나레이션",
+    icon: Mic,
+  },
 ]
 
 function providerFromVoiceId(voiceId: string): Provider {
+  if (voiceId.startsWith("gemini-")) return "gemini"
   if (voiceId.startsWith("supertonic-")) return "supertonic"
   if (voiceId.startsWith("typecast-")) return "typecast"
+  if (voiceId.startsWith("adam-")) return "adam"
   return "elevenlabs"
 }
 
@@ -242,6 +282,10 @@ export function AiVoiceStepPanel({
   >([])
   const [deletingVoiceId, setDeletingVoiceId] = useState<string | null>(null)
   const [supertonicHealthMsg, setSupertonicHealthMsg] = useState("")
+  const [adamOnline, setAdamOnline] = useState<boolean | null>(null)
+  const [adamHealthMsg, setAdamHealthMsg] = useState("")
+  const [geminiPreview, setGeminiPreview] = useState<{ id: string; state: "loading" | "playing" } | null>(null)
+  const geminiAudioRef = useRef<HTMLAudioElement | null>(null)
   const [activeSceneIdx, setActiveSceneIdx] = useState(0)
   const [localRecording, setLocalRecording] = useState(false)
   const [recordAnalyser, setRecordAnalyser] = useState<AnalyserNode | null>(null)
@@ -351,6 +395,17 @@ export function AiVoiceStepPanel({
       setGenderFilter("all")
       return
     }
+    if (next === "gemini") {
+      if (!selectedVoiceId.startsWith("gemini-")) setSelectedVoiceId(`gemini-${GEMINI_VOICES[0].id}`)
+      setGenderFilter("all")
+      return
+    }
+    if (next === "adam") {
+      setSelectedVoiceId("adam-adam")
+      setGenderFilter("all")
+      void checkAdam()
+      return
+    }
     const eid = customElevenLabsVoiceId || DEFAULT_ELEVEN_ID
     setCustomElevenLabsVoiceId(eid)
     setSelectedVoiceId(`elevenlabs-${eid}`)
@@ -401,6 +456,26 @@ export function AiVoiceStepPanel({
       setSupertonicHealthMsg(
         "상태 확인 실패. 「Supertonic 자동 실행」을 눌러 주세요."
       )
+    }
+  }
+
+  const checkAdam = async () => {
+    setAdamHealthMsg("아담 TTS 상태 확인 중…")
+    setAdamOnline(null)
+    try {
+      const res = await fetch("/api/adam-tts")
+      const data = (await res.json().catch(() => ({}))) as { online?: boolean; message?: string }
+      const online = Boolean(data.online)
+      setAdamOnline(online)
+      setAdamHealthMsg(
+        data.message ||
+          (online
+            ? "연결됨 · 127.0.0.1:8765"
+            : "꺼져 있습니다. 키트 폴더에서 python server.py 를 실행하세요.")
+      )
+    } catch {
+      setAdamOnline(false)
+      setAdamHealthMsg("상태 확인 실패. 키트 폴더에서 python server.py 를 실행하세요.")
     }
   }
 
@@ -553,6 +628,22 @@ export function AiVoiceStepPanel({
   }, [typecastList])
 
   const voiceCards = useMemo(() => {
+    if (provider === "gemini") {
+      return GEMINI_VOICES.map((v) => {
+        const name = v.name.split(" (")[0]
+        const desc = v.name.match(/\((.+)\)/)?.[1] ?? ""
+        const gender: "female" | "male" = desc.includes("여성") ? "female" : "male"
+        return {
+          key: v.id,
+          voiceId: `gemini-${v.id}`,
+          name,
+          code: name.slice(0, 2),
+          gender,
+          note: desc.replace(/^(남성|여성),\s*/, ""),
+          thumb: voicePersonaPhoto(name, desc) as string | undefined,
+        }
+      }).filter((v) => genderFilter === "all" || v.gender === genderFilter)
+    }
     if (provider === "elevenlabs") {
       return ELEVEN_PRESETS.filter(
         (v) => genderFilter === "all" || v.gender === genderFilter
@@ -565,6 +656,20 @@ export function AiVoiceStepPanel({
         note: "EL",
         thumb: undefined as string | undefined,
       }))
+    }
+    if (provider === "adam") {
+      if (genderFilter === "female") return []
+      return [
+        {
+          key: "adam",
+          voiceId: "adam-adam",
+          name: "아담",
+          code: "AD",
+          gender: "male" as const,
+          note: "로컬",
+          thumb: undefined as string | undefined,
+        },
+      ]
     }
     if (provider === "supertonic") {
       const recordedIds = new Set(recordedVoiceMeta.map((r) => r.id))
@@ -661,7 +766,7 @@ export function AiVoiceStepPanel({
   }, [provider, genderFilter, supertonicVoices, recordedVoiceMeta])
 
   const selectVoiceCard = (voiceId: string) => {
-    if (voiceId.startsWith("supertonic-")) {
+    if (voiceId.startsWith("supertonic-") || voiceId.startsWith("gemini-")) {
       setSelectedVoiceId(voiceId)
       return
     }
@@ -681,8 +786,45 @@ export function AiVoiceStepPanel({
           v.styles.includes("normal") ? "normal" : v.styles[0]
         )
       }
+      return
+    }
+    if (voiceId.startsWith("adam-")) {
+      setSelectedVoiceId(voiceId)
     }
   }
+
+  useEffect(() => () => geminiAudioRef.current?.pause(), [])
+
+  /** Gemini는 리믹스 쇼핑숏폼의 캐시된 예시 문장 미리듣기를 재사용, 나머지는 기존 handlePreviewVoice */
+  const previewVoice = (voiceId: string) => {
+    selectVoiceCard(voiceId)
+    if (!voiceId.startsWith("gemini-")) {
+      handlePreviewVoice(voiceId)
+      return
+    }
+    geminiAudioRef.current?.pause()
+    if (geminiPreview?.id === voiceId) {
+      setGeminiPreview(null)
+      return
+    }
+    const id = voiceId.replace("gemini-", "")
+    // 0.1 단위로 맞춰 캐시 적중률을 높임 (route가 0.7~1.5로 제한)
+    const speed = Math.min(1.5, Math.max(0.7, Math.round(ttsSpeed * 10) / 10))
+    const a = new Audio(`/api/wings-shopping-v2/voice-preview?voiceId=${encodeURIComponent(id)}&speed=${speed}`)
+    geminiAudioRef.current = a
+    setGeminiPreview({ id: voiceId, state: "loading" })
+    const done = () => setGeminiPreview((p) => (p?.id === voiceId ? null : p))
+    a.onplaying = () => setGeminiPreview({ id: voiceId, state: "playing" })
+    a.onended = done
+    a.onerror = () => {
+      done()
+      alert("Gemini 미리듣기에 실패했습니다. 설정에서 Gemini API 키를 확인해 주세요.")
+    }
+    a.play().catch(done)
+  }
+
+  const isPreviewing = (voiceId: string) =>
+    voiceId.startsWith("gemini-") ? geminiPreview?.id === voiceId : previewingVoiceId === voiceId
 
   const cleanupRecordingGraph = () => {
     if (recordTimerRef.current) {
@@ -786,7 +928,7 @@ export function AiVoiceStepPanel({
     if (!blob && !recordedVoiceUrl) return
     try {
       const src = blob || (await fetch(recordedVoiceUrl).then((r) => r.blob()))
-      const wav = await audioBlobToWav(src)
+      const wav = await audioBlobToWav(src!)
       const a = document.createElement("a")
       a.href = URL.createObjectURL(wav)
       a.download = `${sanitizeSupertonicVoiceName(trainVoiceName || "supertonic-train")}.wav`
@@ -825,7 +967,7 @@ export function AiVoiceStepPanel({
       setTrainVoiceName(label)
 
       const src = blob || (await fetch(recordedVoiceUrl).then((r) => r.blob()))
-      const wav = await audioBlobToWav(src)
+      const wav = await audioBlobToWav(src!)
       const form = new FormData()
       form.append("name", name)
       form.append("audio", wav, `${name}.wav`)
@@ -885,11 +1027,103 @@ export function AiVoiceStepPanel({
     setVoiceRecordings({})
   }
 
+  /** 보이스 카드: 인물 사진(없으면 이니셜) · 이름 · 설명 · 작은 미리듣기 버튼 */
+  const renderVoiceCard = (
+    v: { key: string; voiceId: string; name: string; code: string; gender: "female" | "male"; note?: string; thumb?: string; bareId?: string },
+    onDelete?: () => void
+  ) => {
+    const on = selectedVoiceId === v.voiceId
+    const busy = isPreviewing(v.voiceId)
+    const playing = v.voiceId.startsWith("gemini-") && geminiPreview?.id === v.voiceId && geminiPreview.state === "playing"
+    return (
+      <div
+        key={v.key}
+        className={`relative flex items-center gap-3 rounded-[18px] border bg-[#ffffff] p-3 transition ${
+          on
+            ? "border-[#2f3beb] shadow-[0_0_0_3px_rgba(47,59,235,0.12)]"
+            : "border-[#e3e6ec] hover:border-[#c9cdd6] hover:shadow-[0_8px_20px_-14px_rgba(14,16,22,0.25)]"
+        }`}
+      >
+        <button
+          type="button"
+          aria-pressed={on}
+          onClick={() => selectVoiceCard(v.voiceId)}
+          className={`flex min-w-0 flex-1 items-center gap-3 rounded-[12px] text-left ${FOCUS}`}
+        >
+          <span className="relative shrink-0">
+            {v.thumb ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={v.thumb} alt="" className="h-12 w-12 rounded-full bg-[#f1f2f6] object-cover" />
+            ) : (
+              <span className="grid h-12 w-12 place-items-center rounded-full bg-[#f1f2f6] text-[13px] font-bold text-[#5c6170]">
+                {String(v.code).slice(0, 2)}
+              </span>
+            )}
+            {on ? (
+              <span className="absolute -bottom-0.5 -right-0.5 grid h-5 w-5 place-items-center rounded-full border-2 border-[#ffffff] bg-[#2f3beb] text-[#ffffff]">
+                <Check className="h-3 w-3" strokeWidth={3} />
+              </span>
+            ) : null}
+          </span>
+          <span className="min-w-0">
+            <span className="block truncate text-[14px] font-semibold text-[#0e1016]">{v.name}</span>
+            <span className="mt-0.5 block truncate text-[12px] text-[#5c6170]">
+              {v.gender === "female" ? "여성" : "남성"}
+              {v.note ? ` · ${v.note}` : ""}
+            </span>
+          </span>
+        </button>
+        {onDelete ? (
+          <button
+            type="button"
+            aria-label={`${v.name} 삭제`}
+            title="삭제"
+            disabled={deletingVoiceId === v.bareId}
+            onClick={(e) => {
+              e.stopPropagation()
+              onDelete()
+            }}
+            className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-[#9aa0ad] hover:bg-[#fdecec] hover:text-[#d13b3b] ${FOCUS}`}
+          >
+            {deletingVoiceId === v.bareId ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="h-3.5 w-3.5" />
+            )}
+          </button>
+        ) : null}
+        <button
+          type="button"
+          aria-label={`${v.name} 미리듣기`}
+          title="미리듣기"
+          disabled={busy && !v.voiceId.startsWith("gemini-")}
+          onClick={(e) => {
+            e.stopPropagation()
+            previewVoice(v.voiceId)
+          }}
+          className={`grid h-9 w-9 shrink-0 place-items-center rounded-full border transition ${FOCUS} ${
+            busy
+              ? "border-[#2f3beb] bg-[#eef0ff] text-[#2f3beb]"
+              : "border-[#e3e6ec] bg-[#ffffff] text-[#0e1016] hover:border-[#2f3beb] hover:text-[#2f3beb]"
+          }`}
+        >
+          {playing ? (
+            <Pause className="h-3.5 w-3.5" />
+          ) : busy ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Play className="h-3.5 w-3.5 translate-x-[1px]" />
+          )}
+        </button>
+      </div>
+    )
+  }
+
   return (
     <Ver2StepShell
       stepLabel="4단계"
       title="AI 음성"
-      description="엔진 → 보이스 카드 → 생성. 장면 칩으로 대본을 확인한 뒤 TTS를 만듭니다."
+      description="엔진과 목소리를 고른 뒤, 장면마다 나레이션을 만들어 순서대로 이어 붙입니다."
       icon={Mic}
       accent="orange"
       headerRight={
@@ -897,7 +1131,7 @@ export function AiVoiceStepPanel({
           <Button
             variant="outline"
             onClick={onBack}
-            className="border-white/15 bg-[#f6ffff] text-zinc-200 hover:bg-white/10"
+            className={`h-10 rounded-[12px] border-[#e3e6ec] bg-[#ffffff] text-[#0e1016] hover:bg-[#f5f6fa] hover:text-[#0e1016] ${FOCUS}`}
           >
             <ArrowLeft className="w-4 h-4 mr-1.5" />
             이전
@@ -905,7 +1139,7 @@ export function AiVoiceStepPanel({
           <Button
             onClick={onNext}
             disabled={!script.trim()}
-            className="bg-orange-500 hover:bg-orange-400 text-white font-semibold"
+            className={`h-10 rounded-[12px] bg-[#0e1016] text-[#ffffff] font-semibold hover:bg-[#262a35] disabled:bg-[#c9cdd6] disabled:opacity-100 ${FOCUS}`}
           >
             다음: 이미지
             <ArrowRight className="w-4 h-4 ml-1.5" />
@@ -917,71 +1151,65 @@ export function AiVoiceStepPanel({
       <Ver2StepPanel
         eyebrow="Scenes"
         title="장면 대본"
-        description={`${sceneItems.length}씬 · S${activeSceneIdx + 1} 선택`}
-        right={<Music2 className="h-4 w-4 text-orange-300" />}
+        description={`${sceneItems.length}개 장면`}
       >
-        <div className="flex items-stretch gap-1.5 overflow-x-auto pb-1">
+        <div
+          role="tablist"
+          aria-label="장면"
+          className="flex gap-2.5 overflow-x-auto pb-1 [scrollbar-width:thin]"
+        >
           {sceneItems.map((s, idx) => {
             const on = idx === activeSceneIdx
             return (
-              <div key={s.id} className="flex items-center gap-1.5 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setActiveSceneIdx(idx)}
-                  className={`w-[220px] rounded-xl border px-3.5 py-3 text-left transition-colors ${
-                    on
-                      ? "border-orange-400/60 bg-orange-500/20 ring-1 ring-orange-400/25"
-                      : "border-white/12 bg-[#faffff] hover:border-orange-400/30 hover:bg-[#f0f6ff]"
+              <button
+                key={s.id}
+                type="button"
+                role="tab"
+                aria-selected={on}
+                onClick={() => setActiveSceneIdx(idx)}
+                className={`w-[208px] shrink-0 rounded-[16px] border bg-[#ffffff] px-3.5 py-3 text-left transition ${FOCUS} ${
+                  on
+                    ? "border-[#2f3beb] shadow-[0_0_0_3px_rgba(47,59,235,0.12)]"
+                    : "border-[#e3e6ec] hover:border-[#c9cdd6]"
+                }`}
+              >
+                <span
+                  className={`inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1.5 text-[12px] font-bold tabular-nums ${
+                    on ? "bg-[#2f3beb] text-[#ffffff]" : "bg-[#f1f2f6] text-[#5c6170]"
                   }`}
                 >
-                  <span
-                    className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-bold tracking-wide ${
-                      on
-                        ? "bg-orange-400 text-[#fffdef]"
-                        : "bg-white/10 text-orange-200"
-                    }`}
-                  >
-                    {s.label}
-                  </span>
-                  <p
-                    className={`mt-2 text-[13px] leading-snug line-clamp-2 min-h-[2.5rem] ${
-                      on ? "text-zinc-50 font-medium" : "text-zinc-300"
-                    }`}
-                  >
-                    {s.body || s.title}
-                  </p>
-                </button>
-                {idx < sceneItems.length - 1 ? (
-                  <span
-                    className="flex h-8 w-8 shrink-0 items-center justify-center self-center rounded-full border border-orange-400/30 bg-[#faffff] text-orange-300"
-                    aria-hidden
-                  >
-                    <ArrowRight className="h-4 w-4" strokeWidth={2.25} />
-                  </span>
-                ) : null}
-              </div>
+                  {idx + 1}
+                </span>
+                <p
+                  className={`mt-2 min-h-[2.6rem] text-[13px] leading-snug line-clamp-2 ${
+                    on ? "font-medium text-[#0e1016]" : "text-[#5c6170]"
+                  }`}
+                >
+                  {s.body || s.title}
+                </p>
+              </button>
             )
           })}
         </div>
         {active?.body ? (
-          <div className="mt-3 rounded-xl border border-orange-400/20 bg-[#f4f8ff] px-4 py-3">
-            <p className="text-[11px] font-semibold text-orange-200/90 mb-1.5">
-              선택 장면 · {active.label}
+          <div className="mt-3 rounded-[16px] border border-[#e3e6ec] bg-[#ffffff] px-4 py-3.5">
+            <p className="mb-1 text-[12px] font-semibold text-[#2f3beb]">
+              장면 {activeSceneIdx + 1}
             </p>
-            <p className="text-[14px] text-zinc-100 leading-relaxed tracking-[-0.01em]">
+            <p className="text-[14px] leading-relaxed tracking-[-0.01em] text-[#0e1016]">
               {active.body}
             </p>
           </div>
         ) : null}
       </Ver2StepPanel>
 
-      {/* TTS 엔진 카드 */}
-      <Ver2StepPanel
-        eyebrow="Engine"
-        title="TTS 엔진"
-        description="Supertonic 3(로컬) · 타입캐스트 · ElevenLabs"
-      >
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+      {/* TTS 엔진 */}
+      <Ver2StepPanel eyebrow="Engine" title="음성 엔진">
+        <div
+          role="radiogroup"
+          aria-label="음성 엔진"
+          className="grid grid-cols-2 gap-1.5 rounded-[20px] bg-[#eef0f4] p-1.5 sm:grid-cols-3 lg:grid-cols-5"
+        >
           {PROVIDERS.map((p) => {
             const on = provider === p.id
             const Icon = p.icon
@@ -989,99 +1217,111 @@ export function AiVoiceStepPanel({
               <button
                 key={p.id}
                 type="button"
+                role="radio"
+                aria-checked={on}
                 onClick={() => setProvider(p.id)}
-                className={`relative text-left rounded-xl border px-3.5 py-3.5 transition-all ${
+                className={`flex items-start gap-2.5 rounded-[14px] px-3 py-3 text-left transition ${FOCUS} ${
                   on
-                    ? "border-emerald-400/55 bg-emerald-500/[0.12] shadow-[0_0_0_1px_rgba(52,211,153,0.15)]"
-                    : "border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.04]"
+                    ? "bg-[#ffffff] shadow-[0_1px_2px_rgba(14,16,22,0.06),0_10px_24px_-14px_rgba(14,16,22,0.3)]"
+                    : "hover:bg-[#f7f8fa]"
                 }`}
               >
-                {on ? (
-                  <span className="absolute right-2.5 top-2.5 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-400 text-[#edfffa]">
-                    <Check className="h-3 w-3" strokeWidth={3} />
-                  </span>
-                ) : null}
-                <div className="flex items-start gap-2.5 pr-6">
-                  <span
-                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
-                      on ? "bg-emerald-400/20 text-emerald-200" : "bg-white/5 text-zinc-400"
-                    }`}
-                  >
-                    <Icon className="h-4 w-4" />
-                  </span>
-                  <div>
-                    <p className="text-[13px] font-semibold text-zinc-50">{p.title}</p>
-                    <p className="text-[11px] text-zinc-400 mt-0.5 leading-snug">{p.blurb}</p>
-                  </div>
-                </div>
+                <span
+                  className={`grid h-8 w-8 shrink-0 place-items-center rounded-[10px] ${
+                    on ? "bg-[#eef0ff] text-[#2f3beb]" : "bg-[#e3e6ec] text-[#5c6170]"
+                  }`}
+                >
+                  <Icon className="h-4 w-4" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[13px] font-semibold text-[#0e1016]">{p.title}</span>
+                  <span className="mt-0.5 block text-[12px] leading-snug text-[#5c6170]">{p.blurb}</span>
+                </span>
               </button>
             )
           })}
         </div>
+        {provider === "gemini" ? (
+          <p className="mt-3 text-[12px] text-[#5c6170]">
+            메인 설정에 저장한 Gemini API 키로 서버에서 합성합니다. 앞뒤 무음은 자동으로 잘라냅니다.
+          </p>
+        ) : null}
         {provider === "supertonic" ? (
-          <div className="space-y-3">
-            <SupertonicSetupBar
-              onReady={(info) => {
-                setSupertonicOnline(info.online)
-                if (info.message) setSupertonicHealthMsg(info.message)
-                if (info.online) void checkSupertonic()
-              }}
-            />
-            <div className="flex flex-wrap items-center gap-2">
-              <Input
-                value={jsonVoiceName}
-                onChange={(event) => setJsonVoiceName(event.target.value)}
-                placeholder="목소리 ID · 영문/숫자 (선택)"
-                disabled={isImportingJsonVoice}
-                className="h-8 w-[210px] border-violet-400/25 bg-black/30 text-xs text-zinc-100"
-              />
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={isImportingJsonVoice}
-                onClick={() => voiceJsonInputRef.current?.click()}
-                className="h-8 border-violet-400/40 bg-violet-500/10 text-violet-100 hover:bg-violet-500/20 hover:text-white"
-              >
-                {isImportingJsonVoice ? (
-                  <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-                ) : (
-                  <Upload className="h-3.5 w-3.5 mr-1" />
-                )}
-                JSON 목소리 추가
-              </Button>
-              <input
-                ref={voiceJsonInputRef}
-                type="file"
-                accept="application/json,.json,.supertonic-3.json"
-                className="hidden"
-                onChange={(event) => {
-                  const file = event.target.files?.[0]
-                  event.target.value = ""
-                  if (file) void importSupertonicJsonVoice(file)
+          <details className="group mt-3 rounded-[16px] border border-[#e3e6ec] bg-[#ffffff]">
+            <summary
+              className={`flex cursor-pointer list-none items-center justify-between gap-3 rounded-[16px] px-4 py-3 ${FOCUS}`}
+            >
+              <span className="flex min-w-0 items-center gap-2.5">
+                <span
+                  aria-hidden
+                  className={`h-2 w-2 shrink-0 rounded-full ${
+                    supertonicOnline === true
+                      ? "bg-[#12a26b]"
+                      : supertonicOnline === false
+                        ? "bg-[#d98a00]"
+                        : "bg-[#c9cdd6]"
+                  }`}
+                />
+                <span className="shrink-0 text-[13px] font-semibold text-[#0e1016]">로컬 서버 · JSON 목소리</span>
+                <span className="truncate text-[12px] text-[#5c6170]">
+                  {supertonicHealthMsg || "Supertonic 3 설치·연결 상태"}
+                </span>
+              </span>
+              <span className="shrink-0 text-[12px] font-medium text-[#2f3beb] group-open:hidden">열기</span>
+              <span className="hidden shrink-0 text-[12px] font-medium text-[#2f3beb] group-open:inline">닫기</span>
+            </summary>
+            <div className="space-y-3 border-t border-[#eef0f4] px-4 py-3">
+              <SupertonicSetupBar
+                onReady={(info) => {
+                  setSupertonicOnline(info.online)
+                  if (info.message) setSupertonicHealthMsg(info.message)
+                  if (info.online) void checkSupertonic()
                 }}
               />
-              <span
-                className={`text-[11px] ${
-                  supertonicOnline === true
-                    ? "text-emerald-300"
-                    : supertonicOnline === false
-                      ? "text-amber-300"
-                      : "text-zinc-500"
-                }`}
-              >
-                {supertonicHealthMsg ||
-                  "Supertonic 3 선택 시 설치 안내로 Python·서버를 준비하세요"}
-              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  value={jsonVoiceName}
+                  onChange={(event) => setJsonVoiceName(event.target.value)}
+                  placeholder="목소리 ID · 영문/숫자 (선택)"
+                  disabled={isImportingJsonVoice}
+                  className="h-9 w-[220px] rounded-[10px] border-[#e3e6ec] bg-[#ffffff] text-[12px] text-[#0e1016] placeholder:text-[#9aa0ad]"
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={isImportingJsonVoice}
+                  onClick={() => voiceJsonInputRef.current?.click()}
+                  className={`h-9 rounded-[10px] border-[#e3e6ec] bg-[#ffffff] text-[12px] text-[#0e1016] hover:bg-[#f5f6fa] hover:text-[#0e1016] ${FOCUS}`}
+                >
+                  {isImportingJsonVoice ? (
+                    <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                  ) : (
+                    <Upload className="h-3.5 w-3.5 mr-1" />
+                  )}
+                  JSON 목소리 추가
+                </Button>
+                <input
+                  ref={voiceJsonInputRef}
+                  type="file"
+                  accept="application/json,.json,.supertonic-3.json"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0]
+                    event.target.value = ""
+                    if (file) void importSupertonicJsonVoice(file)
+                  }}
+                />
+              </div>
             </div>
-          </div>
+          </details>
         ) : null}
         {provider === "typecast" ? (
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             <Button
               variant="outline"
               size="sm"
-              className="h-8 border-emerald-400/40 bg-zinc-900 text-emerald-200 hover:bg-zinc-800 hover:text-emerald-50"
+              className={`h-9 rounded-[10px] border-[#e3e6ec] bg-[#ffffff] text-[12px] text-[#0e1016] hover:bg-[#f5f6fa] hover:text-[#0e1016] ${FOCUS}`}
               onClick={fetchTypecastVoices}
               disabled={isLoadingTypecastVoices}
             >
@@ -1095,12 +1335,13 @@ export function AiVoiceStepPanel({
             <select
               value={selectedTypecastEmotion}
               onChange={(e) => setSelectedTypecastEmotion(e.target.value)}
-              className="h-8 rounded-md border border-white/15 bg-black/40 px-2 text-[12px] text-zinc-200"
+              aria-label="감정"
+              className={`h-9 rounded-[10px] border border-[#e3e6ec] bg-[#ffffff] px-2.5 text-[12px] text-[#0e1016] ${FOCUS}`}
             >
               {(
                 typecastVoices.find((v) => v.voice_id === selectedTypecastVoiceId)?.styles
                   ?.length
-                  ? typecastVoices.find((v) => v.voice_id === selectedTypecastVoiceId)!.styles
+                  ? typecastVoices.find((v) => v.voice_id === selectedTypecastVoiceId)!.styles!
                   : TYPECAST_EMOTIONS.map((e) => e.id)
               ).map((emotion) => {
                 const label =
@@ -1127,7 +1368,7 @@ export function AiVoiceStepPanel({
                 setSelectedVoiceId(`typecast-${inputId}`)
                 setSelectedTypecastEmotion("normal")
               }}
-              className="h-8 max-w-[220px] bg-black/30 border-white/15 text-xs"
+              className="h-9 max-w-[220px] rounded-[10px] border-[#e3e6ec] bg-[#ffffff] text-[12px] text-[#0e1016] placeholder:text-[#9aa0ad]"
             />
           </div>
         ) : null}
@@ -1140,7 +1381,7 @@ export function AiVoiceStepPanel({
               setCustomElevenLabsVoiceId(voiceId)
               if (voiceId) setSelectedVoiceId(`elevenlabs-${voiceId}`)
             }}
-            className="h-8 max-w-md bg-black/30 border-white/15 text-xs"
+            className="mt-3 h-9 max-w-md rounded-[10px] border-[#e3e6ec] bg-[#ffffff] text-[12px] text-[#0e1016] placeholder:text-[#9aa0ad]"
           />
         ) : null}
       </Ver2StepPanel>
@@ -1315,18 +1556,7 @@ export function AiVoiceStepPanel({
                                 onClick={() => selectVoiceCard(voiceId)}
                                 className="flex min-w-0 flex-1 items-center gap-3 text-left"
                               >
-                                {v.thumbnail_image_url ? (
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  <img
-                                    src={v.thumbnail_image_url}
-                                    alt=""
-                                    className="h-11 w-11 shrink-0 rounded-lg object-cover border border-white/15"
-                                  />
-                                ) : (
-                                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-orange-500/15 text-sm font-bold text-orange-100">
-                                    {v.name.slice(0, 1)}
-                                  </span>
-                                )}
+                                <TypecastPortrait src={v.thumbnail_image_url} name={v.name} />
                                 <div className="min-w-0">
                                   <p className="truncate text-[15px] font-semibold text-zinc-50">
                                     {v.name}
@@ -1399,9 +1629,26 @@ export function AiVoiceStepPanel({
           </>
         ) : (
           <>
+            {provider === "adam" ? (
+              <p
+                className={`text-[12px] ${
+                  adamOnline === true
+                    ? "text-[#12a26b]"
+                    : adamOnline === false
+                      ? "text-[#b7790a]"
+                      : "text-[#5c6170]"
+                }`}
+              >
+                {adamHealthMsg ||
+                  "키트 폴더에서 python server.py 를 실행하면 이 목소리로 읽습니다. (127.0.0.1:8765)"}
+              </p>
+            ) : null}
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[11px] font-semibold text-zinc-500">성별</span>
+              <div
+                role="radiogroup"
+                aria-label="성별"
+                className="inline-flex gap-1 rounded-full bg-[#eef0f4] p-1"
+              >
                 {(
                   [
                     { id: "all", label: "전체" },
@@ -1412,213 +1659,58 @@ export function AiVoiceStepPanel({
                   <button
                     key={g.id}
                     type="button"
+                    role="radio"
+                    aria-checked={genderFilter === g.id}
                     onClick={() => setGenderFilter(g.id)}
-                    className={`rounded-full px-3 py-1 text-[11px] font-semibold border transition-colors ${
+                    className={`rounded-full px-3.5 py-1.5 text-[12px] font-semibold transition ${FOCUS} ${
                       genderFilter === g.id
-                        ? "border-sky-400/50 bg-sky-500/20 text-sky-100"
-                        : "border-white/10 bg-white/[0.03] text-zinc-400 hover:text-zinc-200"
+                        ? "bg-[#ffffff] text-[#0e1016] shadow-[0_1px_2px_rgba(14,16,22,0.08)]"
+                        : "text-[#5c6170] hover:text-[#0e1016]"
                     }`}
                   >
                     {g.label}
                   </button>
                 ))}
-                <span className="text-[11px] text-zinc-600 ml-1">
-                  전체 {voiceCards.length + (provider === "supertonic" ? recordedVoiceCards.length : 0)}개
-                </span>
               </div>
-              <div className="flex items-center gap-1.5 text-[11px] text-zinc-500">
-                <UserRound className="h-3.5 w-3.5" />
-                보이스 카드
-              </div>
+              <span className="text-[12px] text-[#9aa0ad]">
+                {voiceCards.length + (provider === "supertonic" ? recordedVoiceCards.length : 0)}개 보이스
+              </span>
             </div>
 
             {provider === "supertonic" &&
               voiceCards.length === 0 &&
               recordedVoiceCards.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-white/12 px-4 py-10 text-center text-sm text-zinc-500">
+              <div className="rounded-[16px] border border-dashed border-[#d6d9e0] bg-[#ffffff] px-4 py-10 text-center text-[13px] text-[#5c6170]">
                 Supertonic 보이스가 없습니다. 로컬 서버 연결을 다시 확인해 주세요.
               </div>
             ) : (
               <div className="space-y-4">
                 {provider === "supertonic" && recordedVoiceCards.length > 0 ? (
                   <div className="space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-[12px] font-semibold text-violet-200">
-                        내 녹음
-                        <span className="ml-1 text-zinc-500 font-normal">
-                          ({recordedVoiceCards.length})
-                        </span>
-                      </p>
-                      <span className="text-[10px] text-zinc-600">짧은 이름 · 삭제 가능</span>
-                    </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
-                      {recordedVoiceCards.map((v) => {
-                        const on = selectedVoiceId === v.voiceId
-                        const female = v.gender === "female"
-                        return (
-                          <div
-                            key={v.key}
-                            className={`relative rounded-xl border p-3 transition-all ${
-                              on
-                                ? "border-violet-400/55 bg-gradient-to-br from-violet-500/25 to-slate-950/50"
-                                : "border-violet-400/20 bg-violet-500/[0.08] hover:border-violet-400/40"
-                            }`}
-                          >
-                            <div className="absolute right-1.5 top-1.5 flex items-center gap-1">
-                              {on ? (
-                                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-400 text-[#edfffa]">
-                                  <Check className="h-3 w-3" strokeWidth={3} />
-                                </span>
-                              ) : null}
-                              <button
-                                type="button"
-                                title="삭제"
-                                disabled={deletingVoiceId === v.bareId}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  void deleteRecordedVoice(v.bareId)
-                                }}
-                                className="flex h-6 w-6 items-center justify-center rounded-md border border-white/10 bg-black/40 text-zinc-400 hover:border-red-400/40 hover:bg-red-500/15 hover:text-red-200"
-                              >
-                                {deletingVoiceId === v.bareId ? (
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                ) : (
-                                  <Trash2 className="h-3 w-3" />
-                                )}
-                              </button>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => selectVoiceCard(v.voiceId)}
-                              className="w-full text-left pr-5"
-                            >
-                              <div className="flex items-center gap-2">
-                                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-violet-400/25 text-[12px] font-bold text-violet-100">
-                                  {v.code}
-                                </span>
-                                <div className="min-w-0">
-                                  <p className="text-[14px] font-semibold text-zinc-50 truncate">
-                                    {v.name}
-                                  </p>
-                                  <p className="text-[10px] text-zinc-500 mt-0.5">
-                                    {female ? "여성" : "남성"} · 내 녹음
-                                  </p>
-                                </div>
-                              </div>
-                            </button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="mt-2.5 h-7 w-full border-white/15 bg-black/25 text-[11px] text-zinc-200"
-                              disabled={previewingVoiceId === v.voiceId}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                selectVoiceCard(v.voiceId)
-                                handlePreviewVoice(v.voiceId)
-                              }}
-                            >
-                              {previewingVoiceId === v.voiceId ? (
-                                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                              ) : (
-                                <Volume2 className="h-3 w-3 mr-1" />
-                              )}
-                              미리듣기
-                            </Button>
-                          </div>
-                        )
-                      })}
+                    <p className="text-[12px] font-semibold text-[#0e1016]">
+                      내 녹음
+                      <span className="ml-1 font-normal text-[#9aa0ad]">
+                        {recordedVoiceCards.length}
+                      </span>
+                    </p>
+                    <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+                      {recordedVoiceCards.map((v) =>
+                        renderVoiceCard(v, () => void deleteRecordedVoice(v.bareId))
+                      )}
                     </div>
                   </div>
                 ) : null}
 
                 {provider === "supertonic" && voiceCards.length > 0 ? (
-                  <p className="text-[12px] font-semibold text-zinc-400">
+                  <p className="text-[12px] font-semibold text-[#0e1016]">
                     기본 · 커스텀
-                    <span className="ml-1 text-zinc-600 font-normal">({voiceCards.length})</span>
+                    <span className="ml-1 font-normal text-[#9aa0ad]">{voiceCards.length}</span>
                   </p>
                 ) : null}
 
                 {voiceCards.length > 0 ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
-                    {voiceCards.map((v) => {
-                      const on = selectedVoiceId === v.voiceId
-                      const female = v.gender === "female"
-                      return (
-                        <div
-                          key={v.key}
-                          className={`relative rounded-xl border p-3 transition-all ${
-                            on
-                              ? female
-                                ? "border-rose-400/50 bg-gradient-to-br from-rose-500/25 to-rose-950/40"
-                                : "border-sky-400/50 bg-gradient-to-br from-sky-500/20 to-slate-950/50"
-                              : female
-                                ? "border-rose-400/15 bg-rose-500/[0.07] hover:border-rose-400/35"
-                                : "border-sky-400/15 bg-sky-500/[0.07] hover:border-sky-400/35"
-                          }`}
-                        >
-                          {on ? (
-                            <span className="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-400 text-[#edfffa]">
-                              <Check className="h-3 w-3" strokeWidth={3} />
-                            </span>
-                          ) : null}
-                          <button
-                            type="button"
-                            onClick={() => selectVoiceCard(v.voiceId)}
-                            className="w-full text-left"
-                          >
-                            <div className="flex items-center gap-2">
-                              {v.thumb ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img
-                                  src={v.thumb}
-                                  alt=""
-                                  className="h-8 w-8 rounded-full object-cover border border-white/15"
-                                />
-                              ) : (
-                                <span
-                                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
-                                    female
-                                      ? "bg-rose-400/25 text-rose-100"
-                                      : "bg-sky-400/25 text-sky-100"
-                                  }`}
-                                >
-                                  {String(v.code).slice(0, 2)}
-                                </span>
-                              )}
-                              <div className="min-w-0">
-                                <p className="text-[13px] font-semibold text-zinc-50 truncate">
-                                  {v.name}
-                                </p>
-                                <p className="text-[10px] text-zinc-500 mt-0.5">
-                                  {female ? "여성" : "남성"}
-                                  {v.note ? ` · ${v.note}` : ""}
-                                </p>
-                              </div>
-                            </div>
-                          </button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="mt-2.5 h-7 w-full border-white/15 bg-black/25 text-[11px] text-zinc-200"
-                            disabled={previewingVoiceId === v.voiceId}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              selectVoiceCard(v.voiceId)
-                              handlePreviewVoice(v.voiceId)
-                            }}
-                          >
-                            {previewingVoiceId === v.voiceId ? (
-                              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                            ) : (
-                              <Volume2 className="h-3 w-3 mr-1" />
-                            )}
-                            미리듣기
-                          </Button>
-                        </div>
-                      )
-                    })}
+                  <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+                    {voiceCards.map((v) => renderVoiceCard(v))}
                   </div>
                 ) : null}
               </div>
@@ -1630,238 +1722,240 @@ export function AiVoiceStepPanel({
       {/* 생성 옵션 + 결과 + 액션 */}
       <Ver2StepPanel
         eyebrow="Generate"
-        title="생성 옵션"
-        description="각 장면의 대본을 개별 합성한 뒤 순서대로 연결합니다."
+        title="음성 만들기"
+        description="각 장면 대본을 따로 합성한 뒤 순서대로 이어 붙입니다."
         right={
-          <span className="rounded-full border border-orange-400/30 bg-orange-500/10 px-2.5 py-1 text-[11px] font-semibold text-orange-100">
+          <span className="rounded-full border border-[#e3e6ec] bg-[#ffffff] px-2.5 py-1 text-[12px] font-semibold tabular-nums text-[#5c6170]">
             {ttsSpeed.toFixed(2)}x · 장면 {sceneItems.length}
           </span>
         }
       >
         <div className="space-y-4">
-        <div className="max-w-md space-y-2">
-          <div className="flex items-center justify-between text-[12px]">
-            <Label className="text-zinc-300">배속 (생성·미리듣기)</Label>
-            <span className="tabular-nums text-sky-200 font-semibold">
-              {ttsSpeed.toFixed(2)}x
-            </span>
-          </div>
-          <Slider
-            min={0.5}
-            max={2}
-            step={0.05}
-            value={[ttsSpeed]}
-            onValueChange={(v) => setTtsSpeed(Array.isArray(v) ? v[0] : 1.2)}
-          />
-          <p className="text-[11px] text-zinc-500">
-            엔진별 허용 범위로 자동 조정됩니다 (예: ElevenLabs 0.8~1.5)
-          </p>
-        </div>
-
-        {(isGeneratingTTS || ttsProgress.total > 0) && (
-          <div className="rounded-xl border border-orange-400/25 bg-orange-500/10 px-3 py-2.5">
-            <div className="flex justify-between text-[11px] text-orange-100 mb-1">
-              <span className="font-semibold">GENERATING</span>
-              <span className="tabular-nums">
-                {ttsProgress.current}/{Math.max(1, ttsProgress.total)}
+          <div className="max-w-md space-y-2">
+            <div className="flex items-center justify-between text-[12px]">
+              <Label className="text-[#0e1016]">배속 (생성·미리듣기)</Label>
+              <span className="font-semibold tabular-nums text-[#2f3beb]">
+                {ttsSpeed.toFixed(2)}x
               </span>
             </div>
-            <div className="h-1.5 rounded-full bg-black/40 overflow-hidden">
-              <div
-                className="h-full rounded-full bg-orange-400 transition-all"
-                style={{
-                  width: `${
-                    ttsProgress.total > 0
-                      ? Math.min(100, (ttsProgress.current / ttsProgress.total) * 100)
-                      : isGeneratingTTS
-                        ? 40
-                        : 0
-                  }%`,
-                }}
-              />
-            </div>
-          </div>
-        )}
-
-        {!hasAudio ? (
-          <div className="rounded-xl border border-dashed border-white/12 bg-black/20 px-4 py-10 text-center">
-            <Music2 className="mx-auto h-8 w-8 text-orange-300/70 mb-2" />
-            <p className="text-sm text-zinc-300">아직 AI 음성이 없습니다</p>
-            <p className="text-xs text-zinc-500 mt-1">
-              보이스를 고른 뒤 아래에서 생성하거나 업로드·녹음하세요
-            </p>
-          </div>
-        ) : (
-          <div className="rounded-xl border border-emerald-400/25 bg-emerald-500/[0.07] p-4 space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 min-w-0">
-                <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-300" />
-                <p className="text-sm font-semibold text-emerald-100">프리뷰 사용 중</p>
-              </div>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="shrink-0 border-emerald-400/40 bg-emerald-500/10 text-emerald-100 hover:bg-emerald-500/20"
-                onClick={() => {
-                  void (async () => {
-                    if (!audioSrc) return
-                    try {
-                      const response = await fetch(audioSrc)
-                      if (!response.ok) throw new Error("오디오를 가져오지 못했습니다.")
-                      const blob = await response.blob()
-                      const mime = (blob.type || "").toLowerCase()
-                      const ext = mime.includes("mpeg") || mime.includes("mp3")
-                        ? "mp3"
-                        : mime.includes("ogg")
-                          ? "ogg"
-                          : "wav"
-                      const objectUrl = URL.createObjectURL(blob)
-                      const anchor = document.createElement("a")
-                      anchor.href = objectUrl
-                      anchor.download = `ai-shopping-tts-${Date.now()}.${ext}`
-                      document.body.appendChild(anchor)
-                      anchor.click()
-                      anchor.remove()
-                      URL.revokeObjectURL(objectUrl)
-                    } catch (error) {
-                      console.error("[AiVoice] TTS 다운로드 실패:", error)
-                      alert(
-                        error instanceof Error
-                          ? error.message
-                          : "음성 파일을 컴퓨터에 저장하지 못했습니다."
-                      )
-                    }
-                  })()
-                }}
-              >
-                <Download className="w-3.5 h-3.5 mr-1.5" />
-                컴퓨터에 저장
-              </Button>
-            </div>
-            <audio
-              ref={resultAudioRef}
-              controls
-              src={audioSrc}
-              className="w-full"
-              preload="auto"
-              onLoadedMetadata={(e) => {
-                e.currentTarget.playbackRate = 1
-              }}
+            <Slider
+              min={0.5}
+              max={2}
+              step={0.05}
+              value={[ttsSpeed]}
+              onValueChange={(v) => setTtsSpeed(Array.isArray(v) ? v[0] : 1.2)}
             />
-            <p className="text-[11px] text-zinc-500 leading-relaxed">
-              프로젝트 저장 시 AI 음성은 서버(Supabase)에도 올라갑니다. 업로드가 안 되면 이
-              버튼으로 PC에 받아 두세요.
+            <p className="text-[12px] text-[#9aa0ad]">
+              엔진별 허용 범위로 자동 조정됩니다 (예: ElevenLabs 0.8~1.5, Gemini 0.7~1.5)
             </p>
           </div>
-        )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-          <Button
-            onClick={handleGenerateTTS}
-            disabled={isGeneratingTTS || !script.trim()}
-            className="h-11 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 text-white font-bold shadow-lg shadow-orange-500/25 sm:col-span-2"
-          >
-            {isGeneratingTTS ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                생성 중…
-              </>
-            ) : ttsAudioUrl ? (
-              <>
-                <RefreshCw className="w-4 h-4 mr-2" />
-                AI 음성 재생성
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-4 h-4 mr-2" />
-                장면별 AI 음성 생성
-              </>
-            )}
-          </Button>
-          <input
-            ref={uploadRef}
-            type="file"
-            accept="audio/*"
-            className="hidden"
-            onChange={handleUpload}
-          />
-          <Button
-            type="button"
-            variant="outline"
-            className="h-11 border-white/15 bg-white/[0.03] text-zinc-200"
-            onClick={() => uploadRef.current?.click()}
-          >
-            <Upload className="w-4 h-4 mr-2" />
-            음원 업로드
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className="h-11 border-violet-400/35 bg-violet-500/10 text-violet-100"
-            onClick={() => {
-              setRecordMode(provider === "supertonic" ? "train" : "narrate")
-              setRecordedVoiceUrl("")
-              setRecordSeconds(0)
-              setShowRecordingDialog(true)
-            }}
-          >
-            <Mic className="w-4 h-4 mr-2" />
-            내 목소리 녹음
-          </Button>
-        </div>
+          {(isGeneratingTTS || ttsProgress.total > 0) && (
+            <div className="rounded-[14px] border border-[#e3e6ec] bg-[#ffffff] px-3.5 py-3">
+              <div className="mb-1.5 flex justify-between text-[12px] text-[#5c6170]">
+                <span className="font-semibold text-[#0e1016]">
+                  {isGeneratingTTS ? "장면별 음성 만드는 중" : "완료"}
+                </span>
+                <span className="tabular-nums">
+                  {ttsProgress.current}/{Math.max(1, ttsProgress.total)}
+                </span>
+              </div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-[#eef0f4]">
+                <div
+                  className="h-full rounded-full bg-[#2f3beb] transition-all"
+                  style={{
+                    width: `${
+                      ttsProgress.total > 0
+                        ? Math.min(100, (ttsProgress.current / ttsProgress.total) * 100)
+                        : isGeneratingTTS
+                          ? 40
+                          : 0
+                    }%`,
+                  }}
+                />
+              </div>
+            </div>
+          )}
 
-        {provider === "supertonic" ? (
-          <div className="rounded-xl border border-violet-400/30 bg-violet-500/[0.08] p-3 space-y-3">
-            <div>
-              <p className="text-[12px] font-semibold text-violet-100">녹음 2가지</p>
-              <p className="text-[11px] text-zinc-400 mt-0.5 leading-relaxed">
-                ① 학습용 10초 → 자동 JSON·등록 · ② 대본 낭독 → 나레이션으로 사용
+          {!hasAudio ? (
+            <div className="rounded-[16px] border border-dashed border-[#d6d9e0] bg-[#ffffff] px-4 py-9 text-center">
+              <Music2 className="mx-auto mb-2 h-7 w-7 text-[#9aa0ad]" />
+              <p className="text-[14px] font-medium text-[#0e1016]">아직 AI 음성이 없습니다</p>
+              <p className="mt-1 text-[12px] text-[#5c6170]">
+                보이스를 고른 뒤 아래에서 만들거나 업로드·녹음하세요
               </p>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <Button
-                type="button"
-                className="h-10 bg-violet-600 hover:bg-violet-500 text-white"
-                onClick={() => {
-                  setRecordMode("train")
-                  setRecordedVoiceUrl("")
-                  setRecordSeconds(0)
-                  setShowRecordingDialog(true)
+          ) : (
+            <div className="space-y-2.5 rounded-[16px] border border-[#e3e6ec] bg-[#ffffff] p-4">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 shrink-0 text-[#12a26b]" />
+                  <p className="text-[14px] font-semibold text-[#0e1016]">프리뷰 사용 중</p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className={`h-9 shrink-0 rounded-[10px] border-[#e3e6ec] bg-[#ffffff] text-[12px] text-[#0e1016] hover:bg-[#f5f6fa] hover:text-[#0e1016] ${FOCUS}`}
+                  onClick={() => {
+                    void (async () => {
+                      if (!audioSrc) return
+                      try {
+                        const response = await fetch(audioSrc)
+                        if (!response.ok) throw new Error("오디오를 가져오지 못했습니다.")
+                        const blob = await response.blob()
+                        const mime = (blob.type || "").toLowerCase()
+                        const ext = mime.includes("mpeg") || mime.includes("mp3")
+                          ? "mp3"
+                          : mime.includes("ogg")
+                            ? "ogg"
+                            : "wav"
+                        const objectUrl = URL.createObjectURL(blob)
+                        const anchor = document.createElement("a")
+                        anchor.href = objectUrl
+                        anchor.download = `ai-shopping-tts-${Date.now()}.${ext}`
+                        document.body.appendChild(anchor)
+                        anchor.click()
+                        anchor.remove()
+                        URL.revokeObjectURL(objectUrl)
+                      } catch (error) {
+                        console.error("[AiVoice] TTS 다운로드 실패:", error)
+                        alert(
+                          error instanceof Error
+                            ? error.message
+                            : "음성 파일을 컴퓨터에 저장하지 못했습니다."
+                        )
+                      }
+                    })()
+                  }}
+                >
+                  <Download className="w-3.5 h-3.5 mr-1.5" />
+                  컴퓨터에 저장
+                </Button>
+              </div>
+              <audio
+                ref={resultAudioRef}
+                controls
+                src={audioSrc}
+                className="w-full"
+                preload="auto"
+                onLoadedMetadata={(e) => {
+                  e.currentTarget.playbackRate = 1
                 }}
-              >
-                <Mic className="w-4 h-4 mr-2" />
-                학습용 녹음 (10초)
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="h-10 border-violet-400/40 bg-violet-500/10 text-violet-100"
-                onClick={() => {
-                  setRecordMode("narrate")
-                  setRecordedVoiceUrl("")
-                  setRecordSeconds(0)
-                  setShowRecordingDialog(true)
-                }}
-              >
-                <Mic className="w-4 h-4 mr-2" />
-                대본 나레이션 녹음
-              </Button>
+              />
+              <p className="text-[12px] leading-relaxed text-[#9aa0ad]">
+                프로젝트 저장 시 AI 음성은 서버(Supabase)에도 올라갑니다. 업로드가 안 되면 이
+                버튼으로 PC에 받아 두세요.
+              </p>
             </div>
-          </div>
-        ) : null}
+          )}
 
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="text-red-300/90 hover:text-red-200 hover:bg-red-500/10"
-          onClick={clearAudio}
-          disabled={!hasAudio}
-        >
-          <Trash2 className="w-3.5 h-3.5 mr-1.5" />
-          전체 삭제
-        </Button>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
+            <Button
+              onClick={handleGenerateTTS}
+              disabled={isGeneratingTTS || !script.trim()}
+              className="h-12 rounded-[14px] bg-[#2f3beb] text-[15px] font-bold text-[#ffffff] shadow-[0_10px_24px_-12px_rgba(47,59,235,0.6)] hover:bg-[#4350ff] disabled:bg-[#c9cdd6] disabled:opacity-100 disabled:shadow-none focus-visible:ring-2 focus-visible:ring-[#2f3beb] focus-visible:ring-offset-2 sm:col-span-2"
+            >
+              {isGeneratingTTS ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  만드는 중…
+                </>
+              ) : ttsAudioUrl ? (
+                <>
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  음성 다시 만들기
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  음성 만들기
+                </>
+              )}
+            </Button>
+            <input
+              ref={uploadRef}
+              type="file"
+              accept="audio/*"
+              className="hidden"
+              onChange={handleUpload}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              className={`h-12 rounded-[14px] border-[#e3e6ec] bg-[#ffffff] text-[#0e1016] hover:bg-[#f5f6fa] hover:text-[#0e1016] ${FOCUS}`}
+              onClick={() => uploadRef.current?.click()}
+            >
+              <Upload className="w-4 h-4 mr-2" />
+              음원 업로드
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className={`h-12 rounded-[14px] border-[#e3e6ec] bg-[#ffffff] text-[#0e1016] hover:bg-[#f5f6fa] hover:text-[#0e1016] ${FOCUS}`}
+              onClick={() => {
+                setRecordMode(provider === "supertonic" ? "train" : "narrate")
+                setRecordedVoiceUrl("")
+                setRecordSeconds(0)
+                setShowRecordingDialog(true)
+              }}
+            >
+              <Mic className="w-4 h-4 mr-2" />
+              내 목소리 녹음
+            </Button>
+          </div>
+
+          {provider === "supertonic" ? (
+            <div className="space-y-3 rounded-[16px] border border-[#e3e6ec] bg-[#ffffff] p-4">
+              <div>
+                <p className="text-[13px] font-semibold text-[#0e1016]">녹음 2가지</p>
+                <p className="mt-0.5 text-[12px] leading-relaxed text-[#5c6170]">
+                  ① 학습용 10초 → 자동 JSON·등록 · ② 대본 낭독 → 나레이션으로 사용
+                </p>
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <Button
+                  type="button"
+                  className={`h-10 rounded-[12px] bg-[#0e1016] text-[#ffffff] hover:bg-[#262a35] ${FOCUS}`}
+                  onClick={() => {
+                    setRecordMode("train")
+                    setRecordedVoiceUrl("")
+                    setRecordSeconds(0)
+                    setShowRecordingDialog(true)
+                  }}
+                >
+                  <Mic className="w-4 h-4 mr-2" />
+                  학습용 녹음 (10초)
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={`h-10 rounded-[12px] border-[#e3e6ec] bg-[#ffffff] text-[#0e1016] hover:bg-[#f5f6fa] hover:text-[#0e1016] ${FOCUS}`}
+                  onClick={() => {
+                    setRecordMode("narrate")
+                    setRecordedVoiceUrl("")
+                    setRecordSeconds(0)
+                    setShowRecordingDialog(true)
+                  }}
+                >
+                  <Mic className="w-4 h-4 mr-2" />
+                  대본 나레이션 녹음
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className={`text-[12px] text-[#d13b3b] hover:bg-[#fdecec] hover:text-[#b02a2a] ${FOCUS}`}
+            onClick={clearAudio}
+            disabled={!hasAudio}
+          >
+            <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+            전체 삭제
+          </Button>
         </div>
       </Ver2StepPanel>
 

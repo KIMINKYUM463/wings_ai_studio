@@ -82,7 +82,9 @@ export function StoryProductSearchPanel({
       setQuery(matchedQuery)
       setProducts(nextProducts)
       if (!nextProducts.length) {
-        setError("일치하는 쿠팡 상품을 찾지 못했습니다. 검색어를 짧게 수정해보세요.")
+        setError(
+          "일치하는 쿠팡 상품을 찾지 못했습니다. 검색어를 바꾸거나, 아래 「쿠팡에 없음 · 직접 진행」으로 스토리만 이어갈 수 있습니다."
+        )
       }
       onChange({
         ...brief,
@@ -322,7 +324,46 @@ export function StoryProductSearchPanel({
     })
   }
 
+  /** 쿠팡에 같은 상품이 없을 때: 분석된 제품명으로 스토리 제작만 이어갑니다 */
+  const continueWithoutCoupang = () => {
+    const videoId = brief.winningContent?.videoId
+    if (!videoId) return
+    const name =
+      query.trim() ||
+      analysis?.productName?.trim() ||
+      analysis?.searchKeyword?.trim() ||
+      brief.productName.trim()
+    if (!name) {
+      setError("제품명을 입력한 뒤 직접 진행해 주세요.")
+      return
+    }
+    onChange({
+      ...brief,
+      productName: name,
+      productDescription:
+        analysis?.productDescription?.trim() ||
+        brief.productDescription ||
+        `${name} — 쿠팡에서 동일 상품을 찾지 못해 영상 분석 정보로 진행합니다.`,
+      productImage: brief.productImage || brief.winningContent?.thumbnailUrl || "",
+      productUrl: "",
+      priceBenefit: brief.priceBenefit || "",
+      trendSource: "쿠팡 미매칭 · 영상 제품 직접 진행",
+      selectedShoppingTag: undefined,
+      selectedProductVideoId: videoId,
+      selectedProductSource: "manual",
+      collectorData: undefined,
+      storyTemplateRecommendation: undefined,
+      generatedStory: undefined,
+      voiceData: undefined,
+      sceneAssets: undefined,
+    })
+    setError("")
+  }
+
   const selectedVideo = brief.winningContent
+  const isManualSelected =
+    brief.selectedProductSource === "manual" &&
+    brief.selectedProductVideoId === brief.winningContent?.videoId
 
   return (
     <section className="relative overflow-hidden rounded-[30px] border border-orange-400/15 bg-[linear-gradient(145deg,#fbfaf7_0%,#ffffff_48%,#faf8f5_100%)] shadow-[0_28px_90px_rgba(20,35,70,0.158)]">
@@ -694,13 +735,82 @@ export function StoryProductSearchPanel({
             <p className="mt-3 text-sm font-bold text-zinc-300">
               분석된 검색어를 확인하고 쿠팡 검색 버튼을 눌러주세요.
             </p>
+            <p className="mt-2 max-w-md text-[11px] leading-5 text-zinc-500">
+              레시피·서비스·해외 전용 상품처럼 쿠팡에 없을 수도 있습니다. 그때는 아래
+              직접 진행으로 스토리 제작을 이어가면 됩니다.
+            </p>
           </div>
         ) : null}
+
+        <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <p className="text-[9px] font-black tracking-[0.16em] text-zinc-400">
+            COUPANG NOT FOUND?
+          </p>
+          <p className="mt-1 text-sm font-black text-white">
+            쿠팡에 같은 상품이 없으면 이렇게 하세요.
+          </p>
+          <ul className="mt-2 space-y-1 text-[11px] leading-5 text-zinc-400">
+            <li>1) 검색어를 더 짧게 바꿔 다시 검색 (예: 브랜드+핵심 키워드)</li>
+            <li>2) 비슷한 대체 상품을 골라 리뷰·사진만 참고용으로 쓰기</li>
+            <li>3) 쿠팡 없이도 영상 분석 제품명으로 스토리 제작 이어가기</li>
+          </ul>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={continueWithoutCoupang}
+              disabled={
+                isAnalyzing ||
+                isSearching ||
+                !(
+                  query.trim() ||
+                  analysis?.productName?.trim() ||
+                  brief.productName.trim()
+                )
+              }
+              className={`h-10 rounded-xl border-cyan-400/25 bg-cyan-500/10 font-black text-cyan-100 hover:bg-cyan-500/20 ${
+                isManualSelected ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-100" : ""
+              }`}
+            >
+              {isManualSelected ? (
+                <Check className="mr-1.5 h-4 w-4" />
+              ) : null}
+              {isManualSelected
+                ? "직접 진행으로 선택됨"
+                : "쿠팡에 없음 · 직접 진행"}
+            </Button>
+            {isManualSelected ? (
+              <p className="flex items-center text-[11px] text-emerald-300">
+                다음 단계에서 「선택 상품으로 스토리 생성」을 누르면 됩니다. (파트너스
+                링크·쿠팡 리뷰 수집은 비워 둡니다)
+              </p>
+            ) : null}
+          </div>
+        </div>
       </div>
 
-      {brief.selectedProductVideoId === brief.winningContent?.videoId ? (
+      {brief.selectedProductVideoId === brief.winningContent?.videoId &&
+      brief.selectedProductSource !== "manual" ? (
         <div className="border-t border-white/10 p-4 md:p-5">
           <StoryProductCollectorPanel brief={brief} onChange={onChange} />
+        </div>
+      ) : null}
+
+      {isManualSelected ? (
+        <div className="border-t border-white/10 p-4 md:p-5">
+          <div className="rounded-2xl border border-cyan-400/20 bg-cyan-500/[0.06] p-4">
+            <p className="text-[9px] font-black tracking-[0.16em] text-cyan-300">
+              MANUAL PRODUCT
+            </p>
+            <p className="mt-1 text-sm font-black text-white">
+              쿠팡 미매칭 · {brief.productName}
+            </p>
+            <p className="mt-2 text-xs leading-6 text-zinc-300">
+              쿠팡 상세·리뷰 수집기는 건너뜁니다. 스토리 대본은 영상 분석 정보와
+              입력한 제품명을 근거로 만들고, 구매 링크가 생기면 나중에 편집·게시
+              단계에서 넣을 수 있습니다.
+            </p>
+          </div>
         </div>
       ) : null}
 

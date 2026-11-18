@@ -558,7 +558,7 @@ line1은 꾸며주는 말(후킹 문구)만, line2는 핵심 내용(주제 키�
     const firstWord = words[0] || "이것"
     return {
       line1: `${firstWord}의 충격` || "99%가 모르는",
-      line2: "비밀 공개" || "지금 확인",
+      line2: "비밀 공개",
     }
   } catch (error) {
     console.error("제목 생성 실패:", error)
@@ -566,7 +566,7 @@ line1은 꾸며주는 말(후킹 문구)만, line2는 핵심 내용(주제 키�
     const firstWord = words[0] || "이것"
     return {
       line1: `${firstWord}의 충격` || "99%가 모르는",
-      line2: "비밀 공개" || "지금 확인",
+      line2: "비밀 공개",
     }
   }
 }

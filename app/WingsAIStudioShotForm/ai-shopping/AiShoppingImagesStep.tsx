@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
+  ChevronDown,
   Download,
   FileText,
   Image as ImageIcon,
@@ -41,6 +42,7 @@ import type { StoryboardScene } from "./project-actions"
 import type { PixabayImageHit, PixabayKeywordSuggestion } from "./actions"
 import { BilingualPromptPanel } from "./BilingualPromptPanel"
 import { Ver2StepShell } from "./Ver2StepShell"
+import { P, PhoneFrame, StatusDot } from "./premium-ui"
 
 export type ImagePromptItem = {
   type: string
@@ -227,12 +229,15 @@ export function AiShoppingImagesStep({
         icon={ImageIcon}
         accent="emerald"
       >
-        <div className="rounded-xl border border-dashed border-white/15 p-12 text-center text-zinc-500">
+        <div className="rounded-[20px] border border-dashed border-[#d5d9e1] bg-[#fafbfc] p-12 text-center text-[13px] text-[#5c6170]">
           대본 생성 단계에서 장면을 먼저 만들어주세요.
         </div>
       </Ver2StepShell>
     )
   }
+
+  const progressPct = scenes.length ? Math.round((filledCount / scenes.length) * 100) : 0
+  const referenceThumb = productImage || productImages[0]
 
   return (
     <Ver2StepShell
@@ -243,381 +248,444 @@ export function AiShoppingImagesStep({
       accent="emerald"
       headerRight={
         <>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onBack}
-            className="border-white/15 bg-[#f6ffff] text-zinc-200 hover:bg-white/10"
-          >
-            <ArrowLeft className="mr-1 h-4 w-4" />
+          <Button variant="outline" onClick={onBack} className={P.headerBack}>
+            <ArrowLeft className="mr-1.5 h-4 w-4" />
             이전
           </Button>
-          <Button
-            size="sm"
-            disabled={filledCount === 0}
-            onClick={onNext}
-            className="bg-emerald-600 text-white hover:bg-emerald-500"
-          >
+          <Button disabled={filledCount === 0} onClick={onNext} className={P.headerNext}>
             다음 · AI영상
-            <ArrowRight className="ml-1 h-4 w-4" />
+            <ArrowRight className="ml-1.5 h-4 w-4" />
           </Button>
         </>
       }
     >
-      <div className="grid min-h-[70vh] grid-cols-1 gap-3 xl:grid-cols-12">
-        <aside className="flex overflow-hidden rounded-2xl border border-white/10 bg-[#fdfeff] xl:col-span-12">
-          <div className="flex min-w-0 flex-1 flex-col">
-            <div className="flex items-center justify-between border-b border-white/10 px-3 py-2.5">
-              <h3 className="text-sm font-semibold text-zinc-100">
-                장면 <span className="text-emerald-300">({scenes.length}샷)</span>
-              </h3>
-              <span className="text-[10px] text-zinc-500">
-                {bulkGeneratingIndex !== null
-                  ? `${bulkGeneratingIndex + 1}번 장면 생성 중…`
-                  : `${filledCount}/${scenes.length} 생성`}
-              </span>
+      <div className="light-keep space-y-4 text-[#0e1016]">
+        {/* 장면 스트립 */}
+        <section className={P.card}>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#eef0f4] px-5 py-4">
+            <div className="min-w-0 space-y-1.5">
+              <p className={P.title}>
+                장면 <span className="font-semibold text-[#9aa0ad]">{scenes.length}컷</span>
+              </p>
+              <div className="flex items-center gap-2.5">
+                <div
+                  className="h-1.5 w-32 overflow-hidden rounded-full bg-[#eef0f4]"
+                  role="progressbar"
+                  aria-valuenow={progressPct}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-label="이미지 생성 진행률"
+                >
+                  <div
+                    className="h-full rounded-full bg-[#2f3beb] motion-safe:transition-[width]"
+                    style={{ width: `${progressPct}%` }}
+                  />
+                </div>
+                <span className="text-[12px] text-[#5c6170]" aria-live="polite">
+                  {bulkGeneratingIndex !== null
+                    ? `${bulkGeneratingIndex + 1}번 장면 생성 중…`
+                    : `${filledCount}/${scenes.length} 생성됨`}
+                </span>
+              </div>
             </div>
-            <div className="flex flex-1 gap-2 overflow-x-auto p-2">
-              {sceneIndices.map((index) => {
-                const item = scenes[index]
-                const url = imageUrls[index] || item.imageUrl
-                const active = index === sceneIndex
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => selectScene(index)}
-                    className={`flex min-h-[142px] w-[270px] shrink-0 items-center gap-3 overflow-hidden rounded-xl border p-2 text-left transition ${
-                      active
-                        ? "border-emerald-400/55 bg-emerald-500/10"
-                        : "border-white/10 bg-black/20 hover:border-white/25"
-                    }`}
-                  >
-                    <div className="relative aspect-[9/16] h-[126px] shrink-0 overflow-hidden rounded-lg bg-black">
-                      {url ? (
-                        <img src={url} alt="" className="h-full w-full object-cover" />
-                      ) : (
-                        <div className="flex h-full items-center justify-center">
-                          <ImageIcon className="h-7 w-7 text-zinc-700" />
-                        </div>
-                      )}
-                      {regeneratingMap.get(index) ? (
-                        <span className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 bg-black/65 text-emerald-200">
-                          <Loader2 className="h-5 w-5 animate-spin" />
-                          <span className="text-[9px] font-semibold">{index + 1}번 생성 중</span>
-                        </span>
-                      ) : null}
-                      <span className="absolute left-1.5 top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-bold text-black shadow">
-                        {index + 1}
-                      </span>
-                      {selectedSlots.has(index) ? (
-                        <span className="absolute right-1.5 top-1.5 rounded-full bg-sky-500 p-0.5 text-white">
-                          <Check className="h-3 w-3" />
-                        </span>
-                      ) : null}
-                    </div>
-                    <div className="min-w-0 flex-1 pr-1">
-                      <p className="line-clamp-3 text-[10px] leading-relaxed text-zinc-500">
-                        {item.narration || "장면 대사가 없습니다."}
-                      </p>
-                      <p className={`mt-2 text-[10px] ${url ? "text-emerald-400" : "text-zinc-600"}`}>
-                        {url ? "9:16 이미지 생성됨" : "9:16 이미지 미생성"}
-                      </p>
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-            <div className="grid grid-cols-2 gap-2 border-t border-white/10 p-2.5">
+            <div className="flex flex-wrap gap-2">
               <Button
-                className="h-10 bg-amber-500 font-bold text-black hover:bg-amber-400"
+                variant="outline"
+                className={`h-10 px-4 ${P.outline}`}
+                disabled={isBusyAny || missingCount === 0}
+                onClick={() => void onGenerateMissing()}
+              >
+                미생성만 ({missingCount})
+              </Button>
+              <Button
+                className={`h-10 px-5 ${P.primary}`}
                 disabled={isBusyAny}
                 onClick={() => void onGenerateAll()}
               >
                 {isGeneratingAll ? (
                   <>
-                    <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                    <Loader2 className="mr-1.5 h-4 w-4 motion-safe:animate-spin" />
                     {bulkGeneratingIndex !== null
                       ? `${bulkGeneratingIndex + 1}/${scenes.length} 생성 중`
                       : "준비 중"}
                   </>
                 ) : (
-                  "전체 AI 생성"
+                  <>
+                    <Sparkles className="mr-1.5 h-4 w-4" />
+                    전체 AI 생성
+                  </>
                 )}
-              </Button>
-              <Button
-                className="h-10 bg-violet-600 text-white hover:bg-violet-500"
-                disabled={isBusyAny || missingCount === 0}
-                onClick={() => void onGenerateMissing()}
-              >
-                미생성 ({missingCount})
               </Button>
             </div>
           </div>
-        </aside>
+          <div className="flex gap-3 overflow-x-auto px-5 py-4">
+            {sceneIndices.map((index) => {
+              const item = scenes[index]
+              const url = imageUrls[index] || item.imageUrl
+              const active = index === sceneIndex
+              const busy = Boolean(regeneratingMap.get(index))
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => selectScene(index)}
+                  aria-pressed={active}
+                  aria-label={`장면 ${index + 1} 선택`}
+                  className={`flex w-[232px] shrink-0 items-start gap-3 p-2.5 ${P.chip(active)}`}
+                >
+                  <div className="relative aspect-[9/16] w-[64px] shrink-0 overflow-hidden rounded-[10px] bg-[#eef0f4]">
+                    {url ? (
+                      <img src={url} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full items-center justify-center">
+                        <ImageIcon className="h-5 w-5 text-[#c3c8d2]" />
+                      </div>
+                    )}
+                    {busy ? (
+                      <span className="absolute inset-0 flex items-center justify-center bg-[#0e1016]/60">
+                        <Loader2 className="h-4 w-4 text-[#ffffff] motion-safe:animate-spin" />
+                      </span>
+                    ) : null}
+                    {selectedSlots.has(index) ? (
+                      <span className="absolute right-1 top-1 rounded-full bg-[#2f3beb] p-0.5 text-[#ffffff]">
+                        <Check className="h-3 w-3" />
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <span
+                      className={`inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1.5 text-[12px] font-bold ${
+                        active ? "bg-[#2f3beb] text-[#ffffff]" : "bg-[#f0f1f5] text-[#0e1016]"
+                      }`}
+                    >
+                      {index + 1}
+                    </span>
+                    <p className="line-clamp-2 text-[12px] leading-snug text-[#5c6170]">
+                      {item.narration || "장면 대사가 없습니다."}
+                    </p>
+                    <StatusDot tone={busy ? "busy" : url ? "done" : "wait"}>
+                      {busy ? "생성 중" : url ? "이미지 있음" : "미생성"}
+                    </StatusDot>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </section>
 
-        <section className="flex flex-col space-y-3 rounded-2xl border border-white/10 bg-[#fdfeff] p-4 xl:col-span-7">
-          <h3 className="truncate text-sm font-semibold text-zinc-100">
-            <span className="text-emerald-300">M{sceneIndex + 1}</span>{" "}
-            <span className="font-normal text-zinc-400">
-              {(scene.narration || scene.title || "").slice(0, 42)}
-            </span>
-          </h3>
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-12 xl:items-start">
+          {/* 미리보기 */}
+          <section className={`${P.card} space-y-4 p-5 xl:col-span-5`}>
+            <div className="flex items-center justify-between gap-2">
+              <p className={`${P.title} truncate`}>
+                <span className="text-[#2f3beb]">M{sceneIndex + 1}</span>{" "}
+                <span className="font-medium text-[#5c6170]">
+                  {(scene.narration || scene.title || "").slice(0, 30)}
+                </span>
+              </p>
+            </div>
 
-          <div
-            className="relative mx-auto aspect-[9/16] w-full max-w-[300px] overflow-hidden rounded-xl border border-white/15 bg-black"
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={(event) => {
-              event.preventDefault()
-              onUploadFile(sceneIndex, event.dataTransfer.files?.[0] || null)
-            }}
-          >
-            {isBusyScene ? (
-              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-black/65">
-                <Loader2 className="h-10 w-10 animate-spin text-emerald-400" />
-                <p className="text-xs text-emerald-200">
-                  {imageModel === "qwen-image" ? "Qwen Image" : "Nano Banana"} 생성 중…
-                </p>
-              </div>
-            ) : null}
-            {currentUrl ? (
-              <button
-                type="button"
-                onClick={() => {
-                  resetImageZoom()
-                  setZoomedImageUrl(currentUrl)
+            <div
+              className="rounded-[20px] bg-[#eef0f5] px-3 py-6"
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                event.preventDefault()
+                onUploadFile(sceneIndex, event.dataTransfer.files?.[0] || null)
+              }}
+            >
+              <PhoneFrame>
+                {isBusyScene ? (
+                  <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-[#0e1016]/70">
+                    <Loader2 className="h-9 w-9 text-[#ffffff] motion-safe:animate-spin" />
+                    <p className="text-[12px] text-[#e3e6ec]">
+                      {imageModel === "qwen-image" ? "Qwen Image" : "Nano Banana"} 생성 중…
+                    </p>
+                  </div>
+                ) : null}
+                {currentUrl ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resetImageZoom()
+                      setZoomedImageUrl(currentUrl)
+                    }}
+                    className={`group absolute inset-0 cursor-zoom-in ${P.focus}`}
+                    title="이미지 확대"
+                    aria-label="이미지 확대"
+                  >
+                    <img src={currentUrl} alt="" className="h-full w-full object-cover" />
+                    <span className="absolute bottom-3 right-3 flex h-8 w-8 items-center justify-center rounded-full bg-[#0e1016]/70 text-[#ffffff] opacity-0 motion-safe:transition group-hover:opacity-100 group-focus-visible:opacity-100">
+                      <ZoomIn className="h-4 w-4" />
+                    </span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => uploadRef.current?.click()}
+                    className={`absolute inset-0 flex flex-col items-center justify-center gap-2.5 p-4 text-center text-[#9aa0ad] hover:bg-[#ffffff]/[0.04] ${P.focus}`}
+                  >
+                    <ImageIcon className="h-9 w-9 opacity-60" />
+                    <span className="text-[13px] font-semibold text-[#e3e6ec]">이미지 추가</span>
+                    <span className="text-[12px]">클릭하거나 드래그해 업로드</span>
+                  </button>
+                )}
+              </PhoneFrame>
+              <input
+                ref={uploadRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(event) => {
+                  onUploadFile(sceneIndex, event.target.files?.[0] || null)
+                  event.target.value = ""
                 }}
-                className="group h-full w-full cursor-zoom-in"
-                title="이미지 확대"
-              >
-                <img src={currentUrl} alt="" className="h-full w-full object-cover" />
-                <span className="absolute bottom-2 right-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/65 text-white opacity-0 transition group-hover:opacity-100">
-                  <ZoomIn className="h-4 w-4" />
-                </span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => uploadRef.current?.click()}
-                className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-zinc-500 hover:bg-white/[0.03]"
-              >
-                <ImageIcon className="h-10 w-10 opacity-40" />
-                <span className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white">
-                  이미지 추가
-                </span>
-                <span className="text-xs">클릭하거나 드래그해 업로드</span>
-              </button>
-            )}
-            <div className="pointer-events-none absolute left-2 right-2 top-2 flex justify-between">
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center justify-center gap-1.5">
               <Button
                 type="button"
-                size="sm"
-                className="pointer-events-auto h-8 bg-emerald-600 text-xs text-white"
+                variant="ghost"
+                className={`h-9 px-3 text-[13px] ${P.ghost}`}
                 onClick={() => uploadRef.current?.click()}
               >
-                <Upload className="mr-1 h-3.5 w-3.5" />
-                추가
+                <Upload className="mr-1.5 h-4 w-4" />
+                업로드
               </Button>
+              {scene.aiImageUrl && currentUrl !== scene.aiImageUrl ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className={`h-9 px-3 text-[13px] ${P.ghost}`}
+                  onClick={() => onRestoreAiImage(sceneIndex)}
+                >
+                  <RotateCcw className="mr-1.5 h-4 w-4" />
+                  AI 원본으로 복원
+                </Button>
+              ) : null}
               {currentUrl ? (
                 <Button
                   type="button"
-                  size="sm"
-                  className="pointer-events-auto h-8 bg-rose-700 text-xs text-white"
+                  variant="ghost"
+                  className={`h-9 px-3 text-[13px] ${P.danger}`}
                   onClick={() => onClearSlot(sceneIndex)}
                 >
-                  <Trash2 className="mr-1 h-3.5 w-3.5" />
+                  <Trash2 className="mr-1.5 h-4 w-4" />
                   삭제
                 </Button>
               ) : null}
             </div>
-            {scene.aiImageUrl && currentUrl !== scene.aiImageUrl ? (
-              <Button
-                type="button"
-                size="sm"
-                className="absolute bottom-2 left-2 z-10 h-8 bg-amber-500 text-xs font-semibold text-black hover:bg-amber-400"
-                onClick={() => onRestoreAiImage(sceneIndex)}
-              >
-                <RotateCcw className="mr-1 h-3.5 w-3.5" />
-                AI 원본으로 복원
-              </Button>
-            ) : null}
-            <input
-              ref={uploadRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(event) => {
-                onUploadFile(sceneIndex, event.target.files?.[0] || null)
-                event.target.value = ""
-              }}
-            />
-          </div>
 
-          <div className="rounded-xl border border-white/10 bg-black/30 p-3">
-            <p className="mb-1 text-[11px] font-semibold text-zinc-500">이 구간 대사</p>
-            <p className="min-h-10 whitespace-pre-wrap text-sm text-zinc-200">{scene.narration}</p>
-          </div>
-
-        </section>
-
-        <aside className="space-y-3 rounded-2xl border border-white/10 bg-[#fdfeff] p-4 xl:col-span-5">
-          <h3 className="text-sm font-semibold text-zinc-100">
-            컨트롤 <span className="text-emerald-300">M{sceneIndex + 1}</span>
-          </h3>
-
-          <div className="space-y-1.5">
-            <Label className="text-xs text-zinc-400">이미지 모델</Label>
-            <Select value={imageModel} onValueChange={(value) => setImageModel(value as ImageModelId)}>
-              <SelectTrigger className="border-white/15 bg-black/40 text-zinc-100">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="nano-banana">Nano Banana</SelectItem>
-                <SelectItem value="qwen-image">Qwen Image</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-[10px] text-zinc-600">
-              {imageModel === "qwen-image"
-                ? "qwen/qwen-image · 제품 정체성 참고 + 장면 프롬프트로 재구성 · 9:16"
-                : "google/nano-banana · 제품 참고 이미지 지원 · 9:16"}
-            </p>
-          </div>
-
-          <Button
-            className="h-11 w-full bg-gradient-to-r from-emerald-500 to-teal-500 font-bold text-white"
-            disabled={isBusyAny || !currentPrompt}
-            onClick={() => void onRegenerateOne(sceneIndex)}
-          >
-            {isBusyScene ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Sparkles className="mr-2 h-4 w-4" />
-            )}
-            이 장면 AI이미지 생성
-          </Button>
-
-          <div className="space-y-2">
-            <BilingualPromptPanel
-              prompt={currentPrompt}
-              title="생성 프롬프트"
-              emptyText="대본 단계에서 이미지 프롬프트를 생성해주세요."
-              referenceImageUrl={productImages[0] || productImage || undefined}
-              referenceDownloadName="product-original"
-            />
-            <Input
-              value={customImagePrompts.get(sceneIndex) || ""}
-              onChange={(event) => setCustomImagePrompt(sceneIndex, event.target.value)}
-              placeholder="추가 요구사항 (예: brighter lighting)"
-              className="h-8 border-white/10 bg-black/40 text-xs"
-            />
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="w-full border-white/15 bg-[#fcffff] text-zinc-200 hover:bg-white/10 hover:text-white"
-              onClick={() => {
-                setEditingPrompt(currentPrompt)
-                setShowPromptEditor(true)
-              }}
-            >
-              <FileText className="mr-1 h-3.5 w-3.5" />
-              프롬프트 보기/수정
-            </Button>
-          </div>
-
-          <Button
-            type="button"
-            className="h-11 w-full bg-teal-600 font-semibold text-white hover:bg-teal-500"
-            onClick={async () => {
-              setShowFreeImageDialog(true)
-              setKeywordSuggestions([])
-              setKeywordError("")
-              setPixabayKeyword("")
-              setIsLoadingKeywords(true)
-              try {
-                const suggestions = await onGetKeywordSuggestions(sceneIndex)
-                setKeywordSuggestions(suggestions)
-                if (suggestions.length === 0) {
-                  setKeywordError("추천 키워드를 만들지 못했습니다. 다시 시도해주세요.")
-                }
-              } catch (suggestionError) {
-                setKeywordError(
-                  suggestionError instanceof Error
-                    ? suggestionError.message
-                    : "키워드 추천에 실패했습니다."
-                )
-              } finally {
-                setIsLoadingKeywords(false)
-              }
-            }}
-          >
-            <Search className="mr-2 h-4 w-4" />
-            무료 이미지 등록
-          </Button>
-
-          <div className="grid grid-cols-2 gap-2">
-            <Button
-              variant="outline"
-              className="border-sky-400/30 bg-sky-500/10 text-sky-200 hover:bg-sky-500/20 hover:text-sky-100 disabled:bg-[#fcffff] disabled:text-zinc-500"
-              disabled={filledCount === 0}
-              onClick={() =>
-                setSelectedSlots(
-                  new Set(scenes.map((_, index) => index).filter((index) => Boolean(imageUrls[index])))
-                )
-              }
-            >
-              전체 선택
-            </Button>
-            <Button
-              variant="outline"
-              className="border-white/15 bg-[#fcffff] text-zinc-300 hover:bg-white/10 hover:text-white"
-              onClick={() => setSelectedSlots(new Set())}
-            >
-              <X className="mr-1 h-3.5 w-3.5" />
-              선택 해제
-            </Button>
-            <Button
-              className="col-span-2 bg-indigo-600 text-white hover:bg-indigo-500"
-              disabled={selectedSlots.size === 0}
-              onClick={() => void downloadSelected()}
-            >
-              <Download className="mr-1 h-4 w-4" />
-              선택 이미지 다운로드 ({selectedSlots.size})
-            </Button>
-            <Button
-              className="col-span-2 bg-rose-800 text-white hover:bg-rose-700"
-              disabled={filledCount === 0}
-              onClick={onClearAll}
-            >
-              <Trash2 className="mr-1 h-4 w-4" />
-              이미지 일괄 삭제
-            </Button>
-          </div>
-
-          {productImage || productImages[0] ? (
-            <div className="flex items-center gap-2 rounded-lg border border-emerald-400/25 bg-emerald-500/10 p-2">
-              <img
-                src={productImage || productImages[0]}
-                alt="제품 참고"
-                className="h-12 w-8 rounded object-cover ring-1 ring-emerald-400/40"
-              />
-              <div className="min-w-0">
-                <p className="text-[11px] font-medium text-emerald-200">
-                  제품 소싱 원본 참고
-                  {productImages.length > 1 ? ` · ${productImages.length}장` : ""}
-                </p>
-                <p className="text-[10px] text-zinc-500 leading-snug">
-                  이 상품(색·로고·프린트)이 그대로 나와야 합니다
-                </p>
-              </div>
+            <div className={`${P.soft} p-4`}>
+              <p className={`${P.label} mb-1`}>이 구간 대사</p>
+              <p className="min-h-10 whitespace-pre-wrap text-[14px] leading-relaxed text-[#0e1016]">
+                {scene.narration}
+              </p>
             </div>
-          ) : (
-            <p className="rounded-lg border border-amber-400/30 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-200">
-              제품 참고 이미지가 없습니다. 제품 소싱에서 원본 사진을 먼저 수집하세요.
-            </p>
-          )}
-          {error ? <p className="whitespace-pre-wrap text-xs text-red-400">{error}</p> : null}
-        </aside>
+          </section>
+
+          {/* 컨트롤 */}
+          <div className="space-y-4 xl:col-span-7">
+            <section className={`${P.card} space-y-4 p-5`}>
+              <div className="flex items-center justify-between gap-2">
+                <p className={P.title}>
+                  이 장면 생성 <span className="text-[#2f3beb]">M{sceneIndex + 1}</span>
+                </p>
+                <StatusDot tone={isBusyScene ? "busy" : currentUrl ? "done" : "wait"}>
+                  {isBusyScene ? "생성 중" : currentUrl ? "이미지 있음" : "미생성"}
+                </StatusDot>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label className={P.label}>이미지 모델</Label>
+                  <Select value={imageModel} onValueChange={(value) => setImageModel(value as ImageModelId)}>
+                    <SelectTrigger className={P.select}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="nano-banana">Nano Banana</SelectItem>
+                      <SelectItem value="qwen-image">Qwen Image</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className={P.faint}>
+                    {imageModel === "qwen-image"
+                      ? "qwen/qwen-image · 제품 정체성 참고 + 장면 프롬프트로 재구성 · 9:16"
+                      : "google/nano-banana · 제품 참고 이미지 지원 · 9:16"}
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="ai-img-extra" className={P.label}>
+                    추가 요구사항
+                  </Label>
+                  <Input
+                    id="ai-img-extra"
+                    value={customImagePrompts.get(sceneIndex) || ""}
+                    onChange={(event) => setCustomImagePrompt(sceneIndex, event.target.value)}
+                    placeholder="예: brighter lighting"
+                    className={P.input}
+                  />
+                </div>
+              </div>
+
+              <Button
+                className={`h-11 w-full ${P.primary}`}
+                disabled={isBusyAny || !currentPrompt}
+                onClick={() => void onRegenerateOne(sceneIndex)}
+              >
+                {isBusyScene ? (
+                  <Loader2 className="mr-2 h-4 w-4 motion-safe:animate-spin" />
+                ) : (
+                  <Sparkles className="mr-2 h-4 w-4" />
+                )}
+                이 장면 AI이미지 생성
+              </Button>
+
+              <details className="group rounded-[16px] border border-[#eceef3] bg-[#fafbfc] px-4 py-3">
+                <summary className={P.summary}>
+                  <span className="inline-flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-[#5c6170]" />
+                    생성 프롬프트
+                  </span>
+                  <ChevronDown className="h-4 w-4 text-[#9aa0ad] motion-safe:transition-transform group-open:rotate-180" />
+                </summary>
+                <div className="mt-3 space-y-2">
+                  <BilingualPromptPanel
+                    prompt={currentPrompt}
+                    title="한·영 프롬프트"
+                    emptyText="대본 단계에서 이미지 프롬프트를 생성해주세요."
+                    referenceImageUrl={productImages[0] || productImage || undefined}
+                    referenceDownloadName="product-original"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={`h-9 w-full text-[13px] ${P.outline}`}
+                    onClick={() => {
+                      setEditingPrompt(currentPrompt)
+                      setShowPromptEditor(true)
+                    }}
+                  >
+                    프롬프트 직접 수정
+                  </Button>
+                </div>
+              </details>
+
+              {referenceThumb ? (
+                <div className="flex items-center gap-3 rounded-[14px] border border-[#eceef3] p-2.5">
+                  <img
+                    src={referenceThumb}
+                    alt="제품 참고"
+                    className="h-12 w-9 shrink-0 rounded-[8px] object-cover ring-1 ring-[#e3e6ec]"
+                  />
+                  <div className="min-w-0">
+                    <p className="text-[12px] font-semibold text-[#0e1016]">
+                      제품 소싱 원본 참고
+                      {productImages.length > 1 ? ` · ${productImages.length}장` : ""}
+                    </p>
+                    <p className={P.faint}>이 상품(색·로고·프린트)이 그대로 나와야 합니다</p>
+                  </div>
+                </div>
+              ) : (
+                <p className="rounded-[12px] border border-[#f3e2b8] bg-[#fffaf0] px-3 py-2 text-[12px] text-[#8a5a00]">
+                  제품 참고 이미지가 없습니다. 제품 소싱에서 원본 사진을 먼저 수집하세요.
+                </p>
+              )}
+              {error ? (
+                <p
+                  role="alert"
+                  className="whitespace-pre-wrap rounded-[12px] border border-[#f6d0d0] bg-[#fff4f4] px-3 py-2 text-[13px] text-[#c62828]"
+                >
+                  {error}
+                </p>
+              ) : null}
+            </section>
+
+            <section className={`${P.card} grid gap-4 p-5 md:grid-cols-2`}>
+              <div className="space-y-2.5">
+                <p className={P.title}>무료 이미지</p>
+                <p className={P.muted}>대사에 맞는 키워드로 Pixabay 이미지를 찾아 이 장면에 넣습니다.</p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={`h-10 w-full ${P.outline}`}
+                  onClick={async () => {
+                    setShowFreeImageDialog(true)
+                    setKeywordSuggestions([])
+                    setKeywordError("")
+                    setPixabayKeyword("")
+                    setIsLoadingKeywords(true)
+                    try {
+                      const suggestions = await onGetKeywordSuggestions(sceneIndex)
+                      setKeywordSuggestions(suggestions)
+                      if (suggestions.length === 0) {
+                        setKeywordError("추천 키워드를 만들지 못했습니다. 다시 시도해주세요.")
+                      }
+                    } catch (suggestionError) {
+                      setKeywordError(
+                        suggestionError instanceof Error
+                          ? suggestionError.message
+                          : "키워드 추천에 실패했습니다."
+                      )
+                    } finally {
+                      setIsLoadingKeywords(false)
+                    }
+                  }}
+                >
+                  <Search className="mr-2 h-4 w-4" />
+                  무료 이미지 등록
+                </Button>
+              </div>
+
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <p className={P.title}>선택 · 다운로드</p>
+                  <span className={P.faint}>{selectedSlots.size}개 선택</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    variant="outline"
+                    className={`h-9 text-[13px] ${P.outline}`}
+                    disabled={filledCount === 0}
+                    onClick={() =>
+                      setSelectedSlots(
+                        new Set(scenes.map((_, index) => index).filter((index) => Boolean(imageUrls[index])))
+                      )
+                    }
+                  >
+                    전체 선택
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className={`h-9 text-[13px] ${P.ghost}`}
+                    onClick={() => setSelectedSlots(new Set())}
+                  >
+                    <X className="mr-1 h-3.5 w-3.5" />
+                    선택 해제
+                  </Button>
+                </div>
+                <Button
+                  variant="outline"
+                  className={`h-10 w-full ${P.outline}`}
+                  disabled={selectedSlots.size === 0}
+                  onClick={() => void downloadSelected()}
+                >
+                  <Download className="mr-1.5 h-4 w-4" />
+                  선택 이미지 다운로드 ({selectedSlots.size})
+                </Button>
+                <Button
+                  variant="ghost"
+                  className={`h-9 w-full text-[13px] ${P.danger}`}
+                  disabled={filledCount === 0}
+                  onClick={onClearAll}
+                >
+                  <Trash2 className="mr-1.5 h-4 w-4" />
+                  이미지 일괄 삭제
+                </Button>
+              </div>
+            </section>
+          </div>
+        </div>
       </div>
 
       <Dialog
@@ -739,7 +807,7 @@ export function AiShoppingImagesStep({
           </DialogHeader>
 
           <div className="rounded-lg border border-white/10 bg-black/30 p-3">
-            <p className="mb-1 text-[10px] font-semibold text-zinc-500">장면 대사</p>
+            <p className="mb-1 text-[12px] font-semibold text-zinc-500">장면 대사</p>
             <p className="text-sm text-zinc-200">{scene.narration}</p>
           </div>
 
@@ -762,12 +830,12 @@ export function AiShoppingImagesStep({
                     }}
                     className={`rounded-full border px-3 py-2 text-left text-xs transition ${
                       pixabayKeyword === suggestion.queryEn
-                        ? "border-teal-400 bg-teal-500/20 text-teal-100"
-                        : "border-white/15 bg-black/30 text-zinc-300 hover:border-teal-400/50"
+                        ? "border-[#2f3beb] bg-[#eef0ff] text-[#2f3beb]"
+                        : "border-white/15 bg-black/30 text-zinc-300 hover:border-[#2f3beb]/50"
                     }`}
                   >
                     <span className="font-semibold">{suggestion.labelKo}</span>
-                    <span className="ml-1.5 text-[10px] text-zinc-500">→ {suggestion.queryEn}</span>
+                    <span className="ml-1.5 text-[12px] text-zinc-500">→ {suggestion.queryEn}</span>
                   </button>
                 ))}
               </div>
@@ -777,7 +845,7 @@ export function AiShoppingImagesStep({
 
           {pixabayKeyword ? (
             <div className="flex items-center gap-2 rounded-lg border border-teal-400/20 bg-teal-500/[0.06] p-2">
-              <span className="shrink-0 text-[10px] text-teal-300">영어 검색어</span>
+              <span className="shrink-0 text-[12px] text-teal-300">영어 검색어</span>
               <Input
                 value={pixabayKeyword}
                 onChange={(event) => setPixabayKeyword(event.target.value)}
@@ -791,7 +859,7 @@ export function AiShoppingImagesStep({
               />
               <Button
                 size="sm"
-                className="h-8 bg-teal-600 text-white hover:bg-teal-500"
+                className={`h-8 ${P.accent}`}
                 disabled={pixabay?.loading}
                 onClick={() => void onSearchPixabay(sceneIndex, pixabayKeyword)}
               >
@@ -855,7 +923,7 @@ export function AiShoppingImagesStep({
               취소
             </Button>
             <Button
-              className="bg-emerald-500 text-black hover:bg-emerald-400"
+              className={P.primary}
               onClick={() => {
                 onSavePrompt(sceneIndex, editingPrompt.trim())
                 setShowPromptEditor(false)

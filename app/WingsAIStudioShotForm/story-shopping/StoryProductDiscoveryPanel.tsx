@@ -434,6 +434,25 @@ export function StoryProductDiscoveryPanel({
                       <p className="line-clamp-2 text-[11px] font-bold leading-4 text-zinc-200">
                         {video.title}
                       </p>
+                      {video.format || video.hookPattern ? (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {video.format ? (
+                            <span className="rounded bg-violet-500/15 px-1.5 py-0.5 text-[8px] font-bold text-violet-300">
+                              {video.format}
+                            </span>
+                          ) : null}
+                          {video.hookPattern ? (
+                            <span className="rounded bg-orange-500/15 px-1.5 py-0.5 text-[8px] font-bold text-orange-300">
+                              {video.hookPattern}
+                            </span>
+                          ) : null}
+                          {video.performanceScore != null ? (
+                            <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[8px] font-bold text-emerald-300">
+                              성과 {video.performanceScore}
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : null}
                       <div className="mt-2 flex items-center justify-between text-[9px] text-zinc-600">
                         <span className="truncate">{video.channelTitle}</span>
                         <span>{compactNumber(video.viewCount)} views</span>

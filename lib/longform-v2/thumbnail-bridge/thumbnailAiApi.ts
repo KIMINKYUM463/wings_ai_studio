@@ -1,5 +1,7 @@
 import { loadApiKeys } from "@/lib/longform-v2/api-keys"
 import type { CtrThumbnailPackageOption } from "@/lib/longform-v2/youtube/youtubeCtrThumbnailPackageKo"
+import type { ThumbnailVerificationReport } from "@/lib/longform-v2/youtube/thumbnailVerification"
+import type { AnalyzedTemplateStyleSpec } from "@/lib/longform-v2/youtube/templateStyleAnalysis"
 
 async function postJson<T>(url: string, body: Record<string, unknown>): Promise<T> {
   const keys = loadApiKeys()
@@ -227,7 +229,7 @@ export async function postThumbnailThreeSlotCopy(body: {
   })
 }
 
-export async function postThumbnailVerify(..._args: unknown[]) {
+export async function postThumbnailVerify(..._args: unknown[]): Promise<{ report: ThumbnailVerificationReport }> {
   return notPorted("thumbnail-verify")
 }
 export async function postThumbnailVerifyImprove(..._args: unknown[]) {
@@ -236,7 +238,7 @@ export async function postThumbnailVerifyImprove(..._args: unknown[]) {
 export async function postThumbnailHookSuggestions(..._args: unknown[]) {
   return notPorted("thumbnail-hook-suggestions")
 }
-export async function postThumbnailTextRewrite(..._args: unknown[]) {
+export async function postThumbnailTextRewrite(..._args: unknown[]): Promise<{ text: string; linkedText?: string }> {
   return notPorted("thumbnail-text-rewrite")
 }
 export async function postThumbnailCopyCombos(..._args: unknown[]) {
@@ -245,13 +247,13 @@ export async function postThumbnailCopyCombos(..._args: unknown[]) {
 export async function postThumbnailSubCopies(..._args: unknown[]) {
   return notPorted("thumbnail-sub-copies")
 }
-export async function postThumbnailTemplateAnalyze(..._args: unknown[]) {
+export async function postThumbnailTemplateAnalyze(..._args: unknown[]): Promise<{ spec: AnalyzedTemplateStyleSpec | null }> {
   return notPorted("thumbnail-template-analyze")
 }
 export async function postThumbnailBenchmarkAnalyze(..._args: unknown[]) {
   return notPorted("thumbnail-benchmark-analyze")
 }
-export async function postThumbnailReferenceRemix(..._args: unknown[]) {
+export async function postThumbnailReferenceRemix(..._args: unknown[]): Promise<{ imageUrl: string; line1: string; line2: string; styleNote: string }> {
   return notPorted("thumbnail-reference-remix")
 }
 export async function postGenerateAiThumbnail(..._args: unknown[]) {
@@ -262,6 +264,6 @@ export async function postGenerateAiThumbnail(..._args: unknown[]) {
   })
 }
 
-export async function postGenerateElementSticker(..._args: unknown[]) {
+export async function postGenerateElementSticker(..._args: unknown[]): Promise<{ imageUrl: string; width: number; height: number }> {
   return notPorted("thumbnail-element-sticker")
 }

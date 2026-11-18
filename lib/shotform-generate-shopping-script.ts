@@ -1,3 +1,5 @@
+import { SHOTFORM_COPY_MODEL } from "@/lib/shotform-ai-models"
+import { hookFormulaPromptBlock } from "@/lib/shopping-hook-formulas"
 import { looksLikeDescriptiveSceneNarration } from "@/lib/shotform-cut-narration"
 import { personConsistencyPlanningBlock } from "@/lib/shotform-person-consistency"
 import {
@@ -9,7 +11,10 @@ import {
   type ShotformVisualFocus,
 } from "@/lib/shotform-script-templates"
 import { buildShoppingResearchContent } from "@/lib/shotform-shopping-research-content"
-import { refineSceneVisualPrompts } from "@/lib/shotform-refine-scene-prompts"
+import {
+  refineSceneVisualPrompts,
+  SHOPPING_SCENE_VISUAL_RULES,
+} from "@/lib/shotform-refine-scene-prompts"
 
 export type GeneratedShoppingScene = {
   id: string
@@ -105,6 +110,10 @@ function normalizeScenes(
   }))
 }
 
+function spokenCharCount(text: string): number {
+  return text.replace(/\s+/g, "").length
+}
+
 async function repairDirectionLeakScenes(opts: {
   openaiApiKey: string
   productName: string
@@ -121,7 +130,7 @@ async function repairDirectionLeakScenes(opts: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
+      model: SHOTFORM_COPY_MODEL,
       temperature: 0.4,
       max_tokens: 4000,
       response_format: { type: "json_object" },
@@ -185,6 +194,83 @@ JSON만 출력:
   }
 }
 
+/** 목표보다 짧은 대사를 장면별 글자 수 목표에 맞춰 늘린다 (장면 수·순서·훅·CTA 유지) */
+export async function expandShortNarrations(opts: {
+  openaiApiKey: string
+  narrations: string[]
+  charTarget: number
+  sourceMaterial: string
+  /** 말투·장면 역할 규칙 (기본: 해요체, 첫 장면 훅, 마지막 장면 CTA) */
+  voiceRule?: string
+  /** 첫 장면(제목 낭독 등)은 글자 하나 바꾸지 않는다 */
+  keepFirst?: boolean
+}): Promise<string[] | null> {
+  const n = opts.narrations.length
+  const firstChars = spokenCharCount(opts.narrations[0] || "")
+  // 첫 훅·마지막 CTA는 짧게 두고 중간 장면에 분량을 몰아준다
+  const edgeChars = Math.round(opts.charTarget * 0.11)
+  const headChars = opts.keepFirst ? firstChars : edgeChars
+  const midChars =
+    n > 2 ? Math.round((opts.charTarget - headChars - edgeChars) / (n - 2)) : edgeChars
+  const targets = opts.narrations.map((_, i) =>
+    i === 0 ? headChars : i === n - 1 ? edgeChars : midChars
+  )
+  const lines = opts.narrations
+    .map((t, i) =>
+      opts.keepFirst && i === 0
+        ? `1. (그대로 유지) ${t}`
+        : `${i + 1}. (지금 ${spokenCharCount(t)}자 → 목표 ${targets[i]}자) ${t}`
+    )
+    .join("\n")
+  const voiceRule =
+    opts.voiceRule || "말투(친근한 구어체 해요체)·장면별 역할(첫 장면 훅, 마지막 장면 CTA)"
+
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${opts.openaiApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: SHOTFORM_COPY_MODEL,
+      temperature: 0.5,
+      max_tokens: 2500,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: `너는 쇼핑 숏폼 성우 대본을 늘리는 작가다. 각 장면 대사를 목표 글자 수(공백 제외)까지 늘린다.
+- 장면 수·순서·${voiceRule}은 유지. "(그대로 유지)" 표시된 줄은 한 글자도 바꾸지 말 것
+- 늘리는 내용은 자료에 있는 사실·리뷰 표현을 구체적 상황으로 풀어서 (언제·어디서·어떻게 달라졌는지)
+- 자료에 없는 수치·기능·비교·사용 상황(업무, 운동 등)은 만들지 말 것. 제품명 반복 금지. 화면 묘사 금지
+- "정말 큰 변화였어요", "강력 추천" 같은 빈말 대신 리뷰 속 구체적 표현을 살릴 것
+- 목표보다 짧으면 실패다. 각 줄을 목표 글자 수 ±15% 안으로 맞출 것
+JSON만 출력: {"narrations":["1번 대사","2번 대사"]}`,
+        },
+        {
+          role: "user",
+          content: `자료:\n${opts.sourceMaterial.slice(0, 6000)}\n\n늘릴 대사 ${n}개:\n${lines}`,
+        },
+      ],
+    }),
+  })
+  if (!res.ok) return null
+  const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
+  try {
+    const parsed = JSON.parse(String(data.choices?.[0]?.message?.content || "{}")) as {
+      narrations?: unknown
+    }
+    const out = Array.isArray(parsed.narrations)
+      ? parsed.narrations.map((x) => String(x || "").replace(/\s+/g, " ").trim())
+      : []
+    if (out.length !== n || out.some((t) => !t || looksLikeDescriptiveSceneNarration(t))) return null
+    if (opts.keepFirst) out[0] = opts.narrations[0]!
+    return out
+  } catch {
+    return null
+  }
+}
+
 export async function generateShoppingScriptFromTemplate(opts: {
   openaiApiKey: string
   template: ShotformScriptTemplate
@@ -226,7 +312,7 @@ export async function generateShoppingScriptFromTemplate(opts: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
+      model: SHOTFORM_COPY_MODEL,
       temperature: 0.65,
       max_tokens: 6000,
       response_format: { type: "json_object" },
@@ -234,6 +320,8 @@ export async function generateShoppingScriptFromTemplate(opts: {
         {
           role: "system",
           content: `당신은 쇼핑 숏폼 대본 작가 + 비주얼 디렉터입니다. JSON만 반환합니다.
+
+${hookFormulaPromptBlock()}
 
 스키마:
 {
@@ -259,8 +347,11 @@ export async function generateShoppingScriptFromTemplate(opts: {
 - 인물·공간·제품 비주얼은 imagePrompt에만 쓰고, narration은 그 장면에서 말할 한두 문장으로
 
 대본 규칙:
-- spokenScript 공백 제외 약 ${charTarget}자, 장면 ${sceneCount}개 전후
+- spokenScript 공백 제외 약 ${charTarget}자(최소 ${Math.round(charTarget * 0.9)}자), 장면 ${sceneCount}개 전후 — 짧으면 실패. 장면당 1~2문장을 꽉 채울 것
 - scenes[].narration을 이으면 spokenScript와 맞게
+- 첫 장면 = 스크롤을 멈추게 하는 훅: 시청자가 "내 얘기네" 할 구체적 불편 한 컷 (20자 안팎). "누구나 한 번쯤", "~해보셨죠?" 같은 뻔한 공감 질문 금지
+- 중간 장면 = 자료(리뷰·상세)에 있는 장점 중 서로 다른 것 2~3개를 구체적 체감으로 (같은 장점 반복 금지)
+- 마지막 장면 = 바꾼 뒤 달라진 점 한 줄 + 템플릿 CTA
 - 화자 태그/URL/JSON을 spoken·narration에 넣지 말 것
 - 선택 템플릿 계약 최우선, 자료에 없는 사실 창작 금지
 - spoken·narration에는 제품명 직접 반복 최소화
@@ -274,9 +365,8 @@ ${focusBlock}
 
 ${personConsistencyPlanningBlock()}
 
-MOTION (English only, 12~22 words):
-[camera move] + [action matching visual focus] + "high quality, commercial look"
-IMAGE를 장황 번역하지 말 것.`,
+${SHOPPING_SCENE_VISUAL_RULES}
+MOTION은 IMAGE를 장황 번역하지 말 것.`,
         },
         {
           role: "user",
@@ -383,6 +473,26 @@ ${researchContent}
     )
   ) {
     finalScenes = redistributeSpokenToScenes(spokenScript, sceneCount, finalScenes)
+  }
+
+  const currentChars = spokenCharCount(finalScenes.map((s) => s.narration).join(""))
+  if (currentChars < charTarget * 0.85) {
+    try {
+      const expanded = await expandShortNarrations({
+        openaiApiKey: opts.openaiApiKey,
+        narrations: finalScenes.map((s) => s.narration),
+        charTarget,
+        sourceMaterial: researchContent,
+      })
+      const expandedChars = expanded ? spokenCharCount(expanded.join("")) : 0
+      console.info(`[generate-script] length ${currentChars} → ${expandedChars} chars (target ${charTarget})`)
+      if (expanded && expandedChars > currentChars) {
+        finalScenes = finalScenes.map((s, i) => ({ ...s, narration: expanded[i] }))
+        spokenScript = expanded.join(" ")
+      }
+    } catch (e) {
+      console.warn("[generate-script] length expansion skipped", e)
+    }
   }
 
   // 2차: IMAGE/MOTION만 상업용 수준으로 재작성 (제품 사진 있으면 비전 반영)

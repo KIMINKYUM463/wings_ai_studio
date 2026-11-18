@@ -267,12 +267,21 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData()
     const audioFile = formData.get("audio") as File
-    const apiKey = formData.get("apiKey") as string || "CYm46zmVT9RVNxVTWVefTVfFEF4nWUuZ"
+    const apiKey =
+      String(formData.get("apiKey") || "").trim() ||
+      process.env.LEMONFOX_API_KEY ||
+      ""
     const language = (formData.get("language") as string) || "korean"
     const outputDir = (formData.get("outputDir") as string) || "./output"
     
     if (!audioFile) {
       return NextResponse.json({ error: "오디오 파일이 필요합니다." }, { status: 400 })
+    }
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: "서버에 STT API 키가 설정되지 않았습니다." },
+        { status: 503 }
+      )
     }
     
     console.log("[Generate SRT] STT 시작...")

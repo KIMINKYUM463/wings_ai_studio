@@ -15,6 +15,9 @@
     "app/api/ai/render/route.ts": {
       "maxDuration": 300
     },
+    "app/api/ai-shopping/render-pro/route.ts": {
+      "maxDuration": 300
+    },
     "app/api/upload-to-gcs/route.ts": {
       "maxDuration": 60
     },

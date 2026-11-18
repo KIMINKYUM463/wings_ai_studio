@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { extractTypecastVoiceRows, normalizeTypecastVoiceRow } from "@/lib/shotform-tts-providers"
 import { explainTypecastApiError } from "@/lib/typecast-api-error"
+import { loadTypecastPortraitIndex, typecastPortraitUrl } from "@/lib/typecast-actor-portraits"
 
 async function fetchTypecastVoices(apiKey: string, model?: string): Promise<Response> {
   const url = new URL("https://api.typecast.ai/v2/voices")
@@ -20,6 +21,7 @@ export async function GET(request: NextRequest) {
     if (!apiKey) {
       return NextResponse.json({ error: "타입캐스트 API 키가 필요합니다." }, { status: 400 })
     }
+    const portraitsPromise = loadTypecastPortraitIndex()
 
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 30000)
@@ -63,9 +65,15 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    const portraits = await portraitsPromise
     const voices = rows
       .map((row) => normalizeTypecastVoiceRow(row))
       .filter((v): v is NonNullable<typeof v> => Boolean(v))
+      .map((voice) => {
+        if (voice.thumbnail_image_url) return voice
+        const thumbnail_image_url = typecastPortraitUrl(portraits, voice)
+        return thumbnail_image_url ? { ...voice, thumbnail_image_url } : voice
+      })
 
     if (!voices.length) {
       return NextResponse.json(

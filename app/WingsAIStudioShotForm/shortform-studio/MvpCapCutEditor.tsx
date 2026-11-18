@@ -85,6 +85,9 @@ import { MvpOverlayLayer } from "./MvpOverlayLayer"
 import { MvpOverlayElementsPanel } from "./MvpOverlayElementsPanel"
 import { MvpSubtitleStylePanel } from "./MvpSubtitleStylePanel"
 import { MvpFitOneLineSubtitle } from "./MvpFitOneLineSubtitle"
+import { MvpVideoTextLayersPanel } from "./MvpVideoTextLayersPanel"
+import { MvpToneProfilePicker } from "./MvpToneProfilePicker"
+import { MvpVideoTextLayersPreview } from "./MvpVideoTextLayersPreview"
 import { MvpVideoClipTransformFrame } from "./MvpVideoClipTransformFrame"
 import { MvpTtsSpeedPicker } from "./MvpTtsSpeedPicker"
 import { MvpSceneFitPanel } from "./MvpSceneFitPanel"
@@ -103,10 +106,19 @@ import {
   MVP_HOLD_END_ZOOM_MAX,
   mvpHoldEndZoomInfo,
   mvpSceneBoundaryFadeOpacity,
+  sceneVideoFitBadge,
   timelineUsesAudioAxis,
   videoTimeFromAudioCueSync,
 } from "@/lib/shotform-mvp-preview-sync"
 import { MVP_EDIT_PLAN_SPLIT_MIN_SEC, isEditPlanBlank } from "@/lib/mvp-edit-plan-split"
+import {
+  isMvpFxIdentity,
+  MVP_FX_IDENTITY,
+  mvpAutoFxFrame,
+  mvpFxCssTransform,
+  type MvpAutoFxSettings,
+} from "@/lib/mvp-auto-fx"
+import { MvpAutoFxPanel } from "./MvpAutoFxPanel"
 import {
   drawVideoContainWithSourceTransform,
   editPlanSegmentIndexAtOutputTime,
@@ -127,6 +139,22 @@ function formatPlayerTime(seconds: number) {
   const minutes = Math.floor((total % 3600) / 60)
   const secs = total % 60
   return [hours, minutes, secs].map((value) => String(value).padStart(2, "0")).join(":")
+}
+
+function formatCompactCurrentTime(seconds: number): string {
+  const safe = Math.max(0, Number.isFinite(seconds) ? seconds : 0)
+  const minutes = Math.floor(safe / 60)
+  const rem = safe - minutes * 60
+  const whole = Math.floor(rem)
+  const tenth = Math.min(9, Math.floor((rem - whole) * 10))
+  return `${minutes}:${String(whole).padStart(2, "0")}.${tenth}`
+}
+
+function formatCompactTotalTime(seconds: number): string {
+  const safe = Math.max(0, Math.round(Number.isFinite(seconds) ? seconds : 0))
+  const minutes = Math.floor(safe / 60)
+  const secs = safe % 60
+  return `${minutes}:${String(secs).padStart(2, "0")}`
 }
 
 type NarrationSegment = {
@@ -175,6 +203,7 @@ type Props = {
   placedOverlays: PlacedStudioOverlay[]
   onPlacedOverlaysChange: (next: PlacedStudioOverlay[]) => void
   scriptStyle: MvpScriptStyleState
+  onScriptStyleChange?: (patch: Partial<MvpScriptStyleState>) => void
   thumbnailUrl: string
   thumbnailGallery: MvpThumbnailVariant[]
   selectedThumbnailId: string | null
@@ -250,6 +279,10 @@ type Props = {
   onBgmClipsChange: (next: MvpBgmClip[]) => void
   effectClips: MvpEffectClip[]
   onEffectClipsChange: (next: MvpEffectClip[]) => void
+  autoFx: MvpAutoFxSettings
+  onAutoFxChange: (next: MvpAutoFxSettings) => void
+  /** 중국어 자동 모자이크 진행·결과 문구 */
+  chineseMosaicStatus?: string
   videoSourceTransforms: MvpVideoSourceTransforms
   onVideoSourceTransformsChange: (next: MvpVideoSourceTransforms) => void
   /** 선택 컷을 출력 타임라인 시각에서 자르기 */
@@ -265,6 +298,10 @@ type Props = {
   timelineEditBusy?: boolean
   /** 영상 컷 드래그로 순서 변경 (TTS 유지) */
   onReorderEditPlanClip?: (fromIndex: number, toIndex: number) => void
+  /** 버전2 장면·대본 선택 화면 다시 열기 */
+  onOpenV2ScenePicker?: () => void
+  /** 외부(상단 헤더 등)에서 특정 편집 탭으로 이동 요청 */
+  requestedTab?: { tab: "scene" | "subtitle" | "graphic" | "audio" | "add-text" | "text-style" | "thumbnail"; seq: number } | null
 }
 
 export function MvpCapCutEditor(props: Props) {
@@ -315,6 +352,7 @@ export function MvpCapCutEditor(props: Props) {
     placedOverlays,
     onPlacedOverlaysChange,
     scriptStyle,
+    onScriptStyleChange,
     thumbnailUrl,
     thumbnailGallery,
     selectedThumbnailId,
@@ -371,6 +409,9 @@ export function MvpCapCutEditor(props: Props) {
     onBgmClipsChange,
     effectClips,
     onEffectClipsChange,
+    autoFx,
+    onAutoFxChange,
+    chineseMosaicStatus,
     videoSourceTransforms,
     onVideoSourceTransformsChange,
     onSplitEditPlanClip,
@@ -380,6 +421,8 @@ export function MvpCapCutEditor(props: Props) {
     onTimelineUndo,
     timelineEditBusy = false,
     onReorderEditPlanClip,
+    onOpenV2ScenePicker,
+    requestedTab = null,
   } = props
 
   const subStyle = normalizeSubtitleStyle(subtitleStyle)
@@ -394,13 +437,17 @@ export function MvpCapCutEditor(props: Props) {
   const [selectedEffectClipId, setSelectedEffectClipId] = useState<string | null>(null)
   const [selectedEditPlanIndex, setSelectedEditPlanIndex] = useState<number | null>(null)
   const [clipThumbnails, setClipThumbnails] = useState<Record<number, string>>({})
-  const [timelineHeight, setTimelineHeight] = useState(220)
+  const [timelineHeight, setTimelineHeight] = useState(276)
   const [previewScale, setPreviewScale] = useState(1)
   const [isMuted, setIsMuted] = useState(false)
   const timelineResizeCleanupRef = useRef<(() => void) | null>(null)
   const isMobile = useIsMobile()
   const mobileEditor = Boolean(popupMode && isMobile)
   const [mobilePane, setMobilePane] = useState<ShotFormMobileEditorPane>("preview")
+
+  useEffect(() => {
+    if (!requestedTab) return
+  }, [requestedTab])
 
   useEffect(() => {
     if (!mobileEditor) return
@@ -745,6 +792,9 @@ export function MvpCapCutEditor(props: Props) {
   const holdZoomSceneRef = useRef(-1)
   const holdZoomLastAudioTRef = useRef(0)
   const sceneFadeLayerRef = useRef<HTMLDivElement | null>(null)
+  const fxFlashRef = useRef<HTMLDivElement | null>(null)
+  const autoFxRef = useRef(autoFx)
+  autoFxRef.current = autoFx
   const previewTransformRef = useRef(previewTransform)
   previewTransformRef.current = previewTransform
 
@@ -823,14 +873,15 @@ export function MvpCapCutEditor(props: Props) {
       const a = audioRef.current
       const audioT = a && Number.isFinite(a.currentTime) ? a.currentTime : 0
 
-      // 컷 경계 페이드 — 홀드와 무관하게 매 프레임 적용
+      // 컷 경계 효과 — 홀드와 무관하게 매 프레임 적용. 자동 전환이 켜져 있으면 페이드 대신 전환·모션
       if (fadeLayer) {
-        if (voiceLineCues?.length && audioUrl) {
-          const op = mvpSceneBoundaryFadeOpacity(audioT, voiceLineCues)
-          fadeLayer.style.opacity = String(op)
-        } else {
-          fadeLayer.style.opacity = "1"
-        }
+        const fxSettings = autoFxRef.current
+        const cuesReady = Boolean(voiceLineCues?.length && audioUrl)
+        const fx = cuesReady && fxSettings ? mvpAutoFxFrame(audioT, voiceLineCues, fxSettings) : MVP_FX_IDENTITY
+        fadeLayer.style.opacity =
+          cuesReady && !fxSettings?.transitions ? String(mvpSceneBoundaryFadeOpacity(audioT, voiceLineCues)) : "1"
+        fadeLayer.style.transform = isMvpFxIdentity(fx) ? "" : mvpFxCssTransform(fx)
+        if (fxFlashRef.current) fxFlashRef.current.style.opacity = String(fx.flashAlpha)
       }
 
       if (!canvas || !voiceLineCues?.length || !audioUrl) {
@@ -1118,6 +1169,256 @@ export function MvpCapCutEditor(props: Props) {
     onVoiceLineCuesChange(voiceLineCues.map((c, i) => (i === idx ? { ...c, ...partial } : c)))
   }
 
+  const headcopySummaryText = useMemo(() => {
+    const pair = scriptStyle.headcopies?.[0] ?? []
+    return [pair[0]?.trim(), pair[1]?.trim()].filter(Boolean).join(" · ")
+  }, [scriptStyle.headcopies])
+
+  const ctaSummaryText = useMemo(() => {
+    const lastLine = segments.at(-1)?.text?.replace(/\s+/g, " ").trim() || ""
+    return scriptStyle.commentKeyword?.trim() || lastLine
+  }, [scriptStyle.commentKeyword, segments])
+
+  const currentVoiceSummaryLabel = useMemo(() => {
+    if (displayVoice?.name) return `${providerMeta.label} · ${displayVoice.name}`
+    if (selectedVoiceId) {
+      const bare = parseBareVoiceId(selectedVoiceId)?.bareId
+      return bare ? `${providerMeta.label} · ${bare}` : providerMeta.label
+    }
+    return "기본 목소리"
+  }, [displayVoice?.name, providerMeta.label, selectedVoiceId])
+
+  const voiceDrawerContentNode = (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-bold text-slate-800">{providerMeta.subtitle}</p>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="h-7 w-7 shrink-0 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+          disabled={providerLoading}
+          onClick={() => onReloadVoices(sidebarProvider)}
+        >
+          <RefreshCw className={cn("h-3.5 w-3.5", providerLoading && "animate-spin")} />
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-4 gap-1 rounded-xl bg-slate-100 p-1">
+        {TTS_PROVIDER_ORDER.map((id) => (
+          <button
+            key={id}
+            type="button"
+            className={cn(
+              "rounded-lg py-1.5 text-[11px] font-semibold transition",
+              sidebarProvider === id
+                ? "bg-white text-slate-900 shadow-sm"
+                : "text-slate-500 hover:text-slate-800",
+            )}
+            onClick={() => switchSidebarProvider(id)}
+          >
+            {TTS_PROVIDER_META[id].label}
+          </button>
+        ))}
+      </div>
+
+      {sidebarProvider === "supertonic" ? (
+        <SupertonicSetupBar
+          onReady={(info) => {
+            if (info.online) onReloadVoices("supertonic")
+          }}
+        />
+      ) : null}
+
+      {sidebarProvider === "elevenlabs" && providerVoices.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {providerVoices.map((v) => {
+            const key = buildTtsVoiceKey("elevenlabs", v.voice_id)
+            const activeVoice = selectedVoiceId === key
+            return (
+              <button
+                key={v.voice_id}
+                type="button"
+                className={cn(
+                  "rounded-full border px-2.5 py-1 text-[10px] font-semibold transition",
+                  activeVoice
+                    ? "border-[#7c3aed] bg-violet-50 text-violet-800"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
+                )}
+                onClick={() => pickElevenlabsSample(v.voice_id)}
+              >
+                {v.name}
+              </button>
+            )
+          })}
+        </div>
+      ) : null}
+
+      {sidebarProvider === "supertonic" && providerVoices.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {providerVoices.map((v) => {
+            const key = buildTtsVoiceKey("supertonic", v.voice_id)
+            const activeVoice = selectedVoiceId === key
+            return (
+              <button
+                key={v.voice_id}
+                type="button"
+                className={cn(
+                  "rounded-full border px-2.5 py-1 text-[10px] font-semibold transition",
+                  activeVoice
+                    ? "border-[#7c3aed] bg-violet-50 text-violet-800"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
+                )}
+                onClick={() => pickSupertonicVoice(v.voice_id)}
+              >
+                {v.name}
+              </button>
+            )
+          })}
+        </div>
+      ) : null}
+
+      {providerVoiceError ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] text-amber-800">
+          {providerVoiceError}
+        </p>
+      ) : null}
+
+      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+        <button
+          type="button"
+          className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left transition hover:border-violet-300 hover:bg-white"
+          disabled={providerLoading}
+          onClick={() => setVoicePickerOpen(true)}
+        >
+          {isCustomVoice ? (
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-200 text-slate-700">
+              <Hash className="h-4 w-4" />
+            </span>
+          ) : displayVoice?.thumbnail_image_url ? (
+            <img
+              src={displayVoice.thumbnail_image_url}
+              alt=""
+              className="h-9 w-9 shrink-0 rounded-full object-cover ring-1 ring-slate-200"
+            />
+          ) : (
+            <span
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
+              style={{
+                background: voiceAvatarFallbackColor(displayVoice?.name ?? "목소리"),
+              }}
+            >
+              {displayVoice?.name?.slice(0, 1) ?? <UserRound className="h-4 w-4" />}
+            </span>
+          )}
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xs font-bold text-slate-900">
+              {providerLoading
+                ? "불러오는 중…"
+                : displayVoice?.name ?? `${providerMeta.label} 목소리 선택`}
+            </p>
+            <p className="truncate text-[10px] text-slate-500">
+              {voiceMatchesSidebar && voiceStyle
+                ? labelTtsStyle(sidebarProvider, voiceStyle)
+                : "눌러서 전체 성우 목록 열기"}
+            </p>
+          </div>
+          <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+        </button>
+
+        <div className="flex items-center gap-1.5">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-9 border-slate-200 bg-white text-xs text-slate-700 hover:bg-slate-50"
+            disabled={!ttsReadyForProvider || previewingVoiceId === activeVoiceId}
+            onClick={handlePreviewVoice}
+          >
+            {previewingVoiceId === activeVoiceId ? (
+              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+            ) : (
+              <Play className="mr-1 h-3 w-3" />
+            )}
+            샘플 듣기
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            className="h-9 bg-[#7c3aed] px-3.5 text-xs font-bold text-white hover:bg-[#6d28d9]"
+            disabled={ttsLoading || !segments.length || !ttsReadyForProvider}
+            onClick={handleRunTts}
+          >
+            {ttsLoading ? (
+              <>
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                {ttsProgress}%
+              </>
+            ) : (
+              <>
+                <Volume2 className="mr-1.5 h-3.5 w-3.5" />
+                전체 다시 읽기
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
+
+      {voiceStyles.length > 0 ? (
+        <div className="flex flex-wrap gap-1">
+          {voiceStyles.map((s) => (
+            <button
+              key={s}
+              type="button"
+              className={cn(
+                "rounded-full border px-2.5 py-0.5 text-[10px] font-medium transition",
+                voiceStyle === s
+                  ? "border-[#7c3aed] bg-violet-50 text-violet-800"
+                  : "border-slate-200 bg-white text-slate-500 hover:text-slate-800",
+              )}
+              disabled={!voiceMatchesSidebar}
+              onClick={() => onVoiceStyleChange(s)}
+            >
+              {labelTtsStyle(sidebarProvider, s)}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div className="flex gap-1.5">
+          <Input
+            className="h-8 flex-1 border-slate-200 bg-white font-mono text-[11px]"
+            placeholder={providerMeta.idPlaceholder}
+            value={customIdDraft}
+            onChange={(e) => setCustomIdDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") applyCustomVoiceId()
+            }}
+          />
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-8 shrink-0 border-slate-200 px-2.5 text-[11px]"
+            disabled={!customIdDraft.trim()}
+            onClick={applyCustomVoiceId}
+          >
+            ID 적용
+          </Button>
+        </div>
+        <MvpTtsSpeedPicker
+          compact
+          tone="light"
+          value={speechSpeed}
+          onChange={onSpeechSpeedChange}
+          disabled={ttsLoading}
+          sceneFitHint={sceneFitEnabled}
+        />
+      </div>
+    </div>
+  )
+
   return (
     <StudioPageCard
       padded={false}
@@ -1300,6 +1601,7 @@ export function MvpCapCutEditor(props: Props) {
               {editPlan.map((clip, index) => {
                 const selected = selectedEditPlanIndex === index
                 const activeClip = previewClipIndex === index
+                const fitBadge = sceneVideoFitBadge(index, segments, voiceLineCues)
                 return (
                   <button
                     key={`${clip.video_id}-${clip.output_start}-${index}`}
@@ -1346,6 +1648,22 @@ export function MvpCapCutEditor(props: Props) {
                       >
                         {index + 1}
                       </span>
+                      {fitBadge ? (
+                        <span
+                          data-keep-light-text="true"
+                          title={
+                            fitBadge.looped
+                              ? "음성이 컷보다 길어 이 구간의 영상을 다시 재생합니다. 멈춰 있는 캡처로 두지 않습니다."
+                              : "음성 길이에 맞춰 컷을 느리게 재생합니다."
+                          }
+                          className={cn(
+                            "absolute left-1 top-1 rounded px-1 py-0.5 text-[9px] font-bold text-white",
+                            fitBadge.looped ? "bg-rose-600/90" : "bg-sky-600/85"
+                          )}
+                        >
+                          {fitBadge.label}
+                        </span>
+                      ) : null}
                     </div>
                     {!mobileEditor ? (
                       <div className="p-1.5">
@@ -1419,6 +1737,11 @@ export function MvpCapCutEditor(props: Props) {
                     videoBlobRef={videoBlobRef}
                     onVideoReplaced={onVideoReplaced}
                   />
+                ) : null}
+                {chineseMosaicStatus ? (
+                  <span className="max-w-[200px] truncate rounded-md bg-cyan-50 px-2 py-1 text-[10px] text-cyan-800">
+                    {chineseMosaicStatus}
+                  </span>
                 ) : null}
                 <Button
                   type="button"
@@ -1524,8 +1847,8 @@ export function MvpCapCutEditor(props: Props) {
                     {/* 컷 전환 페이드 레이어 — opacity만 JS로 갱신 */}
                     <div
                       ref={sceneFadeLayerRef}
-                      className="absolute inset-0"
-                      style={{ opacity: 1, willChange: "opacity" }}
+                      className="absolute inset-0 origin-center"
+                      style={{ opacity: 1, willChange: "opacity, transform" }}
                     >
                       {/* 실제 재생 비디오 — 홀드 줌 중에는 숨김(비디오 레이어 scale 금지) */}
                       <video
@@ -1569,6 +1892,13 @@ export function MvpCapCutEditor(props: Props) {
                         </div>
                       ) : null}
                     </div>
+                    {/* 플래시 전환용 흰 화면 — opacity만 JS로 갱신 */}
+                    <div
+                      ref={fxFlashRef}
+                      className="pointer-events-none absolute inset-0 bg-white"
+                      style={{ opacity: 0 }}
+                      aria-hidden
+                    />
                   </div>
                 ) : videoLoading ? (
                   <div className="flex h-full items-center justify-center gap-2 text-xs text-slate-400">
@@ -1613,10 +1943,16 @@ export function MvpCapCutEditor(props: Props) {
                   sourceTransform={previewTransform}
                 />
                 {previewSubtitleText ? (
-                  <MvpFitOneLineSubtitle style={buildSubtitleOverlayStyle(subStyle, subtitleStageScalePx)}>
+                  <MvpFitOneLineSubtitle
+                    style={buildSubtitleOverlayStyle(subStyle, subtitleStageScalePx)}
+                    entrance={subStyle.entrance}
+                  >
                     {previewSubtitleText}
                   </MvpFitOneLineSubtitle>
                 ) : null}
+                {showThumbnailIntro ? null : (
+                  <MvpVideoTextLayersPreview scriptStyle={scriptStyle} stageScale={subtitleStageScalePx} />
+                )}
               </div>
             </div>
             </div>
@@ -2500,6 +2836,27 @@ export function MvpCapCutEditor(props: Props) {
                   </div>
                 </div>
 
+                {onScriptStyleChange ? (
+                  <div className={popupMode ? insp.card : "space-y-2 rounded-xl border border-white/10 bg-black/30 p-3"}>
+                    <div className={popupMode ? insp.sectionHead : undefined}>
+                      {popupMode ? <span className={insp.sectionIndex}>2</span> : null}
+                      <p className={popupMode ? insp.title : "text-xs font-medium text-white"}>
+                        헤드카피 · 워터마크 · 광고 표시
+                      </p>
+                    </div>
+                    <p className={popupMode ? insp.subtitle : "text-[10px] leading-relaxed text-slate-500"}>
+                      영상 내내 화면 위에 고정되는 글자입니다. MP4 내보내기에도 그대로 들어갑니다.
+                    </p>
+                    <div className="mt-3">
+                      <MvpVideoTextLayersPanel
+                        scriptStyle={scriptStyle}
+                        onChange={onScriptStyleChange}
+                        tone={popupMode ? "light" : "dark"}
+                      />
+                    </div>
+                  </div>
+                ) : null}
+
                 {selectedCue ? (
                   <div
                     className={cn(
@@ -2646,6 +3003,13 @@ export function MvpCapCutEditor(props: Props) {
             ) : null}
 
             {inspectorTab === "audio" ? (
+              <div className="space-y-3">
+              <MvpAutoFxPanel
+                settings={autoFx}
+                onChange={onAutoFxChange}
+                bgmClips={bgmClips}
+                onBgmClipsChange={onBgmClipsChange}
+              />
               <MvpEffectSoundPanel
                 clips={effectClips}
                 onChange={onEffectClipsChange}
@@ -2663,6 +3027,7 @@ export function MvpCapCutEditor(props: Props) {
                 onSelectedIdChange={setSelectedEffectClipId}
                 tone={popupMode ? "light" : "dark"}
               />
+              </div>
             ) : null}
 
             {inspectorTab === "thumbnail" ? (
@@ -2689,6 +3054,15 @@ export function MvpCapCutEditor(props: Props) {
               </div>
             ) : null}
 
+            {inspectorTab === "script" && onScriptStyleChange ? (
+              <div className="mb-3">
+                <MvpToneProfilePicker
+                  value={scriptStyle.toneProfile}
+                  disabled={scriptGenerating}
+                  onChange={(toneProfile) => onScriptStyleChange({ toneProfile })}
+                />
+              </div>
+            ) : null}
             {inspectorTab === "script" ? (
               <MvpScriptAnalysisPanel
                 light={popupMode}

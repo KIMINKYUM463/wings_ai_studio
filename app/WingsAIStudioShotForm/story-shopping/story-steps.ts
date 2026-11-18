@@ -2,6 +2,7 @@
 export type StoryActiveStep =
   | "content"
   | "product"
+  | "v2"
   | "story"
   | "voice"
   | "template"
@@ -23,6 +24,7 @@ export type StoryActiveStep =
 export type StoryLiveActiveStep =
   | "content"
   | "product"
+  | "v2"
   | "story"
   | "voice"
   | "template"
@@ -33,6 +35,7 @@ export function migrateStoryActiveStep(step: string | undefined): StoryLiveActiv
   switch (step) {
     case "content":
     case "product":
+    case "v2":
     case "story":
     case "voice":
     case "template":

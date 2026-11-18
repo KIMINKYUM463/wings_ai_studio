@@ -4274,7 +4274,7 @@ export default function ShoppingPage() {
           })
         }, 5 * 60 * 1000)
         const file = new File([blob], fileName, { type: "video/mp4" })
-        const shared = typeof navigator !== "undefined" && navigator.share && (navigator.canShare?.({ files: [file] }) ?? true)
+        const shared = typeof navigator !== "undefined" && typeof navigator.share === "function" && (navigator.canShare?.({ files: [file] }) ?? true)
         if (shared) {
           try {
             await navigator.share({ files: [file], title: fileName, text: "렌더링된 영상" })

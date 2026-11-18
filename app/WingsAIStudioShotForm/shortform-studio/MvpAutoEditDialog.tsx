@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Check, Download, Loader2, Scissors, Sparkles } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -12,21 +12,28 @@ import {
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import { studio } from "../components/ShotFormStudioUI"
-import { Label } from "@/components/ui/label"
-import { Input } from "@/components/ui/input"
-import type {
-  AutoEditAnalysisMode,
-  AutoEditJobResult,
-  AutoEditPick,
-  AutoEditTargetDuration,
-  ClientVideoMetaEntry,
+import {
+  REMIX_MOSAIC_STORAGE_KEY,
+  toAutoEditVideoInputs,
+  type AutoEditAnalysisMode,
+  type AutoEditJobResult,
+  type AutoEditPick,
+  type AutoEditTargetDuration,
+  type RemixMosaicMode,
 } from "@/lib/shotform-auto-edit-types"
 import {
-  AUTO_EDIT_ANALYSIS_MODE_DEFAULT,
-  AUTO_EDIT_ANALYSIS_MODE_OPTIONS,
-  AUTO_EDIT_DURATION_OPTIONS,
-} from "@/lib/shotform-auto-edit-types"
-import { toAutoEditVideoInputs } from "@/lib/shotform-auto-edit-types"
+  MvpRemixVoiceField,
+  readSavedRemixVoice,
+  REMIX_VOICE_STORAGE_KEY,
+  type RemixVoiceSelection,
+} from "./MvpRemixVoiceField"
+import { shotformTtsApiKey, ttsProviderFromVoiceId } from "@/lib/shotform-tts-providers"
+import {
+  DEFAULT_REMIX_SCRIPT_TEMPLATE_ID,
+  REMIX_SCRIPT_TEMPLATES,
+  REMIX_SCRIPT_TEMPLATE_STORAGE_KEY,
+  remixScriptTemplate,
+} from "@/lib/shotform-remix-script-templates"
 import { editPlanTotalOutputSeconds } from "@/lib/shotform-auto-edit-plan-finalize"
 import {
   formatBenchmarkSceneCard,
@@ -39,7 +46,6 @@ import {
   formatShotformFetchError,
   refreshExpiredMvpEditPicks,
 } from "@/lib/shotform-mvp-pick-video-download"
-import { extractClientVideoMetaForPicks } from "@/lib/shotform-client-video-meta"
 import { uploadAutoEditSourcesFromBrowser } from "@/lib/shotform-auto-edit-client-source-upload"
 import { uploadAutoEditSourcesToLocalDir } from "@/lib/shotform-auto-edit-client-local-source-upload"
 import {
@@ -53,15 +59,6 @@ import {
 } from "@/lib/shotform-local-companion-client"
 import type { AutoEditRenderMode } from "@/lib/shotform-local-render-dir"
 import { isAutoEditNoUsableVideoError } from "@/lib/shotform-auto-edit-errors"
-import { estimateAutoEditAnalyzeSeconds } from "@/lib/shotform-scene-understanding"
-
-
-/** 목표 쇼츠 길이 — 5초 단위 슬라이더 인덱스 */
-function durationSliderIndex(duration: AutoEditTargetDuration): number {
-  const idx = AUTO_EDIT_DURATION_OPTIONS.indexOf(duration)
-  return idx >= 0 ? idx : AUTO_EDIT_DURATION_OPTIONS.indexOf(30)
-}
-
 /** 「쓸수있는 영상 없음」 간헐 오류 — 자동 재시도 횟수 (총 1+2=3회 시도) */
 const AUTO_EDIT_USABLE_VIDEO_MAX_RETRIES = 2
 const LOCAL_WORK_DIR_STORAGE_KEY = "shotform_local_work_dir"
@@ -294,7 +291,7 @@ export function MvpAutoEditDialog({
   open: boolean
   onOpenChange: (v: boolean) => void
   picks: AutoEditPick[]
-  projectId: string
+  projectId?: string
   projectName?: string
   /** 1단계 사용자 입력 키워드 */
   sourceKeywords?: string[]
@@ -309,11 +306,51 @@ export function MvpAutoEditDialog({
     videoBlob: Blob | null
   }) => void
 }) {
-  const [targetDuration, setTargetDuration] = useState<AutoEditTargetDuration>(30)
-  const [analysisMode, setAnalysisMode] = useState<AutoEditAnalysisMode>(AUTO_EDIT_ANALYSIS_MODE_DEFAULT)
-  const [renderMode, setRenderMode] = useState<AutoEditRenderMode>("server")
+  const targetDuration = 30 as AutoEditTargetDuration
+  const analysisMode = "fast" as const
+  const renderMode = "server" as "server" | "local"
+  const [voice, setVoice] = useState<RemixVoiceSelection>({ voiceId: "", style: "", speed: 1.1 })
+  const [scriptTemplateId, setScriptTemplateId] = useState(DEFAULT_REMIX_SCRIPT_TEMPLATE_ID)
+  const [mosaicMode, setMosaicMode] = useState<RemixMosaicMode>("paid")
+  useEffect(() => {
+    setVoice(readSavedRemixVoice())
+    try {
+      const saved = localStorage.getItem(REMIX_SCRIPT_TEMPLATE_STORAGE_KEY)
+      if (saved && REMIX_SCRIPT_TEMPLATES.some((template) => template.id === saved)) {
+        setScriptTemplateId(saved)
+      }
+      if (localStorage.getItem(REMIX_MOSAIC_STORAGE_KEY) === "free") setMosaicMode("free")
+    } catch {
+      /* 저장된 값이 없으면 기본 구조와 유료 모자이크를 씁니다. */
+    }
+  }, [])
+  const chooseScriptTemplate = useCallback((id: string) => {
+    const next = remixScriptTemplate(id).id
+    setScriptTemplateId(next)
+    try {
+      localStorage.setItem(REMIX_SCRIPT_TEMPLATE_STORAGE_KEY, next)
+    } catch {
+      /* 저장에 실패해도 이번 실행에는 고른 구조를 씁니다. */
+    }
+  }, [])
+  const chooseMosaicMode = useCallback((mode: RemixMosaicMode) => {
+    setMosaicMode(mode)
+    try {
+      localStorage.setItem(REMIX_MOSAIC_STORAGE_KEY, mode)
+    } catch {
+      /* 저장에 실패해도 이번 실행에는 고른 모자이크를 씁니다. */
+    }
+  }, [])
+  const chooseVoice = useCallback((next: RemixVoiceSelection) => {
+    setVoice(next)
+    try {
+      localStorage.setItem(REMIX_VOICE_STORAGE_KEY, JSON.stringify(next))
+    } catch {
+      /* 저장 실패해도 이번 실행에는 고른 목소리를 씁니다. */
+    }
+  }, [])
   const [localWorkDir, setLocalWorkDir] = useState("")
-  const [localRenderCap, setLocalRenderCap] = useState<{
+  const [, setLocalRenderCap] = useState<{
     available: boolean
     defaultWorkDir?: string
     reason?: string
@@ -323,7 +360,7 @@ export function MvpAutoEditDialog({
   } | null>(null)
   const [companionOnline, setCompanionOnline] = useState(false)
   const [companionUrl, setCompanionUrl] = useState(DEFAULT_LOCAL_COMPANION_URL)
-  const [companionHint, setCompanionHint] = useState<string | null>(null)
+  const [, setCompanionHint] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<AutoEditJobResult | null>(null)
   const [err, setErr] = useState<string | null>(null)
@@ -331,18 +368,6 @@ export function MvpAutoEditDialog({
   const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null)
   const previewBlobRef = useRef<string | null>(null)
   const picksKey = picks.map((p) => p.key).join("|")
-
-  const analyzeEta = useMemo(
-    () =>
-      estimateAutoEditAnalyzeSeconds({
-        pickCount: Math.max(1, picks.length),
-        maxSourceDurationSec: 90,
-        mode: analysisMode,
-        hasClientKeyframe: false,
-        skipServerDownload: false,
-      }),
-    [picks.length, analysisMode]
-  )
 
   const revokePreviewBlob = useCallback(() => {
     if (previewBlobRef.current) {
@@ -427,9 +452,6 @@ export function MvpAutoEditDialog({
     })()
   }, [open, companionUrl])
 
-  const localDevFfmpegAvailable = Boolean(localRenderCap?.available)
-  const localRenderAvailable = companionOnline || localDevFfmpegAvailable
-
   const fetchResultMp4 = useCallback(
     async (_downloadUrl: string, jobId: string) => {
       const metaUrl = autoEditDownloadUrl(jobId, { mode: "url" })
@@ -507,6 +529,10 @@ export function MvpAutoEditDialog({
       setErr("선택된 영상이 없습니다.")
       return
     }
+    if (!ttsProviderFromVoiceId(voice.voiceId)) {
+      setErr("모델을 고르고 목소리를 선택해 주세요.")
+      return
+    }
     setLoading(true)
     setErr(null)
     setDownloadHint("")
@@ -551,7 +577,6 @@ export function MvpAutoEditDialog({
 
           const videos = toAutoEditVideoInputs(nextPicks)
           const preJobId = crypto.randomUUID()
-          let clientVideoMeta: Record<string, ClientVideoMetaEntry> | undefined
           let prefetchedBlobs: Record<string, Blob> | undefined =
             initialPrefetchedBlobs && Object.keys(initialPrefetchedBlobs).length > 0
               ? { ...initialPrefetchedBlobs }
@@ -587,112 +612,17 @@ export function MvpAutoEditDialog({
             )
           }
 
-          setDownloadHint(
-            analysisMode === "precision"
-              ? "정밀 분석용 — 브라우저에서 영상·키프레임 준비 중…"
-              : "브라우저에서 키프레임·길이 미리 추출 중…"
-          )
-          const extracted = await extractClientVideoMetaForPicks(
-            nextPicks,
-            (msg) => setDownloadHint(msg),
-            analysisMode === "precision"
-              ? { precision: true, localWorkDir: renderMode === "local" ? localWorkDir.trim() : undefined, companionUrl }
-              : renderMode === "local"
-                ? { localWorkDir: localWorkDir.trim(), companionUrl }
-                : undefined
-          )
-          if (Object.keys(extracted.meta).length > 0) clientVideoMeta = extracted.meta
-          if (Object.keys(extracted.blobs).length > 0) prefetchedBlobs = extracted.blobs
-
-          if (analysisMode === "precision") {
-            const missingPrecision = nextPicks.filter(
-              (p) => (clientVideoMeta?.[p.video_id]?.precisionKeyframes?.length ?? 0) < 6
-            )
-            if (missingPrecision.length > 0) {
-              throw new Error(
-                [
-                  "정밀 분석용 브라우저 키프레임 캡처에 실패했습니다.",
-                  ...missingPrecision.map(
-                    (p) =>
-                      `· ${p.title || p.video_id}: 영상 링크가 만료됐거나 재생이 차단됐을 수 있습니다.`
-                  ),
-                  "소스를 다시 추가한 뒤 정밀 모드로 실행해 주세요.",
-                ].join("\n")
-              )
-            }
-          }
-
-          if (analysisMode === "fast" && renderMode === "local") {
-            const missingMeta = nextPicks.filter(
-              (p) => (clientVideoMeta?.[p.video_id]?.duration ?? 0) <= 0
-            )
-            if (missingMeta.length > 0) {
-              throw new Error(
-                [
-                  "로컬 렌더 — 브라우저에서 영상 길이를 읽지 못했습니다.",
-                  ...missingMeta.map(
-                    (p) => `· ${p.title || p.video_id}: 작업 폴더 sources/ 또는 CDN 확인`
-                  ),
-                  "로컬 에이전트가 실행 중인지, 작업 폴더 경로가 맞는지 확인해 주세요.",
-                ].join("\n")
-              )
-            }
-          }
-
-          const allMetaReady =
-            analysisMode === "fast" &&
-            clientVideoMeta &&
-            nextPicks.every((p) => clientVideoMeta![p.video_id]?.keyframeDataUrl)
-
-          const allHaveDuration =
-            analysisMode === "fast" &&
-            clientVideoMeta &&
-            nextPicks.every((p) => (clientVideoMeta![p.video_id]?.duration ?? 0) > 0)
-
-          const skipBrowserUploadForFastAnalyze = Boolean(allHaveDuration)
-          const hasPrefetchedBlobs = Object.keys(prefetchedBlobs ?? {}).length > 0
-          // 고속: 브라우저 메타만으로 분석하면 서버 CDN 다운로드를 생략함 → 렌더(Cloud Run)는
-          // 프록시 없이 CDN 직접 접근이라 만료·차단에 취약. 저장 프로젝트 재실행도 Supabase 업로드 필수.
-          const requireBrowserUploadForRender =
-            renderMode === "server" ||
-            (analysisMode === "fast" && Boolean(allHaveDuration))
-
           let sourcesPreUploaded = false
-          const requireBrowserUpload =
-            analysisMode === "precision" ||
-            hasPrefetchedBlobs ||
-            requireBrowserUploadForRender ||
-            (!allMetaReady && !skipBrowserUploadForFastAnalyze)
-
-          if (renderMode === "local") {
-            /* 소스는 위에서 companion/sources 에 먼저 저장됨 */
-          } else if (requireBrowserUpload) {
-            setDownloadHint(
-              analysisMode === "precision"
-                ? "정밀 분석 — 브라우저에서 영상을 서버에 전달 중…"
-                : requireBrowserUploadForRender
-                  ? "렌더용 — 브라우저에서 영상을 서버에 전달 중… (CDN 만료·저장 프로젝트 재실행 대비)"
-                  : "브라우저에서 영상을 받아 서버에 전달 중… (CDN 우회)"
-            )
+          if (renderMode !== "local") {
+            setDownloadHint("고른 영상을 서버로 보내는 중…")
             await uploadAutoEditSourcesFromBrowser(
               preJobId,
               nextPicks,
               (msg) => setDownloadHint(msg),
-              prefetchedBlobs,
-              clientVideoMeta
+              prefetchedBlobs
             )
             sourcesPreUploaded = true
           }
-
-          const clientVideoMetaForApi =
-            analysisMode === "precision" && sourcesPreUploaded && clientVideoMeta
-              ? Object.fromEntries(
-                  Object.entries(clientVideoMeta).map(([id, meta]) => [
-                    id,
-                    { duration: meta.duration, timeSec: meta.timeSec },
-                  ])
-                )
-              : clientVideoMeta
 
           setDownloadHint("리믹스 작업 시작 중…")
           const res = await fetch("/api/shotform/auto-edit", {
@@ -705,12 +635,21 @@ export function MvpAutoEditDialog({
               removeChineseSubtitles: false,
               scriptTopic: projectName?.trim() || undefined,
               sourceKeywords: sourceKeywords.filter(Boolean),
-              analysisMode,
-              clientVideoMeta: clientVideoMetaForApi,
               clientJobId: preJobId,
               sourcesPreUploaded,
               renderMode,
               localWorkDir: renderMode === "local" ? localWorkDir.trim() : undefined,
+              scriptTemplateId,
+              mosaicMode,
+              ttsVoiceId: voice.voiceId,
+              ttsVoiceStyle: voice.style,
+              ttsSpeed: voice.speed,
+              ...(ttsProviderFromVoiceId(voice.voiceId) === "typecast"
+                ? { typecastApiKey: shotformTtsApiKey("typecast") }
+                : {}),
+              ...(ttsProviderFromVoiceId(voice.voiceId) === "elevenlabs"
+                ? { elevenlabsApiKey: shotformTtsApiKey("elevenlabs") }
+                : {}),
             }),
           })
           const started = (await res.json().catch(() => ({}))) as AutoEditJobResult & {
@@ -941,12 +880,14 @@ export function MvpAutoEditDialog({
     localWorkDir,
     companionOnline,
     companionUrl,
-    localDevFfmpegAvailable,
+    scriptTemplateId,
+    mosaicMode,
     revokePreviewBlob,
     fetchResultMp4,
     projectId,
     projectName,
     sourceKeywords,
+    voice,
     onPipelineComplete,
     onPicksUpdated,
     onStudioReady,
@@ -966,18 +907,14 @@ export function MvpAutoEditDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto border-white/10 bg-slate-950">
+      <DialogContent className="max-h-[90vh] max-w-xl overflow-y-auto border-white/10 bg-slate-950">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-white">
             <Scissors className="h-4 w-4 text-violet-400" />
             AI 리믹스 자동 편집
           </DialogTitle>
           <DialogDescription className="text-slate-400">
-            {picks.length}개 영상 선택됨 · 목표 {targetDuration}초 쇼츠
-            <span className="mt-0.5 block text-[10px] font-normal text-slate-500">
-              분석 예상 약 {analyzeEta.min}~{analyzeEta.max}초 · 소스 영상 길이(예: 2분)와 목표 쇼츠 길이는
-              별개입니다
-            </span>
+            {picks.length}개 영상을 골랐습니다. 대본 구조, 목소리, 모자이크를 고르면 장면, 대본, 음성이 만들어지고 편집기가 열립니다.
           </DialogDescription>
         </DialogHeader>
 
@@ -990,156 +927,102 @@ export function MvpAutoEditDialog({
         </ul>
 
         <div className="space-y-4">
-          <div>
-            <p className="mb-2 text-xs font-medium text-slate-400">분석 모드</p>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {AUTO_EDIT_ANALYSIS_MODE_OPTIONS.map((opt) => (
-                <button
-                  key={opt.id}
-                  type="button"
-                  disabled={loading}
-                  onClick={() => setAnalysisMode(opt.id)}
-                  className={cn(
-                    "rounded-lg border px-3 py-2 text-left transition",
-                    analysisMode === opt.id
-                      ? "border-violet-500/60 bg-violet-500/15 ring-1 ring-violet-500/40"
-                      : "border-white/10 bg-black/30 hover:border-white/20"
-                  )}
-                >
-                  <p
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-slate-400">대본 구조</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {REMIX_SCRIPT_TEMPLATES.map((template) => {
+                const selected = template.id === scriptTemplateId
+                return (
+                  <button
+                    key={template.id}
+                    type="button"
+                    disabled={loading}
+                    onClick={() => chooseScriptTemplate(template.id)}
                     className={cn(
-                      "text-xs font-semibold",
-                      analysisMode === opt.id ? "text-violet-200" : "text-slate-200"
+                      "rounded-lg border px-2.5 py-2 text-left text-xs font-semibold leading-snug transition",
+                      selected
+                        ? "border-violet-500/70 bg-violet-500/15 text-violet-100 ring-1 ring-violet-500/40"
+                        : "border-white/10 bg-black/30 text-slate-200 hover:border-white/20"
                     )}
                   >
-                    {opt.label}
-                  </p>
-                  <p className="mt-0.5 text-[10px] leading-snug text-slate-500">{opt.hint}</p>
-                </button>
-              ))}
+                    {template.name}
+                  </button>
+                )
+              })}
+            </div>
+            <div className="rounded-lg border border-violet-500/30 bg-violet-950/20 px-3 py-2.5">
+              <p className="text-[11px] font-medium text-violet-200">
+                {remixScriptTemplate(scriptTemplateId).name} 샘플 대본
+              </p>
+              <p className="mt-0.5 text-[10px] leading-snug text-slate-400">
+                {remixScriptTemplate(scriptTemplateId).oneLiner}
+              </p>
+              <p className="mt-0.5 text-[10px] text-slate-500">
+                이 순서로 말합니다. 문장 내용은 고른 영상에 맞게 다시 씁니다.
+              </p>
+              <ol className="mt-2 space-y-1.5">
+                {remixScriptTemplate(scriptTemplateId).steps.map((step, index) => (
+                  <li key={`${step.role}-${index}`} className="flex gap-2 text-xs leading-snug text-slate-200">
+                    <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-violet-500/30 text-[10px] font-semibold text-violet-100">
+                      {index + 1}
+                    </span>
+                    <span>
+                      <span className="text-[10px] text-violet-300/80">{step.purpose}</span>
+                      <span className="mt-0.5 block">{step.example}</span>
+                    </span>
+                  </li>
+                ))}
+              </ol>
             </div>
           </div>
 
-          <div>
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <p className="text-xs font-medium text-slate-400">목표 쇼츠 길이</p>
-              <p className="text-sm font-semibold tabular-nums text-violet-200">{targetDuration}초</p>
-            </div>
-            <input
-              type="range"
-              min={0}
-              max={AUTO_EDIT_DURATION_OPTIONS.length - 1}
-              step={1}
-              value={durationSliderIndex(targetDuration)}
-              disabled={loading}
-              onChange={(e) => {
-                const idx = Number(e.target.value)
-                const next = AUTO_EDIT_DURATION_OPTIONS[idx]
-                if (next != null) setTargetDuration(next)
-              }}
-              className="h-2 w-full cursor-pointer appearance-none rounded-full bg-white/10 accent-violet-500 disabled:opacity-50"
-              aria-label="목표 쇼츠 길이"
-            />
-            <div className="mt-1.5 flex justify-between px-0.5 text-[9px] tabular-nums text-slate-600">
-              {AUTO_EDIT_DURATION_OPTIONS.map((d) => (
-                <span
-                  key={d}
-                  className={cn(
-                    "w-4 text-center",
-                    targetDuration === d ? "font-semibold text-violet-300" : ""
-                  )}
-                >
-                  {d}
-                </span>
-              ))}
-            </div>
-          </div>
+          <MvpRemixVoiceField disabled={loading} value={voice} onChange={chooseVoice} />
 
-          <div className="rounded-lg border border-emerald-500/25 bg-emerald-950/10 px-3 py-2.5">
-              <p className="mb-2 text-xs font-medium text-emerald-200/90">ffmpeg 렌더 방식</p>
-              {!companionOnline && renderMode === "local" ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="mb-2 h-8 w-full border-emerald-500/40 text-[11px] text-emerald-200"
-                  disabled={loading}
-                  onClick={() => {
-                    void ensureLocalCompanionRunning({
-                      companionUrl,
-                      onProgress: (msg) => setCompanionHint(msg),
-                    }).then((h) => {
-                      setCompanionOnline(Boolean(h.ok && h.ffmpeg))
-                      setCompanionHint(h.ok ? null : h.error || null)
-                    })
-                  }}
-                >
-                  에이전트 지금 시작 시도
-                </Button>
-              ) : null}
-              {companionHint && !companionOnline ? (
-                <p className="mb-2 text-[10px] text-amber-300/80">{companionHint}</p>
-              ) : null}
-              <div className="grid gap-2 sm:grid-cols-2">
-                <button
-                  type="button"
-                  disabled={loading}
-                  onClick={() => setRenderMode("server")}
-                  className={cn(
-                    "relative rounded-lg border px-3 py-2.5 text-center transition",
-                    renderMode === "server"
-                      ? "border-violet-500/60 bg-violet-500/15 ring-1 ring-violet-500/40"
-                      : "border-white/10 bg-black/30 hover:border-white/20"
-                  )}
-                >
-                  <span className="absolute -right-1 -top-1 rounded bg-violet-500 px-1.5 py-0.5 text-[9px] font-bold leading-none text-white shadow-sm">
-                    추천
-                  </span>
-                  <span className="text-xs font-semibold text-slate-200">서버</span>
-                </button>
-                <button
-                  type="button"
-                  disabled={loading}
-                  onClick={() => setRenderMode("local")}
-                  className={cn(
-                    "rounded-lg border px-3 py-2.5 text-center transition",
-                    renderMode === "local"
-                      ? "border-emerald-500/60 bg-emerald-500/15 ring-1 ring-emerald-500/40"
-                      : "border-white/10 bg-black/30 hover:border-white/20"
-                  )}
-                >
-                  <span className="text-xs font-semibold text-emerald-200">로컬</span>
-                </button>
-              </div>
-              {renderMode === "local" ? (
-                <div className="mt-3 space-y-2">
-                  <Label htmlFor="shotform-local-work-dir" className="text-[10px] text-slate-400">
-                    작업 폴더 (sources · jobs 하위 생성)
-                  </Label>
-                  <Input
-                    id="shotform-local-work-dir"
-                    value={localWorkDir}
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-slate-400">모자이크</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {(
+                [
+                  {
+                    id: "paid" as const,
+                    name: "유료 모자이크",
+                    detail: "Gemini가 글자·로고 위치를 찾아 영상에 바로 넣습니다. 버전2와 같습니다.",
+                  },
+                  {
+                    id: "free" as const,
+                    name: "무료 모자이크",
+                    detail: "편집기가 열린 뒤 PaddleOCR이 중국어를 찾습니다. 비용은 없습니다.",
+                  },
+                ]
+              ).map((option) => {
+                const selected = mosaicMode === option.id
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
                     disabled={loading}
-                    onChange={(e) => setLocalWorkDir(e.target.value)}
-                    placeholder={localRenderCap?.defaultWorkDir || "C:\\Users\\이름\\ShotForm\\auto-edit"}
-                    className="border-white/10 bg-black/40 text-xs text-slate-200"
-                  />
-                  <p className="text-[10px] leading-snug text-slate-500">
-                    소스: sources/video_001.mp4 · 결과: jobs/&#123;jobId&#125;/output.mp4
-                  </p>
-                </div>
-              ) : null}
+                    onClick={() => chooseMosaicMode(option.id)}
+                    className={cn(
+                      "rounded-lg border px-2.5 py-2 text-left transition",
+                      selected
+                        ? "border-violet-500/70 bg-violet-500/15 ring-1 ring-violet-500/40"
+                        : "border-white/10 bg-black/30 hover:border-white/20"
+                    )}
+                  >
+                    <p className={cn("text-xs font-semibold", selected ? "text-violet-100" : "text-slate-200")}>
+                      {option.name}
+                    </p>
+                    <p className="mt-0.5 text-[10px] leading-snug text-slate-500">{option.detail}</p>
+                  </button>
+                )
+              })}
             </div>
+          </div>
 
           {!loading && !result?.editPlan ? (
             <p className="text-xs text-slate-500">
-              선택한 {picks.length}개 영상에서 장면을 골라 <strong className="text-slate-300">짧은 컷으로 이어 붙입니다</strong>
-              (ffmpeg). 같은 키워드 영상끼리는 화면이 비슷할 수 있어,{" "}
-              <strong className="text-violet-200">서로 다른 영상·다른 장면</strong>을 고르면 믹스 차이가 큽니다.
-              <span className="mt-1 block text-[10px] text-slate-600">
-                중국어 자막 제거는 리믹스 완료 후 편집 스튜디오 <strong className="text-slate-500">정보</strong> 탭에서
-                실행하세요.
-              </span>
+              고른 영상을 장면으로 나누고, 대본과 선택한 목소리로 음성을 만든 뒤 편집기가 열립니다.
+              유료 모자이크는 그 영상에 들어가고, 무료 모자이크는 편집기에서 찾습니다.
             </p>
           ) : null}
 

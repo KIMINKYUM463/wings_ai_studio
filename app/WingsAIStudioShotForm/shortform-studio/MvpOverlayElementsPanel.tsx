@@ -45,6 +45,7 @@ import {
   type MosaicFrameDetectRow,
 } from "@/lib/mvp-mosaic-merge"
 import { readFetchJson } from "@/lib/mvp-fetch-json"
+import { createMosaicAnalysisVideo, detectChineseMosaicWithPaddle } from "@/lib/mvp-paddle-mosaic"
 import {
   compressMosaicFramesForApi,
   isRetryableMosaicApiError,
@@ -532,6 +533,48 @@ export function MvpOverlayElementsPanel({
     }
   }, [onOverlaysChange, onSelectId, overlays, sceneSegments, videoDurationSec, videoRef])
 
+  const runPaddleMosaic = useCallback(async () => {
+    const src = videoRef?.current?.currentSrc || videoRef?.current?.src
+    if (!src) {
+      setAiErr("리믹스 영상이 준비된 뒤 다시 시도해 주세요.")
+      return
+    }
+    aiAbortRef.current?.abort()
+    const abort = new AbortController()
+    aiAbortRef.current = abort
+    setAiLoading(true)
+    setAiErr(null)
+    const analysis = createMosaicAnalysisVideo(src)
+    try {
+      const detected = await detectChineseMosaicWithPaddle({
+        video: analysis.video,
+        durationSec: videoDurationSec,
+        sceneSegments,
+        signal: abort.signal,
+        onStatus: setAiStatus,
+      })
+      const nonMosaic = overlays.filter((o) => !isMosaicOverlay(o.catalogId))
+      onOverlaysChange([...nonMosaic, ...detected])
+      onSelectId(detected[0]?.id ?? null)
+      setAiStatus(
+        detected.length
+          ? `모자이크 ${detected.length}구간 적용됨. 위치·시간은 미리보기에서 조정할 수 있습니다.`
+          : "감지된 중국어가 없습니다. 필요하면 수동 모자이크를 추가해 보세요."
+      )
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") {
+        setAiStatus("분석이 취소되었습니다.")
+        return
+      }
+      setAiErr(e instanceof Error ? e.message : "자동 모자이크 실패")
+      setAiStatus("")
+    } finally {
+      analysis.dispose()
+      aiAbortRef.current = null
+      setAiLoading(false)
+    }
+  }, [onOverlaysChange, onSelectId, overlays, sceneSegments, videoDurationSec, videoRef])
+
   const selectedMosaic = selectedOverlay && isMosaicOverlay(selectedOverlay.catalogId)
 
   return (
@@ -542,8 +585,8 @@ export function MvpOverlayElementsPanel({
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold text-cyan-100">AI 중국어 모자이크</p>
             <p className="mt-1 text-[10px] leading-relaxed text-cyan-100/75">
-              1차 장면 스캔 → 2~4차 정밀·전수 스캔 → 시간 경계 보정. 중국어 누락을 줄이기 위해 보통 4~8분
-              소요됩니다.
+              오픈소스 PaddleOCR이 0.2초마다 화면의 중국어를 찾아 모자이크합니다. 무료 · 보통 1~2분. 리믹스가
+              끝나면 자동으로 한 번 실행됩니다.
             </p>
           </div>
         </div>
@@ -553,11 +596,23 @@ export function MvpOverlayElementsPanel({
             variant="ghost"
             className="h-9 flex-1 gap-2 border border-cyan-500/30 bg-cyan-500/10 text-xs text-cyan-100 hover:bg-cyan-500/20"
             disabled={aiLoading || !videoDurationSec}
-            onClick={() => void runAiMosaic()}
+            onClick={() => void runPaddleMosaic()}
           >
             {aiLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-            {aiLoading ? "AI 분석 중…" : "AI 자동 모자이크"}
+            {aiLoading ? "분석 중…" : "자동 모자이크 다시 실행"}
           </Button>
+          {!aiLoading ? (
+            <Button
+              type="button"
+              variant="ghost"
+              title="GPT-4o 비전으로 정밀 재검사 (4~8분, OpenAI 비용 발생)"
+              className="h-9 shrink-0 border border-white/15 px-3 text-[10px] text-slate-300 hover:bg-white/10"
+              disabled={!videoDurationSec}
+              onClick={() => void runAiMosaic()}
+            >
+              GPT 정밀
+            </Button>
+          ) : null}
           {aiLoading ? (
             <Button
               type="button"

@@ -1,37 +1,16 @@
 /** 클라이언트 전용 — 클립을 순차 녹화해 하나로 합침 (+ 선택 TTS 믹스) */
 
-import { fixWebmBlobDuration } from "@/lib/mvp-webm-to-mp4"
+import {
+  finalizeRecordedVideo,
+  pickVideoRecorderMime,
+  recorderContainerMime,
+} from "@/lib/shotform-recorder-format"
 
 export type AnimalMergeResult = {
   url: string
   blob: Blob
   durationSec: number
   hasAudio: boolean
-}
-
-function pickRecorderMime(hasAudio: boolean): string {
-  const withAudio = [
-    "video/webm;codecs=vp9,opus",
-    "video/webm;codecs=vp8,opus",
-    "video/webm;codecs=vp9",
-    "video/webm;codecs=vp8",
-    "video/webm",
-  ]
-  const videoOnly = [
-    "video/webm;codecs=vp9",
-    "video/webm;codecs=vp8",
-    "video/webm",
-  ]
-  const candidates = hasAudio ? withAudio : videoOnly
-  for (const mime of candidates) {
-    if (
-      typeof MediaRecorder !== "undefined" &&
-      MediaRecorder.isTypeSupported(mime)
-    ) {
-      return mime
-    }
-  }
-  return "video/webm"
 }
 
 function wait(ms: number) {
@@ -76,26 +55,57 @@ async function decodeTtsBuffer(
   }
 }
 
+const OUTPUT_WIDTH = 720
+const OUTPUT_HEIGHT = 1280
+const CROSSFADE_SEC = 0.2
+
+function isPositiveSec(value: number | undefined | null): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+}
+
+/** 비율이 다른 클립도 늘리지 않고 9:16을 꽉 채우도록 가운데 기준으로 잘라 그립니다. */
+function drawCover(
+  ctx: CanvasRenderingContext2D,
+  video: HTMLVideoElement,
+  width: number,
+  height: number
+) {
+  const vw = video.videoWidth
+  const vh = video.videoHeight
+  if (!vw || !vh) return
+  const scale = Math.max(width / vw, height / vh)
+  const dw = vw * scale
+  const dh = vh * scale
+  ctx.drawImage(video, (width - dw) / 2, (height - dh) / 2, dw, dh)
+}
+
 /**
  * 영상 클립을 이어 붙이고, ttsAudioUrl이 있으면 같은 타임라인에 녹음합니다.
- * HTMLAudioElement 경로 대신 decodeAudioData + AudioBufferSourceNode를 써서
- * MediaRecorder에 실제 오디오 트랙이 들어가게 합니다.
+ * clipDurationsSec(씬별 TTS 길이)를 주면 각 클립을 그 길이만큼만 보여줘
+ * 이어 붙인 씬 TTS와 화면 전환이 정확히 맞습니다. 클립이 더 짧으면 마지막 프레임을 유지합니다.
  */
 export async function mergeAnimalVideosClient(
   videoUrls: string[],
-  ttsAudioUrl?: string
+  ttsAudioUrl?: string,
+  opts?: { clipDurationsSec?: Array<number | undefined> }
 ): Promise<AnimalMergeResult> {
   const urls = videoUrls.filter(Boolean)
   if (urls.length === 0) throw new Error("합칠 영상이 없습니다.")
 
   const videos = await Promise.all(urls.map((url, index) => loadVideo(url, index)))
-  const videoDurationSec = videos.reduce((sum, video) => {
-    const d = video.duration
-    return sum + (Number.isFinite(d) && d > 0 ? d : 0)
+  const clipDurations = videos.map((video, i) => {
+    const target = opts?.clipDurationsSec?.[i]
+    if (isPositiveSec(target)) return target
+    return isPositiveSec(video.duration) ? video.duration : 3
+  })
+  const clipStarts: number[] = []
+  const videoDurationSec = clipDurations.reduce((sum, d) => {
+    clipStarts.push(sum)
+    return sum + d
   }, 0)
 
-  const width = videos[0]!.videoWidth || 540
-  const height = videos[0]!.videoHeight || 960
+  const width = OUTPUT_WIDTH
+  const height = OUTPUT_HEIGHT
   const canvas = document.createElement("canvas")
   canvas.width = width
   canvas.height = height
@@ -140,7 +150,7 @@ export async function mergeAnimalVideosClient(
   }
 
   const stream = new MediaStream(tracks)
-  const mimeType = pickRecorderMime(hasAudio)
+  const mimeType = pickVideoRecorderMime(hasAudio)
   const recorderOpts: MediaRecorderOptions = {
     mimeType,
     videoBitsPerSecond: 4_000_000,
@@ -154,7 +164,7 @@ export async function mergeAnimalVideosClient(
     mediaRecorder = new MediaRecorder(stream, recorderOpts)
   } catch {
     mediaRecorder = new MediaRecorder(stream, {
-      mimeType: pickRecorderMime(false),
+      mimeType: pickVideoRecorderMime(false),
       videoBitsPerSecond: 4_000_000,
     })
   }
@@ -164,7 +174,7 @@ export async function mergeAnimalVideosClient(
     if (event.data.size > 0) chunks.push(event.data)
   }
 
-  const recordedMime = mediaRecorder.mimeType || mimeType || "video/webm"
+  const recordedMime = recorderContainerMime(mediaRecorder, mimeType)
 
   return new Promise((resolve, reject) => {
     let settled = false
@@ -199,8 +209,7 @@ export async function mergeAnimalVideosClient(
       settled = true
       void (async () => {
         try {
-          let blob = new Blob(chunks, { type: recordedMime })
-          if (blob.size < 64) {
+          if (new Blob(chunks).size < 64) {
             cleanup()
             reject(new Error("합쳐진 영상이 비어 있습니다. 다시 이어 붙여 주세요."))
             return
@@ -211,12 +220,7 @@ export async function mergeAnimalVideosClient(
             videoDurationSec,
             audioBuffer?.duration || 0
           )
-
-          try {
-            blob = await fixWebmBlobDuration(blob, durationSec)
-          } catch {
-            /* Windows 속성창용 보정 실패해도 재생은 가능 */
-          }
+          const { blob } = await finalizeRecordedVideo(chunks, recordedMime, durationSec)
 
           cleanup()
           resolve({
@@ -234,72 +238,82 @@ export async function mergeAnimalVideosClient(
     mediaRecorder.onerror = () =>
       finishError(new Error("영상 녹화 중 오류가 발생했습니다."))
 
-    mediaRecorder.start(250)
-
-    let index = 0
+    // TTS가 클립 합계보다 길면 마지막 프레임을 유지한 채 남은 음성까지 녹화
+    const totalSec = Math.max(videoDurationSec, audioBuffer?.duration || 0) + 0.15
+    let index = -1
     let raf = 0
-    let ttsStarted = false
-    const recordStartedAt = performance.now()
+    let startedAt = 0
+
+    const clipIndexAt = (t: number) => {
+      let i = 0
+      while (i + 1 < clipStarts.length && t >= clipStarts[i + 1]!) i++
+      return i
+    }
+
+    const switchTo = (next: number) => {
+      videos[index]?.pause()
+      index = next
+      const video = videos[next]!
+      try {
+        video.currentTime = 0
+      } catch {
+        /* ignore */
+      }
+      void video.play().catch(() => undefined)
+    }
 
     const draw = () => {
-      const video = videos[index]
-      if (video && video.readyState >= 2) {
-        ctx.drawImage(video, 0, 0, width, height)
+      const t = (performance.now() - startedAt) / 1000
+      if (t >= totalSec) {
+        videos[index]?.pause()
+        if (mediaRecorder.state === "recording") mediaRecorder.stop()
+        return
+      }
+      const want = clipIndexAt(t)
+      if (want !== index) switchTo(want)
+
+      const current = videos[index]!
+      const previous = index > 0 ? videos[index - 1] : undefined
+      const fade = previous ? Math.min(1, (t - clipStarts[index]!) / CROSSFADE_SEC) : 1
+      if (fade < 1 && previous && previous.readyState >= 2) {
+        ctx.globalAlpha = 1
+        drawCover(ctx, previous, width, height)
+      }
+      if (current.readyState >= 2) {
+        ctx.globalAlpha = fade
+        drawCover(ctx, current, width, height)
+        ctx.globalAlpha = 1
       }
       raf = requestAnimationFrame(draw)
     }
 
     const startTts = () => {
-      if (!audioContext || !audioBuffer || !audioDest || ttsStarted) return
-      ttsStarted = true
+      if (!audioContext || !audioBuffer || !audioDest) return
       bufferSource = audioContext.createBufferSource()
       bufferSource.buffer = audioBuffer
-      bufferSource.connect(audioDest)
       // 스피커로는 내지 않음 — 파일에만 들어가게 (미리듣기와 파일 불일치 방지)
-      try {
-        bufferSource.start(0)
-      } catch (error) {
-        finishError(error)
-      }
+      bufferSource.connect(audioDest)
+      bufferSource.start(0)
     }
 
-    const playNext = async () => {
-      if (index >= videos.length) {
-        cancelAnimationFrame(raf)
-        // TTS가 영상보다 길면 남은 분량까지 녹음
-        if (audioBuffer && ttsStarted) {
-          const elapsed = (performance.now() - recordStartedAt) / 1000
-          const remain = Math.max(0, audioBuffer.duration - elapsed)
-          if (remain > 0.05) {
-            await wait(Math.min(remain * 1000 + 300, 12000))
-          }
-        } else {
-          await wait(300)
-        }
-        if (mediaRecorder.state === "recording") mediaRecorder.stop()
-        return
-      }
-
-      const video = videos[index]!
-      video.currentTime = 0
-      const onEnded = () => {
-        video.removeEventListener("ended", onEnded)
-        index += 1
-        void playNext()
-      }
-      video.addEventListener("ended", onEnded)
-
+    void (async () => {
       try {
+        ctx.fillStyle = "#000"
+        ctx.fillRect(0, 0, width, height)
+        // 첫 프레임이 준비된 뒤 녹화를 시작해야 앞부분이 검게 나오지 않음
+        await videos[0]!.play()
+        videos[0]!.pause()
+        videos[0]!.currentTime = 0
+        await wait(60)
+        mediaRecorder.start(250)
         startTts()
-        await video.play()
+        startedAt = performance.now()
+        draw()
       } catch (error) {
-        video.removeEventListener("ended", onEnded)
+        cancelAnimationFrame(raf)
         finishError(error)
       }
-    }
-
-    draw()
-    void playNext()
+    })()
   })
 }
 

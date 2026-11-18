@@ -1,4 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
+import { guardStoryApiRequest } from "@/lib/story-shopping-security"
+import {
+  arePerceptuallySimilar,
+  fingerprintOriginalUrl,
+  scoreAssetTextRelevance,
+} from "@/lib/story-relevant-assets"
 
 type MashupLineIn = {
   sceneId: string
@@ -15,6 +21,19 @@ type MashupPoolIn = {
   durationSec?: number
   source?: string
   frames?: Array<{ timeSec: number; keyframeDataUrl: string }>
+  metadata?: string
+  originalUrl?: string
+  originalFingerprint?: string
+  perceptualHash?: string
+  validation?: {
+    accepted?: boolean
+    relevanceScore?: number
+    productIdentityScore?: number
+    imageSignals?: {
+      watermarkSuspected?: boolean
+      distorted?: boolean
+    }
+  }
 }
 
 type AssignmentOut = {
@@ -32,7 +51,27 @@ function roundRobin(
 ): AssignmentOut[] {
   if (!pool.length) return []
   return lines.map((line, index) => {
-    const item = pool[index % pool.length]!
+    const ranked = pool
+      .map((item, poolIndex) => ({
+        item,
+        poolIndex,
+        score: scoreAssetTextRelevance(
+          item.title,
+          `${line.text} ${line.visualPrompt || ""}`,
+          `${item.metadata || ""} ${item.source || ""}`
+        ),
+      }))
+      .sort((a, b) => b.score - a.score || a.poolIndex - b.poolIndex)
+    const bestScore = ranked[0]!.score
+    const similarlyRelevant = ranked.filter(
+      (entry) => entry.score >= Math.max(35, bestScore - 8)
+    )
+    const item =
+      (similarlyRelevant.length
+        ? similarlyRelevant[index % similarlyRelevant.length]
+        : ranked[index % ranked.length])!.item
+    const selectedScore =
+      ranked.find((entry) => entry.item.id === item.id)?.score || 0
     const mediaDur = Math.max(line.durationSec, item.durationSec || line.durationSec)
     const maxStart = Math.max(0, mediaDur - line.durationSec)
     const start = item.mediaType === "video" ? (index * 1.37) % Math.max(0.05, maxStart || 0.05) : 0
@@ -42,18 +81,84 @@ function roundRobin(
       poolItemId: item.id,
       trimStartSec: Number(start.toFixed(2)),
       trimEndSec: Number((start + line.durationSec).toFixed(2)),
-      reason: "라운드로빈 배치",
+      reason:
+        selectedScore >= 58
+          ? `제목·메타 관련성 ${selectedScore}점 폴백 배치`
+          : "검증 정보가 없는 기존 호출 호환 폴백",
     }
   })
 }
 
 export async function POST(request: NextRequest) {
+  const startedAt = Date.now()
   try {
+    const access = await guardStoryApiRequest(request, {
+      limit: 10,
+      maxBytes: 1_500_000,
+    })
+    if (access.error) return access.error
     const body = await request.json()
     const productName = String(body.productName || "").trim()
     const productDescription = String(body.productDescription || "").trim()
     const lines = (Array.isArray(body.lines) ? body.lines : []) as MashupLineIn[]
-    const pool = (Array.isArray(body.pool) ? body.pool : []) as MashupPoolIn[]
+    const inputPool = (Array.isArray(body.pool) ? body.pool : []) as MashupPoolIn[]
+    const rejectedPool: Array<{ id: string; code: string }> = []
+    const pool: MashupPoolIn[] = []
+    for (const item of inputPool) {
+      if (!item?.id || !item.title || !["image", "video"].includes(item.mediaType)) {
+        rejectedPool.push({ id: String(item?.id || ""), code: "INVALID_POOL_ITEM" })
+        continue
+      }
+      if (
+        item.validation?.accepted === false ||
+        item.validation?.imageSignals?.watermarkSuspected ||
+        item.validation?.imageSignals?.distorted ||
+        (item.validation?.productIdentityScore != null &&
+          item.validation.productIdentityScore < 45)
+      ) {
+        rejectedPool.push({ id: item.id, code: "QUALITY_VALIDATION_FAILED" })
+        continue
+      }
+      let fingerprint = item.originalFingerprint || ""
+      if (!fingerprint && item.originalUrl) {
+        try {
+          fingerprint = fingerprintOriginalUrl(item.originalUrl)
+        } catch {
+          rejectedPool.push({ id: item.id, code: "INVALID_ORIGINAL_URL" })
+          continue
+        }
+      }
+      const duplicate = pool.some(
+        (accepted) =>
+          (fingerprint &&
+            accepted.originalFingerprint &&
+            fingerprint === accepted.originalFingerprint) ||
+          arePerceptuallySimilar(item.perceptualHash, accepted.perceptualHash)
+      )
+      if (duplicate) {
+        rejectedPool.push({ id: item.id, code: "DUPLICATE_ASSET" })
+        continue
+      }
+      pool.push({ ...item, originalFingerprint: fingerprint || undefined })
+    }
+    const sourceTelemetry = () =>
+      [...new Set(inputPool.map((item) => item.source || "unknown"))].map((source) => {
+        const requested = inputPool.filter((item) => (item.source || "unknown") === source)
+        const accepted = pool.filter((item) => (item.source || "unknown") === source)
+        const rejected = requested.length - accepted.length
+        return {
+          source,
+          requested: requested.length,
+          accepted: accepted.length,
+          rejected,
+          adoptionRate: requested.length ? accepted.length / requested.length : 0,
+          latencyMs: Date.now() - startedAt,
+          estimatedCostUsd: 0,
+          failureCodes: rejected
+            ? { QUALITY_OR_DUPLICATE_REJECTED: rejected }
+            : {},
+        }
+      })
     const openAiKey =
       String(body.openaiApiKey || "").trim() ||
       process.env.OPENAI_API_KEY ||
@@ -65,7 +170,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "배치할 대본 줄이 없습니다." }, { status: 400 })
     }
     if (!pool.length) {
-      return NextResponse.json({ error: "담아둔 소재 풀이 비어 있습니다." }, { status: 400 })
+      return NextResponse.json(
+        { error: "검증을 통과한 소재 풀이 비어 있습니다.", rejectedPool },
+        { status: 400 }
+      )
     }
 
     if (!openAiKey) {
@@ -73,6 +181,20 @@ export async function POST(request: NextRequest) {
         success: true,
         mode: "fallback",
         assignments: roundRobin(lines, pool),
+        rejectedPool,
+        telemetry: {
+          latencyMs: Date.now() - startedAt,
+          requested: inputPool.length,
+          acceptedPool: pool.length,
+          rejectedPool: rejectedPool.length,
+          adoptionRate: inputPool.length ? pool.length / inputPool.length : 0,
+          estimatedCostUsd: 0,
+          sources: sourceTelemetry(),
+          failureCodes: rejectedPool.reduce<Record<string, number>>((counts, item) => {
+            counts[item.code] = (counts[item.code] || 0) + 1
+            return counts
+          }, {}),
+        },
       })
     }
 
@@ -142,6 +264,9 @@ Rules:
 - Never reuse the same or overlapping source interval for different lines.
 - Alternate source videos when multiple suitable videos exist.
 - Reject text-dominant, talking-head, unrelated, blank, transition and product-absent intervals.
+- Reject any photo whose validation reports watermark, distortion, or productIdentityScore below 45.
+- Treat originalFingerprint equality or perceptualHash near-duplicates as the same visual; never assign both.
+- A shared actor/person is not relevance. Match concrete visible noun, action and place.
 - Prefer product demonstration and hand-action frames that semantically match the narration.
 - Do not invent poolItemId values; only use provided ids.`,
           },
@@ -151,6 +276,7 @@ Rules:
           },
         ],
       }),
+      signal: AbortSignal.any([request.signal, AbortSignal.timeout(45_000)]),
     })
 
     if (!response.ok) {
@@ -159,6 +285,17 @@ Rules:
         mode: "fallback",
         assignments: roundRobin(lines, pool),
         warning: "AI 배치 실패 → 폴백 적용",
+        rejectedPool,
+        telemetry: {
+          latencyMs: Date.now() - startedAt,
+          requested: inputPool.length,
+          acceptedPool: pool.length,
+          rejectedPool: rejectedPool.length,
+          adoptionRate: inputPool.length ? pool.length / inputPool.length : 0,
+          estimatedCostUsd: 0,
+          sources: sourceTelemetry(),
+          failureCodes: { AI_ASSIGN_FAILED: 1 },
+        },
       })
     }
 
@@ -328,14 +465,40 @@ Rules:
       success: true,
       mode: "ai",
       assignments: filled,
+      rejectedPool,
+      telemetry: {
+        latencyMs: Date.now() - startedAt,
+        requested: inputPool.length,
+        acceptedPool: pool.length,
+        rejectedPool: rejectedPool.length,
+        assignmentsRequested: lines.length,
+        assignmentsAccepted: filled.length,
+        adoptionRate: lines.length ? filled.length / lines.length : 0,
+        estimatedCostUsd: Number(process.env.STORY_MASHUP_ESTIMATED_COST_USD || 0.01),
+        sources: sourceTelemetry(),
+        failureCodes: rejectedPool.reduce<Record<string, number>>((counts, item) => {
+          counts[item.code] = (counts[item.code] || 0) + 1
+          return counts
+        }, {}),
+      },
     })
   } catch (error) {
     console.error("[Story Mashup Assign]", error)
+    const aborted =
+      request.signal.aborted ||
+      (error instanceof DOMException &&
+        (error.name === "AbortError" || error.name === "TimeoutError"))
     return NextResponse.json(
       {
         error: error instanceof Error ? error.message : "짜깁기 배치에 실패했습니다.",
+        code: aborted ? "ABORTED" : "MASHUP_ASSIGN_FAILED",
+        telemetry: {
+          latencyMs: Date.now() - startedAt,
+          estimatedCostUsd: 0,
+          failureCodes: { [aborted ? "ABORTED" : "MASHUP_ASSIGN_FAILED"]: 1 },
+        },
       },
-      { status: 500 }
+      { status: aborted ? 499 : 500 }
     )
   }
 }

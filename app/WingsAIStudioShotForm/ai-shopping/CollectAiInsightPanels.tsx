@@ -484,7 +484,7 @@ export function CollectBriefingPanel({
 
     const errors: string[] = []
     let nextDetail: CoupangDetailInsights | null = null
-    let nextReview: CoupangReviewInsightsData | null = null
+    let nextReview = null as CoupangReviewInsightsData | null
 
     try {
       const tasks: Promise<void>[] = []

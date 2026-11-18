@@ -4,7 +4,7 @@ export const LIGHT_REMAP_CLASS = "light-remap"
 // 인라인 스크립트로도 직렬화되므로 바깥 변수를 참조하지 않는 자급식 함수로 유지해야 한다.
 export function isLightRemapPath(pathname: string): boolean {
   const SHOTFORM = "/WingsAIStudioShotForm"
-  const SHOTFORM_ALREADY_LIGHT = ["shopping", "ai-editor", "youtube-analytics", "youtube-trends"]
+  const SHOTFORM_ALREADY_LIGHT = ["shopping", "ai-editor", "youtube-analytics", "youtube-trends", "travel-shopping", "wings-shopping-v2"]
   if (pathname === SHOTFORM || pathname.startsWith(SHOTFORM + "/")) {
     const segment = pathname.slice(SHOTFORM.length + 1).split("/")[0]
     return !SHOTFORM_ALREADY_LIGHT.includes(segment)

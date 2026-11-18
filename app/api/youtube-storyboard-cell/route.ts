@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
 
   try {
     const cropped = await fetchAndCropStoryboardCell(raw, col, row, cols, rows)
-    return new NextResponse(cropped, {
+    return new NextResponse(cropped as Uint8Array<ArrayBuffer>, {
       status: 200,
       headers: {
         "Content-Type": "image/jpeg",

@@ -97,6 +97,15 @@
 
 @theme {
   --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
+  /* 윙스쇼핑숏폼 버전2 전용 색. amber-500 같은 기존 단계는 그대로 둔다. */
+  --color-ink: #141a2e;
+  --color-panel: #1c2340;
+  --color-panel-2: #252d50;
+  --color-line: #313a63;
+  --color-amber: #ffb020;
+  --color-amber-ink: #2a1c00;
+  --color-danger: #ff6b6b;
+  --color-ok: #4fd1a5;
 }
 
 @theme inline {
@@ -797,7 +806,24 @@
   will-change: transform;
 }
 
+/* 정보쇼핑 카드 전환 — 내보낸 영상의 스와이프와 같은 느낌 */
+@keyframes info-card-swipe-in {
+  from {
+    opacity: 0.4;
+    transform: translateX(18%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.info-card-swipe-in {
+  animation: info-card-swipe-in 0.45s cubic-bezier(0.65, 0, 0.35, 1);
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .info-card-swipe-in,
   .info-card-kenburns,
   .story-image-zoom-in,
   .story-image-zoom-out,

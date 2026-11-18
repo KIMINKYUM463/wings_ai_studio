@@ -36,6 +36,7 @@ import type {
   MvpSubtitleStyle,
 } from "@/lib/mvp-studio-types"
 import type { MvpVideoSourceTransforms } from "@/lib/mvp-video-source-transform"
+import type { MvpAutoFxSettings } from "@/lib/mvp-auto-fx"
 import { mvpSeoMetaToCapCutSeo, seoMetaIsReady } from "@/lib/mvp-studio-seo"
 import { cn } from "@/lib/utils"
 import { MvpSeoMetaPanel } from "./MvpSeoMetaPanel"
@@ -67,6 +68,7 @@ type Props = {
   sourceKeywords?: string[]
   bgmClips: MvpBgmClip[]
   effectClips: MvpEffectClip[]
+  autoFx?: MvpAutoFxSettings
   videoSourceTransforms?: MvpVideoSourceTransforms
 }
 
@@ -203,6 +205,7 @@ export function MvpExportPanel({
   sourceKeywords = [],
   bgmClips,
   effectClips,
+  autoFx,
   videoSourceTransforms = {},
 }: Props) {
   const [busy, setBusy] = useState<BusyKind>(null)
@@ -229,6 +232,7 @@ export function MvpExportPanel({
       audioDurationSec,
       projectLabel: result.productAnalysis?.productName,
       bgmClips,
+      scriptStyle,
       seo:
         mvpSeoMetaToCapCutSeo(seoMeta) ??
         (scriptStyle.commentKeyword
@@ -394,6 +398,7 @@ export function MvpExportPanel({
         segments,
         lineSchedule,
         subtitleStyle,
+        scriptStyle,
         thumbnailUrl,
         thumbnailIntroOn,
         placedOverlays,
@@ -401,8 +406,10 @@ export function MvpExportPanel({
         audioDurationSec,
         bgmClips,
         effectClips,
+        autoFx,
         editPlan: result.editPlan?.edit_plan ?? [],
         videoSourceTransforms,
+        linearPicture: true,
         onProgress: (ratio) => {
           if (ratio >= 0.84) {
             setExportMsg(
@@ -450,6 +457,7 @@ export function MvpExportPanel({
     audioDurationSec,
     bgmClips,
     effectClips,
+    autoFx,
     videoSourceTransforms,
     result.editPlan?.edit_plan,
   ])

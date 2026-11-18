@@ -2,7 +2,8 @@ import type { AutoEditJobResult } from "@/lib/shotform-auto-edit-types"
 import type { VoiceLineCue } from "@/lib/shotform-factory-line-tts"
 import type { LineSubtitleCue } from "@/lib/shotform-mvp-edit-script"
 import { voicePreviewBgmSrc } from "@/lib/shotform-factory-voice-preview-bgm"
-import type { MvpBgmClip } from "@/lib/mvp-studio-types"
+import type { MvpBgmClip, MvpScriptStyleState } from "@/lib/mvp-studio-types"
+import { mvpVideoTextLayersToCapCut } from "@/lib/mvp-video-text-layers"
 import {
   buildCapCutExportZip,
   buildFactorySrt,
@@ -30,6 +31,7 @@ export type MvpCapCutExportArgs = {
   projectLabel?: string
   seo?: FactoryCapCutExportInput["seo"]
   bgmClips?: MvpBgmClip[]
+  scriptStyle?: MvpScriptStyleState
 }
 
 export function buildMvpCapCutExportInput(args: MvpCapCutExportArgs): FactoryCapCutExportInput {
@@ -53,6 +55,7 @@ export function buildMvpCapCutExportInput(args: MvpCapCutExportArgs): FactoryCap
       return voicePreviewBgmSrc(id)
     })(),
     seo: args.seo,
+    overlayTexts: mvpVideoTextLayersToCapCut(args.scriptStyle),
     projectLabel:
       args.projectLabel ||
       args.result.productAnalysis?.productName ||
@@ -67,7 +70,7 @@ export async function fetchMvpVideoBlob(videoUrl: string | null, downloadUrl?: s
     try {
       const href = resolveCapCutFetchUrl(raw)
       const b = await fetchBlobForCapCut(href)
-      if (b.size > 4096) return b
+      if (b && b.size > 4096) return b
     } catch {
       /* try next */
     }
@@ -132,7 +135,7 @@ export async function exportMvpCapCutProject(
   if (tryFolder) {
     try {
       const dir = await (
-        window as Window & {
+        window as unknown as Window & {
           showDirectoryPicker: (opts?: { mode?: "read" | "readwrite" }) => Promise<FileSystemDirectoryHandle>
         }
       ).showDirectoryPicker({ mode: "readwrite" })

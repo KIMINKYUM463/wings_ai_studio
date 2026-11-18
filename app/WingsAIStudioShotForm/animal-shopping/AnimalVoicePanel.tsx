@@ -31,7 +31,7 @@ import {
 import { SupertonicSetupBar } from "../components/SupertonicSetupBar"
 import { TypecastApiErrorNotice } from "@/components/TypecastApiGuideCard"
 
-type Provider = "supertonic" | "typecast" | "elevenlabs"
+type Provider = "supertonic" | "typecast" | "elevenlabs" | "adam"
 
 type CatalogVoice = {
   voice_id: string
@@ -60,6 +60,7 @@ const PROVIDERS: Array<{
   { id: "supertonic", title: "Supertonic 3", blurb: "로컬 무료 TTS", emoji: "✨", icon: Sparkles },
   { id: "typecast", title: "타입캐스트", blurb: "감정·캐릭터", emoji: "🎭", icon: UserRound },
   { id: "elevenlabs", title: "ElevenLabs", blurb: "다국어 보이스", emoji: "🌍", icon: Globe2 },
+  { id: "adam", title: "아담", blurb: "PC 로컬 · 목소리 복제", emoji: "🎙️", icon: Mic2 },
 ]
 
 const TYPECAST_EMOTIONS = [
@@ -83,6 +84,7 @@ function providerFromVoiceId(voiceId: string): Provider {
   const normalized = normalizeVoiceId(voiceId)
   if (normalized.startsWith("supertonic-")) return "supertonic"
   if (normalized.startsWith("typecast-")) return "typecast"
+  if (normalized.startsWith("adam-")) return "adam"
   return "elevenlabs"
 }
 
@@ -126,6 +128,7 @@ export function AnimalVoicePanel({
   const voices = useMemo(() => {
     if (provider === "supertonic") return supertonicVoices
     if (provider === "typecast") return typecastVoices
+    if (provider === "adam") return [{ voice_id: "adam", name: "아담", gender: "male" }]
     return ELEVEN_PRESETS
   }, [provider, supertonicVoices, typecastVoices])
 
@@ -149,6 +152,9 @@ export function AnimalVoicePanel({
       void loadSupertonicVoices()
     } else if (nextProvider === "elevenlabs") {
       onVoiceChange(`elevenlabs-${ELEVEN_PRESETS[0].voice_id}`)
+    } else if (nextProvider === "adam") {
+      onVoiceChange("adam-adam")
+      void fetch("/api/adam-tts").catch(() => {})
     } else if (typecastVoices[0]) {
       onVoiceChange(`typecast-${typecastVoices[0].voice_id}`)
       onStyleChange("normal")
@@ -214,7 +220,7 @@ export function AnimalVoicePanel({
   }
 
   const requestTts = async (text: string, voiceId: string) => {
-    const bareId = voiceId.replace(/^(supertonic|typecast|elevenlabs)-/, "")
+    const bareId = voiceId.replace(/^(supertonic|typecast|elevenlabs|adam)-/, "")
     let endpoint = ""
     let body: Record<string, unknown> = {
       text,
@@ -234,6 +240,9 @@ export function AnimalVoicePanel({
       if (!apiKey) throw new Error("타입캐스트 API 키가 필요합니다.")
       endpoint = "/api/typecast-tts"
       body = { ...body, apiKey, emotion: selectedStyle || "normal" }
+    } else if (voiceId.startsWith("adam-")) {
+      endpoint = "/api/adam-tts"
+      body = { text, tempo: resolveSpeed(voiceId) }
     } else {
       const apiKey = (localStorage.getItem("shotform_elevenlabs_api_key") || "").trim()
       if (!apiKey) throw new Error("ElevenLabs API 키가 필요합니다.")

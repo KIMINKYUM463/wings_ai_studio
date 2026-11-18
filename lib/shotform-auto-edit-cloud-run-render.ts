@@ -155,7 +155,7 @@ export async function renderEditPlanOnCloudRun(args: {
     videoUrl?: string
   } | null = null
   try {
-    payload = JSON.parse(rawText) as typeof payload
+    payload = JSON.parse(rawText)
   } catch {
     const snippet = rawText.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 240)
     throw new Error(

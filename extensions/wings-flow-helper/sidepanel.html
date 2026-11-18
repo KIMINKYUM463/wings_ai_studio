@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>윙즈 Flow 도우미</title>
+  <link rel="stylesheet" href="sidepanel.css" />
+</head>
+<body>
+  <header>
+    <img src="icons/icon48.png" alt="" width="28" height="28" />
+    <div>
+      <h1>윙즈 Flow 도우미</h1>
+      <p class="sub">사용자가 직접 누르는 보조 도구예요</p>
+    </div>
+  </header>
+
+  <section id="empty" class="card">
+    <p>윙즈 앱 6단계(AI영상)에서 <b>Flow 확장으로 보내기</b>를 누르면 장면이 여기에 나타나요.</p>
+  </section>
+
+  <section id="job" class="card" hidden>
+    <div class="row between">
+      <strong id="jobTitle">장면</strong>
+      <span class="pill">9:16</span>
+    </div>
+    <img id="jobImage" alt="장면 이미지" draggable="true" />
+    <div class="row">
+      <a id="downloadImage" class="btn ghost" download>이미지 저장</a>
+      <button id="openFlow" class="btn ghost" type="button">Flow 열기</button>
+    </div>
+    <label class="label" for="jobPrompt">프롬프트</label>
+    <textarea id="jobPrompt" rows="5" readonly></textarea>
+    <button id="copyPrompt" class="btn ghost" type="button">프롬프트 복사</button>
+
+    <div class="actions">
+      <button id="insert" class="btn primary" type="button">Flow에 넣기</button>
+      <button id="generate" class="btn dark" type="button">생성 시작</button>
+    </div>
+    <label class="toggle">
+      <input id="autoSend" type="checkbox" />
+      <span>완성되면 자동으로 보내기 <small>(새 결과가 1개일 때만)</small></span>
+    </label>
+    <p class="hint">자동 넣기가 안 되면 위 이미지를 Flow로 끌어다 놓고, 프롬프트를 복사해 붙여 넣으세요. 결과 영상의 <b>윙즈로 보내기</b> 버튼은 그대로 쓸 수 있어요.</p>
+  </section>
+
+  <section class="card">
+    <div class="row between"><strong>진행 기록</strong><button id="clearLog" class="link" type="button">지우기</button></div>
+    <ol id="log"></ol>
+  </section>
+
+  <p class="notice">한 번에 한 작업, 모든 단계는 직접 눌러서 진행돼요. 보안 확인이 나오면 Flow에서 직접 완료해 주세요. Google 이용약관을 확인하고 사용하세요.</p>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { GoogleGenerativeAI } from "@google/generative-ai"
+import { GoogleGenerativeAI, type Tool } from "@google/generative-ai"
 
 export const dynamic = 'force-dynamic'
 
@@ -101,8 +101,8 @@ export async function POST(request: NextRequest) {
       // Google Search 도구를 사용하여 실시간 뉴스 수집
       // Note: Google Search 도구는 gemini-3-flash-preview 모델에서 지원됩니다
       const response = await model.generateContent({
-        contents: prompt,
-        tools: [{ googleSearch: {} }],
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        tools: [{ googleSearch: {} } as unknown as Tool],
         generationConfig: {
           responseMimeType: "application/json",
         },

@@ -1,0 +1,147 @@
+/* Shadow panel tokens — light research UI */
+:host {
+  --background: #ffffff !important;
+  --foreground: #0f1c1a !important;
+  --card: #ffffff !important;
+  --card-foreground: #0f1c1a !important;
+  --popover: #ffffff !important;
+  --popover-foreground: #0f1c1a !important;
+  --primary: #0f766e !important;
+  --primary-foreground: #ffffff !important;
+  --secondary: #eef6f4 !important;
+  --secondary-foreground: #0f1c1a !important;
+  --muted: #f3f7f6 !important;
+  --muted-foreground: #5b6b66 !important;
+  --accent: #e7f8f4 !important;
+  --accent-foreground: #115e59 !important;
+  --border: #d7e3df !important;
+  --input: #d7e3df !important;
+  --ring: #0f766e !important;
+  --brand-50: #ecfdf8 !important;
+  --brand-100: #d1faf0 !important;
+  --brand-500: #0f766e !important;
+  --brand-600: #0d9488 !important;
+  --point: #14b8a6 !important;
+  --point-bg: #ccfbf1 !important;
+  --point-ink: #115e59 !important;
+  --chart-1: #0f766e !important;
+  --chart-2: #0e7490 !important;
+  --chart-3: #5eead4 !important;
+  --chart-4: #0369a1 !important;
+  --chart-5: #4d7c0f !important;
+  --chart-ring-background: #0f766e1f !important;
+  --shadow-premium: 0 1px 2px rgba(15, 28, 26, 0.06), 0 12px 28px -10px rgba(15, 118, 110, 0.18) !important;
+  --shadow-duck: 0 6px 18px -6px rgba(15, 118, 110, 0.28) !important;
+  color-scheme: light !important;
+  background: #ffffff !important;
+  color: #0f1c1a !important;
+  font-family: "IBM Plex Sans KR", "Pretendard", "Apple SD Gothic Neo", system-ui, sans-serif !important;
+}
+
+:host,
+:host > *,
+:host [data-slot="card"],
+:host .bg-background,
+:host .bg-card,
+:host .bg-popover {
+  background-color: #ffffff !important;
+  color: #0f1c1a !important;
+}
+
+:host .bg-muted,
+:host .bg-secondary {
+  background-color: #f3f7f6 !important;
+  color: #0f1c1a !important;
+}
+
+:host .text-muted-foreground {
+  color: #5b6b66 !important;
+}
+
+:host .rounded-full {
+  border-radius: 6px !important;
+}
+
+:host [data-wings-header-mark],
+:host img[data-wings-btn] {
+  display: inline-block !important;
+  width: 32px !important;
+  height: 32px !important;
+  border-radius: 50% !important;
+  object-fit: contain !important;
+  background: #ffffff !important;
+  flex: none !important;
+  box-shadow: 0 0 0 1px rgba(15, 118, 110, 0.22), 0 4px 12px rgba(15, 28, 26, 0.08);
+}
+
+/* Hide leftover duck inside open shadow panels */
+:host [data-duck-mood] canvas,
+:host [data-duck-mood] svg,
+:host [data-duck] canvas,
+:host [data-duck] svg,
+:host [class*="DuckBot"] canvas,
+:host [class*="DuckBot"] svg,
+:host img[src*="hypeduck"],
+:host img[src*="expression"],
+:host img[src*="duck-load"] {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* WINGS 소싱 panel — force light surface */
+:host .wings-sourcing-panel,
+.wings-sourcing-panel {
+  background: #ffffff !important;
+  color: #0f1c1a !important;
+  border: 1px solid #d7e3df !important;
+  box-shadow: 0 16px 40px -18px rgba(15, 28, 26, 0.35) !important;
+}
+
+:host .wings-sourcing-panel .bg-card,
+:host .wings-sourcing-panel .bg-muted,
+.wings-sourcing-panel .bg-card,
+.wings-sourcing-panel .bg-muted {
+  background: #ffffff !important;
+  color: #0f1c1a !important;
+}
+
+:host .wings-sourcing-panel .text-foreground,
+:host .wings-sourcing-panel .text-muted-foreground,
+.wings-sourcing-panel .text-foreground {
+  color: #0f1c1a !important;
+}
+
+:host .wings-sourcing-panel .text-muted-foreground,
+.wings-sourcing-panel .text-muted-foreground {
+  color: #5b6b66 !important;
+}
+
+:host .wings-sourcing-panel .border-border,
+.wings-sourcing-panel .border-border {
+  border-color: #d7e3df !important;
+}
+
+:host .wings-sourcing-panel a,
+.wings-sourcing-panel a {
+  color: #0e7490 !important;
+}
+
+/* vidIQ-like Quick channel stats */
+:host .wings-qstat-shell {
+  background: #f7fbfa !important;
+  border: 1px solid #b7d4ce !important;
+}
+
+:host .wings-qstat-card {
+  background: #ffffff !important;
+  border: 1px solid #d7e3df !important;
+  box-shadow: 0 1px 2px rgba(15, 28, 26, 0.04) !important;
+}
+
+:host .wings-qstat-card .text-ok {
+  color: #059669 !important;
+}
+
+:host .wings-qstat-card .text-bad {
+  color: #e11d48 !important;
+}

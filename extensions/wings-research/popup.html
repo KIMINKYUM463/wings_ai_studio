@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WINGS Research</title>
+  <link rel="stylesheet" href="wings-popup.css" />
+</head>
+<body>
+  <div class="shell">
+    <header class="top">
+      <div class="brand">
+        <img src="icons/wings-btn-48.png" alt="WINGS" width="36" height="36" style="border-radius:50%;background:#ffffff" />
+        <div>
+          <strong>WINGS Research</strong>
+          <span>Local · 콘텐츠 리서치</span>
+        </div>
+      </div>
+      <button type="button" id="btnSettings" class="icon-btn" title="설정">⚙</button>
+    </header>
+
+    <section class="status card">
+      <div class="row"><span>모드</span><b id="mode">LOCAL</b></div>
+      <div class="row"><span>OpenAI</span><b id="ai">—</b></div>
+      <div class="row"><span>쿠팡 파트너스</span><b id="coupang">—</b></div>
+      <div class="row"><span>로컬 수집</span><b id="saved">0건</b></div>
+      <div class="row"><span>현재 탭</span><b id="tab">확인 중…</b></div>
+    </section>
+
+    <section class="card actions" id="tabActions" hidden>
+      <p class="hint" id="tabHint"></p>
+      <button type="button" id="btnReloadTab" class="primary">이 탭 새로고침 (오버레이 재주입)</button>
+      <button type="button" id="btnOpenYt" class="ghost">YouTube Shorts 열기</button>
+    </section>
+
+    <section class="card">
+      <h2>바로가기</h2>
+      <div class="grid">
+        <button type="button" data-url="https://www.youtube.com/">YouTube</button>
+        <button type="button" data-url="https://www.instagram.com/">Instagram</button>
+        <button type="button" data-url="https://www.threads.com/">Threads</button>
+        <button type="button" data-url="https://www.tiktok.com/">TikTok</button>
+        <button type="button" data-url="https://www.coupang.com/">Coupang</button>
+        <button type="button" data-url="https://www.xiaohongshu.com/">RedNote</button>
+      </div>
+    </section>
+
+    <section class="card actions">
+      <button type="button" id="btnOptions" class="primary">API 키 · 설정 열기</button>
+      <button type="button" id="btnLegacy" class="ghost">오버레이 상세 설정</button>
+      <button type="button" id="btnExport" class="ghost">수집 JSON 내보내기</button>
+    </section>
+
+    <p class="foot">기능은 로컬 복구 빌드 · UI는 WINGS 스킨</p>
+  </div>
+  <script src="wings-popup.js"></script>
+</body>
+</html>

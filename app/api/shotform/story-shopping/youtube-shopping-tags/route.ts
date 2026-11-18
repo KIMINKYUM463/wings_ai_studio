@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { guardStoryApiRequest } from "@/lib/story-shopping-security"
 
 export const runtime = "nodejs"
 
@@ -192,6 +193,8 @@ function collectProducts(root: unknown) {
 }
 
 export async function GET(request: NextRequest) {
+  const access = await guardStoryApiRequest(request, { limit: 40 })
+  if (access.error) return access.error
   const videoId = request.nextUrl.searchParams.get("videoId")?.trim() || ""
   if (!/^[a-zA-Z0-9_-]{6,20}$/.test(videoId)) {
     return NextResponse.json({ error: "올바른 영상 ID가 필요합니다." }, { status: 400 })

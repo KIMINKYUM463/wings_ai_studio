@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WINGS Research 설정</title>
+  <link rel="icon" type="image/png" href="/icons/wings-32.png" />
+  <link rel="stylesheet" href="wings-options.css" />
+</head>
+<body>
+  <main class="wrap">
+    <header class="hero">
+      <div class="mark"><img src="icons/wings-btn-48.png" alt="WINGS" width="48" height="48" style="border-radius:50%;display:block" /></div>
+      <div>
+        <h1>WINGS Research</h1>
+        <p>로컬 복구 빌드 · API 키·파트너스 설정</p>
+      </div>
+      <span id="statusPill" class="pill">확인 중…</span>
+    </header>
+
+    <section class="card">
+      <h2>OpenAI <span class="opt">선택</span></h2>
+      <p class="hint">Threads Studio 생성, 콘텐츠 분석(START_ANALYSIS), Enrich, 캡션 링크 보조에 사용합니다.</p>
+      <label>API Key
+        <input id="openaiApiKey" type="password" autocomplete="off" placeholder="sk-..." />
+      </label>
+      <label>Base URL
+        <input id="openaiBaseUrl" type="url" placeholder="https://api.openai.com/v1" />
+      </label>
+      <label>Model
+        <input id="openaiModel" type="text" placeholder="gpt-4o-mini" />
+      </label>
+    </section>
+
+    <section class="card">
+      <h2>Gemini <span class="req">유튜브 AI 분석</span></h2>
+      <p class="hint">영상 지표·대본 구조 분석(AI 분석 버튼)에 사용합니다.</p>
+      <label>API Key
+        <input id="geminiApiKey" type="password" autocomplete="off" placeholder="AQ...." />
+      </label>
+      <label>Model
+        <input id="geminiModel" type="text" placeholder="gemini-2.5-flash" />
+      </label>
+    </section>
+
+    <section class="card">
+      <h2>쿠팡 파트너스 <span class="req">딥링크 변환</span></h2>
+      <p class="hint">파트너스 센터에서 발급한 Access Key / Secret Key를 입력하세요. 딥링크 API를 직접 호출합니다.</p>
+      <label>Access Key
+        <input id="coupangAccessKey" type="password" autocomplete="off" />
+      </label>
+      <label>Secret Key
+        <input id="coupangSecretKey" type="password" autocomplete="off" />
+      </label>
+      <label>Sub ID (선택)
+        <input id="coupangSubId" type="text" placeholder="tracking subId" />
+      </label>
+    </section>
+
+    <section class="card">
+      <h2>Replicate <span class="opt">선택</span></h2>
+      <p class="hint">향후 비전/영상 분석 확장용. 지금은 저장만 합니다.</p>
+      <label>API Token
+        <input id="replicateApiToken" type="password" autocomplete="off" placeholder="r8_..." />
+      </label>
+    </section>
+
+    <section class="card">
+      <h2>고급</h2>
+      <label>Wings API Base (선택, 추후 서버 연동)
+        <input id="wingsApiBase" type="url" placeholder="https://your-wings-app.example" />
+      </label>
+      <div class="row-actions">
+        <button type="button" id="btnLegacy" class="ghost">오버레이/스캔 상세 설정</button>
+        <button type="button" id="btnExport" class="ghost">수집 데이터 JSON 내보내기</button>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <p id="msg" class="msg" hidden></p>
+      <button type="button" id="btnSave" class="primary">설정 저장</button>
+    </footer>
+  </main>
+  <script src="wings-options.js"></script>
+</body>
+</html>

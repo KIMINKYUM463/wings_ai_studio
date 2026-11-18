@@ -147,7 +147,6 @@ export function InfoCardFrame({
   // revealLineCount = 본문만 (훅·제목은 항상 표시)
   const bodyVisible =
     revealLineCount == null ? bodyLines.length : Math.max(0, Math.min(bodyLines.length, revealLineCount))
-  const visibleBody = bodyLines.slice(0, bodyVisible)
 
   const imageUrl = slide.imageUrl?.trim() || ""
   const progress = slideCount > 0 ? (slideIndex + 1) / slideCount : 0
@@ -206,15 +205,23 @@ export function InfoCardFrame({
             ) : null}
           </div>
 
-          {/* 번호 리스트 — TTS에 맞춰 한 줄씩 */}
+          {/* 번호 리스트 — TTS에 맞춰 한 줄씩. 아직 안 나온 줄도 자리를 잡아 두어 제품 컷 크기가 흔들리지 않게 함 */}
           <div
             className="mb-[2%] shrink-0 overflow-hidden"
             style={{ display: "flex", flexDirection: "column", gap: tipGap }}
           >
-            {visibleBody.map((line, index) => (
+            {bodyLines.map((line, index) => (
               <div
                 key={`${slide.id}-body-${index}`}
-                className="flex items-start gap-[2.4cqw] transition-all duration-300"
+                className={`flex items-start gap-[2.4cqw] ${
+                  captureMode ? "" : "transition-all duration-300 ease-out"
+                }`}
+                style={
+                  index < bodyVisible
+                    ? undefined
+                    : { visibility: "hidden", opacity: 0, transform: "translateY(1.6cqw)" }
+                }
+                aria-hidden={index < bodyVisible ? undefined : true}
               >
                 <span
                   className="mt-[0.3cqw] flex h-[4.8cqw] w-[4.8cqw] shrink-0 items-center justify-center rounded-full font-black text-white"
@@ -239,6 +246,7 @@ export function InfoCardFrame({
           {/* 제품 컷 — 남은 공간을 세로(3:4)로 채움 (가로 띠 방지) */}
           <div className="relative flex min-h-0 flex-1 items-end justify-center">
             <div
+              data-info-card-image={imageUrl ? "1" : undefined}
               className="relative h-full max-h-full overflow-hidden rounded-[3cqw] border"
               style={{
                 aspectRatio: String(imageAspect),

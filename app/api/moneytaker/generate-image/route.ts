@@ -11,8 +11,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Replicate API 키 (하드코딩 - moneytaker ai에서만)
-    const REPLICATE_API_KEY = "r8_baQDZUG5bjR24N1qKO8kBk3CcyLCe8b25sgGx"
+    const REPLICATE_API_KEY = process.env.REPLICATE_API_TOKEN
+    if (!REPLICATE_API_KEY) {
+      return NextResponse.json(
+        { error: "서버에 Replicate API 키가 설정되지 않았습니다." },
+        { status: 503 }
+      )
+    }
     const model = "google/imagen-4"
 
     console.log("[MoneyTaker API] 이미지 생성 시작:", prompt.substring(0, 50) + "...")

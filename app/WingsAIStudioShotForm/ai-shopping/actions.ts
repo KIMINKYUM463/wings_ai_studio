@@ -12,6 +12,16 @@ import {
   promptLikelyShowsPerson,
 } from "@/lib/shotform-person-consistency"
 import type { ShotformVisualFocus } from "@/lib/shotform-script-templates"
+import { persistGeneratedMediaUrl, persistMediaBytes } from "@/lib/shotform-persist-generated-media"
+import { generateVeoFromImage, veoReady } from "@/lib/ai-shopping-veo"
+import { renderProductPhotoMaster as renderProductPhotoMasterFile } from "@/lib/product-still-master"
+import { createMvpProjectsClient } from "@/lib/supabase/mvp-projects"
+import {
+  compareProductIdentity,
+  fullProductImagePrompt,
+  handContactContract,
+  productReferenceRolePrompt,
+} from "@/lib/ai-shopping-product-fidelity"
 
 // 네이버 데이터랩 API를 사용하여 인기 키워드 가져오기
 export async function getNaverTrendingKeywords(category: string = "쇼핑"): Promise<string[]> {
@@ -346,7 +356,36 @@ function normalizeProductImageRefs(
   return out
 }
 
+/** data URL 원본은 영상 모델이 다시 받을 수 있게 공개 주소로 올린다. */
+async function publishOriginalProductStill(ref: string): Promise<string> {
+  if (/^https?:\/\//i.test(ref)) return ref
+  const matched = ref.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=\s]+)$/)
+  if (!matched) return ref
+  try {
+    const bytes = Buffer.from(matched[2]!.replace(/\s/g, ""), "base64")
+    if (!bytes.length || bytes.length > 12 * 1024 * 1024) return ref
+    const ext = matched[1]!.includes("png") ? "png" : matched[1]!.includes("webp") ? "webp" : "jpg"
+    const path = `generated-media/product-stills/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`
+    const supabase = await createMvpProjectsClient()
+    const { error } = await supabase.storage.from("video-sources").upload(path, bytes, {
+      contentType: matched[1],
+      upsert: false,
+    })
+    if (error) return ref
+    return supabase.storage.from("video-sources").getPublicUrl(path).data.publicUrl
+  } catch (error) {
+    console.warn("[Shopping] 원본 제품 사진 저장 실패, 원본 입력을 유지합니다:", error)
+    return ref
+  }
+}
+
 export async function generateImageWithNanobanana(
+  ...args: Parameters<typeof generateImageWithNanobananaRaw>
+): Promise<string> {
+  return persistGeneratedMediaUrl(await generateImageWithNanobananaRaw(...args), "images")
+}
+
+async function generateImageWithNanobananaRaw(
   sceneScript: string,
   productName: string,
   productImageBase64: string | string[] | undefined,
@@ -504,6 +543,13 @@ ${
 ${personIdentityLockPrompt({ hasCharacterReference: characterRefs.length > 0 })}`
     }
 
+    if (needsHands) {
+      imagePrompt = `${imagePrompt}\n\n${handContactContract()}`
+    }
+    if (productRefs.length > 1) {
+      imagePrompt = `${imagePrompt}\n\n${productReferenceRolePrompt(productRefs.length)}`
+    }
+
     // 모델이 참고 이미지를 캔버스 안에 축소 배치하거나 장면 위 자막을 붙이지 않도록
     // 최종 제약을 프롬프트 맨 끝에 두어 가장 높은 우선순위로 적용한다.
     imagePrompt = `${imagePrompt}
@@ -564,10 +610,9 @@ QWEN SCENE RECOMPOSE (CRITICAL):
         
         const isQwenImage = model === "qwen-image"
         // Qwen의 image+strength는 Nano Banana image_input(레퍼런스)과 다름 → img2img 시작점.
-        // strength 낮음(0.45)이면 장면 프롬프트를 거의 무시하고 원본 제품컷처럼 나옴.
-        // Replicate 기본값 0.9. 장면 재구성은 높게, 리뷰 보정만 중간값.
+        // 0.9는 배경과 함께 제품 형태까지 바꾼다. 장면은 바꾸되 제품 동일성은 남기도록 중간값으로 둔다.
         const qwenStrength =
-          referenceMode === "strict-review" ? 0.68 : 0.9
+          referenceMode === "strict-review" ? 0.48 : 0.62
         response = await fetch(
           isQwenImage
             ? "https://api.replicate.com/v1/predictions"
@@ -1199,7 +1244,7 @@ export async function generateVideoPromptFromScript(
   let prompt = `${productName} product in use. `
   
   if (needsHands) {
-    prompt += `Hands naturally using or holding the product. `
+    prompt += `One hand keeps a single contact point on the product for the whole shot. One action only, no grip change, no fingers passing through the product. `
   }
   
   // 대본 내용에 맞는 움직임 설명 추가
@@ -1604,7 +1649,7 @@ function generateBasicVideoPrompt(
     } else {
       prompt += `Close-up of product key features, smooth zoom in, showing product details. `
     }
-    prompt += `Extreme close-up, detail shot, duration: 4-5 seconds, natural pacing. `
+    prompt += `Entire product remains visible, tighter framing but not an extreme close-up, duration: 4-5 seconds, natural pacing. `
   } else {
     prompt = `${productName} product from different angle. `
     if (needsHands) {
@@ -1632,6 +1677,12 @@ function generateBasicVideoPrompt(
 // 이미지를 영상으로 변환 (wan-video/wan-2.2-i2v-fast 모델 사용)
 // sample_shift 파라미터 추가 (TTS 길이에 맞게 설정)
 export async function convertImageToVideoWithWan(
+  ...args: Parameters<typeof convertImageToVideoWithWanRaw>
+): Promise<string> {
+  return persistGeneratedMediaUrl(await convertImageToVideoWithWanRaw(...args), "videos")
+}
+
+async function convertImageToVideoWithWanRaw(
   imageUrl: string,
   prompt: string, // 프롬프트 (필수)
   audioUrl?: string, // 오디오 URL (선택, wan-2.2-i2v-fast는 오디오 불필요)
@@ -2688,11 +2739,10 @@ ${script}
         
         images.push({
           type: index === 0 ? "전체 샷" : index === 1 ? "디테일 샷" : "각도와 배경 다르게",
-          prompt: index === 0 
-            ? `${productName} product, full shot, entire product visible, maintain exact original product features and buttons from reference image, no additional features or buttons, professional product photography, high quality, 9:16 aspect ratio`
-            : index === 1
-            ? `${productName} product, extreme close-up macro shot, very zoomed in detail shot, highlighting product features and details, product texture and material visible, only part of product visible in frame, no hands, no human hands, product only, isolated product, maintain exact original product buttons and features from reference image, no additional buttons or features, professional product photography, high quality, 9:16 aspect ratio`
-            : `${productName} product, different angle and background, same product from different perspective, maintain exact original product features and buttons, no additional features or buttons, professional product photography, high quality, 9:16 aspect ratio`,
+          prompt: fullProductImagePrompt(
+            productName,
+            index === 0 ? "full" : index === 1 ? "detail" : "angle"
+          ),
           description: index === 0 ? "제품 전체가 화면에 완전히 보이는 전체 사진" : index === 1 ? "제품의 특징과 디테일이 강조된 클로즈업 사진" : "제품은 동일하지만 완전히 다른 각도와 배경의 사진",
           scriptText: scriptPart,
           pixabayKeyword: index === 0
@@ -2712,21 +2762,21 @@ ${script}
     return [
       {
         type: "전체 샷",
-        prompt: `${productName} product, full shot, entire product visible, professional product photography, high quality, 9:16 aspect ratio, maintain exact original product features and buttons from reference image, no additional features or buttons`,
+        prompt: fullProductImagePrompt(productName, "full"),
         description: "제품 전체가 화면에 완전히 보이는 전체 사진",
         scriptText: script.substring(0, Math.floor(scriptLength / 3)),
         pixabayKeyword: "product full shot"
       },
       {
         type: "디테일 샷",
-        prompt: `${productName} product, extreme close-up macro shot, very zoomed in detail shot, highlighting product features and details, product texture and material visible, only part of product visible in frame, no hands, no human hands, product only, isolated product, maintain exact original product buttons and features from reference image, no additional buttons or features, professional product photography, high quality, 9:16 aspect ratio`,
+        prompt: fullProductImagePrompt(productName, "detail"),
         description: "제품의 특징과 디테일이 강조된 매우 확대된 클로즈업 사진 (손 없음)",
         scriptText: script.substring(Math.floor(scriptLength / 3), Math.floor(scriptLength * 2 / 3)),
         pixabayKeyword: "product detail photo"
       },
       {
         type: "각도와 배경 다르게",
-        prompt: `${productName} product, different angle and background, same product from different perspective, maintain exact original product features and buttons, no additional features or buttons, professional product photography, high quality, 9:16 aspect ratio`,
+        prompt: fullProductImagePrompt(productName, "angle"),
         description: "제품은 동일하지만 완전히 다른 각도와 배경의 사진",
         scriptText: script.substring(Math.floor(scriptLength * 2 / 3)),
         pixabayKeyword: "product lifestyle photo"
@@ -2881,12 +2931,21 @@ export async function generateImage(
     const imageUrls: string[] = []
     /** 첫 인물 씬 이미지를 이후 씬의 character ref로 사용 (제품 ref와 동일 패턴) */
     let characterLockUrl: string | undefined
+    const productRefs = normalizeProductImageRefs(productImageBase64)
+    const originalStill = productRefs[0] ? await publishOriginalProductStill(productRefs[0]) : ""
 
     for (let i = 0; i < promptCount; i++) {
       const prompt = imagePrompts[i]
       console.log(`[Shopping] 이미지 ${i + 1}/${promptCount} 생성 중... (타입: ${prompt.type})`)
 
-      const imageUrl = await generateImageWithNanobanana(
+      // 첫 장면은 생성 모델로 다시 그리지 않고 실제 제품 사진을 그대로 쓴다.
+      if (i === 0 && originalStill) {
+        imageUrls.push(originalStill)
+        console.log("[Shopping] 첫 장면은 원본 제품 사진을 사용합니다.")
+        continue
+      }
+
+      let imageUrl = await generateImageWithNanobanana(
         prompt.prompt,
         productName,
         productImageBase64,
@@ -2900,6 +2959,28 @@ export async function generateImage(
         characterLockUrl,
         visualFocus
       )
+      const verdict = await compareProductIdentity({
+        apiKey,
+        referenceUrl: originalStill,
+        generatedUrl: imageUrl,
+      })
+      if (verdict && !verdict.match) {
+        console.warn(`[Shopping] 제품 동일성 불일치, 1회 재생성: ${verdict.reason}`)
+        imageUrl = await generateImageWithNanobanana(
+          `${prompt.prompt}\n\n이전 결과는 원본 제품과 달랐다: ${verdict.reason}. 색, 형태, 부품 수, 로고를 원본과 같게 다시 만들어라.`,
+          productName,
+          productImageBase64,
+          REPLICATE_API_TOKEN,
+          i,
+          productDescription,
+          aspectRatio,
+          model,
+          "product-recompose",
+          apiKey,
+          characterLockUrl,
+          visualFocus
+        )
+      }
 
       imageUrls.push(imageUrl)
       if (
@@ -3270,14 +3351,42 @@ export type ShoppingVideoGenerationModel =
   | "seedance-1-pro-fast"
   | "seedance-1.5-pro"
   | "p-video-draft"
+  | "veo"
+
+/** Veo(공식 API) 사용 가능 여부 — 화면에서 선택지를 켜고 끌 때 */
+export async function getVeoAvailability(): Promise<{ ready: boolean }> {
+  return { ready: veoReady() }
+}
 
 // AI 쇼핑에서 선택한 Replicate 이미지→영상 모델로 생성
+/** 첫 장면용: 실제 제품 사진을 1080×1920 마스터로 움직인다. */
+export async function renderProductPhotoMaster(
+  imageUrl: string,
+  durationSec: number,
+  pan: "left" | "right" = "right"
+): Promise<string> {
+  return renderProductPhotoMasterFile(imageUrl, durationSec, pan)
+}
+
 export async function generateVideoWithSeedance(
+  ...args: Parameters<typeof generateVideoWithSeedanceRaw>
+): Promise<string> {
+  const [imageUrl, prompt, duration, , model] = args
+  if (model === "veo") {
+    // Google Veo (Flow 와 같은 모델) — 결과 파일을 바로 영구 스토리지에 저장
+    return persistMediaBytes(await generateVeoFromImage(imageUrl, prompt, duration), "video/mp4", "videos")
+  }
+  return persistGeneratedMediaUrl(await generateVideoWithSeedanceRaw(...args), "videos")
+}
+
+async function generateVideoWithSeedanceRaw(
   imageUrl: string,
   prompt: string, // 프롬프트 (필수)
   duration: number, // 영상 길이 (초 단위)
   replicateApiKey?: string,
-  model: ShoppingVideoGenerationModel = "seedance-1-pro-fast"
+  model: ShoppingVideoGenerationModel = "seedance-1-pro-fast",
+  /** 기본 계약은 제품 고정용 — 풍경·공간처럼 다른 움직임이 필요하면 통째로 교체 */
+  motionContract?: string
 ): Promise<string> {
   const REPLICATE_API_TOKEN = replicateApiKey || process.env.REPLICATE_API_TOKEN
 
@@ -3291,7 +3400,8 @@ export async function generateVideoWithSeedance(
   const requestedDuration = duration
   const minimumDuration = model === "seedance-1.5-pro" ? 4 : 1
   const maximumDuration = model === "p-video-draft" ? 10 : 12
-  duration = Math.min(maximumDuration, Math.max(minimumDuration, Math.round(duration)))
+  // 올림: 장면 음성보다 짧은 클립은 마지막 프레임에서 멈춰 보이므로 넉넉하게 요청
+  duration = Math.min(maximumDuration, Math.max(minimumDuration, Math.ceil(duration - 0.05)))
   if (requestedDuration !== duration) {
     console.warn(
       `[Shopping] ${model} 지원 범위에 맞춰 영상 길이를 ${requestedDuration}초에서 ${duration}초로 조정합니다.`
@@ -3345,9 +3455,9 @@ export async function generateVideoWithSeedance(
             camera_fixed: true,
           }
     if (model === "seedance-1.5-pro") {
-      // $0.013/초 조건: 무음 모델, 480p 출력
+      // 판매용 기본값은 720p. 480p는 화면에서 AI 영상처럼 드러나 미리보기 용도로만 둔다.
       modelInput.generate_audio = false
-      modelInput.resolution = "480p"
+      modelInput.resolution = "720p"
       modelInput.fps = 24
     }
     
@@ -3363,7 +3473,7 @@ export async function generateVideoWithSeedance(
       throw new Error(`영상 길이 파라미터가 유효하지 않습니다: ${duration}초`)
     }
     
-    const motionGuardrails = `
+    const motionGuardrails = motionContract ? `\n\n${motionContract}` : `
 
 FINAL IMAGE-TO-VIDEO MOTION CONTRACT — HIGHEST PRIORITY:
 Create one stable, continuous, locked-off shot based strictly on the input image.

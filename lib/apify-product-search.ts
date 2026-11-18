@@ -16,6 +16,17 @@
  */
 
 import { dedupeVideoRows, normalizeMediaDurationSec, type SerpVideoRow } from "@/lib/serpapi-product-search"
+import { AsyncLocalStorage } from "node:async_hooks"
+
+const apifyAbortContext = new AsyncLocalStorage<AbortSignal>()
+
+/** 한 서버 요청에 속한 모든 중첩 Apify fetch에 취소 신호를 전달한다. */
+export function runWithApifyAbortSignal<T>(
+  signal: AbortSignal,
+  run: () => Promise<T>
+): Promise<T> {
+  return apifyAbortContext.run(signal, run)
+}
 
 function pickDurationSecFromRaw(o: Record<string, unknown>): number | null {
   const tryField = (v: unknown): number | null =>
@@ -105,11 +116,15 @@ async function apifyRunSyncGetDatasetItems(
   url.searchParams.set("token", token)
   url.searchParams.set("timeout", String(timeoutSec))
   if (opts?.maxItems != null) url.searchParams.set("maxItems", String(opts.maxItems))
+  const requestSignal = apifyAbortContext.getStore()
+  const timeoutSignal = AbortSignal.timeout(timeoutSec * 1000 + 120_000)
   const r = await fetch(url.toString(), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
-    signal: AbortSignal.timeout(timeoutSec * 1000 + 120_000),
+    signal: requestSignal
+      ? AbortSignal.any([requestSignal, timeoutSignal])
+      : timeoutSignal,
   })
   if (!r.ok) {
     const t = await r.text().catch(() => "")

@@ -88,8 +88,6 @@ function BlogAIPageContent() {
 
     try {
       // OpenAI API 키 (하드코딩)
-      const OPENAI_API_KEY = "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"
-
       let prompt = ""
 
       if (workflow === "automation") {
@@ -128,11 +126,10 @@ function BlogAIPageContent() {
 2000자 이상의 전문적인 블로그 글을 작성해주세요.`
       }
 
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      const response = await fetch("/api/moneytaker/openai", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
           model: "gpt-4o-mini",

@@ -1,7 +1,12 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type { AutoEditJobResult, AutoEditPick } from "@/lib/shotform-auto-edit-types"
+import {
+  isPaidRemixMosaicMode,
+  isV2RemixPicture,
+  type AutoEditJobResult,
+  type AutoEditPick,
+} from "@/lib/shotform-auto-edit-types"
 import {
   audioTimeFromVideoSync,
   previewTimelineEndSec,
@@ -28,8 +33,6 @@ import { normalizeTtsSpeed } from "@/lib/shotform-tts-speed"
 import {
   applyAudioFitEnds,
   audioFitEndsFromCues,
-  suggestFasterSpeedIfAudioOverflows,
-  suggestSceneTtsSpeeds,
 } from "@/lib/shotform-scene-fit-tts"
 import { MVP_THUMBNAIL_INTRO_SEC } from "@/lib/mvp-thumbnail-intro"
 import {
@@ -53,6 +56,7 @@ import {
   defaultStyleForTtsVoice,
   ELEVENLABS_DEFAULT_VOICE_ID,
   elevenlabsSampleVoiceCatalog,
+  adamVoiceCatalog,
   mergeElevenlabsVoiceCatalog,
   normalizeElevenlabsVoiceRow,
   normalizeTypecastVoiceRow,
@@ -107,8 +111,10 @@ import type {
 } from "@/lib/mvp-studio-types"
 import { emptyMvpStudioSeoMeta } from "@/lib/mvp-studio-seo"
 import { normalizePlacedOverlays } from "@/lib/mvp-overlay-utils"
-import type { PlacedStudioOverlay } from "@/lib/shotform-studio-overlay-catalog"
+import { isMosaicOverlay, type PlacedStudioOverlay } from "@/lib/shotform-studio-overlay-catalog"
+import { createMosaicAnalysisVideo, detectChineseMosaicWithPaddle } from "@/lib/mvp-paddle-mosaic"
 import {
+  normalizeMvpBgmClips,
   normalizeMvpEffectClips,
   normalizeStudioPhase,
   normalizeSubtitleStyle,
@@ -118,6 +124,7 @@ import {
   type MvpSubtitleStyle,
 } from "@/lib/mvp-studio-types"
 import { MvpPreviewAudioLayers } from "@/lib/mvp-preview-audio-mix"
+import { normalizeMvpAutoFx, syncAutoBgm, syncAutoTransitionSfx, type MvpAutoFxSettings } from "@/lib/mvp-auto-fx"
 import {
   normalizeMvpVideoSourceTransforms,
   type MvpVideoSourceTransforms,
@@ -158,6 +165,8 @@ import styles from "./MvpPostEditStudio.module.css"
 import { useEditorChromeSlot } from "../components/ShotFormEditorDialogShell"
 
 const LOCAL_WORK_DIR_STORAGE_KEY = "shotform_local_work_dir"
+/** 복원 시점엔 음성 길이를 모를 수 있어 넉넉히 — 음성이 준비되면 자동 배경음 길이를 다시 맞춤 */
+const MVP_BGM_RESTORE_MAX_SEC = 600
 
 type Props = {
   projectId: string
@@ -244,8 +253,9 @@ export function MvpPostEditStudio({
   useEffect(() => {
     if (syncedOverridesJobIdRef.current === result.jobId) return
     syncedOverridesJobIdRef.current = result.jobId
-    setScriptOverrides(fillScriptOverridesForAllCuts(baseSegments, scriptOverridesProp, segmentVisualHints))
-  }, [result.jobId, scriptOverridesProp, baseSegments])
+    const freshOverrides = isV2RemixPicture(result) ? {} : scriptOverridesProp
+    setScriptOverrides(fillScriptOverridesForAllCuts(baseSegments, freshOverrides, segmentVisualHints))
+  }, [result, scriptOverridesProp, baseSegments, segmentVisualHints])
 
   // 프로젝트 로드 시 저장된 AI 대본을 원상복구 기준으로 한 번만 잡음
   useEffect(() => {
@@ -280,14 +290,19 @@ export function MvpPostEditStudio({
   )
 
   /** 벤치마크 장면 맞춤 — 컷별 TTS 배속 + 음성에 맞춰 영상 자르기 */
-  const [sceneFitEnabled, setSceneFitEnabled] = useState(
-    () => studioPersist?.sceneFitEnabled !== false
-  )
+  const [sceneFitEnabled, setSceneFitEnabled] = useState(() => {
+    if (isV2RemixPicture(result)) return false
+    return studioPersist?.sceneFitEnabled !== false
+  })
   const [sceneSpeeds, setSceneSpeeds] = useState<number[] | null>(
     () => (studioPersist?.sceneSpeeds?.length ? studioPersist.sceneSpeeds : null)
   )
-  const [audioFitEnds, setAudioFitEnds] = useState<number[] | null>(
-    () => (studioPersist?.audioFitEnds?.length ? studioPersist.audioFitEnds : null)
+  const [audioFitEnds, setAudioFitEnds] = useState<number[] | null>(() =>
+    isV2RemixPicture(result)
+      ? null
+      : studioPersist?.audioFitEnds?.length
+        ? studioPersist.audioFitEnds
+        : null
   )
 
   /** 미리보기·내보내기용 — 음성에 맞춰 자른 컷 end 반영 */
@@ -321,26 +336,34 @@ export function MvpPostEditStudio({
   const [placedOverlays, setPlacedOverlays] = useState<PlacedStudioOverlay[]>(() =>
     normalizePlacedOverlays(studioPersist?.placedOverlays)
   )
+  const [chineseMosaicAutoJobId, setChineseMosaicAutoJobId] = useState(
+    () => studioPersist?.chineseMosaicAutoJobId ?? ""
+  )
+  const [chineseMosaicAutoStatus, setChineseMosaicAutoStatus] = useState("")
 
   const [voiceCatalog, setVoiceCatalog] = useState<Record<TtsProviderId, ShotformTtsVoice[]>>({
     supertonic: supertonicBuiltinVoiceCatalog(),
     elevenlabs: elevenlabsSampleVoiceCatalog(),
     typecast: [],
+    adam: adamVoiceCatalog(),
   })
   const [voicesLoading, setVoicesLoading] = useState<Record<TtsProviderId, boolean>>({
     supertonic: false,
     elevenlabs: false,
     typecast: false,
+    adam: false,
   })
   const [voiceLoadErrors, setVoiceLoadErrors] = useState<Record<TtsProviderId, string | null>>({
     supertonic: null,
     elevenlabs: null,
     typecast: null,
+    adam: null,
   })
   const [voiceListUnavailable, setVoiceListUnavailable] = useState<Record<TtsProviderId, boolean>>({
     supertonic: false,
     elevenlabs: false,
     typecast: false,
+    adam: false,
   })
   const skipVoiceListLoadRef = useRef<Set<TtsProviderId>>(new Set())
   const [selectedVoiceId, setSelectedVoiceId] = useState(() => {
@@ -374,6 +397,8 @@ export function MvpPostEditStudio({
     setAudioDuration(next)
   }, [])
   const [voiceLineCues, setVoiceLineCues] = useState<VoiceLineCue[] | null>(null)
+  // 렌더된 파일을 처음부터 끝까지 한 번만 재생한다. 컷이 짧다고 같은 화면을 다시 돌리지 않는다.
+  const straightPicture = true
   const [err, setErr] = useState<string | null>(null)
   const [insertClipOpen, setInsertClipOpen] = useState(false)
   const [insertClipBusy, setInsertClipBusy] = useState(false)
@@ -488,10 +513,13 @@ export function MvpPostEditStudio({
     }
   }, [])
 
-  const [bgmClips, setBgmClips] = useState<MvpBgmClip[]>([])
+  const [bgmClips, setBgmClips] = useState<MvpBgmClip[]>(() =>
+    normalizeMvpBgmClips(studioPersist?.bgmClips, MVP_BGM_RESTORE_MAX_SEC)
+  )
   const [effectClips, setEffectClips] = useState<MvpEffectClip[]>(() =>
     normalizeMvpEffectClips(studioPersist?.effectClips, totalSec || 30)
   )
+  const [autoFx, setAutoFx] = useState<MvpAutoFxSettings>(() => normalizeMvpAutoFx(studioPersist?.autoFx))
   const [videoSourceTransforms, setVideoSourceTransforms] = useState<MvpVideoSourceTransforms>(() =>
     normalizeMvpVideoSourceTransforms(studioPersist?.videoSourceTransforms)
   )
@@ -566,23 +594,27 @@ export function MvpPostEditStudio({
     const savedStyle = studioPersist?.voiceStyle ?? studioPersist?.supertoneStyle
     if (savedStyle) setVoiceStyle(savedStyle)
     if (studioPersist?.speechSpeed != null) setSpeechSpeed(normalizeTtsSpeed(studioPersist.speechSpeed))
-    setSceneFitEnabled(studioPersist?.sceneFitEnabled !== false)
+    const v2Picture = isV2RemixPicture(result)
+    setSceneFitEnabled(v2Picture ? false : studioPersist?.sceneFitEnabled !== false)
     setSceneSpeeds(studioPersist?.sceneSpeeds?.length ? studioPersist.sceneSpeeds : null)
-    setAudioFitEnds(studioPersist?.audioFitEnds?.length ? studioPersist.audioFitEnds : null)
+    setAudioFitEnds(
+      v2Picture ? null : studioPersist?.audioFitEnds?.length ? studioPersist.audioFitEnds : null
+    )
     setTtsGeneratedSpeed(null)
     if (studioPersist?.subtitleStyle) {
       setSubtitleStyle(normalizeSubtitleStyle(studioPersist.subtitleStyle))
     }
     setPlacedOverlays(normalizePlacedOverlays(studioPersist?.placedOverlays))
+    setChineseMosaicAutoJobId(studioPersist?.chineseMosaicAutoJobId ?? "")
     setThumbnailHookingText(studioPersist?.thumbnailHookingText ?? { line1: "", line2: "" })
     setThumbnailIntroOn(
       studioPersist?.thumbnailIntroOn ??
         Boolean(migrateThumbnailGallery(studioPersist).selectedId)
     )
     setSeoMeta(studioPersist?.seoMeta ?? emptyMvpStudioSeoMeta())
-    // 배경음악 기능 제거 — 예전 저장분에 남아 있어도 복원하지 않음
-    setBgmClips([])
+    setBgmClips(normalizeMvpBgmClips(studioPersist?.bgmClips, MVP_BGM_RESTORE_MAX_SEC))
     setEffectClips(normalizeMvpEffectClips(studioPersist?.effectClips, totalSec || 30))
+    setAutoFx(normalizeMvpAutoFx(studioPersist?.autoFx))
     setVideoSourceTransforms(normalizeMvpVideoSourceTransforms(studioPersist?.videoSourceTransforms))
     if (fetchedTtsUrlRef.current) {
       URL.revokeObjectURL(fetchedTtsUrlRef.current)
@@ -627,8 +659,10 @@ export function MvpPostEditStudio({
       phase,
       editMp4CachedJobId: editMp4CachedJobId || undefined,
       editTtsCachedJobId: editTtsCachedJobId || undefined,
-      bgmClips: undefined,
+      bgmClips: bgmClips.length ? bgmClips : undefined,
       effectClips: effectClips.length ? effectClips : undefined,
+      autoFx,
+      chineseMosaicAutoJobId: chineseMosaicAutoJobId || undefined,
       videoSourceTransforms: Object.keys(videoSourceTransforms).length
         ? videoSourceTransforms
         : undefined,
@@ -676,14 +710,87 @@ export function MvpPostEditStudio({
     editTtsCachedJobId,
     bgmClips,
     effectClips,
+    autoFx,
+    chineseMosaicAutoJobId,
     videoSourceTransforms,
     projectId,
   ])
 
   useEffect(() => {
-    // 배경음악 재생 비활성 — 항상 빈 설정
-    audioLayersRef.current?.updateConfig([])
-  }, [])
+    audioLayersRef.current?.updateConfig(bgmClips)
+  }, [bgmClips])
+
+  // 리믹스 영상이 준비되면 중국어 글자를 오픈소스 OCR로 찾아 모자이크를 자동으로 깐다 (리믹스당 1회)
+  const placedOverlaysRef = useRef(placedOverlays)
+  placedOverlaysRef.current = placedOverlays
+  const playbackSegmentsRef = useRef(playbackSegments)
+  playbackSegmentsRef.current = playbackSegments
+  useEffect(() => {
+    const jobId = result.jobId
+    if (!jobId) return
+    if (isPaidRemixMosaicMode(result.mosaicMode)) {
+      if (chineseMosaicAutoJobId !== jobId) setChineseMosaicAutoJobId(jobId)
+      setChineseMosaicAutoStatus(
+        result.mosaicMode === "vmake"
+          ? "유료 Vmake 자막 제거가 영상에 이미 적용되었습니다."
+          : "유료 버전2 모자이크가 영상에 이미 들어가 있습니다."
+      )
+      return
+    }
+    if (!resolvedVideoUrl || chineseMosaicAutoJobId === jobId) return
+    if (placedOverlaysRef.current.some((o) => isMosaicOverlay(o.catalogId))) {
+      setChineseMosaicAutoJobId(jobId)
+      return
+    }
+    const abort = new AbortController()
+    const analysis = createMosaicAnalysisVideo(resolvedVideoUrl)
+    void detectChineseMosaicWithPaddle({
+      video: analysis.video,
+      durationSec: 0,
+      sceneSegments: playbackSegmentsRef.current,
+      signal: abort.signal,
+      onStatus: setChineseMosaicAutoStatus,
+    })
+      .then((detected) => {
+        if (abort.signal.aborted) return
+        setPlacedOverlays((prev) =>
+          prev.some((o) => isMosaicOverlay(o.catalogId)) ? prev : normalizePlacedOverlays([...prev, ...detected])
+        )
+        setChineseMosaicAutoJobId(jobId)
+        setChineseMosaicAutoStatus(
+          detected.length ? `중국어 모자이크 ${detected.length}구간 자동 적용` : "중국어 글자 없음 · 모자이크 생략"
+        )
+      })
+      .catch((e) => {
+        if (abort.signal.aborted) return
+        console.warn("[auto-chinese-mosaic]", e)
+        setChineseMosaicAutoStatus("중국어 자동 모자이크 실패 · 요소 탭에서 다시 실행할 수 있어요")
+      })
+      .finally(() => analysis.dispose())
+    return () => abort.abort()
+  }, [resolvedVideoUrl, result.jobId, result.mosaicMode, chineseMosaicAutoJobId])
+
+  const chineseMosaicAutoDone = Boolean(result.jobId) && chineseMosaicAutoJobId === result.jobId
+  useEffect(() => {
+    if (!chineseMosaicAutoDone || !chineseMosaicAutoStatus) return
+    const timer = window.setTimeout(() => setChineseMosaicAutoStatus(""), 8000)
+    return () => window.clearTimeout(timer)
+  }, [chineseMosaicAutoDone, chineseMosaicAutoStatus])
+
+  // 음성(TTS)이 생기거나 바뀔 때마다 컷 경계에 맞춰 전환 효과음·배경음 길이를 다시 맞춤
+  const autoFxSeedKey = projectId || result.jobId
+  useEffect(() => {
+    if (!voiceLineCues?.length) return
+    const audioEnd = voiceLineCues[voiceLineCues.length - 1]!.endSec
+    setEffectClips((prev) => {
+      const next = syncAutoTransitionSfx(prev, voiceLineCues, autoFx.transitionSfx)
+      return safeJsonKey(next) === safeJsonKey(prev) ? prev : next
+    })
+    setBgmClips((prev) => {
+      const next = syncAutoBgm(prev, autoFx.bgm, autoFxSeedKey, audioEnd + 0.5)
+      return safeJsonKey(next) === safeJsonKey(prev) ? prev : next
+    })
+  }, [voiceLineCues, autoFx.transitionSfx, autoFx.bgm, autoFxSeedKey])
 
   useEffect(() => {
     audioLayersRef.current?.updateEffects(effectClips)
@@ -797,6 +904,12 @@ export function MvpPostEditStudio({
       } finally {
         setVoicesLoading((prev) => ({ ...prev, supertonic: false }))
       }
+      return
+    }
+
+    if (provider === "adam") {
+      setVoiceCatalog((prev) => ({ ...prev, adam: adamVoiceCatalog() }))
+      setVoiceLoadErrors((prev) => ({ ...prev, adam: null }))
       return
     }
 
@@ -988,6 +1101,7 @@ export function MvpPostEditStudio({
           mode: rewrite ? "rewrite" : "generate",
           previousScripts: rewrite ? currentScripts : undefined,
           rewriteNonce,
+          toneProfile: scriptStyle.toneProfile ?? undefined,
         }),
       })
       const data = (await res.json().catch(() => ({}))) as {
@@ -1119,13 +1233,10 @@ export function MvpPostEditStudio({
     projectName,
     segmentVisualHints,
     sourceKeywords,
+    scriptStyle.toneProfile,
   ])
 
   const autoScriptRequestedRef = useRef<string | null>(null)
-
-  useEffect(() => {
-    autoScriptRequestedRef.current = null
-  }, [result.jobId])
 
   useEffect(() => {
     if (scriptGenerating) return
@@ -1133,6 +1244,7 @@ export function MvpPostEditStudio({
     if (!needsAiNarrationFromScenes(result, scriptOverridesProp)) return
     if (!shotformOpenAIKey()) return
     if (autoScriptRequestedRef.current === result.jobId) return
+    autoScriptRequestedRef.current = result.jobId
     void generateNarrationScript()
   }, [result, scriptOverridesProp, scriptGenerating, generateNarrationScript])
 
@@ -1165,6 +1277,15 @@ export function MvpPostEditStudio({
       }
     },
     [projectId, result.jobId, markMp4Cached]
+  )
+
+  // 부모가 이전 blob을 prop으로 들고 있으면 재마운트 때 그 영상으로 되돌아감
+  const replaceVideoBlob = useCallback(
+    async (blob: Blob) => {
+      await applyVideoBlob(blob)
+      onResultChange?.(liveResult, blob)
+    },
+    [applyVideoBlob, onResultChange, liveResult]
   )
 
   const clearTtsForClipInsert = useCallback(() => {
@@ -1722,7 +1843,7 @@ export function MvpPostEditStudio({
             result.localRenderPending ||
             Boolean(result.localOutputPath))
 
-        if (shouldTryLocalCompanion) {
+        if (shouldTryLocalCompanion && !isV2RemixPicture(result) && !result.downloadUrl) {
           try {
             const { blob } = await resolveLocalCompanionMp4({
               localWorkDir,
@@ -1830,7 +1951,14 @@ export function MvpPostEditStudio({
     let cancelled = false
     void (async () => {
       try {
-        const blob = await loadMvpTtsAudio(projectId, result.jobId)
+        let blob = await loadMvpTtsAudio(projectId, result.jobId)
+        if (!blob && result.voiceLineCues?.length && result.jobId) {
+          const audioRes = await fetch(
+            `/api/shotform/auto-edit/download?jobId=${encodeURIComponent(result.jobId)}&kind=narration`,
+            { cache: "no-store" }
+          )
+          if (audioRes.ok) blob = await audioRes.blob()
+        }
         if (cancelled || !blob) return
         const url = URL.createObjectURL(blob)
         const baked = await rebakeWavBlobUrl(blob)
@@ -1931,6 +2059,27 @@ export function MvpPostEditStudio({
     (audioT: number, forceSeek = false) => {
       const v = videoRef.current
       if (!v) return
+      if (straightPicture) {
+        // 버전2 그림은 이미 문장 길이만큼 슬로모션·다음 장면으로 이어져 있다.
+        // 컷마다 다시 seek하면 디코딩이 리셋되어 화면이 멈춘다.
+        const dur = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : videoDuration || totalSec
+        const target = Math.min(Math.max(0, dur - 0.04), Math.max(0, audioT))
+        if (Math.abs(v.playbackRate - 1) > 0.02) v.playbackRate = 1
+        const now = Number.isFinite(v.currentTime) ? v.currentTime : 0
+        const drift = Math.abs(now - target)
+        if (forceSeek) {
+          if (drift > 0.03) v.currentTime = target
+        } else if (!v.seeking && drift > 0.45) {
+          v.currentTime = target
+        }
+        const wantPlay = playingRef.current && !forceSeek && !timelineScrubLockRef.current
+        if (wantPlay) {
+          if (v.paused) void v.play().catch(() => {})
+        } else if (!v.paused) {
+          v.pause()
+        }
+        return
+      }
       const state = {
         lastScene: lastSyncSceneRef.current,
         lastCueKey: lastSyncCueKeyRef.current,
@@ -1955,7 +2104,7 @@ export function MvpPostEditStudio({
       lastSyncCueKeyRef.current = state.lastCueKey
       holdingEndRef.current = Boolean(state.holdingEnd)
     },
-    [voiceLineCues, playbackSegments, videoDuration, totalSec, audioDuration]
+    [straightPicture, liveResult, voiceLineCues, playbackSegments, videoDuration, totalSec, audioDuration]
   )
 
   const pausePreview = useCallback(() => {
@@ -2002,7 +2151,8 @@ export function MvpPostEditStudio({
           voiceLineCues,
           playbackSegments,
           videoDuration || totalSec,
-          audioDuration
+          audioDuration,
+          straightPicture
         )
         a.currentTime = Math.min(audioDuration - 0.01, Math.max(0, audioT))
         setAudioPlayhead(a.currentTime)
@@ -2042,11 +2192,12 @@ export function MvpPostEditStudio({
               voiceLineCues,
               playbackSegments,
               videoDuration || totalSec,
-              audioDuration
+              audioDuration,
+              straightPicture
             )
       setPlayhead(vt)
       setAudioPlayhead(t)
-      audioLayersRef.current?.sync(vt, layersPlaying)
+      audioLayersRef.current?.sync(t, layersPlaying)
       // TTS 큐가 있으면 영상 end로 끊지 않음 (sceneAudioStopAt / rAF만 담당)
       if (
         !voiceLineCues?.length &&
@@ -2162,7 +2313,8 @@ export function MvpPostEditStudio({
                     voiceLineCues,
                     playbackSegments,
                     videoDuration || totalSec,
-                    audioDuration
+                    audioDuration,
+                    straightPicture
                   )
           } else if (videoDuration > 0 && audioDuration > 0) {
             vt = Math.min(videoDuration, (at / audioDuration) * videoDuration)
@@ -2181,7 +2333,8 @@ export function MvpPostEditStudio({
               voiceLineCues,
               playbackSegments,
               videoDuration || totalSec,
-              audioDuration
+              audioDuration,
+              straightPicture
             )
           }
         }
@@ -2363,6 +2516,16 @@ export function MvpPostEditStudio({
           if (!vid) return
           const vidDur = Math.max(0.05, seg.end - seg.start)
           const at = audioStartSec + Math.max(0, solo.currentTime)
+          if (straightPicture) {
+            const elapsed = Math.min(Math.max(0, vidDur - 0.04), solo.currentTime)
+            const target = seg.start + elapsed
+            if (Math.abs(vid.playbackRate - 1) > 0.02) vid.playbackRate = 1
+            if (!vid.seeking && Math.abs(vid.currentTime - target) > 0.45) vid.currentTime = target
+            if (vid.paused) void vid.play().catch(() => {})
+            setPlayhead(target)
+            setAudioPlayhead(at)
+            return
+          }
           if (solo.currentTime < vidDur - 0.04) {
             const target = seg.start + solo.currentTime
             if (Math.abs(vid.currentTime - target) > 0.2) vid.currentTime = target
@@ -2404,7 +2567,7 @@ export function MvpPostEditStudio({
         sceneStopAtRef.current = null
         // 다음 장면 시작 직전까지만 — 말꼬리 패딩은 큐 duration에 포함됨
         const nextStart =
-          voiceLineCues.find((c) => c.sceneIndex === index + 1)?.startSec ??
+          voiceLineCues!.find((c) => c.sceneIndex === index + 1)?.startSec ??
           audioRange.endSec
         sceneAudioStopAtRef.current = Math.max(audioRange.endSec, nextStart) + 0.05
         a.currentTime = Math.max(0, audioRange.startSec)
@@ -2455,6 +2618,7 @@ export function MvpPostEditStudio({
       videoDuration,
       totalSec,
       audioDuration,
+      straightPicture,
     ]
   )
 
@@ -2494,7 +2658,8 @@ export function MvpPostEditStudio({
               voiceLineCues,
               playbackSegments,
               videoDuration || totalSec,
-              audioDuration
+              audioDuration,
+              straightPicture
             )
           : Math.min(videoDuration || totalSec, (a.currentTime / audioDuration) * (videoDuration || totalSec))
       // 효과음 축 = TTS 있으면 음성 시간
@@ -2600,28 +2765,25 @@ export function MvpPostEditStudio({
     setTtsProgress(4)
 
     try {
-      const videoDurs = lines.map((l) => {
-        const seg = baseSegments[l.sceneIndex]
-        return seg ? Math.max(0.1, seg.end - seg.start) : 3
-      })
-
       // 대본 원문 그대로 TTS (자동 축약·대본 덮어쓰기 금지 — 말이 중간에 끊기는 원인)
       let fittedLines = lines.map((l) => ({ ...l }))
 
-      let speeds = sceneFitEnabled
-        ? suggestSceneTtsSpeeds(
-            fittedLines.map((l) => l.text),
-            videoDurs,
-            baseSpeed
-          )
-        : fittedLines.map(() => baseSpeed)
+      // 글자 수 추정 배속은 엔진마다 말 속도가 달라 과하게 빨라짐 — 기준 배속으로 합성 후 실측이 넘치는 컷만 올림
+      let speeds: number[] = fittedLines.map(() => baseSpeed)
 
       const synthAll = async (
         items: typeof fittedLines,
-        spd: number[]
+        spd: number[],
+        prevUrls?: readonly string[],
+        prevSpd?: readonly number[]
       ) => {
         const urls: string[] = []
         for (let i = 0; i < items.length; i++) {
+          const reuse = prevUrls?.[i]
+          if (reuse && prevSpd?.[i] === spd[i]) {
+            urls.push(reuse)
+            continue
+          }
           const { text } = items[i]!
           setTtsProgress(Math.min(88, Math.round(4 + ((i + 0.3) / items.length) * 80)))
           const url = await synthesizeTtsLine({
@@ -2642,36 +2804,28 @@ export function MvpPostEditStudio({
         interClipPadSec: 0.02,
       })
 
-      // 장면 맞춤: 배속만 올리고, 대본을 잘라 재합성하지 않음 (말 중간 끊김 방지)
+      // 음성은 전 문장 같은 배속 유지 — 영상이 음성 길이에 맞춤 (문장마다 빨라지면 부자연스러움)
+      // 예외: 실측이 예상의 60% 미만이면 말꼬리 유실 의심 → 배속을 낮춰 재합성
       if (sceneFitEnabled) {
         let needSpeedRetry = false
         const retrySpeeds = [...speeds]
         for (let i = 0; i < fittedLines.length; i++) {
           const measured = merged.lineDurationsSec[i] ?? 0.5
-          const text = fittedLines[i]!.text
           const spd = speeds[i] ?? baseSpeed
-          const est = estimateNarrationDurationSec(text) / Math.max(0.5, spd)
-          // 예상보다 너무 짧으면 배속을 낮춰 재합성 (API/배속으로 말꼬리 유실)
-          if (est > 0.4 && measured < est * 0.72) {
-            retrySpeeds[i] = normalizeTtsSpeed(Math.min(spd, Math.max(baseSpeed, 1.0)))
-            needSpeedRetry = true
-            continue
-          }
-          const faster = suggestFasterSpeedIfAudioOverflows({
-            measuredAudioSec: measured,
-            videoDurSec: videoDurs[i]!,
-            currentSpeed: spd,
-          })
-          // 실측이 충분한 경우에만 배속 업 (말 잘린 채로 더 빠르게 만들지 않음)
-          if (faster != null && measured >= est * 0.75) {
-            retrySpeeds[i] = faster
-            needSpeedRetry = true
+          const est = estimateNarrationDurationSec(fittedLines[i]!.text) / Math.max(0.5, spd)
+          if (est > 0.4 && measured < est * 0.6) {
+            const slower = normalizeTtsSpeed(Math.min(spd, Math.max(baseSpeed, 1.0)))
+            if (slower !== spd) {
+              retrySpeeds[i] = slower
+              needSpeedRetry = true
+            }
           }
         }
         if (needSpeedRetry) {
           setTtsProgress(90)
+          const prevSpeeds = speeds
           speeds = retrySpeeds
-          audioUrls = await synthAll(fittedLines, speeds)
+          audioUrls = await synthAll(fittedLines, speeds, audioUrls, prevSpeeds)
           merged = await mergeAudioUrlsToWavBlobUrl(audioUrls, {
             trimSilence: true,
             interClipPadSec: 0.02,
@@ -2803,17 +2957,7 @@ export function MvpPostEditStudio({
       setTtsLoading(true)
       setTtsProgress(8)
       try {
-        const videoDurs = lines.map((l) => {
-          const seg = baseSegments[l.sceneIndex]
-          return seg ? Math.max(0.1, seg.end - seg.start) : 3
-        })
-        let speeds = sceneFitEnabled
-          ? suggestSceneTtsSpeeds(
-              lines.map((l) => l.text),
-              videoDurs,
-              baseSpeed
-            )
-          : lines.map(() => baseSpeed)
+        let speeds: number[] = lines.map(() => baseSpeed)
         if (sceneSpeeds?.length) {
           speeds = lines.map((l, i) => {
             const prev = sceneSpeeds[l.sceneIndex]
@@ -2868,8 +3012,9 @@ export function MvpPostEditStudio({
         const cues = buildVoiceLineCues(measured)
         setVoiceLineCues(cues)
         setSceneSpeeds(speeds)
-        // 짧으면 영상 끝 맞춤 / 길면 재생 루프(segments는 원본 유지)
-        setAudioFitEnds(audioFitEndsFromCues(baseSegments, cues))
+        setAudioFitEnds(
+          straightPicture || !sceneFitEnabled ? null : audioFitEndsFromCues(baseSegments, cues)
+        )
 
         if (sceneLineAudioUrlsRef.current?.length) {
           for (const u of sceneLineAudioUrlsRef.current) {
@@ -2927,7 +3072,7 @@ export function MvpPostEditStudio({
         setTtsProgress(100)
         setTtsGeneratedSpeed(baseSpeed)
         setErr(
-          `컷 ${sceneIndex + 1} TTS를 다시 만들었습니다. (짧으면 영상 자름 · 길면 영상 반복)`
+          `컷 ${sceneIndex + 1} TTS를 다시 만들었습니다. (짧으면 컷 가운데만 사용 · 길면 슬로모션)`
         )
       } catch (e) {
         setErr(e instanceof Error ? e.message : "씬 TTS 생성 실패")
@@ -2945,6 +3090,7 @@ export function MvpPostEditStudio({
       voiceStyle,
       speechSpeed,
       sceneFitEnabled,
+      straightPicture,
       sceneSpeeds,
       voiceLineCues,
       projectId,
@@ -2975,11 +3121,16 @@ export function MvpPostEditStudio({
 
   // TTS가 있는데 장면 맞춤 끝이 없으면 자동으로 맞춤 (재생이 원본 길이에 묶이지 않도록)
   useEffect(() => {
+    if (straightPicture) {
+      if (audioFitEnds) setAudioFitEnds(null)
+      if (sceneFitEnabled) setSceneFitEnabled(false)
+      return
+    }
     if (!sceneFitEnabled) return
     if (!voiceLineCues?.length || !baseSegments.length) return
     if (audioFitEnds?.length === baseSegments.length) return
     setAudioFitEnds(audioFitEndsFromCues(baseSegments, voiceLineCues))
-  }, [sceneFitEnabled, voiceLineCues, baseSegments, audioFitEnds?.length])
+  }, [straightPicture, sceneFitEnabled, voiceLineCues, baseSegments, audioFitEnds])
 
   const handleAddThumbnail = useCallback(
     (entry: {
@@ -3185,6 +3336,7 @@ export function MvpPostEditStudio({
           }
           bgmClips={bgmClips}
           effectClips={effectClips}
+          autoFx={autoFx}
           videoSourceTransforms={videoSourceTransforms}
         />
         ) : null}
@@ -3248,6 +3400,7 @@ export function MvpPostEditStudio({
           placedOverlays={placedOverlays}
           onPlacedOverlaysChange={(next) => setPlacedOverlays(normalizePlacedOverlays(next))}
           scriptStyle={scriptStyle}
+          onScriptStyleChange={(patch) => setScriptStyle((prev) => ({ ...prev, ...patch }))}
           thumbnailUrl={thumbnailUrl}
           thumbnailGallery={thumbnailGallery}
           selectedThumbnailId={selectedThumbnailId}
@@ -3286,6 +3439,9 @@ export function MvpPostEditStudio({
           onBgmClipsChange={setBgmClips}
           effectClips={effectClips}
           onEffectClipsChange={setEffectClips}
+          autoFx={autoFx}
+          onAutoFxChange={setAutoFx}
+          chineseMosaicStatus={chineseMosaicAutoStatus}
           videoSourceTransforms={videoSourceTransforms}
           onVideoSourceTransformsChange={setVideoSourceTransforms}
           onSplitEditPlanClip={handleSplitEditPlanClip}
@@ -3324,7 +3480,8 @@ export function MvpPostEditStudio({
                   voiceLineCues!,
                   playbackSegments,
                   videoDuration || totalSec,
-                  audioDuration
+                  audioDuration,
+                  straightPicture
                 )
                 setPlayhead(vt)
                 audioLayersRef.current?.onSeek(audioT)
@@ -3433,7 +3590,7 @@ export function MvpPostEditStudio({
           activeScene={activeScene}
           onClose={onClose}
           onNext={() => setPhase("script-style")}
-          onVideoReplaced={applyVideoBlob}
+          onVideoReplaced={replaceVideoBlob}
           projectId={projectId}
           videoBlobRef={mp4BlobRef}
           onOpenInsertClip={() => {

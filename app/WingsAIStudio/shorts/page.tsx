@@ -468,7 +468,7 @@ export default function ShortsPage() {
         })
       } else {
         // ElevenLabs
-        let elevenlabsApiKey = getApiKey("elevenlabs_api_key") ?? null
+        let elevenlabsApiKey = getApiKey("elevenlabs") ?? null
         
         if (!elevenlabsApiKey || elevenlabsApiKey.length === 0) {
           elevenlabsApiKey = typeof window !== "undefined" 
@@ -576,7 +576,7 @@ export default function ShortsPage() {
       apiKeyName = "TTSMaker API 키"
     } else {
       // ElevenLabs
-      let elevenlabsApiKey = getApiKey("elevenlabs_api_key") ?? null
+      let elevenlabsApiKey = getApiKey("elevenlabs") ?? null
       
       if (!elevenlabsApiKey || elevenlabsApiKey.length === 0) {
         elevenlabsApiKey = typeof window !== "undefined" 

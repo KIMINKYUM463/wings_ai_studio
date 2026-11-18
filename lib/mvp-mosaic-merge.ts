@@ -172,6 +172,18 @@ function filterReliableHits(hits: { timeSec: number; box: DetectedChineseMosaicB
   return clean.length >= Math.max(1, Math.ceil(hits.length * 0.35)) ? clean : hits
 }
 
+/**
+ * tight: GPT 비전처럼 박스가 들쭉날쭉할 때 — 바깥쪽 값을 잘라 가운데 위주로.
+ * cover: OCR처럼 박스가 정확할 때 — 여러 줄 문단까지 빠짐없이 덮는다.
+ */
+export type MosaicGeometryMode = "tight" | "cover"
+const GEOMETRY = {
+  tight: { left: 0.18, right: 0.82, top: 0.12, bottom: 0.78, maxHeightPct: 12, outMaxHeightPct: 16 },
+  cover: { left: 0.05, right: 0.95, top: 0.05, bottom: 0.95, maxHeightPct: 45, outMaxHeightPct: 50 },
+} as const
+/** mergeMosaicRowsToOverlays 호출(동기) 동안만 바뀐다 */
+let geometry: (typeof GEOMETRY)[MosaicGeometryMode] = GEOMETRY.tight
+
 function tightBoxFromHits(
   hits: DetectedChineseMosaicBox[]
 ): Pick<Track, "centerXPct" | "centerYPct" | "widthPct" | "heightPct"> {
@@ -189,16 +201,16 @@ function tightBoxFromHits(
   const tops = pool.map((h) => h.center_y_pct - h.height_pct / 2)
   const bottoms = pool.map((h) => h.center_y_pct + h.height_pct / 2)
 
-  const left = quantile(lefts, 0.18)
-  const right = quantile(rights, 0.82)
-  const top = quantile(tops, 0.12)
-  const bottom = quantile(bottoms, 0.78)
+  const left = quantile(lefts, geometry.left)
+  const right = quantile(rights, geometry.right)
+  const top = quantile(tops, geometry.top)
+  const bottom = quantile(bottoms, geometry.bottom)
 
   return {
     centerXPct: (left + right) / 2,
     centerYPct: (top + bottom) / 2,
     widthPct: Math.max(2, right - left),
-    heightPct: Math.max(1.5, Math.min(12, bottom - top)),
+    heightPct: Math.max(1.5, Math.min(geometry.maxHeightPct, bottom - top)),
   }
 }
 
@@ -591,6 +603,25 @@ export function buildMosaicAppearanceProbeTimes(
 export function mergeMosaicRowsToOverlays(
   rows: MosaicFrameDetectRow[],
   durationSec: number,
+  options?: {
+    videoW?: number
+    videoH?: number
+    sceneSegments?: MosaicSceneSegment[]
+    geometry?: MosaicGeometryMode
+  }
+): PlacedStudioOverlay[] {
+  const prevGeometry = geometry
+  geometry = GEOMETRY[options?.geometry ?? "tight"]
+  try {
+    return mergeRowsToOverlaysWithGeometry(rows, durationSec, options)
+  } finally {
+    geometry = prevGeometry
+  }
+}
+
+function mergeRowsToOverlaysWithGeometry(
+  rows: MosaicFrameDetectRow[],
+  durationSec: number,
   options?: { videoW?: number; videoH?: number; sceneSegments?: MosaicSceneSegment[] }
 ): PlacedStudioOverlay[] {
   const tracks = buildMosaicTracks(rows)
@@ -612,7 +643,7 @@ export function mergeMosaicRowsToOverlays(
       centerXPct: t.centerXPct,
       centerYPct: t.centerYPct,
       widthPct: Math.min(96, t.widthPct + 2.2),
-      heightPct: Math.min(16, t.heightPct + 1),
+      heightPct: Math.min(geometry.outMaxHeightPct, t.heightPct + 1),
       startSec,
       endSec,
       detectedText: t.text,

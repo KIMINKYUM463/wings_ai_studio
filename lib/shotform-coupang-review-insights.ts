@@ -62,7 +62,7 @@ export async function extractCoupangReviewInsights(
 {
   "strengths": string[]  // 장점·만족 포인트
   "useCases": string[]   // 사용 상황·대상
-  "concerns": string[]   // 아쉬움·주의 (없거나 약하면 경쟁 대비·품질 안심 포인트로)
+  "concerns": string[]   // 리뷰에 실제로 나온 아쉬움·주의만 (없으면 빈 배열)
   "quotes": string[]     // 실제 리뷰 짧은 표현 (과장·욕설 제거)
   "factCheck": {
     "overall": number,          // 0~100 종합 사실성
@@ -75,8 +75,10 @@ export async function extractCoupangReviewInsights(
   }
 }
 규칙:
-- 각 배열 4~6개
-- strengths/useCases/concerns는 화면에서 문단으로 이어 붙이므로, 각 항목을 "~했다는 평이 많아요.", "~라는 반응이 반복됩니다."처럼 완성된 한국어 문장으로 쓸 것
+- 각 배열 최대 6개. 리뷰 근거가 있는 항목만 쓰고, 개수를 채우려고 만들지 말 것
+- strengths/useCases/concerns는 화면에서 문단으로 이어 붙이므로 완성된 한국어 문장으로 쓸 것
+- 빈도 표현은 실제 언급 수에 맞출 것: 리뷰 ${usable.length}개 중 3개 이상에서 나온 내용만 "~평이 많아요/반복돼요", 1~2개뿐이면 "~라는 후기가 있어요"
+- 리뷰에 없는 비교(타사·고급 제품 등)나 추측을 덧붙이지 말 것
 - quotes만 짧은 구어체 표현(8~28자)
 - 리뷰에 없는 내용은 만들지 말 것
 - factCheck 점수는 엄격히: 모호한 칭찬만 많으면 specificity·reviewEvidence를 낮게, 수치·기간·비교가 있으면 높게

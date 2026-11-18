@@ -1,8 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  serverExternalPackages: ["ffmpeg-static", "ffprobe-static"],
+  serverExternalPackages: ["ffmpeg-static", "ffprobe-static", "@google/genai"],
   experimental: {
-    serverComponentsExternalPackages: ["ffmpeg-static", "ffprobe-static"],
+    serverComponentsExternalPackages: ["ffmpeg-static", "ffprobe-static", "@google/genai"],
     serverActions: {
       bodySizeLimit: "50mb",
     },
@@ -46,6 +46,9 @@ const nextConfig = {
       } else {
         config.externals = [config.externals, ...extra]
       }
+    } else {
+      // opencv.js(PaddleOCR 의존성)의 Node 전용 분기 — 브라우저 번들에서는 사용 안 함
+      config.resolve.fallback = { ...config.resolve.fallback, fs: false, path: false, crypto: false }
     }
     return config
   },
@@ -59,8 +62,6 @@ const nextConfig = {
     GOOGLE_CLOUD_PROJECT_ID: 'test-ai-450613',
     GOOGLE_CLOUD_STORAGE_BUCKET: 'video-renderer-storage',
     // 카카오 로그인 환경 변수 (마이수파코드 앱)
-    KAKAO_REST_API_KEY: '29e0cf48de7d7a8fecec3d729db037d6',
-    KAKAO_CLIENT_SECRET: 'JHpR3y0b1QQoxS0MaomVcGFfXzHfdMEi',
   },
 }
 

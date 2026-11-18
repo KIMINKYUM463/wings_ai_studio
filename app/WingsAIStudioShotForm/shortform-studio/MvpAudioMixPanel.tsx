@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { MVP_AUDIO_CATALOG } from "@/lib/mvp-studio-audio-catalog"
+import { MVP_AUDIO_CATALOG, mvpBgmPickerItems } from "@/lib/mvp-studio-audio-catalog"
 import { mvpBgmGainFromPct, probeAudioDurationSec } from "@/lib/mvp-preview-audio-mix"
 import { mvpAudioCatalogItem } from "@/lib/mvp-studio-audio-catalog"
 import {
@@ -164,6 +164,10 @@ export function MvpAudioMixPanel({
         <Music2 className="h-4 w-4 text-sky-600" />
         <p className="text-xs font-medium text-slate-900">배경음악</p>
       </div>
+      <p className="rounded-md bg-amber-50 px-2 py-1.5 text-[10px] leading-4 text-amber-700">
+        YouTube 쇼핑 상품 스티커 사용 시 Shopping 사운드 허용 여부를 확인하세요.
+        일반 음원은 상품 태그가 제한될 수 있습니다.
+      </p>
 
       <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3">
         <p className="text-[10px] font-medium text-slate-600">음원 추가</p>
@@ -175,9 +179,9 @@ export function MvpAudioMixPanel({
             <SelectContent>
               <SelectGroup>
                 <SelectLabel>배경음악</SelectLabel>
-                {MVP_AUDIO_CATALOG.map((o) => (
+                {mvpBgmPickerItems().map((o) => (
                   <SelectItem key={o.id} value={o.id}>
-                    {o.label}
+                    {o.shortLabel}
                   </SelectItem>
                 ))}
               </SelectGroup>

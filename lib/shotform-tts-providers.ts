@@ -3,7 +3,7 @@ import { typecastKoreanName } from "@/lib/typecast-voice-names"
 import { isTypecastApi403Guide } from "@/lib/typecast-api-error"
 import { SUPERTONIC_BUILTIN_VOICES } from "@/lib/supertonic-local"
 
-export type TtsProviderId = "typecast" | "supertonic" | "elevenlabs"
+export type TtsProviderId = "typecast" | "supertonic" | "elevenlabs" | "adam"
 
 /** 지원을 끝낸 수퍼톤(클라우드) 목소리 ID. 예전 프로젝트에 남아 있을 수 있다. */
 export const RETIRED_SUPERTONE_MESSAGE = "수퍼톤은 더 이상 지원하지 않습니다. 다른 목소리를 선택해 주세요."
@@ -24,7 +24,7 @@ export type ShotformTtsVoice = {
   use_cases?: string[]
 }
 
-export const TTS_PROVIDER_ORDER: TtsProviderId[] = ["typecast", "supertonic", "elevenlabs"]
+export const TTS_PROVIDER_ORDER: TtsProviderId[] = ["typecast", "supertonic", "elevenlabs", "adam"]
 
 export const DEFAULT_TTS_PROVIDER: TtsProviderId = TTS_PROVIDER_ORDER[0]!
 
@@ -49,6 +49,12 @@ export const TTS_PROVIDER_META: Record<
     prefix: "typecast-",
     idPlaceholder: "tc_672c5f5ce59fac2a48faeaee",
     subtitle: "한국어 캐릭터 · 감정 프리셋",
+  },
+  adam: {
+    label: "아담",
+    prefix: "adam-",
+    idPlaceholder: "adam",
+    subtitle: "PC 로컬 · Qwen3 목소리 복제",
   },
 }
 
@@ -82,6 +88,11 @@ export function elevenlabsSampleVoiceCatalog(): ShotformTtsVoice[] {
   }))
 }
 
+/** 아담 TTS 키트는 목소리가 하나다. 서버가 꺼져 있어도 카드는 보여 준다. */
+export function adamVoiceCatalog(): ShotformTtsVoice[] {
+  return [{ voice_id: "adam", name: "아담", gender: "male" }]
+}
+
 /**
  * ElevenLabs는 샘플 목록이 항상 있어 API 자동 로드가 필요 없음.
  * 수퍼토닉3는 내장 목록이 있어도 탭 전환 시 한 번 새로고침할 수 있지만,
@@ -89,7 +100,7 @@ export function elevenlabsSampleVoiceCatalog(): ShotformTtsVoice[] {
  * 자동 로드는「목록이 비어 있을 때만」허용하고, 수퍼토닉 새로고침은 탭 클릭/새로고침 버튼에서 합니다.
  */
 export function shouldAutoLoadVoiceCatalog(provider: TtsProviderId, voices: readonly ShotformTtsVoice[]): boolean {
-  if (provider === "elevenlabs") return false
+  if (provider === "elevenlabs" || provider === "adam") return false
   return voices.length === 0
 }
 
@@ -106,7 +117,7 @@ export const SHORT_VOICE_PREVIEW_TEXT = "안녕하세요"
 export const TYPECAST_VOICE_PREVIEW_TEXT = SHORT_VOICE_PREVIEW_TEXT
 
 export function ttsPreviewTextForProvider(provider: TtsProviderId): string {
-  if (provider === "typecast" || provider === "supertonic") return SHORT_VOICE_PREVIEW_TEXT
+  if (provider === "typecast" || provider === "supertonic" || provider === "adam") return SHORT_VOICE_PREVIEW_TEXT
   return TTS_VOICE_PREVIEW_TEXT
 }
 
@@ -124,6 +135,7 @@ export function ttsProviderFromVoiceId(fullId: string): TtsProviderId | null {
   if (fullId.startsWith("supertonic-")) return "supertonic"
   if (fullId.startsWith("elevenlabs-")) return "elevenlabs"
   if (fullId.startsWith("typecast-")) return "typecast"
+  if (fullId.startsWith("adam-")) return "adam"
   return null
 }
 
@@ -210,7 +222,7 @@ export function defaultStyleForTtsVoice(provider: TtsProviderId, voice: Shotform
 }
 
 export function shotformTtsApiKey(provider: TtsProviderId): string {
-  if (provider === "supertonic") return "" // 로컬 서버 — API 키 불필요
+  if (provider === "supertonic" || provider === "adam") return "" // 로컬 서버 — API 키 불필요
   if (provider === "elevenlabs") return shotformElevenlabsKey()
   return shotformTypecastKey()
 }
@@ -220,9 +232,13 @@ export function ttsApiKeyMissingMessage(provider: TtsProviderId): string {
     supertonic: "수퍼토닉3(로컬 서버)",
     elevenlabs: "ElevenLabs(elevenlabs_api_key)",
     typecast: "타입캐스트(typecast_api_key)",
+    adam: "아담(로컬 서버)",
   }
   if (provider === "supertonic") {
     return "로컬 Supertonic 서버를 실행해 주세요. (supertonic serve --host 127.0.0.1 --port 7788 --model supertonic-3)"
+  }
+  if (provider === "adam") {
+    return "아담 TTS 서버를 실행해 주세요. 키트 폴더에서 python server.py (127.0.0.1:8765)"
   }
   return `ShotForm 설정에 ${names[provider]} API 키를 저장해 주세요.`
 }
@@ -458,6 +474,24 @@ export async function synthesizeTtsLine(args: {
     }
     const url = audioUrlFromTtsResponse({ ...data, mime: "audio/wav" })
     if (!url) throw new Error("수퍼토닉3 오디오 응답이 비어 있습니다.")
+    return url
+  }
+
+  if (parsed.provider === "adam") {
+    const { fetchAdamTts } = await import("@/lib/adam-tts")
+    const res = await fetchAdamTts({ text: args.text, tempo: speed })
+    const data = (await res.json().catch(() => ({}))) as {
+      success?: boolean
+      audioUrl?: string
+      audioBase64?: string
+      mime?: string
+      error?: string
+    }
+    if (!res.ok || data.success === false) {
+      throw new Error(data.error || `아담 TTS 실패 (${res.status})`)
+    }
+    const url = audioUrlFromTtsResponse({ ...data, mime: data.mime || "audio/wav" })
+    if (!url) throw new Error("아담 오디오 응답이 비어 있습니다.")
     return url
   }
 

@@ -1,7 +1,10 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, type CSSProperties } from "react"
 import { Button } from "@/components/ui/button"
+import { TIKHUB_KEY_STORAGE } from "@/lib/shotform-tikhub-key-client"
+import ShotFormTour from "@/components/ShotFormTour"
+import ShotFormGuideGallery from "@/components/ShotFormGuideGallery"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
@@ -45,13 +48,12 @@ import {
   Clapperboard,
   Bot,
   ChartNoAxesCombined,
-  Scissors,
-  Film,
   PawPrint,
   Newspaper,
   MessageSquareText,
   Check,
   ArrowUpRight,
+  Plane,
 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import type { LucideIcon } from "lucide-react"
@@ -67,7 +69,15 @@ type ShotFormServiceItem = {
   locked?: boolean
   /** 우측 상단 스티커 (예: ver1, ver2) */
   sticker?: string
+  /** 카드별 구분 색 (아이콘·호버·입출력 라벨) */
+  accent?: string
+  /** 사용자가 넣는 것 → 결과물 */
+  flow?: { input: string; output: string }
+  /** true면 홈 목록에서 숨김 (페이지는 그대로) */
+  hidden?: boolean
 }
+
+const DEFAULT_ACCENT = "#2c5fd6"
 
 // 숏폼 전용 서비스
 const shotFormServices: ShotFormServiceItem[] = [
@@ -75,57 +85,93 @@ const shotFormServices: ShotFormServiceItem[] = [
     id: "ai-shopping",
     title: "AI 쇼핑 숏폼",
     icon: Sparkles,
-    description: "제품 서칭→대본→스토리보드→오디오→이미지→비디오→프리뷰, 7단계 수동 파이프라인",
+    description: "대본부터 이미지·영상까지 7단계를 직접 고르며 만드는 정석 파이프라인",
     url: "/WingsAIStudioShotForm/ai-shopping",
+    accent: "#2c5fd6",
+    flow: { input: "상품명", output: "AI 이미지·영상" },
   },
   {
     id: "story-shopping",
     title: "AI 스토리 쇼핑 숏폼",
     icon: BookOpen,
-    description: "썰 채널형 쇼핑 숏폼: 훅 제목·장면별 나레이션을 썰 프레임으로 합성해 소개하는 숏폼",
+    description: "썰 채널처럼 사연을 풀어가며 상품을 자연스럽게 소개",
     url: "/WingsAIStudioShotForm/story-shopping",
+    hidden: true,
+    accent: "#7c3aed",
+    flow: { input: "상품 + 사연", output: "썰 나레이션 영상" },
+  },
+  {
+    id: "story-shopping-v2",
+    title: "AI 썰쇼핑숏폼",
+    icon: BookOpen,
+    description: "쇼츠 URL로 썰 구조 대본·음성·자막까지 원스톱",
+    url: "/WingsAIStudioShotForm/story-shopping-v2",
+    isNew: true,
+    accent: "#6d28d9",
+    flow: { input: "참고 쇼츠 URL", output: "썰 쇼핑 숏폼" },
   },
   {
     id: "shortform-studio",
     title: "AI 리믹스 쇼핑숏폼",
     icon: Clapperboard,
-    description: "키워드·소스·리믹스·자막·썸네일 프로젝트",
+    description: "소스 영상을 찾아 리믹스하고 자막·썸네일까지 편집",
     url: "/WingsAIStudioShotForm/shortform-studio",
+    hidden: true,
+    accent: "#e11d48",
+    flow: { input: "키워드·소스 영상", output: "리믹스 편집 영상" },
+  },
+  {
+    id: "remix-shopping-v2",
+    title: "AI 리믹스 쇼핑숏폼",
+    icon: Clapperboard,
+    description: "쇼츠 URL 하나로 장면 재구성·대본·음성·자막·템플릿까지 원스톱",
+    url: "/WingsAIStudioShotForm/remix-shopping-v2",
+    isNew: true,
+    accent: "#be123c",
+    flow: { input: "참고 쇼츠 URL", output: "리믹스 숏폼" },
   },
   {
     id: "animal-shopping",
     title: "AI 동물 쇼핑 숏폼",
     icon: PawPrint,
-    description: "의인화 동물이 마트에서 쇼핑하는 바이럴 숏폼",
+    description: "의인화 동물 캐릭터가 마트에서 쇼핑하는 바이럴 숏폼",
     url: "/WingsAIStudioShotForm/animal-shopping",
+    accent: "#d97706",
+    flow: { input: "상품", output: "동물 캐릭터 영상" },
   },
   {
     id: "info-shopping",
     title: "AI 카드뉴스 쇼핑숏폼",
     icon: Newspaper,
-    description: "벤치마크 URL → 쿠팡 매칭 → 카드뉴스 쇼핑숏폼",
+    description: "잘 된 영상을 벤치마킹해 쿠팡 상품과 매칭한 정보형 숏폼",
     url: "/WingsAIStudioShotForm/info-shopping",
+    accent: "#0284c7",
+    flow: { input: "벤치마크 URL", output: "카드뉴스 슬라이드" },
+  },
+  {
+    id: "travel-shopping",
+    title: "AI 여행쇼핑숏폼",
+    icon: Plane,
+    description: "숙소 링크 하나로 사진·후킹 대본·음성까지 원클릭 자동 제작",
+    url: "/WingsAIStudioShotForm/travel-shopping",
+    isNew: true,
+    accent: "#0d9488",
+    flow: { input: "쿠팡 트래블 링크", output: "숙소 사진 영상" },
   },
 ]
 
-// 일반 숏폼 서비스 (일시 비활성화)
+// 일반 숏폼 서비스
 const generalShortformServices: ShotFormServiceItem[] = [
   {
-    id: "shorts",
-    title: "AI 일반 숏폼",
-    icon: Film,
-    description: "명언·건강·자기계발 등 주제로 대본·이미지·TTS 숏폼 제작",
-    url: "/WingsAIStudioShotForm/shorts",
-    locked: true,
-  },
-  {
-    id: "longform-clip",
-    title: "AI 롱폼 클립",
-    icon: Scissors,
-    description: "롱폼 URL만 넣으면 AI가 바이럴 숏폼 구간을 자동으로 잘라줍니다",
-    url: "/WingsAIStudioShotForm/longform-clip",
+    id: "wings-shopping-v2",
+    title: "윙스쇼핑숏폼 버전2",
+    icon: Clapperboard,
+    description: "쇼츠 주소를 넣으면 같은 상품 영상을 찾아 대본·음성·자막까지 맞춥니다",
+    url: "/WingsAIStudioShotForm/wings-shopping-v2",
+    hidden: true,
     isNew: true,
-    locked: true,
+    sticker: "ver2",
+    accent: "#d97706",
   },
   {
     id: "ssul-tts-tool",
@@ -155,7 +201,7 @@ const analysisToolsServices: ShotFormServiceItem[] = [
   },
 ]
 
-const GUIDE_VIDEO_URL = "https://loud-cowl-c24.notion.site/3b6565477d5980deb680e80c49c98b39"
+const API_KEY_GUIDE_VIDEO_URL = "/shotform/api-key-guide.mp4"
 
 // Header 컴포넌트
 function Header({ onSettingsClick }: { onSettingsClick: () => void }) {
@@ -175,19 +221,33 @@ function Header({ onSettingsClick }: { onSettingsClick: () => void }) {
         </div>
 
         <div className="flex items-center gap-1">
-          <a
-            href={GUIDE_VIDEO_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mr-2 hidden items-center gap-1.5 rounded-lg border border-[#e1e6ee] bg-[#fff] px-3 py-1.5 text-[13px] font-medium text-[#374151] transition-colors hover:border-[#c9d3e3] hover:bg-[#f7f9fc] sm:inline-flex"
-          >
-            <Play className="h-3.5 w-3.5" />
-            가이드 영상
-          </a>
+          <ShotFormGuideGallery tour="guide-video" triggerClassName="mr-2 hidden items-center gap-1.5 rounded-lg border border-[#e1e6ee] bg-[#fff] px-3 py-1.5 text-[13px] font-medium text-[#374151] transition-colors hover:border-[#c9d3e3] hover:bg-[#f7f9fc] sm:inline-flex" />
+          <Dialog>
+            <DialogTrigger asChild>
+              <button
+                type="button"
+                data-tour="api-guide"
+                className="mr-2 hidden items-center gap-1.5 rounded-lg border border-[#e1e6ee] bg-[#fff] px-3 py-1.5 text-[13px] font-medium text-[#374151] transition-colors hover:border-[#c9d3e3] hover:bg-[#f7f9fc] sm:inline-flex"
+              >
+                <Key className="h-3.5 w-3.5" />
+                API키 발급 가이드영상
+              </button>
+            </DialogTrigger>
+            <DialogContent className="w-[calc(100vw-2rem)] max-w-5xl border-[#e5e9f0] bg-[#fff] p-4 text-[#111827] sm:max-w-5xl">
+              <DialogHeader>
+                <DialogTitle>API키 발급 가이드영상</DialogTitle>
+                <DialogDescription className="text-[#6b7280]">
+                  필수 3개(Gemini · YouTube · TikHub)와 선택 4개 키를 만드는 방법이에요. 복사한 키는 설정에 붙여넣으세요.
+                </DialogDescription>
+              </DialogHeader>
+              {/* 팝업이 열릴 때만 영상을 불러온다 (DialogContent 는 닫히면 사라짐) */}
+              <video src={API_KEY_GUIDE_VIDEO_URL} controls autoPlay playsInline preload="metadata" className="aspect-video w-full rounded-lg bg-[#000]" />
+            </DialogContent>
+          </Dialog>
           <Button variant="ghost" size="icon" className={iconButtonClass} onClick={() => router.push("/")} title="wings AI 홈">
             <Home className="h-[18px] w-[18px]" />
           </Button>
-          <Button variant="ghost" size="icon" className={iconButtonClass} onClick={onSettingsClick} title="설정">
+          <Button variant="ghost" size="icon" className={iconButtonClass} onClick={onSettingsClick} title="설정" data-tour="settings">
             <Settings className="h-[18px] w-[18px]" />
           </Button>
           <DropdownMenu>
@@ -318,15 +378,7 @@ function HeroSection() {
             제작 시작하기
             <ArrowRight className="h-4 w-4" />
           </a>
-          <a
-            href={GUIDE_VIDEO_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex h-11 items-center gap-2 rounded-xl px-4 text-[15px] font-medium text-[#374151] transition hover:bg-[#eef2f8]"
-          >
-            <Play className="h-4 w-4" />
-            가이드 영상 보기
-          </a>
+          <ShotFormGuideGallery label="가이드 영상 보기" iconClassName="h-4 w-4" triggerClassName="inline-flex h-11 items-center gap-2 rounded-xl px-4 text-[15px] font-medium text-[#374151] transition hover:bg-[#eef2f8]" />
         </div>
       </div>
 
@@ -350,25 +402,26 @@ function FeatureCard({
   const Icon = service.icon
   const isLocked = Boolean(service.locked)
   const badge = service.sticker ?? (service.isNew ? "NEW" : service.featured ? "추천" : null)
+  const accentStyle = { "--accent": service.accent ?? DEFAULT_ACCENT } as CSSProperties
 
   return (
     <button
       type="button"
       disabled={isLocked}
       onClick={() => onServiceClick(service)}
-      className={`shotform-rise group flex h-full w-full flex-col rounded-2xl border p-6 text-left transition duration-300 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2c5fd6]/40 ${
+      className={`shotform-rise group flex h-full w-full flex-col rounded-2xl border p-6 text-left transition duration-300 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent)]/40 ${
         isLocked
           ? "cursor-not-allowed border-[#eceff4] bg-[#fafbfc]"
-          : "border-[#e5e9f0] bg-[#fff] shadow-[0_1px_2px_rgba(16,24,40,0.04)] hover:-translate-y-0.5 hover:border-[#c9d7f6] hover:shadow-[0_18px_40px_-22px_rgba(30,58,138,0.35)] active:translate-y-0 active:scale-[0.99]"
+          : "border-[#e5e9f0] bg-[#fff] shadow-[0_1px_2px_rgba(16,24,40,0.04)] hover:-translate-y-0.5 hover:border-[color:color-mix(in_srgb,var(--accent)_40%,#fff)] hover:shadow-[0_18px_40px_-22px_color-mix(in_srgb,var(--accent)_45%,transparent)] active:translate-y-0 active:scale-[0.99]"
       }`}
-      style={{ animationDelay: `${index * 60}ms` }}
+      style={{ ...accentStyle, animationDelay: `${index * 60}ms` }}
     >
       <div className="mb-5 flex items-start justify-between">
         <span
           className={`flex h-11 w-11 items-center justify-center rounded-xl transition-colors duration-300 ${
             isLocked
               ? "bg-[#f1f3f6] text-[#a3abb8]"
-              : "bg-[#eef3fd] text-[#2c5fd6] group-hover:bg-[#2c5fd6] group-hover:text-[#fff]"
+              : "bg-[color:color-mix(in_srgb,var(--accent)_12%,#fff)] text-[color:var(--accent)] group-hover:bg-[color:var(--accent)] group-hover:text-[#fff]"
           }`}
         >
           <Icon className="h-5 w-5" strokeWidth={1.75} />
@@ -379,11 +432,11 @@ function FeatureCard({
             일시 중지
           </span>
         ) : badge ? (
-          <span className="rounded-md bg-[#eef3fd] px-2 py-1 text-[11px] font-semibold tracking-wide text-[#2c5fd6]">
+          <span className="rounded-md bg-[color:color-mix(in_srgb,var(--accent)_12%,#fff)] px-2 py-1 text-[11px] font-semibold tracking-wide text-[color:var(--accent)]">
             {badge}
           </span>
         ) : (
-          <ArrowUpRight className="h-5 w-5 text-[#c0c7d3] transition duration-300 group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-[#2c5fd6]" />
+          <ArrowUpRight className="h-5 w-5 text-[#c0c7d3] transition duration-300 group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-[color:var(--accent)]" />
         )}
       </div>
       <h3
@@ -392,6 +445,17 @@ function FeatureCard({
         {service.title}
       </h3>
       <p className="mt-1.5 text-[14px] leading-relaxed text-[#6b7280] [text-wrap:pretty]">{service.description}</p>
+      {service.flow && (
+        <div className="mt-auto pt-5">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-t border-[#eef1f5] pt-4 text-[12.5px]">
+            <span className="rounded-md bg-[color:color-mix(in_srgb,var(--accent)_10%,#fff)] px-2 py-1 font-semibold text-[color:var(--accent)]">
+              {service.flow.input}
+            </span>
+            <ArrowRight className="h-3.5 w-3.5 shrink-0 text-[#b6bdc9]" aria-hidden />
+            <span className="font-medium text-[#4b5563]">{service.flow.output}</span>
+          </div>
+        </div>
+      )}
     </button>
   )
 }
@@ -411,7 +475,7 @@ function FeatureSection({
   onServiceClick: (service: ShotFormServiceItem) => void
 }) {
   return (
-    <section className="border-t border-[#e5e9f0] pt-10">
+    <section className="border-t border-[#e5e9f0] pt-10" data-tour={`section-${index}`}>
       <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-[13px] font-semibold tabular-nums text-[#2c5fd6]">{String(index + 1).padStart(2, "0")}</p>
@@ -440,14 +504,17 @@ type ShotFormApiKeysState = {
   youtubeClientSecret: string
   youtubeDataApiKey: string
   apify: string
+  tikhub: string
   vmake: string
   vmakeSecret: string
+  gemini: string
 }
 
 /** 메모장 백업(.txt) → API 키 필드 매핑 */
 function parseShotFormApiKeysBackup(text: string): Partial<ShotFormApiKeysState> {
   const labelToKey: Array<{ key: keyof ShotFormApiKeysState; match: RegExp }> = [
     { key: "openai", match: /openai\s*api\s*key/i },
+    { key: "gemini", match: /gemini\s*api\s*key/i },
     { key: "elevenlabs", match: /elevenlabs\s*api\s*key/i },
     { key: "replicate", match: /replicate\s*api\s*key/i },
     { key: "pixabay", match: /pixabay\s*api\s*key/i },
@@ -458,6 +525,7 @@ function parseShotFormApiKeysBackup(text: string): Partial<ShotFormApiKeysState>
     { key: "youtubeClientSecret", match: /youtube\s*client\s*secret/i },
     { key: "youtubeDataApiKey", match: /youtube\s*data\s*api\s*key/i },
     { key: "apify", match: /apify\s*api/i },
+    { key: "tikhub", match: /tikhub\s*api/i },
     { key: "vmakeSecret", match: /vmake\s*ai\s*secret|secret\s*access\s*key\s*\(mt_sk\)/i },
     { key: "vmake", match: /vmake\s*ai\s*api\s*key|api\s*key\s*\(mt_ak\)/i },
   ]
@@ -490,6 +558,29 @@ function parseShotFormApiKeysBackup(text: string): Partial<ShotFormApiKeysState>
   return out
 }
 
+/** 브라우저에 둔 키를 서버 분석에도 쓰도록 파일로 넘긴다. 응답에는 키를 담지 않는다. */
+async function persistGeminiKey(key: string) {
+  const clean = key.trim()
+  localStorage.setItem("shotform_gemini_api_key", clean)
+  const res = await fetch("/api/shotform/gemini-key", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ apiKey: clean }),
+  })
+  if (!res.ok) throw new Error("Gemini API 키 저장 실패")
+}
+
+async function persistTikhubKey(key: string) {
+  const clean = key.trim()
+  localStorage.setItem(TIKHUB_KEY_STORAGE, clean)
+  const res = await fetch("/api/shotform/tikhub-key", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ apiKey: clean }),
+  })
+  if (!res.ok) throw new Error("TikHub API 키 저장 실패")
+}
+
 // 메인 컴포넌트
 export default function ShotFormPage() {
   const router = useRouter()
@@ -507,8 +598,10 @@ export default function ShotFormPage() {
     youtubeClientSecret: "",
     youtubeDataApiKey: "",
     apify: "",
+    tikhub: "",
     vmake: "",
     vmakeSecret: "",
+    gemini: "",
   })
   const [saved, setSaved] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -525,8 +618,10 @@ export default function ShotFormPage() {
     youtubeClientSecret: false,
     youtubeDataApiKey: false,
     apify: false,
+    tikhub: false,
     vmake: false,
     vmakeSecret: false,
+    gemini: false,
   })
   const [youtubeConnected, setYoutubeConnected] = useState(false)
   const [checkingYoutube, setCheckingYoutube] = useState(false)
@@ -622,6 +717,7 @@ export default function ShotFormPage() {
       const storedVmake = localStorage.getItem("shotform_vmake_api_key") || ""
       const storedVmakeSecret =
         localStorage.getItem("shotform_vmake_secret_access_key") || ""
+      const storedGemini = localStorage.getItem("shotform_gemini_api_key") || ""
 
       setApiKeys({
         openai: storedOpenAI,
@@ -635,9 +731,18 @@ export default function ShotFormPage() {
         youtubeClientSecret: storedYoutubeClientSecret,
         youtubeDataApiKey: storedYoutubeDataApiKey,
         apify: storedApify,
+        tikhub: localStorage.getItem(TIKHUB_KEY_STORAGE) || "",
         vmake: storedVmake,
         vmakeSecret: storedVmakeSecret,
+        gemini: storedGemini,
       })
+      if (storedGemini.trim()) {
+        void persistGeminiKey(storedGemini).catch(() => {})
+      }
+      const storedTikhub = localStorage.getItem(TIKHUB_KEY_STORAGE) || ""
+      if (storedTikhub.trim()) {
+        void persistTikhubKey(storedTikhub).catch(() => {})
+      }
 
       // YouTube 연결 상태 확인
       checkYoutubeConnection()
@@ -734,7 +839,7 @@ export default function ShotFormPage() {
   }
 
   // API 키 저장 (ShotForm 전용 키로 저장)
-  const handleSave = () => {
+  const handleSave = async () => {
     localStorage.setItem("shotform_openai_api_key", apiKeys.openai)
     localStorage.setItem("shotform_elevenlabs_api_key", apiKeys.elevenlabs)
     localStorage.setItem("shotform_replicate_api_key", apiKeys.replicate)
@@ -748,11 +853,18 @@ export default function ShotFormPage() {
     localStorage.setItem("shotform_youtube_client_secret", apiKeys.youtubeClientSecret)
     localStorage.setItem("shotform_youtube_data_api_key", apiKeys.youtubeDataApiKey)
     localStorage.setItem("shotform_apify_token", apiKeys.apify || "")
+    localStorage.setItem(TIKHUB_KEY_STORAGE, apiKeys.tikhub || "")
     localStorage.setItem("shotform_vmake_api_key", apiKeys.vmake || "")
     localStorage.setItem(
       "shotform_vmake_secret_access_key",
       apiKeys.vmakeSecret || ""
     )
+    try {
+      await persistGeminiKey(apiKeys.gemini || "")
+      await persistTikhubKey(apiKeys.tikhub || "")
+    } catch {
+      alert("API 키를 서버에 저장하지 못했습니다. 저장을 한 번 더 눌러 주세요.")
+    }
     window.dispatchEvent(new Event("shotform-api-keys-updated"))
 
     setSaved(true)
@@ -809,6 +921,12 @@ ${apiKeys.vmake || "(미입력)"}
 13. Vmake AI Secret Access Key (MT_SK)
 ${apiKeys.vmakeSecret || "(미입력)"}
 
+14. TikHub API
+${apiKeys.tikhub || "(미입력)"}
+
+15. Gemini API Key
+${apiKeys.gemini || "(미입력)"}
+
 ========================================
 주의사항
 ========================================
@@ -862,11 +980,18 @@ ${apiKeys.vmakeSecret || "(미입력)"}
       localStorage.setItem("shotform_youtube_client_secret", next.youtubeClientSecret)
       localStorage.setItem("shotform_youtube_data_api_key", next.youtubeDataApiKey)
       localStorage.setItem("shotform_apify_token", next.apify || "")
+      localStorage.setItem(TIKHUB_KEY_STORAGE, next.tikhub || "")
       localStorage.setItem("shotform_vmake_api_key", next.vmake || "")
       localStorage.setItem(
         "shotform_vmake_secret_access_key",
         next.vmakeSecret || ""
       )
+      try {
+        await persistGeminiKey(next.gemini || "")
+        await persistTikhubKey(next.tikhub || "")
+      } catch {
+        alert("API 키를 서버에 저장하지 못했습니다. 저장을 한 번 더 눌러 주세요.")
+      }
       window.dispatchEvent(new Event("shotform-api-keys-updated"))
       setImported(true)
       setSaved(true)
@@ -978,6 +1103,7 @@ ${apiKeys.vmakeSecret || "(미입력)"}
       />
 
       <Header onSettingsClick={() => setOpen(true)} />
+      <ShotFormTour />
 
       <main className="relative z-10">
         <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 md:py-14 lg:px-8 lg:py-16">
@@ -985,8 +1111,8 @@ ${apiKeys.vmakeSecret || "(미입력)"}
 
           <div id="features" className="mt-16 scroll-mt-24 space-y-14 md:mt-20">
             {[
-              { title: "쇼핑숏폼 제작", subtitle: "15초 쇼핑 쇼츠를 빠르고 쉽게 제작하세요", services: shotFormServices },
-              { title: "일반 숏폼", subtitle: "주제 기반 숏폼 · 롱폼 클립 · 썰 쇼핑 대본→TTS/SRT 도구", services: generalShortformServices },
+              { title: "쇼핑숏폼 제작", subtitle: "15초 쇼핑 쇼츠를 빠르고 쉽게 제작하세요", services: shotFormServices.filter((s) => !s.hidden) },
+              { title: "일반 숏폼", subtitle: "썰 TTS 도구", services: generalShortformServices.filter((s) => !s.hidden) },
               { title: "분석 & 도구", subtitle: "채널 성장과 운영을 돕는 보조 도구", services: analysisToolsServices },
             ].map((section, index) => (
               <FeatureSection key={section.title} index={index} onServiceClick={handleServiceClick} {...section} />
@@ -1059,6 +1185,61 @@ ${apiKeys.vmakeSecret || "(미입력)"}
                 </Button>
               </div>
               <p className="text-xs text-zinc-500">GPT 모델 사용에 필요합니다</p>
+            </div>
+
+            {/* Gemini API Key — 윙스쇼핑숏폼 버전2 영상 분석 */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="gemini-key" className="text-sm font-medium text-zinc-200">
+                  Gemini API Key
+                </Label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
+                  asChild
+                >
+                  <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">
+                    API 발급
+                  </a>
+                </Button>
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="gemini-key"
+                  type={showKeys.gemini ? "text" : "password"}
+                  placeholder="AIza..."
+                  value={apiKeys.gemini}
+                  onChange={(e) => setApiKeys({ ...apiKeys, gemini: e.target.value })}
+                  className="font-mono text-sm bg-black/40 border-white/15 text-zinc-100 placeholder:text-zinc-500"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowKeys({ ...showKeys, gemini: !showKeys.gemini })}
+                  className="shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
+                >
+                  {showKeys.gemini ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    navigator.clipboard.writeText(apiKeys.gemini)
+                    setCopied(true)
+                    setTimeout(() => setCopied(false), 2000)
+                  }}
+                  disabled={!apiKeys.gemini}
+                  className="shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </div>
+              <p className="text-xs text-zinc-500">
+                윙스쇼핑숏폼 버전2의 레퍼런스 분석, 대본, 음성, 배경음에 사용됩니다.
+              </p>
             </div>
 
             {/* ElevenLabs API Key */}
@@ -1437,6 +1618,48 @@ ${apiKeys.vmakeSecret || "(미입력)"}
               </p>
             </div>
 
+            {/* TikHub API — 리믹스 소스 검색·원본 영상 */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="tikhub-key" className="text-sm font-medium text-zinc-200">
+                  TikHub API
+                </Label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 shrink-0 border-white/25 bg-zinc-800 text-xs text-zinc-100 hover:bg-zinc-700 hover:text-white"
+                  asChild
+                >
+                  <a href="https://user.tikhub.io/" target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="mr-1 h-3 w-3" />
+                    API 발급
+                  </a>
+                </Button>
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="tikhub-key"
+                  type={showKeys.tikhub ? "text" : "password"}
+                  placeholder="TikHub에서 발급한 API 키"
+                  value={apiKeys.tikhub}
+                  onChange={(e) => setApiKeys({ ...apiKeys, tikhub: e.target.value })}
+                  className="font-mono text-sm bg-black/40 border-white/15 text-zinc-100 placeholder:text-zinc-500"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowKeys({ ...showKeys, tikhub: !showKeys.tikhub })}
+                  className="shrink-0 border-white/25 bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"
+                >
+                  {showKeys.tikhub ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </Button>
+              </div>
+              <p className="text-xs text-zinc-500">
+                리믹스, 썰쇼핑, 제품 검색에서 도우인·샤오홍슈·TikTok·유튜브 원본을 찾을 때 사용합니다.
+              </p>
+            </div>
+
             {/* Apify API — 리믹스·제품 검색 수집 */}
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
@@ -1479,7 +1702,7 @@ ${apiKeys.vmakeSecret || "(미입력)"}
                 </Button>
               </div>
               <p className="text-xs text-zinc-500">
-                리믹스·제품 검색에서 TikTok·샤오홍슈·더우인 후보 수집에 사용합니다.
+                영상 후보 검색은 TikHub를 사용합니다. 이 칸은 예전 수집 경로가 남아 있을 때만 쓰입니다.
               </p>
             </div>
 

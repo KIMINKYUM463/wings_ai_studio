@@ -3,20 +3,18 @@ import {
   THUMBNAIL_EXPORT_H,
   THUMBNAIL_EXPORT_W,
   THUMBNAIL_STAGE_BASE_W,
+  THUMBNAIL_TEXT_FONT,
   defaultThumbnailTexts,
+  fittedThumbnailFontSize,
   hookingFromThumbnailDesign,
   resolveBackgroundTransform,
+  thumbnailTextLines,
   type MvpThumbnailDesign,
   type ThumbnailFilterState,
   type ThumbnailTextLayer,
 } from "@/lib/mvp-thumbnail-design"
 
-const THUMB_FONT = '"Noto Sans KR","Pretendard",system-ui,sans-serif'
-
-function splitLines(text: string): string[] {
-  const lines = text.split("\n")
-  return lines.length ? lines : [""]
-}
+const THUMB_FONT = THUMBNAIL_TEXT_FONT
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } {
   const raw = hex.trim().replace(/^#/, "")
@@ -148,44 +146,47 @@ function drawThumbnailTextLayer(
   ch: number,
   stageBaseW = THUMBNAIL_STAGE_BASE_W
 ): void {
-  const lines =
-    layer.role === "hook1" || layer.role === "hook2"
-      ? [layer.text.replace(/\s+/g, " ").trim()]
-      : splitLines(layer.text)
+  const lines = thumbnailTextLines(layer)
   const scale = cw / stageBaseW
-  const fontSize = layer.fontSize * scale
+  const fontSize = fittedThumbnailFontSize(layer) * scale
   const maxWidth = (layer.widthPct / 100) * cw
   const lineHeight = fontSize * 1.05
-  const lineGap = 0
-  const blockHeight = lines.length * lineHeight + Math.max(0, lines.length - 1) * lineGap
+  const padX = (layer.bgOn ? (layer.bgPadX ?? 12) : 0) * scale
+  const padY = (layer.bgOn ? (layer.bgPadY ?? 6) : 0) * scale
+  // 박스가 있으면 편집기(inline-block + padding)처럼 줄마다 박스 높이만큼 띄움
+  const lineStep = lineHeight + padY * 2
+  const blockHeight = lines.length * lineStep
 
   ctx.save()
   ctx.filter = "none"
   ctx.translate((layer.x / 100) * cw, (layer.y / 100) * ch)
   ctx.rotate((layer.rotation * Math.PI) / 180)
 
-  const textX = 0
-  let y = -blockHeight / 2 + lineHeight / 2
+  let y = -blockHeight / 2 + lineStep / 2
 
   for (const line of lines) {
-    const content = line.trim() ? line : "\u00a0"
+    const content = line.trim() ? line : " "
     ctx.font = `${layer.fontWeight} ${fontSize}px ${THUMB_FONT}`
     ctx.textAlign = layer.align
     ctx.textBaseline = "middle"
+    if ("letterSpacing" in ctx) {
+      ;(ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${layer.letterSpacing * scale}px`
+    }
+
+    // 정렬 기준점에서 박스 안쪽 여백만큼 글자를 밀어 편집기와 동일하게
+    const textX = layer.align === "left" ? padX : layer.align === "right" ? -padX : 0
 
     if (layer.bgOn) {
       const metrics = ctx.measureText(content)
-      const padX = 12 * scale
-      const padY = 6 * scale
-      const bgW = Math.min(maxWidth, metrics.width) + padX * 2
+      const bgW = layer.bgFill ? maxWidth : Math.min(maxWidth, metrics.width + padX * 2)
       const bgH = lineHeight + padY * 2
-      let bgLeft = textX
-      if (layer.align === "center") bgLeft = textX - bgW / 2
-      else if (layer.align === "right") bgLeft = textX - bgW
+      let bgLeft = 0
+      if (layer.align === "center") bgLeft = -bgW / 2
+      else if (layer.align === "right") bgLeft = -bgW
 
       const { r, g, b } = hexToRgb(layer.bgColor)
       ctx.fillStyle = `rgba(${r},${g},${b},${(layer.bgOpacity ?? 70) / 100})`
-      const radius = 8 * scale
+      const radius = Math.min(bgH / 2, (layer.bgRadius ?? 8) * scale)
       ctx.beginPath()
       ctx.roundRect(bgLeft, y - bgH / 2, bgW, bgH, radius)
       ctx.fill()
@@ -212,7 +213,7 @@ function drawThumbnailTextLayer(
     ctx.fillText(content, textX, y)
     resetShadow(ctx)
 
-    y += lineHeight + lineGap
+    y += lineStep
   }
 
   ctx.restore()
@@ -230,6 +231,8 @@ function prepareOverlayCaptureClone(clonedStage: HTMLElement): void {
   clonedStage.style.boxShadow = "none"
   clonedStage.style.outline = "none"
   clonedStage.style.background = "transparent"
+  // 휴대폰 화면 둥근 모서리는 미리보기 장식 — PNG에는 반영하지 않음
+  clonedStage.style.borderRadius = "0"
 
   clonedStage.querySelectorAll("[data-thumb-export-skip]").forEach((node) => {
     node.remove()

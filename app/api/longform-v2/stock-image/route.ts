@@ -147,7 +147,7 @@ export async function POST(req: Request) {
     const body = await req.json()
     const rawQuery = String(body.query || "").trim()
     const apiKey = String(body.apiKey || process.env.PEXELS_API_KEY || "").trim()
-    const excludeIds = new Set(
+    const excludeIds = new Set<number>(
       (
         Array.isArray(body.excludeVideoIds)
           ? body.excludeVideoIds

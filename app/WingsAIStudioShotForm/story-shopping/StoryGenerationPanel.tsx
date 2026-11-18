@@ -15,18 +15,29 @@ import {
   BrainCircuit,
   BadgeCheck,
   Check,
+  CircleSlash,
   Clock,
+  Dices,
+  Factory,
+  Flag,
   FlaskConical,
   Flame,
   Gift,
+  Globe,
   GraduationCap,
   HeartHandshake,
+  LifeBuoy,
   Lightbulb,
   Loader2,
+  Megaphone,
   MessageSquareQuote,
+  Rocket,
   RotateCcw,
   Scale,
+  ScanSearch,
   Search,
+  Siren,
+  Smartphone,
   Sparkles,
   Swords,
   TrendingUp,
@@ -42,11 +53,16 @@ import {
 } from "@/components/ui/dialog"
 import { Slider } from "@/components/ui/slider"
 import { Textarea } from "@/components/ui/textarea"
-import type {
-  StoryGeneratedScript,
-  StoryNarrationStyle,
-  StoryScriptTemplateId,
-  StoryShoppingBrief,
+import {
+  STORY_SCRIPT_TEMPLATES,
+  STORY_SCRIPT_TEMPLATE_IDS,
+  type StoryScriptTemplateGroup,
+} from "./story-script-catalog"
+import {
+  type StoryGeneratedScript,
+  type StoryNarrationStyle,
+  type StoryScriptTemplateId,
+  type StoryShoppingBrief,
 } from "./story-types"
 import { DEFAULT_STORY_FRAME_SETTINGS } from "./StoryChannelFrame"
 import {
@@ -76,159 +92,45 @@ async function fetchReferenceTranscript(videoId?: string) {
   }
 }
 
-const TEMPLATES: Array<{
-  id: StoryScriptTemplateId
-  name: string
-  english: string
-  description: string
-  flow: string
-  icon: typeof Flame
-  accent: string
-}> = [
-  {
-    id: "origin",
-    name: "탄생비화형",
-    english: "ORIGIN STORY",
-    description: "제품보다 만든 사람과 탄생 이유에 집중",
-    flow: "문제 → 집착 → 실패 → 발견 → 제품",
-    icon: Flame,
-    accent: "from-orange-500/20 to-amber-500/5",
-  },
-  {
-    id: "inventor",
-    name: "발명가형",
-    english: "INVENTOR STORY",
-    description: "기발한 생각과 세상의 반응으로 호기심 유발",
-    flow: "아이디어 → 비웃음 → 발명 → 입소문",
-    icon: Lightbulb,
-    accent: "from-yellow-400/20 to-lime-500/5",
-  },
-  {
-    id: "competition",
-    name: "경쟁박살형",
-    english: "MARKET DISRUPTION",
-    description: "기존 시장의 빈틈을 뒤집는 경쟁 서사",
-    flow: "업계 비상 → 문제 → 등장 → 시장 반전",
-    icon: Swords,
-    accent: "from-red-500/20 to-orange-500/5",
-  },
-  {
-    id: "unexpected-use",
-    name: "의외의 활용형",
-    english: "UNEXPECTED USE",
-    description: "예상 밖 사용법이 더 유명해지는 이야기",
-    flow: "원래 용도 → 다른 사용법 → 확산 → 제품",
-    icon: Sparkles,
-    accent: "from-cyan-500/20 to-blue-500/5",
-  },
-  {
-    id: "hidden-truth",
-    name: "숨겨진 진실형",
-    english: "HIDDEN TRUTH",
-    description: "익숙한 것을 새롭게 보이게 만드는 반전",
-    flow: "익숙함 → 단서 → 비밀 → 반전 → 재조명",
-    icon: Search,
-    accent: "from-violet-500/20 to-fuchsia-500/5",
-  },
-  {
-    id: "heartwarming-true",
-    name: "감동 실화형",
-    english: "HEARTWARMING STORY",
-    description: "포기 직전의 감정선을 해결로 연결",
-    flow: "실패 → 포기 → 계기 → 도전 → 성공",
-    icon: HeartHandshake,
-    accent: "from-pink-500/20 to-rose-500/5",
-  },
-  {
-    id: "review-twist",
-    name: "리뷰 반전형",
-    english: "REVIEW TWIST",
-    description: "처음의 의심이 실제 사용 후기로 뒤집히는 이야기",
-    flow: "의심 → 실제 후기 → 검증 → 반전 → 제품",
-    icon: MessageSquareQuote,
-    accent: "from-emerald-500/20 to-teal-500/5",
-  },
-  {
-    id: "problem-solution",
-    name: "문제 해결형",
-    english: "PROBLEM SOLVER",
-    description: "반복되는 생활 불편을 해결하는 과정에 집중",
-    flow: "불편 → 기존 방법 실패 → 발견 → 해결 → 제품",
-    icon: Wrench,
-    accent: "from-blue-500/20 to-cyan-500/5",
-  },
-  {
-    id: "before-after",
-    name: "비포애프터형",
-    english: "BEFORE & AFTER",
-    description: "사용 전후의 명확한 변화를 이야기로 증명",
-    flow: "이전 상태 → 불편 → 사용 → 변화 → 결과",
-    icon: ArrowRightLeft,
-    accent: "from-teal-500/20 to-emerald-500/5",
-  },
-  {
-    id: "challenge-test",
-    name: "도전 실험형",
-    english: "CHALLENGE TEST",
-    description: "직접 조건을 정하고 시험하며 결과를 확인",
-    flow: "의문 → 실험 조건 → 도전 → 결과 → 판정",
-    icon: FlaskConical,
-    accent: "from-indigo-500/20 to-blue-500/5",
-  },
-  {
-    id: "mistake-warning",
-    name: "실수 경고형",
-    english: "MISTAKE WARNING",
-    description: "흔히 하는 실수와 손해를 피하는 방법 제시",
-    flow: "경고 → 흔한 실수 → 손해 → 해결법 → 제품",
-    icon: AlertTriangle,
-    accent: "from-amber-500/20 to-red-500/5",
-  },
-  {
-    id: "expert-tip",
-    name: "전문가 꿀팁형",
-    english: "EXPERT TIP",
-    description: "전문적인 선택 기준을 쉽게 풀어 신뢰 형성",
-    flow: "오해 → 선택 기준 → 핵심 팁 → 적용 → 제품",
-    icon: GraduationCap,
-    accent: "from-sky-500/20 to-violet-500/5",
-  },
-  {
-    id: "comparison",
-    name: "비교 검증형",
-    english: "HEAD TO HEAD",
-    description: "두 방식의 차이를 같은 조건에서 비교",
-    flow: "두 선택지 → 동일 조건 → 비교 → 차이 → 제품",
-    icon: Scale,
-    accent: "from-slate-400/20 to-blue-500/5",
-  },
-  {
-    id: "time-saving",
-    name: "시간 절약형",
-    english: "TIME SAVER",
-    description: "귀찮은 반복 작업이 짧아지는 체감에 집중",
-    flow: "반복 작업 → 시간 낭비 → 전환 → 단축 → 여유",
-    icon: Clock,
-    accent: "from-lime-500/20 to-green-500/5",
-  },
-  {
-    id: "gift-reaction",
-    name: "선물 반응형",
-    english: "GIFT REACTION",
-    description: "상대의 필요를 발견하고 선물한 뒤의 반응",
-    flow: "관찰 → 고민 → 선물 → 첫 반응 → 만족",
-    icon: Gift,
-    accent: "from-rose-500/20 to-pink-500/5",
-  },
-  {
-    id: "trend-discovery",
-    name: "트렌드 발견형",
-    english: "TREND DISCOVERY",
-    description: "왜 갑자기 주목받는지 사용 맥락으로 해설",
-    flow: "유행 포착 → 의문 → 이유 → 직접 확인 → 제품",
-    icon: TrendingUp,
-    accent: "from-fuchsia-500/20 to-purple-500/5",
-  },
+const TEMPLATE_VISUALS: Record<StoryScriptTemplateId, { icon: typeof Flame; accent: string }> = {
+  origin: { icon: Flame, accent: "from-orange-500/20 to-amber-500/5" },
+  inventor: { icon: Lightbulb, accent: "from-yellow-400/20 to-lime-500/5" },
+  competition: { icon: Swords, accent: "from-red-500/20 to-orange-500/5" },
+  "unexpected-use": { icon: Sparkles, accent: "from-cyan-500/20 to-blue-500/5" },
+  "hidden-truth": { icon: Search, accent: "from-violet-500/20 to-fuchsia-500/5" },
+  "heartwarming-true": { icon: HeartHandshake, accent: "from-pink-500/20 to-rose-500/5" },
+  "review-twist": { icon: MessageSquareQuote, accent: "from-emerald-500/20 to-teal-500/5" },
+  "problem-solution": { icon: Wrench, accent: "from-blue-500/20 to-cyan-500/5" },
+  "before-after": { icon: ArrowRightLeft, accent: "from-teal-500/20 to-emerald-500/5" },
+  "challenge-test": { icon: FlaskConical, accent: "from-indigo-500/20 to-blue-500/5" },
+  "mistake-warning": { icon: AlertTriangle, accent: "from-amber-500/20 to-red-500/5" },
+  "expert-tip": { icon: GraduationCap, accent: "from-sky-500/20 to-violet-500/5" },
+  comparison: { icon: Scale, accent: "from-slate-400/20 to-blue-500/5" },
+  "time-saving": { icon: Clock, accent: "from-lime-500/20 to-green-500/5" },
+  "gift-reaction": { icon: Gift, accent: "from-rose-500/20 to-pink-500/5" },
+  "trend-discovery": { icon: TrendingUp, accent: "from-fuchsia-500/20 to-purple-500/5" },
+  "underdog-comeback": { icon: Rocket, accent: "from-orange-500/25 to-yellow-500/5" },
+  "consumer-revolt": { icon: Megaphone, accent: "from-red-500/25 to-rose-500/5" },
+  "maker-panic": { icon: Factory, accent: "from-sky-500/25 to-cyan-500/5" },
+  "foreigner-reaction": { icon: Globe, accent: "from-emerald-500/25 to-sky-500/5" },
+  "country-gap": { icon: Flag, accent: "from-indigo-500/25 to-red-500/5" },
+  "viral-to-product": { icon: Smartphone, accent: "from-fuchsia-500/25 to-pink-500/5" },
+  "accident-hit": { icon: Dices, accent: "from-amber-500/25 to-lime-500/5" },
+  "rescue-story": { icon: LifeBuoy, accent: "from-teal-500/25 to-emerald-500/5" },
+  "habit-breaker": { icon: CircleSlash, accent: "from-violet-500/25 to-indigo-500/5" },
+  "quiet-change": { icon: ScanSearch, accent: "from-slate-400/25 to-sky-500/5" },
+  "controversy-flip": { icon: Siren, accent: "from-red-600/25 to-amber-500/5" },
+}
+
+const TEMPLATES = STORY_SCRIPT_TEMPLATE_IDS.map((id) => ({
+  id,
+  ...STORY_SCRIPT_TEMPLATES[id],
+  ...TEMPLATE_VISUALS[id],
+}))
+
+const TEMPLATE_GROUPS: Array<{ id: StoryScriptTemplateGroup; label: string; hint: string }> = [
+  { id: "ssul", label: "썰채널 인기 공식", hint: "조회수 높은 썰쇼핑 채널 대본에서 뽑은 전개" },
+  { id: "classic", label: "기본 스토리 공식", hint: "어떤 제품에도 쓰기 쉬운 기본 전개" },
 ]
 
 export function StoryGenerationPanel({
@@ -252,6 +154,7 @@ export function StoryGenerationPanel({
   const [error, setError] = useState("")
   const recommendationStartedRef = useRef("")
   const latestProductKeyRef = useRef("")
+  const generationRunRef = useRef(0)
   const productKey = `${brief.productName.trim()}::${brief.selectedProductSource || ""}::${
     brief.collectorData?.collectedAt || ""
   }`
@@ -321,6 +224,11 @@ export function StoryGenerationPanel({
   }, [brief, onChange, productKey, recommendation])
 
   const generate = async () => {
+    const runId = generationRunRef.current + 1
+    generationRunRef.current = runId
+    const requestProductKey = productKey
+    const requestId = `story_${Date.now()}_${runId}`
+    const baseRevision = brief.generatedStory?.generationContext?.responseRevision
     setIsGenerating(true)
     setError("")
     try {
@@ -339,6 +247,17 @@ export function StoryGenerationPanel({
           collectorData: brief.collectorData,
           referenceTitle: reference?.title,
           referenceTranscript,
+          referenceVideos: brief.referenceVideos.map((video) => ({
+            title: video.title,
+            description: video.description,
+            viewCount: video.viewCount,
+            durationSec: video.durationSec,
+            format: video.format,
+            hookPattern: video.hookPattern,
+            performanceScore: video.performanceScore,
+          })),
+          requestId,
+          baseRevision,
           apiKey:
             typeof window !== "undefined"
               ? localStorage.getItem("shotform_openai_api_key") || undefined
@@ -347,25 +266,46 @@ export function StoryGenerationPanel({
       })
       const payload = await response.json()
       if (!response.ok) throw new Error(payload.error || "스토리 생성에 실패했습니다.")
+      if (
+        generationRunRef.current !== runId ||
+        latestProductKeyRef.current !== requestProductKey ||
+        payload.requestId !== requestId ||
+        payload.baseRevision !== baseRevision
+      ) {
+        return
+      }
       const generatedStory = payload.story as StoryGeneratedScript
-      onChange({
-        ...brief,
-        generatedStory,
-        frameSettings: {
-          ...DEFAULT_STORY_FRAME_SETTINGS,
-          ...brief.frameSettings,
-          videoTitle: generatedStory.title,
-          // 표지는 새 제목을 두 줄로 자동 분할 — 이전 대본의 수동 표지 문구는 비움
-          coverTitleTop: "",
-          coverTitleAccent: "",
-        },
-        voiceData: undefined,
-        sceneAssets: undefined,
+      onChange((current) => {
+        const currentProductKey = `${current.productName.trim()}::${
+          current.selectedProductSource || ""
+        }::${current.collectorData?.collectedAt || ""}`
+        if (
+          currentProductKey !== requestProductKey ||
+          current.generatedStory?.generationContext?.responseRevision !== baseRevision
+        ) {
+          return current
+        }
+        return {
+          ...current,
+          generatedStory,
+          frameSettings: {
+            ...DEFAULT_STORY_FRAME_SETTINGS,
+            ...current.frameSettings,
+            videoTitle: generatedStory.title,
+            // 표지는 새 제목을 두 줄로 자동 분할 — 이전 대본의 수동 표지 문구는 비움
+            coverTitleTop: "",
+            coverTitleAccent: "",
+          },
+          voiceData: undefined,
+          sceneAssets: undefined,
+        }
       })
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "스토리 생성에 실패했습니다.")
+      if (generationRunRef.current === runId) {
+        setError(reason instanceof Error ? reason.message : "스토리 생성에 실패했습니다.")
+      }
     } finally {
-      setIsGenerating(false)
+      if (generationRunRef.current === runId) setIsGenerating(false)
     }
   }
 
@@ -552,58 +492,68 @@ export function StoryGenerationPanel({
                 제품의 이야기를 가장 효과적으로 전달할 템플릿을 선택하세요.
               </DialogDescription>
             </DialogHeader>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {orderedTemplates.map((item, index) => {
-                const Icon = item.icon
-                const selected = selectedTemplate === item.id
-                const recommended = recommendation?.templateId === item.id
-                return (
-                  <motion.button
-                    key={item.id}
-                    type="button"
-                    initial={{ opacity: 0, y: 12 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.04 }}
-                    onClick={() => {
-                      setSelectedTemplate(item.id)
-                      setIsTemplateDialogOpen(false)
-                    }}
-                    className={`relative overflow-hidden rounded-2xl border p-4 text-left transition ${
-                      selected
-                        ? "border-violet-300/70 bg-violet-500/15 shadow-[0_0_30px_rgba(139,92,246,0.12)]"
-                        : "border-white/10 bg-white/[0.025] hover:border-white/25"
-                    }`}
-                  >
-                    <div className={`absolute inset-0 bg-gradient-to-br ${item.accent}`} />
-                    <div className="relative">
-                      <div className="flex items-start justify-between">
-                        <Icon className="h-5 w-5 text-white" />
-                        <div className="flex items-center gap-2">
-                          {recommended ? (
-                            <span className="rounded-full border border-violet-200/30 bg-violet-300 px-2 py-1 text-[8px] font-black text-violet-950">
-                              AI 추천 1순위
-                            </span>
-                          ) : null}
-                          {selected ? (
-                            <span className="rounded-full bg-violet-300 p-1 text-violet-950">
-                              <Check className="h-3 w-3" />
-                            </span>
-                          ) : null}
-                        </div>
-                      </div>
-                      <p className="mt-3 text-sm font-black text-white">{item.name}</p>
-                      <p className="mt-1 text-[8px] font-bold tracking-[0.16em] text-zinc-500">
-                        {item.english}
-                      </p>
-                      <p className="mt-3 text-xs leading-5 text-zinc-300">{item.description}</p>
-                      <p className="mt-3 rounded-lg bg-black/20 px-2.5 py-2 text-[10px] text-zinc-400">
-                        {item.flow}
-                      </p>
-                    </div>
-                  </motion.button>
-                )
-              })}
-            </div>
+            {TEMPLATE_GROUPS.map((group) => (
+              <section key={group.id} className="space-y-3">
+                <div className="flex items-baseline gap-2">
+                  <h3 className="text-sm font-black text-white">{group.label}</h3>
+                  <span className="text-[10px] text-zinc-500">{group.hint}</span>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  {orderedTemplates
+                    .filter((item) => item.group === group.id)
+                    .map((item, index) => {
+                      const Icon = item.icon
+                      const selected = selectedTemplate === item.id
+                      const recommended = recommendation?.templateId === item.id
+                      return (
+                        <motion.button
+                          key={item.id}
+                          type="button"
+                          initial={{ opacity: 0, y: 12 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: index * 0.04 }}
+                          onClick={() => {
+                            setSelectedTemplate(item.id)
+                            setIsTemplateDialogOpen(false)
+                          }}
+                          className={`relative overflow-hidden rounded-2xl border p-4 text-left transition ${
+                            selected
+                              ? "border-violet-300/70 bg-violet-500/15 shadow-[0_0_30px_rgba(139,92,246,0.12)]"
+                              : "border-white/10 bg-white/[0.025] hover:border-white/25"
+                          }`}
+                        >
+                          <div className={`absolute inset-0 bg-gradient-to-br ${item.accent}`} />
+                          <div className="relative">
+                            <div className="flex items-start justify-between">
+                              <Icon className="h-5 w-5 text-white" />
+                              <div className="flex items-center gap-2">
+                                {recommended ? (
+                                  <span className="rounded-full border border-violet-200/30 bg-violet-300 px-2 py-1 text-[8px] font-black text-violet-950">
+                                    AI 추천 1순위
+                                  </span>
+                                ) : null}
+                                {selected ? (
+                                  <span className="rounded-full bg-violet-300 p-1 text-violet-950">
+                                    <Check className="h-3 w-3" />
+                                  </span>
+                                ) : null}
+                              </div>
+                            </div>
+                            <p className="mt-3 text-sm font-black text-white">{item.name}</p>
+                            <p className="mt-1 text-[8px] font-bold tracking-[0.16em] text-zinc-500">
+                              {item.english}
+                            </p>
+                            <p className="mt-3 text-xs leading-5 text-zinc-300">{item.description}</p>
+                            <p className="mt-3 rounded-lg bg-black/20 px-2.5 py-2 text-[10px] text-zinc-400">
+                              {item.flow}
+                            </p>
+                          </div>
+                        </motion.button>
+                      )
+                    })}
+                </div>
+              </section>
+            ))}
           </DialogContent>
         </Dialog>
 

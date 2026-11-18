@@ -66,18 +66,18 @@ export async function POST(request: NextRequest) {
 
     // 키워드 추출 (형태소 분석 기반)
     const allText = posts
-      .map((post) => `${post.title} ${post.description}`)
+      .map((post: { title: string; description: string }) => `${post.title} ${post.description}`)
       .join(" ")
 
     // OpenAI API를 활용한 키워드 추출
     let extractedKeywords: string[] = []
     try {
-      const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "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"
+      const OPENAI_API_KEY = process.env.OPENAI_API_KEY
       
       const keywordPrompt = `다음 블로그 글들의 제목과 설명을 분석하여 공통으로 나타나는 중요한 키워드(형태소)를 추출해주세요.
 
 블로그 글들:
-${posts.map((post, idx) => `${idx + 1}. 제목: ${post.title}\n   설명: ${post.description.substring(0, 200)}...`).join("\n\n")}
+${posts.map((post: { title: string; description: string }, idx: number) => `${idx + 1}. 제목: ${post.title}\n   설명: ${post.description.substring(0, 200)}...`).join("\n\n")}
 
 요구사항:
 1. 목표 키워드 "${keyword}"와 관련된 중요한 형태소를 추출

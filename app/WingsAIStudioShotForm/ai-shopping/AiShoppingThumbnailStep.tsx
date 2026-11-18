@@ -3,11 +3,18 @@
 import { useEffect, useState, type RefObject } from "react"
 import { ArrowLeft, ArrowRight, Download, Image as ImageIcon, Loader2, Palette, Sparkles } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Ver2StepShell } from "./Ver2StepShell"
+import { PhoneFrame } from "./premium-ui"
 import { MvpThumbnailAdvancedEditor } from "../shortform-studio/MvpThumbnailAdvancedEditor"
 import type { MvpThumbnailDesign } from "@/lib/mvp-thumbnail-design"
+
+// light-remap 이 팔레트 유틸을 뒤집는 라우트라 hex 임의값만 사용
+const T_CARD =
+  "overflow-hidden rounded-[20px] border border-[#e3e6ec] bg-[#ffffff] shadow-[0_1px_2px_rgba(14,16,22,0.04),0_18px_40px_-32px_rgba(14,16,22,0.22)]"
+const T_FOCUS = "focus-visible:ring-2 focus-visible:ring-[#2f3beb] focus-visible:ring-offset-2"
+const T_INPUT =
+  "h-10 rounded-[10px] border-[#e3e6ec] bg-[#ffffff] text-[14px] !text-[#0e1016] placeholder:text-[#9aa0ad] focus-visible:border-[#2f3beb] focus-visible:ring-[#2f3beb]/20"
 
 type HookingText = { line1: string; line2: string }
 
@@ -20,7 +27,7 @@ type Props = {
   isGeneratingThumbnail: boolean
   onGenerateThumbnail: () => void
   thumbnailUrl: string
-  thumbnailCanvasRef: RefObject<HTMLCanvasElement | null>
+  thumbnailCanvasRef: RefObject<HTMLCanvasElement>
   onDownloadThumbnail: () => void
   customThumbnailImage: string | null
   studioDesign: MvpThumbnailDesign | null
@@ -53,15 +60,18 @@ export function AiShoppingThumbnailStep({
   const [isGeneratingText, setIsGeneratingText] = useState(false)
   const [studioHookingText, setStudioHookingText] = useState(hookingText)
 
+  // 새로고침 뒤 죽은 blob: 등 로드 실패한 URL — 다음 후보로 넘어가기 위해 기록
+  const [deadUrls, setDeadUrls] = useState<Set<string>>(() => new Set())
+  const markDead = (url: string) =>
+    setDeadUrls((prev) => (prev.has(url) ? prev : new Set(prev).add(url)))
+  const alive = (url: unknown): string =>
+    typeof url === "string" && url.trim() && !deadUrls.has(url.trim()) ? url.trim() : ""
+
   // 썸네일 스튜디오 기본 배경: AI이미지 단계에서 만든 장면을 최우선
-  const aiSceneImage =
-    imageUrls.find((url) => typeof url === "string" && url.trim().length > 0)?.trim() || ""
+  const aiSceneImage = imageUrls.map(alive).find(Boolean) || ""
   const studioBackground =
-    aiSceneImage ||
-    (typeof productImage === "string" && productImage.trim()) ||
-    (typeof customThumbnailImage === "string" && customThumbnailImage.trim()) ||
-    (typeof thumbnailUrl === "string" && thumbnailUrl.trim()) ||
-    ""
+    aiSceneImage || alive(productImage) || alive(customThumbnailImage) || alive(thumbnailUrl) || ""
+  const finishedThumbnail = alive(thumbnailUrl)
 
   useEffect(() => {
     setStudioHookingText(hookingText)
@@ -149,14 +159,14 @@ export function AiShoppingThumbnailStep({
           <Button
             variant="outline"
             onClick={onBack}
-            className="border-white/15 bg-[#f6ffff] text-zinc-200 hover:bg-white/10"
+            className={`h-10 rounded-full border-[#e3e6ec] bg-[#ffffff] px-4 text-[#0e1016] hover:bg-[#f5f6fa] hover:text-[#0e1016] ${T_FOCUS}`}
           >
             <ArrowLeft className="mr-1.5 h-4 w-4" />
             이전
           </Button>
           <Button
             onClick={onNext}
-            className="bg-violet-600 font-semibold text-white hover:bg-violet-500"
+            className={`h-10 rounded-full bg-[#0e1016] px-5 font-semibold text-[#ffffff] hover:bg-[#262a36] ${T_FOCUS}`}
           >
             다음 · AI영상편집
             <ArrowRight className="ml-1.5 h-4 w-4" />
@@ -165,27 +175,65 @@ export function AiShoppingThumbnailStep({
       }
     >
       <div className="mx-auto grid w-full max-w-5xl grid-cols-1 gap-4 lg:grid-cols-2 lg:items-start">
-        <Card className="rounded-2xl border border-white/10 bg-[#fdfeff] shadow-2xl">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-sm text-zinc-100">
-              <ImageIcon className="h-4 w-4 text-violet-400" />
-              썸네일 미리보기
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="relative mx-auto aspect-[9/16] w-full max-w-[280px] overflow-hidden rounded-xl border border-violet-400/40 bg-black shadow-[0_0_35px_rgba(139,92,246,0.08)]">
-              {thumbnailUrl ? (
-                <canvas
-                  ref={thumbnailCanvasRef}
-                  className="h-full w-full object-cover"
-                  style={{ aspectRatio: "9/16" }}
-                />
-              ) : (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-4 text-center text-zinc-500">
-                  <ImageIcon className="h-10 w-10 opacity-40" />
-                  <p className="text-xs">AI 썸네일을 생성하세요</p>
-                </div>
-              )}
+        <div className={T_CARD}>
+          <div className="flex items-center gap-2 border-b border-[#eef0f4] px-5 py-4 text-[14px] font-bold text-[#0e1016]">
+            <ImageIcon className="h-4 w-4 text-[#2f3beb]" />
+            썸네일 미리보기
+          </div>
+          <div className="space-y-3 p-5">
+            <div className="rounded-[16px] bg-[#eef0f5] px-3 py-6">
+              <PhoneFrame>
+                {/* 다운로드·재그리기용 캔버스는 유지하고, 화면에는 <img> 로 바로 보여줌 */}
+                {thumbnailUrl ? (
+                  <canvas
+                    ref={thumbnailCanvasRef}
+                    aria-hidden
+                    className="absolute inset-0 h-full w-full object-cover"
+                    style={{ aspectRatio: "9/16" }}
+                  />
+                ) : null}
+                {finishedThumbnail ? (
+                  <img
+                    key={finishedThumbnail}
+                    src={finishedThumbnail}
+                    alt="선택된 썸네일"
+                    onError={() => markDead(finishedThumbnail)}
+                    className="absolute inset-0 z-10 h-full w-full object-cover"
+                  />
+                ) : studioBackground ? (
+                  <div className="absolute inset-0 z-10">
+                    <img
+                      key={studioBackground}
+                      src={studioBackground}
+                      alt="썸네일 배경 미리보기"
+                      onError={() => markDead(studioBackground)}
+                      className="h-full w-full object-cover"
+                    />
+                    <div className="absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-[#000000]/45 to-transparent" />
+                    <div className="absolute inset-x-3 top-[16%] text-center font-black leading-[1.15] tracking-[-0.02em]">
+                      {[studioHookingText.line1 || "첫 번째 문구", studioHookingText.line2 || "두 번째 문구"].map(
+                        (line, i) => (
+                          <p
+                            key={i}
+                            className={`break-keep text-[22px] ${i === 0 ? "text-[#ffffff]" : "mt-1 text-[#ffd23f]"}`}
+                            style={{ WebkitTextStroke: "5px #000000", paintOrder: "stroke fill" }}
+                          >
+                            {line}
+                          </p>
+                        )
+                      )}
+                    </div>
+                    <span className="absolute bottom-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-[#000000]/60 px-2.5 py-1 text-[12px] text-[#e3e6ec]">
+                      미리보기 · 아직 저장 전
+                    </span>
+                  </div>
+                ) : (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 p-4 text-center text-[#9aa0ad]">
+                    <ImageIcon className="h-9 w-9 opacity-60" />
+                    <p className="text-[13px]">AI 썸네일을 생성하세요</p>
+                  </div>
+                )}
+              </PhoneFrame>
             </div>
 
             <div className="flex gap-2">
@@ -193,17 +241,25 @@ export function AiShoppingThumbnailStep({
                 type="button"
                 onClick={onGenerateThumbnail}
                 disabled={isGeneratingThumbnail || !productImage}
-                className="flex-1 bg-violet-600 text-white hover:bg-violet-500"
+                className={`h-11 flex-1 rounded-[12px] bg-[#0e1016] font-semibold text-[#ffffff] hover:bg-[#262a36] disabled:bg-[#c9cdd6] disabled:opacity-100 ${T_FOCUS}`}
               >
                 {isGeneratingThumbnail ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className="mr-2 h-4 w-4 motion-safe:animate-spin" />
                 ) : (
                   <Sparkles className="mr-2 h-4 w-4" />
                 )}
                 {isGeneratingThumbnail ? "생성 중…" : "AI 썸네일 생성"}
               </Button>
               {thumbnailUrl ? (
-                <Button type="button" variant="outline" size="icon" onClick={onDownloadThumbnail}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={onDownloadThumbnail}
+                  aria-label="썸네일 다운로드"
+                  title="썸네일 다운로드"
+                  className={`h-11 w-11 rounded-[12px] border-[#e3e6ec] bg-[#ffffff] text-[#0e1016] hover:bg-[#f5f6fa] hover:text-[#0e1016] ${T_FOCUS}`}
+                >
                   <Download className="h-4 w-4" />
                 </Button>
               ) : null}
@@ -214,10 +270,10 @@ export function AiShoppingThumbnailStep({
               variant="outline"
               onClick={() => void openStudio()}
               disabled={!studioBackground || isPreparingStudio}
-              className="w-full border-violet-400/30 bg-violet-500/10 text-violet-100 hover:bg-violet-500/20"
+              className={`h-11 w-full rounded-[12px] border-[#d9dcfb] bg-[#eef0ff] font-semibold text-[#2f3beb] hover:bg-[#e3e6ff] hover:text-[#2f3beb] ${T_FOCUS}`}
             >
               {isPreparingStudio ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Loader2 className="mr-2 h-4 w-4 motion-safe:animate-spin" />
               ) : (
                 <Palette className="mr-2 h-4 w-4" />
               )}
@@ -225,86 +281,89 @@ export function AiShoppingThumbnailStep({
             </Button>
 
             {aiSceneImage ? (
-              <p className="text-center text-[11px] text-emerald-300/90">
+              <p className="text-center text-[12px] text-[#0d9467]">
                 스튜디오 기본 배경: AI이미지 장면 1을 사용합니다.
               </p>
             ) : !productImage ? (
-              <p className="text-center text-[11px] text-amber-300/90">
+              <p className="text-center text-[12px] text-[#b7790a]">
                 AI이미지 장면이 없습니다. AI이미지 단계에서 이미지를 만든 뒤 스튜디오를 열어주세요.
               </p>
             ) : (
-              <p className="text-center text-[11px] text-zinc-500">
+              <p className="text-center text-[12px] text-[#5c6170]">
                 AI이미지 장면이 없어 제품 소싱 사진을 배경으로 씁니다.
               </p>
             )}
-            {error ? <p className="whitespace-pre-wrap text-sm text-red-400">{error}</p> : null}
-          </CardContent>
-        </Card>
+            {error ? (
+              <p role="alert" className="whitespace-pre-wrap rounded-[12px] border border-[#f6d0d0] bg-[#fff4f4] px-3 py-2 text-[13px] text-[#c62828]">
+                {error}
+              </p>
+            ) : null}
+          </div>
+        </div>
 
-        <Card className="rounded-2xl border border-violet-400/20 bg-[#fdfeff] shadow-2xl">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-sm text-zinc-100">
-              <Sparkles className="h-4 w-4 text-fuchsia-400" />
+        <div className={T_CARD}>
+          <div className="border-b border-[#eef0f4] px-5 py-4">
+            <p className="flex items-center gap-2 text-[14px] font-bold text-[#0e1016]">
+              <Sparkles className="h-4 w-4 text-[#2f3beb]" />
               썸네일 문구 생성
-            </CardTitle>
-            <p className="text-[11px] leading-relaxed text-zinc-500">
+            </p>
+            <p className="mt-1 text-[12px] leading-relaxed text-[#5c6170]">
               제품에 어울리는 2줄 후킹 문구를 AI가 만들며, 아래 문구가 썸네일 스튜디오에 자동으로 들어갑니다.
             </p>
-          </CardHeader>
-          <CardContent className="space-y-4">
+          </div>
+          <div className="space-y-4 p-5">
             <Button
               type="button"
               onClick={() => void generateStudioText()}
               disabled={isGeneratingText || !productName}
-              className="w-full bg-gradient-to-r from-fuchsia-600 to-violet-600 font-semibold text-white hover:from-fuchsia-500 hover:to-violet-500"
+              className={`h-11 w-full rounded-[12px] bg-[#2f3beb] font-semibold text-[#ffffff] hover:bg-[#4350ff] disabled:bg-[#c9cdd6] disabled:opacity-100 ${T_FOCUS}`}
             >
               {isGeneratingText ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Loader2 className="mr-2 h-4 w-4 motion-safe:animate-spin" />
               ) : (
                 <Sparkles className="mr-2 h-4 w-4" />
               )}
               {isGeneratingText ? "AI 문구 생성 중…" : "AI 썸네일 문구 생성"}
             </Button>
 
-            <div className="space-y-3 rounded-xl border border-white/10 bg-black/25 p-4">
+            <div className="space-y-3 rounded-[16px] border border-[#e8eaf0] bg-[#fafbfc] p-4">
               <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold text-zinc-400">첫 번째 줄</label>
+                <label htmlFor="ai-thumb-line1" className="text-[12px] font-medium text-[#5c6170]">첫 번째 줄</label>
                 <Input
+                  id="ai-thumb-line1"
                   value={studioHookingText.line1}
                   onChange={(event) =>
                     applyHookingText({ ...studioHookingText, line1: event.target.value })
                   }
                   placeholder="예: 매일 쓰는데 몰랐어요"
-                  className="border-white/15 bg-black/40 text-zinc-100"
+                  className={T_INPUT}
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="text-[11px] font-semibold text-zinc-400">두 번째 줄</label>
+                <label htmlFor="ai-thumb-line2" className="text-[12px] font-medium text-[#5c6170]">두 번째 줄</label>
                 <Input
+                  id="ai-thumb-line2"
                   value={studioHookingText.line2}
                   onChange={(event) =>
                     applyHookingText({ ...studioHookingText, line2: event.target.value })
                   }
                   placeholder="예: 이 기능이 핵심입니다"
-                  className="border-white/15 bg-black/40 text-zinc-100"
+                  className={T_INPUT}
                 />
               </div>
             </div>
 
-            <div className="rounded-xl border border-violet-400/20 bg-violet-500/[0.06] p-4">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-violet-300">
-                Studio Preview Text
-              </p>
-              <p className="mt-3 text-xl font-black leading-tight text-white">
+            <div className="rounded-[16px] bg-[#0e1016] p-5">
+              <p className="text-[11px] font-semibold text-[#9aa0ad]">스튜디오 문구 미리보기</p>
+              <p className="mt-3 text-xl font-black leading-tight text-[#ffffff]">
                 {studioHookingText.line1 || "첫 번째 문구"}
               </p>
-              <p className="mt-1 text-xl font-black leading-tight text-fuchsia-300">
+              <p className="mt-1 text-xl font-black leading-tight text-[#ffd23f]">
                 {studioHookingText.line2 || "두 번째 문구"}
               </p>
             </div>
-
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
 
       <MvpThumbnailAdvancedEditor

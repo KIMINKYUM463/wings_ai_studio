@@ -12,6 +12,7 @@ import {
 import {
   formatNarrationForSceneDuration,
   maxCharsForSceneDuration,
+  minCharsForSceneDuration,
   narrationLooksIncomplete,
 } from "@/lib/shotform-narration-timing"
 import { applyFlowRhythmToScript } from "@/lib/shotform-narration-flow-rhythm"
@@ -542,6 +543,7 @@ ${NARRATION_PRODUCT_NAME_USAGE_RULE}
     .map((c, i) => {
       const meta = sceneMetas?.[i]
       const maxChars = maxCharsForSceneDuration(c.duration)
+      const minChars = minCharsForSceneDuration(c.duration)
       const lineHint = c.duration <= 2.5 ? 2 : c.duration <= 4 ? 3 : Math.max(3, Math.round(c.duration / 1.4))
       const role = naturalShorts
         ? c.index === 1
@@ -584,7 +586,7 @@ ${NARRATION_PRODUCT_NAME_USAGE_RULE}
         vk.length > 0
           ? ` · 이 컷 대본에 키워드 제품 + 화면에 보이는 사물·행동을 구체적으로 반영`
           : " · 화면에 보이는 사물·행동을 구체적으로 말할 것"
-      return `${c.index}. 출력 ${c.output_start}-${c.output_end}s (${c.duration}초, ${lineHint}줄 권장, 최대 ${maxChars}자) · ${role}${shortCut}${rhythmHint}
+      return `${c.index}. 출력 ${c.output_start}-${c.output_end}s (${c.duration}초, ${lineHint}줄 권장, ${minChars}~${maxChars}자) · ${role}${shortCut}${rhythmHint}
    소스 ${c.source_start.toFixed(1)}-${c.source_end.toFixed(1)}s · video ${c.video_id}
    화면: ${visualForPrompt}${keywordHint}${benefitHint}${repeatHint}${mustMention}`
     })

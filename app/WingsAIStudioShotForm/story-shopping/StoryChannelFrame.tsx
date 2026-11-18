@@ -8,11 +8,15 @@ import {
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from "react"
+import { glueKoreanWordUnits, isAwkwardKoreanBreak } from "@/lib/korean-subtitle-words"
 import {
   ArrowLeft,
+  ArrowRight,
   Bell,
   Bookmark,
   Briefcase,
+  Cookie,
+  Crown,
   EllipsisVertical,
   Flame,
   Heart,
@@ -23,6 +27,8 @@ import {
   PenLine,
   Search,
   Send,
+  ShoppingCart,
+  Smile,
   Sparkles,
   Star,
   Store,
@@ -31,6 +37,7 @@ import {
   Users,
   Video,
   Zap,
+  type LucideIcon,
 } from "lucide-react"
 import type {
   StoryFrameSettings,
@@ -138,7 +145,7 @@ export function prefetchStoryMediaUrls(
 }
 
 export const DEFAULT_STORY_FRAME_SETTINGS: StoryFrameSettings = {
-  templateId: "channel-shop-green",
+  templateId: "channel-wings-search",
   channelName: "이야기 상점",
   videoTitle: "알고 나면 계속 생각나는 이야기",
   authorLabel: "익명",
@@ -173,6 +180,25 @@ type StoryFrameVariant =
   | "breaking"
   | "webtoon"
   | "diary"
+  | "fullbleed"
+
+/** 썰쇼핑(shop) 헤더 세부 모양 — 채널마다 다른 건 헤더뿐이라 옵션으로 조합 */
+type ShopHeaderStyle = {
+  /** center: 채널명 가운데 · menu-search: ☰ 채널명 🔍 · wings-note: ☰ 와 아이콘만 (채널명 없음) */
+  layout?: "center" | "menu-search" | "wings-note"
+  nameFont?: string
+  nameSizeCqw?: number
+  icon?: LucideIcon
+  /** 아이콘을 동그란 배지에 담을 때 배지 색 */
+  iconBadgeColor?: string
+  iconSide?: "left" | "right"
+  /** 제목 아래 "작성자 | 조회수" 메타 줄 (제목 왼쪽 정렬) */
+  postMeta?: boolean
+  /** 제목 아래 "19 : 03 |" 시계 + 밑줄 (윙스 수동 제작 메모장 템플릿) */
+  clockLine?: boolean
+  /** 헤더 오른쪽 위 [광고] — 제휴 링크 영상의 광고 표기 */
+  adTag?: boolean
+}
 
 export const STORY_FRAME_TEMPLATES: Array<{
   id: StoryFrameTemplateId
@@ -183,12 +209,26 @@ export const STORY_FRAME_TEMPLATES: Array<{
   variant: StoryFrameVariant
   /** 영상 시작 표지의 강조 줄 색 */
   coverAccent?: string
-  /** 헤더 채널명 앞 상점 아이콘 */
-  headerIcon?: boolean
+  /** 영상 시작을 검은 화면 + 흰 띠 제목으로 (윙스 수동 제작 인트로) */
+  coverBand?: boolean
+  shop?: ShopHeaderStyle
 }> = [
+  { id: "channel-wings-search", name: "윙스 메모장 · 검색", description: "수동 제작 템플릿 · 주황 상단바 + 시계 줄 + 검은 띠 인트로", color: "#FC5230", foreground: "#1a1a1a", variant: "shop", coverAccent: "#ffd400", coverBand: true, shop: { layout: "wings-note", icon: Search, clockLine: true } },
+  { id: "channel-wings-profile", name: "윙스 메모장 · 프로필", description: "수동 제작 템플릿 · 노란 상단바 + 사람 아이콘", color: "#FFCD4A", foreground: "#1a1a1a", variant: "shop", coverAccent: "#ffd400", coverBand: true, shop: { layout: "wings-note", icon: UserRound, clockLine: true } },
+  { id: "channel-wings-cart", name: "윙스 메모장 · 장바구니", description: "수동 제작 템플릿 · 파란 상단바 + 장바구니 아이콘", color: "#18A8F1", foreground: "#1a1a1a", variant: "shop", coverAccent: "#7fd4ff", coverBand: true, shop: { layout: "wings-note", icon: ShoppingCart, clockLine: true } },
+  { id: "channel-wings-arrow", name: "윙스 메모장 · 화살표", description: "수동 제작 템플릿 · 호박색 상단바 + 화살표 아이콘", color: "#FD9F28", foreground: "#1a1a1a", variant: "shop", coverAccent: "#ffd400", coverBand: true, shop: { layout: "wings-note", icon: ArrowRight, clockLine: true } },
+  { id: "channel-wings-home", name: "윙스 메모장 · 홈", description: "수동 제작 템플릿 · 민트 상단바 + 집 아이콘", color: "#82CBC4", foreground: "#1a1a1a", variant: "shop", coverAccent: "#b8fff2", coverBand: true, shop: { layout: "wings-note", icon: Home, clockLine: true } },
   { id: "channel-shop-green", name: "썰쇼핑 그린형", description: "선물가게 스타일 · 연두 헤더 + 형광 표지", color: "#9fd36d", foreground: "#1d3510", variant: "shop", coverAccent: "#8dff3c" },
   { id: "channel-shop-orange", name: "썰쇼핑 오렌지형", description: "수상한상점 스타일 · 주황 헤더 + 노랑 표지", color: "#f6a03b", foreground: "#ffffff", variant: "shop", coverAccent: "#ffd500" },
-  { id: "channel-shop-white", name: "썰쇼핑 화이트형", description: "신사들 스타일 · 흰 헤더 + 주황 표지", color: "#ffffff", foreground: "#111111", variant: "shop", coverAccent: "#ff9d1c", headerIcon: true },
+  { id: "channel-shop-white", name: "썰쇼핑 화이트형", description: "신사들 스타일 · 흰 헤더 + 주황 표지", color: "#ffffff", foreground: "#111111", variant: "shop", coverAccent: "#ff9d1c", shop: { icon: Store } },
+  { id: "channel-shop-navy", name: "썰쇼핑 네이비 배지형", description: "남색 헤더 + 가운데 마스코트 배지 · 하늘색 표지", color: "#1f3a72", foreground: "#ffffff", variant: "shop", coverAccent: "#43c6ff", shop: { icon: Smile, iconBadgeColor: "#ffffff", nameFont: "'Jua', sans-serif" } },
+  { id: "channel-shop-yellow", name: "썰쇼핑 옐로 메뉴형", description: "샛노랑 앱 헤더(☰·🔍) + 작성자 줄", color: "#ffe100", foreground: "#111111", variant: "shop", coverAccent: "#ffe100", shop: { layout: "menu-search", nameSizeCqw: 5.6, postMeta: true } },
+  { id: "channel-shop-tomato", name: "썰쇼핑 토마토형", description: "주홍 헤더 + 굵은 손글씨 채널명 + 오른쪽 캐릭터", color: "#e8572b", foreground: "#1a1a1a", variant: "shop", coverAccent: "#ffd400", shop: { icon: Smile, iconBadgeColor: "#fff4e0", iconSide: "right", nameFont: "'Do Hyeon', sans-serif", nameSizeCqw: 7.4, postMeta: true } },
+  { id: "channel-shop-forest", name: "썰쇼핑 포레스트형", description: "짙은 초록 헤더 + 둥근 로고 글씨 · 형광 표지", color: "#4c7a43", foreground: "#fff6c8", variant: "shop", coverAccent: "#a6ff4d", shop: { icon: Cookie, iconBadgeColor: "#fff6c8", nameFont: "'Jua', sans-serif", nameSizeCqw: 7.4 } },
+  { id: "channel-shop-lime", name: "썰쇼핑 라임 명조형", description: "라임 앱 헤더 + 명조 채널명 + 작성자 줄", color: "#bdf46c", foreground: "#111111", variant: "shop", coverAccent: "#b4ff5a", shop: { layout: "menu-search", nameFont: "'Song Myung', serif", nameSizeCqw: 6, postMeta: true } },
+  { id: "channel-shop-ad", name: "썰쇼핑 광고표기형", description: "흰 헤더 + 금색 배지 + [광고] 표기 · 제휴 영상용", color: "#ffffff", foreground: "#111111", variant: "shop", coverAccent: "#ffcf33", shop: { icon: Crown, iconBadgeColor: "#f2c14e", nameSizeCqw: 5.4, postMeta: true, adTag: true } },
+  { id: "channel-shop-mint", name: "썰쇼핑 민트 대제목형", description: "연민트 헤더 + 아주 큰 채널명 · 노랑 표지", color: "#dcf2cf", foreground: "#111111", variant: "shop", coverAccent: "#ffe14d", shop: { nameFont: "'Black Han Sans', sans-serif", nameSizeCqw: 8.4 } },
+  { id: "channel-fullbleed", name: "풀화면 자막형", description: "검은 상단 띠에 2줄 제목 + 꽉 찬 영상 위 자막", color: "#111111", foreground: "#ffffff", variant: "fullbleed", coverAccent: "#ffd400" },
   { id: "channel-search", name: "검색 바형", description: "뒤로가기·검색·메뉴", color: "#f7cf68", variant: "search" },
   { id: "channel-pill", name: "중앙 검색형", description: "강한 노란색 채널 헤더", color: "#ffc400", variant: "pill" },
   { id: "channel-minimal", name: "미니멀형", description: "차분한 크림색 헤더", color: "#f6e8bf", variant: "minimal" },
@@ -245,7 +285,7 @@ export function splitNarrationIntoMeaningLines(narration: string): string[] {
       Math.min(targetLines, Math.max(2, Math.min(phrases.length, STORY_MAX_LINES)))
     )
   } else {
-    const words = text.split(/\s+/).filter(Boolean)
+    const words = glueKoreanWordUnits(text.split(/\s+/).filter(Boolean))
     lines =
       words.length >= 2
         ? packPhrasesIntoLines(words, Math.min(targetLines, Math.min(words.length, STORY_MAX_LINES)))
@@ -406,9 +446,16 @@ function findBestCutIndex(text: string, ideal: number): number {
     const ch = text[i - 1] || ""
     // 어절 중간에서 자르면 "이어플러 그를"처럼 단어가 깨지므로 띄어쓰기 경계만 우선
     const atWordBoundary = /\s/.test(ch) || /\s/.test(text[i] || "")
+    const awkward =
+      atWordBoundary &&
+      isAwkwardKoreanBreak(
+        text.slice(0, i).trim().split(/\s+/).pop() || "",
+        text.slice(i).trim().split(/\s+/)[0] || ""
+      )
     const score =
       Math.abs(i - ideal) +
       (atWordBoundary ? -3 : 12) +
+      (awkward ? 10 : 0) +
       (atWordBoundary && /[은는이가을를의에과와로도만]/.test(ch) ? -2 : 0) +
       (atWordBoundary && /[요죠네다음함]/.test(ch) ? -1 : 0)
     if (score < bestScore) {
@@ -427,6 +474,7 @@ export function StoryChannelFrame({
   asset,
   fallbackMediaUrl,
   isPlaying = false,
+  videoPlaybackTimeSec,
   textColor = "#000000",
   textScale = 1,
   textFontFamily = "Pretendard, Noto Sans KR, sans-serif",
@@ -451,6 +499,8 @@ export function StoryChannelFrame({
   asset?: StorySceneAsset
   fallbackMediaUrl?: string
   isPlaying?: boolean
+  /** 마스터 타임라인에서 계산한 현재 원본 영상 시각 */
+  videoPlaybackTimeSec?: number
   textColor?: string
   textScale?: number
   textFontFamily?: string
@@ -787,7 +837,8 @@ export function StoryChannelFrame({
             : Math.max(0.8, motionDurationSec || scene.durationSec)
   const mediaEffectDurationSec = effectDurationFor(primaryEffect)
   const mediaAccentDurationSec = effectDurationFor(accentEffect)
-  const captionOverlay = subtitlePosition === "top" || subtitlePosition === "center"
+  const captionOverlay =
+    subtitlePosition === "top" || subtitlePosition === "center" || frameVariant === "fullbleed"
   const captionPanel = (
     <StoryCaptionPanel
       variant={frameVariant}
@@ -862,6 +913,7 @@ export function StoryChannelFrame({
                   startSec={paintAsset.trimStartSec}
                   endSec={paintAsset.trimEndSec}
                   fit={paintAsset.mediaFit}
+                  syncTimeSec={videoPlaybackTimeSec}
                   onElementChange={setVideoElement}
                   onTimeChange={setVideoTimeSec}
                   onReady={() => {
@@ -927,7 +979,9 @@ export function StoryChannelFrame({
             className={`pointer-events-none absolute inset-x-0 z-30 px-[4%] ${
               subtitlePosition === "top"
                 ? "top-[3%]"
-                : "top-1/2 -translate-y-1/2"
+                : subtitlePosition === "center"
+                  ? "top-1/2 -translate-y-1/2"
+                  : "bottom-[7%]"
             }`}
           >
             <div className="rounded-[1.2cqw] bg-black/35 px-[3%] py-[2.5%] backdrop-blur-[1px]">
@@ -961,6 +1015,7 @@ export function StoryChannelFrame({
           title={settings.videoTitle}
           accentColor={frameTemplate?.coverAccent || DEFAULT_STORY_COVER_ACCENT}
           visible={coverVisible}
+          band={Boolean(frameTemplate?.coverBand)}
         />
       ) : null}
     </div>
@@ -983,11 +1038,14 @@ function StoryCoverOverlay({
   title,
   accentColor,
   visible,
+  band = false,
 }: {
   lines: StoryCoverLines
   title: string
   accentColor: string
   visible: boolean
+  /** 검은 화면 한가운데 흰 띠에 제목 (윙스 수동 제작 인트로) */
+  band?: boolean
 }) {
   // 한글 1자 ≈ 1em → 띠 너비 88cqw 안에 들어가는 최대 크기 (최대 11.5cqw)
   const longest = Math.max(
@@ -999,6 +1057,32 @@ function StoryCoverOverlay({
     fontSize: `${fontCqw}cqw`,
     lineHeight: 1.18,
     textShadow: coverOutline(Math.max(0.45, fontCqw * 0.07)),
+  }
+
+  // 윙스 수동 제작 인트로: 화면 전체를 검게 덮고 한가운데 흰 띠에 제목을 검정으로
+  if (band) {
+    const bandStyle = { fontSize: `${Math.min(fontCqw, 9)}cqw`, lineHeight: 1.3 }
+    return (
+      <div
+        data-story-cover="true"
+        aria-hidden={!visible}
+        className="pointer-events-none absolute inset-0 z-40 flex items-center bg-black"
+        style={{ visibility: visible ? "visible" : "hidden" }}
+      >
+        <div className="w-full border-y-[0.5cqw] border-black bg-white px-[6%] py-[3.8cqw] text-center">
+          {lines.top ? (
+            <p className="font-black text-black" style={bandStyle}>
+              {lines.top}
+            </p>
+          ) : null}
+          {lines.accent ? (
+            <p className="font-black text-black" style={bandStyle}>
+              {lines.accent}
+            </p>
+          ) : null}
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -1045,11 +1129,32 @@ function StoryPostPanel({
     </>
   )
 
+  if (variant === "fullbleed") return null
+
   if (variant === "shop") {
+    const shopStyle = STORY_FRAME_TEMPLATES.find((item) => item.id === settings.templateId)?.shop
+    const postMeta = shopStyle?.postMeta
+    const clockLine = shopStyle?.clockLine
     return (
-      <section className="shrink-0 bg-white px-[6%] pt-[3.2%] text-center">
+      <section className={`shrink-0 bg-white px-[6%] pt-[3.2%] ${postMeta || clockLine ? "text-left" : "text-center"}`}>
         <AutoFitTitle text={settings.videoTitle} />
-        <div className="mt-[3.2%] h-[0.3cqw] bg-[#d6d6d6]" />
+        {clockLine ? (
+          <div className="mt-[2.6cqw] pb-[3cqw]">
+            <p className="font-semibold text-[#8d8d8d]" style={{ fontSize: "3.1cqw", letterSpacing: "0.06em" }}>
+              19 : 03&nbsp;&nbsp;|
+            </p>
+            <div className="mt-[1.5cqw] h-[0.34cqw] bg-[#8d8d8d]" />
+          </div>
+        ) : (
+          <>
+            {postMeta ? (
+              <p className="mt-[1.6cqw] truncate text-[#8a8a8a]" style={{ fontSize: "2.3cqw" }}>
+                {settings.authorLabel} | 조회 {settings.viewCountLabel}
+              </p>
+            ) : null}
+            <div className="mt-[3.2%] h-[0.3cqw] bg-[#d6d6d6]" />
+          </>
+        )}
       </section>
     )
   }
@@ -1501,6 +1606,7 @@ function FrameVideo({
   startSec = 0,
   endSec,
   fit = "cover",
+  syncTimeSec,
   onElementChange,
   onTimeChange,
   onReady,
@@ -1510,6 +1616,7 @@ function FrameVideo({
   startSec?: number
   endSec?: number
   fit?: "cover" | "contain"
+  syncTimeSec?: number
   onElementChange?: (video: HTMLVideoElement | null) => void
   onTimeChange?: (timeSec: number) => void
   onReady?: () => void
@@ -1532,6 +1639,27 @@ function FrameVideo({
     if (playing && ready) void video.play().catch(() => undefined)
     else video.pause()
   }, [playing, src, startSec, endSec, ready])
+
+  useEffect(() => {
+    const video = ref.current
+    if (
+      !video ||
+      !ready ||
+      syncTimeSec == null ||
+      !Number.isFinite(syncTimeSec)
+    ) {
+      return
+    }
+    const upper = endSec != null ? Math.max(startSec, endSec - 0.02) : syncTimeSec
+    const target = Math.max(startSec, Math.min(syncTimeSec, upper))
+    if (Math.abs(video.currentTime - target) <= (playing ? 0.25 : 0.06)) return
+    try {
+      video.currentTime = target
+      onTimeChange?.(target)
+    } catch {
+      /* metadata 준비 전에는 loadedmetadata에서 다시 맞춥니다. */
+    }
+  }, [endSec, onTimeChange, playing, ready, startSec, syncTimeSec])
 
   const markReady = () => {
     setReady(true)
@@ -1600,18 +1728,19 @@ function FrameHeader({ settings }: { settings: StoryFrameSettings }) {
     </strong>
   )
 
+  if (variant === "fullbleed") {
+    return <FullBleedTitleBand settings={settings} accentColor={template?.coverAccent} />
+  }
+
   return (
     <header
-      className="flex shrink-0 items-center justify-between px-[5%] py-[3.5%]"
+      className={`relative flex shrink-0 items-center justify-between px-[5%] py-[3.5%] ${
+        template?.shop?.layout === "wings-note" ? "border-b-[0.55cqw] border-black" : ""
+      }`}
       style={{ backgroundColor: background, color: foreground }}
     >
       {variant === "shop" ? (
-        <span className="flex min-w-0 flex-1 items-center justify-center gap-[2cqw] py-[0.6cqw]">
-          {template?.headerIcon ? <Store style={{ width: "6.5cqw", height: "6.5cqw", strokeWidth: 2.6 }} /> : null}
-          <strong className="truncate" style={{ fontSize: "6.2cqw" }}>
-            {settings.channelName}
-          </strong>
-        </span>
+        <ShopHeaderContent name={settings.channelName} shop={template?.shop} iconStyle={commonIconStyle} />
       ) : variant === "search" ? (
         <>
           <ArrowLeft style={commonIconStyle} />
@@ -1822,6 +1951,106 @@ function FrameHeader({ settings }: { settings: StoryFrameSettings }) {
           <Search style={commonIconStyle} />
         </>
       )}
+    </header>
+  )
+}
+
+function ShopHeaderContent({
+  name,
+  shop,
+  iconStyle,
+}: {
+  name: string
+  shop?: ShopHeaderStyle
+  iconStyle: { width: string; height: string; strokeWidth: number }
+}) {
+  const Icon = shop?.icon
+  const icon = Icon ? (
+    shop?.iconBadgeColor ? (
+      <span
+        className="flex h-[9cqw] w-[9cqw] shrink-0 items-center justify-center rounded-full"
+        style={{ backgroundColor: shop.iconBadgeColor, color: "#1a1a1a" }}
+      >
+        <Icon style={{ width: "6cqw", height: "6cqw", strokeWidth: 2.4 }} />
+      </span>
+    ) : (
+      <Icon style={{ width: "6.5cqw", height: "6.5cqw", strokeWidth: 2.6 }} />
+    )
+  ) : null
+  const nameText = (
+    <strong
+      className="truncate"
+      style={{ fontSize: `${shop?.nameSizeCqw ?? 6.2}cqw`, fontFamily: shop?.nameFont }}
+    >
+      {name}
+    </strong>
+  )
+  const adTag = shop?.adTag ? (
+    <span
+      className="absolute right-[2.5%] top-[8%] rounded-[0.6cqw] border border-current px-[1cqw] font-bold opacity-60"
+      style={{ fontSize: "2.2cqw" }}
+    >
+      광고
+    </span>
+  ) : null
+
+  if (shop?.layout === "wings-note") {
+    const noteIconStyle = { width: "7cqw", height: "7cqw", strokeWidth: 2.3 }
+    return (
+      <>
+        <Menu style={noteIconStyle} />
+        <span className="flex-1" />
+        {Icon ? <Icon style={noteIconStyle} /> : null}
+      </>
+    )
+  }
+
+  if (shop?.layout === "menu-search") {
+    return (
+      <>
+        <Menu style={iconStyle} />
+        <span className="flex min-w-0 flex-1 items-center justify-center gap-[2cqw]">
+          {icon}
+          {nameText}
+        </span>
+        <Search style={iconStyle} />
+        {adTag}
+      </>
+    )
+  }
+
+  return (
+    <span className="flex min-w-0 flex-1 items-center justify-center gap-[2cqw] py-[0.6cqw]">
+      {shop?.iconSide === "right" ? null : icon}
+      {nameText}
+      {shop?.iconSide === "right" ? icon : null}
+      {adTag}
+    </span>
+  )
+}
+
+/** 풀화면 자막형: 헤더 대신 검은 띠에 흰 줄 + 강조색 줄 제목 */
+function FullBleedTitleBand({
+  settings,
+  accentColor,
+}: {
+  settings: StoryFrameSettings
+  accentColor?: string
+}) {
+  const lines = resolveStoryCoverLines({ ...settings, coverEnabled: true })
+  return (
+    <header className="flex shrink-0 flex-col items-center justify-center gap-[1.2cqw] bg-[#111111] px-[5%] py-[4.5%] text-center font-black leading-tight">
+      {lines?.top ? (
+        <p className="w-full truncate text-white" style={{ fontSize: "4.6cqw" }}>
+          {lines.top}
+        </p>
+      ) : null}
+      <p
+        className="w-full truncate"
+        style={{ fontSize: "5.6cqw", color: accentColor || DEFAULT_STORY_COVER_ACCENT }}
+      >
+        {lines?.accent || settings.videoTitle}
+      </p>
     </header>
   )
 }

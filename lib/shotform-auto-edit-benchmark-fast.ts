@@ -56,7 +56,7 @@ function keyframesForFastTarget(targetDuration: AutoEditTargetDuration): number 
   return Math.min(12, keyframesForActionAnalysis(targetDuration, "fast"))
 }
 
-const VISION_FAST_TIMEOUT_MS = 12_000
+const VISION_FAST_TIMEOUT_MS = 25_000
 
 type BenchmarkModeConfig = {
   keyframeCount: number
@@ -93,16 +93,22 @@ async function visionClassifyWithTimeout(
       return []
     }
   }
-  try {
-    return await Promise.race([
-      visionClassifyFramesBatch(apiKey, sources),
-      new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error("vision timeout")), timeoutMs)
-      }),
-    ])
-  } catch {
-    return []
-  }
+  // 소스별 병렬 호출 — 한 요청에 프레임이 몰리면 응답이 길어져 전체가 타임아웃으로 버려진다
+  const perSource = await Promise.all(
+    sources.map(async (source) => {
+      try {
+        return await Promise.race([
+          visionClassifyFramesBatch(apiKey, [source]),
+          new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error("vision timeout")), timeoutMs)
+          }),
+        ])
+      } catch {
+        return []
+      }
+    })
+  )
+  return perSource.flat()
 }
 
 function benchmarkTimelineForAnalysis(a: VideoAnalysis): VisualScene[] {
@@ -258,14 +264,22 @@ async function probeVideosForBenchmark(args: {
 
       if (client && client.duration > 0) {
         if (client.keyframeDataUrl) {
-          const framePath = path.join(kfDir, "client_kf.jpg")
+          const clientFrames = client.precisionKeyframes?.length
+            ? client.precisionKeyframes
+            : [{ timeSec: client.timeSec ?? client.duration * 0.12, keyframeDataUrl: client.keyframeDataUrl }]
           try {
-            await writeDataUrlToJpeg(client.keyframeDataUrl, framePath)
+            const keyframes = await Promise.all(
+              clientFrames.map(async (f, i) => {
+                const framePath = path.join(kfDir, `client_kf${i}.jpg`)
+                await writeDataUrlToJpeg(f.keyframeDataUrl, framePath)
+                return { path: framePath, timeSec: f.timeSec }
+              })
+            )
             return {
               video: v,
               sourcePath: sourcePaths[v.video_id] || "",
               duration: client.duration,
-              keyframes: [{ path: framePath, timeSec: client.timeSec ?? client.duration * 0.12 }],
+              keyframes,
             }
           } catch {
             /* 클라이언트 키프레임 실패 시 서버 추출로 폴백 */

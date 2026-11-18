@@ -27,6 +27,22 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    // 로그인 후 돌아갈 경로 (같은 사이트 상대경로만 허용)
+    const redirectTo = request.nextUrl.searchParams.get("redirect") || ""
+    if (redirectTo.startsWith("/") && !redirectTo.startsWith("//")) {
+      const res = NextResponse.redirect(
+        `https://kauth.kakao.com/oauth/authorize?client_id=${KAKAO_REST_API_KEY}&redirect_uri=${encodeURIComponent(KAKAO_REDIRECT_URI)}&response_type=code&scope=${encodeURIComponent("account_email,profile_nickname,profile_image")}`
+      )
+      res.cookies.set("kakao_login_redirect", redirectTo, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: 60 * 10,
+        path: "/",
+      })
+      return res
+    }
+
     // 카카오 인증 URL 생성
     // phone_number는 콘솔에 동의 항목이 없으면 KOE205(잘못된 요청)가 난다.
     // 자동 승인은 이메일로 매칭한다.

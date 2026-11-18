@@ -12,6 +12,7 @@ import {
   readRootMetaStore,
   secondsToCapCutUs,
   voiceLineCuesToCapCutSubtitles,
+  type CapCutOverlayText,
   type CapCutSubtitleCue,
 } from "@/lib/capcut-draft-builder"
 
@@ -69,6 +70,8 @@ export type FactoryCapCutExportInput = {
     hookShort: string
   }
   projectLabel?: string
+  /** 헤드카피·워터마크·광고 표시 텍스트 트랙 */
+  overlayTexts?: CapCutOverlayText[]
 }
 
 const CAPCUT_README = `CapCut PC — Wings ShotForm AI 쇼핑 숏폼
@@ -224,6 +227,7 @@ type PreparedCapCutMedia = {
   bgmBlob: Blob | null
   bgmDurationSec: number | null
   subtitles: CapCutSubtitleCue[]
+  overlayTexts: CapCutOverlayText[]
   timelineDurationSec: number
 }
 
@@ -402,6 +406,7 @@ async function prepareCapCutMedia(input: FactoryCapCutExportInput): Promise<Prep
     bgmBlob,
     bgmDurationSec: bgmBlob ? syncOut.timelineDurationSec : bgmDurationSec,
     subtitles,
+    overlayTexts: input.overlayTexts ?? [],
     timelineDurationSec: syncOut.timelineDurationSec,
   }
 }
@@ -450,6 +455,7 @@ function buildCapCutExportBundleParams(
         }
       : undefined,
     subtitles: media.subtitles,
+    overlayTexts: media.overlayTexts,
     mediaBlobs,
     useAbsoluteMediaPaths,
   }

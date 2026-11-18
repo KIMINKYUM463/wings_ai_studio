@@ -4,7 +4,9 @@ import {
   fixWebmBlobDuration,
   remuxWebmWithDuration,
 } from "@/lib/mvp-webm-to-mp4"
-import type { StoryFrameSettings } from "./story-types"
+import { renderVideoMosaicPatchToCanvas } from "@/lib/mvp-video-mosaic"
+import { startRenderTicker } from "@/lib/shotform-render-ticker"
+import type { StoryFrameSettings, StoryVideoMosaic } from "./story-types"
 import {
   CAPTION_KEYWORD_BG,
   CAPTION_KEYWORD_TEXT,
@@ -40,6 +42,7 @@ export type StoryExportClip = {
   mediaType?: "image" | "video"
   trimStartSec?: number
   trimEndSec?: number
+  videoMosaics?: StoryVideoMosaic[]
   mediaFit?: "cover" | "contain"
   mediaScale?: number
   mediaOffsetX?: number
@@ -62,8 +65,11 @@ export type StoryExportMotion = {
 }
 
 function pickRecorderMime(): string {
-  // Windows 기본 플레이어는 VP8+Opus WebM을 VP9보다 잘 여는 경우가 많음
+  // 릴스·틱톡 업로드는 MP4(H.264+AAC)만 안정적. 미지원 브라우저는 WebM,
+  // 그중 Windows 기본 플레이어는 VP8+Opus를 VP9보다 잘 여는 경우가 많음
   const candidates = [
+    "video/mp4;codecs=avc1.640028,mp4a.40.2",
+    "video/mp4;codecs=avc1,mp4a.40.2",
     "video/webm;codecs=vp8,opus",
     "video/webm;codecs=vp9,opus",
     "video/webm;codecs=vp8",
@@ -79,6 +85,10 @@ function pickRecorderMime(): string {
     }
   }
   return "video/webm"
+}
+
+export function storyVideoExtension(): "mp4" | "webm" {
+  return pickRecorderMime().startsWith("video/mp4") ? "mp4" : "webm"
 }
 
 type SaveFilePickerWindow = Window & {
@@ -97,20 +107,21 @@ export async function pickStoryVideoSaveHandle(
 ): Promise<FileSystemFileHandle | null> {
   const w = window as SaveFilePickerWindow
   if (typeof w.showSaveFilePicker !== "function") return null
-  const safeName = (filename || "story-shopping.webm").replace(
+  const ext = storyVideoExtension()
+  const safeName = (filename || `story-shopping.${ext}`).replace(
     /[\\/:*?"<>|]+/g,
     ""
   )
-  const suggestedName = safeName.toLowerCase().endsWith(".webm")
+  const suggestedName = safeName.toLowerCase().endsWith(`.${ext}`)
     ? safeName
-    : `${safeName}.webm`
+    : `${safeName}.${ext}`
   try {
     return await w.showSaveFilePicker({
       suggestedName,
       types: [
         {
-          description: "WebM video",
-          accept: { "video/webm": [".webm"] },
+          description: ext === "mp4" ? "MP4 video" : "WebM video",
+          accept: { [`video/${ext}`]: [`.${ext}`] },
         },
       ],
     })
@@ -1214,7 +1225,10 @@ type StoryRecordOpts = {
   coverEndSec?: number
   totalDurationSec: number
   audioStream?: MediaStream | null
-  play: () => Promise<void>
+  play: (controls?: {
+    onPrepared: () => void
+    startGate: Promise<void>
+  }) => Promise<void>
   getPlayheadSec: () => number
   getClipKey?: () => string
   isActive: () => boolean
@@ -1258,17 +1272,23 @@ function recordedDurationSec(recordedWallSec: number) {
   return Math.max(0.5, recordedWallSec)
 }
 
-async function finalizeRecordedWebm(opts: {
-  webmBlob: Blob
+async function finalizeRecordedVideo(opts: {
+  recordedBlob: Blob
   durationSec: number
   fileBaseName: string
   onProgress?: (progress: StoryExportProgress) => void
 }): Promise<{ blob: Blob; filename: string }> {
-  const { webmBlob, durationSec, fileBaseName, onProgress } = opts
-  if (!webmBlob.size) {
+  const { recordedBlob, durationSec, fileBaseName, onProgress } = opts
+  if (!recordedBlob.size) {
     throw new Error(
       "녹화된 영상이 비어 있습니다. 브라우저를 새로고침한 뒤 다시 시도해주세요."
     )
+  }
+
+  // 아래 길이 보정·재패키징은 WebM 컨테이너 전용
+  if (recordedBlob.type.startsWith("video/mp4")) {
+    onProgress?.({ phase: "done", message: "다운로드 준비 완료", ratio: 1 })
+    return { blob: recordedBlob, filename: `${fileBaseName}-${Date.now()}.mp4` }
   }
 
   onProgress?.({
@@ -1277,12 +1297,12 @@ async function finalizeRecordedWebm(opts: {
     ratio: 0.88,
   })
 
-  let outBlob = webmBlob
+  let outBlob = recordedBlob
   try {
-    outBlob = await fixWebmBlobDuration(webmBlob, durationSec)
+    outBlob = await fixWebmBlobDuration(recordedBlob, durationSec)
   } catch (error) {
     console.warn("[StoryExport] WebM duration 보정 실패:", error)
-    outBlob = webmBlob
+    outBlob = recordedBlob
   }
 
   onProgress?.({
@@ -1494,14 +1514,15 @@ async function recordStoryPreviewStageFromDom(
         ),
       })
     }
-    requestAnimationFrame(drawLoop)
   }
-  requestAnimationFrame(drawLoop)
+  const stopDrawTicker = startRenderTicker(drawLoop, 60)
 
   try {
     await play()
-  } finally {
-    /* keep capturing briefly */
+  } catch (error) {
+    drawing = false
+    stopDrawTicker()
+    throw error
   }
 
   const endAt = performance.now() + 400
@@ -1510,6 +1531,7 @@ async function recordStoryPreviewStageFromDom(
     await wait(frameInterval)
   }
   drawing = false
+  stopDrawTicker()
   // 진행 중 캡처 종료 대기
   for (let i = 0; i < 30 && captureBusy; i++) await wait(40)
 
@@ -1533,7 +1555,7 @@ async function recordStoryPreviewStageFromDom(
   if (recorder.state === "recording" || recorder.state === "paused") {
     recorder.stop()
   }
-  const webmBlob = await stopped
+  const recordedBlob = await stopped
   try {
     stream.getTracks().forEach((t) => t.stop())
   } catch {
@@ -1543,8 +1565,8 @@ async function recordStoryPreviewStageFromDom(
 
   const recordedWallSec = (performance.now() - recordStartedAt) / 1000
   const durationSec = recordedDurationSec(recordedWallSec)
-  return finalizeRecordedWebm({
-    webmBlob,
+  return finalizeRecordedVideo({
+    recordedBlob,
     durationSec,
     fileBaseName,
     onProgress,
@@ -1871,6 +1893,19 @@ async function recordStoryPreviewStageCanvas(opts: StoryRecordOpts): Promise<{
       })
   }
 
+  const releasePreparedVideo = (media: PreparedMedia | undefined) => {
+    if (!media || media.kind !== "video") return
+    const src = media.video.currentSrc || media.video.src
+    try {
+      media.video.pause()
+      media.video.removeAttribute("src")
+      media.video.load()
+      if (src.startsWith("blob:")) URL.revokeObjectURL(src)
+    } catch {
+      /* ignore */
+    }
+  }
+
   const clipAt = (sec: number) => {
     const t = Math.max(0, sec)
     for (const clip of clips) {
@@ -1954,9 +1989,22 @@ async function recordStoryPreviewStageCanvas(opts: StoryRecordOpts): Promise<{
   /** 다음·다다음 클립 비디오를 미리 시크·디코드해 전환 끊김을 줄임 */
   const prefetchNextClipMedia = (playhead: number) => {
     const idx = clipIndexAt(playhead)
+    const activeWindow = new Set(
+      clips
+        .slice(Math.max(0, idx - 1), idx + 3)
+        .map((clip) => mediaByKey.get(clip.key))
+        .filter((media): media is PreparedMedia => Boolean(media))
+    )
+    for (const past of clips.slice(0, Math.max(0, idx - 1))) {
+      const media = mediaByKey.get(past.key)
+      if (media?.kind !== "video" || activeWindow.has(media)) continue
+      releasePreparedVideo(media)
+      mediaByKey.set(past.key, { kind: "none" })
+    }
     for (const offset of [1, 2]) {
       const next = clips[idx + offset]
       if (!next) continue
+      ensureMediaForClip(next)
       const media = mediaByKey.get(next.key)
       if (media?.kind === "video") {
         try {
@@ -2055,16 +2103,32 @@ async function recordStoryPreviewStageCanvas(opts: StoryRecordOpts): Promise<{
     // 비디오는 오프닝 페이드 중에도 미리 play/seek 해서 라이브 프레임이 바로 이어지게
     if (media?.kind === "video") {
       const video = media.video
+      const trimStart = Math.max(0, clip.trimStartSec || 0)
+      const trimEnd =
+        clip.trimEndSec != null && clip.trimEndSec > trimStart
+          ? clip.trimEndSec
+          : Number.isFinite(video.duration)
+            ? video.duration
+            : trimStart + clip.durationSec
+      const playable = Math.max(0.05, trimEnd - trimStart)
+      const expectedVideoTime =
+        trimStart + ((Math.max(0, playhead - clip.startSec) % playable) || 0)
       if (clip.key !== lastMediaKey) {
         try {
-          const target = Math.max(0, clip.trimStartSec || 0)
-          if (Math.abs(video.currentTime - target) > 0.08) {
-            video.currentTime = target
+          if (Math.abs(video.currentTime - expectedVideoTime) > 0.08) {
+            video.currentTime = expectedVideoTime
           }
         } catch {
           /* ignore */
         }
         void video.play().catch(() => undefined)
+      } else if (Math.abs(video.currentTime - expectedVideoTime) > 0.14) {
+        // 디코더 지연으로 밀린 영상을 마스터 타임라인에 재동기화합니다.
+        try {
+          video.currentTime = expectedVideoTime
+        } catch {
+          /* ignore */
+        }
       }
       if (clip.trimEndSec != null && video.currentTime >= clip.trimEndSec) {
         try {
@@ -2179,6 +2243,41 @@ async function recordStoryPreviewStageCanvas(opts: StoryRecordOpts): Promise<{
     )
   }
 
+  const mosaicCanvas = document.createElement("canvas")
+  const paintVideoMosaics = (clip: StoryExportClip) => {
+    if (clip.mediaType !== "video" || !clip.videoMosaics?.length) return
+    const media = mediaByKey.get(clip.key)
+    if (!media || media.kind !== "video" || media.video.readyState < 2) return
+
+    const localTime = Math.max(
+      0,
+      media.video.currentTime - (clip.trimStartSec || 0)
+    )
+    const { x, y, w, h } = mediaBox
+    for (const mosaic of clip.videoMosaics) {
+      if (localTime < mosaic.startSec || localTime > mosaic.endSec) continue
+      const patchW = Math.max(8, (w * mosaic.width) / 100)
+      const patchH = Math.max(8, (h * mosaic.height) / 100)
+      renderVideoMosaicPatchToCanvas(mosaicCanvas, media.video, {
+        stageW: w,
+        stageH: h,
+        centerXPct: mosaic.x,
+        centerYPct: mosaic.y,
+        patchW,
+        patchH,
+        blockPx: mosaic.blockSize,
+        fit: clip.mediaFit || "cover",
+      })
+      ctx.drawImage(
+        mosaicCanvas,
+        x + (w * mosaic.x) / 100 - patchW / 2,
+        y + (h * mosaic.y) / 100 - patchH / 2,
+        patchW,
+        patchH
+      )
+    }
+  }
+
   const paintFrame = () => {
     const playhead = getPlayheadSec()
     const clip = clipAt(playhead)
@@ -2207,6 +2306,7 @@ async function recordStoryPreviewStageCanvas(opts: StoryRecordOpts): Promise<{
     }
 
     paintMedia(clip, motion, effect, playhead)
+    paintVideoMosaics(clip)
     // 상단/중앙 자막은 미디어 위에 겹치므로 미디어 다음에 그림
     paintCaption(playhead)
     if (cover && playhead < coverEndSec) {
@@ -2238,6 +2338,32 @@ async function recordStoryPreviewStageCanvas(opts: StoryRecordOpts): Promise<{
       : null
   bakeOpeningFrames()
 
+  // 오프닝 프레임을 확보한 뒤 현재·다음 두 컷만 비디오 디코더를 유지합니다.
+  // 나머지는 전환 직전에 다시 로드해 긴 프로젝트의 메모리 피크를 제한합니다.
+  const initiallyRetained = new Set(
+    clips
+      .slice(0, 3)
+      .map((clip) => mediaByKey.get(clip.key))
+      .filter((media): media is PreparedMedia => Boolean(media))
+  )
+  const released = new Set<PreparedMedia>()
+  for (const clip of clips.slice(3)) {
+    const media = mediaByKey.get(clip.key)
+    if (
+      media?.kind === "video" &&
+      !initiallyRetained.has(media) &&
+      !released.has(media)
+    ) {
+      released.add(media)
+      releasePreparedVideo(media)
+    }
+    if (media?.kind === "video" && !initiallyRetained.has(media)) {
+      mediaByKey.set(clip.key, { kind: "none" })
+      const cacheKey = `${clip.mediaType || "image"}::${clip.mediaUrl}::${clip.trimStartSec || 0}`
+      preparedByCache.delete(cacheKey)
+    }
+  }
+
   for (let i = 0; i < 8; i++) {
     paintFrame()
     await wait(16)
@@ -2251,18 +2377,11 @@ async function recordStoryPreviewStageCanvas(opts: StoryRecordOpts): Promise<{
     throw new Error("녹화가 취소되었습니다.")
   }
 
-  recorder.start(50)
-  onProgress?.({
-    phase: "record",
-    message: "타임라인대로 녹화 중… (미리보기 화면도 함께 진행됩니다)",
-    ratio: 0.1,
-  })
-
-  const recordStartedAt = performance.now()
-
   const frameInterval = 1000 / fps
   let nextFrameAt = performance.now()
   let lastProgressAt = 0
+  let renderedFrames = 0
+  let droppedFrames = 0
   const trackWithRequest = videoTrack as MediaStreamTrack & {
     requestFrame?: () => void
   }
@@ -2273,10 +2392,15 @@ async function recordStoryPreviewStageCanvas(opts: StoryRecordOpts): Promise<{
     // 한 틱에 한 프레임만 — 밀린 프레임을 몰아서 그리면 뚝뚝 끊김
     if (now >= nextFrameAt) {
       paintFrame()
+      renderedFrames += 1
       trackWithRequest.requestFrame?.()
       nextFrameAt += frameInterval
       // 너무 뒤처지면 오디오 타임라인에 맞춰 리듬만 재동기화 (프레임 스킵 연사 금지)
       if (nextFrameAt < now - frameInterval * 2) {
+        droppedFrames += Math.max(
+          1,
+          Math.floor((now - nextFrameAt) / frameInterval)
+        )
         nextFrameAt = now + frameInterval
       }
     }
@@ -2293,27 +2417,67 @@ async function recordStoryPreviewStageCanvas(opts: StoryRecordOpts): Promise<{
         ),
       })
     }
-    requestAnimationFrame(drawLoop)
   }
-  requestAnimationFrame(drawLoop)
+  const stopDrawTicker = startRenderTicker(drawLoop, 60)
+
+  let releasePlaybackStart: () => void = () => undefined
+  const startGate = new Promise<void>((resolve) => {
+    releasePlaybackStart = resolve
+  })
+  let markPlaybackPrepared: () => void = () => undefined
+  const playbackPrepared = new Promise<void>((resolve) => {
+    markPlaybackPrepared = resolve
+  })
+  const playbackPromise = play({
+    onPrepared: markPlaybackPrepared,
+    startGate,
+  })
+  try {
+    await Promise.race([
+      playbackPrepared,
+      playbackPromise.then(() => {
+        throw new Error("오디오 재생 준비 전에 작업이 취소되었습니다.")
+      }),
+    ])
+  } catch (error) {
+    drawing = false
+    stopDrawTicker()
+    throw error
+  }
+  recorder.start(50)
+  const recordStartedAt = performance.now()
+  onProgress?.({
+    phase: "record",
+    message: "타임라인대로 녹화 중… (미리보기 화면도 함께 진행됩니다)",
+    ratio: 0.1,
+  })
+  releasePlaybackStart()
 
   try {
-    await play()
-  } finally {
-    /* keep drawing briefly */
+    await playbackPromise
+  } catch (error) {
+    drawing = false
+    stopDrawTicker()
+    throw error
   }
 
-  const endAt = performance.now() + 350
-  while (performance.now() < endAt) {
-    paintFrame()
-    trackWithRequest.requestFrame?.()
-    await wait(frameInterval)
-  }
+  // 마지막 프레임 한 장만 확정하고 즉시 종료해 불필요한 350ms 꼬리를 만들지 않습니다.
+  paintFrame()
+  renderedFrames += 1
+  trackWithRequest.requestFrame?.()
+  await wait(Math.min(frameInterval, 34))
   drawing = false
+  stopDrawTicker()
   paintFrame()
   trackWithRequest.requestFrame?.()
 
   const recordedWallSec = (performance.now() - recordStartedAt) / 1000
+  const effectiveFps = renderedFrames / Math.max(0.001, recordedWallSec)
+  const dropRatio = droppedFrames / Math.max(1, renderedFrames + droppedFrames)
+  const avTimelineErrorSec = Math.max(
+    Math.abs(recordedWallSec - totalDurationSec),
+    Math.abs(getPlayheadSec() - totalDurationSec)
+  )
 
   try {
     recorder.requestData()
@@ -2324,7 +2488,7 @@ async function recordStoryPreviewStageCanvas(opts: StoryRecordOpts): Promise<{
   if (recorder.state === "recording" || recorder.state === "paused") {
     recorder.stop()
   }
-  const webmBlob = await stopped
+  const recordedBlob = await stopped
 
   for (const track of stream.getTracks()) {
     try {
@@ -2347,9 +2511,21 @@ async function recordStoryPreviewStageCanvas(opts: StoryRecordOpts): Promise<{
     }
   }
 
+  if (
+    effectiveFps < fps * 0.7 ||
+    dropRatio > 0.2 ||
+    avTimelineErrorSec > 0.25
+  ) {
+    throw new Error(
+      `내보내기 프레임 품질이 기준 미달입니다. ` +
+        `FPS ${effectiveFps.toFixed(1)}, 누락 ${(dropRatio * 100).toFixed(1)}%, ` +
+        `A/V 오차 ${avTimelineErrorSec.toFixed(3)}초`
+    )
+  }
+
   const durationSec = recordedDurationSec(recordedWallSec)
-  return finalizeRecordedWebm({
-    webmBlob,
+  return finalizeRecordedVideo({
+    recordedBlob,
     durationSec,
     fileBaseName,
     onProgress,

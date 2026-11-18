@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
+import { MVP_KEYWORD_PLATFORMS, mvpPlatformResult } from "@/lib/shotform-mvp-keyword-source"
 import { StudioPageCard, StudioPageHeader, studio } from "../components/ShotFormStudioUI"
 import { MvpTestView } from "./MvpTestView"
 import {
@@ -328,9 +329,9 @@ export function MvpProjectManager() {
           {filteredProjects.map((project, index) => {
             const d = project.data || {}
             const pickCount = d.editPicks?.length ?? 0
+            const source = d.sourceResult
             const hasSource = Boolean(
-              d.sourceResult &&
-                (d.sourceResult.douyin.videos.length > 0 || d.sourceResult.xhs.videos.length > 0)
+              source && MVP_KEYWORD_PLATFORMS.some((p) => (mvpPlatformResult(source, p)?.videos.length ?? 0) > 0)
             )
             const isSelected = selectedProjectIds.has(project.id)
             return (

@@ -1,7 +1,10 @@
+import { execFile } from "child_process"
 import fs from "fs/promises"
 import os from "os"
 import path from "path"
+import { promisify } from "util"
 import { type NextRequest, NextResponse } from "next/server"
+import { resolveFfmpegPath } from "@/lib/ffmpeg-binaries"
 import { isLikelyMp4Buffer } from "@/lib/mvp-mp4-preview"
 import { resolveAutoEditOutputPlayableUrl } from "@/lib/shotform-auto-edit-playable-url"
 import { readAutoEditOutput } from "@/lib/shotform-auto-edit-jobs"
@@ -19,6 +22,33 @@ export const runtime = "nodejs"
 
 /** Vercel serverless 응답 본문 제한 — 이보다 크면 Storage 경유 JSON 응답 */
 const VERCEL_RESPONSE_MAX_BYTES = 4_000_000
+
+const execFileAsync = promisify(execFile)
+
+/**
+ * Vmake 결과는 키프레임이 5초 간격이라 컷 경계 seek마다 최대 150프레임을 디코딩해
+ * 미리보기·브라우저 렌더가 끊김 — 0.5초 간격 키프레임으로 다시 인코딩. 실패 시 원본 경로 반환.
+ */
+async function reencodeForFastSeek(inputPath: string, outputPath: string): Promise<string> {
+  try {
+    await execFileAsync(
+      resolveFfmpegPath(),
+      [
+        "-hide_banner", "-y", "-i", inputPath,
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "19",
+        "-g", "15", "-keyint_min", "15", "-sc_threshold", "0",
+        "-pix_fmt", "yuv420p", "-c:a", "copy", "-movflags", "+faststart",
+        outputPath,
+      ],
+      { windowsHide: true, timeout: 180_000, maxBuffer: 16 * 1024 * 1024 }
+    )
+    const stat = await fs.stat(outputPath).catch(() => null)
+    return stat && stat.size >= 20_000 ? outputPath : inputPath
+  } catch (e) {
+    console.warn("[remove-chinese-subtitles] keyframe re-encode skipped:", e instanceof Error ? e.message.slice(0, 300) : e)
+    return inputPath
+  }
+}
 
 async function resolveSourceBuffer(input: {
   jobId?: string
@@ -139,7 +169,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Vmake 처리 결과 영상이 비어 있습니다." }, { status: 502 })
     }
 
-    const out = await fs.readFile(outputPath)
+    const deliverPath = await reencodeForFastSeek(outputPath, path.join(workDir, "output_seek.mp4"))
+    const out = await fs.readFile(deliverPath)
     if (!isLikelyMp4Buffer(out)) {
       return NextResponse.json(
         { error: "Vmake 처리 결과가 유효한 MP4가 아닙니다. 잠시 후 다시 시도해 주세요." },
@@ -152,7 +183,7 @@ export async function POST(req: NextRequest) {
       (process.env.VERCEL || out.length > VERCEL_RESPONSE_MAX_BYTES)
 
     if (preferStorageDelivery && jobId) {
-      const storagePath = await uploadAutoEditOutputToSupabase(jobId, outputPath)
+      const storagePath = await uploadAutoEditOutputToSupabase(jobId, deliverPath)
       if (!storagePath) {
         return NextResponse.json(
           {
@@ -173,7 +204,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (jobId) {
-      await uploadAutoEditOutputToSupabase(jobId, outputPath).catch(() => undefined)
+      await uploadAutoEditOutputToSupabase(jobId, deliverPath).catch(() => undefined)
     }
 
     return new NextResponse(new Uint8Array(out), {

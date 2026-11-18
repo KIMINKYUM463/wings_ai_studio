@@ -8,7 +8,7 @@ import {
 
 test('normalizeThumbnailGenSettings — hq-stickman id restores NEW category', () => {
   const normalized = normalizeThumbnailGenSettings({
-    imageModel: 'flux-schnell',
+    imageModel: 'black-forest-labs/flux-schnell',
     styleCategory: '실사',
     styleTemplateId: 'hq-stickman',
   })
@@ -18,7 +18,7 @@ test('normalizeThumbnailGenSettings — hq-stickman id restores NEW category', (
 
 test('thumbnailStyleApiPayload — includes NEW preset customStylePrompt', () => {
   const payload = thumbnailStyleApiPayload({
-    imageModel: 'flux-schnell',
+    imageModel: 'black-forest-labs/flux-schnell',
     styleCategory: 'NEW',
     styleTemplateId: 'hq-stickman',
     imagesLocaleMode: 'auto',

@@ -1,5 +1,6 @@
 "use client"
 
+import { Sparkles } from "lucide-react"
 export type TitleItem = { title: string; description: string }
 
 export type TitleMeta = {

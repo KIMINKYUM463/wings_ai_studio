@@ -36,7 +36,7 @@ import {
   type InfoVoiceTrack,
 } from "./info-types"
 
-type Provider = "supertonic" | "typecast" | "elevenlabs"
+type Provider = "supertonic" | "typecast" | "elevenlabs" | "adam"
 type CatalogVoice = {
   voice_id: string
   name: string
@@ -54,6 +54,7 @@ const PROVIDERS: Array<{ id: Provider; title: string; icon: typeof Sparkles }> =
   { id: "supertonic", title: "Supertonic 3", icon: Sparkles },
   { id: "typecast", title: "타입캐스트", icon: UserRound },
   { id: "elevenlabs", title: "ElevenLabs", icon: Globe2 },
+  { id: "adam", title: "아담", icon: Mic2 },
 ]
 
 function normalizeVoiceId(voiceId?: string) {
@@ -65,6 +66,7 @@ function normalizeVoiceId(voiceId?: string) {
 function providerFromVoiceId(voiceId: string): Provider {
   if (voiceId.startsWith("supertonic-")) return "supertonic"
   if (voiceId.startsWith("typecast-")) return "typecast"
+  if (voiceId.startsWith("adam-")) return "adam"
   return "elevenlabs"
 }
 
@@ -110,6 +112,7 @@ export function InfoVoicePanel({
   const voices = useMemo(() => {
     if (provider === "supertonic") return supertonicVoices
     if (provider === "typecast") return typecastVoices
+    if (provider === "adam") return [{ voice_id: "adam", name: "아담", gender: "male" }]
     return ELEVEN_PRESETS
   }, [provider, typecastVoices, supertonicVoices])
 
@@ -328,6 +331,9 @@ export function InfoVoicePanel({
       void loadSupertonicVoices()
     } else if (next === "elevenlabs") {
       setSelectedVoiceId(`elevenlabs-${ELEVEN_PRESETS[0].voice_id}`)
+    } else if (next === "adam") {
+      setSelectedVoiceId("adam-adam")
+      void fetch("/api/adam-tts").catch(() => {})
     } else {
       if (typecastVoices[0]) setSelectedVoiceId(`typecast-${typecastVoices[0].voice_id}`)
       else void loadTypecastVoices()
@@ -344,7 +350,7 @@ export function InfoVoicePanel({
     voiceId = selectedVoiceId,
     speedOverride?: number
   ) => {
-    const bareId = voiceId.replace(/^(supertonic|typecast|elevenlabs)-/, "")
+    const bareId = voiceId.replace(/^(supertonic|typecast|elevenlabs|adam)-/, "")
     const ttsSpeed =
       typeof speedOverride === "number" && Number.isFinite(speedOverride)
         ? speedOverride
@@ -364,6 +370,9 @@ export function InfoVoicePanel({
       if (!apiKey) throw new Error("타입캐스트 API 키가 필요합니다.")
       endpoint = "/api/typecast-tts"
       body = { ...body, apiKey, emotion: style || "normal" }
+    } else if (voiceId.startsWith("adam-")) {
+      endpoint = "/api/adam-tts"
+      body = { text, tempo: ttsSpeed }
     } else {
       const apiKey = (localStorage.getItem("shotform_elevenlabs_api_key") || "").trim()
       if (!apiKey) throw new Error("ElevenLabs API 키가 필요합니다.")
@@ -471,9 +480,9 @@ export function InfoVoicePanel({
 
   return (
     <section className="space-y-6">
-      <div className="rounded-[28px] border border-white/[0.08] bg-[#fcfaf7]/95 p-6 md:p-8">
-        <p className="text-[10px] font-black tracking-[0.2em] text-sky-400">STEP 04 · VOICE</p>
-        <h2 className="mt-2 text-3xl font-black text-white">AI 음성</h2>
+      <div className="rounded-[24px] border border-[#e3e6ec] bg-[#ffffff] p-6 shadow-[0_1px_2px_rgba(14,16,22,0.04),0_16px_40px_-24px_rgba(14,16,22,0.18)] md:p-8">
+        <p className="text-[12px] font-black tracking-[0.18em] text-[#1f6fe0]">STEP 04 · VOICE</p>
+        <h2 className="mt-2 text-3xl font-black tracking-[-0.035em] text-[#0e1016]">AI 음성</h2>
         <p className="mt-2 text-sm text-zinc-400">
           본문만 TTS로 만듭니다. 연결형(~는데/~고)은 끊김 없이 읽고, 줄 사이 간격도 짧게 맞춰
           둡니다. 말꼬리는 잘리지 않도록 끝 여유를 둡니다. 재생 시 한 줄마다 뽁 효과음이 납니다.
@@ -481,7 +490,7 @@ export function InfoVoicePanel({
           해주세요.
         </p>
 
-        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {PROVIDERS.map((item) => {
             const Icon = item.icon
             return (
@@ -572,7 +581,7 @@ export function InfoVoicePanel({
             type="button"
             disabled={isGenerating || !selectedVoiceId}
             onClick={() => void generate()}
-            className="bg-sky-500 font-bold text-white hover:bg-sky-400"
+            className="rounded-full bg-[#0e1016] font-bold text-[#ffffff] hover:bg-[#262a33] disabled:bg-[#9aa0ad]"
           >
             {isGenerating ? (
               <>

@@ -10,6 +10,7 @@ import {
 } from "./animal-character"
 import type { ShoppingProjectData } from "./project-actions"
 import { isRetiredSupertoneVoiceId } from "@/lib/shotform-tts-providers"
+import { uploadMediaBlobToStorage } from "@/lib/shotform-tts-storage-upload"
 
 /** 정보/AI 쇼핑과 동일: 10~60초, 5초 단위 */
 export function clampAnimalDuration(sec: number | undefined | null): number {
@@ -41,6 +42,33 @@ export async function fetchImageAsDataUrl(imageUrl: string): Promise<string | nu
   }
 }
 
+export type AnimalStorageScope = { userId: string; projectId: string }
+
+/**
+ * 클립·TTS를 data URL로 프로젝트에 넣으면 저장 본문이 수십 MB가 되어 서버 액션 한도에 막힘.
+ * Storage에 올린 공개 URL을 돌려주고, 올리지 못하면 null (호출부가 data URL로 폴백).
+ */
+export async function persistAnimalMediaBlob(
+  blob: Blob,
+  scope: AnimalStorageScope | undefined,
+  kind: "tts" | "clip"
+): Promise<string | null> {
+  if (!scope?.userId || !scope.projectId) return null
+  try {
+    return await uploadMediaBlobToStorage(blob, scope.userId, scope.projectId, kind)
+  } catch (error) {
+    console.warn(`[AnimalShopping] ${kind} Storage 업로드 실패, data URL 유지:`, error)
+    return null
+  }
+}
+
+/** "나비" → "나비가", "뭉치" → "뭉치가", "초롱" → "초롱이" (한글이 아니면 "이(가)") */
+export function withSubjectParticle(name: string): string {
+  const last = name.trim().charCodeAt(name.trim().length - 1)
+  if (!(last >= 0xac00 && last <= 0xd7a3)) return `${name}이(가)`
+  return `${name}${(last - 0xac00) % 28 === 0 ? "가" : "이"}`
+}
+
 export function buildProductDescriptionFromCoupang(
   product: AnimalCoupangProduct,
   characterName: string
@@ -49,7 +77,7 @@ export function buildProductDescriptionFromCoupang(
     product.categoryName ? `쿠팡 카테고리: ${product.categoryName}` : "",
     product.isRocket ? "로켓배송 상품" : "",
     `${product.productPrice.toLocaleString("ko-KR")}원`,
-    `${characterName}이(가) 쿠팡에서 고른 이 제품을 매장에서 실제로 활용·시연하는 숏폼`,
+    `${withSubjectParticle(characterName)} 쿠팡에서 고른 이 제품을 매장에서 실제로 활용·시연하는 숏폼`,
   ]
     .filter(Boolean)
     .join("\n")

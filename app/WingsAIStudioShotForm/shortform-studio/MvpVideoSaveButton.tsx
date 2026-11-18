@@ -4,8 +4,8 @@ import { useState } from "react"
 import { Check, Download, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-
-type Platform = "xiaohongshu" | "douyin"
+import { shotformTikhubKey } from "@/lib/shotform-tikhub-key-client"
+import type { MvpKeywordPlatform as Platform } from "@/lib/shotform-mvp-keyword-source"
 
 function safeFilename(title: string, platform: Platform): string {
   const base = title
@@ -16,23 +16,17 @@ function safeFilename(title: string, platform: Platform): string {
   return `${base || platform}_${Date.now()}.mp4`
 }
 
-function shotformApifyToken(): string | null {
-  if (typeof window === "undefined") return null
-  return (localStorage.getItem("shotform_apify_token") || "").trim() || null
-}
-
 async function resolveDownloadUrl(
   noteUrl: string,
   videoUrl: string | undefined,
   platform: Platform,
   refreshFromNote = false
 ): Promise<{ downloadUrl: string | null; error?: string }> {
-  const apifyApiKey = shotformApifyToken()
   const res = await fetch("/api/shotform/mvp-download", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      apifyApiKey: apifyApiKey || undefined,
+      tikhubApiKey: shotformTikhubKey(),
       items: [
         {
           url: noteUrl,

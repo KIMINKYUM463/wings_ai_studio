@@ -876,8 +876,8 @@ export default function ShoppingPage() {
         audio.volume = 1.0
 
         await new Promise<void>((resolve, reject) => {
-          audio.onloadeddata = () => resolve()
-          audio.onerror = reject
+          audio!.onloadeddata = () => resolve()
+          audio!.onerror = reject
         })
         setPreviewAudio(audio)
       } else {
@@ -1412,7 +1412,7 @@ export default function ShoppingPage() {
           }
         }
       } else {
-        sceneDurations = videoUrlsArray.map(() => actualAudioDuration / videoUrlsArray.length)
+        sceneDurations = [actualAudioDuration]
       }
 
       console.log("[Shopping] 각 장면의 영상 길이:", sceneDurations.map(d => d.toFixed(2) + "초"))

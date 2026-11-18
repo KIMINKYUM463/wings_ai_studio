@@ -1,0 +1,100 @@
+/*
+ * 리믹스 ver2 스튜디오: 썰쇼핑숏폼과 구분되는 밝은 고급 톤.
+ * 펄 화이트 바탕 + 잉크 글자 + 울트라마린 포인트, 작업 중 표시만 빨간 REC 점.
+ */
+.wings-shopping-v2.remix-atelier {
+  --page: #f4f5f8;
+  --panel: #ffffff;
+  --panel-2: #f1f3f7;
+  --line: #e3e6ec;
+  --text: #0e1016;
+  --muted: #5c6170;
+  --amber: #2f3beb;
+  --amber-ink: #ffffff;
+  --shadow: 0 1px 2px rgba(14, 16, 22, 0.04), 0 30px 60px -36px rgba(47, 59, 235, 0.28);
+  background:
+    radial-gradient(1200px 520px at 12% -10%, rgba(47, 59, 235, 0.07), transparent 60%),
+    radial-gradient(900px 480px at 100% 0%, rgba(140, 92, 255, 0.06), transparent 55%),
+    var(--page);
+}
+.remix-atelier .btn-primary {
+  background: var(--amber);
+  box-shadow: 0 12px 30px -14px rgba(47, 59, 235, 0.65);
+}
+.remix-atelier .btn-primary:not(:disabled):hover {
+  background: #4350ff;
+}
+
+/* 필름 스트립 */
+.ra-strip {
+  position: relative;
+  border-radius: 22px;
+  background: #0e1016;
+  padding: 14px 14px;
+  box-shadow: 0 30px 60px -38px rgba(14, 16, 22, 0.55);
+}
+.ra-holes {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 8px;
+  background-image: radial-gradient(circle at 6px 4px, rgba(255, 255, 255, 0.22) 2.4px, transparent 2.6px);
+  background-size: 18px 8px;
+  background-repeat: repeat-x;
+}
+.ra-holes.top { top: 3px; }
+.ra-holes.bottom { bottom: 3px; }
+.ra-running .ra-holes { animation: ra-feed 0.9s linear infinite; }
+@keyframes ra-feed { from { background-position-x: 0; } to { background-position-x: -18px; } }
+
+.ra-frame {
+  position: relative;
+  transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.35s, opacity 0.3s;
+}
+.ra-frame[data-active='true'] {
+  transform: translateY(-4px);
+  box-shadow: 0 0 0 2px #fff, 0 0 0 5px var(--amber), 0 18px 40px -16px rgba(47, 59, 235, 0.8);
+}
+.ra-frame[data-locked='true'] { opacity: 0.42; }
+
+.ra-rec {
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: #ff3d2e;
+  box-shadow: 0 0 0 0 rgba(255, 61, 46, 0.6);
+  animation: ra-rec 1.6s ease-out infinite;
+}
+@keyframes ra-rec { 0% { box-shadow: 0 0 0 0 rgba(255, 61, 46, 0.55); } 100% { box-shadow: 0 0 0 10px rgba(255, 61, 46, 0); } }
+
+/* 단계를 넘기면 필름이 감기듯 옆에서 들어온다 */
+/* backwards: 끝나면 transform 이 남지 않게 (남으면 안의 팝업(fixed)이 이 상자에 갇힘) */
+.ra-advance { animation: ra-advance 0.42s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
+.ra-advance[data-dir='back'] { animation-name: ra-back; }
+@keyframes ra-advance { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
+@keyframes ra-back { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .ra-running .ra-holes, .ra-rec, .ra-advance { animation: none !important; }
+  .ra-frame { transition: none; }
+}
+
+/* 밝은 필름 스트립 (홈 과정 소개) */
+.ra-strip.light {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  box-shadow: 0 24px 50px -36px rgba(47, 59, 235, 0.35);
+}
+.ra-strip.light .ra-holes {
+  background-image: radial-gradient(circle at 6px 4px, rgba(14, 16, 22, 0.13) 2.4px, transparent 2.6px);
+}
+
+/* 리믹스 홈 첫 화면 애니메이션 */
+@keyframes rh-feed { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@keyframes rh-in { 0% { opacity: 0; transform: translate(-36px, 10px) scale(.92) rotate(-4deg); } 18% { opacity: 1; } 60% { opacity: 1; transform: translate(0,0) scale(1) rotate(var(--r)); } 82% { opacity: 0; transform: translate(70px, 0) scale(.7) rotate(0); } 100% { opacity: 0; } }
+.rh-conveyor { animation: rh-feed 14s linear infinite; }
+.rh-card { animation: rh-in 6s cubic-bezier(.2,.8,.2,1) infinite both; }
+@keyframes rh-glow { to { --rh-a: 360deg; } }
+@property --rh-a { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+.rh-glow { background: conic-gradient(from var(--rh-a), #2f3beb, #8c5cff, #20c5ff, #2f3beb); animation: rh-glow 4s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .rh-conveyor, .rh-card, .rh-glow { animation: none !important; } }

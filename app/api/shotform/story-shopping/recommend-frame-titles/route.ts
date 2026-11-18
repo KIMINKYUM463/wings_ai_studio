@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from "next/server"
 import { STORY_TITLE_FORMULAS } from "@/app/WingsAIStudioShotForm/story-shopping/story-title-formulas"
+import { guardStoryApiRequest } from "@/lib/story-shopping-security"
 
 export const runtime = "nodejs"
 
 export async function POST(request: NextRequest) {
   try {
+    const access = await guardStoryApiRequest(request, {
+      limit: 12,
+      maxBytes: 150_000,
+    })
+    if (access.error) return access.error
     const body = await request.json()
     const productName = String(body.productName || "").trim()
     const script = String(body.script || "").trim()

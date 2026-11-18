@@ -2,9 +2,10 @@ import { useMemo } from 'react'
 import {
   SCENE_STYLE_CATALOG,
   sceneStyleCategoryLabel,
-  sceneStyleSampleDataUrl,
   sceneStyleSampleUrl,
+  styleThumbDataUrl,
   type SceneStyleCategory,
+  type StyleCategory,
 } from '@/lib/longform-v2/image-styles'
 import {
   SCENE_IMAGE_MODEL_OPTIONS,
@@ -44,7 +45,7 @@ export function ThumbnailGenStyleSelectionSummary({
   selectedTemplateLabel?: string
 }) {
   const styleItem = thumbnailGenSelectedStyleItem(settings)
-  const fileSrc = sceneStyleSampleUrl(settings.styleCategory, styleItem.id)
+  const fileSrc = sceneStyleSampleUrl(settings.styleCategory as StyleCategory, styleItem.id)
 
   return (
     <div className="thumb-tpl-modal__picked-bar" aria-live="polite">
@@ -65,12 +66,7 @@ export function ThumbnailGenStyleSelectionSummary({
             onError={(e) => {
               const img = e.currentTarget
               img.onerror = null
-              img.src = sceneStyleSampleDataUrl(
-                styleItem.hue,
-                styleItem.label,
-                settings.styleCategory,
-                styleItem.id,
-              )
+              img.src = styleThumbDataUrl(styleItem.hue, styleItem.label, styleItem.id)
             }}
           />
         </span>
@@ -210,7 +206,7 @@ export function ThumbnailGenSettingsBar({
         </div>
         <div className="thumb-tpl-modal__gen-style-row" role="listbox" aria-label="스타일 템플릿">
           {styles.map((s) => {
-            const fileSrc = sceneStyleSampleUrl(settings.styleCategory, s.id)
+            const fileSrc = sceneStyleSampleUrl(settings.styleCategory as StyleCategory, s.id)
             const topicRec = topicStyleRec?.isRecommended(settings.styleCategory, s.id) ?? false
             const topicReason = topicStyleRec?.reasonFor(settings.styleCategory, s.id)
             return (
@@ -241,12 +237,7 @@ export function ThumbnailGenSettingsBar({
                     onError={(e) => {
                       const img = e.currentTarget
                       img.onerror = null
-                      img.src = sceneStyleSampleDataUrl(
-                        s.hue,
-                        s.label,
-                        settings.styleCategory,
-                        s.id,
-                      )
+                      img.src = styleThumbDataUrl(s.hue, s.label, s.id)
                     }}
                   />
                 </span>

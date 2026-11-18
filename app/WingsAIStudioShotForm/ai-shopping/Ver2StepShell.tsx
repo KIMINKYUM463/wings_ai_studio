@@ -2,41 +2,21 @@
 
 import type { LucideIcon } from "lucide-react"
 import type { ReactNode } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 
-const ACCENT: Record<
-  string,
-  { glow: string; iconWrap: string; icon: string }
-> = {
-  orange: {
-    glow: "from-orange-500/10 to-transparent",
-    iconWrap: "from-orange-500/20 to-amber-500/10 border-orange-400/25",
-    icon: "text-orange-300",
-  },
-  sky: {
-    glow: "from-sky-500/10 to-transparent",
-    iconWrap: "from-sky-500/20 to-blue-500/10 border-sky-400/25",
-    icon: "text-sky-300",
-  },
-  emerald: {
-    glow: "from-emerald-500/10 to-transparent",
-    iconWrap: "from-emerald-500/20 to-teal-500/10 border-emerald-400/25",
-    icon: "text-emerald-300",
-  },
-  amber: {
-    glow: "from-amber-500/10 to-transparent",
-    iconWrap: "from-amber-500/20 to-orange-500/10 border-amber-400/25",
-    icon: "text-amber-300",
-  },
-  violet: {
-    glow: "from-violet-500/10 to-transparent",
-    iconWrap: "from-violet-500/20 to-fuchsia-500/10 border-violet-400/25",
-    icon: "text-violet-300",
-  },
+/** 단계마다 아이콘 칩 색만 살짝 다르게 (나머지는 같은 흰 카드) */
+const ACCENT: Record<string, { chip: string }> = {
+  orange: { chip: "bg-[#fff1ea] text-[#e8561f]" },
+  sky: { chip: "bg-[#eaf4ff] text-[#1f6fe0]" },
+  emerald: { chip: "bg-[#e7f8f1] text-[#0d9467]" },
+  amber: { chip: "bg-[#fff6e0] text-[#b7790a]" },
+  violet: { chip: "bg-[#f1edff] text-[#6c47e8]" },
 }
 
-/** 대본 생성과 동일한 단계 셸 (어두운 카드 + 그라데이션) */
+/**
+ * 단계 카드: 위쪽(제목·설명·오른쪽 버튼)은 앱 색 반전(light-remap)을 받지 않게 light-keep 으로 직접 색을 정하고,
+ * 안쪽 내용은 기존 단계 컴포넌트가 기대하는 대로 그대로 둔다.
+ */
 export function Ver2StepShell({
   stepLabel,
   title,
@@ -58,56 +38,28 @@ export function Ver2StepShell({
 }) {
   const a = ACCENT[accent] || ACCENT.orange
   return (
-    <div className={cn("space-y-6", className)}>
-      <Card className="border border-white/10 rounded-2xl shadow-2xl bg-[#fdfeff] overflow-hidden relative">
-        <div
-          className={cn(
-            "absolute inset-0 bg-gradient-to-br pointer-events-none",
-            a.glow
-          )}
-        />
-        <CardHeader className="pb-4 relative z-10 border-b border-white/10">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <div
-                className={cn(
-                  "p-2 rounded-xl bg-gradient-to-br border shadow-sm shrink-0",
-                  a.iconWrap
-                )}
-              >
-                <Icon className={cn("w-5 h-5", a.icon)} />
-              </div>
-              <div className="min-w-0">
-                <CardTitle className="text-xl font-bold text-zinc-100">
-                  {stepLabel ? (
-                    <>
-                      {stepLabel}
-                      <span className="text-zinc-500 font-semibold"> · </span>
-                    </>
-                  ) : null}
-                  {title}
-                </CardTitle>
-                {description ? (
-                  <p className="text-xs text-zinc-500 mt-1 leading-relaxed">
-                    {description}
-                  </p>
-                ) : null}
-              </div>
+    <div className={cn("mx-auto max-w-[1280px] space-y-6", className)}>
+      <section className="overflow-hidden rounded-[24px] border border-[#e3e6ec] bg-[#ffffff] shadow-[0_1px_2px_rgba(14,16,22,0.04),0_24px_50px_-34px_rgba(14,16,22,0.25)]">
+        <header className="flex flex-wrap items-start justify-between gap-4 border-b border-[#eef0f4] px-6 py-5 md:px-7">
+          <div className="light-keep flex min-w-0 items-start gap-3.5 text-[#0e1016]">
+            <span className={cn("grid h-11 w-11 shrink-0 place-items-center rounded-[14px]", a.chip)}>
+              <Icon className="h-5 w-5" />
+            </span>
+            <div className="min-w-0">
+              {stepLabel ? <p className="text-[11px] font-semibold text-[#9aa0ad]">{stepLabel}</p> : null}
+              <h3 className="text-[20px] font-black leading-tight tracking-[-0.02em]">{title}</h3>
+              {description ? <p className="mt-1 max-w-[680px] text-[13px] leading-relaxed text-[#5c6170]">{description}</p> : null}
             </div>
-            {headerRight ? (
-              <div className="relative z-10 flex flex-wrap gap-2 shrink-0">
-                {headerRight}
-              </div>
-            ) : null}
           </div>
-        </CardHeader>
-        <CardContent className="relative z-10 py-5 space-y-5">{children}</CardContent>
-      </Card>
+          {headerRight ? <div className="flex shrink-0 flex-wrap gap-2">{headerRight}</div> : null}
+        </header>
+        <div className="space-y-5 px-5 py-6 md:px-7">{children}</div>
+      </section>
     </div>
   )
 }
 
-/** 단계 안쪽 서브 패널 (대본의 Visual Focus / Templates 블록과 동일 톤) */
+/** 단계 안쪽 서브 패널 */
 export function Ver2StepPanel({
   eyebrow,
   title,
@@ -128,40 +80,22 @@ export function Ver2StepPanel({
   noPad?: boolean
 }) {
   return (
-    <div
-      className={cn(
-        "rounded-xl border border-white/10 bg-[#f3feff] overflow-hidden",
-        className
-      )}
-    >
+    <div className={cn("overflow-hidden rounded-2xl border border-[#e8eaf0] bg-[#fafbfc]", className)}>
       {(eyebrow || title || right) && (
-        <div className="px-3.5 py-3 border-b border-white/[0.06] flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            {eyebrow ? (
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-sky-300/70">
-                {eyebrow}
-              </p>
-            ) : null}
+        <div className="flex items-start justify-between gap-2 border-b border-[#eef0f4] px-4 py-3.5">
+          <div className="light-keep min-w-0 text-[#0e1016]">
+            {eyebrow ? <p className="text-[11px] font-bold text-[#2f3beb]">{eyebrow}</p> : null}
             {title ? (
-              <p
-                className={cn(
-                  "text-sm font-semibold text-zinc-100",
-                  eyebrow ? "mt-0.5" : ""
-                )}
-              >
+              <p className={cn("text-[14px] font-bold", eyebrow ? "mt-0.5" : "")}>
                 {title}
-                {description ? (
-                  <span className="ml-1.5 text-xs font-normal text-zinc-500">
-                    {description}
-                  </span>
-                ) : null}
+                {description ? <span className="ml-1.5 text-xs font-normal text-[#5c6170]">{description}</span> : null}
               </p>
             ) : null}
           </div>
           {right ? <div className="shrink-0">{right}</div> : null}
         </div>
       )}
-      <div className={cn(noPad ? "" : "p-3.5", bodyClassName)}>{children}</div>
+      <div className={cn(noPad ? "" : "p-4", bodyClassName)}>{children}</div>
     </div>
   )
 }

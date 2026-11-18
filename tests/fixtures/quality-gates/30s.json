@@ -1,0 +1,14 @@
+{
+  "id": "short-30s",
+  "durationSec": 30,
+  "thresholds": {
+    "minQualityScore": 0.9,
+    "maxCostUsd": 0.08,
+    "maxLatencyMs": 15000
+  },
+  "observed": {
+    "qualityScore": 0.94,
+    "costUsd": 0.05,
+    "latencyMs": 9200
+  }
+}

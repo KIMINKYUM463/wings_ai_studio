@@ -25,7 +25,7 @@ export const MVP_LABELS = {
     `도우인·샤오홍슈·TikTok URL을 입력한 뒤 「URL 해석」으로 영상을 확인하세요. 하단 「AI 리믹스」로 편집을 시작합니다. 기본 2칸, + 버튼으로 최대 ${MAX_AUTO_EDIT_VIDEOS}개까지 넣을 수 있으며, 리믹스는 버튼을 눌러야 시작됩니다.`,
   reprocessHint:
     "YouTube·TikTok URL을 넣고 「AI 리믹스」를 누르면 영상을 받아온 뒤 바로 리믹스가 시작됩니다.",
-  apifyLoading: "도우인 · 샤오홍슈 검색 중… (최대 수 분)",
+  sourceLoading: "도우인 · 샤오홍슈 · 틱톡 · 유튜브 검색 중… (TikHub)",
   steps: {
     urlInput: "URL 입력",
     urlResolve: "URL 해석",
@@ -46,7 +46,7 @@ export const MVP_LABELS = {
     reprocess:
       "URL 해석 후 AI 리믹스가 바로 실행됩니다. 이후 TTS·자막·썸네일·보내기까지 기존과 같습니다.",
     keyword:
-      "도우인·샤오홍슈에서 영상을 최대 {max}개까지 골라 AI 리믹스를 실행하세요. 이후 영상 편집에서 TTS·자막을 만들고 썸네일·보내기까지 이어갑니다.",
+      "도우인·샤오홍슈·틱톡·유튜브에서 영상을 최대 {max}개까지 골라 AI 리믹스를 실행하세요. 이후 영상 편집에서 TTS·자막을 만들고 썸네일·보내기까지 이어갑니다.",
   },
   videoCard: {
     presenterTitle: "입방송·블로거 소개 영상 (리믹스 제외)",
@@ -54,7 +54,14 @@ export const MVP_LABELS = {
     add: "영상에 추가",
     douyin: "도우인",
     xhs: "샤오홍슈",
+    tiktok: "틱톡",
+    youtube: "유튜브",
     presenterBadge: "입방송 추정",
+    sourceWarning: {
+      negative: "비추천 리뷰",
+      long: "긴 영상",
+      comparison: "여러 제품 비교",
+    },
     length: "길이",
     views: "조회",
     likes: "좋아요",
@@ -64,13 +71,16 @@ export const MVP_LABELS = {
   platform: {
     douyinTitle: "도우인 (Douyin)",
     xhsTitle: "샤오홍슈 (XHS)",
+    tiktokTitle: "틱톡 (TikTok)",
+    youtubeTitle: "유튜브 (YouTube Shorts)",
     videoCount: "영상",
     countUnit: "건",
     retrying: "다시 찾는 중",
     retry: "다시 소스 찾기",
     retryingEmpty: "다시 소스 찾는 중",
     empty: "표시할 영상이 없습니다.",
-    emptyDouyin: "「다시 소스 찾기」를 누르면 같은 검색어로 다시 시도합니다.",
+    emptySameQuery: "「다시 소스 찾기」를 누르면 같은 검색어로 다시 시도합니다.",
+    notSearched: "이전에 저장된 프로젝트라 아직 검색하지 않았습니다. 「다시 소스 찾기」를 눌러 주세요.",
     emptyXhs: "「다시 소스 찾기」로 최대 {max}회까지 재시도할 수 있습니다.",
   },
   errors: {
@@ -86,11 +96,9 @@ export const MVP_LABELS = {
     urlRefreshErrors: "{count}개 갱신 실패",
     keywordRequired: "키워드를 입력해 주세요.",
     openaiKey: "ShotForm 설정에서 OpenAI API 키를 저장해 주세요.",
-    apifyToken: "ShotForm 설정에서 소스 검색 토큰(shotform_apify_token)을 저장해 주세요.",
     sourceFail: "소스 찾기 실패",
     network: "네트워크 오류",
     searchFirst: "먼저 소스찾기를 실행해 주세요.",
-    apifyRequired: "소스 검색 토큰이 필요합니다.",
     retryFail: "재시도 실패",
   },
 } as const
@@ -99,6 +107,6 @@ export function formatVideoPickLabel(count: number, max: number): string {
   return `영상 선택 (${count}/${max})`
 }
 
-export function formatSearchRetryNotice(queries: string[], douyin: number, xhs: number): string {
-  return `검색어「${queries.join(" · ")}」— 도우인 ${douyin}건 · 샤오홍슈 ${xhs}건`
+export function formatSearchRetryNotice(queries: string[], counts: Array<[label: string, count: number]>): string {
+  return `검색어「${queries.join(" · ")}」— ${counts.map(([label, n]) => `${label} ${n}건`).join(" · ")}`
 }

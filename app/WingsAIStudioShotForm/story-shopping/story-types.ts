@@ -24,6 +24,14 @@ export interface StoryReferenceVideo {
   url: string
   embedUrl: string
   region: "channel" | "global"
+  license?: string
+  embeddable?: boolean
+  matchedKeyword?: string
+  format?: import("@/lib/story-market-intelligence").StoryMarketFormat
+  hookPattern?: string
+  performanceScore?: number
+  engagementRate?: number
+  viewsPerDay?: number
 }
 
 export interface StoryWinningContent {
@@ -100,6 +108,17 @@ export type StoryScriptTemplateId =
   | "time-saving"
   | "gift-reaction"
   | "trend-discovery"
+  | "underdog-comeback"
+  | "consumer-revolt"
+  | "maker-panic"
+  | "foreigner-reaction"
+  | "country-gap"
+  | "viral-to-product"
+  | "accident-hit"
+  | "rescue-story"
+  | "habit-breaker"
+  | "quiet-change"
+  | "controversy-flip"
 
 export interface StoryScriptScene {
   id: string
@@ -108,6 +127,41 @@ export interface StoryScriptScene {
   caption: string
   visualPrompt: string
   durationSec: number
+  /** 이 장면이 인용한 evidence source ID */
+  sourceIds?: string[]
+  claimIds?: string[]
+  sentences?: StorySentenceGrounding[]
+}
+
+export interface StoryEvidenceSource {
+  id: string
+  kind: "product" | "detail" | "review" | "review-summary" | "reference"
+  identity: string
+  text: string
+}
+
+export interface StoryClaim {
+  id: string
+  text: string
+  category: "factual" | "numeric" | "efficacy" | "opinion"
+  sourceIds: string[]
+  verified: boolean
+}
+
+export interface StorySentenceGrounding {
+  id: string
+  text: string
+  sourceIds: string[]
+  claimIds: string[]
+}
+
+export interface StoryGenerationContext {
+  requestId: string
+  productIdentity: string
+  reviewSetIdentity: string
+  /** 호출자가 보낸 낙관적 잠금 revision. 응답 적용 전에 현재 revision과 비교합니다. */
+  baseRevision?: string
+  responseRevision: string
 }
 
 export interface StoryGeneratedScript {
@@ -121,6 +175,9 @@ export interface StoryGeneratedScript {
   narrationStyle?: StoryNarrationStyle
   script: string
   scenes: StoryScriptScene[]
+  evidenceSources?: StoryEvidenceSource[]
+  claims?: StoryClaim[]
+  generationContext?: StoryGenerationContext
   generatedAt: string
 }
 
@@ -141,8 +198,8 @@ export interface StoryVoiceLineTrack {
   durationSec?: number
   startSec?: number
   endSec?: number
-  /** whisper = AI 음성 분석 싱크, estimated = 글자 수 비율 추정 */
-  alignmentSource?: "whisper" | "estimated"
+  /** provider 우선, Whisper 차선, estimated 최후 폴백 */
+  alignmentSource?: "provider" | "whisper" | "estimated"
 }
 
 export interface StoryVoiceTrack {
@@ -150,21 +207,50 @@ export interface StoryVoiceTrack {
   audioUrl: string
   durationSec?: number
   lineTracks?: StoryVoiceLineTrack[]
+  /** 생성 당시 대본 해시. 현재 narration과 다르면 이 트랙은 무효입니다. */
+  narrationHash?: string
+  voiceSettingsHash?: string
+  generatedAt?: string
+}
+
+export interface StoryVoiceCheckpoint {
+  sceneId: string
+  status: "pending" | "generating" | "aligning" | "completed" | "failed"
+  attempts: number
+  narrationHash: string
+  voiceSettingsHash: string
+  updatedAt: string
+  error?: string
 }
 
 export interface StoryVoiceData {
   voiceId: string
-  provider: "supertonic" | "typecast" | "elevenlabs"
+  provider: "supertonic" | "typecast" | "elevenlabs" | "adam"
   style: string
   speed: number
   tracks: StoryVoiceTrack[]
+  checkpoints?: StoryVoiceCheckpoint[]
+  operationId?: string
   generatedAt: string
 }
 
 export type StoryFrameTemplateId =
+  | "channel-wings-search"
+  | "channel-wings-profile"
+  | "channel-wings-cart"
+  | "channel-wings-arrow"
+  | "channel-wings-home"
   | "channel-shop-green"
   | "channel-shop-orange"
   | "channel-shop-white"
+  | "channel-shop-navy"
+  | "channel-shop-yellow"
+  | "channel-shop-tomato"
+  | "channel-shop-forest"
+  | "channel-shop-lime"
+  | "channel-shop-ad"
+  | "channel-shop-mint"
+  | "channel-fullbleed"
   | "channel-search"
   | "channel-pill"
   | "channel-minimal"
@@ -420,7 +506,7 @@ export interface StoryShoppingBrief {
   }
   selectedShoppingTag?: StoryShoppingTag & { videoId: string }
   selectedProductVideoId?: string
-  selectedProductSource?: "youtube-shopping-tag" | "coupang-search"
+  selectedProductSource?: "youtube-shopping-tag" | "coupang-search" | "manual"
   collectorData?: StoryCollectorData
   storyTemplateRecommendation?: StoryTemplateRecommendation
   generatedStory?: StoryGeneratedScript
@@ -431,13 +517,25 @@ export interface StoryShoppingBrief {
   mediaPool?: StoryMediaPoolItem[]
   mashupSettings?: StoryMashupSettings
   sfxClips?: StorySfxClip[]
+  /** 배경음악. "" 는 없음, 없으면 윙스 BGM 1 */
+  bgmId?: string
+  /** 배경음악 크기 0~100. 없으면 30 */
+  bgmVolume?: number
   thumbnailState?: StoryThumbnailState
+  /** 버전2 썰 쇼핑숏폼(ssul) 연동 프로젝트 ID */
+  v2SsulProjectId?: string
+  /** 상품 서칭 결과를 v2 프로젝트에 합쳤는지. 없으면(예전 프로젝트) v2SsulProjectId 유무로 판단 */
+  v2Bridged?: boolean
+  /** 버전2 최종 MP4 렌더링 완료 여부 */
+  v2OutputReady?: boolean
 }
 
 export interface StoryThumbnailState {
   gallery: MvpThumbnailVariant[]
   selectedId: string | null
   introOn?: boolean
+  /** 썸네일 스타일(템플릿) ID — v2 썸네일 탭에서 선택 */
+  styleId?: string
 }
 
 export const EMPTY_STORY_BRIEF: StoryShoppingBrief = {

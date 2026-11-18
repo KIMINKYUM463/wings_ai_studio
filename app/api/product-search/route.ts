@@ -8,7 +8,7 @@ import {
   serpGoogleImagesAsKeyframes,
   serpYoutubeSearch,
 } from "@/lib/serpapi-product-search"
-import { collectApifyVideoCandidatesBudgeted } from "@/lib/apify-product-search"
+import { collectTikhubShoppingCandidates, resolveTikhubKey } from "@/lib/tikhub"
 import { executeLiteProductSearch } from "@/lib/shotform-product-search-lite"
 import { fetchYoutubeTranscript } from "@/lib/youtube-transcript"
 import { fetchYoutubeStoryboardCellCandidates } from "@/lib/youtube-storyboard-keyframes"
@@ -968,8 +968,7 @@ export async function POST(req: NextRequest) {
       ""
     const clientSerpApiKey =
       typeof body.serpApiKey === "string" && body.serpApiKey.trim() ? body.serpApiKey.trim() : ""
-    const clientApifyToken =
-      typeof body.apifyApiKey === "string" && body.apifyApiKey.trim() ? body.apifyApiKey.trim() : ""
+    const clientTikhubKey = resolveTikhubKey(body.tikhubApiKey)
 
     if (!url && !productImageDataUrl) {
       return NextResponse.json({ error: "제품 URL 또는 제품 사진이 필요합니다." }, { status: 400 })
@@ -1202,22 +1201,22 @@ export async function POST(req: NextRequest) {
     let apifyHttpCallsUsed = 0
     let apifyRowsSnapshot: VideoResult[] = []
 
-    const apifyToken = clientApifyToken || (process.env.APIFY_TOKEN || "").trim() || null
+    const tikhubKey = clientTikhubKey || null
 
     const serpP =
       serpApiKey && yq
         ? collectYoutubeSerpCandidates(serpApiKey, analysis)
         : Promise.resolve({ rows: [] as VideoResult[], serpEngineCalls: 0 })
-    const apifyP = apifyToken
-      ? collectApifyVideoCandidatesBudgeted(apifyToken, analysis)
-      : Promise.resolve({ rows: [], apifyHttpCalls: 0 })
+    const tikhubP = tikhubKey
+      ? collectTikhubShoppingCandidates(tikhubKey, analysis)
+      : Promise.resolve({ rows: [], httpCalls: 0 })
 
-    const [pack, ap] = await Promise.all([serpP, apifyP])
+    const [pack, ap] = await Promise.all([serpP, tikhubP])
     apifyRowsSnapshot =
-      apifyToken && ap.rows.length > 0 ? (dedupeVideoRows(ap.rows) as VideoResult[]) : []
+      tikhubKey && ap.rows.length > 0 ? (dedupeVideoRows(ap.rows) as VideoResult[]) : []
     results.push(...pack.rows, ...ap.rows)
     serpEngineCallsUsed = pack.serpEngineCalls
-    apifyHttpCallsUsed = ap.apifyHttpCalls
+    apifyHttpCallsUsed = ap.httpCalls
 
     if (!serpApiKey && youtubeDataApiKey && yq) {
       results.push(...(await youtubeShortSearch(youtubeDataApiKey, yq)))
@@ -1278,7 +1277,7 @@ export async function POST(req: NextRequest) {
       ...(serpApiKey
         ? [`serpapi_youtube_engine_calls_${serpEngineCallsUsed}_of_${SERP_YOUTUBE_ENGINE_CAP}`]
         : []),
-      ...(apifyToken ? [`apify_sync_http_calls_${apifyHttpCallsUsed}`] : []),
+      ...(tikhubKey ? [`tikhub_http_calls_${apifyHttpCallsUsed}`] : []),
       ...(!serpApiKey && youtubeDataApiKey ? ["youtube_data_api_shorts"] : []),
     ]
     const pipelineDone = [
@@ -1303,9 +1302,9 @@ export async function POST(req: NextRequest) {
         ? `YouTube: SerpApi YouTube 엔진 **최대 ${SERP_YOUTUBE_ENGINE_CAP}회**(serpPriorityQueries 상위 2키워드). 이번 요청 **${serpEngineCallsUsed}**회. (서버 SERPAPI_KEY)`
         : "SerpApi 키가 없어 YouTube 실검색 후보를 붙이지 못했습니다. SerpApi 키 또는 YOUTUBE_API_KEY(쇼츠 폴백)를 설정하세요."
 
-    const noticeApify = apifyToken
-        ? `TikTok·샤오홍슈·더우인: 소스 검색 API 호출 **${apifyHttpCallsUsed}**회. TikTok은 통합 **상위 2문구** + dataset 상한 확대. 샤오홍슈·더우인은 **1차 2문구**(serpPriority→searchQueries) 후, 후보 풀에 3~4번째가 있으면 **2차 2문구**를 추가 호출해 병합합니다. 더우인 검색어 풀에는 **샤오홍슈 간체 후보**를 덧붙여 실검 0건을 줄입니다. 샤오홍슈 socialdatax-xhs-data-api, 더우인 sian.agency+natanielsantos 병합.`
-        : "소스 검색 토큰이 없어 TikTok·샤오홍슈·더우인 후보를 수집하지 않았습니다. ShotForm 설정에 소스 검색 토큰을 넣거나 서버 환경 변수를 설정하세요."
+    const noticeApify = tikhubKey
+        ? `TikTok·샤오홍슈·더우인: TikHub 검색 **${apifyHttpCallsUsed}**회. 플랫폼별 우선 검색어 2개로 동시에 찾습니다.`
+        : "TikHub API 키가 없어 TikTok·샤오홍슈·더우인 후보를 수집하지 않았습니다. ShotForm 설정에 TikHub API 키를 저장하거나 서버 TIKHUB_API_KEY를 설정하세요."
 
     const noticeLlm = skipVideoCandidateChecks
         ? "하단 영상: **테스트 모드** — 제품 관련도 필터·OpenAI 유사도 재평가를 건너뛰고 수집 결과를 정렬만 해서 보여줍니다(`PRODUCT_SEARCH_SKIP_VIDEO_CANDIDATE_CHECKS` 또는 요청 `skipVideoCandidateChecks`)."

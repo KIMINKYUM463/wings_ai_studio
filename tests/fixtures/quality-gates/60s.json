@@ -1,0 +1,14 @@
+{
+  "id": "standard-60s",
+  "durationSec": 60,
+  "thresholds": {
+    "minQualityScore": 0.9,
+    "maxCostUsd": 0.15,
+    "maxLatencyMs": 28000
+  },
+  "observed": {
+    "qualityScore": 0.92,
+    "costUsd": 0.11,
+    "latencyMs": 21400
+  }
+}

@@ -64,7 +64,7 @@ export async function probeAudioDurationSec(src: string): Promise<number> {
     a.preload = "metadata"
     a.onloadedmetadata = () => {
       const d = a.duration
-      resolve(Number.isFinite(d) && d > 0.05 ? Math.min(120, d) : DEFAULT_SOURCE_DURATION_SEC)
+      resolve(Number.isFinite(d) && d > 0.05 ? Math.min(180, d) : DEFAULT_SOURCE_DURATION_SEC)
     }
     a.onerror = () => resolve(DEFAULT_SOURCE_DURATION_SEC)
     a.src = src

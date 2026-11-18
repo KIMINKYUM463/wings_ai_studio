@@ -246,7 +246,7 @@ export function MvpScriptAnalysisPanel({
                           sceneTtsLoadingIndex != null ||
                           !text.trim()
                         }
-                        title="이 장면 대본만 TTS 다시 생성 (짧으면 영상 자름 · 길면 영상 반복)"
+                        title="이 장면 대본만 TTS 다시 생성 (짧으면 컷 가운데만 사용 · 길면 슬로모션)"
                         className={cn(
                           "inline-flex h-7 items-center gap-1 rounded-md px-2 text-[10px] font-semibold transition",
                           light

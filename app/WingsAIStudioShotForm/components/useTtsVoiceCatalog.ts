@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from "react"
 import {
+  adamVoiceCatalog,
   elevenlabsSampleVoiceCatalog,
   enrichTypecastVoice,
   formatVoiceLoadError,
@@ -26,6 +27,7 @@ const initialCatalog = (): TtsVoiceCatalogMap => ({
   supertonic: supertonicBuiltinVoiceCatalog(),
   elevenlabs: elevenlabsSampleVoiceCatalog(),
   typecast: [],
+  adam: adamVoiceCatalog(),
 })
 
 /** 엔진별(타입캐스트·수퍼토닉3·일레븐랩스) 목소리 목록 불러오기 상태 */
@@ -35,11 +37,13 @@ export function useTtsVoiceCatalog() {
     supertonic: false,
     elevenlabs: false,
     typecast: false,
+    adam: false,
   })
   const [voiceLoadErrors, setVoiceLoadErrors] = useState<TtsVoiceErrorMap>({
     supertonic: null,
     elevenlabs: null,
     typecast: null,
+    adam: null,
   })
   /** 자동 로드 실패 후 빈 목록으로 재호출되는 무한 루프 방지 */
   const autoLoadAttemptedRef = useRef<Set<TtsProviderId>>(new Set())
@@ -80,6 +84,13 @@ export function useTtsVoiceCatalog() {
         autoLoadAttemptedRef.current.add("supertonic")
         setVoicesLoading((prev) => ({ ...prev, supertonic: false }))
       }
+      return
+    }
+
+    if (p === "adam") {
+      setVoiceCatalog((prev) => ({ ...prev, adam: adamVoiceCatalog() }))
+      setVoiceLoadErrors((prev) => ({ ...prev, adam: null }))
+      autoLoadAttemptedRef.current.add("adam")
       return
     }
 

@@ -271,8 +271,15 @@ export async function GET(request: NextRequest) {
 
     console.log("[Kakao Callback] 로그인 성공:", userInfo.id)
 
-    // 메인 페이지로 리다이렉트
-    return NextResponse.redirect(new URL("/?kakao_login=success", request.url))
+    // 로그인 시작 시 저장해 둔 복귀 경로가 있으면 그쪽으로
+    const afterLogin = cookieStore.get("kakao_login_redirect")?.value || ""
+    cookieStore.delete("kakao_login_redirect")
+    const safePath =
+      afterLogin.startsWith("/") && !afterLogin.startsWith("//")
+        ? afterLogin
+        : "/?kakao_login=success"
+
+    return NextResponse.redirect(new URL(safePath, request.url))
   } catch (error) {
     console.error("[Kakao Callback] 콜백 처리 오류:", error)
     return NextResponse.redirect(

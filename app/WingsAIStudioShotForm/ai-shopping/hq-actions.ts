@@ -17,6 +17,7 @@ import {
   resolveFfmpegPath,
 } from "@/lib/ffmpeg-binaries"
 import { generateImageWithNanobanana } from "./actions"
+import { masterScaleCropFilter, SHORTS_MASTER } from "@/lib/shorts-master-quality"
 
 /** 초당 한국어 말하기 분량(글자) — UGC 자연 톤 기준 대략치 */
 function targetScriptCharRange(durationSec: number): { min: number; max: number } {
@@ -543,6 +544,8 @@ function buildPolicyFirstMultiShotPrompt(params: {
   durationSec: number
   script: string
   productName?: string
+  /** 기본 판매 경로는 로고를 유지하고, 필터에 걸린 재시도에서만 제거한다. */
+  preserveBranding?: boolean
 }) {
   const name = (params.productName || "").trim() || "the product"
   const { intro, closing } = splitSpokenLines(params.script)
@@ -553,10 +556,10 @@ function buildPolicyFirstMultiShotPrompt(params: {
 
   const shots =
     params.durationSec <= 8
-      ? `Shot 1: PRODUCT HERO — unbranded item from [Image1] on a bright clean tabletop, slow push-in, soft daylight, no people. Soft room tone. [Cut to]
+      ? `Shot 1: PRODUCT HERO — ${params.preserveBranding ? "exact product" : "unbranded item"} from [Image1] on a bright clean tabletop, slow push-in, soft daylight, no people. Soft room tone. [Cut to]
 Shot 2: HOST INTRO — a fictional ${hostDesc} holds the SAME product from [Image1] at chest level in a bright living-room lifestyle background, medium shot, eye contact, and says: "${line1}" [Cut to]
 Shot 3: FEATURE — close detail of a real part already on [Image1] (color/material only; no new parts), then same host type smiling with the same product.`
-      : `Shot 1: PRODUCT HERO — unbranded item from [Image1] on a bright tabletop, slow orbit/push-in, no people. Soft room tone. [Cut to]
+      : `Shot 1: PRODUCT HERO — ${params.preserveBranding ? "exact product" : "unbranded item"} from [Image1] on a bright tabletop, slow orbit/push-in, no people. Soft room tone. [Cut to]
 Shot 2: HOST INTRO — a fictional ${hostDesc} presents the SAME product from [Image1] in a cozy bright indoor lifestyle set, medium shot, and says: "${line1}" [Cut to]
 Shot 3: FEATURE — real detail already visible on [Image1], gentle handheld feel, same product geometry. Soft ambience. [Cut to]
 Shot 4: CLOSING — same fictional ${persona} host + same product, friendly wrap-up${line2 ? `, says: "${line2}"` : ""}.`
@@ -565,14 +568,14 @@ Shot 4: CLOSING — same fictional ${persona} host + same product, friendly wrap
 
 POLICY (must follow):
 - Family-friendly, fully clothed, non-sexual, safe for all ages retail.
-- No readable brand logos, trademarks, celebrity likeness, or copyrighted characters.
+- ${params.preserveBranding ? "Keep logos, prints, and lettering that are physically on the product in [Image1]. Do not add floating captions or a different logo." : "No readable brand logos, trademarks, celebrity likeness, or copyrighted characters."}
 - Product must match [Image1] shape/color/parts exactly — do NOT invent water, ice, steam, handles, lids, or accessories.
 - Host is a FICTIONAL original character described in text only — do NOT copy any real person's face. No celebrity lookalikes.
 - Do NOT require a face reference image. Invent a fitting face for: ${persona}.
 - Product name context only (do not render text on screen): ${name}.
 
 REFERENCE:
-- [Image1] = unbranded PRODUCT ground truth only (no people in this image)
+- [Image1] = ${params.preserveBranding ? "the real PRODUCT, including its existing prints" : "unbranded PRODUCT ground truth only"} (no people in this image)
 
 ${shots}
 
@@ -1049,17 +1052,17 @@ async function concatVideoUrlsToMp4(urls: string[]): Promise<Buffer> {
           "-i",
           rawPath,
           "-vf",
-          "scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2,fps=24,format=yuv420p",
+          masterScaleCropFilter(),
           "-c:v",
           "libx264",
           "-preset",
-          "fast",
+          SHORTS_MASTER.preset,
           "-crf",
-          "23",
+          SHORTS_MASTER.crf,
           "-c:a",
           "aac",
           "-b:a",
-          "128k",
+          SHORTS_MASTER.audioBitrate,
           "-ar",
           "44100",
           "-ac",
@@ -1290,8 +1293,53 @@ async function recreateHqShoppingVideoUnlocked(params: {
     return null
   }
 
-    // ── 0) 제품만 디브랜드 후, 인물은 페르소나 텍스트로 Seedance 2.5 요청 ──
-  log(`정책 우선: 제품 디브랜드 + 페르소나「${avatar.personaKo}」(얼굴 이미지 미사용)`)
+    // ── 0) 실제 제품 사진을 먼저 사용하고, 필터에 걸릴 때만 로고를 제거한다 ──
+  log(`실제 제품 우선: 원본 사진 + 페르소나「${avatar.personaKo}」(로고 유지, 얼굴 이미지 미사용)`)
+  const brandedPrompt = buildPolicyFirstMultiShotPrompt({
+    avatar,
+    durationSec,
+    script,
+    productName: params.productName,
+    preserveBranding: true,
+  })
+  {
+    const brandedAttempts: Attempt[] = [
+      {
+        label: "s2-branded-product-ref",
+        run: () =>
+          runSeedance25Prediction({
+            token,
+            referenceImages: [productUrl],
+            prompt: brandedPrompt,
+            durationSec,
+            generateAudio: true,
+            resolution: "720p",
+          }),
+      },
+      {
+        label: "s2-branded-product-i2v",
+        run: () =>
+          runSeedance25Prediction({
+            token,
+            imageUrl: productUrl,
+            prompt: `${buildUltraSafeStillPrompt(durationSec, script, avatar)}\nKeep printed logos that already belong to the product. Do not add new on-screen text.`,
+            durationSec,
+            generateAudio: true,
+            resolution: "720p",
+          }),
+      },
+    ]
+    const brandedHit = await tryAttempts(brandedAttempts, "seedance25-single")
+    if (brandedHit) return brandedHit
+    const policyBlocked = attemptLog.some(
+      (line) => line.startsWith("실패(") && isSeedancePolicyError(line)
+    )
+    if (!policyBlocked) {
+      const last = [...attemptLog].reverse().find((line) => line.startsWith("실패(")) || "원본 제품 생성 실패"
+      throw explainHqSeedanceError(new Error(last))
+    }
+    log("저작권·안전 필터에 걸려 로고를 제거한 제품 사진으로 다시 시도합니다.")
+  }
   const debranded = (await ensureDebranded()) || productUrl
   const policyPrompt = buildPolicyFirstMultiShotPrompt({
     avatar,
@@ -1380,7 +1428,7 @@ async function recreateHqShoppingVideoUnlocked(params: {
     const debrandedRound = (await ensureDebranded(round >= 2)) || productUrl
     const still = debrandedRound
     const seed = 1000 + round * 97
-    const resolution: "480p" | "720p" = round >= 2 ? "480p" : "720p"
+    const resolution: "480p" | "720p" = "720p"
     const prompt = buildPolicyFirstMultiShotPrompt({
       avatar,
       durationSec,
@@ -1437,7 +1485,7 @@ async function recreateHqShoppingVideoUnlocked(params: {
           const dProduct = 4
           const dHost = Math.max(4, durationSec - 8)
           const dClose = 4
-          const res: "480p" | "720p" = round >= 2 ? "480p" : "720p"
+          const res: "480p" | "720p" = "720p"
           const productClip = await runSeedance25Prediction({
             token,
             referenceImages: [debrandedRound],

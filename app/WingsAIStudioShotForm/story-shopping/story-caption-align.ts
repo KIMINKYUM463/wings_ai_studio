@@ -10,7 +10,7 @@ export type CaptionTimingCue = {
   text: string
   startSec: number
   endSec: number
-  alignmentSource: "whisper" | "estimated"
+  alignmentSource: "provider" | "whisper" | "estimated"
 }
 
 /** 비교용: 공백·따옴표·문장부호 제거 */
@@ -608,7 +608,7 @@ export function shiftCaptionCuesForTrim(
     text: string
     startSec: number
     endSec: number
-    alignmentSource?: "whisper" | "estimated"
+    alignmentSource?: "provider" | "whisper" | "estimated"
   }>,
   trimStartSec: number,
   trimmedDurationSec: number
@@ -619,7 +619,10 @@ export function shiftCaptionCuesForTrim(
     text: cue.text,
     startSec: cue.startSec - offset,
     endSec: cue.endSec - offset,
-    alignmentSource: (cue.alignmentSource || "whisper") as "whisper" | "estimated",
+    alignmentSource: (cue.alignmentSource || "whisper") as
+      | "provider"
+      | "whisper"
+      | "estimated",
   }))
   return normalizeCaptionTimingCues(shifted, trimmedDurationSec)
 }

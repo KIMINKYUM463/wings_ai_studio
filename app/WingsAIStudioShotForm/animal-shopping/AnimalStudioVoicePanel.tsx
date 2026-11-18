@@ -5,21 +5,25 @@ import { ArrowRight, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { TypecastApiErrorNotice } from "@/components/TypecastApiGuideCard"
 import { AnimalVoicePanel } from "./AnimalVoicePanel"
-import { concatAnimalTtsUrls, generateAnimalTts } from "./animal-tts"
+import { trimSilenceFromAudioUrl } from "@/lib/shotform-factory-line-tts"
+import { blobToDataUrl, concatAnimalTtsUrls, generateAnimalTts } from "./animal-tts"
 import {
   ANIMAL_SCENE_LABELS,
   joinSceneNarrations,
   type AnimalShoppingBrief,
 } from "./animal-studio-types"
+import { persistAnimalMediaBlob, type AnimalStorageScope } from "./animal-studio-utils"
 
 export function AnimalStudioVoicePanel({
   brief,
   onChange,
   onContinue,
+  storageScope,
 }: {
   brief: AnimalShoppingBrief
   onChange: Dispatch<SetStateAction<AnimalShoppingBrief>>
   onContinue: () => void
+  storageScope?: AnimalStorageScope
 }) {
   const [isGenerating, setIsGenerating] = useState(false)
   const [progress, setProgress] = useState({ current: 0, total: 1 })
@@ -27,6 +31,30 @@ export function AnimalStudioVoicePanel({
 
   const scenes = brief.scenes || []
   const sceneCount = scenes.length
+
+  /** 합친 data URL TTS를 Storage URL로 바꿔 프로젝트 저장 용량을 줄임 (실패 시 data URL 유지) */
+  const persistTtsUrl = async (dataUrl: string) => {
+    if (!dataUrl.startsWith("data:")) return dataUrl
+    const blob = await (await fetch(dataUrl)).blob()
+    return (await persistAnimalMediaBlob(blob, storageScope, "tts")) ?? dataUrl
+  }
+
+  /** 씬 TTS 앞뒤 무음을 잘라(씬 전환마다 1초 넘게 말이 끊기지 않게) Storage에 올림 */
+  const finalizeSceneTts = async (result: { audioUrl: string; durationSec: number }) => {
+    let blob = await (await fetch(result.audioUrl)).blob()
+    let durationSec = result.durationSec
+    try {
+      const trimmed = await trimSilenceFromAudioUrl(result.audioUrl)
+      URL.revokeObjectURL(trimmed.blobUrl)
+      blob = trimmed.wavBlob
+      durationSec = trimmed.durationSec
+    } catch {
+      /* 무음 제거 실패 시 원본 사용 */
+    }
+    const audioUrl =
+      (await persistAnimalMediaBlob(blob, storageScope, "tts")) ?? (await blobToDataUrl(blob))
+    return { audioUrl, durationSec }
+  }
   const hasSceneTts =
     sceneCount >= 3 && scenes.every((s) => Boolean(s.ttsAudioUrl))
 
@@ -47,12 +75,14 @@ export function AnimalStudioVoicePanel({
       const audioUrls: string[] = []
       for (let i = 0; i < sceneCount; i++) {
         setProgress({ current: i, total: sceneCount })
-        const result = await generateAnimalTts({
-          script: nextScenes[i].narration,
-          voiceId: brief.selectedVoiceId,
-          style: brief.selectedStyle,
-          speed: brief.ttsSpeed,
-        })
+        const result = await finalizeSceneTts(
+          await generateAnimalTts({
+            script: nextScenes[i].narration,
+            voiceId: brief.selectedVoiceId,
+            style: brief.selectedStyle,
+            speed: brief.ttsSpeed,
+          })
+        )
         nextScenes[i] = {
           ...nextScenes[i],
           ttsAudioUrl: result.audioUrl,
@@ -75,7 +105,7 @@ export function AnimalStudioVoicePanel({
         ...brief,
         scenes: nextScenes,
         script: joinSceneNarrations(nextScenes),
-        ttsAudioUrl: merged.audioUrl,
+        ttsAudioUrl: await persistTtsUrl(merged.audioUrl),
         ttsDurationSec: merged.durationSec || undefined,
         videoUrls: [],
         mergedVideoUrl: undefined,

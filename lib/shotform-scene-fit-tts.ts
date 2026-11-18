@@ -157,7 +157,10 @@ export function buildSceneFitRows(
   })
 }
 
-/** playback용 — fitEnds가 있으면 end 덮어쓰기 */
+/**
+ * playback용 — fitEnds(시작 + 음성 길이)만큼의 구간을 컷 **가운데**에서 잘라 씀.
+ * 컷 앞뒤 전환 직후·직전의 흔들리는 프레임을 피함.
+ */
 export function applyAudioFitEnds(
   segments: readonly NarrationSegment[],
   fitEnds: readonly number[] | null | undefined
@@ -166,8 +169,9 @@ export function applyAudioFitEnds(
   return segments.map((seg, i) => {
     const end = fitEnds[i]
     if (end == null || !Number.isFinite(end)) return { ...seg }
-    const clamped = Math.min(seg.end, Math.max(seg.start + 0.08, end))
-    return { ...seg, end: clamped }
+    const keep = Math.min(seg.end, Math.max(seg.start + 0.08, end)) - seg.start
+    const start = Math.round((seg.start + (seg.end - seg.start - keep) / 2) * 100) / 100
+    return { ...seg, start, end: Math.min(seg.end, start + keep) }
   })
 }
 

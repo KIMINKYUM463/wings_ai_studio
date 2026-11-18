@@ -15,9 +15,10 @@ import {
   mvpDirectUrlVisibleSlotCount,
   parseMvpDirectUrls,
   type MvpResolvedUrlItem,
-} from "@/lib/shotform-mvp-resolve-urls"
+} from "@/lib/shotform-mvp-direct-urls"
 import { studio } from "../components/ShotFormStudioUI"
 import { MvpXhsInlineVideoPreview } from "./MvpXhsMediaPreview"
+import { shotformTikhubKey } from "@/lib/shotform-tikhub-key-client"
 
 type Props = {
   disabled?: boolean
@@ -28,11 +29,6 @@ type Props = {
   onPicksReady: (picks: AutoEditPick[], resolved: MvpResolvedUrlItem[]) => void
   onPicksClear?: () => void
   onError?: (msg: string | null) => void
-}
-
-function shotformApifyToken(): string | null {
-  if (typeof window === "undefined") return null
-  return (localStorage.getItem("shotform_apify_token") || "").trim() || null
 }
 
 export function MvpDirectUrlPickPanel({
@@ -110,20 +106,6 @@ export function MvpDirectUrlPickPanel({
       return
     }
 
-    const apify = shotformApifyToken()
-    const hasDouyin = urls.some((u) => /douyin\.com|iesdouyin\.com|v\.douyin\.com/i.test(u))
-    const hasXhs = urls.some((u) => /xiaohongshu\.com|xhslink\.com/i.test(u))
-    if ((hasDouyin || hasXhs) && !apify) {
-      onError?.(
-        hasDouyin && hasXhs
-          ? "도우인·샤오홍슈 URL 해석에 소스 검색 토큰(Apify)이 필요합니다."
-          : hasDouyin
-            ? "도우인 URL 해석에 소스 검색 토큰이 필요합니다."
-            : "샤오홍슈 URL 해석에 소스 검색 토큰(Apify)이 필요합니다. 소스 찾기와 동일한 토큰을 설정해 주세요."
-      )
-      return
-    }
-
     setLoading(true)
     try {
       const res = await fetch("/api/shotform/mvp-resolve-urls", {
@@ -131,7 +113,7 @@ export function MvpDirectUrlPickPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           urlText: text,
-          apifyApiKey: apify || undefined,
+          tikhubApiKey: shotformTikhubKey(),
         }),
       })
       const json = (await res.json().catch(() => ({}))) as {

@@ -10,7 +10,11 @@ import {
   type KoZhKeywordPair,
 } from "@/lib/shotform-cn-keyword-translate-client"
 import {
+  MVP_KEYWORD_PLATFORMS,
   MVP_XHS_PLATFORM_RETRY_MAX,
+  mvpPlatformResult,
+  sortRemixSourceVideos,
+  withMvpPlatformResult,
   type MvpKeywordPlatform,
   type MvpKeywordSourceResult,
   type MvpKeywordVideo,
@@ -18,11 +22,13 @@ import {
 } from "@/lib/shotform-mvp-keyword-source"
 import {
   MAX_AUTO_EDIT_VIDEOS,
+  isPaidRemixMosaicMode,
+  isV2RemixPicture,
   type AutoEditJobResult,
   type AutoEditPick,
   videoPickKey,
 } from "@/lib/shotform-auto-edit-types"
-import { isLikelyPresenterTitle } from "@/lib/shotform-auto-edit-product-filter"
+import { isLikelyPresenterTitle, remixSourceWarning } from "@/lib/shotform-auto-edit-product-filter"
 import { StudioPageCard, StudioPageHeader, studio } from "../components/ShotFormStudioUI"
 import { ShotFormEditorDialogShell } from "../components/ShotFormEditorDialogShell"
 import { updateMvpTestProject } from "./project-actions"
@@ -30,13 +36,13 @@ import type { MvpSourceMode, MvpTestProject, MvpTestProjectData } from "./projec
 import { MvpDirectUrlPickPanel } from "./MvpDirectUrlPickPanel"
 import { MvpSourceCollectLoading } from "./MvpSourceCollectLoading"
 import { MvpReprocessUrlPanel } from "./MvpReprocessUrlPanel"
-import type { MvpResolvedUrlItem } from "@/lib/shotform-mvp-resolve-urls"
+import type { MvpResolvedUrlItem } from "@/lib/shotform-mvp-direct-urls"
 import type { MvpReprocessResolvedItem } from "@/lib/shotform-mvp-reprocess-url-shared"
 import type { MvpStudioPersistData } from "@/lib/mvp-studio-types"
 import { normalizeStudioPhase } from "@/lib/mvp-studio-types"
 import { prepareMvpProjectDataForSave } from "@/lib/mvp-project-persist"
 import { safeJsonKey, slimStudioPersistForSave, cacheMvpThumbnailGalleryForSave } from "@/lib/mvp-thumbnail-persist"
-import { MvpAutoEditDialog } from "./MvpAutoEditDialog"
+import { MvpV2RemixWorkspace } from "./MvpV2RemixWorkspace"
 import { MvpEditPicksBar } from "./MvpEditPicksBar"
 import { MvpPostEditStudio } from "./MvpPostEditStudio"
 import { MvpProjectToolbar } from "./MvpProjectToolbar"
@@ -47,15 +53,11 @@ import { MvpVideoUrlKeywordPanel } from "./MvpVideoUrlKeywordPanel"
 import { MvpXhsInlineVideoPreview } from "./MvpXhsMediaPreview"
 import { formatMediaDurationLabel } from "@/lib/serpapi-product-search"
 import { formatSearchRetryNotice, formatVideoPickLabel, MVP_LABELS as L, MVP_REPROCESS_SOURCE_ENABLED } from "./mvp-test-view-labels"
+import { shotformTikhubKey } from "@/lib/shotform-tikhub-key-client"
 
 function shotformOpenAIKey(): string | null {
   if (typeof window === "undefined") return null
   return (localStorage.getItem("shotform_openai_api_key") || "").trim() || null
-}
-
-function shotformApifyToken(): string | null {
-  if (typeof window === "undefined") return null
-  return (localStorage.getItem("shotform_apify_token") || "").trim() || null
 }
 
 function formatCount(n: number | null | undefined): string {
@@ -63,6 +65,45 @@ function formatCount(n: number | null | undefined): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   if (n >= 10_000) return `${(n / 1_000).toFixed(1)}K`
   return n.toLocaleString("ko-KR")
+}
+
+/** 플랫폼별 라벨·색 (Tailwind 클래스는 빌드 시 추출되도록 문자열 그대로 둔다) */
+const PLATFORM_UI: Record<
+  MvpKeywordPlatform,
+  { badge: string; title: string; border: string; badgeClass: string; accent: string; spinner: string }
+> = {
+  douyin: {
+    badge: L.videoCard.douyin,
+    title: L.platform.douyinTitle,
+    border: "border-amber-500/15",
+    badgeClass: "bg-amber-950/80 text-amber-200",
+    accent: "text-amber-300/80",
+    spinner: "text-amber-400",
+  },
+  xiaohongshu: {
+    badge: L.videoCard.xhs,
+    title: L.platform.xhsTitle,
+    border: "border-rose-500/15",
+    badgeClass: "bg-rose-950/80 text-rose-200",
+    accent: "text-rose-300/80",
+    spinner: "text-rose-400",
+  },
+  tiktok: {
+    badge: L.videoCard.tiktok,
+    title: L.platform.tiktokTitle,
+    border: "border-cyan-500/15",
+    badgeClass: "bg-cyan-950/80 text-cyan-200",
+    accent: "text-cyan-300/80",
+    spinner: "text-cyan-400",
+  },
+  youtube: {
+    badge: L.videoCard.youtube,
+    title: L.platform.youtubeTitle,
+    border: "border-red-500/15",
+    badgeClass: "bg-red-950/80 text-red-200",
+    accent: "text-red-300/80",
+    spinner: "text-red-400",
+  },
 }
 
 function StepBadge({ done, n, label }: { done?: boolean; n: number; label: string }) {
@@ -90,15 +131,16 @@ function SourceVideoCard({
   selectDisabled = false,
 }: {
   video: MvpKeywordVideo
-  platform: "douyin" | "xiaohongshu"
+  platform: MvpKeywordPlatform
   index: number
   selected?: boolean
   onToggleSelect?: () => void
   selectDisabled?: boolean
 }) {
-  const isDouyin = platform === "douyin"
+  const ui = PLATFORM_UI[platform]
   const canSelect = Boolean(video.videoUrl?.trim().startsWith("http"))
   const presenterLikely = isLikelyPresenterTitle(video.title)
+  const sourceWarning = remixSourceWarning(video)
   const selectBlocked = presenterLikely || (selectDisabled && !selected)
   const durationLabel = formatMediaDurationLabel(video.durationSec)
 
@@ -106,7 +148,7 @@ function SourceVideoCard({
     <div
       className={cn(
         "overflow-hidden rounded-xl border bg-black/20 transition",
-        selected ? "border-violet-500 ring-1 ring-violet-500/50" : isDouyin ? "border-amber-500/15" : "border-rose-500/15"
+        selected ? "border-violet-500 ring-1 ring-violet-500/50" : ui.border
       )}
     >
       <div className="relative">
@@ -145,16 +187,17 @@ function SourceVideoCard({
           loadPriority={index < 6 ? "eager" : "lazy"}
         />
         <span
-          className={cn(
-            "absolute left-2 top-2 rounded-md px-1.5 py-0.5 text-[10px]",
-            isDouyin ? "bg-amber-950/80 text-amber-200" : "bg-rose-950/80 text-rose-200"
-          )}
+          className={cn("absolute left-2 top-2 rounded-md px-1.5 py-0.5 text-[10px]", ui.badgeClass)}
         >
-          {isDouyin ? L.videoCard.douyin : L.videoCard.xhs}
+          {ui.badge}
         </span>
         {presenterLikely ? (
           <span className="pointer-events-none absolute left-2 top-8 rounded bg-amber-950/90 px-1 py-0.5 text-[9px] text-amber-200">
             {L.videoCard.presenterBadge}
+          </span>
+        ) : sourceWarning ? (
+          <span className="pointer-events-none absolute left-2 top-8 rounded bg-red-950/90 px-1 py-0.5 text-[9px] text-red-200">
+            {L.videoCard.sourceWarning[sourceWarning]}
           </span>
         ) : null}
         {durationLabel !== "?" ? (
@@ -170,7 +213,7 @@ function SourceVideoCard({
           <span>{L.videoCard.views} {formatCount(video.viewCount)}</span>
           <span>{L.videoCard.likes} {formatCount(video.likeCount)}</span>
           {video.relevanceScore != null ? (
-            <span className={isDouyin ? "text-amber-300/80" : "text-rose-300/80"}>
+            <span className={ui.accent}>
               {L.videoCard.relevance} {video.relevanceScore}
             </span>
           ) : null}
@@ -216,22 +259,24 @@ function PlatformResultSection({
   onToggleVideoPick,
 }: {
   platform: MvpKeywordPlatform
-  result: MvpPlatformSourceResult
+  /** 플랫폼 추가 전에 저장된 프로젝트는 결과가 없다 */
+  result: MvpPlatformSourceResult | undefined
   retrying: boolean
   retryError: string | null
   onRetry: () => void
   editPickKeys: Set<string>
   onToggleVideoPick: (video: MvpKeywordVideo, platform: MvpKeywordPlatform) => void
 }) {
-  const isDouyin = platform === "douyin"
-  const empty = result.videos.length === 0
+  const ui = PLATFORM_UI[platform]
+  const videos = result?.videos ?? []
+  const empty = videos.length === 0
+  const retrySuffix = platform === "xiaohongshu" ? ` (최대 ${MVP_XHS_PLATFORM_RETRY_MAX}회)` : ""
 
   return (
-    <StudioPageCard className={isDouyin ? "border-amber-500/15" : "border-rose-500/15"}>
+    <StudioPageCard className={ui.border}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <p className={studio.label}>
-          {isDouyin ? L.platform.douyinTitle : L.platform.xhsTitle} · {L.platform.videoCount}{" "}
-          {result.videos.length}
+          {ui.title} · {L.platform.videoCount} {videos.length}
           {L.platform.countUnit}
         </p>
         <Button
@@ -245,40 +290,40 @@ function PlatformResultSection({
           {retrying ? (
             <>
               <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-              {isDouyin
-                ? L.platform.retrying
-                : `${L.platform.retrying} (최대 ${MVP_XHS_PLATFORM_RETRY_MAX}회)`}
+              {L.platform.retrying}
+              {retrySuffix}
             </>
           ) : (
             <>
               <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-              {isDouyin
-                ? L.platform.retry
-                : `${L.platform.retry} (최대 ${MVP_XHS_PLATFORM_RETRY_MAX}회)`}
+              {L.platform.retry}
+              {retrySuffix}
             </>
           )}
         </Button>
       </div>
+      {result?.notice && empty ? <p className="mt-2 text-xs text-slate-500">{result.notice}</p> : null}
       {retryError ? <p className="mt-2 text-xs text-red-300">{retryError}</p> : null}
       {retrying && empty ? (
         <div className="flex min-h-[120px] items-center justify-center gap-2 py-8 text-sm text-slate-400">
-          <Loader2 className={cn("h-5 w-5 animate-spin", isDouyin ? "text-amber-400" : "text-rose-400")} />
-          {isDouyin
-            ? L.platform.retryingEmpty
-            : `${L.platform.retryingEmpty} (최대 ${MVP_XHS_PLATFORM_RETRY_MAX}회)`}
+          <Loader2 className={cn("h-5 w-5 animate-spin", ui.spinner)} />
+          {L.platform.retryingEmpty}
+          {retrySuffix}
         </div>
       ) : empty ? (
         <div className="py-8 text-center">
           <p className="text-sm text-slate-500">{L.platform.empty}</p>
           <p className="mt-1 text-xs text-slate-600">
-            {isDouyin
-              ? L.platform.emptyDouyin
-              : L.platform.emptyXhs.replace("{max}", String(MVP_XHS_PLATFORM_RETRY_MAX))}
+            {!result
+              ? L.platform.notSearched
+              : platform === "xiaohongshu"
+                ? L.platform.emptyXhs.replace("{max}", String(MVP_XHS_PLATFORM_RETRY_MAX))
+                : L.platform.emptySameQuery}
           </p>
         </div>
       ) : (
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
-          {result.videos.map((v, i) => {
+          {sortRemixSourceVideos(videos).map((v, i) => {
             const key = videoPickKey(v.url, v.videoUrl)
             const selected = editPickKeys.has(key)
             return (
@@ -321,6 +366,7 @@ function buildProjectData(args: {
   keywordPairs: KoZhKeywordPair[]
   data: MvpKeywordSourceResult | null
   editPicks: AutoEditPick[]
+  v2RemixProjectId: string | null
   analyzedVideoUrl: string | null
   postEditStudio: { result: AutoEditJobResult; videoBlobUrl: string | null } | null
   postEditScriptOverrides: Record<string, string>
@@ -335,6 +381,7 @@ function buildProjectData(args: {
     keywordPairs: args.keywordPairs,
     sourceResult: args.data,
     editPicks: args.editPicks,
+    v2RemixProjectId: args.v2RemixProjectId,
     analyzedVideoUrl: args.analyzedVideoUrl,
     postEditResult: args.postEditStudio?.result ?? null,
     postEditScriptOverrides: args.postEditScriptOverrides,
@@ -375,6 +422,7 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
     keywordPairs: KoZhKeywordPair[]
     data: MvpKeywordSourceResult | null
     editPicks: AutoEditPick[]
+    v2RemixProjectId: string | null
     analyzedVideoUrl: string | null
     postEditStudio: { result: AutoEditJobResult; videoBlobUrl: string | null; videoBlob: Blob | null } | null
     postEditScriptOverrides: Record<string, string>
@@ -396,10 +444,8 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
   const [keywordPairs, setKeywordPairs] = useState<KoZhKeywordPair[]>([])
   const [translateLoading, setTranslateLoading] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [retryingDouyin, setRetryingDouyin] = useState(false)
-  const [retryingXhs, setRetryingXhs] = useState(false)
-  const [retryErrDouyin, setRetryErrDouyin] = useState<string | null>(null)
-  const [retryErrXhs, setRetryErrXhs] = useState<string | null>(null)
+  const [retrying, setRetrying] = useState<Partial<Record<MvpKeywordPlatform, boolean>>>({})
+  const [retryErr, setRetryErr] = useState<Partial<Record<MvpKeywordPlatform, string | null>>>({})
   const [err, setErr] = useState<string | null>(null)
   const [data, setData] = useState<MvpKeywordSourceResult | null>(null)
   const [editPicks, setEditPicks] = useState<AutoEditPick[]>([])
@@ -410,6 +456,8 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
   const pickUrlRefreshForProjectRef = useRef<string | null>(null)
   const editPicksRef = useRef(editPicks)
   editPicksRef.current = editPicks
+  const [v2RemixProjectId, setV2RemixProjectId] = useState<string | null>(null)
+  const [v2HasOutput, setV2HasOutput] = useState(false)
   const [analyzedVideoUrl, setAnalyzedVideoUrl] = useState<string | null>(null)
   const [postEditStudio, setPostEditStudio] = useState<{
     result: AutoEditJobResult
@@ -430,6 +478,7 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
     keywordPairs,
     data,
     editPicks,
+    v2RemixProjectId,
     analyzedVideoUrl,
     postEditStudio,
     postEditScriptOverrides,
@@ -475,8 +524,9 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
         platform,
       })
     }
-    for (const v of data.douyin.videos) push(v, "douyin")
-    for (const v of data.xhs.videos) push(v, "xiaohongshu")
+    for (const platform of MVP_KEYWORD_PLATFORMS) {
+      for (const v of mvpPlatformResult(data, platform)?.videos ?? []) push(v, platform)
+    }
     return out
   }, [data])
 
@@ -503,6 +553,16 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
         return { ...p, noteUrl: urls.noteUrl, videoUrl: urls.videoUrl }
       })
     )
+    setV2RemixProjectId(d.v2RemixProjectId ?? null)
+    setV2HasOutput(false)
+    if (d.v2RemixProjectId) {
+      void fetch(`/api/wings-shopping-v2/projects/${encodeURIComponent(d.v2RemixProjectId)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((proj: { output?: { file?: string } } | null) => {
+          if (proj?.output?.file === "output.mp4") setV2HasOutput(true)
+        })
+        .catch(() => undefined)
+    }
     setAnalyzedVideoUrl(d.analyzedVideoUrl ?? null)
     setErr(null)
     if (d.postEditResult) {
@@ -524,6 +584,7 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
       keywordPairs: d.keywordPairs ?? [],
       data: d.sourceResult ?? null,
       editPicks: d.editPicks ?? [],
+      v2RemixProjectId: d.v2RemixProjectId ?? null,
       analyzedVideoUrl: d.analyzedVideoUrl ?? null,
       postEditStudio: d.postEditResult
         ? { result: d.postEditResult, videoBlobUrl: null }
@@ -781,11 +842,6 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
     })()
   }, [project.id])
 
-  const handleOpenAutoEdit = useCallback(async () => {
-    await refreshSelectedPickUrls()
-    setAutoEditOpen(true)
-  }, [refreshSelectedPickUrls])
-
   const handleDirectUrlPicksReady = useCallback(
     (picks: AutoEditPick[], resolved: MvpResolvedUrlItem[]) => {
       setDirectUrlResolved(resolved)
@@ -848,6 +904,19 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
         : [keywordText.trim()].filter(Boolean),
     [keywordText, multiKeyword]
   )
+
+  const handleOpenAutoEdit = useCallback(async () => {
+    const gemini = localStorage.getItem("shotform_gemini_api_key")?.trim()
+    if (gemini) {
+      await fetch("/api/shotform/gemini-key", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ apiKey: gemini }),
+      }).catch(() => undefined)
+    }
+    await refreshSelectedPickUrls()
+    setAutoEditOpen(true)
+  }, [refreshSelectedPickUrls])
 
   /** 현재 한국어 입력에 맞는 중국어 번역이 준비됐는지 */
   const translationReady = useMemo(() => {
@@ -919,12 +988,6 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
       return
     }
 
-    const apify = shotformApifyToken()
-    if (!apify) {
-      setErr(L.errors.apifyToken)
-      return
-    }
-
     setLoading(true)
     try {
       const pairs = keywordPairs
@@ -938,7 +1001,7 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
           keywordPairs: pairs,
           searchQueries,
           openaiApiKey: openai,
-          apifyApiKey: apify,
+          tikhubApiKey: shotformTikhubKey(),
         }),
       })
       const json = (await res.json().catch(() => ({}))) as MvpKeywordSourceResult & { error?: string }
@@ -963,21 +1026,8 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
         return
       }
 
-      const apify = shotformApifyToken()
-      if (!apify) {
-        const msg = L.errors.apifyRequired
-        if (platform === "douyin") setRetryErrDouyin(msg)
-        else setRetryErrXhs(msg)
-        return
-      }
-
-      if (platform === "douyin") {
-        setRetryErrDouyin(null)
-        setRetryingDouyin(true)
-      } else {
-        setRetryErrXhs(null)
-        setRetryingXhs(true)
-      }
+      setRetryErr((prev) => ({ ...prev, [platform]: null }))
+      setRetrying((prev) => ({ ...prev, [platform]: true }))
 
       try {
         const res = await fetch("/api/shotform/mvp-keyword-source", {
@@ -987,7 +1037,7 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
             keywords: koInputs.length ? koInputs : data.searchQueries,
             keywordPairs: data.keywordPairs,
             searchQueries: data.searchQueries,
-            apifyApiKey: apify,
+            tikhubApiKey: shotformTikhubKey(),
             platform,
             ...(platform === "xiaohongshu" ? { maxAttempts: MVP_XHS_PLATFORM_RETRY_MAX } : {}),
           }),
@@ -1003,23 +1053,17 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
 
         setData((prev) => {
           if (!prev) return prev
-          const next =
-            platform === "douyin"
-              ? { ...prev, douyin: json.result! }
-              : { ...prev, xhs: json.result! }
-          return {
-            ...next,
-            notice: formatSearchRetryNotice(prev.searchQueries, next.douyin.videos.length, next.xhs.videos.length),
-          }
+          const next = withMvpPlatformResult(prev, platform, json.result!)
+          const counts = MVP_KEYWORD_PLATFORMS.map(
+            (p): [string, number] => [PLATFORM_UI[p].badge, mvpPlatformResult(next, p)?.videos.length ?? 0]
+          )
+          return { ...next, notice: formatSearchRetryNotice(prev.searchQueries, counts) }
         })
         skipSaveRef.current = true
       } catch (e) {
-        const msg = e instanceof Error ? e.message : L.errors.retryFail
-        if (platform === "douyin") setRetryErrDouyin(msg)
-        else setRetryErrXhs(msg)
+        setRetryErr((prev) => ({ ...prev, [platform]: e instanceof Error ? e.message : L.errors.retryFail }))
       } finally {
-        if (platform === "douyin") setRetryingDouyin(false)
-        else setRetryingXhs(false)
+        setRetrying((prev) => ({ ...prev, [platform]: false }))
       }
     },
     [data, koInputs]
@@ -1045,7 +1089,7 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
           : keywordPairs.length > 0 || Boolean(data?.searchQueries.length),
       s3: isReprocess || isDirect
         ? editPicks.length > 0
-        : Boolean(data && (data.douyin.videos.length > 0 || data.xhs.videos.length > 0)),
+        : Boolean(data && MVP_KEYWORD_PLATFORMS.some((p) => (mvpPlatformResult(data, p)?.videos.length ?? 0) > 0)),
       s4: editPicks.length > 0,
       s5: postEditStudio != null && ttsDone,
       s6: postEditStudio != null && (studioPhase === "script-style" || studioPhase === "thumbnail" || studioPhase === "export"),
@@ -1072,6 +1116,13 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
       const studioData: MvpStudioPersistData = {
         phase: "edit",
         editMp4CachedJobId: args.result.jobId || undefined,
+        editTtsCachedJobId: args.result.voiceLineCues?.length ? args.result.jobId : undefined,
+        voiceLineCues: args.result.voiceLineCues,
+        sceneFitEnabled: false,
+        selectedVoiceId: args.result.ttsVoiceId,
+        chineseMosaicAutoJobId: isPaidRemixMosaicMode(args.result.mosaicMode) ? args.result.jobId : undefined,
+        voiceStyle: args.result.ttsVoiceStyle,
+        speechSpeed: args.result.voiceLineCues?.[0]?.speed,
       }
       setPostEditScriptOverrides({})
       setPostEditStudioData(studioData)
@@ -1323,7 +1374,7 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
 
       {sourceMode === "keyword" && loading ? (
         <StudioPageCard className="overflow-hidden p-0">
-          <MvpSourceCollectLoading caption={L.apifyLoading} />
+          <MvpSourceCollectLoading caption={L.sourceLoading} />
         </StudioPageCard>
       ) : null}
 
@@ -1380,24 +1431,18 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
           </StudioPageCard>
 
           <div className="grid gap-6 xl:grid-cols-2">
-            <PlatformResultSection
-              platform="douyin"
-              result={data.douyin}
-              retrying={retryingDouyin}
-              retryError={retryErrDouyin}
-              onRetry={() => void retryPlatform("douyin")}
-              editPickKeys={editPickKeys}
-              onToggleVideoPick={toggleVideoPick}
-            />
-            <PlatformResultSection
-              platform="xiaohongshu"
-              result={data.xhs}
-              retrying={retryingXhs}
-              retryError={retryErrXhs}
-              onRetry={() => void retryPlatform("xiaohongshu")}
-              editPickKeys={editPickKeys}
-              onToggleVideoPick={toggleVideoPick}
-            />
+            {MVP_KEYWORD_PLATFORMS.map((platform) => (
+              <PlatformResultSection
+                key={platform}
+                platform={platform}
+                result={mvpPlatformResult(data, platform)}
+                retrying={Boolean(retrying[platform])}
+                retryError={retryErr[platform] ?? null}
+                onRetry={() => void retryPlatform(platform)}
+                editPickKeys={editPickKeys}
+                onToggleVideoPick={toggleVideoPick}
+              />
+            ))}
           </div>
         </>
       ) : null}
@@ -1408,67 +1453,21 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
         </p>
       ) : null}
 
-      {postEditStudio ? (
-        <ShotFormEditorDialogShell
-          open={postEditStudioOpen}
-          title="AI 리믹스 영상 편집"
-          onClose={closePostEditStudio}
-          detailMode={postEditDetailMode}
-          onDetailModeChange={setPostEditDetailMode}
-          onSave={() => persistProjectRef.current({ force: true })}
-          saving={saveState === "saving"}
-          theme="light"
-          keepMounted
-          autoHideChrome
-        >
-          <MvpPostEditStudio
-            projectId={project.id}
-            projectName={projectName}
-            sourceKeywords={koInputs}
-            result={postEditStudio.result}
-            videoBlobUrl={postEditStudio.videoBlobUrl}
-            videoBlob={postEditStudio.videoBlob}
-            scriptOverrides={postEditScriptOverrides}
-            onScriptOverridesChange={setPostEditScriptOverrides}
-            studioPersist={postEditStudioData}
-            onStudioPersistChange={handleStudioPersistChange}
-            active={postEditStudioOpen}
-            detailMode={postEditDetailMode}
-            onClose={closePostEditStudio}
-            editPicks={editPicks}
-            sourceLibraryPicks={sourceLibraryPicks}
-            onResultChange={(nextResult, nextBlob) => {
-              setPostEditStudio((prev) =>
-                prev
-                  ? {
-                      ...prev,
-                      result: nextResult,
-                      videoBlob: nextBlob ?? prev.videoBlob,
-                      videoBlobUrl: nextBlob
-                        ? URL.createObjectURL(nextBlob)
-                        : prev.videoBlobUrl,
-                    }
-                  : prev
-              )
-            }}
-          />
-        </ShotFormEditorDialogShell>
-      ) : null}
-
-      {(editPicks.length > 0 || postEditStudio) ? (
+      {(editPicks.length > 0 || v2RemixProjectId || postEditStudio) ? (
         <MvpEditPicksBar
           picks={editPicks}
-          editComplete={postEditStudio != null}
+          editComplete={v2HasOutput || Boolean(v2RemixProjectId)}
           urlRefreshing={pickUrlRefreshing}
           urlRefreshMsg={pickUrlRefreshMsg}
           onClearPicks={clearEditPicks}
           onRefreshUrls={() => void refreshSelectedPickUrls()}
           onOpenAutoEdit={() => void handleOpenAutoEdit()}
-          onOpenEditor={() => setPostEditStudioOpen(true)}
+          v2Picture={v2HasOutput}
+          onOpenEditor={() => void handleOpenAutoEdit()}
         />
       ) : null}
 
-      <MvpAutoEditDialog
+      <MvpV2RemixWorkspace
         projectName={projectName}
         sourceKeywords={koInputs}
         open={autoEditOpen && editPicks.length > 0}
@@ -1478,8 +1477,15 @@ export function MvpTestView({ project, userId, onBackToProjects, onProjectUpdate
         }}
         picks={editPicks}
         projectId={project.id}
-        onPicksUpdated={setEditPicks}
-        onStudioReady={handleStudioReady}
+        v2ProjectId={v2RemixProjectId}
+        onV2ProjectIdChange={(nextV2Id) => {
+          setV2RemixProjectId(nextV2Id)
+          if (workspaceRef.current) {
+            workspaceRef.current = { ...workspaceRef.current, v2RemixProjectId: nextV2Id }
+          }
+          void persistProjectRef.current({ force: true })
+        }}
+        onV2OutputStateChange={setV2HasOutput}
         initialPrefetchedBlobs={reprocessPrefetchedBlobs}
       />
     </div>

@@ -5,6 +5,7 @@ import {
 } from "@/lib/mvp-studio-audio-catalog"
 import type { PlacedStudioOverlay } from "@/lib/shotform-studio-overlay-catalog"
 import { legacySfxToBgmCatalogId } from "@/lib/shotform-mvp-sfx-catalog"
+import { MVP_SUBTITLE_ENTRANCE_OPTIONS, type MvpSubtitleEntrance } from "@/lib/mvp-subtitle-entrance"
 
 /** @deprecated legacy — `edit`로 통합 */
 export type MvpStudioPhaseLegacy = "tts" | "timeline"
@@ -33,6 +34,25 @@ export type MvpSubtitleStyle = {
   /** 0~100 */
   bgOpacity?: number
   textShadow?: boolean
+  /** 자막 줄이 바뀔 때 등장 효과 */
+  entrance?: MvpSubtitleEntrance
+}
+
+/** 영상 위에 계속 떠 있는 글자(헤드카피·워터마크·광고 표시) */
+export type MvpVideoTextLayers = {
+  headcopyOn: boolean
+  /** `headcopies` 중 영상에 올릴 세트 */
+  headcopyIndex: number
+  headcopyColor: string
+  /** 둘째 줄 강조색 */
+  headcopyAccentColor: string
+  /** 280px 미리보기 기준 글자 크기 */
+  headcopySizePx: number
+  /** 화면 상단 기준 세로 % */
+  headcopyY: number
+  /** 비어 있으면 표시 안 함 */
+  watermarkText: string
+  adLabelOn: boolean
 }
 
 export type MvpScriptStyleState = {
@@ -40,6 +60,9 @@ export type MvpScriptStyleState = {
   storytellingScript: string
   headcopies: string[][]
   commentKeyword: string
+  videoText?: MvpVideoTextLayers
+  /** 대본 생성·다시쓰기에 적용할 말투 */
+  toneProfile?: import("@/lib/mvp-tone-profile").MvpToneProfile | null
 }
 
 export type MvpThumbnailHookingText = {
@@ -239,7 +262,7 @@ export function normalizeMvpBgmClips(
       if (!src) return null
       const sourceDurationSec = Math.max(
         0.2,
-        Math.min(120, Number(c.sourceDurationSec) || 1.2)
+        Math.min(180, Number(c.sourceDurationSec) || 1.2)
       )
       let startSec = Math.max(0, Number(c.startSec) || 0)
       let endSec = Number(c.endSec)
@@ -360,6 +383,10 @@ export type MvpStudioPersistData = {
   bgmClips?: MvpBgmClip[]
   /** 스토리 효과음 카탈로그에서 배치한 one-shot 효과음 */
   effectClips?: MvpEffectClip[]
+  /** 자동 연출(전환·모션·전환 효과음·배경음) 켜짐 여부 */
+  autoFx?: Partial<import("@/lib/mvp-auto-fx").MvpAutoFxSettings>
+  /** 중국어 자동 모자이크를 이미 실행한 리믹스 jobId — 같은 영상 재분석 방지 */
+  chineseMosaicAutoJobId?: string
   /** 영상 소스별 미리보기 확대·좌우반전 (video_id 키) */
   videoSourceTransforms?: import("@/lib/mvp-video-source-transform").MvpVideoSourceTransforms
   /** 제목·설명·태그 (SEO) */
@@ -442,6 +469,9 @@ export function normalizeSubtitleStyle(style?: Partial<MvpSubtitleStyle> | null)
     bgColor: merged.bgColor?.startsWith("#") ? merged.bgColor : "#000000",
     bgOpacity: Math.min(100, Math.max(0, Number(merged.bgOpacity ?? 55) || 55)),
     textShadow: merged.textShadow !== false,
+    entrance: MVP_SUBTITLE_ENTRANCE_OPTIONS.some((o) => o.id === merged.entrance)
+      ? merged.entrance
+      : "none",
   }
 }
 

@@ -608,7 +608,7 @@ export async function generateTrendingTopics(
       economy: ["경제", "재테크", "노후", "연금", "부동산", "투자"],
     }
 
-    const youtubeApiKey = process.env.YOUTUBE_API_KEY || "AIzaSyDZHiuuxcEflmtu2mIZIVkKb9Jdthofh68"
+    const youtubeApiKey = process.env.YOUTUBE_API_KEY
 
     if (!youtubeApiKey) {
       console.error("YouTube API 키가 설정되지 않았습니다")

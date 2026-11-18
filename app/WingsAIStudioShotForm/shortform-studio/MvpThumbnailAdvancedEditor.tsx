@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   AlignCenter,
   AlignLeft,
@@ -53,6 +53,7 @@ import {
   THUMBNAIL_EXPORT_W,
   THUMBNAIL_STAGE_BASE_W,
   THUMBNAIL_TEMPLATES,
+  THUMBNAIL_TEMPLATE_CATEGORIES,
   THUMBNAIL_DEFAULT_STROKE_WIDTH,
   THUMBNAIL_TEXT_COLOR_PRESETS,
   normalizeThumbnailHexColor,
@@ -72,6 +73,9 @@ import {
   duplicateThumbnailText,
   hookingFromThumbnailDesign,
   thumbnailTextAnchorTransform,
+  fittedThumbnailFontSize,
+  thumbnailRgba,
+  thumbnailTextLines,
   addThumbnailElement,
   removeThumbnailLayer,
   setThumbnailBackground,
@@ -79,6 +83,7 @@ import {
   updateThumbnailText,
   type MvpThumbnailDesign,
   type ThumbnailFilterState,
+  type ThumbnailTemplateCategory,
   type ThumbnailTextLayer,
 } from "@/lib/mvp-thumbnail-design"
 import { exportThumbnailDesignToDataUrl } from "@/lib/mvp-thumbnail-export-canvas"
@@ -88,7 +93,6 @@ import { StudioOverlayGraphic } from "../shoppingshotform/StudioOverlayGraphic"
 import { useMvpOverlayInteraction } from "./useMvpOverlayInteraction"
 import { useThumbnailDesignHistory } from "./useThumbnailDesignHistory"
 import type { CapturedVideoFrame } from "@/lib/mvp-thumbnail-capture"
-import { studio } from "../components/ShotFormStudioUI"
 import { MvpThumbnailFramePicker } from "./MvpThumbnailFramePicker"
 import { ThumbnailMosaicLayer } from "./ThumbnailMosaicLayer"
 import {
@@ -293,64 +297,83 @@ function MosaicResizeHandles({
   )
 }
 
-function textLayerLineStyle(t: ThumbnailTextLayer): React.CSSProperties {
+/** 기준 폭 360 좌표계 값을 실제 화면 폭에 맞게 scale — PNG(Canvas)와 동일한 비율 */
+function textLayerLineStyle(t: ThumbnailTextLayer, scale: number): React.CSSProperties {
   return {
     textAlign: t.align,
-    fontSize: t.fontSize,
+    fontSize: fittedThumbnailFontSize(t) * scale,
     fontWeight: t.fontWeight,
     color: t.color,
-    letterSpacing: `${t.letterSpacing}px`,
-    lineHeight: 1.2,
+    letterSpacing: `${t.letterSpacing * scale}px`,
+    lineHeight: 1.05,
     whiteSpace: "nowrap",
-    WebkitTextStroke: t.strokeOn ? `${t.strokeWidth}px ${t.strokeColor}` : undefined,
+    WebkitTextStroke: t.strokeOn ? `${t.strokeWidth * scale}px ${t.strokeColor}` : undefined,
     paintOrder: t.strokeOn ? "stroke fill" : undefined,
-    textShadow: t.shadow ? "2px 3px 8px rgba(0,0,0,0.75)" : "none",
+    textShadow: t.shadow
+      ? `${2 * scale}px ${3 * scale}px ${8 * scale}px rgba(0,0,0,0.75)`
+      : "none",
     fontFamily: '"Pretendard","Noto Sans KR",system-ui,sans-serif',
     wordBreak: "keep-all",
   }
 }
 
-function splitTextLines(text: string): string[] {
-  const lines = text.split("\n")
-  return lines.length ? lines : [""]
-}
+function ThumbnailTextLayerContent({ layer, scale }: { layer: ThumbnailTextLayer; scale: number }) {
+  const lines = thumbnailTextLines(layer)
+  const lineStyle = textLayerLineStyle(layer, scale)
+  const boxStyle: React.CSSProperties = layer.bgOn
+    ? {
+        display: layer.bgFill ? "block" : "inline-block",
+        width: layer.bgFill ? "100%" : undefined,
+        maxWidth: "100%",
+        backgroundColor: thumbnailRgba(layer.bgColor, layer.bgOpacity ?? 70),
+        borderRadius: (layer.bgRadius ?? 8) * scale,
+        padding: `${(layer.bgPadY ?? 6) * scale}px ${(layer.bgPadX ?? 12) * scale}px`,
+        boxSizing: "border-box",
+      }
+    : { display: "block", width: "100%" }
 
-function ThumbnailTextLayerContent({ layer }: { layer: ThumbnailTextLayer }) {
-  const lines = splitTextLines(layer.text)
-  const bgOpacity = (layer.bgOpacity ?? 70) / 100
-
-  const inner = (
-    <div className="flex w-full flex-col gap-0.5">
+  return (
+    <div
+      className="flex w-full flex-col"
+      style={{
+        alignItems: layer.align === "left" ? "flex-start" : layer.align === "right" ? "flex-end" : "center",
+      }}
+    >
       {lines.map((line, i) => (
         <span
           key={`${layer.id}-line-${i}`}
-          className="block w-full"
           data-thumb-shadow={layer.shadow ? "1" : "0"}
-          style={textLayerLineStyle(layer)}
+          style={{ ...lineStyle, ...boxStyle }}
         >
-          {line || "\u00A0"}
+          {line || " "}
         </span>
       ))}
     </div>
   )
+}
 
-  if (layer.bgOn) {
-    return (
-      <div
-        className="w-full"
-        style={{
-          backgroundColor: `rgba(0,0,0,${bgOpacity})`,
-          borderRadius: 8,
-          padding: "6px 12px",
-          boxSizing: "border-box",
-        }}
-      >
-        {inner}
-      </div>
-    )
-  }
-
-  return inner
+/** 템플릿 상·하단 단색 띠 — html2canvas 오버레이로 PNG에 합성 */
+function ThumbnailLetterboxLayer({ design }: { design: MvpThumbnailDesign }) {
+  const lb = design.letterbox
+  if (!lb || (!lb.topPct && !lb.bottomPct)) return null
+  return (
+    <>
+      {lb.topPct > 0 ? (
+        <div
+          data-thumb-template-chrome
+          className="pointer-events-none absolute inset-x-0 top-0 z-[3]"
+          style={{ height: `${lb.topPct}%`, background: lb.color }}
+        />
+      ) : null}
+      {lb.bottomPct > 0 ? (
+        <div
+          data-thumb-template-chrome
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-[3]"
+          style={{ height: `${lb.bottomPct}%`, background: lb.color }}
+        />
+      ) : null}
+    </>
+  )
 }
 
 function shotformOpenAIKey(): string {
@@ -402,7 +425,7 @@ function AiBackgroundHistoryGrid({
   if (!urls.length) return null
   return (
     <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3">
-      <p className="text-[10px] font-semibold text-amber-200/90">AI 생성 배경 기록</p>
+      <p className="text-[10px] font-semibold text-amber-700">AI 생성 배경 기록</p>
       <p className="mt-1 text-[9px] leading-relaxed text-slate-500">
         리믹스 프레임 등 다른 배경을 골라도 AI로 만든 이미지는 여기에 보관됩니다. 썸네일을 다시 적용하면
         기록도 함께 저장됩니다.
@@ -427,68 +450,136 @@ function AiBackgroundHistoryGrid({
   )
 }
 
-function ThumbnailTemplatePreview({
-  preview,
-  hook1,
-  hook2,
-  hook1Color = "#ffffff",
-  hook2Color = "#5eead4",
+function thumbnailFilterCss(f: ThumbnailFilterState, blurScale = 1): { filter: string } {
+  return {
+    filter: `blur(${f.blur * blurScale}px) brightness(${f.brightness}%) contrast(${f.contrast}%) saturate(${f.saturate}%)`,
+  }
+}
+
+const TEMPLATE_PREVIEW_W = 124
+
+/** 현재 배경 + 현재 후킹 문구에 템플릿을 실제로 적용한 결과 미리보기 */
+const ThumbnailTemplatePreview = memo(function ThumbnailTemplatePreview({
+  design,
+  templateId,
   selected,
   label,
   description,
-  onClick,
+  onSelect,
 }: {
-  preview: string
-  hook1?: string
-  hook2?: string
-  hook1Color?: string
-  hook2Color?: string
+  design: MvpThumbnailDesign
+  templateId: string
   selected: boolean
   label: string
   description?: string
-  onClick: () => void
+  onSelect: (templateId: string) => void
 }) {
+  const scale = TEMPLATE_PREVIEW_W / THUMBNAIL_STAGE_BASE_W
+  const filterCss = thumbnailFilterCss(design.filter, scale)
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={() => onSelect(templateId)}
+      aria-pressed={selected}
+      title={description ? `${label} — ${description}` : label}
       className={cn(
-        "overflow-hidden rounded-xl border text-left transition",
+        "group rounded-2xl p-1 text-left outline-none transition",
+        "focus-visible:ring-2 focus-visible:ring-[#2f3beb] focus-visible:ring-offset-2",
         selected
-          ? "border-violet-400 ring-2 ring-violet-400/30"
-          : "border-black/10 hover:border-violet-300 dark:border-white/10"
+          ? "border border-transparent bg-white ring-2 ring-[#2f3beb]"
+          : "border border-[#e3e6ec] bg-white hover:border-[#c9cdf6]"
       )}
+      style={{ width: TEMPLATE_PREVIEW_W + 10 }}
     >
-      <div className="relative aspect-[9/16] w-full" style={{ background: preview }}>
-        <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/25" />
-        <div className="absolute inset-x-1 top-[12%] px-1 text-center">
-          {hook1 ? (
-            <p
-              className="truncate text-[7px] font-extrabold leading-tight drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]"
-              style={{ color: hook1Color, WebkitTextStroke: "0.4px #000" }}
-            >
-              {hook1}
-            </p>
-          ) : null}
-          {hook2 ? (
-            <p
-              className="mt-0.5 truncate text-[7px] font-extrabold leading-tight drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]"
-              style={{ color: hook2Color, WebkitTextStroke: "0.4px #000" }}
-            >
-              {hook2}
-            </p>
-          ) : null}
-        </div>
-      </div>
-      <div className="px-2 py-1.5">
-        <p className="truncate text-[10px] font-semibold text-slate-800 dark:text-white">{label}</p>
-        {description ? (
-          <p className="mt-0.5 line-clamp-2 text-[8px] leading-snug text-slate-500">{description}</p>
+      <div
+        className="relative overflow-hidden rounded-xl bg-slate-200 shadow-[0_1px_2px_rgba(15,23,42,0.08),0_4px_12px_rgba(15,23,42,0.08)] transition group-hover:shadow-[0_6px_20px_rgba(47,59,235,0.18)]"
+        style={{ width: TEMPLATE_PREVIEW_W, aspectRatio: "9/16" }}
+      >
+        {design.backgroundUrl ? (
+          <img
+            src={design.backgroundUrl}
+            alt=""
+            loading="lazy"
+            draggable={false}
+            className="pointer-events-none max-w-none"
+            style={thumbnailBackgroundImageStyle(resolveBackgroundTransform(design), filterCss)}
+          />
+        ) : (
+          <div className="absolute inset-0 bg-gradient-to-b from-slate-500 to-slate-700" />
+        )}
+        {design.filter.gradientTop && design.filter.gradientOpacity > 0 ? (
+          <div
+            className="pointer-events-none absolute inset-x-0 top-0"
+            style={{
+              height: "45%",
+              background: `linear-gradient(180deg, rgba(0,0,0,${design.filter.gradientOpacity / 100}) 0%, transparent 100%)`,
+            }}
+          />
         ) : null}
+        <ThumbnailLetterboxLayer design={design} />
+        {design.texts.map((t) => (
+          <div
+            key={t.id}
+            className="pointer-events-none absolute z-[4]"
+            style={{
+              left: `${t.x}%`,
+              top: `${t.y}%`,
+              transform: thumbnailTextAnchorTransform(t.align, t.rotation),
+              width: `${t.widthPct}%`,
+            }}
+          >
+            <ThumbnailTextLayerContent layer={t} scale={scale} />
+          </div>
+        ))}
       </div>
+      <p
+        className={cn(
+          "truncate px-1 pb-0.5 pt-1.5 text-[11px] font-semibold tracking-tight",
+          selected ? "text-[#2f3beb]" : "text-[#0e1016]"
+        )}
+      >
+        {label}
+      </p>
     </button>
   )
+})
+
+/** 템플릿 적용 — 편집 적용과 왼쪽 미리보기가 같은 함수를 써서 결과가 항상 동일 */
+function designWithTemplate(d: MvpThumbnailDesign, templateId: string): MvpThumbnailDesign {
+  const tpl = THUMBNAIL_TEMPLATES.find((t) => t.id === templateId)
+  const hooking = hookingFromThumbnailDesign(d)
+  const hasHooking = Boolean(hooking.line1.trim() && hooking.line2.trim())
+  const hookingForTpl = hasHooking
+    ? hooking
+    : {
+        line1: tpl?.sampleHook1 ?? hooking.line1,
+        line2: tpl?.sampleHook2 ?? hooking.line2,
+      }
+  const base = d.aiBaked ? exitAiBakedEditMode(d, hookingForTpl) : d
+  return applyThumbnailTemplate(base, templateId, hookingForTpl, { textStyleOnly: true })
 }
+
+/** 상위(html.dark 등) 테마와 무관하게 스튜디오는 항상 밝은 테마로 고정 */
+const LIGHT_THEME_VARS = {
+  colorScheme: "light",
+  "--background": "oklch(1 0 0)",
+  "--foreground": "#0e1016",
+  "--card": "#ffffff",
+  "--card-foreground": "#0e1016",
+  "--popover": "#ffffff",
+  "--popover-foreground": "#0e1016",
+  "--primary": "#2f3beb",
+  "--primary-foreground": "#ffffff",
+  "--secondary": "#f1f2f6",
+  "--secondary-foreground": "#0e1016",
+  "--muted": "#f1f2f6",
+  "--muted-foreground": "#5c6170",
+  "--accent": "#eef0fb",
+  "--accent-foreground": "#0e1016",
+  "--border": "#e3e6ec",
+  "--input": "#e3e6ec",
+  "--ring": "rgba(47,59,235,0.5)",
+} as React.CSSProperties
 
 const SIDE_TABS: Array<{ id: SideTab; label: string; icon: React.ReactNode }> = [
   { id: "template", label: "템플릿", icon: <Layers className="h-5 w-5" /> },
@@ -586,7 +677,8 @@ export function MvpThumbnailAdvancedEditor({
     const area = canvasAreaRef.current
     if (!area || !open) return
     const updateFit = () => {
-      const pad = 56
+      // 휴대폰 베젤·그림자·하단 안내 문구 여백 포함
+      const pad = 112
       const availW = Math.max(200, area.clientWidth - pad)
       const availH = Math.max(200, area.clientHeight - pad)
       const aspect = 9 / 16
@@ -606,6 +698,10 @@ export function MvpThumbnailAdvancedEditor({
 
   const stagePxW = THUMBNAIL_STAGE_BASE_W * fitScale * zoomMul
   const stagePxH = stagePxW * (16 / 9)
+  const stageScale = stagePxW / THUMBNAIL_STAGE_BASE_W
+  // 휴대폰 프레임(장식) 치수 — 캔버스 크기에 비례
+  const phoneBezel = Math.max(8, Math.round(stagePxW * 0.032))
+  const phoneScreenRadius = Math.round(stagePxW * 0.11)
   const displayZoomPct = Math.round(fitScale * zoomMul * 100)
 
   const selectedText = design.texts.find((t) => t.id === selectedId) ?? null
@@ -660,8 +756,8 @@ export function MvpThumbnailAdvancedEditor({
           const dy = ((e.clientY - bgSt.startPy) / rect.height) * 100
           patchDesign((d) =>
             updateThumbnailBackgroundTransform(d, {
-              x: bgSt.startX + dx,
-              y: bgSt.startY + dy,
+              x: (bgSt as BgMoveState).startX + dx,
+              y: (bgSt as BgMoveState).startY + dy,
             })
           )
           return
@@ -834,22 +930,35 @@ export function MvpThumbnailAdvancedEditor({
     }
   }
 
-  const applyTemplate = (templateId: string) => {
-    const tpl = THUMBNAIL_TEMPLATES.find((t) => t.id === templateId)
-    commitDesign((d) => {
-      const hooking = hookingFromThumbnailDesign(d)
-      const hasHooking = Boolean(hooking.line1.trim() && hooking.line2.trim())
-      const hookingForTpl = hasHooking
-        ? hooking
-        : {
-            line1: tpl?.sampleHook1 ?? hooking.line1,
-            line2: tpl?.sampleHook2 ?? hooking.line2,
-          }
-      const base = d.aiBaked ? exitAiBakedEditMode(d, hookingForTpl) : d
-      return applyThumbnailTemplate(base, templateId, hookingForTpl, { textStyleOnly: true })
-    })
-    setSelectedId(null)
-  }
+  const applyTemplate = useCallback(
+    (templateId: string) => {
+      commitDesign((d) => designWithTemplate(d, templateId))
+      setSelectedId(null)
+    },
+    [commitDesign]
+  )
+
+  const [templateCategory, setTemplateCategory] = useState<ThumbnailTemplateCategory | "all">("all")
+  const previewHook1 = design.texts.find((t) => t.role === "hook1")?.text ?? ""
+  const previewHook2 = design.texts.find((t) => t.role === "hook2")?.text ?? ""
+  // 드래그 중 매 프레임 재계산하지 않도록 배경·문구·필터가 바뀔 때만 미리보기 갱신
+  const templatePreviewBase = useMemo(
+    (): MvpThumbnailDesign => ({
+      ...design,
+      texts: design.texts.filter((t) => t.role === "hook1" || t.role === "hook2"),
+      elements: [],
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [design.backgroundUrl, design.backgroundTransform, design.filter, design.aiBaked, previewHook1, previewHook2]
+  )
+  const templatePreviews = useMemo(
+    () =>
+      THUMBNAIL_TEMPLATES.map((tpl) => ({
+        tpl,
+        design: designWithTemplate(templatePreviewBase, tpl.id),
+      })),
+    [templatePreviewBase]
+  )
 
   const currentHookingForAi = useMemo((): MvpThumbnailHookingText => {
     const fromDesign = hookingFromThumbnailDesign(design)
@@ -1218,12 +1327,7 @@ export function MvpThumbnailAdvancedEditor({
     }
   }
 
-  const filterCss = useMemo(() => {
-    const f = design.filter
-    return {
-      filter: `blur(${f.blur}px) brightness(${f.brightness}%) contrast(${f.contrast}%) saturate(${f.saturate}%)`,
-    }
-  }, [design.filter])
+  const filterCss = useMemo(() => thumbnailFilterCss(design.filter), [design.filter])
 
   const isFilterDefault = useMemo(() => {
     const def = defaultThumbnailFilter()
@@ -1291,30 +1395,31 @@ export function MvpThumbnailAdvancedEditor({
   return (
     <Dialog open={open} onOpenChange={onOpenChange} modal>
       <DialogPortal>
-        <DialogOverlay className="fixed inset-0 z-[200] bg-black/85" />
+        <DialogOverlay className="fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm" />
         <DialogPrimitive.Content
-          className="dark fixed inset-0 z-[201] flex h-screen max-h-screen w-screen max-w-none flex-col bg-[#f4f7fd] outline-none"
+          className="light-keep fixed left-1/2 top-1/2 z-[201] flex h-[min(900px,92vh)] w-[min(1440px,94vw)] max-w-none -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[24px] bg-[#f7f8fb] text-[#0e1016] shadow-[0_40px_120px_-30px_rgba(15,23,42,0.45),0_0_0_1px_rgba(15,23,42,0.06)] outline-none"
+          style={LIGHT_THEME_VARS}
           onInteractOutside={(e) => e.preventDefault()}
           onPointerDownOutside={(e) => e.preventDefault()}
         >
           <DialogTitle className="sr-only">썸네일 스튜디오</DialogTitle>
 
           {/* 상단 — 캔바/미리캔버스 스타일 툴바 */}
-          <header className="flex h-14 shrink-0 items-center justify-between border-b border-black/[0.08] bg-white px-4 dark:border-white/[0.08] dark:bg-[#f4f9ff]">
+          <header className="flex h-14 shrink-0 items-center justify-between border-b border-[#e3e6ec] bg-white px-4">
             <div className="flex items-center gap-3">
               <Button
                 type="button"
                 size="sm"
                 variant="ghost"
-                className="h-9 text-slate-600 dark:text-slate-400"
+                className="h-9 text-slate-600"
                 onClick={() => onOpenChange(false)}
               >
                 <ArrowLeft className="mr-1.5 h-4 w-4" />
                 나가기
               </Button>
-              <div className="hidden h-5 w-px bg-black/10 dark:bg-white/10 sm:block" />
+              <div className="hidden h-5 w-px bg-black/10 sm:block" />
               <div>
-                <p className="text-sm font-bold text-slate-900 dark:text-white">썸네일 스튜디오</p>
+                <p className="text-sm font-bold text-slate-900">썸네일 스튜디오</p>
                 <p className="text-[10px] text-slate-500">9:16 · {productName}</p>
               </div>
             </div>
@@ -1364,7 +1469,7 @@ export function MvpThumbnailAdvancedEditor({
               >
                 <Trash2 className="h-4 w-4" />
               </Button>
-              <div className="mx-2 hidden h-6 w-px bg-black/10 dark:bg-white/10 sm:block" />
+              <div className="mx-2 hidden h-6 w-px bg-black/10 sm:block" />
               <Button
                 type="button"
                 size="icon"
@@ -1397,7 +1502,7 @@ export function MvpThumbnailAdvancedEditor({
               <Button
                 type="button"
                 size="sm"
-                className={cn("ml-3 h-9 px-4", studio.btnPrimary)}
+                className="ml-3 h-9 rounded-xl bg-[#2f3beb] px-4 font-semibold text-white shadow-[0_6px_16px_-4px_rgba(47,59,235,0.55)] hover:bg-[#2531c9] focus-visible:ring-2 focus-visible:ring-[#2f3beb] focus-visible:ring-offset-2 disabled:opacity-50"
                 disabled={exporting || !design.backgroundUrl}
                 onClick={() => void handleApply()}
               >
@@ -1412,14 +1517,14 @@ export function MvpThumbnailAdvancedEditor({
           </header>
 
           {err ? (
-            <p className="shrink-0 bg-rose-100 px-4 py-2 text-xs text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
+            <p className="shrink-0 bg-rose-100 px-4 py-2 text-xs text-rose-700">
               {err}
             </p>
           ) : null}
 
           <div className="flex min-h-0 flex-1">
             {/* 왼쪽 아이콘 레일 — 미리캔버스 스타일 */}
-            <nav className="flex w-[72px] shrink-0 flex-col items-center gap-1 border-r border-black/[0.06] bg-white py-3 dark:border-white/[0.06] dark:bg-[#f4f9ff]">
+            <nav className="flex w-[72px] shrink-0 flex-col items-center gap-1 border-r border-[#e3e6ec] bg-white py-3">
               {SIDE_TABS.map((tab) => (
                 <button
                   key={tab.id}
@@ -1427,10 +1532,11 @@ export function MvpThumbnailAdvancedEditor({
                   title={tab.label}
                   onClick={() => setSideTab(tab.id)}
                   className={cn(
-                    "flex w-[60px] flex-col items-center gap-1 rounded-xl py-2.5 text-[10px] font-medium transition",
+                    "flex w-[60px] flex-col items-center gap-1 rounded-xl py-2.5 text-[10px] font-semibold outline-none transition",
+                    "focus-visible:ring-2 focus-visible:ring-[#2f3beb] focus-visible:ring-offset-1",
                     sideTab === tab.id
-                      ? "bg-violet-500/15 text-violet-600 dark:bg-violet-500/20 dark:text-violet-200"
-                      : "text-slate-500 hover:bg-black/[0.04] hover:text-slate-800 dark:hover:bg-white/[0.06] dark:hover:text-slate-200"
+                      ? "bg-[#2f3beb] text-white shadow-[0_4px_12px_rgba(47,59,235,0.35)]"
+                      : "text-slate-500 hover:bg-slate-100 hover:text-slate-800"
                   )}
                 >
                   {tab.icon}
@@ -1440,31 +1546,58 @@ export function MvpThumbnailAdvancedEditor({
             </nav>
 
             {/* 왼쪽 패널 */}
-            <aside className="flex w-[280px] shrink-0 flex-col border-r border-black/[0.06] bg-white dark:border-white/[0.06] dark:bg-[#f4f9ff]">
+            <aside className="flex w-[300px] shrink-0 flex-col border-r border-[#e3e6ec] bg-white">
               <div className="flex-1 overflow-y-auto p-4">
                 {sideTab === "template" ? (
                   <div className="space-y-3">
                     <div>
-                      <p className="text-xs font-bold text-slate-800 dark:text-white">디자인 템플릿</p>
-                      <p className="mt-0.5 text-[9px] leading-relaxed text-slate-500">
-                        실제 쇼츠 레퍼런스 4종 · 후킹 2줄 위치·색상만 적용합니다 (배경·요소 유지).
+                      <div className="flex items-baseline justify-between">
+                        <p className="text-[13px] font-bold tracking-tight text-slate-900">디자인 템플릿</p>
+                        <span className="text-[10px] font-medium tabular-nums text-slate-400">
+                          {THUMBNAIL_TEMPLATES.length}종
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[10px] leading-relaxed text-slate-500">
+                        조회수 높은 쇼핑·살림 쇼츠 표지에서 뽑은 스타일입니다. 지금 배경과 후킹 문구로 미리 보여드려요.
                       </p>
-                      <div className="mt-2 grid grid-cols-2 gap-2">
-                        {THUMBNAIL_TEMPLATES.map((tpl) => (
+                    </div>
+                    <div role="tablist" aria-label="템플릿 분류" className="flex flex-wrap gap-1.5">
+                      {[{ id: "all" as const, label: "전체" }, ...THUMBNAIL_TEMPLATE_CATEGORIES].map((c) => {
+                        const active = templateCategory === c.id
+                        return (
+                          <button
+                            key={c.id}
+                            type="button"
+                            role="tab"
+                            aria-selected={active}
+                            onClick={() => setTemplateCategory(c.id)}
+                            className={cn(
+                              "rounded-full px-2.5 py-1 text-[11px] font-semibold outline-none transition",
+                              "focus-visible:ring-2 focus-visible:ring-[#2f3beb] focus-visible:ring-offset-1",
+                              active
+                                ? "bg-[#2f3beb] text-white shadow-[0_2px_8px_rgba(47,59,235,0.35)]"
+                                : "border border-[#e3e6ec] bg-white text-[#5c6170] hover:border-[#c9cdf6] hover:text-[#0e1016]"
+                            )}
+                          >
+                            {c.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <div className="grid grid-cols-2 justify-items-center gap-y-2">
+                      {templatePreviews
+                        .filter(({ tpl }) => templateCategory === "all" || tpl.category === templateCategory)
+                        .map(({ tpl, design: previewDesign }) => (
                           <ThumbnailTemplatePreview
                             key={tpl.id}
-                            preview={tpl.preview}
-                            hook1={tpl.sampleHook1}
-                            hook2={tpl.sampleHook2}
-                            hook1Color={tpl.sampleHook1Color}
-                            hook2Color={tpl.sampleHook2Color}
+                            templateId={tpl.id}
+                            design={previewDesign}
                             label={tpl.label}
                             description={tpl.description}
                             selected={design.templateId === tpl.id}
-                            onClick={() => applyTemplate(tpl.id)}
+                            onSelect={applyTemplate}
                           />
                         ))}
-                      </div>
                     </div>
                   </div>
                 ) : null}
@@ -1472,7 +1605,7 @@ export function MvpThumbnailAdvancedEditor({
                 {sideTab === "text" ? (
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <p className="text-xs font-bold text-slate-800 dark:text-white">텍스트</p>
+                      <p className="text-xs font-bold text-slate-800">텍스트</p>
                       <Button type="button" size="sm" className="h-7 text-xs" onClick={addCustomText}>
                         + 추가
                       </Button>
@@ -1484,7 +1617,7 @@ export function MvpThumbnailAdvancedEditor({
                           "flex items-center gap-1 rounded-lg border px-2 py-2 transition",
                           selectedId === t.id
                             ? "border-violet-400 bg-violet-500/10"
-                            : "border-black/10 hover:bg-black/[0.03] dark:border-white/10"
+                            : "border-black/10 hover:bg-black/[0.03]"
                         )}
                       >
                         <button
@@ -1493,7 +1626,7 @@ export function MvpThumbnailAdvancedEditor({
                           onClick={() => setSelectedId(t.id)}
                         >
                           <span className="text-[9px] text-slate-500">{textRoleLabel(t.role)}</span>
-                          <p className="mt-0.5 truncate text-sm font-medium text-slate-900 dark:text-white">
+                          <p className="mt-0.5 truncate text-sm font-medium text-slate-900">
                             {t.text || "(비어 있음)"}
                           </p>
                         </button>
@@ -1522,7 +1655,7 @@ export function MvpThumbnailAdvancedEditor({
                     <div className="relative">
                       <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                       <Input
-                        className="h-9 border-black/10 bg-slate-50 pl-8 text-xs dark:border-white/10 dark:bg-black/30"
+                        className="h-9 border-black/10 bg-slate-50 pl-8 text-xs"
                         placeholder="요소 검색"
                         value={elementQuery}
                         onChange={(e) => setElementQuery(e.target.value)}
@@ -1550,7 +1683,7 @@ export function MvpThumbnailAdvancedEditor({
                                     return next
                                   })
                                 }}
-                                className="flex aspect-square flex-col items-center justify-center gap-1 rounded-xl border border-black/10 bg-slate-50 text-slate-600 transition hover:border-violet-300 hover:bg-violet-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-300"
+                                className="flex aspect-square flex-col items-center justify-center gap-1 rounded-xl border border-black/10 bg-slate-50 text-slate-600 transition hover:border-violet-300 hover:bg-violet-50"
                               >
                                 {entry.Icon ? (
                                   <entry.Icon className="h-6 w-6" strokeWidth={entry.kind === "mosaic" ? 1.75 : 2} />
@@ -1572,7 +1705,7 @@ export function MvpThumbnailAdvancedEditor({
                 {sideTab === "background" ? (
                   <div className="space-y-4">
                     <div>
-                      <p className="text-xs font-bold text-slate-800 dark:text-white">배경</p>
+                      <p className="text-xs font-bold text-slate-800">배경</p>
                       <p className="mt-0.5 text-[9px] leading-relaxed text-slate-500">
                         리믹스 영상 프레임·업로드 이미지로 캔버스 배경과 AI 참조를 설정합니다. 적용 후 캔버스에서
                         배경을 클릭해 확대·축소·이동할 수 있습니다.
@@ -1587,7 +1720,7 @@ export function MvpThumbnailAdvancedEditor({
                               "h-8 flex-1 text-[10px]",
                               selectedBackground &&
                                 !backgroundLocked &&
-                                "border-cyan-500/50 bg-cyan-500/10 text-cyan-700 dark:text-cyan-200"
+                                "border-cyan-500/50 bg-cyan-500/10 text-cyan-700"
                             )}
                             onClick={() => setSelectedId(THUMBNAIL_BACKGROUND_LAYER_ID)}
                           >
@@ -1602,8 +1735,8 @@ export function MvpThumbnailAdvancedEditor({
                             className={cn(
                               "h-8 shrink-0 px-3 text-[10px] font-semibold shadow-sm",
                               backgroundLocked
-                                ? "border-amber-400 bg-amber-500/25 text-amber-900 dark:border-amber-400 dark:bg-amber-500/30 dark:text-amber-50"
-                                : "border-slate-300 bg-white text-slate-800 hover:bg-slate-50 dark:border-white/35 dark:bg-white/12 dark:text-white dark:hover:bg-white/18"
+                                ? "border-amber-400 bg-amber-500/25 text-amber-900"
+                                : "border-slate-300 bg-white text-slate-800 hover:bg-slate-50"
                             )}
                             onClick={toggleBackgroundLock}
                           >
@@ -1616,7 +1749,7 @@ export function MvpThumbnailAdvancedEditor({
                         </div>
                       ) : null}
                       {backgroundLocked && design.backgroundUrl && !design.aiBaked ? (
-                        <p className="mt-1.5 text-[9px] text-amber-600/90 dark:text-amber-300/80">
+                        <p className="mt-1.5 text-[9px] text-amber-600/90">
                           배경이 고정되어 있습니다. 자물쇠 버튼을 눌러 이동·확대를 다시 켜세요.
                         </p>
                       ) : null}
@@ -1624,7 +1757,7 @@ export function MvpThumbnailAdvancedEditor({
 
                     {design.backgroundUrl && !design.aiBaked ? (
                       <div className="rounded-xl border border-rose-500/30 bg-rose-500/5 p-3">
-                        <p className="text-[10px] font-semibold text-rose-200/90">붓으로 선택 지우기</p>
+                        <p className="text-[10px] font-semibold text-rose-600">붓으로 선택 지우기</p>
                         <p className="mt-1 text-[9px] leading-relaxed text-slate-500">
                           중국어 자막·워터마크 등 글자 부분만 붓으로 칠한 뒤 「선택 영역 지우기」를 누르세요. 칠한
                           영역만 주변 배경 색으로 채워지고 나머지는 그대로 유지됩니다.
@@ -1636,8 +1769,8 @@ export function MvpThumbnailAdvancedEditor({
                           className={cn(
                             "mt-2 h-9 w-full text-[11px] font-semibold shadow-sm",
                             brushEraseActive
-                              ? "border-rose-500 bg-rose-600 text-white hover:bg-rose-500 dark:border-rose-400 dark:bg-rose-500 dark:hover:bg-rose-400"
-                              : "border-rose-300 bg-white text-rose-800 hover:bg-rose-50 dark:border-rose-400/70 dark:bg-rose-500/20 dark:text-rose-50 dark:hover:bg-rose-500/30"
+                              ? "border-rose-500 bg-rose-600 text-white hover:bg-rose-500"
+                              : "border-rose-300 bg-white text-rose-800 hover:bg-rose-50"
                           )}
                           disabled={inpaintLoading}
                           onClick={() => {
@@ -1665,7 +1798,7 @@ export function MvpThumbnailAdvancedEditor({
                                 type="button"
                                 size="sm"
                                 variant="outline"
-                                className="h-8 flex-1 border-slate-300 text-[10px] font-medium text-slate-700 dark:border-white/30 dark:bg-white/8 dark:text-white"
+                                className="h-8 flex-1 border-slate-300 text-[10px] font-medium text-slate-700"
                                 disabled={inpaintLoading}
                                 onClick={() => brushEraseRef.current?.clear()}
                               >
@@ -1694,7 +1827,7 @@ export function MvpThumbnailAdvancedEditor({
                     ) : null}
 
                     <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/5 p-3">
-                      <p className="text-[10px] font-semibold text-cyan-200/90">리믹스 영상 프레임</p>
+                      <p className="text-[10px] font-semibold text-cyan-700">리믹스 영상 프레임</p>
                       <p className="mt-1 text-[9px] leading-relaxed text-slate-500">
                         제품이 잘 나온 장면을 고르면 배경·AI 참조에 함께 적용됩니다.
                       </p>
@@ -1712,9 +1845,9 @@ export function MvpThumbnailAdvancedEditor({
                       </div>
                     </div>
 
-                    <label className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed border-violet-300/50 bg-violet-50/50 px-4 py-8 text-center transition hover:bg-violet-50 dark:border-violet-500/30 dark:bg-violet-500/5">
+                    <label className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed border-violet-300/50 bg-violet-50/50 px-4 py-8 text-center transition hover:bg-violet-50">
                       <Upload className="h-8 w-8 text-violet-500" />
-                      <span className="text-xs font-medium text-slate-700 dark:text-slate-300">이미지 업로드</span>
+                      <span className="text-xs font-medium text-slate-700">이미지 업로드</span>
                       <span className="text-[10px] text-slate-500">PNG, JPG · 9:16 권장</span>
                       <input
                         type="file"
@@ -1778,14 +1911,14 @@ export function MvpThumbnailAdvancedEditor({
                 {sideTab === "ai" ? (
                   <div className="space-y-4">
                     <div>
-                      <p className="text-xs font-bold text-slate-800 dark:text-white">AI 생성</p>
+                      <p className="text-xs font-bold text-slate-800">AI 생성</p>
                       <p className="mt-0.5 text-[9px] leading-relaxed text-slate-500">
                         배경 탭에서 고른 참조 이미지로 Replicate AI 썸네일을 생성합니다.
                       </p>
                     </div>
 
                     <div className="rounded-xl border border-violet-500/35 bg-gradient-to-br from-violet-500/15 via-transparent to-fuchsia-500/5 p-3">
-                      <p className="text-[10px] font-semibold text-violet-200">쇼핑숏폼 AI 썸네일 (전체)</p>
+                      <p className="text-[10px] font-semibold text-violet-700">쇼핑숏폼 AI 썸네일 (전체)</p>
                       <p className="mt-1 text-[9px] leading-relaxed text-slate-500">
                         쇼핑숏폼과 동일한 Replicate 프롬프트로 후킹 2줄·제품 장면·빨간 화살표까지 한 번에 합성합니다.
                       </p>
@@ -1821,7 +1954,7 @@ export function MvpThumbnailAdvancedEditor({
 
                     {design.aiBaked ? (
                       <div className="rounded-lg border border-violet-400/40 bg-violet-500/10 px-3 py-2.5">
-                        <p className="text-[10px] font-semibold text-violet-200">AI 합성 썸네일 적용됨</p>
+                        <p className="text-[10px] font-semibold text-violet-700">AI 합성 썸네일 적용됨</p>
                         <p className="mt-1 text-[9px] leading-relaxed text-slate-500">
                           텍스트·화살표가 이미지에 포함되어 있습니다. 레이어 편집은 「편집 모드」로 전환하세요.
                         </p>
@@ -1841,7 +1974,7 @@ export function MvpThumbnailAdvancedEditor({
                     ) : null}
 
                     <div className="rounded-xl border border-amber-500/30 bg-gradient-to-br from-amber-500/10 via-transparent to-violet-500/5 p-3">
-                      <p className="text-[10px] font-semibold text-amber-200/90">AI 이미지만 생성</p>
+                      <p className="text-[10px] font-semibold text-amber-700">AI 이미지만 생성</p>
                       <p className="mt-1 text-[9px] leading-relaxed text-slate-500">
                         배경 탭에서 고른 참조 이미지를 기준으로, 같은 제품 형태를 유지한 채 사용 장면 사진만 새로
                         만듭니다. 텍스트·화살표는 넣지 않습니다.
@@ -1889,7 +2022,7 @@ export function MvpThumbnailAdvancedEditor({
                 {sideTab === "filter" ? (
                   <div className="space-y-4">
                     <div className="flex items-center justify-between gap-2">
-                      <p className="text-xs font-bold text-slate-800 dark:text-white">사진 필터</p>
+                      <p className="text-xs font-bold text-slate-800">사진 필터</p>
                       <Button
                         type="button"
                         size="sm"
@@ -1946,25 +2079,52 @@ export function MvpThumbnailAdvancedEditor({
               </div>
             </aside>
 
-            {/* 중앙 캔버스 — 크게 */}
+            {/* 중앙 — 밝은 스테이지 위 휴대폰 화면 */}
             <div
               ref={canvasAreaRef}
-              className="relative flex min-w-0 flex-1 items-center justify-center overflow-auto bg-[#f3f7ff]"
+              className="relative flex min-w-0 flex-1 items-center justify-center overflow-auto"
               style={{
-                backgroundImage:
-                  "linear-gradient(45deg,#141820 25%,transparent 25%),linear-gradient(-45deg,#141820 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#141820 75%),linear-gradient(-45deg,transparent 75%,#141820 75%)",
-                backgroundSize: "20px 20px",
-                backgroundPosition: "0 0, 0 10px, 10px -10px, -10px 0",
+                background:
+                  "radial-gradient(circle at 1px 1px, rgba(47,59,235,0.09) 1px, transparent 0) 0 0 / 22px 22px, radial-gradient(ellipse at 50% 35%, #ffffff 0%, rgba(255,255,255,0) 60%), linear-gradient(160deg, #f4f5f8 0%, #eef0fb 55%, #f5f3fb 100%)",
               }}
               onPointerDown={() => setSelectedId(null)}
             >
+              {/* 휴대폰 프레임 — 장식일 뿐, PNG는 stageRef(화면)만 저장 */}
+              <div
+                className="relative shrink-0"
+                style={{
+                  padding: 3,
+                  borderRadius: phoneScreenRadius + phoneBezel + 3,
+                  background: "linear-gradient(145deg, #5b5f6b 0%, #1d1f25 38%, #3b3e47 70%, #15161b 100%)",
+                  boxShadow:
+                    "0 40px 90px -30px rgba(47,59,235,0.35), 0 24px 48px -18px rgba(15,23,42,0.45), inset 0 0 0 1px rgba(255,255,255,0.14)",
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                <span aria-hidden className="pointer-events-none absolute -left-[3px] top-[18%] h-[7%] w-[3px] rounded-l bg-[#2a2c33]" />
+                <span aria-hidden className="pointer-events-none absolute -left-[3px] top-[28%] h-[7%] w-[3px] rounded-l bg-[#2a2c33]" />
+                <span aria-hidden className="pointer-events-none absolute -right-[3px] top-[24%] h-[11%] w-[3px] rounded-r bg-[#2a2c33]" />
+                <div
+                  className="relative bg-black"
+                  style={{ padding: phoneBezel, borderRadius: phoneScreenRadius + phoneBezel }}
+                >
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute left-1/2 z-[40] -translate-x-1/2 rounded-full bg-black ring-1 ring-white/[0.06]"
+                    style={{
+                      top: phoneBezel + Math.round(stagePxW * 0.022),
+                      width: Math.round(stagePxW * 0.28),
+                      height: Math.round(stagePxW * 0.075),
+                    }}
+                  />
               <div
                 ref={stageRef}
                 data-thumbnail-stage
-                className="relative shrink-0 overflow-hidden rounded-sm bg-black shadow-[0_12px_48px_rgba(20,35,70,0.193)] ring-1 ring-white/10"
+                className="relative shrink-0 overflow-hidden bg-black"
                 style={{
                   width: `${stagePxW}px`,
                   aspectRatio: "9/16",
+                  borderRadius: phoneScreenRadius,
                 }}
                 onPointerDown={(e) => e.stopPropagation()}
               >
@@ -2041,6 +2201,8 @@ export function MvpThumbnailAdvancedEditor({
                   />
                 ) : null}
 
+                {!design.aiBaked ? <ThumbnailLetterboxLayer design={design} /> : null}
+
                 {selectedBackground && design.backgroundUrl && !design.aiBaked && !brushEraseActive ? (
                   <div
                     className={cn(
@@ -2085,13 +2247,13 @@ export function MvpThumbnailAdvancedEditor({
                           void rewriteTextWithAi(t)
                         }}
                       >
-                        <ThumbnailTextLayerContent layer={t} />
+                        <ThumbnailTextLayerContent layer={t} scale={stageScale} />
                         {selected ? (
                           <div data-thumb-export-skip className="contents">
                             <button
                               type="button"
                               title="AI 문구 변환"
-                              className="absolute -top-9 left-1/2 z-30 flex -translate-x-1/2 items-center gap-1 rounded-full border border-violet-400/60 bg-[#f4f9ff]/95 px-2.5 py-1 text-[10px] font-medium text-violet-200 shadow-lg backdrop-blur-sm pointer-events-auto"
+                              className="absolute -top-9 left-1/2 z-30 flex -translate-x-1/2 items-center gap-1 rounded-full border border-violet-400/60 bg-[#f4f9ff]/95 px-2.5 py-1 text-[10px] font-medium text-violet-700 shadow-lg backdrop-blur-sm pointer-events-auto"
                               disabled={aiTextLoadingId === t.id}
                               onPointerDown={(e) => e.stopPropagation()}
                               onClick={(e) => {
@@ -2172,7 +2334,7 @@ export function MvpThumbnailAdvancedEditor({
                             stageHeight={stagePxH}
                           />
                         ) : mosaic ? (
-                          <div className="flex h-full w-full items-center justify-center rounded-md border-2 border-dashed border-violet-400/40 bg-violet-500/10 text-[9px] text-violet-200/80">
+                          <div className="flex h-full w-full items-center justify-center rounded-md border-2 border-dashed border-violet-400/40 bg-violet-500/10 text-[9px] text-violet-600">
                             배경 필요
                           </div>
                         ) : (
@@ -2230,12 +2392,17 @@ export function MvpThumbnailAdvancedEditor({
                 })
                   : null}
               </div>
+                </div>
+              </div>
+              <p className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-white/70 px-3 py-1 text-[10px] font-medium text-slate-500 shadow-sm ring-1 ring-black/[0.04] backdrop-blur">
+                9:16 · 1080×1920 저장 · 휴대폰 테두리는 저장되지 않아요
+              </p>
             </div>
 
             {/* 오른쪽 속성 패널 */}
-            <aside className="flex w-[300px] shrink-0 flex-col border-l border-black/[0.06] bg-white dark:border-white/[0.06] dark:bg-[#f4f9ff]">
-              <div className="border-b border-black/[0.06] px-4 py-3 dark:border-white/[0.06]">
-                <p className="text-sm font-bold text-slate-900 dark:text-white">속성</p>
+            <aside className="flex w-[300px] shrink-0 flex-col border-l border-[#e3e6ec] bg-white">
+              <div className="border-b border-black/[0.06] px-4 py-3">
+                <p className="text-sm font-bold text-slate-900">속성</p>
                 <p className="text-[10px] text-slate-500">
                   {selectedText
                     ? "텍스트 편집"
@@ -2258,8 +2425,8 @@ export function MvpThumbnailAdvancedEditor({
                       className={cn(
                         "h-9 w-full text-[11px] font-semibold shadow-sm",
                         backgroundLocked
-                          ? "border-amber-400 bg-amber-500/25 text-amber-900 dark:border-amber-400 dark:bg-amber-500/30 dark:text-amber-50"
-                          : "border-slate-300 bg-white text-slate-800 hover:bg-slate-50 dark:border-white/35 dark:bg-white/12 dark:text-white dark:hover:bg-white/18"
+                          ? "border-amber-400 bg-amber-500/25 text-amber-900"
+                          : "border-slate-300 bg-white text-slate-800 hover:bg-slate-50"
                       )}
                       onClick={toggleBackgroundLock}
                     >
@@ -2354,7 +2521,7 @@ export function MvpThumbnailAdvancedEditor({
                 ) : null}
                 {design.aiBaked && !selectedText && !selectedElement && !selectedBackground ? (
                   <div className="space-y-2 rounded-lg border border-violet-400/30 bg-violet-500/10 p-3">
-                    <p className="text-xs font-semibold text-violet-200">AI 합성 썸네일</p>
+                    <p className="text-xs font-semibold text-violet-700">AI 합성 썸네일</p>
                     <p className="text-[10px] leading-relaxed text-slate-500">
                       후킹·화살표가 이미지에 포함되어 있습니다. 필터 조정 후 바로 적용하거나, 업로드 탭에서 편집 모드로
                       전환하세요.
@@ -2385,7 +2552,7 @@ export function MvpThumbnailAdvancedEditor({
                         </Button>
                       </div>
                       <Textarea
-                        className="min-h-[72px] resize-y border-black/10 bg-slate-50 text-xs text-slate-900 placeholder:text-slate-400 dark:border-white/10 dark:bg-black/30 dark:text-white dark:placeholder:text-slate-500"
+                        className="min-h-[72px] resize-y border-black/10 bg-slate-50 text-xs text-slate-900 placeholder:text-slate-400"
                         value={selectedText.text}
                         onFocus={() => beginEditSession(`text-${selectedText.id}`)}
                         onBlur={endEditSession}
@@ -2431,8 +2598,8 @@ export function MvpThumbnailAdvancedEditor({
                           className={cn(
                             "flex flex-1 items-center justify-center rounded-lg border py-2",
                             selectedText.align === align
-                              ? "border-violet-400 bg-violet-500/10 text-violet-700 dark:text-violet-200"
-                              : "border-black/10 text-slate-600 dark:border-white/10 dark:text-slate-300"
+                              ? "border-violet-400 bg-violet-500/10 text-violet-700"
+                              : "border-black/10 text-slate-600"
                           )}
                         >
                           <Icon className="h-4 w-4" />
@@ -2451,7 +2618,7 @@ export function MvpThumbnailAdvancedEditor({
                               "h-8 w-8 rounded-full border-2",
                               selectedText.color.toLowerCase() === c
                                 ? "border-violet-500"
-                                : "border-black/10 dark:border-white/15"
+                                : "border-black/10"
                             )}
                             style={{ backgroundColor: c }}
                             title={c}
@@ -2471,11 +2638,11 @@ export function MvpThumbnailAdvancedEditor({
                               })
                             )
                           }
-                          className="h-9 w-12 shrink-0 cursor-pointer rounded border border-black/10 dark:border-white/15"
+                          className="h-9 w-12 shrink-0 cursor-pointer rounded border border-black/10"
                           title="RGB 색상 선택"
                         />
                         <Input
-                          className="h-9 flex-1 border-black/10 bg-slate-50 font-mono text-xs text-slate-900 dark:border-white/10 dark:bg-black/30 dark:text-white"
+                          className="h-9 flex-1 border-black/10 bg-slate-50 font-mono text-xs text-slate-900"
                           value={selectedText.color}
                           placeholder="#FFFFFF"
                           onFocus={() => beginEditSession(`text-color-hex-${selectedText.id}`)}
@@ -2504,8 +2671,8 @@ export function MvpThumbnailAdvancedEditor({
                           className={cn(
                             "rounded-lg border py-1.5 text-[10px] font-medium",
                             selectedText.fontWeight === w
-                              ? "border-violet-400 bg-violet-500/10 text-violet-700 dark:text-violet-200"
-                              : "border-black/10 text-slate-600 dark:border-white/10 dark:text-slate-300"
+                              ? "border-violet-400 bg-violet-500/10 text-violet-700"
+                              : "border-black/10 text-slate-600"
                           )}
                         >
                           {w === 400 ? "보통" : w === 700 ? "굵게" : "초굵게"}
@@ -2527,8 +2694,8 @@ export function MvpThumbnailAdvancedEditor({
                           className={cn(
                             "rounded-full border px-3 py-1 text-[10px]",
                             selectedText[key]
-                              ? "border-violet-400 bg-violet-500/15 text-violet-700 dark:text-violet-200"
-                              : "border-black/10 text-slate-600 dark:border-white/10 dark:text-slate-400"
+                              ? "border-violet-400 bg-violet-500/15 text-violet-700"
+                              : "border-black/10 text-slate-600"
                           )}
                         >
                           {label}
@@ -2568,10 +2735,10 @@ export function MvpThumbnailAdvancedEditor({
                                   })
                                 )
                               }
-                              className="h-9 w-12 shrink-0 cursor-pointer rounded border border-black/10 dark:border-white/15"
+                              className="h-9 w-12 shrink-0 cursor-pointer rounded border border-black/10"
                             />
                             <Input
-                              className="h-9 flex-1 border-black/10 bg-slate-50 font-mono text-xs text-slate-900 dark:border-white/10 dark:bg-black/30 dark:text-white"
+                              className="h-9 flex-1 border-black/10 bg-slate-50 font-mono text-xs text-slate-900"
                               value={selectedText.strokeColor}
                               placeholder="#000000"
                               onBlur={(e) => {
@@ -2742,7 +2909,7 @@ export function MvpThumbnailAdvancedEditor({
                               className={cn(
                                 "rounded-full border px-3 py-1 text-[10px]",
                                 (selectedElement.filled ?? overlayDefaultFilled(selectedElement.catalogId))
-                                  ? "border-violet-400 bg-violet-500/15 text-violet-700 dark:text-violet-200"
+                                  ? "border-violet-400 bg-violet-500/15 text-violet-700"
                                   : "border-black/10 text-slate-500"
                               )}
                             >
@@ -2815,7 +2982,7 @@ export function MvpThumbnailAdvancedEditor({
             </aside>
           </div>
 
-          <footer className="flex h-10 shrink-0 items-center justify-between border-t border-black/[0.06] bg-white px-4 text-[10px] text-slate-500 dark:border-white/[0.06] dark:bg-[#f4f9ff]">
+          <footer className="flex h-10 shrink-0 items-center justify-between border-t border-[#e3e6ec] bg-white px-4 text-[10px] text-slate-500">
             <span>
               {design.aiBaked ? "쇼핑숏폼 AI 합성" : THUMBNAIL_TEMPLATES.find((t) => t.id === design.templateId)?.label ?? "커스텀"} ·
               1080×1920

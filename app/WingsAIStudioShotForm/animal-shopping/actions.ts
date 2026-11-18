@@ -1,6 +1,9 @@
 "use server"
 
+import { persistGeneratedMediaUrl } from "@/lib/shotform-persist-generated-media"
+
 import { fetchNaverTrendingKeywordsForCategory } from "@/lib/shotform-naver-datalab"
+import { SHOTFORM_COPY_MODEL } from "@/lib/shotform-ai-models"
 import type { ThumbnailHookingText } from "@/lib/shotform-mvp-thumbnail"
 import {
   generateShortsThumbnail as generateShortsThumbnailLib,
@@ -414,6 +417,12 @@ function englishProductLabel(productName?: string): string {
 
 // 나노바나나를 사용한 이미지 생성 (제품 + 캐릭터 레퍼런스 참고)
 export async function generateImageWithNanobanana(
+  ...args: Parameters<typeof generateImageWithNanobananaRaw>
+): Promise<string> {
+  return persistGeneratedMediaUrl(await generateImageWithNanobananaRaw(...args), "images")
+}
+
+async function generateImageWithNanobananaRaw(
   sceneScript: string,
   productName: string,
   productImageBase64: string | undefined,
@@ -509,6 +518,8 @@ PRODUCT REFERENCE LOCK (image_input #1):
 - Do NOT invent features that are not in the reference.
 - Product must be readable in frame for THIS beat (${beatRules.beat}).
 - Background must match the story beat setting (not the plain reference photo backdrop).
+- Take ONLY the product object from the reference. Any animal, person, or pet already in the reference photo must NOT appear; the only animal in frame is the main character.
+- Re-photograph the product inside a full-bleed vertical scene that fills the canvas edge to edge. Never paste the reference as a framed picture; no black bars, no letterbox, no borders.
 - ${beatRules.action}`
     } else if (productImageBase64) {
       imagePrompt = `${imagePrompt}
@@ -690,6 +701,8 @@ NO TEXT / NO SUBTITLES GUARD (HIGHEST PRIORITY - HARD FAIL IF VIOLATED):
                 headers: { Authorization: `Bearer ${REPLICATE_API_TOKEN}` },
               }
             )
+            // Replicate 상태 조회가 잠깐 503/429를 주는 일이 잦다 → 생성은 계속 진행 중이니 다시 확인
+            if (statusResponse.status >= 500 || statusResponse.status === 429) { polls++; continue }
             if (!statusResponse.ok) {
               throw new Error(`상태 확인 실패: ${statusResponse.status}`)
             }
@@ -887,13 +900,15 @@ export async function generateShoppingScenes(
     Math.min(8, sceneCount || suggestAnimalSceneCount(safeDuration))
   )
   const arc = getAnimalStoryArc(count)
-  const targetLength = Math.round(safeDuration * 6.7)
+  /** 무음 제거된 한국어 TTS 실측 ≈ 7.7자/초 */
+  const targetLength = Math.round(safeDuration * 7.5)
   const perScene = Math.round(targetLength / count)
   const arcGuide = arc
     .map((type, i) => `${i + 1}. ${type} (${ANIMAL_SCENE_LABELS[type] || type})`)
     .join("\n")
   const maxRetries = 3
   let lastError: Error | null = null
+  let bestShort: GeneratedAnimalScenes | null = null
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -904,7 +919,7 @@ export async function generateShoppingScenes(
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "gpt-4o-mini",
+          model: SHOTFORM_COPY_MODEL,
           response_format: { type: "json_object" },
           messages: [
             {
@@ -930,6 +945,12 @@ export async function generateShoppingScenes(
                 "- delight: 만족·여운 (있을 때만)",
                 "- 각 narration은 쇼츠 톤, 성격(" + resolvedCharacter.personality + ") 반영",
                 "- 전체 합쳐 약 " + targetLength + "자 (" + safeDuration + "초), 씬당 약 " + perScene + "자",
+                "- 첫 씬 첫 문장은 2초 안에 읽히는 훅: 곤란한 순간을 바로 보여주는 짧은 문장(예: \"" + resolvedCharacter.name + ", 오늘도 또 사고 쳤다.\"). 인사·자기소개·'안녕하세요'로 시작 금지",
+                "- 3인칭 관찰 나레이션(\"" + resolvedCharacter.name + "는/은 ~했다\")과 캐릭터 속마음 한마디(따옴표)를 섞어 귀엽고 리듬감 있게",
+                "- 씬마다 짧은 문장(25자 안팎) 2~3개로 씬당 최소 " + Math.round(perScene * 0.85) + "자. 전체가 " + Math.round(targetLength * 0.85) + "자보다 짧으면 영상이 비므로 실패입니다",
+                "- 씬 사이가 '그래서/그런데/드디어'처럼 이어져 하나의 이야기로 들리게",
+                "- detail 씬은 제품명·제품 설명에 실제로 적힌 특징 1~2개만 구체적으로(모양·용도 등). 거기 없는 소재·품질 평가·수치·효능·인증은 지어내지 말 것",
+                "- 마지막 씬은 문제가 풀린 결과 + 캐릭터의 만족 한마디로 끝맺기",
                 "- CTA·링크 유도 금지",
                 "- JSON만 출력: {\"scenes\":[{\"type\":\"...\",\"title\":\"...\",\"narration\":\"...\"}, ...]}",
               ].join("\n"),
@@ -1001,16 +1022,20 @@ export async function generateShoppingScenes(
       console.log(
         `[Shopping] 씬 대본 생성 완료: ${scenes.length}씬, 전체 ${fullScript.length}자 (목표 ${safeDuration}초)`
       )
-      return { scenes, fullScript, sceneCount: count }
+      const result = { scenes, fullScript, sceneCount: count }
+      // 너무 짧으면 TTS가 목표 길이의 절반쯤에서 끝나므로 한 번 더 시도하고, 마지막엔 가장 긴 결과를 씀
+      if (fullScript.length >= targetLength * 0.7) return result
+      if (!bestShort || fullScript.length > bestShort.fullScript.length) bestShort = result
+      lastError = new Error(`대본이 너무 짧습니다 (${fullScript.length}/${targetLength}자).`)
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error))
       if (attempt < maxRetries) {
         await new Promise((resolve) => setTimeout(resolve, attempt * 1000))
-        continue
       }
     }
   }
 
+  if (bestShort) return bestShort
   throw lastError || new Error("대본 생성에 실패했습니다.")
 }
 
@@ -1563,6 +1588,12 @@ export async function generateImage(
 
 /** 캐릭터 레퍼런스 시트 생성 (얼굴·무늬 고정용) */
 export async function convertImageToVideoWithWan(
+  ...args: Parameters<typeof convertImageToVideoWithWanRaw>
+): Promise<string> {
+  return persistGeneratedMediaUrl(await convertImageToVideoWithWanRaw(...args), "videos")
+}
+
+async function convertImageToVideoWithWanRaw(
   imageUrl: string,
   prompt: string, // 프롬프트 (필수)
   audioUrl?: string, // 오디오 URL (선택, wan-2.2-i2v-fast는 오디오 불필요)
@@ -1685,6 +1716,8 @@ export async function convertImageToVideoWithWan(
           },
         })
 
+        // 상태 조회의 일시적인 503/429는 다시 확인 (생성 자체는 계속 진행 중)
+        if (statusResponse.status >= 500 || statusResponse.status === 429) { attempts++; continue }
         if (!statusResponse.ok) {
           throw new Error(`상태 확인 실패: ${statusResponse.status}`)
         }
@@ -2080,6 +2113,12 @@ export async function mergeVideos(
 }
 
 export async function generateCharacterReferenceImage(
+  ...args: Parameters<typeof generateCharacterReferenceImageRaw>
+): Promise<string> {
+  return persistGeneratedMediaUrl(await generateCharacterReferenceImageRaw(...args), "images")
+}
+
+async function generateCharacterReferenceImageRaw(
   character: AnimalCharacter,
   replicateApiKey?: string
 ): Promise<string> {
@@ -2306,6 +2345,8 @@ export async function generateVideoWithSora2(
           },
         })
 
+        // 상태 조회의 일시적인 503/429는 다시 확인 (생성 자체는 계속 진행 중)
+        if (statusResponse.status >= 500 || statusResponse.status === 429) { attempts++; continue }
         if (!statusResponse.ok) {
           throw new Error(`상태 확인 실패: ${statusResponse.status}`)
         }
@@ -2377,11 +2418,17 @@ export type AnimalVideoGenerationModel = "seedance-1-pro-fast" | "seedance-1.5-p
 
 /** 기본: Seedance 1.5 Pro (무음 · 480p) — AI 쇼핑과 동일 */
 export async function generateVideoWithSeedance(
+  ...args: Parameters<typeof generateVideoWithSeedanceRaw>
+): Promise<string> {
+  return persistGeneratedMediaUrl(await generateVideoWithSeedanceRaw(...args), "videos")
+}
+
+async function generateVideoWithSeedanceRaw(
   imageUrl: string,
   prompt: string,
   duration: number,
   replicateApiKey?: string,
-  model: AnimalVideoGenerationModel = "seedance-1.5-pro"
+  model: AnimalVideoGenerationModel = "seedance-1-pro-fast"
 ): Promise<string> {
   const REPLICATE_API_TOKEN = replicateApiKey || process.env.REPLICATE_API_TOKEN
 

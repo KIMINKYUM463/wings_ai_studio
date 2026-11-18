@@ -27,6 +27,7 @@ import {
   detectAudibleAudioRange,
 } from "@/lib/mvp-sfx-audible-range"
 import type { VoiceLineCue } from "@/lib/shotform-factory-line-tts"
+import { isAutoTransitionSfxClip } from "@/lib/mvp-auto-fx"
 import { cn } from "@/lib/utils"
 
 const FAVORITES_KEY = "story-shopping-sfx-favorites"
@@ -89,7 +90,7 @@ function ensureDensePlans(
   plans: AutoPlan[],
   sceneCount: number
 ): AutoPlan[] {
-  const byKey = new Map(
+  const byKey = new Map<string, AutoPlan>(
     plans.map((p) => [`${p.sceneId}:${Math.max(0, Number(p.lineIndex) || 0)}`, p] as const)
   )
   const out: AutoPlan[] = []
@@ -364,7 +365,7 @@ export function MvpEffectSoundPanel({
       }
       onChange(
         normalizeMvpEffectClips(
-          [...clips.filter((clip) => !clip.autoPlaced), ...next],
+          [...clips.filter((clip) => !clip.autoPlaced || isAutoTransitionSfxClip(clip)), ...next],
           effectAxisDuration
         )
       )

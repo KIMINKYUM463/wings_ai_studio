@@ -339,7 +339,7 @@ export async function generateImageWithNanobanana(
         const productActions = await generateProductActionPromptWithAI(
           productName,
           productDescription,
-          sceneIndex !== undefined ? sceneIndex : 0,
+          (sceneIndex !== undefined ? sceneIndex : 0) as 0 | 1 | 2,
           openaiApiKey
         )
         needsHands = productActions.needsHands
@@ -642,7 +642,7 @@ async function generateProductActionPromptWithAI(
   
   if (!GPT_API_KEY) {
     // API 키가 없으면 기본 함수 사용
-    return getProductSpecificActions(productName, productDescription)
+    return { ...getProductSpecificActions(productName, productDescription), needsHands: needsHandsInImage(productName, productDescription) }
   }
 
   try {

@@ -18,6 +18,7 @@ import {
   filterAnalysesForEmergencyEdit,
   isProductSafeContentType,
   pickIntervalIsProductSafe,
+  preferNonPresenterAnalyses,
 } from "@/lib/shotform-auto-edit-product-filter"
 import {
   analysisBySrcIndex,
@@ -44,6 +45,7 @@ import { narrationLooksIncomplete } from "@/lib/shotform-narration-timing"
 import { NARRATION_PRODUCT_NAME_USAGE_RULE } from "@/lib/shotform-narration-script-audit"
 import { NARRATION_FLOW_RHYTHM_PROMPT } from "@/lib/shotform-narration-flow-rhythm"
 import { buildDesiredBeatSequence, reorderMixPicksByStoryFlow } from "@/lib/shotform-story-flow"
+import { buildRemixFlowPrompt } from "@/lib/remix-shopping-market-intelligence"
 import {
   buildSceneBasedEditPlan,
   editPlanTotalOutputSeconds,
@@ -658,7 +660,7 @@ function harvestUniquePicksFromAnalyses(
   if (total >= targetDuration - 0.08) return picks
 
   const seen = new Set(picks.map(pickKey))
-  const clipLens = [8, 9, 9.5, 10, MAX_EDIT_SEGMENT_SEC, 8.5, 9.5]
+  const clipLens = [5.5, 4.5, 6, 5, 4, MAX_EDIT_SEGMENT_SEC, 5]
 
   for (let pass = 0; pass < 4 && total < targetDuration - 0.08 && picks.length < 55; pass++) {
     const gap = pass >= 2 ? 0.5 : minGapSec
@@ -820,25 +822,34 @@ function tryAddFillPick(
   return null
 }
 
+const MIN_TRIMMED_PICK_SEC = 0.8
+
+/** 목표보다 길면 뒤 컷부터 줄이고, 최소 길이 아래로 줄여야 하면 컷을 뺀다 (매 반복마다 반드시 줄어든다) */
+function trimPicksToTarget(picks: MixPick[], targetDuration: number): void {
+  let total = pickTotalDuration(picks)
+  while (picks.length && total > targetDuration + 0.05) {
+    const last = picks[picks.length - 1]!
+    const excess = total - targetDuration
+    if (last.end - last.start - excess < MIN_TRIMMED_PICK_SEC) picks.pop()
+    else last.end = ROUND(last.end - excess)
+    total = pickTotalDuration(picks)
+  }
+}
+
 /** mix picks 합계를 목표 쇼츠 길이에 정확히 맞춤 */
 export function fillMixToTargetDuration(
   mix: MixInfo,
-  analyses: VideoAnalysis[],
+  allAnalyses: VideoAnalysis[],
   targetDuration: AutoEditTargetDuration
 ): MixInfo {
-  const picks = mix.picks.map((p) => ({ ...p }))
+  const analyses = preferNonPresenterAnalyses(
+    allAnalyses.map((a, i) => ({ ...a, src_index: a.src_index ?? i })),
+    targetDuration
+  )
+  const allowedSrc = new Set(analyses.map((a) => a.src_index))
+  const picks = mix.picks.filter((p) => allowedSrc.has(p.srcIndex)).map((p) => ({ ...p }))
+  trimPicksToTarget(picks, targetDuration)
   let total = pickTotalDuration(picks)
-
-  if (total > targetDuration + 0.05) {
-    while (picks.length && total > targetDuration + 0.05) {
-      const last = picks[picks.length - 1]!
-      const excess = total - targetDuration
-      const newEnd = ROUND(Math.max(last.start + 0.8, last.end - excess))
-      last.end = newEnd
-      if (last.end - last.start < 0.8) picks.pop()
-      total = pickTotalDuration(picks)
-    }
-  }
 
   while (total < targetDuration - 0.08 && picks.length < 45) {
     const need = targetDuration - total
@@ -849,17 +860,7 @@ export function fillMixToTargetDuration(
   }
 
   picks.splice(0, picks.length, ...ensureEnoughUniqueMixPicks(picks, analyses, targetDuration))
-  total = pickTotalDuration(picks)
-
-  if (total > targetDuration + 0.05) {
-    while (picks.length && total > targetDuration + 0.05) {
-      const last = picks[picks.length - 1]!
-      const excess = total - targetDuration
-      last.end = ROUND(Math.max(last.start + 0.8, last.end - excess))
-      if (last.end - last.start < 0.8) picks.pop()
-      total = pickTotalDuration(picks)
-    }
-  }
+  trimPicksToTarget(picks, targetDuration)
 
   for (const p of picks) {
     if (p.end - p.start > MAX_EDIT_SEGMENT_SEC) p.end = ROUND(p.start + MAX_EDIT_SEGMENT_SEC)
@@ -871,12 +872,7 @@ export function fillMixToTargetDuration(
     total = pickTotalDuration(picks)
   }
 
-  if (picks.length && total > targetDuration + 0.05) {
-    const last = picks[picks.length - 1]!
-    const excess = total - targetDuration
-    last.end = ROUND(Math.max(last.start + 0.8, last.end - excess))
-    total = pickTotalDuration(picks)
-  }
+  trimPicksToTarget(picks, targetDuration)
 
   let balanced = balanceMultiSourceMixPicks(picks, analyses, targetDuration)
   balanced = ensureAllSourcesRepresented(balanced, analyses, targetDuration)
@@ -1054,7 +1050,7 @@ export function buildEditPlanFromMix(
 export function buildFallbackMix(analyses: VideoAnalysis[], targetDuration: AutoEditTargetDuration): MixInfo {
   const picks: MixPick[] = []
   let total = 0
-  const clipLens = [8, 9, 9.5, 10, MAX_EDIT_SEGMENT_SEC, 8.5, 9.5]
+  const clipLens = [5.5, 4.5, 6, 5, 4, MAX_EDIT_SEGMENT_SEC, 5]
   let attempt = 0
 
   while (total < targetDuration - 0.05 && picks.length < 28 && attempt < analyses.length * 40) {
@@ -1239,7 +1235,12 @@ async function tryGenerateNaturalShortsScript(args: {
     productAnalysis.category ? `카테고리: ${productAnalysis.category}` : "",
     productAnalysis.summary ? `요약: ${productAnalysis.summary}` : "",
     vs?.hook ? `후킹 방향: ${vs.hook}` : "",
+    vs?.openingVisual ? `첫 화면: ${vs.openingVisual}` : "",
     vs?.body ? `본문 방향: ${vs.body}` : "",
+    vs?.proof ? `증명 장면: ${vs.proof}` : "",
+    vs?.trust ? `신뢰 장치: ${vs.trust}` : "",
+    vs?.pacing ? `컷 리듬: ${vs.pacing}` : "",
+    vs?.shotFlow?.length ? `원본 장면 흐름: ${vs.shotFlow.join(" → ")}` : "",
     vs?.cta ? `마무리/CTA: ${vs.cta}` : "",
     analyses.map((a) => `[${a.video_id}] ${a.title}`).join("\n"),
     sourceVideosBlock,
@@ -1381,6 +1382,7 @@ ${benchmarkScriptFewShotJson()}
 규칙:
 - **전체가 한 편의 쇼핑숏폼**처럼 앞뒤가 이어져야 함 (장면별 독립 문장 나열 금지).
 - 아래 visual 블록 순서는 **이미 스토리 흐름**(후킹→소개·설치→데모→결과→마무리)에 맞게 짜집기된 타임라인임. 순서를 바꾸지 말고 이 흐름에 맞는 대본만 작성.
+${buildRemixFlowPrompt(sceneCount)}
 - 각 장면 text는 해당 visual의 [샷]·행동·「화면자막」OCR과 일치해야 함. OCR 원문 낭독 금지 — 한국어 구매 설득으로 변환.
 - 첫 장면: 후킹·관심, 중간: 기능·데모, 마지막: 정리·구매 욕구.
 - sceneSubtitles.conversion[i].text = 해당 장면 visual에 맞는 **구어체 문장** (한 줄 10~20자, 끊긴 명사구·조사만 있는 줄 금지). **2번째~마지막 직전 컷**은 ~고/~며/~는데 등 **이어 말하기** 어미로 끝내고, **첫·마지막 컷만** ~요/~세요 완결. 매 컷 ~요로 끝내면 이탈↑. 다음 장면과 어색한 주제 점프 금지.

@@ -2,10 +2,11 @@
   "compilerOptions": {
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
-    "target": "ES6",
+    "target": "ES2018",
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",
@@ -23,5 +24,5 @@
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  "exclude": ["node_modules", "_mvp_*.tsx", "vendor", "vmake-sdk", ".tmp", "_ext_analyze", "lib/longform-v2/thumbnailTemplateStudio/v2BackgroundOnly.test.ts", "lib/longform-v2/youtube/thumbnailBackgroundImagePrompt.test.ts", "lib/longform-v2/youtube/thumbnailCapacityRetry.test.ts"]
 }

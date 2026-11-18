@@ -2,6 +2,7 @@
 
 import { cleanNarrationLineBreaks, narrationPlainCharCount } from "@/lib/shotform-narration-timing"
 import { clampTtsSpeed } from "@/lib/shotform-tts-speed"
+import { bgmGainFromVolumePct } from "@/lib/shotform-factory-voice-preview-bgm"
 
 /** TTS API 최소 글자 수 (1자 요청 시 400 오류) */
 export const MIN_TTS_PLAIN_CHARS = 2
@@ -585,7 +586,8 @@ export async function padAudioUrlEnd(
 /** 줄별 TTS WAV를 이어 붙임 — 장면 사이 무음 최소화, API 앞뒤 무음만 정리 */
 export async function mergeAudioUrlsToWavBlobUrl(
   audioUrls: string[],
-  options?: { trimSilence?: boolean; interClipPadSec?: number },
+  /** minClipSec: 짧은 클립 뒤에 무음을 붙여 최소 길이 보장 (장면이 너무 빨리 넘어가지 않게) */
+  options?: { trimSilence?: boolean; interClipPadSec?: number; minClipSec?: number },
 ): Promise<{ blobUrl: string; wavBlob: Blob; totalDurationSec: number; lineDurationsSec: number[] }> {
   if (audioUrls.length === 0) throw new Error("합칠 오디오가 없습니다.")
   // 기본 ON: API가 붙인 앞·뒤 무음 제거 → 장면 사이 텀 제거 (말꼬리는 keepTail로 보존)
@@ -605,6 +607,8 @@ export async function mergeAudioUrlsToWavBlobUrl(
       const pad =
         i < audioUrls.length - 1 ? Math.max(0, interPad) : Math.max(interPad, TTS_CLIP_END_PAD_SEC)
       if (pad > 0.001) decoded = appendSilencePad(decoded, pad)
+      const shortBy = (options?.minClipSec ?? 0) - decoded.duration
+      if (shortBy > 0.001) decoded = appendSilencePad(decoded, shortBy)
       buffers.push(decoded)
       lineDurationsSec.push(decoded.duration)
     }
@@ -678,7 +682,7 @@ export async function mixTtsWithBgmWavBlobUrl(
     const sampleRate = ttsBuffer.sampleRate
     const channels = ttsBuffer.numberOfChannels
     const length = ttsBuffer.length
-    const bgmGain = Math.min(1, Math.max(0, (bgmVolumePct / 100) * 0.38))
+    const bgmGain = bgmGainFromVolumePct(bgmVolumePct)
 
     const offline = new OfflineAudioContext(channels, length, sampleRate)
     const ttsSrc = offline.createBufferSource()

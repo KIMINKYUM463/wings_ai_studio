@@ -35,7 +35,13 @@ export const ACTION_VISION_FRAME_SYSTEM_PROMPT = `쇼핑 숏폼·릴스 제품 �
 **금지**: "귀여운 디자인", "예쁜 제품", "깔끔한 모습" 같은 추상 표현만 쓰기
 **필수**: 누가/무엇을/어떻게/무슨 순서인지 **행동**으로 기술
 
-text_overlay: 제품 없이 텍스트·CTA만 있는 화면`
+content_type 기준:
+- product_only: 제품만 보임 (사람 없음)
+- product_in_use: 손·몸 일부가 제품을 쓰는 장면. 얼굴은 안 보이거나 일부만
+- talking_head: 사람 얼굴(눈·입)이 또렷이 보이고 카메라를 향해 말하거나 바라봄. **제품을 들고 있어도 talking_head**
+- person_presenting: 사람이 화면 중심이고 제품을 소개·리뷰하는 장면 (얼굴 보임)
+- mixed: 제품 사용과 사람이 함께 보이지만 얼굴이 주인공은 아님
+- text_overlay: 제품 없이 텍스트·CTA만 있는 화면`
 
 export const ACTION_SCENE_MERGE_SYSTEM_PROMPT = `쇼핑 숏폼 행동 기반 장면 편집 PD. JSON만 출력.
 

@@ -7,7 +7,7 @@ import {
   resizeSourceCropOnCanvas,
 } from './imageLayerCrop'
 
-const layer = { id: 'a', x: 100, y: 80, width: 400, height: 300, opacity: 1, zIndex: 1, visible: true, kind: 'image' as const, name: 't' }
+const layer = { id: 'a', imageDataUrl: '', x: 100, y: 80, width: 400, height: 300, opacity: 1, zIndex: 1, visible: true, kind: 'image' as const, name: 't' }
 const crop = fullImageCrop(800, 600)
 const fullCanvas = fullImageCanvasBounds(layer, crop, 800, 600)
 const cropCanvas = cropToCanvasBounds(fullCanvas, crop, 800, 600)

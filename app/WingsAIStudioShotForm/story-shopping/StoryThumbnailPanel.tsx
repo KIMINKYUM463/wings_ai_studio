@@ -25,6 +25,7 @@ import type { MvpThumbnailHookingText, MvpThumbnailVariant } from "@/lib/mvp-stu
 import type { StorySceneAsset, StoryShoppingBrief } from "./story-types"
 import {
   createStoryThumbnailDesign,
+  type StoryThumbnailTemplateId,
 } from "./story-thumbnail-templates"
 
 type Props = {
@@ -33,6 +34,7 @@ type Props = {
   projectId: string
   selectedAsset?: StorySceneAsset
   onIntroPreviewChange?: (url: string | null, enabled: boolean) => void
+  templateId?: StoryThumbnailTemplateId
 }
 
 function initialHooking(brief: StoryShoppingBrief): MvpThumbnailHookingText {
@@ -101,6 +103,7 @@ export function StoryThumbnailPanel({
   projectId,
   selectedAsset,
   onIntroPreviewChange,
+  templateId = "story-dark-yellow",
 }: Props) {
   const defaultHooking = useMemo(() => initialHooking(brief), [brief.generatedStory?.hook, brief.generatedStory?.title, brief.productName])
   const [gallery, setGallery] = useState<MvpThumbnailVariant[]>(
@@ -109,7 +112,6 @@ export function StoryThumbnailPanel({
   const [selectedId, setSelectedId] = useState<string | null>(
     brief.thumbnailState?.selectedId || null
   )
-  const templateId = "story-dark-yellow" as const
   const [hookingText, setHookingText] = useState(defaultHooking)
   const [subheadline, setSubheadline] = useState(
     brief.productName ? `${brief.productName}에 숨겨진 진짜 이유` : "알고 나면 놀라는 핵심 이유"
@@ -207,6 +209,7 @@ export function StoryThumbnailPanel({
     onChange((current) => ({
       ...current,
       thumbnailState: {
+        ...current.thumbnailState,
         gallery: slimGallery,
         selectedId: nextSelectedId,
         introOn: current.thumbnailState?.introOn ?? true,
@@ -262,7 +265,7 @@ export function StoryThumbnailPanel({
             <div className="absolute inset-x-0 top-0 h-[38%] bg-gradient-to-b from-black/95 to-black/65" />
             <div className="absolute inset-x-2 top-[7%] text-center font-black leading-tight text-white" style={{ fontSize: 17 }}>
               <p>{hookingText.line1}</p>
-              <p className="mt-1 text-yellow-300">{hookingText.line2}</p>
+              <p className="mt-1" style={{ color: templateId === "story-dark-yellow" ? "#fde047" : draftDesign.texts.find((t) => t.role === "hook2")?.color }}>{hookingText.line2}</p>
             </div>
             <div className="absolute inset-x-2 top-[30%] bg-white/95 px-2 py-1 text-center text-[11px] font-bold text-slate-900">
               {subheadline}
@@ -298,6 +301,7 @@ export function StoryThumbnailPanel({
             onChange((current) => ({
               ...current,
               thumbnailState: {
+                ...current.thumbnailState,
                 gallery: current.thumbnailState?.gallery || [],
                 selectedId: current.thumbnailState?.selectedId || null,
                 introOn: enabled,

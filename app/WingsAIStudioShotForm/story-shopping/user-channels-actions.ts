@@ -1,6 +1,7 @@
 "use server"
 
 import { createClient } from "@supabase/supabase-js"
+import { requireStoryUserId } from "@/lib/story-shopping-security"
 import type { GroupChannel } from "../channel-analysis/lib/types"
 
 /** 공용 고정 그룹 키 */
@@ -49,10 +50,8 @@ function isFixedKey(key: string): key is FixedStoryGroupKey {
 
 /** 계정에 저장된 모든 그룹(고정 개인채널 + 커스텀 그룹) */
 export async function listUserChannelGroups(userId: string): Promise<UserChannelGroupRow[]> {
-  const trimmed = (userId || "").trim()
-  if (!trimmed || trimmed === "anonymous") return []
-
   try {
+    const trimmed = await requireStoryUserId(userId)
     const supabase = getSupabaseAdmin()
     const { data, error } = await supabase
       .from("story_shopping_user_channels")
@@ -93,15 +92,12 @@ export async function upsertUserChannelGroup(
   userId: string,
   row: UserChannelGroupRow
 ): Promise<{ success: boolean; error?: string }> {
-  const trimmed = (userId || "").trim()
-  if (!trimmed || trimmed === "anonymous") {
-    return { success: false, error: "로그인이 필요합니다." }
-  }
   if (!row.groupKey.trim()) {
     return { success: false, error: "그룹 키가 없습니다." }
   }
 
   try {
+    const trimmed = await requireStoryUserId(userId)
     const supabase = getSupabaseAdmin()
     const { error } = await supabase.from("story_shopping_user_channels").upsert(
       {
@@ -154,15 +150,12 @@ export async function deleteUserChannelGroup(
   userId: string,
   groupKey: string
 ): Promise<{ success: boolean; error?: string }> {
-  const trimmed = (userId || "").trim()
-  if (!trimmed || trimmed === "anonymous") {
-    return { success: false, error: "로그인이 필요합니다." }
-  }
   if (!groupKey.startsWith("custom_")) {
     return { success: false, error: "공용 그룹은 삭제할 수 없습니다." }
   }
 
   try {
+    const trimmed = await requireStoryUserId(userId)
     const supabase = getSupabaseAdmin()
     const { error } = await supabase
       .from("story_shopping_user_channels")

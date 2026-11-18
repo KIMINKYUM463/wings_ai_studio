@@ -124,6 +124,13 @@ export type ProductVideoStructure = {
   hook: string
   body: string
   cta: string
+  format?: string
+  openingVisual?: string
+  proof?: string
+  trust?: string
+  pacing?: string
+  shotFlow?: string[]
+  platformSignals?: string[]
 }
 
 export type ProductAnalysis = {
@@ -203,6 +210,18 @@ export type EditPlanSegment = {
 export type EditPlan = {
   target_duration: AutoEditTargetDuration
   edit_plan: EditPlanSegment[]
+  /**
+   * "v2"면 이 타임라인은 버전2 리믹스 렌더(슬로모션·다음 컷 이어붙이기) 결과.
+   * 프로젝트 저장 시 v2Picture가 빠져도 편집기가 예전 컷 정지로 되돌리지 않게 한다.
+   */
+  picture?: "v2"
+}
+
+/** 편집기가 렌더 파일을 1배속으로 그대로 재생해야 하는 버전2 그림인지 */
+export function isV2RemixPicture(
+  result: Pick<AutoEditJobResult, "v2Picture" | "editPlan"> | null | undefined
+): boolean {
+  return result?.v2Picture === true || result?.editPlan?.picture === "v2"
 }
 
 export type ScriptLine = {
@@ -235,6 +254,9 @@ export type ShotFormScriptBundle = {
     storytelling: SceneSubtitleBlock[]
   }
 }
+
+/** 대본과 컷 배치를 AI가 한 번에 정한 대본 — 클라이언트는 이 대본을 컷 1:1로 그대로 쓴다 */
+export const BEAT_SCRIPT_TONE = "쇼핑숏폼·비트"
 
 export type ShoppingScript = {
   script: ScriptLine[]
@@ -276,6 +298,15 @@ export type AutoEditJobResult = {
   mixInfo?: MixInfo
   editPlan?: EditPlan
   script?: ShoppingScript
+  /** paid=Gemini가 영상에 모자이크를 넣음. free=편집기 무료 OCR */
+  mosaicMode?: RemixMosaicMode
+  /** 이 영상은 버전2 리믹스 렌더 결과. 편집기는 이 파일을 그대로 재생합니다. */
+  v2Picture?: boolean
+  /** 고른 목소리로 만든 문장 길이. 편집기가 이 음성으로 재생합니다. */
+  voiceLineCues?: import("@/lib/shotform-factory-line-tts").VoiceLineCue[]
+  /** 리믹스를 시작할 때 고른 목소리. 편집기 목소리 칸에 그대로 표시합니다. */
+  ttsVoiceId?: string
+  ttsVoiceStyle?: string
   downloadUrl?: string
   outputDuration?: number
   renderSkipped?: boolean
@@ -299,7 +330,7 @@ export type ClientVideoMetaEntry = {
   duration: number
   keyframeDataUrl?: string
   timeSec?: number
-  /** 정밀 모드 — 브라우저 다중 키프레임 (서버 ffmpeg 우회) */
+  /** 브라우저 다중 키프레임 (정밀 16장·고속 8장, 서버 ffmpeg 우회) */
   precisionKeyframes?: Array<{ timeSec: number; keyframeDataUrl: string }>
 }
 
@@ -331,6 +362,36 @@ export type AutoEditInput = {
   renderMode?: "server" | "local"
   /** 로컬 렌더 작업 루트 — sources/ · jobs/{jobId}/output.mp4 */
   localWorkDir?: string
+  /** 리믹스 시작 전에 고른 모델·목소리. 예: typecast-xxx, supertonic-F1 */
+  ttsVoiceId?: string
+  ttsVoiceStyle?: string
+  ttsSpeed?: number
+  typecastApiKey?: string
+  elevenlabsApiKey?: string
+  /** 리믹스 대본 구조 템플릿 id */
+  scriptTemplateId?: string
+  /** paid=버전2와 같은 Gemini 모자이크. free=편집기 PaddleOCR */
+  mosaicMode?: RemixMosaicMode
+}
+
+/** 리믹스 유료 모자이크 2종: v2(Gemini 글자·워터마크 모자이크) | vmake(Vmake AI 자막 제거). 예전 저장본 호환을 위해 paid·free도 허용합니다. */
+export type RemixPaidMosaicMode = "v2" | "vmake"
+export type RemixMosaicMode = RemixPaidMosaicMode | "paid" | "free"
+
+export const REMIX_MOSAIC_STORAGE_KEY = "shotform_remix_mosaic"
+
+export function normalizeRemixPaidMosaicMode(value: unknown): RemixPaidMosaicMode {
+  return value === "vmake" ? "vmake" : "v2"
+}
+
+export function normalizeRemixMosaicMode(value: unknown): RemixMosaicMode {
+  if (value === "vmake") return "vmake"
+  if (value === "v2") return "v2"
+  return value === "free" ? "free" : "paid"
+}
+
+export function isPaidRemixMosaicMode(value: unknown): boolean {
+  return value === "v2" || value === "vmake" || value === "paid"
 }
 
 /** UI 선택용 */

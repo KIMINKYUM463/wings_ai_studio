@@ -172,13 +172,29 @@ function buildPipelineInput(
       typeof body.localWorkDir === "string" && body.localWorkDir.trim()
         ? body.localWorkDir.trim()
         : undefined,
+    ttsVoiceId: typeof body.ttsVoiceId === "string" ? body.ttsVoiceId.trim() : undefined,
+    ttsVoiceStyle: typeof body.ttsVoiceStyle === "string" ? body.ttsVoiceStyle.trim() : undefined,
+    ttsSpeed: typeof body.ttsSpeed === "number" && Number.isFinite(body.ttsSpeed) ? body.ttsSpeed : undefined,
+    typecastApiKey:
+      typeof body.typecastApiKey === "string" && body.typecastApiKey.trim()
+        ? body.typecastApiKey.trim()
+        : undefined,
+    elevenlabsApiKey:
+      typeof body.elevenlabsApiKey === "string" && body.elevenlabsApiKey.trim()
+        ? body.elevenlabsApiKey.trim()
+        : undefined,
+    scriptTemplateId:
+      typeof body.scriptTemplateId === "string" && body.scriptTemplateId.trim()
+        ? body.scriptTemplateId.trim()
+        : undefined,
+    mosaicMode: body.mosaicMode === "free" ? "free" : "paid",
   }
 }
 
 async function startPipelineAsync(input: AutoEditInput, clientJobId?: string) {
   const useLocal =
     input.renderMode === "local" && Boolean(input.localWorkDir?.trim()) && !process.env.VERCEL
-  const preset = useLocal
+  const preset: { dir: string; id: string; workRoot?: string } = useLocal
     ? await createLocalAutoEditWorkDir(input.localWorkDir!, clientJobId)
     : await createAutoEditWorkDir(clientJobId)
   const { dir, id: jobId } = preset

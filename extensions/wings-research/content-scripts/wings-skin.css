@@ -1,0 +1,57 @@
+/* WINGS Research — overlay skin */
+:root {
+  --wings-accent: #0f766e;
+  --wings-accent-2: #14b8a6;
+}
+
+/* Hide leftover duck canvas/svg before JS swap */
+[data-duck-mood] canvas,
+[data-duck-mood] svg,
+[data-duck] canvas,
+[data-duck] svg,
+[data-wings-no-duck] svg,
+[data-wings-no-duck-span] svg,
+[class*="DuckBot"] canvas,
+[class*="DuckBot"] svg,
+[class*="duck-bot"],
+[class*="duck-load"],
+img[src*="hypeduck"],
+img[src*="expression"],
+img[src*="duck-load"],
+img[src*="DuckBot"],
+svg[data-duck],
+svg[aria-label*="오리"],
+.hd-duck {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* White WINGS mark after swap */
+[data-wings-mark],
+[data-wings-btn],
+img[data-wings-btn],
+img[data-wings-header-mark],
+[data-wings-header-mark] {
+  background: #ffffff !important;
+  border-radius: 50% !important;
+  color: #0f766e !important;
+}
+
+/* Feed / overlay chips — Wings teal */
+.hd-feed-chip,
+[data-hd-yt-card],
+[data-hd-yt],
+[data-hd-feed],
+[data-wxt-shadow-root] {
+  --hd-accent: #0f766e !important;
+}
+
+/* Soft remap leftover purple inline styles toward teal */
+[style*="#6D4AFF"],
+[style*="#6d4aff"],
+[style*="#7C3AED"],
+[style*="#7c3aed"],
+[style*="rgb(109, 74, 255)"],
+[style*="rgb(109,74,255)"] {
+  filter: hue-rotate(145deg) saturate(0.85) brightness(0.95);
+}

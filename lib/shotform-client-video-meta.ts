@@ -5,11 +5,15 @@ import { isAllowedVideoHost } from "@/lib/video-upstream-fetch"
 
 export type { ClientVideoMetaEntry }
 
-function precisionKeyframeTimes(duration: number, count = 16): number[] {
+const PRECISION_KEYFRAME_COUNT = 16
+/** 고속 모드도 구간별 얼굴·자막 판정이 되도록 영상 전체에서 여러 장 */
+const FAST_KEYFRAME_COUNT = 8
+
+function precisionKeyframeTimes(duration: number, count = PRECISION_KEYFRAME_COUNT): number[] {
   const span = Math.min(Math.max(0.5, duration), 120)
   const start = 0.35
   const end = Math.max(start + 0.2, span - 0.15)
-  const n = Math.max(8, Math.min(count, 20))
+  const n = Math.max(6, Math.min(count, 20))
   if (n === 1) return [Math.round(((start + end) / 2) * 10) / 10]
   const range = end - start
   return Array.from({ length: n }, (_, i) =>
@@ -46,7 +50,8 @@ function captureVideoFrameDataUrl(video: HTMLVideoElement, timeSec: number): Pro
 /** 정밀 분석 — 브라우저에서 2분 구간 다중 키프레임 캡처 */
 export async function extractPrecisionKeyframesFromVideo(
   videoSrc: string,
-  timeoutMs = 90_000
+  timeoutMs = 90_000,
+  count = PRECISION_KEYFRAME_COUNT
 ): Promise<{ duration: number; frames: Array<{ timeSec: number; keyframeDataUrl: string }> } | null> {
   if (typeof document === "undefined") return null
 
@@ -81,7 +86,7 @@ export async function extractPrecisionKeyframesFromVideo(
           finish(null)
           return
         }
-        const times = precisionKeyframeTimes(duration, 16)
+        const times = precisionKeyframeTimes(duration, count)
         const frames: Array<{ timeSec: number; keyframeDataUrl: string }> = []
         for (const timeSec of times) {
           const keyframeDataUrl = await captureVideoFrameDataUrl(video, timeSec)
@@ -97,15 +102,30 @@ export async function extractPrecisionKeyframesFromVideo(
   })
 }
 
-async function extractPrecisionKeyframesFromBlob(blob: Blob): Promise<{
+async function extractPrecisionKeyframesFromBlob(
+  blob: Blob,
+  count = PRECISION_KEYFRAME_COUNT
+): Promise<{
   duration: number
   frames: Array<{ timeSec: number; keyframeDataUrl: string }>
 } | null> {
   const objectUrl = URL.createObjectURL(blob)
   try {
-    return await extractPrecisionKeyframesFromVideo(objectUrl)
+    return await extractPrecisionKeyframesFromVideo(objectUrl, 90_000, count)
   } finally {
     URL.revokeObjectURL(objectUrl)
+  }
+}
+
+function multiFrameEntry(
+  cap: { duration: number; frames: Array<{ timeSec: number; keyframeDataUrl: string }> } | null
+): ClientVideoMetaEntry | null {
+  if (!cap) return null
+  return {
+    duration: cap.duration,
+    precisionKeyframes: cap.frames,
+    keyframeDataUrl: cap.frames[0]?.keyframeDataUrl,
+    timeSec: cap.frames[0]?.timeSec,
   }
 }
 
@@ -263,7 +283,7 @@ export type ClientVideoMetaExtraction = {
   blobs: Record<string, Blob>
 }
 
-/** 선택 영상 병렬 — 브라우저에서 키프레임·길이 미리 추출 (URL 스트리밍 우선, 실패 시 MP4 blob) */
+/** 선택 영상 병렬 — 브라우저에서 키프레임·길이 미리 추출 (MP4 blob 다중 캡처 우선, 실패 시 URL 스트리밍) */
 export async function extractClientVideoMetaForPicks(
   picks: AutoEditPick[],
   onProgress?: (message: string) => void,
@@ -284,25 +304,18 @@ export async function extractClientVideoMetaForPicks(
       let entry: ClientVideoMetaEntry | null = null
       let blob: Blob | undefined
 
-      if (precision) {
-        onProgress?.(`정밀 분석 ${i + 1}/${picks.length} — 영상 다운로드…`)
-        try {
-          const fetched = await fetchMvpPickVideoBlob(pick, (hint) => onProgress?.(hint), fetchOpts)
-          blob = fetched.blob
-          blobs[pick.video_id] = blob
-          onProgress?.(`정밀 분석 ${i + 1}/${picks.length} — 키프레임 ${16}장 캡처…`)
-          const precisionCap = await extractPrecisionKeyframesFromBlob(blob)
-          if (precisionCap) {
-            entry = {
-              duration: precisionCap.duration,
-              precisionKeyframes: precisionCap.frames,
-              keyframeDataUrl: precisionCap.frames[0]?.keyframeDataUrl,
-              timeSec: precisionCap.frames[0]?.timeSec,
-            }
-          }
-        } catch {
-          /* blob 폴백 */
-        }
+      // MP4를 먼저 받아 로컬에서 캡처 — 프록시 스트리밍은 seek마다 수 초라 다중 캡처가 타임아웃난다
+      const label = precision ? "정밀 분석" : "브라우저 미리 분석"
+      const frameCount = precision ? PRECISION_KEYFRAME_COUNT : FAST_KEYFRAME_COUNT
+      onProgress?.(`${label} ${i + 1}/${picks.length} — 영상 다운로드…`)
+      try {
+        const fetched = await fetchMvpPickVideoBlob(pick, (hint) => onProgress?.(hint), fetchOpts)
+        blob = fetched.blob
+        blobs[pick.video_id] = blob
+        onProgress?.(`${label} ${i + 1}/${picks.length} — 키프레임 ${frameCount}장 캡처…`)
+        entry = multiFrameEntry(await extractPrecisionKeyframesFromBlob(blob, frameCount))
+      } catch {
+        /* 스트리밍 폴백 */
       }
 
       if (!entry?.precisionKeyframes?.length) {
@@ -325,17 +338,11 @@ export async function extractClientVideoMetaForPicks(
             blobs[pick.video_id] = blob
             if (precision) {
               onProgress?.(`정밀 분석 ${i + 1}/${picks.length} — MP4 키프레임 캡처…`)
-              const precisionCap = await extractPrecisionKeyframesFromBlob(blob)
-              if (precisionCap) {
-                entry = {
-                  duration: precisionCap.duration,
-                  precisionKeyframes: precisionCap.frames,
-                  keyframeDataUrl: precisionCap.frames[0]?.keyframeDataUrl,
-                  timeSec: precisionCap.frames[0]?.timeSec,
-                }
-              }
+              entry = multiFrameEntry(await extractPrecisionKeyframesFromBlob(blob)) ?? entry
             } else {
-              entry = await extractClientVideoMetaFromBlob(blob)
+              entry =
+                multiFrameEntry(await extractPrecisionKeyframesFromBlob(blob, FAST_KEYFRAME_COUNT)) ??
+                (await extractClientVideoMetaFromBlob(blob))
               if (!entry?.keyframeDataUrl) {
                 const dur = await extractDurationFromBlob(blob)
                 if (dur) entry = { ...dur, ...entry, duration: dur.duration }

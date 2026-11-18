@@ -3,34 +3,22 @@ import path from "path"
 import type { AutoEditInput, AutoEditJobResult, AutoEditVideoInput } from "@/lib/shotform-auto-edit-types"
 import { MAX_AUTO_EDIT_VIDEOS } from "@/lib/shotform-auto-edit-types"
 import { runAutoEditAnalyzeAndMix } from "@/lib/shotform-auto-edit-analyze-pipeline"
-import { benchmarkProductAnalysisFromAnalyses } from "@/lib/shotform-auto-edit-benchmark-fast"
-import {
-  applyUserKeywordsToProductAnalysis,
-  normalizeUserSourceKeywords,
-} from "@/lib/shotform-user-keyword-product"
+import { normalizeUserSourceKeywords } from "@/lib/shotform-user-keyword-product"
 import { buildOutputTimelineScenes } from "@/lib/shotform-visual-scene-match"
-import {
-  AUTO_EDIT_NO_USABLE_VIDEO_MESSAGE,
-  buildEditPlanFromMix,
-  enrichEditPlanWithCutCaptions,
-  ensureEditPlanOrEmergencyFallback,
-} from "@/lib/shotform-auto-edit-mix"
-import { resolveAutoEditScript, withTimeout } from "@/lib/shotform-auto-edit-script-step"
+import { AUTO_EDIT_NO_USABLE_VIDEO_MESSAGE } from "@/lib/shotform-auto-edit-mix"
+import { withTimeout } from "@/lib/shotform-auto-edit-script-step"
+import { buildV2RemixPackage, type V2RemixPackage } from "@/lib/shotform-remix-v2-build"
 import { VMAKE_SUBTITLE_REMOVAL_TIMEOUT_MS } from "@/lib/shotform-vmake-subtitle-removal"
 import { autoEditDownloadUrl } from "@/lib/shotform-auto-edit-download"
 import { resolveFfmpegPath, hasFfmpeg } from "@/lib/ffmpeg-binaries"
 import {
   createAutoEditWorkDir,
   downloadSourceVideo,
-  renderEditPlanToMp4,
   saveUploadedVideoBuffer,
   validateRenderedMp4,
 } from "@/lib/shotform-auto-edit-ffmpeg"
-import {
-  renderEditPlanOnCloudRun,
-  shouldUseCloudRunForAutoEditRender,
-} from "@/lib/shotform-auto-edit-cloud-run-render"
-import { filterAnalysesForEmergencyEdit, filterAnalysesForProductEdit } from "@/lib/shotform-auto-edit-product-filter"
+import { shouldUseCloudRunForAutoEditRender } from "@/lib/shotform-auto-edit-cloud-run-render"
+import { filterAnalysesForEmergencyEdit } from "@/lib/shotform-auto-edit-product-filter"
 import {
   normalizeUsableAnalysesForMix,
   remapMixInfoSrcIndices,
@@ -194,89 +182,48 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
       )
     }
 
-    const runAnalyze = async () => {
-      return runAutoEditAnalyzeAndMix({
-        apiKey: input.openaiApiKey,
+    let v2Pack: V2RemixPackage
+    try {
+      putAutoEditJob({ ...base, step: "download", createdAt })
+      await downloadAllSources()
+      v2Pack = await buildV2RemixPackage({
+        jobId,
         videos,
-        sourcePaths: canParallelAnalyze ? {} : sourcePaths,
-        workDir: dir,
-        targetDuration: input.targetDuration,
-        analysisMode,
-        clientVideoMeta,
+        sourcePaths,
+        keywords: sourceKeywords,
+        scriptTemplateId: input.scriptTemplateId,
+        mosaicMode: input.mosaicMode === "free" ? "free" : "paid",
+        voice: {
+          voiceId: input.ttsVoiceId ?? "",
+          style: input.ttsVoiceStyle,
+          speed: input.ttsSpeed,
+          typecastApiKey: input.typecastApiKey,
+          elevenlabsApiKey: input.elevenlabsApiKey,
+        },
         onPhase: (phase) => {
-          if (phase === "mix") {
-            putAutoEditJob({ ...base, step: "mix", createdAt })
-          }
+          putAutoEditJob({
+            ...base,
+            step:
+              phase === "script"
+                ? "script"
+                : phase === "edit_plan"
+                  ? "mix"
+                  : phase === "render"
+                    ? "render"
+                    : "analyze",
+            createdAt,
+          })
         },
       })
-    }
-
-    let analyses: Awaited<ReturnType<typeof runAutoEditAnalyzeAndMix>>["analyses"] = []
-    let mixInfo: Awaited<ReturnType<typeof runAutoEditAnalyzeAndMix>>["mixInfo"]
-
-    try {
-      if (canParallelAnalyze) {
-        putAutoEditJob({ ...base, step: "analyze", createdAt })
-        const analyzed = await runAnalyze()
-        analyses = analyzed.analyses
-        mixInfo = analyzed.mixInfo
-        for (const fail of analyzed.failures) {
-          excludedVideos.push({
-            video_id: fail.video_id,
-            title: fail.title,
-            reason: fail.reason,
-          })
-        }
-      } else if (skipServerCdnDownload) {
-        putAutoEditJob({ ...base, step: "analyze", createdAt })
-        if (sourcesPreUploaded || hasUploadedBuffers) {
-          await downloadAllSources()
-        } else if (deferLocalCompanionRender && !canParallelAnalyze) {
-          const missingMeta = videos.filter((v) => {
-            const m = clientVideoMeta?.[v.video_id]
-            if (analysisMode === "precision") {
-              return (m?.precisionKeyframes?.length ?? 0) < 6
-            }
-            return !m || m.duration <= 0
-          })
-          if (missingMeta.length > 0) {
-            throw new Error(
-              "로컬 렌더 모드에서는 브라우저에서 영상 메타(길이·키프레임) 추출이 먼저 끝나야 합니다. " +
-                "로컬 sources/ 폴더와 에이전트 실행 상태를 확인한 뒤 다시 시도해 주세요."
-            )
-          }
-        }
-        const analyzed = await runAnalyze()
-        analyses = analyzed.analyses
-        mixInfo = analyzed.mixInfo
-        for (const fail of analyzed.failures) {
-          excludedVideos.push({
-            video_id: fail.video_id,
-            title: fail.title,
-            reason: fail.reason,
-          })
-        }
-      } else {
-        putAutoEditJob({ ...base, step: "download", createdAt })
-        await downloadAllSources()
-        putAutoEditJob({ ...base, step: "analyze", createdAt })
-        const analyzed = await runAnalyze()
-        analyses = analyzed.analyses
-        mixInfo = analyzed.mixInfo
-        for (const fail of analyzed.failures) {
-          excludedVideos.push({
-            video_id: fail.video_id,
-            title: fail.title,
-            reason: fail.reason,
-          })
-        }
-      }
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "장면 분석 실패"
-      throw new Error(msg)
+      const message = e instanceof Error ? e.message : "장면 나누기·대본 생성 실패"
+      throw new Error(message)
     }
 
-    let usable = filterAnalysesForProductEdit(analyses)
+    const analyses: Awaited<ReturnType<typeof runAutoEditAnalyzeAndMix>>["analyses"] = v2Pack.analyses
+    let mixInfo: Awaited<ReturnType<typeof runAutoEditAnalyzeAndMix>>["mixInfo"] = v2Pack.mixInfo
+
+    let usable = analyses
     let usedEmergencyAnalyses = false
     for (const a of analyses) {
       if (usable.some((u) => u.video_id === a.video_id)) continue
@@ -307,10 +254,9 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
       mixInfo = remapMixInfoSrcIndices(mixInfo, mixRemap)
     }
 
-    let productAnalysis = applyUserKeywordsToProductAnalysis(
-      benchmarkProductAnalysisFromAnalyses(usable),
-      sourceKeywords
-    )
+    let productAnalysis = v2Pack.productAnalysis
+    let editPlan = v2Pack.editPlan
+    mixInfo = v2Pack.mixInfo
 
     putAutoEditJob({
       ...base,
@@ -322,37 +268,6 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
       excludedVideos,
       createdAt,
     })
-
-    const videoIds = usable.map((a) => a.video_id)
-    const planResolved = ensureEditPlanOrEmergencyFallback({
-      mix: mixInfo,
-      analyses: usable,
-      allAnalyses: analyses,
-      videoIds,
-      targetDuration: input.targetDuration,
-    })
-    let mixFinal = planResolved.mixInfo
-    let editPlan = planResolved.editPlan
-    mixInfo = mixFinal
-
-    if (analysisMode === "precision" && input.openaiApiKey?.trim() && hasFfmpeg()) {
-      try {
-        const enriched = await enrichEditPlanWithCutCaptions({
-          apiKey: input.openaiApiKey,
-          editPlan,
-          analyses: usable,
-          sourcePaths,
-          workDir: dir,
-        })
-        editPlan = enriched.editPlan
-        for (const updated of enriched.analyses) {
-          const idx = usable.findIndex((a) => a.video_id === updated.video_id)
-          if (idx >= 0) usable[idx] = updated
-        }
-      } catch (e) {
-        console.warn("[auto-edit] precision cut captions skipped (no ffmpeg):", e)
-      }
-    }
 
     productAnalysis = {
       ...productAnalysis,
@@ -409,41 +324,12 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
       excludedVideos,
       createdAt,
     })
-    if (deferLocalCompanionRender) {
-      localRenderPending = true
-    } else {
+    if (!v2Pack.renderedVideoPath) {
+      throw new Error("버전2 렌더 영상이 없습니다. 편집 실행을 다시 눌러 주세요.")
+    }
     try {
-      const renderArgs = {
-        sourcePaths,
-        workDir: dir,
-        segments: editPlan.edit_plan,
-        outputPath,
-        targetDuration: editPlan.target_duration,
-        defaultVideoId: usable[0]!.video_id,
-      }
-      if (useCloudRunRender) {
-        if (videos.some((v) => !sourcePaths[v.video_id])) {
-          await downloadAllSources()
-        }
-        if (videos.some((v) => !sourcePaths[v.video_id])) {
-          throw new Error(
-            "렌더용 소스 영상을 준비하지 못했습니다. CDN 링크 만료일 수 있으니 영상을 다시 추가한 뒤 실행해 주세요."
-          )
-        }
-        const sourceUrls = Object.fromEntries(videos.map((v) => [v.video_id, v.videoUrl]))
-        await renderEditPlanOnCloudRun({
-          jobId,
-          sourceUrls,
-          ...renderArgs,
-          sourcePaths,
-        })
-      } else {
-        if (Object.keys(sourcePaths).length < videos.length) {
-          await downloadAllSources()
-        }
-        await renderEditPlanToMp4({ ...renderArgs, sourcePaths })
-      }
-      outputDuration = await validateRenderedMp4(outputPath, 1, editPlan.target_duration)
+      await fs.copyFile(v2Pack.renderedVideoPath, outputPath)
+      outputDuration = await validateRenderedMp4(outputPath, 1)
 
       outputStoragePath = null
       if (!useLocalRender) {
@@ -518,7 +404,11 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
             "Vmake 자막 제거 시간 초과(약 12분). 짜집기 영상은 자막 제거 없이 사용합니다."
           )
           await fs.rename(cleanedPath, outputPath)
-          outputDuration = await validateRenderedMp4(outputPath, 1, editPlan.target_duration)
+          outputDuration = await validateRenderedMp4(
+            outputPath,
+            1,
+            v2Pack.renderedVideoPath ? undefined : editPlan.target_duration,
+          )
           outputStoragePath =
             (await uploadAutoEditOutputToSupabase(jobId, outputPath)) ?? outputStoragePath
         } catch (e) {
@@ -531,17 +421,10 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
         }
       }
     } catch (renderErr) {
-      renderSkipped = true
       const msg = renderErr instanceof Error ? renderErr.message : String(renderErr)
-      const cleaned = msg.replace(/^짜집기 렌더 실패:\s*/i, "")
-      renderSkipReason = cleaned.startsWith("짜집기 렌더")
-        ? cleaned
-        : `짜집기 렌더 실패: ${formatAutoEditRenderError(cleaned)}`
-      if (shouldRemoveSubtitles) {
-        subtitleRemovalSkipped = true
-        subtitleRemovalWarning = "렌더가 완료되지 않아 Vmake 자막 제거를 적용할 수 없습니다."
-      }
-    }
+      throw new Error(
+        msg.startsWith("버전2") ? msg : `버전2 렌더 영상을 저장하지 못했습니다: ${formatAutoEditRenderError(msg)}`
+      )
     }
 
     const preScriptJob = {
@@ -568,16 +451,7 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
 
     putAutoEditJob({ ...preScriptJob, step: "script" })
 
-    const script = await resolveAutoEditScript({
-      openaiApiKey: input.openaiApiKey,
-      scriptTopic: input.scriptTopic,
-      productAnalysis,
-      mixInfo,
-      editPlan,
-      analyses: usable,
-      analysisMode,
-      sourceKeywords,
-    })
+    const script = v2Pack.script
 
     const result: AutoEditJobResult = {
       jobId,
@@ -594,6 +468,11 @@ export async function runAutoEditPipeline(input: AutoEditInput): Promise<AutoEdi
       mixInfo,
       editPlan,
       script,
+      voiceLineCues: v2Pack.voiceLineCues,
+      v2Picture: true,
+      mosaicMode: input.mosaicMode === "free" ? "free" : "paid",
+      ttsVoiceId: input.ttsVoiceId,
+      ttsVoiceStyle: input.ttsVoiceStyle,
       downloadUrl,
       outputDuration,
       renderSkipped,

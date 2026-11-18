@@ -1,21 +1,23 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useState, type CSSProperties } from "react"
 import Link from "next/link"
 import {
   ArrowLeft,
   Check,
   Film,
   FolderOpen,
-  Home,
   ImagePlus,
   Loader2,
   Mic2,
+  MoreHorizontal,
   PawPrint,
+  Pencil,
   Plus,
   Save,
   ScrollText,
   ShoppingBag,
+  ShoppingCart,
   Trash2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -27,6 +29,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
@@ -63,6 +72,76 @@ const STEPS: Array<{
   { id: "preview", label: "미리보기", description: "재생·내보내기", icon: Check },
 ]
 
+const DIALOG_CLASS =
+  "rounded-[24px] border-[#e3e6ec] bg-[#ffffff] text-[#0e1016] shadow-[0_30px_80px_rgba(14,16,22,0.18)]"
+const DIALOG_FIELD_CLASS =
+  "mt-1.5 rounded-[14px] border-[#e3e6ec] bg-[#ffffff] text-[#0e1016] placeholder:text-[#9aa0ad] focus-visible:border-[#0e1016] focus-visible:ring-[#0e1016]/10"
+const PRIMARY_BTN =
+  "rounded-full bg-[#0e1016] px-5 font-bold text-[#ffffff] hover:bg-[#262a35] disabled:bg-[#c9ccd4] disabled:text-[#ffffff]"
+
+function relativeTime(iso: string): string {
+  const diffSec = Math.round((new Date(iso).getTime() - Date.now()) / 1000)
+  if (!Number.isFinite(diffSec)) return ""
+  const rtf = new Intl.RelativeTimeFormat("ko", { numeric: "auto" })
+  const abs = Math.abs(diffSec)
+  if (abs < 60) return "방금 전"
+  if (abs < 3600) return rtf.format(Math.round(diffSec / 60), "minute")
+  if (abs < 86400) return rtf.format(Math.round(diffSec / 3600), "hour")
+  if (abs < 86400 * 30) return rtf.format(Math.round(diffSec / 86400), "day")
+  return new Date(iso).toLocaleDateString("ko-KR")
+}
+
+function ErrorBanner({ message }: { message: string }) {
+  if (!message) return null
+  return (
+    <p
+      role="alert"
+      className="mb-6 rounded-[16px] border border-[#ffd4cf] bg-[#fff4f2] px-4 py-3 text-sm font-medium text-[#b42318]"
+    >
+      {message}
+    </p>
+  )
+}
+
+/** Hero motif: a paw trail walking into a shopping cart. */
+function PawTrail() {
+  const paws = [
+    { x: "left-0 top-14", rot: "-18deg" },
+    { x: "left-9 top-6", rot: "-8deg" },
+    { x: "left-[4.75rem] top-11", rot: "6deg" },
+    { x: "left-[7.25rem] top-2", rot: "14deg" },
+  ]
+  return (
+    <div aria-hidden className="relative hidden h-28 w-56 shrink-0 md:block">
+      <div className="animal-paw-trail absolute inset-0">
+        {paws.map((paw) => (
+          <PawPrint
+            key={paw.x}
+            className={`absolute ${paw.x} h-6 w-6 text-[#ff8a3d]`}
+            style={{ "--paw-rot": paw.rot, transform: `rotate(${paw.rot})` } as CSSProperties}
+          />
+        ))}
+      </div>
+      <span className="absolute right-0 top-3 flex h-20 w-20 items-center justify-center rounded-[24px] bg-[#0e1016] shadow-[0_18px_40px_rgba(14,16,22,0.25)]">
+        <ShoppingCart className="h-9 w-9 text-[#ff8a3d]" strokeWidth={2.2} />
+      </span>
+    </div>
+  )
+}
+
+function ProjectCardSkeleton() {
+  return (
+    <div className="overflow-hidden rounded-[24px] border border-[#e3e6ec] bg-[#ffffff]">
+      <div className="aspect-[16/10] animate-pulse bg-[#eef0f4]" />
+      <div className="space-y-3 p-5">
+        <div className="h-4 w-2/3 animate-pulse rounded-full bg-[#eef0f4]" />
+        <div className="h-3 w-1/2 animate-pulse rounded-full bg-[#eef0f4]" />
+        <div className="h-1.5 w-full animate-pulse rounded-full bg-[#eef0f4]" />
+      </div>
+    </div>
+  )
+}
+
 export default function AnimalShoppingPage() {
   const [userId, setUserId] = useState("")
   const [projects, setProjects] = useState<ShoppingProject[]>([])
@@ -76,6 +155,12 @@ export default function AnimalShoppingPage() {
   const [error, setError] = useState("")
   const [activeStep, setActiveStep] = useState<AnimalLiveActiveStep>("product")
   const [brief, setBrief] = useState<AnimalShoppingBrief>(cloneAnimalBrief)
+  const [savedAt, setSavedAt] = useState<string | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<ShoppingProject | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [renameTarget, setRenameTarget] = useState<ShoppingProject | null>(null)
+  const [renameValue, setRenameValue] = useState("")
+  const [isRenaming, setIsRenaming] = useState(false)
 
   const loadProjects = useCallback(async (id: string) => {
     setIsLoadingProjects(true)
@@ -117,6 +202,7 @@ export default function AnimalShoppingPage() {
     setCurrentProject(project)
     setBrief(briefFromProjectData(project.data))
     setActiveStep(migrateAnimalActiveStep(project.data?.activeStep))
+    setSavedAt(null)
     setError("")
   }
 
@@ -181,15 +267,22 @@ export default function AnimalShoppingPage() {
       setProjects((previous) =>
         previous.map((item) => (item.id === updated.id ? updated : item))
       )
+      setSavedAt(updated.updated_at || new Date().toISOString())
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "저장에 실패했습니다.")
+      const message = reason instanceof Error ? reason.message : ""
+      setError(
+        /body exceeded|body size|too large/i.test(message)
+          ? "프로젝트 용량이 너무 커서 저장하지 못했습니다. 음성·영상 단계에서 다시 생성하면 파일이 저장소로 올라가 용량이 줄어듭니다."
+          : message || "저장에 실패했습니다."
+      )
     } finally {
       setIsSaving(false)
     }
   }
 
+  // Confirmation now happens in the delete dialog (replaces window.confirm).
   const removeProject = async (projectId: string) => {
-    if (!confirm("이 프로젝트를 삭제할까요?")) return
+    setIsDeleting(true)
     try {
       await deleteShoppingProject(projectId)
       setProjects((previous) => previous.filter((item) => item.id !== projectId))
@@ -198,281 +291,540 @@ export default function AnimalShoppingPage() {
         setBrief(cloneAnimalBrief())
         setActiveStep("product")
       }
+      setPendingDelete(null)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "삭제에 실패했습니다.")
+      setPendingDelete(null)
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
+  const renameProject = async () => {
+    const name = renameValue.trim()
+    if (!renameTarget || !name) return
+    setIsRenaming(true)
+    try {
+      const updated = await updateShoppingProject(renameTarget.id, { name })
+      setProjects((previous) =>
+        previous.map((item) => (item.id === updated.id ? updated : item))
+      )
+      setRenameTarget(null)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "이름을 바꾸지 못했습니다.")
+      setRenameTarget(null)
+    } finally {
+      setIsRenaming(false)
     }
   }
 
   const stepIndex = STEPS.findIndex((step) => step.id === activeStep)
 
-  if (!currentProject) {
-    return (
-      <div className="animal-shopping-dark min-h-screen text-[#221c16]">
-        <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(125,211,168,0.14),_transparent_55%),radial-gradient(ellipse_at_bottom_right,_rgba(255,143,171,0.1),_transparent_50%)]" />
-        <div className="relative mx-auto max-w-5xl px-4 py-8 md:px-6">
-          <div className="mb-8 flex items-center justify-between gap-4">
-            <div>
-              <Link
-                href="/WingsAIStudioShotForm"
-                className="mb-3 inline-flex items-center gap-1.5 text-sm text-[#49554b] hover:text-[#221c16]"
-              >
-                <ArrowLeft className="h-4 w-4" />
-                숏폼 홈
-              </Link>
-              <h1 className="animal-display flex items-center gap-3 text-3xl font-bold tracking-tight">
-                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-[#7dd3a8] to-[#85b6ff]">
-                  <PawPrint className="h-5 w-5 text-[#f2fffb]" />
-                </span>
-                AI 동물 쇼핑 숏폼
-              </h1>
-              <p className="mt-2 text-sm text-[#49554b]">
-                동물 쇼퍼 + 쿠팡 제품 → 대본 · 음성 · 장면 · 영상 → 숏폼 미리보기
-              </p>
-            </div>
+  const projectDialogs = (
+    <>
+      <Dialog open={Boolean(pendingDelete)} onOpenChange={(open) => !open && setPendingDelete(null)}>
+        <DialogContent className={`${DIALOG_CLASS} sm:max-w-md`}>
+          <DialogHeader>
+            <DialogTitle className="text-xl font-black tracking-[-0.03em]">
+              프로젝트를 삭제할까요?
+            </DialogTitle>
+            <DialogDescription className="text-[#5c6170]">
+              「{pendingDelete?.name}」의 대본·음성·이미지·영상 정보가 모두 삭제되며 되돌릴 수 없습니다.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
             <Button
               type="button"
-              onClick={() => setShowCreateDialog(true)}
-              className="animal-cta-cute rounded-full font-bold"
+              variant="ghost"
+              className="rounded-full text-[#0e1016] hover:bg-[#f5f6fa]"
+              onClick={() => setPendingDelete(null)}
             >
-              <Plus className="mr-2 h-4 w-4" />
-              새 프로젝트
+              취소
             </Button>
-          </div>
+            <Button
+              type="button"
+              disabled={isDeleting}
+              onClick={() => pendingDelete && void removeProject(pendingDelete.id)}
+              className="rounded-full bg-[#d92d20] px-5 font-bold text-[#ffffff] hover:bg-[#b42318]"
+            >
+              {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : "삭제"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-          {error ? (
-            <p className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-              {error}
-            </p>
-          ) : null}
-
-          {isLoadingProjects ? (
-            <div className="flex items-center justify-center py-20 text-[#49554b]">
-              <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-              불러오는 중…
-            </div>
-          ) : projects.length === 0 ? (
-            <div className="rounded-3xl border border-dashed border-[rgba(34,28,22,0.2)] bg-black/20 px-6 py-16 text-center">
-              <FolderOpen className="mx-auto h-10 w-10 text-[#657468]" />
-              <p className="mt-4 text-[#49554b]">아직 프로젝트가 없습니다.</p>
+      <Dialog open={Boolean(renameTarget)} onOpenChange={(open) => !open && setRenameTarget(null)}>
+        <DialogContent className={`${DIALOG_CLASS} sm:max-w-md`}>
+          <DialogHeader>
+            <DialogTitle className="text-xl font-black tracking-[-0.03em]">이름 변경</DialogTitle>
+          </DialogHeader>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault()
+              void renameProject()
+            }}
+          >
+            <Label htmlFor="animal-rename" className="text-sm font-semibold text-[#0e1016]">
+              프로젝트 이름
+            </Label>
+            <Input
+              id="animal-rename"
+              autoFocus
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              className={DIALOG_FIELD_CLASS}
+            />
+            <DialogFooter className="mt-6">
               <Button
                 type="button"
-                className="animal-mint-btn mt-6 rounded-full font-bold"
-                onClick={() => setShowCreateDialog(true)}
+                variant="ghost"
+                className="rounded-full text-[#0e1016] hover:bg-[#f5f6fa]"
+                onClick={() => setRenameTarget(null)}
               >
-                첫 프로젝트 만들기
+                취소
               </Button>
-            </div>
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {projects.map((project) => {
-                const projectBrief = briefFromProjectData(project.data)
-                return (
-                  <div
-                    key={project.id}
-                    className="flex items-start justify-between gap-3 rounded-2xl border border-[rgba(34,28,22,0.12)] bg-black/25 p-4"
+              <Button
+                type="submit"
+                disabled={isRenaming || !renameValue.trim()}
+                className={PRIMARY_BTN}
+              >
+                {isRenaming ? <Loader2 className="h-4 w-4 animate-spin" /> : "저장"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+
+  if (!currentProject) {
+    return (
+      <div className="animal-shopping-dark min-h-screen bg-[#f5f6fa] text-[#0e1016]">
+        <div className="relative mx-auto max-w-6xl px-4 pb-20 pt-8 md:px-8 md:pt-10">
+          <Link
+            href="/WingsAIStudioShotForm"
+            className="inline-flex items-center gap-1.5 rounded-full text-sm font-medium text-[#5c6170] hover:text-[#0e1016]"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            숏폼 홈
+          </Link>
+
+          {/* Hero */}
+          <section className="animal-stage-hero mt-6 overflow-hidden rounded-[32px] border border-[#e3e6ec] bg-[#ffffff] px-6 py-8 shadow-[0_1px_2px_rgba(14,16,22,0.04),0_20px_50px_rgba(14,16,22,0.06)] md:px-10 md:py-12">
+            <div className="flex flex-col gap-8 md:flex-row md:items-end md:justify-between">
+              <div className="max-w-2xl">
+                <p className="animal-bubble-chip px-3 py-1 text-xs">
+                  <PawPrint className="h-3.5 w-3.5" />
+                  PET MART SHORTS
+                </p>
+                <h1 className="mt-5 text-[2.5rem] font-black leading-[1.05] tracking-[-0.045em] md:text-[3.5rem]">
+                  동물 친구가
+                  <br />
+                  대신 <span className="text-[#ff8a3d]">장 보는</span> 숏폼
+                </h1>
+                <p className="mt-4 max-w-lg text-base leading-relaxed text-[#5c6170]">
+                  의인화된 동물 쇼퍼가 마트에서 쿠팡 상품을 고르고, 써보고, 반하는 이야기.
+                  제품 하나로 대본 · 음성 · 장면 · 영상까지 이어서 만듭니다.
+                </p>
+                <div className="mt-7 flex flex-wrap items-center gap-3">
+                  <Button
+                    type="button"
+                    onClick={() => setShowCreateDialog(true)}
+                    className={`${PRIMARY_BTN} h-12 px-6 text-base`}
                   >
-                    <button
-                      type="button"
-                      className="min-w-0 flex-1 text-left"
-                      onClick={() => void openProject(project.id)}
-                    >
-                      <p className="truncate font-semibold text-[#221c16]">{project.name}</p>
-                      <p className="mt-1 truncate text-xs text-[#49554b]">
-                        {projectBrief.character.name}
-                        {projectBrief.productName ? ` · ${projectBrief.productName}` : " · 제품 미선택"}
-                      </p>
-                      <p className="mt-2 text-[11px] text-[#657468]">
-                        {new Date(project.updated_at).toLocaleString("ko-KR")}
-                      </p>
-                    </button>
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      className="text-[#657468] hover:text-red-300"
-                      onClick={() => void removeProject(project.id)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                )
-              })}
+                    <Plus className="mr-1.5 h-5 w-5" />
+                    새 프로젝트
+                  </Button>
+                  <span className="text-sm text-[#747a88]">
+                    캐릭터·제품 → 대본 → 음성 → 이미지 → 영상 → 미리보기
+                  </span>
+                </div>
+              </div>
+              <PawTrail />
             </div>
-          )}
+          </section>
+
+          <div className="mt-12 flex items-end justify-between gap-4">
+            <div>
+              <h2 className="text-2xl font-black tracking-[-0.035em]">내 프로젝트</h2>
+              {!isLoadingProjects && projects.length > 0 ? (
+                <p className="mt-1 text-sm text-[#5c6170]">{projects.length}개</p>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="mt-5">
+            <ErrorBanner message={error} />
+
+            {isLoadingProjects ? (
+              <div
+                className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3"
+                aria-busy="true"
+                aria-label="프로젝트 불러오는 중"
+              >
+                <ProjectCardSkeleton />
+                <ProjectCardSkeleton />
+                <ProjectCardSkeleton />
+              </div>
+            ) : projects.length === 0 ? (
+              <div className="rounded-[24px] border border-dashed border-[#d3d7e0] bg-[#ffffff] px-6 py-16 text-center">
+                <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-[18px] bg-[#fff1e7]">
+                  <FolderOpen className="h-6 w-6 text-[#b8500e]" />
+                </span>
+                <p className="mt-5 text-lg font-bold tracking-[-0.02em]">아직 프로젝트가 없어요</p>
+                <p className="mt-1 text-sm text-[#5c6170]">
+                  첫 동물 쇼퍼와 함께 장보기 숏폼을 시작해 보세요.
+                </p>
+                <Button
+                  type="button"
+                  className={`${PRIMARY_BTN} mt-6 h-11`}
+                  onClick={() => setShowCreateDialog(true)}
+                >
+                  <Plus className="mr-1.5 h-4 w-4" />첫 프로젝트 만들기
+                </Button>
+              </div>
+            ) : (
+              <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                {projects.map((project) => {
+                  const projectBrief = briefFromProjectData(project.data)
+                  const cover =
+                    projectBrief.imageUrls?.find(Boolean) ||
+                    projectBrief.productImage ||
+                    projectBrief.selectedProduct?.productImage ||
+                    ""
+                  const projectStep = Math.max(
+                    0,
+                    STEPS.findIndex(
+                      (step) => step.id === migrateAnimalActiveStep(project.data?.activeStep)
+                    )
+                  )
+                  const hasVideo = Boolean(projectBrief.mergedVideoUrl)
+                  return (
+                    <article
+                      key={project.id}
+                      className="group relative overflow-hidden rounded-[24px] border border-[#e3e6ec] bg-[#ffffff] shadow-[0_1px_2px_rgba(14,16,22,0.04)] transition hover:-translate-y-0.5 hover:shadow-[0_18px_40px_rgba(14,16,22,0.10)] motion-reduce:transition-none motion-reduce:hover:translate-y-0"
+                    >
+                      <button
+                        type="button"
+                        className="block w-full rounded-[24px] text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0e1016]"
+                        onClick={() => void openProject(project.id)}
+                        aria-label={`${project.name} 열기`}
+                      >
+                        <div className="relative aspect-[16/10] overflow-hidden bg-[#f5f6fa]">
+                          {cover ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={cover}
+                              alt=""
+                              loading="lazy"
+                              className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03] motion-reduce:transition-none"
+                            />
+                          ) : (
+                            <div className="flex h-full items-center justify-center">
+                              <PawPrint className="h-10 w-10 text-[#d3d7e0]" />
+                            </div>
+                          )}
+                          {hasVideo ? (
+                            <span className="absolute bottom-3 left-3 rounded-full bg-[#0e1016] px-2.5 py-1 text-xs font-bold text-[#ffffff]">
+                              영상 완성
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="p-5">
+                          <p className="truncate text-base font-bold tracking-[-0.02em] text-[#0e1016]">
+                            {project.name}
+                          </p>
+                          <p className="mt-1 truncate text-sm text-[#5c6170]">
+                            {projectBrief.character.name}
+                            {projectBrief.productName
+                              ? ` · ${projectBrief.productName}`
+                              : " · 제품 미선택"}
+                          </p>
+                          <div className="mt-4 flex gap-1" aria-hidden>
+                            {STEPS.map((step, index) => (
+                              <span
+                                key={step.id}
+                                className={`h-1.5 flex-1 rounded-full ${
+                                  index < projectStep
+                                    ? "bg-[#0e1016]"
+                                    : index === projectStep
+                                      ? "bg-[#ff8a3d]"
+                                      : "bg-[#e3e6ec]"
+                                }`}
+                              />
+                            ))}
+                          </div>
+                          <p className="mt-2.5 flex items-center justify-between text-xs text-[#747a88]">
+                            <span>
+                              {projectStep + 1}/{STEPS.length} · {STEPS[projectStep].label}
+                            </span>
+                            <time dateTime={project.updated_at}>{relativeTime(project.updated_at)}</time>
+                          </p>
+                        </div>
+                      </button>
+
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            aria-label={`${project.name} 메뉴`}
+                            className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full bg-[#ffffff]/90 text-[#0e1016] shadow-[0_2px_8px_rgba(14,16,22,0.12)] backdrop-blur hover:bg-[#ffffff] focus-visible:outline-2 focus-visible:outline-[#0e1016]"
+                          >
+                            <MoreHorizontal className="h-5 w-5" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                          align="end"
+                          className="min-w-[10rem] rounded-[14px] border-[#e3e6ec] bg-[#ffffff] p-1.5 text-[#0e1016] shadow-[0_18px_40px_rgba(14,16,22,0.14)]"
+                        >
+                          <DropdownMenuItem
+                            className="rounded-[10px] text-sm focus:bg-[#f5f6fa] focus:text-[#0e1016]"
+                            onSelect={() => void openProject(project.id)}
+                          >
+                            <FolderOpen className="h-4 w-4" />
+                            열기
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="rounded-[10px] text-sm focus:bg-[#f5f6fa] focus:text-[#0e1016]"
+                            onSelect={() => {
+                              setRenameValue(project.name)
+                              setRenameTarget(project)
+                            }}
+                          >
+                            <Pencil className="h-4 w-4" />
+                            이름 변경
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator className="bg-[#e3e6ec]" />
+                          <DropdownMenuItem
+                            className="rounded-[10px] text-sm text-[#d92d20] focus:bg-[#fff4f2] focus:text-[#b42318]"
+                            onSelect={() => setPendingDelete(project)}
+                          >
+                            <Trash2 className="h-4 w-4 text-current" />
+                            삭제
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </article>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </div>
 
         <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-          <DialogContent className="border-[rgba(34,28,22,0.12)] bg-[#e1f6f0] text-[#221c16]">
+          <DialogContent className={`${DIALOG_CLASS} sm:max-w-lg`}>
             <DialogHeader>
-              <DialogTitle className="animal-display">새 동물 쇼핑 프로젝트</DialogTitle>
-              <DialogDescription className="text-[#49554b]">
-                캐릭터와 쿠팡 제품을 매장에서 시연하는 바이럴 숏폼을 만듭니다.
+              <span className="mb-1 flex h-11 w-11 items-center justify-center rounded-[14px] bg-[#fff1e7]">
+                <PawPrint className="h-5 w-5 text-[#b8500e]" />
+              </span>
+              <DialogTitle className="text-2xl font-black tracking-[-0.035em]">
+                새 동물 쇼핑 프로젝트
+              </DialogTitle>
+              <DialogDescription className="text-[#5c6170]">
+                동물 캐릭터가 마트에서 쿠팡 제품을 시연하는 바이럴 숏폼을 만듭니다.
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-3">
+            <form
+              className="space-y-4"
+              onSubmit={(event) => {
+                event.preventDefault()
+                void createProject()
+              }}
+            >
               <div>
-                <Label>프로젝트 이름</Label>
+                <Label htmlFor="animal-project-name" className="text-sm font-semibold text-[#0e1016]">
+                  프로젝트 이름
+                </Label>
                 <Input
+                  id="animal-project-name"
+                  autoFocus
                   value={projectName}
                   onChange={(e) => setProjectName(e.target.value)}
-                  className="mt-1 border-[rgba(41,36,27,0.12)] bg-black/40"
+                  className={DIALOG_FIELD_CLASS}
                   placeholder="예: 강아지 이어폰 리뷰 숏폼"
                 />
               </div>
               <div>
-                <Label>설명 (선택)</Label>
+                <Label htmlFor="animal-project-desc" className="text-sm font-semibold text-[#0e1016]">
+                  설명 <span className="font-normal text-[#747a88]">(선택)</span>
+                </Label>
                 <Textarea
+                  id="animal-project-desc"
                   value={projectDescription}
                   onChange={(e) => setProjectDescription(e.target.value)}
-                  className="mt-1 border-[rgba(41,36,27,0.12)] bg-black/40"
+                  className={DIALOG_FIELD_CLASS}
                   rows={3}
                 />
               </div>
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="ghost" onClick={() => setShowCreateDialog(false)}>
-                취소
-              </Button>
-              <Button
-                type="button"
-                disabled={isCreating || !projectName.trim()}
-                onClick={() => void createProject()}
-                className="animal-cta-cute rounded-full"
-              >
-                {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : "만들기"}
-              </Button>
-            </DialogFooter>
+              <DialogFooter className="items-center pt-2">
+                {!projectName.trim() ? (
+                  <span className="mr-auto text-xs text-[#747a88]">이름을 입력하면 만들 수 있어요</span>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="rounded-full text-[#0e1016] hover:bg-[#f5f6fa]"
+                  onClick={() => setShowCreateDialog(false)}
+                >
+                  취소
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={isCreating || !projectName.trim()}
+                  className={PRIMARY_BTN}
+                >
+                  {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : "만들기"}
+                </Button>
+              </DialogFooter>
+            </form>
           </DialogContent>
         </Dialog>
+        {projectDialogs}
       </div>
     )
   }
 
-  return (
-    <div className="animal-shopping-dark min-h-screen text-[#221c16]">
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(125,211,168,0.12),_transparent_55%),radial-gradient(ellipse_at_bottom_right,_rgba(255,143,171,0.08),_transparent_50%)]" />
+  const storageScope = { userId, projectId: currentProject.id }
 
-      <header className="sticky top-0 z-30 border-b border-[rgba(34,28,22,0.08)] bg-[#f3ffff]/90 backdrop-blur-md">
-        <div className="relative mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 md:px-6">
+  return (
+    <div className="animal-shopping-dark min-h-screen bg-[#f5f6fa] text-[#0e1016]">
+      <header className="sticky top-0 z-30 border-b border-[#e3e6ec] bg-[#ffffff]/90 backdrop-blur-md">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 md:px-8">
           <div className="min-w-0">
-            <div className="flex items-center gap-2 text-xs text-[#49554b]">
-              <Link href="/WingsAIStudioShotForm" className="hover:text-[#221c16]">
-                <Home className="h-3.5 w-3.5" />
+            <nav aria-label="경로" className="flex items-center gap-1.5 text-xs text-[#747a88]">
+              <Link href="/WingsAIStudioShotForm" className="rounded hover:text-[#0e1016]">
+                숏폼 홈
               </Link>
-              <span>/</span>
+              <span aria-hidden>/</span>
               <button
                 type="button"
-                className="hover:text-[#221c16]"
+                className="rounded hover:text-[#0e1016]"
                 onClick={() => {
                   setCurrentProject(null)
                   setBrief(cloneAnimalBrief())
                   setActiveStep("product")
                 }}
               >
-                프로젝트
+                동물 쇼핑 프로젝트
               </button>
-              <span>/</span>
-              <span className="truncate text-[#2d342e]">{currentProject.name}</span>
-            </div>
-            <h1 className="animal-display mt-1 truncate text-lg font-bold">{currentProject.name}</h1>
+            </nav>
+            <h1 className="mt-0.5 flex items-center gap-2 truncate text-xl font-black tracking-[-0.035em]">
+              <PawPrint className="h-4 w-4 shrink-0 text-[#ff8a3d]" aria-hidden />
+              <span className="truncate">{currentProject.name}</span>
+            </h1>
           </div>
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={isSaving}
-            onClick={() => void saveProject()}
-            className="rounded-full"
-          >
-            {isSaving ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Save className="mr-2 h-4 w-4" />
-            )}
-            저장
-          </Button>
+          <div className="flex shrink-0 items-center gap-3">
+            {savedAt && !isSaving ? (
+              <span className="hidden text-xs text-[#747a88] sm:inline" aria-live="polite">
+                저장됨 · {relativeTime(savedAt)}
+              </span>
+            ) : null}
+            <Button
+              type="button"
+              disabled={isSaving}
+              onClick={() => void saveProject()}
+              className={`${PRIMARY_BTN} h-10`}
+            >
+              {isSaving ? (
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="mr-1.5 h-4 w-4" />
+              )}
+              저장
+            </Button>
+          </div>
         </div>
 
-        <div className="relative mx-auto flex max-w-6xl gap-2 overflow-x-auto px-4 pb-3 md:px-6">
+        <ol className="mx-auto flex max-w-6xl gap-1.5 overflow-x-auto px-4 pb-3 md:px-8">
           {STEPS.map((step, index) => {
             const done = index < stepIndex
             const active = step.id === activeStep
-            const Icon = step.icon
             return (
-              <button
-                key={step.id}
-                type="button"
-                onClick={() => setActiveStep(step.id)}
-                className={`flex min-w-[132px] items-center gap-2 rounded-xl border px-3 py-2 text-left transition ${
-                  active
-                    ? "border-[#005835]/60 bg-[#7dd3a8]/15"
-                    : done
-                      ? "border-emerald-500/20 bg-emerald-500/5"
-                      : "border-[rgba(34,28,22,0.1)] bg-black/20"
-                }`}
-              >
-                <span
-                  className={`flex h-7 w-7 items-center justify-center rounded-lg ${
-                    active ? "bg-[#7dd3a8] text-[#f2fffb]" : "bg-white/5 text-[#49554b]"
+              <li key={step.id} className="flex-1">
+                <button
+                  type="button"
+                  onClick={() => setActiveStep(step.id)}
+                  aria-current={active ? "step" : undefined}
+                  className={`flex w-full min-w-[128px] items-center gap-2.5 rounded-[14px] border px-3 py-2 text-left transition ${
+                    active
+                      ? "border-[#0e1016] bg-[#0e1016] text-[#ffffff]"
+                      : "border-[#e3e6ec] bg-[#ffffff] text-[#0e1016] hover:border-[#c9ccd4]"
                   }`}
                 >
-                  <Icon className="h-3.5 w-3.5" />
-                </span>
-                <span>
-                  <span className="block text-xs font-semibold text-[#221c16]">{step.label}</span>
-                  <span className="block text-[10px] text-[#657468]">{step.description}</span>
-                </span>
-              </button>
+                  <span
+                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-black ${
+                      active
+                        ? "bg-[#ff8a3d] text-[#0e1016]"
+                        : done
+                          ? "bg-[#fff1e7] text-[#b8500e]"
+                          : "bg-[#f5f6fa] text-[#747a88]"
+                    }`}
+                  >
+                    {done ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : index + 1}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-bold">{step.label}</span>
+                    <span
+                      className={`block truncate text-xs ${active ? "text-[#c9ccd4]" : "text-[#747a88]"}`}
+                    >
+                      {step.description}
+                    </span>
+                  </span>
+                </button>
+              </li>
             )
           })}
-        </div>
+        </ol>
       </header>
 
-      <main className="relative mx-auto max-w-6xl px-4 py-6 md:px-6 md:py-8">
-        {error ? (
-          <p className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-            {error}
-          </p>
-        ) : null}
+      <main className="mx-auto max-w-6xl px-4 py-8 md:px-8 md:py-10">
+        <ErrorBanner message={error} />
 
-        {activeStep === "product" ? (
-          <AnimalProductPanel
-            brief={brief}
-            onChange={setBrief}
-            onContinue={() => setActiveStep("script")}
-          />
-        ) : null}
-        {activeStep === "script" ? (
-          <AnimalScriptPanel
-            brief={brief}
-            onChange={setBrief}
-            onContinue={() => setActiveStep("voice")}
-          />
-        ) : null}
-        {activeStep === "voice" ? (
-          <AnimalStudioVoicePanel
-            brief={brief}
-            onChange={setBrief}
-            onContinue={() => setActiveStep("images")}
-          />
-        ) : null}
-        {activeStep === "images" ? (
-          <AnimalImagesPanel
-            brief={brief}
-            onChange={setBrief}
-            onContinue={() => setActiveStep("videos")}
-          />
-        ) : null}
-        {activeStep === "videos" ? (
-          <AnimalVideosPanel
-            brief={brief}
-            onChange={setBrief}
-            onContinue={() => setActiveStep("preview")}
-          />
-        ) : null}
-        {activeStep === "preview" ? (
-          <AnimalPreviewStudioPanel brief={brief} onChange={setBrief} />
-        ) : null}
+        <div>
+          {activeStep === "product" ? (
+            <AnimalProductPanel
+              brief={brief}
+              onChange={setBrief}
+              onContinue={() => setActiveStep("script")}
+            />
+          ) : null}
+          {activeStep === "script" ? (
+            <AnimalScriptPanel
+              brief={brief}
+              onChange={setBrief}
+              onContinue={() => setActiveStep("voice")}
+            />
+          ) : null}
+          {activeStep === "voice" ? (
+            <AnimalStudioVoicePanel
+              brief={brief}
+              onChange={setBrief}
+              onContinue={() => setActiveStep("images")}
+              storageScope={storageScope}
+            />
+          ) : null}
+          {activeStep === "images" ? (
+            <AnimalImagesPanel
+              brief={brief}
+              onChange={setBrief}
+              onContinue={() => setActiveStep("videos")}
+            />
+          ) : null}
+          {activeStep === "videos" ? (
+            <AnimalVideosPanel
+              brief={brief}
+              onChange={setBrief}
+              onContinue={() => setActiveStep("preview")}
+              storageScope={storageScope}
+            />
+          ) : null}
+          {activeStep === "preview" ? (
+            <AnimalPreviewStudioPanel brief={brief} onChange={setBrief} />
+          ) : null}
+        </div>
       </main>
+      {projectDialogs}
     </div>
   )
 }

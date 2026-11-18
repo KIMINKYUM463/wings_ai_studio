@@ -35,6 +35,7 @@ import {
 } from "@/lib/youtube-thumbnail"
 import { cn } from "@/lib/utils"
 import { googleWebSearchUrl, platformLabelKo, platformSearchUrl } from "@/lib/product-search-links"
+import { shotformTikhubKey } from "@/lib/shotform-tikhub-key-client"
 import {
   MIX_SOURCE_MAX,
   normalizeMixSourceUrl,
@@ -125,11 +126,6 @@ function shotformOpenAIKey(): string | null {
 function shotformYoutubeDataKey(): string | null {
   if (typeof window === "undefined") return null
   return (localStorage.getItem("shotform_youtube_data_api_key") || "").trim() || null
-}
-
-function shotformApifyToken(): string | null {
-  if (typeof window === "undefined") return null
-  return (localStorage.getItem("shotform_apify_token") || "").trim() || null
 }
 
 const MAX_PRODUCT_IMAGE_BYTES = 3 * 1024 * 1024
@@ -748,7 +744,7 @@ export function ProductUrlSearchView({ backHref, backLabel = "프로젝트로", 
           url: trimmed || undefined,
           openaiApiKey: openai,
           youtubeDataApiKey: shotformYoutubeDataKey() || undefined,
-          apifyApiKey: shotformApifyToken() || undefined,
+          tikhubApiKey: shotformTikhubKey(),
           ...(productImageDataUrl ? { productImageDataUrl } : {}),
           ...(rawCandidatesMode ? { skipVideoCandidateChecks: true as const } : {}),
         }),
