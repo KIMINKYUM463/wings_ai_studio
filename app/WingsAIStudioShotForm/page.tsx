@@ -80,6 +80,9 @@ type ShotFormServiceItem = {
 const DEFAULT_ACCENT = "#2c5fd6"
 
 // 숏폼 전용 서비스
+// v2(썰·리믹스)는 PC 폴더·ffmpeg·yt-dlp 로 도는 로컬 전용 → 배포판(Vercel)에서는 예전 버전 카드를 보여 준다
+const ON_VERCEL = process.env.NEXT_PUBLIC_IS_VERCEL === "1"
+
 const shotFormServices: ShotFormServiceItem[] = [
   {
     id: "ai-shopping",
@@ -96,7 +99,7 @@ const shotFormServices: ShotFormServiceItem[] = [
     icon: BookOpen,
     description: "썰 채널처럼 사연을 풀어가며 상품을 자연스럽게 소개",
     url: "/WingsAIStudioShotForm/story-shopping",
-    hidden: true,
+    hidden: !ON_VERCEL,
     accent: "#7c3aed",
     flow: { input: "상품 + 사연", output: "썰 나레이션 영상" },
   },
@@ -106,6 +109,7 @@ const shotFormServices: ShotFormServiceItem[] = [
     icon: BookOpen,
     description: "쇼츠 URL로 썰 구조 대본·음성·자막까지 원스톱",
     url: "/WingsAIStudioShotForm/story-shopping-v2",
+    hidden: ON_VERCEL,
     isNew: true,
     accent: "#6d28d9",
     flow: { input: "참고 쇼츠 URL", output: "썰 쇼핑 숏폼" },
@@ -116,7 +120,7 @@ const shotFormServices: ShotFormServiceItem[] = [
     icon: Clapperboard,
     description: "소스 영상을 찾아 리믹스하고 자막·썸네일까지 편집",
     url: "/WingsAIStudioShotForm/shortform-studio",
-    hidden: true,
+    hidden: !ON_VERCEL,
     accent: "#e11d48",
     flow: { input: "키워드·소스 영상", output: "리믹스 편집 영상" },
   },
@@ -126,6 +130,7 @@ const shotFormServices: ShotFormServiceItem[] = [
     icon: Clapperboard,
     description: "쇼츠 URL 하나로 장면 재구성·대본·음성·자막·템플릿까지 원스톱",
     url: "/WingsAIStudioShotForm/remix-shopping-v2",
+    hidden: ON_VERCEL,
     isNew: true,
     accent: "#be123c",
     flow: { input: "참고 쇼츠 URL", output: "리믹스 숏폼" },

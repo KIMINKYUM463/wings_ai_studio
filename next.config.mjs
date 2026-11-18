@@ -41,6 +41,15 @@ const nextConfig = {
   },
   async redirects() {
     return [
+      // v2 는 로컬 전용 → 배포판에서는 예전 버전으로 보낸다
+      ...(process.env.VERCEL
+        ? [
+            { source: "/WingsAIStudioShotForm/story-shopping-v2", destination: "/WingsAIStudioShotForm/story-shopping", permanent: false },
+            { source: "/WingsAIStudioShotForm/story-shopping-v2/:path*", destination: "/WingsAIStudioShotForm/story-shopping", permanent: false },
+            { source: "/WingsAIStudioShotForm/remix-shopping-v2", destination: "/WingsAIStudioShotForm/shortform-studio", permanent: false },
+            { source: "/WingsAIStudioShotForm/remix-shopping-v2/:path*", destination: "/WingsAIStudioShotForm/shortform-studio", permanent: false },
+          ]
+        : []),
       {
         source: "/WingsAIStudioShotForm/shopping-factory/:path*",
         destination: "/WingsAIStudioShotForm/shoppingshotform/:path*",
@@ -76,6 +85,8 @@ const nextConfig = {
   },
   // 환경 변수 설정
   env: {
+    // 배포판에서 로컬 전용(v2) 기능을 숨기는 데 씀
+    NEXT_PUBLIC_IS_VERCEL: process.env.VERCEL ? "1" : "",
     CLOUD_RUN_RENDER_URL: 'https://my-project-gs3pokkvsa-an.a.run.app',
     // 클라이언트에서 Cloud Run 직접 호출을 위한 환경 변수 (NEXT_PUBLIC_ 접두사 필요)
     NEXT_PUBLIC_CLOUD_RUN_RENDER_URL: 'https://my-project-gs3pokkvsa-an.a.run.app',
