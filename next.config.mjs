@@ -23,7 +23,12 @@ const nextConfig = {
           "./data/**",
           "./.tmp/**",
         ],
-      ])
+      ]).map(([r, list]) =>
+        // 자동편집은 폰트를 디스크에서 안 읽고, ffprobe 는 vendor/ 사본을 씀 (lib/ffmpeg-binaries.ts)
+        r.startsWith("/api/shotform/auto-edit")
+          ? [r, [...list, "./public/fonts/**", "./node_modules/ffprobe-static/bin/**"]]
+          : [r, list]
+      )
     ),
   },
   outputFileTracingIncludes: {
