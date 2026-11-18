@@ -1,4 +1,5 @@
 'use client';
+import '@/lib/wings-shopping-v2/browser-keys';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Project, Stage } from './types';
 

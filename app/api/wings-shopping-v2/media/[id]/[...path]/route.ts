@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { projectDir } from '@/lib/wings-shopping-v2/store';
+import { getProject, projectDir } from '@/lib/wings-shopping-v2/store';
+import { MULTI_USER } from '@/lib/wings-shopping-v2/request-ctx';
 
 export const runtime = 'nodejs';
 
@@ -29,6 +30,14 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string; pat
     root = path.resolve(projectDir(id));
   } catch {
     return new Response('bad id', { status: 400 });
+  }
+  // 공용 모드: 본인 프로젝트 파일만 내려준다
+  if (MULTI_USER) {
+    try {
+      await getProject(id);
+    } catch {
+      return new Response('not found', { status: 404 });
+    }
   }
 
   const ext = path.extname(parts[parts.length - 1] ?? '').toLowerCase();

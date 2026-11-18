@@ -1,5 +1,6 @@
 import fs from "node:fs"
 import path from "node:path"
+import { BROWSER_KEY_HEADERS, requestHeader } from "./request-ctx"
 
 const KEY_FILE = path.join(process.cwd(), "data", "shotform-gemini-key.txt")
 
@@ -8,6 +9,9 @@ export const GEMINI_KEY_MISSING =
 
 /** 환경변수 키가 있으면 그것을 쓰고, 없으면 설정 화면에서 저장한 키를 읽는다. */
 export function geminiApiKey(): string {
+  // 수강생이 브라우저에 저장한 본인 키가 요청에 실려 오면 그것을 먼저 쓴다
+  const fromRequest = requestHeader(BROWSER_KEY_HEADERS.gemini)
+  if (fromRequest) return fromRequest
   const fromEnv = process.env.GEMINI_API_KEY?.trim()
   if (fromEnv) return fromEnv
   try {

@@ -1,4 +1,5 @@
 "use client"
+import "@/lib/wings-shopping-v2/browser-keys"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Check, CheckSquare, ExternalLink, Languages, Loader2, RefreshCw, Search, Square, Zap } from "lucide-react"

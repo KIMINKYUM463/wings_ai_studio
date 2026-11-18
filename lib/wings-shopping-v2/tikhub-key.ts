@@ -1,10 +1,13 @@
 import fs from "node:fs"
 import path from "node:path"
+import { BROWSER_KEY_HEADERS, requestHeader } from "./request-ctx"
 
 const KEY_FILE = path.join(process.cwd(), "data", "shotform-tikhub-key.txt")
 
 /** 설정 화면에 저장한 키를 먼저 쓴다. 없을 때만 서버 환경변수 키를 쓴다. */
 export function tikhubApiKey(): string {
+  const fromRequest = requestHeader(BROWSER_KEY_HEADERS.tikhub)
+  if (fromRequest) return fromRequest
   try {
     const saved = fs.readFileSync(KEY_FILE, "utf8").trim()
     if (saved) return saved

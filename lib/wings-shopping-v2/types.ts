@@ -182,6 +182,8 @@ export type PlatformCopyEntry = { title?: string; description: string; tags: str
 export type PlatformCopy = { youtube?: PlatformCopyEntry; instagram?: PlatformCopyEntry; tiktok?: PlatformCopyEntry; at?: number };
 
 export type Project = {
+  /** 클라우드 PC(공용 모드)에서 만든 수강생 id. 내 PC 모드에서는 없음 */
+  ownerId?: string;
   /** remix = 레퍼런스 재편집, ssul = 썰 쇼핑숏폼 */
   mode?: 'remix' | StoryMode;
   reviewInfo?: ReviewInfo;

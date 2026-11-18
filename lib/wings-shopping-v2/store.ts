@@ -4,6 +4,7 @@ import { nanoid } from 'nanoid';
 import type { JobStatus, Project, Stage, StoryMode } from './types';
 import { isStoryMode } from './types';
 import { modeDefaults } from './ssul/settings';
+import { currentOwnerId, MULTI_USER } from './request-ctx';
 
 export function dataDir(): string {
   return process.env.WINGS_SHOPPING_V2_DATA_DIR || path.join(process.cwd(), 'data', 'wings-shopping-v2');
@@ -49,6 +50,8 @@ export async function createProject(url: string, mode: 'remix' | StoryMode = 're
     jobs: {},
     mode,
   };
+  const owner = await currentOwnerId();
+  if (owner) p.ownerId = owner;
   if (isStoryMode(mode)) {
     const { voice, ...ssul } = modeDefaults(mode);
     p.ssul = ssul;
@@ -63,6 +66,8 @@ export async function createProject(url: string, mode: 'remix' | StoryMode = 're
 
 /** 새 id로 프로젝트 저장 (복제·해외판용). 폴더가 이미 있어야 하면 먼저 만든다 */
 export async function saveNewProject(p: Project): Promise<Project> {
+  const owner = await currentOwnerId();
+  if (owner) p.ownerId = owner;
   await fs.mkdir(projectDir(p.id), { recursive: true });
   await writeAtomic(projectFile(p.id), JSON.stringify(p, null, 2));
   return p;
@@ -70,9 +75,19 @@ export async function saveNewProject(p: Project): Promise<Project> {
 
 export const newProjectId = () => nanoid(10).replace(/[^A-Za-z0-9_-]/g, '_');
 
-export async function getProject(id: string): Promise<Project> {
+async function readProject(id: string): Promise<Project> {
   const raw = await fs.readFile(projectFile(id), 'utf8');
   return JSON.parse(raw) as Project;
+}
+
+/** 공용 모드에서는 본인 프로젝트만 열 수 있다 */
+export async function getProject(id: string): Promise<Project> {
+  const p = await readProject(id);
+  if (MULTI_USER) {
+    const owner = await currentOwnerId();
+    if (!p.ownerId || p.ownerId !== owner) throw new Error('프로젝트를 찾을 수 없습니다.');
+  }
+  return p;
 }
 
 export async function listProjects(): Promise<Project[]> {
@@ -83,10 +98,13 @@ export async function listProjects(): Promise<Project[]> {
   } catch {
     return [];
   }
+  const owner = await currentOwnerId();
   const out: Project[] = [];
   for (const id of ids) {
     try {
-      out.push(await getProject(id));
+      const p = await readProject(id);
+      if (MULTI_USER && p.ownerId !== owner) continue;
+      out.push(p);
     } catch {
       /* 손상된 폴더는 건너뜀 */
     }

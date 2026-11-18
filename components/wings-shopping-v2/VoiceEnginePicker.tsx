@@ -1,4 +1,5 @@
 'use client';
+import '@/lib/wings-shopping-v2/browser-keys';
 import { useEffect, useRef, useState } from 'react';
 import { voicePersonaPhoto } from './VoiceFace';
 import { MvpRemixVoiceField, type RemixVoiceSelection } from '@/app/WingsAIStudioShotForm/shortform-studio/MvpRemixVoiceField';

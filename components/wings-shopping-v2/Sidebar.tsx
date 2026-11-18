@@ -1,4 +1,5 @@
 'use client';
+import '@/lib/wings-shopping-v2/browser-keys';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';

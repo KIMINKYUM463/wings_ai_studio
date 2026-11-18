@@ -1,3 +1,14 @@
+/**
+ * v2(썰·리믹스) 엔진은 PC 폴더·ffmpeg·yt-dlp 로 오래 도는 작업이라 Vercel 에서는 못 돌린다.
+ * 배포판에서는 v2 API 를 구글 클라우드 PC(wings-v2-engine)로 넘긴다. V2_ENGINE_URL=off 면 v2 를 숨기고 예전 버전으로 보낸다.
+ */
+const V2_ENGINE_URL = process.env.VERCEL
+  ? process.env.V2_ENGINE_URL === "off"
+    ? ""
+    : process.env.V2_ENGINE_URL || "https://34-22-106-36.sslip.io"
+  : ""
+const V2_UNAVAILABLE = Boolean(process.env.VERCEL) && !V2_ENGINE_URL
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   serverExternalPackages: ["ffmpeg-static", "ffprobe-static", "@google/genai"],
@@ -39,10 +50,18 @@ const nextConfig = {
     "/api/shotform/auto-edit/download": ["./vendor/ffmpeg/**", "./vendor/ffprobe/**"],
     "/*": ["./vendor/ffmpeg/**", "./vendor/ffprobe/**"],
   },
+  async rewrites() {
+    // 같은 주소(wingsaistudio.com)로 들어온 v2 요청을 클라우드 PC 로 그대로 넘긴다 (로그인 쿠키·키 헤더 포함)
+    return {
+      beforeFiles: V2_ENGINE_URL
+        ? [{ source: "/api/wings-shopping-v2/:path*", destination: `${V2_ENGINE_URL}/api/wings-shopping-v2/:path*` }]
+        : [],
+    }
+  },
   async redirects() {
     return [
       // v2 는 로컬 전용 → 배포판에서는 예전 버전으로 보낸다
-      ...(process.env.VERCEL
+      ...(V2_UNAVAILABLE
         ? [
             { source: "/WingsAIStudioShotForm/story-shopping-v2", destination: "/WingsAIStudioShotForm/story-shopping", permanent: false },
             { source: "/WingsAIStudioShotForm/story-shopping-v2/:path*", destination: "/WingsAIStudioShotForm/story-shopping", permanent: false },
@@ -86,7 +105,7 @@ const nextConfig = {
   // 환경 변수 설정
   env: {
     // 배포판에서 로컬 전용(v2) 기능을 숨기는 데 씀
-    NEXT_PUBLIC_IS_VERCEL: process.env.VERCEL ? "1" : "",
+    NEXT_PUBLIC_IS_VERCEL: V2_UNAVAILABLE ? "1" : "",
     CLOUD_RUN_RENDER_URL: 'https://my-project-gs3pokkvsa-an.a.run.app',
     // 클라이언트에서 Cloud Run 직접 호출을 위한 환경 변수 (NEXT_PUBLIC_ 접두사 필요)
     NEXT_PUBLIC_CLOUD_RUN_RENDER_URL: 'https://my-project-gs3pokkvsa-an.a.run.app',
