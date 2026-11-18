@@ -6,6 +6,25 @@ const nextConfig = {
     serverActions: {
       bodySizeLimit: "50mb",
     },
+    // process.cwd()+public 경로 때문에 public 전체가 함수에 딸려 들어가 Vercel 250MB 한도를 넘음 → 디스크에서 안 읽는 큰 미디어 제외
+    outputFileTracingExcludes: Object.fromEntries(
+      ["/api/wings-shopping-v2/**", "/api/ai-shopping/render-pro/**", "/api/shotform/auto-edit/**", "/api/shotform/auto-edit"].map((r) => [
+        r,
+        [
+          "./public/samples/**",
+          "./public/shotform/**",
+          "./public/thumbnail-studio/**",
+          "./public/scene-style-samples/**",
+          "./public/remix-home/**",
+          "./public/hq-avatars/**",
+          "./public/animal-shopping/**",
+          "./public/story-shopping-sfx/**",
+          "./public/wings-ssul-bgm/**",
+          "./data/**",
+          "./.tmp/**",
+        ],
+      ])
+    ),
   },
   outputFileTracingIncludes: {
     "/api/shotform/auto-edit": [
