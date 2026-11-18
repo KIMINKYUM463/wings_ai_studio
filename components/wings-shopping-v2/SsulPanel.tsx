@@ -41,7 +41,7 @@ export const loadSsulOptions = (mode = 'ssul') => {
 };
 
 /** 템플릿 그림(레이아웃·표지)을 바꾸면 올린다 → 브라우저에 남은 옛 미리보기를 쓰지 않음 */
-const PREVIEW_STYLE_VERSION = 's6'; // 템플릿 모양을 바꾸면 올린다 (브라우저가 1시간 캐시한 옛 미리보기를 새로 받게)
+const PREVIEW_STYLE_VERSION = 's7'; // 템플릿 모양을 바꾸면 올린다 (브라우저가 1시간 캐시한 옛 미리보기를 새로 받게)
 
 export function templatePreviewUrl(p: Project, templateId: string, poster?: boolean) {
   const v = encodeURIComponent([p.script?.headcopy?.join('|'), p.script?.beats[0]?.text, p.script?.comment, p.ssul?.channelName, p.script?.beats[0]?.clipId, p.ssul?.introPoster ? 'P' : '', p.ssul?.font ?? '', p.ssul?.videoFit ?? '', p.ssul?.coverBottomFill ? 'B' : '', p.ssul?.titleScale ?? 1, p.ssul?.channelScale ?? 1.5, PREVIEW_STYLE_VERSION].join('~'));
@@ -66,8 +66,8 @@ export default function SsulPanel({ project, setProject, hideTemplates }: { proj
     setProject({ ...project, travelInfo: { ...info, ...patch } });
     setProject(await patchProject(project.id, { travelInfo: patch }));
   };
+  // 저장이 끝난 뒤에 화면을 바꾼다. 먼저 바꾸면 미리보기가 저장 전 설정으로 그려진 채 남는다
   const save = async (patch: Partial<SsulSettings>) => {
-    setProject({ ...project, ssul: { ...s, ...patch } });
     setProject(await patchProject(project.id, { ssul: patch }));
   };
   const structure = opts?.structures.find((x) => x.id === s.structureId);
@@ -238,8 +238,8 @@ export function TemplatePicker({ project, setProject, hideHeading, onPicked }: {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [zoomId]);
+  // 저장이 끝난 뒤에 화면을 바꾼다. 먼저 바꾸면 미리보기가 저장 전 설정으로 그려진 채 남는다
   const save = async (patch: Partial<SsulSettings>) => {
-    setProject({ ...project, ssul: { ...s, ...patch } });
     setProject(await patchProject(project.id, { ssul: patch }));
   };
   const shown = useMemo(() => (opts?.templates ?? []).filter((t) => family === 'all' || t.family === family), [opts, family]);

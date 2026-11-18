@@ -42,8 +42,8 @@ export default function TemplateStep({ project, setProject, goNext }: StepProps)
   if (!s) return <Panel title="영상 템플릿"><p className="text-sm text-muted">썰 모드 프로젝트에서만 템플릿을 고를 수 있어요.</p></Panel>;
 
   const current = templates.find((t) => t.id === s.templateId);
+  // 저장이 끝난 뒤에 화면을 바꾼다. 먼저 바꾸면 미리보기가 저장 전 설정으로 그려진 채 남는다
   const save = async (patch: Partial<SsulSettings>) => {
-    setProject({ ...project, ssul: { ...s, ...patch } });
     setProject(await patchProject(project.id, { ssul: patch }));
   };
   const saveHead = async (next: [string, string]) => {
