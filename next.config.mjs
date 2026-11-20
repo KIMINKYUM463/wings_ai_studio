@@ -59,6 +59,8 @@ const nextConfig = {
             // AI 쇼핑 고품질 렌더도 ffmpeg 로 오래 걸려 클라우드 PC 에서 돌린다
             { source: "/api/ai-shopping/render-pro/:path*", destination: `${V2_ENGINE_URL}/api/ai-shopping/render-pro/:path*` },
             { source: "/api/ai-shopping/render-pro", destination: `${V2_ENGINE_URL}/api/ai-shopping/render-pro` },
+            // Gemini 장면 TTS 는 ffmpeg 로 앞뒤 무음을 자르는데 Vercel 함수에는 ffmpeg 가 없다
+            { source: "/api/ai-shopping/gemini-tts", destination: `${V2_ENGINE_URL}/api/ai-shopping/gemini-tts` },
           ]
         : [],
     }
