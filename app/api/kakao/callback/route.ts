@@ -268,6 +268,16 @@ export async function GET(request: NextRequest) {
       maxAge: 60 * 60 * 24 * 30, // 30일
       path: "/",
     })
+    // 액세스 토큰은 몇 시간 뒤 만료된다 → 만료되면 서버가 이 토큰으로 새로 받는다 (lib/story-shopping-security.ts)
+    if (tokenData.refresh_token) {
+      cookieStore.set("kakao_refresh", tokenData.refresh_token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: Math.min(tokenData.refresh_token_expires_in || 60 * 60 * 24 * 30, 60 * 60 * 24 * 60),
+        path: "/",
+      })
+    }
 
     console.log("[Kakao Callback] 로그인 성공:", userInfo.id)
 

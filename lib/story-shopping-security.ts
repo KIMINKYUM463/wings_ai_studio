@@ -59,14 +59,27 @@ export async function requireStoryUser(): Promise<StoryAuthenticatedUser> {
   const cached = verifiedUsers.get(token)
   if (cached && cached.expiresAt > Date.now()) return cached.user
 
-  const response = await fetch("https://kapi.kakao.com/v2/user/me", {
-    headers: { Authorization: `Bearer ${token}` },
-    cache: "no-store",
-    signal: AbortSignal.timeout(8_000),
-  })
+  const fetchMe = (t: string) =>
+    fetch("https://kapi.kakao.com/v2/user/me", {
+      headers: { Authorization: `Bearer ${t}` },
+      cache: "no-store",
+      signal: AbortSignal.timeout(8_000),
+    })
+  let response = await fetchMe(token)
   if (!response.ok) {
     verifiedUsers.delete(token)
-    throw new Error("로그인이 만료되었습니다. 다시 로그인해주세요.")
+    // 액세스 토큰이 만료됐으면 저장해 둔 리프레시 토큰으로 새로 받아 쿠키를 갱신한다
+    const fresh = await refreshKakaoAccessToken(cookieStore.get("kakao_refresh")?.value)
+    if (!fresh) throw new Error("로그인이 만료되었습니다. 다시 로그인해주세요.")
+    response = await fetchMe(fresh.accessToken)
+    if (!response.ok) throw new Error("로그인이 만료되었습니다. 다시 로그인해주세요.")
+    try {
+      const opts = { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax" as const, path: "/" }
+      cookieStore.set("kakao_user", JSON.stringify({ ...cookieUser, accessToken: fresh.accessToken }), { ...opts, maxAge: 60 * 60 * 24 * 30 })
+      if (fresh.refreshToken) cookieStore.set("kakao_refresh", fresh.refreshToken, { ...opts, maxAge: 60 * 60 * 24 * 60 })
+    } catch {
+      // 서버 컴포넌트 렌더 중에는 쿠키를 못 쓴다 — 이번 요청은 새 토큰으로 계속, 다음 요청에서 다시 갱신
+    }
   }
   const verified = (await response.json()) as {
     id?: number | string
@@ -84,6 +97,26 @@ export async function requireStoryUser(): Promise<StoryAuthenticatedUser> {
   }
   verifiedUsers.set(token, { expiresAt: Date.now() + 60_000, user })
   return user
+}
+
+/** 카카오 리프레시 토큰으로 새 액세스 토큰 발급 (리프레시 토큰도 곧 만료되면 새로 줌) */
+async function refreshKakaoAccessToken(
+  refreshToken: string | undefined
+): Promise<{ accessToken: string; refreshToken?: string } | null> {
+  const clientId = process.env.KAKAO_REST_API_KEY
+  if (!refreshToken || !clientId) return null
+  const params = new URLSearchParams({ grant_type: "refresh_token", client_id: clientId, refresh_token: refreshToken })
+  if (process.env.KAKAO_CLIENT_SECRET) params.set("client_secret", process.env.KAKAO_CLIENT_SECRET)
+  const res = await fetch("https://kauth.kakao.com/oauth/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded;charset=utf-8" },
+    body: params,
+    cache: "no-store",
+    signal: AbortSignal.timeout(8_000),
+  }).catch(() => null)
+  if (!res?.ok) return null
+  const data = (await res.json().catch(() => ({}))) as { access_token?: string; refresh_token?: string }
+  return data.access_token ? { accessToken: data.access_token, refreshToken: data.refresh_token } : null
 }
 
 export async function requireStoryUserId(expected?: string): Promise<string> {

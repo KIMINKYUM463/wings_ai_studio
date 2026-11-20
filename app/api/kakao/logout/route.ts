@@ -17,6 +17,7 @@ export async function POST(request: NextRequest) {
     
     // 카카오 사용자 쿠키 삭제
     cookieStore.delete("kakao_user")
+    cookieStore.delete("kakao_refresh")
 
     return NextResponse.json({
       success: true,
