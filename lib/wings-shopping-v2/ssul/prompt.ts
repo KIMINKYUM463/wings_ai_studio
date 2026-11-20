@@ -13,8 +13,8 @@ function storyFormula(structureId: string) {
   return isStoryScriptTemplateId(id) ? STORY_SCRIPT_TEMPLATES[id] : null;
 }
 
-/** 썰 쇼핑 상위 영상 실측 낭독 속도 (공백 제외 글자/초) */
-export const SSUL_CHARS_PER_SEC = 8.1;
+/** 낭독 속도 (공백 제외 글자/초): 상위 영상 실측은 8.1이지만 Gemini TTS 실제 속도(약 7.5)에 맞춘다 */
+export const SSUL_CHARS_PER_SEC = 7.5;
 export const targetChars = (seconds: number) => Math.round(seconds * SSUL_CHARS_PER_SEC);
 
 export type SsulScriptOptions = {
@@ -80,10 +80,10 @@ export function reviewFactsBlock(r: ReviewInfo): string {
   ].join('\n');
 }
 
-/** 대본 길이 피드백: 목표 대비 80% 미만이면 늘리고, 125% 초과면 줄이라고 한다 */
+/** 대본 길이 피드백: 목표 대비 90% 미만이면 늘리고, 110% 초과면 줄이라고 한다 */
 export function lengthFeedback(chars: number, need: number): string | null {
-  if (chars < need * 0.8) return `[수정 요청] 방금 대본은 공백 제외 ${chars}자로 너무 짧았다. 약 ${need}자가 되도록 비트를 늘리고 더 구체적으로 다시 써라.`;
-  if (chars > need * 1.25) return `[수정 요청] 방금 대본은 공백 제외 ${chars}자로 너무 길었다. 약 ${need}자가 되도록 비슷한 기능 비트를 합치고 군더더기를 빼서 다시 써라.`;
+  if (chars < need * 0.9) return `[수정 요청] 방금 대본은 공백 제외 ${chars}자로 너무 짧았다. 약 ${need}자가 되도록 비트를 늘리고 더 구체적으로 다시 써라.`;
+  if (chars > need * 1.1) return `[수정 요청] 방금 대본은 공백 제외 ${chars}자로 너무 길었다. 약 ${need}자가 되도록 비슷한 기능 비트를 합치고 군더더기를 빼서 다시 써라.`;
   return null;
 }
 

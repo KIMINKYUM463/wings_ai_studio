@@ -64,14 +64,10 @@ async function writeTypecast(
 ): Promise<void> {
   const key = apiKey?.trim()
   if (!key) throw new Error(ttsApiKeyMissingMessage("typecast"))
-  const emotion = style?.trim() || "smart"
+  const emotion = style?.trim() || "normal"
   const presetEmotions = new Set(["normal", "happy", "sad", "angry", "whisper", "toneup", "tonedown"])
-  const prompt =
-    emotion === "smart"
-      ? { emotion_type: "smart" }
-      : presetEmotions.has(emotion)
-        ? { emotion_type: "preset", emotion_preset: emotion }
-        : { emotion_type: "smart" }
+  // "smart"는 문장마다 감정을 따로 추측해 줄마다 말투가 출렁인다 → 고정 프리셋으로 통일
+  const prompt = { emotion_type: "preset", emotion_preset: presetEmotions.has(emotion) ? emotion : "normal" }
   const response = await fetch("https://api.typecast.ai/v1/text-to-speech", {
     method: "POST",
     headers: { "X-API-KEY": key, "Content-Type": "application/json" },

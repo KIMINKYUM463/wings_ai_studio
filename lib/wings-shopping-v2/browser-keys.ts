@@ -9,6 +9,10 @@ const KEYS: Array<[header: string, storageKey: string]> = [
   ['x-wings-gemini-key', 'shotform_gemini_api_key'],
   ['x-wings-tikhub-key', 'shotform_tikhub_api_key'],
   ['x-wings-youtube-key', 'shotform_youtube_data_api_key'],
+  // 같은 헤더가 여러 번이면 먼저 찾은 값을 쓴다 (예전 설정은 typecast_api_key 에만 저장됨)
+  ['x-wings-typecast-key', 'shotform_typecast_api_key'],
+  ['x-wings-typecast-key', 'typecast_api_key'],
+  ['x-wings-elevenlabs-key', 'shotform_elevenlabs_api_key'],
 ];
 
 function isV2Url(input: RequestInfo | URL): boolean {
@@ -42,4 +46,17 @@ if (w && !w.__wingsV2KeyFetch) {
   };
 }
 
-export {};
+/** <audio src>·new Audio(url)은 fetch를 거치지 않아 키 헤더가 안 실린다 → fetch로 받아서 재생할 오디오를 만든다 */
+export async function fetchAudio(url: string): Promise<HTMLAudioElement> {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error || `미리듣기를 만들지 못했어요 (${r.status})`);
+  const src = URL.createObjectURL(await r.blob());
+  const a = new Audio(src);
+  a.addEventListener('ended', () => URL.revokeObjectURL(src));
+  return a;
+}
+
+/** 배포 사이트(내 PC가 아닌 곳)에서 열었는지. 수퍼토닉·아담처럼 내 PC 로컬 서버가 필요한 기능을 가린다 */
+export function isDeployedSite(): boolean {
+  return typeof window !== 'undefined' && !/^(localhost|127\.0\.0\.1)$/.test(window.location.hostname);
+}

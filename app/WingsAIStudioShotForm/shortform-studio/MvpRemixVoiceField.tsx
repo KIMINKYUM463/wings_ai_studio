@@ -106,6 +106,7 @@ export function MvpRemixVoiceField({
     adam: null,
   })
   const [previewing, setPreviewing] = useState<string | null>(null)
+  const [previewError, setPreviewError] = useState("")
 
   const load = useCallback(async (provider: TtsProviderId) => {
     if (provider === "adam") {
@@ -196,13 +197,15 @@ export function MvpRemixVoiceField({
   const preview = useCallback(
     async (voiceId: string, style: string) => {
       setPreviewing(voiceId)
+      setPreviewError("")
       try {
         const url = await synthesizeTtsPreview(voiceId, style, value.speed)
         const audio = new Audio(url)
         audio.onended = () => setPreviewing(null)
         await audio.play()
-      } catch {
+      } catch (e) {
         setPreviewing(null)
+        setPreviewError(e instanceof Error && e.message ? e.message : "미리듣기를 만들지 못했어요. API 키와 목소리를 확인해 주세요.")
       }
     },
     [value.speed]
@@ -287,6 +290,7 @@ export function MvpRemixVoiceField({
         onReloadVoices={(provider) => void load(provider)}
         onPreviewVoice={(voiceId, style) => void preview(voiceId, style)}
         previewingVoiceId={previewing}
+        previewError={previewError}
         geminiTab={geminiTab}
       />
     </div>

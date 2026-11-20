@@ -101,6 +101,8 @@ export type TemplateData = {
   /** 제목·채널명 글자 크기 배율 */
   titleScale?: number;
   channelScale?: number;
+  /** 대사 자막 글자 크기 배율 */
+  captionScale?: number;
   /** 대본 첫 문장 (표지 아래 흰 줄에 표시) */
   firstSentence?: string;
 };

@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server';
 import { RENDER_ROOT, renderAiShopping, type AiShoppingRenderInput } from '@/lib/ai-shopping-render/engine';
 
 export const runtime = 'nodejs';
-// shortcut: 렌더를 요청 안에서 끝까지 기다린다 — Vercel 서버리스(ffmpeg·시간 제한)에선 길게 못 돌므로 Node 서버/Cloud Run에서 운영할 것
+// 배포판은 next.config rewrite 로 클라우드 PC(상시 켜진 Node 서버)에서 돈다. 렌더는 뒤에서 돌리고 바로 id 를 돌려준다 → 화면은 ?status 로 확인
 export const maxDuration = 300;
 
 const num = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
@@ -52,14 +52,21 @@ export async function POST(req: Request) {
   }
   const id = crypto.randomBytes(8).toString('hex');
   const dir = path.join(RENDER_ROOT, id);
-  try {
-    const out = await renderAiShopping(input, path.join(dir, 'work'), () => {}, new URL(req.url).origin);
-    await fs.rename(out, path.join(dir, 'out.mp4'));
-    return NextResponse.json({ id, url: `/api/ai-shopping/render-pro/${id}` });
-  } catch (e) {
-    console.error('[render-pro] 실패:', e);
-    return NextResponse.json({ error: e instanceof Error ? e.message : '렌더링 실패' }, { status: 500 });
-  } finally {
-    await fs.rm(path.join(dir, 'work'), { recursive: true, force: true }).catch(() => {});
-  }
+  await fs.mkdir(dir, { recursive: true });
+  const status = (s: { state: 'running' | 'done' | 'error'; error?: string }) => fs.writeFile(path.join(dir, 'status.json'), JSON.stringify(s));
+  await status({ state: 'running' });
+  const origin = new URL(req.url).origin;
+  void (async () => {
+    try {
+      const out = await renderAiShopping(input, path.join(dir, 'work'), () => {}, origin);
+      await fs.rename(out, path.join(dir, 'out.mp4'));
+      await status({ state: 'done' });
+    } catch (e) {
+      console.error('[render-pro] 실패:', e);
+      await status({ state: 'error', error: e instanceof Error ? e.message : '렌더링 실패' }).catch(() => {});
+    } finally {
+      await fs.rm(path.join(dir, 'work'), { recursive: true, force: true }).catch(() => {});
+    }
+  })();
+  return NextResponse.json({ id, url: `/api/ai-shopping/render-pro/${id}` }, { status: 202 });
 }

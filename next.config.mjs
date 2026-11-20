@@ -54,7 +54,12 @@ const nextConfig = {
     // 같은 주소(wingsaistudio.com)로 들어온 v2 요청을 클라우드 PC 로 그대로 넘긴다 (로그인 쿠키·키 헤더 포함)
     return {
       beforeFiles: V2_ENGINE_URL
-        ? [{ source: "/api/wings-shopping-v2/:path*", destination: `${V2_ENGINE_URL}/api/wings-shopping-v2/:path*` }]
+        ? [
+            { source: "/api/wings-shopping-v2/:path*", destination: `${V2_ENGINE_URL}/api/wings-shopping-v2/:path*` },
+            // AI 쇼핑 고품질 렌더도 ffmpeg 로 오래 걸려 클라우드 PC 에서 돌린다
+            { source: "/api/ai-shopping/render-pro/:path*", destination: `${V2_ENGINE_URL}/api/ai-shopping/render-pro/:path*` },
+            { source: "/api/ai-shopping/render-pro", destination: `${V2_ENGINE_URL}/api/ai-shopping/render-pro` },
+          ]
         : [],
     }
   },

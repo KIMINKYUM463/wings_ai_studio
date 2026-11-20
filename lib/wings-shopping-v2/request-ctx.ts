@@ -22,6 +22,8 @@ export const BROWSER_KEY_HEADERS = {
   gemini: 'x-wings-gemini-key',
   tikhub: 'x-wings-tikhub-key',
   youtube: 'x-wings-youtube-key',
+  typecast: 'x-wings-typecast-key',
+  elevenlabs: 'x-wings-elevenlabs-key',
 } as const;
 
 /** 공용 모드에서 지금 요청한 수강생 id (카카오 로그인 확인). 혼자 쓰는 모드면 null */

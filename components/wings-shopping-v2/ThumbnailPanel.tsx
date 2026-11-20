@@ -1,5 +1,5 @@
 'use client';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api, frameUrl, mediaUrl } from '@/lib/wings-shopping-v2/client';
 import type { Project, ThumbOption } from '@/lib/wings-shopping-v2/types';
 import { PhoneShell } from './StudioBits';
@@ -40,6 +40,11 @@ export default function ThumbnailPanel({ project, setProject }: { project: Proje
   const [busy, setBusy] = useState<'copy' | 'render' | null>(null);
   const [studioOpen, setStudioOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // AI 썸네일(스튜디오 AI 탭)은 수강생 본인 Replicate 키로 만든다
+  const [hasReplicateKey, setHasReplicateKey] = useState(true);
+  useEffect(() => {
+    try { setHasReplicateKey(!!localStorage.getItem('shotform_replicate_api_key')?.trim()); } catch { /* 저장소 접근 불가 */ }
+  }, []);
 
   const usedClips = useMemo(() => {
     const ids = new Set((project.script?.beats ?? []).map((b) => b.clipId).filter(Boolean) as string[]);
@@ -91,6 +96,16 @@ export default function ThumbnailPanel({ project, setProject }: { project: Proje
           </button>
         </div>
       </header>
+      <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl border border-[color-mix(in_srgb,var(--amber)_35%,var(--line))] bg-[color-mix(in_srgb,var(--amber)_6%,white)] px-5 py-4">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-bold text-text">AI로 썸네일 그림 만들기</p>
+          <p className="mt-0.5 text-xs text-muted">스튜디오가 열리면 왼쪽 &lsquo;AI&rsquo; 탭에서 장면·문구로 AI 썸네일을 만들어요.</p>
+          {!hasReplicateKey && <p className="mt-1 text-xs font-semibold text-danger">Replicate API 키가 없어요. 숏폼 첫 화면의 API 키 설정에서 Replicate 키를 저장해 주세요.</p>}
+        </div>
+        <button type="button" className="btn btn-primary !rounded-xl" disabled={!!busy} onClick={() => setStudioOpen(true)}>
+          <span aria-hidden>✦</span> AI 썸네일 만들기
+        </button>
+      </div>
       {error && <p className="mt-3 rounded-xl bg-danger/10 px-3 py-2 text-sm text-danger" role="alert">{error}</p>}
 
       <div className="mt-6 grid gap-8 lg:grid-cols-[minmax(0,1fr)_270px]">

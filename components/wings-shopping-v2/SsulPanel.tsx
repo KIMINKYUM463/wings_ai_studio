@@ -44,7 +44,7 @@ export const loadSsulOptions = (mode = 'ssul') => {
 const PREVIEW_STYLE_VERSION = 's7'; // 템플릿 모양을 바꾸면 올린다 (브라우저가 1시간 캐시한 옛 미리보기를 새로 받게)
 
 export function templatePreviewUrl(p: Project, templateId: string, poster?: boolean) {
-  const v = encodeURIComponent([p.script?.headcopy?.join('|'), p.script?.beats[0]?.text, p.script?.comment, p.ssul?.channelName, p.script?.beats[0]?.clipId, p.ssul?.introPoster ? 'P' : '', p.ssul?.font ?? '', p.ssul?.videoFit ?? '', p.ssul?.coverBottomFill ? 'B' : '', p.ssul?.titleScale ?? 1, p.ssul?.channelScale ?? 1.5, PREVIEW_STYLE_VERSION].join('~'));
+  const v = encodeURIComponent([p.script?.headcopy?.join('|'), p.script?.beats[0]?.text, p.script?.comment, p.ssul?.channelName, p.script?.beats[0]?.clipId, p.ssul?.introPoster ? 'P' : '', p.ssul?.font ?? '', p.ssul?.videoFit ?? '', p.ssul?.coverBottomFill ? 'B' : '', p.ssul?.titleScale ?? 1, p.ssul?.channelScale ?? 1.5, p.ssul?.captionScale ?? 1, PREVIEW_STYLE_VERSION].join('~'));
   const posterQuery = poster === undefined ? '' : `&poster=${poster ? 1 : 0}`;
   return `/api/wings-shopping-v2/projects/${p.id}/template-preview?templateId=${templateId}&v=${v}${posterQuery}`;
 }
@@ -128,7 +128,13 @@ export default function SsulPanel({ project, setProject, hideTemplates }: { proj
         onChange={(structureId) => save({ structureId })}
       />
 
-      <div className="mt-4 grid gap-4 md:grid-cols-3">
+      <div className="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <SettingTile label="영상 길이" hint="대본 새로 쓰기에 반영돼요">
+          <TileSelect value={String(s.targetSeconds ?? '')} onChange={(v) => save({ targetSeconds: Number(v) || 0 })}>
+            <option value="">레퍼런스와 같게</option>
+            {[15, 30, 45, 60].map((sec) => <option key={sec} value={sec}>{sec}초</option>)}
+          </TileSelect>
+        </SettingTile>
         <SettingTile label="썰 각도" hint={opts.angles.find((x) => x.id === s.angleId)?.description ?? '상품에 가장 흥미로운 각도를 AI가 정해요.'}>
           <TileSelect value={s.angleId} onChange={(v) => save({ angleId: v })}>
             <option value="">자동 (AI가 정함)</option>
@@ -186,20 +192,21 @@ export default function SsulPanel({ project, setProject, hideTemplates }: { proj
   );
 }
 
-/** 템플릿 제목·채널명 글자 크기 (60~200%) */
+/** 템플릿 제목·채널명·자막 글자 크기 (60~200%) */
 function TextScaleControls({ project, setProject }: { project: Project; setProject: (p: Project) => void }) {
   const rows = [
     { key: 'titleScale' as const, label: '제목 크기' },
     { key: 'channelScale' as const, label: '채널명 크기' },
+    { key: 'captionScale' as const, label: '자막 크기' },
   ];
-  const [vals, setVals] = useState(() => ({ titleScale: project.ssul?.titleScale ?? 1, channelScale: project.ssul?.channelScale ?? 1.5 }));
-  const save = async (k: 'titleScale' | 'channelScale', v: number) => {
+  const [vals, setVals] = useState(() => ({ titleScale: project.ssul?.titleScale ?? 1, channelScale: project.ssul?.channelScale ?? 1.5, captionScale: project.ssul?.captionScale ?? 1 }));
+  const save = async (k: 'titleScale' | 'channelScale' | 'captionScale', v: number) => {
     if (v === (project.ssul?.[k] ?? (k === 'channelScale' ? 1.5 : 1))) return;
     setProject(await patchProject(project.id, { ssul: { [k]: v } }));
   };
   // −/+ 를 연달아 누르면 마지막 값만 0.4초 뒤 저장 (누를 때마다 미리보기를 다시 그리지 않게)
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  const set = (k: 'titleScale' | 'channelScale', v: number, delay = 0) => {
+  const set = (k: 'titleScale' | 'channelScale' | 'captionScale', v: number, delay = 0) => {
     const next = Math.round(Math.min(2, Math.max(0.6, v)) * 100) / 100;
     setVals((s) => ({ ...s, [k]: next }));
     clearTimeout(timers.current[k]);

@@ -144,6 +144,9 @@ export async function PATCH(req: Request, ctx: Ctx) {
           ...(typeof n.font === 'string' && SSUL_FONTS.some((f) => f.id === n.font) ? { font: n.font } : {}),
           ...(typeof n.titleScale === 'number' && Number.isFinite(n.titleScale) ? { titleScale: Math.min(2, Math.max(0.6, n.titleScale)) } : {}),
           ...(typeof n.channelScale === 'number' && Number.isFinite(n.channelScale) ? { channelScale: Math.min(2, Math.max(0.6, n.channelScale)) } : {}),
+          ...(typeof n.captionScale === 'number' && Number.isFinite(n.captionScale) ? { captionScale: Math.min(2, Math.max(0.6, n.captionScale)) } : {}),
+          // 0 = 레퍼런스와 같게
+          ...(typeof n.targetSeconds === 'number' && Number.isFinite(n.targetSeconds) ? { targetSeconds: n.targetSeconds > 0 ? Math.min(60, Math.max(15, Math.round(n.targetSeconds))) : undefined } : {}),
         };
         if (x.output) x.output.stale = true;
       }

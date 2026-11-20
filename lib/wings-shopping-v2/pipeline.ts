@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { nanoid } from 'nanoid';
 import { getProject, newProjectId, projectDir, saveNewProject, setJob, updateProject } from './store';
+import { BROWSER_KEY_HEADERS, requestHeader } from './request-ctx';
 import { LocalizeSchema, applyLocalization, cloneProjectFiles, localizePrompt, requireLang } from './i18n/localize';
 import type { Clip, Project, Source, Stage } from './types';
 import { detectPlatform, download, normalizeYoutubeUrl } from './media/ytdlp';
@@ -390,7 +391,7 @@ export function runScript(id: string) {
     const facts = p.mode === 'travel' ? p.travelInfo : p.mode === 'review' ? p.reviewInfo : undefined;
     const structurePrompt = p.scriptTemplateId ? remixScriptTemplatePrompt(p.scriptTemplateId) : undefined;
     const rawScript = story
-      ? await writeSsulScript(p.analysis, usable, await withCustomStructure({ ...(p.ssul ?? modeDefaults(p.mode as StoryMode)), targetSeconds: Math.min(maxSec, Math.max(22, target)) }), getPlaybook(p.mode), facts)
+      ? await writeSsulScript(p.analysis, usable, await withCustomStructure({ ...(p.ssul ?? modeDefaults(p.mode as StoryMode)), targetSeconds: p.ssul?.targetSeconds || Math.min(maxSec, Math.max(22, target)) }), getPlaybook(p.mode), facts)
       : await writeScript(p.analysis, usable, target, structurePrompt);
     const script = { ...rawScript, beats: ensureBeatClips(rawScript.beats, usable) };
     await updateProject(id, (x) => {
@@ -407,6 +408,9 @@ export type ExtraTtsKeys = {
 
 // ④-2 음성
 export function runTts(id: string, extraKeys?: ExtraTtsKeys) {
+  // 본문에 키가 없으면 브라우저가 헤더로 실어 보낸 수강생 본인 키를 쓴다
+  const typecastApiKey = extraKeys?.typecastApiKey || requestHeader(BROWSER_KEY_HEADERS.typecast) || undefined;
+  const elevenlabsApiKey = extraKeys?.elevenlabsApiKey || requestHeader(BROWSER_KEY_HEADERS.elevenlabs) || undefined;
   return job(id, 'tts', async (progress) => {
     let p = await getProject(id);
     if (!p.script?.beats.length) throw new Error('대본이 없습니다');
@@ -429,8 +433,8 @@ export function runTts(id: string, extraKeys?: ExtraTtsKeys) {
               voiceId,
               style,
               speed,
-              typecastApiKey: extraKeys?.typecastApiKey,
-              elevenlabsApiKey: extraKeys?.elevenlabsApiKey,
+              typecastApiKey,
+              elevenlabsApiKey,
             },
             spokenText,
             rel(id, 'tts', b.id),
@@ -444,9 +448,10 @@ export function runTts(id: string, extraKeys?: ExtraTtsKeys) {
           });
         } catch (e) {
           errors.push(`${i + 1}번: ${msg(e)}`);
+          await dropStaleTts(id, b.id);
         }
       }
-      if (errors.length) throw new Error(`일부 음성 생성 실패 — ${errors.join(' / ')}`);
+      if (errors.length) throw new Error(`일부 문장의 음성을 만들지 못했어요. 다른 목소리가 섞이지 않게 실패한 문장은 비워 뒀어요 — ${errors.join(' / ')}`);
       return;
     }
 
@@ -475,10 +480,20 @@ export function runTts(id: string, extraKeys?: ExtraTtsKeys) {
         });
       } catch (e) {
         errors.push(`${i + 1}번: ${msg(e)}`);
+        await dropStaleTts(id, b.id);
       }
     }
-    if (errors.length) throw new Error(`일부 음성 생성 실패 — ${errors.join(' / ')}`);
+    if (errors.length) throw new Error(`일부 문장의 음성을 만들지 못했어요. 다른 목소리가 섞이지 않게 실패한 문장은 비워 뒀어요 — ${errors.join(' / ')}`);
   });
+}
+
+/** 새 목소리로 못 만든 문장의 예전 음성을 지운다 (예전 목소리가 섞여 남지 않게) */
+async function dropStaleTts(id: string, beatId: string) {
+  await updateProject(id, (x) => {
+    const t = x.script?.beats.find((y) => y.id === beatId);
+    if (t) delete t.tts;
+    if (x.output) x.output.stale = true;
+  }).catch(() => {});
 }
 
 function expectedBeatHash(p: Project, b: Beat): string {

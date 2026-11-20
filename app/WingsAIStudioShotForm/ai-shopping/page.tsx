@@ -582,15 +582,27 @@ function buildCharacterAlignedScriptLines(
     return null
   }
 
-  const alignedText = characters.join("")
+  // 자막 문구는 띄어쓰기를 붙여 쓰기도 해서("될 거예요"→"될거예요") 공백을 뺀 글자끼리 맞춘다.
+  // 원문 위치로 그대로 찾으면 못 찾고 커서로 대신하면서 자막이 점점 밀린다.
+  const compactIndex: number[] = []
+  let compactText = ""
+  characters.forEach((ch, i) => {
+    if (/s/.test(ch)) return
+    compactText += ch
+    compactIndex.push(i)
+  })
   const lines: ScriptLine[] = []
   let cursor = 0
 
   sceneNarrations.forEach((scene, sceneIndex) => {
     getSubtitlePhrases(scene).forEach((phrase) => {
-      let startIndex = alignedText.indexOf(phrase, cursor)
-      if (startIndex < 0) startIndex = cursor
-      const endIndex = Math.min(characters.length - 1, startIndex + Math.max(1, phrase.length) - 1)
+      const compactPhrase = phrase.replace(/s+/g, "")
+      if (!compactPhrase || !compactIndex.length) return
+      let pos = compactText.indexOf(compactPhrase, cursor)
+      if (pos < 0) pos = Math.min(cursor, compactIndex.length - 1)
+      const lastPos = Math.min(compactIndex.length - 1, pos + compactPhrase.length - 1)
+      const startIndex = compactIndex[pos]
+      const endIndex = compactIndex[lastPos]
       const startTime = Number(starts[startIndex])
       const endTime = Number(ends[endIndex])
       if (Number.isFinite(startTime) && Number.isFinite(endTime) && endTime > startTime) {
@@ -603,7 +615,7 @@ function buildCharacterAlignedScriptLines(
           alignmentSource: "provider",
         })
       }
-      cursor = endIndex + 1
+      cursor = lastPos + 1
     })
   })
 
@@ -3641,6 +3653,11 @@ export default function AiShoppingVer2Page() {
         })
         globalOffsetMs += track.durationMs
       })
+      // 자막이 끊기거나 겹치지 않게: 각 줄은 다음 줄이 시작할 때까지 보이고, 마지막 줄은 음성 끝까지
+      globalLines.forEach((line, i) => {
+        const next = globalLines[i + 1]
+        line.endTime = next ? Math.max(line.startTime + 1, next.startTime) : Math.max(line.endTime, globalOffsetMs)
+      })
 
       setScenes(sceneEntries.map((scene) => scene.text))
       setSceneTtsTracks(generatedTracks)
@@ -6127,7 +6144,8 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
                         (typeof window !== "undefined" && window.innerWidth <= 768)
         // 모바일: canplay만 기다림 (iOS는 canplaythrough가 재생 전에 안 뜨어서 끊김·타임아웃 원인)
         video.preload = "auto"
-        video.loop = false // 순차 재생이므로 루프 없음
+        // 클립이 장면 음성보다 짧으면 마지막 프레임에서 멈춰 보이지 않게 반복 (장면이 바뀌면 멈추고 다음 영상으로 넘어감)
+        video.loop = true
         
         await new Promise<void>((resolve, reject) => {
           let metadataLoaded = false
@@ -7114,6 +7132,14 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok || !data.url) throw new Error(data.error || `렌더 요청 실패: ${res.status}`)
+      // 렌더는 서버 뒤에서 돈다 → 끝날 때까지 상태를 확인 (최대 20분)
+      for (let i = 0; ; i++) {
+        if (i > 400) throw new Error("렌더링이 너무 오래 걸려요. 잠시 뒤 다시 시도해 주세요.")
+        await new Promise((r) => setTimeout(r, 3000))
+        const st = await fetch(`${data.url}?status`, { cache: "no-store" }).then((r) => r.json()).catch(() => null)
+        if (st?.state === "done") break
+        if (st?.state === "error") throw new Error(st.error || "렌더링 실패")
+      }
       setVideoUrl(data.url)
       const a = document.createElement("a")
       a.href = `${data.url}?download`
@@ -7239,7 +7265,8 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
         video.preload = isMobile ? "metadata" : "auto"
         video.muted = true
         video.playsInline = true
-        video.loop = false
+        // 클립이 장면 음성보다 짧아도 멈춰 보이지 않게 반복
+        video.loop = true
         
         await new Promise<void>((resolve, reject) => {
           video.onloadedmetadata = () => {
@@ -8064,11 +8091,11 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
             1,
             storyboardScenes[index]?.narration.replace(/\s/g, "").length || 1
           )
-          const timestampDuration = getSceneTtsDurationSeconds(
-            scriptLines,
-            storyboardScenes[index]?.narration || "",
-            index
-          )
+          // 실제 장면 음성 길이(쉼·앞뒤 여백 포함)를 먼저 쓴다. 자막 구간만 더하면 짧게 잡혀 영상이 중간에 멈춘다
+          const trackMs = sceneTtsTracks.find((t) => t.sceneIndex === index)?.durationMs
+          const timestampDuration =
+            (trackMs ? trackMs / 1000 : undefined) ??
+            getSceneTtsDurationSeconds(scriptLines, storyboardScenes[index]?.narration || "", index)
           const calculatedDuration =
             timestampDuration ??
             Math.max(1, Math.round((totalTtsDuration * weight) / totalNarrationWeight))

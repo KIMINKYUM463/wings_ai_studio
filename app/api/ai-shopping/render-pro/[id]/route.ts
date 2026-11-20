@@ -10,6 +10,11 @@ const MAX_RANGE_CHUNK = 16 * 1024 * 1024;
 export async function GET(req: Request, ctx: { params: { id: string } | Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   if (!/^[a-f0-9]{16}$/.test(id)) return new Response('bad id', { status: 400 });
+  // ?status: 렌더 진행 상태만 (running | done | error)
+  if (new URL(req.url).searchParams.has('status')) {
+    const raw = await fs.readFile(path.join(RENDER_ROOT, id, 'status.json'), 'utf8').catch(() => '');
+    return Response.json(raw ? JSON.parse(raw) : { state: 'error', error: '렌더 작업을 찾을 수 없어요 (서버가 다시 시작됐을 수 있어요). 다시 눌러 주세요.' }, { headers: { 'cache-control': 'no-store' } });
+  }
   const file = path.join(RENDER_ROOT, id, 'out.mp4');
   const size = await fs.stat(file).then((s) => s.size, () => -1);
   if (size < 0) return new Response('not found', { status: 404 });

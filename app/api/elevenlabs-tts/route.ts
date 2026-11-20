@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
     const { apiKey, speed: speedRaw } = body
     const speed =
       typeof speedRaw === "number" && Number.isFinite(speedRaw)
-        ? Math.min(1.5, Math.max(0.8, Math.round(speedRaw * 10) / 10))
+        ? Math.min(1.2, Math.max(0.8, Math.round(speedRaw * 10) / 10)) // ElevenLabs 가 받는 속도는 0.7~1.2 (넘으면 오류)
         : 1
 
     if (!text) {

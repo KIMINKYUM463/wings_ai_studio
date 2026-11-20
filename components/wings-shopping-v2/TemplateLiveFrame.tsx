@@ -30,7 +30,7 @@ function fitSize(text: string, size: number, maxWidth: number): number {
 
 const W = 1080;
 const H = 1920;
-const LayoutCtx = createContext<{ layout: Layout | null; fontFamily: string; emph: boolean }>({ layout: null, fontFamily: '', emph: false });
+const LayoutCtx = createContext<{ layout: Layout | null; fontFamily: string; emph: boolean; captionScale: number }>({ layout: null, fontFamily: '', emph: false, captionScale: 1 });
 const pctX = (v: number) => `${(v / W) * 100}%`;
 
 /** 미리보기 겹침 요소가 템플릿 안 영상 영역(1080×1920 좌표)을 알 수 있게 */
@@ -69,7 +69,7 @@ export function TemplateLiveFrame({ project, children, overlay, showPoster, post
   const fontFamily = font ? `ssul-live-${font.id}` : '';
   const v = layout?.video;
   return (
-    <LayoutCtx.Provider value={{ layout, fontFamily, emph: fxSettings(project).motion }}>
+    <LayoutCtx.Provider value={{ layout, fontFamily, emph: fxSettings(project).motion, captionScale: project.ssul?.captionScale ?? 1 }}>
       {font && <style>{`@font-face { font-family: '${fontFamily}'; src: url('/fonts/${font.file}'); font-display: swap; }`}</style>}
       <div className="absolute inset-0 [container-type:inline-size]" style={{ background: layout?.canvas ?? '#000' }}>
         {layout && projectTemplateId(project) && (
@@ -100,7 +100,7 @@ export function TemplateLiveFrame({ project, children, overlay, showPoster, post
 
 /** 템플릿의 자막 위치·크기·색·테두리·글꼴로 자막을 그린다 (ASS 정렬 번호: 7 8 9 / 4 5 6 / 1 2 3) */
 function Caption({ text }: { text: string }) {
-  const { layout, fontFamily, emph } = useContext(LayoutCtx);
+  const { layout, fontFamily, emph, captionScale } = useContext(LayoutCtx);
   const c = layout?.caption;
   const lines = text.split('\n').filter(Boolean);
   // 렌더와 같은 규칙으로 숫자·핵심 단어 색 강조 (모션그래픽 켜짐일 때)
@@ -134,7 +134,7 @@ function Caption({ text }: { text: string }) {
         width: 'max-content',
         transform: `translate(${tx}, ${ty})`,
         textAlign: col === 0 ? 'left' : col === 1 ? 'center' : 'right',
-        fontSize: unit(c.size),
+        fontSize: unit(c.size * captionScale),
         fontWeight: c.bold === false ? 500 : 800,
         color: c.color,
         fontFamily: fontFamily ? `'${fontFamily}', Pretendard, sans-serif` : 'Pretendard, sans-serif',

@@ -60,6 +60,7 @@ export function templateData(p: Project, totalSeconds: number): TemplateData {
     ...(p.localText?.statics ? { statics: p.localText.statics } : {}),
     titleScale: p.ssul?.titleScale ?? 1,
     channelScale: p.ssul?.channelScale ?? 1.5, // 채널명은 기본 150%
+    captionScale: p.ssul?.captionScale ?? 1,
     // 해외판(lang 있음)은 언어별 글꼴을 써야 하므로 한국어일 때만
     ...(!p.lang && ssulFontFamily(p.ssul?.font) ? { font: ssulFontFamily(p.ssul?.font) } : {}),
   };

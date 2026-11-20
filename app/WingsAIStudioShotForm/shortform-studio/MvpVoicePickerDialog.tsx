@@ -23,6 +23,7 @@ import {
 } from "@/lib/shotform-tts-providers"
 import { voicePersonaPhoto } from "@/components/wings-shopping-v2/VoiceFace"
 import { SupertonicSetupBar } from "../components/SupertonicSetupBar"
+import { fetchAudio, isDeployedSite } from "@/lib/wings-shopping-v2/browser-keys"
 
 type Props = {
   open: boolean
@@ -38,6 +39,8 @@ type Props = {
   onReloadVoices: (provider: TtsProviderId) => void
   onPreviewVoice: (voiceId: string, style: string) => void | Promise<void>
   previewingVoiceId: string | null
+  /** 마지막 미리듣기 실패 이유 (키 없음·한도 초과 등) */
+  previewError?: string
   /** 제미나이 탭 (썰·리믹스 v2): 목소리 목록·미리듣기 주소·적용 */
   geminiTab?: GeminiTab
 }
@@ -72,6 +75,7 @@ export function MvpVoicePickerDialog({
   onReloadVoices,
   onPreviewVoice,
   previewingVoiceId,
+  previewError,
   geminiTab,
 }: Props) {
   const [provider, setProvider] = useState<TtsProviderId>(DEFAULT_TTS_PROVIDER)
@@ -168,6 +172,7 @@ export function MvpVoicePickerDialog({
   // 제미나이 탭 (썰·리믹스 v2 에서만 넘겨줌): 제미나이 목소리는 프로젝트 기본 목소리로 저장된다
   const [geminiDraft, setGeminiDraft] = useState(geminiTab?.selectedId ?? "")
   const [geminiPlaying, setGeminiPlaying] = useState<string | null>(null)
+  const [geminiError, setGeminiError] = useState("")
   const geminiAudio = useRef<HTMLAudioElement | null>(null)
   useEffect(() => {
     if (open) setGeminiDraft(geminiTab?.selectedId ?? "")
@@ -182,17 +187,27 @@ export function MvpVoicePickerDialog({
     if (!geminiTab) return
     geminiAudio.current?.pause()
     if (geminiPlaying === id) { setGeminiPlaying(null); return }
-    const a = new Audio(geminiTab.previewUrl(id))
-    geminiAudio.current = a
     setGeminiPlaying(id)
-    a.onended = () => setGeminiPlaying(null)
-    a.onerror = () => setGeminiPlaying(null)
-    void a.play().catch(() => setGeminiPlaying(null))
+    setGeminiError("")
+    // fetch로 받아야 수강생 API 키 헤더가 실린다 (배포 사이트)
+    void fetchAudio(geminiTab.previewUrl(id))
+      .then((a) => {
+        geminiAudio.current = a
+        a.onended = () => setGeminiPlaying(null)
+        a.onerror = () => setGeminiPlaying(null)
+        return a.play()
+      })
+      .catch((e) => {
+        setGeminiPlaying(null)
+        setGeminiError(e instanceof Error ? e.message : "미리듣기를 만들지 못했어요")
+      })
   }
+  // 썰·리믹스 v2 배포 사이트: 수퍼토닉·아담은 내 PC 로컬 서버가 있어야 해서 숨긴다
+  const hideLocalOnly = Boolean(geminiTab) && isDeployedSite()
   const gemini = tab === "gemini"
   const tabs: Array<{ id: "gemini" | TtsProviderId; label: string }> = [
     ...(geminiTab ? [{ id: "gemini" as const, label: "제미나이" }] : []),
-    ...TTS_PROVIDER_ORDER.map((id) => ({ id, label: TTS_PROVIDER_META[id].label })),
+    ...TTS_PROVIDER_ORDER.filter((id) => !hideLocalOnly || (id !== "supertonic" && id !== "adam")).map((id) => ({ id, label: TTS_PROVIDER_META[id].label })),
   ]
   const geminiFiltered = (geminiTab?.voices ?? []).filter((v) => !query.trim() || v.name.toLowerCase().includes(query.trim().toLowerCase()))
 
@@ -252,6 +267,7 @@ export function MvpVoicePickerDialog({
                 </button>
               </div>
             ) : null}
+            {(gemini ? geminiError : previewError) ? <p role="alert" className="relative mt-2 text-xs text-red-200">{gemini ? geminiError : previewError}</p> : null}
           </header>
 
           {/* 엔진 탭 */}
@@ -264,6 +280,7 @@ export function MvpVoicePickerDialog({
               </button>
             ))}
           </div>
+          {hideLocalOnly ? <p className="border-b border-[#eceef3] px-4 py-1.5 text-[11px] text-[#6b7280]">수퍼토닉3 · 아담은 PC 버전에서만 쓸 수 있어요</p> : null}
 
           {!gemini && provider === "supertonic" ? (
             <div className="border-b border-[#eceef3] px-4 py-2">

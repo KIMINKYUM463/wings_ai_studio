@@ -1,5 +1,5 @@
 "use client"
-import "@/lib/wings-shopping-v2/browser-keys"
+import { fetchAudio, isDeployedSite } from "@/lib/wings-shopping-v2/browser-keys"
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import {
@@ -716,6 +716,11 @@ export function AiVoiceStepPanel({
     }
     return []
   }, [provider, genderFilter, supertonicVoices, recordedVoiceMeta])
+  // 이름 검색 (타입캐스트는 자체 목록에서 이미 거름)
+  const shownVoiceCards = useMemo(() => {
+    const q = typecastQuery.trim().toLowerCase()
+    return q ? voiceCards.filter((v) => `${v.name} ${v.note}`.toLowerCase().includes(q)) : voiceCards
+  }, [voiceCards, typecastQuery])
 
   /** 학습 녹음으로 추가한 보이스만 (짧은 이름 · 삭제 가능) */
   const recordedVoiceCards = useMemo(() => {
@@ -811,17 +816,22 @@ export function AiVoiceStepPanel({
     const id = voiceId.replace("gemini-", "")
     // 0.1 단위로 맞춰 캐시 적중률을 높임 (route가 0.7~1.5로 제한)
     const speed = Math.min(1.5, Math.max(0.7, Math.round(ttsSpeed * 10) / 10))
-    const a = new Audio(`/api/wings-shopping-v2/voice-preview?voiceId=${encodeURIComponent(id)}&speed=${speed}`)
-    geminiAudioRef.current = a
     setGeminiPreview({ id: voiceId, state: "loading" })
     const done = () => setGeminiPreview((p) => (p?.id === voiceId ? null : p))
-    a.onplaying = () => setGeminiPreview({ id: voiceId, state: "playing" })
-    a.onended = done
-    a.onerror = () => {
-      done()
-      alert("Gemini 미리듣기에 실패했습니다. 설정에서 Gemini API 키를 확인해 주세요.")
-    }
-    a.play().catch(done)
+    // new Audio(url)는 Gemini 키 헤더가 안 실려서 배포판(클라우드 PC)에서 실패한다 → fetch 로 받아 재생
+    fetchAudio(`/api/wings-shopping-v2/voice-preview?voiceId=${encodeURIComponent(id)}&speed=${speed}`)
+      .then((a) => {
+        geminiAudioRef.current = a
+        a.onplaying = () => setGeminiPreview({ id: voiceId, state: "playing" })
+        a.onended = done
+        return a.play()
+      })
+      .catch((e) => {
+        done()
+        alert(`Gemini 미리듣기에 실패했습니다. 설정에서 Gemini API 키를 확인해 주세요.
+
+${e instanceof Error ? e.message : ""}`)
+      })
   }
 
   const isPreviewing = (voiceId: string) =>
@@ -1211,7 +1221,7 @@ export function AiVoiceStepPanel({
           aria-label="음성 엔진"
           className="grid grid-cols-2 gap-1.5 rounded-[20px] bg-[#eef0f4] p-1.5 sm:grid-cols-3 lg:grid-cols-5"
         >
-          {PROVIDERS.map((p) => {
+          {PROVIDERS.filter((p) => !(isDeployedSite() && (p.id === "supertonic" || p.id === "adam"))).map((p) => {
             const on = provider === p.id
             const Icon = p.icon
             return (
@@ -1389,17 +1399,19 @@ export function AiVoiceStepPanel({
 
       {/* 보이스 목록 — 타입캐스트는 검색/카테고리 리스트, 그 외는 카드 그리드 */}
       <Ver2StepPanel eyebrow="Voices" title="보이스 선택" description="엔진별 목록 · 내 녹음은 별도 구역">
+        {/* 보이스 이름 검색 — 모든 엔진 공통 */}
+        <div className="relative mb-3">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+          <Input
+            value={typecastQuery}
+            onChange={(e) => setTypecastQuery(e.target.value)}
+            placeholder="보이스 이름을 검색하세요."
+            aria-label="보이스 이름 검색"
+            className="h-10 border-white/15 bg-black/35 pl-10 text-sm text-zinc-100 placeholder:text-zinc-500"
+          />
+        </div>
         {provider === "typecast" ? (
           <>
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-              <Input
-                value={typecastQuery}
-                onChange={(e) => setTypecastQuery(e.target.value)}
-                placeholder="보이스 이름을 검색하세요."
-                className="h-10 border-white/15 bg-black/35 pl-10 text-sm text-zinc-100 placeholder:text-zinc-500"
-              />
-            </div>
 
             <div className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               <button
@@ -1674,7 +1686,7 @@ export function AiVoiceStepPanel({
                 ))}
               </div>
               <span className="text-[12px] text-[#9aa0ad]">
-                {voiceCards.length + (provider === "supertonic" ? recordedVoiceCards.length : 0)}개 보이스
+                {shownVoiceCards.length + (provider === "supertonic" ? recordedVoiceCards.length : 0)}개 보이스
               </span>
             </div>
 
@@ -1711,7 +1723,7 @@ export function AiVoiceStepPanel({
 
                 {voiceCards.length > 0 ? (
                   <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
-                    {voiceCards.map((v) => renderVoiceCard(v))}
+                    {shownVoiceCards.map((v) => renderVoiceCard(v))}
                   </div>
                 ) : null}
               </div>

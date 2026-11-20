@@ -138,6 +138,10 @@ export type SsulSettings = {
   /** 템플릿 제목·채널명 글자 크기 배율 (1 = 템플릿 그대로) */
   titleScale?: number;
   channelScale?: number;
+  /** 대사 자막 글자 크기 배율 (1 = 템플릿 그대로) */
+  captionScale?: number;
+  /** 대본 목표 길이(초). 없으면 레퍼런스 영상 길이를 따른다 */
+  targetSeconds?: number;
 };
 
 export type FxSettings = {

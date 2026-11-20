@@ -1,5 +1,5 @@
 'use client';
-import '@/lib/wings-shopping-v2/browser-keys';
+import { fetchAudio, isDeployedSite } from '@/lib/wings-shopping-v2/browser-keys';
 import { useEffect, useRef, useState } from 'react';
 import { voicePersonaPhoto } from './VoiceFace';
 import { MvpRemixVoiceField, type RemixVoiceSelection } from '@/app/WingsAIStudioShotForm/shortform-studio/MvpRemixVoiceField';
@@ -15,30 +15,42 @@ const ENGINES: Array<{ id: Engine; label: string }> = [
   { id: 'supertonic', label: '수퍼토닉 3' },
   { id: 'adam', label: '아담' },
 ];
+/** 내 PC의 로컬 서버(127.0.0.1)가 있어야 하는 엔진: 배포 사이트(클라우드 PC)에서는 못 쓴다 */
+const LOCAL_ONLY: Engine[] = ['supertonic', 'adam'];
 const GEMINI_SPEEDS = [0.9, 1.0, 1.1, 1.15, 1.2, 1.3];
 
 /** 제미나이 목소리 미리듣기: 예시 한 문장을 그 목소리·속도로 들려준다 (처음 한 번만 만들고 저장) */
 function PreviewButton({ voiceId, speed, mode, compact }: { voiceId: string; speed: number; mode?: string; compact?: boolean }) {
   const [state, setState] = useState<'idle' | 'loading' | 'playing' | 'error'>('idle');
+  const [error, setError] = useState('');
   const audio = useRef<HTMLAudioElement | null>(null);
   useEffect(() => () => { audio.current?.pause(); }, []);
-  useEffect(() => { audio.current?.pause(); setState('idle'); }, [voiceId, speed]);
+  useEffect(() => { audio.current?.pause(); setState('idle'); setError(''); }, [voiceId, speed]);
   async function toggle() {
     if (state === 'playing') { audio.current?.pause(); setState('idle'); return; }
     setState('loading');
-    const a = new Audio(`/api/wings-shopping-v2/voice-preview?voiceId=${encodeURIComponent(voiceId)}&speed=${speed}&mode=${mode ?? ''}`);
-    audio.current = a;
-    a.onended = () => setState('idle');
-    a.onerror = () => setState('error');
-    a.onplaying = () => setState('playing');
-    try { await a.play(); } catch { setState('error'); }
+    setError('');
+    try {
+      const a = await fetchAudio(`/api/wings-shopping-v2/voice-preview?voiceId=${encodeURIComponent(voiceId)}&speed=${speed}&mode=${mode ?? ''}`);
+      audio.current = a;
+      a.onended = () => setState('idle');
+      a.onerror = () => { setState('error'); setError('소리를 재생하지 못했어요'); };
+      a.onplaying = () => setState('playing');
+      await a.play();
+    } catch (e) {
+      setState('error');
+      setError(e instanceof Error ? e.message : '미리듣기를 만들지 못했어요');
+    }
   }
   return (
+    <span className={compact ? 'block' : 'inline-block'}>
     <button type="button" onClick={toggle} disabled={state === 'loading'}
       className={`flex ${compact ? 'h-8 w-full justify-center text-xs' : 'h-[42px] text-sm'} items-center gap-2 rounded-xl border px-4 font-semibold transition ${state === 'playing' ? 'border-[var(--amber)] bg-[color-mix(in_srgb,var(--amber)_8%,white)] text-[var(--amber)]' : 'border-line text-text hover:border-[var(--amber)]'}`}>
       {state === 'loading' ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <span aria-hidden>{state === 'playing' ? '❚❚' : '▶'}</span>}
       {state === 'loading' ? '목소리 준비 중' : state === 'playing' ? '멈춤' : state === 'error' ? '다시 듣기' : '미리듣기'}
     </button>
+    {error && <span role="alert" className="mt-1 block max-w-64 text-[11px] text-red-600">{error}</span>}
+    </span>
   );
 }
 
@@ -65,6 +77,9 @@ export default function VoiceEnginePicker({
   const [engine, setEngine] = useState<Engine>(savedEngine);
   // 다른 엔진 버튼을 누르면 그 엔진 목록으로 선택 창을 바로 연다
   const [openKey, setOpenKey] = useState(0);
+  // 서버 렌더와 어긋나지 않게 화면에 붙은 뒤에 판단한다
+  const [deployed, setDeployed] = useState(false);
+  useEffect(() => setDeployed(isDeployedSite()), []);
   const speeds = GEMINI_SPEEDS.includes(voice.speed) ? GEMINI_SPEEDS : [...GEMINI_SPEEDS, voice.speed].sort((a, b) => a - b);
 
   return (
@@ -76,7 +91,8 @@ export default function VoiceEnginePicker({
             type="button"
             role="radio"
             aria-checked={engine === e.id}
-            disabled={disabled}
+            disabled={disabled || (deployed && LOCAL_ONLY.includes(e.id))}
+            title={deployed && LOCAL_ONLY.includes(e.id) ? 'PC 버전에서만 쓸 수 있어요' : undefined}
             onClick={() => {
               setEngine(e.id);
               if (e.id === 'gemini') {
@@ -85,12 +101,13 @@ export default function VoiceEnginePicker({
                 setOpenKey((k) => k + 1);
               }
             }}
-            className={`rounded-xl px-3.5 py-1.5 text-sm font-semibold transition-colors ${engine === e.id ? 'bg-white text-text shadow-sm ring-1 ring-line' : 'text-muted hover:text-text'}`}
+            className={`rounded-xl px-3.5 py-1.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${engine === e.id ? 'bg-white text-text shadow-sm ring-1 ring-line' : 'text-muted hover:text-text'}`}
           >
             {e.label}
           </button>
         ))}
       </div>
+      {deployed && <p className="mt-1.5 text-xs text-muted">수퍼토닉 3 · 아담은 PC 버전에서만 쓸 수 있어요</p>}
 
       {engine === 'gemini' ? (
         <div className="mt-3 flex flex-wrap items-end gap-3">

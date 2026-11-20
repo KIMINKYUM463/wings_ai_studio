@@ -41,7 +41,7 @@ export type AiShoppingRenderInput = {
 export type Progress = (message: string, fraction: number) => void | Promise<void>;
 
 const FONTS_DIR = process.env.FONTS_DIR || path.join(process.cwd(), 'public', 'fonts');
-export const RENDER_ROOT = path.join(process.cwd(), 'data', 'ai-shopping-renders');
+export const RENDER_ROOT = process.env.AI_SHOPPING_RENDER_DIR || path.join(process.cwd(), 'data', 'ai-shopping-renders');
 const MAX_ASSET_BYTES = 400 * 1024 * 1024;
 const XFADE = 0.4;
 

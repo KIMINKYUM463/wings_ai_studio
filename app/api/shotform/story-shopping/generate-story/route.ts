@@ -5,7 +5,7 @@ import {
   isStoryScriptTemplateId,
 } from "@/app/WingsAIStudioShotForm/story-shopping/story-script-catalog"
 import { SHOTFORM_COPY_MODEL } from "@/lib/shotform-ai-models"
-import { expandShortNarrations } from "@/lib/shotform-generate-shopping-script"
+import { expandShortNarrations, lengthOff } from "@/lib/shotform-generate-shopping-script"
 import {
   STORY_MAX_SCENES,
   storyTargetCharacters,
@@ -400,7 +400,7 @@ JSON만 출력:
       (sum, scene) => sum + String(scene.narration || "").replace(/\s+/g, "").length,
       0
     )
-    if (charsAfterRepair < targetCharacters * 0.85) {
+    if (lengthOff(charsAfterRepair, targetCharacters)) {
       const expanded = await expandShortNarrations({
         openaiApiKey: apiKey,
         narrations: rawScenes.map((scene) => String(scene.narration || "")),
@@ -411,7 +411,8 @@ JSON만 출력:
           : "말투(자연스러운 존댓말 구어체)·장면별 역할(제품 공개 시점 유지)",
         keepFirst: isSsul,
       })
-      if (expanded) {
+      const expandedChars = expanded ? expanded.join("").replace(/s+/g, "").length : 0
+      if (expanded && Math.abs(expandedChars - targetCharacters) < Math.abs(charsAfterRepair - targetCharacters)) {
         rawScenes = rawScenes.map((scene, index) => ({ ...scene, narration: expanded[index] }))
       }
     }

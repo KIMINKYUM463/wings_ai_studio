@@ -194,7 +194,9 @@ JSON만 출력:
   }
 }
 
-/** 목표보다 짧은 대사를 장면별 글자 수 목표에 맞춰 늘린다 (장면 수·순서·훅·CTA 유지) */
+/** 대사를 장면별 글자 수 목표에 맞춰 늘리거나 줄인다 (장면 수·순서·훅·CTA 유지) */
+export const lengthOff = (chars: number, target: number) => Math.abs(chars - target) > target * 0.12
+
 export async function expandShortNarrations(opts: {
   openaiApiKey: string
   narrations: string[]
@@ -239,12 +241,12 @@ export async function expandShortNarrations(opts: {
       messages: [
         {
           role: "system",
-          content: `너는 쇼핑 숏폼 성우 대본을 늘리는 작가다. 각 장면 대사를 목표 글자 수(공백 제외)까지 늘린다.
+          content: `너는 쇼핑 숏폼 성우 대본의 분량을 맞추는 작가다. 각 장면 대사를 목표 글자 수(공백 제외)에 맞춘다. 짧으면 늘리고, 길면 핵심만 남기고 줄인다.
 - 장면 수·순서·${voiceRule}은 유지. "(그대로 유지)" 표시된 줄은 한 글자도 바꾸지 말 것
 - 늘리는 내용은 자료에 있는 사실·리뷰 표현을 구체적 상황으로 풀어서 (언제·어디서·어떻게 달라졌는지)
 - 자료에 없는 수치·기능·비교·사용 상황(업무, 운동 등)은 만들지 말 것. 제품명 반복 금지. 화면 묘사 금지
 - "정말 큰 변화였어요", "강력 추천" 같은 빈말 대신 리뷰 속 구체적 표현을 살릴 것
-- 목표보다 짧으면 실패다. 각 줄을 목표 글자 수 ±15% 안으로 맞출 것
+- 목표보다 짧거나 길면 실패다. 각 줄을 목표 글자 수 ±10% 안으로 맞출 것
 JSON만 출력: {"narrations":["1번 대사","2번 대사"]}`,
         },
         {
@@ -476,7 +478,8 @@ ${researchContent}
   }
 
   const currentChars = spokenCharCount(finalScenes.map((s) => s.narration).join(""))
-  if (currentChars < charTarget * 0.85) {
+  // 길이가 목표에서 12% 넘게 벗어나면 (짧든 길든) 장면별로 맞춘다
+  if (lengthOff(currentChars, charTarget)) {
     try {
       const expanded = await expandShortNarrations({
         openaiApiKey: opts.openaiApiKey,
@@ -486,7 +489,7 @@ ${researchContent}
       })
       const expandedChars = expanded ? spokenCharCount(expanded.join("")) : 0
       console.info(`[generate-script] length ${currentChars} → ${expandedChars} chars (target ${charTarget})`)
-      if (expanded && expandedChars > currentChars) {
+      if (expanded && Math.abs(expandedChars - charTarget) < Math.abs(currentChars - charTarget)) {
         finalScenes = finalScenes.map((s, i) => ({ ...s, narration: expanded[i] }))
         spokenScript = expanded.join(" ")
       }

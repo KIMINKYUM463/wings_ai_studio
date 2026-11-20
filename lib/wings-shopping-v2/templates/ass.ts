@@ -308,7 +308,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
   const c = t.caption;
   cues.forEach((cue, i) => {
     const color = c.alternateColors?.length ? c.alternateColors[i % c.alternateColors.length] : c.color;
-    const size = fitSize(cue.text, c.size, c.maxWidth);
+    const size = fitSize(cue.text, Math.round(c.size * (d.captionScale ?? 1)), c.maxWidth);
     const tags = `{\\pos(${c.x},${c.y})\\an${c.align}${styleTags({ ...c, color }, size)}${motion ? popTags(i) : ''}}`;
     const body = motion ? emphasize(esc(cue.text), assColor(emphasisColor(color)), assColor(color)) : esc(cue.text);
     lines.push(`Dialogue: 3,${t2(cue.start)},${t2(cue.end)},${c.box ? 'CaptionBox' : 'Caption'},,0,0,0,,${tags}${body}`);

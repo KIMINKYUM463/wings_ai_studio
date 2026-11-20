@@ -35,8 +35,9 @@ function Row({ label, items, onChange, disabled, placeholder }: { label: string;
   const [draft, setDraft] = useState('');
   const add = () => {
     const v = draft.trim();
-    if (!v || items.includes(v)) { setDraft(''); return; }
-    onChange([...items, v].slice(0, 8));
+    if (!v) { setDraft(''); return; }
+    // 새 검색어를 맨 앞에: 검색은 앞쪽 몇 개만 쓰므로 방금 넣은 말이 꼭 검색되게 (8개를 넘으면 맨 뒤가 빠짐)
+    onChange([v, ...items.filter((x) => x !== v)].slice(0, 8));
     setDraft('');
   };
   return (
@@ -50,7 +51,7 @@ function Row({ label, items, onChange, disabled, placeholder }: { label: string;
         </span>
       ))}
       <form onSubmit={(e) => { e.preventDefault(); add(); }} className="inline-flex">
-        <input value={draft} onChange={(e) => setDraft(e.target.value)} disabled={disabled || items.length >= 8} maxLength={40} placeholder={placeholder}
+        <input value={draft} onChange={(e) => setDraft(e.target.value)} disabled={disabled} maxLength={40} placeholder={placeholder}
           className="w-52 rounded-full border border-dashed border-line bg-white px-3 py-1 text-xs text-text placeholder:text-[#a3a8b6] focus:border-[var(--amber)] focus:outline-none" />
       </form>
     </div>
