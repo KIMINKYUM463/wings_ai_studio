@@ -193,7 +193,7 @@ export default function SsulPanel({ project, setProject, hideTemplates }: { proj
 }
 
 /** 템플릿 제목·채널명·자막 글자 크기 (60~200%) */
-function TextScaleControls({ project, setProject }: { project: Project; setProject: (p: Project) => void }) {
+export function TextScaleControls({ project, setProject }: { project: Project; setProject: (p: Project) => void }) {
   const rows = [
     { key: 'titleScale' as const, label: '제목 크기' },
     { key: 'channelScale' as const, label: '채널명 크기' },

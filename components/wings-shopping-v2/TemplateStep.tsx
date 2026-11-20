@@ -4,7 +4,7 @@ import { patchProject } from '@/lib/wings-shopping-v2/client';
 import type { SsulSettings } from '@/lib/wings-shopping-v2/types';
 import { SSUL_FONTS } from '@/lib/wings-shopping-v2/templates/fonts';
 import { Panel } from './ui';
-import { TemplatePicker, loadSsulOptions, templatePreviewUrl } from './SsulPanel';
+import { TemplatePicker, TextScaleControls, loadSsulOptions, templatePreviewUrl } from './SsulPanel';
 import type { StepProps } from './types';
 
 type TemplateInfo = { id: string; name: string; family: string; description: string };
@@ -164,6 +164,9 @@ export default function TemplateStep({ project, setProject, goNext }: StepProps)
                 </div>
               ))}
             </div>
+
+            {/* 제목·채널명·자막 글자 크기 (템플릿 선택 창 안에만 있어 찾기 어려웠음) */}
+            <TextScaleControls project={project} setProject={setProject} />
 
             <div className="rounded-xl border border-line p-4">
               <p className="text-sm font-semibold text-text">영상 크기</p>
