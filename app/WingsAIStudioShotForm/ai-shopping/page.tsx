@@ -1,4 +1,5 @@
 "use client"
+import { uploadBlobForServerFfmpeg } from "@/lib/mvp-upload-blob-for-ffmpeg"
 
 import { useState, useRef, useEffect, type PointerEvent as ReactPointerEvent } from "react"
 import { promptLikelyShowsPerson } from "@/lib/shotform-person-consistency"
@@ -7079,7 +7080,11 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
         const res = await fetch(url).catch(() => null)
         if (!res?.ok) throw new Error(`${name} 파일이 브라우저에서 사라졌어요. 해당 단계에서 다시 만들어 주세요.`)
         const blob = await res.blob()
-        return uploadBlobToGcsShopping(blob, name, blob.type || "application/octet-stream")
+        // 숏폼 GCS 버킷이 막히면(결제 계정 문제 등) Supabase 저장소로 대신 올린다
+        return uploadBlobToGcsShopping(blob, name, blob.type || "application/octet-stream").catch((gcsErr) => {
+          console.warn("[render-pro] GCS 업로드 실패, Supabase로 재시도:", gcsErr)
+          return uploadBlobForServerFfmpeg(blob, currentProject?.id || "ai-shopping", name)
+        })
       }
       const totalWeight = sceneIndices.reduce((s, i) => s + Math.max(1, storyboardScenes[i]?.narration.replace(/\s/g, "").length || 1), 0)
       const scenes = []

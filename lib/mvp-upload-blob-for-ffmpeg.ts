@@ -87,7 +87,7 @@ async function uploadViaSupabase(blob: Blob, projectId: string, kind: string): P
 export async function uploadBlobForServerFfmpeg(
   blob: Blob,
   projectId: string,
-  kind: "video" | "clip"
+  kind: string
 ): Promise<string> {
   const fileName = `remix_${kind}_${Date.now()}.mp4`
   try {
