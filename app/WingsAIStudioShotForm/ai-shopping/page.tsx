@@ -1,5 +1,4 @@
 "use client"
-import { uploadBlobForServerFfmpeg } from "@/lib/mvp-upload-blob-for-ffmpeg"
 
 import { useState, useRef, useEffect, type PointerEvent as ReactPointerEvent } from "react"
 import { promptLikelyShowsPerson } from "@/lib/shotform-person-consistency"
@@ -77,7 +76,7 @@ import { THUMBNAIL_TEMPLATE_STACKS, THUMBNAIL_STYLE_VARIANTS } from "./thumbnail
 import { Checkbox } from "@/components/ui/checkbox"
 import { getApiKey } from "@/lib/api-keys"
 import { listAiShoppingProjects, createShoppingProject, updateShoppingProject, deleteShoppingProject, getShoppingProject, type ShoppingProject, type ShoppingProjectData, type Ver2ActiveStep, type ProductReviewItem, type StoryboardScene, type SceneTtsTrack, type CoupangReviewInsightsData } from "./project-actions"
-import { uploadTtsBlobToStorage } from "@/lib/shotform-tts-storage-upload"
+import { uploadMediaBlobToStorage, uploadTtsBlobToStorage } from "@/lib/shotform-tts-storage-upload"
 import { fetchSupertonicTts } from "@/lib/supertonic-runtime-client"
 import { fetchAdamTts } from "@/lib/adam-tts"
 import { migrateVer2ActiveStep } from "./ver2-steps"
@@ -7083,7 +7082,11 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
         // 숏폼 GCS 버킷이 막히면(결제 계정 문제 등) Supabase 저장소로 대신 올린다
         return uploadBlobToGcsShopping(blob, name, blob.type || "application/octet-stream").catch((gcsErr) => {
           console.warn("[render-pro] GCS 업로드 실패, Supabase로 재시도:", gcsErr)
-          return uploadBlobForServerFfmpeg(blob, currentProject?.id || "ai-shopping", name)
+          // 서버가 서명한 업로드 주소로 올린다 (TTS 저장과 같은 방식 — 브라우저 직접 업로드는 저장소 권한에 막힘)
+          const t = blob.type || ""
+          const kind = t.startsWith("image/") ? "image" : t.startsWith("video/") ? "clip" : "tts"
+          if (!userId || !currentProject?.id) throw new Error("로그인 후 프로젝트를 저장한 뒤 다시 시도해 주세요.")
+          return uploadMediaBlobToStorage(blob, userId, currentProject.id, kind)
         })
       }
       const totalWeight = sceneIndices.reduce((s, i) => s + Math.max(1, storyboardScenes[i]?.narration.replace(/\s/g, "").length || 1), 0)
