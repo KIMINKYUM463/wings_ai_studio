@@ -7075,7 +7075,8 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
     try {
       // blob: 주소는 서버가 못 읽으므로 GCS에 올린다 (http·data·/경로는 그대로)
       const toServerUrl = async (url: string, name: string) => {
-        if (!url.startsWith("blob:")) return url
+        // data: 주소(썸네일·이미지)도 올려서 주소만 보낸다 — 요청 본문이 크면 배포 서버 중계(약 4.5MB)에서 503 으로 막힌다
+        if (!url.startsWith("blob:") && !url.startsWith("data:")) return url
         const res = await fetch(url).catch(() => null)
         if (!res?.ok) throw new Error(`${name} 파일이 브라우저에서 사라졌어요. 해당 단계에서 다시 만들어 주세요.`)
         const blob = await res.blob()
