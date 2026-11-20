@@ -98,7 +98,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          error: `ElevenLabs API 호출 실패 (${response.status}): ${errorText}`,
+          error: /missing the permission text_to_speech/i.test(errorText)
+            ? "ElevenLabs API 키에 음성 생성(Text to Speech) 권한이 없어요. ElevenLabs 사이트 → API Keys 에서 이 키의 Text to Speech 권한을 켜 주세요."
+            : `ElevenLabs API 호출 실패 (${response.status}): ${errorText}`,
         },
         { status: response.status }
       )

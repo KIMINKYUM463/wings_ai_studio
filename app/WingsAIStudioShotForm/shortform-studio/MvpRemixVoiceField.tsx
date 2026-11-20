@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Volume2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -92,6 +92,13 @@ export function MvpRemixVoiceField({
   geminiTab?: import("./MvpVoicePickerDialog").GeminiTab
 }) {
   const [open, setOpen] = useState(autoOpen)
+  // 적용 버튼이 목소리·스타일을 연달아 바꾼다 → 두 번째 변경이 예전 값(빈 목소리)으로 덮어쓰지 않게 최신 값을 이어서 쓴다
+  const latest = useRef(value)
+  latest.current = value
+  const emit = (next: typeof value) => {
+    latest.current = next
+    onChange(next)
+  }
   const [catalog, setCatalog] = useState(EMPTY_CATALOG)
   const [loading, setLoading] = useState<Record<TtsProviderId, boolean>>({
     typecast: false,
@@ -280,13 +287,13 @@ export function MvpRemixVoiceField({
             provider && parsed
               ? catalog[provider]?.find((voice) => voice.voice_id === parsed.bareId) ?? null
               : null
-          onChange({
-            ...value,
+          emit({
+            ...latest.current,
             voiceId,
-            style: provider ? defaultStyleForTtsVoice(provider, row) : value.style,
+            style: provider ? defaultStyleForTtsVoice(provider, row) : latest.current.style,
           })
         }}
-        onStyleChange={(style) => onChange({ ...value, style })}
+        onStyleChange={(style) => emit({ ...latest.current, style })}
         onReloadVoices={(provider) => void load(provider)}
         onPreviewVoice={(voiceId, style) => void preview(voiceId, style)}
         previewingVoiceId={previewing}
