@@ -3423,7 +3423,8 @@ export default function AiShoppingVer2Page() {
       } else if (selectedVoiceId?.startsWith("gemini-")) {
         response = await fetch("/api/ai-shopping/gemini-tts", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          // 배포 서버는 Gemini 키를 파일에 저장하지 않으므로 수강생 본인 키를 요청마다 보낸다 (geminiApiKey()가 이 헤더를 먼저 읽음)
+          headers: { "Content-Type": "application/json", "x-wings-gemini-key": localStorage.getItem("shotform_gemini_api_key")?.trim() || "" },
           body: JSON.stringify({
             text: ttsText,
             voiceId: selectedVoiceId.replace("gemini-", ""),
@@ -8844,7 +8845,8 @@ PRODUCT LOCK: Use the attached reference product only. Keep identical color, cut
       } else if (voiceId.startsWith("gemini-")) {
         ttsResponse = await fetch("/api/ai-shopping/gemini-tts", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          // 배포 서버는 Gemini 키를 파일에 저장하지 않으므로 수강생 본인 키를 요청마다 보낸다 (geminiApiKey()가 이 헤더를 먼저 읽음)
+          headers: { "Content-Type": "application/json", "x-wings-gemini-key": localStorage.getItem("shotform_gemini_api_key")?.trim() || "" },
           body: JSON.stringify({
             text: ttsText,
             voiceId: voiceId.replace("gemini-", ""),
